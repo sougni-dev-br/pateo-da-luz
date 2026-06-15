@@ -3,7 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { API_BASE_URL, AppUser, BACKEND_TARGET_URL, checkBackendHealth, login } from "../api/client";
 import { PasswordField } from "../components/PasswordField";
 
-const logoPath = "/logo-pateo-luz.png";
+const logoPath = "/src/assets/logo-pateo-luz.png";
 
 export function Login({ onLogin }: { onLogin: (user: AppUser) => void }) {
   const [email, setEmail] = useState("");

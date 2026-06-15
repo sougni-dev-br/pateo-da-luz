@@ -1,4 +1,4 @@
-import { AlertTriangle, Archive, ArrowDown, CalendarDays, CheckCircle2, ClipboardCheck, Download, FileText, FilterX, Loader2, MessageSquare, Play, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { AlertTriangle, Archive, ArrowDown, CalendarDays, CheckCircle2, ClipboardCheck, Download, FileText, FilterX, Layers, Loader2, MessageSquare, Play, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { KeyboardEvent, useEffect, useMemo, useState } from "react";
 import {
   AppUser,
@@ -41,6 +41,7 @@ import {
   OperationalInventoryType,
   Product,
   generateInventoryFromStockCountSession,
+  consolidateMonthEndSessions,
   rejectOperationalInventory,
   reopenStockCountSession,
   reopenOperationalInventory,
@@ -349,6 +350,7 @@ export function Inventory({
   const [selectedPrelistSuppliers, setSelectedPrelistSuppliers] = useState<Record<string, boolean>>({});
   const [inventoryDeskTab, setInventoryDeskTab] = useState<InventoryDeskTab>("official");
   const [stockFilters, setStockFilters] = useState({ sector: "", category: "", subcategory: "", supplier: "", alert: "" });
+  const [consolidationSelected, setConsolidationSelected] = useState<Set<string>>(new Set());
   const { notice, setNotice } = useNotice();
 
   const selectedAgenda = useMemo(
@@ -899,6 +901,20 @@ export function Inventory({
       setActiveView("inventory");
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel gerar o inventario." });
+    }
+  }
+
+  async function consolidateMonthEnd() {
+    if (consolidationSelected.size === 0) return;
+    const ids = [...consolidationSelected];
+    if (!window.confirm(`Consolidar ${ids.length} contagem(ns) setorial(is) em um unico inventario Final CMV?`)) return;
+    try {
+      const inventory = await consolidateMonthEndSessions(ids);
+      setNotice({ tone: "success", message: `${inventory.code} gerado — ${ids.length} setor(es) consolidados.` });
+      setConsolidationSelected(new Set());
+      await Promise.all([refreshCountSessions(), refreshOperational(inventory.id)]);
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel consolidar as contagens." });
     }
   }
 
@@ -1910,6 +1926,50 @@ export function Inventory({
             </div>
           </>
         )}
+
+        {activeView === "counting" && (() => {
+          const consolidatable = countSessions.filter((s) => s.isMonthEnd && s.status === "CONCLUIDA" && !s.generatedInventoryId);
+          return consolidatable.length > 0 && canManageOperationalInventory ? (
+            <div className="form-section" style={{ borderColor: "var(--gold)", background: "var(--surface)" }}>
+              <div className="section-heading compact-heading">
+                <div>
+                  <p>Fechamento do mes</p>
+                  <h3><Layers size={16} style={{ verticalAlign: "middle", marginRight: 6 }} />Consolidar contagens setoriais em inventario Final CMV</h3>
+                  <span className="muted">Selecione as contagens setoriais concluidas que deseja unificar. Os produtos duplicados entre setores terao a contagem mais recente prevalecida.</span>
+                </div>
+              </div>
+              <div className="filters-row" style={{ flexWrap: "wrap", gap: 8 }}>
+                {consolidatable.map((s) => (
+                  <label key={s.id} className="checkbox-label" style={{ border: "1px solid var(--line)", borderRadius: 6, padding: "6px 10px", background: consolidationSelected.has(s.id) ? "var(--gold-soft)" : "#fff", cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={consolidationSelected.has(s.id)}
+                      onChange={(e) => {
+                        const next = new Set(consolidationSelected);
+                        if (e.target.checked) next.add(s.id); else next.delete(s.id);
+                        setConsolidationSelected(next);
+                      }}
+                    />
+                    <span><strong>{s.code}</strong>{s.sectorName ? ` — ${s.sectorName}` : ""}<small style={{ display: "block", color: "var(--muted)", fontSize: 11 }}>{s.totalItems} produtos contados</small></span>
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={consolidationSelected.size === 0}
+                  onClick={consolidateMonthEnd}
+                >
+                  <Layers size={15} />Gerar inventario final unificado ({consolidationSelected.size} setor{consolidationSelected.size !== 1 ? "es" : ""})
+                </button>
+                {consolidationSelected.size > 0 && (
+                  <button className="secondary-button" type="button" onClick={() => setConsolidationSelected(new Set())}>Limpar selecao</button>
+                )}
+              </div>
+            </div>
+          ) : null;
+        })()}
 
         {activeView === "counting" && (
           <div className="table-wrap subsection">

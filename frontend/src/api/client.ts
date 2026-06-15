@@ -1,7 +1,7 @@
 export const API_BASE_URL = import.meta.env.VITE_API_URL ?? "/api";
 export const BACKEND_TARGET_URL = import.meta.env.VITE_BACKEND_TARGET_URL ?? "http://127.0.0.1:3334";
 const FALLBACK_BACKEND_URL = BACKEND_TARGET_URL;
-const REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_REQUEST_TIMEOUT_MS ?? 60000);
+const REQUEST_TIMEOUT_MS = 10000;
 const SESSION_TOKEN_KEY = "pateo_session_token";
 
 function sessionToken() {
@@ -59,14 +59,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
       throw new Error(errorBody?.message ?? `Erro HTTP ${response.status}`);
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error("Backend não encontrado.");
+      lastError = error instanceof Error ? error : new Error("Backend nao encontrado.");
       const shouldFallback = index === 0 && API_BASE_URL.startsWith("/") && candidates.length > 1;
       if (shouldFallback) continue;
       break;
     }
   }
 
-  throw lastError ?? new Error("Backend não encontrado.");
+  throw lastError ?? new Error("Backend nao encontrado.");
 }
 
 async function download(path: string, filename: string) {
@@ -98,7 +98,7 @@ async function download(path: string, filename: string) {
       }
       throw new Error(errorBody?.message ?? `Erro HTTP ${response.status}`);
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error("Backend não encontrado.");
+      lastError = error instanceof Error ? error : new Error("Backend nao encontrado.");
       const shouldFallback = index === 0 && API_BASE_URL.startsWith("/") && candidates.length > 1;
       if (shouldFallback) continue;
       break;
@@ -106,7 +106,7 @@ async function download(path: string, filename: string) {
   }
 
   if (!response || !response.ok) {
-    throw lastError ?? new Error("Backend não encontrado.");
+    throw lastError ?? new Error("Backend nao encontrado.");
   }
 
   const blob = await response.blob();
@@ -1099,6 +1099,67 @@ export type InventoryStock = {
   costPerUnit?: string | null;
   lastMovementAt: string | null;
 };
+
+export type InventoryRequisitionItem = {
+  id: string;
+  requisitionId: string;
+  productId: string | null;
+  productName: string;
+  productCode: string | null;
+  unit: string | null;
+  quantity: string;
+  movementId: string | null;
+  stockBefore: string | null;
+  stockAfter: string | null;
+  currentStock?: string | null;
+  createdAt: string;
+};
+
+export type InventoryRequisition = {
+  id: string;
+  code: string;
+  date: string;
+  shift: string;
+  reason: string;
+  reasonNotes: string | null;
+  sectorId: string | null;
+  sectorName: string | null;
+  requestedByUserId: string;
+  requestedByName: string | null;
+  status: string;
+  notes: string | null;
+  cancelReason: string | null;
+  cancelledAt: string | null;
+  itemCount?: number;
+  items?: InventoryRequisitionItem[];
+  createdAt: string;
+};
+
+export type CreateRequisitionPayload = {
+  date: string;
+  shift: string;
+  reason: string;
+  reasonNotes?: string | null;
+  sectorId?: string | null;
+  notes?: string | null;
+  items: Array<{ productId: string; quantity: number; unit: string }>;
+};
+
+export function getRequisitions(filters?: { startDate?: string; endDate?: string; sectorId?: string; shift?: string }) {
+  return request<InventoryRequisition[]>(`/inventory/requisitions${toQueryString(filters)}`);
+}
+
+export function getRequisition(id: string) {
+  return request<InventoryRequisition>(`/inventory/requisitions/${id}`);
+}
+
+export function createRequisition(payload: CreateRequisitionPayload) {
+  return request<InventoryRequisition>("/inventory/requisitions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
 
 export type InventoryMovement = {
   id: string;
@@ -2183,6 +2244,14 @@ export function generateInventoryFromStockCountSession(id: string, notes?: strin
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ notes })
+  });
+}
+
+export function consolidateMonthEndSessions(sessionIds: string[], notes?: string | null) {
+  return request<OperationalInventory>("/inventory/count-sessions/consolidate-month-end", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionIds, notes })
   });
 }
 

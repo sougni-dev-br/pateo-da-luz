@@ -597,19 +597,21 @@ model InventoryMovement {
   unitMeasure           UnitMeasure?          @relation(fields: [unitMeasureId], references: [id])
   unitCost             Decimal?              @db.Decimal(14, 4)
   totalCost            Decimal?              @db.Decimal(14, 4)
-  sourcePurchaseItemId String?
-  sourceStockCountId   String?
-  responsibleUserId    String?
-  notes                String?
-  isCancelled          Boolean               @default(false)
-  cancelledAt          DateTime?
+  sourcePurchaseItemId  String?
+  sourceStockCountId    String?
+  sourceRequisitionId   String?
+  responsibleUserId     String?
+  notes                 String?
+  isCancelled           Boolean               @default(false)
+  cancelledAt           DateTime?
   cancelledByPurchaseId String?
-  restoredAt           DateTime?
-  createdAt            DateTime              @default(now())
+  restoredAt            DateTime?
+  createdAt             DateTime              @default(now())
 
   @@index([productId])
   @@index([createdAt])
   @@index([isCancelled])
+  @@index([sourceRequisitionId])
 }
 
 model StockCount {
@@ -1268,4 +1270,47 @@ model CmvPeriod {
   @@index([status])
   @@index([fechadoPor])
   @@index([reabertoPor])
+}
+
+model InventoryRequisition {
+  id                  String   @id
+  code                String   @unique
+  date                DateTime
+  shift               String
+  reason              String
+  reasonNotes         String?
+  sectorId            String?
+  sectorName          String?
+  requestedByUserId   String
+  status              String   @default("CONFIRMED")
+  notes               String?
+  cancelReason        String?
+  cancelledAt         DateTime?
+  cancelledByUserId   String?
+  items               InventoryRequisitionItem[]
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([date])
+  @@index([sectorId])
+  @@index([requestedByUserId])
+  @@index([status])
+}
+
+model InventoryRequisitionItem {
+  id            String   @id
+  requisitionId String
+  requisition   InventoryRequisition @relation(fields: [requisitionId], references: [id])
+  productId     String?
+  productName   String
+  productCode   String?
+  unit          String?
+  quantity      Decimal  @db.Decimal(14, 4)
+  movementId    String?
+  stockBefore   Decimal? @db.Decimal(14, 4)
+  stockAfter    Decimal? @db.Decimal(14, 4)
+  createdAt     DateTime @default(now())
+
+  @@index([requisitionId])
+  @@index([productId])
 }
