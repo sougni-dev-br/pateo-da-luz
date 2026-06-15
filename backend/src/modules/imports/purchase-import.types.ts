@@ -1,0 +1,21 @@
+export type PurchaseImportRow = {
+  purchaseDate: Date | null;
+  supplierCode: string | null;
+  invoiceNumber: string | null;
+  purchaseOrderNumber: string | null;
+  supplierDocument: string | null;
+  supplierName: string;
+  productCode: string | null;
+  categoryName: string | null;
+  subcategoryName: string | null;
+  expenseType: string | null;
+  productDescription: string;
+  unit: string | null;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  paymentMethod: string | null;
+  dueDates: string | null;
+  sourceRowNumber: number | null;
+  rawRow: Record<string, unknown>;
+};
