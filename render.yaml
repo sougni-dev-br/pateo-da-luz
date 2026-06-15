@@ -11,7 +11,7 @@ services:
     rootDir: backend
     plan: free
     region: oregon
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm run prisma:deploy && npm run start
     healthCheckPath: /health
     envVars:
