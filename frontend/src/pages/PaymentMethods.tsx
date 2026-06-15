@@ -43,7 +43,7 @@ export function PaymentMethods() {
     try {
       setMethods(await getPaymentMethods(search));
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Erro ao carregar métodos.");
+      setError(loadError instanceof Error ? loadError.message : "Erro ao carregar metodos.");
     } finally {
       setLoading(false);
     }
@@ -52,8 +52,8 @@ export function PaymentMethods() {
   async function handleSubmit() {
     if (!form.name.trim()) return;
     if (looksLikeInstallmentVariant(form.name)) {
-      setError("Cadastre apenas o método base. O número de parcelas deve ser informado no lançamento da compra.");
-      setNotice({ tone: "warning", message: "Use apenas o método base, como BOLETO ou CARTAO CREDITO." });
+      setError("Cadastre apenas o metodo base. O numero de parcelas deve ser informado no lancamento da compra.");
+      setNotice({ tone: "warning", message: "Use apenas o metodo base, como BOLETO ou CARTAO CREDITO." });
       return;
     }
     const isUpdate = Boolean(form.id);
@@ -129,7 +129,7 @@ export function PaymentMethods() {
             <input value={form.group} onChange={(event) => setForm({ ...form, group: event.target.value })} />
           </label>
           <label>
-            Observacoes
+            Observações
             <input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
           </label>
           <label className="checkbox-label">
@@ -141,7 +141,7 @@ export function PaymentMethods() {
             Ativo
           </label>
           <button className="primary-button" type="button" disabled={!canEdit} onClick={handleSubmit}>
-            {form.id ? "Salvar alteracoes" : "Cadastrar"}
+            {form.id ? "Salvar alterações" : "Cadastrar"}
           </button>
         </div>
       </section>
@@ -168,7 +168,7 @@ export function PaymentMethods() {
         </div>
 
         {error && <div className="alert error">{error}</div>}
-        {loading && <div className="empty-state">Carregando metodos...</div>}
+        {loading && <div className="empty-state">Carregando métodos...</div>}
 
         {!loading && (
           <div className="table-wrap">
@@ -180,8 +180,8 @@ export function PaymentMethods() {
                   <th>Normalizado</th>
                   <th>Tipo</th>
                   <th>Grupo</th>
-                  <th>Observacoes</th>
-                  <th>Acoes</th>
+                  <th>Observações</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody>

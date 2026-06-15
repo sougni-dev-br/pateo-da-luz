@@ -20,11 +20,7 @@ import { jsonSafe } from "./shared/utils/json-safe.js";
 
 export const app = express();
 
-const corsOrigin = process.env.CORS_ORIGIN;
-app.use(cors({
-  origin: corsOrigin ? corsOrigin.split(",").map((value) => value.trim()) : true,
-  credentials: false
-}));
+app.use(cors());
 app.use(express.json());
 app.use((_request, response, next) => {
   const originalJson = response.json.bind(response);

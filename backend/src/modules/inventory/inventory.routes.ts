@@ -908,6 +908,115 @@ inventoryRouter.get("/count-sessions/opening-basis", async (request, response) =
   response.json(session ? normalizeStockCountSession(session) : null);
 });
 
+inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const sessionIds = request.body.sessionIds;
+  if (!Array.isArray(sessionIds) || sessionIds.length === 0) {
+    response.status(400).json({ message: "Informe ao menos uma contagem para consolidar." });
+    return;
+  }
+
+  const sessions = await prisma.$queryRaw<Array<StockCountSessionRow>>`
+    SELECT s.*, u."name" AS "responsibleName", oi."code" AS "generatedInventoryCode"
+    FROM "StockCountSession" s
+    LEFT JOIN "User" u ON u."id" = s."responsibleUserId"
+    LEFT JOIN "OperationalInventory" oi ON oi."id" = s."generatedInventoryId"
+    WHERE s."id" = ANY(${sessionIds}::uuid[])
+  `;
+
+  if (sessions.length !== sessionIds.length) {
+    response.status(404).json({ message: "Uma ou mais contagens nao foram encontradas." });
+    return;
+  }
+  for (const session of sessions) {
+    if (session.status !== "CONCLUIDA") {
+      response.status(400).json({ message: `Contagem ${session.code} ainda nao esta concluida.` });
+      return;
+    }
+    if (!session.isMonthEnd) {
+      response.status(400).json({ message: `Contagem ${session.code} nao esta marcada como final do mes.` });
+      return;
+    }
+    if (session.generatedInventoryId) {
+      response.status(400).json({ message: `Contagem ${session.code} ja gerou um inventario individual. Cancele-o antes de consolidar.` });
+      return;
+    }
+  }
+
+  const allItems = await prisma.$queryRaw<Array<StockCountSessionItemRow>>`
+    SELECT *
+    FROM "StockCountSessionItem"
+    WHERE "stockCountSessionId" = ANY(${sessionIds}::uuid[])
+    ORDER BY "countedAt" DESC NULLS LAST, "createdAt" DESC
+  `;
+  const itemsByProduct = new Map<string, StockCountSessionItemRow>();
+  for (const item of allItems) {
+    const key = item.productId ?? item.productNameSnapshot;
+    if (!itemsByProduct.has(key)) {
+      itemsByProduct.set(key, item);
+    }
+  }
+
+  const latestDate = sessions.reduce<Date>((max, s) => {
+    const d = new Date(s.referenceDate);
+    return d > max ? d : max;
+  }, new Date(sessions[0].referenceDate));
+  const date = dateOnly(latestDate);
+  const inventoryId = crypto.randomUUID();
+  const code = await nextOperationalInventoryCode(date);
+  const sessionCodes = sessions.map((s) => s.code).join(", ");
+  const name = `Inventario Final CMV ${brDate(date)} - ${sessions.length} setor(es) consolidado(s)`;
+
+  await prisma.$executeRaw`
+    INSERT INTO "OperationalInventory" (
+      "id", "code", "date", "name", "type", "status", "sectorId", "sectorName", "responsibleUserId",
+      "notes", "sourceStockCountSessionId", "createdAt", "updatedAt"
+    )
+    VALUES (
+      ${inventoryId}, ${code}, ${date}, ${name}, 'FINAL_CMV', 'RASCUNHO', ${null}, ${null},
+      ${user.id}, ${asText(request.body.notes) ?? `Consolidado das contagens: ${sessionCodes}.`},
+      ${null}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+    )
+  `;
+
+  for (const item of itemsByProduct.values()) {
+    const countedQuantity = item.countedQuantity == null ? 0 : Number(item.countedQuantity);
+    const expectedQuantity = Number(item.expectedQuantity ?? 0);
+    const result = countedStatus(countedQuantity, expectedQuantity);
+    await prisma.$executeRaw`
+      INSERT INTO "OperationalInventoryItem" (
+        "id", "inventoryId", "productId", "productCode", "productName", "sectorName", "categoryName", "subcategoryName",
+        "location", "unit", "expectedQuantity", "countedQuantity", "differenceQuantity", "status", "notes", "countedByUserId",
+        "countedAt", "createdAt", "updatedAt"
+      )
+      VALUES (
+        ${crypto.randomUUID()}, ${inventoryId}, ${item.productId}, ${item.productCodeSnapshot}, ${item.productNameSnapshot},
+        ${item.sectorSnapshot}, ${item.categorySnapshot}, ${item.subcategorySnapshot}, ${item.locationSnapshot}, ${item.unitSnapshot},
+        ${expectedQuantity}, ${countedQuantity}, ${result.differenceQuantity}, ${result.status}, ${item.notes}, ${item.countedByUserId},
+        ${item.countedAt}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )
+    `;
+  }
+
+  await prisma.$executeRaw`
+    UPDATE "StockCountSession"
+    SET "generatedInventoryId" = ${inventoryId},
+        "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ANY(${sessionIds}::uuid[])
+  `;
+
+  await auditLog({
+    userId: user.id,
+    action: "CONSOLIDATE_MONTH_END_SESSIONS",
+    entity: "OperationalInventory",
+    entityId: inventoryId,
+    newValue: { code, sourceSessionIds: sessionIds, sourceCodes: sessionCodes, totalItems: itemsByProduct.size }
+  });
+  response.status(201).json(await getOperationalInventorySummary(inventoryId));
+});
+
 inventoryRouter.get("/count-sessions/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
   if (!user) return;
@@ -2485,6 +2594,281 @@ inventoryRouter.patch("/agenda/:id/submit", async (request, response) => {
   `;
   await auditLog({ userId: user.id, action: "SUBMIT_STOCK_COUNT", entity: "InventoryAgendaItem", entityId: request.params.id, newValue: request.body, ipAddress: requestIp(request) });
   response.json({ id: request.params.id, status: "SUBMITTED" });
+});
+
+// ─── Requisicoes de insumos ───────────────────────────────────────────────────
+
+type InventoryRequisitionRow = {
+  id: string;
+  code: string;
+  date: Date;
+  shift: string;
+  reason: string;
+  reasonNotes: string | null;
+  sectorId: string | null;
+  sectorName: string | null;
+  requestedByUserId: string;
+  requestedByName: string | null;
+  status: string;
+  notes: string | null;
+  cancelReason: string | null;
+  cancelledAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type InventoryRequisitionItemRow = {
+  id: string;
+  requisitionId: string;
+  productId: string | null;
+  productName: string;
+  productCode: string | null;
+  unit: string | null;
+  quantity: Prisma.Decimal | number | string;
+  movementId: string | null;
+  stockBefore: Prisma.Decimal | number | string | null;
+  stockAfter: Prisma.Decimal | number | string | null;
+  createdAt: Date;
+};
+
+async function nextRequisitionCode(date: Date) {
+  const year = date.getFullYear();
+  const [row] = await prisma.$queryRaw<Array<{ code: string | null }>>`
+    SELECT "code"
+    FROM "InventoryRequisition"
+    WHERE "code" LIKE ${`REQ-${year}-%`}
+    ORDER BY "code" DESC
+    LIMIT 1
+  `;
+  const current = Number(String(row?.code ?? "").split("-").pop() ?? 0);
+  return `REQ-${year}-${String(current + 1).padStart(4, "0")}`;
+}
+
+inventoryRouter.get("/requisitions", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const { startDate, endDate } = queryDateRange(request.query);
+  const sectorId = asText(request.query.sectorId);
+  const shift = asText(request.query.shift);
+  const requestedBy = asText(request.query.requestedBy);
+
+  const rows = await prisma.$queryRaw<Array<InventoryRequisitionRow & { itemCount: bigint }>>`
+    SELECT
+      r.*,
+      u."name" AS "requestedByName",
+      sec."name" AS "sectorName",
+      COUNT(i."id") AS "itemCount"
+    FROM "InventoryRequisition" r
+    LEFT JOIN "User" u ON u."id" = r."requestedByUserId"
+    LEFT JOIN "InventorySector" sec ON sec."id" = r."sectorId"
+    LEFT JOIN "InventoryRequisitionItem" i ON i."requisitionId" = r."id"
+    WHERE r."status" != 'CANCELLED'
+      AND (${startDate} IS NULL OR r."date" >= ${startDate})
+      AND (${endDate} IS NULL OR r."date" <= ${endDate})
+      AND (${sectorId} IS NULL OR r."sectorId" = ${sectorId})
+      AND (${shift} IS NULL OR r."shift" = ${shift})
+      AND (${requestedBy} IS NULL OR r."requestedByUserId" = ${requestedBy})
+    GROUP BY r."id", u."name", sec."name"
+    ORDER BY r."date" DESC, r."createdAt" DESC
+    LIMIT 200
+  `;
+
+  response.json(rows.map((row) => ({ ...row, itemCount: Number(row.itemCount) })));
+});
+
+inventoryRouter.get("/requisitions/:id", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const [row] = await prisma.$queryRaw<Array<InventoryRequisitionRow>>`
+    SELECT r.*, u."name" AS "requestedByName", sec."name" AS "sectorName"
+    FROM "InventoryRequisition" r
+    LEFT JOIN "User" u ON u."id" = r."requestedByUserId"
+    LEFT JOIN "InventorySector" sec ON sec."id" = r."sectorId"
+    WHERE r."id" = ${request.params.id}
+    LIMIT 1
+  `;
+  if (!row) {
+    response.status(404).json({ message: "Requisicao nao encontrada." });
+    return;
+  }
+
+  const items = await prisma.$queryRaw<Array<InventoryRequisitionItemRow & { currentStock: Prisma.Decimal | null }>>`
+    SELECT
+      i.*,
+      p."name" AS "productName",
+      p."externalCode" AS "productCode",
+      COALESCE(p."stockUnit", p."unit") AS "unit",
+      s."currentQuantity" AS "currentStock"
+    FROM "InventoryRequisitionItem" i
+    LEFT JOIN "Product" p ON p."id" = i."productId"
+    LEFT JOIN "InventoryStock" s ON s."productId" = i."productId"
+    WHERE i."requisitionId" = ${row.id}
+    ORDER BY i."createdAt"
+  `;
+
+  response.json({ ...row, items });
+});
+
+inventoryRouter.post("/requisitions", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  if (!user) return;
+
+  const date = parseLocalDate(request.body.date ?? new Date());
+  const shift = asText(request.body.shift) ?? "MORNING";
+  const reason = asText(request.body.reason) ?? "DAILY_PRODUCTION";
+  const reasonNotes = asText(request.body.reasonNotes);
+  const sectorId = asText(request.body.sectorId);
+  const notes = asText(request.body.notes);
+  const rawItems = Array.isArray(request.body.items) ? request.body.items : [];
+
+  if (rawItems.length === 0) {
+    response.status(400).json({ message: "Informe ao menos um produto na requisicao." });
+    return;
+  }
+
+  type ParsedItem = { productId: string; quantity: number; unit: string | null };
+  const parsedItems: ParsedItem[] = rawItems
+    .map((item: Record<string, unknown>) => ({
+      productId: asText(item.productId),
+      quantity: asNumber(item.quantity),
+      unit: asText(item.unit)
+    }))
+    .filter((item: { productId: string | null; quantity: number; unit: string | null }): item is ParsedItem => Boolean(item.productId) && item.quantity > 0);
+
+  if (parsedItems.length === 0) {
+    response.status(400).json({ message: "Todos os itens precisam de produto e quantidade valida." });
+    return;
+  }
+
+  const productIds = parsedItems.map((item: ParsedItem) => item.productId);
+
+  // Busca produtos e valida existencia
+  const products = await prisma.$queryRaw<Array<{ id: string; name: string; externalCode: string | null; controlsStock: boolean; stockUnit: string | null; unit: string | null }>>`
+    SELECT "id", "name", "externalCode", "controlsStock", "stockUnit", "unit"
+    FROM "Product"
+    WHERE "id" = ANY(${productIds}::uuid[])
+      AND "isActive" = true
+  `;
+  const productMap = new Map(products.map((p) => [p.id, p]));
+  const missing = productIds.filter((id) => !productMap.has(id));
+  if (missing.length > 0) {
+    response.status(400).json({ message: "Produto(s) nao encontrado(s) ou inativo(s).", productIds: missing });
+    return;
+  }
+
+  // Busca saldos atuais
+  const stocks = await prisma.$queryRaw<Array<{ productId: string; currentQuantity: Prisma.Decimal }>>`
+    SELECT "productId", "currentQuantity"
+    FROM "InventoryStock"
+    WHERE "productId" = ANY(${productIds}::uuid[])
+  `;
+  const stockMap = new Map(stocks.map((s) => [s.productId, Number(s.currentQuantity)]));
+
+  // Valida saldo negativo — tudo ou nada
+  const insufficient = parsedItems
+    .map((item) => ({
+      productId: item.productId as string,
+      productName: productMap.get(item.productId as string)?.name ?? item.productId,
+      requested: item.quantity,
+      available: stockMap.get(item.productId as string) ?? 0
+    }))
+    .filter((item) => item.available - item.requested < 0);
+
+  if (insufficient.length > 0) {
+    response.status(400).json({
+      message: "Saldo insuficiente para um ou mais produtos.",
+      products: insufficient
+    });
+    return;
+  }
+
+  // Busca setor
+  const [sector] = sectorId
+    ? await prisma.$queryRaw<Array<{ name: string }>>`SELECT "name" FROM "InventorySector" WHERE "id" = ${sectorId} LIMIT 1`
+    : [null];
+
+  const requisitionId = crypto.randomUUID();
+  const code = await nextRequisitionCode(date);
+
+  await prisma.$executeRaw`
+    INSERT INTO "InventoryRequisition" (
+      "id", "code", "date", "shift", "reason", "reasonNotes", "sectorId", "sectorName",
+      "requestedByUserId", "status", "notes", "createdAt", "updatedAt"
+    )
+    VALUES (
+      ${requisitionId}, ${code}, ${date}, ${shift}, ${reason}, ${reasonNotes},
+      ${sectorId}, ${sector?.name ?? null}, ${user.id}, 'CONFIRMED', ${notes},
+      CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+    )
+  `;
+
+  for (const item of parsedItems) {
+    const product = productMap.get(item.productId as string)!;
+    const unit = item.unit ?? product.stockUnit ?? product.unit;
+    const stockBefore = stockMap.get(item.productId as string) ?? 0;
+    const stockAfter = stockBefore - item.quantity;
+    const movementId = crypto.randomUUID();
+    const requisitionItemId = crypto.randomUUID();
+
+    await prisma.$executeRaw`
+      INSERT INTO "InventoryMovement" (
+        "id", "productId", "type", "quantity", "unit", "responsibleUserId",
+        "sourceRequisitionId", "notes"
+      )
+      VALUES (
+        ${movementId}, ${item.productId}, 'INTERNAL_CONSUMPTION', ${-item.quantity},
+        ${unit}, ${user.id}, ${requisitionId},
+        ${`Requisicao ${code}${notes ? ` — ${notes}` : ""}`}
+      )
+    `;
+
+    await upsertStock({
+      productId: item.productId as string,
+      quantityDelta: -item.quantity,
+      unit,
+      unitMeasureId: null,
+      unitCost: null,
+      totalCost: null
+    });
+
+    await prisma.$executeRaw`
+      INSERT INTO "InventoryRequisitionItem" (
+        "id", "requisitionId", "productId", "productName", "productCode",
+        "unit", "quantity", "movementId", "stockBefore", "stockAfter", "createdAt"
+      )
+      VALUES (
+        ${requisitionItemId}, ${requisitionId}, ${item.productId},
+        ${product.name}, ${product.externalCode},
+        ${unit}, ${item.quantity}, ${movementId}, ${stockBefore}, ${stockAfter},
+        CURRENT_TIMESTAMP
+      )
+    `;
+  }
+
+  await auditLog({
+    userId: user.id,
+    action: "CREATE_INVENTORY_REQUISITION",
+    entity: "InventoryRequisition",
+    entityId: requisitionId,
+    newValue: { code, shift, reason, sectorId, itemCount: parsedItems.length },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+
+  const [created] = await prisma.$queryRaw<Array<InventoryRequisitionRow>>`
+    SELECT r.*, u."name" AS "requestedByName", sec."name" AS "sectorName"
+    FROM "InventoryRequisition" r
+    LEFT JOIN "User" u ON u."id" = r."requestedByUserId"
+    LEFT JOIN "InventorySector" sec ON sec."id" = r."sectorId"
+    WHERE r."id" = ${requisitionId}
+  `;
+  const items = await prisma.$queryRaw<Array<InventoryRequisitionItemRow>>`
+    SELECT * FROM "InventoryRequisitionItem" WHERE "requisitionId" = ${requisitionId} ORDER BY "createdAt"
+  `;
+
+  response.status(201).json({ ...created, items });
 });
 
 inventoryRouter.patch("/agenda/:id/confirm", async (request, response) => {
