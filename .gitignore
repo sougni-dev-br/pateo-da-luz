@@ -1,6 +1,7 @@
 node_modules/
 dist/
 build/
+pateo-dist.zip
 .env
 .env.local
 *.log
