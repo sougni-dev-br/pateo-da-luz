@@ -59,14 +59,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
       throw new Error(errorBody?.message ?? `Erro HTTP ${response.status}`);
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error("Backend nao encontrado.");
+      lastError = error instanceof Error ? error : new Error("Backend não encontrado.");
       const shouldFallback = index === 0 && API_BASE_URL.startsWith("/") && candidates.length > 1;
       if (shouldFallback) continue;
       break;
     }
   }
 
-  throw lastError ?? new Error("Backend nao encontrado.");
+  throw lastError ?? new Error("Backend não encontrado.");
 }
 
 async function download(path: string, filename: string) {
@@ -98,7 +98,7 @@ async function download(path: string, filename: string) {
       }
       throw new Error(errorBody?.message ?? `Erro HTTP ${response.status}`);
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error("Backend nao encontrado.");
+      lastError = error instanceof Error ? error : new Error("Backend não encontrado.");
       const shouldFallback = index === 0 && API_BASE_URL.startsWith("/") && candidates.length > 1;
       if (shouldFallback) continue;
       break;
@@ -106,7 +106,7 @@ async function download(path: string, filename: string) {
   }
 
   if (!response || !response.ok) {
-    throw lastError ?? new Error("Backend nao encontrado.");
+    throw lastError ?? new Error("Backend não encontrado.");
   }
 
   const blob = await response.blob();

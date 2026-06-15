@@ -43,7 +43,7 @@ export function PaymentMethods() {
     try {
       setMethods(await getPaymentMethods(search));
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Erro ao carregar metodos.");
+      setError(loadError instanceof Error ? loadError.message : "Erro ao carregar métodos.");
     } finally {
       setLoading(false);
     }
@@ -52,8 +52,8 @@ export function PaymentMethods() {
   async function handleSubmit() {
     if (!form.name.trim()) return;
     if (looksLikeInstallmentVariant(form.name)) {
-      setError("Cadastre apenas o metodo base. O numero de parcelas deve ser informado no lancamento da compra.");
-      setNotice({ tone: "warning", message: "Use apenas o metodo base, como BOLETO ou CARTAO CREDITO." });
+      setError("Cadastre apenas o método base. O número de parcelas deve ser informado no lançamento da compra.");
+      setNotice({ tone: "warning", message: "Use apenas o método base, como BOLETO ou CARTAO CREDITO." });
       return;
     }
     const isUpdate = Boolean(form.id);
@@ -150,9 +150,9 @@ export function PaymentMethods() {
         <div className="section-heading">
           <div>
             <p>Cadastro base</p>
-            <h2>Metodos de pagamento</h2>
+            <h2>Métodos de pagamento</h2>
           </div>
-          <button className="icon-button" type="button" onClick={loadMethods} aria-label="Atualizar metodos">
+          <button className="icon-button" type="button" onClick={loadMethods} aria-label="Atualizar métodos">
             <RefreshCw size={18} />
           </button>
         </div>
