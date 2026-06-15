@@ -186,7 +186,7 @@ export async function getSessionUser(request: { headers: Record<string, unknown>
     WHERE s."tokenHash" = ${hashToken(token)}
       AND s."expiresAt" > CURRENT_TIMESTAMP
       AND u."isActive" = true
-      AND (${userId} IS NULL OR u."id" = ${userId})
+      AND (${userId}::text IS NULL OR u."id" = ${userId}::text)
     LIMIT 1
   `;
 
