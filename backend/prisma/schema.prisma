@@ -1,0 +1,1271 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ExpenseType {
+  FOOD
+  BEVERAGE
+  PACKAGING
+  CLEANING
+  ADMINISTRATIVE
+  SMALL_EXPENSE
+  OTHER
+}
+
+enum PaymentRegime {
+  CASH
+  ACCRUAL
+}
+
+enum PaymentMethodType {
+  CASH
+  PIX
+  CREDIT_CARD
+  DEBIT_CARD
+  BANK_SLIP
+  TRANSFER
+  OTHER
+}
+
+enum CatalogImportType {
+  SUPPLIERS
+  PRODUCTS
+  PAYMENT_METHODS
+  SMALL_EXPENSE_TYPES
+}
+
+enum CatalogImportAction {
+  CREATED
+  UPDATED
+}
+
+enum RevenueImportAction {
+  CREATED
+  UPDATED
+}
+
+enum UserRole {
+  ADMIN
+  GESTAO_COMPLETA
+  ESTOQUISTA
+  VISUALIZACAO
+}
+
+enum MenuAccessLevel {
+  NONE
+  VIEW
+  FULL
+}
+
+enum PermissionAction {
+  view
+  create
+  edit
+  delete
+  approve
+  admin
+}
+
+enum InventoryMovementType {
+  PURCHASE_IN
+  MANUAL_OUT
+  LOSS
+  BREAKAGE
+  INTERNAL_CONSUMPTION
+  EMPLOYEE_PURCHASE
+  POSITIVE_ADJUSTMENT
+  NEGATIVE_ADJUSTMENT
+  RETURN
+  ADJUSTMENT
+  TRANSFER
+}
+
+enum StockCountFrequency {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+enum InventorySnapshotType {
+  INVENTARIO_INICIAL
+  INVENTARIO_FINAL
+  CONTAGEM_PARCIAL
+  AJUSTE
+}
+
+enum MonthlyCloseStatus {
+  OPEN
+  CLOSED
+}
+
+enum CmvPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+enum CreditCardStatementStatus {
+  OPEN
+  CHECKED
+  CLOSED
+  PAID
+  CANCELLED
+}
+
+model Supplier {
+  id           String     @id @default(cuid())
+  externalCode String?
+  document     String?
+  name         String
+  normalizedName String?
+  phone        String?
+  email        String?
+  contactName  String?
+  mainCategory String?
+  defaultPaymentTermDays Int?
+  registrationDate DateTime?
+  isActive     Boolean    @default(true)
+  notes        String?
+  purchases    Purchase[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([name])
+  @@index([normalizedName])
+  @@index([document])
+  @@index([externalCode])
+}
+
+model PurchaseSequence {
+  year         Int      @id
+  currentValue Int     @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model SupplierSequence {
+  id           Int      @id @default(1)
+  currentValue Int     @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model PurchaseOrderSequence {
+  year         Int      @id
+  currentValue Int     @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model User {
+  id           String        @id
+  name         String
+  email        String        @unique
+  passwordHash String
+  role         UserRole      @default(VISUALIZACAO)
+  isActive     Boolean       @default(true)
+  mustChangePassword Boolean  @default(false)
+  passwordChangedAt DateTime?
+  failedLoginAttempts Int      @default(0)
+  lockedUntil  DateTime?
+  lastLoginAt  DateTime?
+  sessions     UserSession[]
+  menuPermissions UserMenuPermission[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([role])
+  @@index([lockedUntil])
+}
+
+model RoleMenuPermission {
+  id          String          @id @default(cuid())
+  role        UserRole
+  menuId      String
+  accessLevel MenuAccessLevel @default(NONE)
+  canView     Boolean         @default(false)
+  canCreate   Boolean         @default(false)
+  canEdit     Boolean         @default(false)
+  canDelete   Boolean         @default(false)
+  canApprove  Boolean         @default(false)
+  canAdmin    Boolean         @default(false)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([role, menuId])
+  @@index([role])
+  @@index([menuId])
+}
+
+model UserMenuPermission {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id])
+  menuId      String
+  accessLevel MenuAccessLevel @default(NONE)
+  canView     Boolean         @default(false)
+  canCreate   Boolean         @default(false)
+  canEdit     Boolean         @default(false)
+  canDelete   Boolean         @default(false)
+  canApprove  Boolean         @default(false)
+  canAdmin    Boolean         @default(false)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([userId, menuId])
+  @@index([userId])
+  @@index([menuId])
+}
+
+model UserSession {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  tokenHash String   @unique
+  ipAddress String?
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id            String   @id
+  userId        String?
+  action        String
+  entity        String
+  entityId      String?
+  ipAddress     String?
+  userAgent     String?
+  previousValue Json?
+  newValue      Json?
+  createdAt     DateTime @default(now())
+
+  @@index([entity, entityId])
+}
+
+model Category {
+  id            String        @id @default(cuid())
+  name          String
+  mainGroup     String?
+  isActive      Boolean       @default(true)
+  notes         String?
+  subcategories Subcategory[]
+  products      Product[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([name])
+  @@index([mainGroup])
+  @@index([isActive])
+}
+
+model Subcategory {
+  id         String    @id @default(cuid())
+  name       String
+  categoryId String
+  category   Category  @relation(fields: [categoryId], references: [id])
+  isActive  Boolean   @default(true)
+  notes     String?
+  products   Product[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([categoryId, name])
+}
+
+model UnitMeasure {
+  id        String         @id @default(cuid())
+  code      String         @unique
+  name      String
+  type      String?
+  isActive  Boolean        @default(true)
+  notes     String?
+  products  Product[]
+  items     PurchaseItem[]
+  inventoryStocks InventoryStock[]
+  inventoryMovements InventoryMovement[]
+  stockCounts StockCount[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([name])
+  @@index([type])
+  @@index([isActive])
+}
+
+model InventorySector {
+  id             String    @id @default(cuid())
+  name           String
+  normalizedName String    @unique
+  description    String?
+  countOrder     Int       @default(0)
+  isActive       Boolean   @default(true)
+  notes          String?
+  products       Product[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([name])
+  @@index([countOrder])
+  @@index([isActive])
+}
+
+model ExpenseTypeMaster {
+  id             String     @id @default(cuid())
+  name           String
+  normalizedName String     @unique
+  group          String?
+  isActive       Boolean    @default(true)
+  notes          String?
+  purchases      Purchase[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([name])
+  @@index([group])
+  @@index([isActive])
+}
+
+model Product {
+  id             String         @id @default(cuid())
+  externalCode   String?
+  name           String
+  normalizedName String
+  unit           String?
+  unitMeasureId  String?
+  unitMeasure    UnitMeasure?    @relation(fields: [unitMeasureId], references: [id])
+  stockUnit      String?
+  purchaseUnit   String?
+  baseUnit       String?
+  conversionFactor Decimal?      @db.Decimal(12, 6)
+  packageWeight  Decimal?        @db.Decimal(12, 3)
+  conversionNotes String?
+  logisticsNotes String?
+  isActive       Boolean        @default(true)
+  notes          String?
+  categoryId     String?
+  subcategoryId  String?
+  inventorySectorId String?
+  storageLocation String?
+  storageCorridor String?
+  storageShelf    String?
+  storagePosition String?
+  storageNotes    String?
+  accountType    String?
+  controlsStock  Boolean        @default(true)
+  estoqueMinimo  Decimal?       @db.Decimal(14, 3)
+  estoqueIdeal   Decimal?       @db.Decimal(14, 3)
+  leadTimeCompraDias Int?
+  fornecedorPrincipalId String?
+  category       Category?      @relation(fields: [categoryId], references: [id])
+  subcategory    Subcategory?   @relation(fields: [subcategoryId], references: [id])
+  inventorySector InventorySector? @relation(fields: [inventorySectorId], references: [id])
+  aliases        ProductAlias[]
+  conversions    ProductUnitConversion[]
+  items          PurchaseItem[]
+  inventoryStock InventoryStock?
+  inventoryMovements InventoryMovement[]
+  stockCounts StockCount[]
+  stockCountSessionItems StockCountSessionItem[]
+  operationalInventoryItems OperationalInventoryItem[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([externalCode])
+  @@index([normalizedName])
+  @@index([unitMeasureId])
+  @@index([inventorySectorId])
+  @@index([controlsStock])
+  @@index([accountType])
+  @@index([fornecedorPrincipalId])
+  @@index([stockUnit])
+  @@index([purchaseUnit])
+  @@index([baseUnit])
+  @@index([storageLocation])
+}
+
+model ProductUnitConversion {
+  id                   String   @id @default(cuid())
+  productId            String
+  product              Product  @relation(fields: [productId], references: [id])
+  fromUnit             String
+  toUnit               String
+  factor               Decimal  @db.Decimal(12, 6)
+  averagePackageWeight Decimal? @db.Decimal(12, 3)
+  notes                String?
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([productId])
+  @@unique([productId, fromUnit, toUnit])
+}
+
+model PaymentMethod {
+  id             String            @id @default(cuid())
+  name           String
+  normalizedName String            @unique
+  type           PaymentMethodType @default(OTHER)
+  group          String?
+  isActive       Boolean           @default(true)
+  notes          String?
+  purchases      Purchase[]
+  installments   PaymentInstallment[] @relation("InstallmentPaymentMethod")
+  paidInstallments PaymentInstallment[] @relation("InstallmentPaidPaymentMethod")
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([name])
+  @@index([type])
+  @@index([group])
+  @@index([isActive])
+}
+
+model CreditCard {
+  id             String    @id @default(cuid())
+  name           String
+  bankName       String
+  last4Digits    String
+  closingDay     Int
+  dueDay         Int
+  isActive       Boolean   @default(true)
+  notes          String?
+  statements     CreditCardStatement[]
+  purchases      Purchase[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([name])
+  @@index([bankName])
+  @@index([last4Digits])
+  @@index([isActive])
+}
+
+model CreditCardStatement {
+  id                   String                    @id @default(cuid())
+  creditCardId         String
+  creditCard           CreditCard                @relation(fields: [creditCardId], references: [id])
+  name                 String?
+  competenceYear       Int
+  competenceMonth      Int
+  closingDate          DateTime
+  dueDate              DateTime
+  totalAmount          Decimal                   @default(0) @db.Decimal(12, 2)
+  status               CreditCardStatementStatus @default(OPEN)
+  notes                String?
+  generatedPurchaseId  String?
+  items                CreditCardStatementItem[]
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+
+  @@index([creditCardId])
+  @@index([competenceYear, competenceMonth])
+  @@index([status])
+  @@index([closingDate])
+  @@index([dueDate])
+  @@unique([creditCardId, competenceYear, competenceMonth])
+}
+
+model CreditCardStatementItem {
+  id                    String    @id @default(cuid())
+  statementId           String
+  statement             CreditCardStatement @relation(fields: [statementId], references: [id])
+  purchaseId            String?
+  purchase              Purchase? @relation(fields: [purchaseId], references: [id])
+  purchaseItemId        String?
+  purchaseItem          PurchaseItem? @relation(fields: [purchaseItemId], references: [id])
+  itemDate              DateTime?
+  description           String
+  supplierName          String?
+  value                 Decimal   @db.Decimal(12, 2)
+  installment           Int?
+  totalInstallments     Int?
+  categoryName          String?
+  smallExpenseTypeId     String?
+  smallExpenseType      SmallExpenseType? @relation(fields: [smallExpenseTypeId], references: [id])
+  responsibleName       String?
+  checked               Boolean   @default(false)
+  hasDivergence         Boolean   @default(false)
+  notes                 String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([statementId])
+  @@index([purchaseId])
+  @@index([purchaseItemId])
+  @@index([smallExpenseTypeId])
+  @@index([checked])
+  @@index([hasDivergence])
+  @@unique([purchaseId])
+}
+
+model SmallExpenseType {
+  id             String     @id @default(cuid())
+  name           String
+  normalizedName String     @unique
+  group          String?
+  isActive       Boolean    @default(true)
+  notes          String?
+  purchases      Purchase[]
+  cardStatementItems CreditCardStatementItem[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([name])
+  @@index([group])
+  @@index([isActive])
+}
+
+model ProductAlias {
+  id              String   @id @default(cuid())
+  alias           String
+  normalizedAlias String
+  productId       String
+  product         Product  @relation(fields: [productId], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@unique([normalizedAlias])
+}
+
+model ImportBatch {
+  id               String     @id @default(cuid())
+  importFileId     String     @unique
+  originalFileName String?
+  totalRows        Int
+  importedRows     Int        @default(0)
+  ignoredRows      Int        @default(0)
+  spreadsheetTotal Decimal    @default(0) @db.Decimal(12, 2)
+  importedTotal    Decimal    @default(0) @db.Decimal(12, 2)
+  differenceTotal  Decimal    @default(0) @db.Decimal(12, 2)
+  purchases        Purchase[]
+  createdAt        DateTime   @default(now())
+
+  @@index([createdAt])
+}
+
+model ImportConflictDecision {
+  id             String   @id @default(cuid())
+  conflictKey    String   @unique
+  entityType     String
+  conflictType   String
+  action         String
+  targetId       String?
+  code           String?
+  normalizedName String?
+  incomingName   String?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([entityType])
+  @@index([conflictType])
+  @@index([code])
+  @@index([normalizedName])
+}
+
+model InventoryStock {
+  id              String    @id
+  productId       String    @unique
+  product         Product   @relation(fields: [productId], references: [id])
+  unitMeasureId   String?
+  unitMeasure     UnitMeasure? @relation(fields: [unitMeasureId], references: [id])
+  currentQuantity Decimal   @default(0) @db.Decimal(14, 4)
+  averageCost     Decimal   @default(0) @db.Decimal(14, 4)
+  costPerKg       Decimal?  @db.Decimal(14, 4)
+  costPerBox      Decimal?  @db.Decimal(14, 4)
+  costPerUnit     Decimal?  @db.Decimal(14, 4)
+  minQuantity     Decimal?  @db.Decimal(14, 4)
+  lastMovementAt  DateTime?
+  updatedAt       DateTime  @updatedAt
+}
+
+model InventoryMovement {
+  id                   String                @id
+  productId            String
+  product              Product               @relation(fields: [productId], references: [id])
+  type                 InventoryMovementType
+  quantity             Decimal               @db.Decimal(14, 4)
+  unit                 String?
+  unitMeasureId         String?
+  unitMeasure           UnitMeasure?          @relation(fields: [unitMeasureId], references: [id])
+  unitCost             Decimal?              @db.Decimal(14, 4)
+  totalCost            Decimal?              @db.Decimal(14, 4)
+  sourcePurchaseItemId String?
+  sourceStockCountId   String?
+  responsibleUserId    String?
+  notes                String?
+  isCancelled          Boolean               @default(false)
+  cancelledAt          DateTime?
+  cancelledByPurchaseId String?
+  restoredAt           DateTime?
+  createdAt            DateTime              @default(now())
+
+  @@index([productId])
+  @@index([createdAt])
+  @@index([isCancelled])
+}
+
+model StockCount {
+  id                   String       @id
+  productId            String
+  product              Product      @relation(fields: [productId], references: [id])
+  inventoryAgendaItemId String?
+  productCodeSnapshot  String?
+  productNameSnapshot  String?
+  sectorSnapshot       String?
+  categorySnapshot     String?
+  subcategorySnapshot  String?
+  unitSnapshot         String?
+  countedQuantity      Decimal      @db.Decimal(14, 4)
+  expectedQuantity     Decimal      @default(0) @db.Decimal(14, 4)
+  divergenceQuantity   Decimal      @default(0) @db.Decimal(14, 4)
+  unit                 String?
+  unitMeasureId         String?
+  unitMeasure           UnitMeasure? @relation(fields: [unitMeasureId], references: [id])
+  responsibleUserId    String?
+  status               String       @default("DRAFT")
+  notes                String?
+  adjustmentGenerated  Boolean      @default(false)
+  adjustmentMovementId String?
+  submittedAt          DateTime?
+  confirmedAt          DateTime?
+  confirmedByUserId    String?
+  countedAt            DateTime     @default(now())
+
+  @@index([productId])
+  @@index([inventoryAgendaItemId])
+  @@index([responsibleUserId])
+  @@index([status])
+  @@index([countedAt])
+}
+
+model StockCountSession {
+  id                    String                  @id
+  code                  String                  @unique
+  type                  String                  @default("GERAL")
+  status                String                  @default("ABERTA")
+  referenceDate         DateTime
+  periodMonth           Int?
+  periodYear            Int?
+  isMonthEnd            Boolean                 @default(false)
+  sectorId              String?
+  sectorName            String?
+  categoryId            String?
+  categoryName          String?
+  subcategoryId         String?
+  subcategoryName       String?
+  inventoryAgendaItemId String?
+  responsibleUserId     String?
+  notes                 String?
+  concludedAt           DateTime?
+  reopenedAt            DateTime?
+  canceledAt            DateTime?
+  canceledByUserId      String?
+  cancelReason          String?
+  generatedInventoryId  String?
+  items                 StockCountSessionItem[]
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  @@index([referenceDate])
+  @@index([periodYear, periodMonth])
+  @@index([status])
+  @@index([type])
+  @@index([isMonthEnd])
+  @@index([sectorId])
+  @@index([categoryId])
+  @@index([subcategoryId])
+  @@index([responsibleUserId])
+  @@index([canceledByUserId])
+  @@index([generatedInventoryId])
+}
+
+model StockCountSessionItem {
+  id                    String            @id
+  stockCountSessionId   String
+  stockCountSession     StockCountSession @relation(fields: [stockCountSessionId], references: [id], onDelete: Cascade)
+  productId             String?
+  product               Product?          @relation(fields: [productId], references: [id])
+  productCodeSnapshot   String?
+  productNameSnapshot   String
+  sectorSnapshot        String?
+  categorySnapshot      String?
+  subcategorySnapshot   String?
+  locationSnapshot      String?
+  unitSnapshot          String?
+  expectedQuantity      Decimal           @default(0) @db.Decimal(14, 3)
+  countedQuantity       Decimal?          @db.Decimal(14, 3)
+  differenceQuantity    Decimal?          @db.Decimal(14, 3)
+  status                String            @default("PENDENTE")
+  notes                 String?
+  countedByUserId       String?
+  countedAt             DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  @@index([stockCountSessionId])
+  @@index([productId])
+  @@index([status])
+  @@index([sectorSnapshot])
+  @@index([categorySnapshot])
+  @@index([subcategorySnapshot])
+}
+
+model InventoryAgendaRule {
+  id                       String   @id
+  dayOfWeek                Int?
+  sectorId                 String?
+  sectorName               String?
+  categoryId               String?
+  categoryName             String
+  frequency                String   @default("WEEKLY")
+  defaultResponsibleUserId String?
+  notes                    String?
+  isActive                 Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@index([dayOfWeek])
+  @@index([sectorId])
+  @@index([categoryId])
+  @@index([frequency])
+  @@index([isActive])
+}
+
+model InventoryAgendaItem {
+  id                String    @id
+  scheduledDate     DateTime
+  sectorId          String?
+  sectorName        String?
+  categoryId        String?
+  categoryName      String
+  status            String    @default("PENDING")
+  responsibleUserId String?
+  notes             String?
+  startedAt         DateTime?
+  submittedAt       DateTime?
+  confirmedAt       DateTime?
+  confirmedByUserId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([scheduledDate, categoryName])
+  @@index([scheduledDate])
+  @@index([status])
+  @@index([responsibleUserId])
+}
+
+model StockCountPolicy {
+  id        String              @id
+  frequency StockCountFrequency @default(WEEKLY)
+  isActive  Boolean             @default(true)
+  notes     String?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+}
+
+model OperationalInventory {
+  id                  String                     @id
+  code                String                     @unique
+  date                DateTime
+  name                String
+  type                String                     @default("GERAL")
+  status              String                     @default("RASCUNHO")
+  sectorId            String?
+  sectorName          String?
+  responsibleUserId   String?
+  reviewedByUserId    String?
+  approvedByUserId    String?
+  closedByUserId      String?
+  canceledByUserId    String?
+  sentToReviewAt      DateTime?
+  reviewedAt          DateTime?
+  approvedAt          DateTime?
+  closedAt            DateTime?
+  canceledAt          DateTime?
+  notes               String?
+  rejectionReason     String?
+  cancelReason        String?
+  inventorySnapshotId String?
+  sourceStockCountSessionId String?
+  items               OperationalInventoryItem[]
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+
+  @@index([date])
+  @@index([type])
+  @@index([status])
+  @@index([sectorId])
+  @@index([responsibleUserId])
+  @@index([inventorySnapshotId])
+  @@index([sourceStockCountSessionId])
+}
+
+model OperationalInventoryItem {
+  id                 String               @id
+  inventoryId        String
+  inventory          OperationalInventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  productId          String?
+  product            Product?             @relation(fields: [productId], references: [id])
+  productCode        String?
+  productName        String
+  sectorName         String?
+  categoryName       String?
+  subcategoryName    String?
+  location           String?
+  unit               String?
+  expectedQuantity   Decimal              @default(0) @db.Decimal(14, 3)
+  countedQuantity    Decimal?             @db.Decimal(14, 3)
+  differenceQuantity Decimal?             @db.Decimal(14, 3)
+  status             String               @default("PENDENTE")
+  notes              String?
+  countedByUserId    String?
+  countedAt          DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@index([inventoryId])
+  @@index([productId])
+  @@index([status])
+  @@index([sectorName])
+}
+
+model CatalogImportBatch {
+  id               String                @id @default(cuid())
+  importFileId     String                @unique
+  originalFileName String?
+  sheetName        String?
+  type             CatalogImportType
+  totalRows        Int
+  importedRows     Int                   @default(0)
+  createdRows      Int                   @default(0)
+  updatedRows      Int                   @default(0)
+  ignoredRows      Int                   @default(0)
+  errors           Json?
+  warnings         Json?
+  changes          CatalogImportChange[]
+  createdAt        DateTime              @default(now())
+
+  @@index([type])
+  @@index([createdAt])
+}
+
+model CatalogImportChange {
+  id           String              @id @default(cuid())
+  batchId      String
+  batch        CatalogImportBatch  @relation(fields: [batchId], references: [id])
+  action       CatalogImportAction
+  entityType   CatalogImportType
+  entityId     String
+  previousData Json?
+  newData      Json?
+  createdAt    DateTime            @default(now())
+
+  @@index([batchId])
+  @@index([entityType, entityId])
+}
+
+model Purchase {
+  id               String             @id @default(cuid())
+  purchaseNumber   String?            @unique
+  purchaseOrderNumber String?
+  duplicateKey     String?
+  normalizedInvoiceNumber String?
+  normalizedPurchaseOrderNumber String?
+  workflowStatus   String             @default("confirmed")
+  purchaseDate     DateTime
+  competenceMonth  Int
+  competenceYear   Int
+  supplierId       String
+  supplier         Supplier           @relation(fields: [supplierId], references: [id])
+  invoiceNumber    String?
+  noInvoiceReason  String?
+  rawSupplierCode  String?
+  paymentMethod    String?
+  paymentMethodId  String?
+  paymentMethodRef PaymentMethod?      @relation(fields: [paymentMethodId], references: [id])
+  creditCardId     String?
+  creditCard       CreditCard?         @relation(fields: [creditCardId], references: [id])
+  paymentRegime    PaymentRegime      @default(ACCRUAL)
+  expenseType      ExpenseType         @default(OTHER)
+  expenseTypeId    String?
+  expenseTypeRef   ExpenseTypeMaster?  @relation(fields: [expenseTypeId], references: [id])
+  smallExpenseTypeId String?
+  smallExpenseType   SmallExpenseType? @relation(fields: [smallExpenseTypeId], references: [id])
+  isSmallExpense   Boolean            @default(false)
+  smallExpenseResponsibleName String?
+  smallExpenseAuthorizedBy String?
+  smallExpenseMoneyOrigin String?
+  smallExpenseNotes String?
+  totalAmount      Decimal            @db.Decimal(12, 2)
+  sourceFile       String?
+  importBatchId    String?
+  importBatch      ImportBatch?        @relation(fields: [importBatchId], references: [id])
+  status           String              @default("ACTIVE")
+  cancelledAt      DateTime?
+  cancellationReason String?
+  cancelledByUserId String?
+  restoredAt       DateTime?
+  restoredByUserId String?
+  rawRow           Json?
+  items            PurchaseItem[]
+  cardStatementItems CreditCardStatementItem[]
+  installments     PaymentInstallment[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([purchaseDate])
+  @@index([purchaseNumber])
+  @@index([purchaseOrderNumber])
+  @@index([duplicateKey])
+  @@index([normalizedInvoiceNumber])
+  @@index([normalizedPurchaseOrderNumber])
+  @@index([supplierId, status, normalizedInvoiceNumber])
+  @@index([supplierId, status, normalizedPurchaseOrderNumber])
+  @@index([workflowStatus])
+  @@index([competenceYear, competenceMonth])
+  @@index([supplierId])
+  @@index([rawSupplierCode])
+  @@index([paymentMethodId])
+  @@index([creditCardId])
+  @@index([expenseTypeId])
+  @@index([smallExpenseTypeId])
+  @@index([smallExpenseMoneyOrigin])
+  @@index([importBatchId])
+  @@index([status])
+  @@index([cancelledAt])
+}
+
+model PurchaseItem {
+  id             String   @id @default(cuid())
+  purchaseId     String
+  purchase       Purchase @relation(fields: [purchaseId], references: [id])
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id])
+  rawProductCode String?
+  rawProductName String
+  unit           String?
+  unitMeasureId  String?
+  unitMeasure    UnitMeasure? @relation(fields: [unitMeasureId], references: [id])
+  quantity       Decimal  @db.Decimal(12, 3)
+  unitPrice      Decimal  @db.Decimal(12, 4)
+  totalPrice     Decimal  @db.Decimal(12, 2)
+  convertedUnit  String?
+  convertedQuantity Decimal? @db.Decimal(12, 3)
+  convertedUnitPrice Decimal? @db.Decimal(12, 4)
+  conversionFactorUsed Decimal? @db.Decimal(12, 6)
+  conversionMissing Boolean @default(false)
+  rawCategory    String?
+  rawSubcategory String?
+  cardStatementItems CreditCardStatementItem[]
+  createdAt      DateTime @default(now())
+
+  @@index([purchaseId])
+  @@index([productId])
+  @@index([rawProductCode])
+  @@index([unitMeasureId])
+  @@index([convertedUnit])
+  @@index([conversionMissing])
+}
+
+model PaymentInstallment {
+  id          String    @id @default(cuid())
+  purchaseId  String
+  purchase    Purchase  @relation(fields: [purchaseId], references: [id])
+  dueDate     DateTime?
+  paidDate    DateTime?
+  paidAmount  Decimal?  @db.Decimal(12, 2)
+  amount      Decimal?  @db.Decimal(12, 2)
+  installment Int?
+  paymentMethodId String?
+  paymentMethod   PaymentMethod? @relation("InstallmentPaymentMethod", fields: [paymentMethodId], references: [id])
+  paymentMethodName String?
+  paidPaymentMethodId String?
+  paidPaymentMethod   PaymentMethod? @relation("InstallmentPaidPaymentMethod", fields: [paidPaymentMethodId], references: [id])
+  paidPaymentMethodName String?
+  paymentNotes String?
+  paidByUserId String?
+  discountAmount Decimal? @db.Decimal(12, 2)
+  surchargeAmount Decimal? @db.Decimal(12, 2)
+  differenceReason String?
+  reversedAt DateTime?
+  reversedByUserId String?
+  cashFlowCategory String?
+  dreCategory String?
+  projectionCategory String?
+  cmvCategory String?
+  budgetCategory String?
+  bankAccount String?
+  reconciliationStatus String?
+  status      String    @default("OPEN")
+  rawValue    String?
+  createdAt   DateTime  @default(now())
+
+  @@index([dueDate])
+  @@index([paidDate])
+  @@index([paymentMethodId])
+  @@index([paidPaymentMethodId])
+  @@index([reconciliationStatus])
+  @@index([status])
+}
+
+model PurchaseOrder {
+  id                   String   @id @default(cuid())
+  code                 String   @unique
+  supplierId           String
+  supplierNameSnapshot String
+  status               String   @default("RASCUNHO")
+  source               String   @default("MANUAL")
+  createdByUserId      String?
+  reviewedByUserId     String?
+  approvedByUserId     String?
+  expectedDeliveryDate DateTime?
+  notes                String?
+  cancelReason         String?
+  sentToReviewAt       DateTime?
+  approvedAt           DateTime?
+  sentAt               DateTime?
+  receivedAt           DateTime?
+  canceledAt           DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  items                PurchaseOrderItem[]
+
+  @@index([supplierId])
+  @@index([status])
+  @@index([source])
+  @@index([createdAt])
+  @@index([expectedDeliveryDate])
+}
+
+model PurchaseOrderItem {
+  id                     String   @id @default(cuid())
+  purchaseOrderId        String
+  purchaseOrder          PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productId              String
+  productCodeSnapshot    String?
+  productNameSnapshot    String
+  unitSnapshot           String?
+  suggestedQuantity      Decimal? @db.Decimal(14, 3)
+  requestedQuantity      Decimal  @db.Decimal(14, 3)
+  approvedQuantity       Decimal? @db.Decimal(14, 3)
+  receivedQuantity       Decimal? @db.Decimal(14, 3)
+  lastCountedQuantity    Decimal? @db.Decimal(14, 3)
+  estoqueMinimoSnapshot  Decimal? @db.Decimal(14, 3)
+  estoqueIdealSnapshot   Decimal? @db.Decimal(14, 3)
+  alertSnapshot          String?
+  suggestionTypeSnapshot String?
+  unitPriceEstimated     Decimal? @db.Decimal(14, 4)
+  totalEstimated         Decimal? @db.Decimal(14, 2)
+  notes                  String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([purchaseOrderId])
+  @@index([productId])
+}
+
+model InventorySnapshot {
+  id                 String                  @id
+  competenceYear     Int
+  competenceMonth    Int
+  type               InventorySnapshotType
+  countDate          DateTime
+  status             String                  @default("ACTIVE")
+  totalItems         Int                     @default(0)
+  totalValue         Decimal                 @default(0) @db.Decimal(14, 2)
+  importFileId       String?
+  originalFileName   String?
+  createdByUserId    String?
+  linkedFromSnapshotId String?
+  isAutoLinkedInitial Boolean                 @default(false)
+  unlockReason       String?
+  unlockedAt         DateTime?
+  unlockedByUserId   String?
+  cancelledAt        DateTime?
+  cancelledByUserId  String?
+  cancellationReason String?
+  notes              String?
+  items              InventorySnapshotItem[]
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  @@index([competenceYear, competenceMonth])
+  @@index([type])
+  @@index([status])
+  @@index([linkedFromSnapshotId])
+  @@index([isAutoLinkedInitial])
+}
+
+model InventorySnapshotItem {
+  id                 String            @id
+  snapshotId         String
+  snapshot           InventorySnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  productId          String?
+  productCode        String?
+  productName        String
+  sectorName         String?
+  categoryName       String?
+  subcategoryName    String?
+  unit               String?
+  quantity           Decimal           @default(0) @db.Decimal(14, 3)
+  unitCost           Decimal?          @db.Decimal(14, 4)
+  totalCost          Decimal?          @db.Decimal(14, 2)
+  divergenceQuantity Decimal?          @db.Decimal(14, 3)
+  sourceRowNumber    Int?
+  resolutionStatus   String            @default("MATCHED")
+  createdAt          DateTime          @default(now())
+
+  @@index([snapshotId])
+  @@index([productId])
+  @@index([resolutionStatus])
+}
+
+model RevenueEntry {
+  id                 String   @id
+  date               DateTime
+  competenceYear     Int
+  competenceMonth    Int
+  channel            String
+  sourcePlatform     String?
+  description        String?
+  grossAmount        Decimal  @default(0) @db.Decimal(14, 2)
+  discounts          Decimal  @default(0) @db.Decimal(14, 2)
+  platformFees       Decimal  @default(0) @db.Decimal(14, 2)
+  netAmount          Decimal  @default(0) @db.Decimal(14, 2)
+  serviceAmount      Decimal  @default(0) @db.Decimal(14, 2)
+  tickets            Int      @default(0)
+  ticketAverage      Decimal? @db.Decimal(14, 4)
+  salesFirstShift    Decimal  @default(0) @db.Decimal(14, 2)
+  ticketsFirstShift  Int      @default(0)
+  salesSecondShift   Decimal  @default(0) @db.Decimal(14, 2)
+  ticketsSecondShift Int      @default(0)
+  repiqueAmount      Decimal  @default(0) @db.Decimal(14, 2)
+  salesTables        Decimal  @default(0) @db.Decimal(14, 2)
+  ticketsTables      Int      @default(0)
+  accumulatedAmount  Decimal? @db.Decimal(14, 2)
+  weekdayName        String?
+  paymentMethod      String?
+  cashAmount         Decimal  @default(0) @db.Decimal(14, 2)
+  pixAmount          Decimal  @default(0) @db.Decimal(14, 2)
+  debitAmount        Decimal  @default(0) @db.Decimal(14, 2)
+  creditAmount       Decimal  @default(0) @db.Decimal(14, 2)
+  voucherAmount      Decimal  @default(0) @db.Decimal(14, 2)
+  notes              String?
+  status             String   @default("ACTIVE")
+  cancelledAt        DateTime?
+  cancelledByUserId  String?
+  cancellationReason String?
+  createdByUserId    String?
+  importBatchId      String?
+  revenueImportBatch RevenueImportBatch? @relation(fields: [importBatchId], references: [id])
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([competenceYear, competenceMonth])
+  @@index([channel])
+  @@index([sourcePlatform])
+  @@index([status])
+  @@index([importBatchId])
+}
+
+model RevenueImportBatch {
+  id               String               @id @default(cuid())
+  importFileId     String               @unique
+  originalFileName String?
+  sheetName        String?
+  competenceYear   Int
+  competenceMonth  Int
+  defaultChannel   String
+  notes            String?
+  totalRows        Int
+  importedRows     Int                  @default(0)
+  ignoredRows      Int                  @default(0)
+  overwrittenRows  Int                  @default(0)
+  revenueEntries   RevenueEntry[]
+  changes          RevenueImportChange[]
+  createdAt        DateTime             @default(now())
+
+  @@index([competenceYear, competenceMonth])
+  @@index([createdAt])
+}
+
+model RevenueImportChange {
+  id           String              @id @default(cuid())
+  batchId      String
+  batch        RevenueImportBatch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  action       RevenueImportAction
+  entryId      String
+  rowNumber    Int?
+  previousData Json?
+  newData      Json?
+  createdAt    DateTime            @default(now())
+
+  @@index([batchId])
+  @@index([entryId])
+}
+
+model MonthlyCmv {
+  id                    String             @id
+  competenceYear        Int
+  competenceMonth       Int
+  initialInventoryValue Decimal            @default(0) @db.Decimal(14, 2)
+  purchasesValue        Decimal            @default(0) @db.Decimal(14, 2)
+  finalInventoryValue   Decimal            @default(0) @db.Decimal(14, 2)
+  realCmvValue          Decimal            @default(0) @db.Decimal(14, 2)
+  revenueGrossValue     Decimal            @default(0) @db.Decimal(14, 2)
+  revenueNetValue       Decimal            @default(0) @db.Decimal(14, 2)
+  cmvPercent            Decimal?           @db.Decimal(10, 4)
+  estimatedGrossMargin  Decimal?           @db.Decimal(14, 2)
+  status                MonthlyCloseStatus @default(OPEN)
+  closedByUserId        String?
+  closedAt              DateTime?
+  reopenedByUserId      String?
+  reopenedAt            DateTime?
+  reopenReason          String?
+  notes                 String?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@unique([competenceYear, competenceMonth])
+  @@index([status])
+}
+
+model CmvPeriod {
+  id                      String           @id
+  code                    String?          @unique
+  name                    String
+  dataInicial             DateTime
+  dataFinal               DateTime
+  estoqueInicialSnapshotId String?
+  estoqueFinalSnapshotId   String?
+  comprasTotal            Decimal          @default(0) @db.Decimal(14, 2)
+  faturamentoTotal        Decimal          @default(0) @db.Decimal(14, 2)
+  estoqueInicialTotal     Decimal          @default(0) @db.Decimal(14, 2)
+  estoqueFinalTotal       Decimal          @default(0) @db.Decimal(14, 2)
+  cmvReal                 Decimal          @default(0) @db.Decimal(14, 2)
+  cmvPercentual           Decimal?         @db.Decimal(10, 4)
+  margemBruta             Decimal?         @db.Decimal(14, 2)
+  status                  CmvPeriodStatus  @default(OPEN)
+  fechadoPor              String?
+  fechadoEm               DateTime?
+  reabertoPor             String?
+  reabertoEm              DateTime?
+  motivoReabertura        String?
+  observacoes             String?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  @@index([dataInicial, dataFinal])
+  @@index([code])
+  @@index([status])
+  @@index([fechadoPor])
+  @@index([reabertoPor])
+}

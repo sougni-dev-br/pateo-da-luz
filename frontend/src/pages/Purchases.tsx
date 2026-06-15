@@ -1,0 +1,1849 @@
+import { ChevronDown, Eye, FileText, Pencil, Plus, RefreshCw, Shield, Trash2, X } from "lucide-react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { UNSAFE_NavigationContext, useLocation, useNavigate, useParams } from "react-router-dom";
+import {
+  AppUser,
+  checkPurchaseDuplicate,
+  cancelPurchase,
+  createPurchase,
+  CreditCard,
+  CreditCardStatement,
+  downloadSmallExpensesPdf,
+  downloadSupplierPositionPdf,
+  getCards,
+  getCardStatements,
+  getPaymentMethods,
+  getProducts,
+  getPurchase,
+  getPurchases,
+  getSmallExpenseReport,
+  getSmallExpenseTypes,
+  getSuppliers,
+  getUnits,
+  PaymentMethod,
+  Product,
+  Purchase,
+  PurchaseDuplicateCheck,
+  PurchaseDetail,
+  restorePurchase,
+  SmallExpenseReport,
+  SmallExpenseType,
+  Supplier,
+  UnitMeasure,
+  updatePurchase
+} from "../api/client";
+import { Notice, useNotice } from "../components/Notice";
+import { PeriodFilter } from "../components/PeriodFilter";
+import { hasPermission } from "../lib/permissions";
+import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { currentMonthPeriod } from "../utils/period";
+
+type PurchaseItemForm = {
+  productCode: string;
+  productId: string;
+  productName: string;
+  categoryName: string;
+  subcategoryName: string;
+  quantity: string;
+  unit: string;
+  unitPrice: string;
+  totalPrice: string;
+  notes: string;
+};
+
+type InstallmentForm = {
+  installment: number;
+  dueDate: string;
+  amount: string;
+};
+
+type PurchaseSortOption = "recent" | "oldest" | "highest" | "lowest";
+
+const emptyItem: PurchaseItemForm = {
+  productCode: "",
+  productId: "",
+  productName: "",
+  categoryName: "",
+  subcategoryName: "",
+  quantity: "1",
+  unit: "",
+  unitPrice: "",
+  totalPrice: "",
+  notes: ""
+};
+
+function todayInputDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function normalize(value?: string | null) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizePurchaseReference(value?: string | null) {
+  return String(value ?? "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "")
+    .replace(/\d+/g, (digits) => digits.replace(/^0+(?=\d)/g, ""));
+}
+
+function parseLegacyInstallmentCount(name?: string | null) {
+  const match = normalize(name).match(/^(.*?)(?:\s+|\/|-)?(\d{1,2})\s*x$/);
+  if (!match) return null;
+  const count = Number(match[2]);
+  return count > 0 ? count : null;
+}
+
+function basePaymentMethodName(name?: string | null) {
+  const raw = String(name ?? "").trim();
+  const normalized = normalize(raw);
+  const match = normalized.match(/^(.*?)(?:\s+|\/|-)?(\d{1,2})\s*x$/);
+  const base = match ? normalize(match[1]) : normalized;
+  if (base.includes("boleto")) return "BOLETO";
+  if (base.includes("faturado") || base.includes("prazo")) return "FATURADO";
+  if (base.includes("cartao") && base.includes("credito")) return "CARTÃO CRÉDITO";
+  if (base.includes("cartao") && base.includes("debito")) return "CARTÃO DÉBITO";
+  if (base.includes("pix")) return "PIX";
+  if (base.includes("dinheiro") || base.includes("caixa")) return "DINHEIRO";
+  return raw || "";
+}
+
+function isLegacyInstallmentMethod(method?: PaymentMethod | null) {
+  return Boolean(parseLegacyInstallmentCount(method?.name));
+}
+
+function allowsInstallments(method?: PaymentMethod | null) {
+  const baseName = normalize(basePaymentMethodName(method?.name));
+  if (["boleto", "faturado", "cartao credito"].includes(baseName)) return true;
+  if (normalize(method?.group) === "faturado") return true;
+  return ["credit_card", "bank_slip"].includes(normalize(method?.type));
+}
+
+function installmentCountFromPurchase(methodName?: string | null, totalInstallments?: number | null) {
+  return totalInstallments ?? parseLegacyInstallmentCount(methodName) ?? 1;
+}
+
+function splitAmount(total: number, parts: number) {
+  if (parts <= 0) return [];
+  const totalCents = Math.round(total * 100);
+  const base = Math.floor(totalCents / parts);
+  const remainder = totalCents - base * parts;
+  return Array.from({ length: parts }, (_, index) => ((base + (index < remainder ? 1 : 0)) / 100).toFixed(2));
+}
+
+function addDaysToInputDate(inputDate: string, days: number) {
+  const baseDate = inputDate ? new Date(`${inputDate}T12:00:00`) : new Date();
+  baseDate.setDate(baseDate.getDate() + days);
+  return baseDate.toISOString().slice(0, 10);
+}
+
+function installmentStatusLabel(status?: string | null) {
+  if (status === "PAID") return "Pago";
+  if (status === "PAID_LATE") return "Pago com atraso";
+  if (status === "OVERDUE") return "Atrasado";
+  if (status === "CANCELLED") return "Cancelado";
+  return "Em aberto";
+}
+
+function installmentStatusTone(status?: string | null) {
+  if (status === "PAID") return "paid";
+  if (status === "PAID_LATE") return "paid_late";
+  if (status === "OVERDUE") return "overdue";
+  if (status === "CANCELLED") return "cancelled";
+  return "open";
+}
+
+function purchaseStatusLabel(status?: string | null) {
+  return status === "CANCELLED" ? "Cancelada" : "Ativa";
+}
+
+function purchaseStatusTone(status?: string | null) {
+  return status === "CANCELLED" ? "cancelled" : "paid";
+}
+
+function purchaseSortValue(sort: PurchaseSortOption, purchase: Purchase) {
+  if (sort === "recent" || sort === "oldest") return new Date(purchase.purchaseDate).getTime();
+  return Number(purchase.totalAmount || 0);
+}
+
+function useNavigationPrompt(when: boolean, message: string) {
+  const navigationContext = useContext(UNSAFE_NavigationContext);
+
+  useEffect(() => {
+    const navigator = navigationContext?.navigator as { block?: (listener: (tx: { retry(): void }) => void) => () => void } | undefined;
+    if (!when || !navigator?.block) return;
+
+    const unblock = navigator.block((transaction) => {
+      if (!window.confirm(message)) return;
+      unblock();
+      transaction.retry();
+    });
+
+    return unblock;
+  }, [message, navigationContext, when]);
+}
+
+export function Purchases({ user }: { user: AppUser }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams<{ id?: string }>();
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [units, setUnits] = useState<UnitMeasure[]>([]);
+  const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
+  const [openCardStatement, setOpenCardStatement] = useState<CreditCardStatement | null>(null);
+  const [smallExpenseTypes, setSmallExpenseTypes] = useState<SmallExpenseType[]>([]);
+  const [filters, setFilters] = useState({
+    supplierId: "",
+    category: "",
+    paymentMethod: "",
+    search: "",
+    showCancelled: ""
+  });
+  const [sortBy, setSortBy] = useState<PurchaseSortOption>("recent");
+  const [supplierFilterQuery, setSupplierFilterQuery] = useState("");
+  const [supplierFilterOpen, setSupplierFilterOpen] = useState(false);
+  const [period, setPeriod] = useState(currentMonthPeriod());
+  const [form, setForm] = useState({
+    supplierCode: "",
+    supplierId: "",
+    supplierName: "",
+    supplierDocument: "",
+    purchaseDate: todayInputDate(),
+    invoiceNumber: "",
+    purchaseOrderNumber: "",
+    noInvoiceReason: "",
+    paymentMethodId: "",
+    installmentCount: "1",
+    paymentNotes: "",
+    notes: "",
+    isSmallExpense: false,
+    smallExpenseTypeId: "",
+    smallExpenseResponsibleName: "",
+    smallExpenseAuthorizedBy: "",
+    smallExpenseMoneyOrigin: "",
+    smallExpenseNotes: "",
+    creditCardId: "",
+    paymentDifferenceReason: ""
+  });
+  const [items, setItems] = useState<PurchaseItemForm[]>([{ ...emptyItem }]);
+  const [productQueries, setProductQueries] = useState<Record<number, string>>({ 0: "" });
+  const [openProductIndex, setOpenProductIndex] = useState<number | null>(null);
+  const [installments, setInstallments] = useState<InstallmentForm[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<PurchaseDetail | null>(null);
+  const [showSmallExpenses, setShowSmallExpenses] = useState(false);
+  const [smallExpenseReport, setSmallExpenseReport] = useState<SmallExpenseReport | null>(null);
+  const [smallExpenseFilters, setSmallExpenseFilters] = useState({
+    employee: "",
+    authorizedBy: "",
+    origin: "",
+    type: "",
+    supplier: "",
+    paymentMethod: "",
+    category: "",
+    product: ""
+  });
+  const [showNoInvoiceReason, setShowNoInvoiceReason] = useState(false);
+  const [showExtraNotes, setShowExtraNotes] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [duplicateCheck, setDuplicateCheck] = useState<PurchaseDuplicateCheck | null>(null);
+  const [baselineSnapshot, setBaselineSnapshot] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const modalTopRef = useRef<HTMLDivElement | null>(null);
+  const supplierFilterRef = useRef<HTMLDivElement | null>(null);
+  const supplierFormRef = useRef<HTMLDivElement | null>(null);
+  const productRef = useRef<HTMLDivElement | null>(null);
+  const productInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const quantityInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const unitPriceInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const { notice, setNotice } = useNotice();
+
+  const isAdmin = hasPermission(user, "purchases", "admin");
+  const canEditPurchase = hasPermission(user, "purchases", "edit");
+  const canManageSupplier = hasPermission(user, "suppliers", "edit");
+  const isCreateRoute = location.pathname === "/compras/nova";
+  const isEditRoute = /\/compras\/[^/]+\/editar$/.test(location.pathname);
+  const isFormRoute = isCreateRoute || isEditRoute;
+
+  async function loadPurchases() {
+    setLoading(true);
+    setError(null);
+    try {
+      setPurchases(await getPurchases({ ...filters, startDate: period.startDate, endDate: period.endDate }));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Erro ao carregar compras.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadSmallExpenses() {
+    try {
+      setSmallExpenseReport(await getSmallExpenseReport({ startDate: period.startDate, endDate: period.endDate, ...smallExpenseFilters }));
+    } catch (loadError) {
+      setNotice({ tone: "error", message: loadError instanceof Error ? loadError.message : "Erro ao carregar pequenos gastos." });
+    }
+  }
+
+  async function handleSmallExpensesPdf() {
+    try {
+      await downloadSmallExpensesPdf({ startDate: period.startDate, endDate: period.endDate, ...smallExpenseFilters });
+      setNotice({ tone: "success", message: "PDF de pequenos gastos gerado." });
+    } catch (loadError) {
+      setNotice({ tone: "error", message: loadError instanceof Error ? loadError.message : "Erro ao gerar PDF de pequenos gastos." });
+    }
+  }
+
+  useEffect(() => {
+    void loadPurchases();
+    Promise.all([getSuppliers(), getProducts(), getPaymentMethods(), getUnits(), getCards(), getSmallExpenseTypes()]).then(
+      ([supplierList, productList, methodList, unitList, cardList, smallExpenseTypeList]) => {
+        setSuppliers(supplierList);
+        setProducts(productList);
+        setPaymentMethods(methodList.filter((method) => method.isActive));
+        setUnits(unitList.filter((unit) => unit.isActive));
+        setCreditCards(cardList.filter((card) => card.isActive));
+        setSmallExpenseTypes(smallExpenseTypeList.filter((type) => type.isActive));
+      }
+    );
+  }, []);
+
+  useEffect(() => {
+    if (showSmallExpenses) void loadSmallExpenses();
+  }, [showSmallExpenses, period.startDate, period.endDate]);
+
+  useEffect(() => {
+    function handleOutsideClick(event: MouseEvent) {
+      const target = event.target as Node;
+      if (supplierFilterRef.current && !supplierFilterRef.current.contains(target)) setSupplierFilterOpen(false);
+      if (supplierFormRef.current && !supplierFormRef.current.contains(target)) setSupplierFilterOpen(false);
+      if (productRef.current && !productRef.current.contains(target)) setOpenProductIndex(null);
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  useEffect(() => {
+    if (error && showForm) modalTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [error, showForm]);
+
+  useEffect(() => {
+    if (isCreateRoute) {
+      resetForm();
+      setError(null);
+      setEditingId(null);
+      setShowForm(true);
+      markFormClean({
+        formState: {
+          supplierCode: "",
+          supplierId: "",
+          supplierName: "",
+          supplierDocument: "",
+          purchaseDate: todayInputDate(),
+          invoiceNumber: "",
+          purchaseOrderNumber: "",
+          noInvoiceReason: "",
+          paymentMethodId: "",
+          installmentCount: "1",
+          paymentNotes: "",
+          notes: "",
+          isSmallExpense: false,
+          smallExpenseTypeId: "",
+          smallExpenseResponsibleName: "",
+          smallExpenseAuthorizedBy: "",
+          smallExpenseMoneyOrigin: "",
+          smallExpenseNotes: "",
+          creditCardId: "",
+          paymentDifferenceReason: ""
+        },
+        itemState: [{ ...emptyItem }],
+        installmentState: [],
+        extraNotes: false,
+        noInvoice: false
+      });
+      return;
+    }
+    if (isEditRoute && params.id) {
+      void loadPurchaseForEdit(params.id);
+      return;
+    }
+    setShowForm(false);
+    setEditingId(null);
+  }, [isCreateRoute, isEditRoute, params.id]);
+
+  const selectedSupplier = suppliers.find((supplier) => supplier.id === form.supplierId) ?? null;
+  const selectedPaymentMethod = paymentMethods.find((method) => method.id === form.paymentMethodId) ?? null;
+  const selectedPaymentMethodBaseName = basePaymentMethodName(selectedPaymentMethod?.name);
+  const availablePaymentMethods = useMemo(() => {
+    const baseMethods = paymentMethods.filter((method) => !isLegacyInstallmentMethod(method));
+    return baseMethods.length > 0 ? baseMethods : paymentMethods;
+  }, [paymentMethods]);
+  const categories = useMemo(() => [...new Set(products.map((product) => product.category?.name).filter(Boolean))] as string[], [products]);
+  const smallExpenseUsesCreditCard = form.isSmallExpense && selectedPaymentMethod ? normalize(selectedPaymentMethod.name).includes("cartao de credito") : false;
+  const selectedPaymentMethodAllowsInstallments = allowsInstallments(selectedPaymentMethod);
+  const totalAmount = useMemo(() => items.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0), [items]);
+  const installmentTotal = useMemo(() => installments.reduce((sum, installment) => sum + Number(installment.amount || 0), 0), [installments]);
+  const amountDifference = totalAmount - installmentTotal;
+  const installmentLeadDays = selectedSupplier?.defaultPaymentTermDays ?? (selectedPaymentMethodAllowsInstallments ? 30 : 0);
+  const currentSnapshot = buildFormSnapshot();
+  const isDirty = isFormRoute && baselineSnapshot !== "" && currentSnapshot !== baselineSnapshot;
+  useNavigationPrompt(isDirty, "Existem alterações não salvas. Deseja sair sem salvar?");
+
+  const filteredSupplierOptions = useMemo(() => {
+    const query = normalize(supplierFilterQuery);
+    if (!query) return suppliers.slice(0, 8);
+    return suppliers.filter((supplier) => {
+      const haystack = [supplier.name, supplier.externalCode, supplier.document].map(normalize).join(" ");
+      return haystack.includes(query);
+    }).slice(0, 8);
+  }, [supplierFilterQuery, suppliers]);
+
+  const filteredProductOptions = useMemo(() => {
+    return items.map((item, index) => {
+      const query = normalize(productQueries[index] ?? item.productName);
+      if (!query) return products.slice(0, 8);
+      return products.filter((product) => {
+        const haystack = [
+          product.name,
+          product.externalCode,
+          product.category?.name,
+          product.subcategory?.name,
+          ...(product.aliases?.map((alias) => alias.alias) ?? [])
+        ].map(normalize).join(" ");
+        return haystack.includes(query);
+      }).slice(0, 8);
+    });
+  }, [items, productQueries, products]);
+
+  const displayedPurchases = useMemo(() => {
+    const base = purchases.filter((purchase) => {
+      if (!filters.showCancelled && purchase.status === "CANCELLED") return false;
+      if (filters.showCancelled === "active" && purchase.status === "CANCELLED") return false;
+      if (filters.showCancelled === "cancelled" && purchase.status !== "CANCELLED") return false;
+      return true;
+    });
+    return [...base].sort((left, right) => {
+      const leftValue = purchaseSortValue(sortBy, left);
+      const rightValue = purchaseSortValue(sortBy, right);
+      if (sortBy === "recent" || sortBy === "highest") return rightValue - leftValue;
+      return leftValue - rightValue;
+    });
+  }, [filters.showCancelled, purchases, sortBy]);
+
+  const canSavePurchase = useMemo(() => {
+    const validItems = items.filter((item) => item.productId && Number(item.quantity) > 0);
+    const requestedInstallments = Math.max(1, Number(form.installmentCount || 1));
+    const hasDifference = Math.round(amountDifference * 100) !== 0;
+    const baseChecks = Boolean(form.supplierId)
+      && Boolean(form.purchaseDate)
+      && Boolean(form.paymentMethodId)
+      && validItems.length > 0
+      && validItems.every((item) => item.unit.trim() && Number(item.quantity) > 0 && Number(item.unitPrice) >= 0)
+      && (!showNoInvoiceReason ? Boolean(form.invoiceNumber.trim()) || form.isSmallExpense : Boolean(form.noInvoiceReason.trim()) || form.isSmallExpense)
+      && (!form.isSmallExpense || Boolean(form.smallExpenseTypeId))
+      && (!smallExpenseUsesCreditCard || (Boolean(form.creditCardId) && Boolean(openCardStatement)));
+    if (!baseChecks) return false;
+    if (!smallExpenseUsesCreditCard) {
+      if (installments.length !== requestedInstallments) return false;
+      if (installments.some((installment) => !installment.dueDate)) return false;
+      if (hasDifference) return false;
+    }
+    if (duplicateCheck?.hasActiveDuplicate) return false;
+    return !saving;
+  }, [
+    amountDifference,
+    duplicateCheck?.hasActiveDuplicate,
+    form.creditCardId,
+    form.installmentCount,
+    form.invoiceNumber,
+    form.isSmallExpense,
+    form.noInvoiceReason,
+    form.paymentDifferenceReason,
+    form.paymentMethodId,
+    form.purchaseDate,
+    form.smallExpenseTypeId,
+    form.supplierId,
+    installments,
+    items,
+    openCardStatement,
+    saving,
+    showNoInvoiceReason,
+    smallExpenseUsesCreditCard
+  ]);
+
+  useEffect(() => {
+    let active = true;
+    if (!smallExpenseUsesCreditCard || !form.creditCardId) {
+      setOpenCardStatement(null);
+      return () => { active = false; };
+    }
+    getCardStatements({ creditCardId: form.creditCardId, status: "OPEN" })
+      .then((rows) => { if (active) setOpenCardStatement(rows[0] ?? null); })
+      .catch(() => { if (active) setOpenCardStatement(null); });
+    return () => { active = false; };
+  }, [form.creditCardId, smallExpenseUsesCreditCard]);
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isDirty]);
+
+  useEffect(() => {
+    if (!isFormRoute || !form.supplierId) {
+      setDuplicateCheck(null);
+      return;
+    }
+
+    const normalizedInvoiceNumber = normalizePurchaseReference(form.invoiceNumber);
+    const normalizedPurchaseOrderNumber = normalizePurchaseReference(form.purchaseOrderNumber);
+    if (!normalizedInvoiceNumber && !normalizedPurchaseOrderNumber) {
+      setDuplicateCheck(null);
+      return;
+    }
+
+    let active = true;
+    const timeout = window.setTimeout(() => {
+      checkPurchaseDuplicate({
+        supplierId: form.supplierId,
+        invoiceNumber: form.invoiceNumber,
+        purchaseOrderNumber: form.purchaseOrderNumber,
+        excludePurchaseId: editingId ?? undefined
+      })
+        .then((result) => {
+          if (active) setDuplicateCheck(result);
+        })
+        .catch(() => {
+          if (active) setDuplicateCheck(null);
+        });
+    }, 300);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [editingId, form.invoiceNumber, form.purchaseOrderNumber, form.supplierId, isFormRoute]);
+
+  function selectSupplier(supplierId: string, scope: "filter" | "form") {
+    const supplier = suppliers.find((entry) => entry.id === supplierId);
+    if (!supplier) return;
+    if (scope === "filter") {
+      setFilters((current) => ({ ...current, supplierId }));
+      setSupplierFilterQuery(`${supplier.externalCode ? `${supplier.externalCode} • ` : ""}${supplier.name}`);
+      setSupplierFilterOpen(false);
+      return;
+    }
+    setForm((current) => ({
+      ...current,
+      supplierId,
+      supplierCode: supplier.externalCode ?? "",
+      supplierName: supplier.name,
+      supplierDocument: supplier.document ?? ""
+    }));
+  }
+
+  function clearFilterSupplier() {
+    setFilters((current) => ({ ...current, supplierId: "" }));
+    setSupplierFilterQuery("");
+    setSupplierFilterOpen(false);
+  }
+
+  function resolveBasePaymentMethodId(paymentMethodId?: string | null, paymentMethodName?: string | null) {
+    const direct = paymentMethods.find((method) => method.id === paymentMethodId && !isLegacyInstallmentMethod(method));
+    if (direct) return direct.id;
+    const baseName = normalize(basePaymentMethodName(paymentMethodName ?? paymentMethods.find((method) => method.id === paymentMethodId)?.name));
+    const baseMethod = paymentMethods.find((method) => !isLegacyInstallmentMethod(method) && normalize(basePaymentMethodName(method.name)) === baseName);
+    return baseMethod?.id ?? paymentMethodId ?? "";
+  }
+
+  function productDefaults(product?: Product) {
+    return {
+      productCode: product?.externalCode ?? "",
+      productId: product?.id ?? "",
+      productName: product?.name ?? "",
+      categoryName: product?.category?.name ?? "",
+      subcategoryName: product?.subcategory?.name ?? "",
+      unit: product?.purchaseUnit ?? product?.unit ?? ""
+    };
+  }
+
+  function isItemBlank(item: PurchaseItemForm) {
+    return !item.productId
+      && !item.productName.trim()
+      && !item.quantity.trim()
+      && !item.unit.trim()
+      && !item.unitPrice.trim()
+      && !item.notes.trim();
+  }
+
+  function focusProductInput(index: number) {
+    window.setTimeout(() => productInputRefs.current[index]?.focus(), 0);
+  }
+
+  function focusQuantityInput(index: number) {
+    window.setTimeout(() => quantityInputRefs.current[index]?.focus(), 0);
+  }
+
+  function focusUnitPriceInput(index: number) {
+    window.setTimeout(() => unitPriceInputRefs.current[index]?.focus(), 0);
+  }
+
+  function removeItemRow(index: number) {
+    setItems((current) => {
+      const nextItems = current.filter((_, itemIndex) => itemIndex !== index);
+      if (nextItems.length === 0) return [{ ...emptyItem }];
+      return nextItems;
+    });
+    setProductQueries((current) => {
+      const entries = Object.entries(current)
+        .filter(([key]) => Number(key) !== index)
+        .map(([key, value]) => [String(Number(key) > index ? Number(key) - 1 : Number(key)), value] as const);
+      return Object.fromEntries(entries);
+    });
+  }
+
+  function ensureTrailingProductRow() {
+    setItems((current) => {
+      const lastItem = current[current.length - 1];
+      if (lastItem && isItemBlank(lastItem)) return current;
+      const nextIndex = current.length;
+      setProductQueries((queries) => ({ ...queries, [nextIndex]: "" }));
+      window.setTimeout(() => focusProductInput(nextIndex), 0);
+      return [...current, { ...emptyItem }];
+    });
+  }
+
+  function mergeDuplicateProductLine(index: number) {
+    const currentItem = items[index];
+    const duplicateIndex = items.findIndex((item, itemIndex) => itemIndex !== index && item.productId === currentItem.productId);
+    if (duplicateIndex < 0) return false;
+    const shouldMerge = window.confirm("Este produto já está na compra. Deseja somar a quantidade ao item existente? Cancelar mantém como linha separada.");
+    if (!shouldMerge) return false;
+
+    setItems((current) => {
+      const source = current[index];
+      const target = current[duplicateIndex];
+      const mergedQuantity = Number(target.quantity || 0) + Number(source.quantity || 0);
+      const mergedTotal = Number(target.totalPrice || 0) + Number(source.totalPrice || 0);
+      const mergedUnitPrice = mergedQuantity > 0 ? (mergedTotal / mergedQuantity).toFixed(4) : target.unitPrice;
+      const mergedNotes = [target.notes, source.notes].filter(Boolean).join(" | ");
+      return current
+        .map((item, itemIndex) => {
+          if (itemIndex !== duplicateIndex) return item;
+          return {
+            ...item,
+            quantity: String(mergedQuantity),
+            unitPrice: mergedUnitPrice,
+            totalPrice: mergedTotal.toFixed(2),
+            notes: mergedNotes
+          };
+        })
+        .filter((_, itemIndex) => itemIndex !== index);
+    });
+    setProductQueries((current) => {
+      const entries = Object.entries(current)
+        .filter(([key]) => Number(key) !== index)
+        .map(([key, value]) => [String(Number(key) > index ? Number(key) - 1 : Number(key)), value] as const);
+      return Object.fromEntries(entries);
+    });
+    window.setTimeout(() => focusQuantityInput(duplicateIndex > index ? duplicateIndex - 1 : duplicateIndex), 0);
+    return true;
+  }
+
+  function commitProductLine(index: number) {
+    const item = items[index];
+    if (!item || isItemBlank(item)) return;
+    if (!item.productId) {
+      setError(`Selecione um produto válido na linha ${index + 1}.`);
+      focusProductInput(index);
+      return;
+    }
+    if (Number(item.quantity) <= 0) {
+      setError(`Informe uma quantidade válida na linha ${index + 1}.`);
+      focusQuantityInput(index);
+      return;
+    }
+    if (item.unitPrice.trim() === "" || Number(item.unitPrice) < 0) {
+      setError(`Informe um valor unitário válido na linha ${index + 1}.`);
+      focusUnitPriceInput(index);
+      return;
+    }
+    if (!item.unit.trim()) {
+      setError(`Informe a unidade na linha ${index + 1}.`);
+      return;
+    }
+    setError(null);
+    if (mergeDuplicateProductLine(index)) return;
+    ensureTrailingProductRow();
+  }
+
+  function updateItem(index: number, next: Partial<PurchaseItemForm>) {
+    setItems((current) => current.map((item, itemIndex) => {
+      if (itemIndex !== index) return item;
+      const merged = { ...item, ...next };
+      const product = products.find((entry) => entry.id === merged.productId);
+      if (next.productId && product) Object.assign(merged, productDefaults(product));
+      if (next.quantity !== undefined || next.unitPrice !== undefined || next.totalPrice !== undefined) {
+        const quantity = Number(merged.quantity || 0);
+        const unitPrice = Number(merged.unitPrice || 0);
+        merged.totalPrice = quantity && unitPrice >= 0 ? (quantity * unitPrice).toFixed(2) : merged.totalPrice;
+      }
+      return merged;
+    }));
+  }
+
+  function selectProduct(index: number, productId: string) {
+    const product = products.find((entry) => entry.id === productId);
+    if (!product) return;
+    updateItem(index, productDefaults(product));
+    setProductQueries((current) => ({ ...current, [index]: product.name }));
+    setOpenProductIndex(null);
+    focusQuantityInput(index);
+  }
+
+  function resetForm() {
+    setForm({
+      supplierCode: "",
+      supplierId: "",
+      supplierName: "",
+      supplierDocument: "",
+      purchaseDate: todayInputDate(),
+      invoiceNumber: "",
+      purchaseOrderNumber: "",
+      noInvoiceReason: "",
+      paymentMethodId: "",
+      installmentCount: "1",
+      paymentNotes: "",
+      notes: "",
+      isSmallExpense: false,
+      smallExpenseTypeId: "",
+      smallExpenseResponsibleName: "",
+      smallExpenseAuthorizedBy: "",
+      smallExpenseMoneyOrigin: "",
+      smallExpenseNotes: "",
+      creditCardId: "",
+      paymentDifferenceReason: ""
+    });
+    setItems([{ ...emptyItem }]);
+    setProductQueries({ 0: "" });
+    setInstallments([]);
+    setEditingId(null);
+    setFieldErrors({});
+    setDuplicateCheck(null);
+    setShowNoInvoiceReason(false);
+    setShowExtraNotes(false);
+  }
+
+  function buildFormSnapshot(next?: {
+    formState?: typeof form;
+    itemState?: PurchaseItemForm[];
+    installmentState?: InstallmentForm[];
+    extraNotes?: boolean;
+    noInvoice?: boolean;
+  }) {
+    return JSON.stringify({
+      form: next?.formState ?? form,
+      items: next?.itemState ?? items,
+      installments: next?.installmentState ?? installments,
+      showExtraNotes: next?.extraNotes ?? showExtraNotes,
+      showNoInvoiceReason: next?.noInvoice ?? showNoInvoiceReason
+    });
+  }
+
+  function markFormClean(next?: {
+    formState?: typeof form;
+    itemState?: PurchaseItemForm[];
+    installmentState?: InstallmentForm[];
+    extraNotes?: boolean;
+    noInvoice?: boolean;
+  }) {
+    setBaselineSnapshot(buildFormSnapshot(next));
+  }
+
+  function openNewPurchase() {
+    resetForm();
+    setError(null);
+    navigate({ pathname: "/compras/nova", search: location.search });
+  }
+
+  async function openDetail(purchase: Purchase) {
+    try {
+      setDetail(await getPurchase(purchase.id));
+    } catch (loadError) {
+      setNotice({ tone: "error", message: loadError instanceof Error ? loadError.message : "Erro ao abrir compra." });
+    }
+  }
+
+  async function loadPurchaseForEdit(purchaseId: string) {
+    try {
+      const data = await getPurchase(purchaseId);
+      setEditingId(purchaseId);
+      const resolvedPaymentMethodId = resolveBasePaymentMethodId(data.paymentMethodId, data.paymentMethodName ?? data.paymentMethod);
+      const nextInstallmentCount = installmentCountFromPurchase(data.paymentMethodName ?? data.paymentMethod, data.installments.length || null);
+      const nextForm = {
+        supplierCode: data.rawSupplierCode ?? data.supplier.externalCode ?? "",
+        supplierId: data.supplierId,
+        supplierName: data.supplierName,
+        supplierDocument: data.supplierDocument ?? "",
+        purchaseDate: String(data.purchaseDate).slice(0, 10),
+        invoiceNumber: data.invoiceNumber ?? "",
+        purchaseOrderNumber: data.purchaseOrderNumber ?? "",
+        noInvoiceReason: "",
+        paymentMethodId: resolvedPaymentMethodId,
+        installmentCount: String(nextInstallmentCount),
+        paymentNotes: "",
+        notes: (data.rawRow as { notes?: string } | null)?.notes ?? "",
+        isSmallExpense: Boolean(data.isSmallExpense),
+        smallExpenseTypeId: data.smallExpenseTypeId ?? "",
+        smallExpenseResponsibleName: data.smallExpenseResponsibleName ?? "",
+        smallExpenseAuthorizedBy: data.smallExpenseAuthorizedBy ?? "",
+        smallExpenseMoneyOrigin: data.smallExpenseMoneyOrigin ?? "",
+        smallExpenseNotes: data.smallExpenseNotes ?? "",
+        creditCardId: data.creditCardId ?? "",
+        paymentDifferenceReason: ""
+      };
+      const nextShowNoInvoiceReason = Boolean((data.rawRow as { noInvoiceReason?: string } | null)?.noInvoiceReason) || (Boolean(data.isSmallExpense) && !data.invoiceNumber);
+      const nextShowExtraNotes = Boolean((data.rawRow as { notes?: string } | null)?.notes);
+      const mappedItems = data.items.map((item) => ({
+        productCode: item.rawProductCode ?? item.productCode ?? "",
+        productId: item.productId,
+        productName: item.rawProductName ?? item.productName,
+        categoryName: item.rawCategory ?? item.categoryName ?? "",
+        subcategoryName: item.rawSubcategory ?? item.subcategoryName ?? "",
+        quantity: String(item.quantity ?? ""),
+        unit: item.unit ?? "",
+        unitPrice: String(item.unitPrice ?? ""),
+        totalPrice: String(item.totalPrice ?? ""),
+        notes: ""
+      }));
+      const nextInstallments = data.installments.map((installment, index) => ({
+        installment: installment.installment ?? index + 1,
+        dueDate: installment.dueDate ? String(installment.dueDate).slice(0, 10) : "",
+        amount: String(installment.amount ?? "")
+      }));
+      setForm(nextForm);
+      setShowNoInvoiceReason(nextShowNoInvoiceReason);
+      setShowExtraNotes(nextShowExtraNotes);
+      setItems(mappedItems);
+      setProductQueries(Object.fromEntries(mappedItems.map((item, index) => [index, item.productName])));
+      setInstallments(nextInstallments);
+      setFieldErrors({});
+      setShowForm(true);
+      setError(null);
+      markFormClean({
+        formState: nextForm,
+        itemState: mappedItems,
+        installmentState: nextInstallments,
+        extraNotes: nextShowExtraNotes,
+        noInvoice: nextShowNoInvoiceReason
+      });
+    } catch (loadError) {
+      setNotice({ tone: "error", message: loadError instanceof Error ? loadError.message : "Erro ao carregar compra para edição." });
+    }
+  }
+
+  function openEdit(purchase: Purchase) {
+    navigate({ pathname: `/compras/${purchase.id}/editar`, search: location.search });
+  }
+
+  function rebuildInstallments(methodId = form.paymentMethodId, total = totalAmount, explicitCount?: number) {
+    if (smallExpenseUsesCreditCard) {
+      setInstallments([]);
+      return;
+    }
+    const method = paymentMethods.find((entry) => entry.id === methodId);
+    if (!method) {
+      setInstallments([]);
+      return;
+    }
+    const requestedCount = explicitCount ?? Number(form.installmentCount || 1);
+    const count = allowsInstallments(method) ? Math.max(1, requestedCount || 1) : 1;
+    const amounts = splitAmount(total, count);
+    const baseDueDate = addDaysToInputDate(form.purchaseDate, installmentLeadDays);
+    setInstallments(amounts.map((amount, index) => ({
+      installment: index + 1,
+      dueDate: installments[index]?.dueDate || addDaysToInputDate(baseDueDate, index * 30),
+      amount
+    })));
+  }
+
+  useEffect(() => {
+    if (!showForm || !form.paymentMethodId) return;
+    const count = selectedPaymentMethodAllowsInstallments ? Math.max(1, Number(form.installmentCount || 1)) : 1;
+    rebuildInstallments(form.paymentMethodId, totalAmount, count);
+  }, [form.paymentMethodId, form.installmentCount, form.purchaseDate, installmentLeadDays, selectedPaymentMethodAllowsInstallments, showForm, smallExpenseUsesCreditCard, totalAmount]);
+
+  function validateForm() {
+    const errors: Record<string, string> = {};
+    const validItems = items.filter((item) => item.productId || item.quantity || item.unitPrice || item.totalPrice);
+    if (!form.supplierId) errors.supplier = "Fornecedor obrigatório.";
+    if (!form.purchaseDate) errors.purchaseDate = "Data obrigatória.";
+    if (!form.invoiceNumber.trim() && !showNoInvoiceReason && !form.isSmallExpense) errors.invoiceNumber = "Informe o número da NF ou marque compra sem NF.";
+    if ((showNoInvoiceReason || form.isSmallExpense) && !form.noInvoiceReason.trim() && !form.isSmallExpense) errors.noInvoiceReason = "Informe o motivo para compra sem NF.";
+    if (!form.paymentMethodId) errors.paymentMethodId = "Forma de pagamento obrigatória.";
+    const requestedInstallments = Math.max(1, Number(form.installmentCount || 1));
+    if (selectedPaymentMethod && !smallExpenseUsesCreditCard) {
+      if (selectedPaymentMethodAllowsInstallments && requestedInstallments < 1) errors.installmentCount = "Informe ao menos 1 parcela.";
+      if (!selectedPaymentMethodAllowsInstallments && requestedInstallments !== 1) errors.installmentCount = "Esta forma aceita apenas 1 parcela.";
+    }
+    if (validItems.length === 0) errors.items = "Adicione pelo menos um produto.";
+    const missingProductIndex = validItems.findIndex((item) => !item.productId);
+    if (missingProductIndex >= 0) errors[`item-${missingProductIndex}`] = `Produto da linha ${missingProductIndex + 1} não informado.`;
+    if (validItems.some((item) => !item.unit.trim())) errors.items = "Unidade obrigatória em todos os itens.";
+    if (validItems.some((item) => Number(item.quantity) <= 0)) errors.items = "Quantidade deve ser maior que zero.";
+    if (validItems.some((item) => Number(item.unitPrice) < 0)) errors.items = "Valor unitário deve ser maior ou igual a zero.";
+    if (form.isSmallExpense && !form.smallExpenseTypeId) errors.smallExpenseTypeId = "Informe o tipo de pequeno gasto.";
+    if (smallExpenseUsesCreditCard && !form.creditCardId.trim()) errors.creditCardId = "Selecione o cartão.";
+    if (smallExpenseUsesCreditCard && form.creditCardId && !openCardStatement) errors.creditCardId = "Não há fatura aberta para este cartão.";
+    if (!smallExpenseUsesCreditCard && installments.length !== requestedInstallments) errors.installments = "Revise a quantidade de parcelas informada.";
+    if (installments.length > 0 && Math.round(amountDifference * 100) !== 0) {
+      errors.installments = "Total das parcelas não confere com o total da compra.";
+    }
+    if (installments.some((installment) => !installment.dueDate)) errors.installments = "Informe todos os vencimentos.";
+    setFieldErrors(errors);
+    return Object.values(errors)[0] ?? null;
+  }
+
+  async function handleCreatePurchase() {
+    const validation = validateForm();
+    if (validation) {
+      setError(validation);
+      return;
+    }
+    const validItems = items.filter((item) => item.productId && Number(item.quantity) > 0);
+    setSaving(true);
+    setError(null);
+    try {
+      const payload = {
+        supplierId: form.supplierId,
+        rawSupplierCode: form.supplierCode || selectedSupplier?.externalCode || null,
+        purchaseDate: form.purchaseDate,
+        invoiceNumber: form.invoiceNumber || null,
+        purchaseOrderNumber: form.purchaseOrderNumber || null,
+        noInvoiceReason: showNoInvoiceReason ? form.noInvoiceReason || null : null,
+        paymentMethodId: selectedPaymentMethod?.id ?? null,
+        paymentMethod: basePaymentMethodName(selectedPaymentMethod?.name) || selectedPaymentMethod?.name || null,
+        notes: form.notes || null,
+        isSmallExpense: form.isSmallExpense,
+        smallExpenseTypeId: form.isSmallExpense ? form.smallExpenseTypeId || null : null,
+        smallExpenseResponsibleName: null,
+        smallExpenseAuthorizedBy: null,
+        smallExpenseMoneyOrigin: form.isSmallExpense ? selectedPaymentMethod?.name ?? null : null,
+        smallExpenseNotes: form.isSmallExpense ? form.smallExpenseNotes || form.notes || null : null,
+        creditCardId: form.isSmallExpense ? form.creditCardId || null : null,
+        paymentDifferenceReason: form.paymentDifferenceReason || null,
+        workflowStatus: "confirmed",
+        totalAmount,
+        installments: smallExpenseUsesCreditCard
+          ? []
+          : installments.map((installment) => ({
+              installment: installment.installment,
+              dueDate: installment.dueDate,
+              amount: Number(installment.amount || 0),
+              paymentMethodId: selectedPaymentMethod?.id ?? null,
+              paymentMethodName: basePaymentMethodName(selectedPaymentMethod?.name) || selectedPaymentMethod?.name || null,
+              status: "OPEN"
+            })),
+        items: validItems.map((item) => {
+          const product = products.find((entry) => entry.id === item.productId);
+          return {
+            productId: item.productId,
+            rawProductCode: item.productCode || product?.externalCode || null,
+            rawProductName: item.productName || product?.name,
+            unit: item.unit || null,
+            unitMeasureId: units.find((unit) => unit.code === item.unit)?.id ?? product?.unitMeasureId ?? null,
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice || 0),
+            totalPrice: Number(item.totalPrice || 0),
+            rawCategory: product?.category?.name ?? null,
+            rawSubcategory: product?.subcategory?.name ?? null,
+            notes: item.notes || null
+          };
+        })
+      };
+      await (editingId ? updatePurchase(editingId, payload) : createPurchase(payload));
+      setNotice({ tone: "success", message: editingId ? "Compra atualizada com sucesso." : "Compra inserida com sucesso." });
+      if (!editingId && installments.length > 0) {
+        setNotice({ tone: "success", message: "Parcelas enviadas para contas a pagar." });
+      }
+      markFormClean();
+      resetForm();
+      await loadPurchases();
+      navigate({ pathname: "/compras", search: location.search });
+    } catch (saveError) {
+      const rawMessage = saveError instanceof Error ? saveError.message : "Erro ao salvar compra.";
+      const message = rawMessage.includes("NF/pedido")
+        ? "Já existe uma compra ativa para este fornecedor com esta NF/pedido."
+        : rawMessage;
+      setError(message);
+      setNotice({ tone: "error", message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCancel(purchase: Purchase) {
+    const reason = window.prompt("Informe o motivo obrigatório para cancelar esta compra:");
+    if (!reason?.trim()) return;
+    const confirmed = window.confirm("Cancelar esta compra vai estornar a entrada de estoque vinculada. Confirmar?");
+    if (!confirmed) return;
+    await cancelPurchase(purchase.id, reason);
+    setNotice({ tone: "success", message: "Compra cancelada com sucesso." });
+    await loadPurchases();
+  }
+
+  async function handleRestore(purchase: Purchase) {
+    const confirmed = window.confirm("Restaurar esta compra vai reativar a entrada de estoque vinculada. Confirmar?");
+    if (!confirmed) return;
+    await restorePurchase(purchase.id);
+    setNotice({ tone: "success", message: "Compra restaurada com sucesso." });
+    await loadPurchases();
+  }
+
+  async function handleSupplierPositionPdf() {
+    try {
+      await downloadSupplierPositionPdf({
+        supplierId: filters.supplierId || undefined,
+        startDate: period.startDate,
+        endDate: period.endDate
+      });
+      setNotice({ tone: "success", message: "PDF de posição de fornecedor gerado." });
+    } catch (loadError) {
+      setNotice({ tone: "error", message: loadError instanceof Error ? loadError.message : "Erro ao gerar PDF." });
+    }
+  }
+
+  function goBackToList() {
+    if (isDirty && !window.confirm("Existem alterações não salvas. Deseja sair sem salvar?")) return;
+    resetForm();
+    setError(null);
+    navigate({ pathname: "/compras", search: location.search });
+  }
+
+  const validationMessages = useMemo(() => {
+    const messages: string[] = [];
+    const validItems = items.filter((item) => item.productId || item.quantity || item.unitPrice || item.totalPrice);
+    if (!form.supplierId) messages.push("Selecione o fornecedor da compra.");
+    if (!form.purchaseDate) messages.push("Preencha a data da compra.");
+    if (!form.paymentMethodId) messages.push("Selecione a forma de pagamento.");
+    if (!showNoInvoiceReason && !form.isSmallExpense && !form.invoiceNumber.trim()) messages.push("Informe o número da NF ou marque compra sem NF.");
+    if (showNoInvoiceReason && !form.isSmallExpense && !form.noInvoiceReason.trim()) messages.push("Explique o motivo da compra sem NF.");
+    if (validItems.length === 0) messages.push("Adicione pelo menos um produto.");
+    if (validItems.some((item) => !item.productId)) messages.push("Revise as linhas com produto não selecionado.");
+    if (validItems.some((item) => Number(item.quantity) <= 0)) messages.push("Todos os produtos precisam ter quantidade maior que zero.");
+    if (validItems.some((item) => Number(item.unitPrice) < 0)) messages.push("O valor unitário não pode ser negativo.");
+    if (validItems.some((item) => !item.unit.trim())) messages.push("Informe a unidade de todos os produtos.");
+    if (form.isSmallExpense && !form.smallExpenseTypeId) messages.push("Selecione o tipo de pequeno gasto.");
+    if (smallExpenseUsesCreditCard && !form.creditCardId) messages.push("Selecione o cartão para lançar na fatura.");
+    if (smallExpenseUsesCreditCard && form.creditCardId && !openCardStatement) messages.push("Abra uma fatura do cartão antes de salvar.");
+    if (!smallExpenseUsesCreditCard && installments.length === 0) messages.push("Confira o parcelamento antes de salvar.");
+    if (installments.some((installment) => !installment.dueDate)) messages.push("Preencha o vencimento de todas as parcelas.");
+    if (installments.some((installment) => Number(installment.amount) < 0)) messages.push("Os valores das parcelas não podem ser negativos.");
+    if (Math.round(amountDifference * 100) !== 0) messages.push("O total das parcelas precisa fechar com o total da compra.");
+    if (duplicateCheck?.hasActiveDuplicate) messages.push("Já existe uma compra ativa para este fornecedor com esta NF/pedido.");
+    return [...new Set(messages)];
+  }, [
+    amountDifference,
+    duplicateCheck?.hasActiveDuplicate,
+    form.creditCardId,
+    form.invoiceNumber,
+    form.isSmallExpense,
+    form.noInvoiceReason,
+    form.paymentDifferenceReason,
+    form.paymentMethodId,
+    form.purchaseDate,
+    form.smallExpenseTypeId,
+    form.supplierId,
+    installments,
+    items,
+    openCardStatement,
+    showNoInvoiceReason,
+    smallExpenseUsesCreditCard
+  ]);
+
+  const paymentPreviewMessage = selectedPaymentMethodAllowsInstallments
+    ? `Fluxo parcelado para ${selectedPaymentMethodBaseName || "a forma escolhida"} com primeiro vencimento sugerido em ${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}.`
+    : "Pagamento em parcela única para a forma selecionada.";
+
+  return (
+    <section className="panel">
+      <Notice notice={notice} />
+
+      {!isFormRoute && (
+        <>
+      <div className="section-heading">
+        <div>
+          <p>Últimas compras</p>
+          <h2>Compras</h2>
+        </div>
+        <div className="actions-cell">
+          <button className="primary-button" type="button" onClick={openNewPurchase}>
+            <Plus size={16} /> Nova compra
+          </button>
+          <button className="secondary-button" type="button" onClick={handleSupplierPositionPdf}>
+            <FileText size={16} /> PDF posição fornecedor
+          </button>
+          <button className="secondary-button" type="button" onClick={() => { setShowSmallExpenses((current) => !current); if (!showSmallExpenses) void loadSmallExpenses(); }}>
+            <Shield size={16} /> Pequenos gastos
+          </button>
+          <button className="icon-button" type="button" onClick={loadPurchases} aria-label="Atualizar compras">
+            <RefreshCw size={18} />
+          </button>
+        </div>
+      </div>
+
+      <section className="purchase-filters-panel">
+        <div className="purchase-filters-grid">
+          <PeriodFilter value={period} onChange={setPeriod} />
+          <div className="purchase-autocomplete-field" ref={supplierFilterRef}>
+            <label>
+              Fornecedor
+              <div className={`autocomplete-shell${supplierFilterOpen ? " active" : ""}`}>
+                <input
+                  autoComplete="off"
+                  name="purchase-supplier-filter"
+                  placeholder="Nome, código ou CNPJ/CPF"
+                  value={supplierFilterQuery}
+                  onChange={(event) => {
+                    setSupplierFilterQuery(event.target.value);
+                    setSupplierFilterOpen(true);
+                    if (!event.target.value.trim()) setFilters((current) => ({ ...current, supplierId: "" }));
+                  }}
+                  onFocus={() => setSupplierFilterOpen(true)}
+                />
+                {supplierFilterQuery && (
+                  <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor" onClick={clearFilterSupplier}>
+                    <X size={14} />
+                  </button>
+                )}
+                <ChevronDown size={16} className="autocomplete-chevron" />
+              </div>
+            </label>
+            {supplierFilterOpen && (
+              <div className="autocomplete-dropdown">
+                {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado.</div>}
+                {filteredSupplierOptions.map((supplier) => (
+                  <button key={supplier.id} className="autocomplete-option" type="button" onClick={() => selectSupplier(supplier.id, "filter")}>
+                    <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
+                    <small>{supplier.document || "Sem documento"}</small>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <label>
+            Categoria
+            <select value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}>
+              <option value="">Todas</option>
+              {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+            </select>
+          </label>
+          <label>
+            Status
+            <select value={filters.showCancelled} onChange={(event) => setFilters({ ...filters, showCancelled: event.target.value })}>
+              <option value="">Ativas</option>
+              <option value="true">Todas</option>
+              <option value="cancelled">Somente canceladas</option>
+            </select>
+          </label>
+          <label>
+            Forma de pagamento
+            <input autoComplete="off" placeholder="PIX, boleto, cartão..." value={filters.paymentMethod} onChange={(event) => setFilters({ ...filters, paymentMethod: event.target.value })} />
+          </label>
+          <label>
+            Busca geral
+            <input autoComplete="off" placeholder="NF, produto, fornecedor..." value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} />
+          </label>
+          <label>
+            Ordenação
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value as PurchaseSortOption)}>
+              <option value="recent">Mais recente</option>
+              <option value="oldest">Mais antigo</option>
+              <option value="highest">Maior valor</option>
+              <option value="lowest">Menor valor</option>
+            </select>
+          </label>
+        </div>
+        <div className="purchase-filter-actions">
+          <button className="primary-button" type="button" onClick={loadPurchases}>Filtrar</button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => {
+              setFilters({ supplierId: "", category: "", paymentMethod: "", search: "", showCancelled: "" });
+              setSupplierFilterQuery("");
+              setSortBy("recent");
+            }}
+          >
+            Limpar filtros
+          </button>
+        </div>
+      </section>
+
+      {showSmallExpenses && (
+        <section className="panel subsection">
+          <div className="section-heading compact-heading">
+            <div>
+              <p>Relatório</p>
+              <h3>Pequenos gastos</h3>
+            </div>
+            <div className="actions-cell">
+              <button className="secondary-button" type="button" onClick={loadSmallExpenses}>Atualizar</button>
+              <button className="secondary-button" type="button" onClick={handleSmallExpensesPdf}><FileText size={16} /> PDF pequenos gastos</button>
+            </div>
+          </div>
+          <div className="filters-row">
+            <label>Funcionário<input value={smallExpenseFilters.employee} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, employee: event.target.value })} /></label>
+            <label>Autorizado por<input value={smallExpenseFilters.authorizedBy} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, authorizedBy: event.target.value })} /></label>
+            <label>Origem<input value={smallExpenseFilters.origin} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, origin: event.target.value })} /></label>
+            <label>Tipo<input value={smallExpenseFilters.type} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, type: event.target.value })} /></label>
+            <label>Fornecedor<input value={smallExpenseFilters.supplier} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, supplier: event.target.value })} /></label>
+            <label>Pagamento<input value={smallExpenseFilters.paymentMethod} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, paymentMethod: event.target.value })} /></label>
+            <label>Categoria<input value={smallExpenseFilters.category} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, category: event.target.value })} /></label>
+            <label>Produto<input value={smallExpenseFilters.product} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, product: event.target.value })} /></label>
+            <button className="primary-button" type="button" onClick={loadSmallExpenses}>Filtrar</button>
+          </div>
+          {smallExpenseReport && (
+            <>
+              <div className="summary-grid">
+                <article><span>Total</span><strong>{formatCurrency(smallExpenseReport.summary.total)}</strong></article>
+                <article><span>Impacta CMV</span><strong>{formatCurrency(smallExpenseReport.summary.impactCmvTotal)}</strong></article>
+                <article><span>Administrativo</span><strong>{formatCurrency(smallExpenseReport.summary.administrativeTotal)}</strong></article>
+                <article><span>Linhas</span><strong>{smallExpenseReport.rows.length}</strong></article>
+              </div>
+              <div className="table-wrap operational-table">
+                <table className="purchase-items-table">
+                  <thead><tr><th>Data</th><th>Pedido</th><th>Fornecedor/Local</th><th>Funcionário</th><th>Autorizado</th><th>Origem</th><th>Tipo</th><th>Item</th><th className="numeric-cell">Valor</th><th>CMV</th></tr></thead>
+                  <tbody>{smallExpenseReport.rows.map((row) => <tr key={row.id}><td>{formatDate(row.purchaseDate)}</td><td>{row.purchaseNumber ?? "-"}</td><td>{row.supplierName}</td><td>{row.employee}</td><td>{row.authorizedBy}</td><td>{row.origin}</td><td>{row.smallExpenseType}</td><td>{row.item}</td><td className="numeric-cell nowrap-cell">{formatCurrency(row.totalAmount)}</td><td>{row.impactCmv ? "Sim" : "Não"}</td></tr>)}</tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {error && <div className="alert error">{error}</div>}
+      {loading && <div className="empty-state">Carregando compras...</div>}
+
+      {!loading && (
+        <>
+          <div className="table-wrap operational-table purchases-list-table purchases-desktop-list">
+            <table>
+              <thead>
+                <tr>
+                  <th>Compra</th>
+                  <th>Fornecedor</th>
+                  <th>Itens</th>
+                  <th>Pagamento</th>
+                  <th className="numeric-cell">Total</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayedPurchases.map((purchase) => (
+                  <tr key={purchase.id}>
+                    <td className="purchase-main-cell">
+                      <strong>{purchase.invoiceNumber ? `NF ${purchase.invoiceNumber}` : purchase.purchaseNumber ?? "Compra manual"}</strong>
+                      <small>{formatDate(purchase.purchaseDate)} • {String(purchase.competenceMonth).padStart(2, "0")}/{purchase.competenceYear}</small>
+                    </td>
+                    <td className="purchase-supplier-cell" title={purchase.supplier.name}>
+                      <strong>{purchase.supplier.name}</strong>
+                      <small>{purchase.supplier.document ?? purchase.rawSupplierCode ?? "Sem documento"}</small>
+                    </td>
+                    <td className="purchase-items-summary">
+                      <strong>{purchase.items.length} item(ns)</strong>
+                      <small title={purchase.items.map((item) => item.rawProductName).join(", ")}>
+                        {purchase.items[0]?.rawProductCode ? `${purchase.items[0].rawProductCode} • ` : ""}
+                        {purchase.items[0]?.rawProductName ?? "-"}
+                        {purchase.items.length > 1 ? ` +${purchase.items.length - 1}` : ""}
+                      </small>
+                    </td>
+                    <td className="purchase-payment-cell">
+                      <strong>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"}</strong>
+                      <small>{purchase.installments.length} parcela(s)</small>
+                    </td>
+                    <td className="numeric-cell nowrap-cell">{formatCurrency(purchase.totalAmount)}</td>
+                    <td>
+                      <span className={`status-badge ${purchaseStatusTone(purchase.status)}`}>{purchaseStatusLabel(purchase.status)}</span>
+                      {purchase.cancellationReason && <small className="block-note" title={purchase.cancellationReason}>{purchase.cancellationReason}</small>}
+                    </td>
+                    <td>
+                      <div className="actions-cell">
+                        <button type="button" onClick={() => openDetail(purchase)}><Eye size={15} /> Ver</button>
+                        {canEditPurchase && purchase.status !== "CANCELLED" && <button type="button" onClick={() => openEdit(purchase)}><Pencil size={15} /> Editar</button>}
+                        {isAdmin && (
+                          purchase.status === "CANCELLED"
+                            ? <button type="button" onClick={() => handleRestore(purchase)}>Restaurar</button>
+                            : <button className="danger-icon-button" type="button" title="Cancelar compra" onClick={() => handleCancel(purchase)}><Trash2 size={14} /></button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {displayedPurchases.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="empty-table-state">Nenhuma compra cadastrada.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="purchases-mobile-list">
+            {displayedPurchases.map((purchase) => (
+              <article className="cmv-mobile-card" key={`${purchase.id}-mobile`}>
+                <div className="cmv-mobile-row">
+                  <span>Compra</span>
+                  <strong>{purchase.invoiceNumber ? `NF ${purchase.invoiceNumber}` : purchase.purchaseNumber ?? "Compra manual"}</strong>
+                </div>
+                <div className="cmv-mobile-row">
+                  <span>Data</span>
+                  <span>{formatDate(purchase.purchaseDate)} • {String(purchase.competenceMonth).padStart(2, "0")}/{purchase.competenceYear}</span>
+                </div>
+                <div className="cmv-mobile-row">
+                  <span>Fornecedor</span>
+                  <span>{purchase.supplier.name}</span>
+                </div>
+                <div className="cmv-mobile-row">
+                  <span>Itens</span>
+                  <span>{purchase.items.length} item(ns) • {purchase.items[0]?.rawProductName ?? "-"}</span>
+                </div>
+                <div className="cmv-mobile-row">
+                  <span>Pagamento</span>
+                  <span>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"} • {purchase.installments.length} parcela(s)</span>
+                </div>
+                <div className="cmv-mobile-row">
+                  <span>Total</span>
+                  <strong>{formatCurrency(purchase.totalAmount)}</strong>
+                </div>
+                <div className="cmv-mobile-row">
+                  <span>Status</span>
+                  <span className={`status-badge ${purchaseStatusTone(purchase.status)}`}>{purchaseStatusLabel(purchase.status)}</span>
+                </div>
+                <div className="cmv-mobile-actions">
+                  <button className="secondary-button" type="button" onClick={() => openDetail(purchase)}><Eye size={14} /> Ver</button>
+                  {canEditPurchase && purchase.status !== "CANCELLED" && <button className="secondary-button" type="button" onClick={() => openEdit(purchase)}><Pencil size={14} /> Editar</button>}
+                  {isAdmin && (
+                    purchase.status === "CANCELLED"
+                      ? <button className="secondary-button" type="button" onClick={() => handleRestore(purchase)}>Restaurar</button>
+                      : <button className="danger-button" type="button" onClick={() => handleCancel(purchase)}><Trash2 size={14} /> Cancelar</button>
+                  )}
+                </div>
+              </article>
+            ))}
+            {displayedPurchases.length === 0 && <div className="alert warning">Nenhuma compra cadastrada.</div>}
+          </div>
+        </>
+      )}
+        </>
+      )}
+
+      {detail && (
+        <div className="modal-backdrop">
+          <section className="panel modal-panel wide-modal purchase-modal purchase-detail-modal">
+            <div ref={modalTopRef} />
+            <div className="section-heading purchase-editor-header">
+              <div>
+                <p>Detalhe da compra</p>
+                <h2>{detail.supplierName}</h2>
+                <div className="purchase-detail-headline">
+                  <span>{detail.invoiceNumber ? `NF ${detail.invoiceNumber}` : detail.purchaseNumber ?? "Compra manual"}</span>
+                  <span>{formatDate(detail.purchaseDate)}</span>
+                  <span>{String(detail.competenceMonth).padStart(2, "0")}/{detail.competenceYear}</span>
+                  <strong>{formatCurrency(detail.totalAmount)}</strong>
+                </div>
+              </div>
+              <button className="secondary-button" type="button" onClick={() => setDetail(null)}>Fechar</button>
+            </div>
+
+            <div className="summary-grid dashboard-compact-grid purchase-detail-summary">
+              <article><span>Fornecedor</span><strong>{detail.supplierName}</strong><small className="muted-inline">{detail.supplierDocument ?? "Sem documento"}</small></article>
+              <article><span>Origem</span><strong>{detail.importBatchId ? "Importação" : "Manual"}</strong><small className="muted-inline">{detail.isSmallExpense ? "Pequeno gasto" : "Compra normal"}</small></article>
+              <article><span>Pagamento</span><strong>{detail.smallExpenseMoneyOrigin ?? detail.creditCardName ?? detail.paymentMethodName ?? detail.paymentMethod ?? "-"}</strong><small className="muted-inline">{detail.installments.length} parcela(s)</small></article>
+              <article><span>Status</span><strong><span className={`status-badge ${purchaseStatusTone(detail.status)}`}>{purchaseStatusLabel(detail.status)}</span></strong><small className="muted-inline">{detail.purchaseNumber ?? "Sem pedido interno"}</small></article>
+            </div>
+
+            <div className="subsection">
+              <h3>Itens</h3>
+              <div className="table-wrap operational-table">
+                <table>
+                  <thead><tr><th>Produto</th><th>Classificação</th><th>Un.</th><th className="numeric-cell">Qtd.</th><th className="numeric-cell">Unit.</th><th className="numeric-cell">Total</th></tr></thead>
+                  <tbody>{detail.items.map((item) => (
+                    <tr key={item.id}>
+                      <td className="purchase-detail-product" title={item.rawProductName ?? item.productName}>
+                        <strong>{item.rawProductName ?? item.productName}</strong>
+                        <small>{item.rawProductCode ?? item.productCode ?? "Sem código"}</small>
+                      </td>
+                      <td><small>{item.rawCategory ?? item.categoryName ?? "-"}</small><small>{item.rawSubcategory ?? item.subcategoryName ?? "-"}</small></td>
+                      <td>{item.unit ?? "-"}</td>
+                      <td className="numeric-cell">{formatNumber(Number(item.quantity))}</td>
+                      <td className="numeric-cell nowrap-cell">{formatCurrency(Number(item.unitPrice))}</td>
+                      <td className="numeric-cell nowrap-cell">{formatCurrency(Number(item.totalPrice))}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="subsection">
+              <h3>Parcelas</h3>
+              <div className="table-wrap operational-table">
+                <table>
+                  <thead><tr><th>Parcela</th><th>Forma</th><th>Vencimento</th><th className="numeric-cell">Valor</th><th>Status</th></tr></thead>
+                  <tbody>{detail.installments.map((installment) => (
+                    <tr key={installment.id}>
+                      <td>{installment.installment ?? "-"}</td>
+                      <td>{installment.paymentMethodName ?? detail.paymentMethodName ?? "-"}</td>
+                      <td>{formatDate(installment.dueDate)}</td>
+                      <td className="numeric-cell nowrap-cell">{formatCurrency(Number(installment.amount ?? 0))}</td>
+                      <td><span className={`status-badge ${installmentStatusTone(installment.status)}`}>{installmentStatusLabel(installment.status)}</span></td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="subsection">
+              <h3>Auditoria resumida</h3>
+              <div className="table-wrap operational-table">
+                <table>
+                  <thead><tr><th>Data</th><th>Usuário</th><th>Ação</th></tr></thead>
+                  <tbody>{detail.audits.map((audit) => <tr key={audit.id}><td>{formatDate(audit.createdAt)}</td><td>{audit.userName ?? "-"}</td><td>{audit.action}</td></tr>)}</tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {isFormRoute && !showForm && (
+        <section className="purchase-editor-screen">
+          <div className="empty-state">Carregando compra...</div>
+        </section>
+      )}
+
+      {showForm && isFormRoute && (
+          <section className="purchase-editor-screen purchase-modal purchase-modal-shell">
+            <div ref={modalTopRef} />
+            <div className="section-heading purchase-editor-header">
+              <div>
+                <p>{editingId ? "Edição" : "Lançamento manual"}</p>
+                <h2>{editingId ? "Editar compra" : "Nova compra"}</h2>
+                <small className="muted-inline">Voltar para compras quando terminar ou salvar para atualizar a listagem.</small>
+                <div className="purchase-editor-context">
+                  <span>{selectedSupplier?.name ?? "Fornecedor pendente"}</span>
+                  <span>{form.invoiceNumber || form.purchaseOrderNumber ? `${form.invoiceNumber || "Sem NF"}${form.purchaseOrderNumber ? ` • Pedido ${form.purchaseOrderNumber}` : ""}` : "NF/pedido pendente"}</span>
+                  <span>{formatCurrency(totalAmount)}</span>
+                  <span>{validationMessages.length === 0 ? "Compra conferida" : "Pendências encontradas"}</span>
+                </div>
+              </div>
+              <div className="actions-cell">
+                <button className="secondary-button" type="button" onClick={goBackToList}>Voltar para compras</button>
+                <button className="primary-button" type="button" disabled={!canSavePurchase} onClick={handleCreatePurchase}>
+                  {saving ? "Salvando..." : editingId ? "Salvar alterações" : "Salvar compra"}
+                </button>
+              </div>
+            </div>
+
+            {error && <div className="alert error prominent-alert">{error}</div>}
+            {duplicateCheck?.existingPurchase && (
+              <div className="alert error prominent-alert">
+                <strong>Já existe uma compra ativa para este fornecedor com esta NF/pedido.</strong>
+                <div>
+                  {formatDate(duplicateCheck.existingPurchase.purchaseDate)} • {duplicateCheck.existingPurchase.referenceLabel} • {formatCurrency(Number(duplicateCheck.existingPurchase.totalAmount))}
+                </div>
+                <div className="actions-cell">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => navigate({ pathname: `/compras/${duplicateCheck.existingPurchase?.id}/editar`, search: location.search })}
+                  >
+                    Abrir compra existente
+                  </button>
+                </div>
+              </div>
+            )}
+            {!duplicateCheck?.existingPurchase && duplicateCheck?.cancelledPurchase && (
+              <div className="alert warning">
+                Existe uma compra cancelada com esta NF/pedido: {formatDate(duplicateCheck.cancelledPurchase.purchaseDate)} • {duplicateCheck.cancelledPurchase.referenceLabel} • {formatCurrency(Number(duplicateCheck.cancelledPurchase.totalAmount))}
+              </div>
+            )}
+
+            <div className="purchase-editor-layout">
+              <div className="purchase-modal-body purchase-editor-main">
+                <div className="subsection plain-subsection">
+                <div className="section-heading compact-heading"><div><p>Seção 1</p><h3>Dados da compra</h3></div></div>
+                <div className="purchase-form-grid purchase-header-grid">
+                  <div className={`purchase-autocomplete-field ${fieldErrors.supplier ? "field-error" : ""}`} ref={supplierFormRef}>
+                    <label>
+                      Fornecedor
+                      <div className="autocomplete-shell active">
+                        <input
+                          autoComplete="off"
+                          name="purchase-supplier-form"
+                          placeholder="Buscar por nome, código ou documento"
+                          value={form.supplierName || form.supplierCode}
+                          onChange={(event) => {
+                            setForm((current) => ({
+                              ...current,
+                              supplierId: "",
+                              supplierCode: event.target.value,
+                              supplierName: event.target.value,
+                              supplierDocument: ""
+                            }));
+                            setSupplierFilterQuery(event.target.value);
+                            setSupplierFilterOpen(true);
+                          }}
+                          onFocus={() => {
+                            setSupplierFilterQuery(form.supplierName || form.supplierCode);
+                            setSupplierFilterOpen(true);
+                          }}
+                        />
+                        {(form.supplierName || form.supplierCode) && (
+                          <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor" onClick={() => setForm((current) => ({ ...current, supplierId: "", supplierCode: "", supplierName: "", supplierDocument: "" }))}>
+                            <X size={14} />
+                          </button>
+                        )}
+                        <ChevronDown size={16} className="autocomplete-chevron" />
+                      </div>
+                    </label>
+                    {supplierFilterOpen && (
+                      <div className="autocomplete-dropdown">
+                        {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado.</div>}
+                        {filteredSupplierOptions.map((supplier) => (
+                          <button key={supplier.id} className="autocomplete-option" type="button" onClick={() => { selectSupplier(supplier.id, "form"); setSupplierFilterOpen(false); }}>
+                            <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
+                            <small>{supplier.document || "Sem documento"}</small>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <label>
+                    Código
+                    <input className="locked-field" value={form.supplierCode} disabled />
+                  </label>
+                  <label>
+                    CNPJ/CPF
+                    <input className="locked-field" value={form.supplierDocument} disabled />
+                  </label>
+                  <label>
+                    Prazo padrão
+                    <input className="locked-field" value={selectedSupplier?.defaultPaymentTermDays ? `${selectedSupplier.defaultPaymentTermDays} dias` : "Sem prazo"} disabled />
+                  </label>
+                  <label className={fieldErrors.purchaseDate ? "field-error" : ""}>
+                    Data
+                    <input type="date" value={form.purchaseDate} onChange={(event) => setForm({ ...form, purchaseDate: event.target.value })} />
+                  </label>
+                  <label className={fieldErrors.invoiceNumber ? "field-error" : ""}>
+                    Número da NF
+                    <input autoComplete="off" value={form.invoiceNumber} disabled={showNoInvoiceReason} onChange={(event) => setForm({ ...form, invoiceNumber: event.target.value })} />
+                  </label>
+                  <label>
+                    Número do pedido
+                    <input autoComplete="off" value={form.purchaseOrderNumber} onChange={(event) => setForm({ ...form, purchaseOrderNumber: event.target.value })} />
+                  </label>
+                  <label className="checkbox-label">
+                    <input type="checkbox" checked={showNoInvoiceReason} onChange={(event) => { setShowNoInvoiceReason(event.target.checked); if (event.target.checked) setForm({ ...form, invoiceNumber: "" }); }} />
+                    Compra sem NF
+                  </label>
+                  {showNoInvoiceReason && (
+                    <label className={fieldErrors.noInvoiceReason ? "field-error" : ""}>
+                      Motivo sem NF
+                      <input autoComplete="off" value={form.noInvoiceReason} onChange={(event) => setForm({ ...form, noInvoiceReason: event.target.value })} />
+                    </label>
+                  )}
+                  <label className="checkbox-label">
+                    <input type="checkbox" checked={form.isSmallExpense} onChange={(event) => setForm({ ...form, isSmallExpense: event.target.checked })} />
+                    Pequeno gasto
+                  </label>
+                  {form.isSmallExpense && (
+                    <>
+                      <label className={fieldErrors.smallExpenseTypeId ? "field-error" : ""}>
+                        Tipo pequeno gasto
+                        <select value={form.smallExpenseTypeId} onChange={(event) => setForm({ ...form, smallExpenseTypeId: event.target.value })}>
+                          <option value="">Selecione</option>
+                          {smallExpenseTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
+                        </select>
+                      </label>
+                      {selectedPaymentMethod && normalize(selectedPaymentMethod.name).includes("cartao de credito") && (
+                        <label className={fieldErrors.creditCardId ? "field-error" : ""}>
+                          Cartão
+                          <select value={form.creditCardId} onChange={(event) => setForm({ ...form, creditCardId: event.target.value })}>
+                            <option value="">Selecione</option>
+                            {creditCards.map((card) => <option key={card.id} value={card.id}>{card.name} - {card.bankName} {card.last4Digits}</option>)}
+                          </select>
+                        </label>
+                      )}
+                      <label className="full-width">
+                        Observação pequeno gasto
+                        <input autoComplete="off" value={form.smallExpenseNotes} onChange={(event) => setForm({ ...form, smallExpenseNotes: event.target.value })} />
+                      </label>
+                    </>
+                  )}
+                  {form.creditCardId && openCardStatement && (
+                    <div className="alert info full-width">
+                      Fatura aberta vinculada: {openCardStatement.creditCard?.name ?? "Cartão"} • {String(openCardStatement.competenceMonth).padStart(2, "0")}/{openCardStatement.competenceYear} • venc. {formatDate(openCardStatement.dueDate)} • status {openCardStatement.status} • total {formatCurrency(openCardStatement.totalAmount)}
+                    </div>
+                  )}
+                  {form.creditCardId && !openCardStatement && smallExpenseUsesCreditCard && (
+                    <div className="alert warning full-width">Não há fatura aberta para este cartão. Abra a fatura antes de salvar o lançamento.</div>
+                  )}
+                </div>
+
+                <div className="optional-row">
+                  <button className="secondary-button" type="button" onClick={() => setShowExtraNotes(!showExtraNotes)}>Observações adicionais</button>
+                </div>
+                {showExtraNotes && (
+                  <div className="purchase-form-grid payment-grid optional-fields">
+                    <label className="full-width">
+                      Observações
+                      <input autoComplete="off" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              <div className="subsection">
+                <div className="section-heading compact-heading">
+                  <div><p>Seção 2</p><h3>Produtos da compra</h3></div>
+                  <button className="secondary-button" type="button" onClick={() => {
+                    ensureTrailingProductRow();
+                  }}>
+                    Adicionar produto
+                  </button>
+                </div>
+                {fieldErrors.items && <div className="alert error">{fieldErrors.items}</div>}
+                <div className="table-wrap operational-table purchase-items-grid-wrap" ref={productRef}>
+                  <table className="purchase-items-desktop-table">
+                    <thead><tr><th>Produto</th><th>Qtd.</th><th>Un.</th><th>Valor unit.</th><th>Total</th><th>Obs.</th><th></th></tr></thead>
+                    <tbody>
+                      {items.map((item, index) => {
+                        const product = products.find((entry) => entry.id === item.productId);
+                        return (
+                          <tr className={fieldErrors[`item-${index}`] ? "row-error" : ""} key={index}>
+                            <td className="purchase-product-main-cell">
+                              <div className="purchase-autocomplete-field">
+                                <input
+                                  ref={(element) => { productInputRefs.current[index] = element; }}
+                                  autoComplete="off"
+                                  name={`purchase-product-${index}`}
+                                  placeholder="Buscar produto por nome ou código"
+                                  value={productQueries[index] ?? item.productName}
+                                  onFocus={() => setOpenProductIndex(index)}
+                                  onChange={(event) => {
+                                    setProductQueries((current) => ({ ...current, [index]: event.target.value }));
+                                    updateItem(index, { productId: "", productName: event.target.value, productCode: "" });
+                                    setOpenProductIndex(index);
+                                  }}
+                                />
+                                {openProductIndex === index && (
+                                  <div className="autocomplete-dropdown product-autocomplete-dropdown">
+                                    {filteredProductOptions[index]?.length === 0 && <div className="autocomplete-empty">Nenhum produto encontrado. Cadastre o produto antes de lançar a compra.</div>}
+                                    {filteredProductOptions[index]?.map((option) => (
+                                      <button key={option.id} className="autocomplete-option" type="button" onClick={() => selectProduct(index, option.id)} title={option.name}>
+                                        <strong>{option.externalCode ? `${option.externalCode} • ` : ""}{option.name}</strong>
+                                        <small>{option.externalCode ? `${option.externalCode} • ` : ""}{option.category?.name ?? "-"} / {option.subcategory?.name ?? "-"}</small>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="purchase-item-meta">
+                                <strong title={item.productName}>{item.productName || "Selecione um produto"}</strong>
+                                <small>{item.productCode ? `Código ${item.productCode}` : "Sem código"} • {item.categoryName || product?.category?.name || "Sem categoria"} / {item.subcategoryName || product?.subcategory?.name || "Sem subcategoria"}</small>
+                              </div>
+                            </td>
+                            <td data-label="Quantidade"><input ref={(element) => { quantityInputRefs.current[index] = element; }} type="number" min="0" step="0.001" value={item.quantity} onChange={(event) => updateItem(index, { quantity: event.target.value })} onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                focusUnitPriceInput(index);
+                              }
+                            }} /></td>
+                            <td data-label="Unidade"><select value={item.unit} onChange={(event) => updateItem(index, { unit: event.target.value })}><option value="">Unidade</option>{units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code}</option>)}</select></td>
+                            <td data-label="Valor unitário"><input ref={(element) => { unitPriceInputRefs.current[index] = element; }} type="number" min="0" step="0.01" value={item.unitPrice} onChange={(event) => updateItem(index, { unitPrice: event.target.value })} onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                commitProductLine(index);
+                              }
+                            }} /></td>
+                            <td data-label="Total"><input className="locked-field" type="text" value={formatCurrency(Number(item.totalPrice || 0))} readOnly /></td>
+                            <td data-label="Observação"><input autoComplete="off" placeholder="Observação opcional" value={item.notes} onChange={(event) => updateItem(index, { notes: event.target.value })} /></td>
+                            <td data-label="Ações" className="purchase-item-action-cell"><button type="button" aria-label="Remover item" onClick={() => {
+                              removeItemRow(index);
+                            }}><Trash2 size={16} /></button></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="subsection">
+                <div className="section-heading compact-heading"><div><p>Seção 3</p><h3>Pagamento</h3></div></div>
+                <div className="alert info">{paymentPreviewMessage}</div>
+                <div className="purchase-form-grid payment-grid">
+                  <label className={fieldErrors.paymentMethodId ? "field-error" : ""}>
+                    Forma de pagamento
+                    <select value={form.paymentMethodId} onChange={(event) => {
+                      const nextMethod = availablePaymentMethods.find((method) => method.id === event.target.value) ?? null;
+                      const nextCount = nextMethod && allowsInstallments(nextMethod) ? Math.max(1, Number(form.installmentCount || 1)) : 1;
+                      setForm({ ...form, paymentMethodId: event.target.value, installmentCount: String(nextCount) });
+                      rebuildInstallments(event.target.value, totalAmount, nextCount);
+                    }}>
+                      <option value="">Selecione</option>
+                      {availablePaymentMethods.map((method) => <option key={method.id} value={method.id}>{basePaymentMethodName(method.name) || method.name}</option>)}
+                    </select>
+                  </label>
+                  <label className={fieldErrors.installmentCount ? "field-error" : ""}>
+                    Número de parcelas
+                    <input type="number" min="1" step="1" value={form.installmentCount} disabled={!selectedPaymentMethod || !selectedPaymentMethodAllowsInstallments || smallExpenseUsesCreditCard} onChange={(event) => setForm((current) => ({ ...current, installmentCount: String(Math.max(1, Number(event.target.value || 1))) }))} />
+                  </label>
+                  <label>
+                    Vencimento inicial
+                    <input className="locked-field" value={addDaysToInputDate(form.purchaseDate, installmentLeadDays)} disabled />
+                  </label>
+                  <label>
+                    Observações financeiras
+                    <input autoComplete="off" value={form.paymentNotes} onChange={(event) => setForm({ ...form, paymentNotes: event.target.value })} />
+                  </label>
+                  {isAdmin && Math.round(amountDifference * 100) !== 0 && (
+                    <label className="full-width">
+                      Motivo da diferença
+                      <input autoComplete="off" value={form.paymentDifferenceReason} onChange={(event) => setForm({ ...form, paymentDifferenceReason: event.target.value })} />
+                    </label>
+                  )}
+                </div>
+
+                <div className="purchase-payment-summary">
+                  <article><span>Total da compra</span><strong>{formatCurrency(totalAmount)}</strong></article>
+                  <article><span>Total das parcelas</span><strong>{formatCurrency(installmentTotal)}</strong></article>
+                  <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}>
+                    <span>Diferença</span>
+                    <strong>{formatCurrency(amountDifference)}</strong>
+                    <small className="muted-inline">{Math.round(amountDifference * 100) === 0 ? "Conferido" : "Ajuste antes de salvar"}</small>
+                  </article>
+                </div>
+
+                {fieldErrors.installments && <div className="alert error">{fieldErrors.installments}</div>}
+                {installments.length > 0 && (
+                  <div className="table-wrap operational-table purchase-installments-table">
+                    <table>
+                      <thead><tr><th>Parcela</th><th>Vencimento</th><th className="numeric-cell">Valor</th></tr></thead>
+                      <tbody>
+                        {installments.map((installment, index) => (
+                          <tr key={installment.installment}>
+                            <td>{`${installment.installment}/${installments.length}`}</td>
+                            <td><input type="date" value={installment.dueDate} onChange={(event) => setInstallments((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, dueDate: event.target.value } : entry))} /></td>
+                            <td><input type="number" min="0" step="0.01" value={installment.amount} onChange={(event) => setInstallments((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, amount: event.target.value } : entry))} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="subsection">
+                <div className="section-heading compact-heading"><div><p>Seção 4</p><h3>Resumo final</h3></div></div>
+                <div className="summary-grid dashboard-compact-grid purchase-summary-grid">
+                  <article><span>Fornecedor</span><strong>{selectedSupplier?.name ?? "Selecionar fornecedor"}</strong></article>
+                  <article><span>Produtos</span><strong>{items.filter((item) => item.productId).length}</strong></article>
+                  <article><span>Pagamento</span><strong>{selectedPaymentMethodBaseName || "Selecionar"}</strong></article>
+                  <article><span>Situação</span><strong>{Math.round(amountDifference * 100) === 0 ? "Conferido" : "Com divergência"}</strong></article>
+                </div>
+              </div>
+            </div>
+
+            <aside className="purchase-editor-sidebar">
+              <div className="purchase-sidebar-block">
+                <span>Fornecedor</span>
+                <strong>{selectedSupplier?.name ?? "Fornecedor não selecionado"}</strong>
+                <small>{selectedSupplier?.document ?? "Selecione um fornecedor para continuar"}</small>
+                <small>{form.invoiceNumber || form.purchaseOrderNumber ? `NF/Pedido: ${form.invoiceNumber || "Sem NF"}${form.purchaseOrderNumber ? ` • ${form.purchaseOrderNumber}` : ""}` : "NF/pedido ainda não informado"}</small>
+              </div>
+
+              <div className="purchase-sidebar-block purchase-sidebar-metrics">
+                <article><span>Total dos produtos</span><strong>{formatCurrency(totalAmount)}</strong></article>
+                <article><span>Total das parcelas</span><strong>{formatCurrency(installmentTotal)}</strong></article>
+                <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}><span>Diferença</span><strong>{formatCurrency(amountDifference)}</strong></article>
+                <article><span>Itens</span><strong>{items.filter((item) => item.productId).length}</strong></article>
+              </div>
+
+              <div className={`purchase-sidebar-block ${validationMessages.length === 0 ? "purchase-sidebar-ok" : "purchase-sidebar-pending"}`}>
+                <span>Status da validação</span>
+                <strong>{validationMessages.length === 0 ? "Compra conferida" : "Pendências encontradas"}</strong>
+                <small>{validationMessages.length === 0 ? "Compra pronta para salvar." : "Revise os pontos abaixo antes de concluir."}</small>
+              </div>
+
+              {duplicateCheck?.existingPurchase && (
+                <div className="purchase-sidebar-block purchase-sidebar-pending">
+                  <span>Duplicidade ativa</span>
+                  <strong>{duplicateCheck.existingPurchase.purchaseNumber ?? "Compra existente"}</strong>
+                  <small>{formatDate(duplicateCheck.existingPurchase.purchaseDate)} • {formatCurrency(Number(duplicateCheck.existingPurchase.totalAmount))}</small>
+                  <button className="secondary-button" type="button" onClick={() => navigate({ pathname: `/compras/${duplicateCheck.existingPurchase?.id}/editar`, search: location.search })}>
+                    Abrir compra existente
+                  </button>
+                </div>
+              )}
+
+              {validationMessages.length > 0 && (
+                <div className="purchase-sidebar-block">
+                  <span>Pendências</span>
+                  <ul className="purchase-validation-list">
+                    {validationMessages.map((message) => <li key={message}>{message}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              <div className="purchase-sidebar-block purchase-sidebar-actions">
+                <button className="secondary-button" type="button" onClick={goBackToList}>Cancelar</button>
+                <button className="primary-button purchase-sidebar-save" type="button" disabled={!canSavePurchase} onClick={handleCreatePurchase}>
+                  {saving ? "Salvando..." : editingId ? "Salvar alterações" : "Salvar compra"}
+                </button>
+                {!canSavePurchase && validationMessages.length > 0 && (
+                  <small>Salvar bloqueado até corrigir as pendências acima.</small>
+                )}
+              </div>
+            </aside>
+          </div>
+
+          <div className="purchase-sticky-footer purchase-editor-mobile-footer">
+            <div className="purchase-footer">
+              <article><span>Total da compra</span><strong>{formatCurrency(totalAmount)}</strong></article>
+              <article><span>Total das parcelas</span><strong>{formatCurrency(installmentTotal)}</strong></article>
+              <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}><span>Diferença</span><strong>{formatCurrency(amountDifference)}</strong></article>
+            </div>
+
+            <div className="form-actions">
+              <button className="secondary-button" type="button" onClick={goBackToList}>Cancelar</button>
+              <button className="primary-button" type="button" disabled={!canSavePurchase} onClick={handleCreatePurchase}>
+                {saving ? "Salvando..." : editingId ? "Salvar alterações" : "Salvar compra"}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+    </section>
+  );
+}
+

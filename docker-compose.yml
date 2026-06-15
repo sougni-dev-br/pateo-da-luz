@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cmv-loja-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cmv
+      POSTGRES_PASSWORD: cmv
+      POSTGRES_DB: cmv_loja
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
