@@ -183,6 +183,8 @@ dashboardRouter.get("/alerts", async (request, response) => {
 
   // Midnight today (UTC-naive, same convention as the rest of the codebase)
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Yesterday: used as upper bound for "missing revenue days" so we never flag the current day in progress
+  const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
   const in7Days = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
 
   // ── 1. Parcelas vencidas (global, não filtrado por competência) ──
@@ -225,10 +227,11 @@ dashboardRouter.get("/alerts", async (request, response) => {
   const unpaidCount = Number(unpaidRows[0]?.cnt ?? 0);
   const unpaidAmount = Number(unpaidRows[0]?.total ?? 0);
 
-  // ── 4. Dias sem lançamento de faturamento (competência, até hoje) ──
+  // ── 4. Dias sem lançamento de faturamento (competência, até ontem) ──
+  // Usa ontem como limite para não acusar o dia atual como "faltante" quando a importação ainda não ocorreu.
   const monthStart = new Date(year, month - 1, 1);
   const monthEnd = new Date(year, month, 0); // last day of month
-  const rangeEnd = today < monthEnd ? today : monthEnd;
+  const rangeEnd = yesterday < monthEnd ? yesterday : monthEnd;
 
   let missingRevenueDays = 0;
   if (monthStart <= rangeEnd) {
@@ -289,12 +292,13 @@ dashboardRouter.get("/alerts", async (request, response) => {
     actionPath?: string;
   }> = [];
 
+  // Alertas globais (independentes da competência — refletem situação atual do financeiro)
   if (overdueCount > 0) {
     alerts.push({
       type: "danger",
       code: "OVERDUE_PAYABLES",
-      title: "Contas vencidas",
-      description: `${overdueCount} parcela${overdueCount !== 1 ? "s" : ""} vencida${overdueCount !== 1 ? "s" : ""} sem pagamento registrado.`,
+      title: "Pendências financeiras — contas vencidas",
+      description: `${overdueCount} parcela${overdueCount !== 1 ? "s" : ""} vencida${overdueCount !== 1 ? "s" : ""} até hoje sem pagamento registrado.`,
       count: overdueCount,
       amount: overdueAmount,
       actionLabel: "Ver contas a pagar",
@@ -306,7 +310,7 @@ dashboardRouter.get("/alerts", async (request, response) => {
     alerts.push({
       type: "warning",
       code: "DUE_SOON_PAYABLES",
-      title: "Contas a vencer em 7 dias",
+      title: "Pendências financeiras — a vencer",
       description: `${dueSoonCount} parcela${dueSoonCount !== 1 ? "s" : ""} vence${dueSoonCount !== 1 ? "m" : ""} nos próximos 7 dias.`,
       count: dueSoonCount,
       amount: dueSoonAmount,
@@ -315,12 +319,13 @@ dashboardRouter.get("/alerts", async (request, response) => {
     });
   }
 
+  // Alertas da competência selecionada
   if (unpaidCount > 0) {
     alerts.push({
       type: "warning",
       code: "PURCHASES_WITHOUT_INSTALLMENTS",
-      title: "Compras sem parcelamento",
-      description: `${unpaidCount} compra${unpaidCount !== 1 ? "s" : ""} a prazo sem parcelas vinculadas nesta competência.`,
+      title: "Compras sem parcelamento identificado",
+      description: `${unpaidCount} compra${unpaidCount !== 1 ? "s" : ""} a prazo sem parcelas registradas nesta competência.`,
       count: unpaidCount,
       amount: unpaidAmount,
       actionLabel: "Ver compras",
@@ -332,8 +337,8 @@ dashboardRouter.get("/alerts", async (request, response) => {
     alerts.push({
       type: "warning",
       code: "MISSING_REVENUE_DAYS",
-      title: "Faturamento incompleto",
-      description: `${missingRevenueDays} dia${missingRevenueDays !== 1 ? "s" : ""} sem lançamento de faturamento nesta competência.`,
+      title: "Faturamento com dias em aberto",
+      description: `${missingRevenueDays} dia${missingRevenueDays !== 1 ? "s" : ""} sem lançamento de faturamento até ontem nesta competência.`,
       count: missingRevenueDays,
       actionLabel: "Ver faturamento",
       actionPath: "/financeiro/faturamento"
@@ -346,15 +351,15 @@ dashboardRouter.get("/alerts", async (request, response) => {
       code: "CMV_NO_INVENTORY",
       title: "Inventário final não registrado",
       description: "Nenhum inventário final registrado para esta competência.",
-      actionLabel: "Ver CMV",
+      actionLabel: "Ver fechamento",
       actionPath: "/cmv/fechamento-mensal"
     });
   } else if (cmvStatus === "pending") {
     alerts.push({
       type: "info",
       code: "CMV_PENDING_CLOSE",
-      title: "CMV em aberto",
-      description: "Inventário final registrado, mas fechamento mensal ainda não concluído.",
+      title: "Fechamento mensal em aberto",
+      description: "Inventário final registrado, mas fechamento do CMV ainda não concluído.",
       actionLabel: "Ver fechamento",
       actionPath: "/cmv/fechamento-mensal"
     });
