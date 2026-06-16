@@ -6,7 +6,7 @@ import { EmptyState, SummaryCard } from "../components/ui";
 import { formatCurrency, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 
-const logoPath = "/src/assets/logo-pateo-luz.png";
+const logoPath = "/logo-pateo-luz.png";
 
 function monthFromPeriod(startDate: string) {
   return startDate.slice(0, 7);

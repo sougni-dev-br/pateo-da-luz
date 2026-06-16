@@ -55,7 +55,8 @@ import {
   StockCountSessionDetail,
   StockCountSessionType,
   submitOperationalInventory,
-  submitInventoryAgendaItem
+  submitInventoryAgendaItem,
+  updateStockMinQuantity
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { PeriodFilter } from "../components/PeriodFilter";
@@ -311,6 +312,8 @@ export function Inventory({
   const [operationalInventories, setOperationalInventories] = useState<OperationalInventory[]>([]);
   const [operationalDetail, setOperationalDetail] = useState<OperationalInventoryDetail | null>(null);
   const [showCanceledStockData, setShowCanceledStockData] = useState(false);
+  const [minQtyEdit, setMinQtyEdit] = useState<Record<string, string>>({});
+  const [savingMinQty, setSavingMinQty] = useState<Record<string, boolean>>({});
   const [countSessionVisibleColumns, setCountSessionVisibleColumns] = useState<Record<CountSessionColumn, boolean>>(loadCountSessionColumnPreferences);
   const [editingCountSessionNoteId, setEditingCountSessionNoteId] = useState<string | null>(null);
   const [operationalForm, setOperationalForm] = useState({
@@ -362,6 +365,24 @@ export function Inventory({
     [agenda]
   );
   const canManageOperationalInventory = user.role === "ADMIN" || user.role === "GESTAO_COMPLETA";
+  const canEditStockMinimum = user.role === "ADMIN" || user.role === "GESTAO_COMPLETA" || user.role === "ESTOQUISTA";
+
+  const saveMinQty = async (productId: string) => {
+    const raw = minQtyEdit[productId];
+    if (raw === undefined) return;
+    const val = raw.trim() === "" ? null : Number(raw.replace(",", "."));
+    if (val !== null && isNaN(val)) return;
+    setSavingMinQty((prev) => ({ ...prev, [productId]: true }));
+    try {
+      await updateStockMinQuantity(productId, val);
+      setStocks((prev) => prev.map((s) => s.productId === productId ? { ...s, minQuantity: val === null ? null : String(val) } : s));
+      setMinQtyEdit((prev) => { const next = { ...prev }; delete next[productId]; return next; });
+    } catch {
+      setNotice({ tone: "error", message: "Erro ao salvar estoque mínimo." });
+    } finally {
+      setSavingMinQty((prev) => { const next = { ...prev }; delete next[productId]; return next; });
+    }
+  };
   const canCancelCountSession = (session: StockCountSession | StockCountSessionDetail) => {
     if (session.status === "CANCELADA" || session.generatedInventoryId) return false;
     if (!["ABERTA", "EM_ANDAMENTO", "CONCLUIDA"].includes(session.status)) return false;
@@ -2514,6 +2535,7 @@ export function Inventory({
                 <th>Setor</th>
                 <th>Fornecedor</th>
                 <th className="numeric-cell">Quantidade</th>
+                <th className="numeric-cell" title="Quantidade mínima em estoque — edite clicando no campo">Mínimo</th>
                 <th title="UN = unidade, CX = caixa, KG = quilograma">Unidade</th>
                 {canViewCosts && <><th className="numeric-cell">Custo medio</th><th className="numeric-cell" title="Custo por quilograma">KG</th><th className="numeric-cell" title="Custo por caixa">CX</th><th className="numeric-cell" title="Custo por unidade">UN</th></>}
                 <th title="Data da ultima movimentacao">Ultima movimentacao</th>
@@ -2539,6 +2561,25 @@ export function Inventory({
                     <td><span className="table-muted-badge">{displayLabel(stock.sectorName, "Sem setor")}</span></td>
                     <td title={stock.supplierName}>{stock.supplierName}</td>
                     <td className="numeric-cell">{formatNumber(stock.currentQuantityNumber)}</td>
+                    <td className="numeric-cell" style={{ padding: "2px 4px" }}>
+                      {canEditStockMinimum ? (
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          className="inline-qty-input"
+                          style={{ width: 72, textAlign: "right" }}
+                          value={minQtyEdit[stock.productId] ?? (stock.minQuantity == null ? "" : String(Number(stock.minQuantity)))}
+                          placeholder="—"
+                          disabled={savingMinQty[stock.productId]}
+                          onChange={(e) => setMinQtyEdit((prev) => ({ ...prev, [stock.productId]: e.target.value }))}
+                          onBlur={() => { void saveMinQty(stock.productId); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.currentTarget.blur(); } }}
+                        />
+                      ) : (
+                        stock.minQuantity == null ? "—" : formatNumber(Number(stock.minQuantity))
+                      )}
+                    </td>
                     <td>{displayLabel(stock.unitCode, "-")}</td>
                     {canViewCosts && <><td className="numeric-cell">{formatCurrency(Number(stock.averageCost ?? 0))}</td><td className="numeric-cell">{stock.costPerKg ? formatCurrency(Number(stock.costPerKg)) : "-"}</td><td className="numeric-cell">{stock.costPerBox ? formatCurrency(Number(stock.costPerBox)) : "-"}</td><td className="numeric-cell">{stock.costPerUnit ? formatCurrency(Number(stock.costPerUnit)) : "-"}</td></>}
                     <td>{formatDate(stock.lastMovementAt)}</td>
@@ -2551,7 +2592,7 @@ export function Inventory({
                 );
               }) : (
                 <tr>
-                  <td colSpan={canViewCosts ? 11 : 7} className="empty-table-state">Nenhum item encontrado com os filtros atuais.</td>
+                  <td colSpan={canViewCosts ? 12 : 8} className="empty-table-state">Nenhum item encontrado com os filtros atuais.</td>
                 </tr>
               )}
             </tbody>

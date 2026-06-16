@@ -2180,6 +2180,23 @@ inventoryRouter.get("/stocks", async (request, response) => {
   );
 });
 
+inventoryRouter.patch("/stocks/:productId/min-quantity", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  if (!user) return;
+
+  const { productId } = request.params;
+  const { minQuantity } = request.body as { minQuantity: number | null };
+
+  await prisma.$executeRaw`
+    INSERT INTO "InventoryStock" ("id", "productId", "minQuantity", "updatedAt")
+    VALUES (${crypto.randomUUID()}, ${productId}, ${minQuantity}::numeric, NOW())
+    ON CONFLICT ("productId") DO UPDATE SET "minQuantity" = ${minQuantity}::numeric, "updatedAt" = NOW()
+  `;
+
+  await auditLog({ userId: user.id, action: "UPDATE_STOCK_MIN_QUANTITY", entity: "InventoryStock", entityId: productId, newValue: { minQuantity } });
+  response.json({ ok: true });
+});
+
 inventoryRouter.get("/movements", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
   if (!user) return;

@@ -1093,12 +1093,20 @@ export type InventoryStock = {
   unitCode: string | null;
   sectorName?: string | null;
   currentQuantity: string;
+  minQuantity: string | null;
   averageCost?: string;
   costPerKg?: string | null;
   costPerBox?: string | null;
   costPerUnit?: string | null;
   lastMovementAt: string | null;
 };
+
+export function updateStockMinQuantity(productId: string, minQuantity: number | null) {
+  return request<{ ok: boolean }>(`/inventory/stocks/${productId}/min-quantity`, {
+    method: "PATCH",
+    body: JSON.stringify({ minQuantity }),
+  });
+}
 
 export type InventoryRequisitionItem = {
   id: string;
