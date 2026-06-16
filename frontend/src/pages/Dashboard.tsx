@@ -1,12 +1,27 @@
-import { BadgeDollarSign, FileSpreadsheet, ReceiptText, RefreshCw, TicketPercent, TrendingUp } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  BadgeDollarSign,
+  Info,
+  Minus,
+  RefreshCw,
+  ShoppingCart,
+  TicketPercent,
+  TrendingUp,
+} from "lucide-react";
+import { ReactNode, useEffect, useState } from "react";
 import { DashboardData, getDashboard } from "../api/client";
-import { PeriodFilter } from "../components/PeriodFilter";
-import { EmptyState, SummaryCard } from "../components/ui";
 import { formatCurrency, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 
-const logoPath = "/logo-pateo-luz.png";
+// ─────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────
+
+const MONTHS = [
+  "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+  "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro",
+];
 
 function monthFromPeriod(startDate: string) {
   return startDate.slice(0, 7);
@@ -16,129 +31,214 @@ function periodFromMonth(value: string) {
   const [year, month] = value.split("-").map(Number);
   const start = new Date(year, month - 1, 1);
   const end = new Date(year, month, 0);
-  const format = (date: Date) =>
-    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  return { preset: "currentMonth" as const, startDate: format(start), endDate: format(end) };
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return { preset: "currentMonth" as const, startDate: fmt(start), endDate: fmt(end) };
 }
 
+function safePct(current: number, previous: number): number | null {
+  if (previous === 0 || current === 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+type DeltaTone = "success" | "warning" | "neutral";
+
+function deltaInfo(pct: number | null, higherIsGood: boolean): { text: string; tone: DeltaTone } {
+  if (pct === null) return { text: "Sem comparação disponível", tone: "neutral" };
+  const sign = pct >= 0 ? "+" : "";
+  const tone: DeltaTone =
+    pct === 0 ? "neutral"
+    : higherIsGood ? (pct > 0 ? "success" : "warning")
+    : (pct > 0 ? "warning" : "success");
+  return { text: `${sign}${pct.toFixed(1)}% vs mês anterior`, tone };
+}
+
+// ─────────────────────────────────────────────
+// Main component
+// ─────────────────────────────────────────────
+
 export function Dashboard() {
-  const [period, setPeriod] = useState(currentMonthPeriod());
-  const [competence, setCompetence] = useState(monthFromPeriod(period.startDate));
+  const [competence, setCompetence] = useState(monthFromPeriod(currentMonthPeriod().startDate));
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadDashboard() {
+  async function load(comp = competence) {
     setLoading(true);
     setError(null);
-
     try {
-      const [year, month] = period.startDate.slice(0, 7).split("-");
-      setData(await getDashboard({ year, month, startDate: period.startDate, endDate: period.endDate }));
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Erro ao carregar dashboard.");
+      const [year, month] = comp.split("-");
+      const p = periodFromMonth(comp);
+      setData(await getDashboard({ year, month, startDate: p.startDate, endDate: p.endDate }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao carregar dashboard.");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    loadDashboard();
-  }, []);
+  useEffect(() => { load(); }, []);
 
-  function handlePeriodChange(nextPeriod: ReturnType<typeof currentMonthPeriod>) {
-    setPeriod(nextPeriod);
-    setCompetence(monthFromPeriod(nextPeriod.startDate));
+  function handleMonthChange(value: string) {
+    setCompetence(value);
+    load(value);
   }
+
+  // Derived state
+  const rev = data?.revenue;
+  const hasRevenue = !!rev && rev.grossAmount > 0;
+  const hasPurchases = !!data && data.totalAmount > 0;
+  const noData = !!data && !hasRevenue && !hasPurchases;
+
+  const now = new Date();
+  const isCurrentMonth = competence === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  const purchasePct = data ? safePct(data.totalAmount, data.previousTotalAmount) : null;
+  const purchaseDelta = deltaInfo(purchasePct, false);
+
+  // Operational alerts
+  const alerts: Array<{ tone: "warning" | "info"; text: string }> = [];
+  if (!loading && data) {
+    if (noData) {
+      alerts.push({
+        tone: "info",
+        text: isCurrentMonth
+          ? "Nenhum dado lançado ainda neste mês."
+          : "Nenhum dado encontrado para o período selecionado.",
+      });
+    } else {
+      if (!hasRevenue) {
+        alerts.push({ tone: "warning", text: "Faturamento não lançado neste período — importe os dados de receita." });
+      }
+      if (!hasPurchases) {
+        alerts.push({ tone: "warning", text: "Nenhuma compra registrada neste período." });
+      }
+      if (hasPurchases && data.previousTotalAmount === 0) {
+        alerts.push({ tone: "info", text: "Sem dados do mês anterior — comparação de compras indisponível." });
+      }
+    }
+  }
+
+  const [monthLabel, yearLabel] = competence.split("-");
 
   return (
     <div className="stack">
-      <section className="dashboard-brand panel">
-        <img src={logoPath} alt="Pateo da Luz" />
-        <div>
-          <p>Pateo da Luz</p>
-          <h2>Gestão operacional e compras</h2>
-        </div>
-      </section>
 
-      <section className="panel">
-        <div className="filters-row">
-          <label>
-            Competencia
-            <input
-              type="month"
-              value={competence}
-              onChange={(event) => {
-                const value = event.target.value;
-                setCompetence(value);
-                setPeriod(periodFromMonth(value));
-              }}
-            />
-          </label>
-          <PeriodFilter value={period} onChange={handlePeriodChange} />
-          <button className="primary-button" type="button" onClick={loadDashboard}>
-            <RefreshCw size={18} />
-            Atualizar
+      {/* ── Cabeçalho ── */}
+      <div className="dash-header panel">
+        <div className="dash-header-inner">
+          <div>
+            <p className="dash-header-eyebrow">Competência</p>
+            <div className="dash-period-row">
+              <input
+                type="month"
+                className="dash-month-input"
+                value={competence}
+                onChange={(e) => handleMonthChange(e.target.value)}
+              />
+              <span className="dash-month-label">
+                {MONTHS[Number(monthLabel.split("-")[1] ?? monthLabel) - 1] ?? MONTHS[Number(monthLabel) - 1]} {yearLabel ?? monthLabel.split("-")[0]}
+                {isCurrentMonth && <span className="dash-live-badge">Em andamento</span>}
+              </span>
+            </div>
+          </div>
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => load()}
+            title="Atualizar"
+            disabled={loading}
+          >
+            <RefreshCw size={16} className={loading ? "spin" : ""} />
           </button>
         </div>
-      </section>
+      </div>
 
       {error && <div className="alert error">{error}</div>}
-      {loading && <EmptyState title="Carregando dashboard..." description="Buscando indicadores do periodo selecionado." />}
+
+      {/* ── Alertas ── */}
+      {alerts.length > 0 && (
+        <div className="dash-alerts">
+          {alerts.map((a, i) => (
+            <div key={i} className={`alert ${a.tone}`} style={{ marginTop: 0 }}>
+              <span className="alert-icon"><Info size={15} /></span>
+              <span>{a.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Skeleton enquanto carrega ── */}
+      {loading && (
+        <div className="dash-skeleton-wrap">
+          <div className="dash-kpi-grid">
+            {[1,2,3,4].map((i) => <div key={i} className="dash-skeleton" style={{ height: 120 }} />)}
+          </div>
+          <div className="dashboard-grid">
+            {[1,2,3].map((i) => <div key={i} className="dash-skeleton" style={{ height: 280 }} />)}
+          </div>
+        </div>
+      )}
 
       {data && !loading && (
         <>
-          <div className="summary-grid dashboard-summary">
-            <SummaryCard
-              label="Faturamento bruto"
-              value={formatCurrency(data.revenue?.grossAmount ?? 0)}
-              detail={`${formatNumber(data.revenue?.count ?? 0)} lancamentos`}
-              tone="success"
-              icon={<BadgeDollarSign size={20} />}
+          {/* ── KPIs ── */}
+          <div className="dash-kpi-grid">
+            <KpiCard
+              label="Faturamento Bruto"
+              value={hasRevenue ? formatCurrency(rev!.grossAmount) : "—"}
+              sub={hasRevenue
+                ? `${formatNumber(rev!.count)} lançamento${rev!.count !== 1 ? "s" : ""}`
+                : "Sem dados lançados"}
+              tone={hasRevenue ? "success" : "neutral"}
+              icon={<BadgeDollarSign size={18} />}
             />
-            <SummaryCard
-              label="Compras do periodo"
-              value={formatCurrency(data.totalAmount)}
-              detail={`Anterior: ${formatCurrency(data.previousTotalAmount)}`}
-              icon={<ReceiptText size={20} />}
+            <KpiCard
+              label="Faturamento Líquido"
+              value={hasRevenue ? formatCurrency(rev!.netAmount) : "—"}
+              sub={hasRevenue ? `Serviço: ${formatCurrency(rev!.serviceAmount)}` : "Sem dados lançados"}
+              tone={hasRevenue ? "info" : "neutral"}
+              icon={<TrendingUp size={18} />}
             />
-            <SummaryCard
-              label="Faturamento liquido"
-              value={formatCurrency(data.revenue?.netAmount ?? 0)}
-              detail={`Servico: ${formatCurrency(data.revenue?.serviceAmount ?? 0)}`}
-              tone="info"
-              icon={<TrendingUp size={20} />}
+            <KpiCard
+              label="Compras do Período"
+              value={hasPurchases ? formatCurrency(data.totalAmount) : "—"}
+              sub={
+                hasPurchases && data.previousTotalAmount > 0
+                  ? `Anterior: ${formatCurrency(data.previousTotalAmount)}`
+                  : hasPurchases
+                  ? "Sem dados do mês anterior"
+                  : "Sem compras lançadas"
+              }
+              tone="neutral"
+              icon={<ShoppingCart size={18} />}
+              delta={hasPurchases && data.previousTotalAmount > 0 ? purchaseDelta : undefined}
             />
-            <SummaryCard
-              label="Tickets"
-              value={formatNumber(data.revenue?.tickets ?? 0)}
-              detail={`Ticket medio: ${formatCurrency(data.revenue?.ticketAverageGeneral ?? 0)}`}
-              icon={<TicketPercent size={20} />}
-            />
-            <SummaryCard
-              label="Variacao em R$"
-              value={formatCurrency(data.comparisonAmount)}
-              detail="Compras contra mes anterior"
-              tone={data.comparisonAmount > 0 ? "warning" : "success"}
-              icon={<FileSpreadsheet size={20} />}
-            />
-            <SummaryCard
-              label="Variacao percentual"
-              value={data.comparisonPercent === null ? "-" : `${formatNumber(data.comparisonPercent.toFixed(2))}%`}
-              detail="Compras contra mes anterior"
-              tone={data.comparisonPercent && data.comparisonPercent > 0 ? "warning" : "success"}
-              icon={<TrendingUp size={20} />}
+            <KpiCard
+              label="Ticket Médio"
+              value={hasRevenue && rev!.tickets > 0 ? formatCurrency(rev!.ticketAverageGeneral) : "—"}
+              sub={hasRevenue ? `${formatNumber(rev!.tickets)} ticket${rev!.tickets !== 1 ? "s" : ""}` : "Sem dados"}
+              tone="neutral"
+              icon={<TicketPercent size={18} />}
             />
           </div>
+
+          {/* ── Rankings ── */}
           <div className="dashboard-grid">
-            <Ranking title="Por categoria" rows={data.byCategory} />
-            <Ranking title="Por fornecedor" rows={data.bySupplier} />
-            <Ranking
-              title="Ranking de produtos"
-              rows={data.byProduct.map((item) => ({
-                name: item.name,
-                total: item.total,
-                detail: `${formatNumber(item.quantity)} un.`
+            <RankingPanel
+              title="Por Categoria"
+              rows={[...data.byCategory].sort((a, b) => b.total - a.total).slice(0, 10)}
+            />
+            <RankingPanel
+              title="Por Fornecedor"
+              rows={[...data.bySupplier].sort((a, b) => b.total - a.total).slice(0, 10)}
+            />
+            <RankingPanel
+              title="Por Produto"
+              rows={[...data.byProduct].sort((a, b) => b.total - a.total).slice(0, 10).map((p) => ({
+                name: p.name,
+                total: p.total,
+                sub: `${formatNumber(p.quantity)} un.`,
               }))}
             />
           </div>
@@ -148,28 +248,78 @@ export function Dashboard() {
   );
 }
 
-function Ranking({
-  title,
-  rows
+// ─────────────────────────────────────────────
+// KPI Card
+// ─────────────────────────────────────────────
+
+function KpiCard({
+  label, value, sub, tone = "neutral", icon, delta,
 }: {
-  title: string;
-  rows: Array<{ name: string; total: number; detail?: string }>;
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: "success" | "warning" | "danger" | "info" | "neutral";
+  icon?: ReactNode;
+  delta?: { text: string; tone: DeltaTone };
 }) {
   return (
-    <section className="panel">
-      <h2>{title}</h2>
-      <div className="ranking-list">
-        {rows.map((row) => (
-          <div key={row.name}>
-            <span>
-              {row.name}
-              {row.detail ? <small>{row.detail}</small> : null}
-            </span>
-            <strong>{formatCurrency(row.total)}</strong>
+    <article className={`dash-kpi-card summary-card tone-${tone}`}>
+      <div>
+        <span className="dash-kpi-label">{label}</span>
+        <strong className="dash-kpi-value">{value}</strong>
+        {sub && <small className="muted-inline">{sub}</small>}
+        {delta && (
+          <div className={`dash-delta dash-delta-${delta.tone}`}>
+            {delta.tone === "success" ? <ArrowDown size={11} /> : delta.tone === "warning" ? <ArrowUp size={11} /> : <Minus size={11} />}
+            <span>{delta.text}</span>
           </div>
-        ))}
-        {rows.length === 0 && <EmptyState title="Nenhum dado no periodo." description="Ajuste o filtro ou importe dados para este periodo." />}
+        )}
       </div>
+      {icon && <div className="summary-card-icon">{icon}</div>}
+    </article>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Ranking Panel
+// ─────────────────────────────────────────────
+
+function RankingPanel({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Array<{ name: string; total: number; sub?: string }>;
+}) {
+  const grandTotal = rows.reduce((s, r) => s + r.total, 0);
+
+  return (
+    <section className="panel">
+      <h3 className="dash-ranking-title">{title}</h3>
+      {rows.length === 0 ? (
+        <p className="dash-ranking-empty">Nenhum dado no período.</p>
+      ) : (
+        <ol className="dash-ranking-list">
+          {rows.map((row, i) => {
+            const pct = grandTotal > 0 ? (row.total / grandTotal) * 100 : 0;
+            return (
+              <li key={row.name} className="dash-ranking-row">
+                <span className="dash-ranking-pos">{i + 1}</span>
+                <div className="dash-ranking-body">
+                  <div className="dash-ranking-top-row">
+                    <span className="dash-ranking-name">{row.name}</span>
+                    <strong className="dash-ranking-value">{formatCurrency(row.total)}</strong>
+                  </div>
+                  <div className="dash-ranking-bar-wrap">
+                    <div className="dash-ranking-bar" style={{ width: `${Math.max(pct, 2)}%` }} />
+                    <span className="dash-ranking-pct">{pct.toFixed(1)}%{row.sub ? ` · ${row.sub}` : ""}</span>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </section>
   );
 }
