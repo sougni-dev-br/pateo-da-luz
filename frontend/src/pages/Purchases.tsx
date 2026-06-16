@@ -33,6 +33,7 @@ import {
   updatePurchase
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
+import { StatusBadge } from "../components/ui/StatusBadge";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { hasPermission } from "../lib/permissions";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
@@ -1079,7 +1080,7 @@ export function Purchases({ user }: { user: AppUser }) {
   ]);
 
   const paymentPreviewMessage = selectedPaymentMethodAllowsInstallments
-    ? `Fluxo parcelado para ${selectedPaymentMethodBaseName || "a forma escolhida"} com primeiro vencimento sugerido em ${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}.`
+    ? `Fluxo parcelado para ${selectedPaymentMethodBaseName || "a forma escolhida"} com primeiro vencimento sugerido em ${new Date(`${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}T12:00:00`).toLocaleDateString("pt-BR")}.`
     : "Pagamento em parcela única para a forma selecionada.";
 
   return (
@@ -1265,12 +1266,12 @@ export function Purchases({ user }: { user: AppUser }) {
                       <small>{formatDate(purchase.purchaseDate)} • {String(purchase.competenceMonth).padStart(2, "0")}/{purchase.competenceYear}</small>
                     </td>
                     <td className="purchase-supplier-cell" title={purchase.supplier.name}>
-                      <strong>{purchase.supplier.name}</strong>
+                      <strong className="truncate-cell">{purchase.supplier.name}</strong>
                       <small>{purchase.supplier.document ?? purchase.rawSupplierCode ?? "Sem documento"}</small>
                     </td>
                     <td className="purchase-items-summary">
                       <strong>{purchase.items.length} item(ns)</strong>
-                      <small title={purchase.items.map((item) => item.rawProductName).join(", ")}>
+                      <small className="truncate-cell" title={purchase.items.map((item) => item.rawProductName).join(", ")}>
                         {purchase.items[0]?.rawProductCode ? `${purchase.items[0].rawProductCode} • ` : ""}
                         {purchase.items[0]?.rawProductName ?? "-"}
                         {purchase.items.length > 1 ? ` +${purchase.items.length - 1}` : ""}
@@ -1720,7 +1721,7 @@ export function Purchases({ user }: { user: AppUser }) {
                   </label>
                   <label>
                     Vencimento inicial
-                    <input className="locked-field" value={addDaysToInputDate(form.purchaseDate, installmentLeadDays)} disabled />
+                    <input className="locked-field" value={new Date(`${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}T12:00:00`).toLocaleDateString("pt-BR")} disabled />
                   </label>
                   <label>
                     Observações financeiras
@@ -1740,7 +1741,9 @@ export function Purchases({ user }: { user: AppUser }) {
                   <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}>
                     <span>Diferença</span>
                     <strong>{formatCurrency(amountDifference)}</strong>
-                    <small className="muted-inline">{Math.round(amountDifference * 100) === 0 ? "Conferido" : "Ajuste antes de salvar"}</small>
+                    <StatusBadge tone={Math.round(amountDifference * 100) === 0 ? "success" : "danger"}>
+                      {Math.round(amountDifference * 100) === 0 ? "Conferido" : "Divergência"}
+                    </StatusBadge>
                   </article>
                 </div>
 
@@ -1785,7 +1788,13 @@ export function Purchases({ user }: { user: AppUser }) {
               <div className="purchase-sidebar-block purchase-sidebar-metrics">
                 <article><span>Total dos produtos</span><strong>{formatCurrency(totalAmount)}</strong></article>
                 <article><span>Total das parcelas</span><strong>{formatCurrency(installmentTotal)}</strong></article>
-                <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}><span>Diferença</span><strong>{formatCurrency(amountDifference)}</strong></article>
+                <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}>
+                  <span>Diferença</span>
+                  <strong>{formatCurrency(amountDifference)}</strong>
+                  <StatusBadge tone={Math.round(amountDifference * 100) === 0 ? "success" : "danger"}>
+                    {Math.round(amountDifference * 100) === 0 ? "Conferido" : "Divergência"}
+                  </StatusBadge>
+                </article>
                 <article><span>Itens</span><strong>{items.filter((item) => item.productId).length}</strong></article>
               </div>
 
@@ -1831,7 +1840,13 @@ export function Purchases({ user }: { user: AppUser }) {
             <div className="purchase-footer">
               <article><span>Total da compra</span><strong>{formatCurrency(totalAmount)}</strong></article>
               <article><span>Total das parcelas</span><strong>{formatCurrency(installmentTotal)}</strong></article>
-              <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}><span>Diferença</span><strong>{formatCurrency(amountDifference)}</strong></article>
+              <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}>
+                <span>Diferença</span>
+                <strong>{formatCurrency(amountDifference)}</strong>
+                <StatusBadge tone={Math.round(amountDifference * 100) === 0 ? "success" : "danger"}>
+                  {Math.round(amountDifference * 100) === 0 ? "Conferido" : "Divergência"}
+                </StatusBadge>
+              </article>
             </div>
 
             <div className="form-actions">
