@@ -2912,20 +2912,92 @@ export function searchDishProducts(search: string) {
   return request<DishProductSearchResult[]>(`/dishes/products/search${toQueryString({ search })}`);
 }
 
-  items: Array<{
-    id: string;
-    productId: string;
-    productCode: string | null;
-    productName: string;
-    rawProductCode: string | null;
-    rawProductName: string;
-    categoryName: string | null;
-    subcategoryName: string | null;
-    unit: string | null;
-    unitMeasureId?: string | null;
-    quantity: string;
-    unitPrice: string;
-    totalPrice: string;
-    rawCategory: string | null;
-    rawSubcategory: string | null;
-  }>;
+// ──────────────────────────────────────────────
+// DRE Gerencial
+// ──────────────────────────────────────────────
+
+export type DRECategory = {
+  id: string;
+  name: string;
+  dreGroup: string;
+  sortOrder: number;
+  isActive: boolean;
+  notes: string | null;
+};
+
+export type DREExpenseLine = {
+  dreCategoryId: string | null;
+  dreCategoryName: string;
+  sortOrder: number;
+  total: number;
+  count: number;
+};
+
+export function getDRESummary(year: number, month: number) {
+  return request<{ current: DRESummary; prevMonth: DRESummary | null; prevYear: DRESummary | null }>(
+    `/dre/summary${toQueryString({ year: String(year), month: String(month) })}`
+  );
+}
+
+export function getDRECategories(all = false) {
+  return request<DRECategory[]>(all ? "/dre/categories/all" : "/dre/categories");
+}
+
+export function saveDRECategory(payload: Partial<DRECategory> & { name: string }) {
+  return request<DRECategory>(
+    payload.id ? `/dre/categories/${payload.id}` : "/dre/categories",
+    { method: payload.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+}
+
+export function getDREDrill(params: { year: number; month: number; dreCategoryId?: string | null }) {
+  const qs: Record<string, string> = { year: String(params.year), month: String(params.month) };
+  if (params.dreCategoryId) qs.dreCategoryId = params.dreCategoryId;
+  return request<Array<{
+    installmentId: string; purchaseId: string; purchaseDate: string;
+    supplierName: string; invoiceNumber: string | null; purchaseNumber: string | null;
+    expenseType: string; installment: number | null;
+    dueDate: string | null; paidDate: string | null;
+    amount: number; paidAmount: number | null; effectiveAmount: number;
+    status: string; dreCategoryId: string | null; dreCategoryName: string;
+  }>>(`/dre/expense-drill${toQueryString(qs)}`);
+}
+
+export function assignDRECategory(installmentId: string, dreCategoryId: string | null) {
+  return request<{ ok: boolean }>(`/dre/installment/${installmentId}/category`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dreCategoryId })
+  });
+}
+
+export function downloadDrePdf(year: number, month: number) {
+  return download(`/dre/export/pdf${toQueryString({ year: String(year), month: String(month) })}`, `dre-${year}-${String(month).padStart(2, "0")}.pdf`);
+}
+
+export type DRESummary = {
+  period: { from: string; to: string };
+  revenue: {
+    byChannel: Record<string, number>;
+    grossAmount: number;
+    discounts: number;
+    platformFees: number;
+    deductions: number;
+    netAmount: number;
+    serviceAmount: number;
+    tickets: number;
+  };
+  cmv: {
+    estoqueInicial: number;
+    compras: number;
+    estoqueFinal: number;
+    cmvReal: number;
+    cmvPercent: number | null;
+  };
+  lucroBruto: number;
+  margemBruta: number | null;
+  expenses: DREExpenseLine[];
+  totalExpenses: number;
+  ebitda: number;
+  ebitdaPercent: number | null;
+};
