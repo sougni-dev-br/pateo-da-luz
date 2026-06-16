@@ -119,7 +119,7 @@ export function Dashboard() {
     }
   }
 
-  const [monthLabel, yearLabel] = competence.split("-");
+  const [yearPart, monthPart] = competence.split("-");
 
   return (
     <div className="stack">
@@ -137,7 +137,7 @@ export function Dashboard() {
                 onChange={(e) => handleMonthChange(e.target.value)}
               />
               <span className="dash-month-label">
-                {MONTHS[Number(monthLabel.split("-")[1] ?? monthLabel) - 1] ?? MONTHS[Number(monthLabel) - 1]} {yearLabel ?? monthLabel.split("-")[0]}
+                {MONTHS[Number(monthPart) - 1]} {yearPart}
                 {isCurrentMonth && <span className="dash-live-badge">Em andamento</span>}
               </span>
             </div>
