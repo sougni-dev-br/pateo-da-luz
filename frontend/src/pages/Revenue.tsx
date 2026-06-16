@@ -1,6 +1,6 @@
-import { BadgeDollarSign, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { BadgeDollarSign, CalendarPlus, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AppUser, cancelRevenueEntry, getCmvPeriods, getRevenue, RevenueEntry, RevenueSummary } from "../api/client";
+import { AppUser, cancelRevenueEntry, getCmvPeriods, getRevenue, RevenueEntry, RevenueSummary, saveRevenueEntry } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { hasPermission } from "../lib/permissions";
 import { PeriodFilter } from "../components/PeriodFilter";
@@ -9,6 +9,32 @@ import { formatCurrency, formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod, periodForPreset, type PeriodState } from "../utils/period";
 
 const channels = ["Salão", "Delivery", "Eventos / Empreitada", "Outros"];
+
+const EVENT_CHANNEL = "Eventos / Empreitada";
+
+const eventTypes = [
+  "Evento — Centro de Convenções",
+  "Reserva de grupo",
+  "Empreitada",
+  "Outros"
+] as const;
+
+const eventPaymentMethods = ["PIX", "Transferência bancária", "Dinheiro", "Boleto", "A receber", "Outro"];
+
+function todayInputDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+const emptyEventForm = {
+  date: todayInputDate(),
+  description: "",
+  eventType: eventTypes[0] as string,
+  grossAmount: "",
+  includeService: false,
+  tickets: "",
+  paymentMethod: "",
+  notes: ""
+};
 
 function currentMonth() {
   const date = new Date();
@@ -184,11 +210,15 @@ type RevenueProps = {
 
 export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
   const canEdit = hasPermission(user, "revenue", "edit");
+  const canLaunchEvent = hasPermission(user, "revenue", "approve");
   const [month, setMonth] = useState(currentMonth());
   const [period, setPeriod] = useState(currentMonthPeriod());
   const [channelFilter, setChannelFilter] = useState("");
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<RevenueSummary | null>(null);
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [eventForm, setEventForm] = useState(emptyEventForm);
+  const [savingEvent, setSavingEvent] = useState(false);
   const { notice, setNotice } = useNotice();
   const loadControllerRef = useRef<AbortController | null>(null);
   const autoLoadedInitialMonthRef = useRef(false);
@@ -259,6 +289,49 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
       await load({ allowAutoFallback: false });
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao cancelar faturamento." });
+    }
+  }
+
+  const eventGross = Number(eventForm.grossAmount || 0);
+  const eventService = eventForm.includeService ? Number((eventGross * 0.1).toFixed(2)) : 0;
+  const eventNet = Number((eventGross - eventService).toFixed(2));
+  const eventTicketAverage = eventForm.tickets && Number(eventForm.tickets) > 0
+    ? Number((eventNet / Number(eventForm.tickets)).toFixed(2))
+    : null;
+
+  async function handleSaveEvent() {
+    if (!eventForm.date || !eventForm.description.trim() || !eventForm.grossAmount || eventGross <= 0) {
+      setNotice({ tone: "error", message: "Preencha data, descrição e valor bruto do evento." });
+      return;
+    }
+    const [year, month] = eventForm.date.split("-").map(Number);
+    setSavingEvent(true);
+    try {
+      await saveRevenueEntry({
+        date: eventForm.date,
+        competenceYear: year,
+        competenceMonth: month,
+        channel: EVENT_CHANNEL,
+        sourcePlatform: eventForm.eventType,
+        description: eventForm.description.trim(),
+        grossAmount: eventGross,
+        discounts: 0,
+        platformFees: 0,
+        serviceAmount: eventService,
+        netAmount: eventNet,
+        tickets: eventForm.tickets ? Number(eventForm.tickets) : 0,
+        ticketAverage: eventTicketAverage,
+        paymentMethod: eventForm.paymentMethod || null,
+        notes: eventForm.notes.trim() || null
+      });
+      setNotice({ tone: "success", message: "Evento lançado com sucesso." });
+      setShowEventModal(false);
+      setEventForm(emptyEventForm);
+      await load({ allowAutoFallback: false });
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao lançar evento." });
+    } finally {
+      setSavingEvent(false);
     }
   }
 
@@ -411,7 +484,9 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
   }, [summary]);
 
   const dailyRows = dailyAnalytics;
-  const entries = summary?.entries ?? [];
+  const entries = (summary?.entries ?? []).filter(
+    (entry) => canLaunchEvent || entry.channel !== EVENT_CHANNEL
+  );
   const firstShiftShare = percent(summaryData?.salesFirstShift ?? 0, summaryData?.grossAmount ?? 0);
   const secondShiftShare = percent(summaryData?.salesSecondShift ?? 0, summaryData?.grossAmount ?? 0);
   const serviceShare = percent(summaryData?.serviceAmount ?? 0, summaryData?.grossAmount ?? 0);
@@ -427,6 +502,11 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
             <h2>Faturamento</h2>
           </div>
           <div className="actions-cell revenue-header-actions">
+            {canLaunchEvent && (
+              <button className="secondary-button" type="button" onClick={() => setShowEventModal(true)}>
+                <CalendarPlus size={16} /> Lançar evento
+              </button>
+            )}
             {canEdit && (
               <button className="primary-button" type="button" onClick={() => onOpenCash?.()}>
                 <BadgeDollarSign size={16} /> Caixa
@@ -728,14 +808,18 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                     <td>{formatCurrency(Number(entry.accumulatedAmount ?? 0))}</td>
                     <td><StatusBadge status={entry.status} /></td>
                     <td>
-                      {canEdit && entry.status !== "CANCELLED" ? (
+                      {entry.status !== "CANCELLED" && (canEdit || canLaunchEvent) ? (
                         <div className="actions-cell">
-                          <button className="secondary-button compact-action-button" type="button" onClick={() => onOpenCash?.(entry.id)}>
-                            <Pencil size={15} /> Editar
-                          </button>
-                          <button className="danger-button compact-action-button" type="button" onClick={() => handleCancel(entry)}>
-                            <Trash2 size={15} /> Cancelar
-                          </button>
+                          {canEdit && entry.channel !== EVENT_CHANNEL && (
+                            <button className="secondary-button compact-action-button" type="button" onClick={() => onOpenCash?.(entry.id)}>
+                              <Pencil size={15} /> Editar
+                            </button>
+                          )}
+                          {(canEdit || (canLaunchEvent && entry.channel === EVENT_CHANNEL)) && (
+                            <button className="danger-button compact-action-button" type="button" onClick={() => handleCancel(entry)}>
+                              <Trash2 size={15} /> Cancelar
+                            </button>
+                          )}
                         </div>
                       ) : (
                         "-"
@@ -753,7 +837,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
               <RevenueEntryMobileCard
                 key={`${entry.id}-mobile`}
                 entry={entry}
-                canEdit={canEdit}
+                canEdit={canEdit && entry.channel !== EVENT_CHANNEL}
                 onEdit={(entryId) => onOpenCash?.(entryId)}
                 onCancel={handleCancel}
               />
@@ -762,6 +846,148 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
           </div>
         </div>
       </section>
+
+      {showEventModal && (
+        <div className="modal-backdrop">
+          <section className="panel modal-panel">
+            <div className="section-heading">
+              <div>
+                <p>Gerência</p>
+                <h2>Lançar evento / empreitada</h2>
+              </div>
+              <button className="secondary-button" type="button" onClick={() => { setShowEventModal(false); setEventForm(emptyEventForm); }}>
+                Fechar
+              </button>
+            </div>
+
+            <div className="form-grid">
+              <label>
+                Data do evento
+                <input
+                  type="date"
+                  value={eventForm.date}
+                  onChange={(event) => setEventForm({ ...eventForm, date: event.target.value })}
+                />
+              </label>
+
+              <label>
+                Tipo de evento
+                <select
+                  value={eventForm.eventType}
+                  onChange={(event) => setEventForm({ ...eventForm, eventType: event.target.value })}
+                >
+                  {eventTypes.map((type) => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="full-width">
+                Descrição / Nome do evento
+                <input
+                  autoFocus
+                  placeholder="Ex.: Casamento Silva — Salão A, Centro de Convenções..."
+                  value={eventForm.description}
+                  onChange={(event) => setEventForm({ ...eventForm, description: event.target.value })}
+                />
+              </label>
+
+              <label>
+                Valor bruto (R$)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0,00"
+                  value={eventForm.grossAmount}
+                  onChange={(event) => setEventForm({ ...eventForm, grossAmount: event.target.value })}
+                />
+              </label>
+
+              <label>
+                Número de pessoas
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="0"
+                  value={eventForm.tickets}
+                  onChange={(event) => setEventForm({ ...eventForm, tickets: event.target.value })}
+                />
+              </label>
+
+              <label>
+                Forma de recebimento
+                <select
+                  value={eventForm.paymentMethod}
+                  onChange={(event) => setEventForm({ ...eventForm, paymentMethod: event.target.value })}
+                >
+                  <option value="">Não informado</option>
+                  {eventPaymentMethods.map((method) => (
+                    <option key={method} value={method}>{method}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="checkbox-label full-width">
+                <input
+                  type="checkbox"
+                  checked={eventForm.includeService}
+                  onChange={(event) => setEventForm({ ...eventForm, includeService: event.target.checked })}
+                />
+                Cobrar taxa de serviço (10%)
+              </label>
+
+              {eventGross > 0 && (
+                <div className="summary-grid event-launch-preview">
+                  <article>
+                    <span>Valor bruto</span>
+                    <strong>{formatCurrency(eventGross)}</strong>
+                  </article>
+                  <article>
+                    <span>Taxa de serviço</span>
+                    <strong>{formatCurrency(eventService)}</strong>
+                  </article>
+                  <article>
+                    <span>Valor líquido</span>
+                    <strong>{formatCurrency(eventNet)}</strong>
+                  </article>
+                  {eventTicketAverage !== null && Number(eventForm.tickets) > 0 && (
+                    <article>
+                      <span>Ticket médio</span>
+                      <strong>{formatCurrency(eventTicketAverage)}</strong>
+                    </article>
+                  )}
+                </div>
+              )}
+
+              <label className="full-width">
+                Observações internas
+                <textarea
+                  rows={2}
+                  placeholder="Informações adicionais — visível apenas à gerência"
+                  value={eventForm.notes}
+                  onChange={(event) => setEventForm({ ...eventForm, notes: event.target.value })}
+                />
+              </label>
+            </div>
+
+            <div className="modal-actions">
+              <button className="secondary-button" type="button" onClick={() => { setShowEventModal(false); setEventForm(emptyEventForm); }}>
+                Cancelar
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={savingEvent || !eventForm.date || !eventForm.description.trim() || eventGross <= 0}
+                onClick={handleSaveEvent}
+              >
+                {savingEvent ? "Salvando..." : "Confirmar lançamento"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

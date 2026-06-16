@@ -2818,6 +2818,100 @@ export function setSmallExpenseTypeStatus(id: string, isActive: boolean) {
     body: JSON.stringify({ isActive })
   });
 }
+
+// ──────────────────────────────────────────────
+// Dishes / Fichas Técnicas
+// ──────────────────────────────────────────────
+
+export type DishCategory = {
+  id: string;
+  name: string;
+  sortOrder: number;
+  isActive: boolean;
+  notes: string | null;
+};
+
+export type DishIngredient = {
+  id: string;
+  productId: string;
+  productCode: string | null;
+  productName: string;
+  productUnit: string | null;
+  quantity: number;
+  unit: string;
+  wasteFactor: number;
+  unitCost: number;
+  itemCost: number;
+  notes: string | null;
+  sortOrder: number;
+};
+
+export type DishListItem = {
+  id: string;
+  code: string | null;
+  name: string;
+  category: { id: string; name: string } | null;
+  salePriceDefault: number | null;
+  yieldQty: number;
+  yieldUnit: string;
+  isActive: boolean;
+  itemsCount: number;
+  calculatedCost: number;
+  margemBruta: number | null;
+  cmvPercentual: number | null;
+};
+
+export type DishDetail = DishListItem & {
+  notes: string | null;
+  items: DishIngredient[];
+};
+
+export function getDishCategories() {
+  return request<DishCategory[]>("/dishes/categories");
+}
+
+export function saveDishCategory(payload: Partial<DishCategory> & { name: string }) {
+  return request<DishCategory>(
+    payload.id ? `/dishes/categories/${payload.id}` : "/dishes/categories",
+    { method: payload.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+}
+
+export function getDishes(params: { search?: string; categoryId?: string; showInactive?: boolean } = {}) {
+  return request<DishListItem[]>(`/dishes${toQueryString({
+    search: params.search,
+    categoryId: params.categoryId,
+    showInactive: params.showInactive ? "true" : undefined
+  })}`);
+}
+
+export function getDishDetail(id: string) {
+  return request<DishDetail>(`/dishes/${id}`);
+}
+
+export function saveDish(payload: Record<string, unknown>) {
+  return request<{ id: string }>(
+    payload.id ? `/dishes/${payload.id}` : "/dishes",
+    { method: payload.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+}
+
+export function deactivateDish(id: string) {
+  return request<{ ok: boolean }>(`/dishes/${id}`, { method: "DELETE" });
+}
+
+export type DishProductSearchResult = {
+  id: string;
+  externalCode: string | null;
+  name: string;
+  unit: string | null;
+  averageCost: number;
+};
+
+export function searchDishProducts(search: string) {
+  return request<DishProductSearchResult[]>(`/dishes/products/search${toQueryString({ search })}`);
+}
+
   items: Array<{
     id: string;
     productId: string;
