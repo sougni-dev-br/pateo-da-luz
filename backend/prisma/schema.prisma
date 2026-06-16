@@ -176,6 +176,7 @@ model User {
   lastLoginAt  DateTime?
   sessions     UserSession[]
   menuPermissions UserMenuPermission[]
+  menuFavorites UserMenuFavorite[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -235,6 +236,19 @@ model UserSession {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+model UserMenuFavorite {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  menuKey   String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, menuKey])
+  @@index([userId])
 }
 
 model AuditLog {

@@ -16,6 +16,7 @@ import {
   ReceiptText,
   ScrollText,
   Shield,
+  Star,
   Truck,
   WalletCards,
   Warehouse,
@@ -25,7 +26,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { PanInfo } from "framer-motion";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, matchPath, useLocation, useNavigate, useParams } from "react-router-dom";
-import { AppUser, getMe, logout, type PermissionAction } from "./api/client";
+import { AppUser, addMenuFavorite, getMe, getMenuFavorites, logout, removeMenuFavorite, type PermissionAction } from "./api/client";
 import { PageHeader } from "./components/ui";
 import { SessionContext } from "./context/SessionContext";
 import { canAccessModule, hasPermission as userHasPermission } from "./lib/permissions";
@@ -156,6 +157,7 @@ export function App() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hideSensitiveValues, setHideSensitiveValues] = useState(() => window.localStorage.getItem("hideSensitiveValues") === "true");
+  const [favorites, setFavorites] = useState<string[]>([]);
   const contentRef = useRef<HTMLElement | null>(null);
 
   const toggleSensitiveValues = () => {
@@ -193,7 +195,10 @@ export function App() {
 
   useEffect(() => {
     getMe()
-      .then(setUser)
+      .then((me) => {
+        setUser(me);
+        return getMenuFavorites().then(setFavorites).catch(() => undefined);
+      })
       .catch(() => setUser(null))
       .finally(() => setCheckingSession(false));
   }, []);
@@ -225,6 +230,21 @@ export function App() {
     });
   }
 
+  function toggleFavorite(sectionId: SectionId) {
+    const isFav = favorites.includes(sectionId);
+    if (isFav) {
+      setFavorites((prev) => prev.filter((k) => k !== sectionId));
+      removeMenuFavorite(sectionId).catch(() => {
+        setFavorites((prev) => (prev.includes(sectionId) ? prev : [...prev, sectionId]));
+      });
+    } else {
+      setFavorites((prev) => [...prev, sectionId]);
+      addMenuFavorite(sectionId).catch(() => {
+        setFavorites((prev) => prev.filter((k) => k !== sectionId));
+      });
+    }
+  }
+
   function handleNavigate(sectionId: SectionId) {
     const section = sections.find((entry) => entry.id === sectionId);
     if (!section) return;
@@ -237,28 +257,50 @@ export function App() {
     if (info.offset.x < -80 || info.velocity.x < -450) setMobileMenuOpen(false);
   }
 
+  function renderNavItem(section: (typeof sections)[number], onSelect: (sectionId: SectionId) => void) {
+    const Icon = section.icon;
+    const isFav = favorites.includes(section.id);
+    return (
+      <div className="nav-item-wrap" key={section.id}>
+        <button
+          className={effectiveSection.id === section.id ? "active" : ""}
+          type="button"
+          title={section.label}
+          aria-current={effectiveSection.id === section.id ? "page" : undefined}
+          onClick={() => onSelect(section.id)}
+        >
+          <Icon size={18} />
+          <span>{section.label}</span>
+        </button>
+        <button
+          className={`nav-star${isFav ? " nav-star-active" : ""}`}
+          type="button"
+          title={isFav ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleFavorite(section.id);
+          }}
+        >
+          <Star size={13} fill={isFav ? "currentColor" : "none"} />
+        </button>
+      </div>
+    );
+  }
+
   function renderNavigation(onSelect: (sectionId: SectionId) => void) {
+    const favSections = visibleSections.filter((s) => favorites.includes(s.id));
     return (
       <nav>
+        {favSections.length > 0 && (
+          <div className="nav-group" key="__favoritos">
+            <span>Favoritos</span>
+            {favSections.map((section) => renderNavItem(section, onSelect))}
+          </div>
+        )}
         {groupedSections.map((group) => (
           <div className="nav-group" key={group.group}>
             <span>{group.group}</span>
-            {group.items.map((section) => {
-              const Icon = section.icon;
-              return (
-                <button
-                  className={effectiveSection.id === section.id ? "active" : ""}
-                  key={section.id}
-                  type="button"
-                  title={section.label}
-                  aria-current={effectiveSection.id === section.id ? "page" : undefined}
-                  onClick={() => onSelect(section.id)}
-                >
-                  <Icon size={18} />
-                  <span>{section.label}</span>
-                </button>
-              );
-            })}
+            {group.items.map((section) => renderNavItem(section, onSelect))}
           </div>
         ))}
       </nav>
