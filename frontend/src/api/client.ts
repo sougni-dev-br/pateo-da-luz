@@ -3065,6 +3065,28 @@ export function downloadDrePdf(year: number, month: number) {
   return download(`/dre/export/pdf${toQueryString({ year: String(year), month: String(month) })}`, `dre-${year}-${String(month).padStart(2, "0")}.pdf`);
 }
 
+export function getMenuFavorites() {
+  return request<string[]>("/auth/menu-favorites");
+}
+
+export function addMenuFavorite(menuKey: string) {
+  return request<{ ok: boolean }>(`/auth/menu-favorites/${encodeURIComponent(menuKey)}`, { method: "POST" });
+}
+
+export function removeMenuFavorite(menuKey: string) {
+  return request<{ ok: boolean }>(`/auth/menu-favorites/${encodeURIComponent(menuKey)}`, {
+    method: "DELETE"
+  });
+}
+
+export function updateMenuFavoritesOrder(menuKeys: string[]) {
+  return request<{ ok: boolean }>("/auth/menu-favorites/order", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ menuKeys })
+  });
+}
+
 export type DRESummary = {
   period: { from: string; to: string };
   revenue: {

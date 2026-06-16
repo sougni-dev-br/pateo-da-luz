@@ -12,6 +12,7 @@ import {
   getUserMenuOverrides,
   getUserModuleOverrides,
   hasModulePermission,
+  isMenuId,
   menuCatalog,
   normalizePermission,
   permissionActions,
@@ -446,6 +447,102 @@ authRouter.delete("/sessions/:userId", async (request, response) => {
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? "")
   });
+
+  response.json({ ok: true });
+});
+
+// GET /auth/menu-favorites — favoritos do usuário autenticado
+authRouter.get("/menu-favorites", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) {
+    response.status(401).json({ message: "Sessao obrigatoria." });
+    return;
+  }
+
+  const favorites = await prisma.$queryRaw<Array<{ menuKey: string; sortOrder: number }>>`
+    SELECT "menuKey", "sortOrder"
+    FROM "UserMenuFavorite"
+    WHERE "userId" = ${user.id}
+    ORDER BY "sortOrder" ASC, "createdAt" ASC
+  `;
+
+  response.json(favorites.map((f) => f.menuKey));
+});
+
+// POST /auth/menu-favorites/:menuKey — adicionar favorito
+authRouter.post("/menu-favorites/:menuKey", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) {
+    response.status(401).json({ message: "Sessao obrigatoria." });
+    return;
+  }
+
+  const menuKey = request.params.menuKey;
+  if (!isMenuId(menuKey)) {
+    response.status(400).json({ message: "Menu invalido." });
+    return;
+  }
+
+  const permissions = await getEffectiveModulePermissions(user as SessionUser);
+  if (!hasModulePermission(permissions[menuKey], "view")) {
+    response.status(403).json({ message: "Sem acesso a este menu." });
+    return;
+  }
+
+  const [maxRow] = await prisma.$queryRaw<Array<{ maxOrder: number | null }>>`
+    SELECT MAX("sortOrder") AS "maxOrder" FROM "UserMenuFavorite" WHERE "userId" = ${user.id}
+  `;
+  const nextOrder = (Number(maxRow?.maxOrder ?? -1)) + 1;
+
+  await prisma.$executeRaw`
+    INSERT INTO "UserMenuFavorite" ("id", "userId", "menuKey", "sortOrder", "updatedAt")
+    VALUES (${crypto.randomUUID()}, ${user.id}, ${menuKey}, ${nextOrder}, CURRENT_TIMESTAMP)
+    ON CONFLICT ("userId", "menuKey") DO NOTHING
+  `;
+
+  response.json({ ok: true });
+});
+
+// DELETE /auth/menu-favorites/:menuKey — remover favorito
+authRouter.delete("/menu-favorites/:menuKey", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) {
+    response.status(401).json({ message: "Sessao obrigatoria." });
+    return;
+  }
+
+  await prisma.$executeRaw`
+    DELETE FROM "UserMenuFavorite"
+    WHERE "userId" = ${user.id} AND "menuKey" = ${request.params.menuKey}
+  `;
+
+  response.json({ ok: true });
+});
+
+// PATCH /auth/menu-favorites/order — reordenar favoritos
+authRouter.patch("/menu-favorites/order", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) {
+    response.status(401).json({ message: "Sessao obrigatoria." });
+    return;
+  }
+
+  const menuKeys = request.body.menuKeys;
+  if (!Array.isArray(menuKeys)) {
+    response.status(400).json({ message: "menuKeys deve ser um array." });
+    return;
+  }
+
+  for (let i = 0; i < menuKeys.length; i++) {
+    const key = String(menuKeys[i] ?? "");
+    if (key) {
+      await prisma.$executeRaw`
+        UPDATE "UserMenuFavorite"
+        SET "sortOrder" = ${i}, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "userId" = ${user.id} AND "menuKey" = ${key}
+      `;
+    }
+  }
 
   response.json({ ok: true });
 });
