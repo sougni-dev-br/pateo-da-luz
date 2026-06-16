@@ -140,23 +140,40 @@ export function Dashboard() {
     }
   }
 
-  // Alertas financeiros vindos do backend (operacionais)
-  // Filtrar duplicatas: se o alerta de faturamento incompleto já está em localAlerts, omitir do backend
-  const financialAlerts = backendAlerts.filter(
-    (a) => !(a.code === "MISSING_REVENUE_DAYS" && !hasRevenue)
-  );
+  // Alertas globais do backend (contas vencidas/a vencer — independem da competência)
+  const GLOBAL_CODES = ["OVERDUE_PAYABLES", "DUE_SOON_PAYABLES"];
+  const globalAlerts = backendAlerts.filter((a) => GLOBAL_CODES.includes(a.code));
 
-  // Alertas de dados locais aparecem primeiro, depois alertas financeiros
-  const allDisplayAlerts: Array<{ tone: "danger" | "warning" | "info"; label?: string; text: string; actionLabel?: string; actionPath?: string }> = [
-    ...localAlerts.map((a) => ({ tone: a.tone as "danger" | "warning" | "info", text: a.text, actionLabel: a.actionLabel, actionPath: a.actionPath })),
-    ...financialAlerts.map((a) => ({
-      tone: a.type === "success" ? ("info" as const) : a.type,
-      label: a.title,
-      text: a.description + (a.amount != null && a.amount > 0 ? ` Total: ${formatCurrency(a.amount)}.` : ""),
-      actionLabel: a.actionLabel,
-      actionPath: a.actionPath,
-    }))
-  ];
+  // Alertas da competência do backend — com filtros conservadores para evitar falso positivo:
+  // 1. MISSING_REVENUE_DAYS: só mostra quando há algum faturamento no mês (senão o alerta local já cobre)
+  // 2. CMV_*: só mostra quando há dados no mês (compras ou faturamento)
+  const competenceAlerts = backendAlerts.filter((a) => {
+    if (GLOBAL_CODES.includes(a.code)) return false;
+    if (a.code === "MISSING_REVENUE_DAYS" && !hasRevenue) return false;
+    if ((a.code === "CMV_NO_INVENTORY" || a.code === "CMV_PENDING_CLOSE") && noData) return false;
+    return true;
+  });
+
+  type DisplayAlert = { tone: "danger" | "warning" | "info"; label?: string; text: string; actionLabel?: string; actionPath?: string };
+
+  const toDisplay = (a: DashboardAlert): DisplayAlert => ({
+    tone: a.type === "success" ? "info" : a.type,
+    label: a.title,
+    text: a.description + (a.amount != null && a.amount > 0 ? ` Total: ${formatCurrency(a.amount)}.` : ""),
+    actionLabel: a.actionLabel,
+    actionPath: a.actionPath,
+  });
+
+  const localDisplayAlerts: DisplayAlert[] = localAlerts.map((a) => ({
+    tone: a.tone as "danger" | "warning" | "info",
+    text: a.text,
+    actionLabel: a.actionLabel,
+    actionPath: a.actionPath,
+  }));
+  const competenceDisplayAlerts: DisplayAlert[] = competenceAlerts.map(toDisplay);
+  const globalDisplayAlerts: DisplayAlert[] = globalAlerts.map(toDisplay);
+
+  const hasAnyAlert = localDisplayAlerts.length > 0 || competenceDisplayAlerts.length > 0 || globalDisplayAlerts.length > 0;
 
   const [yearPart, monthPart] = competence.split("-");
 
@@ -196,26 +213,27 @@ export function Dashboard() {
       {error && <div className="alert error">{error}</div>}
 
       {/* ── Alertas ── */}
-      {allDisplayAlerts.length > 0 && (
+      {hasAnyAlert && (
         <div className="dash-alerts">
-          {allDisplayAlerts.map((a, i) => (
-            <div key={i} className={`alert ${a.tone} dash-alert-row`} style={{ marginTop: 0 }}>
-              <span className="alert-icon"><Info size={15} /></span>
-              <span className="dash-alert-text">
-                {a.label ? <strong>{a.label}: </strong> : null}
-                {a.text}
-              </span>
-              {a.actionPath && a.actionLabel && (
-                <button
-                  type="button"
-                  className="dash-alert-action"
-                  onClick={() => navigate(a.actionPath!)}
-                >
-                  {a.actionLabel} <ExternalLink size={12} />
-                </button>
-              )}
-            </div>
+          {/* Alertas locais de completude do período */}
+          {localDisplayAlerts.map((a, i) => (
+            <AlertRow key={`local-${i}`} alert={a} onNavigate={navigate} />
           ))}
+          {/* Alertas operacionais da competência */}
+          {competenceDisplayAlerts.map((a, i) => (
+            <AlertRow key={`comp-${i}`} alert={a} onNavigate={navigate} />
+          ))}
+          {/* Alertas financeiros globais — sempre refletem a situação atual */}
+          {globalDisplayAlerts.length > 0 && (
+            <>
+              {(localDisplayAlerts.length > 0 || competenceDisplayAlerts.length > 0) && (
+                <p className="dash-alert-group-label">Situação financeira atual</p>
+              )}
+              {globalDisplayAlerts.map((a, i) => (
+                <AlertRow key={`global-${i}`} alert={a} onNavigate={navigate} />
+              ))}
+            </>
+          )}
         </div>
       )}
 
@@ -294,6 +312,37 @@ export function Dashboard() {
             />
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Alert Row
+// ─────────────────────────────────────────────
+
+function AlertRow({
+  alert: a,
+  onNavigate,
+}: {
+  alert: { tone: "danger" | "warning" | "info"; label?: string; text: string; actionLabel?: string; actionPath?: string };
+  onNavigate: (path: string) => void;
+}) {
+  return (
+    <div className={`alert ${a.tone} dash-alert-row`} style={{ marginTop: 0 }}>
+      <span className="alert-icon"><Info size={15} /></span>
+      <span className="dash-alert-text">
+        {a.label ? <strong>{a.label}: </strong> : null}
+        {a.text}
+      </span>
+      {a.actionPath && a.actionLabel && (
+        <button
+          type="button"
+          className="dash-alert-action"
+          onClick={() => onNavigate(a.actionPath!)}
+        >
+          {a.actionLabel} <ExternalLink size={12} />
+        </button>
       )}
     </div>
   );

@@ -5225,6 +5225,15 @@ td:nth-child(n+3):not(:last-child) {
   background: rgba(0, 0, 0, 0.06);
 }
 
+.dash-alert-group-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 4px 0 2px;
+}
+
 /* Skeleton loading */
 .dash-skeleton-wrap {
   display: grid;
