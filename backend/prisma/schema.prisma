@@ -1366,3 +1366,18 @@ model DishItem {
   @@index([dishId])
   @@index([productId])
 }
+
+model DRECategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  dreGroup  String   @default("DESPESAS_OPERACIONAIS")
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dreGroup])
+  @@index([sortOrder])
+  @@index([isActive])
+}
