@@ -166,3 +166,212 @@ dashboardRouter.get("/purchases", async (request, response) => {
     recentPurchases: purchases.slice(0, 20)
   });
 });
+
+// ─────────────────────────────────────────────
+// GET /dashboard/alerts?competence=YYYY-MM
+// ─────────────────────────────────────────────
+
+dashboardRouter.get("/alerts", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const now = new Date();
+  const competence = String(request.query.competence ?? "");
+  const match = /^(\d{4})-(\d{2})$/.exec(competence);
+  const year = match ? Number(match[1]) : now.getFullYear();
+  const month = match ? Number(match[2]) : now.getMonth() + 1;
+
+  // Midnight today (UTC-naive, same convention as the rest of the codebase)
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const in7Days = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+  // ── 1. Parcelas vencidas (global, não filtrado por competência) ──
+  const overdueRows = await prisma.$queryRaw<Array<{ cnt: unknown; total: unknown }>>`
+    SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total
+    FROM "PaymentInstallment"
+    WHERE status = 'OPEN'
+      AND "dueDate" IS NOT NULL
+      AND "dueDate" < ${today}
+      AND "paidDate" IS NULL
+  `;
+  const overdueCount = Number(overdueRows[0]?.cnt ?? 0);
+  const overdueAmount = Number(overdueRows[0]?.total ?? 0);
+
+  // ── 2. Parcelas a vencer em 7 dias (global) ──
+  const dueSoonRows = await prisma.$queryRaw<Array<{ cnt: unknown; total: unknown }>>`
+    SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total
+    FROM "PaymentInstallment"
+    WHERE status = 'OPEN'
+      AND "dueDate" IS NOT NULL
+      AND "dueDate" >= ${today}
+      AND "dueDate" <= ${in7Days}
+      AND "paidDate" IS NULL
+  `;
+  const dueSoonCount = Number(dueSoonRows[0]?.cnt ?? 0);
+  const dueSoonAmount = Number(dueSoonRows[0]?.total ?? 0);
+
+  // ── 3. Compras a prazo sem parcelas vinculadas (competência) ──
+  const unpaidRows = await prisma.$queryRaw<Array<{ cnt: unknown; total: unknown }>>`
+    SELECT COUNT(*) AS cnt, COALESCE(SUM(p."totalAmount"), 0) AS total
+    FROM "Purchase" p
+    WHERE p."competenceYear" = ${year}
+      AND p."competenceMonth" = ${month}
+      AND p."status" = 'ACTIVE'
+      AND p."paymentRegime" = 'ACCRUAL'
+      AND NOT EXISTS (
+        SELECT 1 FROM "PaymentInstallment" pi WHERE pi."purchaseId" = p.id
+      )
+  `;
+  const unpaidCount = Number(unpaidRows[0]?.cnt ?? 0);
+  const unpaidAmount = Number(unpaidRows[0]?.total ?? 0);
+
+  // ── 4. Dias sem lançamento de faturamento (competência, até hoje) ──
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 0); // last day of month
+  const rangeEnd = today < monthEnd ? today : monthEnd;
+
+  let missingRevenueDays = 0;
+  if (monthStart <= rangeEnd) {
+    const startStr = `${year}-${String(month).padStart(2, "0")}-01 00:00:00`;
+    const endStr = `${rangeEnd.getFullYear()}-${String(rangeEnd.getMonth() + 1).padStart(2, "0")}-${String(rangeEnd.getDate()).padStart(2, "0")} 23:59:59`;
+    const coveredRows = await prisma.$queryRaw<Array<{ d: Date }>>`
+      SELECT DISTINCT CAST("date" AS DATE) AS d
+      FROM "RevenueEntry"
+      WHERE "date" >= CAST(${startStr} AS timestamp)
+        AND "date" <= CAST(${endStr} AS timestamp)
+        AND status <> 'CANCELLED'
+    `;
+    const coveredDates = new Set(
+      coveredRows.map((r) => {
+        const d = new Date(r.d);
+        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+      })
+    );
+    let cursor = new Date(monthStart);
+    while (cursor <= rangeEnd) {
+      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+      if (!coveredDates.has(key)) missingRevenueDays++;
+      cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
+    }
+  }
+
+  // ── 5. Status do CMV / inventário final (competência) ──
+  const [finalSnapshot, monthlyCmv] = await Promise.all([
+    prisma.inventorySnapshot.findFirst({
+      where: { competenceYear: year, competenceMonth: month, type: "INVENTARIO_FINAL", status: "ACTIVE" },
+      select: { id: true }
+    }),
+    prisma.monthlyCmv.findFirst({
+      where: { competenceYear: year, competenceMonth: month },
+      select: { status: true }
+    })
+  ]);
+
+  let cmvStatus: "closed" | "pending" | "missing" | "unknown";
+  if (monthlyCmv?.status === "CLOSED") {
+    cmvStatus = "closed";
+  } else if (finalSnapshot || monthlyCmv) {
+    cmvStatus = "pending";
+  } else {
+    cmvStatus = "missing";
+  }
+
+  // ── Montar lista de alertas ──
+  type AlertType = "danger" | "warning" | "info" | "success";
+  const alerts: Array<{
+    type: AlertType;
+    code: string;
+    title: string;
+    description: string;
+    count?: number;
+    amount?: number;
+    actionLabel?: string;
+    actionPath?: string;
+  }> = [];
+
+  if (overdueCount > 0) {
+    alerts.push({
+      type: "danger",
+      code: "OVERDUE_PAYABLES",
+      title: "Contas vencidas",
+      description: `${overdueCount} parcela${overdueCount !== 1 ? "s" : ""} vencida${overdueCount !== 1 ? "s" : ""} sem pagamento registrado.`,
+      count: overdueCount,
+      amount: overdueAmount,
+      actionLabel: "Ver contas a pagar",
+      actionPath: "/financeiro/contas-a-pagar"
+    });
+  }
+
+  if (dueSoonCount > 0) {
+    alerts.push({
+      type: "warning",
+      code: "DUE_SOON_PAYABLES",
+      title: "Contas a vencer em 7 dias",
+      description: `${dueSoonCount} parcela${dueSoonCount !== 1 ? "s" : ""} vence${dueSoonCount !== 1 ? "m" : ""} nos próximos 7 dias.`,
+      count: dueSoonCount,
+      amount: dueSoonAmount,
+      actionLabel: "Ver contas a pagar",
+      actionPath: "/financeiro/contas-a-pagar"
+    });
+  }
+
+  if (unpaidCount > 0) {
+    alerts.push({
+      type: "warning",
+      code: "PURCHASES_WITHOUT_INSTALLMENTS",
+      title: "Compras sem parcelamento",
+      description: `${unpaidCount} compra${unpaidCount !== 1 ? "s" : ""} a prazo sem parcelas vinculadas nesta competência.`,
+      count: unpaidCount,
+      amount: unpaidAmount,
+      actionLabel: "Ver compras",
+      actionPath: "/compras"
+    });
+  }
+
+  if (missingRevenueDays > 0) {
+    alerts.push({
+      type: "warning",
+      code: "MISSING_REVENUE_DAYS",
+      title: "Faturamento incompleto",
+      description: `${missingRevenueDays} dia${missingRevenueDays !== 1 ? "s" : ""} sem lançamento de faturamento nesta competência.`,
+      count: missingRevenueDays,
+      actionLabel: "Ver faturamento",
+      actionPath: "/financeiro/faturamento"
+    });
+  }
+
+  if (cmvStatus === "missing") {
+    alerts.push({
+      type: "info",
+      code: "CMV_NO_INVENTORY",
+      title: "Inventário final não registrado",
+      description: "Nenhum inventário final registrado para esta competência.",
+      actionLabel: "Ver CMV",
+      actionPath: "/cmv/fechamento-mensal"
+    });
+  } else if (cmvStatus === "pending") {
+    alerts.push({
+      type: "info",
+      code: "CMV_PENDING_CLOSE",
+      title: "CMV em aberto",
+      description: "Inventário final registrado, mas fechamento mensal ainda não concluído.",
+      actionLabel: "Ver fechamento",
+      actionPath: "/cmv/fechamento-mensal"
+    });
+  }
+
+  response.json({
+    competence: `${year}-${String(month).padStart(2, "0")}`,
+    alerts,
+    summary: {
+      overduePayablesCount: overdueCount,
+      overduePayablesAmount: overdueAmount,
+      dueSoonPayablesCount: dueSoonCount,
+      dueSoonPayablesAmount: dueSoonAmount,
+      unpaidPurchasesCount: unpaidCount,
+      unpaidPurchasesAmount: unpaidAmount,
+      missingRevenueDays,
+      cmvStatus
+    }
+  });
+});

@@ -2012,6 +2012,36 @@ export function getDashboard(filters: { year?: string; month?: string; startDate
   return request<DashboardData>(`/dashboard/purchases${toQueryString(filters)}`);
 }
 
+export type DashboardAlert = {
+  type: "danger" | "warning" | "info" | "success";
+  code: string;
+  title: string;
+  description: string;
+  count?: number;
+  amount?: number;
+  actionLabel?: string;
+  actionPath?: string;
+};
+
+export type DashboardAlertsData = {
+  competence: string;
+  alerts: DashboardAlert[];
+  summary: {
+    overduePayablesCount: number;
+    overduePayablesAmount: number;
+    dueSoonPayablesCount: number;
+    dueSoonPayablesAmount: number;
+    unpaidPurchasesCount: number;
+    unpaidPurchasesAmount: number;
+    missingRevenueDays: number;
+    cmvStatus: "closed" | "pending" | "missing" | "unknown";
+  };
+};
+
+export function getDashboardAlerts(competence: string) {
+  return request<DashboardAlertsData>(`/dashboard/alerts${toQueryString({ competence })}`);
+}
+
 export async function login(email: string, password: string) {
   const result = await request<{ token: string; user: AppUser }>("/auth/login", {
     method: "POST",
