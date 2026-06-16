@@ -4,6 +4,17 @@ const FALLBACK_BACKEND_URL = BACKEND_TARGET_URL;
 const REQUEST_TIMEOUT_MS = 10000;
 const SESSION_TOKEN_KEY = "pateo_session_token";
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly body?: Record<string, unknown>
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 function sessionToken() {
   const legacyToken = localStorage.getItem(SESSION_TOKEN_KEY);
   if (legacyToken) localStorage.removeItem(SESSION_TOKEN_KEY);
@@ -41,7 +52,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
         return response.json() as Promise<T>;
       }
 
-      const errorBody = await response.json().catch(() => null);
+      const errorBody = await response.json().catch(() => null) as Record<string, unknown> | null;
+
+      // Sessão inválida ou encerrada: limpar token e recarregar para a tela de login
+      if (response.status === 401 && !path.startsWith("/auth/")) {
+        localStorage.removeItem(SESSION_TOKEN_KEY);
+        sessionStorage.removeItem(SESSION_TOKEN_KEY);
+        window.location.reload();
+        throw new ApiError("Sessao encerrada. Faca login novamente.", 401, errorBody ?? undefined);
+      }
+
       if (response.status === 404 && path === "/monthly/inventory/preview") {
         throw new Error("Rota de preview de inventario nao encontrada.");
       }
@@ -53,12 +73,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
         candidates.length > 1;
 
       if (shouldFallback) {
-        lastError = new Error(errorBody?.message ?? `Erro HTTP ${response.status}`);
+        lastError = new ApiError(errorBody?.message as string ?? `Erro HTTP ${response.status}`, response.status, errorBody ?? undefined);
         continue;
       }
 
-      throw new Error(errorBody?.message ?? `Erro HTTP ${response.status}`);
+      throw new ApiError(errorBody?.message as string ?? `Erro HTTP ${response.status}`, response.status, errorBody ?? undefined);
     } catch (error) {
+      if (error instanceof ApiError) throw error;
       lastError = error instanceof Error ? error : new Error("Backend nao encontrado.");
       const shouldFallback = index === 0 && API_BASE_URL.startsWith("/") && candidates.length > 1;
       if (shouldFallback) continue;
@@ -2042,20 +2063,42 @@ export function getDashboardAlerts(competence: string) {
   return request<DashboardAlertsData>(`/dashboard/alerts${toQueryString({ competence })}`);
 }
 
-export async function login(email: string, password: string) {
+export async function login(email: string, password: string, options?: { force?: boolean }) {
   const result = await request<{ token: string; user: AppUser }>("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password })
+    body: JSON.stringify({ email, password, force: options?.force ?? false })
   });
   localStorage.removeItem(SESSION_TOKEN_KEY);
   sessionStorage.setItem(SESSION_TOKEN_KEY, result.token);
   return result;
 }
 
-export function logout() {
+export async function logout() {
+  const token = sessionToken();
+  if (token) {
+    const urls = [
+      `${API_BASE_URL}/auth/logout`,
+      ...(API_BASE_URL.startsWith("/") ? [`${BACKEND_TARGET_URL}/auth/logout`] : [])
+    ];
+    for (const url of urls) {
+      try {
+        const resp = await fetchWithTimeout(url, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (resp.ok) break;
+      } catch {
+        // fallback to next URL or ignore on failure
+      }
+    }
+  }
   localStorage.removeItem(SESSION_TOKEN_KEY);
   sessionStorage.removeItem(SESSION_TOKEN_KEY);
+}
+
+export function killUserSession(userId: string) {
+  return request<{ ok: boolean }>(`/auth/sessions/${userId}`, { method: "DELETE" });
 }
 
 export function getMe() {

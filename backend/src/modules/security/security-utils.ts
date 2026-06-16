@@ -179,16 +179,36 @@ export async function getSessionUser(request: { headers: Record<string, unknown>
   if (looksLikeJwt && !userId) return null;
   if (!looksLikeJwt && !/^[a-f0-9]{64}$/i.test(token)) return null;
 
-  const [user] = await prisma.$queryRaw<Array<{ id: string; name: string; email: string; role: string; mustChangePassword: boolean }>>`
-    SELECT u."id", u."name", u."email", u."role"::text AS "role", u."mustChangePassword"
+  const tokenHash = hashToken(token);
+  const [row] = await prisma.$queryRaw<Array<{
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    mustChangePassword: boolean;
+    lastActivityAt: Date | null;
+  }>>`
+    SELECT u."id", u."name", u."email", u."role"::text AS "role", u."mustChangePassword",
+           s."lastActivityAt"
     FROM "UserSession" s
     JOIN "User" u ON u."id" = s."userId"
-    WHERE s."tokenHash" = ${hashToken(token)}
+    WHERE s."tokenHash" = ${tokenHash}
       AND s."expiresAt" > CURRENT_TIMESTAMP
       AND u."isActive" = true
       AND (${userId} IS NULL OR u."id" = ${userId})
     LIMIT 1
   `;
 
-  return user ?? null;
+  if (!row) return null;
+
+  // Update lastActivityAt lazily — at most once every 5 minutes
+  const lastActivity = row.lastActivityAt ? new Date(row.lastActivityAt).getTime() : 0;
+  if (Date.now() - lastActivity > 5 * 60 * 1000) {
+    prisma.$executeRaw`
+      UPDATE "UserSession" SET "lastActivityAt" = CURRENT_TIMESTAMP WHERE "tokenHash" = ${tokenHash}
+    `.catch(() => undefined);
+  }
+
+  const { lastActivityAt: _last, ...user } = row;
+  return user;
 }
