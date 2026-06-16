@@ -178,12 +178,12 @@ dashboardRouter.get("/alerts", async (request, response) => {
   const now = new Date();
   const competence = String(request.query.competence ?? "");
   const match = /^(\d{4})-(\d{2})$/.exec(competence);
-  const year = match ? Number(match[1]) : now.getFullYear();
-  const month = match ? Number(match[2]) : now.getMonth() + 1;
+  const year = match ? Number(match[1]) : now.getUTCFullYear();
+  const month = match ? Number(match[2]) : now.getUTCMonth() + 1;
 
-  // Midnight today (UTC-naive, same convention as the rest of the codebase)
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  // Yesterday: used as upper bound for "missing revenue days" so we never flag the current day in progress
+  // Midnight UTC — garante resultado idêntico ao CURRENT_DATE do Postgres,
+  // independente do timezone da máquina (local, Render, CI).
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
   const in7Days = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
 
