@@ -375,6 +375,7 @@ model Product {
   stockCounts StockCount[]
   stockCountSessionItems StockCountSessionItem[]
   operationalInventoryItems OperationalInventoryItem[]
+  dishItems      DishItem[]
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
@@ -1312,5 +1313,56 @@ model InventoryRequisitionItem {
   createdAt     DateTime @default(now())
 
   @@index([requisitionId])
+  @@index([productId])
+}
+
+model DishCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  notes     String?
+  dishes    Dish[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sortOrder])
+  @@index([isActive])
+}
+
+model Dish {
+  id               String        @id @default(cuid())
+  code             String?       @unique
+  name             String
+  categoryId       String?
+  category         DishCategory? @relation(fields: [categoryId], references: [id])
+  salePriceDefault Decimal?      @db.Decimal(10, 2)
+  yieldQty         Decimal       @default(1) @db.Decimal(8, 3)
+  yieldUnit        String        @default("UN")
+  notes            String?
+  isActive         Boolean       @default(true)
+  items            DishItem[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([categoryId])
+  @@index([isActive])
+}
+
+model DishItem {
+  id            String      @id @default(cuid())
+  dishId        String
+  dish          Dish        @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product     @relation(fields: [productId], references: [id])
+  quantity      Decimal     @db.Decimal(10, 4)
+  unit          String
+  wasteFactor   Decimal     @default(0) @db.Decimal(5, 4)
+  notes         String?
+  sortOrder     Int         @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([dishId])
   @@index([productId])
 }

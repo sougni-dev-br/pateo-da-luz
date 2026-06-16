@@ -2,6 +2,7 @@ import {
   BadgeDollarSign,
   BarChart3,
   Calculator,
+  ChefHat,
   ClipboardCheck,
   ClipboardList,
   CreditCard,
@@ -51,6 +52,7 @@ const Revenue = lazy(() => import("./pages/Revenue").then((module) => ({ default
 const Suppliers = lazy(() => import("./pages/Suppliers").then((module) => ({ default: module.Suppliers })));
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
 const Users = lazy(() => import("./pages/Users").then((module) => ({ default: module.Users })));
+const Dishes = lazy(() => import("./pages/Dishes").then((module) => ({ default: module.Dishes })));
 
 type InventoryView = "overview" | "movements" | "counting" | "inventory" | "reports";
 
@@ -81,6 +83,7 @@ const sections = [
   { id: "inventory-official", label: "Inventário", icon: FileSpreadsheet, showInSidebar: true, group: "Estoque", path: "/estoque/inventario", matchers: ["/estoque/inventario"] },
   { id: "inventory-reports", label: "Relatórios", icon: BarChart3, showInSidebar: true, group: "Estoque", path: "/estoque/relatorios", matchers: ["/estoque/relatorios"] },
   { id: "requisitions", label: "Requisições", icon: ClipboardCheck, showInSidebar: true, group: "Estoque", path: "/estoque/requisicoes", matchers: ["/estoque/requisicoes"] },
+  { id: "dishes", label: "Fichas Técnicas", icon: ChefHat, showInSidebar: true, group: "Cardápio", path: "/cardapio/fichas-tecnicas", matchers: ["/cardapio/fichas-tecnicas"] },
   { id: "suppliers", label: "Fornecedores", icon: Truck, showInSidebar: true, group: "Cadastros", path: "/cadastros/fornecedores", matchers: ["/cadastros/fornecedores"] },
   { id: "import", label: "Importações", icon: FileSpreadsheet, showInSidebar: true, group: "Dados", path: "/dados/importacoes", matchers: ["/dados/importacoes"] },
   { id: "catalog-imports", label: "Importar cadastros", icon: Database, showInSidebar: false, group: "Dados", path: "/dados/importacoes/cadastros", matchers: ["/dados/importacoes/cadastros"] },
@@ -468,6 +471,7 @@ export function App() {
               <Route path="/estoque/relatorios" element={<InventoryRouteView user={user} initialView="reports" onOpenProducts={() => handleNavigate("products")} onOpenPurchaseOrders={() => handleNavigate("purchase-orders")} />} />
               <Route path="/inventory/counts/:agendaId" element={<Navigate to="/estoque/contagens" replace />} />
               <Route path="/estoque/requisicoes" element={<Requisitions user={user} />} />
+              <Route path="/cardapio/fichas-tecnicas" element={<Dishes />} />
               <Route path="/estoque/produtos" element={<Products />} />
               <Route path="/cadastros/fornecedores" element={<Suppliers onOpenPurchases={() => handleNavigate("purchases")} />} />
               <Route path="/configuracoes/pagamentos" element={<PaymentMethods />} />

@@ -102,33 +102,33 @@ export function Users() {
       return;
     }
     if (!createPasswordsMatch) {
-      setNotice({ tone: "error", message: "As senhas do novo usuario nao conferem." });
+      setNotice({ tone: "error", message: "As senhas do novo usuário não conferem." });
       return;
     }
     try {
       await saveUser({ name: form.name, email: form.email, password: form.password, role: form.role });
       setForm({ name: "", email: "", password: "", confirmPassword: "", role: "VISUALIZACAO" });
-      setNotice({ tone: "success", message: "Usuario criado com sucesso." });
+      setNotice({ tone: "success", message: "Usuário criado com sucesso." });
       await load();
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao criar usuario." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao criar usuário." });
     }
   }
 
   async function toggle(user: AppUser) {
     if (!canAdminUsers) {
-      setNotice({ tone: "error", message: "Voce nao possui permissao para alterar status de usuarios." });
+      setNotice({ tone: "error", message: "Você não possui permissão para alterar status de usuários." });
       return;
     }
     try {
       await setUserStatus(user.id, !user.isActive);
       setNotice({
         tone: "success",
-        message: user.isActive ? `Usuario ${user.name} inativado com sucesso.` : `Usuario ${user.name} reativado com sucesso.`
+        message: user.isActive ? `Usuário ${user.name} inativado com sucesso.` : `Usuário ${user.name} reativado com sucesso.`
       });
       await load();
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao alterar status do usuario." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao alterar status do usuário." });
     }
   }
 
@@ -180,7 +180,7 @@ export function Users() {
       setNotice({
         tone: "success",
         message: passwordForm.mustChangePassword
-          ? `Senha alterada com sucesso. ${user?.name ?? "Usuario"} devera trocar a senha no proximo login.`
+          ? `Senha alterada com sucesso. ${user?.name ?? "Usuário"} deverá trocar a senha no próximo login.`
           : "Senha alterada com sucesso."
       });
       await load();
@@ -195,7 +195,7 @@ export function Users() {
     setLastTemporaryPassword(password);
     setNotice({
       tone: "warning",
-      message: "Senha temporaria gerada visualmente. Clique em Aplicar nova senha para salvar no banco."
+      message: "Senha temporária gerada visualmente. Clique em Aplicar nova senha para salvar no banco."
     });
   }
 
@@ -311,7 +311,7 @@ export function Users() {
       <section className="panel">
         <div className="section-heading"><div><p>Senha</p><h2>Redefinir senha de usuario</h2></div><KeyRound size={22} /></div>
         <div className="form-grid">
-          <label>Usuario<select value={passwordForm.userId} disabled={!canAdminUsers} onChange={(event) => setPasswordForm({ ...passwordForm, userId: event.target.value })}><option value="">Selecione</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+          <label>Usuário<select value={passwordForm.userId} disabled={!canAdminUsers} onChange={(event) => setPasswordForm({ ...passwordForm, userId: event.target.value })}><option value="">Selecione</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
           <PasswordField label="Nova senha" value={passwordForm.password} onChange={(password) => { setLastTemporaryPassword(null); setPasswordForm({ ...passwordForm, password }); }} disabled={!canAdminUsers} />
           <label className="checkbox-label"><input type="checkbox" checked={passwordForm.mustChangePassword} disabled={!canAdminUsers} onChange={(event) => setPasswordForm({ ...passwordForm, mustChangePassword: event.target.checked })} />Obrigar troca no proximo login</label>
           <button className="secondary-button" type="button" disabled={!canAdminUsers} onClick={generateTemporaryPassword}>Gerar senha temporaria</button>
@@ -340,10 +340,10 @@ export function Users() {
       </section>
 
       <section className="panel">
-        <div className="section-heading"><div><p>Lista</p><h2>Usuarios</h2></div><button className="icon-button" type="button" onClick={load} aria-label="Atualizar"><RefreshCw size={18} /></button></div>
+        <div className="section-heading"><div><p>Lista</p><h2>Usuários</h2></div><button className="icon-button" type="button" onClick={load} aria-label="Atualizar"><RefreshCw size={18} /></button></div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Status</th><th>Nome</th><th>Email</th><th>Perfil base</th><th>Troca senha</th><th>Ultima troca senha</th><th>Ultimo login</th><th>Acoes</th></tr></thead>
+            <thead><tr><th>Status</th><th>Nome</th><th>Email</th><th>Perfil base</th><th>Troca senha</th><th>Última troca senha</th><th>Último login</th><th>Ações</th></tr></thead>
             <tbody>
               {users.map((user) => (
                 <tr key={user.id} className={selectedUserId === user.id ? "is-selected-row" : ""}>
@@ -351,7 +351,7 @@ export function Users() {
                   <td><button type="button" className="link-button" onClick={() => setSelectedUserId(user.id)}>{user.name}</button></td>
                   <td>{user.email}</td>
                   <td>{user.role}</td>
-                  <td>{user.mustChangePassword ? "Obrigatoria" : "Nao"}</td>
+                  <td>{user.mustChangePassword ? "Obrigatória" : "Não"}</td>
                   <td>{formatDate(user.passwordChangedAt ?? null)}</td>
                   <td>{formatDate(user.lastLoginAt ?? null)}</td>
                   <td><button type="button" onClick={() => setSelectedUserId(user.id)}>{selectedUserId === user.id ? "Selecionado" : "Selecionar"}</button></td>
@@ -366,7 +366,7 @@ export function Users() {
         <section className="panel">
           <div className="section-heading">
             <div>
-              <p>Edicao do usuario</p>
+              <p>Edição do usuário</p>
               <h2>{selectedUser.name}</h2>
             </div>
           </div>
@@ -385,7 +385,7 @@ export function Users() {
             </label>
             <label className="checkbox-label">
               <input type="checkbox" checked={editor.isActive} disabled={!canAdminUsers} onChange={(event) => setEditor({ ...editor, isActive: event.target.checked })} />
-              Usuario ativo
+              Usuário ativo
             </label>
             <label className="checkbox-label">
               <input
@@ -394,27 +394,27 @@ export function Users() {
                 disabled={!canAdminUsers}
                 onChange={(event) => setEditor({ ...editor, mustChangePassword: event.target.checked })}
               />
-              Obrigar troca de senha no proximo login
+              Obrigar troca de senha no próximo login
             </label>
             <button className="primary-button" type="button" disabled={!canAdminUsers} onClick={saveSelectedUser}>Salvar cadastro</button>
           </div>
           <div className="alert">
-            O perfil base continua existindo para compatibilidade, mas as permissoes abaixo definem o acesso efetivo por modulo.
+            O perfil base continua existindo para compatibilidade, mas as permissões abaixo definem o acesso efetivo por módulo.
           </div>
           {!canManageSelectedUserAccess && selectedUser.id === sessionUser?.id && sessionUser?.role !== "ADMIN" && (
             <div className="alert warning">
-              Voce pode editar seus dados basicos, mas nao pode alterar o proprio perfil base nem as proprias permissoes.
+              Você pode editar seus dados básicos, mas não pode alterar o próprio perfil base nem as próprias permissões.
             </div>
           )}
           <div className="subsection">
-            <h3>Permissoes efetivas atuais</h3>
+            <h3>Permissões efetivas atuais</h3>
             {selectedUserPermissionSummary.length === 0 ? (
-              <div className="alert warning">Este usuario nao possui permissoes efetivas em nenhum modulo.</div>
+              <div className="alert warning">Este usuário não possui permissões efetivas em nenhum módulo.</div>
             ) : (
               <div className="table-wrap">
                 <table>
                   <thead>
-                    <tr><th>Modulo</th><th>Acoes permitidas</th></tr>
+                    <tr><th>Módulo</th><th>Ações permitidas</th></tr>
                   </thead>
                   <tbody>
                     {selectedUserPermissionSummary.map((item) => (
@@ -435,7 +435,7 @@ export function Users() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Modulo</th>
+                      <th>Módulo</th>
                       {actionColumns.map((column) => <th key={column.action}>{column.label}</th>)}
                     </tr>
                   </thead>
