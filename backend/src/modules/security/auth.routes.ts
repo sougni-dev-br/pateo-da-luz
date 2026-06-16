@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
-import { auditLog, createToken, getSessionUser, hashPassword, hashToken, requestIp, requireAdmin, sessionExpiresAt, verifyPassword, type SessionUser } from "./security-utils.js";
+import { INACTIVITY_TIMEOUT_MS, auditLog, createToken, getSessionUser, hashPassword, hashToken, requestIp, requireAdmin, sessionExpiresAt, verifyPassword, type SessionUser } from "./security-utils.js";
 import {
   accessLevels,
   attachMenuPermissions,
@@ -228,8 +228,9 @@ authRouter.post("/login", async (request, response) => {
     ipAddress: string | null;
     userAgent: string | null;
     createdAt: Date;
+    lastActivityAt: Date | null;
   }>>`
-    SELECT "id", "ipAddress", "userAgent", "createdAt"
+    SELECT "id", "ipAddress", "userAgent", "createdAt", "lastActivityAt"
     FROM "UserSession"
     WHERE "userId" = ${user.id}
       AND "expiresAt" > CURRENT_TIMESTAMP
@@ -240,7 +241,30 @@ authRouter.post("/login", async (request, response) => {
   const force = Boolean(request.body.force);
 
   if (existingSession) {
-    if (user.role !== "ADMIN" || !force) {
+    // Checar se a sessão existente está expirada por inatividade
+    const lastActivity = existingSession.lastActivityAt
+      ? new Date(existingSession.lastActivityAt).getTime()
+      : new Date(existingSession.createdAt).getTime();
+    const isStale = Date.now() - lastActivity > INACTIVITY_TIMEOUT_MS;
+
+    if (isStale) {
+      // Sessão expirada por inatividade: encerrar e liberar novo login automaticamente
+      await prisma.$executeRaw`DELETE FROM "UserSession" WHERE "id" = ${existingSession.id}`;
+      await auditLog({
+        userId: user.id,
+        action: "LOGIN_AFTER_INACTIVITY_EXPIRY",
+        entity: "UserSession",
+        entityId: user.id,
+        newValue: {
+          staleSessionIp: existingSession.ipAddress,
+          lastActivityAt: existingSession.lastActivityAt,
+          newLoginIp: requestIp(request)
+        },
+        ipAddress: requestIp(request),
+        userAgent: String(request.headers["user-agent"] ?? "")
+      });
+    } else if (user.role !== "ADMIN" || !force) {
+      // Sessão ativa e válida: bloquear novo login
       await auditLog({
         userId: user.id,
         action: "LOGIN_BLOCKED_SESSION_CONFLICT",
@@ -256,27 +280,28 @@ authRouter.post("/login", async (request, response) => {
         userAgent: String(request.headers["user-agent"] ?? "")
       });
       response.status(409).json({
-        message: "Este usuario ja esta logado em outro dispositivo. Encerre a sessao anterior antes de continuar.",
+        message: "Este usuario ja esta conectado em outro dispositivo. Peca para sair no outro aparelho ou solicite ao administrador para encerrar a sessao.",
         code: "SESSION_CONFLICT",
         canForce: user.role === "ADMIN"
       });
       return;
+    } else {
+      // ADMIN com force=true: encerrar sessão anterior deliberadamente
+      await prisma.$executeRaw`DELETE FROM "UserSession" WHERE "userId" = ${user.id}`;
+      await auditLog({
+        userId: user.id,
+        action: "SESSION_FORCE_REPLACED",
+        entity: "UserSession",
+        entityId: user.id,
+        newValue: {
+          replacedSessionIp: existingSession.ipAddress,
+          newIp: requestIp(request),
+          newUserAgent: String(request.headers["user-agent"] ?? "")
+        },
+        ipAddress: requestIp(request),
+        userAgent: String(request.headers["user-agent"] ?? "")
+      });
     }
-    // ADMIN com force=true: encerrar sessão anterior
-    await prisma.$executeRaw`DELETE FROM "UserSession" WHERE "userId" = ${user.id}`;
-    await auditLog({
-      userId: user.id,
-      action: "SESSION_FORCE_REPLACED",
-      entity: "UserSession",
-      entityId: user.id,
-      newValue: {
-        replacedSessionIp: existingSession.ipAddress,
-        newIp: requestIp(request),
-        newUserAgent: String(request.headers["user-agent"] ?? "")
-      },
-      ipAddress: requestIp(request),
-      userAgent: String(request.headers["user-agent"] ?? "")
-    });
   }
 
   let token: string;
@@ -333,6 +358,43 @@ authRouter.post("/login", async (request, response) => {
       mustChangePassword: user.mustChangePassword
     })
   });
+});
+
+// ADMIN: listar todas as sessões ativas
+authRouter.get("/sessions", async (request, response) => {
+  const admin = await requireAdmin(request, response);
+  if (!admin) return;
+
+  const sessions = await prisma.$queryRaw<Array<{
+    sessionId: string;
+    userId: string;
+    userName: string;
+    userEmail: string;
+    userRole: string;
+    ipAddress: string | null;
+    userAgent: string | null;
+    createdAt: Date;
+    expiresAt: Date;
+    lastActivityAt: Date | null;
+  }>>`
+    SELECT
+      s."id"             AS "sessionId",
+      s."userId",
+      u."name"           AS "userName",
+      u."email"          AS "userEmail",
+      u."role"::text     AS "userRole",
+      s."ipAddress",
+      s."userAgent",
+      s."createdAt",
+      s."expiresAt",
+      s."lastActivityAt"
+    FROM "UserSession" s
+    JOIN "User" u ON u."id" = s."userId"
+    WHERE s."expiresAt" > CURRENT_TIMESTAMP
+    ORDER BY s."createdAt" DESC
+  `;
+
+  response.json(sessions);
 });
 
 authRouter.post("/logout", async (request, response) => {
