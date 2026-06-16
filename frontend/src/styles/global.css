@@ -73,6 +73,7 @@ select {
   max-width: 100%;
   display: grid;
   grid-template-columns: 264px 1fr;
+  background: linear-gradient(90deg, #24231f 264px, transparent 264px);
 }
 
 .mobile-app-header,
@@ -84,8 +85,9 @@ select {
 .sidebar {
   position: sticky;
   top: 0;
-  max-height: 100vh;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  align-self: start;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -2829,6 +2831,7 @@ td:nth-child(n+3):not(:last-child) {
     display: block;
     min-height: 100vh;    /* fallback para browsers sem dvh */
     min-height: 100dvh;  /* evita página mais alta que o viewport visível no iOS */
+    background: none;    /* remove gradiente desktop — mobile não tem coluna fixa */
   }
 
   .sidebar {
@@ -5400,6 +5403,7 @@ td:nth-child(n+3):not(:last-child) {
   font-size: 13px;
   font-weight: 500;
   color: var(--ink);
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5411,6 +5415,7 @@ td:nth-child(n+3):not(:last-child) {
   font-weight: 700;
   white-space: nowrap;
   color: var(--ink);
+  flex: 0 0 auto;
 }
 
 .dash-ranking-bar-wrap {
