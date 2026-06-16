@@ -15,6 +15,7 @@ export type SessionUser = {
 export type UserRole = SessionUser["role"];
 
 const JWT_EXPIRES_IN_SECONDS = 60 * 60 * 12;
+export const INACTIVITY_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 horas
 
 function hasPermission(permission: ModulePermission | undefined, action: PermissionAction) {
   if (!permission) return false;
@@ -187,9 +188,10 @@ export async function getSessionUser(request: { headers: Record<string, unknown>
     role: string;
     mustChangePassword: boolean;
     lastActivityAt: Date | null;
+    sessionCreatedAt: Date;
   }>>`
     SELECT u."id", u."name", u."email", u."role"::text AS "role", u."mustChangePassword",
-           s."lastActivityAt"
+           s."lastActivityAt", s."createdAt" AS "sessionCreatedAt"
     FROM "UserSession" s
     JOIN "User" u ON u."id" = s."userId"
     WHERE s."tokenHash" = ${tokenHash}
@@ -201,14 +203,30 @@ export async function getSessionUser(request: { headers: Record<string, unknown>
 
   if (!row) return null;
 
-  // Update lastActivityAt lazily — at most once every 5 minutes
-  const lastActivity = row.lastActivityAt ? new Date(row.lastActivityAt).getTime() : 0;
+  // Verificar expiração por inatividade
+  const lastActivity = row.lastActivityAt
+    ? new Date(row.lastActivityAt).getTime()
+    : new Date(row.sessionCreatedAt).getTime();
+
+  if (Date.now() - lastActivity > INACTIVITY_TIMEOUT_MS) {
+    prisma.$executeRaw`DELETE FROM "UserSession" WHERE "tokenHash" = ${tokenHash}`.catch(() => undefined);
+    auditLog({
+      userId: row.id,
+      action: "SESSION_EXPIRED_BY_INACTIVITY",
+      entity: "UserSession",
+      entityId: row.id,
+      newValue: { lastActivityAt: row.lastActivityAt, sessionCreatedAt: row.sessionCreatedAt }
+    }).catch(() => undefined);
+    return null;
+  }
+
+  // Atualizar lastActivityAt de forma lazy — no máximo uma vez a cada 5 minutos
   if (Date.now() - lastActivity > 5 * 60 * 1000) {
     prisma.$executeRaw`
       UPDATE "UserSession" SET "lastActivityAt" = CURRENT_TIMESTAMP WHERE "tokenHash" = ${tokenHash}
     `.catch(() => undefined);
   }
 
-  const { lastActivityAt: _last, ...user } = row;
+  const { lastActivityAt: _last, sessionCreatedAt: _created, ...user } = row;
   return user;
 }

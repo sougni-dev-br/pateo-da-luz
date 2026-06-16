@@ -1,10 +1,12 @@
-import { KeyRound, RefreshCw } from "lucide-react";
+import { KeyRound, Monitor, RefreshCw, ShieldOff } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   AppUser,
   changeOwnPassword,
+  getActiveSessions,
   getMenuPermissions,
   getUsers,
+  killUserSession,
   MenuDefinition,
   ModulePermission,
   ModulePermissionMap,
@@ -14,7 +16,8 @@ import {
   setUserStatus,
   updateUserMenuPermissions,
   updateUserPermissions,
-  UserRole
+  UserRole,
+  UserSessionInfo
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { isPasswordValid, PasswordField, passwordPolicyMessage } from "../components/PasswordField";
@@ -74,6 +77,8 @@ export function Users() {
     mustChangePassword: false
   });
   const [lastTemporaryPassword, setLastTemporaryPassword] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<UserSessionInfo[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
   const { notice, setNotice } = useNotice(7000);
 
   const createPasswordsMatch = form.password.length > 0 && form.password === form.confirmPassword;
@@ -240,6 +245,50 @@ export function Users() {
     }
   }
 
+  async function loadSessions() {
+    if (sessionUser?.role !== "ADMIN") return;
+    setSessionsLoading(true);
+    try {
+      const data = await getActiveSessions();
+      setSessions(data);
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao carregar sessoes ativas." });
+    } finally {
+      setSessionsLoading(false);
+    }
+  }
+
+  async function handleKillSession(userId: string, userName: string) {
+    try {
+      await killUserSession(userId);
+      setNotice({ tone: "success", message: `Sessao de ${userName} encerrada.` });
+      await loadSessions();
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao encerrar sessao." });
+    }
+  }
+
+  function formatRelative(dateStr: string | null) {
+    if (!dateStr) return "—";
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return "agora";
+    if (minutes < 60) return `${minutes} min atrás`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h atrás`;
+    return `${Math.floor(hours / 24)}d atrás`;
+  }
+
+  function simplifyUserAgent(ua: string | null) {
+    if (!ua) return "—";
+    if (/mobile|android/i.test(ua)) return "Mobile";
+    if (/chrome/i.test(ua)) return "Chrome";
+    if (/firefox/i.test(ua)) return "Firefox";
+    if (/safari/i.test(ua)) return "Safari";
+    if (/edge/i.test(ua)) return "Edge";
+    return "Navegador";
+  }
+
   useEffect(() => {
     load();
   }, []);
@@ -361,6 +410,65 @@ export function Users() {
           </table>
         </div>
       </section>
+
+      {sessionUser?.role === "ADMIN" && (
+        <section className="panel">
+          <div className="section-heading">
+            <div><p>Seguranca</p><h2>Sessoes ativas</h2></div>
+            <button className="icon-button" type="button" onClick={loadSessions} aria-label="Atualizar sessoes">
+              {sessionsLoading ? <RefreshCw size={18} style={{ animation: "spin 1s linear infinite" }} /> : <Monitor size={18} />}
+            </button>
+          </div>
+          {sessions.length === 0 ? (
+            <div className="alert">
+              Clique no botao para carregar as sessoes ativas. Cada sessao tem inatividade maxima de 8 horas.
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Usuario</th>
+                    <th>Perfil</th>
+                    <th>IP</th>
+                    <th>Dispositivo</th>
+                    <th>Ultima atividade</th>
+                    <th>Inicio da sessao</th>
+                    <th>Acao</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.map((s) => (
+                    <tr key={s.sessionId}>
+                      <td>
+                        <strong>{s.userName}</strong>
+                        <br />
+                        <small>{s.userEmail}</small>
+                      </td>
+                      <td>{s.userRole}</td>
+                      <td>{s.ipAddress ?? "—"}</td>
+                      <td>{simplifyUserAgent(s.userAgent)}</td>
+                      <td>{formatRelative(s.lastActivityAt ?? s.createdAt)}</td>
+                      <td>{formatRelative(s.createdAt)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          style={{ color: "var(--danger, #c0392b)" }}
+                          onClick={() => handleKillSession(s.userId, s.userName)}
+                          title="Encerrar sessao"
+                        >
+                          <ShieldOff size={15} style={{ verticalAlign: "middle", marginRight: 4 }} />
+                          Encerrar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
       {selectedUser && (
         <section className="panel">

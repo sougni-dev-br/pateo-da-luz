@@ -2101,6 +2101,23 @@ export function killUserSession(userId: string) {
   return request<{ ok: boolean }>(`/auth/sessions/${userId}`, { method: "DELETE" });
 }
 
+export type UserSessionInfo = {
+  sessionId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userRole: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  expiresAt: string;
+  lastActivityAt: string | null;
+};
+
+export function getActiveSessions() {
+  return request<UserSessionInfo[]>("/auth/sessions");
+}
+
 export function getMe() {
   return request<AppUser>("/auth/me");
 }
