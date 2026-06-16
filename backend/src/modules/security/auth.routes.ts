@@ -222,6 +222,63 @@ authRouter.post("/login", async (request, response) => {
     return;
   }
 
+  // Verificar se já existe sessão ativa para este usuário
+  const [existingSession] = await prisma.$queryRaw<Array<{
+    id: string;
+    ipAddress: string | null;
+    userAgent: string | null;
+    createdAt: Date;
+  }>>`
+    SELECT "id", "ipAddress", "userAgent", "createdAt"
+    FROM "UserSession"
+    WHERE "userId" = ${user.id}
+      AND "expiresAt" > CURRENT_TIMESTAMP
+    ORDER BY "createdAt" DESC
+    LIMIT 1
+  `;
+
+  const force = Boolean(request.body.force);
+
+  if (existingSession) {
+    if (user.role !== "ADMIN" || !force) {
+      await auditLog({
+        userId: user.id,
+        action: "LOGIN_BLOCKED_SESSION_CONFLICT",
+        entity: "Auth",
+        entityId: user.id,
+        newValue: {
+          existingSessionIp: existingSession.ipAddress,
+          existingSessionUserAgent: existingSession.userAgent,
+          blockedIp: requestIp(request),
+          blockedUserAgent: String(request.headers["user-agent"] ?? "")
+        },
+        ipAddress: requestIp(request),
+        userAgent: String(request.headers["user-agent"] ?? "")
+      });
+      response.status(409).json({
+        message: "Este usuario ja esta logado em outro dispositivo. Encerre a sessao anterior antes de continuar.",
+        code: "SESSION_CONFLICT",
+        canForce: user.role === "ADMIN"
+      });
+      return;
+    }
+    // ADMIN com force=true: encerrar sessão anterior
+    await prisma.$executeRaw`DELETE FROM "UserSession" WHERE "userId" = ${user.id}`;
+    await auditLog({
+      userId: user.id,
+      action: "SESSION_FORCE_REPLACED",
+      entity: "UserSession",
+      entityId: user.id,
+      newValue: {
+        replacedSessionIp: existingSession.ipAddress,
+        newIp: requestIp(request),
+        newUserAgent: String(request.headers["user-agent"] ?? "")
+      },
+      ipAddress: requestIp(request),
+      userAgent: String(request.headers["user-agent"] ?? "")
+    });
+  }
+
   let token: string;
   try {
     token = createToken(user);
@@ -276,6 +333,59 @@ authRouter.post("/login", async (request, response) => {
       mustChangePassword: user.mustChangePassword
     })
   });
+});
+
+authRouter.post("/logout", async (request, response) => {
+  const authorization = String(request.headers.authorization ?? "");
+  const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length).trim() : "";
+
+  if (token) {
+    const tokenHash = hashToken(token);
+    const [session] = await prisma.$queryRaw<Array<{ userId: string }>>`
+      SELECT "userId" FROM "UserSession" WHERE "tokenHash" = ${tokenHash} LIMIT 1
+    `;
+    if (session) {
+      await prisma.$executeRaw`DELETE FROM "UserSession" WHERE "tokenHash" = ${tokenHash}`;
+      await auditLog({
+        userId: session.userId,
+        action: "LOGOUT",
+        entity: "Auth",
+        entityId: session.userId,
+        ipAddress: requestIp(request),
+        userAgent: String(request.headers["user-agent"] ?? "")
+      });
+    }
+  }
+
+  response.json({ ok: true });
+});
+
+// ADMIN: encerrar sessão ativa de outro usuário
+authRouter.delete("/sessions/:userId", async (request, response) => {
+  const admin = await requireAdmin(request, response);
+  if (!admin) return;
+
+  const targetUserId = request.params.userId;
+  const [target] = await prisma.$queryRaw<Array<{ id: string; name: string }>>`
+    SELECT "id", "name" FROM "User" WHERE "id" = ${targetUserId} LIMIT 1
+  `;
+  if (!target) {
+    response.status(404).json({ message: "Usuario nao encontrado." });
+    return;
+  }
+
+  await prisma.$executeRaw`DELETE FROM "UserSession" WHERE "userId" = ${targetUserId}`;
+  await auditLog({
+    userId: admin.id,
+    action: "KILL_USER_SESSIONS",
+    entity: "UserSession",
+    entityId: targetUserId,
+    newValue: { targetUserId, targetName: target.name },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+
+  response.json({ ok: true });
 });
 
 authRouter.get("/me", async (request, response) => {
