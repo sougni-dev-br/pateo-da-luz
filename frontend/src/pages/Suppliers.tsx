@@ -113,7 +113,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
 
         <div className="form-grid">
           <label>
-            Codigo do fornecedor
+            Código do fornecedor
             <input readOnly value={form.externalCode || "Gerado automaticamente"} title={form.externalCode || "Gerado automaticamente ao salvar"} />
           </label>
           <label>
@@ -141,7 +141,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
             <input value={form.mainCategory} onChange={(event) => setForm({ ...form, mainCategory: event.target.value })} />
           </label>
           <label>
-            Prazo padrao pagamento
+            Prazo padrão pagamento
             <input type="number" value={form.defaultPaymentTermDays} onChange={(event) => setForm({ ...form, defaultPaymentTermDays: event.target.value })} />
           </label>
           <label>
@@ -153,7 +153,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
             />
           </label>
           <label>
-            Observacoes
+            Observações
             <input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
           </label>
           <label className="checkbox-label">
@@ -165,7 +165,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
             Ativo
           </label>
           <button className="primary-button" type="button" disabled={!canEdit} onClick={handleSubmit}>
-            {form.id ? "Salvar alteracoes" : "Cadastrar"}
+            {form.id ? "Salvar alterações" : "Cadastrar"}
           </button>
         </div>
       </section>
@@ -185,7 +185,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
           <label>
             Busca
             <input
-              placeholder="Nome, codigo ou documento"
+              placeholder="Nome, código ou documento"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -204,14 +204,14 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
               <thead>
                 <tr>
                   <th>Status</th>
-                  <th>Codigo</th>
+                  <th>Código</th>
                   <th>Nome</th>
                   <th>CNPJ/CPF</th>
                   <th>Contato</th>
                   <th>Categoria</th>
                   <th>Data cadastro</th>
-                  <th>Observacoes</th>
-                  <th>Acoes</th>
+                  <th>Observações</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -246,7 +246,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
                         {supplier.isActive ? "Inativar" : "Reativar"}
                       </button>
                       <button type="button" onClick={() => loadHistory(supplier)}>
-                        Historico
+                        Histórico
                       </button>
                     </td>
                   </tr>
@@ -267,20 +267,20 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
           <section className="panel modal-panel">
           <div className="section-heading">
             <div>
-              <p>Historico do fornecedor</p>
+              <p>Histórico do fornecedor</p>
               <h2>{selectedSupplier.name}</h2>
             </div>
             <button className="secondary-button" type="button" onClick={() => { setSelectedSupplier(null); setHistory(null); }}>Fechar</button>
           </div>
           <div className="summary-grid">
-            <article><span>Total no mes</span><strong>{formatCurrency(history.monthTotal)}</strong></article>
+            <article><span>Total no mês</span><strong>{formatCurrency(history.monthTotal)}</strong></article>
             <article><span>Total no ano</span><strong>{formatCurrency(history.yearTotal)}</strong></article>
-            <article><span>Ultima compra</span><strong>{history.lastPurchase ? formatDate(history.lastPurchase.purchaseDate) : "-"}</strong></article>
-            <article><span>Prazo medio</span><strong>{history.averagePaymentTermDays == null ? "-" : `${Math.round(history.averagePaymentTermDays)} dias`}</strong></article>
+            <article><span>Última compra</span><strong>{history.lastPurchase ? formatDate(history.lastPurchase.purchaseDate) : "-"}</strong></article>
+            <article><span>Prazo médio</span><strong>{history.averagePaymentTermDays == null ? "-" : `${Math.round(history.averagePaymentTermDays)} dias`}</strong></article>
           </div>
           <div className="summary-columns">
             <div>
-              <h3>Ultimas NFs</h3>
+              <h3>Últimas NFs</h3>
               {history.recentInvoices.map((invoice) => <p key={invoice.id}>{invoice.purchaseNumber ?? "-"} NF {invoice.invoiceNumber ?? "-"} - {formatCurrency(invoice.totalAmount)}</p>)}
             </div>
             <div>

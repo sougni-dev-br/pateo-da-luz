@@ -109,11 +109,11 @@ function sanitizeSectorOptions(sectors: InventorySector[]) {
 
 const productFormTabs = [
   { id: "identification", label: "Identificacao" },
-  { id: "classification", label: "Classificacao" },
+  { id: "classification", label: "Classificação" },
   { id: "units", label: "Unidades" },
-  { id: "location", label: "Localizacao" },
+  { id: "location", label: "Localização" },
   { id: "purchase", label: "Compra" },
-  { id: "notes", label: "Observacoes" }
+  { id: "notes", label: "Observações" }
 ] as const;
 
 type ProductFormTab = (typeof productFormTabs)[number]["id"];
@@ -360,16 +360,16 @@ export function Products() {
           {activeFormTab === "identification" && (
             <section className="form-section">
               <div className="form-section-header">
-                <h3>Identificacao</h3>
-                <span>Codigo gerado automaticamente e card de estoque em destaque.</span>
+                <h3>Identificação</h3>
+                <span>Código gerado automaticamente e card de estoque em destaque.</span>
               </div>
               <div className="form-grid product-main-grid">
                 <label>
-                  Codigo do produto
-                  <input className="locked-field" value={form.externalCode || "Gerado ao salvar"} readOnly title="Codigo automatico e nao editavel" />
+                  Código do produto
+                  <input className="locked-field" value={form.externalCode || "Gerado ao salvar"} readOnly title="Código automático e não editável" />
                 </label>
                 <label className="span-2">
-                  Descricao do produto
+                  Descrição do produto
                   <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
                 </label>
                 <article className={`stock-control-card ${form.controlsStock ? "is-enabled" : "is-disabled"}`}>
@@ -530,11 +530,11 @@ export function Products() {
                     <input value={conversionForm.factor} onChange={(event) => setConversionForm({ ...conversionForm, factor: event.target.value })} />
                   </label>
                   <label>
-                    Peso medio
+                    Peso médio
                     <input value={conversionForm.averagePackageWeight} onChange={(event) => setConversionForm({ ...conversionForm, averagePackageWeight: event.target.value })} />
                   </label>
                   <label>
-                    Observacoes
+                    Observações
                     <input value={conversionForm.notes} onChange={(event) => setConversionForm({ ...conversionForm, notes: event.target.value })} />
                   </label>
                   <button
@@ -612,14 +612,14 @@ export function Products() {
           {activeFormTab === "notes" && (
             <section className="form-section">
               <div className="form-section-header">
-                <h3>Observacoes e compatibilidade</h3>
+                <h3>Observações e compatibilidade</h3>
                 <span>Notas internas e campos complementares do cadastro.</span>
               </div>
               <div className="form-grid">
-                <label>Observacoes<input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
-                <label>Observacao logistica<input value={form.logisticsNotes} onChange={(event) => setForm({ ...form, logisticsNotes: event.target.value })} /></label>
-                <label>Obs. localizacao<input value={form.storageNotes} onChange={(event) => setForm({ ...form, storageNotes: event.target.value })} /></label>
-                <label>Obs. conversao<input value={form.conversionNotes} onChange={(event) => setForm({ ...form, conversionNotes: event.target.value })} /></label>
+                <label>Observações<input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
+                <label>Observação logística<input value={form.logisticsNotes} onChange={(event) => setForm({ ...form, logisticsNotes: event.target.value })} /></label>
+                <label>Obs. localização<input value={form.storageNotes} onChange={(event) => setForm({ ...form, storageNotes: event.target.value })} /></label>
+                <label>Obs. conversão<input value={form.conversionNotes} onChange={(event) => setForm({ ...form, conversionNotes: event.target.value })} /></label>
                 <label>Tipo de conta<input value={form.accountType} onChange={(event) => setForm({ ...form, accountType: event.target.value })} /></label>
                 <label className="checkbox-label"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />Ativo</label>
               </div>
@@ -682,17 +682,17 @@ export function Products() {
               <thead>
                 <tr>
                   <th>Status</th>
-                  <th>Codigo</th>
+                  <th>Código</th>
                   <th>Produto</th>
                   <th>Unidade</th>
                   <th>Estoque</th>
-                  <th>Localizacao</th>
+                  <th>Localização</th>
                   <th>Categoria</th>
                   <th>Subcategoria</th>
                   <th>Setor</th>
                   <th>Estoque</th>
                   <th>Aliases</th>
-                  <th>Acoes</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -788,7 +788,7 @@ export function Products() {
           <section className="panel modal-panel wide-modal">
             <div className="section-heading">
               <div>
-                <p>Historico operacional</p>
+                <p>Histórico operacional</p>
                 <h2 title={history.product.name}>{history.product.externalCode ?? "-"} - {history.product.name}</h2>
               </div>
               <button className="secondary-button" type="button" onClick={() => setHistory(null)}>Fechar</button>
@@ -798,12 +798,12 @@ export function Products() {
               <SummaryCard label="Unidade" value={history.product.unit ?? "-"} />
               <SummaryCard label="Setor" value={history.product.inventorySector?.name ?? "-"} />
               <SummaryCard label="Categoria" value={history.product.category?.name ?? "-"} />
-              <SummaryCard label="Controla estoque" value={history.product.controlsStock === false ? "Nao" : "Sim"} tone={history.product.controlsStock === false ? "warning" : "success"} />
+              <SummaryCard label="Controla estoque" value={history.product.controlsStock === false ? "Não" : "Sim"} tone={history.product.controlsStock === false ? "warning" : "success"} />
               <SummaryCard label="Status" value={history.product.isActive ? "Ativo" : "Inativo"} tone={history.product.isActive ? "success" : "danger"} />
             </div>
 
             <div className="subsection table-wrap">
-              <h3>Historico de contagens</h3>
+              <h3>Histórico de contagens</h3>
               <table>
                 <thead><tr><th>Data</th><th>Inventario</th><th>Tipo</th><th>Status inv.</th><th>Qtd.</th><th>Obs.</th><th>Status item</th></tr></thead>
                 <tbody>
@@ -818,13 +818,13 @@ export function Products() {
                       <td><StatusBadge>{count.itemStatus}</StatusBadge></td>
                     </tr>
                   ))}
-                  {history.counts.length === 0 && <tr><td colSpan={7}><EmptyState title="Nenhuma contagem encontrada" description="Este produto ainda nao apareceu em inventarios operacionais." /></td></tr>}
+                  {history.counts.length === 0 && <tr><td colSpan={7}><EmptyState title="Nenhuma contagem encontrada" description="Este produto ainda não apareceu em inventários operacionais." /></td></tr>}
                 </tbody>
               </table>
             </div>
 
             <div className="subsection table-wrap">
-              <h3>Historico de compras</h3>
+              <h3>Histórico de compras</h3>
               <table>
                 <thead><tr><th>Data</th><th>Fornecedor</th><th>Qtd.</th><th>Un.</th><th>Unitario</th><th>Total</th><th>Pedido/NF</th></tr></thead>
                 <tbody>

@@ -135,7 +135,7 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p>Operacao mensal</p>
+            <p>Operação mensal</p>
             <h2>Fechamento mensal</h2>
           </div>
           <button className="icon-button" type="button" onClick={load} aria-label="Atualizar fechamento">
@@ -214,7 +214,7 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
             </div>
             <div className="table-wrap subsection">
               <table>
-                <thead><tr><th>Linha</th><th>Codigo</th><th>Produto</th><th>Setor</th><th>Unidade</th><th>Qtd.</th><th>Custo unit.</th><th>Total</th><th>Status</th></tr></thead>
+                <thead><tr><th>Linha</th><th>Código</th><th>Produto</th><th>Setor</th><th>Unidade</th><th>Qtd.</th><th>Custo unit.</th><th>Total</th><th>Status</th></tr></thead>
                 <tbody>
                   {inventoryPreview.previewRows.map((row) => (
                     <tr key={row.rowNumber}>

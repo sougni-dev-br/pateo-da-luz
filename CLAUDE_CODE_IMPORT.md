@@ -162,6 +162,28 @@ Docker Compose atual:
 - usuário: `cmv`
 - senha: `cmv`
 
+## Dumps de banco exportados
+
+Pasta:
+
+```txt
+exports/database
+```
+
+Arquivos gerados:
+
+- dump SQL do banco da aplicaÃ§Ã£o:
+  - `cmv_loja-<timestamp>.sql`
+- dump custom do PostgreSQL para restore com `pg_restore`:
+  - `cmv_loja-<timestamp>.dump`
+- dump global de roles/globals do cluster:
+  - `postgres-cluster-<timestamp>.sql`
+
+Uso recomendado:
+
+- restaurar `postgres-cluster-...sql` apenas se quiser recriar globals/roles;
+- restaurar `cmv_loja-...sql` ou `cmv_loja-...dump` para subir o banco da aplicaÃ§Ã£o.
+
 ## O que exportar para o Claude Code
 
 ### Exportação recomendada
@@ -183,6 +205,7 @@ Enviar estas pastas e arquivos:
 - `docs`
 - `samples`
 - `scripts`
+- `exports/database`
 - `docker-compose.yml`
 - `README.md`
 - `CLAUDE_CODE_DEPLOY.md`
@@ -277,6 +300,26 @@ Depois de abrir o projeto no Claude Code:
 
 ```bash
 docker compose up -d
+```
+
+### 1.1. Restaurar o banco exportado, se necessÃ¡rio
+
+OpÃ§Ã£o SQL simples:
+
+```bash
+psql -h localhost -U cmv -d cmv_loja -f exports/database/cmv_loja-<timestamp>.sql
+```
+
+OpÃ§Ã£o custom com `pg_restore`:
+
+```bash
+pg_restore -h localhost -U cmv -d cmv_loja --clean --if-exists --no-owner --no-privileges exports/database/cmv_loja-<timestamp>.dump
+```
+
+Restore de globals/roles, se necessÃ¡rio:
+
+```bash
+psql -h localhost -U cmv -d postgres -f exports/database/postgres-cluster-<timestamp>.sql
 ```
 
 ### 2. Backend

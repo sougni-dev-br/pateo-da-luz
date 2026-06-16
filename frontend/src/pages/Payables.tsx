@@ -132,7 +132,7 @@ export function Payables({ user }: PayablesProps) {
       setHistoryRows(await getPayableHistory(payable.id));
       setHistoryOnly(payable);
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao carregar historico." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao carregar histórico." });
     }
   }
 
@@ -153,7 +153,7 @@ export function Payables({ user }: PayablesProps) {
     const paidAmount = Number(paymentForm.paidAmount || 0);
     const difference = Number((paidAmount - originalAmount).toFixed(2));
     if (Math.abs(difference) > 0.009 && !paymentForm.differenceReason.trim()) {
-      setNotice({ tone: "error", message: "Informe a justificativa para desconto ou juros/acrescimo." });
+      setNotice({ tone: "error", message: "Informe a justificativa para desconto ou juros/acréscimo." });
       return;
     }
     try {
@@ -210,7 +210,7 @@ export function Payables({ user }: PayablesProps) {
       <Notice notice={notice} />
       <div className="section-heading">
         <div>
-          <p>Modulo financeiro</p>
+          <p>Módulo financeiro</p>
           <h2>Contas a pagar</h2>
         </div>
         <div className="actions-cell">
@@ -226,16 +226,16 @@ export function Payables({ user }: PayablesProps) {
       <div className="summary-grid financial-summary">
         <article><span>Total em aberto</span><strong>{formatCurrency(totals.open)}</strong></article>
         <article><span>Total vencido</span><strong>{formatCurrency(totals.overdue)}</strong></article>
-        <article><span>Total pago no mes</span><strong>{formatCurrency(totals.paidMonth)}</strong></article>
+        <article><span>Total pago no mês</span><strong>{formatCurrency(totals.paidMonth)}</strong></article>
         <article><span>Total pago hoje</span><strong>{formatCurrency(totals.paidToday)}</strong></article>
-        <article><span>Proximos 7 dias</span><strong>{formatCurrency(totals.next7)}</strong></article>
-        <article><span>Proximos 30 dias</span><strong>{formatCurrency(totals.next30)}</strong></article>
+        <article><span>Próximos 7 dias</span><strong>{formatCurrency(totals.next7)}</strong></article>
+        <article><span>Próximos 30 dias</span><strong>{formatCurrency(totals.next30)}</strong></article>
       </div>
 
       <div className="filters-row">
         <PeriodFilter value={period} onChange={setPeriod} />
         <label>Fornecedor<select value={filters.supplierId} onChange={(event) => setFilters({ ...filters, supplierId: event.target.value })}><option value="">Todos</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
-        <label>Forma pagamento<select value={filters.paymentMethodId} onChange={(event) => setFilters({ ...filters, paymentMethodId: event.target.value })}><option value="">Todas</option>{paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}</select></label>
+        <label>Forma de pagamento<select value={filters.paymentMethodId} onChange={(event) => setFilters({ ...filters, paymentMethodId: event.target.value })}><option value="">Todas</option>{paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}</select></label>
         <label>Status<select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Todos</option><option value="OPEN">Em aberto</option><option value="OVERDUE">Vencido</option><option value="PAID">Pago</option><option value="PAID_LATE">Pago com atraso</option><option value="CANCELLED">Cancelado</option></select></label>
         <button className="primary-button" type="button" onClick={load}>Filtrar</button>
       </div>
@@ -276,20 +276,20 @@ export function Payables({ user }: PayablesProps) {
                   <strong title={payable.paymentMethodName ?? "-"}>{payable.paymentMethodName ?? "-"}</strong>
                 </div>
                 <div className="payable-card-notes">
-                  <span>Observacoes</span>
+                  <span>Observações</span>
                   <strong title={payable.paymentNotes ?? payable.notes ?? payable.rawValue ?? "-"}>{payable.paymentNotes ?? payable.notes ?? payable.rawValue ?? "-"}</strong>
                 </div>
               </div>
 
               <div className="payable-card-actions">
-                <button className="secondary-button compact-action" type="button" onClick={() => openTitle(payable)}><Eye size={15} />Ver titulo</button>
+                <button className="secondary-button compact-action" type="button" onClick={() => openTitle(payable)}><Eye size={15} />Ver título</button>
                 {canManage && ["OPEN", "OVERDUE"].includes(payable.status) && <button className="primary-button compact-action" type="button" onClick={() => startPayment(payable)}><CheckCircle2 size={15} />Marcar pago</button>}
                 {canManage && ["PAID", "PAID_LATE"].includes(payable.status) && <button className="secondary-button compact-action" type="button" onClick={() => submitReverse(payable)}><RotateCcw size={15} />Estornar</button>}
-                <button className="secondary-button compact-action" type="button" onClick={() => openHistory(payable)}><History size={15} />Historico</button>
+                <button className="secondary-button compact-action" type="button" onClick={() => openHistory(payable)}><History size={15} />Histórico</button>
               </div>
             </article>
           ))}
-          {payables.length === 0 && <div className="empty-state">Conta a pagar nao encontrada para este periodo.</div>}
+          {payables.length === 0 && <div className="empty-state">Conta a pagar não encontrada para este período.</div>}
         </div>
       )}
 
@@ -309,11 +309,11 @@ export function Payables({ user }: PayablesProps) {
               <label>Valor efetivamente pago<input type="number" min="0" step="0.01" value={paymentForm.paidAmount} onChange={(event) => setPaymentForm({ ...paymentForm, paidAmount: event.target.value })} /></label>
               <label>Forma efetiva<select value={paymentForm.paidPaymentMethod} onChange={(event) => setPaymentForm({ ...paymentForm, paidPaymentMethod: event.target.value })}><option value="">Selecione</option>{paymentMethods.map((method) => <option key={method.id} value={`id:${method.id}`}>{method.name}</option>)}{effectivePaymentNames.map((name) => <option key={name} value={`name:${name}`}>{name}</option>)}</select></label>
               <label>Desconto calculado<input readOnly value={formatCurrency(paymentDiscount)} /></label>
-              <label>Juros/acrescimo calculado<input readOnly value={formatCurrency(paymentSurcharge)} /></label>
+              <label>Juros/acréscimo calculado<input readOnly value={formatCurrency(paymentSurcharge)} /></label>
               {Math.abs(paymentDifference) > 0.009 && (
-                <label className="full-width">Justificativa da diferenca<input value={paymentForm.differenceReason} onChange={(event) => setPaymentForm({ ...paymentForm, differenceReason: event.target.value })} placeholder="Obrigatoria para desconto ou acrescimo" /></label>
+                <label className="full-width">Justificativa da diferença<input value={paymentForm.differenceReason} onChange={(event) => setPaymentForm({ ...paymentForm, differenceReason: event.target.value })} placeholder="Obrigatória para desconto ou acréscimo" /></label>
               )}
-              <label>Observacao<input value={paymentForm.paymentNotes} onChange={(event) => setPaymentForm({ ...paymentForm, paymentNotes: event.target.value })} /></label>
+              <label>Observação<input value={paymentForm.paymentNotes} onChange={(event) => setPaymentForm({ ...paymentForm, paymentNotes: event.target.value })} /></label>
             </div>
             <div className="modal-actions">
               <button className="secondary-button" type="button" onClick={() => setPaying(null)}>Cancelar</button>
@@ -329,13 +329,13 @@ export function Payables({ user }: PayablesProps) {
             <div className="section-heading">
               <div>
                 <p>Somente leitura</p>
-                <h2>Ver titulo</h2>
+                <h2>Ver título</h2>
               </div>
               <button className="secondary-button" type="button" onClick={() => { setDetail(null); setSelectedPayable(null); setHistoryRows([]); }}>Fechar</button>
             </div>
 
             <div className="summary-columns">
-              <div><h3>Titulo</h3><p>{selectedPayable.supplierName}</p><p>{selectedPayable.purchaseNumber ?? "-"}</p><p>NF {selectedPayable.invoiceNumber ?? "-"}</p></div>
+              <div><h3>Título</h3><p>{selectedPayable.supplierName}</p><p>{selectedPayable.purchaseNumber ?? "-"}</p><p>NF {selectedPayable.invoiceNumber ?? "-"}</p></div>
               <div><h3>Vencimento</h3><p>{formatDate(selectedPayable.dueDate)}</p><p>{formatCurrency(Number(selectedPayable.amount ?? 0))}</p><p>{statusLabels[selectedPayable.status] ?? selectedPayable.status}</p></div>
               <div><h3>Compra</h3><p>{formatDate(detail.purchaseDate)}</p><p>{detail.paymentMethodName ?? detail.paymentMethod ?? "-"}</p><p>{formatCurrency(detail.totalAmount)}</p></div>
             </div>
@@ -343,7 +343,7 @@ export function Payables({ user }: PayablesProps) {
             <div className="subsection table-wrap">
               <h3>Itens da compra</h3>
               <table>
-                <thead><tr><th>Codigo</th><th>Produto</th><th>Categoria</th><th>Subcategoria</th><th>Unidade</th><th>Qtd.</th><th>Unit.</th><th>Total</th></tr></thead>
+                <thead><tr><th>Código</th><th>Produto</th><th>Categoria</th><th>Subcategoria</th><th>Unidade</th><th>Qtd.</th><th>Unit.</th><th>Total</th></tr></thead>
                 <tbody>{detail.items.map((item) => <tr key={item.id}><td>{item.rawProductCode ?? item.productCode ?? "-"}</td><td>{item.rawProductName ?? item.productName}</td><td>{item.rawCategory ?? item.categoryName ?? "-"}</td><td>{item.rawSubcategory ?? item.subcategoryName ?? "-"}</td><td>{item.unit ?? "-"}</td><td>{formatNumber(Number(item.quantity))}</td><td>{formatCurrency(Number(item.unitPrice))}</td><td>{formatCurrency(Number(item.totalPrice))}</td></tr>)}</tbody>
               </table>
             </div>
@@ -357,9 +357,9 @@ export function Payables({ user }: PayablesProps) {
             </div>
 
             <div className="subsection table-wrap">
-              <h3>Historico de pagamentos</h3>
+              <h3>Histórico de pagamentos</h3>
               <table>
-                <thead><tr><th>Data</th><th>Usuario</th><th>Acao</th></tr></thead>
+                <thead><tr><th>Data</th><th>Usuário</th><th>Ação</th></tr></thead>
                 <tbody>{historyRows.filter((audit) => audit.action.includes("PAY") || audit.action.includes("REVERSE")).map((audit) => <tr key={audit.id}><td>{formatDate(audit.createdAt)}</td><td>{audit.userName ?? "-"}</td><td>{audit.action}</td></tr>)}</tbody>
               </table>
             </div>
@@ -367,7 +367,7 @@ export function Payables({ user }: PayablesProps) {
             <div className="subsection table-wrap">
               <h3>Auditoria resumida</h3>
               <table>
-                <thead><tr><th>Data</th><th>Usuario</th><th>Acao</th></tr></thead>
+                <thead><tr><th>Data</th><th>Usuário</th><th>Ação</th></tr></thead>
                 <tbody>{[...historyRows, ...detail.audits].map((audit) => <tr key={audit.id}><td>{formatDate(audit.createdAt)}</td><td>{audit.userName ?? "-"}</td><td>{audit.action}</td></tr>)}</tbody>
               </table>
             </div>
@@ -381,13 +381,13 @@ export function Payables({ user }: PayablesProps) {
             <div className="section-heading">
               <div>
                 <p>Auditoria</p>
-                <h2>Historico</h2>
+                <h2>Histórico</h2>
               </div>
               <button className="secondary-button" type="button" onClick={() => setHistoryOnly(null)}>Fechar</button>
             </div>
             <div className="subsection table-wrap">
               <table>
-                <thead><tr><th>Data</th><th>Usuario</th><th>Acao</th></tr></thead>
+                <thead><tr><th>Data</th><th>Usuário</th><th>Ação</th></tr></thead>
                 <tbody>{historyRows.map((audit) => <tr key={audit.id}><td>{formatDate(audit.createdAt)}</td><td>{audit.userName ?? "-"}</td><td>{audit.action}</td></tr>)}</tbody>
               </table>
             </div>

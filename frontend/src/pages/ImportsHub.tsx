@@ -40,8 +40,8 @@ const tabs: Array<{ id: ImportTab; label: string; description: string; icon: typ
   },
   {
     id: "history",
-    label: "Historico",
-    description: "Lotes importados, usuario, data, total de linhas, importadas e desfazer quando permitido.",
+    label: "Histórico",
+    description: "Lotes importados, usuário, data, total de linhas, importadas e desfazer quando permitido.",
     icon: ArrowRight
   }
 ];
