@@ -9,6 +9,7 @@ import { cmvRealRouter } from "./modules/cmv-real/cmv-real.routes.js";
 import { cardsRouter } from "./modules/cards/cards.routes.js";
 import { masterDataRouter } from "./modules/master-data/master-data.routes.js";
 import { dishesRouter } from "./modules/dishes/dishes.routes.js";
+import { dreRouter } from "./modules/dre/dre.routes.js";
 import { monthlyRouter } from "./modules/monthly/monthly.routes.js";
 import { paymentMethodRouter } from "./modules/payment-methods/payment-method.routes.js";
 import { productRouter } from "./modules/products/product.routes.js";
@@ -51,6 +52,7 @@ app.use("/audit", auditRouter);
 app.use("/dashboard", dashboardRouter);
 app.use("/master-data", masterDataRouter);
 app.use("/dishes", dishesRouter);
+app.use("/dre", dreRouter);
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   console.error("Unhandled API error", error);
