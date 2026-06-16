@@ -223,16 +223,18 @@ model UserMenuPermission {
 }
 
 model UserSession {
-  id        String   @id
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  tokenHash String   @unique
-  ipAddress String?
-  userAgent String?
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id             String    @id
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
+  tokenHash      String    @unique
+  ipAddress      String?
+  userAgent      String?
+  expiresAt      DateTime
+  lastActivityAt DateTime?
+  createdAt      DateTime  @default(now())
 
   @@index([userId])
+  @@index([expiresAt])
 }
 
 model AuditLog {

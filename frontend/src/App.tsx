@@ -358,8 +358,8 @@ export function App() {
                         type="button"
                         onClick={() => {
                           setMobileMenuOpen(false);
-                          logout();
                           setUser(null);
+                          logout();
                         }}
                       >
                         <LogOut size={16} />
@@ -405,8 +405,8 @@ export function App() {
                 className="sidebar-footer-button sidebar-footer-button-danger"
                 type="button"
                 onClick={() => {
-                  logout();
                   setUser(null);
+                  logout();
                 }}
               >
                 <LogOut size={16} />
