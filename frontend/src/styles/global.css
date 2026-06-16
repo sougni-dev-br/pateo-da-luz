@@ -2827,7 +2827,8 @@ td:nth-child(n+3):not(:last-child) {
 @media (max-width: 900px) {
   .app-shell {
     display: block;
-    min-height: 100vh;
+    min-height: 100vh;    /* fallback para browsers sem dvh */
+    min-height: 100dvh;  /* evita página mais alta que o viewport visível no iOS */
   }
 
   .sidebar {
@@ -2893,6 +2894,11 @@ td:nth-child(n+3):not(:last-child) {
     padding: 0;
     position: fixed;
     z-index: 80;
+    /* Garantir cobertura total mesmo em dispositivos com safe-area */
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
     -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
   }
@@ -2904,7 +2910,8 @@ td:nth-child(n+3):not(:last-child) {
     color: var(--paper);
     display: flex;
     flex-direction: column;
-    height: 100dvh;
+    height: 100vh;   /* fallback para browsers sem suporte a dvh */
+    height: 100dvh;  /* cobre exatamente o viewport visível, incluindo quando address bar está aberta */
     left: 0;
     max-width: min(380px, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right)));
     overflow: hidden;
@@ -5345,13 +5352,16 @@ td:nth-child(n+3):not(:last-child) {
   padding: 0;
   display: grid;
   gap: 10px;
+  overflow: hidden; /* never let content escape the card */
 }
 
 .dash-ranking-row {
   display: grid;
-  grid-template-columns: 22px 1fr;
+  grid-template-columns: 22px minmax(0, 1fr); /* minmax(0,1fr) constrains the body column */
   gap: 10px;
   align-items: start;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .dash-ranking-pos {
@@ -5451,9 +5461,21 @@ td:nth-child(n+3):not(:last-child) {
     gap: 8px;
   }
 
+  /* Mobile ranking: empilhar nome → valor → barra em linhas separadas */
+  .dash-ranking-top-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
   .dash-ranking-name {
     white-space: normal;
+    overflow-wrap: anywhere;
     overflow: visible;
     text-overflow: unset;
+  }
+
+  .dash-ranking-value {
+    font-size: 12px;
   }
 }
