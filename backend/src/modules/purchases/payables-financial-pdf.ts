@@ -53,7 +53,7 @@ const statusLabels: Record<string, string> = {
 };
 
 function removeDiacritics(value: string) {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
 function cleanPdfText(value: unknown) {
@@ -93,9 +93,6 @@ function wrapText(value: unknown, width: number, fontSize: number, maxLines = 99
 
   if (lines.length < maxLines && current) lines.push(current);
   if (lines.length > maxLines) lines.length = maxLines;
-  if (lines.length === maxLines && words.join(" ").length > lines.join(" ").length) {
-    lines[maxLines - 1] = `${lines[maxLines - 1].slice(0, Math.max(0, max - 3)).trimEnd()}...`;
-  }
   return lines;
 }
 
@@ -105,7 +102,7 @@ function formatCurrency(value: unknown) {
 
 function formatDateValue(value: unknown) {
   if (!value) return "-";
-  return new Date(String(value)).toLocaleDateString("pt-BR");
+  return new Date(String(value)).toLocaleDateString("pt-BR", { timeZone: "UTC" });
 }
 
 function formatDateTimeValue(value: unknown) {
@@ -130,16 +127,18 @@ function amountSum(rows: PayablesFinancialPdfRow[], statuses: string[], usePaidA
     .reduce((sum, row) => sum + Number(usePaidAmount ? row.paidAmount ?? row.amount ?? 0 : row.amount ?? 0), 0);
 }
 
-function openUntil(rows: PayablesFinancialPdfRow[], today: Date, limit: Date) {
+// Returns sum of OPEN titles with dueDate in [from, to] (exclusive range for faixas)
+function openInRange(rows: PayablesFinancialPdfRow[], from: Date, to: Date) {
   return rows
-    .filter((row) => ["OPEN", "OVERDUE"].includes(String(row.status ?? "")))
+    .filter((row) => String(row.status ?? "") === "OPEN")
     .filter((row) => row.dueDate)
     .reduce((sum, row) => {
       const dueDate = localDateOnly(new Date(String(row.dueDate)));
-      return dueDate >= today && dueDate <= limit ? sum + Number(row.amount ?? 0) : sum;
+      return dueDate >= from && dueDate <= to ? sum + Number(row.amount ?? 0) : sum;
     }, 0);
 }
 
+// Aging: includes OPEN rows that are past their due date (system may not have updated status)
 function bucketAging(rows: PayablesFinancialPdfRow[], today: Date) {
   const buckets = [
     { label: "Vencido 1-7", min: 1, max: 7, value: 0, count: 0 },
@@ -149,9 +148,14 @@ function bucketAging(rows: PayablesFinancialPdfRow[], today: Date) {
   ];
 
   for (const row of rows) {
-    if (String(row.status ?? "") !== "OVERDUE" || !row.dueDate) continue;
+    const status = String(row.status ?? "");
+    if (!row.dueDate) continue;
     const dueDate = localDateOnly(new Date(String(row.dueDate)));
+    // Include OVERDUE status OR OPEN status that is past due (system lag)
+    const isEffectivelyOverdue = status === "OVERDUE" || (status === "OPEN" && dueDate < today);
+    if (!isEffectivelyOverdue) continue;
     const diffDays = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 1) continue;
     const bucket = buckets.find((item) => diffDays >= item.min && diffDays <= item.max);
     if (!bucket) continue;
     bucket.value += Number(row.amount ?? 0);
@@ -177,83 +181,149 @@ function inPeriod(value: unknown, start?: Date | null, end?: Date | null) {
   return true;
 }
 
-function buildSupplierGroups(rows: PayablesFinancialPdfRow[]) {
-  const groups = new Map<string, {
-    supplierName: string;
-    rows: Array<PayablesFinancialPdfRow & {
-      purchaseNumberLabel: string;
-      invoiceNumberLabel: string;
-      purchaseDateLabel: string;
-      dueDateLabel: string;
-      installmentLabel: string;
-      amountLabel: string;
-      paidAmountLabel: string;
-      paymentMethodNameLabel: string;
-      statusLabel: string;
-      notesLabel: string;
-    }>;
-    total: number;
-    pending: number;
-    open: number;
-    overdue: number;
-    paidInPeriod: number;
-  }>();
+// ─── Enriched row type ──────────────────────────────────────────────────────
+
+type EnrichedRow = PayablesFinancialPdfRow & {
+  purchaseNumberLabel: string;
+  invoiceNumberLabel: string;
+  purchaseDateLabel: string;
+  dueDateLabel: string;
+  installmentLabel: string;
+  amountLabel: string;
+  paidAmountLabel: string;
+  paymentMethodNameLabel: string;
+  statusLabel: string;
+  notesLabel: string;
+  duplicateFlag: boolean;
+};
+
+type NfSubGroup = {
+  nfKey: string;
+  purchaseNumber: string;
+  invoiceNumber: string;
+  purchaseDate: string;
+  nfTotal: number;
+  rows: EnrichedRow[];
+};
+
+type SupplierGroup = {
+  supplierName: string;
+  nfGroups: NfSubGroup[];
+  allRows: EnrichedRow[];
+  total: number;
+  pending: number;
+  open: number;
+  overdue: number;
+  paidInPeriod: number;
+};
+
+function buildSupplierGroups(
+  rows: PayablesFinancialPdfRow[],
+  cancelledDupKeys: Set<string>,
+  periodStart?: Date | null,
+  periodEnd?: Date | null
+): SupplierGroup[] {
+  const groups = new Map<string, SupplierGroup>();
 
   for (const row of rows) {
     const supplierName = cleanPdfText(row.supplierName || "-") || "-";
-    const current = groups.get(supplierName) ?? {
-      supplierName,
-      rows: [],
-      total: 0,
-      pending: 0,
-      open: 0,
-      overdue: 0,
-      paidInPeriod: 0
-    };
-
+    const status = String(row.status ?? "");
     const amount = Number(row.amount ?? 0);
-    const paidAmount = Number(row.paidAmount ?? 0);
-    current.total += amount;
-    if (isPendingStatus(row.status)) current.pending += amount;
-    if (String(row.status ?? "") === "OPEN") current.open += amount;
-    if (String(row.status ?? "") === "OVERDUE") current.overdue += amount;
-    current.rows.push({
+
+    if (!groups.has(supplierName)) {
+      groups.set(supplierName, {
+        supplierName,
+        nfGroups: [],
+        allRows: [],
+        total: 0,
+        pending: 0,
+        open: 0,
+        overdue: 0,
+        paidInPeriod: 0
+      });
+    }
+    const group = groups.get(supplierName)!;
+
+    group.total += amount;
+    if (isPendingStatus(status)) group.pending += amount;
+    if (status === "OPEN") group.open += amount;
+    if (status === "OVERDUE") group.overdue += amount;
+    if (isPaidStatus(status) && inPeriod(row.paidDate, periodStart, periodEnd)) {
+      group.paidInPeriod += Number(row.paidAmount ?? amount);
+    }
+
+    const invoiceKey = cleanPdfText(row.invoiceNumber || "");
+    const purchaseKey = cleanPdfText(row.purchaseNumber || "");
+    const nfKey = `${purchaseKey}__${invoiceKey}`;
+    const dupKey = `${supplierName}_${invoiceKey}`;
+    const duplicateFlag = invoiceKey !== "" && cancelledDupKeys.has(dupKey);
+
+    const enriched: EnrichedRow = {
       ...row,
-      purchaseNumberLabel: cleanPdfText(row.purchaseNumber || "-") || "-",
-      invoiceNumberLabel: cleanPdfText(row.invoiceNumber || "-") || "-",
+      purchaseNumberLabel: purchaseKey || "-",
+      invoiceNumberLabel: invoiceKey || "-",
       purchaseDateLabel: formatDateValue(row.purchaseDate),
       dueDateLabel: formatDateValue(row.dueDate),
       installmentLabel: cleanPdfText(row.installment || "-") || "-",
       amountLabel: formatCurrency(row.amount),
       paidAmountLabel: row.paidAmount != null ? formatCurrency(row.paidAmount) : "-",
       paymentMethodNameLabel: cleanPdfText(row.paymentMethodName || "-") || "-",
-      statusLabel: statusLabels[String(row.status ?? "")] ?? (cleanPdfText(row.status || "-") || "-"),
-      notesLabel: cleanPdfText(row.paymentNotes || row.notes || "-") || "-"
-    });
-    groups.set(supplierName, current);
+      statusLabel: statusLabels[status] ?? (cleanPdfText(row.status || "-") || "-"),
+      notesLabel: duplicateFlag
+        ? `[!] VERIFICAR DUPLICIDADE  ${cleanPdfText(row.paymentNotes || row.notes || "") || ""}`.trim()
+        : (cleanPdfText(row.paymentNotes || row.notes || "-") || "-"),
+      duplicateFlag
+    };
+
+    group.allRows.push(enriched);
+
+    // NF sub-grouping
+    let nfGroup = group.nfGroups.find((g) => g.nfKey === nfKey);
+    if (!nfGroup) {
+      nfGroup = {
+        nfKey,
+        purchaseNumber: purchaseKey || "-",
+        invoiceNumber: invoiceKey || "-",
+        purchaseDate: formatDateValue(row.purchaseDate),
+        nfTotal: 0,
+        rows: []
+      };
+      group.nfGroups.push(nfGroup);
+    }
+    nfGroup.nfTotal += amount;
+    nfGroup.rows.push(enriched);
   }
 
   return Array.from(groups.values()).sort((a, b) => a.supplierName.localeCompare(b.supplierName, "pt-BR"));
 }
 
-function buildTableColumns(includePaidColumn: boolean): TableColumn[] {
-  const base: TableColumn[] = [
-    { key: "purchaseNumber", label: "Pedido", width: 84, align: "left", maxLines: 1 },
-    { key: "invoiceNumber", label: "NF", width: 66, align: "left", maxLines: 1 },
+function buildTableColumns(includePaidColumn: boolean, includePurchaseColumn: boolean): TableColumn[] {
+  const base: TableColumn[] = [];
+
+  if (includePurchaseColumn) {
+    base.push({ key: "purchaseNumber", label: "Pedido", width: 84, align: "left", maxLines: 1 });
+  }
+
+  base.push(
+    { key: "invoiceNumber", label: "NF", width: includePurchaseColumn ? 66 : 80, align: "left", maxLines: 1 },
     { key: "purchaseDate", label: "Compra", width: 52, align: "center", maxLines: 1 },
     { key: "dueDate", label: "Venc.", width: 52, align: "center", maxLines: 1 },
     { key: "installment", label: "Parc.", width: 42, align: "center", maxLines: 1 },
     { key: "amount", label: "Valor", width: 72, align: "right", maxLines: 1 }
-  ];
+  );
 
   if (includePaidColumn) {
     base.push({ key: "paidAmount", label: "Pago", width: 72, align: "right", maxLines: 1 });
   }
 
+  const notesWidth = includePurchaseColumn
+    ? (includePaidColumn ? 188 : 214)
+    : (includePaidColumn ? 272 : 298);
+
   base.push(
     { key: "paymentMethodName", label: "Forma", width: includePaidColumn ? 98 : 118, align: "left", maxLines: 1 },
     { key: "status", label: "Status", width: 68, align: "center", maxLines: 1 },
-    { key: "notes", label: "Observacoes", width: includePaidColumn ? 188 : 214, align: "left", maxLines: 2 }
+    { key: "notes", label: "Observacoes", width: notesWidth, align: "left", maxLines: 2 }
   );
 
   return base;
@@ -298,36 +368,63 @@ function alignedTextX(x: number, width: number, text: string, fontSize: number, 
 }
 
 export function createPayablesFinancialPdf(input: PayablesFinancialPdfInput) {
-  const rows = [...input.rows].sort((a, b) => {
+  const allRowsSorted = [...input.rows].sort((a, b) => {
     const supplierCompare = cleanPdfText(a.supplierName).localeCompare(cleanPdfText(b.supplierName), "pt-BR");
     if (supplierCompare !== 0) return supplierCompare;
-    return String(a.dueDate ?? "").localeCompare(String(b.dueDate ?? ""));
+    const nfA = `${cleanPdfText(a.purchaseNumber)}__${cleanPdfText(a.invoiceNumber)}`;
+    const nfB = `${cleanPdfText(b.purchaseNumber)}__${cleanPdfText(b.invoiceNumber)}`;
+    if (nfA !== nfB) return nfA.localeCompare(nfB, "pt-BR");
+    return Number(a.installment ?? 0) - Number(b.installment ?? 0);
   });
 
+  // Separate cancelled from active
+  const activeRows = allRowsSorted.filter((r) => String(r.status ?? "") !== "CANCELLED");
+  const cancelledRows = allRowsSorted.filter((r) => String(r.status ?? "") === "CANCELLED");
+
+  // Build set of cancelled NF keys that have duplicate notes
+  const cancelledDupKeys = new Set<string>();
+  for (const row of cancelledRows) {
+    const notes = (cleanPdfText(row.paymentNotes || "") + " " + cleanPdfText(row.notes || "")).toLowerCase();
+    if (notes.includes("duplicid") || notes.includes("duplicata")) {
+      const supplier = cleanPdfText(row.supplierName || "");
+      const invoice = cleanPdfText(row.invoiceNumber || "");
+      if (invoice) cancelledDupKeys.add(`${supplier}_${invoice}`);
+    }
+  }
+
   const today = localDateOnly(input.today ?? new Date());
-  const includePaidColumn = rows.some((row) => isPaidStatus(row.status) || row.paidAmount != null || row.paidDate != null);
-  const tableColumns = buildTableColumns(includePaidColumn);
+  const includePaidColumn = activeRows.some((row) => isPaidStatus(row.status) || row.paidAmount != null || row.paidDate != null);
+  const hasPurchaseNumbers = activeRows.some((row) => cleanPdfText(row.purchaseNumber || "") !== "");
+  const tableColumns = buildTableColumns(includePaidColumn, hasPurchaseNumbers);
   const hasSpecificSupplier = cleanPdfText(input.supplierLabel).toLowerCase() !== "todos";
   const reportTitle = hasSpecificSupplier ? "Financeiro - Posicao de Fornecedor" : "Financeiro - Posicao de Fornecedores";
-  const next7 = localDateOnly(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7));
-  const next30 = localDateOnly(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 30));
+
+  // Exclusive faixas for próximos
+  const next7end = localDateOnly(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7));
+  const next8start = localDateOnly(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 8));
+  const next30end = localDateOnly(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 30));
+
   const totals = {
-    open: amountSum(rows, ["OPEN"]),
-    overdue: amountSum(rows, ["OVERDUE"]),
-    paid: amountSum(rows, ["PAID", "PAID_LATE"], true),
-    next7: openUntil(rows, today, next7),
-    next30: openUntil(rows, today, next30),
-    overall: rows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0)
+    open: amountSum(activeRows, ["OPEN"]),
+    overdue: amountSum(activeRows, ["OVERDUE"]),
+    paid: amountSum(activeRows, ["PAID", "PAID_LATE"], true),
+    next1to7: openInRange(activeRows, today, next7end),
+    next8to30: openInRange(activeRows, next8start, next30end),
+    overall: activeRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0)
   };
-  const aging = bucketAging(rows, today);
-  const groups = buildSupplierGroups(rows);
-  groups.forEach((group) => {
-    group.paidInPeriod = group.rows
-      .filter((row) => isPaidStatus(row.status) && inPeriod(row.paidDate, input.periodStart, input.periodEnd))
-      .reduce((sum, row) => sum + Number(row.paidAmount ?? row.amount ?? 0), 0);
-  });
+
+  const aging = bucketAging(activeRows, today);
+  const groups = buildSupplierGroups(activeRows, cancelledDupKeys, input.periodStart, input.periodEnd);
+  const cancelledGroups = buildSupplierGroups(cancelledRows, new Set(), input.periodStart, input.periodEnd);
+
+  // Ranking: sorted by urgency % (overdue / pending desc), then by overdue value
   const ranking = [...groups]
-    .sort((a, b) => b.pending - a.pending || b.total - a.total)
+    .filter((g) => g.pending > 0 || g.overdue > 0)
+    .sort((a, b) => {
+      const ratioA = a.pending > 0 ? a.overdue / a.pending : (a.overdue > 0 ? 1 : 0);
+      const ratioB = b.pending > 0 ? b.overdue / b.pending : (b.overdue > 0 ? 1 : 0);
+      return ratioB - ratioA || b.overdue - a.overdue || b.pending - a.pending;
+    })
     .slice(0, 6);
 
   const pages: string[][] = [[]];
@@ -361,7 +458,8 @@ export function createPayablesFinancialPdf(input: PayablesFinancialPdfInput) {
     }
 
     if (isFirstPage) {
-      drawText(commands, marginX, cursorY + 2, `Titulos listados: ${rows.length}`, 8, "F1");
+      const cancelledNote = cancelledRows.length > 0 ? `  |  Cancelados: ${cancelledRows.length} (listados ao final)` : "";
+      drawText(commands, marginX, cursorY + 2, `Titulos ativos: ${activeRows.length}${cancelledNote}`, 8, "F1");
       cursorY += 12;
     }
 
@@ -411,40 +509,65 @@ export function createPayablesFinancialPdf(input: PayablesFinancialPdfInput) {
     cursorY += 18;
   };
 
-  const drawSupplierHeader = (group: ReturnType<typeof buildSupplierGroups>[number]) => {
+  const drawSupplierHeader = (group: SupplierGroup, isActive = true) => {
     const supplierLines = wrapText(group.supplierName, 320, 10, 2);
-    const rightSummary = [
-      `Subtotal pendente: ${formatCurrency(group.pending)}`,
-      `A vencer: ${formatCurrency(group.open)}`,
-      `Vencido: ${formatCurrency(group.overdue)}`,
-      `Pago no periodo: ${formatCurrency(group.paidInPeriod)}`
-    ];
+    const rightSummary = isActive
+      ? [
+          `Subtotal pendente: ${formatCurrency(group.pending)}`,
+          `A vencer: ${formatCurrency(group.open)}`,
+          `Vencido: ${formatCurrency(group.overdue)}`,
+          `Pago no periodo: ${formatCurrency(group.paidInPeriod)}`
+        ]
+      : [
+          `Total cancelado: ${formatCurrency(group.total)}`,
+          `${group.allRows.length} titulo(s)`
+        ];
     const headerHeight = Math.max(38, supplierLines.length * 10 + 10);
     ensureSpace(headerHeight + 8);
     const commands = currentCommands();
-    drawRect(commands, marginX, cursorY, contentWidth, headerHeight, 0.93, 0.75);
-    supplierLines.forEach((line, index) => drawText(commands, marginX + 8, cursorY + 14 + index * 10, line, 10, "F2", textPrimaryGray));
-    rightSummary.forEach((line, index) => drawText(commands, pageWidth - marginX - 170, cursorY + 12 + index * 8, line, 6.8, index === 0 ? "F2" : "F1", index === 0 ? textPrimaryGray : textSecondaryGray));
+    drawRect(commands, marginX, cursorY, contentWidth, headerHeight, isActive ? 0.93 : 0.97, 0.75);
+    supplierLines.forEach((line, index) => drawText(commands, marginX + 8, cursorY + 14 + index * 10, line, 10, "F2", isActive ? textPrimaryGray : 0.50));
+    rightSummary.forEach((line, index) => drawText(commands, pageWidth - marginX - 170, cursorY + 12 + index * 8, line, 6.8, index === 0 ? "F2" : "F1", index === 0 ? (isActive ? textPrimaryGray : 0.50) : textSecondaryGray));
     cursorY += headerHeight;
   };
 
-  const drawDetailRow = (row: ReturnType<typeof buildSupplierGroups>[number]["rows"][number]) => {
+  const drawNfSubHeader = (nfGroup: NfSubGroup) => {
+    const h = 14;
+    ensureSpace(h + 4);
+    const commands = currentCommands();
+    drawRect(commands, marginX, cursorY, contentWidth, h, 0.965, 0.85);
+    const label = `NF ${nfGroup.invoiceNumber}${hasPurchaseNumbers && nfGroup.purchaseNumber !== "-" ? `  |  Pedido ${nfGroup.purchaseNumber}` : ""}  |  Compra ${nfGroup.purchaseDate}  |  ${nfGroup.rows.length} parcela(s)`;
+    drawText(commands, marginX + 10, cursorY + 10, label, 6.8, "F1", textSecondaryGray);
+    drawText(commands, pageWidth - marginX - 160, cursorY + 10, `Total NF: ${formatCurrency(nfGroup.nfTotal)}`, 6.8, "F2", textPrimaryGray);
+    cursorY += h;
+  };
+
+  const drawDetailRow = (row: EnrichedRow, suppressNfCols: boolean) => {
     const fontSize = 7.2;
     const lineHeight = 9;
     const rowLines = tableColumns.map((column) => {
+      // Suppress NF-identifying columns in installment rows (they're in the NF sub-header)
+      if (suppressNfCols && (column.key === "purchaseNumber" || column.key === "invoiceNumber" || column.key === "purchaseDate")) {
+        return [""];
+      }
       const value = row[`${column.key}Label` as keyof typeof row] ?? "-";
       return wrapText(value, column.width - 8, fontSize, column.maxLines ?? (column.key === "notes" ? 2 : 1));
     });
     const height = Math.max(...rowLines.map((lines) => lines.length)) * lineHeight + 8;
     ensureSpace(height + 2);
     const commands = currentCommands();
-    drawRect(commands, marginX, cursorY, contentWidth, height, undefined, 0.88);
+    const rowFill = row.duplicateFlag ? 0.99 : undefined;
+    drawRect(commands, marginX, cursorY, contentWidth, height, rowFill, 0.88);
 
     let x = marginX;
     rowLines.forEach((lines, index) => {
       const column = tableColumns[index];
       lines.forEach((line, lineIndex) => {
-        drawText(commands, alignedTextX(x, column.width, line, fontSize, column.align ?? "left"), cursorY + 12 + lineIndex * lineHeight, line, fontSize, "F1", textPrimaryGray);
+        if (!line) return;
+        const gray = (column.key === "status" && row.status === "OVERDUE") ? 0.55
+          : row.duplicateFlag && column.key === "notes" ? 0.55
+          : textPrimaryGray;
+        drawText(commands, alignedTextX(x, column.width, line, fontSize, column.align ?? "left"), cursorY + 12 + lineIndex * lineHeight, line, fontSize, "F1", gray);
       });
       drawVerticalLine(commands, x, cursorY, height, 0.92);
       x += column.width;
@@ -453,14 +576,17 @@ export function createPayablesFinancialPdf(input: PayablesFinancialPdfInput) {
     cursorY += height;
   };
 
+  // ── Page 1 ──────────────────────────────────────────────────────────────────
+
   drawPageHeader(true);
+
   drawCardGrid("Resumo executivo", [
-    { label: "Total do relatorio", value: formatCurrency(totals.overall), helper: `${rows.length} titulos` },
+    { label: "Total do relatorio", value: formatCurrency(totals.overall), helper: `${activeRows.length} titulos ativos` },
     { label: "Em aberto", value: formatCurrency(totals.open) },
     { label: "Vencido", value: formatCurrency(totals.overdue) },
     { label: "Pago no periodo", value: formatCurrency(totals.paid) },
-    { label: "Proximos 7 dias", value: formatCurrency(totals.next7) },
-    { label: "Proximos 30 dias", value: formatCurrency(totals.next30) }
+    { label: "Proximos 1-7 dias", value: formatCurrency(totals.next1to7), helper: "faixa exclusiva" },
+    { label: "Proximos 8-30 dias", value: formatCurrency(totals.next8to30), helper: "faixa exclusiva" }
   ], 3);
 
   drawCardGrid("Aging de vencidos", aging.map((bucket) => ({
@@ -469,11 +595,26 @@ export function createPayablesFinancialPdf(input: PayablesFinancialPdfInput) {
     helper: `${bucket.count} titulo(s)`
   })), 4);
 
-  drawCardGrid(groups.length > 1 ? "Ranking por fornecedor" : "Resumo do fornecedor", ranking.map((item, index) => ({
-    label: groups.length > 1 ? `${index + 1}. ${cleanPdfText(item.supplierName)}` : cleanPdfText(item.supplierName) || "-",
-    value: formatCurrency(item.pending),
-    helper: `${item.rows.length} titulo(s) | a vencer ${formatCurrency(item.open)} | vencido ${formatCurrency(item.overdue)}`
-  })), 2);
+  const rankingCards = ranking.map((item, index) => {
+    const urgencyPct = item.pending > 0 ? Math.round((item.overdue / item.pending) * 100) : 0;
+    const urgencyBadge = item.overdue > 0 && item.open === 0
+      ? "(100% VENCIDO)"
+      : item.overdue > 0
+        ? `(${urgencyPct}% VENCIDO)`
+        : "(EM DIA)";
+    const label = groups.length > 1
+      ? `${index + 1}. ${cleanPdfText(item.supplierName)} ${urgencyBadge}`
+      : `${cleanPdfText(item.supplierName)} ${urgencyBadge}`;
+    return {
+      label,
+      value: formatCurrency(item.pending),
+      helper: `${item.allRows.length} titulo(s) | a vencer ${formatCurrency(item.open)} | vencido ${formatCurrency(item.overdue)}`
+    };
+  });
+
+  drawCardGrid(groups.length > 1 ? "Ranking por fornecedor (urgencia)" : "Resumo do fornecedor", rankingCards, 2);
+
+  // ── Detail section ──────────────────────────────────────────────────────────
 
   ensureSpace(18);
   drawText(currentCommands(), marginX, cursorY, "Detalhamento por fornecedor", 11, "F2", textPrimaryGray);
@@ -481,24 +622,67 @@ export function createPayablesFinancialPdf(input: PayablesFinancialPdfInput) {
   drawTableHeader();
 
   for (const group of groups) {
-    drawSupplierHeader(group);
+    drawSupplierHeader(group, true);
     if (cursorY + 12 > pageHeight - marginBottom) {
       newPage();
       drawPageHeader(false);
       drawTableHeader();
-      drawSupplierHeader(group);
+      drawSupplierHeader(group, true);
     }
-    for (const row of group.rows) {
-      if (cursorY + 24 > pageHeight - marginBottom) {
-        newPage();
-        drawPageHeader(false);
-        drawTableHeader();
-        drawSupplierHeader(group);
+
+    for (const nfGroup of group.nfGroups) {
+      // NF sub-header
+      drawNfSubHeader(nfGroup);
+
+      for (const row of nfGroup.rows) {
+        if (cursorY + 24 > pageHeight - marginBottom) {
+          newPage();
+          drawPageHeader(false);
+          drawTableHeader();
+          drawSupplierHeader(group, true);
+          drawNfSubHeader(nfGroup);
+        }
+        drawDetailRow(row, true);
       }
-      drawDetailRow(row);
     }
     cursorY += 6;
   }
+
+  // ── Cancelled section ───────────────────────────────────────────────────────
+
+  if (cancelledGroups.length > 0) {
+    ensureSpace(28);
+    drawText(currentCommands(), marginX, cursorY, `Titulos cancelados (${cancelledRows.length})`, 11, "F2", 0.50);
+    cursorY += 16;
+    drawTableHeader();
+
+    for (const group of cancelledGroups) {
+      drawSupplierHeader(group, false);
+      if (cursorY + 12 > pageHeight - marginBottom) {
+        newPage();
+        drawPageHeader(false);
+        drawTableHeader();
+        drawSupplierHeader(group, false);
+      }
+
+      for (const nfGroup of group.nfGroups) {
+        drawNfSubHeader(nfGroup);
+        for (const row of nfGroup.rows) {
+          if (cursorY + 24 > pageHeight - marginBottom) {
+            newPage();
+            drawPageHeader(false);
+            drawTableHeader();
+            drawSupplierHeader(group, false);
+            drawNfSubHeader(nfGroup);
+          }
+          drawDetailRow(row, true);
+        }
+      }
+      cursorY += 6;
+    }
+  }
+
+  // ── Build PDF binary ────────────────────────────────────────────────────────
 
   const objects: string[] = [];
   const addObject = (content: string) => {
