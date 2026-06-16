@@ -2,6 +2,7 @@ import {
   ArrowDown,
   ArrowUp,
   BadgeDollarSign,
+  ExternalLink,
   Info,
   Minus,
   RefreshCw,
@@ -10,7 +11,13 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { ReactNode, useEffect, useState } from "react";
-import { DashboardData, getDashboard } from "../api/client";
+import { useNavigate } from "react-router-dom";
+import {
+  DashboardAlert,
+  DashboardData,
+  getDashboard,
+  getDashboardAlerts,
+} from "../api/client";
 import { formatCurrency, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 
@@ -58,10 +65,12 @@ function deltaInfo(pct: number | null, higherIsGood: boolean): { text: string; t
 // ─────────────────────────────────────────────
 
 export function Dashboard() {
+  const navigate = useNavigate();
   const [competence, setCompetence] = useState(monthFromPeriod(currentMonthPeriod().startDate));
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [backendAlerts, setBackendAlerts] = useState<DashboardAlert[]>([]);
 
   async function load(comp = competence) {
     setLoading(true);
@@ -69,7 +78,13 @@ export function Dashboard() {
     try {
       const [year, month] = comp.split("-");
       const p = periodFromMonth(comp);
-      setData(await getDashboard({ year, month, startDate: p.startDate, endDate: p.endDate }));
+      const [dashData, alertsData] = await Promise.allSettled([
+        getDashboard({ year, month, startDate: p.startDate, endDate: p.endDate }),
+        getDashboardAlerts(comp)
+      ]);
+      if (dashData.status === "fulfilled") setData(dashData.value);
+      else throw dashData.reason;
+      setBackendAlerts(alertsData.status === "fulfilled" ? alertsData.value.alerts : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao carregar dashboard.");
     } finally {
@@ -96,11 +111,12 @@ export function Dashboard() {
   const purchasePct = data ? safePct(data.totalAmount, data.previousTotalAmount) : null;
   const purchaseDelta = deltaInfo(purchasePct, false);
 
-  // Operational alerts
-  const alerts: Array<{ tone: "warning" | "info"; text: string }> = [];
+  // Alertas locais de completude de dados (baseados na resposta do dashboard)
+  type LocalAlert = { tone: "warning" | "info" | "danger"; text: string; actionPath?: string; actionLabel?: string };
+  const localAlerts: LocalAlert[] = [];
   if (!loading && data) {
     if (noData) {
-      alerts.push({
+      localAlerts.push({
         tone: "info",
         text: isCurrentMonth
           ? "Nenhum dado lançado ainda neste mês."
@@ -108,16 +124,39 @@ export function Dashboard() {
       });
     } else {
       if (!hasRevenue) {
-        alerts.push({ tone: "warning", text: "Faturamento não lançado neste período — importe os dados de receita." });
+        localAlerts.push({
+          tone: "warning",
+          text: "Faturamento não lançado neste período — importe os dados de receita.",
+          actionLabel: "Ver faturamento",
+          actionPath: "/financeiro/faturamento"
+        });
       }
       if (!hasPurchases) {
-        alerts.push({ tone: "warning", text: "Nenhuma compra registrada neste período." });
+        localAlerts.push({ tone: "warning", text: "Nenhuma compra registrada neste período." });
       }
       if (hasPurchases && data.previousTotalAmount === 0) {
-        alerts.push({ tone: "info", text: "Sem dados do mês anterior — comparação de compras indisponível." });
+        localAlerts.push({ tone: "info", text: "Sem dados do mês anterior — comparação de compras indisponível." });
       }
     }
   }
+
+  // Alertas financeiros vindos do backend (operacionais)
+  // Filtrar duplicatas: se o alerta de faturamento incompleto já está em localAlerts, omitir do backend
+  const financialAlerts = backendAlerts.filter(
+    (a) => !(a.code === "MISSING_REVENUE_DAYS" && !hasRevenue)
+  );
+
+  // Alertas de dados locais aparecem primeiro, depois alertas financeiros
+  const allDisplayAlerts: Array<{ tone: "danger" | "warning" | "info"; label?: string; text: string; actionLabel?: string; actionPath?: string }> = [
+    ...localAlerts.map((a) => ({ tone: a.tone as "danger" | "warning" | "info", text: a.text, actionLabel: a.actionLabel, actionPath: a.actionPath })),
+    ...financialAlerts.map((a) => ({
+      tone: a.type === "success" ? ("info" as const) : a.type,
+      label: a.title,
+      text: a.description + (a.amount != null && a.amount > 0 ? ` Total: ${formatCurrency(a.amount)}.` : ""),
+      actionLabel: a.actionLabel,
+      actionPath: a.actionPath,
+    }))
+  ];
 
   const [yearPart, monthPart] = competence.split("-");
 
@@ -157,12 +196,24 @@ export function Dashboard() {
       {error && <div className="alert error">{error}</div>}
 
       {/* ── Alertas ── */}
-      {alerts.length > 0 && (
+      {allDisplayAlerts.length > 0 && (
         <div className="dash-alerts">
-          {alerts.map((a, i) => (
-            <div key={i} className={`alert ${a.tone}`} style={{ marginTop: 0 }}>
+          {allDisplayAlerts.map((a, i) => (
+            <div key={i} className={`alert ${a.tone} dash-alert-row`} style={{ marginTop: 0 }}>
               <span className="alert-icon"><Info size={15} /></span>
-              <span>{a.text}</span>
+              <span className="dash-alert-text">
+                {a.label ? <strong>{a.label}: </strong> : null}
+                {a.text}
+              </span>
+              {a.actionPath && a.actionLabel && (
+                <button
+                  type="button"
+                  className="dash-alert-action"
+                  onClick={() => navigate(a.actionPath!)}
+                >
+                  {a.actionLabel} <ExternalLink size={12} />
+                </button>
+              )}
             </div>
           ))}
         </div>
