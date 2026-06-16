@@ -91,7 +91,7 @@ const sections = [
 ] as const satisfies readonly SectionDefinition[];
 
 type SectionId = (typeof sections)[number]["id"];
-const logoPath = "/src/assets/logo-pateo-luz.png";
+const logoPath = "/logo-pateo-luz.png";
 
 function fallbackSectionAllowedForUser(sectionId: SectionId, user: AppUser) {
   if (user.role === "ESTOQUISTA") {

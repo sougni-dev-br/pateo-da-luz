@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, Download, Edit3, FileText, Plus, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppUser,
   calculateCmvPeriod,
@@ -271,7 +271,10 @@ export function CmvReal({ user }: { user: AppUser }) {
     });
   }, []);
 
-  const startNewPeriod = useCallback((nextSuggestions: CmvRealSuggestions | null = suggestions) => {
+  const suggestionsRef = useRef(suggestions);
+  suggestionsRef.current = suggestions;
+
+  const startNewPeriod = useCallback((nextSuggestions: CmvRealSuggestions | null = suggestionsRef.current) => {
     const startDate = nextSuggestions?.suggestedStartDate ?? todayInput();
     setSelectedId(null);
     setDetail(null);
@@ -285,7 +288,7 @@ export function CmvReal({ user }: { user: AppUser }) {
       estoqueFinalSnapshotId: "",
       observacoes: ""
     });
-  }, [suggestions]);
+  }, []);
 
   const load = useCallback(async (nextSelectedId: string | null = selectedId) => {
     setLoading(true);
