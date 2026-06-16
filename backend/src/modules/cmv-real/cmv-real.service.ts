@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
-import { createSimplePdf } from "../../shared/utils/simple-pdf.js";
+import { createCmvRealPdf } from "./cmv-real-pdf.js";
 import { auditLog } from "../security/security-utils.js";
 
 type CmvPeriodStatus = "OPEN" | "CLOSED";
@@ -786,47 +786,37 @@ export async function deleteCmvPeriod(id: string, input: { userId: string; reaso
 
 export async function getCmvPeriodPdf(id: string) {
   const detail = await getCmvPeriod(id);
-  const pdf = createSimplePdf("CMV Real", [
-    {
-      heading: "Periodo e formula",
-      lines: [
-        `Codigo: ${detail.code ?? "-"}`,
-        `Periodo: ${new Date(detail.dataInicial).toLocaleDateString("pt-BR")} ate ${new Date(detail.dataFinal).toLocaleDateString("pt-BR")}`,
-        `Formula: Estoque inicial + Compras - Estoque final = CMV Real`,
-        `Estoque inicial: ${detail.estoqueInicialTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
-        `Compras: ${detail.comprasTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
-        `Estoque final: ${detail.estoqueFinalTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
-        `CMV real: ${detail.cmvReal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
-        `Faturamento: ${detail.faturamentoTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
-        `CMV %: ${detail.cmvPercentual == null ? "-" : `${(detail.cmvPercentual * 100).toFixed(2)}%`}`,
-        `Margem bruta: ${detail.margemBruta == null ? "-" : detail.margemBruta.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
-        `Status: ${detail.status}`
-      ]
-    },
-    {
-      heading: "Compras por categoria",
-      table: {
-        headers: ["Categoria", "Itens", "Total"],
-        rows: detail.purchaseByCategory.map((row) => [row.categoryName, row.itemsCount, row.totalAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })])
-      }
-    },
-    {
-      heading: "Compras por fornecedor",
-      table: {
-        headers: ["Fornecedor", "CNPJ/CPF", "Pedidos", "Total"],
-        rows: detail.purchaseBySupplier.map((row) => [row.supplierName, row.supplierDocument ?? "-", row.purchasesCount, row.totalAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })])
-      }
-    },
-    {
-      heading: "Faturamento por canal",
-      table: {
-        headers: ["Canal", "Qtd.", "Bruto", "Liquido"],
-        rows: detail.revenueByChannel.map((row) => [row.channel, row.count, row.grossAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), row.netAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })])
-      }
-    }
-  ]);
-
-  return pdf;
+  return createCmvRealPdf({
+    code: detail.code ?? "-",
+    dataInicial: new Date(detail.dataInicial),
+    dataFinal: new Date(detail.dataFinal),
+    estoqueInicialTotal: Number(detail.estoqueInicialTotal),
+    comprasTotal: Number(detail.comprasTotal),
+    estoqueFinalTotal: Number(detail.estoqueFinalTotal),
+    cmvReal: Number(detail.cmvReal),
+    faturamentoTotal: Number(detail.faturamentoTotal),
+    cmvPercentual: detail.cmvPercentual == null ? null : Number(detail.cmvPercentual),
+    margemBruta: detail.margemBruta == null ? null : Number(detail.margemBruta),
+    status: detail.status,
+    generatedAt: new Date(),
+    purchaseByCategory: detail.purchaseByCategory.map((row) => ({
+      categoryName: row.categoryName,
+      itemsCount: Number(row.itemsCount),
+      totalAmount: Number(row.totalAmount),
+    })),
+    purchaseBySupplier: detail.purchaseBySupplier.map((row) => ({
+      supplierName: row.supplierName,
+      supplierDocument: row.supplierDocument ?? null,
+      purchasesCount: Number(row.purchasesCount),
+      totalAmount: Number(row.totalAmount),
+    })),
+    revenueByChannel: detail.revenueByChannel.map((row) => ({
+      channel: row.channel,
+      count: Number(row.count),
+      grossAmount: Number(row.grossAmount),
+      netAmount: Number(row.netAmount),
+    })),
+  });
 }
 
 export async function getCmvPeriodByDateRange(startDate: Date, endDate: Date) {
