@@ -465,6 +465,198 @@ dreRouter.patch("/installment/:id/category", async (request, response) => {
 });
 
 // ─────────────────────────────────────────────
+// CLASSIFICAÇÃO DE DESPESAS
+// ─────────────────────────────────────────────
+
+// Regras de sugestão automática de categoria por nome do fornecedor
+const CATEGORY_SUGGESTIONS: Array<{ patterns: string[]; name: string }> = [
+  { patterns: ["enel ", "cpfl", "energisa", "cemig", "celpe", "coelba", "eletropaulo"], name: "Energia Elétrica" },
+  { patterns: ["sabesp", "sanepar", "copasa", "aegea", "embasa"], name: "Água e Esgoto" },
+  { patterns: ["comgas", "comgás", "ultragaz", "supergasbras", "liquigas", "liqgás"], name: "Gás" },
+  { patterns: ["claro", "vivo", "tim ", "oi ", "sky ", "algar", "net cabo", "brisanet", "vero "], name: "Telefonia / Internet" },
+  { patterns: ["ifood", "99food", "keeta", "rappi", "uber eats", "ubereats"], name: "Marketing e Delivery" },
+  { patterns: ["contabilidade", "escritorio de contab", "assessoria contab"], name: "Contador" },
+  { patterns: ["simples nacional", " das ", "irrf", "darf", "gare", "icms ", "iss "], name: "Simples Nacional" },
+  { patterns: ["inss patronal", "inss "], name: "INSS" },
+  { patterns: ["fgts"], name: "FGTS" },
+  { patterns: ["aluguel", "locacao", "locação"], name: "Aluguel" },
+  { patterns: ["condominio", "condomínio", "fundo de promocao", "fundo de promoção"], name: "Condomínio" },
+  { patterns: ["iptu"], name: "IPTU" },
+  { patterns: ["seguro"], name: "Seguro" },
+  { patterns: ["folha de pagamento", "folha pagamento", "rescisao", "rescisão", "ferias ", "férias "], name: "Folha de Pagamento" },
+  { patterns: ["vale transporte", "vale-transporte"], name: "Vale-Transporte" },
+  { patterns: ["plano de saude", "plano de saúde", "unimed", "sulamerica", "bradesco saude", "amil", "hapvida"], name: "Plano de Saúde" },
+  { patterns: ["mr clean", "kativa", "limpeza", "higienizacao", "higienização", "descartav"], name: "Material de Limpeza" },
+  { patterns: ["software", "sistema", "licenca", "licença", "saas", "chatgpt", "chat- gpt", "wix", "totvs", "linx"], name: "Sistema / Software" },
+  { patterns: ["globo play", "netflix", "streaming", "spotify", "amazon prime", "disney"], name: "Streaming / TV" },
+  { patterns: ["manutencao", "manutenção", "reparo", "reforma", "assistencia tecnica", "assistência técnica"], name: "Manutenção" },
+  { patterns: ["marketing", "publicidade", "propaganda", "locacao de site", "locação de site"], name: "Marketing" },
+  { patterns: ["frigo utensil", "equipamento", "eletrodomest"], name: "Equipamentos" },
+  { patterns: ["papel plastico", "prafesta", "ricapel", "quality papel", "embalagen", "shopee", "kalunga"], name: "Descartáveis" },
+  { patterns: ["banco", "tarifa bancaria", "tarifa bancária", "juros bancarios", "juros bancários", "iof bancario"], name: "Tarifa PIX / TEF" },
+  { patterns: ["prolabore", "pró-labore", "pro-labore"], name: "Pró-labore" },
+];
+
+function normalizeSup(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+function suggestCategory(supplierName: string): string | null {
+  const n = normalizeSup(supplierName);
+  for (const rule of CATEGORY_SUGGESTIONS) {
+    if (rule.patterns.some((p) => n.includes(p))) return rule.name;
+  }
+  return null;
+}
+
+// Listar parcelas não categorizadas (com busca, ordenação e sugestão automática)
+dreRouter.get("/pending", async (request, response) => {
+  const range = parseRange(request.query as Record<string, unknown>);
+  if (!range) {
+    response.status(400).json({ message: "Informe year+month ou from+to." });
+    return;
+  }
+
+  const search  = request.query.search  ? String(request.query.search).trim()  : "";
+  const sort    = request.query.sort    ? String(request.query.sort)            : "amount_desc";
+  const page    = Math.max(1, Number(request.query.page ?? 1));
+  const perPage = Math.min(500, Math.max(1, Number(request.query.perPage ?? 200)));
+  const offset  = (page - 1) * perPage;
+
+  type PendingRow = {
+    installmentId: string;
+    purchaseId: string;
+    purchaseDate: Date;
+    supplierName: string;
+    paymentMethod: string | null;
+    invoiceNumber: string | null;
+    purchaseNumber: string | null;
+    dueDate: Date | null;
+    paidDate: Date | null;
+    amount: string | null;
+    paidAmount: string | null;
+    status: string;
+    expenseType: string;
+  };
+
+  type CountRow = { total: number; totalAmount: string };
+
+  const searchPattern = `%${search}%`;
+
+  const [rows, countRows] = await Promise.all([
+    prisma.$queryRaw<PendingRow[]>`
+      SELECT
+        pi.id            AS "installmentId",
+        p.id             AS "purchaseId",
+        p."purchaseDate",
+        s.name           AS "supplierName",
+        p."paymentMethod",
+        p."invoiceNumber",
+        p."purchaseNumber",
+        pi."dueDate",
+        pi."paidDate",
+        pi.amount,
+        pi."paidAmount",
+        pi.status,
+        p."expenseType"
+      FROM "PaymentInstallment" pi
+      JOIN "Purchase" p ON p.id = pi."purchaseId"
+      JOIN "Supplier"  s ON s.id = p."supplierId"
+      WHERE p.status = 'ACTIVE'
+        AND pi.status NOT IN ('CANCELLED')
+        AND pi."dreCategory" IS NULL
+        AND (
+          (pi."paidDate"  IS NOT NULL AND pi."paidDate"  >= ${range.from} AND pi."paidDate"  <= ${range.to})
+          OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${range.from} AND pi."dueDate" <= ${range.to})
+        )
+        AND (${search} = '' OR s.name ILIKE ${searchPattern})
+      ORDER BY
+        CASE WHEN ${sort} = 'amount_desc' THEN COALESCE(pi."paidAmount", pi.amount, 0) END DESC,
+        CASE WHEN ${sort} = 'amount_asc'  THEN COALESCE(pi."paidAmount", pi.amount, 0) END ASC,
+        CASE WHEN ${sort} = 'date_desc'   THEN COALESCE(pi."paidDate", pi."dueDate") END DESC,
+        CASE WHEN ${sort} = 'date_asc'    THEN COALESCE(pi."paidDate", pi."dueDate") END ASC,
+        COALESCE(pi."paidAmount", pi.amount, 0) DESC
+      LIMIT ${perPage} OFFSET ${offset}
+    `,
+    prisma.$queryRaw<CountRow[]>`
+      SELECT
+        COUNT(*) AS total,
+        SUM(COALESCE(pi."paidAmount", pi.amount, 0)) AS "totalAmount"
+      FROM "PaymentInstallment" pi
+      JOIN "Purchase" p ON p.id = pi."purchaseId"
+      JOIN "Supplier"  s ON s.id = p."supplierId"
+      WHERE p.status = 'ACTIVE'
+        AND pi.status NOT IN ('CANCELLED')
+        AND pi."dreCategory" IS NULL
+        AND (
+          (pi."paidDate"  IS NOT NULL AND pi."paidDate"  >= ${range.from} AND pi."paidDate"  <= ${range.to})
+          OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${range.from} AND pi."dueDate" <= ${range.to})
+        )
+        AND (${search} = '' OR s.name ILIKE ${searchPattern})
+    `,
+  ]);
+
+  response.json({
+    total: Number(countRows[0]?.total ?? 0),
+    totalAmount: Number(countRows[0]?.totalAmount ?? 0),
+    page,
+    perPage,
+    rows: rows.map((r) => ({
+      installmentId: r.installmentId,
+      purchaseId: r.purchaseId,
+      purchaseDate: r.purchaseDate,
+      supplierName: r.supplierName,
+      paymentMethod: r.paymentMethod,
+      invoiceNumber: r.invoiceNumber,
+      purchaseNumber: r.purchaseNumber,
+      dueDate: r.dueDate,
+      paidDate: r.paidDate,
+      amount: Number(r.amount ?? 0),
+      effectiveAmount: r.paidAmount != null ? Number(r.paidAmount) : Number(r.amount ?? 0),
+      status: r.status,
+      expenseType: r.expenseType,
+      suggestedCategoryName: suggestCategory(r.supplierName),
+    })),
+  });
+});
+
+// Atribuir dreCategory em lote a múltiplas parcelas
+dreRouter.patch("/installments/bulk-category", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const { installmentIds, dreCategoryId } = request.body as {
+    installmentIds: string[];
+    dreCategoryId: string | null;
+  };
+
+  if (!Array.isArray(installmentIds) || installmentIds.length === 0) {
+    response.status(400).json({ message: "installmentIds deve ser um array não vazio." });
+    return;
+  }
+  if (installmentIds.length > 500) {
+    response.status(400).json({ message: "Máximo de 500 parcelas por lote." });
+    return;
+  }
+
+  await prisma.$executeRaw`
+    UPDATE "PaymentInstallment"
+    SET "dreCategory" = ${dreCategoryId ?? null}
+    WHERE id = ANY(${installmentIds}::text[])
+  `;
+
+  await auditLog({
+    userId: user.id,
+    action: "BULK_UPDATE",
+    entity: "PaymentInstallment",
+    entityId: null,
+    newValue: { dreCategory: dreCategoryId, count: installmentIds.length, ids: installmentIds },
+  });
+
+  response.json({ ok: true, updated: installmentIds.length });
+});
+
+// ─────────────────────────────────────────────
 // DRE CATEGORIES CRUD
 // ─────────────────────────────────────────────
 
