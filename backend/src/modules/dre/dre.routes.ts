@@ -271,7 +271,7 @@ async function calcDRE(from: Date, to: Date) {
   const hasInventoryData = estoqueInicial > 0 && estoqueFinal > 0;
   const cmvWarning = hasInventoryData
     ? null
-    : "CMV calculado por compras do período. Inventário inicial ou final não localizado — não reflete consumo real.";
+    : "CMV estimado: não há inventário inicial e final fechado para este período. O valor exibido considera compras do período, não consumo real.";
 
   return {
     period: { from: from.toISOString(), to: to.toISOString() },
@@ -603,9 +603,12 @@ dreRouter.get("/export/pdf", async (request, response) => {
   const data = await calcDRE(range.from, range.to);
   const pdf = createDrePdf(data);
 
+  const filename = `dre-${range.from.toISOString().slice(0, 10)}.pdf`;
   response.set({
     "Content-Type": "application/pdf",
-    "Content-Disposition": `attachment; filename="dre-${range.from.toISOString().slice(0, 10)}.pdf"`
+    "Content-Disposition": `attachment; filename="${filename}"`,
+    "Content-Length": String(pdf.length),
+    "X-Content-Type-Options": "nosniff"
   });
   response.send(pdf);
 });
