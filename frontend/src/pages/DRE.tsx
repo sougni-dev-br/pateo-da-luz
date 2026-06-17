@@ -879,10 +879,13 @@ function ClassifyPanel({
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<"amount_desc" | "amount_asc" | "date_desc" | "date_asc">("amount_desc");
+  const [typeFilter, setTypeFilter] = useState<"operational" | "cmv" | "all">("operational");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkCatId, setBulkCatId] = useState("");
   const [bulkSaving, setBulkSaving] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [showCmvConfirm, setShowCmvConfirm] = useState(false);
+  const [pendingCmvPayload, setPendingCmvPayload] = useState<{ ids: string[]; catId: string; cmvCount: number } | null>(null);
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Indexar categorias por nome para sugestões
@@ -893,13 +896,14 @@ function ClassifyPanel({
     return { from: fromDate, to: toDate };
   }
 
-  async function load(q?: string, s?: string) {
+  async function load(q?: string, s?: string, t?: string) {
     setLoading(true);
     try {
       const result = await getDREPending({
         ...periodParams(),
         search: q ?? search,
         sort: (s ?? sort) as "amount_desc" | "amount_asc" | "date_desc" | "date_asc",
+        type: (t ?? typeFilter) as "operational" | "cmv" | "all",
         perPage: 200,
       });
       setRows(result.rows);
@@ -913,7 +917,7 @@ function ClassifyPanel({
     }
   }
 
-  useEffect(() => { load(); }, [filterMode, year, month, fromDate, toDate]);
+  useEffect(() => { load(); }, [filterMode, year, month, fromDate, toDate, typeFilter]);
 
   function handleSearchChange(v: string) {
     setSearch(v);
@@ -924,6 +928,12 @@ function ClassifyPanel({
   function handleSortChange(v: string) {
     setSort(v as "amount_desc");
     load(search, v);
+  }
+
+  function handleTypeChange(t: "operational" | "cmv" | "all") {
+    setTypeFilter(t);
+    setSearch("");
+    setSelected(new Set());
   }
 
   function toggleSelect(id: string) {
@@ -943,19 +953,19 @@ function ClassifyPanel({
     }
   }
 
-  // Selecionar todos do mesmo fornecedor
   function selectBySupplier(name: string) {
     setSelected(new Set(rows.filter((r) => r.supplierName === name).map((r) => r.installmentId)));
   }
 
-  async function handleBulkAssign() {
-    if (!bulkCatId || selected.size === 0) return;
+  async function doBulkAssign(ids: string[], catId: string, allowCmv: boolean) {
     setBulkSaving(true);
     try {
-      const result = await bulkAssignDRECategory(Array.from(selected), bulkCatId);
+      const result = await bulkAssignDRECategory(ids, catId, allowCmv);
       notify("success", `${result.updated} lançamento(s) categorizados.`);
       setBulkCatId("");
       setSelected(new Set());
+      setShowCmvConfirm(false);
+      setPendingCmvPayload(null);
       await load();
       onClassified();
     } catch {
@@ -963,6 +973,23 @@ function ClassifyPanel({
     } finally {
       setBulkSaving(false);
     }
+  }
+
+  async function handleBulkAssign() {
+    if (!bulkCatId || selected.size === 0) return;
+    const selectedRows = rows.filter((r) => selected.has(r.installmentId));
+    const cmvItems = selectedRows.filter((r) => r.includedInCmv);
+    if (cmvItems.length > 0) {
+      setPendingCmvPayload({ ids: Array.from(selected), catId: bulkCatId, cmvCount: cmvItems.length });
+      setShowCmvConfirm(true);
+      return;
+    }
+    await doBulkAssign(Array.from(selected), bulkCatId, false);
+  }
+
+  async function confirmCmvBulk() {
+    if (!pendingCmvPayload) return;
+    await doBulkAssign(pendingCmvPayload.ids, pendingCmvPayload.catId, true);
   }
 
   async function handleSingleAssign(installmentId: string, catId: string | null) {
@@ -978,19 +1005,18 @@ function ClassifyPanel({
     }
   }
 
-  // Aplicar sugestão automática a todos os selecionados que têm sugestão conhecida
   async function handleApplySuggestions() {
+    // CMV items já têm suggestedCategoryName = null, são excluídos automaticamente
     const toApply = rows.filter(
-      (r) => selected.has(r.installmentId) && r.suggestedCategoryName
+      (r) => selected.has(r.installmentId) && r.suggestedCategoryName && !r.includedInCmv
     );
     if (toApply.length === 0) {
-      notify("error", "Nenhum selecionado tem sugestão automática.");
+      notify("error", "Nenhum selecionado tem sugestão automática (itens CMV são excluídos).");
       return;
     }
     setBulkSaving(true);
     let applied = 0;
     try {
-      // Agrupar por categoria sugerida para fazer bulk por grupo
       const byCat = new Map<string, string[]>();
       for (const r of toApply) {
         const cat = catByName.get(r.suggestedCategoryName!.toLowerCase());
@@ -999,7 +1025,7 @@ function ClassifyPanel({
         byCat.get(cat.id)!.push(r.installmentId);
       }
       for (const [catId, ids] of byCat) {
-        const result = await bulkAssignDRECategory(ids, catId);
+        const result = await bulkAssignDRECategory(ids, catId, false);
         applied += result.updated;
       }
       notify("success", `${applied} sugestão(ões) aplicada(s).`);
@@ -1017,12 +1043,18 @@ function ClassifyPanel({
   const someChecked = selected.size > 0 && !allChecked;
 
   const selectedHaveSuggestions = rows.filter(
-    (r) => selected.has(r.installmentId) && r.suggestedCategoryName && catByName.has(r.suggestedCategoryName.toLowerCase())
+    (r) => selected.has(r.installmentId) && !r.includedInCmv && r.suggestedCategoryName && catByName.has(r.suggestedCategoryName.toLowerCase())
   ).length;
 
   const periodLabel = filterMode === "month"
     ? `${MONTHS[month - 1]} / ${year}`
     : `${fromDate} → ${toDate}`;
+
+  const TYPE_LABELS: Record<string, string> = {
+    operational: "Despesas operacionais",
+    cmv: "Compras / CMV",
+    all: "Todos",
+  };
 
   return (
     <div className="stack">
@@ -1044,6 +1076,32 @@ function ClassifyPanel({
         </div>
       </div>
 
+      {/* ── Filtro tipo: operacional / CMV / todos ── */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <span className="text-muted" style={{ fontSize: 12 }}>Mostrar:</span>
+        {(["operational", "cmv", "all"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            className={typeFilter === t ? "btn-primary" : "btn-secondary"}
+            style={{ fontSize: "0.8em", padding: "3px 12px" }}
+            onClick={() => handleTypeChange(t)}
+          >
+            {TYPE_LABELS[t]}
+          </button>
+        ))}
+        {typeFilter === "operational" && (
+          <span className="text-muted" style={{ fontSize: 11, fontStyle: "italic" }}>
+            (compras de estoque excluídas para evitar dupla contagem no CMV)
+          </span>
+        )}
+        {typeFilter === "cmv" && (
+          <span className="badge badge-warning" style={{ fontSize: 11 }}>
+            Atenção: classificar itens CMV como despesa causará dupla contagem no DRE
+          </span>
+        )}
+      </div>
+
       {/* ── Barra de busca + ordenação ── */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
@@ -1063,8 +1121,40 @@ function ClassifyPanel({
         </select>
       </div>
 
+      {/* ── Dialog de confirmação CMV ── */}
+      {showCmvConfirm && pendingCmvPayload && (
+        <div style={{ background: "rgba(210,70,70,0.08)", border: "1px solid rgba(210,70,70,0.35)", borderRadius: 6, padding: "14px 16px" }}>
+          <div style={{ fontWeight: 700, color: "#c8380a", marginBottom: 8 }}>
+            Risco de dupla contagem no DRE
+          </div>
+          <p style={{ fontSize: 13, marginBottom: 12 }}>
+            <strong>{pendingCmvPayload.cmvCount} parcela(s)</strong> selecionada(s) pertencem a compras de estoque que <strong>já entram no CMV</strong>.
+            Classificá-las como despesa operacional fará com que o custo apareça duas vezes no DRE.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => { setShowCmvConfirm(false); setPendingCmvPayload(null); }}
+              disabled={bulkSaving}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ background: "#c8380a", borderColor: "#c8380a" }}
+              onClick={confirmCmvBulk}
+              disabled={bulkSaving}
+            >
+              {bulkSaving ? "Salvando..." : "Confirmar mesmo assim"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Barra de ação em lote ── */}
-      {canEdit && (
+      {canEdit && !showCmvConfirm && (
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: "var(--color-surface-2)", padding: "8px 12px", borderRadius: 6, border: "1px solid var(--color-border)" }}>
           <span className="text-muted" style={{ fontSize: 13 }}>
             {selected.size === 0 ? "Selecione lançamentos para classificar em lote" : `${selected.size} selecionado(s)`}
@@ -1097,7 +1187,7 @@ function ClassifyPanel({
                   onClick={handleApplySuggestions}
                   disabled={bulkSaving}
                   style={{ fontSize: "0.85em" }}
-                  title={`Aplicar sugestão automática a ${selectedHaveSuggestions} lançamento(s)`}
+                  title={`Aplicar sugestão automática a ${selectedHaveSuggestions} lançamento(s) operacionais`}
                 >
                   <Wand2 size={13} /> Aplicar sugestões ({selectedHaveSuggestions})
                 </button>
@@ -1114,8 +1204,14 @@ function ClassifyPanel({
         <div style={{ padding: "40px 0", textAlign: "center" }}>
           {total === 0 ? (
             <>
-              <p style={{ fontWeight: 600, marginBottom: 8 }}>Tudo categorizado!</p>
-              <p className="text-muted">Nenhuma despesa pendente de classificação para {periodLabel}.</p>
+              <p style={{ fontWeight: 600, marginBottom: 8 }}>
+                {typeFilter === "operational" ? "Todas as despesas operacionais estão categorizadas!" : "Nenhum item encontrado nesta categoria."}
+              </p>
+              <p className="text-muted">
+                {typeFilter === "operational"
+                  ? `Nenhuma despesa operacional pendente para ${periodLabel}.`
+                  : `Nenhum lançamento de ${TYPE_LABELS[typeFilter].toLowerCase()} pendente para ${periodLabel}.`}
+              </p>
             </>
           ) : (
             <p className="text-muted">Nenhum resultado para "{search}".</p>
@@ -1150,7 +1246,7 @@ function ClassifyPanel({
             <tbody>
               {rows.map((r) => {
                 const isSelected = selected.has(r.installmentId);
-                const sugCat = r.suggestedCategoryName
+                const sugCat = !r.includedInCmv && r.suggestedCategoryName
                   ? catByName.get(r.suggestedCategoryName.toLowerCase())
                   : undefined;
                 return (
@@ -1167,11 +1263,16 @@ function ClassifyPanel({
                     )}
                     <td>
                       <div style={{ fontWeight: 500 }}>{r.supplierName}</div>
+                      {r.includedInCmv && (
+                        <span className="badge badge-warning" style={{ fontSize: "0.72em", marginTop: 2 }}>
+                          Já entra no CMV
+                        </span>
+                      )}
                       {canEdit && (
                         <button
                           type="button"
                           className="btn-link"
-                          style={{ fontSize: "0.75em", padding: 0 }}
+                          style={{ fontSize: "0.75em", padding: 0, display: "block", marginTop: 2 }}
                           onClick={() => selectBySupplier(r.supplierName)}
                         >
                           Selecionar todos deste
@@ -1193,31 +1294,39 @@ function ClassifyPanel({
                     </td>
                     {canEdit && (
                       <td>
-                        {sugCat && (
-                          <div style={{ marginBottom: 4 }}>
-                            <button
-                              type="button"
-                              className="btn-secondary"
-                              style={{ fontSize: "0.75em", padding: "2px 8px" }}
+                        {r.includedInCmv ? (
+                          <span className="text-muted" style={{ fontSize: "0.8em", fontStyle: "italic" }}>
+                            Compra de estoque — já está no CMV
+                          </span>
+                        ) : (
+                          <>
+                            {sugCat && (
+                              <div style={{ marginBottom: 4 }}>
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  style={{ fontSize: "0.75em", padding: "2px 8px" }}
+                                  disabled={savingId === r.installmentId}
+                                  onClick={() => handleSingleAssign(r.installmentId, sugCat.id)}
+                                  title={`Sugestão automática: ${sugCat.name}`}
+                                >
+                                  <Wand2 size={11} /> {sugCat.name}
+                                </button>
+                              </div>
+                            )}
+                            <select
+                              value=""
                               disabled={savingId === r.installmentId}
-                              onClick={() => handleSingleAssign(r.installmentId, sugCat.id)}
-                              title={`Sugestão automática: ${sugCat.name}`}
+                              onChange={(e) => { if (e.target.value) handleSingleAssign(r.installmentId, e.target.value); }}
+                              style={{ fontSize: "0.82em", minWidth: 160 }}
                             >
-                              <Wand2 size={11} /> {sugCat.name}
-                            </button>
-                          </div>
+                              <option value="">— Escolha —</option>
+                              {categories.map((c) => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                            </select>
+                          </>
                         )}
-                        <select
-                          value=""
-                          disabled={savingId === r.installmentId}
-                          onChange={(e) => { if (e.target.value) handleSingleAssign(r.installmentId, e.target.value); }}
-                          style={{ fontSize: "0.82em", minWidth: 160 }}
-                        >
-                          <option value="">— Escolha —</option>
-                          {categories.map((c) => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                        </select>
                       </td>
                     )}
                   </tr>
