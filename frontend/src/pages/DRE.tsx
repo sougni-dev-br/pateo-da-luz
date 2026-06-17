@@ -135,6 +135,27 @@ export function DRE() {
   const [drillLoading, setDrillLoading] = useState(false);
   const { notice, setNotice } = useNotice();
 
+  // AbortError = timeout interno do fetchWithTimeout ou cancelamento do browser.
+  // Não exibir como erro vermelho — é uma falha silenciosa de rede/latência.
+  function isAbortError(e: unknown): boolean {
+    return e instanceof Error && (e.name === "AbortError" || e.message.toLowerCase().includes("aborted"));
+  }
+
+  // Carrega apenas as categorias (usado pelo seed e pelo CRUD de categorias).
+  // Independente do DRE summary — nunca falha silenciosamente a tabela.
+  async function loadCategories() {
+    try {
+      const cats = await getDRECategories(true);
+      setCategories(cats);
+    } catch (e) {
+      if (!isAbortError(e)) {
+        setNotice({ tone: "error", message: "Erro ao carregar categorias DRE." });
+      }
+    }
+  }
+
+  // Carrega DRE summary + categorias usando allSettled:
+  // se o summary falhar (lento, timeout, sem dados), as categorias ainda carregam.
   async function load() {
     setLoading(true);
     try {
@@ -142,14 +163,27 @@ export function DRE() {
         filterMode === "month"
           ? { year, month }
           : { from: fromDate, to: toDate, comparatives };
-      const [summary, cats] = await Promise.all([
+
+      const [summaryResult, catsResult] = await Promise.allSettled([
         getDRESummary(params),
         getDRECategories(true),
       ]);
-      setData(summary);
-      setCategories(cats);
-    } catch (e) {
-      setNotice({ tone: "error", message: e instanceof Error ? e.message : "Erro ao carregar DRE." });
+
+      if (catsResult.status === "fulfilled") {
+        setCategories(catsResult.value);
+      } else if (!isAbortError(catsResult.reason)) {
+        setNotice({ tone: "error", message: "Erro ao carregar categorias DRE." });
+      }
+
+      if (summaryResult.status === "fulfilled") {
+        setData(summaryResult.value);
+      } else if (!isAbortError(summaryResult.reason)) {
+        const msg =
+          summaryResult.reason instanceof Error
+            ? summaryResult.reason.message
+            : "Erro ao carregar resumo do DRE.";
+        setNotice({ tone: "error", message: msg });
+      }
     } finally {
       setLoading(false);
     }
@@ -190,7 +224,7 @@ export function DRE() {
     try {
       const r = await seedDRECategories();
       setNotice({ tone: "success", message: `Seed concluído: ${r.created} criadas, ${r.skipped} já existiam.` });
-      await load();
+      await loadCategories();
     } catch (e) {
       setNotice({ tone: "error", message: e instanceof Error ? e.message : "Erro ao criar categorias." });
     }
@@ -218,7 +252,7 @@ export function DRE() {
           categories={categories}
           canEdit={canEdit}
           isAdmin={isAdmin}
-          onSaved={load}
+          onSaved={loadCategories}
           onSeed={handleSeed}
           notify={(t, m) => setNotice({ tone: t, message: m })}
         />
