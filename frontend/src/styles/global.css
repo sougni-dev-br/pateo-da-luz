@@ -5751,6 +5751,58 @@ td:nth-child(n+3):not(:last-child) {
   vertical-align: middle;
 }
 
+/* ── Filter bar ── */
+.dre-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dre-filter-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dre-filter-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.dre-comparatives-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* ── Receita zero / info banner ── */
+.dre-info-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(180, 130, 30, 0.08);
+  border: 1px solid rgba(180, 130, 30, 0.3);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.dre-info-banner svg {
+  color: #b4821e;
+  flex-shrink: 0;
+}
+
 /* ── Seed bar ── */
 .dre-seed-bar {
   display: flex;

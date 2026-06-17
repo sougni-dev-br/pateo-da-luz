@@ -221,6 +221,7 @@ export function DRE() {
     setPdfLoading(true);
     try {
       await downloadDrePdf(year, month);
+      setNotice({ tone: "success", message: "PDF gerado com sucesso." });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Erro ao gerar PDF.";
       setNotice({ tone: "error", message: `Erro ao gerar PDF: ${msg}` });
@@ -270,66 +271,64 @@ export function DRE() {
       {mode === "dre" && (
         <>
           {/* ── Period filter ── */}
-          <div className="filter-row" style={{ flexWrap: "wrap", gap: "8px" }}>
-            <select
-              value={filterMode}
-              onChange={(e) => setFilterMode(e.target.value as FilterMode)}
-              style={{ minWidth: 130 }}
-            >
-              <option value="month">Mês / Ano</option>
-              <option value="range">Período livre</option>
-            </select>
+          <div className="dre-filter-bar">
+            <div className="dre-filter-left">
+              <select
+                value={filterMode}
+                onChange={(e) => setFilterMode(e.target.value as FilterMode)}
+                style={{ minWidth: 130 }}
+              >
+                <option value="month">Mês / Ano</option>
+                <option value="range">Período livre</option>
+              </select>
 
-            {filterMode === "month" && (
-              <>
-                <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-                  {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
-                </select>
-                <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
-                  {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map((y) => (
-                    <option key={y} value={y}>{y}</option>
-                  ))}
-                </select>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--muted)", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={comparatives}
-                    onChange={(e) => setComparatives(e.target.checked)}
-                    style={{ width: "auto", cursor: "pointer" }}
-                  />
-                  Comparativos
-                </label>
-              </>
-            )}
+              {filterMode === "month" && (
+                <>
+                  <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
+                    {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+                  </select>
+                  <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
+                    {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map((y) => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                </>
+              )}
 
-            {filterMode === "range" && (
-              <>
-                <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-                <span className="text-muted" style={{ alignSelf: "center" }}>até</span>
-                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--muted)", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={comparatives}
-                    onChange={(e) => setComparatives(e.target.checked)}
-                    style={{ width: "auto", cursor: "pointer" }}
-                  />
-                  Comparativos
-                </label>
-                <button type="button" className="btn-secondary" onClick={handleFromToLoad}>Atualizar</button>
-              </>
-            )}
+              {filterMode === "range" && (
+                <>
+                  <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                  <span className="text-muted" style={{ alignSelf: "center", whiteSpace: "nowrap" }}>até</span>
+                  <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                  <button type="button" className="btn-secondary" onClick={handleFromToLoad}>Atualizar</button>
+                </>
+              )}
 
-            <button type="button" className="btn-icon" onClick={load} title="Atualizar"><RefreshCw size={15} /></button>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={handleExportPdf}
-              disabled={loading || !data || pdfLoading}
-              title={loading || !data ? "Carregue o DRE antes de exportar" : "Exportar PDF"}
-            >
-              <Download size={14} /> {pdfLoading ? "Gerando PDF..." : "Exportar PDF"}
-            </button>
+              <label className="dre-comparatives-label">
+                <input
+                  type="checkbox"
+                  checked={comparatives}
+                  onChange={(e) => setComparatives(e.target.checked)}
+                  style={{ width: "auto", cursor: "pointer" }}
+                />
+                Comparativos
+              </label>
+            </div>
+
+            <div className="dre-filter-right">
+              <button type="button" className="btn-icon" onClick={load} title="Atualizar DRE">
+                <RefreshCw size={15} />
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleExportPdf}
+                disabled={loading || !data || pdfLoading}
+                title={loading || !data ? "Carregue o DRE antes de exportar" : "Exportar PDF"}
+              >
+                <Download size={14} /> {pdfLoading ? "Gerando PDF..." : "Exportar PDF"}
+              </button>
+            </div>
           </div>
 
           {loading ? (
@@ -351,6 +350,16 @@ export function DRE() {
             </p>
           ) : cur ? (
             <>
+              {/* ── Aviso receita zero ── */}
+              {cur.revenue.grossAmount === 0 && (
+                <div className="dre-info-banner">
+                  <AlertTriangle size={15} />
+                  <span>
+                    Não há faturamento lançado neste período. Percentuais e margem não podem ser calculados.
+                  </span>
+                </div>
+              )}
+
               {/* ── Cards ── */}
               <div className="dre-cards">
                 <DRECard
