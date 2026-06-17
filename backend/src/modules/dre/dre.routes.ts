@@ -550,30 +550,57 @@ dreRouter.put("/categories/:id", async (request, response) => {
   response.json(row);
 });
 
+// Lock para evitar execuções simultâneas do seed (duplo-clique / race condition)
+let seedRunning = false;
+
+// Normaliza nome para comparação: remove acentos, minúsculas, trim, espaços múltiplos
+function normalizeName(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim().replace(/\s+/g, " ");
+}
+
 // Seed: cria categorias padrão baseadas na planilha gerencial (ADMIN)
 dreRouter.post("/categories/seed", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN"]);
   if (!user) return;
 
-  let created = 0;
-  let skipped = 0;
-  for (const seed of SEED_CATEGORIES) {
-    const existing = await prisma.dRECategory.findFirst({ where: { name: seed.name } });
-    if (existing) { skipped++; continue; }
-    await prisma.dRECategory.create({
-      data: {
-        id: crypto.randomUUID(),
-        name: seed.name,
-        dreGroup: seed.dreGroup,
-        sortOrder: seed.sortOrder,
-        notes: null
-      }
-    });
-    created++;
+  if (seedRunning) {
+    response.status(409).json({ ok: false, message: "Seed já está em execução." });
+    return;
   }
+  seedRunning = true;
 
-  await auditLog({ userId: user.id, action: "CREATE", entity: "DRECategory", entityId: "seed", newValue: { created, skipped } });
-  response.json({ ok: true, created, skipped });
+  try {
+    // Busca todos os nomes existentes de uma vez (evita N queries)
+    const existingNames = new Set(
+      (await prisma.dRECategory.findMany({ select: { name: true } }))
+        .map(c => normalizeName(c.name))
+    );
+
+    let created = 0;
+    let skipped = 0;
+    for (const seed of SEED_CATEGORIES) {
+      if (existingNames.has(normalizeName(seed.name))) {
+        skipped++;
+        continue;
+      }
+      await prisma.dRECategory.create({
+        data: {
+          id: crypto.randomUUID(),
+          name: seed.name,
+          dreGroup: seed.dreGroup,
+          sortOrder: seed.sortOrder,
+          notes: null
+        }
+      });
+      existingNames.add(normalizeName(seed.name)); // evita duplicar dentro do mesmo loop
+      created++;
+    }
+
+    await auditLog({ userId: user.id, action: "CREATE", entity: "DRECategory", entityId: "seed", newValue: { created, skipped } });
+    response.json({ ok: true, created, skipped });
+  } finally {
+    seedRunning = false;
+  }
 });
 
 // ─────────────────────────────────────────────
