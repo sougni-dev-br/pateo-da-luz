@@ -492,10 +492,10 @@ export function createDrePdf(data: DreSummary): Buffer {
     obs.push("Nenhum faturamento registrado neste periodo. Verifique se as receitas foram importadas corretamente.");
   }
   if (data.expenses.filter((e) => e.dreCategoryId === null).length > 0) {
-    const uncatTotal = data.expenses
-      .filter((e) => e.dreCategoryId === null)
-      .reduce((s, e) => s + e.total, 0);
-    obs.push(`Ha lancamentos sem categoria DRE: ${brl(uncatTotal)}. Categorize em DRE Gerencial > Categorias DRE para melhor visibilidade.`);
+    const uncatLines = data.expenses.filter((e) => e.dreCategoryId === null);
+    const uncatTotal = uncatLines.reduce((s, e) => s + e.total, 0);
+    const uncatCount = uncatLines.reduce((s, e) => s + e.count, 0);
+    obs.push(`${uncatCount} lancamento(s) sem categoria DRE totalizando ${brl(uncatTotal)}. Use DRE Gerencial > Classificar Despesas para atribuir categorias e obter um DRE mais preciso.`);
   }
   if (obs.length === 0) {
     obs.push("Nenhuma observacao gerencial para este periodo.");
