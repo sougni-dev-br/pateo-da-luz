@@ -121,31 +121,100 @@ function prevYear(from: Date, to: Date): { from: Date; to: Date } {
 }
 
 async function calcDRE(from: Date, to: Date) {
-  // ── Revenue ──────────────────────────────────
-  const revenueRows = await prisma.$queryRaw<Array<{
-    channel: string;
-    grossAmount: string;
-    discounts: string;
-    platformFees: string;
-    netAmount: string;
-    serviceAmount: string;
-    tickets: number;
-  }>>`
-    SELECT
-      channel,
-      SUM("grossAmount")   AS "grossAmount",
-      SUM(discounts)       AS "discounts",
-      SUM("platformFees")  AS "platformFees",
-      SUM("netAmount")     AS "netAmount",
-      SUM("serviceAmount") AS "serviceAmount",
-      SUM(tickets)         AS tickets
-    FROM "RevenueEntry"
-    WHERE status = 'ACTIVE'
-      AND date >= ${from} AND date <= ${to}
-    GROUP BY channel
-    ORDER BY channel
-  `;
+  // Todas as queries são independentes entre si — rodam em paralelo
+  const [revenueRows, snapInitialValue, snapFinalValue, purchasesInPeriod, expenseRows] = await Promise.all([
+    // ── Receita por canal ──
+    prisma.$queryRaw<Array<{
+      channel: string;
+      grossAmount: string;
+      discounts: string;
+      platformFees: string;
+      netAmount: string;
+      serviceAmount: string;
+      tickets: number;
+    }>>`
+      SELECT
+        channel,
+        SUM("grossAmount")   AS "grossAmount",
+        SUM(discounts)       AS "discounts",
+        SUM("platformFees")  AS "platformFees",
+        SUM("netAmount")     AS "netAmount",
+        SUM("serviceAmount") AS "serviceAmount",
+        SUM(tickets)         AS tickets
+      FROM "RevenueEntry"
+      WHERE status = 'ACTIVE'
+        AND date >= ${from} AND date <= ${to}
+      GROUP BY channel
+      ORDER BY channel
+    `,
+    // ── Estoque inicial: snapshot mais recente ANTES do período ──
+    prisma.$queryRaw<Array<{ totalValue: string | null }>>`
+      SELECT SUM(si."totalCost") AS "totalValue"
+      FROM "InventorySnapshotItem" si
+      JOIN "InventorySnapshot" s ON s.id = si."snapshotId"
+      WHERE s.id = (
+        SELECT id FROM "InventorySnapshot"
+        WHERE status = 'ACTIVE'
+          AND "countDate" < ${from}
+          AND type IN ('INVENTARIO_INICIAL', 'INVENTARIO_FINAL', 'CONTAGEM_PARCIAL')
+        ORDER BY "countDate" DESC
+        LIMIT 1
+      )
+    `,
+    // ── Estoque final: snapshot mais recente ATÉ o final do período ──
+    prisma.$queryRaw<Array<{ totalValue: string | null }>>`
+      SELECT SUM(si."totalCost") AS "totalValue"
+      FROM "InventorySnapshotItem" si
+      JOIN "InventorySnapshot" s ON s.id = si."snapshotId"
+      WHERE s.id = (
+        SELECT id FROM "InventorySnapshot"
+        WHERE status = 'ACTIVE'
+          AND "countDate" <= ${to}
+          AND type IN ('INVENTARIO_INICIAL', 'INVENTARIO_FINAL', 'CONTAGEM_PARCIAL')
+        ORDER BY "countDate" DESC
+        LIMIT 1
+      )
+    `,
+    // ── Compras no período ──
+    prisma.$queryRaw<Array<{ total: string | null }>>`
+      SELECT SUM("totalAmount") AS total
+      FROM "Purchase"
+      WHERE status = 'ACTIVE'
+        AND "purchaseDate" >= ${from}
+        AND "purchaseDate" <= ${to}
+    `,
+    // ── Despesas por categoria DRE ──
+    // paidDate para pagas, dueDate para em aberto (regime de competência)
+    prisma.$queryRaw<Array<{
+      dreCategory: string | null;
+      dreCategoryName: string | null;
+      dreSortOrder: number | null;
+      dreGroup: string | null;
+      total: string;
+      count: number;
+    }>>`
+      SELECT
+        pi."dreCategory",
+        dc.name AS "dreCategoryName",
+        dc."sortOrder" AS "dreSortOrder",
+        dc."dreGroup" AS "dreGroup",
+        SUM(COALESCE(pi."paidAmount", pi.amount, 0)) AS total,
+        COUNT(*) AS count
+      FROM "PaymentInstallment" pi
+      LEFT JOIN "DRECategory" dc ON dc.id = pi."dreCategory"
+      JOIN "Purchase" p ON p.id = pi."purchaseId"
+      WHERE p.status = 'ACTIVE'
+        AND pi.status NOT IN ('CANCELLED')
+        AND (
+          (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${from} AND pi."paidDate" <= ${to})
+          OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${from} AND pi."dueDate" <= ${to})
+        )
+      GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
+      ORDER BY COALESCE(dc."sortOrder", 999), COALESCE(dc.name, 'ZZZ')
+    `,
+  ]);
 
+  // ── Agregar receita ──
   const grossByChannel: Record<string, number> = {};
   let totalGross = 0, totalDiscounts = 0, totalPlatformFees = 0, totalNet = 0, totalService = 0, totalTickets = 0;
   for (const row of revenueRows) {
@@ -159,95 +228,12 @@ async function calcDRE(from: Date, to: Date) {
     totalTickets += Number(row.tickets);
   }
 
-  // ── CMV on-the-fly ────────────────────────────
-  // Estoque inicial: snapshot mais recente do tipo INVENTARIO_INICIAL/FINAL antes do período
-  const snapInitial = await prisma.$queryRaw<Array<{ totalValue: string }>>`
-    SELECT SUM(si."totalCost") AS "totalValue"
-    FROM "InventorySnapshotItem" si
-    JOIN "InventorySnapshot" s ON s.id = si."snapshotId"
-    WHERE s.status = 'ACTIVE'
-      AND s."countDate" < ${from}
-      AND s.type IN ('INVENTARIO_INICIAL', 'INVENTARIO_FINAL', 'CONTAGEM_PARCIAL')
-    ORDER BY s."countDate" DESC
-    LIMIT 1
-  `;
-
-  // Para snapshot inicial: pegar o valor do snapshot mais recente ANTES do período
-  const snapInitialValue = await prisma.$queryRaw<Array<{ totalValue: string | null }>>`
-    SELECT SUM(si."totalCost") AS "totalValue"
-    FROM "InventorySnapshotItem" si
-    JOIN "InventorySnapshot" s ON s.id = si."snapshotId"
-    WHERE s.id = (
-      SELECT id FROM "InventorySnapshot"
-      WHERE status = 'ACTIVE'
-        AND "countDate" < ${from}
-        AND type IN ('INVENTARIO_INICIAL', 'INVENTARIO_FINAL', 'CONTAGEM_PARCIAL')
-      ORDER BY "countDate" DESC
-      LIMIT 1
-    )
-  `;
-
-  // Estoque final: snapshot mais recente dentro ou logo após o período
-  const snapFinalValue = await prisma.$queryRaw<Array<{ totalValue: string | null }>>`
-    SELECT SUM(si."totalCost") AS "totalValue"
-    FROM "InventorySnapshotItem" si
-    JOIN "InventorySnapshot" s ON s.id = si."snapshotId"
-    WHERE s.id = (
-      SELECT id FROM "InventorySnapshot"
-      WHERE status = 'ACTIVE'
-        AND "countDate" <= ${to}
-        AND type IN ('INVENTARIO_INICIAL', 'INVENTARIO_FINAL', 'CONTAGEM_PARCIAL')
-      ORDER BY "countDate" DESC
-      LIMIT 1
-    )
-  `;
-
-  // Compras no período
-  const purchasesInPeriod = await prisma.$queryRaw<Array<{ total: string | null }>>`
-    SELECT SUM("totalAmount") AS total
-    FROM "Purchase"
-    WHERE status = 'ACTIVE'
-      AND "purchaseDate" >= ${from}
-      AND "purchaseDate" <= ${to}
-  `;
-
   const estoqueInicial = Number(snapInitialValue[0]?.totalValue ?? 0);
   const estoqueFinal = Number(snapFinalValue[0]?.totalValue ?? 0);
   const compras = Number(purchasesInPeriod[0]?.total ?? 0);
   const cmvReal = estoqueInicial + compras - estoqueFinal;
   const cmvPercent = totalGross > 0 ? (cmvReal / totalGross) * 100 : null;
   const lucroBruto = totalNet - cmvReal;
-
-  // ── Despesas operacionais ─────────────────────
-  // Usa dueDate para competência (regime de competência) para parcelas não pagas
-  // e paidDate para parcelas pagas
-  const expenseRows = await prisma.$queryRaw<Array<{
-    dreCategory: string | null;
-    dreCategoryName: string | null;
-    dreSortOrder: number | null;
-    dreGroup: string | null;
-    total: string;
-    count: number;
-  }>>`
-    SELECT
-      pi."dreCategory",
-      dc.name AS "dreCategoryName",
-      dc."sortOrder" AS "dreSortOrder",
-      dc."dreGroup" AS "dreGroup",
-      SUM(COALESCE(pi."paidAmount", pi.amount, 0)) AS total,
-      COUNT(*) AS count
-    FROM "PaymentInstallment" pi
-    LEFT JOIN "DRECategory" dc ON dc.id = pi."dreCategory"
-    JOIN "Purchase" p ON p.id = pi."purchaseId"
-    WHERE p.status = 'ACTIVE'
-      AND pi.status NOT IN ('CANCELLED')
-      AND (
-        (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${from} AND pi."paidDate" <= ${to})
-        OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${from} AND pi."dueDate" <= ${to})
-      )
-    GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
-    ORDER BY COALESCE(dc."sortOrder", 999), COALESCE(dc.name, 'ZZZ')
-  `;
 
   const expenses = expenseRows.map((r) => ({
     dreCategoryId: r.dreCategory ?? null,

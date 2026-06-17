@@ -129,6 +129,8 @@ export function DRE() {
   } | null>(null);
   const [categories, setCategories] = useState<DRECategory[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [expandedExpense, setExpandedExpense] = useState<string | null>(null);
   const [drillRows, setDrillRows] = useState<DrillRow[]>([]);
@@ -158,10 +160,11 @@ export function DRE() {
   // se o summary falhar (lento, timeout, sem dados), as categorias ainda carregam.
   async function load() {
     setLoading(true);
+    setLoadError(false);
     try {
       const params =
         filterMode === "month"
-          ? { year, month }
+          ? { year, month, comparatives }
           : { from: fromDate, to: toDate, comparatives };
 
       const [summaryResult, catsResult] = await Promise.allSettled([
@@ -183,13 +186,14 @@ export function DRE() {
             ? summaryResult.reason.message
             : "Erro ao carregar resumo do DRE.";
         setNotice({ tone: "error", message: msg });
+        setLoadError(true);
       }
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { load(); }, [year, month, filterMode]);
+  useEffect(() => { load(); }, [year, month, filterMode, comparatives]);
 
   function handleFromToLoad() { load(); }
 
@@ -213,10 +217,15 @@ export function DRE() {
   }
 
   async function handleExportPdf() {
+    if (!data || loading) return;
+    setPdfLoading(true);
     try {
       await downloadDrePdf(year, month);
-    } catch {
-      setNotice({ tone: "error", message: "Erro ao gerar PDF." });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Erro ao gerar PDF.";
+      setNotice({ tone: "error", message: `Erro ao gerar PDF: ${msg}` });
+    } finally {
+      setPdfLoading(false);
     }
   }
 
@@ -281,6 +290,15 @@ export function DRE() {
                     <option key={y} value={y}>{y}</option>
                   ))}
                 </select>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--muted)", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={comparatives}
+                    onChange={(e) => setComparatives(e.target.checked)}
+                    style={{ width: "auto", cursor: "pointer" }}
+                  />
+                  Comparativos
+                </label>
               </>
             )}
 
@@ -303,13 +321,34 @@ export function DRE() {
             )}
 
             <button type="button" className="btn-icon" onClick={load} title="Atualizar"><RefreshCw size={15} /></button>
-            <button type="button" className="btn-secondary" onClick={handleExportPdf}>
-              <Download size={14} /> Exportar PDF
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={handleExportPdf}
+              disabled={loading || !data || pdfLoading}
+              title={loading || !data ? "Carregue o DRE antes de exportar" : "Exportar PDF"}
+            >
+              <Download size={14} /> {pdfLoading ? "Gerando PDF..." : "Exportar PDF"}
             </button>
           </div>
 
           {loading ? (
-            <p className="text-muted">Carregando DRE...</p>
+            <p className="text-muted" style={{ padding: "24px 0", textAlign: "center" }}>
+              Carregando DRE... (pode levar alguns segundos)
+            </p>
+          ) : loadError && !cur ? (
+            <div style={{ padding: "32px 0", textAlign: "center" }}>
+              <p className="text-muted" style={{ marginBottom: 12 }}>
+                Não foi possível carregar o DRE para este período.
+              </p>
+              <button type="button" className="btn-secondary" onClick={load}>
+                <RefreshCw size={14} /> Tentar novamente
+              </button>
+            </div>
+          ) : !cur ? (
+            <p className="text-muted" style={{ padding: "24px 0", textAlign: "center" }}>
+              Nenhum dado encontrado para este período.
+            </p>
           ) : cur ? (
             <>
               {/* ── Cards ── */}
@@ -449,7 +488,7 @@ export function DRE() {
                     {/* ── DESPESAS POR GRUPO ── */}
                     <DREGroup label="DESPESAS OPERACIONAIS" />
 
-                    {cur.expenseGroups.length === 0 && (
+                    {(cur.expenseGroups ?? []).length === 0 && (
                       <tr className="dre-row">
                         <td colSpan={5} className="text-muted" style={{ fontStyle: "italic", paddingLeft: 24 }}>
                           Nenhuma despesa categorizada no período.
@@ -457,7 +496,7 @@ export function DRE() {
                       </tr>
                     )}
 
-                    {cur.expenseGroups.map((grp) => {
+                    {(cur.expenseGroups ?? []).map((grp) => {
                       const isGroupOpen = expandedGroup === grp.key;
                       const pmGrp = pm?.expenseGroups?.find((g) => g.key === grp.key);
                       const pyGrp = py?.expenseGroups?.find((g) => g.key === grp.key);

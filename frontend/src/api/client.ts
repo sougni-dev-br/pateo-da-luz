@@ -21,9 +21,9 @@ function sessionToken() {
   return sessionStorage.getItem(SESSION_TOKEN_KEY);
 }
 
-async function fetchWithTimeout(url: string, options?: RequestInit) {
+async function fetchWithTimeout(url: string, options?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
@@ -31,7 +31,7 @@ async function fetchWithTimeout(url: string, options?: RequestInit) {
   }
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const token = sessionToken();
   const headers = new Headers(options?.headers);
   if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
@@ -47,7 +47,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   for (let index = 0; index < candidates.length; index += 1) {
     const url = candidates[index];
     try {
-      const response = await fetchWithTimeout(url, requestOptions);
+      const response = await fetchWithTimeout(url, requestOptions, timeoutMs);
       if (response.ok) {
         return response.json() as Promise<T>;
       }
@@ -90,7 +90,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   throw lastError ?? new Error("Backend nao encontrado.");
 }
 
-async function download(path: string, filename: string) {
+async function download(path: string, filename: string, timeoutMs = REQUEST_TIMEOUT_MS) {
   const token = sessionToken();
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -105,8 +105,16 @@ async function download(path: string, filename: string) {
   for (let index = 0; index < candidates.length; index += 1) {
     const url = candidates[index];
     try {
-      response = await fetchWithTimeout(url, { headers });
+      response = await fetchWithTimeout(url, { headers }, timeoutMs);
       if (response.ok) break;
+
+      if (response.status === 401) {
+        localStorage.removeItem(SESSION_TOKEN_KEY);
+        sessionStorage.removeItem(SESSION_TOKEN_KEY);
+        window.location.reload();
+        throw new Error("Sessao encerrada. Faca login novamente.");
+      }
+
       const errorBody = await response.json().catch(() => null);
       const shouldFallback =
         index === 0 &&
@@ -3032,18 +3040,23 @@ export type DREExpenseGroup = {
   lines: DREExpenseLine[];
 };
 
+const DRE_TIMEOUT_MS = 30_000;
+
 export function getDRESummary(
-  params: { year: number; month: number } | { from: string; to: string; comparatives?: boolean }
+  params: { year: number; month: number; comparatives?: boolean } | { from: string; to: string; comparatives?: boolean }
 ) {
   let qs: Record<string, string>;
   if ("year" in params) {
     qs = { year: String(params.year), month: String(params.month) };
+    if (params.comparatives === false) qs.comparatives = "false";
   } else {
     qs = { from: params.from, to: params.to };
     if (params.comparatives === false) qs.comparatives = "false";
   }
   return request<{ current: DRESummary; prevMonth: DRESummary | null; prevYear: DRESummary | null }>(
-    `/dre/summary${toQueryString(qs)}`
+    `/dre/summary${toQueryString(qs)}`,
+    undefined,
+    DRE_TIMEOUT_MS
   );
 }
 
@@ -3084,7 +3097,11 @@ export function assignDRECategory(installmentId: string, dreCategoryId: string |
 }
 
 export function downloadDrePdf(year: number, month: number) {
-  return download(`/dre/export/pdf${toQueryString({ year: String(year), month: String(month) })}`, `dre-${year}-${String(month).padStart(2, "0")}.pdf`);
+  return download(
+    `/dre/export/pdf${toQueryString({ year: String(year), month: String(month) })}`,
+    `dre-${year}-${String(month).padStart(2, "0")}.pdf`,
+    DRE_TIMEOUT_MS
+  );
 }
 
 export function getMenuFavorites() {
