@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { Router } from "express";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { auditLog, requireRole } from "../security/security-utils.js";
 import { createDrePdf } from "./dre-pdf.js";
@@ -509,7 +510,7 @@ function suggestCategory(supplierName: string): string | null {
   return null;
 }
 
-// Listar parcelas não categorizadas (com busca, ordenação e sugestão automática)
+// Listar parcelas não categorizadas (com busca, ordenação, sugestão automática e filtro CMV)
 dreRouter.get("/pending", async (request, response) => {
   const range = parseRange(request.query as Record<string, unknown>);
   if (!range) {
@@ -519,6 +520,8 @@ dreRouter.get("/pending", async (request, response) => {
 
   const search  = request.query.search  ? String(request.query.search).trim()  : "";
   const sort    = request.query.sort    ? String(request.query.sort)            : "amount_desc";
+  // type: "operational" = apenas despesas (não CMV); "cmv" = compras de estoque; "all" = todos
+  const type    = request.query.type    ? String(request.query.type)            : "operational";
   const page    = Math.max(1, Number(request.query.page ?? 1));
   const perPage = Math.min(500, Math.max(1, Number(request.query.perPage ?? 200)));
   const offset  = (page - 1) * perPage;
@@ -537,11 +540,27 @@ dreRouter.get("/pending", async (request, response) => {
     paidAmount: string | null;
     status: string;
     expenseType: string;
+    includedInCmv: boolean;
   };
 
   type CountRow = { total: number; totalAmount: string };
 
   const searchPattern = `%${search}%`;
+
+  // Fragmento SQL para filtrar por tipo (CMV vs operacional)
+  const cmvFilter = type === "operational"
+    ? Prisma.sql`AND NOT EXISTS (
+        SELECT 1 FROM "PurchaseItem" pi2
+        JOIN "Product" prod ON prod.id = pi2."productId"
+        WHERE pi2."purchaseId" = p.id AND prod."controlsStock" = true
+      )`
+    : type === "cmv"
+    ? Prisma.sql`AND EXISTS (
+        SELECT 1 FROM "PurchaseItem" pi2
+        JOIN "Product" prod ON prod.id = pi2."productId"
+        WHERE pi2."purchaseId" = p.id AND prod."controlsStock" = true
+      )`
+    : Prisma.empty;
 
   const [rows, countRows] = await Promise.all([
     prisma.$queryRaw<PendingRow[]>`
@@ -558,7 +577,12 @@ dreRouter.get("/pending", async (request, response) => {
         pi.amount,
         pi."paidAmount",
         pi.status,
-        p."expenseType"
+        p."expenseType",
+        EXISTS (
+          SELECT 1 FROM "PurchaseItem" pi2
+          JOIN "Product" prod ON prod.id = pi2."productId"
+          WHERE pi2."purchaseId" = p.id AND prod."controlsStock" = true
+        ) AS "includedInCmv"
       FROM "PaymentInstallment" pi
       JOIN "Purchase" p ON p.id = pi."purchaseId"
       JOIN "Supplier"  s ON s.id = p."supplierId"
@@ -570,6 +594,7 @@ dreRouter.get("/pending", async (request, response) => {
           OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${range.from} AND pi."dueDate" <= ${range.to})
         )
         AND (${search} = '' OR s.name ILIKE ${searchPattern})
+        ${cmvFilter}
       ORDER BY
         CASE WHEN ${sort} = 'amount_desc' THEN COALESCE(pi."paidAmount", pi.amount, 0) END DESC,
         CASE WHEN ${sort} = 'amount_asc'  THEN COALESCE(pi."paidAmount", pi.amount, 0) END ASC,
@@ -593,6 +618,7 @@ dreRouter.get("/pending", async (request, response) => {
           OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${range.from} AND pi."dueDate" <= ${range.to})
         )
         AND (${search} = '' OR s.name ILIKE ${searchPattern})
+        ${cmvFilter}
     `,
   ]);
 
@@ -601,22 +627,32 @@ dreRouter.get("/pending", async (request, response) => {
     totalAmount: Number(countRows[0]?.totalAmount ?? 0),
     page,
     perPage,
-    rows: rows.map((r) => ({
-      installmentId: r.installmentId,
-      purchaseId: r.purchaseId,
-      purchaseDate: r.purchaseDate,
-      supplierName: r.supplierName,
-      paymentMethod: r.paymentMethod,
-      invoiceNumber: r.invoiceNumber,
-      purchaseNumber: r.purchaseNumber,
-      dueDate: r.dueDate,
-      paidDate: r.paidDate,
-      amount: Number(r.amount ?? 0),
-      effectiveAmount: r.paidAmount != null ? Number(r.paidAmount) : Number(r.amount ?? 0),
-      status: r.status,
-      expenseType: r.expenseType,
-      suggestedCategoryName: suggestCategory(r.supplierName),
-    })),
+    rows: rows.map((r) => {
+      const includedInCmv = Boolean(r.includedInCmv);
+      const origin: "cmv_purchase" | "operational" = includedInCmv ? "cmv_purchase" : "operational";
+      const classificationRisk = includedInCmv
+        ? "Já entra no CMV. Classificar como despesa operacional causará dupla contagem."
+        : null;
+      return {
+        installmentId: r.installmentId,
+        purchaseId: r.purchaseId,
+        purchaseDate: r.purchaseDate,
+        supplierName: r.supplierName,
+        paymentMethod: r.paymentMethod,
+        invoiceNumber: r.invoiceNumber,
+        purchaseNumber: r.purchaseNumber,
+        dueDate: r.dueDate,
+        paidDate: r.paidDate,
+        amount: Number(r.amount ?? 0),
+        effectiveAmount: r.paidAmount != null ? Number(r.paidAmount) : Number(r.amount ?? 0),
+        status: r.status,
+        expenseType: r.expenseType,
+        includedInCmv,
+        origin,
+        classificationRisk,
+        suggestedCategoryName: includedInCmv ? null : suggestCategory(r.supplierName),
+      };
+    }),
   });
 });
 
@@ -625,9 +661,10 @@ dreRouter.patch("/installments/bulk-category", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
-  const { installmentIds, dreCategoryId } = request.body as {
+  const { installmentIds, dreCategoryId, allowCmvItems } = request.body as {
     installmentIds: string[];
     dreCategoryId: string | null;
+    allowCmvItems?: boolean;
   };
 
   if (!Array.isArray(installmentIds) || installmentIds.length === 0) {
@@ -637,6 +674,30 @@ dreRouter.patch("/installments/bulk-category", async (request, response) => {
   if (installmentIds.length > 500) {
     response.status(400).json({ message: "Máximo de 500 parcelas por lote." });
     return;
+  }
+
+  // Guard: bloquear classificação de compras de estoque (CMV) sem confirmação explícita
+  if (!allowCmvItems) {
+    const [cmvCheck] = await prisma.$queryRaw<[{ cmvCount: number }]>`
+      SELECT COUNT(*) AS "cmvCount"
+      FROM "PaymentInstallment" pi
+      JOIN "Purchase" p ON p.id = pi."purchaseId"
+      WHERE pi.id = ANY(${installmentIds}::text[])
+        AND EXISTS (
+          SELECT 1 FROM "PurchaseItem" pi2
+          JOIN "Product" prod ON prod.id = pi2."productId"
+          WHERE pi2."purchaseId" = p.id AND prod."controlsStock" = true
+        )
+    `;
+    const cmvCount = Number(cmvCheck?.cmvCount ?? 0);
+    if (cmvCount > 0) {
+      response.status(422).json({
+        message: `${cmvCount} parcela(s) pertencem a compras de estoque (CMV). Classificá-las como despesa operacional causará dupla contagem no DRE. Confirme enviando allowCmvItems: true.`,
+        cmvCount,
+        requiresConfirmation: true,
+      });
+      return;
+    }
   }
 
   await prisma.$executeRaw`
@@ -650,7 +711,7 @@ dreRouter.patch("/installments/bulk-category", async (request, response) => {
     action: "BULK_UPDATE",
     entity: "PaymentInstallment",
     entityId: null,
-    newValue: { dreCategory: dreCategoryId, count: installmentIds.length, ids: installmentIds },
+    newValue: { dreCategory: dreCategoryId, count: installmentIds.length, ids: installmentIds, allowCmvItems: allowCmvItems ?? false },
   });
 
   response.json({ ok: true, updated: installmentIds.length });
@@ -800,8 +861,31 @@ dreRouter.get("/export/pdf", async (request, response) => {
     return;
   }
 
-  const data = await calcDRE(range.from, range.to);
-  const pdf = createDrePdf(data);
+  // Busca DRE e contagem de pendências operacionais em paralelo
+  const [data, opUncatRows] = await Promise.all([
+    calcDRE(range.from, range.to),
+    prisma.$queryRaw<[{ count: number; total: string | null }]>`
+      SELECT COUNT(*) AS count, SUM(COALESCE(pi."paidAmount", pi.amount, 0)) AS total
+      FROM "PaymentInstallment" pi
+      JOIN "Purchase" p ON p.id = pi."purchaseId"
+      WHERE p.status = 'ACTIVE'
+        AND pi.status NOT IN ('CANCELLED')
+        AND pi."dreCategory" IS NULL
+        AND (
+          (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${range.from} AND pi."paidDate" <= ${range.to})
+          OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${range.from} AND pi."dueDate" <= ${range.to})
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM "PurchaseItem" pi2
+          JOIN "Product" prod ON prod.id = pi2."productId"
+          WHERE pi2."purchaseId" = p.id AND prod."controlsStock" = true
+        )
+    `,
+  ]);
+
+  const operationalUncatCount = Number(opUncatRows[0]?.count ?? 0);
+  const operationalUncatTotal = Number(opUncatRows[0]?.total ?? 0);
+  const pdf = createDrePdf(data, { operationalUncatCount, operationalUncatTotal });
 
   const fromISO = range.from.toISOString().slice(0, 7); // YYYY-MM
   const filename = `dre-gerencial-${fromISO}.pdf`;

@@ -3110,6 +3110,9 @@ export type DREPendingRow = {
   effectiveAmount: number;
   status: string;
   expenseType: string;
+  includedInCmv: boolean;
+  origin: "cmv_purchase" | "operational";
+  classificationRisk: string | null;
   suggestedCategoryName: string | null;
 };
 
@@ -3125,6 +3128,7 @@ export function getDREPending(
   params: ({ year: number; month: number } | { from: string; to: string }) & {
     search?: string;
     sort?: "amount_desc" | "amount_asc" | "date_desc" | "date_asc";
+    type?: "operational" | "cmv" | "all";
     page?: number;
     perPage?: number;
   }
@@ -3139,16 +3143,17 @@ export function getDREPending(
   }
   if (params.search) qs.search = params.search;
   if (params.sort) qs.sort = params.sort;
+  if (params.type) qs.type = params.type;
   if (params.page) qs.page = String(params.page);
   if (params.perPage) qs.perPage = String(params.perPage);
   return request<DREPendingResult>(`/dre/pending${toQueryString(qs)}`, undefined, DRE_TIMEOUT_MS);
 }
 
-export function bulkAssignDRECategory(installmentIds: string[], dreCategoryId: string | null) {
+export function bulkAssignDRECategory(installmentIds: string[], dreCategoryId: string | null, allowCmvItems = false) {
   return request<{ ok: boolean; updated: number }>("/dre/installments/bulk-category", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ installmentIds, dreCategoryId }),
+    body: JSON.stringify({ installmentIds, dreCategoryId, allowCmvItems }),
   });
 }
 
