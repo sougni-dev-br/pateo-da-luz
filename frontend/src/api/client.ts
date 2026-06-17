@@ -3096,6 +3096,62 @@ export function assignDRECategory(installmentId: string, dreCategoryId: string |
   });
 }
 
+export type DREPendingRow = {
+  installmentId: string;
+  purchaseId: string;
+  purchaseDate: string;
+  supplierName: string;
+  paymentMethod: string | null;
+  invoiceNumber: string | null;
+  purchaseNumber: string | null;
+  dueDate: string | null;
+  paidDate: string | null;
+  amount: number;
+  effectiveAmount: number;
+  status: string;
+  expenseType: string;
+  suggestedCategoryName: string | null;
+};
+
+export type DREPendingResult = {
+  total: number;
+  totalAmount: number;
+  page: number;
+  perPage: number;
+  rows: DREPendingRow[];
+};
+
+export function getDREPending(
+  params: ({ year: number; month: number } | { from: string; to: string }) & {
+    search?: string;
+    sort?: "amount_desc" | "amount_asc" | "date_desc" | "date_asc";
+    page?: number;
+    perPage?: number;
+  }
+) {
+  const qs: Record<string, string> = {};
+  if ("year" in params) {
+    qs.year = String(params.year);
+    qs.month = String(params.month);
+  } else {
+    qs.from = params.from;
+    qs.to = params.to;
+  }
+  if (params.search) qs.search = params.search;
+  if (params.sort) qs.sort = params.sort;
+  if (params.page) qs.page = String(params.page);
+  if (params.perPage) qs.perPage = String(params.perPage);
+  return request<DREPendingResult>(`/dre/pending${toQueryString(qs)}`, undefined, DRE_TIMEOUT_MS);
+}
+
+export function bulkAssignDRECategory(installmentIds: string[], dreCategoryId: string | null) {
+  return request<{ ok: boolean; updated: number }>("/dre/installments/bulk-category", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ installmentIds, dreCategoryId }),
+  });
+}
+
 export function downloadDrePdf(
   params: { year: number; month: number } | { from: string; to: string }
 ) {

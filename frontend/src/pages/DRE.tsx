@@ -5,20 +5,25 @@ import {
   Download,
   Plus,
   RefreshCw,
+  Search,
+  Tag,
   Wand2,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   assignDRECategory,
+  bulkAssignDRECategory,
   downloadDrePdf,
   getDRECategories,
   getDREDrill,
+  getDREPending,
   getDRESummary,
   saveDRECategory as saveDRECategoryApi,
   seedDRECategories,
   type DRECategory,
   type DREExpenseGroup,
+  type DREPendingRow,
   type DRESummary,
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
@@ -49,7 +54,7 @@ type DrillRow = {
 };
 
 type FilterMode = "month" | "range";
-type Mode = "dre" | "categories";
+type Mode = "dre" | "categories" | "classify";
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -259,6 +264,10 @@ export function DRE() {
       <div className="tabs-row">
         <button className={mode === "dre" ? "active" : ""} type="button" onClick={() => setMode("dre")}>DRE Gerencial</button>
         <button className={mode === "categories" ? "active" : ""} type="button" onClick={() => setMode("categories")}>Categorias DRE</button>
+        <button className={mode === "classify" ? "active" : ""} type="button" onClick={() => setMode("classify")}>
+          <Tag size={13} style={{ verticalAlign: "middle", marginRight: 4 }} />
+          Classificar Despesas
+        </button>
       </div>
 
       {mode === "categories" && (
@@ -269,6 +278,20 @@ export function DRE() {
           onSaved={loadCategories}
           onSeed={handleSeed}
           notify={(t, m) => setNotice({ tone: t, message: m })}
+        />
+      )}
+
+      {mode === "classify" && (
+        <ClassifyPanel
+          filterMode={filterMode}
+          year={year}
+          month={month}
+          fromDate={fromDate}
+          toDate={toDate}
+          categories={categories}
+          canEdit={canEdit}
+          notify={(t, m) => setNotice({ tone: t, message: m })}
+          onClassified={() => { load(); }}
         />
       )}
 
@@ -831,6 +854,392 @@ function DrillPanel({
         </tr>
       </tfoot>
     </table>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Classify panel — classificar despesas não categorizadas
+// ─────────────────────────────────────────────
+
+function ClassifyPanel({
+  filterMode, year, month, fromDate, toDate,
+  categories, canEdit, notify, onClassified,
+}: {
+  filterMode: FilterMode;
+  year: number; month: number;
+  fromDate: string; toDate: string;
+  categories: DRECategory[];
+  canEdit: boolean;
+  notify: (tone: "success" | "error", message: string) => void;
+  onClassified: () => void;
+}) {
+  const [rows, setRows] = useState<DREPendingRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalAmount, setTotalAmount] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<"amount_desc" | "amount_asc" | "date_desc" | "date_asc">("amount_desc");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkCatId, setBulkCatId] = useState("");
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Indexar categorias por nome para sugestões
+  const catByName = new Map(categories.map((c) => [c.name.toLowerCase(), c]));
+
+  function periodParams() {
+    if (filterMode === "month") return { year, month };
+    return { from: fromDate, to: toDate };
+  }
+
+  async function load(q?: string, s?: string) {
+    setLoading(true);
+    try {
+      const result = await getDREPending({
+        ...periodParams(),
+        search: q ?? search,
+        sort: (s ?? sort) as "amount_desc" | "amount_asc" | "date_desc" | "date_asc",
+        perPage: 200,
+      });
+      setRows(result.rows);
+      setTotal(result.total);
+      setTotalAmount(result.totalAmount);
+      setSelected(new Set());
+    } catch {
+      notify("error", "Erro ao carregar pendências.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, [filterMode, year, month, fromDate, toDate]);
+
+  function handleSearchChange(v: string) {
+    setSearch(v);
+    if (searchRef.current) clearTimeout(searchRef.current);
+    searchRef.current = setTimeout(() => load(v), 400);
+  }
+
+  function handleSortChange(v: string) {
+    setSort(v as "amount_desc");
+    load(search, v);
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selected.size === rows.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(rows.map((r) => r.installmentId)));
+    }
+  }
+
+  // Selecionar todos do mesmo fornecedor
+  function selectBySupplier(name: string) {
+    setSelected(new Set(rows.filter((r) => r.supplierName === name).map((r) => r.installmentId)));
+  }
+
+  async function handleBulkAssign() {
+    if (!bulkCatId || selected.size === 0) return;
+    setBulkSaving(true);
+    try {
+      const result = await bulkAssignDRECategory(Array.from(selected), bulkCatId);
+      notify("success", `${result.updated} lançamento(s) categorizados.`);
+      setBulkCatId("");
+      setSelected(new Set());
+      await load();
+      onClassified();
+    } catch {
+      notify("error", "Erro ao salvar em lote.");
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  async function handleSingleAssign(installmentId: string, catId: string | null) {
+    setSavingId(installmentId);
+    try {
+      await assignDRECategory(installmentId, catId);
+      await load();
+      onClassified();
+    } catch {
+      notify("error", "Erro ao atualizar categoria.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  // Aplicar sugestão automática a todos os selecionados que têm sugestão conhecida
+  async function handleApplySuggestions() {
+    const toApply = rows.filter(
+      (r) => selected.has(r.installmentId) && r.suggestedCategoryName
+    );
+    if (toApply.length === 0) {
+      notify("error", "Nenhum selecionado tem sugestão automática.");
+      return;
+    }
+    setBulkSaving(true);
+    let applied = 0;
+    try {
+      // Agrupar por categoria sugerida para fazer bulk por grupo
+      const byCat = new Map<string, string[]>();
+      for (const r of toApply) {
+        const cat = catByName.get(r.suggestedCategoryName!.toLowerCase());
+        if (!cat) continue;
+        if (!byCat.has(cat.id)) byCat.set(cat.id, []);
+        byCat.get(cat.id)!.push(r.installmentId);
+      }
+      for (const [catId, ids] of byCat) {
+        const result = await bulkAssignDRECategory(ids, catId);
+        applied += result.updated;
+      }
+      notify("success", `${applied} sugestão(ões) aplicada(s).`);
+      setSelected(new Set());
+      await load();
+      onClassified();
+    } catch {
+      notify("error", "Erro ao aplicar sugestões.");
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  const allChecked = rows.length > 0 && selected.size === rows.length;
+  const someChecked = selected.size > 0 && !allChecked;
+
+  const selectedHaveSuggestions = rows.filter(
+    (r) => selected.has(r.installmentId) && r.suggestedCategoryName && catByName.has(r.suggestedCategoryName.toLowerCase())
+  ).length;
+
+  const periodLabel = filterMode === "month"
+    ? `${MONTHS[month - 1]} / ${year}`
+    : `${fromDate} → ${toDate}`;
+
+  return (
+    <div className="stack">
+      {/* ── Cabeçalho com totais ── */}
+      <div className="dre-filter-bar">
+        <div className="dre-filter-left" style={{ flexWrap: "wrap", gap: 8 }}>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>Período: {periodLabel}</span>
+          {!loading && (
+            <span className="badge badge-neutral" style={{ fontSize: 13 }}>
+              {total} lançamento{total !== 1 ? "s" : ""} não categorizados
+              {total > 0 && ` · ${formatCurrency(totalAmount)}`}
+            </span>
+          )}
+        </div>
+        <div className="dre-filter-right">
+          <button type="button" className="btn-icon" onClick={() => load()} title="Atualizar">
+            <RefreshCw size={15} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Barra de busca + ordenação ── */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
+          <Search size={14} style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "var(--color-text-muted)" }} />
+          <input
+            value={search}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder="Buscar fornecedor..."
+            style={{ paddingLeft: 28, width: "100%" }}
+          />
+        </div>
+        <select value={sort} onChange={(e) => handleSortChange(e.target.value)} style={{ minWidth: 160 }}>
+          <option value="amount_desc">Maior valor primeiro</option>
+          <option value="amount_asc">Menor valor primeiro</option>
+          <option value="date_desc">Data mais recente</option>
+          <option value="date_asc">Data mais antiga</option>
+        </select>
+      </div>
+
+      {/* ── Barra de ação em lote ── */}
+      {canEdit && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: "var(--color-surface-2)", padding: "8px 12px", borderRadius: 6, border: "1px solid var(--color-border)" }}>
+          <span className="text-muted" style={{ fontSize: 13 }}>
+            {selected.size === 0 ? "Selecione lançamentos para classificar em lote" : `${selected.size} selecionado(s)`}
+          </span>
+          {selected.size > 0 && (
+            <>
+              <select
+                value={bulkCatId}
+                onChange={(e) => setBulkCatId(e.target.value)}
+                style={{ minWidth: 200, fontSize: "0.85em" }}
+              >
+                <option value="">Escolha a categoria...</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleBulkAssign}
+                disabled={!bulkCatId || bulkSaving}
+                style={{ fontSize: "0.85em" }}
+              >
+                {bulkSaving ? "Salvando..." : "Classificar selecionados"}
+              </button>
+              {selectedHaveSuggestions > 0 && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleApplySuggestions}
+                  disabled={bulkSaving}
+                  style={{ fontSize: "0.85em" }}
+                  title={`Aplicar sugestão automática a ${selectedHaveSuggestions} lançamento(s)`}
+                >
+                  <Wand2 size={13} /> Aplicar sugestões ({selectedHaveSuggestions})
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Tabela ── */}
+      {loading ? (
+        <p className="text-muted" style={{ padding: "24px 0", textAlign: "center" }}>Carregando...</p>
+      ) : rows.length === 0 ? (
+        <div style={{ padding: "40px 0", textAlign: "center" }}>
+          {total === 0 ? (
+            <>
+              <p style={{ fontWeight: 600, marginBottom: 8 }}>Tudo categorizado!</p>
+              <p className="text-muted">Nenhuma despesa pendente de classificação para {periodLabel}.</p>
+            </>
+          ) : (
+            <p className="text-muted">Nenhum resultado para "{search}".</p>
+          )}
+        </div>
+      ) : (
+        <div className="dre-table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                {canEdit && (
+                  <th style={{ width: 32 }}>
+                    <input
+                      type="checkbox"
+                      checked={allChecked}
+                      ref={(el) => { if (el) el.indeterminate = someChecked; }}
+                      onChange={toggleSelectAll}
+                      style={{ width: "auto", cursor: "pointer" }}
+                    />
+                  </th>
+                )}
+                <th>Fornecedor</th>
+                <th>NF / Pedido</th>
+                <th className="text-center">Vencimento</th>
+                <th className="text-center">Pagamento</th>
+                <th>Forma pagto.</th>
+                <th className="text-right">Valor</th>
+                <th>Status</th>
+                {canEdit && <th style={{ minWidth: 200 }}>Categoria DRE</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const isSelected = selected.has(r.installmentId);
+                const sugCat = r.suggestedCategoryName
+                  ? catByName.get(r.suggestedCategoryName.toLowerCase())
+                  : undefined;
+                return (
+                  <tr key={r.installmentId} className={isSelected ? "dre-row-selected" : ""}>
+                    {canEdit && (
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(r.installmentId)}
+                          style={{ width: "auto", cursor: "pointer" }}
+                        />
+                      </td>
+                    )}
+                    <td>
+                      <div style={{ fontWeight: 500 }}>{r.supplierName}</div>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          className="btn-link"
+                          style={{ fontSize: "0.75em", padding: 0 }}
+                          onClick={() => selectBySupplier(r.supplierName)}
+                        >
+                          Selecionar todos deste
+                        </button>
+                      )}
+                    </td>
+                    <td className="text-muted" style={{ fontSize: "0.85em" }}>
+                      {r.invoiceNumber ?? "—"}
+                      {r.purchaseNumber && <div>Ped: {r.purchaseNumber}</div>}
+                    </td>
+                    <td className="text-center">{r.dueDate ? formatDate(r.dueDate) : "—"}</td>
+                    <td className="text-center">{r.paidDate ? formatDate(r.paidDate) : "—"}</td>
+                    <td className="text-muted" style={{ fontSize: "0.85em" }}>{r.paymentMethod ?? "—"}</td>
+                    <td className="text-right" style={{ fontWeight: 500 }}>{formatCurrency(r.effectiveAmount)}</td>
+                    <td>
+                      <span className={`badge ${r.status === "PAID" || r.status === "PAID_LATE" ? "badge-success" : r.status === "OVERDUE" ? "badge-error" : "badge-neutral"}`}>
+                        {statusLabel(r.status)}
+                      </span>
+                    </td>
+                    {canEdit && (
+                      <td>
+                        {sugCat && (
+                          <div style={{ marginBottom: 4 }}>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              style={{ fontSize: "0.75em", padding: "2px 8px" }}
+                              disabled={savingId === r.installmentId}
+                              onClick={() => handleSingleAssign(r.installmentId, sugCat.id)}
+                              title={`Sugestão automática: ${sugCat.name}`}
+                            >
+                              <Wand2 size={11} /> {sugCat.name}
+                            </button>
+                          </div>
+                        )}
+                        <select
+                          value=""
+                          disabled={savingId === r.installmentId}
+                          onChange={(e) => { if (e.target.value) handleSingleAssign(r.installmentId, e.target.value); }}
+                          style={{ fontSize: "0.82em", minWidth: 160 }}
+                        >
+                          <option value="">— Escolha —</option>
+                          {categories.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={canEdit ? 6 : 5}><strong>Total ({total} lançamentos)</strong></td>
+                <td className="text-right"><strong>{formatCurrency(totalAmount)}</strong></td>
+                <td colSpan={canEdit ? 2 : 1}></td>
+              </tr>
+            </tfoot>
+          </table>
+          {total > rows.length && (
+            <p className="text-muted" style={{ textAlign: "center", padding: "8px 0", fontSize: 13 }}>
+              Mostrando {rows.length} de {total}. Refine a busca para ver mais.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
