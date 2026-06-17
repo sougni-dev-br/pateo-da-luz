@@ -13,6 +13,75 @@ dreRouter.use(async (request, response, next) => {
 });
 
 // ─────────────────────────────────────────────
+// GROUP META (ordem da planilha RESU 0000)
+// ─────────────────────────────────────────────
+
+const GROUP_META = [
+  { key: "PESSOAL",               label: "Pessoal",             sortOrder: 10 },
+  { key: "VALE_TRANSPORTE",       label: "Vale-Transporte",     sortOrder: 20 },
+  { key: "LOCACAO",               label: "Ocupação e Locação",  sortOrder: 30 },
+  { key: "TARIFAS_BANCARIAS",     label: "Tarifas Bancárias",   sortOrder: 40 },
+  { key: "TARIFAS_PUBLICAS",      label: "Tarifas Públicas",    sortOrder: 50 },
+  { key: "IMPOSTOS",              label: "Impostos",            sortOrder: 60 },
+  { key: "DESPESAS_GERAIS",       label: "Despesas Gerais",     sortOrder: 70 },
+  { key: "PLANEJAMENTO",          label: "Planejamento",        sortOrder: 80 },
+  { key: "DESPESAS_OPERACIONAIS", label: "Despesas Diversas",   sortOrder: 90 },
+  { key: "DEDUCOES",              label: "Deduções de Receita", sortOrder: 100 },
+];
+
+const SEED_CATEGORIES = [
+  // PESSOAL
+  { name: "Folha de Pagamento",   dreGroup: "PESSOAL",           sortOrder: 11 },
+  { name: "Hora Extra",           dreGroup: "PESSOAL",           sortOrder: 12 },
+  { name: "Comissões",            dreGroup: "PESSOAL",           sortOrder: 13 },
+  { name: "Férias",               dreGroup: "PESSOAL",           sortOrder: 14 },
+  { name: "Rescisão",             dreGroup: "PESSOAL",           sortOrder: 15 },
+  { name: "Pró-labore",           dreGroup: "PESSOAL",           sortOrder: 16 },
+  { name: "INSS",                 dreGroup: "PESSOAL",           sortOrder: 17 },
+  { name: "FGTS",                 dreGroup: "PESSOAL",           sortOrder: 18 },
+  { name: "Prêmios / Gratificações", dreGroup: "PESSOAL",        sortOrder: 19 },
+  // VALE_TRANSPORTE
+  { name: "Vale-Transporte",      dreGroup: "VALE_TRANSPORTE",   sortOrder: 21 },
+  // LOCACAO
+  { name: "Aluguel",              dreGroup: "LOCACAO",           sortOrder: 31 },
+  { name: "Condomínio",           dreGroup: "LOCACAO",           sortOrder: 32 },
+  { name: "Fundo de Promoção",    dreGroup: "LOCACAO",           sortOrder: 33 },
+  { name: "IPTU",                 dreGroup: "LOCACAO",           sortOrder: 34 },
+  { name: "Exaustão / Renovação", dreGroup: "LOCACAO",           sortOrder: 35 },
+  { name: "Seguro",               dreGroup: "LOCACAO",           sortOrder: 36 },
+  { name: "Fundo de Reserva",     dreGroup: "LOCACAO",           sortOrder: 37 },
+  // TARIFAS_BANCARIAS
+  { name: "Tarifa PIX / TEF",     dreGroup: "TARIFAS_BANCARIAS", sortOrder: 41 },
+  { name: "Juros e IOF",          dreGroup: "TARIFAS_BANCARIAS", sortOrder: 42 },
+  // TARIFAS_PUBLICAS
+  { name: "Energia Elétrica",     dreGroup: "TARIFAS_PUBLICAS",  sortOrder: 51 },
+  { name: "Gás",                  dreGroup: "TARIFAS_PUBLICAS",  sortOrder: 52 },
+  { name: "Ar-Condicionado",      dreGroup: "TARIFAS_PUBLICAS",  sortOrder: 53 },
+  { name: "Água e Esgoto",        dreGroup: "TARIFAS_PUBLICAS",  sortOrder: 54 },
+  { name: "Telefonia / Internet", dreGroup: "TARIFAS_PUBLICAS",  sortOrder: 55 },
+  { name: "Streaming / TV",       dreGroup: "TARIFAS_PUBLICAS",  sortOrder: 56 },
+  // IMPOSTOS
+  { name: "Simples Nacional",     dreGroup: "IMPOSTOS",          sortOrder: 61 },
+  { name: "IRRF / DARF",          dreGroup: "IMPOSTOS",          sortOrder: 62 },
+  { name: "GARE / ICMS",          dreGroup: "IMPOSTOS",          sortOrder: 63 },
+  // DESPESAS_GERAIS
+  { name: "Equipamentos",         dreGroup: "DESPESAS_GERAIS",   sortOrder: 71 },
+  { name: "Contador",             dreGroup: "DESPESAS_GERAIS",   sortOrder: 72 },
+  { name: "Sistema / Software",   dreGroup: "DESPESAS_GERAIS",   sortOrder: 73 },
+  { name: "Plano de Saúde",       dreGroup: "DESPESAS_GERAIS",   sortOrder: 74 },
+  { name: "Material de Limpeza",  dreGroup: "DESPESAS_GERAIS",   sortOrder: 75 },
+  { name: "Manutenção",           dreGroup: "DESPESAS_GERAIS",   sortOrder: 76 },
+  { name: "Uniformes",            dreGroup: "DESPESAS_GERAIS",   sortOrder: 77 },
+  { name: "Descartáveis",         dreGroup: "DESPESAS_GERAIS",   sortOrder: 78 },
+  { name: "Publicidade",          dreGroup: "DESPESAS_GERAIS",   sortOrder: 79 },
+  { name: "Outras Despesas Gerais", dreGroup: "DESPESAS_GERAIS", sortOrder: 80 },
+  // PLANEJAMENTO
+  { name: "Provisão 13° Salário", dreGroup: "PLANEJAMENTO",      sortOrder: 81 },
+  { name: "Marketing",            dreGroup: "PLANEJAMENTO",      sortOrder: 82 },
+  { name: "Investimentos",        dreGroup: "PLANEJAMENTO",      sortOrder: 83 },
+];
+
+// ─────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────
 
@@ -156,6 +225,7 @@ async function calcDRE(from: Date, to: Date) {
     dreCategory: string | null;
     dreCategoryName: string | null;
     dreSortOrder: number | null;
+    dreGroup: string | null;
     total: string;
     count: number;
   }>>`
@@ -163,6 +233,7 @@ async function calcDRE(from: Date, to: Date) {
       pi."dreCategory",
       dc.name AS "dreCategoryName",
       dc."sortOrder" AS "dreSortOrder",
+      dc."dreGroup" AS "dreGroup",
       SUM(COALESCE(pi."paidAmount", pi.amount, 0)) AS total,
       COUNT(*) AS count
     FROM "PaymentInstallment" pi
@@ -174,22 +245,47 @@ async function calcDRE(from: Date, to: Date) {
         (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${from} AND pi."paidDate" <= ${to})
         OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${from} AND pi."dueDate" <= ${to})
       )
-    GROUP BY pi."dreCategory", dc.name, dc."sortOrder"
+    GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
     ORDER BY COALESCE(dc."sortOrder", 999), COALESCE(dc.name, 'ZZZ')
   `;
 
   const expenses = expenseRows.map((r) => ({
     dreCategoryId: r.dreCategory ?? null,
     dreCategoryName: r.dreCategoryName ?? "Não categorizadas",
+    dreGroup: r.dreGroup ?? "DESPESAS_OPERACIONAIS",
     sortOrder: r.dreSortOrder ?? 999,
     total: Number(r.total),
     count: Number(r.count)
   }));
 
+  // Agrupa despesas por dreGroup preservando a ordem da planilha
+  const groupMap: Record<string, { total: number; lines: typeof expenses }> = {};
+  for (const exp of expenses) {
+    const g = exp.dreGroup;
+    if (!groupMap[g]) groupMap[g] = { total: 0, lines: [] };
+    groupMap[g].total += exp.total;
+    groupMap[g].lines.push(exp);
+  }
+  const expenseGroups = GROUP_META
+    .map((gm) => ({
+      key: gm.key,
+      label: gm.label,
+      sortOrder: gm.sortOrder,
+      total: groupMap[gm.key]?.total ?? 0,
+      lines: groupMap[gm.key]?.lines ?? []
+    }))
+    .filter((g) => g.lines.length > 0);
+
   const totalExpenses = expenses.reduce((s, e) => s + e.total, 0);
   const ebitda = lucroBruto - totalExpenses;
   const ebitdaPercent = totalGross > 0 ? (ebitda / totalGross) * 100 : null;
   const margemBruta = totalGross > 0 ? (lucroBruto / totalGross) * 100 : null;
+
+  // CMV: indica se há dados de inventário para cálculo real
+  const hasInventoryData = estoqueInicial > 0 && estoqueFinal > 0;
+  const cmvWarning = hasInventoryData
+    ? null
+    : "CMV calculado por compras do período. Inventário inicial ou final não localizado — não reflete consumo real.";
 
   return {
     period: { from: from.toISOString(), to: to.toISOString() },
@@ -208,11 +304,14 @@ async function calcDRE(from: Date, to: Date) {
       compras,
       estoqueFinal,
       cmvReal,
-      cmvPercent
+      cmvPercent,
+      hasInventoryData,
+      warning: cmvWarning
     },
     lucroBruto,
     margemBruta,
     expenses,
+    expenseGroups,
     totalExpenses,
     ebitda,
     ebitdaPercent
@@ -449,6 +548,32 @@ dreRouter.put("/categories/:id", async (request, response) => {
 
   await auditLog({ userId: user.id, action: "UPDATE", entity: "DRECategory", entityId: row.id, newValue: row });
   response.json(row);
+});
+
+// Seed: cria categorias padrão baseadas na planilha gerencial (ADMIN)
+dreRouter.post("/categories/seed", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN"]);
+  if (!user) return;
+
+  let created = 0;
+  let skipped = 0;
+  for (const seed of SEED_CATEGORIES) {
+    const existing = await prisma.dRECategory.findFirst({ where: { name: seed.name } });
+    if (existing) { skipped++; continue; }
+    await prisma.dRECategory.create({
+      data: {
+        id: crypto.randomUUID(),
+        name: seed.name,
+        dreGroup: seed.dreGroup,
+        sortOrder: seed.sortOrder,
+        notes: null
+      }
+    });
+    created++;
+  }
+
+  await auditLog({ userId: user.id, action: "CREATE", entity: "DRECategory", entityId: "seed", newValue: { created, skipped } });
+  response.json({ ok: true, created, skipped });
 });
 
 // ─────────────────────────────────────────────
