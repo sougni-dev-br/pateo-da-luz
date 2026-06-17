@@ -85,11 +85,19 @@ const SEED_CATEGORIES = [
 // HELPERS
 // ─────────────────────────────────────────────
 
+function parseLocalDate(s: string): Date | null {
+  // Parse YYYY-MM-DD as LOCAL midnight (not UTC) so date display matches input.
+  // new Date("2026-05-01") creates UTC midnight, which in UTC-3 is April 30 — wrong.
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
 function parseRange(query: Record<string, unknown>): { from: Date; to: Date } | null {
   const year = query.year ? Number(query.year) : null;
   const month = query.month ? Number(query.month) : null;
-  const from = query.from ? new Date(String(query.from)) : null;
-  const to = query.to ? new Date(String(query.to)) : null;
+  const from = query.from ? parseLocalDate(String(query.from)) : null;
+  const to   = query.to   ? parseLocalDate(String(query.to))   : null;
 
   if (year && month) {
     return {
