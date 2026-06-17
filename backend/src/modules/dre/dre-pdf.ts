@@ -92,7 +92,8 @@ function cleanText(v: unknown): string {
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")   // remove combining diacritics (NFD decomposed)
     .replace(/[–—−]/g, "-")           // all dash variants including U+2212 minus
-    .replace(/[^\x20-\x7E]/g, "")     // drop non-ASCII
+    .replace(/ /g, " ")          // non-breaking space (U+00A0) used by toLocaleString
+    .replace(/[^\x20-\x7E]/g, "")     // drop remaining non-ASCII
     .replace(/\s+/g, " ")
     .trim();
 }
