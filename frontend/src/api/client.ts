@@ -3018,15 +3018,37 @@ export type DRECategory = {
 export type DREExpenseLine = {
   dreCategoryId: string | null;
   dreCategoryName: string;
+  dreGroup: string;
   sortOrder: number;
   total: number;
   count: number;
 };
 
-export function getDRESummary(year: number, month: number) {
+export type DREExpenseGroup = {
+  key: string;
+  label: string;
+  sortOrder: number;
+  total: number;
+  lines: DREExpenseLine[];
+};
+
+export function getDRESummary(
+  params: { year: number; month: number } | { from: string; to: string; comparatives?: boolean }
+) {
+  let qs: Record<string, string>;
+  if ("year" in params) {
+    qs = { year: String(params.year), month: String(params.month) };
+  } else {
+    qs = { from: params.from, to: params.to };
+    if (params.comparatives === false) qs.comparatives = "false";
+  }
   return request<{ current: DRESummary; prevMonth: DRESummary | null; prevYear: DRESummary | null }>(
-    `/dre/summary${toQueryString({ year: String(year), month: String(month) })}`
+    `/dre/summary${toQueryString(qs)}`
   );
+}
+
+export function seedDRECategories() {
+  return request<{ ok: boolean; created: number; skipped: number }>("/dre/categories/seed", { method: "POST" });
 }
 
 export function getDRECategories(all = false) {
@@ -3105,10 +3127,13 @@ export type DRESummary = {
     estoqueFinal: number;
     cmvReal: number;
     cmvPercent: number | null;
+    hasInventoryData: boolean;
+    warning: string | null;
   };
   lucroBruto: number;
   margemBruta: number | null;
   expenses: DREExpenseLine[];
+  expenseGroups: DREExpenseGroup[];
   totalExpenses: number;
   ebitda: number;
   ebitdaPercent: number | null;
