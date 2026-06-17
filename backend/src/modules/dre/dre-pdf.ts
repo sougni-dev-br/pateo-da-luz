@@ -253,7 +253,7 @@ function tableRow(
 
 // ─── Main export ───────────────────────────────────────────────────────────────
 
-export function createDrePdf(data: DreSummary): Buffer {
+export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?: number; operationalUncatTotal?: number }): Buffer {
   const cv = new Canvas();
 
   const dateFrom = fmtDate(data.period.from);
@@ -492,10 +492,13 @@ export function createDrePdf(data: DreSummary): Buffer {
     obs.push("Nenhum faturamento registrado neste periodo. Verifique se as receitas foram importadas corretamente.");
   }
   if (data.expenses.filter((e) => e.dreCategoryId === null).length > 0) {
-    const uncatLines = data.expenses.filter((e) => e.dreCategoryId === null);
-    const uncatTotal = uncatLines.reduce((s, e) => s + e.total, 0);
-    const uncatCount = uncatLines.reduce((s, e) => s + e.count, 0);
-    obs.push(`${uncatCount} lancamento(s) sem categoria DRE totalizando ${brl(uncatTotal)}. Use DRE Gerencial > Classificar Despesas para atribuir categorias e obter um DRE mais preciso.`);
+    const operationalCount = extras?.operationalUncatCount ?? 0;
+    const operationalTotal = extras?.operationalUncatTotal ?? 0;
+    if (operationalCount > 0) {
+      obs.push(`${operationalCount} despesa(s) operacional(is) sem categoria DRE totalizando ${brl(operationalTotal)}. Use DRE Gerencial > Classificar Despesas para atribuir categorias e obter um DRE mais preciso.`);
+    } else {
+      obs.push("Ha lancamentos de compra sem categoria DRE, porem todos sao compras de estoque ja incluidas no CMV e nao requerem classificacao adicional.");
+    }
   }
   if (obs.length === 0) {
     obs.push("Nenhuma observacao gerencial para este periodo.");
