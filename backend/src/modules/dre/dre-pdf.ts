@@ -1,6 +1,7 @@
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ExpenseItem = { dreCategoryId: string | null; dreCategoryName: string; sortOrder: number; total: number; count: number };
+type ExpenseItem = { dreCategoryId: string | null; dreCategoryName: string; dreGroup: string; sortOrder: number; total: number; count: number };
+type ExpenseGroup = { key: string; label: string; sortOrder: number; total: number; lines: ExpenseItem[] };
 
 export type DreSummary = {
   period: { from: string; to: string };
@@ -13,10 +14,15 @@ export type DreSummary = {
     netAmount: number;
     tickets: number;
   };
-  cmv: { estoqueInicial: number; compras: number; estoqueFinal: number; cmvReal: number; cmvPercent: number | null };
+  cmv: {
+    estoqueInicial: number; compras: number; estoqueFinal: number;
+    cmvReal: number; cmvPercent: number | null;
+    hasInventoryData?: boolean; warning?: string | null;
+  };
   lucroBruto: number;
   margemBruta: number | null;
   expenses: ExpenseItem[];
+  expenseGroups?: ExpenseGroup[];
   totalExpenses: number;
   ebitda: number;
   ebitdaPercent: number | null;
@@ -165,27 +171,47 @@ export function createDrePdf(data: DreSummary): Buffer {
 
   y -= 8;
 
+  // ── CMV note ───────────────────────────────
+  if (data.cmv.warning) {
+    y -= 4;
+    cv.rect(MX, y - 18, CW, 18, [0.99, 0.95, 0.90], [0.80, 0.55, 0.30], 0.7);
+    cv.txt(`Aviso: ${data.cmv.warning}`, MX + 8, y - 11, 7.5, F_ITAL, [0.55, 0.30, 0.10]);
+    y -= 24;
+  }
+
   // ── Despesas ────────────────────────────────
   y = drawSection(cv, y, "DESPESAS OPERACIONAIS", C_DARK);
 
-  const sorted = [...data.expenses].sort((a, b) => a.sortOrder - b.sortOrder || a.dreCategoryName.localeCompare(b.dreCategoryName));
-  for (const exp of sorted) {
-    const pctOfRev = data.revenue.grossAmount > 0 ? (exp.total / data.revenue.grossAmount) * 100 : null;
-    const label = `  ${exp.dreCategoryName}`;
-    const val = brl(exp.total);
-    y = drawLine(cv, y, label, val, false, C_BG, false, undefined, pctOfRev != null ? `${pctOfRev.toFixed(1)}%` : "");
-
-    if (y < MB + 60) { cv.newPage(); y = TOP; drawPageHeader(cv, periodLabel, TOP); y -= 44; }
+  if (data.expenseGroups && data.expenseGroups.length > 0) {
+    // Grouped layout
+    for (const grp of data.expenseGroups) {
+      if (y < MB + 100) { cv.newPage(); y = TOP; drawPageHeader(cv, periodLabel, TOP); y -= 44; }
+      const grpPct = data.revenue.grossAmount > 0 ? (grp.total / data.revenue.grossAmount) * 100 : null;
+      y = drawGroupHeader(cv, y, grp.label, brl(grp.total), grpPct != null ? `${grpPct.toFixed(1)}%` : "");
+      for (const exp of grp.lines) {
+        const p = data.revenue.grossAmount > 0 ? (exp.total / data.revenue.grossAmount) * 100 : null;
+        y = drawLine(cv, y, `    ${exp.dreCategoryName}`, brl(exp.total), false, C_BG, false, undefined, p != null ? `${p.toFixed(1)}%` : "");
+        if (y < MB + 60) { cv.newPage(); y = TOP; drawPageHeader(cv, periodLabel, TOP); y -= 44; }
+      }
+      y -= 2;
+    }
+  } else {
+    const sorted = [...data.expenses].sort((a, b) => a.sortOrder - b.sortOrder || a.dreCategoryName.localeCompare(b.dreCategoryName));
+    for (const exp of sorted) {
+      const pctOfRev = data.revenue.grossAmount > 0 ? (exp.total / data.revenue.grossAmount) * 100 : null;
+      y = drawLine(cv, y, `  ${exp.dreCategoryName}`, brl(exp.total), false, C_BG, false, undefined, pctOfRev != null ? `${pctOfRev.toFixed(1)}%` : "");
+      if (y < MB + 60) { cv.newPage(); y = TOP; drawPageHeader(cv, periodLabel, TOP); y -= 44; }
+    }
   }
 
   y = drawTotal(cv, y, "(=) TOTAL DE DESPESAS", brl(data.totalExpenses), C_BG3);
 
   y -= 8;
 
-  // ── EBITDA ──────────────────────────────────
+  // ── LUCRO OPERACIONAL ───────────────────────
   const ebitdaColor: [number,number,number] = data.ebitda >= 0 ? [0.84, 0.96, 0.87] : [0.99, 0.87, 0.87];
   cv.rect(MX, y - 26, CW, 26, data.ebitda >= 0 ? C_DARK : [0.45, 0.10, 0.09]);
-  cv.txt(`(=) EBITDA GERENCIAL  [${pct(data.ebitdaPercent)} da rec. bruta]`, MX + 8, y - 17, 9.5, F_BOLD, C_WHITE);
+  cv.txt(`(=) LUCRO OPERACIONAL  [${pct(data.ebitdaPercent)} da rec. bruta]`, MX + 8, y - 17, 9.5, F_BOLD, C_WHITE);
   cv.rtxt(brl(data.ebitda), MX + CW - 8, y - 17, 9.5, F_BOLD, data.ebitda >= 0 ? [0.72, 0.98, 0.73] : [1, 0.82, 0.82]);
   y -= 34;
 
@@ -226,6 +252,15 @@ function drawLine(
   if (pctLabel) cv.txt(pctLabel, MX + CW - 56, y - 11, 7.5, F_REG, C_MUTED);
   cv.rtxt(value, MX + CW - 6, y - 11, 8.5, bold ? F_BOLD : F_REG, valColor ?? C_INK);
   cv.line(MX, y - ROW_H, PAGE_W - MX, y - ROW_H, 0.3, C_LINE);
+  return y - ROW_H;
+}
+
+function drawGroupHeader(cv: Canvas, y: number, label: string, value: string, pctLabel: string): number {
+  const ROW_H = 19;
+  cv.rect(MX, y - ROW_H, CW, ROW_H, [0.91, 0.91, 0.94]);
+  cv.txt(label.toUpperCase(), MX + 6, y - 12, 8, F_BOLD, C_DARK);
+  if (pctLabel) cv.txt(pctLabel, MX + CW - 60, y - 12, 7.5, F_REG, C_MUTED);
+  cv.rtxt(value, MX + CW - 6, y - 12, 8.5, F_BOLD, C_DARK);
   return y - ROW_H;
 }
 

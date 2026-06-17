@@ -1,4 +1,13 @@
-import { ChevronDown, ChevronRight, Download, Plus, RefreshCw, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Plus,
+  RefreshCw,
+  Wand2,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   assignDRECategory,
@@ -7,7 +16,9 @@ import {
   getDREDrill,
   getDRESummary,
   saveDRECategory as saveDRECategoryApi,
+  seedDRECategories,
   type DRECategory,
+  type DREExpenseGroup,
   type DRESummary,
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
@@ -37,16 +48,26 @@ type DrillRow = {
   dreCategoryName: string;
 };
 
+type FilterMode = "month" | "range";
 type Mode = "dre" | "categories";
 
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
 
-const MONTHS = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const MONTHS = [
+  "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+  "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro",
+];
 
-function pct(v: number | null, decimals = 1) {
-  return v == null ? "—" : `${v.toFixed(decimals)}%`;
+function pct(v: number | null | undefined, decimals = 1) {
+  if (v == null || !isFinite(v)) return "—";
+  return `${v.toFixed(decimals)}%`;
+}
+
+function safePct(numerator: number, base: number): number | null {
+  if (!base || !isFinite(base)) return null;
+  return (numerator / base) * 100;
 }
 
 function colorClass(v: number) {
@@ -54,9 +75,33 @@ function colorClass(v: number) {
 }
 
 function statusLabel(s: string) {
-  const map: Record<string, string> = { OPEN: "Aberto", PAID: "Pago", PAID_LATE: "Pago c/ atraso", OVERDUE: "Vencido", CANCELLED: "Cancelado" };
+  const map: Record<string, string> = {
+    OPEN: "Aberto", PAID: "Pago", PAID_LATE: "Pago c/ atraso",
+    OVERDUE: "Vencido", CANCELLED: "Cancelado",
+  };
   return map[s] ?? s;
 }
+
+function toDateInput(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+// ─────────────────────────────────────────────
+// DRE Groups (updated with new groups)
+// ─────────────────────────────────────────────
+
+const DRE_GROUPS = [
+  { value: "PESSOAL",               label: "Pessoal" },
+  { value: "VALE_TRANSPORTE",       label: "Vale-Transporte" },
+  { value: "LOCACAO",               label: "Ocupação e Locação" },
+  { value: "TARIFAS_BANCARIAS",     label: "Tarifas Bancárias" },
+  { value: "TARIFAS_PUBLICAS",      label: "Tarifas Públicas" },
+  { value: "IMPOSTOS",              label: "Impostos" },
+  { value: "DESPESAS_GERAIS",       label: "Despesas Gerais" },
+  { value: "PLANEJAMENTO",          label: "Planejamento" },
+  { value: "DESPESAS_OPERACIONAIS", label: "Despesas Diversas" },
+  { value: "DEDUCOES",              label: "Deduções de Receita" },
+];
 
 // ─────────────────────────────────────────────
 // Main component
@@ -65,13 +110,26 @@ function statusLabel(s: string) {
 export function DRE() {
   const { user } = useSession();
   const canEdit = user?.role === "ADMIN" || user?.role === "GESTAO_COMPLETA";
+  const isAdmin = user?.role === "ADMIN";
   const [mode, setMode] = useState<Mode>("dre");
   const now = new Date();
+
+  // Filter state
+  const [filterMode, setFilterMode] = useState<FilterMode>("month");
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [data, setData] = useState<{ current: DRESummary; prevMonth: DRESummary | null; prevYear: DRESummary | null } | null>(null);
+  const [fromDate, setFromDate] = useState(toDateInput(new Date(now.getFullYear(), now.getMonth(), 1)));
+  const [toDate, setToDate] = useState(toDateInput(new Date(now.getFullYear(), now.getMonth() + 1, 0)));
+  const [comparatives, setComparatives] = useState(true);
+
+  const [data, setData] = useState<{
+    current: DRESummary;
+    prevMonth: DRESummary | null;
+    prevYear: DRESummary | null;
+  } | null>(null);
   const [categories, setCategories] = useState<DRECategory[]>([]);
   const [loading, setLoading] = useState(false);
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [expandedExpense, setExpandedExpense] = useState<string | null>(null);
   const [drillRows, setDrillRows] = useState<DrillRow[]>([]);
   const [drillLoading, setDrillLoading] = useState(false);
@@ -80,7 +138,14 @@ export function DRE() {
   async function load() {
     setLoading(true);
     try {
-      const [summary, cats] = await Promise.all([getDRESummary(year, month), getDRECategories(true)]);
+      const params =
+        filterMode === "month"
+          ? { year, month }
+          : { from: fromDate, to: toDate, comparatives };
+      const [summary, cats] = await Promise.all([
+        getDRESummary(params),
+        getDRECategories(true),
+      ]);
       setData(summary);
       setCategories(cats);
     } catch (e) {
@@ -90,7 +155,9 @@ export function DRE() {
     }
   }
 
-  useEffect(() => { load(); }, [year, month]);
+  useEffect(() => { load(); }, [year, month, filterMode]);
+
+  function handleFromToLoad() { load(); }
 
   async function toggleDrill(dreCategoryId: string | null) {
     const key = dreCategoryId ?? "__uncategorized__";
@@ -98,7 +165,11 @@ export function DRE() {
     setExpandedExpense(key);
     setDrillLoading(true);
     try {
-      const rows = await getDREDrill({ year, month, dreCategoryId: dreCategoryId ?? undefined });
+      const params =
+        filterMode === "month"
+          ? { year, month, dreCategoryId: dreCategoryId ?? undefined }
+          : { year: new Date(fromDate).getFullYear(), month: new Date(fromDate).getMonth() + 1, dreCategoryId: dreCategoryId ?? undefined };
+      const rows = await getDREDrill(params);
       setDrillRows(rows);
     } catch {
       setNotice({ tone: "error", message: "Erro ao carregar detalhes." });
@@ -115,9 +186,23 @@ export function DRE() {
     }
   }
 
+  async function handleSeed() {
+    try {
+      const r = await seedDRECategories();
+      setNotice({ tone: "success", message: `Seed concluído: ${r.created} criadas, ${r.skipped} já existiam.` });
+      await load();
+    } catch (e) {
+      setNotice({ tone: "error", message: e instanceof Error ? e.message : "Erro ao criar categorias." });
+    }
+  }
+
   const cur = data?.current;
   const pm  = data?.prevMonth;
   const py  = data?.prevYear;
+
+  const periodLabel = filterMode === "month"
+    ? `${MONTHS[month - 1]} / ${year}`
+    : `${fromDate} → ${toDate}`;
 
   return (
     <div className="stack">
@@ -129,21 +214,60 @@ export function DRE() {
       </div>
 
       {mode === "categories" && (
-        <CategoriesPanel categories={categories} canEdit={canEdit} onSaved={load} notify={(t, m) => setNotice({ tone: t, message: m })} />
+        <CategoriesPanel
+          categories={categories}
+          canEdit={canEdit}
+          isAdmin={isAdmin}
+          onSaved={load}
+          onSeed={handleSeed}
+          notify={(t, m) => setNotice({ tone: t, message: m })}
+        />
       )}
 
       {mode === "dre" && (
         <>
-          {/* Period selector */}
-          <div className="filter-row">
-            <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-              {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+          {/* ── Period filter ── */}
+          <div className="filter-row" style={{ flexWrap: "wrap", gap: "8px" }}>
+            <select
+              value={filterMode}
+              onChange={(e) => setFilterMode(e.target.value as FilterMode)}
+              style={{ minWidth: 130 }}
+            >
+              <option value="month">Mês / Ano</option>
+              <option value="range">Período livre</option>
             </select>
-            <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
-              {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
+
+            {filterMode === "month" && (
+              <>
+                <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
+                  {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+                </select>
+                <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
+                  {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map((y) => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              </>
+            )}
+
+            {filterMode === "range" && (
+              <>
+                <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                <span className="text-muted" style={{ alignSelf: "center" }}>até</span>
+                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--muted)", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={comparatives}
+                    onChange={(e) => setComparatives(e.target.checked)}
+                    style={{ width: "auto", cursor: "pointer" }}
+                  />
+                  Comparativos
+                </label>
+                <button type="button" className="btn-secondary" onClick={handleFromToLoad}>Atualizar</button>
+              </>
+            )}
+
             <button type="button" className="btn-icon" onClick={load} title="Atualizar"><RefreshCw size={15} /></button>
             <button type="button" className="btn-secondary" onClick={handleExportPdf}>
               <Download size={14} /> Exportar PDF
@@ -153,104 +277,330 @@ export function DRE() {
           {loading ? (
             <p className="text-muted">Carregando DRE...</p>
           ) : cur ? (
-            <div className="dre-table-wrap">
-              <table className="dre-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: "50%" }}>Linha</th>
-                    <th className="text-right">{MONTHS[month - 1]}/{year}</th>
-                    <th className="text-right text-muted">Mês anterior</th>
-                    <th className="text-right text-muted">Mesmo mês {year - 1}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* ── RECEITAS ── */}
-                  <DREGroup label="RECEITAS" />
+            <>
+              {/* ── Cards ── */}
+              <div className="dre-cards">
+                <DRECard
+                  label="Receita Bruta"
+                  value={cur.revenue.grossAmount}
+                  sub={`Líquida: ${formatCurrency(cur.revenue.netAmount)}`}
+                />
+                <DRECard
+                  label="CMV"
+                  value={cur.cmv.cmvReal}
+                  sub={cur.cmv.cmvPercent != null ? `${pct(cur.cmv.cmvPercent)} da receita` : "sem inventário"}
+                  warn={!cur.cmv.hasInventoryData}
+                />
+                <DRECard
+                  label="Lucro Bruto"
+                  value={cur.lucroBruto}
+                  sub={pct(cur.margemBruta) + " de margem"}
+                  signed
+                />
+                <DRECard
+                  label="Total Despesas"
+                  value={cur.totalExpenses}
+                  sub={pct(safePct(cur.totalExpenses, cur.revenue.grossAmount)) + " da receita"}
+                />
+                <DRECard
+                  label="Lucro Operacional"
+                  value={cur.ebitda}
+                  sub={pct(cur.ebitdaPercent) + " da receita"}
+                  signed
+                  highlight
+                />
+                <DRECard
+                  label="Margem Final"
+                  value={null}
+                  sub={pct(cur.ebitdaPercent)}
+                  signed={cur.ebitda >= 0}
+                  highlight
+                  pctOnly
+                />
+              </div>
 
-                  {Object.entries(cur.revenue.byChannel).sort((a, b) => b[1] - a[1]).map(([ch, val]) => (
+              {/* ── CMV warning ── */}
+              {cur.cmv.warning && (
+                <div className="dre-cmv-warn">
+                  <AlertTriangle size={15} />
+                  <span>{cur.cmv.warning}</span>
+                </div>
+              )}
+
+              {/* ── DRE table ── */}
+              <div className="dre-table-wrap">
+                <table className="dre-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: "46%" }}>Linha DRE</th>
+                      <th className="text-right">{periodLabel}</th>
+                      <th className="text-right dre-pct-col">%</th>
+                      {pm && <th className="text-right text-muted">Mês ant.</th>}
+                      {py && <th className="text-right text-muted">{filterMode === "month" ? `${MONTHS[month - 1]} ${year - 1}` : "Ano ant."}</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* ── RECEITAS ── */}
+                    <DREGroup label="RECEITAS" />
+
+                    {Object.entries(cur.revenue.byChannel)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([ch, val]) => (
+                        <DRERow
+                          key={ch}
+                          label={`  Receita bruta — ${ch}`}
+                          cur={val}
+                          base={cur.revenue.grossAmount}
+                          pm={pm?.revenue.byChannel[ch]}
+                          py={py?.revenue.byChannel[ch]}
+                          hasPm={!!pm} hasPy={!!py}
+                        />
+                      ))}
+
                     <DRERow
-                      key={ch}
-                      label={`  Receita bruta — ${ch}`}
-                      cur={val}
-                      pm={pm?.revenue.byChannel[ch]}
-                      py={py?.revenue.byChannel[ch]}
+                      label="(−) Descontos e taxas de plataforma"
+                      cur={-cur.revenue.deductions}
+                      base={cur.revenue.grossAmount}
+                      pm={pm ? -pm.revenue.deductions : undefined}
+                      py={py ? -py.revenue.deductions : undefined}
+                      hasPm={!!pm} hasPy={!!py}
+                      negative
                     />
-                  ))}
 
-                  <DRERow label="(−) Descontos e taxas de plataforma" cur={-cur.revenue.deductions}
-                    pm={pm ? -pm.revenue.deductions : undefined} py={py ? -py.revenue.deductions : undefined} negative />
+                    <DRETotal
+                      label="(=) RECEITA LÍQUIDA"
+                      cur={cur.revenue.netAmount}
+                      base={cur.revenue.grossAmount}
+                      pm={pm?.revenue.netAmount}
+                      py={py?.revenue.netAmount}
+                      hasPm={!!pm} hasPy={!!py}
+                    />
 
-                  <DRETotal label="(=) RECEITA LÍQUIDA"
-                    cur={cur.revenue.netAmount} pm={pm?.revenue.netAmount} py={py?.revenue.netAmount}
-                    pctCur={100} pctLabel="100%" />
+                    {/* ── CMV ── */}
+                    <DREGroup label={cur.cmv.hasInventoryData ? "CMV REAL (Estoque Inicial + Compras − Estoque Final)" : "CMV POR COMPRAS (sem inventário)"} />
 
-                  {/* ── CMV ── */}
-                  <DREGroup label="CUSTO DA MERCADORIA VENDIDA (CMV REAL)" />
+                    <DRERow label="  Estoque inicial"
+                      cur={cur.cmv.estoqueInicial} base={cur.revenue.grossAmount}
+                      pm={pm?.cmv.estoqueInicial} py={py?.cmv.estoqueInicial}
+                      hasPm={!!pm} hasPy={!!py} />
+                    <DRERow label="(+) Compras no período"
+                      cur={cur.cmv.compras} base={cur.revenue.grossAmount}
+                      pm={pm?.cmv.compras} py={py?.cmv.compras}
+                      hasPm={!!pm} hasPy={!!py} />
+                    <DRERow label="(−) Estoque final"
+                      cur={-cur.cmv.estoqueFinal} base={cur.revenue.grossAmount}
+                      pm={pm ? -pm.cmv.estoqueFinal : undefined}
+                      py={py ? -py.cmv.estoqueFinal : undefined}
+                      hasPm={!!pm} hasPy={!!py} negative />
 
-                  <DRERow label="  Estoque inicial"  cur={cur.cmv.estoqueInicial} pm={pm?.cmv.estoqueInicial} py={py?.cmv.estoqueInicial} />
-                  <DRERow label="(+) Compras no período" cur={cur.cmv.compras} pm={pm?.cmv.compras} py={py?.cmv.compras} />
-                  <DRERow label="(−) Estoque final"  cur={-cur.cmv.estoqueFinal} pm={pm ? -pm.cmv.estoqueFinal : undefined} py={py ? -py.cmv.estoqueFinal : undefined} negative />
+                    <DRETotal
+                      label={cur.cmv.hasInventoryData ? "(=) CMV REAL" : "(=) CMV (ESTIMADO — sem inventário)"}
+                      cur={cur.cmv.cmvReal}
+                      base={cur.revenue.grossAmount}
+                      pm={pm?.cmv.cmvReal} py={py?.cmv.cmvReal}
+                      hasPm={!!pm} hasPy={!!py}
+                      warning
+                    />
 
-                  <DRETotal label="(=) CMV REAL" warning
-                    cur={cur.cmv.cmvReal} pm={pm?.cmv.cmvReal} py={py?.cmv.cmvReal}
-                    pctCur={cur.cmv.cmvPercent} pctPm={pm?.cmv.cmvPercent} pctPy={py?.cmv.cmvPercent} />
+                    {/* ── LUCRO BRUTO ── */}
+                    <DRETotal
+                      label="(=) LUCRO BRUTO"
+                      cur={cur.lucroBruto}
+                      base={cur.revenue.grossAmount}
+                      pm={pm?.lucroBruto} py={py?.lucroBruto}
+                      hasPm={!!pm} hasPy={!!py}
+                      highlight
+                    />
 
-                  {/* ── LUCRO BRUTO ── */}
-                  <DRETotal label="(=) LUCRO BRUTO" highlight
-                    cur={cur.lucroBruto} pm={pm?.lucroBruto} py={py?.lucroBruto}
-                    pctCur={cur.margemBruta} pctPm={pm?.margemBruta} pctPy={py?.margemBruta} />
+                    {/* ── DESPESAS POR GRUPO ── */}
+                    <DREGroup label="DESPESAS OPERACIONAIS" />
 
-                  {/* ── DESPESAS ── */}
-                  <DREGroup label="DESPESAS OPERACIONAIS" />
+                    {cur.expenseGroups.length === 0 && (
+                      <tr className="dre-row">
+                        <td colSpan={5} className="text-muted" style={{ fontStyle: "italic", paddingLeft: 24 }}>
+                          Nenhuma despesa categorizada no período.
+                        </td>
+                      </tr>
+                    )}
 
-                  {[...cur.expenses].sort((a, b) => a.sortOrder - b.sortOrder || a.dreCategoryName.localeCompare(b.dreCategoryName)).map((exp) => {
-                    const key = exp.dreCategoryId ?? "__uncategorized__";
-                    const isOpen = expandedExpense === key;
-                    const pmExp = pm?.expenses.find((e) => e.dreCategoryId === exp.dreCategoryId);
-                    const pyExp = py?.expenses.find((e) => e.dreCategoryId === exp.dreCategoryId);
-                    const pctCur = cur.revenue.grossAmount > 0 ? (exp.total / cur.revenue.grossAmount) * 100 : null;
+                    {cur.expenseGroups.map((grp) => {
+                      const isGroupOpen = expandedGroup === grp.key;
+                      const pmGrp = pm?.expenseGroups?.find((g) => g.key === grp.key);
+                      const pyGrp = py?.expenseGroups?.find((g) => g.key === grp.key);
+                      const grpPct = safePct(grp.total, cur.revenue.grossAmount);
 
-                    return (
-                      <>
-                        <tr key={key} className={`dre-expense-row ${isOpen ? "dre-expanded" : ""}`}
-                          onClick={() => toggleDrill(exp.dreCategoryId)} style={{ cursor: "pointer" }}>
-                          <td>
-                            <span className="dre-chevron">{isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
-                            {`  ${exp.dreCategoryName}`}
-                          </td>
-                          <td className="text-right">{formatCurrency(exp.total)}</td>
-                          <td className="text-right text-muted">{pmExp ? formatCurrency(pmExp.total) : "—"}</td>
-                          <td className="text-right text-muted">{pyExp ? formatCurrency(pyExp.total) : "—"}</td>
-                        </tr>
-                        {isOpen && (
-                          <tr key={`${key}-drill`} className="dre-drill-row">
-                            <td colSpan={4}>
-                              <DrillPanel
-                                rows={drillRows}
-                                loading={drillLoading}
-                                categories={categories}
-                                canEdit={canEdit}
-                                onCategoryChanged={() => { load(); toggleDrill(null); }}
-                                notify={(t, m) => setNotice({ tone: t, message: m })}
-                              />
+                      return (
+                        <>
+                          {/* Group header row */}
+                          <tr
+                            key={grp.key}
+                            className={`dre-expense-group ${isGroupOpen ? "dre-expanded" : ""}`}
+                            onClick={() => {
+                              setExpandedGroup(isGroupOpen ? null : grp.key);
+                              setExpandedExpense(null);
+                            }}
+                            style={{ cursor: "pointer" }}
+                          >
+                            <td>
+                              <span className="dre-chevron">
+                                {isGroupOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                              </span>
+                              <strong>{grp.label}</strong>
+                              <span className="dre-group-count"> ({grp.lines.length})</span>
                             </td>
+                            <td className="text-right"><strong>{formatCurrency(grp.total)}</strong></td>
+                            <td className="text-right dre-pct-col text-muted">{pct(grpPct)}</td>
+                            {pm && <td className="text-right text-muted">{pmGrp ? formatCurrency(pmGrp.total) : "—"}</td>}
+                            {py && <td className="text-right text-muted">{pyGrp ? formatCurrency(pyGrp.total) : "—"}</td>}
                           </tr>
-                        )}
-                      </>
-                    );
-                  })}
 
-                  <DRETotal label="(=) TOTAL DE DESPESAS" warning
-                    cur={cur.totalExpenses} pm={pm?.totalExpenses} py={py?.totalExpenses} />
+                          {/* Category lines within group */}
+                          {isGroupOpen && grp.lines.map((exp) => {
+                            const catKey = exp.dreCategoryId ?? "__uncategorized__";
+                            const isExpOpen = expandedExpense === catKey;
+                            const expPct = safePct(exp.total, cur.revenue.grossAmount);
+                            const pmExp = pm?.expenses.find((e) => e.dreCategoryId === exp.dreCategoryId);
+                            const pyExp = py?.expenses.find((e) => e.dreCategoryId === exp.dreCategoryId);
 
-                  {/* ── EBITDA ── */}
-                  <DRETotal label="(=) EBITDA GERENCIAL" highlight strong
-                    cur={cur.ebitda} pm={pm?.ebitda} py={py?.ebitda}
-                    pctCur={cur.ebitdaPercent} pctPm={pm?.ebitdaPercent} pctPy={py?.ebitdaPercent} />
-                </tbody>
-              </table>
-            </div>
+                            return (
+                              <>
+                                <tr
+                                  key={catKey}
+                                  className={`dre-expense-row ${isExpOpen ? "dre-expanded" : ""}`}
+                                  onClick={() => toggleDrill(exp.dreCategoryId)}
+                                  style={{ cursor: "pointer" }}
+                                >
+                                  <td style={{ paddingLeft: 32 }}>
+                                    <span className="dre-chevron">
+                                      {isExpOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                                    </span>
+                                    {exp.dreCategoryName}
+                                  </td>
+                                  <td className="text-right">{formatCurrency(exp.total)}</td>
+                                  <td className="text-right dre-pct-col text-muted">{pct(expPct)}</td>
+                                  {pm && <td className="text-right text-muted">{pmExp ? formatCurrency(pmExp.total) : "—"}</td>}
+                                  {py && <td className="text-right text-muted">{pyExp ? formatCurrency(pyExp.total) : "—"}</td>}
+                                </tr>
+
+                                {isExpOpen && (
+                                  <tr key={`${catKey}-drill`} className="dre-drill-row">
+                                    <td colSpan={pm && py ? 5 : pm || py ? 4 : 3}>
+                                      <DrillPanel
+                                        rows={drillRows}
+                                        loading={drillLoading}
+                                        categories={categories}
+                                        canEdit={canEdit}
+                                        onCategoryChanged={() => { load(); setExpandedExpense(null); }}
+                                        notify={(t, m) => setNotice({ tone: t, message: m })}
+                                      />
+                                    </td>
+                                  </tr>
+                                )}
+                              </>
+                            );
+                          })}
+                        </>
+                      );
+                    })}
+
+                    {/* Uncategorized expenses (not in any group) */}
+                    {cur.expenses.filter((e) => e.dreCategoryId === null).length > 0 && (() => {
+                      const uncatTotal = cur.expenses
+                        .filter((e) => e.dreCategoryId === null)
+                        .reduce((s, e) => s + e.total, 0);
+                      const uncatKey = "__uncategorized__";
+                      const isOpen = expandedExpense === uncatKey;
+                      return (
+                        <>
+                          <tr
+                            key={uncatKey}
+                            className={`dre-expense-row ${isOpen ? "dre-expanded" : ""}`}
+                            onClick={() => toggleDrill(null)}
+                            style={{ cursor: "pointer" }}
+                          >
+                            <td style={{ paddingLeft: 16, fontStyle: "italic" }}>
+                              <span className="dre-chevron">{isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}</span>
+                              Não categorizadas
+                            </td>
+                            <td className="text-right">{formatCurrency(uncatTotal)}</td>
+                            <td className="text-right dre-pct-col text-muted">{pct(safePct(uncatTotal, cur.revenue.grossAmount))}</td>
+                            {pm && <td className="text-right text-muted">—</td>}
+                            {py && <td className="text-right text-muted">—</td>}
+                          </tr>
+                          {isOpen && (
+                            <tr key="uncat-drill" className="dre-drill-row">
+                              <td colSpan={pm && py ? 5 : pm || py ? 4 : 3}>
+                                <DrillPanel
+                                  rows={drillRows}
+                                  loading={drillLoading}
+                                  categories={categories}
+                                  canEdit={canEdit}
+                                  onCategoryChanged={() => { load(); setExpandedExpense(null); }}
+                                  notify={(t, m) => setNotice({ tone: t, message: m })}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })()}
+
+                    <DRETotal
+                      label="(=) TOTAL DE DESPESAS"
+                      cur={cur.totalExpenses}
+                      base={cur.revenue.grossAmount}
+                      pm={pm?.totalExpenses} py={py?.totalExpenses}
+                      hasPm={!!pm} hasPy={!!py}
+                      warning
+                    />
+
+                    {/* ── LUCRO OPERACIONAL ── */}
+                    <DRETotal
+                      label="(=) LUCRO OPERACIONAL"
+                      cur={cur.ebitda}
+                      base={cur.revenue.grossAmount}
+                      pm={pm?.ebitda} py={py?.ebitda}
+                      hasPm={!!pm} hasPy={!!py}
+                      highlight strong
+                    />
+                  </tbody>
+                </table>
+              </div>
+            </>
           ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Card component
+// ─────────────────────────────────────────────
+
+function DRECard({
+  label, value, sub, signed, highlight, warn, pctOnly,
+}: {
+  label: string;
+  value: number | null;
+  sub: string;
+  signed?: boolean;
+  highlight?: boolean;
+  warn?: boolean;
+  pctOnly?: boolean;
+}) {
+  const positive = value == null ? true : value >= 0;
+  return (
+    <div className={`dre-card${highlight ? " dre-card-highlight" : ""}${warn ? " dre-card-warn" : ""}`}>
+      <div className="dre-card-label">{label}</div>
+      {pctOnly ? (
+        <div className={`dre-card-value${signed ? (positive ? " text-success" : " text-danger") : ""}`}>{sub}</div>
+      ) : (
+        <>
+          <div className={`dre-card-value${signed ? (positive ? " text-success" : " text-danger") : ""}`}>
+            {value != null ? formatCurrency(value) : "—"}
+          </div>
+          <div className="dre-card-sub">{sub}</div>
         </>
       )}
     </div>
@@ -264,36 +614,48 @@ export function DRE() {
 function DREGroup({ label }: { label: string }) {
   return (
     <tr className="dre-group-row">
-      <td colSpan={4}>{label}</td>
+      <td colSpan={5}>{label}</td>
     </tr>
   );
 }
 
-function DRERow({ label, cur, pm, py, negative }: {
-  label: string; cur: number; pm?: number; py?: number; negative?: boolean;
+function DRERow({
+  label, cur, base, pm, py, hasPm, hasPy, negative,
+}: {
+  label: string; cur: number; base: number;
+  pm?: number; py?: number;
+  hasPm: boolean; hasPy: boolean;
+  negative?: boolean;
 }) {
+  const pctVal = safePct(Math.abs(cur), base);
   return (
     <tr className="dre-row">
       <td>{label}</td>
-      <td className={`text-right ${negative && cur < 0 ? "text-danger" : ""}`}>{formatCurrency(Math.abs(cur))}{negative && cur !== 0 ? "" : ""}</td>
-      <td className="text-right text-muted">{pm != null ? formatCurrency(Math.abs(pm)) : "—"}</td>
-      <td className="text-right text-muted">{py != null ? formatCurrency(Math.abs(py)) : "—"}</td>
+      <td className={`text-right${negative && cur < 0 ? " text-danger" : ""}`}>{formatCurrency(Math.abs(cur))}</td>
+      <td className="text-right dre-pct-col text-muted">{pct(pctVal)}</td>
+      {hasPm && <td className="text-right text-muted">{pm != null ? formatCurrency(Math.abs(pm)) : "—"}</td>}
+      {hasPy && <td className="text-right text-muted">{py != null ? formatCurrency(Math.abs(py)) : "—"}</td>}
     </tr>
   );
 }
 
-function DRETotal({ label, cur, pm, py, pctCur, pctPm, pctPy, pctLabel, highlight, warning, strong }: {
-  label: string; cur: number; pm?: number; py?: number;
-  pctCur?: number | null; pctPm?: number | null; pctPy?: number | null;
-  pctLabel?: string; highlight?: boolean; warning?: boolean; strong?: boolean;
+function DRETotal({
+  label, cur, base, pm, py, hasPm, hasPy, highlight, warning, strong,
+}: {
+  label: string; cur: number; base: number;
+  pm?: number; py?: number;
+  hasPm?: boolean; hasPy?: boolean;
+  highlight?: boolean; warning?: boolean; strong?: boolean;
 }) {
   const cls = highlight ? "dre-total-highlight" : warning ? "dre-total-warning" : "dre-total";
+  const pctVal = safePct(Math.abs(cur), base);
   return (
     <tr className={cls}>
-      <td><strong>{label}</strong>{pctCur != null ? <span className="dre-pct"> [{pct(pctCur)}]</span> : pctLabel ? <span className="dre-pct"> [{pctLabel}]</span> : null}</td>
-      <td className={`text-right ${strong ? "" : ""} ${colorClass(cur)}`}><strong>{formatCurrency(cur)}</strong></td>
-      <td className="text-right text-muted">{pm != null ? <>{formatCurrency(pm)}{pctPm != null ? <span className="dre-pct"> [{pct(pctPm)}]</span> : null}</> : "—"}</td>
-      <td className="text-right text-muted">{py != null ? <>{formatCurrency(py)}{pctPy != null ? <span className="dre-pct"> [{pct(pctPy)}]</span> : null}</> : "—"}</td>
+      <td><strong>{label}</strong></td>
+      <td className={`text-right ${colorClass(cur)}`}><strong>{formatCurrency(cur)}</strong></td>
+      <td className="text-right dre-pct-col"><span className={`dre-pct${strong ? " dre-pct-strong" : ""}`}>{pct(pctVal)}</span></td>
+      {hasPm && <td className="text-right text-muted">{pm != null ? formatCurrency(pm) : "—"}</td>}
+      {hasPy && <td className="text-right text-muted">{py != null ? formatCurrency(py) : "—"}</td>}
     </tr>
   );
 }
@@ -302,7 +664,9 @@ function DRETotal({ label, cur, pm, py, pctCur, pctPm, pctPy, pctLabel, highligh
 // Drill panel
 // ─────────────────────────────────────────────
 
-function DrillPanel({ rows, loading, categories, canEdit, onCategoryChanged, notify }: {
+function DrillPanel({
+  rows, loading, categories, canEdit, onCategoryChanged, notify,
+}: {
   rows: DrillRow[]; loading: boolean; categories: DRECategory[];
   canEdit: boolean;
   onCategoryChanged: () => void;
@@ -342,12 +706,19 @@ function DrillPanel({ rows, loading, categories, canEdit, onCategoryChanged, not
       <tbody>
         {rows.map((r) => (
           <tr key={r.installmentId}>
-            <td><div>{r.supplierName}</div>{r.purchaseNumber && <div className="text-muted" style={{ fontSize: "0.8em" }}>Pedido: {r.purchaseNumber}</div>}</td>
-            <td>{r.invoiceNumber ?? "—"}{r.installment != null ? <span className="text-muted"> ({r.installment}ª parcela)</span> : null}</td>
+            <td>
+              <div>{r.supplierName}</div>
+              {r.purchaseNumber && <div className="text-muted" style={{ fontSize: "0.8em" }}>Pedido: {r.purchaseNumber}</div>}
+            </td>
+            <td>{r.invoiceNumber ?? "—"}{r.installment != null ? <span className="text-muted"> ({r.installment}ª parc.)</span> : null}</td>
             <td className="text-center">{r.dueDate ? formatDate(r.dueDate) : "—"}</td>
             <td className="text-center">{r.paidDate ? formatDate(r.paidDate) : "—"}</td>
             <td className="text-right">{formatCurrency(r.effectiveAmount)}</td>
-            <td><span className={`badge ${r.status === "PAID" || r.status === "PAID_LATE" ? "badge-success" : r.status === "OVERDUE" ? "badge-error" : "badge-neutral"}`}>{statusLabel(r.status)}</span></td>
+            <td>
+              <span className={`badge ${r.status === "PAID" || r.status === "PAID_LATE" ? "badge-success" : r.status === "OVERDUE" ? "badge-error" : "badge-neutral"}`}>
+                {statusLabel(r.status)}
+              </span>
+            </td>
             {canEdit && (
               <td>
                 <select
@@ -357,7 +728,9 @@ function DrillPanel({ rows, loading, categories, canEdit, onCategoryChanged, not
                   style={{ fontSize: "0.85em", minWidth: 140 }}
                 >
                   <option value="">Não categorizada</option>
-                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
                 </select>
               </td>
             )}
@@ -379,20 +752,20 @@ function DrillPanel({ rows, loading, categories, canEdit, onCategoryChanged, not
 // Categories panel
 // ─────────────────────────────────────────────
 
-const DRE_GROUPS = [
-  { value: "DESPESAS_OPERACIONAIS", label: "Despesas Operacionais" },
-  { value: "DEDUCOES", label: "Deduções de Receita" },
-];
-
 const emptyCategory = { id: "", name: "", dreGroup: "DESPESAS_OPERACIONAIS", sortOrder: 0, notes: "" };
 
-function CategoriesPanel({ categories, canEdit, onSaved, notify }: {
+function CategoriesPanel({
+  categories, canEdit, isAdmin, onSaved, onSeed, notify,
+}: {
   categories: DRECategory[];
   canEdit: boolean;
+  isAdmin: boolean;
   onSaved: () => void;
+  onSeed: () => void;
   notify: (tone: "success" | "error", message: string) => void;
 }) {
   const [form, setForm] = useState(emptyCategory);
+  const [seeding, setSeeding] = useState(false);
 
   function setField(key: keyof typeof form, value: string | number) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -410,8 +783,30 @@ function CategoriesPanel({ categories, canEdit, onSaved, notify }: {
     }
   }
 
+  async function handleSeed() {
+    setSeeding(true);
+    try { await onSeed(); } finally { setSeeding(false); }
+  }
+
   return (
     <div className="stack">
+      {isAdmin && (
+        <div className="dre-seed-bar">
+          <span className="text-muted" style={{ fontSize: 13 }}>
+            Cria automaticamente as categorias gerenciais baseadas na planilha do restaurante.
+          </span>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={handleSeed}
+            disabled={seeding}
+            title="Criar categorias padrão"
+          >
+            <Wand2 size={14} /> {seeding ? "Criando..." : "Seed categorias padrão"}
+          </button>
+        </div>
+      )}
+
       {canEdit && (
         <div className="form-grid">
           <div className="form-group">
@@ -419,7 +814,7 @@ function CategoriesPanel({ categories, canEdit, onSaved, notify }: {
             <input value={form.name} onChange={(e) => setField("name", e.target.value)} placeholder="Ex: Folha de Pessoal" />
           </div>
           <div className="form-group">
-            <label>Grupo</label>
+            <label>Grupo DRE</label>
             <select value={form.dreGroup} onChange={(e) => setField("dreGroup", e.target.value)}>
               {DRE_GROUPS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
             </select>
@@ -432,7 +827,11 @@ function CategoriesPanel({ categories, canEdit, onSaved, notify }: {
             <button type="button" className="btn-primary" onClick={handleSubmit}>
               {form.id ? "Salvar" : <><Plus size={14} /> Criar</>}
             </button>
-            {form.id && <button type="button" className="btn-secondary" style={{ marginLeft: 8 }} onClick={() => setForm(emptyCategory)}><X size={14} /></button>}
+            {form.id && (
+              <button type="button" className="btn-secondary" style={{ marginLeft: 8 }} onClick={() => setForm(emptyCategory)}>
+                <X size={14} />
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -442,23 +841,37 @@ function CategoriesPanel({ categories, canEdit, onSaved, notify }: {
           <tr>
             <th>Ordem</th>
             <th>Nome</th>
-            <th>Grupo</th>
+            <th>Grupo DRE</th>
             <th>Status</th>
             {canEdit && <th></th>}
           </tr>
         </thead>
         <tbody>
-          {categories.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)).map((cat) => (
-            <tr key={cat.id}>
-              <td>{cat.sortOrder}</td>
-              <td><strong>{cat.name}</strong></td>
-              <td className="text-muted">{DRE_GROUPS.find((g) => g.value === cat.dreGroup)?.label ?? cat.dreGroup}</td>
-              <td>{cat.isActive ? <span className="badge badge-success">Ativo</span> : <span className="badge badge-error">Inativo</span>}</td>
-              {canEdit && (
-                <td><button type="button" className="btn-link" onClick={() => setForm({ id: cat.id, name: cat.name, dreGroup: cat.dreGroup, sortOrder: cat.sortOrder, notes: cat.notes ?? "" })}>Editar</button></td>
-              )}
-            </tr>
-          ))}
+          {categories
+            .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+            .map((cat) => (
+              <tr key={cat.id}>
+                <td>{cat.sortOrder}</td>
+                <td><strong>{cat.name}</strong></td>
+                <td className="text-muted">{DRE_GROUPS.find((g) => g.value === cat.dreGroup)?.label ?? cat.dreGroup}</td>
+                <td>
+                  {cat.isActive
+                    ? <span className="badge badge-success">Ativo</span>
+                    : <span className="badge badge-error">Inativo</span>}
+                </td>
+                {canEdit && (
+                  <td>
+                    <button
+                      type="button"
+                      className="btn-link"
+                      onClick={() => setForm({ id: cat.id, name: cat.name, dreGroup: cat.dreGroup, sortOrder: cat.sortOrder, notes: cat.notes ?? "" })}
+                    >
+                      Editar
+                    </button>
+                  </td>
+                )}
+              </tr>
+            ))}
         </tbody>
       </table>
     </div>
