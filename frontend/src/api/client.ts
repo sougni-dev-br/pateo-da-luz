@@ -3096,12 +3096,19 @@ export function assignDRECategory(installmentId: string, dreCategoryId: string |
   });
 }
 
-export function downloadDrePdf(year: number, month: number) {
-  return download(
-    `/dre/export/pdf${toQueryString({ year: String(year), month: String(month) })}`,
-    `dre-${year}-${String(month).padStart(2, "0")}.pdf`,
-    DRE_TIMEOUT_MS
-  );
+export function downloadDrePdf(
+  params: { year: number; month: number } | { from: string; to: string }
+) {
+  let qs: Record<string, string>;
+  let filename: string;
+  if ("year" in params) {
+    qs = { year: String(params.year), month: String(params.month) };
+    filename = `dre-gerencial-${params.year}-${String(params.month).padStart(2, "0")}.pdf`;
+  } else {
+    qs = { from: params.from, to: params.to };
+    filename = `dre-gerencial-${params.from}-${params.to}.pdf`;
+  }
+  return download(`/dre/export/pdf${toQueryString(qs)}`, filename, DRE_TIMEOUT_MS);
 }
 
 export function getMenuFavorites() {

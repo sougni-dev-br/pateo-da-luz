@@ -603,7 +603,8 @@ dreRouter.get("/export/pdf", async (request, response) => {
   const data = await calcDRE(range.from, range.to);
   const pdf = createDrePdf(data);
 
-  const filename = `dre-${range.from.toISOString().slice(0, 10)}.pdf`;
+  const fromISO = range.from.toISOString().slice(0, 7); // YYYY-MM
+  const filename = `dre-gerencial-${fromISO}.pdf`;
   response.set({
     "Content-Type": "application/pdf",
     "Content-Disposition": `attachment; filename="${filename}"`,

@@ -220,7 +220,11 @@ export function DRE() {
     if (!data || loading) return;
     setPdfLoading(true);
     try {
-      await downloadDrePdf(year, month);
+      const pdfParams =
+        filterMode === "month"
+          ? { year, month }
+          : { from: fromDate, to: toDate };
+      await downloadDrePdf(pdfParams);
       setNotice({ tone: "success", message: "PDF gerado com sucesso." });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Erro ao gerar PDF.";
