@@ -7,6 +7,17 @@ import { auditLog, requestIp, requireRole } from "../security/security-utils.js"
 
 export const supplierRouter = Router();
 
+function parseInstallmentDays(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  try {
+    const arr = Array.isArray(value) ? value : JSON.parse(String(value));
+    const days = arr.map(Number).filter((n: number) => Number.isFinite(n) && n > 0);
+    return days.length > 0 ? JSON.stringify(days) : null;
+  } catch {
+    return null;
+  }
+}
+
 type SupplierRow = {
   id: string;
   externalCode: string | null;
@@ -18,6 +29,10 @@ type SupplierRow = {
   contactName: string | null;
   mainCategory: string | null;
   defaultPaymentTermDays: number | null;
+  defaultPaymentMethodId: string | null;
+  defaultInstallmentCount: number | null;
+  defaultInstallmentDays: unknown;
+  defaultFinancialNotes: string | null;
   registrationDate: Date | null;
   isActive: boolean;
   notes: string | null;
@@ -26,19 +41,11 @@ type SupplierRow = {
 async function findSupplierRow(id: string) {
   const [supplier] = await prisma.$queryRaw<SupplierRow[]>`
     SELECT
-      "id",
-      "externalCode",
-      "document",
-      "name",
-      "normalizedName",
-      "phone",
-      "email",
-      "contactName",
-      "mainCategory",
-      "defaultPaymentTermDays",
-      "registrationDate",
-      "isActive",
-      "notes"
+      "id", "externalCode", "document", "name", "normalizedName",
+      "phone", "email", "contactName", "mainCategory",
+      "defaultPaymentTermDays", "defaultPaymentMethodId",
+      "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
+      "registrationDate", "isActive", "notes"
     FROM "Supplier"
     WHERE "id" = ${id}
   `;
@@ -69,19 +76,11 @@ supplierRouter.get("/", async (request, response) => {
   const suppliers = search
     ? await prisma.$queryRaw<SupplierRow[]>`
         SELECT
-          "id",
-          "externalCode",
-          "document",
-          "name",
-          "normalizedName",
-          "phone",
-          "email",
-          "contactName",
-          "mainCategory",
-          "defaultPaymentTermDays",
-          "registrationDate",
-          "isActive",
-          "notes"
+          "id", "externalCode", "document", "name", "normalizedName",
+          "phone", "email", "contactName", "mainCategory",
+          "defaultPaymentTermDays", "defaultPaymentMethodId",
+          "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
+          "registrationDate", "isActive", "notes"
         FROM "Supplier"
         WHERE "name" ILIKE ${term}
            OR "document" ILIKE ${term}
@@ -91,19 +90,11 @@ supplierRouter.get("/", async (request, response) => {
       `
     : await prisma.$queryRaw<SupplierRow[]>`
         SELECT
-          "id",
-          "externalCode",
-          "document",
-          "name",
-          "normalizedName",
-          "phone",
-          "email",
-          "contactName",
-          "mainCategory",
-          "defaultPaymentTermDays",
-          "registrationDate",
-          "isActive",
-          "notes"
+          "id", "externalCode", "document", "name", "normalizedName",
+          "phone", "email", "contactName", "mainCategory",
+          "defaultPaymentTermDays", "defaultPaymentMethodId",
+          "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
+          "registrationDate", "isActive", "notes"
         FROM "Supplier"
         ORDER BY "name" ASC
       `;
@@ -120,16 +111,22 @@ supplierRouter.post("/", async (request, response) => {
     return;
   }
   const externalCode = await nextSupplierCode();
+  const defaultInstallmentDays = parseInstallmentDays(request.body.defaultInstallmentDays);
   const [supplier] = await prisma.$queryRaw<Array<{ id: string }>>`
     INSERT INTO "Supplier" (
       "id", "externalCode", "document", "name", "normalizedName", "phone", "email", "contactName",
-      "mainCategory", "defaultPaymentTermDays", "notes", "isActive", "updatedAt"
+      "mainCategory", "defaultPaymentTermDays", "defaultPaymentMethodId", "defaultInstallmentCount",
+      "defaultInstallmentDays", "defaultFinancialNotes", "notes", "isActive", "updatedAt"
     )
     VALUES (
       ${crypto.randomUUID()}, ${externalCode}, ${request.body.document || null}, ${name}, ${normalizeText(name)},
       ${request.body.phone || null}, ${request.body.email || null}, ${request.body.contactName || null},
       ${request.body.mainCategory || null},
       ${request.body.defaultPaymentTermDays === "" || request.body.defaultPaymentTermDays == null ? null : Number(request.body.defaultPaymentTermDays)},
+      ${request.body.defaultPaymentMethodId || null},
+      ${request.body.defaultInstallmentCount == null || request.body.defaultInstallmentCount === "" ? null : Number(request.body.defaultInstallmentCount)},
+      ${defaultInstallmentDays},
+      ${request.body.defaultFinancialNotes || null},
       ${request.body.notes || null}, ${request.body.isActive ?? true}, CURRENT_TIMESTAMP
     )
     RETURNING "id"
@@ -180,6 +177,7 @@ supplierRouter.put("/:id", async (request, response) => {
       userAgent: String(request.headers["user-agent"] ?? "")
     });
   }
+  const defaultInstallmentDaysPut = parseInstallmentDays(request.body.defaultInstallmentDays);
   const [supplier] = await prisma.$queryRaw<Array<{ id: string }>>`
     UPDATE "Supplier"
     SET
@@ -192,6 +190,10 @@ supplierRouter.put("/:id", async (request, response) => {
       "contactName" = ${request.body.contactName || null},
       "mainCategory" = ${request.body.mainCategory || null},
       "defaultPaymentTermDays" = ${request.body.defaultPaymentTermDays === "" || request.body.defaultPaymentTermDays == null ? null : Number(request.body.defaultPaymentTermDays)},
+      "defaultPaymentMethodId" = ${request.body.defaultPaymentMethodId || null},
+      "defaultInstallmentCount" = ${request.body.defaultInstallmentCount == null || request.body.defaultInstallmentCount === "" ? null : Number(request.body.defaultInstallmentCount)},
+      "defaultInstallmentDays" = ${defaultInstallmentDaysPut},
+      "defaultFinancialNotes" = ${request.body.defaultFinancialNotes || null},
       "notes" = ${request.body.notes || null},
       "isActive" = ${request.body.isActive ?? true},
       "updatedAt" = CURRENT_TIMESTAMP
