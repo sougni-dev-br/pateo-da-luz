@@ -1599,7 +1599,7 @@ select:focus {
 .purchase-editor-layout {
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 296px);
+  grid-template-columns: minmax(0, 1fr) minmax(216px, 232px);
   align-items: start;
 }
 
@@ -1887,8 +1887,13 @@ select:disabled {
   text-align: left;
 }
 
-.autocomplete-option:hover {
-  background: #f5f8fc;
+.autocomplete-option:hover,
+.autocomplete-option-active {
+  background: #eef3fb;
+}
+
+.autocomplete-option-active {
+  outline: 1px solid rgba(94, 123, 170, 0.3);
 }
 
 .autocomplete-option small,
@@ -1902,6 +1907,52 @@ select:disabled {
 
 .autocomplete-empty {
   padding: 12px;
+}
+
+.autocomplete-empty-actions {
+  padding: 12px 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.autocomplete-empty-actions p {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0 0 4px;
+}
+
+.autocomplete-empty-actions button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.autocomplete-empty-actions button:hover {
+  background: #f0f4fc;
+}
+
+.autocomplete-shell.supplier-confirmed input {
+  border-color: rgba(49, 135, 95, 0.45);
+  background: rgba(49, 135, 95, 0.03);
+}
+
+.supplier-status-hint {
+  font-size: 12px;
+  margin-top: 5px;
+  padding: 0 2px;
+}
+
+.supplier-status-hint.confirmed {
+  color: #2e7d4a;
+}
+
+.supplier-status-hint.pending {
+  color: #8a6000;
 }
 
 .product-autocomplete-dropdown {
@@ -2180,6 +2231,58 @@ select:disabled {
 
 .purchase-payment-summary .warn strong {
   color: var(--danger);
+}
+
+.purchase-detail-infobar {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-top: 14px;
+}
+
+.purchase-detail-infobar-item {
+  display: grid;
+  gap: 3px;
+  padding: 13px 16px;
+  border-right: 1px solid var(--line);
+  min-width: 0;
+}
+
+.purchase-detail-infobar-item:last-child {
+  border-right: 0;
+}
+
+.purchase-detail-infobar-item > .detail-label {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.purchase-detail-infobar-item > strong {
+  font-size: 0.92rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.purchase-detail-infobar-item > small {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.purchase-detail-infobar-amount > strong {
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.purchase-payment-placeholder {
+  margin-bottom: 0;
 }
 
 .purchase-detail-modal .summary-grid {
