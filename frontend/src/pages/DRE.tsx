@@ -10,6 +10,7 @@ import {
   Wand2,
   X,
 } from "lucide-react";
+import { DRECategoryOptions, DRE_GROUPS } from "../components/DRECategoryOptions";
 import { useEffect, useRef, useState } from "react";
 import {
   assignDRECategory,
@@ -91,22 +92,7 @@ function toDateInput(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-// ─────────────────────────────────────────────
-// DRE Groups (updated with new groups)
-// ─────────────────────────────────────────────
-
-const DRE_GROUPS = [
-  { value: "PESSOAL",               label: "Pessoal" },
-  { value: "VALE_TRANSPORTE",       label: "Vale-Transporte" },
-  { value: "LOCACAO",               label: "Ocupação e Locação" },
-  { value: "TARIFAS_BANCARIAS",     label: "Tarifas Bancárias" },
-  { value: "TARIFAS_PUBLICAS",      label: "Tarifas Públicas" },
-  { value: "IMPOSTOS",              label: "Impostos" },
-  { value: "DESPESAS_GERAIS",       label: "Despesas Gerais" },
-  { value: "PLANEJAMENTO",          label: "Planejamento" },
-  { value: "DESPESAS_OPERACIONAIS", label: "Despesas Diversas" },
-  { value: "DEDUCOES",              label: "Deduções de Receita" },
-];
+// DRE_GROUPS e DRECategoryOptions vêm de ../components/DRECategoryOptions
 
 // ─────────────────────────────────────────────
 // Main component
@@ -837,9 +823,7 @@ function DrillPanel({
                   style={{ fontSize: "0.85em", minWidth: 140 }}
                 >
                   <option value="">Não categorizada</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
+                  <DRECategoryOptions categories={categories} />
                 </select>
               </td>
             )}
@@ -1167,9 +1151,7 @@ function ClassifyPanel({
                 style={{ minWidth: 200, fontSize: "0.85em" }}
               >
                 <option value="">Escolha a categoria...</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
+                <DRECategoryOptions categories={categories} />
               </select>
               <button
                 type="button"
@@ -1321,9 +1303,7 @@ function ClassifyPanel({
                               style={{ fontSize: "0.82em", minWidth: 160 }}
                             >
                               <option value="">— Escolha —</option>
-                              {categories.map((c) => (
-                                <option key={c.id} value={c.id}>{c.name}</option>
-                              ))}
+                              <DRECategoryOptions categories={categories} />
                             </select>
                           </>
                         )}
