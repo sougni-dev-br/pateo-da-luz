@@ -420,6 +420,14 @@ export async function requireMenuAccess(request: Request, response: Response, ne
     return;
   }
 
+  if (user.mustChangePassword) {
+    response.status(403).json({
+      code: "MUST_CHANGE_PASSWORD",
+      message: "Voce deve alterar sua senha antes de continuar. Use POST /auth/change-password.",
+    });
+    return;
+  }
+
   const sessionUser = user as SessionUser;
   const permissions = await getEffectiveModulePermissions(sessionUser);
   const modulePermission = permissions[context.menuId];
