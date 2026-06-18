@@ -136,7 +136,11 @@ model Supplier {
   email        String?
   contactName  String?
   mainCategory String?
-  defaultPaymentTermDays Int?
+  defaultPaymentTermDays   Int?
+  defaultPaymentMethodId   String?
+  defaultInstallmentCount  Int?
+  defaultInstallmentDays   Json?
+  defaultFinancialNotes    String?
   registrationDate DateTime?
   isActive     Boolean    @default(true)
   notes        String?
