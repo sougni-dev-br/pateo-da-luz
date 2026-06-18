@@ -665,6 +665,10 @@ export type Supplier = {
   contactName?: string | null;
   mainCategory?: string | null;
   defaultPaymentTermDays?: number | null;
+  defaultPaymentMethodId?: string | null;
+  defaultInstallmentCount?: number | null;
+  defaultInstallmentDays?: number[] | null;
+  defaultFinancialNotes?: string | null;
   registrationDate: string | null;
   isActive: boolean;
   notes: string | null;
