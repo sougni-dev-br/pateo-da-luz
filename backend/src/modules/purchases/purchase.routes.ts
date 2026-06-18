@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDate } from "../../shared/utils/parse-date.js";
-import { createSimplePdf } from "../../shared/utils/simple-pdf.js";
+import { createSupplierPositionPdf, type SupplierPositionData } from "./supplier-position-pdf.js";
 import {
   formatPaymentMethodWithInstallments,
   getPaymentMethodBaseName,
@@ -548,71 +548,50 @@ purchaseRouter.get("/reports/supplier-position.pdf", async (request, response) =
     .filter(({ installment }) => !installment.paidDate && installment.dueDate && localDateOnly(new Date(installment.dueDate)).getTime() < today.getTime())
     .reduce((sum, { installment }) => sum + Number(installment.amount ?? 0), 0);
 
-  const items = purchases.flatMap((purchase) =>
-    purchase.items.map((item) => [
-      purchase.supplier.name,
-      purchase.purchaseNumber ?? "-",
-      purchase.invoiceNumber ?? "-",
-      item.rawProductCode ?? item.product.externalCode ?? "-",
-      item.rawProductName || item.product.name,
-      item.unit ?? "-",
-      Number(item.quantity).toLocaleString("pt-BR"),
-      formatCurrency(item.totalPrice)
-    ])
-  );
-  const parcels = installments.map(({ purchase, installment }) => [
-    purchase.supplier.name,
-    purchase.purchaseNumber ?? "-",
-    purchase.invoiceNumber ?? "-",
-    installment.installment ?? "-",
-    formatDateValue(installment.dueDate),
-    formatCurrency(installment.amount),
-    installment.paidDate ? "Pago" : "Em aberto"
-  ]);
+  const pdfData: SupplierPositionData = {
+    period: {
+      from: startDate ? startDate.toISOString() : null,
+      to:   endDate   ? endDate.toISOString()   : null,
+    },
+    supplierFilter: supplierId ? (purchases[0]?.supplier.name ?? null) : null,
+    summary: {
+      totalPurchased,
+      paidAmount,
+      openAmount,
+      overdueAmount,
+      purchaseCount: purchases.length,
+    },
+    purchases: purchases.map((purchase) => ({
+      supplierName:       purchase.supplier.name,
+      supplierDocument:   purchase.supplier.document ?? null,
+      purchaseDate:       purchase.purchaseDate.toISOString(),
+      purchaseNumber:     purchase.purchaseNumber ?? null,
+      invoiceNumber:      purchase.invoiceNumber  ?? null,
+      totalAmount:        Number(purchase.totalAmount),
+      paymentMethodLabel: getManualPaymentMethodDisplayName(purchase.paymentMethod, purchase.installments.length || 1),
+      items: purchase.items.map((item) => ({
+        code:       item.rawProductCode ?? item.product.externalCode ?? null,
+        name:       item.rawProductName || item.product.name,
+        unit:       item.unit ?? null,
+        quantity:   Number(item.quantity),
+        totalPrice: Number(item.totalPrice),
+      })),
+      installments: purchase.installments.map((inst) => {
+        const isPaid = Boolean(inst.paidDate) || ["PAID", "PAID_LATE"].includes(String(inst.status));
+        const isOverdue = !isPaid && Boolean(inst.dueDate) &&
+          localDateOnly(new Date(String(inst.dueDate))).getTime() < today.getTime();
+        return {
+          installmentNum: inst.installment ?? null,
+          dueDate:        inst.dueDate ? new Date(String(inst.dueDate)).toISOString() : null,
+          amount:         Number(inst.amount ?? 0),
+          isPaid,
+          isOverdue,
+        };
+      }),
+    })),
+  };
 
-  const pdf = createSimplePdf("Posicao de fornecedor", [
-    {
-      heading: "Filtros e resumo",
-      lines: [
-        `Fornecedor: ${supplierId ? purchases[0]?.supplier.name ?? supplierId : "Todos"}`,
-        `Periodo: ${startDate ? formatDateValue(startDate) : "Inicio"} ate ${endDate ? formatDateValue(endDate) : "Hoje"}`,
-        `Total comprado: ${formatCurrency(totalPurchased)}`,
-        `Quantidade de compras: ${purchases.length}`,
-        `Valores em aberto: ${formatCurrency(openAmount)}`,
-        `Valores pagos: ${formatCurrency(paidAmount)}`,
-        `Valores vencidos: ${formatCurrency(overdueAmount)}`
-      ]
-    },
-    {
-      heading: "Notas fiscais e pedidos internos",
-      table: {
-        headers: ["Fornecedor", "CNPJ/CPF", "Data", "Pedido", "NF", "Pagamento", "Total"],
-        rows: purchases.map((purchase) => [
-          purchase.supplier.name,
-          purchase.supplier.document ?? "-",
-          formatDateValue(purchase.purchaseDate),
-          purchase.purchaseNumber ?? "-",
-          purchase.invoiceNumber ?? "-",
-          getManualPaymentMethodDisplayName(purchase.paymentMethod, purchase.installments.length || 1),
-          formatCurrency(purchase.totalAmount)
-        ])
-      }
-    },
-    {
-      heading: "Itens comprados",
-      table: {
-        headers: ["Fornecedor", "Pedido", "NF", "Cod.", "Item", "Un.", "Qtd.", "Total"],
-        rows: items
-      }
-    },
-    {
-      heading: "Parcelas geradas",
-      table: {
-        headers: ["Fornecedor", "Pedido", "NF", "Parcela", "Vencimento", "Valor", "Status"],
-        rows: parcels
-      }
-    }
-  ]);
+  const pdf = createSupplierPositionPdf(pdfData);
 
   await auditLog({
     userId: user.id,
