@@ -2258,8 +2258,15 @@ export function createPurchase(payload: ManualPurchasePayload) {
   });
 }
 
-export function getAuditLogs(filters?: { userId?: string; entity?: string; startDate?: string; endDate?: string }) {
-  return request<AuditLog[]>(`/audit${toQueryString(filters)}`);
+export type AuditLogsResponse = {
+  data: AuditLog[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+};
+
+export function getAuditLogs(filters?: { userId?: string; entity?: string; startDate?: string; endDate?: string; page?: number; limit?: number }) {
+  const { page, limit, ...rest } = filters ?? {};
+  const qs = toQueryString({ ...rest, ...(page !== undefined ? { page: String(page) } : {}), ...(limit !== undefined ? { limit: String(limit) } : {}) });
+  return request<AuditLogsResponse>(`/audit${qs}`);
 }
 
 export function getImportHistory() {

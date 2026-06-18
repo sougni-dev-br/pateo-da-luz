@@ -1,22 +1,32 @@
-import { RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { AuditLog, getAuditLogs } from "../api/client";
+import { AuditLog, AuditLogsResponse, getAuditLogs } from "../api/client";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { formatDate } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 
 export function Audit() {
-  const [rows, setRows] = useState<AuditLog[]>([]);
+  const [response, setResponse] = useState<AuditLogsResponse | null>(null);
   const [filters, setFilters] = useState({ userId: "", entity: "" });
   const [period, setPeriod] = useState(currentMonthPeriod());
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<AuditLog | null>(null);
 
-  async function load() {
-    setRows(await getAuditLogs({ ...filters, startDate: period.startDate, endDate: period.endDate }));
+  const rows = response?.data ?? [];
+  const pagination = response?.pagination;
+
+  async function load(p = page) {
+    const result = await getAuditLogs({ ...filters, startDate: period.startDate, endDate: period.endDate, page: p, limit: 50 });
+    setResponse(result);
+    setPage(p);
+  }
+
+  function handleFilter() {
+    load(1);
   }
 
   useEffect(() => {
-    load();
+    load(1);
   }, []);
 
   return (
@@ -24,13 +34,13 @@ export function Audit() {
       <section className="panel">
         <div className="section-heading">
           <div><p>Controle</p><h2>Auditoria</h2></div>
-          <button className="icon-button" type="button" onClick={load} aria-label="Atualizar"><RefreshCw size={18} /></button>
+          <button className="icon-button" type="button" onClick={() => load(page)} aria-label="Atualizar"><RefreshCw size={18} /></button>
         </div>
         <div className="filters-row">
           <label>Usuário ID<input value={filters.userId} onChange={(event) => setFilters({ ...filters, userId: event.target.value })} /></label>
           <label>Entidade<input placeholder="Purchase, User..." value={filters.entity} onChange={(event) => setFilters({ ...filters, entity: event.target.value })} /></label>
           <PeriodFilter value={period} onChange={setPeriod} />
-          <button className="primary-button" type="button" onClick={load}>Filtrar</button>
+          <button className="primary-button" type="button" onClick={handleFilter}>Filtrar</button>
         </div>
         <div className="table-wrap">
           <table>
@@ -50,6 +60,18 @@ export function Audit() {
             </tbody>
           </table>
         </div>
+        {pagination && pagination.totalPages > 1 && (
+          <div className="pagination-row">
+            <button className="icon-button" type="button" disabled={page <= 1} onClick={() => load(page - 1)} aria-label="Página anterior">
+              <ChevronLeft size={16} />
+            </button>
+            <span>Página {pagination.page} de {pagination.totalPages} — {pagination.total} registros</span>
+            <button className="icon-button" type="button" disabled={page >= pagination.totalPages} onClick={() => load(page + 1)} aria-label="Próxima página">
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        )}
+        {pagination && <p className="hint">{pagination.total} registro{pagination.total !== 1 ? "s" : ""} encontrado{pagination.total !== 1 ? "s" : ""}.</p>}
       </section>
       {selected && (
         <section className="panel">
