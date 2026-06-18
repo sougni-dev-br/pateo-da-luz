@@ -199,23 +199,49 @@ authRouter.post("/login", async (request, response) => {
     return;
   }
 
-  if (!user || !user.isActive || !verifyPassword(password, user.passwordHash)) {
-    if (user) {
-      const attempts = Number(user.failedLoginAttempts ?? 0) + 1;
-      const lockedUntil = attempts >= 5 ? new Date(Date.now() + 1000 * 60 * 15) : null;
-      await prisma.$executeRaw`
-        UPDATE "User"
-        SET "failedLoginAttempts" = ${attempts},
-            "lockedUntil" = ${lockedUntil}
-        WHERE "id" = ${user.id}
-      `;
-    }
+  if (!user) {
     await auditLog({
-      userId: user?.id ?? null,
+      userId: null,
       action: "LOGIN_INVALID",
       entity: "Auth",
-      entityId: user?.id ?? null,
-      newValue: { email, reason: user ? "invalid_password" : "user_not_found" },
+      entityId: null,
+      newValue: { email, reason: "user_not_found" },
+      ipAddress: requestIp(request),
+      userAgent: String(request.headers["user-agent"] ?? "")
+    });
+    response.status(401).json({ message: "Credenciais invalidas." });
+    return;
+  }
+
+  if (!user.isActive) {
+    await auditLog({
+      userId: user.id,
+      action: "LOGIN_INVALID",
+      entity: "Auth",
+      entityId: user.id,
+      newValue: { email, reason: "user_inactive" },
+      ipAddress: requestIp(request),
+      userAgent: String(request.headers["user-agent"] ?? "")
+    });
+    response.status(401).json({ message: "Credenciais invalidas." });
+    return;
+  }
+
+  if (!verifyPassword(password, user.passwordHash)) {
+    const attempts = Number(user.failedLoginAttempts ?? 0) + 1;
+    const lockedUntil = attempts >= 5 ? new Date(Date.now() + 1000 * 60 * 15) : null;
+    await prisma.$executeRaw`
+      UPDATE "User"
+      SET "failedLoginAttempts" = ${attempts},
+          "lockedUntil" = ${lockedUntil}
+      WHERE "id" = ${user.id}
+    `;
+    await auditLog({
+      userId: user.id,
+      action: "LOGIN_INVALID",
+      entity: "Auth",
+      entityId: user.id,
+      newValue: { email, reason: "invalid_password" },
       ipAddress: requestIp(request),
       userAgent: String(request.headers["user-agent"] ?? "")
     });
