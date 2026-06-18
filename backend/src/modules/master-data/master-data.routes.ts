@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { NaturezaGerencial, Prisma } from "@prisma/client";
 import crypto from "node:crypto";
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
@@ -8,6 +8,22 @@ import { OFFICIAL_SMALL_EXPENSE_NORMALIZED_TYPES, isOfficialSmallExpenseType } f
 import { inventorySectorOrder, isOfficialInventorySectorName, officialInventorySectorName } from "./inventory-sector-utils.js";
 
 export const masterDataRouter = Router();
+
+const VALID_NATUREZA: NaturezaGerencial[] = [
+  "CMV_COMPRA_SEM_NF",
+  "DESPESA_OPERACIONAL",
+  "IMPOSTO_TAXA",
+  "FINANCEIRO_TARIFA",
+  "INVESTIMENTO_PLANEJAMENTO",
+  "NAO_ENTRA_DRE",
+];
+
+function parseNatureza(value: unknown): NaturezaGerencial | null {
+  if (!value || typeof value !== "string") return null;
+  return VALID_NATUREZA.includes(value as NaturezaGerencial)
+    ? (value as NaturezaGerencial)
+    : null;
+}
 
 masterDataRouter.use(async (request, response, next) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
@@ -437,7 +453,10 @@ masterDataRouter.get("/small-expense-types", async (request, response) => {
       }
     : { normalizedName: { in: OFFICIAL_SMALL_EXPENSE_NORMALIZED_TYPES } };
 
-  const rows = await prisma.smallExpenseType.findMany({ where });
+  const rows = await prisma.smallExpenseType.findMany({
+    where,
+    include: { suggestedDreCategory: true }
+  });
   const order = new Map(OFFICIAL_SMALL_EXPENSE_NORMALIZED_TYPES.map((name, index) => [name, index]));
   response.json(rows.sort((a, b) => (order.get(a.normalizedName) ?? 999) - (order.get(b.normalizedName) ?? 999)));
 });
@@ -451,6 +470,8 @@ masterDataRouter.post("/small-expense-types", async (request, response) => {
     response.status(400).json({ message: "Tipo de pequeno gasto fora da lista oficial." });
     return;
   }
+  const suggestedDreCategoryId = request.body.suggestedDreCategoryId || null;
+  const naturezaGerencial = parseNatureza(request.body.naturezaGerencial);
   response.status(201).json(
     await prisma.smallExpenseType.upsert({
       where: { normalizedName: normalizeText(name) },
@@ -459,16 +480,69 @@ masterDataRouter.post("/small-expense-types", async (request, response) => {
         normalizedName: normalizeText(name),
         group: request.body.group || null,
         notes: request.body.notes || null,
-        isActive: request.body.isActive ?? true
+        isActive: request.body.isActive ?? true,
+        suggestedDreCategoryId,
+        naturezaGerencial
       },
       update: {
         name,
         group: request.body.group || null,
         notes: request.body.notes || null,
-        isActive: request.body.isActive ?? true
-      }
+        isActive: request.body.isActive ?? true,
+        suggestedDreCategoryId,
+        naturezaGerencial
+      },
+      include: { suggestedDreCategory: true }
     })
   );
+});
+
+masterDataRouter.patch("/small-expense-types/bulk", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const { ids, naturezaGerencial: rawNatureza, suggestedDreCategoryId: rawCategoryId } = request.body as {
+    ids: string[];
+    naturezaGerencial?: string | null;
+    suggestedDreCategoryId?: string | null;
+  };
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    response.status(400).json({ message: "ids deve ser um array não vazio." });
+    return;
+  }
+
+  const data: Prisma.SmallExpenseTypeUncheckedUpdateManyInput = {};
+  let hasUpdate = false;
+
+  if (rawNatureza !== undefined) {
+    data.naturezaGerencial = parseNatureza(rawNatureza);
+    hasUpdate = true;
+  }
+  if (rawCategoryId !== undefined) {
+    data.suggestedDreCategoryId = rawCategoryId || null;
+    hasUpdate = true;
+  }
+
+  if (!hasUpdate) {
+    response.status(400).json({ message: "Nenhum campo para atualizar." });
+    return;
+  }
+
+  const result = await prisma.smallExpenseType.updateMany({
+    where: { id: { in: ids } },
+    data,
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "BULK_UPDATE",
+    entity: "SmallExpenseType",
+    entityId: null,
+    newValue: { ids, naturezaGerencial: rawNatureza, suggestedDreCategoryId: rawCategoryId, count: result.count },
+  });
+
+  response.json({ ok: true, updated: result.count });
 });
 
 masterDataRouter.put("/small-expense-types/:id", async (request, response) => {
@@ -480,6 +554,8 @@ masterDataRouter.put("/small-expense-types/:id", async (request, response) => {
     response.status(400).json({ message: "Tipo de pequeno gasto fora da lista oficial." });
     return;
   }
+  const suggestedDreCategoryId = request.body.suggestedDreCategoryId || null;
+  const naturezaGerencial = parseNatureza(request.body.naturezaGerencial);
   response.json(
     await prisma.smallExpenseType.update({
       where: { id: request.params.id },
@@ -488,8 +564,11 @@ masterDataRouter.put("/small-expense-types/:id", async (request, response) => {
         normalizedName: normalizeText(name),
         group: request.body.group || null,
         notes: request.body.notes || null,
-        isActive: request.body.isActive ?? true
-      }
+        isActive: request.body.isActive ?? true,
+        suggestedDreCategoryId,
+        naturezaGerencial
+      },
+      include: { suggestedDreCategory: true }
     })
   );
 });

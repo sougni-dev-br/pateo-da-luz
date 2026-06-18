@@ -404,11 +404,12 @@ export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?
     ensureSpace(60 + groups.length * 20);
     y = sectionHeading(cv, y, "Despesas por Grupo DRE");
 
+    // grpCols soma exata: 262+65+72+132 = 531 = CW
     const grpCols: ColDef[] = [
-      { label: "Grupo",         width: 330 },
-      { label: "Categorias",    width: 80,  align: "right" },
-      { label: "% Rec. Bruta",  width: 80,  align: "right" },
-      { label: "Total",         width: 141, align: "right", bold: true },
+      { label: "Grupo",        width: 262 },
+      { label: "Categorias",   width: 65,  align: "right" },
+      { label: "% Rec. Bruta", width: 72,  align: "right" },
+      { label: "Total",        width: 132, align: "right", bold: true },
     ];
     y = tableHeader(cv, y, grpCols);
 
@@ -424,12 +425,13 @@ export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?
         brl(grp.total),
       ], bg, ensureSpace);
     });
-    // Total row
+    // Total row — posições derivadas das larguras de grpCols
     const totalBg: [number, number, number] = [0.92, 0.94, 0.92];
     cv.rect(MX, y - 16, CW, 16, totalBg, C_LINE, 0.4);
     cv.txt("TOTAL DESPESAS", MX + 4, y - 10, 7.5, F_BOLD, C_DARK);
     const tdPct = data.revenue.grossAmount > 0 ? (data.totalExpenses / data.revenue.grossAmount) * 100 : null;
-    cv.txt(pctFmt(tdPct), MX + 330 + 80 - estW(pctFmt(tdPct), 7.5), y - 10, 7.5, F_BOLD, C_DARK);
+    const pctColRightX = MX + 262 + 65 + 72; // fim da coluna %
+    cv.txt(pctFmt(tdPct), pctColRightX - 4 - estW(pctFmt(tdPct), 7.5), y - 10, 7.5, F_BOLD, C_DARK);
     cv.rtxt(brl(data.totalExpenses), MX + CW - 4, y - 10, 7.5, F_BOLD, C_DARK);
     y -= 16;
     y -= 16;
@@ -444,11 +446,12 @@ export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?
     ensureSpace(60);
     y = sectionHeading(cv, y, "Despesas por Categoria");
 
+    // catCols soma exata: 185+165+72+109 = 531 = CW
     const catCols: ColDef[] = [
-      { label: "Categoria",     width: 230 },
-      { label: "Grupo",         width: 140 },
-      { label: "% Rec. Bruta",  width: 80,  align: "right" },
-      { label: "Total",         width: 141, align: "right", bold: true },
+      { label: "Categoria",    width: 185 },
+      { label: "Grupo",        width: 165 },
+      { label: "% Rec. Bruta", width: 72,  align: "right" },
+      { label: "Total",        width: 109, align: "right", bold: true },
     ];
     y = tableHeader(cv, y, catCols);
 

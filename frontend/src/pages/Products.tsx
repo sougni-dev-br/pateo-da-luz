@@ -1,9 +1,12 @@
-import { RefreshCw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { RefreshCw, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addProductAlias,
+  bulkPatchProductDreCategory,
   Category,
+  DRECategory,
   getCategories,
+  getDRECategories,
   getNextProductCode,
   getProductHistory,
   getProducts,
@@ -22,6 +25,7 @@ import {
   Subcategory,
   UnitMeasure
 } from "../api/client";
+import { DRECategoryOptions, DRE_GROUPS } from "../components/DRECategoryOptions";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
 import { hasPermission } from "../lib/permissions";
@@ -58,6 +62,7 @@ const emptyProduct = {
   categoryId: "",
   subcategoryId: "",
   inventorySectorId: "",
+  dreCategoryId: "",
   accountType: "",
   controlsStock: true,
   estoqueMinimo: "",
@@ -128,7 +133,17 @@ export function Products() {
   const [sectors, setSectors] = useState<InventorySector[]>([]);
   const [units, setUnits] = useState<UnitMeasure[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [filters, setFilters] = useState({ search: "", category: "" });
+  const [dreCategories, setDreCategories] = useState<DRECategory[]>([]);
+  const [filters, setFilters] = useState({ search: "", category: "", semDreCategoria: false });
+
+  // bulk DRE
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDreCategoryId, setBulkDreCategoryId] = useState("");
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const flashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
   const [form, setForm] = useState(emptyProduct);
   const [history, setHistory] = useState<ProductHistory | null>(null);
   const [conversionForm, setConversionForm] = useState(emptyConversion);
@@ -150,7 +165,11 @@ export function Products() {
     setError(null);
 
     try {
-      setProducts(await getProducts(filters));
+      setProducts(await getProducts({
+        search: filters.search || undefined,
+        category: filters.category || undefined,
+        semDreCategoria: filters.semDreCategoria ? "true" : undefined,
+      }));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Erro ao carregar produtos.");
     } finally {
@@ -159,19 +178,21 @@ export function Products() {
   }
 
   async function loadBaseData() {
-    const [categoryRows, subcategoryRows, sectorRows, unitRows, supplierRows, nextCode] = await Promise.all([
+    const [categoryRows, subcategoryRows, sectorRows, unitRows, supplierRows, nextCode, dreCategoryRows] = await Promise.all([
       getCategories(),
       getSubcategories(),
       getSectors(),
       getUnits(),
       getSuppliers(),
-      getNextProductCode().catch(() => ({ code: "" }))
+      getNextProductCode().catch(() => ({ code: "" })),
+      getDRECategories(true)
     ]);
     setCategories(categoryRows);
     setSubcategories(subcategoryRows);
     setSectors(sanitizeSectorOptions(sectorRows));
     setUnits(unitRows.filter((unit) => unit.isActive));
     setSuppliers(supplierRows.filter((supplier) => supplier.isActive));
+    setDreCategories(dreCategoryRows);
     setForm((current) => ({
       ...current,
       externalCode: current.id ? current.externalCode : current.externalCode || nextCode.code,
@@ -184,6 +205,59 @@ export function Products() {
           ?.id ||
         ""
     }));
+  }
+
+  // Mapa de sugestão: nome da categoria do produto → nome da categoria DRE
+  const SUGGESTION_MAP: Record<string, string> = {
+    "BEBIDAS":       "Bebidas",
+    "FLV":           "Custo de Alimentos",
+    "CARNES E AVES": "Custo de Alimentos",
+    "PEIXES":        "Custo de Alimentos",
+    "INSUMOS":       "Custo de Alimentos",
+    "EMBALAGEM":     "Embalagens",
+    "DESCARTAVEIS":  "Descartáveis / Delivery",
+    "UTENSILIOS":    "Utensílios Operacionais",
+    "LIMPEZA":       "Material de Limpeza",
+    "EQUIPAMENTOS":  "Equipamentos",
+    "INVESTIMENTOS": "Investimentos",
+  };
+
+  // Agrupa produtos sem DRE por categoria e computa sugestão
+  const suggestionGroups = useMemo(() => {
+    const withoutDre = products.filter((p) => !p.dreCategoryId);
+    const byCategory = new Map<string, { products: Product[]; dreCatName: string | null; dreCatId: string | null }>();
+    for (const p of withoutDre) {
+      const catName = p.category?.name ?? "(sem categoria)";
+      if (!byCategory.has(catName)) {
+        const suggestedName = SUGGESTION_MAP[catName] ?? null;
+        const suggestedCat = suggestedName ? dreCategories.find((c) => c.name === suggestedName) ?? null : null;
+        byCategory.set(catName, { products: [], dreCatName: suggestedCat?.name ?? null, dreCatId: suggestedCat?.id ?? null });
+      }
+      byCategory.get(catName)!.products.push(p);
+    }
+    return [...byCategory.entries()]
+      .map(([catName, data]) => ({ catName, count: data.products.length, ids: data.products.map((p) => p.id), dreCatName: data.dreCatName, dreCatId: data.dreCatId, controlsStock: data.products.filter((p) => p.controlsStock !== false).length }))
+      .sort((a, b) => b.count - a.count);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, dreCategories]);
+
+  const [pendingSuggestion, setPendingSuggestion] = useState<{ catName: string; ids: string[]; dreCatId: string; dreCatName: string } | null>(null);
+
+  async function applyBulkDre(ids: string[], dreCategoryId: string) {
+    setBulkSaving(true);
+    try {
+      const res = await bulkPatchProductDreCategory(ids, dreCategoryId);
+      setSelected(new Set());
+      setBulkDreCategoryId("");
+      setShowBulkConfirm(false);
+      setPendingSuggestion(null);
+      await loadProducts();
+      setNotice({ tone: "success", message: `${res.updated} produto(s) classificado(s).` });
+    } catch {
+      setNotice({ tone: "error", message: "Erro ao aplicar classificação em lote." });
+    } finally {
+      setBulkSaving(false);
+    }
   }
 
   async function resetProductForm() {
@@ -412,6 +486,16 @@ export function Products() {
                 </div>
               )}
               <div className="form-grid classification-grid">
+                <label>
+                  Categoria DRE / Classificação Gerencial
+                  <select
+                    value={form.dreCategoryId}
+                    onChange={(event) => setForm({ ...form, dreCategoryId: event.target.value })}
+                  >
+                    <option value="">— Não classificado —</option>
+                    <DRECategoryOptions categories={dreCategories} />
+                  </select>
+                </label>
                 <label>
                   Setor
                   <select value={form.inventorySectorId} onChange={(event) => setForm({ ...form, inventorySectorId: event.target.value })}>
@@ -652,6 +736,7 @@ export function Products() {
               placeholder="Nome do produto"
               value={filters.search}
               onChange={(event) => setFilters({ ...filters, search: event.target.value })}
+              onKeyDown={(e) => e.key === "Enter" && loadProducts()}
             />
           </label>
           <label>
@@ -662,16 +747,154 @@ export function Products() {
             >
               <option value="">Todas</option>
               {categories.map((category) => (
-                <option key={category.id} value={category.name}>
-                  {category.name}
-                </option>
+                <option key={category.id} value={category.name}>{category.name}</option>
               ))}
             </select>
           </label>
-          <button className="primary-button" type="button" onClick={loadProducts}>
-            Filtrar
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={filters.semDreCategoria}
+              onChange={(event) => setFilters({ ...filters, semDreCategoria: event.target.checked })}
+            />
+            Sem Categoria DRE
+          </label>
+          <button className="primary-button" type="button" onClick={loadProducts}>Filtrar</button>
+          <button
+            type="button"
+            style={{ marginLeft: "auto" }}
+            onClick={() => setShowSuggestions((v) => !v)}
+          >
+            {showSuggestions ? "Ocultar sugestões" : `Sugestões por categoria (${suggestionGroups.reduce((s, g) => s + g.count, 0)} sem DRE)`}
           </button>
         </div>
+
+        {/* Painel de sugestões por categoria */}
+        {showSuggestions && (
+          <div style={{ border: "1px solid var(--color-border, #334155)", borderRadius: "8px", padding: "1rem", marginBottom: "0.5rem" }}>
+            <h3 style={{ marginTop: 0, marginBottom: "0.75rem", fontSize: "0.95rem" }}>Sugestões de Categoria DRE por categoria de produto</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Categoria produto</th>
+                  <th style={{ textAlign: "center" }}>Produtos sem DRE</th>
+                  <th style={{ textAlign: "center" }}>Controla estoque</th>
+                  <th>Categoria DRE sugerida</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {suggestionGroups.map((g) => (
+                  <tr key={g.catName}>
+                    <td style={{ fontWeight: 500 }}>{g.catName}</td>
+                    <td style={{ textAlign: "center" }}>{g.count}</td>
+                    <td style={{ textAlign: "center" }}>{g.controlsStock}</td>
+                    <td>
+                      {g.dreCatName
+                        ? <span style={{ color: "var(--color-success, #22c55e)", fontSize: "0.88em" }}>{g.dreCatName}</span>
+                        : <span style={{ color: "var(--color-text-muted)", fontStyle: "italic", fontSize: "0.88em" }}>— sem sugestão —</span>}
+                    </td>
+                    <td className="actions-cell">
+                      {g.dreCatId && (
+                        <button
+                          className="primary-button"
+                          type="button"
+                          onClick={() => setPendingSuggestion({ catName: g.catName, ids: g.ids, dreCatId: g.dreCatId!, dreCatName: g.dreCatName! })}
+                        >
+                          Aplicar
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelected(new Set(g.ids));
+                          setBulkDreCategoryId(g.dreCatId ?? "");
+                          setShowSuggestions(false);
+                        }}
+                      >
+                        Selecionar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {suggestionGroups.length === 0 && (
+                  <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--color-success, #22c55e)" }}>Todos os produtos têm Categoria DRE!</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Modal de confirmação — sugestão por categoria */}
+        {pendingSuggestion && (
+          <div
+            style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={() => !bulkSaving && setPendingSuggestion(null)}
+          >
+            <div
+              style={{ background: "var(--color-surface, #0f172a)", border: "1px solid var(--color-border, #334155)", borderRadius: "12px", padding: "1.5rem", maxWidth: "420px", width: "90%" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 style={{ marginTop: 0 }}>Confirmar classificação em lote</h3>
+              <p>Aplicar <strong>{pendingSuggestion.dreCatName}</strong> em <strong>{pendingSuggestion.ids.length}</strong> produto(s) da categoria <strong>{pendingSuggestion.catName}</strong>?</p>
+              <p style={{ fontSize: "0.85em", color: "var(--color-text-muted)" }}>Essa ação pode ser desfeita editando cada produto individualmente.</p>
+              <div className="actions-cell" style={{ marginTop: "1.25rem" }}>
+                <button className="primary-button" type="button" disabled={bulkSaving} onClick={() => applyBulkDre(pendingSuggestion.ids, pendingSuggestion.dreCatId)}>
+                  {bulkSaving ? "Aplicando..." : "Confirmar"}
+                </button>
+                <button type="button" disabled={bulkSaving} onClick={() => setPendingSuggestion(null)}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de confirmação — seleção manual */}
+        {showBulkConfirm && (
+          <div
+            style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={() => !bulkSaving && setShowBulkConfirm(false)}
+          >
+            <div
+              style={{ background: "var(--color-surface, #0f172a)", border: "1px solid var(--color-border, #334155)", borderRadius: "12px", padding: "1.5rem", maxWidth: "420px", width: "90%" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 style={{ marginTop: 0 }}>Confirmar classificação em lote</h3>
+              <p>Aplicar <strong>{dreCategories.find((c) => c.id === bulkDreCategoryId)?.name}</strong> em <strong>{selected.size}</strong> produto(s) selecionado(s)?</p>
+              <div className="actions-cell" style={{ marginTop: "1.25rem" }}>
+                <button className="primary-button" type="button" disabled={bulkSaving} onClick={() => applyBulkDre([...selected], bulkDreCategoryId)}>
+                  {bulkSaving ? "Aplicando..." : "Confirmar"}
+                </button>
+                <button type="button" disabled={bulkSaving} onClick={() => setShowBulkConfirm(false)}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Barra de ação em lote */}
+        {selected.size > 0 && (
+          <div style={{ position: "sticky", top: 0, zIndex: 10, background: "var(--color-surface-raised, #1e293b)", border: "1px solid var(--color-border, #334155)", borderRadius: "8px", padding: "0.75rem 1rem", display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+            <strong style={{ whiteSpace: "nowrap" }}>{selected.size} selecionado(s)</strong>
+            <select
+              value={bulkDreCategoryId}
+              onChange={(e) => setBulkDreCategoryId(e.target.value)}
+              style={{ minWidth: "220px" }}
+            >
+              <option value="">— Categoria DRE —</option>
+              <DRECategoryOptions categories={dreCategories} />
+            </select>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={!bulkDreCategoryId}
+              onClick={() => setShowBulkConfirm(true)}
+            >
+              Aplicar em lote
+            </button>
+            <button type="button" style={{ marginLeft: "auto" }} onClick={() => { setSelected(new Set()); setBulkDreCategoryId(""); }} title="Cancelar seleção">
+              <X size={16} />
+            </button>
+          </div>
+        )}
 
         {error && <div className="alert error">{error}</div>}
         {loading && <div className="empty-state">Carregando produtos...</div>}
@@ -681,41 +904,57 @@ export function Products() {
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: "2rem" }}>
+                    <input
+                      type="checkbox"
+                      title="Selecionar todos visíveis"
+                      checked={products.length > 0 && products.every((p) => selected.has(p.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelected(new Set(products.map((p) => p.id)));
+                        else setSelected(new Set());
+                      }}
+                    />
+                  </th>
                   <th>Status</th>
                   <th>Código</th>
                   <th>Produto</th>
-                  <th>Unidade</th>
-                  <th>Estoque</th>
-                  <th>Localização</th>
                   <th>Categoria</th>
-                  <th>Subcategoria</th>
-                  <th>Setor</th>
                   <th>Estoque</th>
+                  <th>Categoria DRE</th>
                   <th>Aliases</th>
                   <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {products.map((product) => (
-                  <tr key={product.id}>
+                  <tr key={product.id} style={selected.has(product.id) ? { backgroundColor: "var(--color-primary-muted, rgba(59,130,246,0.08))" } : undefined}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(product.id)}
+                        onChange={(e) => {
+                          const next = new Set(selected);
+                          if (e.target.checked) next.add(product.id); else next.delete(product.id);
+                          setSelected(next);
+                        }}
+                      />
+                    </td>
                     <td>{product.isActive ? "Ativo" : "Inativo"}</td>
                     <td>{product.externalCode ?? "-"}</td>
                     <td>
                       {product.name}
                       <small>{product.normalizedName}</small>
                     </td>
-                    <td>{product.unit ?? "-"}</td>
-                    <td>{product.stockUnit ?? product.baseUnit ?? "-"}</td>
                     <td>
-                      {product.storageLocation ?? "-"}
-                      {(product.storageShelf || product.storagePosition) && (
-                        <small>{[product.storageShelf, product.storagePosition].filter(Boolean).join(" - ")}</small>
-                      )}
+                      {product.category?.name ?? "-"}
+                      {product.subcategory && <small>{product.subcategory.name}</small>}
                     </td>
-                    <td>{product.category?.name ?? "-"}</td>
-                    <td>{product.subcategory?.name ?? "-"}</td>
-                    <td>{product.inventorySector?.name ?? "-"}</td>
                     <td>{product.controlsStock === false ? "Nao" : "Sim"}</td>
+                    <td>
+                      {product.dreCategory
+                        ? <span title={product.dreCategory.name} style={{ fontSize: "0.82em" }}>{product.dreCategory.name}</span>
+                        : <span style={{ color: "var(--color-warning, #f59e0b)", fontStyle: "italic", fontSize: "0.82em" }}>— pendente —</span>}
+                    </td>
                     <td>{product.aliases?.length ?? 0}</td>
                     <td className="actions-cell">
                       <button type="button" disabled={!canEdit} onClick={() => {
@@ -749,6 +988,7 @@ export function Products() {
                           categoryId: product.category?.id ?? "",
                           subcategoryId: product.subcategory?.id ?? "",
                           inventorySectorId: product.inventorySector?.id ?? "",
+                          dreCategoryId: product.dreCategoryId ?? "",
                           accountType: product.accountType ?? "",
                           controlsStock: product.controlsStock ?? true,
                           estoqueMinimo: product.estoqueMinimo ?? "",
@@ -774,7 +1014,7 @@ export function Products() {
                 ))}
                 {products.length === 0 && (
                   <tr>
-                    <td colSpan={12}>Nenhum produto cadastrado.</td>
+                    <td colSpan={9}>Nenhum produto cadastrado.</td>
                   </tr>
                 )}
               </tbody>
