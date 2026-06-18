@@ -136,7 +136,11 @@ function splitAmount(total: number, parts: number) {
   const totalCents = Math.round(total * 100);
   const base = Math.floor(totalCents / parts);
   const remainder = totalCents - base * parts;
-  return Array.from({ length: parts }, (_, index) => ((base + (index < remainder ? 1 : 0)) / 100).toFixed(2));
+  // Última parcela absorve os centavos restantes
+  return Array.from({ length: parts }, (_, index) => {
+    const isLast = index === parts - 1;
+    return ((base + (isLast ? remainder : 0)) / 100).toFixed(2);
+  });
 }
 
 function addDaysToInputDate(inputDate: string, days: number) {
@@ -239,6 +243,7 @@ export function Purchases({ user }: { user: AppUser }) {
   const [items, setItems] = useState<PurchaseItemForm[]>([{ ...emptyItem }]);
   const [productQueries, setProductQueries] = useState<Record<number, string>>({ 0: "" });
   const [openProductIndex, setOpenProductIndex] = useState<number | null>(null);
+  const [productDropdownCursor, setProductDropdownCursor] = useState<number>(-1);
   const [installments, setInstallments] = useState<InstallmentForm[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -257,6 +262,7 @@ export function Purchases({ user }: { user: AppUser }) {
   });
   const [showNoInvoiceReason, setShowNoInvoiceReason] = useState(false);
   const [showExtraNotes, setShowExtraNotes] = useState(false);
+  const [showPaymentNotes, setShowPaymentNotes] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [duplicateCheck, setDuplicateCheck] = useState<PurchaseDuplicateCheck | null>(null);
   const [baselineSnapshot, setBaselineSnapshot] = useState("");
@@ -373,7 +379,8 @@ export function Purchases({ user }: { user: AppUser }) {
         itemState: [{ ...emptyItem }],
         installmentState: [],
         extraNotes: false,
-        noInvoice: false
+        noInvoice: false,
+        paymentNotes: false
       });
       return;
     }
@@ -412,22 +419,51 @@ export function Purchases({ user }: { user: AppUser }) {
     }).slice(0, 8);
   }, [supplierFilterQuery, suppliers]);
 
+  const supplierProductIds = useMemo(() => {
+    if (!form.supplierId) return new Set<string>();
+    const ids = new Set<string>();
+    // Coleta IDs de produtos já comprados deste fornecedor (via lista de compras carregada)
+    purchases.forEach((purchase) => {
+      if (purchase.supplierId === form.supplierId) {
+        purchase.items.forEach((item) => { if (item.product?.id) ids.add(item.product.id); });
+      }
+    });
+    return ids;
+  }, [form.supplierId, purchases]);
+
   const filteredProductOptions = useMemo(() => {
     return items.map((item, index) => {
-      const query = normalize(productQueries[index] ?? item.productName);
-      if (!query) return products.slice(0, 8);
-      return products.filter((product) => {
-        const haystack = [
-          product.name,
-          product.externalCode,
-          product.category?.name,
-          product.subcategory?.name,
-          ...(product.aliases?.map((alias) => alias.alias) ?? [])
-        ].map(normalize).join(" ");
-        return haystack.includes(query);
-      }).slice(0, 8);
+      const raw = productQueries[index] ?? item.productName;
+      const query = normalize(raw);
+      if (!query) return products.filter((p) => p.isActive).slice(0, 10);
+      const scored = products
+        .filter((product) => {
+          const haystack = [
+            product.name,
+            product.externalCode,
+            product.category?.name,
+            product.subcategory?.name,
+            ...(product.aliases?.map((alias) => alias.alias) ?? [])
+          ].map(normalize).join(" ");
+          return haystack.includes(query);
+        })
+        .map((product) => {
+          const normCode = normalize(product.externalCode ?? "");
+          const normName = normalize(product.name);
+          let score = 0;
+          if (normCode === query) score += 100;                        // código exato
+          else if (normCode.startsWith(query)) score += 60;           // código começa com
+          if (supplierProductIds.has(product.id)) score += 40;        // já comprado deste fornecedor
+          if (normName.startsWith(query)) score += 20;                // nome começa com
+          if (!product.isActive) score -= 50;                         // inativo vai pro fim
+          return { product, score };
+        })
+        .sort((a, b) => b.score - a.score)
+        .map(({ product }) => product)
+        .slice(0, 10);
+      return scored;
     });
-  }, [items, productQueries, products]);
+  }, [items, productQueries, products, supplierProductIds]);
 
   const displayedPurchases = useMemo(() => {
     const base = purchases.filter((purchase) => {
@@ -551,13 +587,47 @@ export function Purchases({ user }: { user: AppUser }) {
       setSupplierFilterOpen(false);
       return;
     }
+
+    // Resolve método de pagamento padrão do fornecedor
+    const resolvedMethodId = supplier.defaultPaymentMethodId
+      ? resolveBasePaymentMethodId(supplier.defaultPaymentMethodId, null)
+      : (() => {
+          // Fallback global: BOLETO
+          const boletoMethod = availablePaymentMethods.find(
+            (m) => normalize(basePaymentMethodName(m.name)) === "boleto"
+          );
+          return boletoMethod?.id ?? form.paymentMethodId ?? "";
+        })();
+
+    const supplierInstallmentCount = supplier.defaultInstallmentCount
+      ?? (Array.isArray(supplier.defaultInstallmentDays) ? supplier.defaultInstallmentDays.length : null)
+      ?? 2;
+
+    const resolvedMethod = paymentMethods.find((m) => m.id === resolvedMethodId) ?? null;
+    const count = allowsInstallments(resolvedMethod) ? Math.max(1, supplierInstallmentCount) : 1;
+    const resolvedNotes = supplier.defaultFinancialNotes ?? "";
+
     setForm((current) => ({
       ...current,
       supplierId,
       supplierCode: supplier.externalCode ?? "",
       supplierName: supplier.name,
-      supplierDocument: supplier.document ?? ""
+      supplierDocument: supplier.document ?? "",
+      paymentMethodId: resolvedMethodId || current.paymentMethodId,
+      installmentCount: String(count),
+      paymentNotes: resolvedNotes || current.paymentNotes
     }));
+
+    // Gerar parcelas com os dias customizados do fornecedor
+    const days: number[] = Array.isArray(supplier.defaultInstallmentDays) && supplier.defaultInstallmentDays.length > 0
+      ? supplier.defaultInstallmentDays as number[]
+      : [15, 30]; // fallback global
+
+    if (resolvedNotes) setShowPaymentNotes(true);
+
+    window.setTimeout(() => {
+      rebuildInstallmentsWithDays(resolvedMethodId || form.paymentMethodId, totalAmount, count, days, form.purchaseDate);
+    }, 0);
   }
 
   function clearFilterSupplier() {
@@ -750,6 +820,7 @@ export function Purchases({ user }: { user: AppUser }) {
     setDuplicateCheck(null);
     setShowNoInvoiceReason(false);
     setShowExtraNotes(false);
+    setShowPaymentNotes(false);
   }
 
   function buildFormSnapshot(next?: {
@@ -758,13 +829,15 @@ export function Purchases({ user }: { user: AppUser }) {
     installmentState?: InstallmentForm[];
     extraNotes?: boolean;
     noInvoice?: boolean;
+    paymentNotes?: boolean;
   }) {
     return JSON.stringify({
       form: next?.formState ?? form,
       items: next?.itemState ?? items,
       installments: next?.installmentState ?? installments,
       showExtraNotes: next?.extraNotes ?? showExtraNotes,
-      showNoInvoiceReason: next?.noInvoice ?? showNoInvoiceReason
+      showNoInvoiceReason: next?.noInvoice ?? showNoInvoiceReason,
+      showPaymentNotes: next?.paymentNotes ?? showPaymentNotes
     });
   }
 
@@ -774,6 +847,7 @@ export function Purchases({ user }: { user: AppUser }) {
     installmentState?: InstallmentForm[];
     extraNotes?: boolean;
     noInvoice?: boolean;
+    paymentNotes?: boolean;
   }) {
     setBaselineSnapshot(buildFormSnapshot(next));
   }
@@ -822,6 +896,7 @@ export function Purchases({ user }: { user: AppUser }) {
       };
       const nextShowNoInvoiceReason = Boolean((data.rawRow as { noInvoiceReason?: string } | null)?.noInvoiceReason) || (Boolean(data.isSmallExpense) && !data.invoiceNumber);
       const nextShowExtraNotes = Boolean((data.rawRow as { notes?: string } | null)?.notes);
+      const nextShowPaymentNotes = Boolean(nextForm.paymentNotes);
       const mappedItems = data.items.map((item) => ({
         productCode: item.rawProductCode ?? item.productCode ?? "",
         productId: item.productId,
@@ -842,6 +917,7 @@ export function Purchases({ user }: { user: AppUser }) {
       setForm(nextForm);
       setShowNoInvoiceReason(nextShowNoInvoiceReason);
       setShowExtraNotes(nextShowExtraNotes);
+      setShowPaymentNotes(nextShowPaymentNotes);
       setItems(mappedItems);
       setProductQueries(Object.fromEntries(mappedItems.map((item, index) => [index, item.productName])));
       setInstallments(nextInstallments);
@@ -853,7 +929,8 @@ export function Purchases({ user }: { user: AppUser }) {
         itemState: mappedItems,
         installmentState: nextInstallments,
         extraNotes: nextShowExtraNotes,
-        noInvoice: nextShowNoInvoiceReason
+        noInvoice: nextShowNoInvoiceReason,
+        paymentNotes: nextShowPaymentNotes
       });
     } catch (loadError) {
       setNotice({ tone: "error", message: loadError instanceof Error ? loadError.message : "Erro ao carregar compra para edição." });
@@ -885,11 +962,46 @@ export function Purchases({ user }: { user: AppUser }) {
     })));
   }
 
+  function rebuildInstallmentsWithDays(
+    methodId: string,
+    total: number,
+    count: number,
+    days: number[],
+    purchaseDate: string
+  ) {
+    if (smallExpenseUsesCreditCard) { setInstallments([]); return; }
+    const method = paymentMethods.find((entry) => entry.id === methodId);
+    if (!method) { setInstallments([]); return; }
+    const effectiveCount = allowsInstallments(method) ? Math.max(1, count) : 1;
+    const amounts = splitAmount(total, effectiveCount);
+    setInstallments(amounts.map((amount, index) => {
+      const dayOffset = days[index] ?? (days[days.length - 1] ?? 30) + (index - days.length + 1) * 30;
+      return {
+        installment: index + 1,
+        dueDate: addDaysToInputDate(purchaseDate, dayOffset),
+        amount
+      };
+    }));
+  }
+
   useEffect(() => {
     if (!showForm || !form.paymentMethodId) return;
     const count = selectedPaymentMethodAllowsInstallments ? Math.max(1, Number(form.installmentCount || 1)) : 1;
     rebuildInstallments(form.paymentMethodId, totalAmount, count);
   }, [form.paymentMethodId, form.installmentCount, form.purchaseDate, installmentLeadDays, selectedPaymentMethodAllowsInstallments, showForm, smallExpenseUsesCreditCard, totalAmount]);
+
+  // Ctrl+Enter para salvar a compra de qualquer campo
+  useEffect(() => {
+    if (!isFormRoute) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        if (canSavePurchase && !saving) void handleCreatePurchase();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isFormRoute, canSavePurchase, saving]);
 
   function validateForm() {
     const errors: Record<string, string> = {};
@@ -1519,7 +1631,7 @@ export function Purchases({ user }: { user: AppUser }) {
                           }}
                         />
                         {(form.supplierName || form.supplierCode) && (
-                          <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor" onClick={() => setForm((current) => ({ ...current, supplierId: "", supplierCode: "", supplierName: "", supplierDocument: "" }))}>
+                          <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor" onClick={() => { setForm((current) => ({ ...current, supplierId: "", supplierCode: "", supplierName: "", supplierDocument: "" })); }}>
                             <X size={14} />
                           </button>
                         )}
@@ -1647,22 +1759,72 @@ export function Purchases({ user }: { user: AppUser }) {
                                   ref={(element) => { productInputRefs.current[index] = element; }}
                                   autoComplete="off"
                                   name={`purchase-product-${index}`}
-                                  placeholder="Buscar produto por nome ou código"
+                                  placeholder="Código ou nome do produto"
                                   value={productQueries[index] ?? item.productName}
-                                  onFocus={() => setOpenProductIndex(index)}
+                                  onFocus={() => { setOpenProductIndex(index); setProductDropdownCursor(-1); }}
                                   onChange={(event) => {
                                     setProductQueries((current) => ({ ...current, [index]: event.target.value }));
                                     updateItem(index, { productId: "", productName: event.target.value, productCode: "" });
                                     setOpenProductIndex(index);
+                                    setProductDropdownCursor(-1);
+                                  }}
+                                  onKeyDown={(event) => {
+                                    const options = filteredProductOptions[index] ?? [];
+                                    if (event.key === "Escape") {
+                                      event.preventDefault();
+                                      setOpenProductIndex(null);
+                                      setProductDropdownCursor(-1);
+                                      return;
+                                    }
+                                    if (event.key === "ArrowDown") {
+                                      event.preventDefault();
+                                      setOpenProductIndex(index);
+                                      setProductDropdownCursor((c) => Math.min(c + 1, options.length - 1));
+                                      return;
+                                    }
+                                    if (event.key === "ArrowUp") {
+                                      event.preventDefault();
+                                      setProductDropdownCursor((c) => Math.max(c - 1, -1));
+                                      return;
+                                    }
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      // Cursor no dropdown → seleciona o item destacado
+                                      if (productDropdownCursor >= 0 && options[productDropdownCursor]) {
+                                        selectProduct(index, options[productDropdownCursor].id);
+                                        setProductDropdownCursor(-1);
+                                        return;
+                                      }
+                                      // Sem cursor: tenta match exato por código
+                                      const query = normalize(productQueries[index] ?? "");
+                                      const exactByCode = options.find((p) => normalize(p.externalCode ?? "") === query);
+                                      if (exactByCode) {
+                                        selectProduct(index, exactByCode.id);
+                                        return;
+                                      }
+                                      // Única opção na lista → auto-seleciona
+                                      if (options.length === 1) {
+                                        selectProduct(index, options[0].id);
+                                        return;
+                                      }
+                                      // Abre dropdown se fechado
+                                      setOpenProductIndex(index);
+                                    }
                                   }}
                                 />
                                 {openProductIndex === index && (
                                   <div className="autocomplete-dropdown product-autocomplete-dropdown">
                                     {filteredProductOptions[index]?.length === 0 && <div className="autocomplete-empty">Nenhum produto encontrado. Cadastre o produto antes de lançar a compra.</div>}
-                                    {filteredProductOptions[index]?.map((option) => (
-                                      <button key={option.id} className="autocomplete-option" type="button" onClick={() => selectProduct(index, option.id)} title={option.name}>
+                                    {filteredProductOptions[index]?.map((option, optIdx) => (
+                                      <button
+                                        key={option.id}
+                                        className={`autocomplete-option${optIdx === productDropdownCursor ? " autocomplete-option-active" : ""}`}
+                                        type="button"
+                                        onClick={() => { selectProduct(index, option.id); setProductDropdownCursor(-1); }}
+                                        title={option.name}
+                                      >
                                         <strong>{option.externalCode ? `${option.externalCode} • ` : ""}{option.name}</strong>
-                                        <small>{option.externalCode ? `${option.externalCode} • ` : ""}{option.category?.name ?? "-"} / {option.subcategory?.name ?? "-"}</small>
+                                        <small>{option.category?.name ?? "-"} / {option.subcategory?.name ?? "-"}{option.unit ? ` • ${option.unit}` : ""}{!option.isActive ? " • INATIVO" : ""}</small>
                                       </button>
                                     ))}
                                   </div>
@@ -1723,10 +1885,21 @@ export function Purchases({ user }: { user: AppUser }) {
                     Vencimento inicial
                     <input className="locked-field" value={new Date(`${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}T12:00:00`).toLocaleDateString("pt-BR")} disabled />
                   </label>
-                  <label>
-                    Observações financeiras
-                    <input autoComplete="off" value={form.paymentNotes} onChange={(event) => setForm({ ...form, paymentNotes: event.target.value })} />
-                  </label>
+                  {!showPaymentNotes ? (
+                    <button className="secondary-button" type="button" onClick={() => setShowPaymentNotes(true)}>
+                      + Observação financeira
+                    </button>
+                  ) : (
+                    <label className="full-width">
+                      Observação financeira
+                      <input
+                        autoComplete="off"
+                        value={form.paymentNotes}
+                        onChange={(event) => setForm({ ...form, paymentNotes: event.target.value })}
+                        onBlur={() => { if (!form.paymentNotes.trim()) setShowPaymentNotes(false); }}
+                      />
+                    </label>
+                  )}
                   {isAdmin && Math.round(amountDifference * 100) !== 0 && (
                     <label className="full-width">
                       Motivo da diferença
