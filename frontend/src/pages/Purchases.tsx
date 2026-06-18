@@ -1487,11 +1487,27 @@ export function Purchases({ user }: { user: AppUser }) {
               <button className="secondary-button" type="button" onClick={() => setDetail(null)}>Fechar</button>
             </div>
 
-            <div className="summary-grid dashboard-compact-grid purchase-detail-summary">
-              <article><span>Fornecedor</span><strong>{detail.supplierName}</strong><small className="muted-inline">{detail.supplierDocument ?? "Sem documento"}</small></article>
-              <article><span>Origem</span><strong>{detail.importBatchId ? "Importação" : "Manual"}</strong><small className="muted-inline">{detail.isSmallExpense ? "Pequeno gasto" : "Compra normal"}</small></article>
-              <article><span>Pagamento</span><strong>{detail.smallExpenseMoneyOrigin ?? detail.creditCardName ?? detail.paymentMethodName ?? detail.paymentMethod ?? "-"}</strong><small className="muted-inline">{detail.installments.length} parcela(s)</small></article>
-              <article><span>Status</span><strong><span className={`status-badge ${purchaseStatusTone(detail.status)}`}>{purchaseStatusLabel(detail.status)}</span></strong><small className="muted-inline">{detail.purchaseNumber ?? "Sem pedido interno"}</small></article>
+            <div className="purchase-detail-infobar">
+              <div className="purchase-detail-infobar-item">
+                <span className="detail-label">Fornecedor</span>
+                <strong title={detail.supplierName}>{detail.supplierName}</strong>
+                <small>{detail.supplierDocument ?? "Sem documento"}</small>
+              </div>
+              <div className="purchase-detail-infobar-item">
+                <span className="detail-label">Pagamento</span>
+                <strong>{detail.smallExpenseMoneyOrigin ?? detail.creditCardName ?? detail.paymentMethodName ?? detail.paymentMethod ?? "-"}</strong>
+                <small>{detail.installments.length} parcela(s) · {detail.importBatchId ? "Importação" : "Manual"}</small>
+              </div>
+              <div className="purchase-detail-infobar-item">
+                <span className="detail-label">Status</span>
+                <strong><span className={`status-badge ${purchaseStatusTone(detail.status)}`}>{purchaseStatusLabel(detail.status)}</span></strong>
+                <small>{detail.purchaseNumber ?? "Sem pedido interno"}</small>
+              </div>
+              <div className="purchase-detail-infobar-item purchase-detail-infobar-amount">
+                <span className="detail-label">Total</span>
+                <strong>{formatCurrency(Number(detail.totalAmount))}</strong>
+                <small>{detail.isSmallExpense ? "Pequeno gasto" : `${detail.items.length} item(s)`}</small>
+              </div>
             </div>
 
             <div className="subsection">
@@ -1608,7 +1624,7 @@ export function Purchases({ user }: { user: AppUser }) {
                   <div className={`purchase-autocomplete-field ${fieldErrors.supplier ? "field-error" : ""}`} ref={supplierFormRef}>
                     <label>
                       Fornecedor
-                      <div className="autocomplete-shell active">
+                      <div className={`autocomplete-shell active${form.supplierId ? " supplier-confirmed" : ""}`}>
                         <input
                           autoComplete="off"
                           name="purchase-supplier-form"
@@ -1629,6 +1645,23 @@ export function Purchases({ user }: { user: AppUser }) {
                             setSupplierFilterQuery(form.supplierName || form.supplierCode);
                             setSupplierFilterOpen(true);
                           }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") { setSupplierFilterOpen(false); return; }
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              if (filteredSupplierOptions.length === 1) {
+                                selectSupplier(filteredSupplierOptions[0].id, "form");
+                                setSupplierFilterOpen(false);
+                              } else if (filteredSupplierOptions.length > 0) {
+                                const q = normalize(supplierFilterQuery);
+                                const exact = filteredSupplierOptions.find(
+                                  (s) => normalize(s.name) === q || normalize(s.externalCode ?? "") === q
+                                );
+                                if (exact) { selectSupplier(exact.id, "form"); setSupplierFilterOpen(false); }
+                                else setSupplierFilterOpen(true);
+                              }
+                            }
+                          }}
                         />
                         {(form.supplierName || form.supplierCode) && (
                           <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor" onClick={() => { setForm((current) => ({ ...current, supplierId: "", supplierCode: "", supplierName: "", supplierDocument: "" })); }}>
@@ -1638,6 +1671,12 @@ export function Purchases({ user }: { user: AppUser }) {
                         <ChevronDown size={16} className="autocomplete-chevron" />
                       </div>
                     </label>
+                    {form.supplierId && selectedSupplier && (
+                      <p className="supplier-status-hint confirmed">✓ {selectedSupplier.name}{selectedSupplier.document ? ` · ${selectedSupplier.document}` : ""}</p>
+                    )}
+                    {!form.supplierId && (form.supplierName || form.supplierCode) && (
+                      <p className="supplier-status-hint pending">Selecione um fornecedor da lista para aplicar as condições de pagamento.</p>
+                    )}
                     {supplierFilterOpen && (
                       <div className="autocomplete-dropdown">
                         {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado.</div>}
@@ -1814,7 +1853,20 @@ export function Purchases({ user }: { user: AppUser }) {
                                 />
                                 {openProductIndex === index && (
                                   <div className="autocomplete-dropdown product-autocomplete-dropdown">
-                                    {filteredProductOptions[index]?.length === 0 && <div className="autocomplete-empty">Nenhum produto encontrado. Cadastre o produto antes de lançar a compra.</div>}
+                                    {filteredProductOptions[index]?.length === 0 && (
+                                      <div className="autocomplete-empty-actions">
+                                        <p>Nenhum produto encontrado para "{productQueries[index]}"</p>
+                                        <button type="button" onClick={() => { setProductQueries((curr) => ({ ...curr, [index]: "" })); }}>
+                                          ✕ Limpar busca
+                                        </button>
+                                        <button type="button" onClick={() => { setProductQueries((curr) => ({ ...curr, [index]: "" })); setOpenProductIndex(index); }}>
+                                          ☰ Ver todos os produtos
+                                        </button>
+                                        <button type="button" onClick={() => window.open("/products/new", "_blank")}>
+                                          + Cadastrar produto
+                                        </button>
+                                      </div>
+                                    )}
                                     {filteredProductOptions[index]?.map((option, optIdx) => (
                                       <button
                                         key={option.id}
@@ -1863,6 +1915,14 @@ export function Purchases({ user }: { user: AppUser }) {
 
               <div className="subsection">
                 <div className="section-heading compact-heading"><div><p>Seção 3</p><h3>Pagamento</h3></div></div>
+                {!form.supplierId || totalAmount <= 0 ? (
+                  <p className="purchase-payment-placeholder alert info">
+                    {!form.supplierId
+                      ? "Selecione o fornecedor (Seção 1) para liberar as condições de pagamento."
+                      : "Informe ao menos um produto com valor para calcular o pagamento."}
+                  </p>
+                ) : (
+                <>
                 <div className="alert info">{paymentPreviewMessage}</div>
                 <div className="purchase-form-grid payment-grid">
                   <label className={fieldErrors.paymentMethodId ? "field-error" : ""}>
@@ -1937,16 +1997,8 @@ export function Purchases({ user }: { user: AppUser }) {
                     </table>
                   </div>
                 )}
-              </div>
-
-              <div className="subsection">
-                <div className="section-heading compact-heading"><div><p>Seção 4</p><h3>Resumo final</h3></div></div>
-                <div className="summary-grid dashboard-compact-grid purchase-summary-grid">
-                  <article><span>Fornecedor</span><strong>{selectedSupplier?.name ?? "Selecionar fornecedor"}</strong></article>
-                  <article><span>Produtos</span><strong>{items.filter((item) => item.productId).length}</strong></article>
-                  <article><span>Pagamento</span><strong>{selectedPaymentMethodBaseName || "Selecionar"}</strong></article>
-                  <article><span>Situação</span><strong>{Math.round(amountDifference * 100) === 0 ? "Conferido" : "Com divergência"}</strong></article>
-                </div>
+                </>
+                )}
               </div>
             </div>
 
