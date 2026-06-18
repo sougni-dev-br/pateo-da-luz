@@ -312,6 +312,7 @@ productRouter.get("/", async (request, response) => {
   const sector = request.query.sector ? String(request.query.sector) : undefined;
   const controlsStock = request.query.controlsStock ? String(request.query.controlsStock) === "true" : undefined;
   const isActive = request.query.isActive == null ? undefined : String(request.query.isActive) === "true";
+  const semDreCategoria = request.query.semDreCategoria === "true";
 
   const where: Prisma.ProductWhereInput = {
     ...(search
@@ -323,16 +324,16 @@ productRouter.get("/", async (request, response) => {
           ]
         }
       : {}),
-    ...(category ? { category: { name: category } } : {})
-    ,
+    ...(category ? { category: { name: category } } : {}),
     ...(sector ? { inventorySector: { name: sector } } : {}),
     ...(controlsStock === undefined ? {} : { controlsStock }),
-    ...(isActive === undefined ? {} : { isActive })
+    ...(isActive === undefined ? {} : { isActive }),
+    ...(semDreCategoria ? { dreCategoryId: null } : {})
   };
 
   const products = await prisma.product.findMany({
     where,
-    include: { category: true, subcategory: true, inventorySector: true, aliases: true },
+    include: { category: true, subcategory: true, inventorySector: true, aliases: true, dreCategory: true },
     orderBy: { name: "asc" }
   });
   response.json(await hydrateProductConversionFields(products));
@@ -530,6 +531,49 @@ productRouter.post("/audit/inventory-integrity/apply", async (request, response)
   });
 });
 
+// Deve ficar ANTES de qualquer rota /:id para não ser capturado pelo param
+productRouter.patch("/bulk-dre", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const { ids, dreCategoryId } = request.body as { ids: string[]; dreCategoryId: string | null };
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    response.status(400).json({ message: "ids deve ser um array não vazio." });
+    return;
+  }
+  if (dreCategoryId !== null && typeof dreCategoryId !== "string") {
+    response.status(400).json({ message: "dreCategoryId deve ser uma string ou null." });
+    return;
+  }
+
+  // Verificar que a categoria existe (quando não for null)
+  if (dreCategoryId) {
+    const cat = await prisma.dRECategory.findUnique({ where: { id: dreCategoryId } });
+    if (!cat) {
+      response.status(400).json({ message: "Categoria DRE não encontrada." });
+      return;
+    }
+  }
+
+  const result = await prisma.product.updateMany({
+    where: { id: { in: ids } },
+    data: { dreCategoryId: dreCategoryId ?? null }
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "BULK_SET_DRE_CATEGORY",
+    entity: "Product",
+    entityId: null,
+    newValue: { ids, dreCategoryId, updated: result.count },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+
+  response.json({ ok: true, updated: result.count });
+});
+
 productRouter.post("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -554,6 +598,7 @@ productRouter.post("/", async (request, response) => {
       unitMeasureId: unitMeasure?.id ?? null,
       accountType: request.body.accountType || null,
       controlsStock: request.body.controlsStock ?? true,
+      dreCategoryId: request.body.dreCategoryId || null,
       notes: request.body.notes || null,
       isActive: request.body.isActive ?? true,
       categoryId: category?.id,
@@ -566,7 +611,7 @@ productRouter.post("/", async (request, response) => {
         }
       }
     },
-    include: { category: true, subcategory: true, inventorySector: true, aliases: true }
+    include: { category: true, subcategory: true, inventorySector: true, aliases: true, dreCategory: true }
   });
   await updateProductConversionDefaults(product.id, request.body);
   await syncProductPurchaseParameters(product.id, request.body);
@@ -637,13 +682,14 @@ productRouter.put("/:id", async (request, response) => {
       unitMeasureId: unitMeasure?.id ?? null,
       accountType: request.body.accountType || null,
       controlsStock: request.body.controlsStock ?? true,
+      dreCategoryId: request.body.dreCategoryId || null,
       notes: request.body.notes || null,
       isActive: request.body.isActive ?? true,
       categoryId: category?.id,
       subcategoryId: subcategory?.id,
       inventorySectorId: request.body.inventorySectorId || sector?.id || null
     },
-    include: { category: true, subcategory: true, inventorySector: true, aliases: true }
+    include: { category: true, subcategory: true, inventorySector: true, aliases: true, dreCategory: true }
   });
 
   const locationChanged =
@@ -886,7 +932,7 @@ productRouter.patch("/:id/status", async (request, response) => {
   const product = await prisma.product.update({
     where: { id: request.params.id },
     data: { isActive: Boolean(request.body.isActive) },
-    include: { category: true, subcategory: true, inventorySector: true, aliases: true }
+    include: { category: true, subcategory: true, inventorySector: true, aliases: true, dreCategory: true }
   });
   await auditLog({
     userId: user.id,

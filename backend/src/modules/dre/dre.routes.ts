@@ -18,6 +18,7 @@ dreRouter.use(async (request, response, next) => {
 // ─────────────────────────────────────────────
 
 const GROUP_META = [
+  { key: "CMV_COMPRAS",           label: "CMV / Compras sem NF", sortOrder: 5  },
   { key: "PESSOAL",               label: "Pessoal",             sortOrder: 10 },
   { key: "VALE_TRANSPORTE",       label: "Vale-Transporte",     sortOrder: 20 },
   { key: "LOCACAO",               label: "Ocupação e Locação",  sortOrder: 30 },
@@ -31,6 +32,13 @@ const GROUP_META = [
 ];
 
 const SEED_CATEGORIES = [
+  // CMV_COMPRAS
+  { name: "Custo de Alimentos",      dreGroup: "CMV_COMPRAS", sortOrder: 1 },
+  { name: "Bebidas",                 dreGroup: "CMV_COMPRAS", sortOrder: 2 },
+  { name: "Insumos",                 dreGroup: "CMV_COMPRAS", sortOrder: 3 },
+  { name: "Embalagens",              dreGroup: "CMV_COMPRAS", sortOrder: 4 },
+  { name: "Descartáveis / Delivery", dreGroup: "CMV_COMPRAS", sortOrder: 5 },
+  { name: "Compras sem NF - Outros", dreGroup: "CMV_COMPRAS", sortOrder: 6 },
   // PESSOAL
   { name: "Folha de Pagamento",   dreGroup: "PESSOAL",           sortOrder: 11 },
   { name: "Hora Extra",           dreGroup: "PESSOAL",           sortOrder: 12 },
@@ -72,10 +80,14 @@ const SEED_CATEGORIES = [
   { name: "Plano de Saúde",       dreGroup: "DESPESAS_GERAIS",   sortOrder: 74 },
   { name: "Material de Limpeza",  dreGroup: "DESPESAS_GERAIS",   sortOrder: 75 },
   { name: "Manutenção",           dreGroup: "DESPESAS_GERAIS",   sortOrder: 76 },
-  { name: "Uniformes",            dreGroup: "DESPESAS_GERAIS",   sortOrder: 77 },
-  { name: "Descartáveis",         dreGroup: "DESPESAS_GERAIS",   sortOrder: 78 },
-  { name: "Publicidade",          dreGroup: "DESPESAS_GERAIS",   sortOrder: 79 },
-  { name: "Outras Despesas Gerais", dreGroup: "DESPESAS_GERAIS", sortOrder: 80 },
+  { name: "Uniformes",             dreGroup: "DESPESAS_GERAIS",   sortOrder: 77 },
+  { name: "Descartáveis",          dreGroup: "DESPESAS_GERAIS",   sortOrder: 78 },
+  { name: "Material de Escritório",dreGroup: "DESPESAS_GERAIS",   sortOrder: 78 },
+  { name: "Publicidade",           dreGroup: "DESPESAS_GERAIS",   sortOrder: 79 },
+  { name: "Outras Despesas Gerais",dreGroup: "DESPESAS_GERAIS",   sortOrder: 80 },
+  { name: "Utensílios Operacionais",dreGroup: "DESPESAS_GERAIS",  sortOrder: 81 },
+  { name: "Transporte / Mobilidade",dreGroup: "DESPESAS_GERAIS",  sortOrder: 90 },
+  { name: "Serviços de Terceiros", dreGroup: "DESPESAS_GERAIS",   sortOrder: 91 },
   // PLANEJAMENTO
   { name: "Provisão 13° Salário", dreGroup: "PLANEJAMENTO",      sortOrder: 81 },
   { name: "Marketing",            dreGroup: "PLANEJAMENTO",      sortOrder: 82 },
@@ -131,7 +143,7 @@ function prevYear(from: Date, to: Date): { from: Date; to: Date } {
 
 async function calcDRE(from: Date, to: Date) {
   // Todas as queries são independentes entre si — rodam em paralelo
-  const [revenueRows, snapInitialValue, snapFinalValue, purchasesInPeriod, expenseRows] = await Promise.all([
+  const [revenueRows, snapInitialValue, snapFinalValue, cmvComprasRows, expenseRows] = await Promise.all([
     // ── Receita por canal ──
     prisma.$queryRaw<Array<{
       channel: string;
@@ -184,16 +196,33 @@ async function calcDRE(from: Date, to: Date) {
         LIMIT 1
       )
     `,
-    // ── Compras no período ──
+    // ── CMV Compras: apenas itens de produtos que controlam estoque (controlsStock=true).
+    // Compatibilidade retroativa: compras sem itens com expenseType alimentar também entram.
+    // Isso evita que insumos de não-estoque (limpeza, utensílios, etc.) inflacionem o CMV.
     prisma.$queryRaw<Array<{ total: string | null }>>`
-      SELECT SUM("totalAmount") AS total
-      FROM "Purchase"
-      WHERE status = 'ACTIVE'
-        AND "purchaseDate" >= ${from}
-        AND "purchaseDate" <= ${to}
+      SELECT COALESCE(SUM(sub.total), 0) AS total FROM (
+        SELECT pitem."totalPrice" AS total
+        FROM "PurchaseItem" pitem
+        JOIN "Purchase" p   ON p.id   = pitem."purchaseId"
+        JOIN "Product"  prod ON prod.id = pitem."productId"
+        WHERE p.status = 'ACTIVE'
+          AND prod."controlsStock" = true
+          AND p."purchaseDate" >= ${from}
+          AND p."purchaseDate" <= ${to}
+        UNION ALL
+        SELECT p."totalAmount" AS total
+        FROM "Purchase" p
+        WHERE p.status = 'ACTIVE'
+          AND p."purchaseDate" >= ${from}
+          AND p."purchaseDate" <= ${to}
+          AND p."expenseType" IN ('FOOD', 'BEVERAGE', 'PACKAGING')
+          AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" px WHERE px."purchaseId" = p.id)
+      ) sub
     `,
-    // ── Despesas por categoria DRE ──
-    // paidDate para pagas, dueDate para em aberto (regime de competência)
+    // ── Despesas por categoria DRE — nova lógica em duas partes (UNION):
+    // Parte A: parcelas de compras SEM itens de produto → usa pi.dreCategory (manual).
+    // Parte B: itens de produto com controlsStock=false → usa Product.dreCategoryId.
+    // Compras de estoque (controlsStock=true) são excluídas das despesas: já estão no CMV.
     prisma.$queryRaw<Array<{
       dreCategory: string | null;
       dreCategoryName: string | null;
@@ -203,23 +232,55 @@ async function calcDRE(from: Date, to: Date) {
       count: number;
     }>>`
       SELECT
-        pi."dreCategory",
-        dc.name AS "dreCategoryName",
-        dc."sortOrder" AS "dreSortOrder",
-        dc."dreGroup" AS "dreGroup",
-        SUM(COALESCE(pi."paidAmount", pi.amount, 0)) AS total,
-        COUNT(*) AS count
-      FROM "PaymentInstallment" pi
-      LEFT JOIN "DRECategory" dc ON dc.id = pi."dreCategory"
-      JOIN "Purchase" p ON p.id = pi."purchaseId"
-      WHERE p.status = 'ACTIVE'
-        AND pi.status NOT IN ('CANCELLED')
-        AND (
-          (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${from} AND pi."paidDate" <= ${to})
-          OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${from} AND pi."dueDate" <= ${to})
-        )
-      GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
-      ORDER BY COALESCE(dc."sortOrder", 999), COALESCE(dc.name, 'ZZZ')
+        sub."dreCategory",
+        sub."dreCategoryName",
+        sub."dreSortOrder",
+        sub."dreGroup",
+        SUM(sub.total)::text      AS total,
+        SUM(sub.cnt)::int         AS count
+      FROM (
+        -- Parte A: parcelas de compras sem itens de produto (despesas operacionais puras)
+        SELECT
+          pi."dreCategory",
+          dc.name        AS "dreCategoryName",
+          dc."sortOrder" AS "dreSortOrder",
+          dc."dreGroup"  AS "dreGroup",
+          SUM(COALESCE(pi."paidAmount", pi.amount, 0)) AS total,
+          COUNT(*)::bigint AS cnt
+        FROM "PaymentInstallment" pi
+        JOIN "Purchase" p ON p.id = pi."purchaseId"
+        LEFT JOIN "DRECategory" dc ON dc.id = pi."dreCategory"
+        WHERE p.status = 'ACTIVE'
+          AND pi.status NOT IN ('CANCELLED')
+          AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" px WHERE px."purchaseId" = p.id)
+          AND (
+            (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${from} AND pi."paidDate" <= ${to})
+            OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${from} AND pi."dueDate" <= ${to})
+          )
+        GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
+
+        UNION ALL
+
+        -- Parte B: itens de produto sem controle de estoque → categoria DRE do produto
+        SELECT
+          prod."dreCategoryId" AS "dreCategory",
+          dc.name              AS "dreCategoryName",
+          dc."sortOrder"       AS "dreSortOrder",
+          dc."dreGroup"        AS "dreGroup",
+          SUM(pitem."totalPrice")      AS total,
+          COUNT(DISTINCT p.id)::bigint AS cnt
+        FROM "PurchaseItem" pitem
+        JOIN "Purchase" p   ON p.id   = pitem."purchaseId"
+        JOIN "Product"  prod ON prod.id = pitem."productId"
+        LEFT JOIN "DRECategory" dc ON dc.id = prod."dreCategoryId"
+        WHERE p.status = 'ACTIVE'
+          AND prod."controlsStock" = false
+          AND p."purchaseDate" >= ${from}
+          AND p."purchaseDate" <= ${to}
+        GROUP BY prod."dreCategoryId", dc.name, dc."sortOrder", dc."dreGroup"
+      ) sub
+      GROUP BY sub."dreCategory", sub."dreCategoryName", sub."dreSortOrder", sub."dreGroup"
+      ORDER BY COALESCE(sub."dreSortOrder", 999), COALESCE(sub."dreCategoryName", 'ZZZ')
     `,
   ]);
 
@@ -239,7 +300,7 @@ async function calcDRE(from: Date, to: Date) {
 
   const estoqueInicial = Number(snapInitialValue[0]?.totalValue ?? 0);
   const estoqueFinal = Number(snapFinalValue[0]?.totalValue ?? 0);
-  const compras = Number(purchasesInPeriod[0]?.total ?? 0);
+  const compras = Number(cmvComprasRows[0]?.total ?? 0);
   const cmvReal = estoqueInicial + compras - estoqueFinal;
   const cmvPercent = totalGross > 0 ? (cmvReal / totalGross) * 100 : null;
   const lucroBruto = totalNet - cmvReal;
@@ -817,17 +878,30 @@ dreRouter.post("/categories/seed", async (request, response) => {
   seedRunning = true;
 
   try {
-    // Busca todos os nomes existentes de uma vez (evita N queries)
-    const existingNames = new Set(
-      (await prisma.dRECategory.findMany({ select: { name: true } }))
-        .map(c => normalizeName(c.name))
+    // Busca todos os registros existentes de uma vez (evita N queries)
+    const existingMap = new Map(
+      (await prisma.dRECategory.findMany({ select: { id: true, name: true, dreGroup: true } }))
+        .map(c => [normalizeName(c.name), { id: c.id, dreGroup: c.dreGroup }])
     );
 
     let created = 0;
+    let moved = 0;
     let skipped = 0;
     for (const seed of SEED_CATEGORIES) {
-      if (existingNames.has(normalizeName(seed.name))) {
-        skipped++;
+      const key = normalizeName(seed.name);
+      const existing = existingMap.get(key);
+      if (existing) {
+        if (existing.dreGroup !== seed.dreGroup) {
+          // Categoria existe mas está no grupo errado — mover para o grupo correto
+          await prisma.dRECategory.update({
+            where: { id: existing.id },
+            data: { dreGroup: seed.dreGroup, sortOrder: seed.sortOrder }
+          });
+          existingMap.set(key, { id: existing.id, dreGroup: seed.dreGroup });
+          moved++;
+        } else {
+          skipped++;
+        }
         continue;
       }
       await prisma.dRECategory.create({
@@ -839,12 +913,12 @@ dreRouter.post("/categories/seed", async (request, response) => {
           notes: null
         }
       });
-      existingNames.add(normalizeName(seed.name)); // evita duplicar dentro do mesmo loop
+      existingMap.set(key, { id: "new", dreGroup: seed.dreGroup }); // evita duplicar dentro do mesmo loop
       created++;
     }
 
-    await auditLog({ userId: user.id, action: "CREATE", entity: "DRECategory", entityId: "seed", newValue: { created, skipped } });
-    response.json({ ok: true, created, skipped });
+    await auditLog({ userId: user.id, action: "CREATE", entity: "DRECategory", entityId: "seed", newValue: { created, moved, skipped } });
+    response.json({ ok: true, created, moved, skipped });
   } finally {
     seedRunning = false;
   }
@@ -861,30 +935,12 @@ dreRouter.get("/export/pdf", async (request, response) => {
     return;
   }
 
-  // Busca DRE e contagem de pendências operacionais em paralelo
-  const [data, opUncatRows] = await Promise.all([
-    calcDRE(range.from, range.to),
-    prisma.$queryRaw<[{ count: number; total: string | null }]>`
-      SELECT COUNT(*) AS count, SUM(COALESCE(pi."paidAmount", pi.amount, 0)) AS total
-      FROM "PaymentInstallment" pi
-      JOIN "Purchase" p ON p.id = pi."purchaseId"
-      WHERE p.status = 'ACTIVE'
-        AND pi.status NOT IN ('CANCELLED')
-        AND pi."dreCategory" IS NULL
-        AND (
-          (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${range.from} AND pi."paidDate" <= ${range.to})
-          OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${range.from} AND pi."dueDate" <= ${range.to})
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM "PurchaseItem" pi2
-          JOIN "Product" prod ON prod.id = pi2."productId"
-          WHERE pi2."purchaseId" = p.id AND prod."controlsStock" = true
-        )
-    `,
-  ]);
+  const data = await calcDRE(range.from, range.to);
 
-  const operationalUncatCount = Number(opUncatRows[0]?.count ?? 0);
-  const operationalUncatTotal = Number(opUncatRows[0]?.total ?? 0);
+  // Uncategorized operacional: despesas sem dreCategoryId na nova lógica (Parte A + B sem categoria)
+  const uncatLine = data.expenses.find((e) => e.dreCategoryId === null);
+  const operationalUncatCount = uncatLine?.count ?? 0;
+  const operationalUncatTotal = uncatLine?.total ?? 0;
   const pdf = createDrePdf(data, { operationalUncatCount, operationalUncatTotal });
 
   const fromISO = range.from.toISOString().slice(0, 7); // YYYY-MM

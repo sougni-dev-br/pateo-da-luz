@@ -706,6 +706,8 @@ export type Product = {
   storageShelf?: string | null;
   storagePosition?: string | null;
   storageNotes?: string | null;
+  dreCategoryId?: string | null;
+  dreCategory?: DRECategory | null;
   isActive: boolean;
   notes: string | null;
   category?: Category | null;
@@ -778,6 +780,23 @@ export type PaymentMethod = {
   notes: string | null;
 };
 
+export type NaturezaGerencial =
+  | "CMV_COMPRA_SEM_NF"
+  | "DESPESA_OPERACIONAL"
+  | "IMPOSTO_TAXA"
+  | "FINANCEIRO_TARIFA"
+  | "INVESTIMENTO_PLANEJAMENTO"
+  | "NAO_ENTRA_DRE";
+
+export const NATUREZA_GERENCIAL_LABELS: Record<NaturezaGerencial, string> = {
+  CMV_COMPRA_SEM_NF:         "CMV / Compra sem NF",
+  DESPESA_OPERACIONAL:       "Despesa operacional",
+  IMPOSTO_TAXA:              "Imposto / taxa",
+  FINANCEIRO_TARIFA:         "Financeiro / tarifa",
+  INVESTIMENTO_PLANEJAMENTO: "Investimento / planejamento",
+  NAO_ENTRA_DRE:             "Não entra no DRE",
+};
+
 export type SmallExpenseType = {
   id: string;
   name: string;
@@ -785,6 +804,9 @@ export type SmallExpenseType = {
   group: string | null;
   isActive: boolean;
   notes: string | null;
+  suggestedDreCategoryId: string | null;
+  suggestedDreCategory: DRECategory | null;
+  naturezaGerencial: NaturezaGerencial | null;
 };
 
 export type CreditCard = {
@@ -1833,7 +1855,7 @@ export function getSupplierHistory(id: string, filters?: { year?: string; month?
   return request<SupplierHistory>(`/suppliers/${id}/history${toQueryString(filters)}`);
 }
 
-export function getProducts(filters?: { search?: string; category?: string; sector?: string; controlsStock?: string; isActive?: string }) {
+export function getProducts(filters?: { search?: string; category?: string; sector?: string; controlsStock?: string; isActive?: string; semDreCategoria?: string }) {
   return request<Product[]>(`/products${toQueryString(filters)}`);
 }
 
@@ -1857,6 +1879,14 @@ export function saveProduct(
     method: payload.id ? "PUT" : "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
+  });
+}
+
+export function bulkPatchProductDreCategory(ids: string[], dreCategoryId: string | null) {
+  return request<{ ok: boolean; updated: number }>("/products/bulk-dre", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, dreCategoryId })
   });
 }
 
@@ -2914,6 +2944,18 @@ export function setSmallExpenseTypeStatus(id: string, isActive: boolean) {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ isActive })
+  });
+}
+
+export function bulkPatchSmallExpenseTypes(payload: {
+  ids: string[];
+  naturezaGerencial?: NaturezaGerencial | null;
+  suggestedDreCategoryId?: string | null;
+}) {
+  return request<{ ok: boolean; updated: number }>("/master-data/small-expense-types/bulk", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
 }
 

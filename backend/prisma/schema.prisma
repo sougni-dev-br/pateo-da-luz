@@ -17,6 +17,15 @@ enum ExpenseType {
   OTHER
 }
 
+enum NaturezaGerencial {
+  CMV_COMPRA_SEM_NF
+  DESPESA_OPERACIONAL
+  IMPOSTO_TAXA
+  FINANCEIRO_TARIFA
+  INVESTIMENTO_PLANEJAMENTO
+  NAO_ENTRA_DRE
+}
+
 enum PaymentRegime {
   CASH
   ACCRUAL
@@ -380,6 +389,8 @@ model Product {
   estoqueIdeal   Decimal?       @db.Decimal(14, 3)
   leadTimeCompraDias Int?
   fornecedorPrincipalId String?
+  dreCategoryId  String?
+  dreCategory    DRECategory?   @relation(fields: [dreCategoryId], references: [id])
   category       Category?      @relation(fields: [categoryId], references: [id])
   subcategory    Subcategory?   @relation(fields: [subcategoryId], references: [id])
   inventorySector InventorySector? @relation(fields: [inventorySectorId], references: [id])
@@ -402,6 +413,7 @@ model Product {
   @@index([controlsStock])
   @@index([accountType])
   @@index([fornecedorPrincipalId])
+  @@index([dreCategoryId])
   @@index([stockUnit])
   @@index([purchaseUnit])
   @@index([baseUnit])
@@ -524,20 +536,25 @@ model CreditCardStatementItem {
 }
 
 model SmallExpenseType {
-  id             String     @id @default(cuid())
-  name           String
-  normalizedName String     @unique
-  group          String?
-  isActive       Boolean    @default(true)
-  notes          String?
-  purchases      Purchase[]
-  cardStatementItems CreditCardStatementItem[]
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  id                     String              @id @default(cuid())
+  name                   String
+  normalizedName         String              @unique
+  group                  String?
+  isActive               Boolean             @default(true)
+  notes                  String?
+  suggestedDreCategoryId String?
+  suggestedDreCategory   DRECategory?        @relation(fields: [suggestedDreCategoryId], references: [id])
+  naturezaGerencial      NaturezaGerencial?
+  purchases              Purchase[]
+  cardStatementItems     CreditCardStatementItem[]
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
 
   @@index([name])
   @@index([group])
   @@index([isActive])
+  @@index([suggestedDreCategoryId])
+  @@index([naturezaGerencial])
 }
 
 model ProductAlias {
@@ -1384,14 +1401,16 @@ model DishItem {
 }
 
 model DRECategory {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  dreGroup  String   @default("DESPESAS_OPERACIONAIS")
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                String             @id @default(cuid())
+  name              String             @unique
+  dreGroup          String             @default("DESPESAS_OPERACIONAIS")
+  sortOrder         Int                @default(0)
+  isActive          Boolean            @default(true)
+  notes             String?
+  smallExpenseTypes SmallExpenseType[]
+  products          Product[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   @@index([dreGroup])
   @@index([sortOrder])
