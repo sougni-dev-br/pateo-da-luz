@@ -22,7 +22,19 @@ import { jsonSafe } from "./shared/utils/json-safe.js";
 
 export const app = express();
 
-app.use(cors());
+const ALLOWED_ORIGINS = [
+  "https://pateo.sougni.com",
+  "http://localhost:5173",
+  "http://localhost:5174",
+];
+app.use(cors({
+  origin: (origin, callback) => {
+    // permitir chamadas sem origin (ex: Render health checks, curl)
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin não permitida: ${origin}`));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 app.use((_request, response, next) => {
   const originalJson = response.json.bind(response);
