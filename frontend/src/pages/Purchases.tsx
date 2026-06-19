@@ -1670,6 +1670,17 @@ export function Purchases({ user }: { user: AppUser }) {
                           </button>
                         )}
                         <ChevronDown size={16} className="autocomplete-chevron" />
+                        {supplierFilterOpen && (
+                          <div className="autocomplete-dropdown">
+                            {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado.</div>}
+                            {filteredSupplierOptions.map((supplier) => (
+                              <button key={supplier.id} className="autocomplete-option" type="button" onClick={() => { selectSupplier(supplier.id, "form"); setSupplierFilterOpen(false); }}>
+                                <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
+                                <small>{supplier.document || "Sem documento"}</small>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </label>
                     {form.supplierId && selectedSupplier && (
@@ -1677,17 +1688,6 @@ export function Purchases({ user }: { user: AppUser }) {
                     )}
                     {!form.supplierId && (form.supplierName || form.supplierCode) && (
                       <p className="supplier-status-hint pending">Selecione um fornecedor da lista para aplicar as condições de pagamento.</p>
-                    )}
-                    {supplierFilterOpen && (
-                      <div className="autocomplete-dropdown">
-                        {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado.</div>}
-                        {filteredSupplierOptions.map((supplier) => (
-                          <button key={supplier.id} className="autocomplete-option" type="button" onClick={() => { selectSupplier(supplier.id, "form"); setSupplierFilterOpen(false); }}>
-                            <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
-                            <small>{supplier.document || "Sem documento"}</small>
-                          </button>
-                        ))}
-                      </div>
                     )}
                   </div>
                   <label>
