@@ -1904,12 +1904,16 @@ export function Purchases({ user }: { user: AppUser }) {
                         autoComplete="off"
                         placeholder={entry.editingIndex !== null ? "Digite o novo produto..." : "Código ou nome do produto — Enter para adicionar"}
                         value={entry.query}
-                        onFocus={() => { setEntryDropdownCursor(-1); setProductStep("produtos"); }}
+                        onFocus={() => {
+                          setEntryDropdownCursor(-1);
+                          setProductStep("produtos");
+                          if (entry.query.trim()) setEntryDropdownOpen(true);
+                        }}
                         onClick={() => { setEntryDropdownOpen(true); }}
                         onChange={(event) => {
                           const val = event.target.value;
                           setEntry((e) => ({ ...e, query: val, productId: "", productName: val, productCode: "" }));
-                          setEntryDropdownOpen(true);
+                          setEntryDropdownOpen(val.trim().length > 0);
                           setEntryDropdownCursor(-1);
                         }}
                         onPaste={(event) => {
