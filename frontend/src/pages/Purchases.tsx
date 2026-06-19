@@ -244,6 +244,7 @@ export function Purchases({ user }: { user: AppUser }) {
   const [productQueries, setProductQueries] = useState<Record<number, string>>({ 0: "" });
   const [openProductIndex, setOpenProductIndex] = useState<number | null>(null);
   const [productDropdownCursor, setProductDropdownCursor] = useState<number>(-1);
+  const [openObsIndices, setOpenObsIndices] = useState<Set<number>>(new Set());
   const [installments, setInstallments] = useState<InstallmentForm[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1786,7 +1787,7 @@ export function Purchases({ user }: { user: AppUser }) {
                 {fieldErrors.items && <div className="alert error">{fieldErrors.items}</div>}
                 <div className="table-wrap operational-table purchase-items-grid-wrap" ref={productRef}>
                   <table className="purchase-items-desktop-table">
-                    <thead><tr><th>Produto</th><th>Qtd.</th><th>Un.</th><th>Valor unit.</th><th>Total</th><th>Obs.</th><th></th></tr></thead>
+                    <thead><tr><th>Produto</th><th>Qtd.</th><th>Un.</th><th>Valor unit.</th><th>Total</th><th></th></tr></thead>
                     <tbody>
                       {items.map((item, index) => {
                         const product = products.find((entry) => entry.id === item.productId);
@@ -1883,26 +1884,41 @@ export function Purchases({ user }: { user: AppUser }) {
                                 )}
                               </div>
                               <div className="purchase-item-meta">
-                                <strong title={item.productName}>{item.productName || "Selecione um produto"}</strong>
-                                <small>{item.productCode ? `Código ${item.productCode}` : "Sem código"} • {item.categoryName || product?.category?.name || "Sem categoria"} / {item.subcategoryName || product?.subcategory?.name || "Sem subcategoria"}</small>
+                                {item.productId ? (
+                                  <>
+                                    <strong title={item.productName}>{item.productName}</strong>
+                                    <small>{item.productCode ? `Código ${item.productCode}` : "Sem código"} • {item.categoryName || product?.category?.name || "Sem categoria"} / {item.subcategoryName || product?.subcategory?.name || "Sem subcategoria"}</small>
+                                  </>
+                                ) : (
+                                  <small className="purchase-item-meta-placeholder">Busque por código ou nome do produto</small>
+                                )}
                               </div>
+                              {openObsIndices.has(index) ? (
+                                <div className="purchase-item-obs-row">
+                                  <input autoComplete="off" placeholder="Observação do item..." value={item.notes} onChange={(event) => updateItem(index, { notes: event.target.value })} />
+                                  <button type="button" className="purchase-item-obs-close" aria-label="Fechar observação" onClick={() => setOpenObsIndices((curr) => { const next = new Set(curr); next.delete(index); return next; })}>✕</button>
+                                </div>
+                              ) : (
+                                <button type="button" className="purchase-item-obs-toggle" onClick={() => setOpenObsIndices((curr) => new Set(curr).add(index))}>
+                                  {item.notes ? <><span className="purchase-item-obs-dot" />Obs: {item.notes}</> : "+ Obs"}
+                                </button>
+                              )}
                             </td>
-                            <td data-label="Quantidade"><input ref={(element) => { quantityInputRefs.current[index] = element; }} type="number" min="0" step="0.001" value={item.quantity} onChange={(event) => updateItem(index, { quantity: event.target.value })} onKeyDown={(event) => {
+                            <td data-label="Qtd."><input ref={(element) => { quantityInputRefs.current[index] = element; }} type="number" min="0" step="0.001" value={item.quantity} onChange={(event) => updateItem(index, { quantity: event.target.value })} onKeyDown={(event) => {
                               if (event.key === "Enter") {
                                 event.preventDefault();
                                 focusUnitPriceInput(index);
                               }
                             }} /></td>
-                            <td data-label="Unidade"><select value={item.unit} onChange={(event) => updateItem(index, { unit: event.target.value })}><option value="">Unidade</option>{units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code}</option>)}</select></td>
-                            <td data-label="Valor unitário"><input ref={(element) => { unitPriceInputRefs.current[index] = element; }} type="number" min="0" step="0.01" value={item.unitPrice} onChange={(event) => updateItem(index, { unitPrice: event.target.value })} onKeyDown={(event) => {
+                            <td data-label="Un."><select value={item.unit} onChange={(event) => updateItem(index, { unit: event.target.value })}><option value="">Un.</option>{units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code}</option>)}</select></td>
+                            <td data-label="Valor unit."><input ref={(element) => { unitPriceInputRefs.current[index] = element; }} type="number" min="0" step="0.01" value={item.unitPrice} onChange={(event) => updateItem(index, { unitPrice: event.target.value })} onKeyDown={(event) => {
                               if (event.key === "Enter") {
                                 event.preventDefault();
                                 commitProductLine(index);
                               }
                             }} /></td>
                             <td data-label="Total"><input className="locked-field" type="text" value={formatCurrency(Number(item.totalPrice || 0))} readOnly /></td>
-                            <td data-label="Observação"><input autoComplete="off" placeholder="Observação opcional" value={item.notes} onChange={(event) => updateItem(index, { notes: event.target.value })} /></td>
-                            <td data-label="Ações" className="purchase-item-action-cell"><button type="button" aria-label="Remover item" onClick={() => {
+                            <td className="purchase-item-action-cell"><button type="button" aria-label="Remover item" onClick={() => {
                               removeItemRow(index);
                             }}><Trash2 size={16} /></button></td>
                           </tr>
