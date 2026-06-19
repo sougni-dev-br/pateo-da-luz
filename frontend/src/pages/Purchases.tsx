@@ -1195,9 +1195,17 @@ export function Purchases({ user }: { user: AppUser }) {
     smallExpenseUsesCreditCard
   ]);
 
-  const paymentPreviewMessage = selectedPaymentMethodAllowsInstallments
-    ? `Fluxo parcelado para ${selectedPaymentMethodBaseName || "a forma escolhida"} com primeiro vencimento sugerido em ${new Date(`${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}T12:00:00`).toLocaleDateString("pt-BR")}.`
-    : "Pagamento em parcela única para a forma selecionada.";
+  const paymentPreviewMessage = useMemo(() => {
+    const methodName = selectedPaymentMethodBaseName || "forma selecionada";
+    const firstDue = new Date(`${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}T12:00:00`).toLocaleDateString("pt-BR");
+    const count = Number(form.installmentCount || 1);
+    if (!selectedPaymentMethodAllowsInstallments) return `Pagamento à vista em ${methodName}. Vencimento: ${firstDue}.`;
+    const supplierDays = Array.isArray(selectedSupplier?.defaultInstallmentDays) && (selectedSupplier.defaultInstallmentDays as number[]).length > 0
+      ? (selectedSupplier.defaultInstallmentDays as number[]).slice(0, count).join("/")
+      : null;
+    const daysLabel = supplierDays ? ` (dias: ${supplierDays})` : "";
+    return `${methodName} em ${count}x${daysLabel} — 1ª parcela em ${firstDue}.`;
+  }, [form.installmentCount, form.purchaseDate, installmentLeadDays, selectedPaymentMethodAllowsInstallments, selectedPaymentMethodBaseName, selectedSupplier?.defaultInstallmentDays]);
 
   return (
     <section className="panel">
@@ -1578,18 +1586,21 @@ export function Purchases({ user }: { user: AppUser }) {
             <div ref={modalTopRef} />
             <div className="section-heading purchase-editor-header">
               <div>
-                <p>{editingId ? "Edição" : "Lançamento manual"}</p>
+                <p>Compras</p>
                 <h2>{editingId ? "Editar compra" : "Nova compra"}</h2>
-                <small className="muted-inline">Voltar para compras quando terminar ou salvar para atualizar a listagem.</small>
                 <div className="purchase-editor-context">
-                  <span>{selectedSupplier?.name ?? "Fornecedor pendente"}</span>
-                  <span>{form.invoiceNumber || form.purchaseOrderNumber ? `${form.invoiceNumber || "Sem NF"}${form.purchaseOrderNumber ? ` • Pedido ${form.purchaseOrderNumber}` : ""}` : "NF/pedido pendente"}</span>
-                  <span>{formatCurrency(totalAmount)}</span>
-                  <span>{validationMessages.length === 0 ? "Compra conferida" : "Pendências encontradas"}</span>
+                  <span>{selectedSupplier?.name ?? "Fornecedor"}</span>
+                  {(form.invoiceNumber || form.purchaseOrderNumber) && (
+                    <span>{form.invoiceNumber || "Sem NF"}{form.purchaseOrderNumber ? ` · Ped. ${form.purchaseOrderNumber}` : ""}</span>
+                  )}
+                  {totalAmount > 0 && <span>{formatCurrency(totalAmount)}</span>}
+                  <span className={validationMessages.length === 0 ? "purchase-context-ok" : "purchase-context-pending"}>
+                    {validationMessages.length === 0 ? "✓ Conferida" : `${validationMessages.length} pendência${validationMessages.length > 1 ? "s" : ""}`}
+                  </span>
                 </div>
               </div>
               <div className="actions-cell">
-                <button className="secondary-button" type="button" onClick={goBackToList}>Voltar para compras</button>
+                <button className="secondary-button" type="button" onClick={goBackToList}>Voltar</button>
                 <button className="primary-button" type="button" disabled={!canSavePurchase} onClick={handleCreatePurchase}>
                   {saving ? "Salvando..." : editingId ? "Salvar alterações" : "Salvar compra"}
                 </button>
@@ -1621,9 +1632,9 @@ export function Purchases({ user }: { user: AppUser }) {
             )}
 
             <div className="purchase-editor-layout">
-              <div className="purchase-modal-body purchase-editor-main">
-                <div className="subsection plain-subsection">
-                <div className="section-heading compact-heading"><div><p>Seção 1</p><h3>Dados da compra</h3></div></div>
+              <div className="purchase-editor-main">
+                <div className="subsection">
+                <div className="section-heading compact-heading"><div><h3>Dados da compra</h3></div></div>
                 <div className="purchase-form-grid purchase-header-grid">
                   <div className={`purchase-autocomplete-field ${fieldErrors.supplier ? "field-error" : ""}`} ref={supplierFormRef}>
                     <label>
@@ -1780,11 +1791,11 @@ export function Purchases({ user }: { user: AppUser }) {
 
               <div className="subsection">
                 <div className="section-heading compact-heading">
-                  <div><p>Seção 2</p><h3>Produtos da compra</h3></div>
+                  <div><h3>Produtos</h3></div>
                   <button className="secondary-button" type="button" onClick={() => {
                     ensureTrailingProductRow();
                   }}>
-                    Adicionar produto
+                    + Produto
                   </button>
                 </div>
                 {fieldErrors.items && <div className="alert error">{fieldErrors.items}</div>}
@@ -1933,11 +1944,11 @@ export function Purchases({ user }: { user: AppUser }) {
               </div>
 
               <div className="subsection">
-                <div className="section-heading compact-heading"><div><p>Seção 3</p><h3>Pagamento</h3></div></div>
+                <div className="section-heading compact-heading"><div><h3>Pagamento</h3></div></div>
                 {!form.supplierId || totalAmount <= 0 ? (
                   <p className="purchase-payment-placeholder alert info">
                     {!form.supplierId
-                      ? "Selecione o fornecedor (Seção 1) para liberar as condições de pagamento."
+                      ? "Selecione o fornecedor para liberar as condições de pagamento."
                       : "Informe ao menos um produto com valor para calcular o pagamento."}
                   </p>
                 ) : (
