@@ -275,6 +275,7 @@ export function Purchases({ user }: { user: AppUser }) {
   const [showNoInvoiceReason, setShowNoInvoiceReason] = useState(false);
   const [showExtraNotes, setShowExtraNotes] = useState(false);
   const [showPaymentNotes, setShowPaymentNotes] = useState(false);
+  const [paymentExpanded, setPaymentExpanded] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [duplicateCheck, setDuplicateCheck] = useState<PurchaseDuplicateCheck | null>(null);
   const [baselineSnapshot, setBaselineSnapshot] = useState("");
@@ -796,6 +797,7 @@ export function Purchases({ user }: { user: AppUser }) {
     setShowNoInvoiceReason(false);
     setShowExtraNotes(false);
     setShowPaymentNotes(false);
+    setPaymentExpanded(false);
     setSupplierFilterQuery("");
     setSupplierFilterOpen(false);
   }
@@ -897,6 +899,7 @@ export function Purchases({ user }: { user: AppUser }) {
       setShowPaymentNotes(nextShowPaymentNotes);
       setItems(mappedItems);
       setEntry({ ...emptyEntry });
+      setPaymentExpanded(true);
       setInstallments(nextInstallments);
       setFieldErrors({});
       setShowForm(true);
@@ -1139,6 +1142,7 @@ export function Purchases({ user }: { user: AppUser }) {
     if (validItems.some((item) => !item.productId)) messages.push("Revise as linhas com produto não selecionado.");
     if (validItems.some((item) => Number(item.quantity) <= 0)) messages.push("Todos os produtos precisam ter quantidade maior que zero.");
     if (validItems.some((item) => Number(item.unitPrice) < 0)) messages.push("O valor unitário não pode ser negativo.");
+    if (validItems.some((item) => item.unitPrice.trim() === "" || Number(item.unitPrice) === 0)) messages.push("Informe valor unitário dos produtos (não pode ser zero).");
     if (validItems.some((item) => !item.unit.trim())) messages.push("Informe a unidade de todos os produtos.");
     if (form.isSmallExpense && !form.smallExpenseTypeId) messages.push("Selecione o tipo de pequeno gasto.");
     if (smallExpenseUsesCreditCard && !form.creditCardId) messages.push("Selecione o cartão para lançar na fatura.");
@@ -2073,7 +2077,7 @@ export function Purchases({ user }: { user: AppUser }) {
                     <button
                       type="button"
                       className={`pnova-payment-header${Math.round(amountDifference * 100) !== 0 ? " has-diff" : ""}`}
-                      onClick={() => setShowPaymentNotes((v) => !v)}
+                      onClick={() => setPaymentExpanded((v) => !v)}
                     >
                       <span className="pnova-payment-header-method">
                         {basePaymentMethodName(selectedPaymentMethod?.name) || "Selecionar forma"}
@@ -2086,11 +2090,11 @@ export function Purchases({ user }: { user: AppUser }) {
                       {Math.round(amountDifference * 100) !== 0 && (
                         <span className="pnova-payment-header-diff">⚠ dif. {formatCurrency(amountDifference)}</span>
                       )}
-                      <span className="pnova-payment-header-toggle">▼ editar</span>
+                      <span className="pnova-payment-header-toggle">{paymentExpanded ? "▲ recolher" : "▼ editar"}</span>
                     </button>
 
-                    {/* Campos de edição — sempre visíveis mas compactos */}
-                    <div className="pnova-payment-fields">
+                    {/* Campos de edição — recolhido por padrão */}
+                    {paymentExpanded && <div className="pnova-payment-fields">
                       <div className="pnova-payment-grid">
                         <label className={fieldErrors.paymentMethodId ? "field-error" : ""}>
                           Forma de pagamento
@@ -2145,15 +2149,15 @@ export function Purchases({ user }: { user: AppUser }) {
                               {installments.map((installment, index) => (
                                 <tr key={installment.installment}>
                                   <td>{installment.installment}/{installments.length}</td>
-                                  <td><input type="date" value={installment.dueDate} onChange={(event) => setInstallments((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, dueDate: event.target.value } : entry))} /></td>
-                                  <td><input type="number" min="0" step="0.01" value={installment.amount} onChange={(event) => setInstallments((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, amount: event.target.value } : entry))} /></td>
+                                  <td><input type="date" value={installment.dueDate} onChange={(event) => setInstallments((current) => current.map((inst, entryIndex) => entryIndex === index ? { ...inst, dueDate: event.target.value } : inst))} /></td>
+                                  <td><input type="number" min="0" step="0.01" value={installment.amount} onChange={(event) => setInstallments((current) => current.map((inst, entryIndex) => entryIndex === index ? { ...inst, amount: event.target.value } : inst))} /></td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                         </div>
                       )}
-                    </div>
+                    </div>}
                   </>
                 )}
               </div>
