@@ -2946,6 +2946,217 @@ select:disabled {
   font-style: italic;
 }
 
+/* ─── Linha de entrada rápida ─── */
+.pnova-entry-wrap {
+  padding: 10px 14px 6px;
+  border-bottom: 1px solid var(--line);
+  position: relative;
+}
+.pnova-entry-editing-banner {
+  font-size: 12px;
+  color: var(--accent);
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  background: rgba(197, 172, 120, 0.10);
+  border-radius: 6px;
+}
+.pnova-entry-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pnova-entry-product-wrap {
+  position: relative;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.pnova-entry-product-input {
+  width: 100%;
+}
+.pnova-entry-qty {
+  width: 76px;
+  flex-shrink: 0;
+}
+.pnova-entry-unit {
+  width: 68px;
+  flex-shrink: 0;
+}
+.pnova-entry-price {
+  width: 100px;
+  flex-shrink: 0;
+}
+.pnova-entry-total {
+  width: 88px;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pnova-entry-add-btn {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.pnova-entry-add-btn:hover {
+  background: color-mix(in srgb, var(--accent) 85%, #000);
+}
+.pnova-entry-add-btn.is-edit {
+  background: var(--accent);
+}
+.pnova-entry-cancel-btn {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pnova-entry-obs-toggle {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.pnova-entry-obs-toggle:hover { color: var(--accent); }
+.pnova-entry-obs-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.pnova-entry-obs-row input {
+  flex: 1;
+  font-size: 12px;
+}
+.pnova-entry-obs-row button {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ─── Grade compacta de itens lançados ─── */
+.pnova-items-grid {
+  padding: 0;
+}
+.pnova-grid-header,
+.pnova-grid-row {
+  display: grid;
+  grid-template-columns: 60px minmax(140px,1fr) 60px 52px 90px 90px 36px;
+  align-items: center;
+  gap: 0;
+  padding: 0 14px;
+}
+.pnova-grid-header {
+  min-height: 32px;
+  background: rgba(0,0,0,0.02);
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pnova-grid-header > span {
+  padding: 0 6px;
+}
+.pnova-grid-row {
+  min-height: 38px;
+  max-height: 44px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 0.1s;
+  font-size: 13px;
+}
+.pnova-grid-row:last-child { border-bottom: none; }
+.pnova-grid-row:hover { background: rgba(197, 172, 120, 0.06); }
+.pnova-grid-row.is-editing { background: rgba(197, 172, 120, 0.10); outline: 1.5px solid rgba(197,172,120,0.5); outline-offset: -1px; }
+.pnova-grid-row.row-error { background: rgba(220,53,69,0.05); }
+.pnova-gr-code {
+  padding: 4px 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pnova-gr-name {
+  padding: 4px 6px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pnova-gr-obs-dot {
+  color: var(--accent);
+  font-size: 8px;
+}
+.pnova-gr-qty,
+.pnova-gr-unit,
+.pnova-gr-price,
+.pnova-gr-total {
+  padding: 4px 6px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.pnova-gr-total { font-weight: 600; }
+.pnova-gr-actions {
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pnova-gr-actions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+.pnova-gr-actions button:hover { color: #dc3545; background: rgba(220,53,69,0.08); }
+
+/* Mobile: grade vira lista de cards */
+@media (max-width: 700px) {
+  .pnova-entry-line { flex-direction: column; align-items: stretch; }
+  .pnova-entry-qty, .pnova-entry-unit, .pnova-entry-price { width: 100%; }
+  .pnova-entry-total { text-align: left; }
+  .pnova-grid-header { display: none; }
+  .pnova-grid-row {
+    grid-template-columns: 1fr;
+    min-height: unset;
+    max-height: unset;
+    padding: 8px 14px;
+    gap: 2px;
+  }
+  .pnova-gr-code::before { content: "Cód: "; font-size: 10px; color: var(--text-muted); }
+  .pnova-gr-qty::before { content: "Qtd: "; color: var(--text-muted); }
+  .pnova-gr-unit::before { content: "Un: "; color: var(--text-muted); }
+  .pnova-gr-price::before { content: "Unit: "; color: var(--text-muted); }
+  .pnova-gr-total::before { content: "Total: "; color: var(--text-muted); }
+  .pnova-gr-actions { justify-content: flex-end; }
+}
+
 /* ─── 4. Faixa de resumo + pendências ─── */
 .pnova-summary-strip {
   display: flex;
