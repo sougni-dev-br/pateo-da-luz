@@ -669,16 +669,36 @@ export function Purchases({ user }: { user: AppUser }) {
       && !item.notes.trim();
   }
 
+  function scrollProductLineToComfort(el: HTMLElement | null) {
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const comfortTop = viewportHeight * 0.28;
+    const comfortBottom = viewportHeight * 0.62;
+    if (rect.top < comfortTop || rect.top > comfortBottom) {
+      window.scrollTo({ top: window.scrollY + rect.top - comfortTop, behavior: "smooth" });
+    }
+  }
+
   function focusProductInput(index: number) {
-    window.setTimeout(() => productInputRefs.current[index]?.focus(), 0);
+    window.setTimeout(() => {
+      const el = productInputRefs.current[index];
+      if (el) { el.focus(); scrollProductLineToComfort(el); }
+    }, 0);
   }
 
   function focusQuantityInput(index: number) {
-    window.setTimeout(() => quantityInputRefs.current[index]?.focus(), 0);
+    window.setTimeout(() => {
+      const el = quantityInputRefs.current[index];
+      if (el) { el.focus(); scrollProductLineToComfort(el); }
+    }, 0);
   }
 
   function focusUnitPriceInput(index: number) {
-    window.setTimeout(() => unitPriceInputRefs.current[index]?.focus(), 0);
+    window.setTimeout(() => {
+      const el = unitPriceInputRefs.current[index];
+      if (el) { el.focus(); scrollProductLineToComfort(el); }
+    }, 0);
   }
 
   function removeItemRow(index: number) {
