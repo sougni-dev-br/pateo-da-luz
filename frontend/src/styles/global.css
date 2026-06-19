@@ -1596,15 +1596,29 @@ select:focus {
   font-size: 12px;
 }
 
+.purchase-context-ok {
+  border-color: rgba(39, 103, 73, 0.35) !important;
+  background: rgba(39, 103, 73, 0.07) !important;
+  color: var(--success) !important;
+}
+
+.purchase-context-pending {
+  border-color: rgba(196, 90, 77, 0.35) !important;
+  background: rgba(196, 90, 77, 0.07) !important;
+  color: var(--danger) !important;
+}
+
 .purchase-editor-layout {
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(0, 1fr) minmax(216px, 232px);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 260px);
   align-items: start;
 }
 
 .purchase-editor-main {
   min-width: 0;
+  display: grid;
+  gap: 12px;
 }
 
 .purchase-editor-sidebar {
@@ -1612,7 +1626,7 @@ select:focus {
   top: 96px;
   display: grid;
   gap: 14px;
-  width: min(296px, 100%);
+  width: min(260px, 100%);
 }
 
 .purchase-sidebar-block {
