@@ -6,7 +6,7 @@ const backendTarget = process.env.VITE_BACKEND_TARGET_URL ?? "http://127.0.0.1:3
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: Number(process.env.PORT ?? 5174),
     proxy: {
       "/api": {
         target: backendTarget,

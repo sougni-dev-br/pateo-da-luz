@@ -2670,12 +2670,18 @@ select:disabled {
   color: var(--text);
   width: 100%;
   outline: none;
+  box-shadow: none;
 }
 .pnova-data-cell input:focus,
 .pnova-data-cell select:focus {
   outline: none;
   box-shadow: none;
-  border-bottom: 1px solid var(--accent);
+  border-bottom: 1.5px solid var(--accent);
+}
+.pnova-data-cell input:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  opacity: 0.65;
 }
 .pnova-data-cell.field-error {
   background: #fff5f5;
