@@ -2893,7 +2893,8 @@ select:disabled {
   border-radius: 12px;
   padding: 0 0 4px;
   box-shadow: 0 2px 8px rgba(20, 22, 28, 0.05);
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
 }
 .pnova-products-block .section-heading {
   padding: 12px 16px 10px;
