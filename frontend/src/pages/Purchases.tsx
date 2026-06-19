@@ -60,18 +60,28 @@ type InstallmentForm = {
 
 type PurchaseSortOption = "recent" | "oldest" | "highest" | "lowest";
 
-const emptyItem: PurchaseItemForm = {
-  productCode: "",
-  productId: "",
-  productName: "",
-  categoryName: "",
-  subcategoryName: "",
-  quantity: "1",
-  unit: "",
-  unitPrice: "",
-  totalPrice: "",
-  notes: ""
+type EntryLine = {
+  productId: string;
+  productName: string;
+  productCode: string;
+  categoryName: string;
+  subcategoryName: string;
+  query: string;
+  quantity: string;
+  unit: string;
+  unitPrice: string;
+  totalPrice: string;
+  notes: string;
+  editingIndex: number | null;
 };
+
+const emptyEntry: EntryLine = {
+  productId: "", productName: "", productCode: "",
+  categoryName: "", subcategoryName: "",
+  query: "", quantity: "1", unit: "", unitPrice: "", totalPrice: "",
+  notes: "", editingIndex: null
+};
+
 
 function todayInputDate() {
   return new Date().toISOString().slice(0, 10);
@@ -240,12 +250,11 @@ export function Purchases({ user }: { user: AppUser }) {
     creditCardId: "",
     paymentDifferenceReason: ""
   });
-  const [items, setItems] = useState<PurchaseItemForm[]>([{ ...emptyItem }]);
-  const [productQueries, setProductQueries] = useState<Record<number, string>>({ 0: "" });
-  const [openProductIndex, setOpenProductIndex] = useState<number | null>(null);
-  const [productDropdownCursor, setProductDropdownCursor] = useState<number>(-1);
-  const [openObsIndices, setOpenObsIndices] = useState<Set<number>>(new Set());
-  const [activeProductLine, setActiveProductLine] = useState<number | null>(null);
+  const [items, setItems] = useState<PurchaseItemForm[]>([]);
+  const [entry, setEntry] = useState<EntryLine>({ ...emptyEntry });
+  const [entryDropdownOpen, setEntryDropdownOpen] = useState(false);
+  const [entryDropdownCursor, setEntryDropdownCursor] = useState(-1);
+  const [entryShowObs, setEntryShowObs] = useState(false);
   const [showPendingPopover, setShowPendingPopover] = useState(false);
   const [installments, setInstallments] = useState<InstallmentForm[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -276,9 +285,9 @@ export function Purchases({ user }: { user: AppUser }) {
   const supplierFilterRef = useRef<HTMLDivElement | null>(null);
   const supplierFormRef = useRef<HTMLDivElement | null>(null);
   const productRef = useRef<HTMLDivElement | null>(null);
-  const productInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
-  const quantityInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
-  const unitPriceInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const entryProductRef = useRef<HTMLInputElement | null>(null);
+  const entryQtyRef = useRef<HTMLInputElement | null>(null);
+  const entryPriceRef = useRef<HTMLInputElement | null>(null);
   const { notice, setNotice } = useNotice();
 
   const isAdmin = hasPermission(user, "purchases", "admin");
@@ -340,7 +349,7 @@ export function Purchases({ user }: { user: AppUser }) {
       const target = event.target as Node;
       if (supplierFilterRef.current && !supplierFilterRef.current.contains(target)) setSupplierFilterOpen(false);
       if (supplierFormRef.current && !supplierFormRef.current.contains(target)) setSupplierFilterOpen(false);
-      if (productRef.current && !productRef.current.contains(target)) setOpenProductIndex(null);
+      if (productRef.current && !productRef.current.contains(target)) setEntryDropdownOpen(false);
       if (!(event.target as Element).closest?.(".pnova-pending-wrap")) setShowPendingPopover(false);
     }
     document.addEventListener("mousedown", handleOutsideClick);
@@ -381,7 +390,7 @@ export function Purchases({ user }: { user: AppUser }) {
           creditCardId: "",
           paymentDifferenceReason: ""
         },
-        itemState: [{ ...emptyItem }],
+        itemState: [],
         installmentState: [],
         extraNotes: false,
         noInvoice: false,
@@ -436,39 +445,35 @@ export function Purchases({ user }: { user: AppUser }) {
     return ids;
   }, [form.supplierId, purchases]);
 
-  const filteredProductOptions = useMemo(() => {
-    return items.map((item, index) => {
-      const raw = productQueries[index] ?? item.productName;
-      const query = normalize(raw);
-      if (!query) return products.filter((p) => p.isActive).slice(0, 10);
-      const scored = products
-        .filter((product) => {
-          const haystack = [
-            product.name,
-            product.externalCode,
-            product.category?.name,
-            product.subcategory?.name,
-            ...(product.aliases?.map((alias) => alias.alias) ?? [])
-          ].map(normalize).join(" ");
-          return haystack.includes(query);
-        })
-        .map((product) => {
-          const normCode = normalize(product.externalCode ?? "");
-          const normName = normalize(product.name);
-          let score = 0;
-          if (normCode === query) score += 100;                        // código exato
-          else if (normCode.startsWith(query)) score += 60;           // código começa com
-          if (supplierProductIds.has(product.id)) score += 40;        // já comprado deste fornecedor
-          if (normName.startsWith(query)) score += 20;                // nome começa com
-          if (!product.isActive) score -= 50;                         // inativo vai pro fim
-          return { product, score };
-        })
-        .sort((a, b) => b.score - a.score)
-        .map(({ product }) => product)
-        .slice(0, 10);
-      return scored;
-    });
-  }, [items, productQueries, products, supplierProductIds]);
+  const entryFilteredProducts = useMemo(() => {
+    const query = normalize(entry.query);
+    if (!query) return products.filter((p) => p.isActive).slice(0, 10);
+    return products
+      .filter((product) => {
+        const haystack = [
+          product.name,
+          product.externalCode,
+          product.category?.name,
+          product.subcategory?.name,
+          ...(product.aliases?.map((alias) => alias.alias) ?? [])
+        ].map(normalize).join(" ");
+        return haystack.includes(query);
+      })
+      .map((product) => {
+        const normCode = normalize(product.externalCode ?? "");
+        const normName = normalize(product.name);
+        let score = 0;
+        if (normCode === query) score += 100;
+        else if (normCode.startsWith(query)) score += 60;
+        if (supplierProductIds.has(product.id)) score += 40;
+        if (normName.startsWith(query)) score += 20;
+        if (!product.isActive) score -= 50;
+        return { product, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .map(({ product }) => product)
+      .slice(0, 10);
+  }, [entry.query, products, supplierProductIds]);
 
   const displayedPurchases = useMemo(() => {
     const base = purchases.filter((purchase) => {
@@ -660,170 +665,102 @@ export function Purchases({ user }: { user: AppUser }) {
     };
   }
 
-  function isItemBlank(item: PurchaseItemForm) {
-    return !item.productId
-      && !item.productName.trim()
-      && !item.quantity.trim()
-      && !item.unit.trim()
-      && !item.unitPrice.trim()
-      && !item.notes.trim();
-  }
 
-  function scrollProductLineToComfort(el: HTMLElement | null) {
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const viewportHeight = window.innerHeight;
-    const comfortTop = viewportHeight * 0.28;
-    const comfortBottom = viewportHeight * 0.62;
-    if (rect.top < comfortTop || rect.top > comfortBottom) {
-      window.scrollTo({ top: window.scrollY + rect.top - comfortTop, behavior: "smooth" });
-    }
-  }
-
-  function focusProductInput(index: number) {
-    window.setTimeout(() => {
-      const el = productInputRefs.current[index];
-      if (el) { el.focus(); scrollProductLineToComfort(el); }
-    }, 0);
-  }
-
-  function focusQuantityInput(index: number) {
-    window.setTimeout(() => {
-      const el = quantityInputRefs.current[index];
-      if (el) { el.focus(); scrollProductLineToComfort(el); }
-    }, 0);
-  }
-
-  function focusUnitPriceInput(index: number) {
-    window.setTimeout(() => {
-      const el = unitPriceInputRefs.current[index];
-      if (el) { el.focus(); scrollProductLineToComfort(el); }
-    }, 0);
-  }
 
   function removeItemRow(index: number) {
-    setItems((current) => {
-      const nextItems = current.filter((_, itemIndex) => itemIndex !== index);
-      if (nextItems.length === 0) return [{ ...emptyItem }];
-      return nextItems;
-    });
-    setProductQueries((current) => {
-      const entries = Object.entries(current)
-        .filter(([key]) => Number(key) !== index)
-        .map(([key, value]) => [String(Number(key) > index ? Number(key) - 1 : Number(key)), value] as const);
-      return Object.fromEntries(entries);
-    });
+    setItems((current) => current.filter((_, i) => i !== index));
+    if (entry.editingIndex === index) setEntry({ ...emptyEntry });
+    else if (entry.editingIndex !== null && entry.editingIndex > index) {
+      setEntry((e) => ({ ...e, editingIndex: (e.editingIndex as number) - 1 }));
+    }
   }
 
-  function ensureTrailingProductRow() {
-    setItems((current) => {
-      const lastItem = current[current.length - 1];
-      if (lastItem && isItemBlank(lastItem)) return current;
-      const nextIndex = current.length;
-      setProductQueries((queries) => ({ ...queries, [nextIndex]: "" }));
-      window.setTimeout(() => focusProductInput(nextIndex), 0);
-      return [...current, { ...emptyItem }];
-    });
+  function updateEntryTotal(next: Partial<EntryLine>, base: EntryLine): string {
+    const qty = Number((next.quantity ?? base.quantity) || 0);
+    const price = Number((next.unitPrice ?? base.unitPrice) || 0);
+    return qty > 0 && price >= 0 ? (qty * price).toFixed(2) : base.totalPrice;
   }
 
-  function mergeDuplicateProductLine(index: number) {
-    const currentItem = items[index];
-    const duplicateIndex = items.findIndex((item, itemIndex) => itemIndex !== index && item.productId === currentItem.productId);
-    if (duplicateIndex < 0) return false;
-    const shouldMerge = window.confirm("Este produto já está na compra. Deseja somar a quantidade ao item existente? Cancelar mantém como linha separada.");
-    if (!shouldMerge) return false;
-
-    setItems((current) => {
-      const source = current[index];
-      const target = current[duplicateIndex];
-      const mergedQuantity = Number(target.quantity || 0) + Number(source.quantity || 0);
-      const mergedTotal = Number(target.totalPrice || 0) + Number(source.totalPrice || 0);
-      const mergedUnitPrice = mergedQuantity > 0 ? (mergedTotal / mergedQuantity).toFixed(4) : target.unitPrice;
-      const mergedNotes = [target.notes, source.notes].filter(Boolean).join(" | ");
-      return current
-        .map((item, itemIndex) => {
-          if (itemIndex !== duplicateIndex) return item;
-          return {
-            ...item,
-            quantity: String(mergedQuantity),
-            unitPrice: mergedUnitPrice,
-            totalPrice: mergedTotal.toFixed(2),
-            notes: mergedNotes
-          };
-        })
-        .filter((_, itemIndex) => itemIndex !== index);
+  function selectEntryProduct(productId: string) {
+    const product = products.find((p) => p.id === productId);
+    if (!product) return;
+    const defaults = productDefaults(product);
+    setEntry((e) => {
+      const qty = e.quantity || "1";
+      const price = e.unitPrice || "";
+      const total = qty && price ? (Number(qty) * Number(price)).toFixed(2) : "";
+      return { ...e, ...defaults, productId: product.id, query: product.name, quantity: qty, totalPrice: total };
     });
-    setProductQueries((current) => {
-      const entries = Object.entries(current)
-        .filter(([key]) => Number(key) !== index)
-        .map(([key, value]) => [String(Number(key) > index ? Number(key) - 1 : Number(key)), value] as const);
-      return Object.fromEntries(entries);
-    });
-    window.setTimeout(() => focusQuantityInput(duplicateIndex > index ? duplicateIndex - 1 : duplicateIndex), 0);
-    return true;
+    setEntryDropdownOpen(false);
+    setEntryDropdownCursor(-1);
+    window.setTimeout(() => entryQtyRef.current?.focus(), 0);
   }
 
-  function commitProductLine(index: number) {
+  function loadItemIntoEntry(index: number) {
     const item = items[index];
-    if (!item || isItemBlank(item)) return;
-    if (!item.productId) {
-      setError(`Selecione um produto válido na linha ${index + 1}.`);
-      focusProductInput(index);
+    setEntry({ ...item, query: item.productName, editingIndex: index });
+    setEntryDropdownOpen(false);
+    setEntryShowObs(Boolean(item.notes));
+    window.setTimeout(() => entryQtyRef.current?.focus(), 0);
+  }
+
+  function commitEntry() {
+    if (!entry.productId) {
+      setError("Selecione um produto válido.");
+      window.setTimeout(() => entryProductRef.current?.focus(), 0);
       return;
     }
-    if (Number(item.quantity) <= 0) {
-      setError(`Informe uma quantidade válida na linha ${index + 1}.`);
-      focusQuantityInput(index);
+    if (Number(entry.quantity) <= 0) {
+      setError("Informe uma quantidade válida.");
+      window.setTimeout(() => entryQtyRef.current?.focus(), 0);
       return;
     }
-    if (item.unitPrice.trim() === "" || Number(item.unitPrice) < 0) {
-      setError(`Informe um valor unitário válido na linha ${index + 1}.`);
-      focusUnitPriceInput(index);
+    if (entry.unitPrice.trim() === "" || Number(entry.unitPrice) < 0) {
+      setError("Informe um valor unitário válido.");
+      window.setTimeout(() => entryPriceRef.current?.focus(), 0);
       return;
     }
-    if (!item.unit.trim()) {
-      setError(`Informe a unidade na linha ${index + 1}.`);
+    if (!entry.unit.trim()) {
+      setError("Informe a unidade do produto.");
       return;
     }
     setError(null);
-    if (mergeDuplicateProductLine(index)) return;
-    // Garante linha vazia e foca o produto dela (mesmo se já existia)
-    setItems((current) => {
-      const lastItem = current[current.length - 1];
-      const nextIndex = current.length;
-      if (lastItem && isItemBlank(lastItem)) {
-        // Linha vazia já existe — apenas foca ela
-        window.setTimeout(() => focusProductInput(nextIndex - 1), 0);
-        return current;
+    const newItem: PurchaseItemForm = {
+      productCode: entry.productCode,
+      productId: entry.productId,
+      productName: entry.productName,
+      categoryName: entry.categoryName,
+      subcategoryName: entry.subcategoryName,
+      quantity: entry.quantity,
+      unit: entry.unit,
+      unitPrice: entry.unitPrice,
+      totalPrice: entry.totalPrice || (Number(entry.quantity) * Number(entry.unitPrice)).toFixed(2),
+      notes: entry.notes
+    };
+    if (entry.editingIndex !== null) {
+      setItems((current) => current.map((item, i) => i === entry.editingIndex ? newItem : item));
+    } else {
+      const dupIdx = items.findIndex((item) => item.productId === entry.productId);
+      if (dupIdx >= 0 && window.confirm("Este produto já está na compra. Deseja somar a quantidade ao item existente?")) {
+        setItems((current) => current.map((item, i) => {
+          if (i !== dupIdx) return item;
+          const mergedQty = Number(item.quantity || 0) + Number(newItem.quantity || 0);
+          const mergedTotal = Number(item.totalPrice || 0) + Number(newItem.totalPrice || 0);
+          return {
+            ...item,
+            quantity: String(mergedQty),
+            unitPrice: mergedQty > 0 ? (mergedTotal / mergedQty).toFixed(4) : item.unitPrice,
+            totalPrice: mergedTotal.toFixed(2),
+            notes: [item.notes, newItem.notes].filter(Boolean).join(" | ")
+          };
+        }));
+      } else {
+        setItems((current) => [...current, newItem]);
       }
-      setProductQueries((queries) => ({ ...queries, [nextIndex]: "" }));
-      window.setTimeout(() => focusProductInput(nextIndex), 0);
-      return [...current, { ...emptyItem }];
-    });
-  }
-
-  function updateItem(index: number, next: Partial<PurchaseItemForm>) {
-    setItems((current) => current.map((item, itemIndex) => {
-      if (itemIndex !== index) return item;
-      const merged = { ...item, ...next };
-      const product = products.find((entry) => entry.id === merged.productId);
-      if (next.productId && product) Object.assign(merged, productDefaults(product));
-      if (next.quantity !== undefined || next.unitPrice !== undefined || next.totalPrice !== undefined) {
-        const quantity = Number(merged.quantity || 0);
-        const unitPrice = Number(merged.unitPrice || 0);
-        merged.totalPrice = quantity && unitPrice >= 0 ? (quantity * unitPrice).toFixed(2) : merged.totalPrice;
-      }
-      return merged;
-    }));
-  }
-
-  function selectProduct(index: number, productId: string) {
-    const product = products.find((entry) => entry.id === productId);
-    if (!product) return;
-    updateItem(index, productDefaults(product));
-    setProductQueries((current) => ({ ...current, [index]: product.name }));
-    setOpenProductIndex(null);
-    focusQuantityInput(index);
+    }
+    setEntry({ ...emptyEntry });
+    setEntryShowObs(false);
+    window.setTimeout(() => entryProductRef.current?.focus(), 0);
   }
 
   function resetForm() {
@@ -849,8 +786,9 @@ export function Purchases({ user }: { user: AppUser }) {
       creditCardId: "",
       paymentDifferenceReason: ""
     });
-    setItems([{ ...emptyItem }]);
-    setProductQueries({ 0: "" });
+    setItems([]);
+    setEntry({ ...emptyEntry });
+    setEntryShowObs(false);
     setInstallments([]);
     setEditingId(null);
     setFieldErrors({});
@@ -860,7 +798,6 @@ export function Purchases({ user }: { user: AppUser }) {
     setShowPaymentNotes(false);
     setSupplierFilterQuery("");
     setSupplierFilterOpen(false);
-    setOpenObsIndices(new Set());
   }
 
   function buildFormSnapshot(next?: {
@@ -959,7 +896,7 @@ export function Purchases({ user }: { user: AppUser }) {
       setShowExtraNotes(nextShowExtraNotes);
       setShowPaymentNotes(nextShowPaymentNotes);
       setItems(mappedItems);
-      setProductQueries(Object.fromEntries(mappedItems.map((item, index) => [index, item.productName])));
+      setEntry({ ...emptyEntry });
       setInstallments(nextInstallments);
       setFieldErrors({});
       setShowForm(true);
@@ -1883,156 +1820,203 @@ export function Purchases({ user }: { user: AppUser }) {
               <div className="pnova-products-block">
                 <div className="section-heading compact-heading">
                   <div><h3>Produtos</h3></div>
-                  <button className="secondary-button" type="button" onClick={ensureTrailingProductRow}>+ Produto</button>
                 </div>
                 {fieldErrors.items && <div className="alert error">{fieldErrors.items}</div>}
-                <div className="table-wrap operational-table purchase-items-grid-wrap pnova-items-wrap" ref={productRef}>
-                  <table className="purchase-items-desktop-table">
-                    <thead><tr><th>Produto</th><th>Qtd.</th><th>Un.</th><th>Valor unit.</th><th>Total</th><th></th></tr></thead>
-                    <tbody>
-                      {items.map((item, index) => {
-                        const isConfirmed = Boolean(item.productId) && activeProductLine !== index;
-                        if (isConfirmed) {
-                          /* ─ Linha confirmada: compacta, clicável para editar ─ */
-                          return (
-                            <tr
-                              key={index}
-                              className={`pnova-product-confirmed${fieldErrors[`item-${index}`] ? " row-error" : ""}`}
-                              onClick={() => { setActiveProductLine(index); window.setTimeout(() => productInputRefs.current[index]?.focus(), 0); }}
-                              title="Clique para editar"
-                            >
-                              <td className="pnova-confirmed-product-cell">
-                                {item.productCode && <span className="pnova-confirmed-code">{item.productCode}</span>}
-                                <span className="pnova-confirmed-name" title={item.productName}>{item.productName}</span>
-                                {item.notes && <span className="pnova-confirmed-obs-dot" title={`Obs: ${item.notes}`}>●</span>}
-                              </td>
-                              <td className="pnova-confirmed-val" data-label="Qtd.">{item.quantity}</td>
-                              <td className="pnova-confirmed-val" data-label="Un.">{item.unit || "–"}</td>
-                              <td className="pnova-confirmed-val" data-label="Valor unit.">{formatCurrency(Number(item.unitPrice || 0))}</td>
-                              <td className="pnova-confirmed-val pnova-confirmed-total" data-label="Total">{formatCurrency(Number(item.totalPrice || 0))}</td>
-                              <td className="purchase-item-action-cell" onClick={(e) => e.stopPropagation()}>
-                                <button type="button" aria-label="Remover item" onClick={() => removeItemRow(index)}>
-                                  <Trash2 size={14} />
+
+                {/* Linha fixa de entrada rápida */}
+                <div className="pnova-entry-wrap" ref={productRef}>
+                  {entry.editingIndex !== null && (
+                    <div className="pnova-entry-editing-banner">
+                      Editando item {entry.editingIndex + 1} — <strong>{entry.productName}</strong>
+                    </div>
+                  )}
+                  <div className="pnova-entry-line">
+                    {/* Produto */}
+                    <div className="pnova-entry-product-wrap">
+                      <input
+                        ref={entryProductRef}
+                        className="pnova-entry-product-input"
+                        autoComplete="off"
+                        placeholder="Código ou nome do produto"
+                        value={entry.query}
+                        onFocus={() => { setEntryDropdownOpen(true); setEntryDropdownCursor(-1); }}
+                        onChange={(event) => {
+                          const val = event.target.value;
+                          setEntry((e) => ({ ...e, query: val, productId: "", productName: val, productCode: "" }));
+                          setEntryDropdownOpen(true);
+                          setEntryDropdownCursor(-1);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") { event.preventDefault(); setEntryDropdownOpen(false); setEntryDropdownCursor(-1); return; }
+                          if (event.key === "ArrowDown") { event.preventDefault(); setEntryDropdownOpen(true); setEntryDropdownCursor((c) => Math.min(c + 1, entryFilteredProducts.length - 1)); return; }
+                          if (event.key === "ArrowUp") { event.preventDefault(); setEntryDropdownCursor((c) => Math.max(c - 1, -1)); return; }
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            if (entryDropdownCursor >= 0 && entryFilteredProducts[entryDropdownCursor]) { selectEntryProduct(entryFilteredProducts[entryDropdownCursor].id); return; }
+                            const q = normalize(entry.query);
+                            const exact = entryFilteredProducts.find((p) => normalize(p.externalCode ?? "") === q);
+                            if (exact) { selectEntryProduct(exact.id); return; }
+                            if (entryFilteredProducts.length === 1) { selectEntryProduct(entryFilteredProducts[0].id); return; }
+                            setEntryDropdownOpen(true);
+                          }
+                        }}
+                      />
+                      {entryDropdownOpen && (
+                        <div className="autocomplete-dropdown product-autocomplete-dropdown pnova-product-dropdown">
+                          {entryFilteredProducts.length === 0 ? (
+                            <div className="autocomplete-empty-actions">
+                              <p>Nenhum produto encontrado para "{entry.query}"</p>
+                              <button type="button" onClick={() => setEntry((e) => ({ ...e, query: "" }))}>✕ Limpar busca</button>
+                              <button type="button" onClick={() => window.open("/products/new", "_blank")}>+ Cadastrar produto</button>
+                            </div>
+                          ) : (
+                            <>
+                              {entryFilteredProducts.slice(0, 8).map((option, optIdx) => (
+                                <button
+                                  key={option.id}
+                                  className={`autocomplete-option pnova-product-option${optIdx === entryDropdownCursor ? " autocomplete-option-active" : ""}`}
+                                  type="button"
+                                  onClick={() => selectEntryProduct(option.id)}
+                                  title={option.name}
+                                >
+                                  <span className="pnova-option-code">{option.externalCode || ""}</span>
+                                  <span className="pnova-option-name">{option.name}</span>
+                                  <span className="pnova-option-meta">{option.category?.name ?? ""}{option.unit ? ` · ${option.unit}` : ""}{!option.isActive ? " · INATIVO" : ""}</span>
                                 </button>
-                              </td>
-                            </tr>
-                          );
-                        }
-                        /* ─ Linha em edição ─ */
-                        return (
-                          <tr className={`pnova-active-line${fieldErrors[`item-${index}`] ? " row-error" : ""}`} key={index}>
-                            <td className="purchase-product-main-cell">
-                              <div className="purchase-autocomplete-field">
-                                <input
-                                  ref={(element) => { productInputRefs.current[index] = element; }}
-                                  autoComplete="off"
-                                  name={`purchase-product-${index}`}
-                                  placeholder="Código ou nome do produto"
-                                  value={productQueries[index] ?? item.productName}
-                                  onFocus={() => { setOpenProductIndex(index); setProductDropdownCursor(-1); setActiveProductLine(index); }}
-                                  onChange={(event) => {
-                                    setProductQueries((current) => ({ ...current, [index]: event.target.value }));
-                                    updateItem(index, { productId: "", productName: event.target.value, productCode: "" });
-                                    setOpenProductIndex(index);
-                                    setProductDropdownCursor(-1);
-                                  }}
-                                  onKeyDown={(event) => {
-                                    const options = filteredProductOptions[index] ?? [];
-                                    if (event.key === "Escape") { event.preventDefault(); setOpenProductIndex(null); setProductDropdownCursor(-1); return; }
-                                    if (event.key === "ArrowDown") { event.preventDefault(); setOpenProductIndex(index); setProductDropdownCursor((c) => Math.min(c + 1, options.length - 1)); return; }
-                                    if (event.key === "ArrowUp") { event.preventDefault(); setProductDropdownCursor((c) => Math.max(c - 1, -1)); return; }
-                                    if (event.key === "Enter") {
-                                      event.preventDefault();
-                                      if (productDropdownCursor >= 0 && options[productDropdownCursor]) { selectProduct(index, options[productDropdownCursor].id); setProductDropdownCursor(-1); return; }
-                                      const query = normalize(productQueries[index] ?? "");
-                                      const exactByCode = options.find((p) => normalize(p.externalCode ?? "") === query);
-                                      if (exactByCode) { selectProduct(index, exactByCode.id); return; }
-                                      if (options.length === 1) { selectProduct(index, options[0].id); return; }
-                                      setOpenProductIndex(index);
-                                    }
-                                  }}
-                                />
-                                {openProductIndex === index && (
-                                  <div className="autocomplete-dropdown product-autocomplete-dropdown pnova-product-dropdown">
-                                    {filteredProductOptions[index]?.length === 0 && (
-                                      <div className="autocomplete-empty-actions">
-                                        <p>Nenhum produto encontrado para "{productQueries[index]}"</p>
-                                        <button type="button" onClick={() => { setProductQueries((curr) => ({ ...curr, [index]: "" })); }}>✕ Limpar busca</button>
-                                        <button type="button" onClick={() => { setProductQueries((curr) => ({ ...curr, [index]: "" })); setOpenProductIndex(index); }}>☰ Ver todos</button>
-                                        <button type="button" onClick={() => window.open("/products/new", "_blank")}>+ Cadastrar produto</button>
-                                      </div>
-                                    )}
-                                    {filteredProductOptions[index]?.slice(0, 8).map((option, optIdx) => (
-                                      <button key={option.id}
-                                        className={`autocomplete-option pnova-product-option${optIdx === productDropdownCursor ? " autocomplete-option-active" : ""}`}
-                                        type="button"
-                                        onClick={() => { selectProduct(index, option.id); setProductDropdownCursor(-1); }}
-                                        title={option.name}>
-                                        <span className="pnova-option-code">{option.externalCode || ""}</span>
-                                        <span className="pnova-option-name">{option.name}</span>
-                                        <span className="pnova-option-meta">{option.category?.name ?? ""}{option.unit ? ` · ${option.unit}` : ""}{!option.isActive ? " · INATIVO" : ""}</span>
-                                      </button>
-                                    ))}
-                                    {(filteredProductOptions[index]?.length ?? 0) > 8 && (
-                                      <div className="pnova-dropdown-more">+{(filteredProductOptions[index]?.length ?? 0) - 8} mais — refine a busca</div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                              {openObsIndices.has(index) ? (
-                                <div className="purchase-item-obs-row">
-                                  <input autoComplete="off" placeholder="Observação do item..." value={item.notes} onChange={(event) => updateItem(index, { notes: event.target.value })} />
-                                  <button type="button" className="purchase-item-obs-close" aria-label="Fechar observação" onClick={() => setOpenObsIndices((curr) => { const next = new Set(curr); next.delete(index); return next; })}>✕</button>
-                                </div>
-                              ) : (
-                                <button type="button" className="purchase-item-obs-toggle" onClick={() => setOpenObsIndices((curr) => new Set(curr).add(index))}>
-                                  {item.notes ? <><span className="purchase-item-obs-dot" />Obs: {item.notes}</> : "+ Obs"}
-                                </button>
+                              ))}
+                              {entryFilteredProducts.length > 8 && (
+                                <div className="pnova-dropdown-more">+{entryFilteredProducts.length - 8} mais — refine a busca</div>
                               )}
-                            </td>
-                            <td data-label="Qtd.">
-                              <input ref={(element) => { quantityInputRefs.current[index] = element; }}
-                                type="number" min="0" step="any" inputMode="decimal"
-                                value={item.quantity}
-                                onChange={(event) => updateItem(index, { quantity: event.target.value })}
-                                onBlur={(event) => {
-                                  const raw = event.target.value.trim();
-                                  if (raw !== "" && !isNaN(Number(raw))) {
-                                    const num = parseFloat(raw);
-                                    if (!isNaN(num)) updateItem(index, { quantity: Number.isInteger(num) ? String(num) : String(num) });
-                                  }
-                                }}
-                                onFocus={() => setActiveProductLine(index)}
-                                onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); focusUnitPriceInput(index); } }} />
-                            </td>
-                            <td data-label="Un.">
-                              <select value={item.unit} onChange={(event) => updateItem(index, { unit: event.target.value })}>
-                                <option value="">Un.</option>
-                                {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code}</option>)}
-                              </select>
-                            </td>
-                            <td data-label="Valor unit.">
-                              <input ref={(element) => { unitPriceInputRefs.current[index] = element; }}
-                                type="number" min="0" step="0.01"
-                                value={item.unitPrice}
-                                onChange={(event) => updateItem(index, { unitPrice: event.target.value })}
-                                onFocus={() => setActiveProductLine(index)}
-                                onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitProductLine(index); } }} />
-                            </td>
-                            <td data-label="Total">
-                              <input className="locked-field" type="text" value={formatCurrency(Number(item.totalPrice || 0))} readOnly />
-                            </td>
-                            <td className="purchase-item-action-cell">
-                              <button type="button" aria-label="Remover item" onClick={() => removeItemRow(index)}>
-                                <Trash2 size={16} />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Quantidade */}
+                    <input
+                      ref={entryQtyRef}
+                      className="pnova-entry-qty"
+                      type="number" min="0" step="any" inputMode="decimal"
+                      placeholder="Qtd."
+                      value={entry.quantity}
+                      onChange={(event) => {
+                        const quantity = event.target.value;
+                        setEntry((e) => {
+                          const total = updateEntryTotal({ quantity }, e);
+                          return { ...e, quantity, totalPrice: total };
+                        });
+                      }}
+                      onBlur={(event) => {
+                        const raw = event.target.value.trim();
+                        if (raw !== "" && !isNaN(Number(raw))) {
+                          const num = parseFloat(raw);
+                          if (!isNaN(num)) setEntry((e) => ({ ...e, quantity: Number.isInteger(num) ? String(num) : String(num) }));
+                        }
+                      }}
+                      onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); entryPriceRef.current?.focus(); } }}
+                    />
+
+                    {/* Unidade */}
+                    <select
+                      className="pnova-entry-unit"
+                      value={entry.unit}
+                      onChange={(event) => setEntry((e) => ({ ...e, unit: event.target.value }))}
+                    >
+                      <option value="">Un.</option>
+                      {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code}</option>)}
+                    </select>
+
+                    {/* Valor unitário */}
+                    <input
+                      ref={entryPriceRef}
+                      className="pnova-entry-price"
+                      type="number" min="0" step="0.01"
+                      placeholder="Valor unit."
+                      value={entry.unitPrice}
+                      onChange={(event) => {
+                        const unitPrice = event.target.value;
+                        setEntry((e) => {
+                          const total = updateEntryTotal({ unitPrice }, e);
+                          return { ...e, unitPrice, totalPrice: total };
+                        });
+                      }}
+                      onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitEntry(); } }}
+                    />
+
+                    {/* Total (read-only) */}
+                    <span className="pnova-entry-total">{entry.totalPrice ? formatCurrency(Number(entry.totalPrice)) : "–"}</span>
+
+                    {/* Botão */}
+                    <button
+                      className={`pnova-entry-add-btn${entry.editingIndex !== null ? " is-edit" : ""}`}
+                      type="button"
+                      onClick={commitEntry}
+                    >
+                      {entry.editingIndex !== null ? "Atualizar" : "Adicionar"}
+                    </button>
+                    {entry.editingIndex !== null && (
+                      <button className="pnova-entry-cancel-btn" type="button" onClick={() => { setEntry({ ...emptyEntry }); setEntryShowObs(false); }}>
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Observação do item na linha de entrada */}
+                  {entryShowObs ? (
+                    <div className="pnova-entry-obs-row">
+                      <input
+                        autoComplete="off"
+                        placeholder="Observação do item..."
+                        value={entry.notes}
+                        onChange={(event) => setEntry((e) => ({ ...e, notes: event.target.value }))}
+                      />
+                      <button type="button" onClick={() => { setEntry((e) => ({ ...e, notes: "" })); setEntryShowObs(false); }}>✕</button>
+                    </div>
+                  ) : (
+                    <button type="button" className="pnova-entry-obs-toggle" onClick={() => setEntryShowObs(true)}>
+                      {entry.notes ? `Obs: ${entry.notes}` : "+ Obs"}
+                    </button>
+                  )}
                 </div>
+
+                {/* Grade compacta de itens lançados */}
+                {items.length > 0 && (
+                  <div className="pnova-items-grid">
+                    <div className="pnova-grid-header">
+                      <span className="pnova-gh-code">Cód.</span>
+                      <span className="pnova-gh-name">Produto</span>
+                      <span className="pnova-gh-qty">Qtd.</span>
+                      <span className="pnova-gh-unit">Un.</span>
+                      <span className="pnova-gh-price">Valor unit.</span>
+                      <span className="pnova-gh-total">Total</span>
+                      <span className="pnova-gh-actions"></span>
+                    </div>
+                    {items.map((item, index) => (
+                      <div
+                        key={index}
+                        className={`pnova-grid-row${entry.editingIndex === index ? " is-editing" : ""}${fieldErrors[`item-${index}`] ? " row-error" : ""}`}
+                        title="Clique para editar"
+                        onClick={() => loadItemIntoEntry(index)}
+                      >
+                        <span className="pnova-gr-code">{item.productCode || "–"}</span>
+                        <span className="pnova-gr-name" title={item.productName}>
+                          {item.productName}
+                          {item.notes && <span className="pnova-gr-obs-dot" title={`Obs: ${item.notes}`}> ●</span>}
+                        </span>
+                        <span className="pnova-gr-qty">{item.quantity}</span>
+                        <span className="pnova-gr-unit">{item.unit || "–"}</span>
+                        <span className="pnova-gr-price">{formatCurrency(Number(item.unitPrice || 0))}</span>
+                        <span className="pnova-gr-total">{formatCurrency(Number(item.totalPrice || 0))}</span>
+                        <span className="pnova-gr-actions" onClick={(e) => e.stopPropagation()}>
+                          <button type="button" aria-label="Remover item" onClick={() => removeItemRow(index)}>
+                            <Trash2 size={14} />
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* ─── 4. FAIXA DE RESUMO + PENDÊNCIAS ─── */}
