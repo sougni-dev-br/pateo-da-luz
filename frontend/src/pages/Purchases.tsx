@@ -245,6 +245,8 @@ export function Purchases({ user }: { user: AppUser }) {
   const [openProductIndex, setOpenProductIndex] = useState<number | null>(null);
   const [productDropdownCursor, setProductDropdownCursor] = useState<number>(-1);
   const [openObsIndices, setOpenObsIndices] = useState<Set<number>>(new Set());
+  const [activeProductLine, setActiveProductLine] = useState<number | null>(null);
+  const [showPendingPopover, setShowPendingPopover] = useState(false);
   const [installments, setInstallments] = useState<InstallmentForm[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -339,6 +341,7 @@ export function Purchases({ user }: { user: AppUser }) {
       if (supplierFilterRef.current && !supplierFilterRef.current.contains(target)) setSupplierFilterOpen(false);
       if (supplierFormRef.current && !supplierFormRef.current.contains(target)) setSupplierFilterOpen(false);
       if (productRef.current && !productRef.current.contains(target)) setOpenProductIndex(null);
+      if (!(event.target as Element).closest?.(".pnova-pending-wrap")) setShowPendingPopover(false);
     }
     document.addEventListener("mousedown", handleOutsideClick);
     return () => document.removeEventListener("mousedown", handleOutsideClick);
@@ -1644,188 +1647,247 @@ export function Purchases({ user }: { user: AppUser }) {
               </div>
             )}
 
-            <div className="purchase-editor-layout">
-              <div className="purchase-editor-main">
-                <div className="subsection">
-                <div className="section-heading compact-heading"><div><h3>Dados da compra</h3></div></div>
-                <div className="purchase-form-grid purchase-header-grid">
-                  <div className={`purchase-autocomplete-field ${fieldErrors.supplier ? "field-error" : ""}`} ref={supplierFormRef}>
-                    <label>
-                      Fornecedor
-                      <div className={`autocomplete-shell active${form.supplierId ? " supplier-confirmed" : ""}`}>
-                        <input
-                          autoComplete="off"
-                          name="purchase-supplier-form"
-                          placeholder="Buscar por nome, código ou documento"
-                          value={form.supplierName || form.supplierCode}
-                          onChange={(event) => {
-                            setForm((current) => ({
-                              ...current,
-                              supplierId: "",
-                              supplierCode: event.target.value,
-                              supplierName: event.target.value,
-                              supplierDocument: ""
-                            }));
-                            setSupplierFilterQuery(event.target.value);
-                            setSupplierFilterOpen(true);
-                          }}
-                          onFocus={() => {
-                            setSupplierFilterQuery(form.supplierName || form.supplierCode);
-                            setSupplierFilterOpen(true);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Escape") { setSupplierFilterOpen(false); return; }
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              if (filteredSupplierOptions.length === 1) {
-                                selectSupplier(filteredSupplierOptions[0].id, "form");
-                                setSupplierFilterOpen(false);
-                              } else if (filteredSupplierOptions.length > 0) {
-                                const q = normalize(supplierFilterQuery);
-                                const exact = filteredSupplierOptions.find(
-                                  (s) => normalize(s.name) === q || normalize(s.externalCode ?? "") === q
-                                );
-                                if (exact) { selectSupplier(exact.id, "form"); setSupplierFilterOpen(false); }
-                                else setSupplierFilterOpen(true);
-                              }
-                            }
-                          }}
-                        />
-                        {(form.supplierName || form.supplierCode) && (
-                          <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor" onClick={() => { setForm((current) => ({ ...current, supplierId: "", supplierCode: "", supplierName: "", supplierDocument: "" })); }}>
-                            <X size={14} />
-                          </button>
-                        )}
-                        <ChevronDown size={16} className="autocomplete-chevron" />
-                        {supplierFilterOpen && (
-                          <div className="autocomplete-dropdown">
-                            {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado.</div>}
-                            {filteredSupplierOptions.map((supplier) => (
-                              <button key={supplier.id} className="autocomplete-option" type="button" onClick={() => { selectSupplier(supplier.id, "form"); setSupplierFilterOpen(false); }}>
-                                <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
-                                <small>{supplier.document || "Sem documento"}</small>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </label>
-                    {form.supplierId && selectedSupplier && (
-                      <p className="supplier-status-hint confirmed">✓ {selectedSupplier.name}{selectedSupplier.document ? ` · ${selectedSupplier.document}` : ""}</p>
+            <div className="pnova-layout">
+
+              {/* ─── 1. FORNECEDOR ─── */}
+              <div className={`pnova-supplier-card${form.supplierId ? " has-supplier" : ""}`} ref={supplierFormRef}>
+                <div className={`pnova-supplier-search${fieldErrors.supplier ? " field-error" : ""}`}>
+                  <div className={`autocomplete-shell active${form.supplierId ? " supplier-confirmed" : ""}`}>
+                    <input
+                      autoComplete="off"
+                      name="purchase-supplier-form"
+                      placeholder="Buscar fornecedor por nome, código ou CNPJ…"
+                      value={form.supplierName || form.supplierCode}
+                      onChange={(event) => {
+                        setForm((current) => ({
+                          ...current,
+                          supplierId: "",
+                          supplierCode: event.target.value,
+                          supplierName: event.target.value,
+                          supplierDocument: ""
+                        }));
+                        setSupplierFilterQuery(event.target.value);
+                        setSupplierFilterOpen(true);
+                      }}
+                      onFocus={() => {
+                        setSupplierFilterQuery(form.supplierName || form.supplierCode);
+                        setSupplierFilterOpen(true);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") { setSupplierFilterOpen(false); return; }
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          if (filteredSupplierOptions.length === 1) {
+                            selectSupplier(filteredSupplierOptions[0].id, "form");
+                            setSupplierFilterOpen(false);
+                          } else if (filteredSupplierOptions.length > 0) {
+                            const q = normalize(supplierFilterQuery);
+                            const exact = filteredSupplierOptions.find(
+                              (s) => normalize(s.name) === q || normalize(s.externalCode ?? "") === q
+                            );
+                            if (exact) { selectSupplier(exact.id, "form"); setSupplierFilterOpen(false); }
+                            else setSupplierFilterOpen(true);
+                          }
+                        }
+                      }}
+                    />
+                    {(form.supplierName || form.supplierCode) && (
+                      <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor"
+                        onClick={() => { setForm((current) => ({ ...current, supplierId: "", supplierCode: "", supplierName: "", supplierDocument: "" })); }}>
+                        <X size={14} />
+                      </button>
                     )}
-                    {!form.supplierId && (form.supplierName || form.supplierCode) && (
-                      <p className="supplier-status-hint pending">Selecione um fornecedor da lista para aplicar as condições de pagamento.</p>
+                    <ChevronDown size={16} className="autocomplete-chevron" />
+                    {supplierFilterOpen && (
+                      <div className="autocomplete-dropdown">
+                        {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado.</div>}
+                        {filteredSupplierOptions.map((supplier) => (
+                          <button key={supplier.id} className="autocomplete-option" type="button"
+                            onClick={() => { selectSupplier(supplier.id, "form"); setSupplierFilterOpen(false); }}>
+                            <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
+                            <small>{supplier.document || "Sem documento"}</small>
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </div>
-                  <label>
-                    Código
-                    <input className="locked-field" value={form.supplierCode} disabled />
-                  </label>
-                  <label>
-                    CNPJ/CPF
-                    <input className="locked-field" value={form.supplierDocument} disabled />
-                  </label>
-                  <label>
-                    Prazo padrão
-                    <input className="locked-field" value={selectedSupplier?.defaultPaymentTermDays ? `${selectedSupplier.defaultPaymentTermDays} dias` : "Sem prazo"} disabled />
-                  </label>
-                  <label className={fieldErrors.purchaseDate ? "field-error" : ""}>
-                    Data
-                    <input type="date" value={form.purchaseDate} onChange={(event) => setForm({ ...form, purchaseDate: event.target.value })} />
-                  </label>
-                  <label className={fieldErrors.invoiceNumber ? "field-error" : ""}>
-                    Número da NF
-                    <input autoComplete="off" value={form.invoiceNumber} disabled={showNoInvoiceReason} onChange={(event) => setForm({ ...form, invoiceNumber: event.target.value })} />
-                  </label>
-                  <label>
-                    Número do pedido
-                    <input autoComplete="off" value={form.purchaseOrderNumber} onChange={(event) => setForm({ ...form, purchaseOrderNumber: event.target.value })} />
-                  </label>
-                  <label className="checkbox-label">
-                    <input type="checkbox" checked={showNoInvoiceReason} onChange={(event) => { setShowNoInvoiceReason(event.target.checked); if (event.target.checked) setForm({ ...form, invoiceNumber: "" }); }} />
-                    Compra sem NF
-                  </label>
-                  {showNoInvoiceReason && (
-                    <label className={fieldErrors.noInvoiceReason ? "field-error" : ""}>
-                      Motivo sem NF
-                      <input autoComplete="off" value={form.noInvoiceReason} onChange={(event) => setForm({ ...form, noInvoiceReason: event.target.value })} />
-                    </label>
-                  )}
-                  <label className="checkbox-label">
-                    <input type="checkbox" checked={form.isSmallExpense} onChange={(event) => setForm({ ...form, isSmallExpense: event.target.checked })} />
-                    Pequeno gasto
-                  </label>
-                  {form.isSmallExpense && (
-                    <>
-                      <label className={fieldErrors.smallExpenseTypeId ? "field-error" : ""}>
-                        Tipo pequeno gasto
-                        <select value={form.smallExpenseTypeId} onChange={(event) => setForm({ ...form, smallExpenseTypeId: event.target.value })}>
-                          <option value="">Selecione</option>
-                          {smallExpenseTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
-                        </select>
-                      </label>
-                      {selectedPaymentMethod && normalize(selectedPaymentMethod.name).includes("cartao de credito") && (
-                        <label className={fieldErrors.creditCardId ? "field-error" : ""}>
-                          Cartão
-                          <select value={form.creditCardId} onChange={(event) => setForm({ ...form, creditCardId: event.target.value })}>
-                            <option value="">Selecione</option>
-                            {creditCards.map((card) => <option key={card.id} value={card.id}>{card.name} - {card.bankName} {card.last4Digits}</option>)}
-                          </select>
-                        </label>
-                      )}
-                      <label className="full-width">
-                        Observação pequeno gasto
-                        <input autoComplete="off" value={form.smallExpenseNotes} onChange={(event) => setForm({ ...form, smallExpenseNotes: event.target.value })} />
-                      </label>
-                    </>
-                  )}
-                  {form.creditCardId && openCardStatement && (
-                    <div className="alert info full-width">
-                      Fatura aberta vinculada: {openCardStatement.creditCard?.name ?? "Cartão"} • {String(openCardStatement.competenceMonth).padStart(2, "0")}/{openCardStatement.competenceYear} • venc. {formatDate(openCardStatement.dueDate)} • status {openCardStatement.status} • total {formatCurrency(openCardStatement.totalAmount)}
-                    </div>
-                  )}
-                  {form.creditCardId && !openCardStatement && smallExpenseUsesCreditCard && (
-                    <div className="alert warning full-width">Não há fatura aberta para este cartão. Abra a fatura antes de salvar o lançamento.</div>
+                  {!form.supplierId && (form.supplierName || form.supplierCode) && (
+                    <p className="pnova-supplier-hint">Selecione um fornecedor da lista para aplicar as condições de pagamento.</p>
                   )}
                 </div>
 
-                <div className="optional-row">
+                {form.supplierId && selectedSupplier ? (
+                  <div className="pnova-supplier-info">
+                    <div className="pnova-supplier-info-col">
+                      <span>Código</span>
+                      <strong>{form.supplierCode || "–"}</strong>
+                    </div>
+                    <div className="pnova-supplier-info-col">
+                      <span>CNPJ/CPF</span>
+                      <strong>{selectedSupplier.document || "–"}</strong>
+                    </div>
+                    <div className="pnova-supplier-info-col">
+                      <span>Condição padrão</span>
+                      <strong>
+                        {selectedSupplier.defaultPaymentMethodId ? (
+                          <>
+                            {basePaymentMethodName(selectedPaymentMethod?.name) || "–"}
+                            {selectedPaymentMethodAllowsInstallments && (() => {
+                              const days = Array.isArray(selectedSupplier.defaultInstallmentDays) && (selectedSupplier.defaultInstallmentDays as number[]).length > 0
+                                ? (selectedSupplier.defaultInstallmentDays as number[]).join("/")
+                                : null;
+                              const count = selectedSupplier.defaultInstallmentCount ?? (Array.isArray(selectedSupplier.defaultInstallmentDays) ? (selectedSupplier.defaultInstallmentDays as number[]).length : 2);
+                              return ` ${count}x${days ? ` (${days}d)` : ""}`;
+                            })()}
+                          </>
+                        ) : "–"}
+                      </strong>
+                    </div>
+                    {selectedSupplier.defaultFinancialNotes && (
+                      <div className="pnova-supplier-info-col pnova-supplier-info-notes">
+                        <span>Obs. financeira</span>
+                        <strong>{selectedSupplier.defaultFinancialNotes}</strong>
+                      </div>
+                    )}
+                  </div>
+                ) : !form.supplierName && !form.supplierCode ? (
+                  <p className="pnova-supplier-empty">Selecione um fornecedor para iniciar o lançamento</p>
+                ) : null}
+              </div>
+
+              {/* ─── 2. DADOS DA COMPRA ─── */}
+              <div className="pnova-data-block">
+                <div className="pnova-data-row">
+                  <div className={`pnova-data-cell${fieldErrors.purchaseDate ? " field-error" : ""}`}>
+                    <span className="pnova-data-label">Data</span>
+                    <input type="date" value={form.purchaseDate}
+                      onChange={(event) => setForm({ ...form, purchaseDate: event.target.value })} />
+                  </div>
+                  <div className={`pnova-data-cell${fieldErrors.invoiceNumber ? " field-error" : ""}`}>
+                    <span className="pnova-data-label">Número da NF</span>
+                    <input autoComplete="off" value={form.invoiceNumber} disabled={showNoInvoiceReason}
+                      onChange={(event) => setForm({ ...form, invoiceNumber: event.target.value })} />
+                  </div>
+                  <div className="pnova-data-cell">
+                    <span className="pnova-data-label">Número do pedido</span>
+                    <input autoComplete="off" value={form.purchaseOrderNumber}
+                      onChange={(event) => setForm({ ...form, purchaseOrderNumber: event.target.value })} />
+                  </div>
+                  <div className="pnova-data-cell pnova-data-checks">
+                    <label className="checkbox-label">
+                      <input type="checkbox" checked={showNoInvoiceReason}
+                        onChange={(event) => { setShowNoInvoiceReason(event.target.checked); if (event.target.checked) setForm({ ...form, invoiceNumber: "" }); }} />
+                      Compra sem NF
+                    </label>
+                    <label className="checkbox-label">
+                      <input type="checkbox" checked={form.isSmallExpense}
+                        onChange={(event) => setForm({ ...form, isSmallExpense: event.target.checked })} />
+                      Pequeno gasto
+                    </label>
+                  </div>
+                </div>
+
+                {showNoInvoiceReason && (
+                  <div className="pnova-data-row">
+                    <div className={`pnova-data-cell pnova-data-cell-span${fieldErrors.noInvoiceReason ? " field-error" : ""}`}>
+                      <span className="pnova-data-label">Motivo sem NF</span>
+                      <input autoComplete="off" value={form.noInvoiceReason}
+                        onChange={(event) => setForm({ ...form, noInvoiceReason: event.target.value })} />
+                    </div>
+                  </div>
+                )}
+
+                {form.isSmallExpense && (
+                  <div className="pnova-data-row">
+                    <div className={`pnova-data-cell${fieldErrors.smallExpenseTypeId ? " field-error" : ""}`}>
+                      <span className="pnova-data-label">Tipo pequeno gasto</span>
+                      <select value={form.smallExpenseTypeId}
+                        onChange={(event) => setForm({ ...form, smallExpenseTypeId: event.target.value })}>
+                        <option value="">Selecione</option>
+                        {smallExpenseTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
+                      </select>
+                    </div>
+                    {selectedPaymentMethod && normalize(selectedPaymentMethod.name).includes("cartao de credito") ? (
+                      <div className={`pnova-data-cell${fieldErrors.creditCardId ? " field-error" : ""}`}>
+                        <span className="pnova-data-label">Cartão</span>
+                        <select value={form.creditCardId}
+                          onChange={(event) => setForm({ ...form, creditCardId: event.target.value })}>
+                          <option value="">Selecione</option>
+                          {creditCards.map((card) => <option key={card.id} value={card.id}>{card.name} - {card.bankName} {card.last4Digits}</option>)}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="pnova-data-cell">
+                        <span className="pnova-data-label">Obs. pequeno gasto</span>
+                        <input autoComplete="off" value={form.smallExpenseNotes}
+                          onChange={(event) => setForm({ ...form, smallExpenseNotes: event.target.value })} />
+                      </div>
+                    )}
+                    {selectedPaymentMethod && normalize(selectedPaymentMethod.name).includes("cartao de credito") && (
+                      <div className="pnova-data-cell pnova-data-cell-span">
+                        <span className="pnova-data-label">Obs. pequeno gasto</span>
+                        <input autoComplete="off" value={form.smallExpenseNotes}
+                          onChange={(event) => setForm({ ...form, smallExpenseNotes: event.target.value })} />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {form.creditCardId && openCardStatement && (
+                  <div className="pnova-data-row">
+                    <div className="pnova-data-cell pnova-data-cell-span">
+                      <div className="alert info" style={{ margin: 0 }}>
+                        Fatura aberta: {openCardStatement.creditCard?.name ?? "Cartão"} • {String(openCardStatement.competenceMonth).padStart(2, "0")}/{openCardStatement.competenceYear} • venc. {formatDate(openCardStatement.dueDate)} • {openCardStatement.status} • {formatCurrency(openCardStatement.totalAmount)}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {form.creditCardId && !openCardStatement && smallExpenseUsesCreditCard && (
+                  <div className="pnova-data-row">
+                    <div className="pnova-data-cell pnova-data-cell-span">
+                      <div className="alert warning" style={{ margin: 0 }}>Não há fatura aberta para este cartão. Abra a fatura antes de salvar o lançamento.</div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pnova-obs-row">
                   <button
-                    className={`secondary-button${form.notes.trim() && !showExtraNotes ? " has-content-indicator" : ""}`}
+                    className={`pnova-obs-toggle${form.notes.trim() && !showExtraNotes ? " has-content-indicator" : ""}`}
                     type="button"
                     onClick={() => setShowExtraNotes(!showExtraNotes)}
                   >
-                    {form.notes.trim() && !showExtraNotes ? `✓ Observação: ${form.notes.slice(0, 30)}${form.notes.length > 30 ? "…" : ""}` : "+ Observação da compra"}
+                    {form.notes.trim() && !showExtraNotes
+                      ? `✓ Obs: ${form.notes.slice(0, 40)}${form.notes.length > 40 ? "…" : ""}`
+                      : "+ Observação da compra"}
                   </button>
+                  {showExtraNotes && (
+                    <input
+                      autoComplete="off"
+                      className="pnova-obs-input"
+                      placeholder="Observação da compra"
+                      value={form.notes}
+                      onChange={(event) => setForm({ ...form, notes: event.target.value })}
+                      onBlur={() => { if (!form.notes.trim()) setShowExtraNotes(false); }}
+                    />
+                  )}
                 </div>
-                {showExtraNotes && (
-                  <div className="purchase-form-grid payment-grid optional-fields">
-                    <label className="full-width">
-                      Observação da compra
-                      <input autoComplete="off" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} onBlur={() => { if (!form.notes.trim()) setShowExtraNotes(false); }} />
-                    </label>
-                  </div>
-                )}
               </div>
 
-              <div className="subsection">
+              {/* ─── 3. PRODUTOS ─── */}
+              <div className="pnova-products-block">
                 <div className="section-heading compact-heading">
                   <div><h3>Produtos</h3></div>
-                  <button className="secondary-button" type="button" onClick={() => {
-                    ensureTrailingProductRow();
-                  }}>
-                    + Produto
-                  </button>
+                  <button className="secondary-button" type="button" onClick={ensureTrailingProductRow}>+ Produto</button>
                 </div>
                 {fieldErrors.items && <div className="alert error">{fieldErrors.items}</div>}
-                <div className="table-wrap operational-table purchase-items-grid-wrap" ref={productRef}>
+                <div className="table-wrap operational-table purchase-items-grid-wrap pnova-items-wrap" ref={productRef}>
                   <table className="purchase-items-desktop-table">
                     <thead><tr><th>Produto</th><th>Qtd.</th><th>Un.</th><th>Valor unit.</th><th>Total</th><th></th></tr></thead>
                     <tbody>
                       {items.map((item, index) => {
                         const product = products.find((entry) => entry.id === item.productId);
                         return (
-                          <tr className={fieldErrors[`item-${index}`] ? "row-error" : ""} key={index}>
+                          <tr className={`${fieldErrors[`item-${index}`] ? "row-error" : ""}${activeProductLine === index ? " pnova-active-line" : ""}`} key={index}>
                             <td className="purchase-product-main-cell">
                               <div className="purchase-autocomplete-field">
                                 <input
@@ -1834,7 +1896,7 @@ export function Purchases({ user }: { user: AppUser }) {
                                   name={`purchase-product-${index}`}
                                   placeholder="Código ou nome do produto"
                                   value={productQueries[index] ?? item.productName}
-                                  onFocus={() => { setOpenProductIndex(index); setProductDropdownCursor(-1); }}
+                                  onFocus={() => { setOpenProductIndex(index); setProductDropdownCursor(-1); setActiveProductLine(index); }}
                                   onChange={(event) => {
                                     setProductQueries((current) => ({ ...current, [index]: event.target.value }));
                                     updateItem(index, { productId: "", productName: event.target.value, productCode: "" });
@@ -1843,44 +1905,16 @@ export function Purchases({ user }: { user: AppUser }) {
                                   }}
                                   onKeyDown={(event) => {
                                     const options = filteredProductOptions[index] ?? [];
-                                    if (event.key === "Escape") {
-                                      event.preventDefault();
-                                      setOpenProductIndex(null);
-                                      setProductDropdownCursor(-1);
-                                      return;
-                                    }
-                                    if (event.key === "ArrowDown") {
-                                      event.preventDefault();
-                                      setOpenProductIndex(index);
-                                      setProductDropdownCursor((c) => Math.min(c + 1, options.length - 1));
-                                      return;
-                                    }
-                                    if (event.key === "ArrowUp") {
-                                      event.preventDefault();
-                                      setProductDropdownCursor((c) => Math.max(c - 1, -1));
-                                      return;
-                                    }
+                                    if (event.key === "Escape") { event.preventDefault(); setOpenProductIndex(null); setProductDropdownCursor(-1); return; }
+                                    if (event.key === "ArrowDown") { event.preventDefault(); setOpenProductIndex(index); setProductDropdownCursor((c) => Math.min(c + 1, options.length - 1)); return; }
+                                    if (event.key === "ArrowUp") { event.preventDefault(); setProductDropdownCursor((c) => Math.max(c - 1, -1)); return; }
                                     if (event.key === "Enter") {
                                       event.preventDefault();
-                                      // Cursor no dropdown → seleciona o item destacado
-                                      if (productDropdownCursor >= 0 && options[productDropdownCursor]) {
-                                        selectProduct(index, options[productDropdownCursor].id);
-                                        setProductDropdownCursor(-1);
-                                        return;
-                                      }
-                                      // Sem cursor: tenta match exato por código
+                                      if (productDropdownCursor >= 0 && options[productDropdownCursor]) { selectProduct(index, options[productDropdownCursor].id); setProductDropdownCursor(-1); return; }
                                       const query = normalize(productQueries[index] ?? "");
                                       const exactByCode = options.find((p) => normalize(p.externalCode ?? "") === query);
-                                      if (exactByCode) {
-                                        selectProduct(index, exactByCode.id);
-                                        return;
-                                      }
-                                      // Única opção na lista → auto-seleciona
-                                      if (options.length === 1) {
-                                        selectProduct(index, options[0].id);
-                                        return;
-                                      }
-                                      // Abre dropdown se fechado
+                                      if (exactByCode) { selectProduct(index, exactByCode.id); return; }
+                                      if (options.length === 1) { selectProduct(index, options[0].id); return; }
                                       setOpenProductIndex(index);
                                     }
                                   }}
@@ -1890,25 +1924,17 @@ export function Purchases({ user }: { user: AppUser }) {
                                     {filteredProductOptions[index]?.length === 0 && (
                                       <div className="autocomplete-empty-actions">
                                         <p>Nenhum produto encontrado para "{productQueries[index]}"</p>
-                                        <button type="button" onClick={() => { setProductQueries((curr) => ({ ...curr, [index]: "" })); }}>
-                                          ✕ Limpar busca
-                                        </button>
-                                        <button type="button" onClick={() => { setProductQueries((curr) => ({ ...curr, [index]: "" })); setOpenProductIndex(index); }}>
-                                          ☰ Ver todos os produtos
-                                        </button>
-                                        <button type="button" onClick={() => window.open("/products/new", "_blank")}>
-                                          + Cadastrar produto
-                                        </button>
+                                        <button type="button" onClick={() => { setProductQueries((curr) => ({ ...curr, [index]: "" })); }}>✕ Limpar busca</button>
+                                        <button type="button" onClick={() => { setProductQueries((curr) => ({ ...curr, [index]: "" })); setOpenProductIndex(index); }}>☰ Ver todos os produtos</button>
+                                        <button type="button" onClick={() => window.open("/products/new", "_blank")}>+ Cadastrar produto</button>
                                       </div>
                                     )}
                                     {filteredProductOptions[index]?.map((option, optIdx) => (
-                                      <button
-                                        key={option.id}
+                                      <button key={option.id}
                                         className={`autocomplete-option${optIdx === productDropdownCursor ? " autocomplete-option-active" : ""}`}
                                         type="button"
                                         onClick={() => { selectProduct(index, option.id); setProductDropdownCursor(-1); }}
-                                        title={option.name}
-                                      >
+                                        title={option.name}>
                                         <strong>{option.externalCode ? `${option.externalCode} • ` : ""}{option.name}</strong>
                                         <small>{option.category?.name ?? "-"} / {option.subcategory?.name ?? "-"}{option.unit ? ` • ${option.unit}` : ""}{!option.isActive ? " • INATIVO" : ""}</small>
                                       </button>
@@ -1937,23 +1963,36 @@ export function Purchases({ user }: { user: AppUser }) {
                                 </button>
                               )}
                             </td>
-                            <td data-label="Qtd."><input ref={(element) => { quantityInputRefs.current[index] = element; }} type="number" min="0" step="0.001" value={item.quantity} onChange={(event) => updateItem(index, { quantity: event.target.value })} onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                event.preventDefault();
-                                focusUnitPriceInput(index);
-                              }
-                            }} /></td>
-                            <td data-label="Un."><select value={item.unit} onChange={(event) => updateItem(index, { unit: event.target.value })}><option value="">Un.</option>{units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code}</option>)}</select></td>
-                            <td data-label="Valor unit."><input ref={(element) => { unitPriceInputRefs.current[index] = element; }} type="number" min="0" step="0.01" value={item.unitPrice} onChange={(event) => updateItem(index, { unitPrice: event.target.value })} onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                event.preventDefault();
-                                commitProductLine(index);
-                              }
-                            }} /></td>
-                            <td data-label="Total"><input className="locked-field" type="text" value={formatCurrency(Number(item.totalPrice || 0))} readOnly /></td>
-                            <td className="purchase-item-action-cell"><button type="button" aria-label="Remover item" onClick={() => {
-                              removeItemRow(index);
-                            }}><Trash2 size={16} /></button></td>
+                            <td data-label="Qtd.">
+                              <input ref={(element) => { quantityInputRefs.current[index] = element; }}
+                                type="number" min="0" step="0.001"
+                                value={item.quantity}
+                                onChange={(event) => updateItem(index, { quantity: event.target.value })}
+                                onFocus={() => setActiveProductLine(index)}
+                                onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); focusUnitPriceInput(index); } }} />
+                            </td>
+                            <td data-label="Un.">
+                              <select value={item.unit} onChange={(event) => updateItem(index, { unit: event.target.value })}>
+                                <option value="">Un.</option>
+                                {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code}</option>)}
+                              </select>
+                            </td>
+                            <td data-label="Valor unit.">
+                              <input ref={(element) => { unitPriceInputRefs.current[index] = element; }}
+                                type="number" min="0" step="0.01"
+                                value={item.unitPrice}
+                                onChange={(event) => updateItem(index, { unitPrice: event.target.value })}
+                                onFocus={() => setActiveProductLine(index)}
+                                onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitProductLine(index); } }} />
+                            </td>
+                            <td data-label="Total">
+                              <input className="locked-field" type="text" value={formatCurrency(Number(item.totalPrice || 0))} readOnly />
+                            </td>
+                            <td className="purchase-item-action-cell">
+                              <button type="button" aria-label="Remover item" onClick={() => removeItemRow(index)}>
+                                <Trash2 size={16} />
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}
@@ -1962,7 +2001,48 @@ export function Purchases({ user }: { user: AppUser }) {
                 </div>
               </div>
 
-              <div className="subsection">
+              {/* ─── 4. FAIXA DE RESUMO + PENDÊNCIAS ─── */}
+              <div className="pnova-summary-strip">
+                <div className="pnova-summary-metric">
+                  <span>Total</span>
+                  <strong>{formatCurrency(totalAmount)}</strong>
+                </div>
+                <div className="pnova-summary-metric">
+                  <span>Itens</span>
+                  <strong>{items.filter((item) => item.productId).length}</strong>
+                </div>
+                <div className="pnova-summary-metric">
+                  <span>Parcelas</span>
+                  <strong>{installments.length > 0 ? `${installments.length}x` : "–"}</strong>
+                </div>
+                <div className={`pnova-summary-metric${Math.round(amountDifference * 100) !== 0 ? " pnova-summary-warn" : ""}`}>
+                  <span>Diferença</span>
+                  <strong>{Math.round(amountDifference * 100) === 0 ? "OK" : formatCurrency(amountDifference)}</strong>
+                </div>
+                <div className="pnova-pending-wrap">
+                  <button
+                    className={`pnova-pending-btn${validationMessages.length === 0 ? " is-ok" : ""}`}
+                    type="button"
+                    onClick={() => setShowPendingPopover((v) => !v)}
+                  >
+                    {validationMessages.length === 0 ? "✓ Conferida" : `Pendências (${validationMessages.length})`}
+                  </button>
+                  {showPendingPopover && (
+                    <div className="pnova-pending-popover">
+                      {validationMessages.length === 0 ? (
+                        <p className="pnova-pending-ok">✓ Nenhuma pendência. Compra pronta para salvar.</p>
+                      ) : (
+                        <ul className="pnova-pending-list">
+                          {validationMessages.map((msg) => <li key={msg}>{msg}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ─── 5. PAGAMENTO ─── */}
+              <div className="pnova-payment-block">
                 <div className="section-heading compact-heading"><div><h3>Pagamento</h3></div></div>
                 {!form.supplierId || totalAmount <= 0 ? (
                   <p className="purchase-payment-placeholder alert info">
@@ -1971,184 +2051,99 @@ export function Purchases({ user }: { user: AppUser }) {
                       : "Informe ao menos um produto com valor para calcular o pagamento."}
                   </p>
                 ) : (
-                <>
-                <p className="purchase-payment-preview-hint">{paymentPreviewMessage}</p>
-                <div className="purchase-form-grid payment-grid">
-                  <label className={fieldErrors.paymentMethodId ? "field-error" : ""}>
-                    Forma de pagamento
-                    <select value={form.paymentMethodId} onChange={(event) => {
-                      const nextMethod = availablePaymentMethods.find((method) => method.id === event.target.value) ?? null;
-                      const nextCount = nextMethod && allowsInstallments(nextMethod) ? Math.max(1, Number(form.installmentCount || 1)) : 1;
-                      setForm({ ...form, paymentMethodId: event.target.value, installmentCount: String(nextCount) });
-                      rebuildInstallments(event.target.value, totalAmount, nextCount);
-                    }}>
-                      <option value="">Selecione</option>
-                      {availablePaymentMethods.map((method) => <option key={method.id} value={method.id}>{basePaymentMethodName(method.name) || method.name}</option>)}
-                    </select>
-                  </label>
-                  <label className={fieldErrors.installmentCount ? "field-error" : ""}>
-                    Número de parcelas
-                    <input type="number" min="1" step="1" value={form.installmentCount} disabled={!selectedPaymentMethod || !selectedPaymentMethodAllowsInstallments || smallExpenseUsesCreditCard} onChange={(event) => setForm((current) => ({ ...current, installmentCount: String(Math.max(1, Number(event.target.value || 1))) }))} />
-                  </label>
-                  <label>
-                    Vencimento inicial
-                    <input className="locked-field" value={new Date(`${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}T12:00:00`).toLocaleDateString("pt-BR")} disabled />
-                  </label>
-                  {!showPaymentNotes ? (
-                    <button className="secondary-button" type="button" onClick={() => setShowPaymentNotes(true)}>
-                      + Observação financeira
-                    </button>
-                  ) : (
-                    <label className="full-width">
-                      Observação financeira
-                      <input
-                        autoComplete="off"
-                        value={form.paymentNotes}
-                        onChange={(event) => setForm({ ...form, paymentNotes: event.target.value })}
-                        onBlur={() => { if (!form.paymentNotes.trim()) setShowPaymentNotes(false); }}
-                      />
-                    </label>
-                  )}
-                  {isAdmin && Math.round(amountDifference * 100) !== 0 && (
-                    <label className="full-width">
-                      Motivo da diferença
-                      <input autoComplete="off" value={form.paymentDifferenceReason} onChange={(event) => setForm({ ...form, paymentDifferenceReason: event.target.value })} />
-                    </label>
-                  )}
-                </div>
-
-                <div className="purchase-payment-summary">
-                  <article><span>Total da compra</span><strong>{formatCurrency(totalAmount)}</strong></article>
-                  <article><span>Total das parcelas</span><strong>{formatCurrency(installmentTotal)}</strong></article>
-                  <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}>
-                    <span>Diferença</span>
-                    <strong>{formatCurrency(amountDifference)}</strong>
-                    <StatusBadge tone={Math.round(amountDifference * 100) === 0 ? "success" : "danger"}>
-                      {Math.round(amountDifference * 100) === 0 ? "Conferido" : "Divergência"}
-                    </StatusBadge>
-                  </article>
-                </div>
-
-                {fieldErrors.installments && <div className="alert error">{fieldErrors.installments}</div>}
-                {installments.length > 0 && (
-                  <div className="table-wrap operational-table purchase-installments-table">
-                    <table>
-                      <thead><tr><th>Parcela</th><th>Vencimento</th><th className="numeric-cell">Valor</th></tr></thead>
-                      <tbody>
-                        {installments.map((installment, index) => (
-                          <tr key={installment.installment}>
-                            <td>{`${installment.installment}/${installments.length}`}</td>
-                            <td><input type="date" value={installment.dueDate} onChange={(event) => setInstallments((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, dueDate: event.target.value } : entry))} /></td>
-                            <td><input type="number" min="0" step="0.01" value={installment.amount} onChange={(event) => setInstallments((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, amount: event.target.value } : entry))} /></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                </>
-                )}
-              </div>
-            </div>
-
-            <aside className="purchase-editor-sidebar">
-              {/* Bloco: Fornecedor + condições */}
-              <div className="purchase-sidebar-block">
-                <span>Fornecedor</span>
-                <strong>{selectedSupplier?.name ?? "Não selecionado"}</strong>
-                {selectedSupplier ? (
                   <>
-                    {selectedSupplier.document && <small>{selectedSupplier.document}</small>}
-                    {(form.invoiceNumber || form.purchaseOrderNumber) && (
-                      <small>NF {form.invoiceNumber || "–"}{form.purchaseOrderNumber ? ` · Ped. ${form.purchaseOrderNumber}` : ""}</small>
-                    )}
-                    {selectedSupplier.defaultPaymentMethodId && (
-                      <small className="purchase-sidebar-conditions">
-                        {basePaymentMethodName(selectedPaymentMethod?.name) || "Boleto"}
-                        {selectedPaymentMethodAllowsInstallments && (() => {
-                          const days = Array.isArray(selectedSupplier.defaultInstallmentDays) && (selectedSupplier.defaultInstallmentDays as number[]).length > 0
-                            ? (selectedSupplier.defaultInstallmentDays as number[]).join("/")
-                            : null;
-                          const count = selectedSupplier.defaultInstallmentCount ?? (Array.isArray(selectedSupplier.defaultInstallmentDays) ? (selectedSupplier.defaultInstallmentDays as number[]).length : 2);
-                          return ` ${count}x${days ? ` (${days}d)` : ""}`;
-                        })()}
-                      </small>
+                    <p className="purchase-payment-preview-hint">{paymentPreviewMessage}</p>
+                    <div className="purchase-form-grid payment-grid">
+                      <label className={fieldErrors.paymentMethodId ? "field-error" : ""}>
+                        Forma de pagamento
+                        <select value={form.paymentMethodId} onChange={(event) => {
+                          const nextMethod = availablePaymentMethods.find((method) => method.id === event.target.value) ?? null;
+                          const nextCount = nextMethod && allowsInstallments(nextMethod) ? Math.max(1, Number(form.installmentCount || 1)) : 1;
+                          setForm({ ...form, paymentMethodId: event.target.value, installmentCount: String(nextCount) });
+                          rebuildInstallments(event.target.value, totalAmount, nextCount);
+                        }}>
+                          <option value="">Selecione</option>
+                          {availablePaymentMethods.map((method) => <option key={method.id} value={method.id}>{basePaymentMethodName(method.name) || method.name}</option>)}
+                        </select>
+                      </label>
+                      <label className={fieldErrors.installmentCount ? "field-error" : ""}>
+                        Número de parcelas
+                        <input type="number" min="1" step="1" value={form.installmentCount}
+                          disabled={!selectedPaymentMethod || !selectedPaymentMethodAllowsInstallments || smallExpenseUsesCreditCard}
+                          onChange={(event) => setForm((current) => ({ ...current, installmentCount: String(Math.max(1, Number(event.target.value || 1))) }))} />
+                      </label>
+                      <label>
+                        Vencimento inicial
+                        <input className="locked-field"
+                          value={new Date(`${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}T12:00:00`).toLocaleDateString("pt-BR")}
+                          disabled />
+                      </label>
+                      {!showPaymentNotes ? (
+                        <button className="secondary-button" type="button" onClick={() => setShowPaymentNotes(true)}>
+                          + Observação financeira
+                        </button>
+                      ) : (
+                        <label className="full-width">
+                          Observação financeira
+                          <input autoComplete="off" value={form.paymentNotes}
+                            onChange={(event) => setForm({ ...form, paymentNotes: event.target.value })}
+                            onBlur={() => { if (!form.paymentNotes.trim()) setShowPaymentNotes(false); }} />
+                        </label>
+                      )}
+                      {isAdmin && Math.round(amountDifference * 100) !== 0 && (
+                        <label className="full-width">
+                          Motivo da diferença
+                          <input autoComplete="off" value={form.paymentDifferenceReason}
+                            onChange={(event) => setForm({ ...form, paymentDifferenceReason: event.target.value })} />
+                        </label>
+                      )}
+                    </div>
+                    <div className="purchase-payment-summary">
+                      <article><span>Total da compra</span><strong>{formatCurrency(totalAmount)}</strong></article>
+                      <article><span>Total das parcelas</span><strong>{formatCurrency(installmentTotal)}</strong></article>
+                      <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}>
+                        <span>Diferença</span>
+                        <strong>{formatCurrency(amountDifference)}</strong>
+                        <StatusBadge tone={Math.round(amountDifference * 100) === 0 ? "success" : "danger"}>
+                          {Math.round(amountDifference * 100) === 0 ? "Conferido" : "Divergência"}
+                        </StatusBadge>
+                      </article>
+                    </div>
+                    {fieldErrors.installments && <div className="alert error">{fieldErrors.installments}</div>}
+                    {installments.length > 0 && (
+                      <div className="table-wrap operational-table purchase-installments-table">
+                        <table>
+                          <thead><tr><th>Parcela</th><th>Vencimento</th><th className="numeric-cell">Valor</th></tr></thead>
+                          <tbody>
+                            {installments.map((installment, index) => (
+                              <tr key={installment.installment}>
+                                <td>{`${installment.installment}/${installments.length}`}</td>
+                                <td><input type="date" value={installment.dueDate} onChange={(event) => setInstallments((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, dueDate: event.target.value } : entry))} /></td>
+                                <td><input type="number" min="0" step="0.01" value={installment.amount} onChange={(event) => setInstallments((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, amount: event.target.value } : entry))} /></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
                   </>
-                ) : (
-                  <small>Selecione para aplicar condições de pagamento</small>
                 )}
               </div>
 
-              {/* Bloco: Resumo financeiro */}
-              <div className="purchase-sidebar-block purchase-sidebar-metrics">
-                <article><span>Total</span><strong>{formatCurrency(totalAmount)}</strong></article>
-                <article><span>Itens</span><strong>{items.filter((item) => item.productId).length}</strong></article>
-                <article><span>Parcelas</span><strong>{installments.length > 0 ? `${installments.length}x` : "–"}</strong></article>
-                <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}>
-                  <span>Diferença</span>
-                  <strong>{Math.round(amountDifference * 100) === 0 ? "OK" : formatCurrency(amountDifference)}</strong>
-                </article>
-              </div>
-
-              {/* Bloco: Status de validação */}
-              <div className={`purchase-sidebar-block ${validationMessages.length === 0 ? "purchase-sidebar-ok" : "purchase-sidebar-pending"}`}>
-                <span>Status</span>
-                <strong>{validationMessages.length === 0 ? "✓ Compra conferida" : `${validationMessages.length} pendência${validationMessages.length > 1 ? "s" : ""}`}</strong>
-                {validationMessages.length > 0 && (
-                  <ul className="purchase-validation-list">
-                    {validationMessages.map((message) => <li key={message}>{message}</li>)}
-                  </ul>
-                )}
-              </div>
-
-              {/* Bloco: Alerta de duplicata */}
-              {duplicateCheck?.existingPurchase && (
-                <div className="purchase-sidebar-block purchase-sidebar-pending">
-                  <span>Duplicidade detectada</span>
-                  <strong>{duplicateCheck.existingPurchase.purchaseNumber ?? "Compra existente"}</strong>
-                  <small>{formatDate(duplicateCheck.existingPurchase.purchaseDate)} · {formatCurrency(Number(duplicateCheck.existingPurchase.totalAmount))}</small>
-                  <button className="secondary-button" type="button" onClick={() => navigate({ pathname: `/compras/${duplicateCheck.existingPurchase?.id}/editar`, search: location.search })}>
-                    Abrir compra existente
+              {/* ─── 6. BARRA DE AÇÕES ─── */}
+              <div className="pnova-actions-bar">
+                <button className="secondary-button" type="button" onClick={goBackToList}>Cancelar</button>
+                <div className="pnova-actions-right">
+                  {!canSavePurchase && <small className="pnova-actions-hint">Ctrl+Enter quando conferida</small>}
+                  <button className="primary-button" type="button" disabled={!canSavePurchase} onClick={handleCreatePurchase}>
+                    {saving ? "Salvando..." : editingId ? "Salvar alterações" : "Salvar compra"}
                   </button>
                 </div>
-              )}
-
-              {/* Bloco: Ações */}
-              <div className="purchase-sidebar-block purchase-sidebar-actions">
-                <button className="secondary-button" type="button" onClick={goBackToList}>Cancelar</button>
-                <button className="primary-button purchase-sidebar-save" type="button" disabled={!canSavePurchase} onClick={handleCreatePurchase}>
-                  {saving ? "Salvando..." : editingId ? "Salvar alterações" : "Salvar compra"}
-                </button>
-                {!canSavePurchase && validationMessages.length > 0 && (
-                  <small>Ctrl+Enter salva quando conferida.</small>
-                )}
               </div>
-            </aside>
-          </div>
 
-          <div className="purchase-sticky-footer purchase-editor-mobile-footer">
-            <div className="purchase-footer">
-              <article><span>Total da compra</span><strong>{formatCurrency(totalAmount)}</strong></article>
-              <article><span>Total das parcelas</span><strong>{formatCurrency(installmentTotal)}</strong></article>
-              <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}>
-                <span>Diferença</span>
-                <strong>{formatCurrency(amountDifference)}</strong>
-                <StatusBadge tone={Math.round(amountDifference * 100) === 0 ? "success" : "danger"}>
-                  {Math.round(amountDifference * 100) === 0 ? "Conferido" : "Divergência"}
-                </StatusBadge>
-              </article>
             </div>
-
-            <div className="form-actions">
-              <button className="secondary-button" type="button" onClick={goBackToList}>Cancelar</button>
-              <button className="primary-button" type="button" disabled={!canSavePurchase} onClick={handleCreatePurchase}>
-                {saving ? "Salvando..." : editingId ? "Salvar alterações" : "Salvar compra"}
-              </button>
-            </div>
-          </div>
-        </section>
-      )}
+          </section>
+        )}
     </section>
   );
 }
