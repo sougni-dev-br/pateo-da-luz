@@ -2167,17 +2167,25 @@ export function Purchases({ user }: { user: AppUser }) {
                 )}
               </div>
 
-              {/* ─── 6. BARRA DE AÇÕES ─── */}
-              <div className="pnova-actions-bar">
-                <button className="secondary-button" type="button" onClick={goBackToList}>Cancelar</button>
-                <div className="pnova-actions-right">
-                  {!canSavePurchase && <small className="pnova-actions-hint">Ctrl+Enter quando conferida</small>}
-                  <button className="primary-button" type="button" disabled={!canSavePurchase} onClick={handleCreatePurchase}>
-                    {saving ? "Salvando..." : editingId ? "Salvar alterações" : "Salvar compra"}
-                  </button>
-                </div>
-              </div>
+            </div>
 
+            {/* ─── BARRA STICKY INFERIOR ─── */}
+            <div className="pnova-sticky-bar">
+              <div className="pnova-sticky-left">
+                <span className="pnova-sticky-total">{formatCurrency(totalAmount)}</span>
+                {Math.round(amountDifference * 100) !== 0 && (
+                  <span className="pnova-sticky-diff">⚠ dif. {formatCurrency(amountDifference)}</span>
+                )}
+                <span className={`pnova-sticky-status${validationMessages.length === 0 ? " ok" : " pending"}`}>
+                  {validationMessages.length === 0 ? "✓ Conferida" : `${validationMessages.length} pendência${validationMessages.length > 1 ? "s" : ""}`}
+                </span>
+              </div>
+              <div className="pnova-sticky-right">
+                <button className="secondary-button" type="button" onClick={goBackToList}>Cancelar</button>
+                <button className="primary-button pnova-sticky-save" type="button" disabled={!canSavePurchase} onClick={handleCreatePurchase}>
+                  {saving ? "Salvando..." : editingId ? "Salvar alterações" : "Salvar compra"}
+                </button>
+              </div>
             </div>
           </section>
         )}
