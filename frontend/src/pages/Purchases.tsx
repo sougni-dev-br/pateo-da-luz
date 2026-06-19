@@ -897,7 +897,7 @@ export function Purchases({ user }: { user: AppUser }) {
         purchaseDate: String(data.purchaseDate).slice(0, 10),
         invoiceNumber: data.invoiceNumber ?? "",
         purchaseOrderNumber: data.purchaseOrderNumber ?? "",
-        noInvoiceReason: "",
+        noInvoiceReason: data.noInvoiceReason ?? "",
         paymentMethodId: resolvedPaymentMethodId,
         installmentCount: String(nextInstallmentCount),
         paymentNotes: "",
@@ -1790,13 +1790,19 @@ export function Purchases({ user }: { user: AppUser }) {
                 </div>
 
                 <div className="optional-row">
-                  <button className="secondary-button" type="button" onClick={() => setShowExtraNotes(!showExtraNotes)}>Observações adicionais</button>
+                  <button
+                    className={`secondary-button${form.notes.trim() && !showExtraNotes ? " has-content-indicator" : ""}`}
+                    type="button"
+                    onClick={() => setShowExtraNotes(!showExtraNotes)}
+                  >
+                    {form.notes.trim() && !showExtraNotes ? `✓ Observação: ${form.notes.slice(0, 30)}${form.notes.length > 30 ? "…" : ""}` : "+ Observação da compra"}
+                  </button>
                 </div>
                 {showExtraNotes && (
                   <div className="purchase-form-grid payment-grid optional-fields">
                     <label className="full-width">
-                      Observações
-                      <input autoComplete="off" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
+                      Observação da compra
+                      <input autoComplete="off" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} onBlur={() => { if (!form.notes.trim()) setShowExtraNotes(false); }} />
                     </label>
                   </div>
                 )}

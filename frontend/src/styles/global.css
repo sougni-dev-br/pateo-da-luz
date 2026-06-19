@@ -1621,6 +1621,25 @@ select:focus {
   gap: 12px;
 }
 
+/* Subsections dentro do editor de compras viram cards com sombra */
+.purchase-editor-main > .subsection {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  padding: 18px 20px;
+  box-shadow: 0 8px 20px rgba(20, 22, 28, 0.04);
+}
+
+.has-content-indicator {
+  color: var(--success) !important;
+  border-color: rgba(39, 103, 73, 0.35) !important;
+  background: rgba(39, 103, 73, 0.05) !important;
+  font-size: 12px;
+}
+
 .purchase-editor-sidebar {
   position: sticky;
   top: 96px;
