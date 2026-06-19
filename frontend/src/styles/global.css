@@ -2818,9 +2818,102 @@ select:disabled {
 }
 
 .pnova-active-line {
-  background: rgba(197, 172, 120, 0.08) !important;
-  outline: 1.5px solid rgba(197, 172, 120, 0.45);
+  background: rgba(197, 172, 120, 0.06) !important;
+  outline: 1.5px solid rgba(197, 172, 120, 0.4);
   outline-offset: -1px;
+}
+
+/* ─── Linha confirmada (produto já lançado) ─── */
+.pnova-product-confirmed {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.pnova-product-confirmed:hover {
+  background: rgba(197, 172, 120, 0.06);
+}
+.pnova-product-confirmed td {
+  padding: 5px 8px;
+  vertical-align: middle;
+  font-size: 13px;
+}
+.pnova-confirmed-product-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.pnova-confirmed-code {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgba(0,0,0,0.04);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+.pnova-confirmed-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--text);
+  min-width: 0;
+}
+.pnova-confirmed-obs-dot {
+  flex-shrink: 0;
+  font-size: 8px;
+  color: var(--accent);
+  opacity: 0.7;
+}
+.pnova-confirmed-val {
+  white-space: nowrap;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.pnova-confirmed-total {
+  font-weight: 600;
+}
+
+/* ─── Dropdown de produto compacto ─── */
+.pnova-product-dropdown {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.pnova-product-option {
+  display: grid !important;
+  grid-template-columns: 60px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px !important;
+  text-align: left;
+}
+.pnova-option-code {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.pnova-option-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pnova-option-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.pnova-dropdown-more {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  border-top: 1px solid var(--line);
+  font-style: italic;
 }
 
 /* ─── 4. Faixa de resumo + pendências ─── */
