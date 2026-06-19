@@ -66,20 +66,15 @@ type EntryLine = {
   productCode: string;
   categoryName: string;
   subcategoryName: string;
-  query: string;
-  quantity: string;
   unit: string;
-  unitPrice: string;
-  totalPrice: string;
-  notes: string;
+  query: string;
   editingIndex: number | null;
 };
 
 const emptyEntry: EntryLine = {
   productId: "", productName: "", productCode: "",
   categoryName: "", subcategoryName: "",
-  query: "", quantity: "1", unit: "", unitPrice: "", totalPrice: "",
-  notes: "", editingIndex: null
+  unit: "", query: "", editingIndex: null
 };
 
 
@@ -254,7 +249,6 @@ export function Purchases({ user }: { user: AppUser }) {
   const [entry, setEntry] = useState<EntryLine>({ ...emptyEntry });
   const [entryDropdownOpen, setEntryDropdownOpen] = useState(false);
   const [entryDropdownCursor, setEntryDropdownCursor] = useState(-1);
-  const [entryShowObs, setEntryShowObs] = useState(false);
   const [showPendingPopover, setShowPendingPopover] = useState(false);
   const [installments, setInstallments] = useState<InstallmentForm[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -287,8 +281,8 @@ export function Purchases({ user }: { user: AppUser }) {
   const supplierFormRef = useRef<HTMLDivElement | null>(null);
   const productRef = useRef<HTMLDivElement | null>(null);
   const entryProductRef = useRef<HTMLInputElement | null>(null);
-  const entryQtyRef = useRef<HTMLInputElement | null>(null);
-  const entryPriceRef = useRef<HTMLInputElement | null>(null);
+  const gridQtyRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const gridPriceRefs = useRef<(HTMLInputElement | null)[]>([]);
   const { notice, setNotice } = useNotice();
 
   const isAdmin = hasPermission(user, "purchases", "admin");
@@ -676,92 +670,89 @@ export function Purchases({ user }: { user: AppUser }) {
     }
   }
 
-  function updateEntryTotal(next: Partial<EntryLine>, base: EntryLine): string {
-    const qty = Number((next.quantity ?? base.quantity) || 0);
-    const price = Number((next.unitPrice ?? base.unitPrice) || 0);
-    return qty > 0 && price >= 0 ? (qty * price).toFixed(2) : base.totalPrice;
+  function updateGridItem(index: number, next: Partial<PurchaseItemForm>) {
+    setItems((current) => current.map((item, i) => {
+      if (i !== index) return item;
+      const merged = { ...item, ...next };
+      const qty = Number(merged.quantity || 0);
+      const price = Number(merged.unitPrice || 0);
+      merged.totalPrice = qty > 0 && price > 0 ? (qty * price).toFixed(2) : "";
+      return merged;
+    }));
   }
 
   function selectEntryProduct(productId: string) {
     const product = products.find((p) => p.id === productId);
     if (!product) return;
     const defaults = productDefaults(product);
-    setEntry((e) => {
-      const qty = e.quantity || "1";
-      const price = e.unitPrice || "";
-      const total = qty && price ? (Number(qty) * Number(price)).toFixed(2) : "";
-      return { ...e, ...defaults, productId: product.id, query: product.name, quantity: qty, totalPrice: total };
-    });
+
+    if (entry.editingIndex !== null) {
+      // Edit-product-identity mode: update only product fields, keep qty/price
+      const idx = entry.editingIndex;
+      setItems((current) => current.map((item, i) => {
+        if (i !== idx) return item;
+        const qty = item.quantity;
+        const price = item.unitPrice;
+        const total = qty && price ? (Number(qty) * Number(price)).toFixed(2) : "";
+        return { ...item, ...defaults, quantity: qty, unitPrice: price, totalPrice: total };
+      }));
+      setEntry({ ...emptyEntry });
+      setEntryDropdownOpen(false);
+      setEntryDropdownCursor(-1);
+      window.setTimeout(() => gridQtyRefs.current[idx]?.focus(), 0);
+      return;
+    }
+
+    // Duplicate: focus existing row qty instead of adding again
+    const dupIdx = items.findIndex((item) => item.productId === productId);
+    if (dupIdx >= 0) {
+      setEntry({ ...emptyEntry });
+      setEntryDropdownOpen(false);
+      setEntryDropdownCursor(-1);
+      window.setTimeout(() => {
+        gridQtyRefs.current[dupIdx]?.focus();
+        gridQtyRefs.current[dupIdx]?.select();
+      }, 0);
+      return;
+    }
+
+    // New product: add to grid with qty=1, price empty, focus back to product field
+    const newItem: PurchaseItemForm = {
+      productCode: defaults.productCode,
+      productId: defaults.productId,
+      productName: defaults.productName,
+      categoryName: defaults.categoryName,
+      subcategoryName: defaults.subcategoryName,
+      quantity: "1",
+      unit: defaults.unit,
+      unitPrice: "",
+      totalPrice: "",
+      notes: ""
+    };
+    setItems((current) => [...current, newItem]);
+    setEntry({ ...emptyEntry });
     setEntryDropdownOpen(false);
     setEntryDropdownCursor(-1);
-    window.setTimeout(() => entryQtyRef.current?.focus(), 0);
-  }
-
-  function loadItemIntoEntry(index: number) {
-    const item = items[index];
-    setEntry({ ...item, query: item.productName, editingIndex: index });
-    setEntryDropdownOpen(false);
-    setEntryShowObs(Boolean(item.notes));
-    window.setTimeout(() => entryQtyRef.current?.focus(), 0);
-  }
-
-  function commitEntry() {
-    if (!entry.productId) {
-      setError("Selecione um produto válido.");
-      window.setTimeout(() => entryProductRef.current?.focus(), 0);
-      return;
-    }
-    if (Number(entry.quantity) <= 0) {
-      setError("Informe uma quantidade válida.");
-      window.setTimeout(() => entryQtyRef.current?.focus(), 0);
-      return;
-    }
-    if (entry.unitPrice.trim() === "" || Number(entry.unitPrice) < 0) {
-      setError("Informe um valor unitário válido.");
-      window.setTimeout(() => entryPriceRef.current?.focus(), 0);
-      return;
-    }
-    if (!entry.unit.trim()) {
-      setError("Informe a unidade do produto.");
-      return;
-    }
-    setError(null);
-    const newItem: PurchaseItemForm = {
-      productCode: entry.productCode,
-      productId: entry.productId,
-      productName: entry.productName,
-      categoryName: entry.categoryName,
-      subcategoryName: entry.subcategoryName,
-      quantity: entry.quantity,
-      unit: entry.unit,
-      unitPrice: entry.unitPrice,
-      totalPrice: entry.totalPrice || (Number(entry.quantity) * Number(entry.unitPrice)).toFixed(2),
-      notes: entry.notes
-    };
-    if (entry.editingIndex !== null) {
-      setItems((current) => current.map((item, i) => i === entry.editingIndex ? newItem : item));
-    } else {
-      const dupIdx = items.findIndex((item) => item.productId === entry.productId);
-      if (dupIdx >= 0 && window.confirm("Este produto já está na compra. Deseja somar a quantidade ao item existente?")) {
-        setItems((current) => current.map((item, i) => {
-          if (i !== dupIdx) return item;
-          const mergedQty = Number(item.quantity || 0) + Number(newItem.quantity || 0);
-          const mergedTotal = Number(item.totalPrice || 0) + Number(newItem.totalPrice || 0);
-          return {
-            ...item,
-            quantity: String(mergedQty),
-            unitPrice: mergedQty > 0 ? (mergedTotal / mergedQty).toFixed(4) : item.unitPrice,
-            totalPrice: mergedTotal.toFixed(2),
-            notes: [item.notes, newItem.notes].filter(Boolean).join(" | ")
-          };
-        }));
-      } else {
-        setItems((current) => [...current, newItem]);
-      }
-    }
-    setEntry({ ...emptyEntry });
-    setEntryShowObs(false);
     window.setTimeout(() => entryProductRef.current?.focus(), 0);
+  }
+
+  function loadProductIntoEntry(index: number) {
+    const item = items[index];
+    setEntry({
+      productId: item.productId,
+      productName: item.productName,
+      productCode: item.productCode,
+      categoryName: item.categoryName,
+      subcategoryName: item.subcategoryName,
+      unit: item.unit,
+      query: item.productName,
+      editingIndex: index
+    });
+    setEntryDropdownOpen(false);
+    window.setTimeout(() => {
+      entryProductRef.current?.focus();
+      entryProductRef.current?.select();
+    }, 0);
   }
 
   function resetForm() {
@@ -789,7 +780,6 @@ export function Purchases({ user }: { user: AppUser }) {
     });
     setItems([]);
     setEntry({ ...emptyEntry });
-    setEntryShowObs(false);
     setInstallments([]);
     setEditingId(null);
     setFieldErrors({});
@@ -1000,8 +990,8 @@ export function Purchases({ user }: { user: AppUser }) {
     const missingProductIndex = validItems.findIndex((item) => !item.productId);
     if (missingProductIndex >= 0) errors[`item-${missingProductIndex}`] = `Produto da linha ${missingProductIndex + 1} não informado.`;
     if (validItems.some((item) => !item.unit.trim())) errors.items = "Unidade obrigatória em todos os itens.";
-    if (validItems.some((item) => Number(item.quantity) <= 0)) errors.items = "Quantidade deve ser maior que zero.";
-    if (validItems.some((item) => Number(item.unitPrice) < 0)) errors.items = "Valor unitário deve ser maior ou igual a zero.";
+    if (validItems.some((item) => !item.quantity.trim() || Number(item.quantity) <= 0)) errors.items = "Informe quantidade dos produtos.";
+    if (validItems.some((item) => !item.unitPrice.trim() || Number(item.unitPrice) <= 0)) errors.items = "Informe valor unitário dos produtos.";
     if (form.isSmallExpense && !form.smallExpenseTypeId) errors.smallExpenseTypeId = "Informe o tipo de pequeno gasto.";
     if (smallExpenseUsesCreditCard && !form.creditCardId.trim()) errors.creditCardId = "Selecione o cartão.";
     if (smallExpenseUsesCreditCard && form.creditCardId && !openCardStatement) errors.creditCardId = "Não há fatura aberta para este cartão.";
@@ -1140,9 +1130,8 @@ export function Purchases({ user }: { user: AppUser }) {
     if (showNoInvoiceReason && !form.isSmallExpense && !form.noInvoiceReason.trim()) messages.push("Explique o motivo da compra sem NF.");
     if (validItems.length === 0) messages.push("Adicione pelo menos um produto.");
     if (validItems.some((item) => !item.productId)) messages.push("Revise as linhas com produto não selecionado.");
-    if (validItems.some((item) => Number(item.quantity) <= 0)) messages.push("Todos os produtos precisam ter quantidade maior que zero.");
-    if (validItems.some((item) => Number(item.unitPrice) < 0)) messages.push("O valor unitário não pode ser negativo.");
-    if (validItems.some((item) => item.unitPrice.trim() === "" || Number(item.unitPrice) === 0)) messages.push("Informe valor unitário dos produtos (não pode ser zero).");
+    if (validItems.some((item) => !item.quantity.trim() || Number(item.quantity) <= 0)) messages.push("Informe quantidade dos produtos.");
+    if (validItems.some((item) => !item.unitPrice.trim() || Number(item.unitPrice) <= 0)) messages.push("Informe valor unitário dos produtos.");
     if (validItems.some((item) => !item.unit.trim())) messages.push("Informe a unidade de todos os produtos.");
     if (form.isSmallExpense && !form.smallExpenseTypeId) messages.push("Selecione o tipo de pequeno gasto.");
     if (smallExpenseUsesCreditCard && !form.creditCardId) messages.push("Selecione o cartão para lançar na fatura.");
@@ -1827,21 +1816,26 @@ export function Purchases({ user }: { user: AppUser }) {
                 </div>
                 {fieldErrors.items && <div className="alert error">{fieldErrors.items}</div>}
 
-                {/* Linha fixa de entrada rápida */}
+                {/* Linha de entrada rápida — só produto */}
                 <div className="pnova-entry-wrap" ref={productRef}>
                   {entry.editingIndex !== null && (
                     <div className="pnova-entry-editing-banner">
-                      Editando item {entry.editingIndex + 1} — <strong>{entry.productName}</strong>
+                      Trocando produto do item {entry.editingIndex + 1} —{" "}
+                      <strong>{items[entry.editingIndex]?.productName}</strong>
+                      <button
+                        type="button"
+                        className="pnova-entry-cancel-inline"
+                        onClick={() => setEntry({ ...emptyEntry })}
+                      >✕ cancelar</button>
                     </div>
                   )}
                   <div className="pnova-entry-line">
-                    {/* Produto */}
                     <div className="pnova-entry-product-wrap">
                       <input
                         ref={entryProductRef}
                         className="pnova-entry-product-input"
                         autoComplete="off"
-                        placeholder="Código ou nome do produto"
+                        placeholder={entry.editingIndex !== null ? "Digite o novo produto..." : "Código ou nome do produto — Enter para adicionar"}
                         value={entry.query}
                         onFocus={() => { setEntryDropdownOpen(true); setEntryDropdownCursor(-1); }}
                         onChange={(event) => {
@@ -1851,12 +1845,14 @@ export function Purchases({ user }: { user: AppUser }) {
                           setEntryDropdownCursor(-1);
                         }}
                         onKeyDown={(event) => {
-                          if (event.key === "Escape") { event.preventDefault(); setEntryDropdownOpen(false); setEntryDropdownCursor(-1); return; }
+                          if (event.key === "Escape") { event.preventDefault(); setEntryDropdownOpen(false); setEntryDropdownCursor(-1); if (entry.editingIndex !== null) setEntry({ ...emptyEntry }); return; }
                           if (event.key === "ArrowDown") { event.preventDefault(); setEntryDropdownOpen(true); setEntryDropdownCursor((c) => Math.min(c + 1, entryFilteredProducts.length - 1)); return; }
                           if (event.key === "ArrowUp") { event.preventDefault(); setEntryDropdownCursor((c) => Math.max(c - 1, -1)); return; }
                           if (event.key === "Enter") {
                             event.preventDefault();
-                            if (entryDropdownCursor >= 0 && entryFilteredProducts[entryDropdownCursor]) { selectEntryProduct(entryFilteredProducts[entryDropdownCursor].id); return; }
+                            if (entryDropdownCursor >= 0 && entryFilteredProducts[entryDropdownCursor]) {
+                              selectEntryProduct(entryFilteredProducts[entryDropdownCursor].id); return;
+                            }
                             const q = normalize(entry.query);
                             const exact = entryFilteredProducts.find((p) => normalize(p.externalCode ?? "") === q);
                             if (exact) { selectEntryProduct(exact.id); return; }
@@ -1896,95 +1892,10 @@ export function Purchases({ user }: { user: AppUser }) {
                         </div>
                       )}
                     </div>
-
-                    {/* Quantidade */}
-                    <input
-                      ref={entryQtyRef}
-                      className="pnova-entry-qty"
-                      type="number" min="0" step="any" inputMode="decimal"
-                      placeholder="Qtd."
-                      value={entry.quantity}
-                      onChange={(event) => {
-                        const quantity = event.target.value;
-                        setEntry((e) => {
-                          const total = updateEntryTotal({ quantity }, e);
-                          return { ...e, quantity, totalPrice: total };
-                        });
-                      }}
-                      onBlur={(event) => {
-                        const raw = event.target.value.trim();
-                        if (raw !== "" && !isNaN(Number(raw))) {
-                          const num = parseFloat(raw);
-                          if (!isNaN(num)) setEntry((e) => ({ ...e, quantity: Number.isInteger(num) ? String(num) : String(num) }));
-                        }
-                      }}
-                      onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); entryPriceRef.current?.focus(); } }}
-                    />
-
-                    {/* Unidade */}
-                    <select
-                      className="pnova-entry-unit"
-                      value={entry.unit}
-                      onChange={(event) => setEntry((e) => ({ ...e, unit: event.target.value }))}
-                    >
-                      <option value="">Un.</option>
-                      {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code}</option>)}
-                    </select>
-
-                    {/* Valor unitário */}
-                    <input
-                      ref={entryPriceRef}
-                      className="pnova-entry-price"
-                      type="number" min="0" step="0.01"
-                      placeholder="Valor unit."
-                      value={entry.unitPrice}
-                      onChange={(event) => {
-                        const unitPrice = event.target.value;
-                        setEntry((e) => {
-                          const total = updateEntryTotal({ unitPrice }, e);
-                          return { ...e, unitPrice, totalPrice: total };
-                        });
-                      }}
-                      onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitEntry(); } }}
-                    />
-
-                    {/* Total (read-only) */}
-                    <span className="pnova-entry-total">{entry.totalPrice ? formatCurrency(Number(entry.totalPrice)) : "–"}</span>
-
-                    {/* Botão */}
-                    <button
-                      className={`pnova-entry-add-btn${entry.editingIndex !== null ? " is-edit" : ""}`}
-                      type="button"
-                      onClick={commitEntry}
-                    >
-                      {entry.editingIndex !== null ? "Atualizar" : "Adicionar"}
-                    </button>
-                    {entry.editingIndex !== null && (
-                      <button className="pnova-entry-cancel-btn" type="button" onClick={() => { setEntry({ ...emptyEntry }); setEntryShowObs(false); }}>
-                        ✕
-                      </button>
-                    )}
                   </div>
-
-                  {/* Observação do item na linha de entrada */}
-                  {entryShowObs ? (
-                    <div className="pnova-entry-obs-row">
-                      <input
-                        autoComplete="off"
-                        placeholder="Observação do item..."
-                        value={entry.notes}
-                        onChange={(event) => setEntry((e) => ({ ...e, notes: event.target.value }))}
-                      />
-                      <button type="button" onClick={() => { setEntry((e) => ({ ...e, notes: "" })); setEntryShowObs(false); }}>✕</button>
-                    </div>
-                  ) : (
-                    <button type="button" className="pnova-entry-obs-toggle" onClick={() => setEntryShowObs(true)}>
-                      {entry.notes ? `Obs: ${entry.notes}` : "+ Obs"}
-                    </button>
-                  )}
                 </div>
 
-                {/* Grade compacta de itens lançados */}
+                {/* Grade editável — planilha compacta */}
                 {items.length > 0 && (
                   <div className="pnova-items-grid">
                     <div className="pnova-grid-header">
@@ -1994,25 +1905,101 @@ export function Purchases({ user }: { user: AppUser }) {
                       <span className="pnova-gh-unit">Un.</span>
                       <span className="pnova-gh-price">Valor unit.</span>
                       <span className="pnova-gh-total">Total</span>
+                      <span className="pnova-gh-obs">Obs</span>
                       <span className="pnova-gh-actions"></span>
                     </div>
                     {items.map((item, index) => (
                       <div
                         key={index}
-                        className={`pnova-grid-row${entry.editingIndex === index ? " is-editing" : ""}${fieldErrors[`item-${index}`] ? " row-error" : ""}`}
-                        title="Clique para editar"
-                        onClick={() => loadItemIntoEntry(index)}
+                        className={`pnova-grid-row${entry.editingIndex === index ? " is-editing" : ""}${fieldErrors[`item-${index}`] ? " row-error" : ""}${(!item.unitPrice || Number(item.unitPrice) <= 0) && item.productId ? " row-warn" : ""}`}
                       >
-                        <span className="pnova-gr-code">{item.productCode || "–"}</span>
-                        <span className="pnova-gr-name" title={item.productName}>
+                        {/* Código */}
+                        <span className="pnova-gr-code" title={item.productCode}>{item.productCode || "–"}</span>
+
+                        {/* Produto — clique troca via entry line */}
+                        <button
+                          type="button"
+                          className="pnova-gr-name pnova-gr-product-btn"
+                          title={`${item.productName} — clique para trocar produto`}
+                          onClick={() => loadProductIntoEntry(index)}
+                        >
                           {item.productName}
-                          {item.notes && <span className="pnova-gr-obs-dot" title={`Obs: ${item.notes}`}> ●</span>}
+                        </button>
+
+                        {/* Quantidade editável */}
+                        <input
+                          ref={(el) => { gridQtyRefs.current[index] = el; }}
+                          type="number"
+                          min="0"
+                          step="any"
+                          inputMode="decimal"
+                          className={`pnova-gr-input pnova-gr-qty-input${!item.quantity || Number(item.quantity) <= 0 ? " cell-warn" : ""}`}
+                          value={item.quantity}
+                          onChange={(ev) => updateGridItem(index, { quantity: ev.target.value })}
+                          onBlur={(ev) => {
+                            const raw = ev.target.value.trim();
+                            if (raw && !isNaN(Number(raw))) {
+                              const num = parseFloat(raw);
+                              if (!isNaN(num)) updateGridItem(index, { quantity: Number.isInteger(num) ? String(num) : String(num) });
+                            }
+                          }}
+                          onKeyDown={(ev) => {
+                            if (ev.key === "Enter") {
+                              ev.preventDefault();
+                              const next = gridQtyRefs.current[index + 1];
+                              if (next) { next.focus(); next.select(); }
+                              else if (gridPriceRefs.current[0]) { gridPriceRefs.current[0].focus(); gridPriceRefs.current[0].select(); }
+                            }
+                          }}
+                        />
+
+                        {/* Unidade */}
+                        <select
+                          className="pnova-gr-select"
+                          value={item.unit}
+                          onChange={(ev) => updateGridItem(index, { unit: ev.target.value })}
+                        >
+                          <option value="">–</option>
+                          {units.map((u) => <option key={u.id} value={u.code}>{u.code}</option>)}
+                        </select>
+
+                        {/* Valor unitário editável */}
+                        <input
+                          ref={(el) => { gridPriceRefs.current[index] = el; }}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className={`pnova-gr-input pnova-gr-price-input${!item.unitPrice || Number(item.unitPrice) <= 0 ? " cell-warn" : ""}`}
+                          value={item.unitPrice}
+                          placeholder="0,00"
+                          onChange={(ev) => updateGridItem(index, { unitPrice: ev.target.value })}
+                          onKeyDown={(ev) => {
+                            if (ev.key === "Enter") {
+                              ev.preventDefault();
+                              const next = gridPriceRefs.current[index + 1];
+                              if (next) { next.focus(); next.select(); }
+                              else entryProductRef.current?.focus();
+                            }
+                          }}
+                        />
+
+                        {/* Total calculado */}
+                        <span className="pnova-gr-total">
+                          {item.totalPrice ? formatCurrency(Number(item.totalPrice)) : <span className="pnova-gr-empty">–</span>}
                         </span>
-                        <span className="pnova-gr-qty">{item.quantity}</span>
-                        <span className="pnova-gr-unit">{item.unit || "–"}</span>
-                        <span className="pnova-gr-price">{formatCurrency(Number(item.unitPrice || 0))}</span>
-                        <span className="pnova-gr-total">{formatCurrency(Number(item.totalPrice || 0))}</span>
-                        <span className="pnova-gr-actions" onClick={(e) => e.stopPropagation()}>
+
+                        {/* Obs inline */}
+                        <input
+                          type="text"
+                          className="pnova-gr-obs-input"
+                          value={item.notes}
+                          placeholder="+"
+                          title={item.notes || "Observação"}
+                          onChange={(ev) => updateGridItem(index, { notes: ev.target.value })}
+                        />
+
+                        {/* Excluir */}
+                        <span className="pnova-gr-actions">
                           <button type="button" aria-label="Remover item" onClick={() => removeItemRow(index)}>
                             <Trash2 size={14} />
                           </button>
