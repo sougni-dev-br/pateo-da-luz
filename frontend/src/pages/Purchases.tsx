@@ -1891,9 +1891,36 @@ export function Purchases({ user }: { user: AppUser }) {
                     <thead><tr><th>Produto</th><th>Qtd.</th><th>Un.</th><th>Valor unit.</th><th>Total</th><th></th></tr></thead>
                     <tbody>
                       {items.map((item, index) => {
-                        const product = products.find((entry) => entry.id === item.productId);
+                        const isConfirmed = Boolean(item.productId) && activeProductLine !== index;
+                        if (isConfirmed) {
+                          /* ─ Linha confirmada: compacta, clicável para editar ─ */
+                          return (
+                            <tr
+                              key={index}
+                              className={`pnova-product-confirmed${fieldErrors[`item-${index}`] ? " row-error" : ""}`}
+                              onClick={() => { setActiveProductLine(index); window.setTimeout(() => productInputRefs.current[index]?.focus(), 0); }}
+                              title="Clique para editar"
+                            >
+                              <td className="pnova-confirmed-product-cell">
+                                {item.productCode && <span className="pnova-confirmed-code">{item.productCode}</span>}
+                                <span className="pnova-confirmed-name" title={item.productName}>{item.productName}</span>
+                                {item.notes && <span className="pnova-confirmed-obs-dot" title={`Obs: ${item.notes}`}>●</span>}
+                              </td>
+                              <td className="pnova-confirmed-val" data-label="Qtd.">{item.quantity}</td>
+                              <td className="pnova-confirmed-val" data-label="Un.">{item.unit || "–"}</td>
+                              <td className="pnova-confirmed-val" data-label="Valor unit.">{formatCurrency(Number(item.unitPrice || 0))}</td>
+                              <td className="pnova-confirmed-val pnova-confirmed-total" data-label="Total">{formatCurrency(Number(item.totalPrice || 0))}</td>
+                              <td className="purchase-item-action-cell" onClick={(e) => e.stopPropagation()}>
+                                <button type="button" aria-label="Remover item" onClick={() => removeItemRow(index)}>
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        }
+                        /* ─ Linha em edição ─ */
                         return (
-                          <tr className={`${fieldErrors[`item-${index}`] ? "row-error" : ""}${activeProductLine === index ? " pnova-active-line" : ""}`} key={index}>
+                          <tr className={`pnova-active-line${fieldErrors[`item-${index}`] ? " row-error" : ""}`} key={index}>
                             <td className="purchase-product-main-cell">
                               <div className="purchase-autocomplete-field">
                                 <input
@@ -1926,36 +1953,30 @@ export function Purchases({ user }: { user: AppUser }) {
                                   }}
                                 />
                                 {openProductIndex === index && (
-                                  <div className="autocomplete-dropdown product-autocomplete-dropdown">
+                                  <div className="autocomplete-dropdown product-autocomplete-dropdown pnova-product-dropdown">
                                     {filteredProductOptions[index]?.length === 0 && (
                                       <div className="autocomplete-empty-actions">
                                         <p>Nenhum produto encontrado para "{productQueries[index]}"</p>
                                         <button type="button" onClick={() => { setProductQueries((curr) => ({ ...curr, [index]: "" })); }}>✕ Limpar busca</button>
-                                        <button type="button" onClick={() => { setProductQueries((curr) => ({ ...curr, [index]: "" })); setOpenProductIndex(index); }}>☰ Ver todos os produtos</button>
+                                        <button type="button" onClick={() => { setProductQueries((curr) => ({ ...curr, [index]: "" })); setOpenProductIndex(index); }}>☰ Ver todos</button>
                                         <button type="button" onClick={() => window.open("/products/new", "_blank")}>+ Cadastrar produto</button>
                                       </div>
                                     )}
-                                    {filteredProductOptions[index]?.map((option, optIdx) => (
+                                    {filteredProductOptions[index]?.slice(0, 8).map((option, optIdx) => (
                                       <button key={option.id}
-                                        className={`autocomplete-option${optIdx === productDropdownCursor ? " autocomplete-option-active" : ""}`}
+                                        className={`autocomplete-option pnova-product-option${optIdx === productDropdownCursor ? " autocomplete-option-active" : ""}`}
                                         type="button"
                                         onClick={() => { selectProduct(index, option.id); setProductDropdownCursor(-1); }}
                                         title={option.name}>
-                                        <strong>{option.externalCode ? `${option.externalCode} • ` : ""}{option.name}</strong>
-                                        <small>{option.category?.name ?? "-"} / {option.subcategory?.name ?? "-"}{option.unit ? ` • ${option.unit}` : ""}{!option.isActive ? " • INATIVO" : ""}</small>
+                                        <span className="pnova-option-code">{option.externalCode || ""}</span>
+                                        <span className="pnova-option-name">{option.name}</span>
+                                        <span className="pnova-option-meta">{option.category?.name ?? ""}{option.unit ? ` · ${option.unit}` : ""}{!option.isActive ? " · INATIVO" : ""}</span>
                                       </button>
                                     ))}
+                                    {(filteredProductOptions[index]?.length ?? 0) > 8 && (
+                                      <div className="pnova-dropdown-more">+{(filteredProductOptions[index]?.length ?? 0) - 8} mais — refine a busca</div>
+                                    )}
                                   </div>
-                                )}
-                              </div>
-                              <div className="purchase-item-meta">
-                                {item.productId ? (
-                                  <>
-                                    <strong title={item.productName}>{item.productName}</strong>
-                                    <small>{item.productCode ? `Código ${item.productCode}` : "Sem código"} • {item.categoryName || product?.category?.name || "Sem categoria"} / {item.subcategoryName || product?.subcategory?.name || "Sem subcategoria"}</small>
-                                  </>
-                                ) : (
-                                  <small className="purchase-item-meta-placeholder">Busque por código ou nome do produto</small>
                                 )}
                               </div>
                               {openObsIndices.has(index) ? (
