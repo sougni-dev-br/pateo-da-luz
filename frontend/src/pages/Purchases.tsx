@@ -822,6 +822,9 @@ export function Purchases({ user }: { user: AppUser }) {
     setShowNoInvoiceReason(false);
     setShowExtraNotes(false);
     setShowPaymentNotes(false);
+    setSupplierFilterQuery("");
+    setSupplierFilterOpen(false);
+    setOpenObsIndices(new Set());
   }
 
   function buildFormSnapshot(next?: {
