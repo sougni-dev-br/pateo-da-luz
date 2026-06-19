@@ -2268,20 +2268,6 @@ select:disabled {
   }
 }
 
-/* ── Mobile: cards empilhados ────────────────────────────────────────── */
-@media (max-width: 1099px) {
-  .purchase-items-desktop-table th {
-    white-space: nowrap;
-  }
-
-  .purchase-items-desktop-table td[data-label]::before {
-    content: attr(data-label) ": ";
-    font-weight: 600;
-    color: var(--muted);
-    font-size: 11px;
-  }
-}
-
 .purchase-payment-summary {
   display: grid;
   gap: 12px;
