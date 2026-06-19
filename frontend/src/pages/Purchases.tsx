@@ -1972,7 +1972,7 @@ export function Purchases({ user }: { user: AppUser }) {
                   </p>
                 ) : (
                 <>
-                <div className="alert info">{paymentPreviewMessage}</div>
+                <p className="purchase-payment-preview-hint">{paymentPreviewMessage}</p>
                 <div className="purchase-form-grid payment-grid">
                   <label className={fieldErrors.paymentMethodId ? "field-error" : ""}>
                     Forma de pagamento
