@@ -1671,148 +1671,144 @@ export function Purchases({ user }: { user: AppUser }) {
 
               {/* ─── 1. FORNECEDOR ─── */}
               <div className={`pnova-supplier-card${form.supplierId ? " has-supplier" : ""}`} ref={supplierFormRef}>
-                <div className="pnova-block-title">Fornecedor</div>
-                <div className={`pnova-supplier-search${fieldErrors.supplier ? " field-error" : ""}`}>
-                  <div className={`autocomplete-shell active${form.supplierId ? " supplier-confirmed" : ""}`}>
-                    <input
-                      autoComplete="off"
-                      name="purchase-supplier-form"
-                      placeholder="Buscar fornecedor por nome, código ou CNPJ…"
-                      value={form.supplierName || form.supplierCode}
-                      onChange={(event) => {
-                        setForm((current) => ({
-                          ...current,
-                          supplierId: "",
-                          supplierCode: event.target.value,
-                          supplierName: event.target.value,
-                          supplierDocument: ""
-                        }));
-                        setSupplierFilterQuery(event.target.value);
-                        setSupplierFilterOpen(true);
-                      }}
-                      onFocus={() => {
-                        setSupplierFilterQuery(form.supplierName || form.supplierCode);
-                        setSupplierFilterOpen(true);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") { setSupplierFilterOpen(false); return; }
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          if (filteredSupplierOptions.length === 1) {
-                            selectSupplier(filteredSupplierOptions[0].id, "form");
-                            setSupplierFilterOpen(false);
-                          } else if (filteredSupplierOptions.length > 0) {
-                            const q = normalize(supplierFilterQuery);
-                            const exact = filteredSupplierOptions.find(
-                              (s) => normalize(s.name) === q || normalize(s.externalCode ?? "") === q
-                            );
-                            if (exact) { selectSupplier(exact.id, "form"); setSupplierFilterOpen(false); }
-                            else setSupplierFilterOpen(true);
-                          }
-                        }
-                      }}
-                    />
-                    {(form.supplierName || form.supplierCode) && (
-                      <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor"
-                        onClick={() => { setForm((current) => ({ ...current, supplierId: "", supplierCode: "", supplierName: "", supplierDocument: "" })); }}>
-                        <X size={14} />
-                      </button>
-                    )}
-                    <ChevronDown size={16} className="autocomplete-chevron" />
-                    {supplierFilterOpen && (
-                      <div className="autocomplete-dropdown">
-                        {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado.</div>}
-                        {filteredSupplierOptions.map((supplier) => (
-                          <button key={supplier.id} className="autocomplete-option" type="button"
-                            onClick={() => { selectSupplier(supplier.id, "form"); setSupplierFilterOpen(false); }}>
-                            <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
-                            <small>{supplier.document || "Sem documento"}</small>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {!form.supplierId && (form.supplierName || form.supplierCode) && (
-                    <p className="pnova-supplier-hint">Selecione um fornecedor da lista para aplicar as condições de pagamento.</p>
-                  )}
-                </div>
-
                 {form.supplierId && selectedSupplier ? (
-                  <div className="pnova-supplier-info">
-                    <div className="pnova-supplier-info-col">
-                      <span>Código</span>
-                      <strong>{form.supplierCode || "–"}</strong>
-                    </div>
-                    <div className="pnova-supplier-info-col">
-                      <span>CNPJ/CPF</span>
-                      <strong>{selectedSupplier.document || "–"}</strong>
-                    </div>
-                    <div className="pnova-supplier-info-col">
-                      <span>Condição padrão</span>
-                      <strong>
+                  /* Estado confirmado: strip compacto */
+                  <div className="pnova-supplier-confirmed">
+                    <div className="pnova-supplier-confirmed-body">
+                      <strong className="pnova-supplier-confirmed-name">{selectedSupplier.name}</strong>
+                      <span className="pnova-supplier-confirmed-meta">
+                        {form.supplierCode && <span>{form.supplierCode}</span>}
+                        {selectedSupplier.document && <span>{selectedSupplier.document}</span>}
                         {selectedSupplier.defaultPaymentMethodId ? (
-                          <>
+                          <span>
                             {basePaymentMethodName(selectedPaymentMethod?.name) || "–"}
                             {selectedPaymentMethodAllowsInstallments && (() => {
                               const days = Array.isArray(selectedSupplier.defaultInstallmentDays) && (selectedSupplier.defaultInstallmentDays as number[]).length > 0
                                 ? (selectedSupplier.defaultInstallmentDays as number[]).join("/")
                                 : null;
                               const count = selectedSupplier.defaultInstallmentCount ?? (Array.isArray(selectedSupplier.defaultInstallmentDays) ? (selectedSupplier.defaultInstallmentDays as number[]).length : 2);
-                              return ` ${count}x${days ? ` (${days}d)` : ""}`;
+                              return ` · ${count}x${days ? ` (${days}d)` : ""}`;
                             })()}
-                          </>
-                        ) : "–"}
-                      </strong>
+                          </span>
+                        ) : null}
+                        {selectedSupplier.defaultFinancialNotes && (
+                          <span className="pnova-supplier-confirmed-notes" title={selectedSupplier.defaultFinancialNotes}>
+                            {selectedSupplier.defaultFinancialNotes}
+                          </span>
+                        )}
+                      </span>
                     </div>
-                    {selectedSupplier.defaultFinancialNotes && (
-                      <div className="pnova-supplier-info-col pnova-supplier-info-notes">
-                        <span>Obs. financeira</span>
-                        <strong>{selectedSupplier.defaultFinancialNotes}</strong>
-                      </div>
-                    )}
+                    <button
+                      className="pnova-supplier-change-btn"
+                      type="button"
+                      onClick={() => {
+                        setForm((current) => ({ ...current, supplierId: "", supplierCode: "", supplierName: "", supplierDocument: "" }));
+                        window.setTimeout(() => setSupplierFilterOpen(true), 0);
+                      }}
+                    >
+                      Trocar
+                    </button>
                   </div>
-                ) : !form.supplierName && !form.supplierCode ? (
-                  <p className="pnova-supplier-empty">Selecione um fornecedor para iniciar o lançamento</p>
-                ) : null}
+                ) : (
+                  /* Estado busca */
+                  <>
+                    <div className="pnova-block-title">Fornecedor</div>
+                    <div className={`pnova-supplier-search${fieldErrors.supplier ? " field-error" : ""}`}>
+                      <div className="autocomplete-shell active">
+                        <input
+                          autoComplete="off"
+                          name="purchase-supplier-form"
+                          placeholder="Buscar fornecedor por nome, código ou CNPJ…"
+                          value={form.supplierName || form.supplierCode}
+                          onChange={(event) => {
+                            setForm((current) => ({ ...current, supplierId: "", supplierCode: event.target.value, supplierName: event.target.value, supplierDocument: "" }));
+                            setSupplierFilterQuery(event.target.value);
+                            setSupplierFilterOpen(true);
+                          }}
+                          onFocus={() => { setSupplierFilterQuery(form.supplierName || form.supplierCode); setSupplierFilterOpen(true); }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") { setSupplierFilterOpen(false); return; }
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              if (filteredSupplierOptions.length === 1) { selectSupplier(filteredSupplierOptions[0].id, "form"); setSupplierFilterOpen(false); }
+                              else if (filteredSupplierOptions.length > 0) {
+                                const q = normalize(supplierFilterQuery);
+                                const exact = filteredSupplierOptions.find((s) => normalize(s.name) === q || normalize(s.externalCode ?? "") === q);
+                                if (exact) { selectSupplier(exact.id, "form"); setSupplierFilterOpen(false); }
+                                else setSupplierFilterOpen(true);
+                              }
+                            }
+                          }}
+                        />
+                        {(form.supplierName || form.supplierCode) && (
+                          <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor"
+                            onClick={() => { setForm((current) => ({ ...current, supplierId: "", supplierCode: "", supplierName: "", supplierDocument: "" })); }}>
+                            <X size={14} />
+                          </button>
+                        )}
+                        <ChevronDown size={16} className="autocomplete-chevron" />
+                        {supplierFilterOpen && (
+                          <div className="autocomplete-dropdown">
+                            {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado.</div>}
+                            {filteredSupplierOptions.map((supplier) => (
+                              <button key={supplier.id} className="autocomplete-option" type="button"
+                                onClick={() => { selectSupplier(supplier.id, "form"); setSupplierFilterOpen(false); }}>
+                                <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
+                                <small>{supplier.document || "Sem documento"}</small>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {!form.supplierId && (form.supplierName || form.supplierCode) && (
+                        <p className="pnova-supplier-hint">Selecione um fornecedor da lista.</p>
+                      )}
+                    </div>
+                    {!form.supplierName && !form.supplierCode && (
+                      <p className="pnova-supplier-empty">Selecione um fornecedor para iniciar o lançamento</p>
+                    )}
+                  </>
+                )}
               </div>
 
               {/* ─── 2. DADOS DA COMPRA ─── */}
               <div className="pnova-data-block">
-                <div className="pnova-data-heading">Dados da compra</div>
-                <div className="pnova-data-row">
-                  <div className={`pnova-data-cell${fieldErrors.purchaseDate ? " field-error" : ""}`}>
-                    <span className="pnova-data-label">Data</span>
+                {/* Barra horizontal compacta */}
+                <div className="pnova-data-bar">
+                  <div className={`pnova-data-field${fieldErrors.purchaseDate ? " field-error" : ""}`}>
+                    <span>Data</span>
                     <input type="date" value={form.purchaseDate}
                       onChange={(event) => setForm({ ...form, purchaseDate: event.target.value })} />
                   </div>
-                  <div className={`pnova-data-cell${fieldErrors.invoiceNumber ? " field-error" : ""}`}>
-                    <span className="pnova-data-label">Número da NF</span>
-                    <input autoComplete="off" value={form.invoiceNumber} disabled={showNoInvoiceReason}
+                  <div className={`pnova-data-field${fieldErrors.invoiceNumber ? " field-error" : ""}`}>
+                    <span>NF</span>
+                    <input autoComplete="off" placeholder="Número" value={form.invoiceNumber} disabled={showNoInvoiceReason}
                       onChange={(event) => setForm({ ...form, invoiceNumber: event.target.value })} />
                   </div>
-                  <div className="pnova-data-cell">
-                    <span className="pnova-data-label">Número do pedido</span>
-                    <input autoComplete="off" value={form.purchaseOrderNumber}
+                  <div className="pnova-data-field">
+                    <span>Pedido</span>
+                    <input autoComplete="off" placeholder="Opcional" value={form.purchaseOrderNumber}
                       onChange={(event) => setForm({ ...form, purchaseOrderNumber: event.target.value })} />
                   </div>
-                  <div className="pnova-data-cell pnova-data-checks">
-                    <label className="checkbox-label">
+                  <div className="pnova-data-chips">
+                    <label className="pnova-chip-check">
                       <input type="checkbox" checked={showNoInvoiceReason}
                         onChange={(event) => { setShowNoInvoiceReason(event.target.checked); if (event.target.checked) setForm({ ...form, invoiceNumber: "" }); }} />
-                      Compra sem NF
+                      <span>Sem NF</span>
                     </label>
-                    <label className="checkbox-label">
+                    <label className="pnova-chip-check">
                       <input type="checkbox" checked={form.isSmallExpense}
                         onChange={(event) => setForm({ ...form, isSmallExpense: event.target.checked })} />
-                      Pequeno gasto
+                      <span>Pequeno gasto</span>
                     </label>
                   </div>
                 </div>
 
+                {/* Linhas extras condicionais */}
                 {showNoInvoiceReason && (
-                  <div className="pnova-data-row">
-                    <div className={`pnova-data-cell pnova-data-cell-span${fieldErrors.noInvoiceReason ? " field-error" : ""}`}>
-                      <span className="pnova-data-label">Motivo sem NF</span>
+                  <div className="pnova-data-extra-row">
+                    <div className={`pnova-data-field pnova-data-field-wide${fieldErrors.noInvoiceReason ? " field-error" : ""}`}>
+                      <span>Motivo sem NF</span>
                       <input autoComplete="off" value={form.noInvoiceReason}
                         onChange={(event) => setForm({ ...form, noInvoiceReason: event.target.value })} />
                     </div>
@@ -1820,9 +1816,9 @@ export function Purchases({ user }: { user: AppUser }) {
                 )}
 
                 {form.isSmallExpense && (
-                  <div className="pnova-data-row">
-                    <div className={`pnova-data-cell${fieldErrors.smallExpenseTypeId ? " field-error" : ""}`}>
-                      <span className="pnova-data-label">Tipo pequeno gasto</span>
+                  <div className="pnova-data-extra-row">
+                    <div className={`pnova-data-field${fieldErrors.smallExpenseTypeId ? " field-error" : ""}`}>
+                      <span>Tipo pequeno gasto</span>
                       <select value={form.smallExpenseTypeId}
                         onChange={(event) => setForm({ ...form, smallExpenseTypeId: event.target.value })}>
                         <option value="">Selecione</option>
@@ -1830,45 +1826,33 @@ export function Purchases({ user }: { user: AppUser }) {
                       </select>
                     </div>
                     {selectedPaymentMethod && normalize(selectedPaymentMethod.name).includes("cartao de credito") ? (
-                      <div className={`pnova-data-cell${fieldErrors.creditCardId ? " field-error" : ""}`}>
-                        <span className="pnova-data-label">Cartão</span>
+                      <div className={`pnova-data-field${fieldErrors.creditCardId ? " field-error" : ""}`}>
+                        <span>Cartão</span>
                         <select value={form.creditCardId}
                           onChange={(event) => setForm({ ...form, creditCardId: event.target.value })}>
                           <option value="">Selecione</option>
                           {creditCards.map((card) => <option key={card.id} value={card.id}>{card.name} - {card.bankName} {card.last4Digits}</option>)}
                         </select>
                       </div>
-                    ) : (
-                      <div className="pnova-data-cell">
-                        <span className="pnova-data-label">Obs. pequeno gasto</span>
-                        <input autoComplete="off" value={form.smallExpenseNotes}
-                          onChange={(event) => setForm({ ...form, smallExpenseNotes: event.target.value })} />
-                      </div>
-                    )}
-                    {selectedPaymentMethod && normalize(selectedPaymentMethod.name).includes("cartao de credito") && (
-                      <div className="pnova-data-cell pnova-data-cell-span">
-                        <span className="pnova-data-label">Obs. pequeno gasto</span>
-                        <input autoComplete="off" value={form.smallExpenseNotes}
-                          onChange={(event) => setForm({ ...form, smallExpenseNotes: event.target.value })} />
-                      </div>
-                    )}
+                    ) : null}
+                    <div className="pnova-data-field pnova-data-field-wide">
+                      <span>Obs. pequeno gasto</span>
+                      <input autoComplete="off" value={form.smallExpenseNotes}
+                        onChange={(event) => setForm({ ...form, smallExpenseNotes: event.target.value })} />
+                    </div>
                   </div>
                 )}
 
                 {form.creditCardId && openCardStatement && (
-                  <div className="pnova-data-row">
-                    <div className="pnova-data-cell pnova-data-cell-span">
-                      <div className="alert info" style={{ margin: 0 }}>
-                        Fatura aberta: {openCardStatement.creditCard?.name ?? "Cartão"} • {String(openCardStatement.competenceMonth).padStart(2, "0")}/{openCardStatement.competenceYear} • venc. {formatDate(openCardStatement.dueDate)} • {openCardStatement.status} • {formatCurrency(openCardStatement.totalAmount)}
-                      </div>
+                  <div className="pnova-data-extra-row">
+                    <div className="alert info" style={{ margin: "0 16px 0" }}>
+                      Fatura aberta: {openCardStatement.creditCard?.name ?? "Cartão"} • {String(openCardStatement.competenceMonth).padStart(2, "0")}/{openCardStatement.competenceYear} • venc. {formatDate(openCardStatement.dueDate)} • {openCardStatement.status} • {formatCurrency(openCardStatement.totalAmount)}
                     </div>
                   </div>
                 )}
                 {form.creditCardId && !openCardStatement && smallExpenseUsesCreditCard && (
-                  <div className="pnova-data-row">
-                    <div className="pnova-data-cell pnova-data-cell-span">
-                      <div className="alert warning" style={{ margin: 0 }}>Não há fatura aberta para este cartão. Abra a fatura antes de salvar o lançamento.</div>
-                    </div>
+                  <div className="pnova-data-extra-row">
+                    <div className="alert warning" style={{ margin: "0 16px 0" }}>Não há fatura aberta para este cartão.</div>
                   </div>
                 )}
 
@@ -1879,7 +1863,7 @@ export function Purchases({ user }: { user: AppUser }) {
                     onClick={() => setShowExtraNotes(!showExtraNotes)}
                   >
                     {form.notes.trim() && !showExtraNotes
-                      ? `✓ Obs: ${form.notes.slice(0, 40)}${form.notes.length > 40 ? "…" : ""}`
+                      ? `✓ Obs: ${form.notes.slice(0, 50)}${form.notes.length > 50 ? "…" : ""}`
                       : "+ Observação da compra"}
                   </button>
                   {showExtraNotes && (
