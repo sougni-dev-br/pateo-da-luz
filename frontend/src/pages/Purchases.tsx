@@ -1651,6 +1651,7 @@ export function Purchases({ user }: { user: AppUser }) {
 
               {/* ─── 1. FORNECEDOR ─── */}
               <div className={`pnova-supplier-card${form.supplierId ? " has-supplier" : ""}`} ref={supplierFormRef}>
+                <div className="pnova-block-title">Fornecedor</div>
                 <div className={`pnova-supplier-search${fieldErrors.supplier ? " field-error" : ""}`}>
                   <div className={`autocomplete-shell active${form.supplierId ? " supplier-confirmed" : ""}`}>
                     <input
@@ -1757,6 +1758,7 @@ export function Purchases({ user }: { user: AppUser }) {
 
               {/* ─── 2. DADOS DA COMPRA ─── */}
               <div className="pnova-data-block">
+                <div className="pnova-data-heading">Dados da compra</div>
                 <div className="pnova-data-row">
                   <div className={`pnova-data-cell${fieldErrors.purchaseDate ? " field-error" : ""}`}>
                     <span className="pnova-data-label">Data</span>
