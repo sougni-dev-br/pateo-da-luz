@@ -354,6 +354,7 @@ export function Purchases({ user }: { user: AppUser }) {
       setError(null);
       setEditingId(null);
       setShowForm(true);
+      window.setTimeout(() => supplierFormRef.current?.querySelector("input")?.focus(), 80);
       markFormClean({
         formState: {
           supplierCode: "",
@@ -763,7 +764,19 @@ export function Purchases({ user }: { user: AppUser }) {
     }
     setError(null);
     if (mergeDuplicateProductLine(index)) return;
-    ensureTrailingProductRow();
+    // Garante linha vazia e foca o produto dela (mesmo se já existia)
+    setItems((current) => {
+      const lastItem = current[current.length - 1];
+      const nextIndex = current.length;
+      if (lastItem && isItemBlank(lastItem)) {
+        // Linha vazia já existe — apenas foca ela
+        window.setTimeout(() => focusProductInput(nextIndex - 1), 0);
+        return current;
+      }
+      setProductQueries((queries) => ({ ...queries, [nextIndex]: "" }));
+      window.setTimeout(() => focusProductInput(nextIndex), 0);
+      return [...current, { ...emptyItem }];
+    });
   }
 
   function updateItem(index: number, next: Partial<PurchaseItemForm>) {
