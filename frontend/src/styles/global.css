@@ -2518,10 +2518,10 @@ select:disabled {
 .pnova-layout {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-width: 900px;
+  gap: 10px;
+  max-width: min(100%, 1360px);
   margin: 0 auto;
-  padding-bottom: 32px;
+  padding-bottom: 80px;
 }
 
 /* ─── 1. Fornecedor ─── */
@@ -2537,16 +2537,72 @@ select:disabled {
 .pnova-supplier-card {
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 14px 20px 16px;
-  box-shadow: 0 2px 8px rgba(20, 22, 28, 0.05);
+  border-radius: 10px;
+  padding: 12px 16px;
+  box-shadow: 0 2px 6px rgba(20, 22, 28, 0.05);
   transition: border-color 0.18s;
 }
 .pnova-supplier-card.has-supplier {
   border-color: rgba(92, 130, 75, 0.45);
   background: #f9fcf6;
+  padding: 10px 14px;
 }
 
+/* Estado confirmado: strip horizontal compacto */
+.pnova-supplier-confirmed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+.pnova-supplier-confirmed-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.pnova-supplier-confirmed-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+.pnova-supplier-confirmed-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.pnova-supplier-confirmed-meta > span + span::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--line);
+}
+.pnova-supplier-confirmed-notes {
+  font-style: italic;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pnova-supplier-change-btn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.pnova-supplier-change-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Estado busca */
 .pnova-supplier-search {
   position: relative;
 }
@@ -2562,37 +2618,8 @@ select:disabled {
   font-size: 12px;
   color: var(--text-muted);
 }
-
-.pnova-supplier-info {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 24px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-.pnova-supplier-info-col {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 120px;
-}
-.pnova-supplier-info-col span {
-  font-size: 11px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.pnova-supplier-info-col strong {
-  font-size: 13px;
-  color: var(--text);
-}
-.pnova-supplier-info-notes {
-  flex: 1 1 100%;
-}
-
 .pnova-supplier-empty {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   font-size: 13px;
   color: var(--text-muted);
   font-style: italic;
@@ -2602,93 +2629,133 @@ select:disabled {
 .pnova-data-block {
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(20, 22, 28, 0.05);
+  box-shadow: 0 2px 6px rgba(20, 22, 28, 0.05);
 }
 
-.pnova-data-heading {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--text-muted);
-  padding: 10px 16px 8px;
-  border-bottom: 1px solid var(--line);
-  background: #f7f6f2;
-}
-
-.pnova-data-row {
+/* Barra horizontal compacta — linha principal */
+.pnova-data-bar {
   display: flex;
+  align-items: stretch;
   flex-wrap: wrap;
-  gap: 0;
   border-bottom: 1px solid var(--line);
-}
-.pnova-data-row:last-child {
-  border-bottom: none;
-}
-.pnova-data-row:nth-child(odd) {
   background: #fafaf8;
 }
-.pnova-data-row:nth-child(even) {
-  background: #fff;
+.pnova-data-bar:last-child {
+  border-bottom: none;
 }
 
-.pnova-data-cell {
+.pnova-data-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 16px;
-  flex: 1 1 160px;
+  gap: 2px;
+  padding: 8px 14px;
   border-right: 1px solid var(--line);
+  flex-shrink: 0;
 }
-.pnova-data-cell:last-child {
+.pnova-data-field:last-child {
   border-right: none;
 }
-.pnova-data-cell.pnova-data-cell-span {
-  flex: 1 1 100%;
-  border-right: none;
+.pnova-data-field.pnova-data-field-wide {
+  flex: 1 1 200px;
 }
-.pnova-data-cell.pnova-data-checks {
-  justify-content: center;
-  gap: 8px;
-}
-
-.pnova-data-label {
-  font-size: 11px;
-  color: var(--text-muted);
+.pnova-data-field > span {
+  font-size: 10px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
-.pnova-data-cell input,
-.pnova-data-cell select {
+.pnova-data-field input,
+.pnova-data-field select {
   border: none;
   background: transparent;
   padding: 0;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text);
   width: 100%;
   outline: none;
   box-shadow: none;
+  min-width: 80px;
 }
-.pnova-data-cell input:focus,
-.pnova-data-cell select:focus {
+.pnova-data-field input[type="date"] {
+  min-width: 130px;
+}
+.pnova-data-field input:focus,
+.pnova-data-field select:focus {
   outline: none;
   box-shadow: none;
-  border-bottom: 1.5px solid var(--accent);
 }
-.pnova-data-cell input:disabled {
+.pnova-data-field input:disabled {
   color: var(--text-muted);
   cursor: default;
-  opacity: 0.65;
+  opacity: 0.6;
 }
-.pnova-data-cell.field-error {
+.pnova-data-field.field-error {
   background: #fff5f5;
-  border-color: #e57373;
 }
-.pnova-data-cell.field-error .pnova-data-label {
+.pnova-data-field.field-error > span {
   color: #c62828;
+}
+
+/* Chips de checkbox */
+.pnova-data-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  flex-shrink: 0;
+}
+.pnova-chip-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pnova-chip-check input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.pnova-chip-check span {
+  font-size: 12px;
+  color: var(--text-muted);
+  user-select: none;
+}
+.pnova-chip-check:has(input:checked) span {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Linhas extras condicionais (noInvoiceReason, smallExpense, alertas) */
+.pnova-data-extra-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  gap: 8px;
+}
+.pnova-data-extra-row:last-of-type {
+  border-bottom: none;
+}
+.pnova-data-extra-row .pnova-data-field {
+  padding: 0;
+  border-right: none;
+}
+.pnova-data-extra-row .alert {
+  flex: 1 1 100%;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
 }
 
 .pnova-obs-row {
