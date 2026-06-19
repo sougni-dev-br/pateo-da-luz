@@ -2875,6 +2875,36 @@ select:disabled {
   font-weight: 600;
 }
 
+/* ─── Linha confirmada: desktop horizontal compacta (≥ 1100px) ─── */
+/* Sobrescreve o card grid herdado do purchase-items-desktop-table          */
+@media (min-width: 1100px) {
+  .pnova-product-confirmed {
+    display: grid !important;
+    grid-template-columns: minmax(200px, 1fr) 72px 72px 100px 100px 44px !important;
+    grid-template-rows: auto !important;
+    align-items: center !important;
+    padding: 0 14px !important;
+    min-height: 44px;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-bottom: 1px solid var(--line) !important;
+    gap: 0 !important;
+  }
+  .pnova-product-confirmed td {
+    padding: 4px 6px !important;
+  }
+  .pnova-product-confirmed td:first-child {
+    grid-column: auto !important;
+    padding: 4px 6px !important;
+    border-bottom: none !important;
+    margin-bottom: 0 !important;
+  }
+  .pnova-product-confirmed td:not(:first-child)::before {
+    display: none !important;
+  }
+}
+
 /* ─── Dropdown de produto compacto ─── */
 .pnova-product-dropdown {
   max-height: 260px;
