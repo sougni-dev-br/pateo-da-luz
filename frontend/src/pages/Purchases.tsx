@@ -60,6 +60,16 @@ type InstallmentForm = {
 
 type PurchaseSortOption = "recent" | "oldest" | "highest" | "lowest";
 
+type ProductStep = "produtos" | "quantidades" | "valores" | "conferencia";
+
+const STEP_LABELS: Record<ProductStep, string> = {
+  produtos: "1 Produtos",
+  quantidades: "2 Quantidades",
+  valores: "3 Valores",
+  conferencia: "4 Conferência"
+};
+const STEP_ORDER: ProductStep[] = ["produtos", "quantidades", "valores", "conferencia"];
+
 type EntryLine = {
   productId: string;
   productName: string;
@@ -270,6 +280,10 @@ export function Purchases({ user }: { user: AppUser }) {
   const [showExtraNotes, setShowExtraNotes] = useState(false);
   const [showPaymentNotes, setShowPaymentNotes] = useState(false);
   const [paymentExpanded, setPaymentExpanded] = useState(false);
+  const [productStep, setProductStep] = useState<ProductStep>("produtos");
+  const [highlightedRow, setHighlightedRow] = useState<number | null>(null);
+  const [dupeNotice, setDupeNotice] = useState<string | null>(null);
+  const [pasteReport, setPasteReport] = useState<string[]>([]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [duplicateCheck, setDuplicateCheck] = useState<PurchaseDuplicateCheck | null>(null);
   const [baselineSnapshot, setBaselineSnapshot] = useState("");
@@ -283,6 +297,7 @@ export function Purchases({ user }: { user: AppUser }) {
   const entryProductRef = useRef<HTMLInputElement | null>(null);
   const gridQtyRefs = useRef<(HTMLInputElement | null)[]>([]);
   const gridPriceRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const paymentBlockRef = useRef<HTMLDivElement | null>(null);
   const { notice, setNotice } = useNotice();
 
   const isAdmin = hasPermission(user, "purchases", "admin");
@@ -703,12 +718,14 @@ export function Purchases({ user }: { user: AppUser }) {
       return;
     }
 
-    // Duplicate: focus existing row qty instead of adding again
+    // Duplicate: show notice, focus existing row qty
     const dupIdx = items.findIndex((item) => item.productId === productId);
     if (dupIdx >= 0) {
       setEntry({ ...emptyEntry });
       setEntryDropdownOpen(false);
       setEntryDropdownCursor(-1);
+      setDupeNotice(`"${product.name}" já está na lista — linha ${dupIdx + 1}.`);
+      window.setTimeout(() => setDupeNotice(null), 3500);
       window.setTimeout(() => {
         gridQtyRefs.current[dupIdx]?.focus();
         gridQtyRefs.current[dupIdx]?.select();
@@ -729,7 +746,10 @@ export function Purchases({ user }: { user: AppUser }) {
       totalPrice: "",
       notes: ""
     };
+    const newIdx = items.length;
     setItems((current) => [...current, newItem]);
+    setHighlightedRow(newIdx);
+    window.setTimeout(() => setHighlightedRow(null), 1200);
     setEntry({ ...emptyEntry });
     setEntryDropdownOpen(false);
     setEntryDropdownCursor(-1);
@@ -749,10 +769,31 @@ export function Purchases({ user }: { user: AppUser }) {
       editingIndex: index
     });
     setEntryDropdownOpen(false);
+    setProductStep("produtos");
     window.setTimeout(() => {
       entryProductRef.current?.focus();
       entryProductRef.current?.select();
     }, 0);
+  }
+
+  function goToStep(step: ProductStep) {
+    setProductStep(step);
+    if (step === "quantidades") {
+      window.setTimeout(() => {
+        const first = gridQtyRefs.current[0];
+        if (first) { first.focus(); first.select(); }
+      }, 0);
+    } else if (step === "valores") {
+      window.setTimeout(() => {
+        const first = gridPriceRefs.current[0];
+        if (first) { first.focus(); first.select(); }
+      }, 0);
+    } else if (step === "produtos") {
+      window.setTimeout(() => entryProductRef.current?.focus(), 0);
+    } else if (step === "conferencia") {
+      setPaymentExpanded(true);
+      window.setTimeout(() => paymentBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
+    }
   }
 
   function resetForm() {
@@ -788,6 +829,10 @@ export function Purchases({ user }: { user: AppUser }) {
     setShowExtraNotes(false);
     setShowPaymentNotes(false);
     setPaymentExpanded(false);
+    setProductStep("produtos");
+    setHighlightedRow(null);
+    setDupeNotice(null);
+    setPasteReport([]);
     setSupplierFilterQuery("");
     setSupplierFilterOpen(false);
   }
@@ -890,6 +935,7 @@ export function Purchases({ user }: { user: AppUser }) {
       setItems(mappedItems);
       setEntry({ ...emptyEntry });
       setPaymentExpanded(true);
+      setProductStep("conferencia");
       setInstallments(nextInstallments);
       setFieldErrors({});
       setShowForm(true);
@@ -1814,7 +1860,28 @@ export function Purchases({ user }: { user: AppUser }) {
                 <div className="section-heading compact-heading">
                   <div><h3>Produtos</h3></div>
                 </div>
+
+                {/* Barra de etapas */}
+                <div className="pnova-steps-bar">
+                  {STEP_ORDER.map((step) => (
+                    <button
+                      key={step}
+                      type="button"
+                      className={`pnova-step-chip${productStep === step ? " active" : ""}`}
+                      onClick={() => goToStep(step)}
+                      disabled={step !== "produtos" && items.length === 0}
+                    >
+                      {STEP_LABELS[step]}
+                    </button>
+                  ))}
+                </div>
+
                 {fieldErrors.items && <div className="alert error">{fieldErrors.items}</div>}
+
+                {/* Aviso de produto duplicado */}
+                {dupeNotice && (
+                  <div className="pnova-dupe-notice">⚠ {dupeNotice}</div>
+                )}
 
                 {/* Linha de entrada rápida — só produto */}
                 <div className="pnova-entry-wrap" ref={productRef}>
@@ -1837,13 +1904,51 @@ export function Purchases({ user }: { user: AppUser }) {
                         autoComplete="off"
                         placeholder={entry.editingIndex !== null ? "Digite o novo produto..." : "Código ou nome do produto — Enter para adicionar"}
                         value={entry.query}
-                        onFocus={() => { setEntryDropdownCursor(-1); }}
+                        onFocus={() => { setEntryDropdownCursor(-1); setProductStep("produtos"); }}
                         onClick={() => { setEntryDropdownOpen(true); }}
                         onChange={(event) => {
                           const val = event.target.value;
                           setEntry((e) => ({ ...e, query: val, productId: "", productName: val, productCode: "" }));
                           setEntryDropdownOpen(true);
                           setEntryDropdownCursor(-1);
+                        }}
+                        onPaste={(event) => {
+                          const text = event.clipboardData.getData("text");
+                          const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+                          if (lines.length <= 1) return;
+                          event.preventDefault();
+                          const notFound: string[] = [];
+                          const newItems: PurchaseItemForm[] = [];
+                          const existingIds = new Set(items.map((i) => i.productId));
+                          for (const line of lines) {
+                            const q = normalize(line);
+                            if (!q) continue;
+                            const match = products.filter((p) => p.isActive).find((p) => {
+                              const code = normalize(p.externalCode ?? "");
+                              const name = normalize(p.name);
+                              const aliases = p.aliases?.map((a) => normalize(a.alias)) ?? [];
+                              return (
+                                code === q || name === q ||
+                                (q.length >= 4 && (name.startsWith(q) || name.includes(q))) ||
+                                aliases.some((a) => a === q || (q.length >= 4 && a.includes(q)))
+                              );
+                            });
+                            if (match && !existingIds.has(match.id)) {
+                              existingIds.add(match.id);
+                              const def = productDefaults(match);
+                              newItems.push({ ...def, quantity: "1", unitPrice: "", totalPrice: "", notes: "" });
+                            } else if (!match) {
+                              notFound.push(line);
+                            }
+                          }
+                          if (newItems.length > 0) {
+                            const startIdx = items.length;
+                            setItems((current) => [...current, ...newItems]);
+                            setHighlightedRow(startIdx);
+                            window.setTimeout(() => setHighlightedRow(null), 1500);
+                          }
+                          setPasteReport(notFound);
+                          setEntry({ ...emptyEntry });
                         }}
                         onKeyDown={(event) => {
                           if (event.key === "Escape") { event.preventDefault(); setEntryDropdownOpen(false); setEntryDropdownCursor(-1); if (entry.editingIndex !== null) setEntry({ ...emptyEntry }); return; }
@@ -1897,6 +2002,32 @@ export function Purchases({ user }: { user: AppUser }) {
                   </div>
                 </div>
 
+                {/* Relatório de produtos não encontrados no paste */}
+                {pasteReport.length > 0 && (
+                  <div className="pnova-paste-report">
+                    <strong>Não encontrados ({pasteReport.length}):</strong>{" "}
+                    {pasteReport.join(", ")}
+                    <button type="button" className="pnova-paste-report-close" onClick={() => setPasteReport([])}>✕</button>
+                  </div>
+                )}
+
+                {/* Botão contextual de avanço de etapa */}
+                {productStep === "produtos" && items.length > 0 && (
+                  <button type="button" className="pnova-step-advance" onClick={() => goToStep("quantidades")}>
+                    → Preencher quantidades
+                  </button>
+                )}
+                {productStep === "quantidades" && items.length > 0 && (
+                  <button type="button" className="pnova-step-advance" onClick={() => goToStep("valores")}>
+                    → Preencher valores
+                  </button>
+                )}
+                {productStep === "valores" && items.length > 0 && (
+                  <button type="button" className="pnova-step-advance" onClick={() => goToStep("conferencia")}>
+                    → Conferir pagamento
+                  </button>
+                )}
+
                 {/* Grade editável — planilha compacta */}
                 {items.length > 0 && (
                   <div className="pnova-items-grid">
@@ -1913,7 +2044,7 @@ export function Purchases({ user }: { user: AppUser }) {
                     {items.map((item, index) => (
                       <div
                         key={index}
-                        className={`pnova-grid-row${entry.editingIndex === index ? " is-editing" : ""}${fieldErrors[`item-${index}`] ? " row-error" : ""}${(!item.unitPrice || Number(item.unitPrice) <= 0) && item.productId ? " row-warn" : ""}`}
+                        className={`pnova-grid-row${entry.editingIndex === index ? " is-editing" : ""}${fieldErrors[`item-${index}`] ? " row-error" : ""}${(!item.unitPrice || Number(item.unitPrice) <= 0) && item.productId ? " row-warn" : ""}${highlightedRow === index ? " row-highlight" : ""}`}
                       >
                         {/* Código */}
                         <span className="pnova-gr-code" title={item.productCode}>{item.productCode || "–"}</span>
@@ -1935,23 +2066,31 @@ export function Purchases({ user }: { user: AppUser }) {
                           min="0"
                           step="any"
                           inputMode="decimal"
-                          className={`pnova-gr-input pnova-gr-qty-input${!item.quantity || Number(item.quantity) <= 0 ? " cell-warn" : ""}`}
+                          className={`pnova-gr-input pnova-gr-qty-input${productStep === "quantidades" ? " col-active" : ""}${!item.quantity || Number(item.quantity) <= 0 ? " cell-warn" : ""}`}
                           value={item.quantity}
-                          onChange={(ev) => updateGridItem(index, { quantity: ev.target.value })}
+                          onFocus={(ev) => { ev.target.select(); setProductStep("quantidades"); }}
+                          onChange={(ev) => updateGridItem(index, { quantity: ev.target.value.replace(",", ".") })}
                           onBlur={(ev) => {
                             const raw = ev.target.value.trim();
                             if (raw && !isNaN(Number(raw))) {
                               const num = parseFloat(raw);
-                              if (!isNaN(num)) updateGridItem(index, { quantity: Number.isInteger(num) ? String(num) : String(num) });
+                              if (!isNaN(num)) updateGridItem(index, { quantity: String(num) });
                             }
                           }}
                           onKeyDown={(ev) => {
                             if (ev.key === "Enter") {
                               ev.preventDefault();
+                              if (ev.shiftKey) {
+                                const prev = gridQtyRefs.current[index - 1];
+                                if (prev) { prev.focus(); prev.select(); }
+                                return;
+                              }
                               const next = gridQtyRefs.current[index + 1];
                               if (next) { next.focus(); next.select(); }
-                              else if (gridPriceRefs.current[0]) { gridPriceRefs.current[0].focus(); gridPriceRefs.current[0].select(); }
+                              else goToStep("valores");
                             }
+                            if (ev.key === "ArrowDown") { ev.preventDefault(); const next = gridQtyRefs.current[index + 1]; if (next) { next.focus(); next.select(); } }
+                            if (ev.key === "ArrowUp") { ev.preventDefault(); const prev = gridQtyRefs.current[index - 1]; if (prev) { prev.focus(); prev.select(); } }
                           }}
                         />
 
@@ -1971,17 +2110,25 @@ export function Purchases({ user }: { user: AppUser }) {
                           type="number"
                           min="0"
                           step="0.01"
-                          className={`pnova-gr-input pnova-gr-price-input${!item.unitPrice || Number(item.unitPrice) <= 0 ? " cell-warn" : ""}`}
+                          className={`pnova-gr-input pnova-gr-price-input${productStep === "valores" ? " col-active" : ""}${!item.unitPrice || Number(item.unitPrice) <= 0 ? " cell-warn" : ""}`}
                           value={item.unitPrice}
                           placeholder="0,00"
-                          onChange={(ev) => updateGridItem(index, { unitPrice: ev.target.value })}
+                          onFocus={(ev) => { ev.target.select(); setProductStep("valores"); }}
+                          onChange={(ev) => updateGridItem(index, { unitPrice: ev.target.value.replace(",", ".") })}
                           onKeyDown={(ev) => {
                             if (ev.key === "Enter") {
                               ev.preventDefault();
+                              if (ev.shiftKey) {
+                                const prev = gridPriceRefs.current[index - 1];
+                                if (prev) { prev.focus(); prev.select(); }
+                                return;
+                              }
                               const next = gridPriceRefs.current[index + 1];
                               if (next) { next.focus(); next.select(); }
-                              else entryProductRef.current?.focus();
+                              else goToStep("conferencia");
                             }
+                            if (ev.key === "ArrowDown") { ev.preventDefault(); const next = gridPriceRefs.current[index + 1]; if (next) { next.focus(); next.select(); } }
+                            if (ev.key === "ArrowUp") { ev.preventDefault(); const prev = gridPriceRefs.current[index - 1]; if (prev) { prev.focus(); prev.select(); } }
                           }}
                         />
 
@@ -2053,7 +2200,7 @@ export function Purchases({ user }: { user: AppUser }) {
               </div>
 
               {/* ─── 5. PAGAMENTO ─── */}
-              <div className="pnova-payment-block">
+              <div className="pnova-payment-block" ref={paymentBlockRef}>
                 {!form.supplierId || totalAmount <= 0 ? (
                   <p className="pnova-payment-placeholder">
                     {!form.supplierId

@@ -2797,6 +2797,96 @@ select:disabled {
 }
 
 /* ─── 3. Produtos (herda purchase-items-desktop-table) ─── */
+/* ─── Barra de etapas ─── */
+.pnova-steps-bar {
+  display: flex;
+  gap: 4px;
+  padding: 0 16px 10px;
+  flex-wrap: wrap;
+}
+.pnova-step-chip {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.pnova-step-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.pnova-step-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.pnova-step-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Botão de avanço contextual */
+.pnova-step-advance {
+  display: block;
+  margin: 2px 16px 8px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1.5px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.pnova-step-advance:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Aviso de produto duplicado */
+.pnova-dupe-notice {
+  margin: 0 16px 6px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  background: rgba(255, 193, 7, 0.13);
+  border: 1px solid rgba(255, 193, 7, 0.45);
+  color: #856404;
+  font-size: 12.5px;
+}
+
+/* Relatório de paste */
+.pnova-paste-report {
+  margin: 0 16px 8px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  background: rgba(220, 53, 69, 0.06);
+  border: 1px solid rgba(220, 53, 69, 0.25);
+  color: #721c24;
+  font-size: 12.5px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.pnova-paste-report-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.6;
+  font-size: 12px;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+.pnova-paste-report-close:hover { opacity: 1; }
+
 .pnova-products-block {
   background: #fff;
   border: 1px solid var(--line);
@@ -3160,6 +3250,25 @@ select:disabled {
 }
 .pnova-grid-row:hover .pnova-gr-actions button { opacity: 1; }
 .pnova-gr-actions button:hover { color: #dc3545; }
+
+/* Highlight ao adicionar linha */
+@keyframes pnova-row-flash {
+  0%   { background: rgba(197, 172, 120, 0.38); }
+  100% { background: transparent; }
+}
+.pnova-grid-row.row-highlight {
+  animation: pnova-row-flash 1.3s ease-out forwards;
+}
+
+/* Coluna ativa na etapa atual */
+.pnova-gr-input.col-active {
+  border-color: rgba(197, 172, 120, 0.45);
+  background: rgba(197, 172, 120, 0.05);
+}
+.pnova-gr-input.col-active:focus {
+  border-color: var(--accent);
+  background: #fff;
+}
 
 /* Mobile */
 @media (max-width: 700px) {
