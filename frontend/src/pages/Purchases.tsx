@@ -1992,9 +1992,16 @@ export function Purchases({ user }: { user: AppUser }) {
                             </td>
                             <td data-label="Qtd.">
                               <input ref={(element) => { quantityInputRefs.current[index] = element; }}
-                                type="number" min="0" step="0.001"
+                                type="number" min="0" step="any" inputMode="decimal"
                                 value={item.quantity}
                                 onChange={(event) => updateItem(index, { quantity: event.target.value })}
+                                onBlur={(event) => {
+                                  const raw = event.target.value.trim();
+                                  if (raw !== "" && !isNaN(Number(raw))) {
+                                    const num = parseFloat(raw);
+                                    if (!isNaN(num)) updateItem(index, { quantity: Number.isInteger(num) ? String(num) : String(num) });
+                                  }
+                                }}
                                 onFocus={() => setActiveProductLine(index)}
                                 onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); focusUnitPriceInput(index); } }} />
                             </td>
