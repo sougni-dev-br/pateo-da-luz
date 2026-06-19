@@ -2046,59 +2046,76 @@ export function Purchases({ user }: { user: AppUser }) {
             </div>
 
             <aside className="purchase-editor-sidebar">
+              {/* Bloco: Fornecedor + condições */}
               <div className="purchase-sidebar-block">
                 <span>Fornecedor</span>
-                <strong>{selectedSupplier?.name ?? "Fornecedor não selecionado"}</strong>
-                <small>{selectedSupplier?.document ?? "Selecione um fornecedor para continuar"}</small>
-                <small>{form.invoiceNumber || form.purchaseOrderNumber ? `NF/Pedido: ${form.invoiceNumber || "Sem NF"}${form.purchaseOrderNumber ? ` • ${form.purchaseOrderNumber}` : ""}` : "NF/pedido ainda não informado"}</small>
+                <strong>{selectedSupplier?.name ?? "Não selecionado"}</strong>
+                {selectedSupplier ? (
+                  <>
+                    {selectedSupplier.document && <small>{selectedSupplier.document}</small>}
+                    {(form.invoiceNumber || form.purchaseOrderNumber) && (
+                      <small>NF {form.invoiceNumber || "–"}{form.purchaseOrderNumber ? ` · Ped. ${form.purchaseOrderNumber}` : ""}</small>
+                    )}
+                    {selectedSupplier.defaultPaymentMethodId && (
+                      <small className="purchase-sidebar-conditions">
+                        {basePaymentMethodName(selectedPaymentMethod?.name) || "Boleto"}
+                        {selectedPaymentMethodAllowsInstallments && (() => {
+                          const days = Array.isArray(selectedSupplier.defaultInstallmentDays) && (selectedSupplier.defaultInstallmentDays as number[]).length > 0
+                            ? (selectedSupplier.defaultInstallmentDays as number[]).join("/")
+                            : null;
+                          const count = selectedSupplier.defaultInstallmentCount ?? (Array.isArray(selectedSupplier.defaultInstallmentDays) ? (selectedSupplier.defaultInstallmentDays as number[]).length : 2);
+                          return ` ${count}x${days ? ` (${days}d)` : ""}`;
+                        })()}
+                      </small>
+                    )}
+                  </>
+                ) : (
+                  <small>Selecione para aplicar condições de pagamento</small>
+                )}
               </div>
 
+              {/* Bloco: Resumo financeiro */}
               <div className="purchase-sidebar-block purchase-sidebar-metrics">
-                <article><span>Total dos produtos</span><strong>{formatCurrency(totalAmount)}</strong></article>
-                <article><span>Total das parcelas</span><strong>{formatCurrency(installmentTotal)}</strong></article>
+                <article><span>Total</span><strong>{formatCurrency(totalAmount)}</strong></article>
+                <article><span>Itens</span><strong>{items.filter((item) => item.productId).length}</strong></article>
+                <article><span>Parcelas</span><strong>{installments.length > 0 ? `${installments.length}x` : "–"}</strong></article>
                 <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}>
                   <span>Diferença</span>
-                  <strong>{formatCurrency(amountDifference)}</strong>
-                  <StatusBadge tone={Math.round(amountDifference * 100) === 0 ? "success" : "danger"}>
-                    {Math.round(amountDifference * 100) === 0 ? "Conferido" : "Divergência"}
-                  </StatusBadge>
+                  <strong>{Math.round(amountDifference * 100) === 0 ? "OK" : formatCurrency(amountDifference)}</strong>
                 </article>
-                <article><span>Itens</span><strong>{items.filter((item) => item.productId).length}</strong></article>
               </div>
 
+              {/* Bloco: Status de validação */}
               <div className={`purchase-sidebar-block ${validationMessages.length === 0 ? "purchase-sidebar-ok" : "purchase-sidebar-pending"}`}>
-                <span>Status da validação</span>
-                <strong>{validationMessages.length === 0 ? "Compra conferida" : "Pendências encontradas"}</strong>
-                <small>{validationMessages.length === 0 ? "Compra pronta para salvar." : "Revise os pontos abaixo antes de concluir."}</small>
+                <span>Status</span>
+                <strong>{validationMessages.length === 0 ? "✓ Compra conferida" : `${validationMessages.length} pendência${validationMessages.length > 1 ? "s" : ""}`}</strong>
+                {validationMessages.length > 0 && (
+                  <ul className="purchase-validation-list">
+                    {validationMessages.map((message) => <li key={message}>{message}</li>)}
+                  </ul>
+                )}
               </div>
 
+              {/* Bloco: Alerta de duplicata */}
               {duplicateCheck?.existingPurchase && (
                 <div className="purchase-sidebar-block purchase-sidebar-pending">
-                  <span>Duplicidade ativa</span>
+                  <span>Duplicidade detectada</span>
                   <strong>{duplicateCheck.existingPurchase.purchaseNumber ?? "Compra existente"}</strong>
-                  <small>{formatDate(duplicateCheck.existingPurchase.purchaseDate)} • {formatCurrency(Number(duplicateCheck.existingPurchase.totalAmount))}</small>
+                  <small>{formatDate(duplicateCheck.existingPurchase.purchaseDate)} · {formatCurrency(Number(duplicateCheck.existingPurchase.totalAmount))}</small>
                   <button className="secondary-button" type="button" onClick={() => navigate({ pathname: `/compras/${duplicateCheck.existingPurchase?.id}/editar`, search: location.search })}>
                     Abrir compra existente
                   </button>
                 </div>
               )}
 
-              {validationMessages.length > 0 && (
-                <div className="purchase-sidebar-block">
-                  <span>Pendências</span>
-                  <ul className="purchase-validation-list">
-                    {validationMessages.map((message) => <li key={message}>{message}</li>)}
-                  </ul>
-                </div>
-              )}
-
+              {/* Bloco: Ações */}
               <div className="purchase-sidebar-block purchase-sidebar-actions">
                 <button className="secondary-button" type="button" onClick={goBackToList}>Cancelar</button>
                 <button className="primary-button purchase-sidebar-save" type="button" disabled={!canSavePurchase} onClick={handleCreatePurchase}>
                   {saving ? "Salvando..." : editingId ? "Salvar alterações" : "Salvar compra"}
                 </button>
                 {!canSavePurchase && validationMessages.length > 0 && (
-                  <small>Salvar bloqueado até corrigir as pendências acima.</small>
+                  <small>Ctrl+Enter salva quando conferida.</small>
                 )}
               </div>
             </aside>
