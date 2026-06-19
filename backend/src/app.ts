@@ -26,6 +26,7 @@ const ALLOWED_ORIGINS = [
   "https://pateo.sougni.com",
   "http://localhost:5173",
   "http://localhost:5174",
+  "http://localhost:3000",
 ];
 app.use(cors({
   origin: (origin, callback) => {

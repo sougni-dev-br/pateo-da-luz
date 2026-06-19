@@ -11,7 +11,12 @@ export default defineConfig({
       "/api": {
         target: backendTarget,
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, "")
+        rewrite: (path) => path.replace(/^\/api/, ""),
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq) => {
+            proxyReq.setHeader("Origin", "http://localhost:5174");
+          });
+        }
       }
     }
   }

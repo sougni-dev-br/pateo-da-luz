@@ -1837,7 +1837,8 @@ export function Purchases({ user }: { user: AppUser }) {
                         autoComplete="off"
                         placeholder={entry.editingIndex !== null ? "Digite o novo produto..." : "Código ou nome do produto — Enter para adicionar"}
                         value={entry.query}
-                        onFocus={() => { setEntryDropdownOpen(true); setEntryDropdownCursor(-1); }}
+                        onFocus={() => { setEntryDropdownCursor(-1); }}
+                        onClick={() => { setEntryDropdownOpen(true); }}
                         onChange={(event) => {
                           const val = event.target.value;
                           setEntry((e) => ({ ...e, query: val, productId: "", productName: val, productCode: "" }));
@@ -1850,13 +1851,14 @@ export function Purchases({ user }: { user: AppUser }) {
                           if (event.key === "ArrowUp") { event.preventDefault(); setEntryDropdownCursor((c) => Math.max(c - 1, -1)); return; }
                           if (event.key === "Enter") {
                             event.preventDefault();
+                            // Cursor ativo: seleciona o item destacado
                             if (entryDropdownCursor >= 0 && entryFilteredProducts[entryDropdownCursor]) {
                               selectEntryProduct(entryFilteredProducts[entryDropdownCursor].id); return;
                             }
-                            const q = normalize(entry.query);
-                            const exact = entryFilteredProducts.find((p) => normalize(p.externalCode ?? "") === q);
-                            if (exact) { selectEntryProduct(exact.id); return; }
-                            if (entryFilteredProducts.length === 1) { selectEntryProduct(entryFilteredProducts[0].id); return; }
+                            // Sem cursor: seleciona o primeiro resultado (fluxo em lote)
+                            if (entryFilteredProducts.length > 0) {
+                              selectEntryProduct(entryFilteredProducts[0].id); return;
+                            }
                             setEntryDropdownOpen(true);
                           }
                         }}
