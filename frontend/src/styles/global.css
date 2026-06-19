@@ -2920,37 +2920,32 @@ select:disabled {
 .pnova-summary-strip {
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pnova-summary-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 1px 4px rgba(20, 22, 28, 0.04);
+  border-radius: 20px;
+  padding: 5px 12px;
+  font-size: 13px;
 }
-.pnova-summary-metric {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 10px 20px;
-  flex: 1;
-  border-right: 1px solid var(--line);
-}
-.pnova-summary-metric:last-of-type {
-  border-right: none;
-}
-.pnova-summary-metric span {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.pnova-summary-pill span {
   color: var(--text-muted);
+  font-size: 12px;
 }
-.pnova-summary-metric strong {
-  font-size: 15px;
+.pnova-summary-pill strong {
   font-weight: 700;
   color: var(--text);
 }
-.pnova-summary-metric.pnova-summary-warn strong {
+.pnova-summary-pill.pnova-summary-warn {
+  border-color: rgba(198, 40, 40, 0.35);
+  background: #fff7f7;
+}
+.pnova-summary-pill.pnova-summary-warn strong {
   color: #c62828;
 }
 .pnova-pending-wrap {
@@ -3013,19 +3008,143 @@ select:disabled {
   line-height: 1.4;
 }
 
-/* ─── 5. Pagamento (herda estilos existentes) ─── */
+/* ─── 5. Pagamento ─── */
 .pnova-payment-block {
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 0 20px 16px;
-  box-shadow: 0 2px 8px rgba(20, 22, 28, 0.05);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(20, 22, 28, 0.05);
 }
-.pnova-payment-block .section-heading {
-  padding-top: 14px;
-  margin-bottom: 12px;
+.pnova-payment-placeholder {
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+  font-style: italic;
+}
+.pnova-payment-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+  background: #f7f6f2;
+  border: none;
   border-bottom: 1px solid var(--line);
-  padding-bottom: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+.pnova-payment-header:hover {
+  background: #f2f0ea;
+}
+.pnova-payment-header.has-diff {
+  background: #fff7f0;
+  border-bottom-color: rgba(198, 100, 40, 0.3);
+}
+.pnova-payment-header-method {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.pnova-payment-header-info {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.pnova-payment-header-diff {
+  font-size: 12px;
+  color: #c62828;
+  font-weight: 600;
+}
+.pnova-payment-header-toggle {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pnova-payment-fields {
+  padding: 12px 16px;
+}
+.pnova-payment-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+.pnova-payment-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 140px;
+}
+.pnova-payment-grid label input,
+.pnova-payment-grid label select {
+  font-size: 13px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+}
+.pnova-payment-grid label.full-width {
+  flex: 1 1 100%;
+}
+.pnova-payment-grid label.field-error {
+  color: #c62828;
+}
+.pnova-payment-grid label.field-error input,
+.pnova-payment-grid label.field-error select {
+  border-color: #e57373;
+}
+.pnova-payment-obs-btn {
+  align-self: flex-end;
+  font-size: 12px !important;
+  padding: 5px 10px !important;
+}
+.pnova-installments-table {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.pnova-installments-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.pnova-installments-table th {
+  background: #f7f6f2;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.pnova-installments-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+  vertical-align: middle;
+}
+.pnova-installments-table tr:last-child td {
+  border-bottom: none;
+}
+.pnova-installments-table input {
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  width: 100%;
+  padding: 2px 4px;
+  outline: none;
+}
+.pnova-installments-table input:focus {
+  border-bottom: 1px solid var(--accent);
 }
 
 /* ─── 6. Barra de ações ─── */

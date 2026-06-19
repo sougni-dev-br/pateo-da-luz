@@ -2030,22 +2030,22 @@ export function Purchases({ user }: { user: AppUser }) {
 
               {/* ─── 4. FAIXA DE RESUMO + PENDÊNCIAS ─── */}
               <div className="pnova-summary-strip">
-                <div className="pnova-summary-metric">
-                  <span>Total</span>
+                <div className="pnova-summary-pill">
+                  <span>{items.filter((item) => item.productId).length} itens</span>
                   <strong>{formatCurrency(totalAmount)}</strong>
                 </div>
-                <div className="pnova-summary-metric">
-                  <span>Itens</span>
-                  <strong>{items.filter((item) => item.productId).length}</strong>
-                </div>
-                <div className="pnova-summary-metric">
-                  <span>Parcelas</span>
-                  <strong>{installments.length > 0 ? `${installments.length}x` : "–"}</strong>
-                </div>
-                <div className={`pnova-summary-metric${Math.round(amountDifference * 100) !== 0 ? " pnova-summary-warn" : ""}`}>
-                  <span>Diferença</span>
-                  <strong>{Math.round(amountDifference * 100) === 0 ? "OK" : formatCurrency(amountDifference)}</strong>
-                </div>
+                {installments.length > 0 && (
+                  <div className="pnova-summary-pill">
+                    <span>{installments.length}x</span>
+                    <strong>{formatCurrency(installmentTotal)}</strong>
+                  </div>
+                )}
+                {Math.round(amountDifference * 100) !== 0 && (
+                  <div className="pnova-summary-pill pnova-summary-warn">
+                    <span>Dif.</span>
+                    <strong>{formatCurrency(amountDifference)}</strong>
+                  </div>
+                )}
                 <div className="pnova-pending-wrap">
                   <button
                     className={`pnova-pending-btn${validationMessages.length === 0 ? " is-ok" : ""}`}
@@ -2070,89 +2070,99 @@ export function Purchases({ user }: { user: AppUser }) {
 
               {/* ─── 5. PAGAMENTO ─── */}
               <div className="pnova-payment-block">
-                <div className="section-heading compact-heading"><div><h3>Pagamento</h3></div></div>
                 {!form.supplierId || totalAmount <= 0 ? (
-                  <p className="purchase-payment-placeholder alert info">
+                  <p className="pnova-payment-placeholder">
                     {!form.supplierId
                       ? "Selecione o fornecedor para liberar as condições de pagamento."
                       : "Informe ao menos um produto com valor para calcular o pagamento."}
                   </p>
                 ) : (
                   <>
-                    <p className="purchase-payment-preview-hint">{paymentPreviewMessage}</p>
-                    <div className="purchase-form-grid payment-grid">
-                      <label className={fieldErrors.paymentMethodId ? "field-error" : ""}>
-                        Forma de pagamento
-                        <select value={form.paymentMethodId} onChange={(event) => {
-                          const nextMethod = availablePaymentMethods.find((method) => method.id === event.target.value) ?? null;
-                          const nextCount = nextMethod && allowsInstallments(nextMethod) ? Math.max(1, Number(form.installmentCount || 1)) : 1;
-                          setForm({ ...form, paymentMethodId: event.target.value, installmentCount: String(nextCount) });
-                          rebuildInstallments(event.target.value, totalAmount, nextCount);
-                        }}>
-                          <option value="">Selecione</option>
-                          {availablePaymentMethods.map((method) => <option key={method.id} value={method.id}>{basePaymentMethodName(method.name) || method.name}</option>)}
-                        </select>
-                      </label>
-                      <label className={fieldErrors.installmentCount ? "field-error" : ""}>
-                        Número de parcelas
-                        <input type="number" min="1" step="1" value={form.installmentCount}
-                          disabled={!selectedPaymentMethod || !selectedPaymentMethodAllowsInstallments || smallExpenseUsesCreditCard}
-                          onChange={(event) => setForm((current) => ({ ...current, installmentCount: String(Math.max(1, Number(event.target.value || 1))) }))} />
-                      </label>
-                      <label>
-                        Vencimento inicial
-                        <input className="locked-field"
-                          value={new Date(`${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}T12:00:00`).toLocaleDateString("pt-BR")}
-                          disabled />
-                      </label>
-                      {!showPaymentNotes ? (
-                        <button className="secondary-button" type="button" onClick={() => setShowPaymentNotes(true)}>
-                          + Observação financeira
-                        </button>
-                      ) : (
-                        <label className="full-width">
-                          Observação financeira
-                          <input autoComplete="off" value={form.paymentNotes}
-                            onChange={(event) => setForm({ ...form, paymentNotes: event.target.value })}
-                            onBlur={() => { if (!form.paymentNotes.trim()) setShowPaymentNotes(false); }} />
-                        </label>
+                    {/* Cabeçalho compacto clicável */}
+                    <button
+                      type="button"
+                      className={`pnova-payment-header${Math.round(amountDifference * 100) !== 0 ? " has-diff" : ""}`}
+                      onClick={() => setShowPaymentNotes((v) => !v)}
+                    >
+                      <span className="pnova-payment-header-method">
+                        {basePaymentMethodName(selectedPaymentMethod?.name) || "Selecionar forma"}
+                      </span>
+                      {installments.length > 0 && (
+                        <span className="pnova-payment-header-info">
+                          {installments.length}x · 1ª {new Date(`${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} · {formatCurrency(totalAmount)}
+                        </span>
                       )}
-                      {isAdmin && Math.round(amountDifference * 100) !== 0 && (
-                        <label className="full-width">
-                          Motivo da diferença
-                          <input autoComplete="off" value={form.paymentDifferenceReason}
-                            onChange={(event) => setForm({ ...form, paymentDifferenceReason: event.target.value })} />
-                        </label>
+                      {Math.round(amountDifference * 100) !== 0 && (
+                        <span className="pnova-payment-header-diff">⚠ dif. {formatCurrency(amountDifference)}</span>
                       )}
-                    </div>
-                    <div className="purchase-payment-summary">
-                      <article><span>Total da compra</span><strong>{formatCurrency(totalAmount)}</strong></article>
-                      <article><span>Total das parcelas</span><strong>{formatCurrency(installmentTotal)}</strong></article>
-                      <article className={Math.round(amountDifference * 100) === 0 ? "ok" : "warn"}>
-                        <span>Diferença</span>
-                        <strong>{formatCurrency(amountDifference)}</strong>
-                        <StatusBadge tone={Math.round(amountDifference * 100) === 0 ? "success" : "danger"}>
-                          {Math.round(amountDifference * 100) === 0 ? "Conferido" : "Divergência"}
-                        </StatusBadge>
-                      </article>
-                    </div>
-                    {fieldErrors.installments && <div className="alert error">{fieldErrors.installments}</div>}
-                    {installments.length > 0 && (
-                      <div className="table-wrap operational-table purchase-installments-table">
-                        <table>
-                          <thead><tr><th>Parcela</th><th>Vencimento</th><th className="numeric-cell">Valor</th></tr></thead>
-                          <tbody>
-                            {installments.map((installment, index) => (
-                              <tr key={installment.installment}>
-                                <td>{`${installment.installment}/${installments.length}`}</td>
-                                <td><input type="date" value={installment.dueDate} onChange={(event) => setInstallments((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, dueDate: event.target.value } : entry))} /></td>
-                                <td><input type="number" min="0" step="0.01" value={installment.amount} onChange={(event) => setInstallments((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, amount: event.target.value } : entry))} /></td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                      <span className="pnova-payment-header-toggle">▼ editar</span>
+                    </button>
+
+                    {/* Campos de edição — sempre visíveis mas compactos */}
+                    <div className="pnova-payment-fields">
+                      <div className="pnova-payment-grid">
+                        <label className={fieldErrors.paymentMethodId ? "field-error" : ""}>
+                          Forma de pagamento
+                          <select value={form.paymentMethodId} onChange={(event) => {
+                            const nextMethod = availablePaymentMethods.find((method) => method.id === event.target.value) ?? null;
+                            const nextCount = nextMethod && allowsInstallments(nextMethod) ? Math.max(1, Number(form.installmentCount || 1)) : 1;
+                            setForm({ ...form, paymentMethodId: event.target.value, installmentCount: String(nextCount) });
+                            rebuildInstallments(event.target.value, totalAmount, nextCount);
+                          }}>
+                            <option value="">Selecione</option>
+                            {availablePaymentMethods.map((method) => <option key={method.id} value={method.id}>{basePaymentMethodName(method.name) || method.name}</option>)}
+                          </select>
+                        </label>
+                        <label className={fieldErrors.installmentCount ? "field-error" : ""}>
+                          Parcelas
+                          <input type="number" min="1" step="1" value={form.installmentCount}
+                            disabled={!selectedPaymentMethod || !selectedPaymentMethodAllowsInstallments || smallExpenseUsesCreditCard}
+                            onChange={(event) => setForm((current) => ({ ...current, installmentCount: String(Math.max(1, Number(event.target.value || 1))) }))} />
+                        </label>
+                        <label>
+                          1ª parcela
+                          <input className="locked-field"
+                            value={new Date(`${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}T12:00:00`).toLocaleDateString("pt-BR")}
+                            disabled />
+                        </label>
+                        {!showPaymentNotes ? (
+                          <button className="secondary-button pnova-payment-obs-btn" type="button" onClick={() => setShowPaymentNotes(true)}>
+                            + Obs financeira
+                          </button>
+                        ) : (
+                          <label className="full-width">
+                            Obs financeira
+                            <input autoComplete="off" value={form.paymentNotes}
+                              onChange={(event) => setForm({ ...form, paymentNotes: event.target.value })}
+                              onBlur={() => { if (!form.paymentNotes.trim()) setShowPaymentNotes(false); }} />
+                          </label>
+                        )}
+                        {isAdmin && Math.round(amountDifference * 100) !== 0 && (
+                          <label className="full-width">
+                            Motivo da diferença
+                            <input autoComplete="off" value={form.paymentDifferenceReason}
+                              onChange={(event) => setForm({ ...form, paymentDifferenceReason: event.target.value })} />
+                          </label>
+                        )}
                       </div>
-                    )}
+                      {fieldErrors.installments && <div className="alert error" style={{ margin: "0 0 8px" }}>{fieldErrors.installments}</div>}
+                      {installments.length > 0 && (
+                        <div className="pnova-installments-table">
+                          <table>
+                            <thead><tr><th>#</th><th>Vencimento</th><th>Valor</th></tr></thead>
+                            <tbody>
+                              {installments.map((installment, index) => (
+                                <tr key={installment.installment}>
+                                  <td>{installment.installment}/{installments.length}</td>
+                                  <td><input type="date" value={installment.dueDate} onChange={(event) => setInstallments((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, dueDate: event.target.value } : entry))} /></td>
+                                  <td><input type="number" min="0" step="0.01" value={installment.amount} onChange={(event) => setInstallments((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, amount: event.target.value } : entry))} /></td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
