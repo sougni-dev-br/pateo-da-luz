@@ -3147,66 +3147,103 @@ select:disabled {
   border-bottom: 1px solid var(--accent);
 }
 
-/* ─── 6. Barra de ações ─── */
-.pnova-actions-bar {
+/* ─── 6. Barra sticky inferior ─── */
+.pnova-sticky-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 0 4px;
+  padding: 10px 24px;
+  background: rgba(252, 250, 246, 0.97);
+  border-top: 1px solid rgba(197, 172, 120, 0.3);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 -4px 16px rgba(20, 22, 28, 0.08);
 }
-.pnova-actions-right {
+.pnova-sticky-left {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
-.pnova-actions-hint {
+.pnova-sticky-total {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.pnova-sticky-diff {
   font-size: 12px;
-  color: var(--text-muted);
+  color: #c62828;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pnova-sticky-status {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+.pnova-sticky-status.ok {
+  background: rgba(92, 130, 75, 0.12);
+  color: #3a6628;
+}
+.pnova-sticky-status.pending {
+  background: rgba(198, 40, 40, 0.08);
+  color: #c62828;
+}
+.pnova-sticky-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.pnova-sticky-save {
+  min-width: 140px;
 }
 
 /* ─── Mobile pnova ─── */
 @media (max-width: 640px) {
   .pnova-layout {
     gap: 8px;
-    padding-bottom: 24px;
+    padding-bottom: 90px;
   }
-  .pnova-supplier-info {
-    gap: 8px 16px;
-  }
-  .pnova-data-cell {
-    flex: 1 1 140px;
-  }
-  .pnova-summary-strip {
+  .pnova-data-bar {
     flex-wrap: wrap;
   }
-  .pnova-summary-metric {
-    flex: 1 1 80px;
-    padding: 8px 12px;
+  .pnova-data-field {
+    flex: 1 1 120px;
   }
-  .pnova-pending-wrap {
-    flex: 1 1 100%;
-    border-top: 1px solid var(--line);
-    display: flex;
-    justify-content: center;
+  .pnova-summary-strip {
+    gap: 4px;
   }
   .pnova-pending-popover {
     right: auto;
     left: 0;
     max-width: calc(100vw - 32px);
   }
-  .pnova-actions-bar {
-    flex-direction: column;
-    align-items: stretch;
+  .pnova-sticky-bar {
+    padding: 10px 14px;
+    gap: 8px;
   }
-  .pnova-actions-right {
-    flex-direction: column-reverse;
-    align-items: stretch;
+  .pnova-sticky-total {
+    font-size: 15px;
   }
-  .pnova-actions-bar .secondary-button,
-  .pnova-actions-bar .primary-button {
-    width: 100%;
-    text-align: center;
+  .pnova-sticky-save {
+    min-width: 110px;
+    font-size: 13px;
+  }
+  .pnova-supplier-confirmed-meta {
+    gap: 2px 8px;
+    font-size: 11px;
+  }
+  .pnova-payment-grid {
+    gap: 8px 12px;
   }
 }
 
