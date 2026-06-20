@@ -1,6 +1,7 @@
 import {
   BadgeDollarSign,
   BarChart3,
+  Building2,
   Calculator,
   ChefHat,
   ClipboardCheck,
@@ -51,6 +52,7 @@ const PurchaseOrders = lazy(() => import("./pages/PurchaseOrders").then((module)
 const Purchases = lazy(() => import("./pages/Purchases").then((module) => ({ default: module.Purchases })));
 const Revenue = lazy(() => import("./pages/Revenue").then((module) => ({ default: module.Revenue })));
 const Suppliers = lazy(() => import("./pages/Suppliers").then((module) => ({ default: module.Suppliers })));
+const Companies = lazy(() => import("./pages/Companies").then((module) => ({ default: module.Companies })));
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
 const Users = lazy(() => import("./pages/Users").then((module) => ({ default: module.Users })));
 const Dishes = lazy(() => import("./pages/Dishes").then((module) => ({ default: module.Dishes })));
@@ -88,6 +90,7 @@ const sections = [
   { id: "dishes", label: "Fichas Técnicas", icon: ChefHat, showInSidebar: true, group: "Cardápio", path: "/cardapio/fichas-tecnicas", matchers: ["/cardapio/fichas-tecnicas"] },
   { id: "dre", label: "DRE Gerencial", icon: BarChart3, showInSidebar: true, group: "Financeiro", path: "/financeiro/dre", matchers: ["/financeiro/dre"] },
   { id: "suppliers", label: "Fornecedores", icon: Truck, showInSidebar: true, group: "Cadastros", path: "/cadastros/fornecedores", matchers: ["/cadastros/fornecedores"] },
+  { id: "companies", label: "Empresas", icon: Building2, showInSidebar: true, group: "Cadastros", path: "/cadastros/empresas", matchers: ["/cadastros/empresas"] },
   { id: "import", label: "Importações", icon: FileSpreadsheet, showInSidebar: true, group: "Dados", path: "/dados/importacoes", matchers: ["/dados/importacoes"] },
   { id: "catalog-imports", label: "Importar cadastros", icon: Database, showInSidebar: false, group: "Dados", path: "/dados/importacoes/cadastros", matchers: ["/dados/importacoes/cadastros"] },
   { id: "payment-methods", label: "Pagamentos", icon: CreditCard, showInSidebar: true, group: "Configurações", path: "/configuracoes/pagamentos", matchers: ["/configuracoes/pagamentos"] },
@@ -519,6 +522,7 @@ export function App() {
               <Route path="/financeiro/dre" element={<DRE />} />
               <Route path="/estoque/produtos" element={<Products />} />
               <Route path="/cadastros/fornecedores" element={<Suppliers onOpenPurchases={() => handleNavigate("purchases")} />} />
+              <Route path="/cadastros/empresas" element={<Companies />} />
               <Route path="/configuracoes/pagamentos" element={<PaymentMethods />} />
               <Route path="/configuracoes/cadastros-base" element={<MasterData />} />
               <Route path="/configuracoes/usuarios" element={<Users />} />

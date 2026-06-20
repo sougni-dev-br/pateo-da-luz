@@ -1,6 +1,6 @@
 import { CheckCircle2, Eye, FileText, History, RefreshCw, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { AppUser, AuditLog, downloadPayablesFinancialPdf, getPayableHistory, getPayables, getPaymentMethods, getPurchase, getSuppliers, payInstallment, Payable, PaymentMethod, PurchaseDetail, reverseInstallment, Supplier } from "../api/client";
+import { AppUser, AuditLog, Company, CompanyBankAccount, downloadPayablesFinancialPdf, getAllBankAccounts, getCompanies, getPayableHistory, getPayables, getPaymentMethods, getPurchase, getSuppliers, payInstallment, Payable, PaymentMethod, PurchaseDetail, reverseInstallment, Supplier } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { hasPermission } from "../lib/permissions";
 import { PeriodFilter } from "../components/PeriodFilter";
@@ -56,12 +56,14 @@ export function Payables({ user }: PayablesProps) {
   const [allPayables, setAllPayables] = useState<Payable[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<CompanyBankAccount[]>([]);
   const [detail, setDetail] = useState<PurchaseDetail | null>(null);
   const [selectedPayable, setSelectedPayable] = useState<Payable | null>(null);
   const [historyRows, setHistoryRows] = useState<AuditLog[]>([]);
   const [historyOnly, setHistoryOnly] = useState<Payable | null>(null);
   const [paying, setPaying] = useState<Payable | null>(null);
-  const [paymentForm, setPaymentForm] = useState({ paidDate: todayKey(), paidAmount: "", paidPaymentMethod: "", paymentNotes: "", differenceReason: "" });
+  const [paymentForm, setPaymentForm] = useState({ paidDate: todayKey(), paidAmount: "", paidPaymentMethod: "", paymentNotes: "", differenceReason: "", payingCompanyId: "", companyBankAccountId: "" });
   const [filters, setFilters] = useState({ filter: "", supplierId: "", paymentMethodId: "", status: "" });
   const [period, setPeriod] = useState(currentMonthPeriod());
   const [loading, setLoading] = useState(false);
@@ -72,16 +74,18 @@ export function Payables({ user }: PayablesProps) {
     setLoading(true);
     try {
       const periodFilters = { startDate: period.startDate, endDate: period.endDate };
-      const [payableRows, allRows, supplierRows, methodRows] = await Promise.all([
+      const [payableRows, allRows, supplierRows, methodRows, companyRows] = await Promise.all([
         getPayables({ ...filters, ...periodFilters }),
         getPayables(periodFilters),
         suppliers.length ? Promise.resolve(suppliers) : getSuppliers(),
-        paymentMethods.length ? Promise.resolve(paymentMethods) : getPaymentMethods()
+        paymentMethods.length ? Promise.resolve(paymentMethods) : getPaymentMethods(),
+        companies.length ? Promise.resolve(companies) : getCompanies()
       ]);
       setPayables(payableRows);
       setAllPayables(allRows);
       setSuppliers(supplierRows);
       setPaymentMethods(methodRows);
+      setCompanies(companyRows.filter((c) => c.isActive));
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao carregar contas a pagar." });
     } finally {
@@ -138,13 +142,30 @@ export function Payables({ user }: PayablesProps) {
 
   function startPayment(payable: Payable) {
     setPaying(payable);
+    setBankAccounts([]);
     setPaymentForm({
       paidDate: todayKey(),
       paidAmount: String(payable.amount ?? ""),
       paidPaymentMethod: payable.paymentMethodId ? `id:${payable.paymentMethodId}` : "",
       paymentNotes: "",
-      differenceReason: ""
+      differenceReason: "",
+      payingCompanyId: "",
+      companyBankAccountId: ""
     });
+  }
+
+  async function handleCompanyChange(companyId: string) {
+    setPaymentForm((prev) => ({ ...prev, payingCompanyId: companyId, companyBankAccountId: "" }));
+    if (companyId) {
+      try {
+        const accounts = await getAllBankAccounts(companyId);
+        setBankAccounts(accounts);
+      } catch {
+        setBankAccounts([]);
+      }
+    } else {
+      setBankAccounts([]);
+    }
   }
 
   async function submitPayment() {
@@ -162,7 +183,9 @@ export function Payables({ user }: PayablesProps) {
         paidAmount,
         ...selectedPaymentPayload(),
         paymentNotes: paymentForm.paymentNotes || null,
-        differenceReason: paymentForm.differenceReason || null
+        differenceReason: paymentForm.differenceReason || null,
+        payingCompanyId: paymentForm.payingCompanyId || null,
+        companyBankAccountId: paymentForm.companyBankAccountId || null
       });
       setNotice({ tone: "success", message: "Conta marcada como paga." });
       setPaying(null);
@@ -314,6 +337,22 @@ export function Payables({ user }: PayablesProps) {
                 <label className="full-width">Justificativa da diferença<input value={paymentForm.differenceReason} onChange={(event) => setPaymentForm({ ...paymentForm, differenceReason: event.target.value })} placeholder="Obrigatória para desconto ou acréscimo" /></label>
               )}
               <label>Observação<input value={paymentForm.paymentNotes} onChange={(event) => setPaymentForm({ ...paymentForm, paymentNotes: event.target.value })} /></label>
+              {companies.length > 0 && (
+                <label>Empresa pagadora
+                  <select value={paymentForm.payingCompanyId} onChange={(event) => void handleCompanyChange(event.target.value)}>
+                    <option value="">Selecione...</option>
+                    {companies.map((c) => <option key={c.id} value={c.id}>{c.tradeName}</option>)}
+                  </select>
+                </label>
+              )}
+              {paymentForm.payingCompanyId && (
+                <label>Conta bancária utilizada
+                  <select value={paymentForm.companyBankAccountId} onChange={(event) => setPaymentForm({ ...paymentForm, companyBankAccountId: event.target.value })}>
+                    <option value="">Selecione...</option>
+                    {bankAccounts.map((ba) => <option key={ba.id} value={ba.id}>{ba.name}</option>)}
+                  </select>
+                </label>
+              )}
             </div>
             <div className="modal-actions">
               <button className="secondary-button" type="button" onClick={() => setPaying(null)}>Cancelar</button>

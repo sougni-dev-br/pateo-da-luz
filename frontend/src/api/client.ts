@@ -1814,6 +1814,8 @@ export function payInstallment(id: string, payload: {
   paidPaymentMethodName?: string | null;
   paymentNotes?: string | null;
   differenceReason?: string | null;
+  payingCompanyId?: string | null;
+  companyBankAccountId?: string | null;
 }) {
   return request<{ id: string; status: string }>(`/purchases/payables/${id}/pay`, {
     method: "PATCH",
@@ -3244,6 +3246,116 @@ export function updateMenuFavoritesOrder(menuKeys: string[]) {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ menuKeys })
+  });
+}
+
+// ─── Companies ───────────────────────────────────────────────────────────────
+
+export type Company = {
+  id: string;
+  code: string;
+  tradeName: string;
+  legalName: string;
+  cnpj: string;
+  stateRegistration: string | null;
+  municipalRegistration: string | null;
+  financialEmail: string | null;
+  phone: string | null;
+  zipCode: string | null;
+  address: string | null;
+  addressNumber: string | null;
+  addressComplement: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+  notes: string | null;
+  isActive: boolean;
+  activeBankAccountCount?: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CompanyBankAccount = {
+  id: string;
+  companyId: string;
+  companyTradeName?: string;
+  companyCode?: string;
+  bankName: string | null;
+  agency: string | null;
+  account: string | null;
+  accountDigit: string | null;
+  accountType: "CONTA_CORRENTE" | "POUPANCA" | "CAIXA" | "CARTEIRA" | "CARTAO" | "OUTROS";
+  pixKey: string | null;
+  name: string;
+  notes: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function getCompanies(params: { search?: string; includeInactive?: boolean } = {}) {
+  const qs = new URLSearchParams();
+  if (params.search) qs.set("search", params.search);
+  if (params.includeInactive) qs.set("includeInactive", "true");
+  return request<Company[]>(`/companies${qs.toString() ? `?${qs}` : ""}`);
+}
+
+export function getCompany(id: string) {
+  return request<Company>(`/companies/${id}`);
+}
+
+export function saveCompany(payload: Partial<Company> & { tradeName: string; legalName: string; cnpj: string }) {
+  if (payload.id) {
+    return request<Company>(`/companies/${payload.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  }
+  return request<Company>("/companies", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function setCompanyStatus(id: string, isActive: boolean) {
+  return request<Company>(`/companies/${id}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isActive })
+  });
+}
+
+export function getCompanyBankAccounts(companyId: string, includeInactive = false) {
+  return request<CompanyBankAccount[]>(`/companies/${companyId}/bank-accounts${includeInactive ? "?includeInactive=true" : ""}`);
+}
+
+export function getAllBankAccounts(companyId?: string) {
+  const qs = companyId ? `?companyId=${companyId}` : "";
+  return request<CompanyBankAccount[]>(`/companies/bank-accounts/all${qs}`);
+}
+
+export function saveCompanyBankAccount(companyId: string, payload: Partial<CompanyBankAccount> & { name: string }) {
+  if (payload.id) {
+    return request<CompanyBankAccount>(`/companies/${companyId}/bank-accounts/${payload.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  }
+  return request<CompanyBankAccount>(`/companies/${companyId}/bank-accounts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function setCompanyBankAccountStatus(companyId: string, accountId: string, isActive: boolean) {
+  return request<CompanyBankAccount>(`/companies/${companyId}/bank-accounts/${accountId}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isActive })
   });
 }
 
