@@ -3526,6 +3526,77 @@ select:disabled {
 .pnova-installments-table input:focus {
   border-bottom: 1px solid var(--accent);
 }
+/* Colunas da tabela de parcelas */
+.pnova-inst-col-parcela { width: 80px; white-space: nowrap; }
+.pnova-inst-col-venc    { white-space: nowrap; }
+.pnova-inst-col-valor   { text-align: right !important; white-space: nowrap; min-width: 100px; }
+.pnova-installments-table th { white-space: nowrap; }
+.pnova-installments-scroll { overflow-x: auto; }
+.pnova-installments-scroll table { min-width: 340px; }
+.pnova-inst-ordinal {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  padding: 6px 10px !important;
+}
+.pnova-inst-of {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-left: 1px;
+}
+.pnova-installments-table td.pnova-inst-col-valor input {
+  text-align: right;
+}
+/* Rodapé da tabela */
+.pnova-inst-footer td {
+  padding: 7px 10px !important;
+  background: #f7f6f2;
+  border-top: 1px solid var(--line) !important;
+  border-bottom: none !important;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.pnova-inst-footer.has-diff td {
+  background: #fff7f0;
+}
+.pnova-inst-footer-label {
+  color: var(--text-muted);
+  font-weight: 500 !important;
+}
+.pnova-inst-footer-total {
+  text-align: right;
+  color: var(--text);
+  white-space: nowrap;
+}
+.pnova-inst-ok {
+  margin-left: 6px;
+  color: #2e7d32;
+  font-weight: 700;
+}
+.pnova-inst-diff {
+  margin-left: 4px;
+  color: #c62828;
+  font-size: 12px;
+  font-weight: 600;
+}
+/* Campo de quantidade de parcelas — input + label inline */
+.pnova-installment-count-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pnova-installment-count-wrap input {
+  width: 56px;
+  flex-shrink: 0;
+}
+.pnova-installment-count-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  white-space: nowrap;
+}
 
 /* ─── 6. Barra sticky inferior ─── */
 .pnova-sticky-bar {
