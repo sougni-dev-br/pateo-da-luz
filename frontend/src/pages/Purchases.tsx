@@ -2224,7 +2224,11 @@ export function Purchases({ user }: { user: AppUser }) {
                       </span>
                       {installments.length > 0 && (
                         <span className="pnova-payment-header-info">
-                          {installments.length}x · 1ª {new Date(`${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} · {formatCurrency(totalAmount)}
+                          {installments.length === 1 ? "1 parcela" : `${installments.length} parcelas`}
+                          {installments[0]?.dueDate && (
+                            <> · 1ª em {new Date(`${installments[0].dueDate}T12:00:00`).toLocaleDateString("pt-BR")}</>
+                          )}
+                          {" · "}{formatCurrency(totalAmount)}
                         </span>
                       )}
                       {Math.round(amountDifference * 100) !== 0 && (
@@ -2249,20 +2253,27 @@ export function Purchases({ user }: { user: AppUser }) {
                           </select>
                         </label>
                         <label className={fieldErrors.installmentCount ? "field-error" : ""}>
-                          Parcelas
-                          <input type="number" min="1" step="1" value={form.installmentCount}
-                            disabled={!selectedPaymentMethod || !selectedPaymentMethodAllowsInstallments || smallExpenseUsesCreditCard}
-                            onChange={(event) => setForm((current) => ({ ...current, installmentCount: String(Math.max(1, Number(event.target.value || 1))) }))} />
+                          Quantidade de parcelas
+                          <div className="pnova-installment-count-wrap">
+                            <input type="number" min="1" step="1" value={form.installmentCount}
+                              disabled={!selectedPaymentMethod || !selectedPaymentMethodAllowsInstallments || smallExpenseUsesCreditCard}
+                              onChange={(event) => setForm((current) => ({ ...current, installmentCount: String(Math.max(1, Number(event.target.value || 1))) }))} />
+                            <span className="pnova-installment-count-label">
+                              {Number(form.installmentCount) === 1 ? "1 parcela" : `${form.installmentCount} parcelas`}
+                            </span>
+                          </div>
                         </label>
                         <label>
-                          1ª parcela
+                          Primeiro vencimento
                           <input className="locked-field"
-                            value={new Date(`${addDaysToInputDate(form.purchaseDate, installmentLeadDays)}T12:00:00`).toLocaleDateString("pt-BR")}
+                            value={installments[0]?.dueDate
+                              ? new Date(`${installments[0].dueDate}T12:00:00`).toLocaleDateString("pt-BR")
+                              : "–"}
                             disabled />
                         </label>
                         {!showPaymentNotes ? (
                           <button className="secondary-button pnova-payment-obs-btn" type="button" onClick={() => setShowPaymentNotes(true)}>
-                            + Obs financeira
+                            {form.paymentNotes.trim() ? "✓ Obs financeira" : "+ Obs financeira"}
                           </button>
                         ) : (
                           <label className="full-width">
@@ -2283,18 +2294,59 @@ export function Purchases({ user }: { user: AppUser }) {
                       {fieldErrors.installments && <div className="alert error" style={{ margin: "0 0 8px" }}>{fieldErrors.installments}</div>}
                       {installments.length > 0 && (
                         <div className="pnova-installments-table">
+                          <div className="pnova-installments-scroll">
                           <table>
-                            <thead><tr><th>#</th><th>Vencimento</th><th>Valor</th></tr></thead>
+                            <thead>
+                              <tr>
+                                <th className="pnova-inst-col-parcela">Parcela</th>
+                                <th className="pnova-inst-col-venc">Vencimento</th>
+                                <th className="pnova-inst-col-valor">Valor</th>
+                              </tr>
+                            </thead>
                             <tbody>
                               {installments.map((installment, index) => (
                                 <tr key={installment.installment}>
-                                  <td>{installment.installment}/{installments.length}</td>
-                                  <td><input type="date" value={installment.dueDate} onChange={(event) => setInstallments((current) => current.map((inst, entryIndex) => entryIndex === index ? { ...inst, dueDate: event.target.value } : inst))} /></td>
-                                  <td><input type="number" min="0" step="0.01" value={installment.amount} onChange={(event) => setInstallments((current) => current.map((inst, entryIndex) => entryIndex === index ? { ...inst, amount: event.target.value } : inst))} /></td>
+                                  <td className="pnova-inst-ordinal">
+                                    {installment.installment}ª
+                                    {installments.length > 1 && (
+                                      <span className="pnova-inst-of"> de {installments.length}</span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    <input
+                                      type="date"
+                                      value={installment.dueDate}
+                                      onChange={(event) => setInstallments((current) => current.map((inst, entryIndex) => entryIndex === index ? { ...inst, dueDate: event.target.value } : inst))}
+                                    />
+                                  </td>
+                                  <td className="pnova-inst-col-valor">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={installment.amount}
+                                      onChange={(event) => setInstallments((current) => current.map((inst, entryIndex) => entryIndex === index ? { ...inst, amount: event.target.value } : inst))}
+                                    />
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
+                            <tfoot>
+                              <tr className={`pnova-inst-footer${Math.round(amountDifference * 100) !== 0 ? " has-diff" : ""}`}>
+                                <td colSpan={2} className="pnova-inst-footer-label">
+                                  Total das parcelas
+                                </td>
+                                <td className="pnova-inst-footer-total">
+                                  {formatCurrency(installmentTotal)}
+                                  {Math.round(amountDifference * 100) === 0
+                                    ? <span className="pnova-inst-ok">✓</span>
+                                    : <span className="pnova-inst-diff"> ⚠ dif. {formatCurrency(amountDifference)}</span>
+                                  }
+                                </td>
+                              </tr>
+                            </tfoot>
                           </table>
+                          </div>
                         </div>
                       )}
                     </div>}
