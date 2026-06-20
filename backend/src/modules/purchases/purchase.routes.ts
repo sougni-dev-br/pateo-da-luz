@@ -1126,15 +1126,14 @@ purchaseRouter.post("/", async (request, response) => {
         smallExpenseAuthorizedBy: isSmallExpense ? effectiveSmallExpenseAuthorizedBy : null,
         smallExpenseMoneyOrigin: isSmallExpense ? effectiveSmallExpenseOrigin : null,
         smallExpenseNotes: isSmallExpense ? effectiveSmallExpenseNotes : null,
-        rawRow: request.body as Prisma.InputJsonValue
+        rawRow: request.body as Prisma.InputJsonValue,
+        companyId: request.body.companyId ? String(request.body.companyId) : null
       }
     });
-    const companyIdForCreate = request.body.companyId ? String(request.body.companyId) : null;
     await tx.$executeRaw`
       UPDATE "Purchase"
       SET "purchaseNumber" = ${purchaseNumber},
-          "workflowStatus" = ${request.body.workflowStatus || "draft"},
-          "companyId" = ${companyIdForCreate}
+          "workflowStatus" = ${request.body.workflowStatus || "draft"}
       WHERE "id" = ${purchase.id}
     `;
 
@@ -1491,12 +1490,11 @@ purchaseRouter.put("/:id", async (request, response) => {
         smallExpenseAuthorizedBy: isSmallExpense ? effectiveSmallExpenseAuthorizedBy : null,
         smallExpenseMoneyOrigin: isSmallExpense ? effectiveSmallExpenseOrigin : null,
         smallExpenseNotes: isSmallExpense ? effectiveSmallExpenseNotes : null,
-        rawRow: request.body as Prisma.InputJsonValue
+        rawRow: request.body as Prisma.InputJsonValue,
+        companyId: request.body.companyId ? String(request.body.companyId) : null
       }
     });
 
-    const companyIdForUpdate = request.body.companyId ? String(request.body.companyId) : null;
-    await tx.$executeRaw`UPDATE "Purchase" SET "companyId" = ${companyIdForUpdate} WHERE "id" = ${request.params.id}`;
     await tx.purchaseItem.deleteMany({ where: { purchaseId: request.params.id } });
     await tx.paymentInstallment.deleteMany({ where: { purchaseId: request.params.id } });
     await removeCardStatementItemsForPurchase(request.params.id, tx);
