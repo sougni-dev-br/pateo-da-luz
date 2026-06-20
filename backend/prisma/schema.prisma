@@ -126,6 +126,66 @@ enum CreditCardStatementStatus {
   CANCELLED
 }
 
+enum BankAccountType {
+  CONTA_CORRENTE
+  POUPANCA
+  CAIXA
+  CARTEIRA
+  CARTAO
+  OUTROS
+}
+
+model Company {
+  id                    String               @id @default(cuid())
+  code                  String               @unique
+  tradeName             String
+  legalName             String
+  cnpj                  String               @unique
+  stateRegistration     String?
+  municipalRegistration String?
+  financialEmail        String?
+  phone                 String?
+  zipCode               String?
+  address               String?
+  addressNumber         String?
+  addressComplement     String?
+  neighborhood          String?
+  city                  String?
+  state                 String?
+  notes                 String?
+  isActive              Boolean              @default(true)
+  bankAccounts          CompanyBankAccount[]
+  purchases             Purchase[]
+  payingInstallments    PaymentInstallment[] @relation("PayingCompany")
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@index([cnpj])
+  @@index([code])
+  @@index([isActive])
+}
+
+model CompanyBankAccount {
+  id           String          @id @default(cuid())
+  companyId    String
+  company      Company         @relation(fields: [companyId], references: [id])
+  bankName     String?
+  agency       String?
+  account      String?
+  accountDigit String?
+  accountType  BankAccountType @default(CONTA_CORRENTE)
+  pixKey       String?
+  name         String
+  notes        String?
+  isActive     Boolean         @default(true)
+  installments PaymentInstallment[] @relation("PaymentBankAccount")
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([companyId])
+  @@index([isActive])
+}
+
 model Supplier {
   id           String     @id @default(cuid())
   externalCode String?
@@ -925,6 +985,8 @@ model Purchase {
   competenceYear   Int
   supplierId       String
   supplier         Supplier           @relation(fields: [supplierId], references: [id])
+  companyId        String?
+  company          Company?            @relation(fields: [companyId], references: [id])
   invoiceNumber    String?
   noInvoiceReason  String?
   rawSupplierCode  String?
@@ -972,6 +1034,7 @@ model Purchase {
   @@index([workflowStatus])
   @@index([competenceYear, competenceMonth])
   @@index([supplierId])
+  @@index([companyId])
   @@index([rawSupplierCode])
   @@index([paymentMethodId])
   @@index([creditCardId])
@@ -1043,6 +1106,10 @@ model PaymentInstallment {
   cmvCategory String?
   budgetCategory String?
   bankAccount String?
+  payingCompanyId       String?
+  payingCompany         Company?            @relation("PayingCompany", fields: [payingCompanyId], references: [id])
+  companyBankAccountId  String?
+  companyBankAccount    CompanyBankAccount? @relation("PaymentBankAccount", fields: [companyBankAccountId], references: [id])
   reconciliationStatus String?
   status      String    @default("OPEN")
   rawValue    String?
@@ -1054,6 +1121,8 @@ model PaymentInstallment {
   @@index([paidPaymentMethodId])
   @@index([reconciliationStatus])
   @@index([status])
+  @@index([payingCompanyId])
+  @@index([companyBankAccountId])
 }
 
 model PurchaseOrder {

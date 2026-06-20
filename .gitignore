@@ -18,3 +18,9 @@ Thumbs.db
 .idea/
 *.tsbuildinfo
 .cache/
+
+# Scripts temporários e dados de produção na raiz
+/*.sql
+/*_prod.json
+/dre_*
+/.claude/

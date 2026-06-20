@@ -710,6 +710,8 @@ purchaseRouter.patch("/payables/:id/pay", async (request, response) => {
   const paidPaymentMethodNameInput = asNullableText(request.body.paidPaymentMethodName);
   const differenceReason = asNullableText(request.body.differenceReason ?? request.body.justificativaDiferenca);
   const paymentNotes = asNullableText(request.body.paymentNotes ?? request.body.notes);
+  const payingCompanyId = asNullableText(request.body.payingCompanyId);
+  const companyBankAccountId = asNullableText(request.body.companyBankAccountId);
 
   if (Number.isNaN(paidDate.getTime()) || paidAmount <= 0 || (!paidPaymentMethodId && !paidPaymentMethodNameInput)) {
     response.status(400).json({ message: "Data do pagamento, valor pago e forma efetiva sao obrigatorios." });
@@ -740,6 +742,18 @@ purchaseRouter.patch("/payables/:id/pay", async (request, response) => {
     return;
   }
 
+  if (payingCompanyId && companyBankAccountId) {
+    const [owned] = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "CompanyBankAccount"
+      WHERE id = ${companyBankAccountId} AND "companyId" = ${payingCompanyId} AND "isActive" = true
+      LIMIT 1
+    `;
+    if (!owned) {
+      response.status(400).json({ message: "Conta bancária não pertence à empresa selecionada ou está inativa." });
+      return;
+    }
+  }
+
   const [method] = paidPaymentMethodId
     ? await prisma.$queryRaw<Array<{ name: string }>>`SELECT "name" FROM "PaymentMethod" WHERE "id" = ${paidPaymentMethodId} LIMIT 1`
     : [];
@@ -759,6 +773,8 @@ purchaseRouter.patch("/payables/:id/pay", async (request, response) => {
         "paidByUserId" = ${user.id},
         "reversedAt" = NULL,
         "reversedByUserId" = NULL,
+        "payingCompanyId" = ${payingCompanyId},
+        "companyBankAccountId" = ${companyBankAccountId},
         "status" = ${nextStatus}
     WHERE "id" = ${request.params.id}
   `;
@@ -769,7 +785,7 @@ purchaseRouter.patch("/payables/:id/pay", async (request, response) => {
     entity: "PaymentInstallment",
     entityId: request.params.id,
     previousValue: previous,
-    newValue: { id: request.params.id, originalAmount, paidDate, paidAmount, discountAmount, surchargeAmount, differenceReason, paidPaymentMethodId, paidPaymentMethodName, paymentNotes, status: nextStatus },
+    newValue: { id: request.params.id, originalAmount, paidDate, paidAmount, discountAmount, surchargeAmount, differenceReason, paidPaymentMethodId, paidPaymentMethodName, paymentNotes, payingCompanyId, companyBankAccountId, status: nextStatus },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? "")
   });
@@ -816,6 +832,8 @@ purchaseRouter.patch("/payables/:id/reverse", async (request, response) => {
         "paidByUserId" = NULL,
         "reversedAt" = CURRENT_TIMESTAMP,
         "reversedByUserId" = ${user.id},
+        "payingCompanyId" = NULL,
+        "companyBankAccountId" = NULL,
         "status" = 'OPEN'
     WHERE "id" = ${request.params.id}
   `;
@@ -1111,10 +1129,12 @@ purchaseRouter.post("/", async (request, response) => {
         rawRow: request.body as Prisma.InputJsonValue
       }
     });
+    const companyIdForCreate = request.body.companyId ? String(request.body.companyId) : null;
     await tx.$executeRaw`
       UPDATE "Purchase"
       SET "purchaseNumber" = ${purchaseNumber},
-          "workflowStatus" = ${request.body.workflowStatus || "draft"}
+          "workflowStatus" = ${request.body.workflowStatus || "draft"},
+          "companyId" = ${companyIdForCreate}
       WHERE "id" = ${purchase.id}
     `;
 
@@ -1475,6 +1495,8 @@ purchaseRouter.put("/:id", async (request, response) => {
       }
     });
 
+    const companyIdForUpdate = request.body.companyId ? String(request.body.companyId) : null;
+    await tx.$executeRaw`UPDATE "Purchase" SET "companyId" = ${companyIdForUpdate} WHERE "id" = ${request.params.id}`;
     await tx.purchaseItem.deleteMany({ where: { purchaseId: request.params.id } });
     await tx.paymentInstallment.deleteMany({ where: { purchaseId: request.params.id } });
     await removeCardStatementItemsForPurchase(request.params.id, tx);

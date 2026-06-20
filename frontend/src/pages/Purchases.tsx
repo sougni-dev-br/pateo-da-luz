@@ -30,7 +30,9 @@ import {
   SmallExpenseType,
   Supplier,
   UnitMeasure,
-  updatePurchase
+  updatePurchase,
+  Company,
+  getCompanies
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { StatusBadge } from "../components/ui/StatusBadge";
@@ -216,6 +218,7 @@ export function Purchases({ user }: { user: AppUser }) {
   const params = useParams<{ id?: string }>();
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [units, setUnits] = useState<UnitMeasure[]>([]);
@@ -253,7 +256,8 @@ export function Purchases({ user }: { user: AppUser }) {
     smallExpenseMoneyOrigin: "",
     smallExpenseNotes: "",
     creditCardId: "",
-    paymentDifferenceReason: ""
+    paymentDifferenceReason: "",
+    companyId: ""
   });
   const [items, setItems] = useState<PurchaseItemForm[]>([]);
   const [entry, setEntry] = useState<EntryLine>({ ...emptyEntry });
@@ -338,14 +342,15 @@ export function Purchases({ user }: { user: AppUser }) {
 
   useEffect(() => {
     void loadPurchases();
-    Promise.all([getSuppliers(), getProducts(), getPaymentMethods(), getUnits(), getCards(), getSmallExpenseTypes()]).then(
-      ([supplierList, productList, methodList, unitList, cardList, smallExpenseTypeList]) => {
+    Promise.all([getSuppliers(), getProducts(), getPaymentMethods(), getUnits(), getCards(), getSmallExpenseTypes(), getCompanies().catch(() => [] as Company[])]).then(
+      ([supplierList, productList, methodList, unitList, cardList, smallExpenseTypeList, companyList]) => {
         setSuppliers(supplierList);
         setProducts(productList);
         setPaymentMethods(methodList.filter((method) => method.isActive));
         setUnits(unitList.filter((unit) => unit.isActive));
         setCreditCards(cardList.filter((card) => card.isActive));
         setSmallExpenseTypes(smallExpenseTypeList.filter((type) => type.isActive));
+        setCompanies(companyList.filter((c) => c.isActive));
       }
     );
   }, []);
@@ -398,7 +403,8 @@ export function Purchases({ user }: { user: AppUser }) {
           smallExpenseMoneyOrigin: "",
           smallExpenseNotes: "",
           creditCardId: "",
-          paymentDifferenceReason: ""
+          paymentDifferenceReason: "",
+          companyId: ""
         },
         itemState: [],
         installmentState: [],
@@ -817,7 +823,8 @@ export function Purchases({ user }: { user: AppUser }) {
       smallExpenseMoneyOrigin: "",
       smallExpenseNotes: "",
       creditCardId: "",
-      paymentDifferenceReason: ""
+      paymentDifferenceReason: "",
+      companyId: ""
     });
     setItems([]);
     setEntry({ ...emptyEntry });
@@ -906,7 +913,8 @@ export function Purchases({ user }: { user: AppUser }) {
         smallExpenseMoneyOrigin: data.smallExpenseMoneyOrigin ?? "",
         smallExpenseNotes: data.smallExpenseNotes ?? "",
         creditCardId: data.creditCardId ?? "",
-        paymentDifferenceReason: ""
+        paymentDifferenceReason: "",
+        companyId: (data as Record<string, unknown>).companyId ? String((data as Record<string, unknown>).companyId) : ""
       };
       const nextShowNoInvoiceReason = Boolean((data.rawRow as { noInvoiceReason?: string } | null)?.noInvoiceReason) || (Boolean(data.isSmallExpense) && !data.invoiceNumber);
       const nextShowExtraNotes = Boolean((data.rawRow as { notes?: string } | null)?.notes);
@@ -1062,6 +1070,7 @@ export function Purchases({ user }: { user: AppUser }) {
     try {
       const payload = {
         supplierId: form.supplierId,
+        companyId: form.companyId || null,
         rawSupplierCode: form.supplierCode || selectedSupplier?.externalCode || null,
         purchaseDate: form.purchaseDate,
         invoiceNumber: form.invoiceNumber || null,
@@ -1751,6 +1760,18 @@ export function Purchases({ user }: { user: AppUser }) {
               <div className="pnova-data-block">
                 {/* Barra horizontal compacta */}
                 <div className="pnova-data-bar">
+                  <div className="pnova-data-field pnova-data-field-company">
+                    <span>Empresa (NF emitida para)</span>
+                    <select
+                      value={form.companyId}
+                      onChange={(event) => setForm({ ...form, companyId: event.target.value })}
+                    >
+                      <option value="">Selecione...</option>
+                      {companies.map((c) => (
+                        <option key={c.id} value={c.id}>{c.tradeName}</option>
+                      ))}
+                    </select>
+                  </div>
                   <div className={`pnova-data-field${fieldErrors.purchaseDate ? " field-error" : ""}`}>
                     <span>Data</span>
                     <input type="date" value={form.purchaseDate}

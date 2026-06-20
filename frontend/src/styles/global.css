@@ -2660,6 +2660,12 @@ select:disabled {
 .pnova-data-field.pnova-data-field-wide {
   flex: 1 1 200px;
 }
+.pnova-data-field.pnova-data-field-company {
+  flex: 1 1 220px;
+}
+.pnova-data-field.pnova-data-field-company select {
+  width: 100%;
+}
 .pnova-data-field > span {
   font-size: 10px;
   font-weight: 700;

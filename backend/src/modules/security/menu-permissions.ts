@@ -27,6 +27,7 @@ export const menuCatalog = [
   { id: "inventory-official", label: "Inventario", group: "Estoque" },
   { id: "inventory-reports", label: "Relatorios", group: "Estoque" },
   { id: "suppliers", label: "Fornecedores", group: "Cadastros" },
+  { id: "companies", label: "Empresas", group: "Cadastros" },
   { id: "import", label: "Importacoes", group: "Dados" },
   { id: "catalog-imports", label: "Importar cadastros", group: "Dados" },
   { id: "payment-methods", label: "Metodos de pagamento", group: "Configuracoes" },
@@ -345,6 +346,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/audit")) return "audit";
   if (path.startsWith("/dashboard")) return "dashboard";
   if (path.startsWith("/suppliers")) return "suppliers";
+  if (path.startsWith("/companies")) return "companies";
   if (path.startsWith("/products")) return "products";
   if (path.startsWith("/payment-methods")) return "payment-methods";
   if (path.startsWith("/purchase-orders")) return "purchase-orders";
