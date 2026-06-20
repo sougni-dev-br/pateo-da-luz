@@ -59,7 +59,7 @@ companyRouter.get("/", async (request, response) => {
     WHERE
       (${includeInactive} OR c."isActive" = true)
       AND (
-        ${search ?? null} IS NULL
+        ${search ?? null}::text IS NULL
         OR c."tradeName" ILIKE ${"%" + (search ?? "") + "%"}
         OR c."legalName"  ILIKE ${"%" + (search ?? "") + "%"}
         OR c.cnpj         ILIKE ${"%" + (search ?? "") + "%"}
@@ -85,7 +85,7 @@ companyRouter.get("/bank-accounts/all", async (request, response) => {
     JOIN "Company" c ON c.id = ba."companyId"
     WHERE ba."isActive" = true
       AND c."isActive" = true
-      AND (${companyId ?? null} IS NULL OR ba."companyId" = ${companyId ?? null})
+      AND (${companyId ?? null}::text IS NULL OR ba."companyId" = ${companyId ?? null}::text)
     ORDER BY c."tradeName" ASC, ba.name ASC
   `;
   response.json(accounts);
