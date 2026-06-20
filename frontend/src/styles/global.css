@@ -4200,6 +4200,434 @@ td:nth-child(n+3):not(:last-child) {
   max-width: 760px;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   PAYABLES — listagem operacional em linha
+═══════════════════════════════════════════════════════════════════ */
+
+/* Summary compacto (6 colunas no desktop) */
+.payables-summary {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.payables-summary article {
+  min-height: 74px;
+  padding: 10px 14px;
+  gap: 4px;
+}
+
+.payables-summary strong {
+  font-size: 15px;
+}
+
+.payables-overdue-total {
+  color: #c62828;
+}
+
+/* Filtros */
+.payables-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.payables-search-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.payables-search-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 12px;
+  background: var(--surface);
+  min-height: 38px;
+  transition: border-color 0.15s;
+}
+
+.payables-search-wrap:focus-within {
+  border-color: var(--line-strong);
+}
+
+.payables-search-wrap svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.payables-search-wrap input {
+  border: none;
+  background: none;
+  outline: none;
+  flex: 1;
+  font-size: 14px;
+  color: var(--text);
+  min-width: 0;
+  padding: 0;
+  height: 100%;
+}
+
+.payables-search-wrap button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.payables-search-wrap button:hover {
+  color: var(--ink);
+}
+
+.payables-filter-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.payables-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: flex-end;
+}
+
+.payables-filter-row label {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+}
+
+.payables-filter-row select {
+  min-height: 38px;
+  min-width: 130px;
+}
+
+.payables-filter-badge {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.payables-filter-badge span {
+  background: #e8f0fe;
+  color: #1a5276;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 500;
+}
+
+/* Lista de títulos */
+.payables-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.payable-row-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-left: 4px solid transparent;
+  border-radius: 8px;
+  background: var(--surface);
+  min-height: 56px;
+  transition: border-color 0.12s;
+}
+
+.payable-row-item:hover {
+  border-color: var(--line-strong);
+}
+
+.payable-row-item.overdue {
+  border-left-color: #e57373;
+  background: #fff7f7;
+}
+
+.payable-row-item.today {
+  border-left-color: #f0b429;
+  background: #fffaf0;
+}
+
+.payable-row-item.tomorrow {
+  border-left-color: #4299e1;
+  background: #f0f7ff;
+}
+
+.pr-status {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.pr-supplier {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.pr-supplier strong {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.pr-supplier small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.pr-due,
+.pr-amount {
+  flex: 0 0 110px;
+}
+
+.pr-label {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.pr-due strong,
+.pr-amount strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pr-amount strong {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.pr-meta {
+  flex: 0 0 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.pr-notes {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pr-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-left: auto;
+}
+
+/* Baixa financeira — contexto do título */
+.pay-ctx {
+  background: #f7f8fa;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.pay-ctx-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+}
+
+.pay-ctx-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pay-ctx-row > div > span {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.pay-ctx-row > div > strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pay-ctx-amount {
+  font-size: 20px !important;
+  color: var(--ink);
+}
+
+/* Baixa — resumo de diferença */
+.pay-diff {
+  padding: 8px 14px;
+  border-radius: 6px;
+  margin: 0 0 12px;
+  border: 1px solid var(--line);
+  background: #f7f8fa;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.pay-diff-equal { color: var(--muted); }
+.pay-diff-discount { color: #2e7d32; }
+.pay-diff-surcharge { color: #c62828; }
+
+.pay-diff-reason {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+/* Baixa — frase de confirmação */
+.pay-confirm-phrase {
+  background: #eef3ff;
+  border: 1px solid rgba(55, 90, 200, 0.2);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text);
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.pay-confirm-phrase strong {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* Modal ver título — seções */
+.modal-section {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-top: 14px;
+}
+
+.modal-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 12px;
+}
+
+.modal-table-scroll {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.modal-section-summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.modal-section-summary::-webkit-details-marker { display: none; }
+
+.modal-section-summary::before {
+  content: "▶";
+  font-size: 9px;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+
+details[open] .modal-section-summary::before {
+  transform: rotate(90deg);
+}
+
+/* Mobile: lista em cards empilhados */
+@media (max-width: 900px) {
+  .payables-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .payables-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .payable-row-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .pr-supplier,
+  .pr-due,
+  .pr-amount,
+  .pr-meta {
+    flex: none;
+    width: 100%;
+  }
+
+  .pr-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+
+  .payables-search-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .payables-filter-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .payables-filter-row label {
+    width: 100%;
+  }
+
+  .payables-filter-row select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .pay-ctx-row {
+    gap: 12px;
+  }
+
+  .pay-ctx-amount {
+    font-size: 17px !important;
+  }
+}
+
 .confirm-dialog-backdrop {
   align-items: center;
 }
