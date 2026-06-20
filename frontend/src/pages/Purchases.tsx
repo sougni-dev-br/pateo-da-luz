@@ -2258,9 +2258,6 @@ export function Purchases({ user }: { user: AppUser }) {
                             <input type="number" min="1" step="1" value={form.installmentCount}
                               disabled={!selectedPaymentMethod || !selectedPaymentMethodAllowsInstallments || smallExpenseUsesCreditCard}
                               onChange={(event) => setForm((current) => ({ ...current, installmentCount: String(Math.max(1, Number(event.target.value || 1))) }))} />
-                            <span className="pnova-installment-count-label">
-                              {Number(form.installmentCount) === 1 ? "1 parcela" : `${form.installmentCount} parcelas`}
-                            </span>
                           </div>
                         </label>
                         <label>
