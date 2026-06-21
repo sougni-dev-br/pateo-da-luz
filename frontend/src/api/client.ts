@@ -942,6 +942,22 @@ export type PurchaseDetail = Omit<Purchase, "items"> & {
   sourceFile?: string | null;
   importBatchId?: string | null;
   rawRow?: unknown;
+  cardStatementItems?: Array<{
+    id: string;
+    value: string;
+    installment: number | null;
+    totalInstallments: number | null;
+    itemDate: string | null;
+    description: string | null;
+    statementId: string;
+    statementName: string | null;
+    competenceMonth: number;
+    competenceYear: number;
+    statementDueDate: string | null;
+    statementStatus: string;
+    creditCardName: string | null;
+    creditCardLast4Digits: string | null;
+  }>;
   items: Array<{
     id: string;
     productId: string;

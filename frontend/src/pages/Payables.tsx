@@ -368,7 +368,7 @@ export function Payables({ user }: PayablesProps) {
             Forma de pagamento
             <select value={filters.paymentMethodId} onChange={(e) => setFilters({ ...filters, paymentMethodId: e.target.value })}>
               <option value="">Todas</option>
-              {paymentMethods.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              {effectivePaymentOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           </label>
           <label>

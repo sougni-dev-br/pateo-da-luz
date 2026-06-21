@@ -190,6 +190,22 @@ function purchaseStatusTone(status?: string | null) {
   return status === "CANCELLED" ? "cancelled" : "paid";
 }
 
+function statementStatusLabel(status?: string | null) {
+  if (status === "CHECKED") return "Conferida";
+  if (status === "CLOSED") return "Fechada";
+  if (status === "PAID") return "Paga";
+  if (status === "CANCELLED") return "Cancelada";
+  return "Aberta";
+}
+
+function statementStatusTone(status?: string | null) {
+  if (status === "CHECKED") return "warning";
+  if (status === "CLOSED") return "warning";
+  if (status === "PAID") return "paid";
+  if (status === "CANCELLED") return "cancelled";
+  return "open";
+}
+
 function purchaseSortValue(sort: PurchaseSortOption, purchase: Purchase) {
   if (sort === "recent" || sort === "oldest") return new Date(purchase.purchaseDate).getTime();
   return Number(purchase.totalAmount || 0);
@@ -1465,7 +1481,7 @@ export function Purchases({ user }: { user: AppUser }) {
                     </td>
                     <td className="purchase-payment-cell">
                       <strong>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"}</strong>
-                      <small>{purchase.installments.length} parcela(s)</small>
+                      <small>{purchase.creditCardId && purchase.installments.length === 0 ? "Fatura(s) cartão" : `${purchase.installments.length} parcela(s)`}</small>
                     </td>
                     <td className="numeric-cell nowrap-cell">{formatCurrency(purchase.totalAmount)}</td>
                     <td>
@@ -1515,7 +1531,7 @@ export function Purchases({ user }: { user: AppUser }) {
                 </div>
                 <div className="cmv-mobile-row">
                   <span>Pagamento</span>
-                  <span>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"} • {purchase.installments.length} parcela(s)</span>
+                  <span>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"} • {purchase.creditCardId && purchase.installments.length === 0 ? "Fatura(s) cartão" : `${purchase.installments.length} parcela(s)`}</span>
                 </div>
                 <div className="cmv-mobile-row">
                   <span>Total</span>
@@ -1569,8 +1585,21 @@ export function Purchases({ user }: { user: AppUser }) {
               </div>
               <div className="purchase-detail-infobar-item">
                 <span className="detail-label">Pagamento</span>
-                <strong>{detail.smallExpenseMoneyOrigin ?? detail.creditCardName ?? detail.paymentMethodName ?? detail.paymentMethod ?? "-"}</strong>
-                <small>{detail.installments.length} parcela(s) · {detail.importBatchId ? "Importação" : "Manual"}</small>
+                {detail.cardStatementItems && detail.cardStatementItems.length > 0 ? (
+                  <>
+                    <strong>CARTÃO CRÉDITO</strong>
+                    <small>
+                      {detail.cardStatementItems[0].creditCardName ?? detail.creditCardName ?? ""}
+                      {detail.cardStatementItems[0].creditCardLast4Digits ?? detail.creditCardLast4Digits ? ` — final ${detail.cardStatementItems[0].creditCardLast4Digits ?? detail.creditCardLast4Digits}` : ""}
+                      {" · "}{detail.importBatchId ? "Importação" : "Manual"}
+                    </small>
+                  </>
+                ) : (
+                  <>
+                    <strong>{detail.smallExpenseMoneyOrigin ?? detail.paymentMethodName ?? detail.paymentMethod ?? "-"}</strong>
+                    <small>{detail.installments.length} parcela(s) · {detail.importBatchId ? "Importação" : "Manual"}</small>
+                  </>
+                )}
               </div>
               <div className="purchase-detail-infobar-item">
                 <span className="detail-label">Status</span>
@@ -1607,20 +1636,35 @@ export function Purchases({ user }: { user: AppUser }) {
             </div>
 
             <div className="subsection">
-              <h3>Parcelas</h3>
+              <h3>{detail.cardStatementItems && detail.cardStatementItems.length > 0 ? "Faturas do cartão" : "Parcelas"}</h3>
               <div className="table-wrap operational-table">
-                <table>
-                  <thead><tr><th>Parcela</th><th>Forma</th><th>Vencimento</th><th className="numeric-cell">Valor</th><th>Status</th></tr></thead>
-                  <tbody>{detail.installments.map((installment) => (
-                    <tr key={installment.id}>
-                      <td>{installment.installment ?? "-"}</td>
-                      <td>{installment.paymentMethodName ?? detail.paymentMethodName ?? "-"}</td>
-                      <td>{formatDate(installment.dueDate)}</td>
-                      <td className="numeric-cell nowrap-cell">{formatCurrency(Number(installment.amount ?? 0))}</td>
-                      <td><span className={`status-badge ${installmentStatusTone(installment.status)}`}>{installmentStatusLabel(installment.status)}</span></td>
-                    </tr>
-                  ))}</tbody>
-                </table>
+                {detail.cardStatementItems && detail.cardStatementItems.length > 0 ? (
+                  <table>
+                    <thead><tr><th>Parcela</th><th>Fatura</th><th>Vencimento</th><th className="numeric-cell">Valor</th><th>Status fatura</th></tr></thead>
+                    <tbody>{detail.cardStatementItems.map((item) => (
+                      <tr key={item.id}>
+                        <td>{item.installment != null && item.totalInstallments != null ? `${item.installment}/${item.totalInstallments}` : "À vista"}</td>
+                        <td>{item.statementName ?? `${String(item.competenceMonth).padStart(2, "0")}/${item.competenceYear}`}</td>
+                        <td>{item.statementDueDate ? formatDate(item.statementDueDate) : "-"}</td>
+                        <td className="numeric-cell nowrap-cell">{formatCurrency(Number(item.value))}</td>
+                        <td><span className={`status-badge ${statementStatusTone(item.statementStatus)}`}>{statementStatusLabel(item.statementStatus)}</span></td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                ) : (
+                  <table>
+                    <thead><tr><th>Parcela</th><th>Forma</th><th>Vencimento</th><th className="numeric-cell">Valor</th><th>Status</th></tr></thead>
+                    <tbody>{detail.installments.map((installment) => (
+                      <tr key={installment.id}>
+                        <td>{installment.installment ?? "-"}</td>
+                        <td>{installment.paymentMethodName ?? detail.paymentMethodName ?? "-"}</td>
+                        <td>{formatDate(installment.dueDate)}</td>
+                        <td className="numeric-cell nowrap-cell">{formatCurrency(Number(installment.amount ?? 0))}</td>
+                        <td><span className={`status-badge ${installmentStatusTone(installment.status)}`}>{installmentStatusLabel(installment.status)}</span></td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                )}
               </div>
             </div>
 
