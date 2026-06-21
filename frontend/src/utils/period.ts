@@ -8,7 +8,10 @@ export type PeriodPreset =
   | "next30"
   | "currentMonth"
   | "previousMonth"
+  | "nextMonth"
   | "currentYear"
+  | "overdue"
+  | "paidMonth"
   | "custom";
 
 export type PeriodState = {
@@ -45,6 +48,18 @@ export function periodForPreset(preset: PeriodPreset, base = new Date()): Period
   if (preset === "currentYear") {
     start = new Date(base.getFullYear(), 0, 1);
     end = new Date(base.getFullYear(), 11, 31);
+  }
+  if (preset === "nextMonth") {
+    start = new Date(base.getFullYear(), base.getMonth() + 1, 1);
+    end = new Date(base.getFullYear(), base.getMonth() + 2, 0);
+  }
+  if (preset === "overdue") {
+    start = new Date(2000, 0, 1);
+    end = new Date(base.getFullYear(), base.getMonth(), base.getDate() - 1);
+  }
+  if (preset === "paidMonth") {
+    start = new Date(base.getFullYear(), base.getMonth(), 1);
+    end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
   }
 
   return { preset, startDate: inputDate(start), endDate: inputDate(end) };

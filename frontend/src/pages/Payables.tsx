@@ -9,9 +9,8 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { hasPermission } from "../lib/permissions";
-import { PeriodFilter } from "../components/PeriodFilter";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
-import { currentMonthPeriod } from "../utils/period";
+import { currentMonthPeriod, periodForPreset, PeriodPreset, PeriodState } from "../utils/period";
 
 const statusLabels: Record<string, string> = {
   OPEN: "Em aberto",
@@ -83,7 +82,8 @@ export function Payables({ user }: PayablesProps) {
     paidDate: todayKey(), paidAmount: "", paidPaymentMethod: "",
     paymentNotes: "", differenceReason: "", payingCompanyId: "", companyBankAccountId: ""
   });
-  const [filters, setFilters] = useState({ filter: "", supplierId: "", paymentMethodId: "", status: "" });
+  const [filters, setFilters] = useState({ filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "" });
+  const [activeChip, setActiveChip] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [period, setPeriod] = useState(currentMonthPeriod());
   const [loading, setLoading] = useState(false);
@@ -97,8 +97,10 @@ export function Payables({ user }: PayablesProps) {
     const activePeriod = periodOverride ?? period;
     try {
       const periodFilters = { startDate: activePeriod.startDate, endDate: activePeriod.endDate };
+      // sourceType is client-side only — exclude from API params
+      const { sourceType: _st, ...apiFilters } = activeFilters;
       const [payableRows, allRows, supplierRows, methodRows, companyRows] = await Promise.all([
-        getPayables({ ...activeFilters, ...periodFilters }),
+        getPayables({ ...apiFilters, ...periodFilters }),
         getPayables(periodFilters),
         suppliers.length ? Promise.resolve(suppliers) : getSuppliers(),
         paymentMethods.length ? Promise.resolve(paymentMethods) : getPaymentMethods(),
@@ -134,17 +136,20 @@ export function Payables({ user }: PayablesProps) {
   }, [allPayables]);
 
   const displayedPayables = useMemo(() => {
-    if (!searchQuery.trim()) return payables;
+    let result = payables;
+    if (activeChip === "noduedate") result = result.filter((p) => !p.dueDate);
+    if (filters.sourceType) result = result.filter((p) => p.sourceType === filters.sourceType);
+    if (!searchQuery.trim()) return result;
     const q = searchQuery.toLowerCase().trim();
-    return payables.filter((p) =>
+    return result.filter((p) =>
       p.supplierName.toLowerCase().includes(q) ||
       (p.invoiceNumber ?? "").toLowerCase().includes(q) ||
       (p.purchaseNumber ?? "").toLowerCase().includes(q) ||
       String(p.amount ?? "").includes(q)
     );
-  }, [payables, searchQuery]);
+  }, [payables, searchQuery, filters.sourceType, activeChip]);
 
-  const activeFilterCount = [filters.supplierId, filters.paymentMethodId, filters.status].filter(Boolean).length;
+  const activeFilterCount = [filters.supplierId, filters.paymentMethodId, filters.status, filters.sourceType].filter(Boolean).length + (activeChip === "noduedate" ? 1 : 0);
 
   const effectivePaymentOptions = useMemo(() => {
     const seen = new Map<string, { id: string; label: string }>();
@@ -159,10 +164,109 @@ export function Payables({ user }: PayablesProps) {
   }, [paymentMethods]);
 
   function clearFilters() {
-    const cleared = { filter: "", supplierId: "", paymentMethodId: "", status: "" };
+    const cleared = { filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "" };
     setFilters(cleared);
     setSearchQuery("");
-    void load(cleared);
+    setActiveChip(null);
+    setPeriod(currentMonthPeriod());
+    void load(cleared, currentMonthPeriod());
+  }
+
+  function handlePeriodChange(preset: string) {
+    setActiveChip(null);
+    if (preset === "paidMonth") {
+      const p = periodForPreset("currentMonth");
+      const newPeriod: PeriodState = { ...p, preset: "paidMonth" as PeriodPreset };
+      const u = { ...filters, status: "PAID" };
+      setPeriod(newPeriod);
+      setFilters(u);
+      void load(u, newPeriod);
+    } else {
+      const p = periodForPreset(preset as PeriodPreset);
+      setPeriod(p);
+      void load(undefined, p);
+    }
+  }
+
+  function applyChip(key: string) {
+    if (activeChip === key) {
+      clearFilters();
+      return;
+    }
+    setActiveChip(key);
+    if (key === "overdue") {
+      const p = periodForPreset("overdue");
+      const u = { ...filters, status: "OVERDUE", paymentMethodId: "", sourceType: "" };
+      setPeriod(p);
+      setFilters(u);
+      void load(u, p);
+    } else if (key === "today") {
+      const p = periodForPreset("today");
+      setPeriod(p);
+      void load(undefined, p);
+    } else if (key === "next7") {
+      const p = periodForPreset("next7");
+      setPeriod(p);
+      void load(undefined, p);
+    } else if (key === "boleto") {
+      const opt = effectivePaymentOptions.find((o) => o.label === "BOLETO");
+      if (opt) {
+        const u = { ...filters, paymentMethodId: opt.id, status: "", sourceType: "" };
+        setFilters(u);
+        void load(u);
+      }
+    } else if (key === "cartao") {
+      const opt = effectivePaymentOptions.find((o) => o.label === "CARTAO CREDITO");
+      if (opt) {
+        const u = { ...filters, paymentMethodId: opt.id, status: "", sourceType: "" };
+        setFilters(u);
+        void load(u);
+      }
+    } else if (key === "noduedate") {
+      const p = periodForPreset("currentYear");
+      setPeriod(p);
+      void load(undefined, p);
+    }
+  }
+
+  function applyCardFilter(type: "open" | "overdue" | "paidMonth" | "paidToday" | "next7" | "next30") {
+    setActiveChip(null);
+    if (type === "open") {
+      const u = { ...filters, status: "OPEN", sourceType: "" };
+      setFilters(u);
+      void load(u);
+    } else if (type === "overdue") {
+      const p = periodForPreset("overdue");
+      const u = { ...filters, status: "OVERDUE", sourceType: "" };
+      setPeriod(p);
+      setFilters(u);
+      void load(u, p);
+    } else if (type === "paidMonth") {
+      const p = periodForPreset("currentMonth");
+      const newPeriod: PeriodState = { ...p, preset: "paidMonth" as PeriodPreset };
+      const u = { ...filters, status: "PAID", sourceType: "" };
+      setPeriod(newPeriod);
+      setFilters(u);
+      void load(u, newPeriod);
+    } else if (type === "paidToday") {
+      const p = periodForPreset("today");
+      const u = { ...filters, status: "PAID", sourceType: "" };
+      setPeriod(p);
+      setFilters(u);
+      void load(u, p);
+    } else if (type === "next7") {
+      const p = periodForPreset("next7");
+      const u = { ...filters, status: "", sourceType: "" };
+      setPeriod(p);
+      setFilters(u);
+      void load(u, p);
+    } else if (type === "next30") {
+      const p = periodForPreset("next30");
+      const u = { ...filters, status: "", sourceType: "" };
+      setPeriod(p);
+      setFilters(u);
+      void load(u, p);
+    }
   }
 
   function selectedPaymentPayload() {
@@ -320,14 +424,26 @@ export function Payables({ user }: PayablesProps) {
         </div>
       </div>
 
-      {/* ── Resumo compacto ──────────────────────────────────────── */}
+      {/* ── Resumo compacto (cards clicáveis) ───────────────────── */}
       <div className="summary-grid financial-summary payables-summary">
-        <article><span>Em aberto</span><strong>{formatCurrency(totals.open)}</strong></article>
-        <article><span>Vencido</span><strong className="payables-overdue-total">{formatCurrency(totals.overdue)}</strong></article>
-        <article><span>Pago no mês</span><strong>{formatCurrency(totals.paidMonth)}</strong></article>
-        <article><span>Pago hoje</span><strong>{formatCurrency(totals.paidToday)}</strong></article>
-        <article><span>Próx. 7 dias</span><strong>{formatCurrency(totals.next7)}</strong></article>
-        <article><span>Próx. 30 dias</span><strong>{formatCurrency(totals.next30)}</strong></article>
+        <article onClick={() => applyCardFilter("open")} title="Ver em aberto" style={{ cursor: "pointer" }}>
+          <span>Em aberto</span><strong>{formatCurrency(totals.open)}</strong>
+        </article>
+        <article onClick={() => applyCardFilter("overdue")} title="Ver vencidos" style={{ cursor: "pointer" }}>
+          <span>Vencido</span><strong className="payables-overdue-total">{formatCurrency(totals.overdue)}</strong>
+        </article>
+        <article onClick={() => applyCardFilter("paidMonth")} title="Ver pago no mês" style={{ cursor: "pointer" }}>
+          <span>Pago no mês</span><strong>{formatCurrency(totals.paidMonth)}</strong>
+        </article>
+        <article onClick={() => applyCardFilter("paidToday")} title="Ver pago hoje" style={{ cursor: "pointer" }}>
+          <span>Pago hoje</span><strong>{formatCurrency(totals.paidToday)}</strong>
+        </article>
+        <article onClick={() => applyCardFilter("next7")} title="Ver próximos 7 dias" style={{ cursor: "pointer" }}>
+          <span>Próx. 7 dias</span><strong>{formatCurrency(totals.next7)}</strong>
+        </article>
+        <article onClick={() => applyCardFilter("next30")} title="Ver próximos 30 dias" style={{ cursor: "pointer" }}>
+          <span>Próx. 30 dias</span><strong>{formatCurrency(totals.next30)}</strong>
+        </article>
       </div>
 
       {/* ── Filtros ──────────────────────────────────────────────── */}
@@ -348,8 +464,7 @@ export function Payables({ user }: PayablesProps) {
             )}
           </div>
           <div className="payables-filter-actions">
-            <button className="primary-button" type="button" onClick={() => load()}>Filtrar</button>
-            {(activeFilterCount > 0 || searchQuery) && (
+            {(activeFilterCount > 0 || searchQuery || activeChip) && (
               <button className="secondary-button" type="button" onClick={clearFilters}>
                 <X size={14} /> Limpar
               </button>
@@ -358,7 +473,33 @@ export function Payables({ user }: PayablesProps) {
         </div>
 
         <div className="payables-filter-row">
-          <PeriodFilter value={period} onChange={(p) => { setPeriod(p); void load(undefined, p); }} />
+          <label>
+            Período de vencimento
+            <select value={period.preset} onChange={(e) => handlePeriodChange(e.target.value)}>
+              <option value="overdue">Vencidos</option>
+              <option value="today">Vence hoje</option>
+              <option value="next7">Próximos 7 dias</option>
+              <option value="next15">Próximos 15 dias</option>
+              <option value="next30">Próximos 30 dias</option>
+              <option value="currentMonth">Mês atual</option>
+              <option value="nextMonth">Mês seguinte</option>
+              <option value="currentYear">Ano atual</option>
+              <option value="paidMonth">Pago no mês</option>
+              <option value="custom">Período personalizado</option>
+            </select>
+          </label>
+          {period.preset === "custom" && (
+            <>
+              <label>
+                Data inicial
+                <input type="date" value={period.startDate} onChange={(e) => { const p = { ...period, startDate: e.target.value }; setPeriod(p); void load(undefined, p); }} />
+              </label>
+              <label>
+                Data final
+                <input type="date" value={period.endDate} onChange={(e) => { const p = { ...period, endDate: e.target.value }; setPeriod(p); void load(undefined, p); }} />
+              </label>
+            </>
+          )}
           <label>
             Fornecedor
             <select value={filters.supplierId} onChange={(e) => { const u = { ...filters, supplierId: e.target.value }; setFilters(u); void load(u); }}>
@@ -384,6 +525,15 @@ export function Payables({ user }: PayablesProps) {
               <option value="CANCELLED">Cancelado</option>
             </select>
           </label>
+          <label>
+            Origem
+            <select value={filters.sourceType} onChange={(e) => { const u = { ...filters, sourceType: e.target.value }; setFilters(u); void load(u); }}>
+              <option value="">Todas</option>
+              <option value="DIRECT">Título normal</option>
+              <option value="CARD_STATEMENT">Fatura cartão</option>
+              <option value="LEGACY_CREDIT_CARD">Cartão legado</option>
+            </select>
+          </label>
         </div>
 
         {(activeFilterCount > 0 || searchQuery) && (
@@ -392,6 +542,27 @@ export function Payables({ user }: PayablesProps) {
             {searchQuery && <span>busca: "{searchQuery}"</span>}
           </p>
         )}
+      </div>
+
+      {/* ── Chips de atalho ──────────────────────────────────────── */}
+      <div className="payables-chips">
+        {([
+          { key: "overdue", label: "Vencidos" },
+          { key: "today", label: "Hoje" },
+          { key: "next7", label: "Próx. 7 dias" },
+          { key: "boleto", label: "Boleto" },
+          { key: "cartao", label: "Cartão" },
+          { key: "noduedate", label: "Sem vencimento" },
+        ] as const).map((chip) => (
+          <button
+            key={chip.key}
+            type="button"
+            className={`payables-chip${activeChip === chip.key ? " payables-chip-active" : ""}`}
+            onClick={() => applyChip(chip.key)}
+          >
+            {chip.label}
+          </button>
+        ))}
       </div>
 
       {/* ── Lista de títulos ─────────────────────────────────────── */}
