@@ -16,6 +16,7 @@ import { productRouter } from "./modules/products/product.routes.js";
 import { purchaseOrderRouter } from "./modules/purchase-orders/purchase-order.routes.js";
 import { purchaseRouter } from "./modules/purchases/purchase.routes.js";
 import { supplierRouter } from "./modules/suppliers/supplier.routes.js";
+import { supplierCyclesRouter } from "./modules/suppliers/supplier-cycles.routes.js";
 import { companyRouter } from "./modules/companies/company.routes.js";
 import { authRouter, userRouter } from "./modules/security/auth.routes.js";
 import { requireMenuAccess } from "./modules/security/menu-permissions.js";
@@ -51,6 +52,7 @@ app.get("/health", (_request, response) => {
 app.use("/auth", authRouter);
 app.use(requireMenuAccess);
 app.use("/suppliers", supplierRouter);
+app.use("/supplier-cycles", supplierCyclesRouter);
 app.use("/companies", companyRouter);
 app.use("/users", userRouter);
 app.use("/products", productRouter);
