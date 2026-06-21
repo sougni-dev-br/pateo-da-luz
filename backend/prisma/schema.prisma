@@ -201,10 +201,15 @@ model Supplier {
   defaultInstallmentCount  Int?
   defaultInstallmentDays   Json?
   defaultFinancialNotes    String?
+  billingMode              String    @default("DIRECT")
+  cycleFrequency           String?
+  cycleFirstDueDays        Int?
+  cycleSecondDueDays       Int?
   registrationDate DateTime?
   isActive     Boolean    @default(true)
   notes        String?
   purchases    Purchase[]
+  billingCycles SupplierBillingCycle[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -212,6 +217,7 @@ model Supplier {
   @@index([normalizedName])
   @@index([document])
   @@index([externalCode])
+  @@index([billingMode])
 }
 
 model PurchaseSequence {
@@ -1019,6 +1025,7 @@ model Purchase {
   items            PurchaseItem[]
   cardStatementItems CreditCardStatementItem[]
   installments     PaymentInstallment[]
+  billingCycleItem SupplierBillingCycleItem?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
@@ -1489,4 +1496,49 @@ model DRECategory {
   @@index([dreGroup])
   @@index([sortOrder])
   @@index([isActive])
+}
+
+model SupplierBillingCycle {
+  id                  String                     @id @default(cuid())
+  supplierId          String
+  supplier            Supplier                   @relation(fields: [supplierId], references: [id])
+  periodStart         DateTime
+  periodEnd           DateTime?
+  status              String                     @default("OPEN")
+  totalAmount         Decimal                    @default(0) @db.Decimal(12, 2)
+  notes               String?
+  createdByUserId     String?
+  checkedByUserId     String?
+  closedByUserId      String?
+  checkedAt           DateTime?
+  closedAt            DateTime?
+  generatedPurchaseId String?
+  items               SupplierBillingCycleItem[]
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+
+  @@index([supplierId])
+  @@index([supplierId, status])
+  @@index([status])
+  @@index([periodStart])
+}
+
+model SupplierBillingCycleItem {
+  id               String               @id @default(cuid())
+  cycleId          String
+  cycle            SupplierBillingCycle @relation(fields: [cycleId], references: [id])
+  purchaseId       String               @unique
+  purchase         Purchase             @relation(fields: [purchaseId], references: [id])
+  amount           Decimal              @db.Decimal(12, 2)
+  purchaseDate     DateTime
+  invoiceNumber    String?
+  checked          Boolean              @default(false)
+  hasDivergence    Boolean              @default(false)
+  divergenceAmount Decimal?             @db.Decimal(12, 2)
+  notes            String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@index([cycleId])
+  @@index([checked])
 }
