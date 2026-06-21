@@ -672,6 +672,10 @@ export type Supplier = {
   registrationDate: string | null;
   isActive: boolean;
   notes: string | null;
+  billingMode?: string;
+  cycleFrequency?: string | null;
+  cycleFirstDueDays?: number | null;
+  cycleSecondDueDays?: number | null;
 };
 
 export type SupplierHistory = {

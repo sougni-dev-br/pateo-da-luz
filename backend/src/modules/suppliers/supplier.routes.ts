@@ -18,6 +18,22 @@ function parseInstallmentDays(value: unknown): string | null {
   }
 }
 
+function parseBillingMode(value: unknown): "DIRECT" | "CYCLE" {
+  return value === "CYCLE" ? "CYCLE" : "DIRECT";
+}
+
+function parseCycleFrequency(value: unknown): string | null {
+  const valid = ["WEEKLY", "BIWEEKLY", "MONTHLY", "CUSTOM"];
+  const s = String(value ?? "");
+  return valid.includes(s) ? s : null;
+}
+
+function parseCycleDays(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 type SupplierRow = {
   id: string;
   externalCode: string | null;
@@ -36,6 +52,10 @@ type SupplierRow = {
   registrationDate: Date | null;
   isActive: boolean;
   notes: string | null;
+  billingMode: string;
+  cycleFrequency: string | null;
+  cycleFirstDueDays: number | null;
+  cycleSecondDueDays: number | null;
 };
 
 async function findSupplierRow(id: string) {
@@ -45,7 +65,8 @@ async function findSupplierRow(id: string) {
       "phone", "email", "contactName", "mainCategory",
       "defaultPaymentTermDays", "defaultPaymentMethodId",
       "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
-      "registrationDate", "isActive", "notes"
+      "registrationDate", "isActive", "notes",
+      "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
     FROM "Supplier"
     WHERE "id" = ${id}
   `;
@@ -80,7 +101,8 @@ supplierRouter.get("/", async (request, response) => {
           "phone", "email", "contactName", "mainCategory",
           "defaultPaymentTermDays", "defaultPaymentMethodId",
           "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
-          "registrationDate", "isActive", "notes"
+          "registrationDate", "isActive", "notes",
+          "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
         FROM "Supplier"
         WHERE "name" ILIKE ${term}
            OR "document" ILIKE ${term}
@@ -94,7 +116,8 @@ supplierRouter.get("/", async (request, response) => {
           "phone", "email", "contactName", "mainCategory",
           "defaultPaymentTermDays", "defaultPaymentMethodId",
           "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
-          "registrationDate", "isActive", "notes"
+          "registrationDate", "isActive", "notes",
+          "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
         FROM "Supplier"
         ORDER BY "name" ASC
       `;
@@ -110,13 +133,22 @@ supplierRouter.post("/", async (request, response) => {
     response.status(400).json({ message: "Nome do fornecedor e obrigatorio." });
     return;
   }
+  const billingMode = parseBillingMode(request.body.billingMode);
+  const cycleFrequency = parseCycleFrequency(request.body.cycleFrequency);
+  const cycleFirstDueDays = parseCycleDays(request.body.cycleFirstDueDays);
+  const cycleSecondDueDays = parseCycleDays(request.body.cycleSecondDueDays);
+  if (billingMode === "CYCLE" && !cycleFirstDueDays) {
+    response.status(400).json({ message: "Fornecedores por ciclo exigem pelo menos o prazo do 1° vencimento (cycleFirstDueDays)." });
+    return;
+  }
   const externalCode = await nextSupplierCode();
   const defaultInstallmentDays = parseInstallmentDays(request.body.defaultInstallmentDays);
   const [supplier] = await prisma.$queryRaw<Array<{ id: string }>>`
     INSERT INTO "Supplier" (
       "id", "externalCode", "document", "name", "normalizedName", "phone", "email", "contactName",
       "mainCategory", "defaultPaymentTermDays", "defaultPaymentMethodId", "defaultInstallmentCount",
-      "defaultInstallmentDays", "defaultFinancialNotes", "notes", "isActive", "updatedAt"
+      "defaultInstallmentDays", "defaultFinancialNotes", "notes", "isActive",
+      "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays", "updatedAt"
     )
     VALUES (
       ${crypto.randomUUID()}, ${externalCode}, ${request.body.document || null}, ${name}, ${normalizeText(name)},
@@ -127,7 +159,8 @@ supplierRouter.post("/", async (request, response) => {
       ${request.body.defaultInstallmentCount == null || request.body.defaultInstallmentCount === "" ? null : Number(request.body.defaultInstallmentCount)},
       ${defaultInstallmentDays},
       ${request.body.defaultFinancialNotes || null},
-      ${request.body.notes || null}, ${request.body.isActive ?? true}, CURRENT_TIMESTAMP
+      ${request.body.notes || null}, ${request.body.isActive ?? true},
+      ${billingMode}, ${cycleFrequency}, ${cycleFirstDueDays}, ${cycleSecondDueDays}, CURRENT_TIMESTAMP
     )
     RETURNING "id"
   `;
@@ -165,6 +198,14 @@ supplierRouter.put("/:id", async (request, response) => {
     response.status(404).json({ message: "Fornecedor nao encontrado." });
     return;
   }
+  const billingModePut = parseBillingMode(request.body.billingMode);
+  const cycleFrequencyPut = parseCycleFrequency(request.body.cycleFrequency);
+  const cycleFirstDueDaysPut = parseCycleDays(request.body.cycleFirstDueDays);
+  const cycleSecondDueDaysPut = parseCycleDays(request.body.cycleSecondDueDays);
+  if (billingModePut === "CYCLE" && !cycleFirstDueDaysPut) {
+    response.status(400).json({ message: "Fornecedores por ciclo exigem pelo menos o prazo do 1° vencimento (cycleFirstDueDays)." });
+    return;
+  }
   if (request.body.externalCode && request.body.externalCode !== previous.externalCode) {
     await auditLog({
       userId: user.id,
@@ -196,6 +237,10 @@ supplierRouter.put("/:id", async (request, response) => {
       "defaultFinancialNotes" = ${request.body.defaultFinancialNotes || null},
       "notes" = ${request.body.notes || null},
       "isActive" = ${request.body.isActive ?? true},
+      "billingMode" = ${billingModePut},
+      "cycleFrequency" = ${cycleFrequencyPut},
+      "cycleFirstDueDays" = ${cycleFirstDueDaysPut},
+      "cycleSecondDueDays" = ${cycleSecondDueDaysPut},
       "updatedAt" = CURRENT_TIMESTAMP
     WHERE "id" = ${request.params.id}
     RETURNING "id"

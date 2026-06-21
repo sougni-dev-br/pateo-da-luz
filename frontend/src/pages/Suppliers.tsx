@@ -22,7 +22,11 @@ const emptySupplier = {
   defaultFinancialNotes: "",
   registrationDate: "",
   notes: "",
-  isActive: true
+  isActive: true,
+  billingMode: "DIRECT",
+  cycleFrequency: "",
+  cycleFirstDueDays: "",
+  cycleSecondDueDays: ""
 };
 
 function toInputDate(value: string | null | undefined) {
@@ -76,7 +80,11 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
         defaultPaymentMethodId: form.defaultPaymentMethodId || null,
         defaultInstallmentCount: form.defaultInstallmentCount === "" ? null : Number(form.defaultInstallmentCount),
         defaultInstallmentDays: parseInstallmentDaysInput(form.defaultInstallmentDays),
-        defaultFinancialNotes: form.defaultFinancialNotes || null
+        defaultFinancialNotes: form.defaultFinancialNotes || null,
+        billingMode: form.billingMode || "DIRECT",
+        cycleFrequency: form.cycleFrequency || null,
+        cycleFirstDueDays: form.cycleFirstDueDays === "" ? null : Number(form.cycleFirstDueDays),
+        cycleSecondDueDays: form.cycleSecondDueDays === "" ? null : Number(form.cycleSecondDueDays)
       });
       setForm(emptySupplier);
       await loadSuppliers();
@@ -121,7 +129,11 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
       defaultFinancialNotes: supplier.defaultFinancialNotes ?? "",
       registrationDate: toInputDate(supplier.registrationDate),
       notes: supplier.notes ?? "",
-      isActive: supplier.isActive
+      isActive: supplier.isActive,
+      billingMode: supplier.billingMode ?? "DIRECT",
+      cycleFrequency: supplier.cycleFrequency ?? "",
+      cycleFirstDueDays: supplier.cycleFirstDueDays == null ? "" : String(supplier.cycleFirstDueDays),
+      cycleSecondDueDays: supplier.cycleSecondDueDays == null ? "" : String(supplier.cycleSecondDueDays)
     });
   }
 
@@ -216,6 +228,42 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
           </div>
         </div>
 
+        <div className="subsection">
+          <h3>Faturamento do fornecedor</h3>
+          <p className="hint">Fornecedores por ciclo acumulam compras em uma fatura antes de gerar boletos no Contas a Pagar.</p>
+          <div className="form-grid">
+            <label>
+              Tipo de faturamento
+              <select value={form.billingMode} onChange={(event) => setForm({ ...form, billingMode: event.target.value, cycleFrequency: "", cycleFirstDueDays: "", cycleSecondDueDays: "" })}>
+                <option value="DIRECT">Direto por compra</option>
+                <option value="CYCLE">Por ciclo / fatura</option>
+              </select>
+            </label>
+            {form.billingMode === "CYCLE" && (
+              <>
+                <label>
+                  Frequência do ciclo
+                  <select value={form.cycleFrequency} onChange={(event) => setForm({ ...form, cycleFrequency: event.target.value })}>
+                    <option value="">Sem frequência definida</option>
+                    <option value="WEEKLY">Semanal</option>
+                    <option value="BIWEEKLY">Quinzenal</option>
+                    <option value="MONTHLY">Mensal</option>
+                    <option value="CUSTOM">Personalizado</option>
+                  </select>
+                </label>
+                <label>
+                  Dias para 1º vencimento *
+                  <input type="number" min="1" step="1" placeholder="Ex: 15" value={form.cycleFirstDueDays} onChange={(event) => setForm({ ...form, cycleFirstDueDays: event.target.value })} />
+                </label>
+                <label>
+                  Dias para 2º vencimento (opcional)
+                  <input type="number" min="1" step="1" placeholder="Ex: 30" value={form.cycleSecondDueDays} onChange={(event) => setForm({ ...form, cycleSecondDueDays: event.target.value })} />
+                </label>
+              </>
+            )}
+          </div>
+        </div>
+
         <div className="form-actions">
           <button className="secondary-button" type="button" onClick={() => setForm(emptySupplier)}>Cancelar</button>
           <button className="primary-button" type="button" disabled={!canEdit} onClick={handleSubmit}>
@@ -271,11 +319,13 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
                     <td>{supplier.contactName ?? supplier.phone ?? supplier.email ?? "-"}</td>
                     <td>{supplier.mainCategory ?? "-"}</td>
                     <td>
-                      {supplier.defaultInstallmentDays && Array.isArray(supplier.defaultInstallmentDays) && supplier.defaultInstallmentDays.length > 0
-                        ? `${supplier.defaultInstallmentCount ?? supplier.defaultInstallmentDays.length}x — dias ${(supplier.defaultInstallmentDays as number[]).join(", ")}`
-                        : supplier.defaultPaymentTermDays
-                          ? `${supplier.defaultPaymentTermDays} dias`
-                          : "-"}
+                      {supplier.billingMode === "CYCLE"
+                        ? <span title={`Ciclo${supplier.cycleFrequency ? ` ${supplier.cycleFrequency}` : ""}${supplier.cycleFirstDueDays ? ` — ${supplier.cycleFirstDueDays}d` : ""}`}>Por ciclo</span>
+                        : supplier.defaultInstallmentDays && Array.isArray(supplier.defaultInstallmentDays) && supplier.defaultInstallmentDays.length > 0
+                          ? `${supplier.defaultInstallmentCount ?? supplier.defaultInstallmentDays.length}x — dias ${(supplier.defaultInstallmentDays as number[]).join(", ")}`
+                          : supplier.defaultPaymentTermDays
+                            ? `${supplier.defaultPaymentTermDays} dias`
+                            : "-"}
                     </td>
                     <td className="actions-cell">
                       <button type="button" disabled={!canEdit} onClick={() => editSupplier(supplier)}>Editar</button>
