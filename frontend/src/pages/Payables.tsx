@@ -90,11 +90,13 @@ export function Payables({ user }: PayablesProps) {
   const canManage = hasPermission(user, "payables", "edit");
   const { notice, setNotice } = useNotice();
 
-  async function load(filterOverride?: typeof filters) {
+  async function load(filterOverride?: typeof filters, periodOverride?: typeof period) {
     setLoading(true);
+    setPayables([]);
     const activeFilters = filterOverride ?? filters;
+    const activePeriod = periodOverride ?? period;
     try {
-      const periodFilters = { startDate: period.startDate, endDate: period.endDate };
+      const periodFilters = { startDate: activePeriod.startDate, endDate: activePeriod.endDate };
       const [payableRows, allRows, supplierRows, methodRows, companyRows] = await Promise.all([
         getPayables({ ...activeFilters, ...periodFilters }),
         getPayables(periodFilters),
@@ -356,24 +358,24 @@ export function Payables({ user }: PayablesProps) {
         </div>
 
         <div className="payables-filter-row">
-          <PeriodFilter value={period} onChange={setPeriod} />
+          <PeriodFilter value={period} onChange={(p) => { setPeriod(p); void load(undefined, p); }} />
           <label>
             Fornecedor
-            <select value={filters.supplierId} onChange={(e) => setFilters({ ...filters, supplierId: e.target.value })}>
+            <select value={filters.supplierId} onChange={(e) => { const u = { ...filters, supplierId: e.target.value }; setFilters(u); void load(u); }}>
               <option value="">Todos</option>
               {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
           <label>
             Forma de pagamento
-            <select value={filters.paymentMethodId} onChange={(e) => setFilters({ ...filters, paymentMethodId: e.target.value })}>
+            <select value={filters.paymentMethodId} onChange={(e) => { const u = { ...filters, paymentMethodId: e.target.value }; setFilters(u); void load(u); }}>
               <option value="">Todas</option>
               {effectivePaymentOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           </label>
           <label>
             Status
-            <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
+            <select value={filters.status} onChange={(e) => { const u = { ...filters, status: e.target.value }; setFilters(u); void load(u); }}>
               <option value="">Todos</option>
               <option value="OPEN">Em aberto</option>
               <option value="OVERDUE">Vencido</option>
