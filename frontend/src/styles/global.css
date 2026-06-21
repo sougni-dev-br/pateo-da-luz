@@ -4502,6 +4502,50 @@ td:nth-child(n+3):not(:last-child) {
   color: #92400e;
 }
 
+/* Chips de atalho rápido */
+.payables-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.payables-chip {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+  white-space: nowrap;
+}
+
+.payables-chip:hover {
+  border-color: var(--line-strong);
+  background: var(--bg);
+}
+
+.payables-chip-active {
+  background: #1a5276;
+  border-color: #1a5276;
+  color: #fff;
+}
+
+.payables-chip-active:hover {
+  background: #154360;
+  border-color: #154360;
+}
+
+/* Cards do summary ficam clicáveis com hover destacado */
+.payables-summary article:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow);
+}
+
 .pr-actions {
   flex: 0 0 auto;
   display: flex;
