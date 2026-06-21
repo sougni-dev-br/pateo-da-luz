@@ -456,6 +456,7 @@ purchaseRouter.get("/payables", async (request, response) => {
   const supplierId = request.query.supplierId ? String(request.query.supplierId) : null;
   const paymentMethodId = request.query.paymentMethodId ? String(request.query.paymentMethodId) : null;
   const status = request.query.status ? String(request.query.status).toUpperCase() : null;
+  const noDueDate = request.query.noDueDate === "true";
   const computedStatus = payableStatusSql(startToday);
 
   let startDate: Date | null = null;
@@ -519,8 +520,9 @@ purchaseRouter.get("/payables", async (request, response) => {
           )
         )
       ` : Prisma.sql`true`}
-      AND ${startDate ? Prisma.sql`pi."dueDate" >= ${startDate}` : Prisma.sql`true`}
-      AND ${endDate ? Prisma.sql`pi."dueDate" < ${endDate}` : Prisma.sql`true`}
+      AND ${noDueDate ? Prisma.sql`pi."dueDate" IS NULL` : Prisma.sql`true`}
+      AND ${!noDueDate && startDate ? Prisma.sql`pi."dueDate" >= ${startDate}` : Prisma.sql`true`}
+      AND ${!noDueDate && endDate ? Prisma.sql`pi."dueDate" < ${endDate}` : Prisma.sql`true`}
       AND ${status ? Prisma.sql`
         ${computedStatus} = ${status}
       ` : Prisma.sql`true`}
@@ -649,6 +651,7 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
   const supplierId = request.query.supplierId ? String(request.query.supplierId) : null;
   const paymentMethodId = request.query.paymentMethodId ? String(request.query.paymentMethodId) : null;
   const status = request.query.status ? String(request.query.status).toUpperCase() : null;
+  const noDueDatePdf = request.query.noDueDate === "true";
   const { startDate, endDate } = parseDateRange(request.query);
 
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
@@ -683,8 +686,9 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
           )
         )
       ` : Prisma.sql`true`}
-      AND ${startDate ? Prisma.sql`pi."dueDate" >= ${startDate}` : Prisma.sql`true`}
-      AND ${endDate ? Prisma.sql`pi."dueDate" <= ${endDate}` : Prisma.sql`true`}
+      AND ${noDueDatePdf ? Prisma.sql`pi."dueDate" IS NULL` : Prisma.sql`true`}
+      AND ${!noDueDatePdf && startDate ? Prisma.sql`pi."dueDate" >= ${startDate}` : Prisma.sql`true`}
+      AND ${!noDueDatePdf && endDate ? Prisma.sql`pi."dueDate" <= ${endDate}` : Prisma.sql`true`}
       AND ${status ? Prisma.sql`${computedStatus} = ${status}` : Prisma.sql`true`}
     ORDER BY pi."dueDate" NULLS LAST, s."name", p."purchaseNumber", pi."installment"
     LIMIT 1000
