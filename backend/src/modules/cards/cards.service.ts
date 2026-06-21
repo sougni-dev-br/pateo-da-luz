@@ -174,6 +174,110 @@ export async function syncCardStatementItemForPurchase(tx: Prisma.TransactionCli
   return { removed: removed.count, itemId: created.id, statementId: statement.id };
 }
 
+export function getCardStatementPeriodForInstallment(card: CardRow, purchaseDate: Date, installmentIndex: number) {
+  const base = getCardStatementPeriod(card, purchaseDate);
+  const totalMonths = (base.competenceYear * 12 + (base.competenceMonth - 1)) + installmentIndex;
+  const targetYear = Math.floor(totalMonths / 12);
+  const targetMonth = (totalMonths % 12) + 1;
+  const lastDay = new Date(targetYear, targetMonth, 0).getDate();
+  const closingDate = new Date(targetYear, targetMonth - 1, Math.min(card.closingDay, lastDay));
+  const dueBase = new Date(targetYear, targetMonth - 1, 1);
+  const lastDayDue = new Date(dueBase.getFullYear(), dueBase.getMonth() + 1, 0).getDate();
+  const dueDate = new Date(dueBase.getFullYear(), dueBase.getMonth(), Math.min(card.dueDay, lastDayDue));
+  return { competenceYear: targetYear, competenceMonth: targetMonth, closingDate, dueDate };
+}
+
+export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionClient, input: {
+  purchaseId: string;
+  cardId: string;
+  purchaseDate: Date;
+  description: string;
+  supplierName: string;
+  totalAmount: number;
+  numberOfInstallments: number;
+  categoryName?: string | null;
+  notes?: string | null;
+}) {
+  await tx.creditCardStatementItem.deleteMany({ where: { purchaseId: input.purchaseId } });
+
+  if (input.totalAmount <= 0) return [];
+
+  const card = await tx.creditCard.findUnique({ where: { id: input.cardId } });
+  if (!card) return [];
+
+  const n = Math.max(1, Math.floor(input.numberOfInstallments));
+  const totalCents = Math.round(input.totalAmount * 100);
+  const baseCents = Math.floor(totalCents / n);
+  const extraCents = totalCents - baseCents * n;
+
+  const affectedStatementIds = new Set<string>();
+  const results: { statementId: string; installment: number; value: number }[] = [];
+
+  for (let i = 0; i < n; i++) {
+    const period = getCardStatementPeriodForInstallment(card, input.purchaseDate, i);
+
+    const existing = await tx.creditCardStatement.findFirst({
+      where: { creditCardId: card.id, competenceYear: period.competenceYear, competenceMonth: period.competenceMonth },
+      orderBy: { createdAt: "asc" }
+    });
+    if (existing && ["CLOSED", "PAID", "CANCELLED"].includes(existing.status)) {
+      throw new Error(
+        `Fatura ${existing.name || `${String(existing.competenceMonth).padStart(2, "0")}/${existing.competenceYear}`} ` +
+        `está ${existing.status === "CLOSED" ? "fechada" : existing.status === "PAID" ? "paga" : "cancelada"} ` +
+        `e não pode receber novos lançamentos. Reabra a fatura antes de lançar esta compra.`
+      );
+    }
+    const statement = existing ?? await tx.creditCardStatement.create({
+      data: {
+        id: crypto.randomUUID(),
+        creditCardId: card.id,
+        competenceYear: period.competenceYear,
+        competenceMonth: period.competenceMonth,
+        closingDate: period.closingDate,
+        dueDate: period.dueDate,
+        status: "OPEN",
+        name: `Fatura ${card.name} ${String(period.competenceMonth).padStart(2, "0")}/${period.competenceYear}`
+      }
+    });
+
+    const cents = baseCents + (i === 0 ? extraCents : 0);
+    const value = cents / 100;
+
+    await tx.creditCardStatementItem.create({
+      data: {
+        id: crypto.randomUUID(),
+        statementId: statement.id,
+        purchaseId: input.purchaseId,
+        itemDate: input.purchaseDate,
+        description: input.description,
+        supplierName: input.supplierName,
+        value: new Prisma.Decimal(value),
+        installment: n > 1 ? i + 1 : null,
+        totalInstallments: n > 1 ? n : null,
+        categoryName: input.categoryName ?? null,
+        notes: input.notes ?? null,
+        checked: false,
+        hasDivergence: false
+      }
+    });
+
+    affectedStatementIds.add(statement.id);
+    results.push({ statementId: statement.id, installment: i + 1, value });
+  }
+
+  for (const statementId of affectedStatementIds) {
+    const [sumRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
+      SELECT COALESCE(SUM("value"), 0) AS "total" FROM "CreditCardStatementItem" WHERE "statementId" = ${statementId}
+    `;
+    await tx.creditCardStatement.update({
+      where: { id: statementId },
+      data: { totalAmount: new Prisma.Decimal(Number(sumRow?.total ?? 0)) }
+    });
+  }
+
+  return results;
+}
+
 export async function createCardStatementPurchase(tx: Prisma.TransactionClient, input: {
   statementId: string;
   card: CardRow;

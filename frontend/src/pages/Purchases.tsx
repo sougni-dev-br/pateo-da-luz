@@ -256,6 +256,7 @@ export function Purchases({ user }: { user: AppUser }) {
     smallExpenseMoneyOrigin: "",
     smallExpenseNotes: "",
     creditCardId: "",
+    ccNumberOfInstallments: "1",
     paymentDifferenceReason: "",
     companyId: ""
   });
@@ -403,6 +404,7 @@ export function Purchases({ user }: { user: AppUser }) {
           smallExpenseMoneyOrigin: "",
           smallExpenseNotes: "",
           creditCardId: "",
+          ccNumberOfInstallments: "1",
           paymentDifferenceReason: "",
           companyId: ""
         },
@@ -427,15 +429,12 @@ export function Purchases({ user }: { user: AppUser }) {
   const selectedPaymentMethodBaseName = basePaymentMethodName(selectedPaymentMethod?.name);
   const availablePaymentMethods = useMemo(() => {
     const baseMethods = paymentMethods.filter((method) => !isLegacyInstallmentMethod(method));
-    const methods = baseMethods.length > 0 ? baseMethods : paymentMethods;
-    // Normal purchases cannot use CREDIT_CARD directly — must go through statement flow
-    if (!form.isSmallExpense) {
-      return methods.filter((method) => method.type !== "CREDIT_CARD");
-    }
-    return methods;
-  }, [paymentMethods, form.isSmallExpense]);
+    return baseMethods.length > 0 ? baseMethods : paymentMethods;
+  }, [paymentMethods]);
   const categories = useMemo(() => [...new Set(products.map((product) => product.category?.name).filter(Boolean))] as string[], [products]);
-  const smallExpenseUsesCreditCard = form.isSmallExpense && selectedPaymentMethod ? normalize(selectedPaymentMethod.name).includes("cartao de credito") : false;
+  const smallExpenseUsesCreditCard = form.isSmallExpense && selectedPaymentMethod ? selectedPaymentMethod.type === "CREDIT_CARD" : false;
+  const normalPurchaseUsesCreditCard = !form.isSmallExpense && selectedPaymentMethod ? selectedPaymentMethod.type === "CREDIT_CARD" : false;
+  const usesCreditCard = smallExpenseUsesCreditCard || normalPurchaseUsesCreditCard;
   const selectedPaymentMethodAllowsInstallments = allowsInstallments(selectedPaymentMethod);
   const totalAmount = useMemo(() => items.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0), [items]);
   const installmentTotal = useMemo(() => installments.reduce((sum, installment) => sum + Number(installment.amount || 0), 0), [installments]);
@@ -444,6 +443,33 @@ export function Purchases({ user }: { user: AppUser }) {
   const currentSnapshot = buildFormSnapshot();
   const isDirty = isFormRoute && baselineSnapshot !== "" && currentSnapshot !== baselineSnapshot;
   useNavigationPrompt(isDirty, "Existem alterações não salvas. Deseja sair sem salvar?");
+
+  const ccInstallmentPreview = useMemo(() => {
+    if (!normalPurchaseUsesCreditCard || !form.creditCardId || totalAmount <= 0) return [];
+    const card = creditCards.find((c) => c.id === form.creditCardId);
+    if (!card) return [];
+    const n = Math.max(1, Math.floor(Number(form.ccNumberOfInstallments) || 1));
+    const purchaseDate = new Date(`${form.purchaseDate}T12:00:00`);
+    const day = purchaseDate.getDate();
+    const baseDateForPeriod = day <= card.closingDay
+      ? purchaseDate
+      : new Date(purchaseDate.getFullYear(), purchaseDate.getMonth() + 1, 1);
+    const baseYear = baseDateForPeriod.getFullYear();
+    const baseMonthIndex = baseDateForPeriod.getMonth();
+    const totalCents = Math.round(totalAmount * 100);
+    const baseCents = Math.floor(totalCents / n);
+    const extraCents = totalCents - baseCents * n;
+    const monthNames = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+    return Array.from({ length: n }, (_, i) => {
+      const totalMonths = baseYear * 12 + baseMonthIndex + i;
+      const targetYear = Math.floor(totalMonths / 12);
+      const targetMonth = (totalMonths % 12) + 1;
+      const lastDayDue = new Date(targetYear, targetMonth, 0).getDate();
+      const dueDate = new Date(targetYear, targetMonth - 1, Math.min(card.dueDay, lastDayDue));
+      const value = (baseCents + (i === 0 ? extraCents : 0)) / 100;
+      return { installment: i + 1, label: `Fatura ${monthNames[targetMonth - 1]}/${targetYear}`, dueDate, value };
+    });
+  }, [normalPurchaseUsesCreditCard, form.creditCardId, form.ccNumberOfInstallments, form.purchaseDate, totalAmount, creditCards]);
 
   const filteredSupplierOptions = useMemo(() => {
     const query = normalize(supplierFilterQuery);
@@ -522,9 +548,10 @@ export function Purchases({ user }: { user: AppUser }) {
       && validItems.every((item) => item.unit.trim() && Number(item.quantity) > 0 && Number(item.unitPrice) >= 0)
       && (!showNoInvoiceReason ? Boolean(form.invoiceNumber.trim()) || form.isSmallExpense : Boolean(form.noInvoiceReason.trim()) || form.isSmallExpense)
       && (!form.isSmallExpense || Boolean(form.smallExpenseTypeId))
-      && (!smallExpenseUsesCreditCard || (Boolean(form.creditCardId) && Boolean(openCardStatement)));
+      && (!smallExpenseUsesCreditCard || (Boolean(form.creditCardId) && Boolean(openCardStatement)))
+      && (!normalPurchaseUsesCreditCard || Boolean(form.creditCardId));
     if (!baseChecks) return false;
-    if (!smallExpenseUsesCreditCard) {
+    if (!usesCreditCard) {
       if (installments.length !== requestedInstallments) return false;
       if (installments.some((installment) => !installment.dueDate)) return false;
       if (hasDifference) return false;
@@ -546,15 +573,17 @@ export function Purchases({ user }: { user: AppUser }) {
     form.supplierId,
     installments,
     items,
+    normalPurchaseUsesCreditCard,
     openCardStatement,
     saving,
     showNoInvoiceReason,
-    smallExpenseUsesCreditCard
+    smallExpenseUsesCreditCard,
+    usesCreditCard
   ]);
 
   useEffect(() => {
     let active = true;
-    if (!smallExpenseUsesCreditCard || !form.creditCardId) {
+    if (!usesCreditCard || !form.creditCardId) {
       setOpenCardStatement(null);
       return () => { active = false; };
     }
@@ -562,7 +591,7 @@ export function Purchases({ user }: { user: AppUser }) {
       .then((rows) => { if (active) setOpenCardStatement(rows[0] ?? null); })
       .catch(() => { if (active) setOpenCardStatement(null); });
     return () => { active = false; };
-  }, [form.creditCardId, smallExpenseUsesCreditCard]);
+  }, [form.creditCardId, usesCreditCard]);
 
   useEffect(() => {
     if (!isDirty) return;
@@ -828,6 +857,7 @@ export function Purchases({ user }: { user: AppUser }) {
       smallExpenseMoneyOrigin: "",
       smallExpenseNotes: "",
       creditCardId: "",
+      ccNumberOfInstallments: "1",
       paymentDifferenceReason: "",
       companyId: ""
     });
@@ -918,6 +948,7 @@ export function Purchases({ user }: { user: AppUser }) {
         smallExpenseMoneyOrigin: data.smallExpenseMoneyOrigin ?? "",
         smallExpenseNotes: data.smallExpenseNotes ?? "",
         creditCardId: data.creditCardId ?? "",
+        ccNumberOfInstallments: "1",
         paymentDifferenceReason: "",
         companyId: (data as Record<string, unknown>).companyId ? String((data as Record<string, unknown>).companyId) : ""
       };
@@ -971,7 +1002,7 @@ export function Purchases({ user }: { user: AppUser }) {
   }
 
   function rebuildInstallments(methodId = form.paymentMethodId, total = totalAmount, explicitCount?: number) {
-    if (smallExpenseUsesCreditCard) {
+    if (usesCreditCard) {
       setInstallments([]);
       return;
     }
@@ -1041,7 +1072,7 @@ export function Purchases({ user }: { user: AppUser }) {
     if ((showNoInvoiceReason || form.isSmallExpense) && !form.noInvoiceReason.trim() && !form.isSmallExpense) errors.noInvoiceReason = "Informe o motivo para compra sem NF.";
     if (!form.paymentMethodId) errors.paymentMethodId = "Forma de pagamento obrigatória.";
     const requestedInstallments = Math.max(1, Number(form.installmentCount || 1));
-    if (selectedPaymentMethod && !smallExpenseUsesCreditCard) {
+    if (selectedPaymentMethod && !usesCreditCard) {
       if (selectedPaymentMethodAllowsInstallments && requestedInstallments < 1) errors.installmentCount = "Informe ao menos 1 parcela.";
       if (!selectedPaymentMethodAllowsInstallments && requestedInstallments !== 1) errors.installmentCount = "Esta forma aceita apenas 1 parcela.";
     }
@@ -1054,11 +1085,12 @@ export function Purchases({ user }: { user: AppUser }) {
     if (form.isSmallExpense && !form.smallExpenseTypeId) errors.smallExpenseTypeId = "Informe o tipo de pequeno gasto.";
     if (smallExpenseUsesCreditCard && !form.creditCardId.trim()) errors.creditCardId = "Selecione o cartão.";
     if (smallExpenseUsesCreditCard && form.creditCardId && !openCardStatement) errors.creditCardId = "Não há fatura aberta para este cartão.";
-    if (!smallExpenseUsesCreditCard && installments.length !== requestedInstallments) errors.installments = "Revise a quantidade de parcelas informada.";
-    if (installments.length > 0 && Math.round(amountDifference * 100) !== 0) {
+    if (normalPurchaseUsesCreditCard && !form.creditCardId.trim()) errors.creditCardId = "Selecione o cartão de crédito.";
+    if (!usesCreditCard && installments.length !== requestedInstallments) errors.installments = "Revise a quantidade de parcelas informada.";
+    if (!usesCreditCard && installments.length > 0 && Math.round(amountDifference * 100) !== 0) {
       errors.installments = "Total das parcelas não confere com o total da compra.";
     }
-    if (installments.some((installment) => !installment.dueDate)) errors.installments = "Informe todos os vencimentos.";
+    if (!usesCreditCard && installments.some((installment) => !installment.dueDate)) errors.installments = "Informe todos os vencimentos.";
     setFieldErrors(errors);
     return Object.values(errors)[0] ?? null;
   }
@@ -1090,11 +1122,12 @@ export function Purchases({ user }: { user: AppUser }) {
         smallExpenseAuthorizedBy: null,
         smallExpenseMoneyOrigin: form.isSmallExpense ? selectedPaymentMethod?.name ?? null : null,
         smallExpenseNotes: form.isSmallExpense ? form.smallExpenseNotes || form.notes || null : null,
-        creditCardId: form.isSmallExpense ? form.creditCardId || null : null,
+        creditCardId: usesCreditCard ? form.creditCardId || null : null,
+        numberOfInstallments: normalPurchaseUsesCreditCard ? Math.max(1, Number(form.ccNumberOfInstallments) || 1) : undefined,
         paymentDifferenceReason: form.paymentDifferenceReason || null,
         workflowStatus: "confirmed",
         totalAmount,
-        installments: smallExpenseUsesCreditCard
+        installments: usesCreditCard
           ? []
           : installments.map((installment) => ({
               installment: installment.installment,
@@ -1196,10 +1229,11 @@ export function Purchases({ user }: { user: AppUser }) {
     if (form.isSmallExpense && !form.smallExpenseTypeId) messages.push("Selecione o tipo de pequeno gasto.");
     if (smallExpenseUsesCreditCard && !form.creditCardId) messages.push("Selecione o cartão para lançar na fatura.");
     if (smallExpenseUsesCreditCard && form.creditCardId && !openCardStatement) messages.push("Abra uma fatura do cartão antes de salvar.");
-    if (!smallExpenseUsesCreditCard && installments.length === 0) messages.push("Confira o parcelamento antes de salvar.");
-    if (installments.some((installment) => !installment.dueDate)) messages.push("Preencha o vencimento de todas as parcelas.");
-    if (installments.some((installment) => Number(installment.amount) < 0)) messages.push("Os valores das parcelas não podem ser negativos.");
-    if (Math.round(amountDifference * 100) !== 0) messages.push("O total das parcelas precisa fechar com o total da compra.");
+    if (normalPurchaseUsesCreditCard && !form.creditCardId) messages.push("Selecione o cartão de crédito para esta compra.");
+    if (!usesCreditCard && installments.length === 0) messages.push("Confira o parcelamento antes de salvar.");
+    if (!usesCreditCard && installments.some((installment) => !installment.dueDate)) messages.push("Preencha o vencimento de todas as parcelas.");
+    if (!usesCreditCard && installments.some((installment) => Number(installment.amount) < 0)) messages.push("Os valores das parcelas não podem ser negativos.");
+    if (!usesCreditCard && Math.round(amountDifference * 100) !== 0) messages.push("O total das parcelas precisa fechar com o total da compra.");
     if (duplicateCheck?.hasActiveDuplicate) messages.push("Já existe uma compra ativa para este fornecedor com esta NF/pedido.");
     return [...new Set(messages)];
   }, [
@@ -1216,9 +1250,11 @@ export function Purchases({ user }: { user: AppUser }) {
     form.supplierId,
     installments,
     items,
+    normalPurchaseUsesCreditCard,
     openCardStatement,
     showNoInvoiceReason,
-    smallExpenseUsesCreditCard
+    smallExpenseUsesCreditCard,
+    usesCreditCard
   ]);
 
   const paymentPreviewMessage = useMemo(() => {
@@ -1827,7 +1863,7 @@ export function Purchases({ user }: { user: AppUser }) {
                         {smallExpenseTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
                       </select>
                     </div>
-                    {selectedPaymentMethod && normalize(selectedPaymentMethod.name).includes("cartao de credito") ? (
+                    {selectedPaymentMethod && selectedPaymentMethod.type === "CREDIT_CARD" ? (
                       <div className={`pnova-data-field${fieldErrors.creditCardId ? " field-error" : ""}`}>
                         <span>Cartão</span>
                         <select value={form.creditCardId}
@@ -1845,7 +1881,7 @@ export function Purchases({ user }: { user: AppUser }) {
                   </div>
                 )}
 
-                {form.creditCardId && openCardStatement && (
+                {form.creditCardId && openCardStatement && smallExpenseUsesCreditCard && (
                   <div className="pnova-data-extra-row">
                     <div className="alert info" style={{ margin: "0 16px 0" }}>
                       Fatura aberta: {openCardStatement.creditCard?.name ?? "Cartão"} • {String(openCardStatement.competenceMonth).padStart(2, "0")}/{openCardStatement.competenceYear} • venc. {formatDate(openCardStatement.dueDate)} • {openCardStatement.status} • {formatCurrency(openCardStatement.totalAmount)}
@@ -1855,6 +1891,22 @@ export function Purchases({ user }: { user: AppUser }) {
                 {form.creditCardId && !openCardStatement && smallExpenseUsesCreditCard && (
                   <div className="pnova-data-extra-row">
                     <div className="alert warning" style={{ margin: "0 16px 0" }}>Não há fatura aberta para este cartão.</div>
+                  </div>
+                )}
+                {normalPurchaseUsesCreditCard && form.creditCardId && ccInstallmentPreview.length > 0 && (
+                  <div className="pnova-data-extra-row">
+                    <div className="pnova-cc-preview">
+                      {ccInstallmentPreview.map((item) => (
+                        <div key={item.installment} className="pnova-cc-preview-row">
+                          {ccInstallmentPreview.length > 1 && (
+                            <span className="pnova-cc-preview-installment">{item.installment}/{ccInstallmentPreview.length}</span>
+                          )}
+                          <span className="pnova-cc-preview-fatura">{item.label}</span>
+                          <span className="pnova-cc-preview-due">venc. {item.dueDate.toLocaleDateString("pt-BR")}</span>
+                          <span className="pnova-cc-preview-value">{formatCurrency(item.value)}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -2248,7 +2300,17 @@ export function Purchases({ user }: { user: AppUser }) {
                       <span className="pnova-payment-header-method">
                         {basePaymentMethodName(selectedPaymentMethod?.name) || "Selecionar forma"}
                       </span>
-                      {installments.length > 0 && (
+                      {normalPurchaseUsesCreditCard && form.creditCardId && ccInstallmentPreview.length > 0 ? (
+                        <span className="pnova-payment-header-info">
+                          {creditCards.find((c) => c.id === form.creditCardId)?.name ?? "Cartão"}
+                          {ccInstallmentPreview.length > 1 && ` · ${ccInstallmentPreview.length}x`}
+                          {" · "}{ccInstallmentPreview[0]?.label}
+                          {ccInstallmentPreview.length > 1 && ` → ${ccInstallmentPreview[ccInstallmentPreview.length - 1]?.label}`}
+                          {" · "}{formatCurrency(totalAmount)}
+                        </span>
+                      ) : normalPurchaseUsesCreditCard ? (
+                        <span className="pnova-payment-header-info">Selecione o cartão</span>
+                      ) : installments.length > 0 ? (
                         <span className="pnova-payment-header-info">
                           {installments.length === 1 ? "1 parcela" : `${installments.length} parcelas`}
                           {installments[0]?.dueDate && (
@@ -2256,7 +2318,7 @@ export function Purchases({ user }: { user: AppUser }) {
                           )}
                           {" · "}{formatCurrency(totalAmount)}
                         </span>
-                      )}
+                      ) : null}
                       {Math.round(amountDifference * 100) !== 0 && (
                         <span className="pnova-payment-header-diff">⚠ dif. {formatCurrency(amountDifference)}</span>
                       )}
@@ -2271,34 +2333,52 @@ export function Purchases({ user }: { user: AppUser }) {
                           <select value={form.paymentMethodId} onChange={(event) => {
                             const nextMethod = availablePaymentMethods.find((method) => method.id === event.target.value) ?? null;
                             const nextCount = nextMethod && allowsInstallments(nextMethod) ? Math.max(1, Number(form.installmentCount || 1)) : 1;
-                            setForm({ ...form, paymentMethodId: event.target.value, installmentCount: String(nextCount) });
+                            setForm({ ...form, paymentMethodId: event.target.value, installmentCount: String(nextCount), creditCardId: "", ccNumberOfInstallments: "1" });
                             rebuildInstallments(event.target.value, totalAmount, nextCount);
                           }}>
                             <option value="">Selecione</option>
                             {availablePaymentMethods.map((method) => <option key={method.id} value={method.id}>{basePaymentMethodName(method.name) || method.name}</option>)}
                           </select>
-                          {!form.isSmallExpense && (
-                            <span className="pnova-cc-hint">
-                              Cartão de crédito → use <strong>Cartões / Faturas</strong>
-                            </span>
-                          )}
                         </label>
-                        <label className={fieldErrors.installmentCount ? "field-error" : ""}>
-                          Quantidade de parcelas
-                          <div className="pnova-installment-count-wrap">
-                            <input type="number" min="1" step="1" value={form.installmentCount}
-                              disabled={!selectedPaymentMethod || !selectedPaymentMethodAllowsInstallments || smallExpenseUsesCreditCard}
-                              onChange={(event) => setForm((current) => ({ ...current, installmentCount: String(Math.max(1, Number(event.target.value || 1))) }))} />
-                          </div>
-                        </label>
-                        <label>
-                          Primeiro vencimento
-                          <input className="locked-field"
-                            value={installments[0]?.dueDate
-                              ? new Date(`${installments[0].dueDate}T12:00:00`).toLocaleDateString("pt-BR")
-                              : "–"}
-                            disabled />
-                        </label>
+                        {normalPurchaseUsesCreditCard ? (
+                          <>
+                            <label className={fieldErrors.creditCardId ? "field-error" : ""}>
+                              Cartão de crédito
+                              <select value={form.creditCardId}
+                                onChange={(event) => setForm({ ...form, creditCardId: event.target.value })}>
+                                <option value="">Selecione</option>
+                                {creditCards.map((card) => <option key={card.id} value={card.id}>{card.name} — {card.bankName} {card.last4Digits}</option>)}
+                              </select>
+                            </label>
+                            <label>
+                              Parcelas no cartão
+                              <div className="pnova-installment-count-wrap">
+                                <input type="number" min="1" max="24" step="1"
+                                  value={form.ccNumberOfInstallments}
+                                  onChange={(event) => setForm((current) => ({ ...current, ccNumberOfInstallments: String(Math.max(1, Math.min(24, Number(event.target.value || 1)))) }))} />
+                              </div>
+                            </label>
+                          </>
+                        ) : (
+                          <>
+                            <label className={fieldErrors.installmentCount ? "field-error" : ""}>
+                              Quantidade de parcelas
+                              <div className="pnova-installment-count-wrap">
+                                <input type="number" min="1" step="1" value={form.installmentCount}
+                                  disabled={!selectedPaymentMethod || !selectedPaymentMethodAllowsInstallments || smallExpenseUsesCreditCard}
+                                  onChange={(event) => setForm((current) => ({ ...current, installmentCount: String(Math.max(1, Number(event.target.value || 1))) }))} />
+                              </div>
+                            </label>
+                            <label>
+                              Primeiro vencimento
+                              <input className="locked-field"
+                                value={installments[0]?.dueDate
+                                  ? new Date(`${installments[0].dueDate}T12:00:00`).toLocaleDateString("pt-BR")
+                                  : "–"}
+                                disabled />
+                            </label>
+                          </>
+                        )}
                         {!showPaymentNotes ? (
                           <button className="secondary-button pnova-payment-obs-btn" type="button" onClick={() => setShowPaymentNotes(true)}>
                             {form.paymentNotes.trim() ? "✓ Obs financeira" : "+ Obs financeira"}
@@ -2319,8 +2399,8 @@ export function Purchases({ user }: { user: AppUser }) {
                           </label>
                         )}
                       </div>
-                      {fieldErrors.installments && <div className="alert error" style={{ margin: "0 0 8px" }}>{fieldErrors.installments}</div>}
-                      {installments.length > 0 && (
+                      {fieldErrors.installments && !usesCreditCard && <div className="alert error" style={{ margin: "0 0 8px" }}>{fieldErrors.installments}</div>}
+                      {installments.length > 0 && !usesCreditCard && (
                         <div className="pnova-installments-table">
                           <div className="pnova-installments-scroll">
                           <table>

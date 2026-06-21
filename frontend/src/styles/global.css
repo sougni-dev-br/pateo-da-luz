@@ -3612,6 +3612,43 @@ select:disabled {
   white-space: nowrap;
 }
 
+/* ─── Cartão crédito preview de parcelas ─── */
+.pnova-cc-preview {
+  padding: 10px 16px;
+  background: #f7f6f2;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.pnova-cc-preview-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+}
+.pnova-cc-preview-installment {
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 12px;
+  min-width: 28px;
+}
+.pnova-cc-preview-fatura {
+  font-weight: 500;
+  color: var(--text);
+}
+.pnova-cc-preview-due {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.pnova-cc-preview-value {
+  font-weight: 600;
+  text-align: right;
+  color: var(--accent-dark, #7a6040);
+}
+
 /* ─── 6. Barra sticky inferior ─── */
 .pnova-sticky-bar {
   position: fixed;
