@@ -14,6 +14,7 @@ import { createPayablesFinancialPdf, type PayablesFinancialPdfRow } from "./paya
 import { auditLog, requestIp, requireAdmin, requireRole } from "../security/security-utils.js";
 import { recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
+import { addPurchaseToCycle, findOrCreateOpenCycle, updatePurchaseInCycle } from "../suppliers/supplier-billing-cycle.service.js";
 import { OFFICIAL_SMALL_EXPENSE_NORMALIZED_TYPES } from "../master-data/small-expense-type-options.js";
 import {
   buildReferenceLabel,
@@ -1067,6 +1068,11 @@ purchaseRouter.post("/", async (request, response) => {
   }
   const isNormalCreditCard = !isSmallExpense && paymentMethodType === "CREDIT_CARD";
 
+  const [supplierBillingRow] = await prisma.$queryRaw<Array<{ billingMode: string }>>`
+    SELECT "billingMode" FROM "Supplier" WHERE "id" = ${supplierId} LIMIT 1
+  `;
+  const isCycleSupplier = !isSmallExpense && !isNormalCreditCard && supplierBillingRow?.billingMode === "CYCLE";
+
   if (isNormalCreditCard && !creditCardId) {
     await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Selecione o cartao para compras no cartao de credito." });
     return;
@@ -1109,11 +1115,11 @@ purchaseRouter.post("/", async (request, response) => {
         "cartao credito"
       ].includes(originNormalized))
     : false;
-  if (!isSmallExpense && !isNormalCreditCard && installments.length === 0) {
+  if (!isSmallExpense && !isNormalCreditCard && !isCycleSupplier && installments.length === 0) {
     await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Informe os vencimentos conforme a forma de pagamento." });
     return;
   }
-  if (!isSmallExpense && !isNormalCreditCard && !allowsInstallments && installments.length > 1) {
+  if (!isSmallExpense && !isNormalCreditCard && !isCycleSupplier && !allowsInstallments && installments.length > 1) {
     await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "A forma de pagamento selecionada nao permite mais de uma parcela." });
     return;
   }
@@ -1251,7 +1257,7 @@ purchaseRouter.post("/", async (request, response) => {
       });
     }
 
-    if (installments.length) {
+    if (installments.length && !isCycleSupplier) {
       await tx.paymentInstallment.createMany({
         data: installments.map((installment) => ({
           purchaseId: purchase.id,
@@ -1278,6 +1284,27 @@ purchaseRouter.post("/", async (request, response) => {
             ...installment,
             amount: String(installment.amount)
           })) as Prisma.InputJsonValue
+        }
+      });
+    }
+
+    if (isCycleSupplier) {
+      const cycleId = await findOrCreateOpenCycle(tx, supplierId, user.id);
+      await addPurchaseToCycle(tx, {
+        cycleId,
+        purchaseId: purchase.id,
+        amount: totalAmount,
+        purchaseDate,
+        invoiceNumber
+      });
+      await tx.auditLog.create({
+        data: {
+          id: crypto.randomUUID(),
+          userId: user.id,
+          action: "ADD_TO_SUPPLIER_CYCLE",
+          entity: "SupplierBillingCycle",
+          entityId: cycleId,
+          newValue: { purchaseId: purchase.id, amount: totalAmount } as Prisma.InputJsonValue
         }
       });
     }
@@ -1508,15 +1535,20 @@ purchaseRouter.put("/:id", async (request, response) => {
   }
   const isNormalCreditCard = !isSmallExpense && updatePaymentMethodType === "CREDIT_CARD";
 
+  const [nextSupplierBillingRow] = await prisma.$queryRaw<Array<{ billingMode: string }>>`
+    SELECT "billingMode" FROM "Supplier" WHERE "id" = ${nextSupplierId} LIMIT 1
+  `;
+  const isCycleSupplier = !isSmallExpense && !isNormalCreditCard && nextSupplierBillingRow?.billingMode === "CYCLE";
+
   if (isNormalCreditCard && !creditCardId) {
     response.status(400).json({ message: "Selecione o cartao para compras no cartao de credito." });
     return;
   }
-  if (!isSmallExpense && !isNormalCreditCard && installments.length === 0) {
+  if (!isSmallExpense && !isNormalCreditCard && !isCycleSupplier && installments.length === 0) {
     response.status(400).json({ message: "Informe os vencimentos conforme a forma de pagamento." });
     return;
   }
-  if (!isSmallExpense && !isNormalCreditCard && !allowsInstallments && installments.length > 1) {
+  if (!isSmallExpense && !isNormalCreditCard && !isCycleSupplier && !allowsInstallments && installments.length > 1) {
     response.status(400).json({ message: "A forma de pagamento selecionada nao permite mais de uma parcela." });
     return;
   }
@@ -1545,6 +1577,24 @@ purchaseRouter.put("/:id", async (request, response) => {
     if (cents(installmentTotal) !== cents(totalAmount)) {
       response.status(400).json({ message: "Total das parcelas deve bater com o total dos itens." });
       return;
+    }
+  }
+
+  if (isCycleSupplier) {
+    const [cycleItemRow] = await prisma.$queryRaw<Array<{ cycleId: string }>>`
+      SELECT "cycleId" FROM "SupplierBillingCycleItem" WHERE "purchaseId" = ${request.params.id} LIMIT 1
+    `;
+    if (cycleItemRow) {
+      const [cycleRow] = await prisma.$queryRaw<Array<{ status: string }>>`
+        SELECT "status" FROM "SupplierBillingCycle" WHERE "id" = ${cycleItemRow.cycleId} LIMIT 1
+      `;
+      const cs = cycleRow?.status ?? "OPEN";
+      if (cs === "CLOSED" || cs === "PAID") {
+        response.status(400).json({
+          message: `Esta compra pertence a um ciclo de fornecedor ja ${cs === "PAID" ? "pago" : "fechado"} e nao pode ter valores alterados.`
+        });
+        return;
+      }
     }
   }
 
@@ -1638,7 +1688,7 @@ purchaseRouter.put("/:id", async (request, response) => {
       });
     }
 
-    if (installments.length) {
+    if (installments.length && !isCycleSupplier) {
       await tx.paymentInstallment.createMany({
         data: installments.map((installment) => ({
           purchaseId: request.params.id,
@@ -1666,6 +1716,34 @@ purchaseRouter.put("/:id", async (request, response) => {
           })) as Prisma.InputJsonValue
         }
       });
+    }
+
+    if (isCycleSupplier) {
+      const [existingCycleItem] = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "SupplierBillingCycleItem" WHERE "purchaseId" = ${request.params.id} LIMIT 1
+      `;
+      if (existingCycleItem) {
+        const cycleUpdateResult = await updatePurchaseInCycle(tx, {
+          purchaseId: request.params.id,
+          amount: totalAmount,
+          purchaseDate,
+          invoiceNumber
+        });
+        if (cycleUpdateResult.blocked) {
+          throw new Error(
+            `Esta compra pertence a um ciclo de fornecedor ja ${cycleUpdateResult.cycleStatus === "PAID" ? "pago" : "fechado"} e nao pode ter valores alterados.`
+          );
+        }
+      } else {
+        const cycleId = await findOrCreateOpenCycle(tx, nextSupplierId, user.id);
+        await addPurchaseToCycle(tx, {
+          cycleId,
+          purchaseId: request.params.id,
+          amount: totalAmount,
+          purchaseDate,
+          invoiceNumber
+        });
+      }
     }
 
     if (creditCardId) {
@@ -1841,15 +1919,52 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
     return;
   }
 
-  await prisma.$executeRaw`
-    UPDATE "Purchase"
-    SET "status" = 'CANCELLED',
-        "cancelledAt" = CURRENT_TIMESTAMP,
-        "cancellationReason" = ${reason},
-        "cancelledByUserId" = ${admin.id},
-        "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ${request.params.id}
-  `;
+  class CycleBlockedError extends Error {
+    constructor(public readonly cycleStatus: string) { super("CYCLE_BLOCKED"); }
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const [cycleItem] = await tx.$queryRaw<Array<{ id: string; cycleId: string; amount: string }>>`
+        SELECT "id", "cycleId", "amount"::text
+        FROM "SupplierBillingCycleItem"
+        WHERE "purchaseId" = ${request.params.id}
+        LIMIT 1
+      `;
+      if (cycleItem) {
+        const [cycle] = await tx.$queryRaw<Array<{ status: string }>>`
+          SELECT "status" FROM "SupplierBillingCycle" WHERE "id" = ${cycleItem.cycleId} LIMIT 1
+        `;
+        const cs = cycle?.status ?? "OPEN";
+        if (cs === "CLOSED" || cs === "PAID") throw new CycleBlockedError(cs);
+        await tx.$executeRaw`DELETE FROM "SupplierBillingCycleItem" WHERE "id" = ${cycleItem.id}`;
+        await tx.$executeRaw`
+          UPDATE "SupplierBillingCycle"
+          SET "totalAmount" = GREATEST(0, "totalAmount" - ${new Prisma.Decimal(Number(cycleItem.amount))}),
+              "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "id" = ${cycleItem.cycleId}
+        `;
+      }
+      await tx.$executeRaw`
+        UPDATE "Purchase"
+        SET "status" = 'CANCELLED',
+            "cancelledAt" = CURRENT_TIMESTAMP,
+            "cancellationReason" = ${reason},
+            "cancelledByUserId" = ${admin.id},
+            "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "id" = ${request.params.id}
+      `;
+    });
+  } catch (err) {
+    if (err instanceof CycleBlockedError) {
+      response.status(409).json({
+        message: `Esta compra pertence a um ciclo de fornecedor ja ${err.cycleStatus === "PAID" ? "pago" : "fechado"}. Reabra o ciclo antes de cancelar.`
+      });
+      return;
+    }
+    throw err;
+  }
+
   await adjustStockForPurchase(request.params.id, -1);
   await removeCardStatementItemsForPurchase(request.params.id);
   await auditLog({

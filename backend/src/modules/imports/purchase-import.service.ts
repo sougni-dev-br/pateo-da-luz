@@ -990,6 +990,16 @@ export async function confirmPurchaseImport(
 
     for (const group of groups) {
       const supplier = await findOrCreateSupplier(tx, group.header, counters);
+
+      if (supplier.billingMode === "CYCLE") {
+        warnings.push({
+          rowNumber: group.firstRowNumber,
+          message: `Fornecedor "${supplier.name}" usa faturamento por ciclo — importacao nao suportada para este tipo de fornecedor ainda.`
+        });
+        counters.ignoredRows += group.rows.length;
+        continue;
+      }
+
       const totalAmount = group.rows.reduce((sum, entry) => sum + entry.row.totalPrice, 0);
       const purchaseDate = group.header.purchaseDate as Date;
       const invoiceNumber = cleanPurchaseReference(group.header.invoiceNumber);
