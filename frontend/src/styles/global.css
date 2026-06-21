@@ -4437,6 +4437,26 @@ td:nth-child(n+3):not(:last-child) {
   text-overflow: ellipsis;
 }
 
+.source-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+}
+
+.source-badge.source-card-statement {
+  background: #e8f0fe;
+  color: #1a56db;
+}
+
+.source-badge.source-legacy {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .pr-actions {
   flex: 0 0 auto;
   display: flex;

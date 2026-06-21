@@ -1056,6 +1056,7 @@ export type Payable = {
   paidPaymentMethodId?: string | null;
   paidPaymentMethodName?: string | null;
   paymentNotes?: string | null;
+  sourceType?: "DIRECT" | "CARD_STATEMENT" | "LEGACY_CREDIT_CARD" | string | null;
   status: "OPEN" | "PAID" | "PAID_LATE" | "OVERDUE" | "CANCELLED" | string;
   rawValue: string | null;
   supplierId: string;

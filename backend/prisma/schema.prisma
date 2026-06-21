@@ -1112,10 +1112,12 @@ model PaymentInstallment {
   companyBankAccount    CompanyBankAccount? @relation("PaymentBankAccount", fields: [companyBankAccountId], references: [id])
   reconciliationStatus String?
   status      String    @default("OPEN")
+  sourceType  String    @default("DIRECT")
   rawValue    String?
   createdAt   DateTime  @default(now())
 
   @@index([dueDate])
+  @@index([sourceType])
   @@index([paidDate])
   @@index([paymentMethodId])
   @@index([paidPaymentMethodId])

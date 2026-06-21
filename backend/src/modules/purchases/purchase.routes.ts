@@ -472,6 +472,7 @@ purchaseRouter.get("/payables", async (request, response) => {
       pi."paidPaymentMethodId",
       COALESCE(pi."paidPaymentMethodName", ppm."name") AS "paidPaymentMethodName",
       pi."paymentNotes",
+      pi."sourceType",
       ${computedStatus} AS "status",
       pi."rawValue",
       s."id" AS "supplierId",
@@ -779,6 +780,15 @@ purchaseRouter.patch("/payables/:id/pay", async (request, response) => {
     WHERE "id" = ${request.params.id}
   `;
 
+  if (String(previous.sourceType ?? "DIRECT") === "CARD_STATEMENT") {
+    await prisma.$executeRaw`
+      UPDATE "CreditCardStatement"
+      SET "status" = 'PAID'
+      WHERE "generatedPurchaseId" = ${previous.purchaseId}
+        AND "status" IN ('CLOSED', 'PAID')
+    `;
+  }
+
   await auditLog({
     userId: user.id,
     action: "PAY_INSTALLMENT",
@@ -837,6 +847,15 @@ purchaseRouter.patch("/payables/:id/reverse", async (request, response) => {
         "status" = 'OPEN'
     WHERE "id" = ${request.params.id}
   `;
+
+  if (String(previous.sourceType ?? "DIRECT") === "CARD_STATEMENT") {
+    await prisma.$executeRaw`
+      UPDATE "CreditCardStatement"
+      SET "status" = 'CLOSED'
+      WHERE "generatedPurchaseId" = ${previous.purchaseId}
+        AND "status" = 'PAID'
+    `;
+  }
 
   await auditLog({
     userId: user.id,
@@ -991,6 +1010,16 @@ purchaseRouter.post("/", async (request, response) => {
     `;
     if (!openStatement) {
       await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Nao ha fatura aberta para este cartao/periodo. Abra a fatura antes de salvar." });
+      return;
+    }
+  }
+
+  if (!isSmallExpense && paymentMethodId) {
+    const [pmType] = await prisma.$queryRaw<Array<{ type: string }>>`
+      SELECT "type" FROM "PaymentMethod" WHERE "id" = ${paymentMethodId} LIMIT 1
+    `;
+    if (pmType?.type === "CREDIT_CARD") {
+      await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Compras no cartao de credito devem ser lancadas em uma fatura de cartao. Use o modulo de Cartoes/Faturas para registrar este pagamento." });
       return;
     }
   }
@@ -1185,7 +1214,8 @@ purchaseRouter.post("/", async (request, response) => {
           status: installment.status ?? "OPEN",
           paidDate: installment.paidDate ?? null,
           paidAmount: installment.paidAmount ?? null,
-          rawValue: installment.rawValue
+          rawValue: installment.rawValue,
+          sourceType: "DIRECT"
         }))
       });
       await tx.auditLog.create({
@@ -1410,6 +1440,16 @@ purchaseRouter.put("/:id", async (request, response) => {
     response.status(400).json({ message: "A forma de pagamento selecionada nao permite mais de uma parcela." });
     return;
   }
+  if (!isSmallExpense && paymentMethodId) {
+    const [pmType] = await prisma.$queryRaw<Array<{ type: string }>>`
+      SELECT "type" FROM "PaymentMethod" WHERE "id" = ${paymentMethodId} LIMIT 1
+    `;
+    if (pmType?.type === "CREDIT_CARD") {
+      response.status(400).json({ message: "Compras no cartao de credito devem ser lancadas em uma fatura de cartao. Use o modulo de Cartoes/Faturas para registrar este pagamento." });
+      return;
+    }
+  }
+
   if (isSmallExpense && originNormalized.includes("cartao de credito") && installments.length > 0) {
     response.status(400).json({ message: "Pequeno gasto no cartao de credito nao deve gerar parcelas avulsas; use a fatura do cartao." });
     return;

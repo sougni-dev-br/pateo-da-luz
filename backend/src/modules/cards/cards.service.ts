@@ -220,6 +220,7 @@ export async function createCardStatementPurchase(tx: Prisma.TransactionClient, 
       installment: 1,
       paymentMethodName: "Cartao de credito/fatura",
       status: "OPEN",
+      sourceType: "CARD_STATEMENT",
       rawValue: `Fatura ${statement.name ?? input.statementId}`
     }
   });
