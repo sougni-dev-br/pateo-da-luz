@@ -426,6 +426,12 @@ export function Payables({ user }: PayablesProps) {
                 <div className="pr-meta">
                   {payable.installment != null && <span>Parcela: {formatInstallment(payable.installment, payable.totalInstallments, payable.paymentMethodName)}</span>}
                   {payable.paymentMethodName && <span>{payable.paymentMethodName}</span>}
+                  {(payable.sourceType === "CARD_STATEMENT" || payable.paymentMethodName?.toLowerCase().includes("fatura")) && (
+                    <span className="source-badge source-card-statement">Fatura cartão</span>
+                  )}
+                  {payable.sourceType === "LEGACY_CREDIT_CARD" && (
+                    <span className="source-badge source-legacy">Cartão legado</span>
+                  )}
                   {(payable.paymentNotes ?? payable.notes) && (
                     <span className="pr-notes" title={payable.paymentNotes ?? payable.notes ?? ""}>
                       {payable.paymentNotes ?? payable.notes}
