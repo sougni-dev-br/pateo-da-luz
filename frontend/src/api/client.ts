@@ -921,6 +921,7 @@ export type Purchase = {
     amount: string | null;
     paidAmount?: string | null;
     installment: number | null;
+    totalInstallments?: number | null;
     paymentMethodId?: string | null;
     paymentMethodName?: string | null;
     paidPaymentMethodId?: string | null;
@@ -1049,6 +1050,7 @@ export type Payable = {
   amount: string | null;
   paidAmount: string | null;
   installment: number | null;
+  totalInstallments?: number | null;
   paymentMethodId: string | null;
   paymentMethodName: string | null;
   paidPaymentMethodId?: string | null;
