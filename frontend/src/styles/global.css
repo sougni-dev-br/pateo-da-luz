@@ -3487,6 +3487,14 @@ select:disabled {
 .pnova-payment-grid label.field-error select {
   border-color: #e57373;
 }
+.pnova-cc-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
 .pnova-payment-obs-btn {
   align-self: flex-end;
   font-size: 12px !important;

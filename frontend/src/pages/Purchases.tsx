@@ -427,8 +427,13 @@ export function Purchases({ user }: { user: AppUser }) {
   const selectedPaymentMethodBaseName = basePaymentMethodName(selectedPaymentMethod?.name);
   const availablePaymentMethods = useMemo(() => {
     const baseMethods = paymentMethods.filter((method) => !isLegacyInstallmentMethod(method));
-    return baseMethods.length > 0 ? baseMethods : paymentMethods;
-  }, [paymentMethods]);
+    const methods = baseMethods.length > 0 ? baseMethods : paymentMethods;
+    // Normal purchases cannot use CREDIT_CARD directly — must go through statement flow
+    if (!form.isSmallExpense) {
+      return methods.filter((method) => method.type !== "CREDIT_CARD");
+    }
+    return methods;
+  }, [paymentMethods, form.isSmallExpense]);
   const categories = useMemo(() => [...new Set(products.map((product) => product.category?.name).filter(Boolean))] as string[], [products]);
   const smallExpenseUsesCreditCard = form.isSmallExpense && selectedPaymentMethod ? normalize(selectedPaymentMethod.name).includes("cartao de credito") : false;
   const selectedPaymentMethodAllowsInstallments = allowsInstallments(selectedPaymentMethod);
@@ -2272,6 +2277,11 @@ export function Purchases({ user }: { user: AppUser }) {
                             <option value="">Selecione</option>
                             {availablePaymentMethods.map((method) => <option key={method.id} value={method.id}>{basePaymentMethodName(method.name) || method.name}</option>)}
                           </select>
+                          {!form.isSmallExpense && (
+                            <span className="pnova-cc-hint">
+                              Cartão de crédito → use <strong>Cartões / Faturas</strong>
+                            </span>
+                          )}
                         </label>
                         <label className={fieldErrors.installmentCount ? "field-error" : ""}>
                           Quantidade de parcelas
