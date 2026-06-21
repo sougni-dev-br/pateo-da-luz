@@ -1767,10 +1767,10 @@ export function deleteCatalogImport(importBatchId: string) {
   );
 }
 
-function toQueryString(filters?: Record<string, string | undefined>) {
+function toQueryString(filters?: Record<string, string | boolean | undefined>) {
   const params = new URLSearchParams();
   Object.entries(filters ?? {}).forEach(([key, value]) => {
-    if (value) params.set(key, value);
+    if (value !== undefined && value !== false && value !== "") params.set(key, String(value));
   });
   const query = params.toString();
   return query ? `?${query}` : "";
@@ -1808,6 +1808,7 @@ export function getPayables(filters?: {
   status?: string;
   startDate?: string;
   endDate?: string;
+  noDueDate?: boolean;
 }) {
   return request<Payable[]>(`/purchases/payables${toQueryString(filters)}`);
 }

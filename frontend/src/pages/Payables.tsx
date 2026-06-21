@@ -82,7 +82,7 @@ export function Payables({ user }: PayablesProps) {
     paidDate: todayKey(), paidAmount: "", paidPaymentMethod: "",
     paymentNotes: "", differenceReason: "", payingCompanyId: "", companyBankAccountId: ""
   });
-  const [filters, setFilters] = useState({ filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "" });
+  const [filters, setFilters] = useState({ filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", noDueDate: false });
   const [activeChip, setActiveChip] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [period, setPeriod] = useState(currentMonthPeriod());
@@ -97,10 +97,13 @@ export function Payables({ user }: PayablesProps) {
     const activePeriod = periodOverride ?? period;
     try {
       const periodFilters = { startDate: activePeriod.startDate, endDate: activePeriod.endDate };
-      // sourceType is client-side only — exclude from API params
-      const { sourceType: _st, ...apiFilters } = activeFilters;
+      // sourceType and noDueDate are handled separately — exclude from spread
+      const { sourceType: _st, noDueDate: noDueDateFlag, ...apiFilters } = activeFilters;
+      const dateParams = noDueDateFlag
+        ? { noDueDate: true as const }
+        : periodFilters;
       const [payableRows, allRows, supplierRows, methodRows, companyRows] = await Promise.all([
-        getPayables({ ...apiFilters, ...periodFilters }),
+        getPayables({ ...apiFilters, ...dateParams }),
         getPayables(periodFilters),
         suppliers.length ? Promise.resolve(suppliers) : getSuppliers(),
         paymentMethods.length ? Promise.resolve(paymentMethods) : getPaymentMethods(),
@@ -164,7 +167,7 @@ export function Payables({ user }: PayablesProps) {
   }, [paymentMethods]);
 
   function clearFilters() {
-    const cleared = { filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "" };
+    const cleared = { filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", noDueDate: false };
     setFilters(cleared);
     setSearchQuery("");
     setActiveChip(null);
@@ -223,9 +226,9 @@ export function Payables({ user }: PayablesProps) {
         void load(u);
       }
     } else if (key === "noduedate") {
-      const p = periodForPreset("currentYear");
-      setPeriod(p);
-      void load(undefined, p);
+      const u = { ...filters, noDueDate: true, status: "", sourceType: "" };
+      setFilters(u);
+      void load(u);
     }
   }
 
