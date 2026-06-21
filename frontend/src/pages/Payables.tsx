@@ -21,8 +21,6 @@ const statusLabels: Record<string, string> = {
   CANCELLED: "Cancelado"
 };
 
-const effectivePaymentNames = ["PIX", "Boleto", "Dinheiro", "Debito", "Credito", "Transferencia", "Outro"];
-
 function dateKey(value?: string | null) {
   if (!value) return "";
   return String(value).slice(0, 10);
@@ -37,6 +35,24 @@ function addDaysKey(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function basePaymentName(name: string): string {
+  return name.trim().replace(/\s+\d+[Xx]$/, "").toUpperCase().trim();
+}
+
+function inferTotalInstallments(methodName: string | null): number {
+  if (!methodName) return 1;
+  // Matches "BOLETO 2X", "BOLETO / 2x", "PIX / 1x" etc.
+  const m = methodName.match(/[/ ]+(\d+)[Xx]$/);
+  return m ? parseInt(m[1], 10) : 1;
+}
+
+function formatInstallment(num: number | null, total?: number | null, methodName?: string | null): string {
+  if (num == null) return "";
+  const inferred = inferTotalInstallments(methodName ?? null);
+  const t = Math.max(total ?? inferred, num); // denominator always >= numerator
+  return `${num}/${t}`;
 }
 
 function payableAlertStatus(payable: Payable): "overdue" | "today" | "tomorrow" | "" {
@@ -84,7 +100,7 @@ export function Payables({ user }: PayablesProps) {
         getPayables(periodFilters),
         suppliers.length ? Promise.resolve(suppliers) : getSuppliers(),
         paymentMethods.length ? Promise.resolve(paymentMethods) : getPaymentMethods(),
-        companies.length ? Promise.resolve(companies) : getCompanies()
+        companies.length ? Promise.resolve(companies) : getCompanies().catch(() => [] as Company[])
       ]);
       setPayables(payableRows);
       setAllPayables(allRows);
@@ -128,6 +144,18 @@ export function Payables({ user }: PayablesProps) {
 
   const activeFilterCount = [filters.supplierId, filters.paymentMethodId, filters.status].filter(Boolean).length;
 
+  const effectivePaymentOptions = useMemo(() => {
+    const seen = new Map<string, { id: string; label: string }>();
+    for (const m of paymentMethods) {
+      const base = basePaymentName(m.name);
+      const existing = seen.get(base);
+      if (!existing || m.name.trim().toUpperCase() === base) {
+        seen.set(base, { id: m.id, label: base });
+      }
+    }
+    return Array.from(seen.values());
+  }, [paymentMethods]);
+
   function clearFilters() {
     const cleared = { filter: "", supplierId: "", paymentMethodId: "", status: "" };
     setFilters(cleared);
@@ -163,12 +191,21 @@ export function Payables({ user }: PayablesProps) {
   }
 
   function startPayment(payable: Payable) {
+    let paidPaymentMethod = "";
+    if (payable.paymentMethodId) {
+      const orig = paymentMethods.find((m) => m.id === payable.paymentMethodId);
+      if (orig) {
+        const base = basePaymentName(orig.name);
+        const eff = effectivePaymentOptions.find((o) => o.label === base);
+        paidPaymentMethod = eff ? `id:${eff.id}` : `name:${base}`;
+      }
+    }
     setPaying(payable);
     setBankAccounts([]);
     setPaymentForm({
       paidDate: todayKey(),
       paidAmount: String(payable.amount ?? ""),
-      paidPaymentMethod: payable.paymentMethodId ? `id:${payable.paymentMethodId}` : "",
+      paidPaymentMethod,
       paymentNotes: "",
       differenceReason: "",
       payingCompanyId: "",
@@ -387,7 +424,7 @@ export function Payables({ user }: PayablesProps) {
                 </div>
 
                 <div className="pr-meta">
-                  {payable.installment != null && <span>Parcela {payable.installment}</span>}
+                  {payable.installment != null && <span>Parcela: {formatInstallment(payable.installment, payable.totalInstallments, payable.paymentMethodName)}</span>}
                   {payable.paymentMethodName && <span>{payable.paymentMethodName}</span>}
                   {(payable.paymentNotes ?? payable.notes) && (
                     <span className="pr-notes" title={payable.paymentNotes ?? payable.notes ?? ""}>
@@ -441,13 +478,15 @@ export function Payables({ user }: PayablesProps) {
               </button>
             </div>
 
+            <Notice notice={notice} />
+
             {/* Contexto do título */}
             <div className="pay-ctx">
               <div className="pay-ctx-row">
                 <div><span>Fornecedor</span><strong>{paying.supplierName}</strong></div>
                 {paying.invoiceNumber && <div><span>NF</span><strong>{paying.invoiceNumber}</strong></div>}
                 {paying.purchaseNumber && <div><span>Pedido</span><strong>{paying.purchaseNumber}</strong></div>}
-                {paying.installment != null && <div><span>Parcela</span><strong>{paying.installment}</strong></div>}
+                {paying.installment != null && <div><span>Parcela</span><strong>{formatInstallment(paying.installment, paying.totalInstallments, paying.paymentMethodName)}</strong></div>}
                 <div><span>Vencimento</span><strong>{formatDate(paying.dueDate)}</strong></div>
                 <div><span>Valor original</span><strong className="pay-ctx-amount">{formatCurrency(paymentOriginalAmount)}</strong></div>
               </div>
@@ -470,8 +509,9 @@ export function Payables({ user }: PayablesProps) {
                 <select value={paymentForm.paidPaymentMethod}
                   onChange={(e) => setPaymentForm({ ...paymentForm, paidPaymentMethod: e.target.value })}>
                   <option value="">Selecione</option>
-                  {paymentMethods.map((m) => <option key={m.id} value={`id:${m.id}`}>{m.name}</option>)}
-                  {effectivePaymentNames.map((n) => <option key={n} value={`name:${n}`}>{n}</option>)}
+                  {effectivePaymentOptions.map((opt) => (
+                    <option key={opt.id} value={`id:${opt.id}`}>{opt.label}</option>
+                  ))}
                 </select>
               </label>
               <label>
@@ -528,7 +568,7 @@ export function Payables({ user }: PayablesProps) {
 
             {/* Frase de confirmação */}
             <p className="pay-confirm-phrase">
-              Você está baixando{paying.installment != null ? ` a parcela ${paying.installment}` : ""}
+              Você está baixando{paying.installment != null ? ` a parcela ${formatInstallment(paying.installment, paying.totalInstallments, paying.paymentMethodName)}` : ""}
               {paying.invoiceNumber
                 ? ` da NF ${paying.invoiceNumber}`
                 : paying.purchaseNumber
@@ -571,7 +611,7 @@ export function Payables({ user }: PayablesProps) {
                   <h3>Identificação</h3>
                   {selectedPayable.invoiceNumber && <p>NF: <strong>{selectedPayable.invoiceNumber}</strong></p>}
                   {selectedPayable.purchaseNumber && <p>Pedido: <strong>{selectedPayable.purchaseNumber}</strong></p>}
-                  {selectedPayable.installment != null && <p>Parcela: <strong>{selectedPayable.installment}</strong></p>}
+                  {selectedPayable.installment != null && <p>Parcela: <strong>{formatInstallment(selectedPayable.installment, selectedPayable.totalInstallments, selectedPayable.paymentMethodName)}</strong></p>}
                   <p>
                     <span className={`status-badge ${selectedPayable.status.toLowerCase()}`}>
                       {statusLabels[selectedPayable.status] ?? selectedPayable.status}
@@ -642,7 +682,7 @@ export function Payables({ user }: PayablesProps) {
                       <tr key={inst.id}>
                         <td>{inst.paymentMethodName ?? detail.paymentMethodName ?? "-"}</td>
                         <td>{formatDate(inst.dueDate)}</td>
-                        <td>{inst.installment ?? "-"}</td>
+                        <td>{inst.installment != null ? formatInstallment(inst.installment, inst.totalInstallments, inst.paymentMethodName) : "-"}</td>
                         <td>{formatCurrency(Number(inst.amount ?? 0))}</td>
                         <td>{formatDate(inst.paidDate)}</td>
                         <td>{formatCurrency(Number(inst.paidAmount ?? 0))}</td>
