@@ -91,7 +91,7 @@ async function getPurchaseDetail(id: string) {
   `;
   if (!purchase) return null;
 
-  const [items, installments, audits] = await Promise.all([
+  const [items, installments, audits, cardStatementItems] = await Promise.all([
     prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT
         i.*,
@@ -132,6 +132,28 @@ async function getPurchaseDetail(id: string) {
          OR (a."entity" IN ('PurchaseItem', 'PaymentInstallment') AND a."newValue"::text ILIKE ${`%${id}%`})
       ORDER BY a."createdAt" DESC
       LIMIT 30
+    `,
+    prisma.$queryRaw<Array<Record<string, unknown>>>`
+      SELECT
+        ccsi."id",
+        ccsi."value"::text AS "value",
+        ccsi."installment",
+        ccsi."totalInstallments",
+        ccsi."itemDate",
+        ccsi."description",
+        ccs."id" AS "statementId",
+        ccs."name" AS "statementName",
+        ccs."competenceMonth",
+        ccs."competenceYear",
+        ccs."dueDate" AS "statementDueDate",
+        ccs."status" AS "statementStatus",
+        cc."name" AS "creditCardName",
+        cc."last4Digits" AS "creditCardLast4Digits"
+      FROM "CreditCardStatementItem" ccsi
+      JOIN "CreditCardStatement" ccs ON ccs."id" = ccsi."statementId"
+      JOIN "CreditCard" cc ON cc."id" = ccs."creditCardId"
+      WHERE ccsi."purchaseId" = ${id}
+      ORDER BY ccsi."installment" NULLS FIRST
     `
   ]);
 
@@ -153,7 +175,8 @@ async function getPurchaseDetail(id: string) {
       : purchase.paymentMethod,
     items,
     installments: formattedInstallments,
-    audits
+    audits,
+    cardStatementItems
   };
 }
 
@@ -487,7 +510,15 @@ purchaseRouter.get("/payables", async (request, response) => {
     LEFT JOIN "PaymentMethod" pm ON pm."id" = pi."paymentMethodId"
     LEFT JOIN "PaymentMethod" ppm ON ppm."id" = pi."paidPaymentMethodId"
     WHERE ${supplierId ? Prisma.sql`s."id" = ${supplierId}` : Prisma.sql`true`}
-      AND ${paymentMethodId ? Prisma.sql`COALESCE(pi."paymentMethodId", p."paymentMethodId") = ${paymentMethodId}` : Prisma.sql`true`}
+      AND ${paymentMethodId ? Prisma.sql`
+        EXISTS (
+          SELECT 1 FROM "PaymentMethod" ref WHERE ref."id" = ${paymentMethodId}
+          AND (
+            (pm."group" = ref."group" AND pm."type" = ref."type")
+            OR (ref."type" = 'CREDIT_CARD' AND pi."sourceType" IN ('CARD_STATEMENT', 'LEGACY_CREDIT_CARD'))
+          )
+        )
+      ` : Prisma.sql`true`}
       AND ${startDate ? Prisma.sql`pi."dueDate" >= ${startDate}` : Prisma.sql`true`}
       AND ${endDate ? Prisma.sql`pi."dueDate" < ${endDate}` : Prisma.sql`true`}
       AND ${status ? Prisma.sql`
@@ -643,7 +674,15 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
     JOIN "Supplier" s ON s."id" = p."supplierId"
     LEFT JOIN "PaymentMethod" pm ON pm."id" = pi."paymentMethodId"
     WHERE ${supplierId ? Prisma.sql`s."id" = ${supplierId}` : Prisma.sql`true`}
-      AND ${paymentMethodId ? Prisma.sql`COALESCE(pi."paymentMethodId", p."paymentMethodId") = ${paymentMethodId}` : Prisma.sql`true`}
+      AND ${paymentMethodId ? Prisma.sql`
+        EXISTS (
+          SELECT 1 FROM "PaymentMethod" ref WHERE ref."id" = ${paymentMethodId}
+          AND (
+            (pm."group" = ref."group" AND pm."type" = ref."type")
+            OR (ref."type" = 'CREDIT_CARD' AND pi."sourceType" IN ('CARD_STATEMENT', 'LEGACY_CREDIT_CARD'))
+          )
+        )
+      ` : Prisma.sql`true`}
       AND ${startDate ? Prisma.sql`pi."dueDate" >= ${startDate}` : Prisma.sql`true`}
       AND ${endDate ? Prisma.sql`pi."dueDate" <= ${endDate}` : Prisma.sql`true`}
       AND ${status ? Prisma.sql`${computedStatus} = ${status}` : Prisma.sql`true`}
