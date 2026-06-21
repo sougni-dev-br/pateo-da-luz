@@ -13,7 +13,7 @@ import {
 import { createPayablesFinancialPdf, type PayablesFinancialPdfRow } from "./payables-financial-pdf.js";
 import { auditLog, requestIp, requireAdmin, requireRole } from "../security/security-utils.js";
 import { recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
-import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase } from "../cards/cards.service.js";
+import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
 import { OFFICIAL_SMALL_EXPENSE_NORMALIZED_TYPES } from "../master-data/small-expense-type-options.js";
 import {
   buildReferenceLabel,
@@ -942,6 +942,7 @@ purchaseRouter.post("/", async (request, response) => {
   const smallExpenseMoneyOrigin = asNullableText(request.body.smallExpenseMoneyOrigin);
   const smallExpenseNotes = asNullableText(request.body.smallExpenseNotes ?? request.body.notes);
   const creditCardId = request.body.creditCardId ? String(request.body.creditCardId) : null;
+  const numberOfInstallments = Math.max(1, Math.floor(Number(request.body.numberOfInstallments ?? 1)));
   const requestMeta = {
     userId: user.id,
     body: request.body,
@@ -997,7 +998,7 @@ purchaseRouter.post("/", async (request, response) => {
     return;
   }
 
-  if (isSmallExpense && smallExpenseMoneyOrigin && normalizeText(smallExpenseMoneyOrigin).includes("cartao de credito") && creditCardId) {
+  if (isSmallExpense && creditCardId) {
     const [openStatement] = await prisma.$queryRaw<Array<{ id: string; status: string }>>`
       SELECT "id", "status"
       FROM "CreditCardStatement"
@@ -1014,14 +1015,18 @@ purchaseRouter.post("/", async (request, response) => {
     }
   }
 
-  if (!isSmallExpense && paymentMethodId) {
-    const [pmType] = await prisma.$queryRaw<Array<{ type: string }>>`
+  let paymentMethodType: string | null = null;
+  if (paymentMethodId) {
+    const [pmRow] = await prisma.$queryRaw<Array<{ type: string }>>`
       SELECT "type" FROM "PaymentMethod" WHERE "id" = ${paymentMethodId} LIMIT 1
     `;
-    if (pmType?.type === "CREDIT_CARD") {
-      await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Compras no cartao de credito devem ser lancadas em uma fatura de cartao. Use o modulo de Cartoes/Faturas para registrar este pagamento." });
-      return;
-    }
+    paymentMethodType = pmRow?.type ?? null;
+  }
+  const isNormalCreditCard = !isSmallExpense && paymentMethodType === "CREDIT_CARD";
+
+  if (isNormalCreditCard && !creditCardId) {
+    await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Selecione o cartao para compras no cartao de credito." });
+    return;
   }
 
   if (validItems.length === 0) {
@@ -1050,27 +1055,28 @@ purchaseRouter.post("/", async (request, response) => {
   const originNormalized = normalizeText(effectiveSmallExpenseOrigin);
   const allowsInstallments = paymentMethodAllowsInstallments({ name: basePaymentMethodName });
   const paymentAllowsNoInstallments = isSmallExpense
-    ? [
+    ? (creditCardId !== null || [
         "caixa",
         "dinheiro",
         "pix",
         "cartao de debito",
         "cartao debito",
         "cartao de credito da loja",
-        "cartao de credito"
-      ].includes(originNormalized)
+        "cartao de credito",
+        "cartao credito"
+      ].includes(originNormalized))
     : false;
-  if (!isSmallExpense && installments.length === 0) {
+  if (!isSmallExpense && !isNormalCreditCard && installments.length === 0) {
     await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Informe os vencimentos conforme a forma de pagamento." });
     return;
   }
-  if (!isSmallExpense && !allowsInstallments && installments.length > 1) {
+  if (!isSmallExpense && !isNormalCreditCard && !allowsInstallments && installments.length > 1) {
     await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "A forma de pagamento selecionada nao permite mais de uma parcela." });
     return;
   }
 
-  if (isSmallExpense && originNormalized.includes("cartao de credito") && installments.length > 0) {
-    await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Pequeno gasto no cartao de credito nao deve gerar parcelas avulsas; use a fatura do cartao." });
+  if ((isSmallExpense && creditCardId) && installments.length > 0) {
+    await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Compra no cartao de credito nao deve gerar parcelas avulsas; os itens vao para a fatura do cartao." });
     return;
   }
 
@@ -1233,26 +1239,42 @@ purchaseRouter.post("/", async (request, response) => {
       });
     }
 
-    if (isSmallExpense && creditCardId && originNormalized.includes("cartao de credito")) {
+    if (creditCardId) {
       const [supplierRow] = await tx.$queryRaw<Array<{ name: string }>>`
-        SELECT "name"
-        FROM "Supplier"
-        WHERE "id" = ${supplierId}
-        LIMIT 1
+        SELECT "name" FROM "Supplier" WHERE "id" = ${supplierId} LIMIT 1
       `;
+      const supplierName = supplierRow?.name ?? "Fornecedor";
       const firstItem = validItems[0];
-      await syncCardStatementItemForPurchase(tx, {
-        purchaseId: purchase.id,
-        cardId: creditCardId,
-        purchaseDate,
-        description: firstItem?.rawProductName || invoiceNumber || purchaseNumber || "Pequeno gasto no cartao",
-        supplierName: supplierRow?.name ?? "Fornecedor",
-        value: totalAmount,
-        categoryName: firstItem?.rawCategory ?? null,
-        smallExpenseTypeId,
-        responsibleName: effectiveSmallExpenseResponsible,
-        notes: effectiveSmallExpenseNotes
-      });
+
+      if (isNormalCreditCard) {
+        const desc = invoiceNumber
+          ? `NF ${invoiceNumber} — ${supplierName}`
+          : (firstItem?.rawProductName ? `${firstItem.rawProductName} — ${supplierName}` : supplierName);
+        await syncCardStatementItemsForPurchase(tx, {
+          purchaseId: purchase.id,
+          cardId: creditCardId,
+          purchaseDate,
+          description: desc,
+          supplierName,
+          totalAmount,
+          numberOfInstallments,
+          categoryName: firstItem?.rawCategory ?? null,
+          notes: paymentMethodName ?? null
+        });
+      } else if (isSmallExpense) {
+        await syncCardStatementItemForPurchase(tx, {
+          purchaseId: purchase.id,
+          cardId: creditCardId,
+          purchaseDate,
+          description: firstItem?.rawProductName || invoiceNumber || purchaseNumber || "Pequeno gasto no cartao",
+          supplierName,
+          value: totalAmount,
+          categoryName: firstItem?.rawCategory ?? null,
+          smallExpenseTypeId,
+          responsibleName: effectiveSmallExpenseResponsible,
+          notes: effectiveSmallExpenseNotes
+        });
+      }
     }
 
     return { id: purchase.id, purchaseNumber };
@@ -1367,6 +1389,7 @@ purchaseRouter.put("/:id", async (request, response) => {
   const smallExpenseMoneyOrigin = asNullableText(request.body.smallExpenseMoneyOrigin);
   const smallExpenseNotes = asNullableText(request.body.smallExpenseNotes ?? request.body.notes);
   const creditCardId = asNullableText(request.body.creditCardId);
+  const numberOfInstallments = Math.max(1, Math.floor(Number(request.body.numberOfInstallments ?? 1)));
   const validItems = items.map((item) => ({
     productId: String(item.productId ?? "").trim(),
     rawProductCode: asNullableText(item.rawProductCode),
@@ -1418,40 +1441,45 @@ purchaseRouter.put("/:id", async (request, response) => {
   const originNormalized = normalizeText(effectiveSmallExpenseOrigin);
   const allowsInstallments = paymentMethodAllowsInstallments({ name: basePaymentMethodName });
   const paymentAllowsNoInstallments = isSmallExpense
-    ? [
+    ? (creditCardId !== null || [
         "caixa",
         "dinheiro",
         "pix",
         "cartao de debito",
         "cartao debito",
         "cartao de credito da loja",
-        "cartao de credito"
-      ].includes(originNormalized)
+        "cartao de credito",
+        "cartao credito"
+      ].includes(originNormalized))
     : false;
   if (!invoiceNumber && !noInvoiceReason && !isSmallExpense) {
     response.status(400).json({ message: "Informe a NF ou o motivo para compra sem NF." });
     return;
   }
-  if (!isSmallExpense && installments.length === 0) {
+  let updatePaymentMethodType: string | null = null;
+  if (paymentMethodId) {
+    const [pmRow] = await prisma.$queryRaw<Array<{ type: string }>>`
+      SELECT "type" FROM "PaymentMethod" WHERE "id" = ${paymentMethodId} LIMIT 1
+    `;
+    updatePaymentMethodType = pmRow?.type ?? null;
+  }
+  const isNormalCreditCard = !isSmallExpense && updatePaymentMethodType === "CREDIT_CARD";
+
+  if (isNormalCreditCard && !creditCardId) {
+    response.status(400).json({ message: "Selecione o cartao para compras no cartao de credito." });
+    return;
+  }
+  if (!isSmallExpense && !isNormalCreditCard && installments.length === 0) {
     response.status(400).json({ message: "Informe os vencimentos conforme a forma de pagamento." });
     return;
   }
-  if (!isSmallExpense && !allowsInstallments && installments.length > 1) {
+  if (!isSmallExpense && !isNormalCreditCard && !allowsInstallments && installments.length > 1) {
     response.status(400).json({ message: "A forma de pagamento selecionada nao permite mais de uma parcela." });
     return;
   }
-  if (!isSmallExpense && paymentMethodId) {
-    const [pmType] = await prisma.$queryRaw<Array<{ type: string }>>`
-      SELECT "type" FROM "PaymentMethod" WHERE "id" = ${paymentMethodId} LIMIT 1
-    `;
-    if (pmType?.type === "CREDIT_CARD") {
-      response.status(400).json({ message: "Compras no cartao de credito devem ser lancadas em uma fatura de cartao. Use o modulo de Cartoes/Faturas para registrar este pagamento." });
-      return;
-    }
-  }
 
-  if (isSmallExpense && originNormalized.includes("cartao de credito") && installments.length > 0) {
-    response.status(400).json({ message: "Pequeno gasto no cartao de credito nao deve gerar parcelas avulsas; use a fatura do cartao." });
+  if ((isSmallExpense && creditCardId) && installments.length > 0) {
+    response.status(400).json({ message: "Compra no cartao de credito nao deve gerar parcelas avulsas; os itens vao para a fatura do cartao." });
     return;
   }
   if (isSmallExpense && installments.length === 0 && ["caixa", "dinheiro", "pix", "cartao de debito", "cartao debito"].includes(originNormalized)) {
@@ -1597,30 +1625,42 @@ purchaseRouter.put("/:id", async (request, response) => {
       });
     }
 
-    if (isSmallExpense && creditCardId && originNormalized.includes("cartao de credito")) {
+    if (creditCardId) {
       const [supplierRow] = await tx.$queryRaw<Array<{ name: string }>>`
-        SELECT "name"
-        FROM "Supplier"
-        WHERE "id" = ${nextSupplierId}
-        LIMIT 1
+        SELECT "name" FROM "Supplier" WHERE "id" = ${nextSupplierId} LIMIT 1
       `;
+      const supplierName = supplierRow?.name ?? "Fornecedor";
       const firstItem = validItems[0];
-      await syncCardStatementItemForPurchase(tx, {
-        purchaseId: request.params.id,
-        cardId: creditCardId,
-        purchaseDate,
-        description:
-          firstItem?.rawProductName ||
-          invoiceNumber ||
-          asNullableText(previousRecord.purchaseNumber) ||
-          "Pequeno gasto no cartao",
-        supplierName: supplierRow?.name ?? "Fornecedor",
-        value: totalAmount,
-        categoryName: firstItem?.rawCategory ?? null,
-        smallExpenseTypeId,
-        responsibleName: effectiveSmallExpenseResponsible,
-        notes: effectiveSmallExpenseNotes
-      });
+
+      if (isNormalCreditCard) {
+        const desc = invoiceNumber
+          ? `NF ${invoiceNumber} — ${supplierName}`
+          : (firstItem?.rawProductName ? `${firstItem.rawProductName} — ${supplierName}` : supplierName);
+        await syncCardStatementItemsForPurchase(tx, {
+          purchaseId: request.params.id,
+          cardId: creditCardId,
+          purchaseDate,
+          description: desc,
+          supplierName,
+          totalAmount,
+          numberOfInstallments,
+          categoryName: firstItem?.rawCategory ?? null,
+          notes: paymentMethodName ?? null
+        });
+      } else if (isSmallExpense) {
+        await syncCardStatementItemForPurchase(tx, {
+          purchaseId: request.params.id,
+          cardId: creditCardId,
+          purchaseDate,
+          description: firstItem?.rawProductName || invoiceNumber || asNullableText(previousRecord.purchaseNumber) || "Pequeno gasto no cartao",
+          supplierName,
+          value: totalAmount,
+          categoryName: firstItem?.rawCategory ?? null,
+          smallExpenseTypeId,
+          responsibleName: effectiveSmallExpenseResponsible,
+          notes: effectiveSmallExpenseNotes
+        });
+      }
     }
 
     for (const productId of [...new Set([...previousItems.map((item) => String(item.productId)), ...validItems.map((item) => item.productId)])]) {
@@ -1823,7 +1863,7 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
     WHERE p."id" = ${request.params.id}
     LIMIT 1
   `;
-  if (restored?.creditCardId && normalizeText(String(restored.smallExpenseMoneyOrigin ?? "")).includes("cartao de credito")) {
+  if (restored?.creditCardId) {
     await prisma.$transaction(async (tx) => {
       await syncCardStatementItemForPurchase(tx, {
         purchaseId: restored.id,

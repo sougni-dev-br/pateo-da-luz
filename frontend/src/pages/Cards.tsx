@@ -610,27 +610,47 @@ export function Cards({ user }: CardsProps) {
             <div className="subsection table-wrap operational-table">
               <h3>Itens</h3>
               <table>
-                <thead><tr><th>Data</th><th>Descrição</th><th>Fornecedor / Local</th><th className="numeric-cell">Valor</th><th>Conferido</th><th>Divergência</th><th>Ação</th></tr></thead>
-                <tbody>{statementDetail.items.map((item) => (
-                  <tr key={item.id}>
-                    <td>{formatDate(item.itemDate)}</td>
-                    <td title={item.description}>{item.description}</td>
-                    <td title={item.supplierName ?? item.purchase?.supplier?.name ?? "-"}>{item.supplierName ?? item.purchase?.supplier?.name ?? "-"}</td>
-                    <td className="numeric-cell nowrap-cell">{formatCurrency(item.value)}</td>
-                    <td>{item.checked ? "Sim" : "Não"}</td>
-                    <td>{item.hasDivergence ? "Sim" : "Não"}</td>
-                    <td className="actions-cell">
-                      {canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) ? (
-                        <>
-                          <button type="button" onClick={() => toggleItemCheck(item)}>{item.checked ? "Desmarcar" : "Conferir"}</button>
-                          <button type="button" onClick={() => toggleItemDivergence(item)}>Divergência</button>
-                        </>
-                      ) : (
-                        <span>-</span>
-                      )}
-                    </td>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Parcela</th>
+                    <th>Descrição</th>
+                    <th>Fornecedor</th>
+                    <th>Categoria</th>
+                    <th className="numeric-cell">Valor</th>
+                    <th>Conf.</th>
+                    <th>Div.</th>
+                    <th>Ação</th>
                   </tr>
-                ))}</tbody>
+                </thead>
+                <tbody>{statementDetail.items.map((item) => {
+                  const supplierDisplay = item.supplierName ?? item.purchase?.supplier?.name ?? "-";
+                  const parcelaLabel = item.installment != null && item.totalInstallments != null
+                    ? `${item.installment}/${item.totalInstallments}`
+                    : item.installment != null ? String(item.installment) : "-";
+                  return (
+                    <tr key={item.id}>
+                      <td className="nowrap-cell">{formatDate(item.itemDate)}</td>
+                      <td className="numeric-cell nowrap-cell">{parcelaLabel}</td>
+                      <td title={item.description}>{item.description}</td>
+                      <td title={supplierDisplay}>{supplierDisplay}</td>
+                      <td>{item.categoryName ?? "-"}</td>
+                      <td className="numeric-cell nowrap-cell">{formatCurrency(item.value)}</td>
+                      <td>{item.checked ? "✓" : "–"}</td>
+                      <td>{item.hasDivergence ? "⚠" : "–"}</td>
+                      <td className="actions-cell">
+                        {canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) ? (
+                          <>
+                            <button type="button" onClick={() => toggleItemCheck(item)}>{item.checked ? "Desmarcar" : "Conferir"}</button>
+                            <button type="button" onClick={() => toggleItemDivergence(item)}>Div.</button>
+                          </>
+                        ) : (
+                          <span>-</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}</tbody>
               </table>
             </div>
             {canManage && (

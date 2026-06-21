@@ -596,7 +596,6 @@ model CreditCardStatementItem {
   @@index([smallExpenseTypeId])
   @@index([checked])
   @@index([hasDivergence])
-  @@unique([purchaseId])
 }
 
 model SmallExpenseType {
