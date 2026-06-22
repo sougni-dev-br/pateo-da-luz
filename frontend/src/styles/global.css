@@ -994,14 +994,16 @@ select:focus {
 
 .checkbox-label {
   display: flex !important;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  white-space: nowrap;
+  white-space: normal;
+  cursor: pointer;
 }
 
 .checkbox-label input {
   min-height: auto;
   flex-shrink: 0;
+  margin-top: 3px;
 }
 
 /* Texto de dica/instrução — usado em Suppliers, Companies, Audit */
@@ -9116,6 +9118,96 @@ tr.dre-row-selected td {
   font-size: 0.9rem;
 }
 
+/* ── Dados tab: 2-col grid (overrides global 4-col) ── */
+.users-data-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Wrapper for role select + description (spans full width) */
+.users-role-field {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.users-role-field > label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 13px;
+  min-width: 0;
+}
+
+.users-role-field select {
+  min-height: 38px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+}
+
+/* ── Access control card rows (checkboxes) ── */
+.users-access-section {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.users-access-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.users-access-row:last-child {
+  border-bottom: none;
+}
+
+.users-access-row input[type="checkbox"] {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin-top: 3px;
+  accent-color: var(--gold);
+  cursor: pointer;
+  min-height: auto;
+}
+
+.users-access-row input[type="checkbox"]:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.users-access-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.users-access-label strong {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.35;
+}
+
+.users-access-label small {
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 /* ── Mobile: stack sidebar above detail ── */
 @media (max-width: 768px) {
   .users-shell {
@@ -9134,6 +9226,10 @@ tr.dre-row-selected td {
   .perm-th-action,
   .perm-cell {
     width: 36px;
+  }
+
+  .users-data-grid {
+    grid-template-columns: 1fr;
   }
 }
 
