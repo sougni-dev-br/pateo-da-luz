@@ -609,7 +609,9 @@ export function Users() {
               {/* ── TAB: Dados ── */}
               {activeTab === "dados" && (
                 <section className="panel">
-                  <div className="form-grid">
+                  {/* Seção 1: Dados básicos */}
+                  <p className="form-section-label">Dados básicos</p>
+                  <div className="form-grid users-data-grid">
                     <label>
                       Nome
                       <input value={editor.name} disabled={!canAdminUsers} autoComplete="off"
@@ -620,32 +622,42 @@ export function Users() {
                       <input type="email" value={editor.email} disabled={!canAdminUsers} autoComplete="off"
                         onChange={(e) => setEditor({ ...editor, email: e.target.value })} />
                     </label>
-                    <label>
-                      Modelo de acesso
-                      <select value={editor.role} disabled={!canManage}
-                        onChange={(e) => setEditor({ ...editor, role: e.target.value as UserRole })}>
-                        {ALL_ROLES.filter((r) => r !== "ADMIN" || isAdmin).map((r) => (
-                          <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <p className="role-desc-hint" style={{ gridColumn: "1 / -1" }}>
-                      {ROLE_DESCRIPTIONS[editor.role]}
-                    </p>
-                    <div className="form-checks">
-                      <label className="checkbox-label">
-                        <input type="checkbox" checked={editor.isActive} disabled={!canManage}
-                          onChange={(e) => setEditor({ ...editor, isActive: e.target.checked })} />
-                        Usuário ativo
+                    <div className="users-role-field">
+                      <label>
+                        Modelo de acesso
+                        <select value={editor.role} disabled={!canManage}
+                          onChange={(e) => setEditor({ ...editor, role: e.target.value as UserRole })}>
+                          {ALL_ROLES.filter((r) => r !== "ADMIN" || isAdmin).map((r) => (
+                            <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                          ))}
+                        </select>
                       </label>
-                      <label className="checkbox-label">
-                        <input type="checkbox" checked={editor.mustChangePassword} disabled={!canAdminUsers}
-                          onChange={(e) => setEditor({ ...editor, mustChangePassword: e.target.checked })} />
-                        Exigir troca de senha no próximo login
-                      </label>
+                      <p className="role-desc-hint">{ROLE_DESCRIPTIONS[editor.role]}</p>
                     </div>
                   </div>
 
+                  {/* Seção 2: Controle de acesso */}
+                  <p className="form-section-label" style={{ marginTop: 16 }}>Controle de acesso</p>
+                  <div className="users-access-section">
+                    <label className="users-access-row">
+                      <input type="checkbox" checked={editor.isActive} disabled={!canManage}
+                        onChange={(e) => setEditor({ ...editor, isActive: e.target.checked })} />
+                      <span className="users-access-label">
+                        <strong>Usuário ativo</strong>
+                        <small>Permite acesso ao sistema com as permissões configuradas</small>
+                      </span>
+                    </label>
+                    <label className="users-access-row">
+                      <input type="checkbox" checked={editor.mustChangePassword} disabled={!canAdminUsers}
+                        onChange={(e) => setEditor({ ...editor, mustChangePassword: e.target.checked })} />
+                      <span className="users-access-label">
+                        <strong>Exigir troca de senha no próximo login</strong>
+                        <small>O usuário será obrigado a definir uma nova senha ao entrar</small>
+                      </span>
+                    </label>
+                  </div>
+
+                  {/* Seção 3: Ações */}
                   {canAdminUsers && (
                     <div className="users-action-row">
                       <button type="button" className="primary-button" onClick={saveEditor}>
@@ -823,11 +835,14 @@ export function Users() {
                           value={pwdForm.password}
                           onChange={(v) => { setLastTemp(null); setPwdForm({ ...pwdForm, password: v }); }}
                         />
-                        <div className="form-checks">
-                          <label className="checkbox-label">
+                        <div className="users-access-section" style={{ gridColumn: "1 / -1" }}>
+                          <label className="users-access-row">
                             <input type="checkbox" checked={pwdForm.mustChangePassword}
                               onChange={(e) => setPwdForm({ ...pwdForm, mustChangePassword: e.target.checked })} />
-                            Exigir troca de senha no próximo login
+                            <span className="users-access-label">
+                              <strong>Exigir troca de senha no próximo login</strong>
+                              <small>O usuário será obrigado a definir uma nova senha ao entrar</small>
+                            </span>
                           </label>
                         </div>
                         <div style={{ display: "flex", gap: 10, gridColumn: "1 / -1" }}>
