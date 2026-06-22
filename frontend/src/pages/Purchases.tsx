@@ -441,6 +441,7 @@ export function Purchases({ user }: { user: AppUser }) {
   }, [isCreateRoute, isEditRoute, params.id]);
 
   const selectedSupplier = suppliers.find((supplier) => supplier.id === form.supplierId) ?? null;
+  const selectedSupplierIsCycle = selectedSupplier?.billingMode === "CYCLE";
   const selectedPaymentMethod = paymentMethods.find((method) => method.id === form.paymentMethodId) ?? null;
   const selectedPaymentMethodBaseName = basePaymentMethodName(selectedPaymentMethod?.name);
   const availablePaymentMethods = useMemo(() => {
@@ -555,11 +556,9 @@ export function Purchases({ user }: { user: AppUser }) {
 
   const canSavePurchase = useMemo(() => {
     const validItems = items.filter((item) => item.productId && Number(item.quantity) > 0);
-    const requestedInstallments = Math.max(1, Number(form.installmentCount || 1));
-    const hasDifference = Math.round(amountDifference * 100) !== 0;
     const baseChecks = Boolean(form.supplierId)
       && Boolean(form.purchaseDate)
-      && Boolean(form.paymentMethodId)
+      && (selectedSupplierIsCycle || Boolean(form.paymentMethodId))
       && validItems.length > 0
       && validItems.every((item) => item.unit.trim() && Number(item.quantity) > 0 && Number(item.unitPrice) >= 0)
       && (!showNoInvoiceReason ? Boolean(form.invoiceNumber.trim()) || form.isSmallExpense : Boolean(form.noInvoiceReason.trim()) || form.isSmallExpense)
@@ -567,7 +566,9 @@ export function Purchases({ user }: { user: AppUser }) {
       && (!smallExpenseUsesCreditCard || (Boolean(form.creditCardId) && Boolean(openCardStatement)))
       && (!normalPurchaseUsesCreditCard || Boolean(form.creditCardId));
     if (!baseChecks) return false;
-    if (!usesCreditCard) {
+    if (!selectedSupplierIsCycle && !usesCreditCard) {
+      const requestedInstallments = Math.max(1, Number(form.installmentCount || 1));
+      const hasDifference = Math.round(amountDifference * 100) !== 0;
       if (installments.length !== requestedInstallments) return false;
       if (installments.some((installment) => !installment.dueDate)) return false;
       if (hasDifference) return false;
@@ -592,6 +593,7 @@ export function Purchases({ user }: { user: AppUser }) {
     normalPurchaseUsesCreditCard,
     openCardStatement,
     saving,
+    selectedSupplierIsCycle,
     showNoInvoiceReason,
     smallExpenseUsesCreditCard,
     usesCreditCard
@@ -661,6 +663,21 @@ export function Purchases({ user }: { user: AppUser }) {
       setFilters((current) => ({ ...current, supplierId }));
       setSupplierFilterQuery(`${supplier.externalCode ? `${supplier.externalCode} • ` : ""}${supplier.name}`);
       setSupplierFilterOpen(false);
+      return;
+    }
+
+    // Fornecedor por ciclo: não resolve método de pagamento nem gera parcelas
+    if (supplier.billingMode === "CYCLE") {
+      setForm((current) => ({
+        ...current,
+        supplierId,
+        supplierCode: supplier.externalCode ?? "",
+        supplierName: supplier.name,
+        supplierDocument: supplier.document ?? "",
+        paymentMethodId: "",
+        installmentCount: "1"
+      }));
+      setInstallments([]);
       return;
     }
 
@@ -1086,9 +1103,9 @@ export function Purchases({ user }: { user: AppUser }) {
     if (!form.purchaseDate) errors.purchaseDate = "Data obrigatória.";
     if (!form.invoiceNumber.trim() && !showNoInvoiceReason && !form.isSmallExpense) errors.invoiceNumber = "Informe o número da NF ou marque compra sem NF.";
     if ((showNoInvoiceReason || form.isSmallExpense) && !form.noInvoiceReason.trim() && !form.isSmallExpense) errors.noInvoiceReason = "Informe o motivo para compra sem NF.";
-    if (!form.paymentMethodId) errors.paymentMethodId = "Forma de pagamento obrigatória.";
+    if (!selectedSupplierIsCycle && !form.paymentMethodId) errors.paymentMethodId = "Forma de pagamento obrigatória.";
     const requestedInstallments = Math.max(1, Number(form.installmentCount || 1));
-    if (selectedPaymentMethod && !usesCreditCard) {
+    if (!selectedSupplierIsCycle && selectedPaymentMethod && !usesCreditCard) {
       if (selectedPaymentMethodAllowsInstallments && requestedInstallments < 1) errors.installmentCount = "Informe ao menos 1 parcela.";
       if (!selectedPaymentMethodAllowsInstallments && requestedInstallments !== 1) errors.installmentCount = "Esta forma aceita apenas 1 parcela.";
     }
@@ -1102,11 +1119,11 @@ export function Purchases({ user }: { user: AppUser }) {
     if (smallExpenseUsesCreditCard && !form.creditCardId.trim()) errors.creditCardId = "Selecione o cartão.";
     if (smallExpenseUsesCreditCard && form.creditCardId && !openCardStatement) errors.creditCardId = "Não há fatura aberta para este cartão.";
     if (normalPurchaseUsesCreditCard && !form.creditCardId.trim()) errors.creditCardId = "Selecione o cartão de crédito.";
-    if (!usesCreditCard && installments.length !== requestedInstallments) errors.installments = "Revise a quantidade de parcelas informada.";
-    if (!usesCreditCard && installments.length > 0 && Math.round(amountDifference * 100) !== 0) {
+    if (!selectedSupplierIsCycle && !usesCreditCard && installments.length !== requestedInstallments) errors.installments = "Revise a quantidade de parcelas informada.";
+    if (!selectedSupplierIsCycle && !usesCreditCard && installments.length > 0 && Math.round(amountDifference * 100) !== 0) {
       errors.installments = "Total das parcelas não confere com o total da compra.";
     }
-    if (!usesCreditCard && installments.some((installment) => !installment.dueDate)) errors.installments = "Informe todos os vencimentos.";
+    if (!selectedSupplierIsCycle && !usesCreditCard && installments.some((installment) => !installment.dueDate)) errors.installments = "Informe todos os vencimentos.";
     setFieldErrors(errors);
     return Object.values(errors)[0] ?? null;
   }
@@ -1129,8 +1146,8 @@ export function Purchases({ user }: { user: AppUser }) {
         invoiceNumber: form.invoiceNumber || null,
         purchaseOrderNumber: form.purchaseOrderNumber || null,
         noInvoiceReason: showNoInvoiceReason ? form.noInvoiceReason || null : null,
-        paymentMethodId: selectedPaymentMethod?.id ?? null,
-        paymentMethod: basePaymentMethodName(selectedPaymentMethod?.name) || selectedPaymentMethod?.name || null,
+        paymentMethodId: selectedSupplierIsCycle ? null : (selectedPaymentMethod?.id ?? null),
+        paymentMethod: selectedSupplierIsCycle ? null : (basePaymentMethodName(selectedPaymentMethod?.name) || selectedPaymentMethod?.name || null),
         notes: form.notes || null,
         isSmallExpense: form.isSmallExpense,
         smallExpenseTypeId: form.isSmallExpense ? form.smallExpenseTypeId || null : null,
@@ -1143,7 +1160,7 @@ export function Purchases({ user }: { user: AppUser }) {
         paymentDifferenceReason: form.paymentDifferenceReason || null,
         workflowStatus: "confirmed",
         totalAmount,
-        installments: usesCreditCard
+        installments: (selectedSupplierIsCycle || usesCreditCard)
           ? []
           : installments.map((installment) => ({
               installment: installment.installment,
@@ -1234,7 +1251,7 @@ export function Purchases({ user }: { user: AppUser }) {
     const validItems = items.filter((item) => item.productId || item.quantity || item.unitPrice || item.totalPrice);
     if (!form.supplierId) messages.push("Selecione o fornecedor da compra.");
     if (!form.purchaseDate) messages.push("Preencha a data da compra.");
-    if (!form.paymentMethodId) messages.push("Selecione a forma de pagamento.");
+    if (!selectedSupplierIsCycle && !form.paymentMethodId) messages.push("Selecione a forma de pagamento.");
     if (!showNoInvoiceReason && !form.isSmallExpense && !form.invoiceNumber.trim()) messages.push("Informe o número da NF ou marque compra sem NF.");
     if (showNoInvoiceReason && !form.isSmallExpense && !form.noInvoiceReason.trim()) messages.push("Explique o motivo da compra sem NF.");
     if (validItems.length === 0) messages.push("Adicione pelo menos um produto.");
@@ -1246,10 +1263,10 @@ export function Purchases({ user }: { user: AppUser }) {
     if (smallExpenseUsesCreditCard && !form.creditCardId) messages.push("Selecione o cartão para lançar na fatura.");
     if (smallExpenseUsesCreditCard && form.creditCardId && !openCardStatement) messages.push("Abra uma fatura do cartão antes de salvar.");
     if (normalPurchaseUsesCreditCard && !form.creditCardId) messages.push("Selecione o cartão de crédito para esta compra.");
-    if (!usesCreditCard && installments.length === 0) messages.push("Confira o parcelamento antes de salvar.");
-    if (!usesCreditCard && installments.some((installment) => !installment.dueDate)) messages.push("Preencha o vencimento de todas as parcelas.");
-    if (!usesCreditCard && installments.some((installment) => Number(installment.amount) < 0)) messages.push("Os valores das parcelas não podem ser negativos.");
-    if (!usesCreditCard && Math.round(amountDifference * 100) !== 0) messages.push("O total das parcelas precisa fechar com o total da compra.");
+    if (!selectedSupplierIsCycle && !usesCreditCard && installments.length === 0) messages.push("Confira o parcelamento antes de salvar.");
+    if (!selectedSupplierIsCycle && !usesCreditCard && installments.some((installment) => !installment.dueDate)) messages.push("Preencha o vencimento de todas as parcelas.");
+    if (!selectedSupplierIsCycle && !usesCreditCard && installments.some((installment) => Number(installment.amount) < 0)) messages.push("Os valores das parcelas não podem ser negativos.");
+    if (!selectedSupplierIsCycle && !usesCreditCard && Math.round(amountDifference * 100) !== 0) messages.push("O total das parcelas precisa fechar com o total da compra.");
     if (duplicateCheck?.hasActiveDuplicate) messages.push("Já existe uma compra ativa para este fornecedor com esta NF/pedido.");
     return [...new Set(messages)];
   }, [
@@ -1268,6 +1285,7 @@ export function Purchases({ user }: { user: AppUser }) {
     items,
     normalPurchaseUsesCreditCard,
     openCardStatement,
+    selectedSupplierIsCycle,
     showNoInvoiceReason,
     smallExpenseUsesCreditCard,
     usesCreditCard
@@ -2150,7 +2168,7 @@ export function Purchases({ user }: { user: AppUser }) {
                 )}
                 {productStep === "valores" && items.length > 0 && (
                   <button type="button" className="pnova-step-advance" onClick={() => goToStep("conferencia")}>
-                    → Conferir pagamento
+                    {selectedSupplierIsCycle ? "→ Revisar e salvar" : "→ Conferir pagamento"}
                   </button>
                 )}
 
@@ -2297,7 +2315,7 @@ export function Purchases({ user }: { user: AppUser }) {
                     <strong>{formatCurrency(installmentTotal)}</strong>
                   </div>
                 )}
-                {Math.round(amountDifference * 100) !== 0 && (
+                {!selectedSupplierIsCycle && Math.round(amountDifference * 100) !== 0 && (
                   <div className="pnova-summary-pill pnova-summary-warn">
                     <span>Dif.</span>
                     <strong>{formatCurrency(amountDifference)}</strong>
@@ -2327,7 +2345,20 @@ export function Purchases({ user }: { user: AppUser }) {
 
               {/* ─── 5. PAGAMENTO ─── */}
               <div className="pnova-payment-block" ref={paymentBlockRef}>
-                {!form.supplierId || totalAmount <= 0 ? (
+                {selectedSupplierIsCycle && form.supplierId ? (
+                  <div className="pnova-cycle-info">
+                    <div className="pnova-cycle-info-header">
+                      <span className="pnova-cycle-info-icon">↻</span>
+                      <span className="pnova-cycle-info-title">Fornecedor por ciclo/fatura</span>
+                    </div>
+                    <p className="pnova-cycle-info-body">
+                      A compra entrará no ciclo aberto do fornecedor e não gerará título direto no Contas a Pagar.
+                    </p>
+                    <p className="pnova-cycle-info-hint">
+                      Fechamento em <strong>Financeiro › Ciclos de fornecedor</strong>.
+                    </p>
+                  </div>
+                ) : !form.supplierId || totalAmount <= 0 ? (
                   <p className="pnova-payment-placeholder">
                     {!form.supplierId
                       ? "Selecione o fornecedor para liberar as condições de pagamento."
@@ -2512,7 +2543,7 @@ export function Purchases({ user }: { user: AppUser }) {
             <div className="pnova-sticky-bar">
               <div className="pnova-sticky-left">
                 <span className="pnova-sticky-total">{formatCurrency(totalAmount)}</span>
-                {Math.round(amountDifference * 100) !== 0 && (
+                {!selectedSupplierIsCycle && Math.round(amountDifference * 100) !== 0 && (
                   <span className="pnova-sticky-diff">⚠ dif. {formatCurrency(amountDifference)}</span>
                 )}
                 <span className={`pnova-sticky-status${validationMessages.length === 0 ? " ok" : " pending"}`}>
