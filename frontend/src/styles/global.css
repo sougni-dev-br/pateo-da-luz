@@ -1893,13 +1893,70 @@ select:disabled {
   min-width: 280px;
 }
 
+/* ── Purchases page header ──────────────────────────────────────────── */
+.purch-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.purch-page-header-left {
+  min-width: 0;
+}
+
+.purch-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.purch-page-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+.purch-page-subtitle {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.purch-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* ── Purchases filter panel ─────────────────────────────────────────── */
+.purch-filters-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+
 .purchase-filters-panel {
   display: grid;
   gap: 14px;
   margin-bottom: 18px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.84);
+  background: rgba(var(--paper-rgb, 252, 250, 246), 0.6);
   padding: 16px;
 }
 
@@ -1913,6 +1970,149 @@ select:disabled {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+/* ── Purchases empty state ──────────────────────────────────────────── */
+.purch-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 48px 24px;
+  gap: 10px;
+}
+
+.purch-empty-icon {
+  color: var(--muted);
+  opacity: 0.5;
+  margin-bottom: 4px;
+}
+
+.purch-empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
+}
+
+.purch-empty-desc {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 6px;
+}
+
+.purch-empty-state-mobile {
+  padding: 40px 16px;
+}
+
+/* ── Purchases mobile cards ─────────────────────────────────────────── */
+.purch-mobile-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  margin-bottom: 10px;
+}
+
+.purch-mobile-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 12px 12px 0 0;
+}
+
+.purch-mobile-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.purch-mobile-supplier {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.purch-mobile-ref {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.purch-mobile-amount {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.purch-mobile-card-body {
+  padding: 10px 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.purch-mobile-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.purch-mobile-row > span:first-child {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.purch-mobile-row > span:last-child {
+  text-align: right;
+  color: var(--ink);
+}
+
+.purch-mobile-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  background: rgba(0,0,0,0.015);
+  flex-wrap: wrap;
+  border-radius: 0 0 12px 12px;
+}
+
+.purch-mobile-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.purch-mobile-actions button {
+  white-space: nowrap;
+  flex-shrink: 0;
+  width: auto !important;
+}
+
+/* ── Responsive: Purchases page header ─────────────────────────────── */
+@media (max-width: 640px) {
+  .purch-page-header {
+    flex-direction: column;
+    gap: 12px;
+    padding-bottom: 16px;
+    margin-bottom: 16px;
+  }
+  .purch-page-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .purch-page-title { font-size: 18px; }
 }
 
 .purchase-autocomplete-field {
