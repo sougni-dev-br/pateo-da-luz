@@ -1211,7 +1211,10 @@ export function Purchases({ user }: { user: AppUser }) {
   async function handleCancel(purchase: Purchase) {
     const reason = window.prompt("Informe o motivo obrigatório para cancelar esta compra:");
     if (!reason?.trim()) return;
-    const confirmed = window.confirm("Cancelar esta compra vai estornar a entrada de estoque vinculada. Confirmar?");
+    const confirmMessage = purchase.cycleStatus != null
+      ? "Esta compra pertence a um ciclo de fornecedor. Ao cancelar, os títulos gerados ainda em aberto também serão cancelados e o ciclo será encerrado. Confirmar?"
+      : "Cancelar esta compra vai estornar a entrada de estoque vinculada. Confirmar?";
+    const confirmed = window.confirm(confirmMessage);
     if (!confirmed) return;
     await cancelPurchase(purchase.id, reason);
     setNotice({ tone: "success", message: "Compra cancelada com sucesso." });
@@ -1498,8 +1501,17 @@ export function Purchases({ user }: { user: AppUser }) {
                       </small>
                     </td>
                     <td className="purchase-payment-cell">
-                      <strong>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"}</strong>
-                      <small>{purchase.creditCardId && purchase.installments.length === 0 ? "Fatura(s) cartão" : `${purchase.installments.length} parcela(s)`}</small>
+                      {purchase.cycleStatus != null ? (
+                        <>
+                          <strong>Ciclo fornecedor</strong>
+                          <small>{{OPEN:"Aberto",CHECKED:"Conferido",CLOSED:"Fechado",PAID:"Pago",CANCELLED:"Cancelado"}[purchase.cycleStatus] ?? purchase.cycleStatus}</small>
+                        </>
+                      ) : (
+                        <>
+                          <strong>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"}</strong>
+                          <small>{purchase.creditCardId && purchase.installments.length === 0 ? "Fatura(s) cartão" : `${purchase.installments.length} parcela(s)`}</small>
+                        </>
+                      )}
                     </td>
                     <td className="numeric-cell nowrap-cell">{formatCurrency(purchase.totalAmount)}</td>
                     <td>
@@ -1549,7 +1561,11 @@ export function Purchases({ user }: { user: AppUser }) {
                 </div>
                 <div className="cmv-mobile-row">
                   <span>Pagamento</span>
-                  <span>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"} • {purchase.creditCardId && purchase.installments.length === 0 ? "Fatura(s) cartão" : `${purchase.installments.length} parcela(s)`}</span>
+                  {purchase.cycleStatus != null ? (
+                    <span>Ciclo fornecedor • {{OPEN:"Aberto",CHECKED:"Conferido",CLOSED:"Fechado",PAID:"Pago",CANCELLED:"Cancelado"}[purchase.cycleStatus] ?? purchase.cycleStatus}</span>
+                  ) : (
+                    <span>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"} • {purchase.creditCardId && purchase.installments.length === 0 ? "Fatura(s) cartão" : `${purchase.installments.length} parcela(s)`}</span>
+                  )}
                 </div>
                 <div className="cmv-mobile-row">
                   <span>Total</span>
