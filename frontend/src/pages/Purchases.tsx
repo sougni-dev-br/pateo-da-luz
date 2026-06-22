@@ -1,4 +1,4 @@
-import { ChevronDown, Eye, FileText, Pencil, Plus, RefreshCw, Shield, Trash2, X } from "lucide-react";
+import { ChevronDown, Eye, FileText, Package, Pencil, Plus, RefreshCw, Shield, Trash2, X } from "lucide-react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { UNSAFE_NavigationContext, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -303,7 +303,7 @@ export function Purchases({ user }: { user: AppUser }) {
   const [paymentExpanded, setPaymentExpanded] = useState(false);
   const [productStep, setProductStep] = useState<ProductStep>("produtos");
   const [highlightedRow, setHighlightedRow] = useState<number | null>(null);
-  const [dupeNotice, setDupeNotice] = useState<string | null>(null);
+  const [entryFeedback, setEntryFeedback] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
   const [pasteReport, setPasteReport] = useState<string[]>([]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [duplicateCheck, setDuplicateCheck] = useState<PurchaseDuplicateCheck | null>(null);
@@ -554,50 +554,6 @@ export function Purchases({ user }: { user: AppUser }) {
     });
   }, [filters.showCancelled, purchases, sortBy]);
 
-  const canSavePurchase = useMemo(() => {
-    const validItems = items.filter((item) => item.productId && Number(item.quantity) > 0);
-    const baseChecks = Boolean(form.supplierId)
-      && Boolean(form.purchaseDate)
-      && (selectedSupplierIsCycle || Boolean(form.paymentMethodId))
-      && validItems.length > 0
-      && validItems.every((item) => item.unit.trim() && Number(item.quantity) > 0 && Number(item.unitPrice) >= 0)
-      && (!showNoInvoiceReason ? Boolean(form.invoiceNumber.trim()) || form.isSmallExpense : Boolean(form.noInvoiceReason.trim()) || form.isSmallExpense)
-      && (!form.isSmallExpense || Boolean(form.smallExpenseTypeId))
-      && (!smallExpenseUsesCreditCard || (Boolean(form.creditCardId) && Boolean(openCardStatement)))
-      && (!normalPurchaseUsesCreditCard || Boolean(form.creditCardId));
-    if (!baseChecks) return false;
-    if (!selectedSupplierIsCycle && !usesCreditCard) {
-      const requestedInstallments = Math.max(1, Number(form.installmentCount || 1));
-      const hasDifference = Math.round(amountDifference * 100) !== 0;
-      if (installments.length !== requestedInstallments) return false;
-      if (installments.some((installment) => !installment.dueDate)) return false;
-      if (hasDifference) return false;
-    }
-    if (duplicateCheck?.hasActiveDuplicate) return false;
-    return !saving;
-  }, [
-    amountDifference,
-    duplicateCheck?.hasActiveDuplicate,
-    form.creditCardId,
-    form.installmentCount,
-    form.invoiceNumber,
-    form.isSmallExpense,
-    form.noInvoiceReason,
-    form.paymentDifferenceReason,
-    form.paymentMethodId,
-    form.purchaseDate,
-    form.smallExpenseTypeId,
-    form.supplierId,
-    installments,
-    items,
-    normalPurchaseUsesCreditCard,
-    openCardStatement,
-    saving,
-    selectedSupplierIsCycle,
-    showNoInvoiceReason,
-    smallExpenseUsesCreditCard,
-    usesCreditCard
-  ]);
 
   useEffect(() => {
     let active = true;
@@ -797,8 +753,8 @@ export function Purchases({ user }: { user: AppUser }) {
       setEntry({ ...emptyEntry });
       setEntryDropdownOpen(false);
       setEntryDropdownCursor(-1);
-      setDupeNotice(`"${product.name}" já está na lista — linha ${dupIdx + 1}.`);
-      window.setTimeout(() => setDupeNotice(null), 3500);
+      setEntryFeedback({ tone: "warning", message: `"${product.name}" já lançado — linha ${dupIdx + 1} selecionada.` });
+      window.setTimeout(() => setEntryFeedback(null), 3000);
       window.setTimeout(() => {
         gridQtyRefs.current[dupIdx]?.focus();
         gridQtyRefs.current[dupIdx]?.select();
@@ -823,6 +779,8 @@ export function Purchases({ user }: { user: AppUser }) {
     setItems((current) => [...current, newItem]);
     setHighlightedRow(newIdx);
     window.setTimeout(() => setHighlightedRow(null), 1200);
+    setEntryFeedback({ tone: "success", message: "Produto adicionado. Continue digitando o próximo código." });
+    window.setTimeout(() => setEntryFeedback(null), 2500);
     setEntry({ ...emptyEntry });
     setEntryDropdownOpen(false);
     setEntryDropdownCursor(-1);
@@ -906,7 +864,7 @@ export function Purchases({ user }: { user: AppUser }) {
     setPaymentExpanded(false);
     setProductStep("produtos");
     setHighlightedRow(null);
-    setDupeNotice(null);
+    setEntryFeedback(null);
     setPasteReport([]);
     setSupplierFilterQuery("");
     setSupplierFilterOpen(false);
@@ -1083,6 +1041,53 @@ export function Purchases({ user }: { user: AppUser }) {
     rebuildInstallments(form.paymentMethodId, totalAmount, count);
   }, [form.paymentMethodId, form.installmentCount, form.purchaseDate, installmentLeadDays, selectedPaymentMethodAllowsInstallments, showForm, smallExpenseUsesCreditCard, totalAmount]);
 
+  const validationMessages = useMemo(() => {
+    const messages: string[] = [];
+    const validItems = items.filter((item) => item.productId || item.quantity || item.unitPrice || item.totalPrice);
+    if (!form.supplierId) messages.push("Selecione o fornecedor da compra.");
+    if (!form.purchaseDate) messages.push("Preencha a data da compra.");
+    if (!selectedSupplierIsCycle && !form.paymentMethodId) messages.push("Selecione a forma de pagamento.");
+    if (!showNoInvoiceReason && !form.isSmallExpense && !form.invoiceNumber.trim()) messages.push("Informe o número da NF ou marque compra sem NF.");
+    if (showNoInvoiceReason && !form.isSmallExpense && !form.noInvoiceReason.trim()) messages.push("Explique o motivo da compra sem NF.");
+    if (validItems.length === 0) messages.push("Adicione pelo menos um produto.");
+    if (validItems.some((item) => !item.productId)) messages.push("Revise as linhas com produto não selecionado.");
+    if (validItems.some((item) => !item.quantity.trim() || Number(item.quantity) <= 0)) messages.push("Informe quantidade dos produtos.");
+    if (validItems.some((item) => !item.unitPrice.trim() || Number(item.unitPrice) <= 0)) messages.push("Informe valor unitário dos produtos.");
+    if (validItems.some((item) => !item.unit.trim())) messages.push("Informe a unidade de todos os produtos.");
+    if (form.isSmallExpense && !form.smallExpenseTypeId) messages.push("Selecione o tipo de pequeno gasto.");
+    if (smallExpenseUsesCreditCard && !form.creditCardId) messages.push("Selecione o cartão para lançar na fatura.");
+    if (smallExpenseUsesCreditCard && form.creditCardId && !openCardStatement) messages.push("Abra uma fatura do cartão antes de salvar.");
+    if (normalPurchaseUsesCreditCard && !form.creditCardId) messages.push("Selecione o cartão de crédito para esta compra.");
+    if (!selectedSupplierIsCycle && !usesCreditCard && installments.length === 0) messages.push("Confira o parcelamento antes de salvar.");
+    if (!selectedSupplierIsCycle && !usesCreditCard && installments.some((installment) => !installment.dueDate)) messages.push("Preencha o vencimento de todas as parcelas.");
+    if (!selectedSupplierIsCycle && !usesCreditCard && installments.some((installment) => Number(installment.amount) < 0)) messages.push("Os valores das parcelas não podem ser negativos.");
+    if (!selectedSupplierIsCycle && !usesCreditCard && Math.round(amountDifference * 100) !== 0) messages.push("O total das parcelas precisa fechar com o total da compra.");
+    if (duplicateCheck?.hasActiveDuplicate) messages.push("Já existe uma compra ativa para este fornecedor com esta NF/pedido.");
+    return [...new Set(messages)];
+  }, [
+    amountDifference,
+    duplicateCheck?.hasActiveDuplicate,
+    form.creditCardId,
+    form.invoiceNumber,
+    form.isSmallExpense,
+    form.noInvoiceReason,
+    form.paymentDifferenceReason,
+    form.paymentMethodId,
+    form.purchaseDate,
+    form.smallExpenseTypeId,
+    form.supplierId,
+    installments,
+    items,
+    normalPurchaseUsesCreditCard,
+    openCardStatement,
+    selectedSupplierIsCycle,
+    showNoInvoiceReason,
+    smallExpenseUsesCreditCard,
+    usesCreditCard
+  ]);
+
+  const canSavePurchase = validationMessages.length === 0 && !saving;
+
   // Ctrl+Enter para salvar a compra de qualquer campo
   useEffect(() => {
     if (!isFormRoute) return;
@@ -1249,50 +1254,6 @@ export function Purchases({ user }: { user: AppUser }) {
     navigate({ pathname: "/compras", search: location.search });
   }
 
-  const validationMessages = useMemo(() => {
-    const messages: string[] = [];
-    const validItems = items.filter((item) => item.productId || item.quantity || item.unitPrice || item.totalPrice);
-    if (!form.supplierId) messages.push("Selecione o fornecedor da compra.");
-    if (!form.purchaseDate) messages.push("Preencha a data da compra.");
-    if (!selectedSupplierIsCycle && !form.paymentMethodId) messages.push("Selecione a forma de pagamento.");
-    if (!showNoInvoiceReason && !form.isSmallExpense && !form.invoiceNumber.trim()) messages.push("Informe o número da NF ou marque compra sem NF.");
-    if (showNoInvoiceReason && !form.isSmallExpense && !form.noInvoiceReason.trim()) messages.push("Explique o motivo da compra sem NF.");
-    if (validItems.length === 0) messages.push("Adicione pelo menos um produto.");
-    if (validItems.some((item) => !item.productId)) messages.push("Revise as linhas com produto não selecionado.");
-    if (validItems.some((item) => !item.quantity.trim() || Number(item.quantity) <= 0)) messages.push("Informe quantidade dos produtos.");
-    if (validItems.some((item) => !item.unitPrice.trim() || Number(item.unitPrice) <= 0)) messages.push("Informe valor unitário dos produtos.");
-    if (validItems.some((item) => !item.unit.trim())) messages.push("Informe a unidade de todos os produtos.");
-    if (form.isSmallExpense && !form.smallExpenseTypeId) messages.push("Selecione o tipo de pequeno gasto.");
-    if (smallExpenseUsesCreditCard && !form.creditCardId) messages.push("Selecione o cartão para lançar na fatura.");
-    if (smallExpenseUsesCreditCard && form.creditCardId && !openCardStatement) messages.push("Abra uma fatura do cartão antes de salvar.");
-    if (normalPurchaseUsesCreditCard && !form.creditCardId) messages.push("Selecione o cartão de crédito para esta compra.");
-    if (!selectedSupplierIsCycle && !usesCreditCard && installments.length === 0) messages.push("Confira o parcelamento antes de salvar.");
-    if (!selectedSupplierIsCycle && !usesCreditCard && installments.some((installment) => !installment.dueDate)) messages.push("Preencha o vencimento de todas as parcelas.");
-    if (!selectedSupplierIsCycle && !usesCreditCard && installments.some((installment) => Number(installment.amount) < 0)) messages.push("Os valores das parcelas não podem ser negativos.");
-    if (!selectedSupplierIsCycle && !usesCreditCard && Math.round(amountDifference * 100) !== 0) messages.push("O total das parcelas precisa fechar com o total da compra.");
-    if (duplicateCheck?.hasActiveDuplicate) messages.push("Já existe uma compra ativa para este fornecedor com esta NF/pedido.");
-    return [...new Set(messages)];
-  }, [
-    amountDifference,
-    duplicateCheck?.hasActiveDuplicate,
-    form.creditCardId,
-    form.invoiceNumber,
-    form.isSmallExpense,
-    form.noInvoiceReason,
-    form.paymentDifferenceReason,
-    form.paymentMethodId,
-    form.purchaseDate,
-    form.smallExpenseTypeId,
-    form.supplierId,
-    installments,
-    items,
-    normalPurchaseUsesCreditCard,
-    openCardStatement,
-    selectedSupplierIsCycle,
-    showNoInvoiceReason,
-    smallExpenseUsesCreditCard,
-    usesCreditCard
-  ]);
 
   const paymentPreviewMessage = useMemo(() => {
     const methodName = selectedPaymentMethodBaseName || "forma selecionada";
@@ -1312,28 +1273,30 @@ export function Purchases({ user }: { user: AppUser }) {
 
       {!isFormRoute && (
         <>
-      <div className="section-heading">
-        <div>
-          <p>Últimas compras</p>
-          <h2>Compras</h2>
+      <div className="purch-page-header">
+        <div className="purch-page-header-left">
+          <p className="purch-eyebrow">Operações</p>
+          <h1 className="purch-page-title">Compras</h1>
+          <p className="purch-page-subtitle">Registro e controle de compras do período</p>
         </div>
-        <div className="actions-cell">
-          <button className="primary-button" type="button" onClick={openNewPurchase}>
-            <Plus size={16} /> Nova compra
+        <div className="purch-page-actions">
+          <button className="icon-button" type="button" onClick={loadPurchases} aria-label="Atualizar compras">
+            <RefreshCw size={18} />
           </button>
           <button className="secondary-button" type="button" onClick={handleSupplierPositionPdf}>
-            <FileText size={16} /> PDF posição fornecedor
+            <FileText size={16} /> PDF
           </button>
           <button className="secondary-button" type="button" onClick={() => { setShowSmallExpenses((current) => !current); if (!showSmallExpenses) void loadSmallExpenses(); }}>
             <Shield size={16} /> Pequenos gastos
           </button>
-          <button className="icon-button" type="button" onClick={loadPurchases} aria-label="Atualizar compras">
-            <RefreshCw size={18} />
+          <button className="primary-button" type="button" onClick={openNewPurchase}>
+            <Plus size={16} /> Nova compra
           </button>
         </div>
       </div>
 
       <section className="purchase-filters-panel">
+        <p className="purch-filters-label">Filtros</p>
         <div className="purchase-filters-grid">
           <PeriodFilter value={period} onChange={setPeriod} />
           <div className="purchase-autocomplete-field" ref={supplierFilterRef}>
@@ -1533,7 +1496,16 @@ export function Purchases({ user }: { user: AppUser }) {
                 ))}
                 {displayedPurchases.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="empty-table-state">Nenhuma compra cadastrada.</td>
+                    <td colSpan={7}>
+                      <div className="purch-empty-state">
+                        <Package size={40} className="purch-empty-icon" />
+                        <p className="purch-empty-title">Nenhuma compra encontrada</p>
+                        <p className="purch-empty-desc">Ajuste os filtros ou cadastre uma nova compra.</p>
+                        <button className="primary-button" type="button" onClick={openNewPurchase}>
+                          <Plus size={15} /> Cadastrar nova compra
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -1542,51 +1514,56 @@ export function Purchases({ user }: { user: AppUser }) {
 
           <div className="purchases-mobile-list">
             {displayedPurchases.map((purchase) => (
-              <article className="cmv-mobile-card" key={`${purchase.id}-mobile`}>
-                <div className="cmv-mobile-row">
-                  <span>Compra</span>
-                  <strong>{purchase.invoiceNumber ? `NF ${purchase.invoiceNumber}` : purchase.purchaseNumber ?? "Compra manual"}</strong>
+              <article className="purch-mobile-card" key={`${purchase.id}-mobile`}>
+                <div className="purch-mobile-card-header">
+                  <div className="purch-mobile-card-title">
+                    <strong className="purch-mobile-supplier">{purchase.supplier.name}</strong>
+                    <span className="purch-mobile-ref">{purchase.invoiceNumber ? `NF ${purchase.invoiceNumber}` : purchase.purchaseNumber ?? "Compra manual"}</span>
+                  </div>
+                  <strong className="purch-mobile-amount">{formatCurrency(purchase.totalAmount)}</strong>
                 </div>
-                <div className="cmv-mobile-row">
-                  <span>Data</span>
-                  <span>{formatDate(purchase.purchaseDate)} • {String(purchase.competenceMonth).padStart(2, "0")}/{purchase.competenceYear}</span>
+                <div className="purch-mobile-card-body">
+                  <div className="purch-mobile-row">
+                    <span>Data</span>
+                    <span>{formatDate(purchase.purchaseDate)} · {String(purchase.competenceMonth).padStart(2, "0")}/{purchase.competenceYear}</span>
+                  </div>
+                  <div className="purch-mobile-row">
+                    <span>Itens</span>
+                    <span>{purchase.items.length} item(ns){purchase.items[0]?.rawProductName ? ` · ${purchase.items[0].rawProductName}` : ""}</span>
+                  </div>
+                  <div className="purch-mobile-row">
+                    <span>Pagamento</span>
+                    {purchase.cycleStatus != null ? (
+                      <span>Ciclo · {{OPEN:"Aberto",CHECKED:"Conferido",CLOSED:"Fechado",PAID:"Pago",CANCELLED:"Cancelado"}[purchase.cycleStatus] ?? purchase.cycleStatus}</span>
+                    ) : (
+                      <span>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"}</span>
+                    )}
+                  </div>
                 </div>
-                <div className="cmv-mobile-row">
-                  <span>Fornecedor</span>
-                  <span>{purchase.supplier.name}</span>
-                </div>
-                <div className="cmv-mobile-row">
-                  <span>Itens</span>
-                  <span>{purchase.items.length} item(ns) • {purchase.items[0]?.rawProductName ?? "-"}</span>
-                </div>
-                <div className="cmv-mobile-row">
-                  <span>Pagamento</span>
-                  {purchase.cycleStatus != null ? (
-                    <span>Ciclo fornecedor • {{OPEN:"Aberto",CHECKED:"Conferido",CLOSED:"Fechado",PAID:"Pago",CANCELLED:"Cancelado"}[purchase.cycleStatus] ?? purchase.cycleStatus}</span>
-                  ) : (
-                    <span>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"} • {purchase.creditCardId && purchase.installments.length === 0 ? "Fatura(s) cartão" : `${purchase.installments.length} parcela(s)`}</span>
-                  )}
-                </div>
-                <div className="cmv-mobile-row">
-                  <span>Total</span>
-                  <strong>{formatCurrency(purchase.totalAmount)}</strong>
-                </div>
-                <div className="cmv-mobile-row">
-                  <span>Status</span>
+                <div className="purch-mobile-card-footer">
                   <span className={`status-badge ${purchaseStatusTone(purchase.status)}`}>{purchaseStatusLabel(purchase.status)}</span>
-                </div>
-                <div className="cmv-mobile-actions">
-                  <button className="secondary-button" type="button" onClick={() => openDetail(purchase)}><Eye size={14} /> Ver</button>
-                  {canEditPurchase && purchase.status !== "CANCELLED" && <button className="secondary-button" type="button" onClick={() => openEdit(purchase)}><Pencil size={14} /> Editar</button>}
-                  {isAdmin && (
-                    purchase.status === "CANCELLED"
-                      ? <button className="secondary-button" type="button" onClick={() => handleRestore(purchase)}>Restaurar</button>
-                      : <button className="danger-button" type="button" onClick={() => handleCancel(purchase)}><Trash2 size={14} /> Cancelar</button>
-                  )}
+                  <div className="purch-mobile-actions">
+                    <button className="secondary-button" type="button" onClick={() => openDetail(purchase)}><Eye size={14} /> Ver</button>
+                    {canEditPurchase && purchase.status !== "CANCELLED" && <button className="secondary-button" type="button" onClick={() => openEdit(purchase)}><Pencil size={14} /> Editar</button>}
+                    {isAdmin && (
+                      purchase.status === "CANCELLED"
+                        ? <button className="secondary-button" type="button" onClick={() => handleRestore(purchase)}>Restaurar</button>
+                        : <button className="danger-icon-button" type="button" title="Cancelar" onClick={() => handleCancel(purchase)}><Trash2 size={14} /></button>
+                    )}
+                  </div>
                 </div>
               </article>
             ))}
-            {displayedPurchases.length === 0 && <div className="alert warning">Nenhuma compra cadastrada.</div>}
+            {displayedPurchases.length === 0 && (
+              <div className="purch-empty-state purch-empty-state-mobile">
+                <Package size={36} className="purch-empty-icon" />
+                <p className="purch-empty-title">Nenhuma compra encontrada</p>
+                <p className="purch-empty-desc">Ajuste os filtros ou cadastre uma nova compra.</p>
+                <button className="primary-button" type="button" onClick={openNewPurchase}>
+                  <Plus size={15} /> Nova compra
+                </button>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -2034,10 +2011,13 @@ export function Purchases({ user }: { user: AppUser }) {
 
                 {fieldErrors.items && <div className="alert error">{fieldErrors.items}</div>}
 
-                {/* Aviso de produto duplicado */}
-                {dupeNotice && (
-                  <div className="pnova-dupe-notice">⚠ {dupeNotice}</div>
-                )}
+                {entryFeedback ? (
+                  <div className={`pnova-entry-feedback ${entryFeedback.tone}`}>
+                    {entryFeedback.tone === "warning" ? "⚠ " : "✓ "}{entryFeedback.message}
+                  </div>
+                ) : items.length === 0 ? (
+                  <p className="pnova-entry-hint">Digite o código do produto e pressione Enter para adicionar.</p>
+                ) : null}
 
                 {/* Linha de entrada rápida — só produto */}
                 <div className="pnova-entry-wrap" ref={productRef}>
@@ -2058,7 +2038,7 @@ export function Purchases({ user }: { user: AppUser }) {
                         ref={entryProductRef}
                         className="pnova-entry-product-input"
                         autoComplete="off"
-                        placeholder={entry.editingIndex !== null ? "Digite o novo produto..." : "Código ou nome do produto — Enter para adicionar"}
+                        placeholder={entry.editingIndex !== null ? "Digite o novo produto..." : "Código ou nome — Enter para adicionar"}
                         value={entry.query}
                         onFocus={() => {
                           setEntryDropdownCursor(-1);
@@ -2249,6 +2229,11 @@ export function Purchases({ user }: { user: AppUser }) {
                               if (next) { next.focus(); next.select(); }
                               else goToStep("valores");
                             }
+                            if (ev.key === "Tab" && !ev.shiftKey) {
+                              ev.preventDefault();
+                              const price = gridPriceRefs.current[index];
+                              if (price) { price.focus(); price.select(); }
+                            }
                             if (ev.key === "ArrowDown") { ev.preventDefault(); const next = gridQtyRefs.current[index + 1]; if (next) { next.focus(); next.select(); } }
                             if (ev.key === "ArrowUp") { ev.preventDefault(); const prev = gridQtyRefs.current[index - 1]; if (prev) { prev.focus(); prev.select(); } }
                           }}
@@ -2285,7 +2270,18 @@ export function Purchases({ user }: { user: AppUser }) {
                               }
                               const next = gridPriceRefs.current[index + 1];
                               if (next) { next.focus(); next.select(); }
-                              else goToStep("conferencia");
+                              else entryProductRef.current?.focus();
+                            }
+                            if (ev.key === "Tab") {
+                              ev.preventDefault();
+                              if (ev.shiftKey) {
+                                const qty = gridQtyRefs.current[index];
+                                if (qty) { qty.focus(); qty.select(); }
+                              } else {
+                                const nextQty = gridQtyRefs.current[index + 1];
+                                if (nextQty) { nextQty.focus(); nextQty.select(); }
+                                else entryProductRef.current?.focus();
+                              }
                             }
                             if (ev.key === "ArrowDown") { ev.preventDefault(); const next = gridPriceRefs.current[index + 1]; if (next) { next.focus(); next.select(); } }
                             if (ev.key === "ArrowUp") { ev.preventDefault(); const prev = gridPriceRefs.current[index - 1]; if (prev) { prev.focus(); prev.select(); } }
@@ -2343,7 +2339,7 @@ export function Purchases({ user }: { user: AppUser }) {
                     type="button"
                     onClick={() => setShowPendingPopover((v) => !v)}
                   >
-                    {validationMessages.length === 0 ? "✓ Conferida" : `Pendências (${validationMessages.length})`}
+                    {validationMessages.length === 0 ? "✓ Conferida" : `Ver pendências (${validationMessages.length})`}
                   </button>
                   {showPendingPopover && (
                     <div className="pnova-pending-popover">
