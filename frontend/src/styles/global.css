@@ -4534,6 +4534,11 @@ td:nth-child(n+3):not(:last-child) {
   color: #92400e;
 }
 
+.source-badge.source-supplier-cycle {
+  background: #ecfdf5;
+  color: #065f46;
+}
+
 /* Chips de atalho rápido */
 .payables-chips {
   display: flex;

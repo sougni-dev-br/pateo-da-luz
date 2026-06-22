@@ -535,6 +535,7 @@ export function Payables({ user }: PayablesProps) {
               <option value="DIRECT">Título normal</option>
               <option value="CARD_STATEMENT">Fatura cartão</option>
               <option value="LEGACY_CREDIT_CARD">Cartão legado</option>
+              <option value="SUPPLIER_CYCLE">Ciclo fornecedor</option>
             </select>
           </label>
         </div>
@@ -602,11 +603,14 @@ export function Payables({ user }: PayablesProps) {
                 <div className="pr-meta">
                   {payable.installment != null && <span>Parcela: {formatInstallment(payable.installment, payable.totalInstallments, payable.paymentMethodName)}</span>}
                   {payable.paymentMethodName && <span>{payable.paymentMethodName}</span>}
-                  {(payable.sourceType === "CARD_STATEMENT" || payable.paymentMethodName?.toLowerCase().includes("fatura")) && (
+                  {payable.sourceType === "CARD_STATEMENT" && (
                     <span className="source-badge source-card-statement">Fatura cartão</span>
                   )}
                   {payable.sourceType === "LEGACY_CREDIT_CARD" && (
                     <span className="source-badge source-legacy">Cartão legado</span>
+                  )}
+                  {payable.sourceType === "SUPPLIER_CYCLE" && (
+                    <span className="source-badge source-supplier-cycle">Ciclo fornecedor</span>
                   )}
                   {(payable.paymentNotes ?? payable.notes) && (
                     <span className="pr-notes" title={payable.paymentNotes ?? payable.notes ?? ""}>
