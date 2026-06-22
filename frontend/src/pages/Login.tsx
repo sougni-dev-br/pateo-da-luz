@@ -2,6 +2,7 @@ import { Loader2, LogIn, ShieldAlert } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { API_BASE_URL, ApiError, AppUser, BACKEND_TARGET_URL, checkBackendHealth, login } from "../api/client";
 import { PasswordField } from "../components/PasswordField";
+import { isLocal, isStaging } from "../utils/env";
 
 const logoPath = "/logo-pateo-luz.png";
 
@@ -52,29 +53,55 @@ export function Login({ onLogin }: { onLogin: (user: AppUser) => void }) {
     }
   }
 
-  return (
-    <main className="login-shell">
-      <form className="login-card" onSubmit={handleSubmit} autoComplete="off">
-        <img src={logoPath} alt="Pateo da Luz" />
-        <div>
-          <p>Pateo da Luz</p>
-          <h1>Gestão Eficiente</h1>
-        </div>
+  function renderBackendStatus() {
+    if (isLocal) {
+      return (
         <div className={`alert ${backendOnline === false ? "error" : "success"}`}>
           <strong>Backend:</strong>{" "}
           {backendOnline === null ? "VERIFICANDO" : backendOnline ? "ONLINE" : "OFFLINE"}
           <br />
           <small>API: {API_BASE_URL}</small>
           <br />
-          <small>Backend alvo: {BACKEND_TARGET_URL}</small>
+          <small>Alvo: {BACKEND_TARGET_URL}</small>
         </div>
+      );
+    }
+    if (backendOnline === null) return null;
+    if (backendOnline) {
+      return (
+        <div className="alert success login-status-pill">
+          Sistema online
+        </div>
+      );
+    }
+    return (
+      <div className="alert error">
+        Não foi possível conectar ao servidor. Verifique sua internet ou chame o responsável.
+      </div>
+    );
+  }
+
+  return (
+    <main className="login-shell">
+      <form className="login-card" onSubmit={handleSubmit} autoComplete="off">
+        <img src={logoPath} alt="Pateo da Luz" />
+        <div>
+          <h1>Gestão Pateo da Luz</h1>
+          <p>Controle financeiro, compras e estoque</p>
+        </div>
+        {isStaging && (
+          <div className="alert warning login-env-badge">
+            Ambiente de testes
+          </div>
+        )}
+        {renderBackendStatus()}
         <label>
           Email
           <input name="pateo-login-email" value={email} autoComplete="off" onChange={(event) => { setEmail(event.target.value); setSessionConflict(null); }} />
         </label>
         <PasswordField label="Senha" value={password} onChange={(v) => { setPassword(v); setSessionConflict(null); }} autoComplete="new-password" />
         <button className="primary-button" type="submit" disabled={loading}>
-          {loading ? <Loader2 size={18} /> : <LogIn size={18} />}
+          {loading ? <Loader2 size={18} className="spin" /> : <LogIn size={18} />}
           Entrar
         </button>
         {error && (
@@ -91,11 +118,10 @@ export function Login({ onLogin }: { onLogin: (user: AppUser) => void }) {
             style={{ background: "var(--danger, #c0392b)" }}
             onClick={(e) => handleSubmit(e as unknown as FormEvent, true)}
           >
-            {loading ? <Loader2 size={18} /> : <ShieldAlert size={18} />}
+            {loading ? <Loader2 size={18} className="spin" /> : <ShieldAlert size={18} />}
             Encerrar sessão anterior e entrar
           </button>
         )}
-        <small>V1 local</small>
       </form>
     </main>
   );

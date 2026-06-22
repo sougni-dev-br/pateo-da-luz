@@ -811,7 +811,7 @@ userRouter.put("/:id", async (request, response) => {
   `;
   await auditLog({
     userId: admin.id,
-    action: "UPDATE_PERMISSIONS",
+    action: "UPDATE_USER",
     entity: "User",
     entityId: request.params.id,
     previousValue: previous,
