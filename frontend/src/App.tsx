@@ -15,6 +15,7 @@ import {
   Menu,
   Package,
   ReceiptText,
+  RefreshCw,
   ScrollText,
   Shield,
   Star,
@@ -57,6 +58,7 @@ const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => 
 const Users = lazy(() => import("./pages/Users").then((module) => ({ default: module.Users })));
 const Dishes = lazy(() => import("./pages/Dishes").then((module) => ({ default: module.Dishes })));
 const DRE = lazy(() => import("./pages/DRE").then((module) => ({ default: module.DRE })));
+const SupplierCycles = lazy(() => import("./pages/SupplierCycles").then((module) => ({ default: module.SupplierCycles })));
 
 type InventoryView = "overview" | "movements" | "counting" | "inventory" | "reports";
 
@@ -89,6 +91,7 @@ const sections = [
   { id: "requisitions", label: "Requisições", icon: ClipboardCheck, showInSidebar: true, group: "Estoque", path: "/estoque/requisicoes", matchers: ["/estoque/requisicoes"] },
   { id: "dishes", label: "Fichas Técnicas", icon: ChefHat, showInSidebar: true, group: "Cardápio", path: "/cardapio/fichas-tecnicas", matchers: ["/cardapio/fichas-tecnicas"] },
   { id: "dre", label: "DRE Gerencial", icon: BarChart3, showInSidebar: true, group: "Financeiro", path: "/financeiro/dre", matchers: ["/financeiro/dre"] },
+  { id: "supplier-cycles", label: "Ciclos de fornecedor", icon: RefreshCw, showInSidebar: true, group: "Financeiro", path: "/financeiro/ciclos-fornecedor", matchers: ["/financeiro/ciclos-fornecedor"] },
   { id: "suppliers", label: "Fornecedores", icon: Truck, showInSidebar: true, group: "Cadastros", path: "/cadastros/fornecedores", matchers: ["/cadastros/fornecedores"] },
   { id: "companies", label: "Empresas", icon: Building2, showInSidebar: true, group: "Cadastros", path: "/cadastros/empresas", matchers: ["/cadastros/empresas"] },
   { id: "import", label: "Importações", icon: FileSpreadsheet, showInSidebar: true, group: "Dados", path: "/dados/importacoes", matchers: ["/dados/importacoes"] },
@@ -520,6 +523,7 @@ export function App() {
               <Route path="/estoque/requisicoes" element={<Requisitions user={user} />} />
               <Route path="/cardapio/fichas-tecnicas" element={<Dishes />} />
               <Route path="/financeiro/dre" element={<DRE />} />
+              <Route path="/financeiro/ciclos-fornecedor" element={<SupplierCycles />} />
               <Route path="/estoque/produtos" element={<Products />} />
               <Route path="/cadastros/fornecedores" element={<Suppliers onOpenPurchases={() => handleNavigate("purchases")} />} />
               <Route path="/cadastros/empresas" element={<Companies />} />
