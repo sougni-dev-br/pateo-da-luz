@@ -455,6 +455,21 @@ select {
   overflow-wrap: anywhere;
 }
 
+.login-status-pill {
+  text-align: center;
+  font-size: 0.8rem;
+  padding: 6px 12px;
+}
+
+.login-env-badge {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+}
+
 .content {
   min-width: 0;
   width: 100%;
@@ -981,10 +996,47 @@ select:focus {
   display: flex !important;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
 }
 
 .checkbox-label input {
   min-height: auto;
+  flex-shrink: 0;
+}
+
+/* Texto de dica/instrução — usado em Suppliers, Companies, Audit */
+.hint {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+
+/* Label de largura total dentro de form-grid */
+.form-grid label.full-width {
+  grid-column: 1 / -1;
+}
+
+/* Aviso suave de validação dentro de form-grid */
+.form-grid-warn {
+  grid-column: 1 / -1;
+  font-size: 12.5px;
+  color: #856404;
+  background: rgba(255, 193, 7, 0.10);
+  border: 1px solid rgba(255, 193, 7, 0.40);
+  border-radius: 5px;
+  padding: 6px 10px;
+  margin: 0;
+}
+
+/* Título de seção interna do formulário */
+.form-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 0 0 8px;
 }
 
 .checkbox-row {
@@ -2856,15 +2908,30 @@ select:disabled {
   color: #fff;
 }
 
-/* Aviso de produto duplicado */
-.pnova-dupe-notice {
+/* Feedback de entrada de produto (sucesso ou aviso) */
+.pnova-entry-feedback {
   margin: 0 16px 6px;
   padding: 5px 10px;
   border-radius: 5px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.pnova-entry-feedback.success {
+  background: rgba(76, 175, 80, 0.10);
+  border: 1px solid rgba(76, 175, 80, 0.35);
+  color: #2e6b31;
+}
+.pnova-entry-feedback.warning {
   background: rgba(255, 193, 7, 0.13);
   border: 1px solid rgba(255, 193, 7, 0.45);
   color: #856404;
-  font-size: 12.5px;
+}
+
+/* Dica inicial quando a grade está vazia */
+.pnova-entry-hint {
+  margin: 0 16px 6px;
+  font-size: 12px;
+  color: var(--muted, #888);
 }
 
 /* Relatório de paste */
@@ -3277,29 +3344,115 @@ select:disabled {
   background: #fff;
 }
 
-/* Mobile */
+/* Mobile — cards operacionais */
 @media (max-width: 700px) {
   .pnova-grid-header { display: none; }
+  .pnova-items-grid  { padding: 0 0 4px; }
+
+  /* Cada linha vira um card com 4 colunas e áreas nomeadas */
   .pnova-grid-row {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto auto auto;
+    display: grid;
+    grid-template-columns: 60px 1fr 1fr 44px;
+    grid-template-areas:
+      "code  name   name   del"
+      "qty   unit   price  price"
+      "total total  total  total"
+      "obs   obs    obs    obs";
     min-height: unset;
     max-height: unset;
-    padding: 8px 12px;
-    gap: 4px 8px;
-    border-radius: 6px;
-    margin: 4px 8px;
+    padding: 10px 12px 8px;
+    gap: 6px;
+    border-radius: 8px;
+    margin: 6px 8px;
     border: 1px solid var(--line) !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    background: #fff;
+    align-items: center;
   }
-  .pnova-gr-code { display: none; }
-  .pnova-gr-product-btn { grid-column: 1 / -1; font-size: 14px; padding: 2px 0; }
-  .pnova-gr-input { height: 36px; border: 1px solid var(--line); background: #fff; padding: 0 8px; }
-  .pnova-gr-select { height: 36px; border: 1px solid var(--line); background: #fff; }
-  .pnova-gr-obs-input { height: 32px; border: 1px solid var(--line); background: #fff; padding: 0 8px; }
-  .pnova-gr-total { text-align: left; grid-column: 1; }
-  .pnova-gr-actions { grid-column: 2; justify-content: flex-end; }
-  .pnova-gr-actions button { opacity: 1; }
+
+  /* Código — visível como tag discreta */
+  .pnova-gr-code {
+    grid-area: code;
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    padding: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    align-self: center;
+  }
+
+  /* Nome do produto */
+  .pnova-gr-product-btn {
+    grid-area: name;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: normal;
+    line-height: 1.3;
+    padding: 2px 0;
+    min-height: 0;
+  }
+
+  /* Inputs numéricos — 44px de altura, font 16px previne zoom iOS */
+  .pnova-gr-input {
+    height: 44px;
+    border: 1px solid var(--line) !important;
+    background: #fff !important;
+    padding: 0 10px;
+    font-size: 16px;
+    border-radius: 6px;
+  }
+  .pnova-gr-qty-input   { grid-area: qty;   text-align: right; }
+  .pnova-gr-price-input { grid-area: price; text-align: right; }
+
+  /* Select de unidade */
+  .pnova-gr-select {
+    grid-area: unit;
+    height: 44px;
+    border: 1px solid var(--line) !important;
+    background: #fff !important;
+    font-size: 16px;
+    border-radius: 6px;
+    padding: 0 4px;
+  }
+
+  /* Total da linha — separado visualmente */
+  .pnova-gr-total {
+    grid-area: total;
+    text-align: right;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 4px 0 2px;
+    border-top: 1px solid rgba(0,0,0,0.07);
+    color: var(--text);
+    align-self: center;
+  }
+
+  /* Obs inline */
+  .pnova-gr-obs-input {
+    grid-area: obs;
+    height: 36px;
+    border: 1px solid var(--line) !important;
+    background: #fff !important;
+    padding: 0 10px;
+    font-size: 13px;
+    border-radius: 6px;
+  }
+
+  /* Botão remover */
+  .pnova-gr-actions {
+    grid-area: del;
+    justify-content: flex-end;
+    align-self: start;
+  }
+  .pnova-gr-actions button {
+    opacity: 1;
+    padding: 6px 8px;
+    min-width: 36px;
+    min-height: 36px;
+  }
 }
 
 /* ─── 4. Faixa de resumo + pendências ─── */
@@ -3778,6 +3931,34 @@ select:disabled {
   }
   .pnova-payment-grid {
     gap: 8px 12px;
+  }
+
+  /* Campo de busca de produto — sticky no topo do bloco */
+  .pnova-entry-wrap {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: #fff;
+    padding-bottom: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+
+  /* Font 16px evita zoom automático do iOS ao focar o campo */
+  .pnova-entry-product-input {
+    font-size: 16px;
+    height: 44px;
+  }
+
+  /* Dropdown de produtos — altura máxima segura no mobile */
+  .product-autocomplete-dropdown {
+    max-height: min(260px, 45vh);
+  }
+
+  /* inputs de formulários gerais com font-size 16px para evitar zoom iOS */
+  .form-grid input,
+  .form-grid select {
+    font-size: 16px;
+    min-height: 44px;
   }
 }
 
@@ -7250,24 +7431,71 @@ details[open] .modal-section-summary::before {
 
 /* Header / filtros */
 .dash-header {
-  padding: 16px 20px;
+  padding: 18px 24px;
 }
 
 .dash-header-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 20px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.dash-header-left {
   min-width: 0;
 }
 
+.dash-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dash-header-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.3px;
+  line-height: 1.1;
+}
+
 .dash-header-eyebrow {
-  margin: 0 0 6px;
+  margin: 0 0 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.dash-period-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ─── Section wrappers com rótulo de seção ─── */
+.dash-section {
+  display: grid;
+  gap: 12px;
+}
+
+.dash-section-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
 }
 
 .dash-period-row {
@@ -7419,10 +7647,83 @@ details[open] .modal-section-summary::before {
   gap: 16px;
 }
 
+/* Quick actions panel (mês sem dados) */
+.dash-quick-actions {
+  display: grid;
+  gap: 12px;
+}
+
+.dash-quick-actions-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.dash-quick-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dash-quick-actions-row .primary-button {
+  font-size: 0.85rem;
+  padding: 8px 16px;
+}
+
+/* KPI card action link */
+.dash-kpi-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.dash-kpi-action:hover {
+  color: var(--ink);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* Ranking empty with action */
+.dash-ranking-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.dash-ranking-empty p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
 /* KPI card individual */
 .dash-kpi-card {
   min-height: 128px;
 }
+
+/* Acento colorido no topo do card por tone */
+.dash-kpi-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  border-radius: 8px 8px 0 0;
+  background: var(--line);
+}
+.dash-kpi-card.tone-success::before { background: var(--success); }
+.dash-kpi-card.tone-info::before    { background: var(--info); }
+.dash-kpi-card.tone-warning::before { background: var(--warning); }
+.dash-kpi-card.tone-danger::before  { background: var(--danger); }
 
 .dash-kpi-label {
   display: block;
@@ -7591,10 +7892,79 @@ details[open] .modal-section-summary::before {
   white-space: nowrap;
 }
 
+/* ─── Compras recentes ─── */
+.dash-recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+
+.dash-recent-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+
+.dash-recent-row:last-of-type {
+  border-bottom: 0;
+}
+
+.dash-recent-supplier {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-recent-meta {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.dash-recent-date {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.dash-recent-amount {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  text-align: right;
+}
+
+.dash-recent-footer {
+  padding-top: 12px;
+  display: flex;
+}
+
 /* ── Mobile Dashboard ── */
 @media (max-width: 900px) {
   .dash-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .dash-header-inner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .dash-header-controls {
+    width: 100%;
   }
 }
 
@@ -7614,6 +7984,11 @@ details[open] .modal-section-summary::before {
 
   .dash-period-row {
     gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .dash-header-title {
+    font-size: 18px;
   }
 
   /* Mobile ranking: empilhar nome → valor → barra em linhas separadas */
@@ -7632,6 +8007,22 @@ details[open] .modal-section-summary::before {
 
   .dash-ranking-value {
     font-size: 12px;
+  }
+
+  /* Compras recentes: colapsar meta e data em mobile */
+  .dash-recent-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 2px;
+  }
+  .dash-recent-meta { display: none; }
+  .dash-recent-date {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .dash-recent-amount {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    align-self: center;
   }
 }
 
@@ -7960,6 +8351,589 @@ tr.dre-row-selected td {
 
   .dre-pct-col {
     display: none;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   USERS PAGE
+   ───────────────────────────────────────────── */
+
+/* Two-column shell: sidebar + detail */
+.users-shell {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+/* Left sidebar */
+.users-sidebar {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 100px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.users-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 8px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.users-sidebar-header h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.users-sidebar-btns {
+  display: flex;
+  gap: 4px;
+}
+
+.user-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 6px;
+}
+
+/* Individual user item in the list */
+.user-list-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+  color: var(--ink);
+}
+
+.user-list-item:hover {
+  background: var(--paper-soft);
+}
+
+.user-list-item.is-selected {
+  background: #edf2fc;
+}
+
+.user-list-item.is-inactive {
+  opacity: 0.6;
+}
+
+.user-list-item.is-new {
+  color: var(--muted);
+}
+
+/* Avatar circle with role color */
+.user-avatar {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.03em;
+}
+
+.user-avatar.role-admin             { background: var(--danger); }
+.user-avatar.role-gestao-completa   { background: var(--gold); color: var(--ink); }
+.user-avatar.role-estoquista        { background: var(--info); }
+.user-avatar.role-visualizacao      { background: var(--muted); }
+.user-avatar.role-new               { background: var(--line); color: var(--muted); }
+
+.user-list-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-list-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.user-list-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.user-list-login {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+/* Tags and dots */
+.self-tag {
+  font-size: 0.65rem;
+  font-weight: 600;
+  background: var(--gold-soft);
+  color: var(--warning);
+  border-radius: 4px;
+  padding: 1px 5px;
+  letter-spacing: 0.03em;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  flex-shrink: 0;
+}
+
+.status-dot.off {
+  background: var(--line-strong);
+}
+
+.session-dot {
+  display: inline-flex;
+  align-items: center;
+  color: var(--info);
+}
+
+/* Right column: detail area */
+.users-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* User header card */
+.user-header-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.user-header-avatar {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.user-header-avatar.role-admin           { background: var(--danger); }
+.user-header-avatar.role-gestao-completa { background: var(--gold); color: var(--ink); }
+.user-header-avatar.role-estoquista      { background: var(--info); }
+.user-header-avatar.role-visualizacao    { background: var(--muted); }
+
+.user-header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-header-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 3px;
+}
+
+.user-header-meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.user-header-login {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Status badges in header */
+.status-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.status-badge.active   { background: #e5f5ec; color: var(--success); }
+.status-badge.inactive { background: #f5f5f5; color: var(--muted); }
+.status-badge.warning  { background: #fdf6e3; color: var(--warning); display: inline-flex; align-items: center; gap: 3px; }
+
+/* Role badge in header meta */
+.role-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.role-badge.role-admin             { background: #fde9e9; color: var(--danger); }
+.role-badge.role-gestao-completa   { background: #fdf6e3; color: var(--warning); }
+.role-badge.role-estoquista        { background: #e8f0fb; color: var(--info); }
+.role-badge.role-visualizacao      { background: #f0f0f0; color: var(--muted); }
+
+/* Tabs */
+.users-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--line);
+}
+
+.users-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.users-tab-btn:hover { color: var(--ink); }
+
+.users-tab-btn.is-active {
+  color: var(--ink);
+  border-bottom-color: var(--gold);
+  font-weight: 600;
+}
+
+/* Action row below forms */
+.users-action-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+/* Form checks group — spans full grid width */
+.form-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+/* Danger-outline button variant */
+.btn-danger-outline {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.btn-danger-outline:hover {
+  background: #fde9e9;
+}
+
+/* Danger filled button */
+.btn-danger {
+  background: var(--danger);
+}
+
+/* Separator dot */
+.separator {
+  color: var(--line-strong);
+}
+
+/* Confirmation banner */
+.confirm-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  flex-wrap: wrap;
+}
+
+.confirm-banner.tone-warning {
+  background: #fdf6e3;
+  border-color: #e8c84e40;
+  color: var(--warning);
+}
+
+.confirm-banner.tone-danger {
+  background: #fde9e9;
+  border-color: #c04b4b30;
+  color: var(--danger);
+}
+
+.confirm-banner-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.confirm-banner-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.confirm-banner-desc {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.confirm-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Banner de modelo na aba Permissões */
+.perm-model-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--ink);
+  background: var(--surface-raised, #f8f8f8);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.perm-model-override-hint {
+  color: var(--gold, #b8860b);
+  font-weight: 500;
+}
+
+/* Role description hint below "Modelo de acesso" */
+.role-desc-hint {
+  margin: -4px 0 4px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+/* Permission matrix */
+.perm-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.perm-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.perm-icon-default { color: var(--muted); }
+.perm-icon-custom  { color: var(--gold); }
+.perm-icon-none    { color: var(--line-strong); }
+
+.perm-table-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.perm-group-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.perm-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.perm-th-module {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 4px 0 6px;
+  width: auto;
+}
+
+.perm-th-action {
+  width: 48px;
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 4px 0 6px;
+}
+
+.perm-td-module {
+  font-size: 0.82rem;
+  padding: 4px 4px 4px 0;
+  color: var(--ink);
+}
+
+.perm-cell {
+  text-align: center;
+  padding: 2px;
+}
+
+.perm-cell-inherited { background: transparent; }
+.perm-cell-custom    { background: #fffbf0; }
+
+.perm-row-custom .perm-td-module {
+  font-weight: 600;
+}
+
+.perm-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+
+.perm-toggle:hover:not(:disabled) {
+  background: var(--paper-soft);
+}
+
+.perm-toggle:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+/* Sessions list */
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-soft);
+}
+
+.session-icon {
+  flex-shrink: 0;
+  color: var(--info);
+}
+
+.session-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-device {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.session-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.session-kill-btn {
+  font-size: 0.78rem;
+  padding: 5px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Empty state */
+.users-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* ── Mobile: stack sidebar above detail ── */
+@media (max-width: 768px) {
+  .users-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .users-sidebar {
+    position: static;
+    max-height: 260px;
+  }
+
+  .user-list-item {
+    padding: 8px 8px;
+  }
+
+  .perm-th-action,
+  .perm-cell {
+    width: 36px;
   }
 }
 

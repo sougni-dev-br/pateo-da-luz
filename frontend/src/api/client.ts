@@ -2132,6 +2132,60 @@ export function getDashboardAlerts(competence: string) {
   return request<DashboardAlertsData>(`/dashboard/alerts${toQueryString({ competence })}`);
 }
 
+// ── Dashboard Summary (KPIs financeiros) ──
+
+export type DashboardSummaryKpi = {
+  total?: number;
+  grossAmount?: number;
+  netAmount?: number;
+  serviceAmount?: number;
+  tickets?: number;
+  count?: number;
+  ticketAverage?: number;
+  prev: { total?: number; netAmount?: number; grossAmount?: number };
+  deltaPercent: number | null;
+};
+
+export type DashboardSummaryData = {
+  year: number;
+  month: number;
+  revenue: Omit<DashboardSummaryKpi, "total"> & {
+    grossAmount: number;
+    netAmount: number;
+    serviceAmount: number;
+    tickets: number;
+    count: number;
+    ticketAverage: number;
+    prev: { grossAmount: number; netAmount: number };
+    deltaPercent: number | null;
+  };
+  purchases: {
+    total: number;
+    count: number;
+    prev: { total: number };
+    deltaPercent: number | null;
+  };
+  smallExpenses: {
+    total: number;
+    count: number;
+    prev: { total: number };
+    deltaPercent: number | null;
+  };
+  cmvReal: {
+    status: "closed" | "pending" | "missing";
+    value: number | null;
+    percent: number | null;
+  };
+  estimatedResult: {
+    value: number;
+    marginPercent: number | null;
+  };
+};
+
+export function getDashboardSummary(year: number, month: number) {
+  return request<DashboardSummaryData>(`/dashboard/summary${toQueryString({ year: String(year), month: String(month) })}`);
+}
+
 export async function login(email: string, password: string, options?: { force?: boolean }) {
   const result = await request<{ token: string; user: AppUser }>("/auth/login", {
     method: "POST",
