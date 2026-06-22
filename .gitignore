@@ -24,3 +24,6 @@ Thumbs.db
 /*_prod.json
 /dre_*
 /.claude/
+
+# Scripts de diagnóstico/manutenção com dados de produção
+backend/prisma/scripts/
