@@ -3412,3 +3412,100 @@ export type DRESummary = {
   ebitda: number;
   ebitdaPercent: number | null;
 };
+
+// ── Supplier Billing Cycles ───────────────────────────────────────────────────
+
+export type SupplierCycle = {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  periodStart: string;
+  periodEnd: string | null;
+  status: "OPEN" | "CHECKED" | "CLOSED" | "PAID" | "CANCELLED";
+  totalAmount: string;
+  generatedPurchaseId: string | null;
+  itemCount: number;
+  checkedCount: number;
+  hasDivergence: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SupplierCycleItem = {
+  id: string;
+  purchaseId: string;
+  amount: string;
+  purchaseDate: string;
+  invoiceNumber: string | null;
+  checked: boolean;
+  hasDivergence: boolean;
+  divergenceAmount: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  purchaseNumber: string | null;
+  purchaseStatus: string;
+  purchaseTotalAmount: string;
+};
+
+export type SupplierCycleInstallment = {
+  id: string;
+  installment: number;
+  amount: string;
+  dueDate: string;
+  status: string;
+  sourceType: string;
+  paymentMethodId: string | null;
+  paymentMethodName: string | null;
+  paidDate: string | null;
+  paidAmount: string | null;
+};
+
+export type SupplierCycleDetail = SupplierCycle & {
+  notes: string | null;
+  createdByUserId: string | null;
+  checkedByUserId: string | null;
+  closedByUserId: string | null;
+  checkedAt: string | null;
+  closedAt: string | null;
+  items: SupplierCycleItem[];
+  installments: SupplierCycleInstallment[];
+};
+
+export function getSupplierCycles(params?: { supplierId?: string; status?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.supplierId) qs.set("supplierId", params.supplierId);
+  if (params?.status) qs.set("status", params.status);
+  const q = qs.toString();
+  return request<SupplierCycle[]>(`/supplier-cycles${q ? `?${q}` : ""}`);
+}
+
+export function getSupplierCycle(id: string) {
+  return request<SupplierCycleDetail>(`/supplier-cycles/${id}`);
+}
+
+export function checkSupplierCycleItem(cycleId: string, payload: {
+  itemId: string;
+  checked: boolean;
+  hasDivergence?: boolean;
+  divergenceAmount?: number | null;
+  notes?: string | null;
+}) {
+  return request<{ cycleStatus: string; allChecked: boolean; itemCount: number; checkedCount: number }>(
+    `/supplier-cycles/${cycleId}/check-item`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+}
+
+export function closeSupplierCycle(cycleId: string, payload: {
+  paymentMethodId: string;
+  installmentCount: 1 | 2;
+  firstDueDate: string;
+  secondDueDate?: string;
+  notes?: string;
+}) {
+  return request<{ cycleId: string; status: string; generatedPurchaseId: string; purchaseNumber: string; totalAmount: number; installmentCount: number }>(
+    `/supplier-cycles/${cycleId}/close`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+}
