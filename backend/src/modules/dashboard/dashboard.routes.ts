@@ -168,6 +168,175 @@ dashboardRouter.get("/purchases", async (request, response) => {
 });
 
 // ─────────────────────────────────────────────
+// GET /dashboard/summary?year=YYYY&month=MM
+// Resumo financeiro consolidado do período:
+// faturamento, compras, pequenos gastos, CMV Real, resultado estimado
+// ─────────────────────────────────────────────
+
+dashboardRouter.get("/summary", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const now = new Date();
+  const year = Number(request.query.year ?? now.getFullYear());
+  const month = Number(request.query.month ?? now.getMonth() + 1);
+
+  const previousMonthDate = new Date(year, month - 2, 1);
+  const prevYear = previousMonthDate.getFullYear();
+  const prevMonth = previousMonthDate.getMonth() + 1;
+
+  // ── Buscar tudo em paralelo ──
+  const [
+    revRow,
+    prevRevRow,
+    purchasesRow,
+    prevPurchasesRow,
+    smallExpRow,
+    prevSmallExpRow,
+    monthlyCmv,
+  ] = await Promise.all([
+    // Faturamento período atual (por competência)
+    prisma.$queryRaw<Array<{ grossAmount: unknown; netAmount: unknown; serviceAmount: unknown; tickets: unknown; count: unknown }>>`
+      SELECT
+        COALESCE(SUM("grossAmount"), 0)   AS "grossAmount",
+        COALESCE(SUM("netAmount"), 0)     AS "netAmount",
+        COALESCE(SUM("serviceAmount"), 0) AS "serviceAmount",
+        COALESCE(SUM("tickets"), 0)       AS "tickets",
+        COUNT(*)                          AS "count"
+      FROM "RevenueEntry"
+      WHERE "competenceYear" = ${year}
+        AND "competenceMonth" = ${month}
+        AND "status" <> 'CANCELLED'
+    `,
+    // Faturamento mês anterior
+    prisma.$queryRaw<Array<{ netAmount: unknown; grossAmount: unknown }>>`
+      SELECT
+        COALESCE(SUM("netAmount"), 0)   AS "netAmount",
+        COALESCE(SUM("grossAmount"), 0) AS "grossAmount"
+      FROM "RevenueEntry"
+      WHERE "competenceYear" = ${prevYear}
+        AND "competenceMonth" = ${prevMonth}
+        AND "status" <> 'CANCELLED'
+    `,
+    // Compras regulares período atual (sem pequenos gastos)
+    prisma.$queryRaw<Array<{ total: unknown; cnt: unknown }>>`
+      SELECT COALESCE(SUM("totalAmount"), 0) AS total, COUNT(*) AS cnt
+      FROM "Purchase"
+      WHERE "competenceYear" = ${year}
+        AND "competenceMonth" = ${month}
+        AND "status" = 'ACTIVE'
+        AND ("isSmallExpense" = false OR "isSmallExpense" IS NULL)
+    `,
+    // Compras regulares mês anterior
+    prisma.$queryRaw<Array<{ total: unknown }>>`
+      SELECT COALESCE(SUM("totalAmount"), 0) AS total
+      FROM "Purchase"
+      WHERE "competenceYear" = ${prevYear}
+        AND "competenceMonth" = ${prevMonth}
+        AND "status" = 'ACTIVE'
+        AND ("isSmallExpense" = false OR "isSmallExpense" IS NULL)
+    `,
+    // Pequenos gastos período atual
+    prisma.$queryRaw<Array<{ total: unknown; cnt: unknown }>>`
+      SELECT COALESCE(SUM("totalAmount"), 0) AS total, COUNT(*) AS cnt
+      FROM "Purchase"
+      WHERE "competenceYear" = ${year}
+        AND "competenceMonth" = ${month}
+        AND "status" = 'ACTIVE'
+        AND "isSmallExpense" = true
+    `,
+    // Pequenos gastos mês anterior
+    prisma.$queryRaw<Array<{ total: unknown }>>`
+      SELECT COALESCE(SUM("totalAmount"), 0) AS total
+      FROM "Purchase"
+      WHERE "competenceYear" = ${prevYear}
+        AND "competenceMonth" = ${prevMonth}
+        AND "status" = 'ACTIVE'
+        AND "isSmallExpense" = true
+    `,
+    // CMV Real (fechamento mensal)
+    prisma.monthlyCmv.findFirst({
+      where: { competenceYear: year, competenceMonth: month },
+      select: {
+        status: true,
+        realCmvValue: true,
+        cmvPercent: true,
+        estimatedGrossMargin: true,
+        revenueNetValue: true,
+        purchasesValue: true,
+      }
+    }),
+  ]);
+
+  // ── Extrair valores ──
+  const revNet       = Number(revRow[0]?.netAmount    ?? 0);
+  const revGross     = Number(revRow[0]?.grossAmount  ?? 0);
+  const revService   = Number(revRow[0]?.serviceAmount ?? 0);
+  const revTickets   = Number(revRow[0]?.tickets      ?? 0);
+  const revCount     = Number(revRow[0]?.count        ?? 0);
+  const prevRevNet   = Number(prevRevRow[0]?.netAmount   ?? 0);
+  const prevRevGross = Number(prevRevRow[0]?.grossAmount ?? 0);
+
+  const purchasesTotal     = Number(purchasesRow[0]?.total     ?? 0);
+  const purchasesCount     = Number(purchasesRow[0]?.cnt       ?? 0);
+  const prevPurchasesTotal = Number(prevPurchasesRow[0]?.total ?? 0);
+
+  const smallExpTotal     = Number(smallExpRow[0]?.total     ?? 0);
+  const smallExpCount     = Number(smallExpRow[0]?.cnt       ?? 0);
+  const prevSmallExpTotal = Number(prevSmallExpRow[0]?.total ?? 0);
+
+  const cmvStatus: "closed" | "pending" | "missing" =
+    monthlyCmv?.status === "CLOSED" ? "closed" :
+    monthlyCmv           ? "pending" :
+                           "missing";
+  const cmvRealValue = cmvStatus === "closed" ? Number(monthlyCmv!.realCmvValue ?? 0) : null;
+  const cmvPercent   = cmvStatus === "closed" ? Number(monthlyCmv!.cmvPercent   ?? 0) : null;
+
+  // Resultado estimado = faturamento líquido - compras - pequenos gastos
+  const estimatedResult = revNet - purchasesTotal - smallExpTotal;
+  const estimatedMargin = revNet > 0 ? (estimatedResult / revNet) * 100 : null;
+
+  const delta = (current: number, previous: number) =>
+    previous > 0 ? ((current - previous) / previous) * 100 : null;
+
+  response.json({
+    year,
+    month,
+    revenue: {
+      grossAmount: revGross,
+      netAmount: revNet,
+      serviceAmount: revService,
+      tickets: revTickets,
+      count: revCount,
+      ticketAverage: revTickets > 0 ? revGross / revTickets : 0,
+      prev: { grossAmount: prevRevGross, netAmount: prevRevNet },
+      deltaPercent: delta(revNet, prevRevNet),
+    },
+    purchases: {
+      total: purchasesTotal,
+      count: purchasesCount,
+      prev: { total: prevPurchasesTotal },
+      deltaPercent: delta(purchasesTotal, prevPurchasesTotal),
+    },
+    smallExpenses: {
+      total: smallExpTotal,
+      count: smallExpCount,
+      prev: { total: prevSmallExpTotal },
+      deltaPercent: delta(smallExpTotal, prevSmallExpTotal),
+    },
+    cmvReal: {
+      status: cmvStatus,
+      value: cmvRealValue,
+      percent: cmvPercent,
+    },
+    estimatedResult: {
+      value: estimatedResult,
+      marginPercent: estimatedMargin,
+    },
+  });
+});
+
+// ─────────────────────────────────────────────
 // GET /dashboard/alerts?competence=YYYY-MM
 // ─────────────────────────────────────────────
 
