@@ -882,6 +882,7 @@ export type Purchase = {
   purchaseNumber?: string | null;
   purchaseOrderNumber?: string | null;
   workflowStatus?: string | null;
+  cycleStatus?: string | null;
   purchaseDate: string;
   competenceMonth: number;
   competenceYear: number;

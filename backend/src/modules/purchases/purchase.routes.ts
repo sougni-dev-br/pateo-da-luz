@@ -393,10 +393,14 @@ purchaseRouter.get("/", async (request, response) => {
   });
 
   const statusRows = purchases.length
-    ? await prisma.$queryRaw<Array<{ id: string; status: string; cancelledAt: Date | null; cancellationReason: string | null; purchaseNumber: string | null; workflowStatus: string | null }>>`
-        SELECT "id", "status", "cancelledAt", "cancellationReason", "purchaseNumber", "workflowStatus"
-        FROM "Purchase"
-        WHERE "id" IN (${Prisma.join(purchases.map((purchase) => purchase.id))})
+    ? await prisma.$queryRaw<Array<{ id: string; status: string; cancelledAt: Date | null; cancellationReason: string | null; purchaseNumber: string | null; workflowStatus: string | null; cycleStatus: string | null }>>`
+        SELECT p."id", p."status", p."cancelledAt", p."cancellationReason", p."purchaseNumber", p."workflowStatus",
+          (SELECT sbc."status"
+           FROM "SupplierBillingCycleItem" sbi
+           JOIN "SupplierBillingCycle" sbc ON sbc."id" = sbi."cycleId"
+           WHERE sbi."purchaseId" = p."id" LIMIT 1) AS "cycleStatus"
+        FROM "Purchase" p
+        WHERE p."id" IN (${Prisma.join(purchases.map((purchase) => purchase.id))})
       `
     : [];
   const statusById = new Map(statusRows.map((row) => [row.id, row]));
@@ -1920,7 +1924,7 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
   }
 
   class CycleBlockedError extends Error {
-    constructor(public readonly cycleStatus: string) { super("CYCLE_BLOCKED"); }
+    constructor(public readonly reason: "PAID" | "CLOSED_WITH_PAID_TITLE") { super("CYCLE_BLOCKED"); }
   }
 
   try {
@@ -1932,18 +1936,60 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
         LIMIT 1
       `;
       if (cycleItem) {
-        const [cycle] = await tx.$queryRaw<Array<{ status: string }>>`
-          SELECT "status" FROM "SupplierBillingCycle" WHERE "id" = ${cycleItem.cycleId} LIMIT 1
+        const [cycle] = await tx.$queryRaw<Array<{ status: string; generatedPurchaseId: string | null }>>`
+          SELECT "status", "generatedPurchaseId"
+          FROM "SupplierBillingCycle" WHERE "id" = ${cycleItem.cycleId} LIMIT 1
         `;
         const cs = cycle?.status ?? "OPEN";
-        if (cs === "CLOSED" || cs === "PAID") throw new CycleBlockedError(cs);
-        await tx.$executeRaw`DELETE FROM "SupplierBillingCycleItem" WHERE "id" = ${cycleItem.id}`;
-        await tx.$executeRaw`
-          UPDATE "SupplierBillingCycle"
-          SET "totalAmount" = GREATEST(0, "totalAmount" - ${new Prisma.Decimal(Number(cycleItem.amount))}),
-              "updatedAt" = CURRENT_TIMESTAMP
-          WHERE "id" = ${cycleItem.cycleId}
-        `;
+
+        // CASO D — ciclo já pago: bloquear sempre
+        if (cs === "PAID") throw new CycleBlockedError("PAID");
+
+        // CASO A — ciclo OPEN ou CHECKED: remove item e recalcula total
+        if (cs === "OPEN" || cs === "CHECKED") {
+          await tx.$executeRaw`DELETE FROM "SupplierBillingCycleItem" WHERE "id" = ${cycleItem.id}`;
+          await tx.$executeRaw`
+            UPDATE "SupplierBillingCycle"
+            SET "totalAmount" = GREATEST(0, "totalAmount" - ${new Prisma.Decimal(Number(cycleItem.amount))}),
+                "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "id" = ${cycleItem.cycleId}
+          `;
+        }
+
+        // CASO B/C — ciclo CLOSED: verificar status dos títulos gerados
+        if (cs === "CLOSED" && cycle?.generatedPurchaseId) {
+          const titles = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+            SELECT "id", "status" FROM "PaymentInstallment"
+            WHERE "purchaseId" = ${cycle.generatedPurchaseId}
+              AND "sourceType" = 'SUPPLIER_CYCLE'
+          `;
+          const hasPaid = titles.some((t) => t.status === "PAID" || t.status === "PAID_LATE");
+          if (hasPaid) throw new CycleBlockedError("CLOSED_WITH_PAID_TITLE");
+
+          // CASO B — todos os títulos ainda OPEN: cancelamento controlado
+          await tx.$executeRaw`
+            UPDATE "PaymentInstallment"
+            SET "status" = 'CANCELLED'
+            WHERE "purchaseId" = ${cycle.generatedPurchaseId}
+              AND "sourceType" = 'SUPPLIER_CYCLE'
+              AND "status" NOT IN ('PAID', 'PAID_LATE', 'CANCELLED')
+          `;
+          await tx.$executeRaw`
+            UPDATE "Purchase"
+            SET "status" = 'CANCELLED',
+                "cancelledAt" = CURRENT_TIMESTAMP,
+                "cancellationReason" = ${reason},
+                "cancelledByUserId" = ${admin.id},
+                "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "id" = ${cycle.generatedPurchaseId}
+          `;
+          await tx.$executeRaw`
+            UPDATE "SupplierBillingCycle"
+            SET "status" = 'CANCELLED', "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "id" = ${cycleItem.cycleId}
+          `;
+          await tx.$executeRaw`DELETE FROM "SupplierBillingCycleItem" WHERE "id" = ${cycleItem.id}`;
+        }
       }
       await tx.$executeRaw`
         UPDATE "Purchase"
@@ -1957,9 +2003,10 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
     });
   } catch (err) {
     if (err instanceof CycleBlockedError) {
-      response.status(409).json({
-        message: `Esta compra pertence a um ciclo de fornecedor ja ${err.cycleStatus === "PAID" ? "pago" : "fechado"}. Reabra o ciclo antes de cancelar.`
-      });
+      const message = err.reason === "PAID"
+        ? "Esta compra pertence a um ciclo de fornecedor ja pago. Nao e possivel cancelar."
+        : "Esta compra pertence a um ciclo com titulo ja pago. Estorne a baixa antes de cancelar.";
+      response.status(409).json({ message });
       return;
     }
     throw err;
