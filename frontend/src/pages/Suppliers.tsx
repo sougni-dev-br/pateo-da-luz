@@ -153,6 +153,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
           </div>
         </div>
 
+        <p className="form-section-label">Dados do fornecedor</p>
         <div className="form-grid">
           <label>
             Código do fornecedor
@@ -183,22 +184,22 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
             <input value={form.mainCategory} onChange={(event) => setForm({ ...form, mainCategory: event.target.value })} />
           </label>
           <label>
-            Data cadastro
+            Data de cadastro
             <input type="date" value={form.registrationDate} onChange={(event) => setForm({ ...form, registrationDate: event.target.value })} />
           </label>
-          <label>
+          <label className="full-width">
             Observações
             <input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
           </label>
           <label className="checkbox-label">
             <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />
-            Ativo
+            Fornecedor ativo
           </label>
         </div>
 
         <div className="subsection">
           <h3>Condição padrão de pagamento</h3>
-          <p className="hint">Ao selecionar este fornecedor numa compra, esses valores são aplicados automaticamente. Se não informado, o sistema usa BOLETO com 2 parcelas em 15 e 30 dias.</p>
+          <p className="hint">Essas condições serão usadas automaticamente nas novas compras. Se nada for informado, o sistema usa BOLETO em 2 parcelas: 15 e 30 dias.</p>
           <div className="form-grid">
             <label>
               Forma de pagamento padrão
@@ -218,19 +219,34 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
               <input placeholder="Ex: 15, 30  ou  10, 20, 30" value={form.defaultInstallmentDays} onChange={(event) => setForm({ ...form, defaultInstallmentDays: event.target.value })} />
             </label>
             <label>
-              Prazo padrão (dias, campo legado)
+              Prazo padrão em dias
               <input type="number" min="0" placeholder="Ex: 30" value={form.defaultPaymentTermDays} onChange={(event) => setForm({ ...form, defaultPaymentTermDays: event.target.value })} />
             </label>
             <label className="full-width">
               Observação financeira padrão
               <input placeholder="Ex: Boleto enviado por email até o dia 5" value={form.defaultFinancialNotes} onChange={(event) => setForm({ ...form, defaultFinancialNotes: event.target.value })} />
             </label>
+            {(() => {
+              const count = Number(form.defaultInstallmentCount);
+              const days = parseInstallmentDaysInput(form.defaultInstallmentDays);
+              if (count > 0 && days && count !== days.length) {
+                return (
+                  <p className="form-grid-warn">
+                    ⚠ {count} parcela{count !== 1 ? "s" : ""} configurada{count !== 1 ? "s" : ""} mas {days.length} dia{days.length !== 1 ? "s" : ""} de vencimento informado{days.length !== 1 ? "s" : ""} — os dois valores precisam ser iguais.
+                  </p>
+                );
+              }
+              return null;
+            })()}
           </div>
         </div>
 
         <div className="subsection">
           <h3>Faturamento do fornecedor</h3>
-          <p className="hint">Fornecedores por ciclo acumulam compras em uma fatura antes de gerar boletos no Contas a Pagar.</p>
+          <p className="hint">
+            <strong>Direto por compra:</strong> cada compra gera suas próprias parcelas no Contas a Pagar.<br />
+            <strong>Por ciclo / fatura:</strong> compras do período são acumuladas para gerar uma fatura depois.
+          </p>
           <div className="form-grid">
             <label>
               Tipo de faturamento

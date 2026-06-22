@@ -35,6 +35,7 @@ import { canAccessModule, hasPermission as userHasPermission } from "./lib/permi
 import { ForcedPasswordChange } from "./pages/ForcedPasswordChange";
 import type { ImportTab } from "./pages/ImportsHub";
 import { Login } from "./pages/Login";
+import { isLocal } from "./utils/env";
 
 const Audit = lazy(() => import("./pages/Audit").then((module) => ({ default: module.Audit })));
 const CatalogImports = lazy(() => import("./pages/CatalogImports").then((module) => ({ default: module.CatalogImports })));
@@ -462,7 +463,7 @@ export function App() {
               </button>
             </div>
           </div>
-          <span className="version-badge">V1 local</span>
+          {isLocal && <span className="version-badge">DEV</span>}
         </aside>
 
         <section className="content" ref={contentRef}>
