@@ -3409,6 +3409,38 @@ select:disabled {
   margin: 0;
   font-style: italic;
 }
+.pnova-cycle-info {
+  padding: 14px 16px 12px;
+}
+.pnova-cycle-info-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pnova-cycle-info-icon {
+  font-size: 16px;
+  color: var(--gold);
+  line-height: 1;
+}
+.pnova-cycle-info-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.pnova-cycle-info-body {
+  font-size: 13px;
+  color: var(--ink);
+  margin: 0 0 6px;
+  line-height: 1.5;
+}
+.pnova-cycle-info-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
 .pnova-payment-header {
   display: flex;
   align-items: center;
