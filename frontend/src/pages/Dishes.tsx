@@ -1,4 +1,4 @@
-import { ChefHat, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { ChefHat, Copy, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   deactivateDish,
@@ -86,6 +86,17 @@ export function Dishes() {
       setEditing(false);
     } catch {
       setNotice({ tone: "error", message: "Erro ao carregar prato." });
+    }
+  }
+
+  async function handleCopyDish(id: string) {
+    try {
+      const original = await getDishDetail(id);
+      const copy = { ...original, id: "", code: "", name: `Cópia de ${original.name}`, isActive: true };
+      setSelected(copy);
+      setEditing(true);
+    } catch {
+      setNotice({ tone: "error", message: "Erro ao copiar ficha técnica." });
     }
   }
 
@@ -193,6 +204,11 @@ export function Dishes() {
                       <td className="text-center">{cmvBadge(dish.cmvPercentual)}</td>
                       <td className="text-center">{dish.itemsCount}</td>
                       <td className="actions-cell" onClick={(e) => e.stopPropagation()}>
+                        {canEdit && (
+                          <button type="button" className="btn-icon-sm" title="Copiar ficha técnica" onClick={() => void handleCopyDish(dish.id)}>
+                            <Copy size={13} />
+                          </button>
+                        )}
                         {canEdit && dish.isActive && (
                           <button type="button" className="btn-icon-sm btn-danger" title="Inativar" onClick={() => handleDeactivate(dish.id)}>
                             <Trash2 size={13} />
