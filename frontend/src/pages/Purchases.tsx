@@ -1,4 +1,4 @@
-import { ChevronDown, Eye, FileText, Package, Pencil, Plus, RefreshCw, Shield, Trash2, X } from "lucide-react";
+import { ChevronDown, Eye, FileText, Package, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { UNSAFE_NavigationContext, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -1286,9 +1286,6 @@ export function Purchases({ user }: { user: AppUser }) {
           <button className="secondary-button" type="button" onClick={handleSupplierPositionPdf}>
             <FileText size={16} /> PDF
           </button>
-          <button className="secondary-button" type="button" onClick={() => { setShowSmallExpenses((current) => !current); if (!showSmallExpenses) void loadSmallExpenses(); }}>
-            <Shield size={16} /> Pequenos gastos
-          </button>
           <button className="primary-button" type="button" onClick={openNewPurchase}>
             <Plus size={16} /> Nova compra
           </button>
@@ -1383,48 +1380,6 @@ export function Purchases({ user }: { user: AppUser }) {
           </button>
         </div>
       </section>
-
-      {showSmallExpenses && (
-        <section className="panel subsection">
-          <div className="section-heading compact-heading">
-            <div>
-              <p>Relatório</p>
-              <h3>Pequenos gastos</h3>
-            </div>
-            <div className="actions-cell">
-              <button className="secondary-button" type="button" onClick={loadSmallExpenses}>Atualizar</button>
-              <button className="secondary-button" type="button" onClick={handleSmallExpensesPdf}><FileText size={16} /> PDF pequenos gastos</button>
-            </div>
-          </div>
-          <div className="filters-row">
-            <label>Funcionário<input value={smallExpenseFilters.employee} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, employee: event.target.value })} /></label>
-            <label>Autorizado por<input value={smallExpenseFilters.authorizedBy} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, authorizedBy: event.target.value })} /></label>
-            <label>Origem<input value={smallExpenseFilters.origin} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, origin: event.target.value })} /></label>
-            <label>Tipo<input value={smallExpenseFilters.type} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, type: event.target.value })} /></label>
-            <label>Fornecedor<input value={smallExpenseFilters.supplier} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, supplier: event.target.value })} /></label>
-            <label>Pagamento<input value={smallExpenseFilters.paymentMethod} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, paymentMethod: event.target.value })} /></label>
-            <label>Categoria<input value={smallExpenseFilters.category} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, category: event.target.value })} /></label>
-            <label>Produto<input value={smallExpenseFilters.product} onChange={(event) => setSmallExpenseFilters({ ...smallExpenseFilters, product: event.target.value })} /></label>
-            <button className="primary-button" type="button" onClick={loadSmallExpenses}>Filtrar</button>
-          </div>
-          {smallExpenseReport && (
-            <>
-              <div className="summary-grid">
-                <article><span>Total</span><strong>{formatCurrency(smallExpenseReport.summary.total)}</strong></article>
-                <article><span>Impacta CMV</span><strong>{formatCurrency(smallExpenseReport.summary.impactCmvTotal)}</strong></article>
-                <article><span>Administrativo</span><strong>{formatCurrency(smallExpenseReport.summary.administrativeTotal)}</strong></article>
-                <article><span>Linhas</span><strong>{smallExpenseReport.rows.length}</strong></article>
-              </div>
-              <div className="table-wrap operational-table">
-                <table className="purchase-items-table">
-                  <thead><tr><th>Data</th><th>Pedido</th><th>Fornecedor/Local</th><th>Funcionário</th><th>Autorizado</th><th>Origem</th><th>Tipo</th><th>Item</th><th className="numeric-cell">Valor</th><th>CMV</th></tr></thead>
-                  <tbody>{smallExpenseReport.rows.map((row) => <tr key={row.id}><td>{formatDate(row.purchaseDate)}</td><td>{row.purchaseNumber ?? "-"}</td><td>{row.supplierName}</td><td>{row.employee}</td><td>{row.authorizedBy}</td><td>{row.origin}</td><td>{row.smallExpenseType}</td><td>{row.item}</td><td className="numeric-cell nowrap-cell">{formatCurrency(row.totalAmount)}</td><td>{row.impactCmv ? "Sim" : "Não"}</td></tr>)}</tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </section>
-      )}
 
       {error && <div className="alert error">{error}</div>}
       {loading && <div className="empty-state">Carregando compras...</div>}
@@ -1888,11 +1843,6 @@ export function Purchases({ user }: { user: AppUser }) {
                       <input type="checkbox" checked={showNoInvoiceReason}
                         onChange={(event) => { setShowNoInvoiceReason(event.target.checked); if (event.target.checked) setForm({ ...form, invoiceNumber: "" }); }} />
                       <span>Sem NF</span>
-                    </label>
-                    <label className="pnova-chip-check">
-                      <input type="checkbox" checked={form.isSmallExpense}
-                        onChange={(event) => setForm({ ...form, isSmallExpense: event.target.checked })} />
-                      <span>Pequeno gasto</span>
                     </label>
                   </div>
                 </div>
