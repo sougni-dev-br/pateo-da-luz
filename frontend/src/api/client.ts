@@ -1834,11 +1834,11 @@ export function payTaxPayment(id: string, payload: { paymentDate: string; paidAm
   });
 }
 
-export function reverseTaxPayment(id: string) {
+export function reverseTaxPayment(id: string, reason: string) {
   return request<{ id: string; status: string }>(`/tax-payments/${id}/reverse`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({})
+    body: JSON.stringify({ reason })
   });
 }
 
