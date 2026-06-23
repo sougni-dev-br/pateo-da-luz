@@ -135,6 +135,19 @@ enum BankAccountType {
   OUTROS
 }
 
+enum TaxPaymentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELED
+  WITHOUT_RECEIPT
+}
+
+enum TaxPaymentSource {
+  MANUAL
+  IMPORT_XLSX
+}
+
 model Company {
   id                    String               @id @default(cuid())
   code                  String               @unique
@@ -157,6 +170,7 @@ model Company {
   bankAccounts          CompanyBankAccount[]
   purchases             Purchase[]
   payingInstallments    PaymentInstallment[] @relation("PayingCompany")
+  taxPayments           TaxPayment[]
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
 
@@ -1490,6 +1504,7 @@ model DRECategory {
   notes             String?
   smallExpenseTypes SmallExpenseType[]
   products          Product[]
+  taxPayments       TaxPayment[]
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
@@ -1541,4 +1556,59 @@ model SupplierBillingCycleItem {
 
   @@index([cycleId])
   @@index([checked])
+}
+
+model TaxPayment {
+  id              String              @id @default(cuid())
+  companyId       String?
+  company         Company?            @relation(fields: [companyId], references: [id])
+  cnpj            String?
+  legalName       String?
+  tradeName       String?
+  documentType    String
+  description     String?
+  competenceDate  DateTime?
+  dueDate         DateTime
+  amount          Decimal             @db.Decimal(12, 2)
+  paymentDate     DateTime?
+  paidAmount      Decimal?            @db.Decimal(12, 2)
+  status          TaxPaymentStatus    @default(PENDING)
+  comments        String?
+  source          TaxPaymentSource    @default(MANUAL)
+  importBatchId   String?
+  dreCategoryId   String?
+  dreCategory     DRECategory?        @relation(fields: [dreCategoryId], references: [id])
+  createdById     String
+  updatedById     String?
+  deletedAt       DateTime?
+  deletedById     String?
+  attachments     TaxPaymentAttachment[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([dueDate])
+  @@index([competenceDate])
+  @@index([paymentDate])
+  @@index([status])
+  @@index([companyId])
+  @@index([documentType])
+  @@index([dreCategoryId])
+  @@index([deletedAt])
+  @@index([importBatchId])
+  @@index([createdAt])
+}
+
+model TaxPaymentAttachment {
+  id           String     @id @default(cuid())
+  taxPaymentId String
+  taxPayment   TaxPayment @relation(fields: [taxPaymentId], references: [id])
+  fileName     String
+  storagePath  String
+  mimeType     String?
+  fileSize     Int?
+  sha256       String?
+  uploadedById String
+  createdAt    DateTime   @default(now())
+
+  @@index([taxPaymentId])
 }

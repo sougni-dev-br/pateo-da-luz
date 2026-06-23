@@ -17,6 +17,7 @@ import { purchaseOrderRouter } from "./modules/purchase-orders/purchase-order.ro
 import { purchaseRouter } from "./modules/purchases/purchase.routes.js";
 import { supplierRouter } from "./modules/suppliers/supplier.routes.js";
 import { supplierCyclesRouter } from "./modules/suppliers/supplier-cycles.routes.js";
+import { taxPaymentRouter } from "./modules/tax-payments/tax-payment.routes.js";
 import { companyRouter } from "./modules/companies/company.routes.js";
 import { authRouter, userRouter } from "./modules/security/auth.routes.js";
 import { requireMenuAccess } from "./modules/security/menu-permissions.js";
@@ -70,6 +71,7 @@ app.use("/dashboard", dashboardRouter);
 app.use("/master-data", masterDataRouter);
 app.use("/dishes", dishesRouter);
 app.use("/dre", dreRouter);
+app.use("/tax-payments", taxPaymentRouter);
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   console.error("Unhandled API error", error);
