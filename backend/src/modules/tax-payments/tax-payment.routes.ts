@@ -553,6 +553,17 @@ taxPaymentRouter.post("/:id/attachments", attachmentUpload.single("file"), async
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
 
+  // Em produção, bloquear upload se R2 não estiver configurado
+  if (!r2Enabled && process.env.NODE_ENV === "production") {
+    if (request.file) {
+      try { fs.unlinkSync(request.file.path); } catch { /* ignora */ }
+    }
+    return response.status(503).json({
+      message: "Storage persistente não configurado. Configure Cloudflare R2 antes de anexar comprovantes fiscais.",
+      code: "R2_NOT_CONFIGURED",
+    });
+  }
+
   const { id } = request.params;
   const taxPayment = await prisma.taxPayment.findFirst({ where: { id, deletedAt: null } });
   if (!taxPayment) return response.status(404).json({ message: "Lançamento não encontrado." });
