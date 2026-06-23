@@ -324,6 +324,104 @@ taxPaymentRouter.delete("/:id", async (request, response) => {
   return response.json({ ok: true });
 });
 
+// ─── PATCH /tax-payments/:id/pay ─────────────────────────────────────────────
+taxPaymentRouter.patch("/:id/pay", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+
+  const { id } = request.params;
+  const paymentDate = request.body.paymentDate ? new Date(String(request.body.paymentDate)) : null;
+  const paidAmount = Number(request.body.paidAmount ?? 0);
+  const comments = request.body.comments != null ? String(request.body.comments) : undefined;
+
+  if (!paymentDate || isNaN(paymentDate.getTime()) || paidAmount <= 0) {
+    return response.status(400).json({ message: "Data do pagamento e valor pago (> 0) são obrigatórios." });
+  }
+
+  const existing = await prisma.taxPayment.findFirst({ where: { id, deletedAt: null } });
+  if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
+
+  const updated = await prisma.taxPayment.update({
+    where: { id },
+    data: {
+      paymentDate,
+      paidAmount,
+      status: "PAID",
+      ...(comments !== undefined ? { comments } : {}),
+      updatedById: user.id,
+    },
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "PAY_TAX_PAYMENT",
+    entity: "TaxPayment",
+    entityId: id,
+    previousValue: existing,
+    newValue: updated,
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+
+  return response.json({ id: updated.id, status: updated.status });
+});
+
+// ─── PATCH /tax-payments/:id/reverse ─────────────────────────────────────────
+taxPaymentRouter.patch("/:id/reverse", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+
+  const { id } = request.params;
+  const existing = await prisma.taxPayment.findFirst({ where: { id, deletedAt: null } });
+  if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
+
+  if (!existing.paymentDate) {
+    return response.status(400).json({ message: "Este lançamento ainda não possui pagamento para estornar." });
+  }
+
+  const now = new Date();
+  const reversedStatus = existing.dueDate && existing.dueDate < now ? "OVERDUE" : "PENDING";
+
+  const updated = await prisma.taxPayment.update({
+    where: { id },
+    data: {
+      paymentDate: null,
+      paidAmount: null,
+      status: reversedStatus,
+      updatedById: user.id,
+    },
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "REVERSE_TAX_PAYMENT",
+    entity: "TaxPayment",
+    entityId: id,
+    previousValue: existing,
+    newValue: updated,
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+
+  return response.json({ id: updated.id, status: updated.status });
+});
+
+// ─── GET /tax-payments/:id/history ───────────────────────────────────────────
+taxPaymentRouter.get("/:id/history", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+
+  const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+    SELECT a.*, u."name" AS "userName", u."email" AS "userEmail"
+    FROM "AuditLog" a
+    LEFT JOIN "User" u ON u."id" = a."userId"
+    WHERE a."entity" = 'TaxPayment' AND a."entityId" = ${request.params.id}
+    ORDER BY a."createdAt" DESC
+    LIMIT 50
+  `;
+  return response.json(rows);
+});
+
 // ─── POST /tax-payments/import-xlsx/preview ───────────────────────────────────
 taxPaymentRouter.post("/import-xlsx/preview", upload.single("file"), async (request, response) => {
   if (!request.file) return response.status(400).json({ message: "Arquivo XLSX obrigatório." });
