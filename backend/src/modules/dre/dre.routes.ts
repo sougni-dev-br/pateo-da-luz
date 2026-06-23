@@ -143,7 +143,7 @@ function prevYear(from: Date, to: Date): { from: Date; to: Date } {
 
 async function calcDRE(from: Date, to: Date) {
   // Todas as queries são independentes entre si — rodam em paralelo
-  const [revenueRows, snapInitialValue, snapFinalValue, cmvComprasRows, expenseRows] = await Promise.all([
+  const [revenueRows, snapInitialValue, snapFinalValue, cmvComprasRows, expenseRows, taxExpenseRows] = await Promise.all([
     // ── Receita por canal ──
     prisma.$queryRaw<Array<{
       channel: string;
@@ -282,6 +282,33 @@ async function calcDRE(from: Date, to: Date) {
       GROUP BY sub."dreCategory", sub."dreCategoryName", sub."dreSortOrder", sub."dreGroup"
       ORDER BY COALESCE(sub."dreSortOrder", 999), COALESCE(sub."dreCategoryName", 'ZZZ')
     `,
+    // ── Impostos e Guias por competência ──
+    // TaxPayments entram no DRE pela competenceDate (não pela data de pagamento).
+    // Registros sem competenceDate são ignorados do DRE (entram apenas no fluxo de caixa).
+    prisma.$queryRaw<Array<{
+      dreCategory: string | null;
+      dreCategoryName: string | null;
+      dreSortOrder: number | null;
+      dreGroup: string | null;
+      total: string;
+      count: number;
+    }>>`
+      SELECT
+        tp."dreCategoryId"  AS "dreCategory",
+        dc.name             AS "dreCategoryName",
+        dc."sortOrder"      AS "dreSortOrder",
+        dc."dreGroup"       AS "dreGroup",
+        SUM(tp.amount)::text AS total,
+        COUNT(*)::int        AS count
+      FROM "TaxPayment" tp
+      LEFT JOIN "DRECategory" dc ON dc.id = tp."dreCategoryId"
+      WHERE tp."deletedAt" IS NULL
+        AND tp.status NOT IN ('CANCELED')
+        AND tp."competenceDate" IS NOT NULL
+        AND tp."competenceDate" >= ${from}
+        AND tp."competenceDate" <= ${to}
+      GROUP BY tp."dreCategoryId", dc.name, dc."sortOrder", dc."dreGroup"
+    `,
   ]);
 
   // ── Agregar receita ──
@@ -305,14 +332,27 @@ async function calcDRE(from: Date, to: Date) {
   const cmvPercent = totalGross > 0 ? (cmvReal / totalGross) * 100 : null;
   const lucroBruto = totalNet - cmvReal;
 
-  const expenses = expenseRows.map((r) => ({
-    dreCategoryId: r.dreCategory ?? null,
-    dreCategoryName: r.dreCategoryName ?? "Não categorizadas",
-    dreGroup: r.dreGroup ?? "DESPESAS_OPERACIONAIS",
-    sortOrder: r.dreSortOrder ?? 999,
-    total: Number(r.total),
-    count: Number(r.count)
-  }));
+  // Mesclar despesas de compras com impostos por categoria
+  const allExpenseRows = [...expenseRows, ...taxExpenseRows];
+  const expenseByCategory = new Map<string, { dreCategoryId: string | null; dreCategoryName: string; dreGroup: string; sortOrder: number; total: number; count: number }>();
+  for (const r of allExpenseRows) {
+    const key = r.dreCategory ?? "__none__";
+    const existing = expenseByCategory.get(key);
+    if (existing) {
+      existing.total += Number(r.total);
+      existing.count += Number(r.count);
+    } else {
+      expenseByCategory.set(key, {
+        dreCategoryId: r.dreCategory ?? null,
+        dreCategoryName: r.dreCategoryName ?? "Não categorizadas",
+        dreGroup: r.dreGroup ?? "DESPESAS_OPERACIONAIS",
+        sortOrder: r.dreSortOrder ?? 999,
+        total: Number(r.total),
+        count: Number(r.count),
+      });
+    }
+  }
+  const expenses = Array.from(expenseByCategory.values()).sort((a, b) => a.sortOrder - b.sortOrder || a.dreCategoryName.localeCompare(b.dreCategoryName));
 
   // Agrupa despesas por dreGroup preservando a ordem da planilha
   const groupMap: Record<string, { total: number; lines: typeof expenses }> = {};

@@ -3564,3 +3564,199 @@ export function closeSupplierCycle(cycleId: string, payload: {
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
   );
 }
+
+// ─── Tax Payments ─────────────────────────────────────────────────────────────
+
+export type TaxPaymentStatus = "PENDING" | "PAID" | "OVERDUE" | "CANCELED" | "WITHOUT_RECEIPT";
+export type TaxPaymentSource = "MANUAL" | "IMPORT_XLSX";
+
+export type TaxPayment = {
+  id: string;
+  companyId: string | null;
+  cnpj: string | null;
+  legalName: string | null;
+  tradeName: string | null;
+  documentType: string;
+  description: string | null;
+  competenceDate: string | null;
+  dueDate: string;
+  amount: string;
+  paymentDate: string | null;
+  paidAmount: string | null;
+  status: TaxPaymentStatus;
+  comments: string | null;
+  source: TaxPaymentSource;
+  importBatchId: string | null;
+  dreCategoryId: string | null;
+  dreCategoryName: string | null;
+  createdById: string;
+  deletedAt: string | null;
+  attachmentCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TaxPaymentDetail = TaxPayment & {
+  company: { id: string; tradeName: string; legalName: string; cnpj: string } | null;
+  dreCategory: { id: string; name: string; dreGroup: string } | null;
+  attachments: TaxPaymentAttachment[];
+};
+
+export type TaxPaymentAttachment = {
+  id: string;
+  taxPaymentId: string;
+  fileName: string;
+  storagePath: string;
+  mimeType: string | null;
+  fileSize: number | null;
+  sha256: string | null;
+  uploadedById: string;
+  createdAt: string;
+};
+
+export type TaxPaymentSummary = {
+  total: string;
+  paid: string;
+  pending: string;
+  overdue: string;
+  withoutReceipt: string;
+};
+
+export type TaxPaymentListResponse = {
+  data: TaxPayment[];
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  summary: TaxPaymentSummary;
+};
+
+export type TaxPaymentFilters = {
+  companyId?: string;
+  cnpj?: string;
+  documentType?: string;
+  status?: string;
+  competenceStart?: string;
+  competenceEnd?: string;
+  dueStart?: string;
+  dueEnd?: string;
+  paymentStart?: string;
+  paymentEnd?: string;
+  search?: string;
+  hasAttachment?: "true" | "false";
+  dreCategoryId?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type TaxImportPreviewRow = {
+  cnpj: string | null;
+  legalName: string | null;
+  tradeName: string | null;
+  documentType: string | null;
+  description: string | null;
+  competenceDate: string | null;
+  dueDate: string | null;
+  amount: number | null;
+  paymentDate: string | null;
+  comments: string | null;
+  rowIndex: number;
+  valid: boolean;
+  errors: string[];
+  isDuplicate: boolean;
+  dedupKey: string | null;
+};
+
+export type TaxImportPreview = {
+  importFileId: string;
+  filePath: string;
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  duplicateRows: number;
+  pendingRows: number;
+  paidRows: number;
+  rows: TaxImportPreviewRow[];
+  byCompany: Record<string, { legalName: string | null; tradeName: string | null; count: number; total: number }>;
+  byDocumentType: Record<string, { count: number; total: number }>;
+};
+
+export function getTaxPayments(filters: TaxPaymentFilters = {}) {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v != null && v !== "") params.set(k, String(v));
+  }
+  return request<TaxPaymentListResponse>(`/tax-payments?${params}`);
+}
+
+export function getTaxPayment(id: string) {
+  return request<TaxPaymentDetail>(`/tax-payments/${id}`);
+}
+
+export function createTaxPayment(payload: Omit<Partial<TaxPayment>, "id" | "createdAt" | "updatedAt" | "dreCategoryName" | "attachmentCount">) {
+  return request<TaxPayment>("/tax-payments", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateTaxPayment(id: string, payload: Partial<TaxPayment>) {
+  return request<TaxPayment>(`/tax-payments/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteTaxPayment(id: string) {
+  return request<{ ok: boolean }>(`/tax-payments/${id}`, { method: "DELETE" });
+}
+
+export async function previewTaxImportXlsx(file: File): Promise<TaxImportPreview> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const token = sessionStorage.getItem("pateo_session_token");
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const candidates = [`${API_BASE_URL}/tax-payments/import-xlsx/preview`];
+  if (API_BASE_URL.startsWith("/")) candidates.push(`${BACKEND_TARGET_URL}/tax-payments/import-xlsx/preview`);
+  for (const url of candidates) {
+    const resp = await fetch(url, { method: "POST", headers, body: formData });
+    if (resp.ok) return resp.json() as Promise<TaxImportPreview>;
+    const body = await resp.json().catch(() => null) as Record<string, unknown> | null;
+    throw new ApiError(body?.message as string ?? `Erro ${resp.status}`, resp.status, body ?? undefined);
+  }
+  throw new Error("Backend não encontrado.");
+}
+
+export function confirmTaxImport(filePath: string, skipDuplicates = true) {
+  return request<{ importBatchId: string; imported: number; skipped: number; total: number }>(
+    "/tax-payments/import-xlsx/confirm",
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filePath, skipDuplicates }) }
+  );
+}
+
+export async function uploadTaxPaymentAttachment(taxPaymentId: string, file: File): Promise<TaxPaymentAttachment> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const token = sessionStorage.getItem("pateo_session_token");
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const candidates = [`${API_BASE_URL}/tax-payments/${taxPaymentId}/attachments`];
+  if (API_BASE_URL.startsWith("/")) candidates.push(`${BACKEND_TARGET_URL}/tax-payments/${taxPaymentId}/attachments`);
+  for (const url of candidates) {
+    const resp = await fetch(url, { method: "POST", headers, body: formData });
+    if (resp.ok) return resp.json() as Promise<TaxPaymentAttachment>;
+    const body = await resp.json().catch(() => null) as Record<string, unknown> | null;
+    throw new ApiError(body?.message as string ?? `Erro ${resp.status}`, resp.status, body ?? undefined);
+  }
+  throw new Error("Backend não encontrado.");
+}
+
+export function deleteTaxPaymentAttachment(taxPaymentId: string, attachmentId: string) {
+  return request<{ ok: boolean }>(`/tax-payments/${taxPaymentId}/attachments/${attachmentId}`, { method: "DELETE" });
+}
+
+export function getTaxPaymentAttachmentUrl(taxPaymentId: string, attachmentId: string) {
+  const token = sessionStorage.getItem("pateo_session_token");
+  const base = API_BASE_URL.startsWith("/") ? BACKEND_TARGET_URL : API_BASE_URL;
+  return `${base}/tax-payments/${taxPaymentId}/attachments/${attachmentId}/download?token=${token ?? ""}`;
+}
