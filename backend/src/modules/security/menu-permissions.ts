@@ -33,7 +33,8 @@ export const menuCatalog = [
   { id: "payment-methods", label: "Metodos de pagamento", group: "Configuracoes" },
   { id: "master-data", label: "Pequenos gastos e cadastros base", group: "Configuracoes" },
   { id: "users", label: "Usuarios", group: "Configuracoes" },
-  { id: "audit", label: "Auditoria", group: "Configuracoes" }
+  { id: "audit", label: "Auditoria", group: "Configuracoes" },
+  { id: "tax-payments", label: "Impostos e Guias", group: "Financeiro" }
 ] as const;
 
 export type MenuId = (typeof menuCatalog)[number]["id"];
@@ -375,6 +376,7 @@ function menuFromRequest(request: Request): MenuId | null {
     return "inventory-counting";
   }
   if (path.startsWith("/master-data")) return "master-data";
+  if (path.startsWith("/tax-payments")) return "tax-payments";
   return null;
 }
 
