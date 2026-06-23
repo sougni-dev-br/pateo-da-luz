@@ -1,10 +1,9 @@
-import { Paperclip, Plus, Search, Upload, X } from "lucide-react";
+import { Plus, Search, Upload, X } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   type AppUser,
   type TaxImportPreview,
   type TaxPayment,
-  type TaxPaymentAttachment,
   type TaxPaymentDetail,
   type TaxPaymentFilters,
   type TaxPaymentStatus,
@@ -12,13 +11,10 @@ import {
   confirmTaxImport,
   createTaxPayment,
   deleteTaxPayment,
-  deleteTaxPaymentAttachment,
   getTaxPayment,
-  getTaxPaymentAttachmentUrl,
   getTaxPayments,
   previewTaxImportXlsx,
   updateTaxPayment,
-  uploadTaxPaymentAttachment,
 } from "../api/client";
 import { Notice, type NoticeState, useNotice } from "../components/Notice";
 import { hasPermission } from "../lib/permissions";
@@ -34,7 +30,6 @@ const STATUS_LABELS: Record<string, string> = {
   PAID: "Pago",
   OVERDUE: "Vencido",
   CANCELED: "Cancelado",
-  WITHOUT_RECEIPT: "Sem comprovante",
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -42,7 +37,6 @@ const STATUS_COLORS: Record<string, string> = {
   PAID: "#22c55e",
   OVERDUE: "#ef4444",
   CANCELED: "#94a3b8",
-  WITHOUT_RECEIPT: "#8b5cf6",
 };
 
 function formatCurrency(value: string | number | null | undefined): string {
@@ -280,8 +274,6 @@ function EditModal({ editId, onClose, onSaved, notify, canEdit }: EditModalProps
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [detail, setDetail] = useState<TaxPaymentDetail | null>(null);
-  const [attachments, setAttachments] = useState<TaxPaymentAttachment[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!editId) { setForm(EMPTY_FORM); return; }
@@ -289,7 +281,6 @@ function EditModal({ editId, onClose, onSaved, notify, canEdit }: EditModalProps
     getTaxPayment(editId)
       .then((d) => {
         setDetail(d);
-        setAttachments(d.attachments);
         setForm({
           cnpj: d.cnpj ?? "",
           legalName: d.legalName ?? "",
@@ -342,28 +333,6 @@ function EditModal({ editId, onClose, onSaved, notify, canEdit }: EditModalProps
       notify({ tone: "error", message: err instanceof Error ? err.message : "Erro ao salvar." });
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function handleUpload(file: File) {
-    if (!editId) return;
-    try {
-      const att = await uploadTaxPaymentAttachment(editId, file);
-      setAttachments((prev) => [...prev, att]);
-      notify({ tone: "success", message: "Comprovante anexado." });
-    } catch (err) {
-      notify({ tone: "error", message: err instanceof Error ? err.message : "Erro ao anexar." });
-    }
-  }
-
-  async function handleDeleteAttachment(attId: string) {
-    if (!editId) return;
-    if (!confirm("Remover comprovante?")) return;
-    try {
-      await deleteTaxPaymentAttachment(editId, attId);
-      setAttachments((prev) => prev.filter((a) => a.id !== attId));
-    } catch (err) {
-      notify({ tone: "error", message: err instanceof Error ? err.message : "Erro ao remover." });
     }
   }
 
@@ -466,41 +435,6 @@ function EditModal({ editId, onClose, onSaved, notify, canEdit }: EditModalProps
               <textarea value={form.comments} onChange={f("comments")} rows={2} disabled={!canEdit} style={{ resize: "vertical" }} />
             </label>
 
-            {/* Comprovantes (só em edição) */}
-            {editId && (
-              <fieldset className="pnova-fieldset">
-                <legend>Comprovantes</legend>
-                {attachments.length === 0 && <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Nenhum comprovante anexado.</p>}
-                {attachments.map((att) => (
-                  <div key={att.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
-                    <Paperclip size={14} />
-                    <a href={getTaxPaymentAttachmentUrl(editId, att.id)} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.85rem", flex: 1 }}>
-                      {att.fileName}
-                      {att.fileSize ? ` (${(att.fileSize / 1024).toFixed(0)} KB)` : ""}
-                    </a>
-                    {canEdit && (
-                      <button type="button" className="icon-button danger" onClick={() => void handleDeleteAttachment(att.id)}>
-                        <X size={13} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-                {canEdit && (
-                  <>
-                    <input
-                      ref={fileRef}
-                      type="file"
-                      accept=".pdf,.png,.jpg,.jpeg,.webp"
-                      style={{ display: "none" }}
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleUpload(f); }}
-                    />
-                    <button type="button" className="secondary-button" style={{ marginTop: 4 }} onClick={() => fileRef.current?.click()}>
-                      <Paperclip size={14} /> Anexar comprovante
-                    </button>
-                  </>
-                )}
-              </fieldset>
-            )}
           </div>
 
           {canEdit && (
@@ -601,7 +535,6 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
           <KpiCard label="Pago" value={formatCurrency(summary.paid)} color={STATUS_COLORS.PAID} />
           <KpiCard label="Pendente" value={formatCurrency(summary.pending)} color={STATUS_COLORS.PENDING} />
           <KpiCard label="Vencido" value={formatCurrency(summary.overdue)} color={STATUS_COLORS.OVERDUE} />
-          <KpiCard label="Sem comprovante" value={formatCurrency(summary.withoutReceipt)} color={STATUS_COLORS.WITHOUT_RECEIPT} />
         </div>
       )}
 
@@ -678,7 +611,6 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
                   <th style={{ textAlign: "right" }}>Valor</th>
                   <th>Pagamento</th>
                   <th>Status</th>
-                  <th>Anx.</th>
                   <th>Ações</th>
                 </tr>
               </thead>
@@ -698,9 +630,6 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
                       <td style={{ textAlign: "right" }}>{formatCurrency(tp.amount)}</td>
                       <td>{tp.paymentDate ? formatDate(tp.paymentDate) : "—"}</td>
                       <td><StatusBadge status={effectiveStatus} /></td>
-                      <td style={{ textAlign: "center" }}>
-                        {Number(tp.attachmentCount) > 0 ? <Paperclip size={14} style={{ color: "var(--text-secondary)" }} /> : "—"}
-                      </td>
                       <td>
                         <div style={{ display: "flex", gap: 4 }}>
                           <button type="button" className="action-button" onClick={() => setEditId(tp.id)}>

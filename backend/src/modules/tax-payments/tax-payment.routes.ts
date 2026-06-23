@@ -1,10 +1,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import path from "node:path";
 import { Router } from "express";
 import multer from "multer";
 import { prisma } from "../../config/database.js";
-import { deleteFromR2, getR2SignedUrl, r2Enabled, uploadToR2 } from "../../lib/storage.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { previewTaxImport } from "./tax-payment-import.service.js";
 
@@ -22,11 +20,6 @@ const upload = multer({
       file.originalname.match(/\.(xlsx|xls)$/i) != null;
     cb(null, ok);
   },
-});
-
-const attachmentUpload = multer({
-  dest: "uploads/attachments/",
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
 });
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -60,7 +53,6 @@ type TaxPaymentRow = {
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
-  attachmentCount: number;
 };
 
 // ─── GET /tax-payments ────────────────────────────────────────────────────────
@@ -77,7 +69,6 @@ taxPaymentRouter.get("/", async (request, response) => {
     paymentStart,
     paymentEnd,
     search,
-    hasAttachment,
     dreCategoryId,
     page = "1",
     pageSize = "50",
@@ -120,20 +111,13 @@ taxPaymentRouter.get("/", async (request, response) => {
     conditions.push(`(tp."legalName" ILIKE ${like} OR tp."tradeName" ILIKE ${like} OR tp."description" ILIKE ${like} OR tp."cnpj" ILIKE ${like})`);
   }
 
-  if (hasAttachment === "true") {
-    conditions.push(`EXISTS (SELECT 1 FROM "TaxPaymentAttachment" a WHERE a."taxPaymentId" = tp.id)`);
-  } else if (hasAttachment === "false") {
-    conditions.push(`NOT EXISTS (SELECT 1 FROM "TaxPaymentAttachment" a WHERE a."taxPaymentId" = tp.id)`);
-  }
-
   const where = conditions.join(" AND ");
 
   const [rows, countResult, summary] = await Promise.all([
     prisma.$queryRawUnsafe<TaxPaymentRow[]>(`
       SELECT
         tp.*,
-        dc.name AS "dreCategoryName",
-        (SELECT COUNT(*)::int FROM "TaxPaymentAttachment" a WHERE a."taxPaymentId" = tp.id) AS "attachmentCount"
+        dc.name AS "dreCategoryName"
       FROM "TaxPayment" tp
       LEFT JOIN "DRECategory" dc ON dc.id = tp."dreCategoryId"
       WHERE ${where}
@@ -180,7 +164,6 @@ taxPaymentRouter.get("/:id", async (request, response) => {
     include: {
       company: { select: { id: true, tradeName: true, legalName: true, cnpj: true } },
       dreCategory: { select: { id: true, name: true, dreGroup: true } },
-      attachments: { orderBy: { createdAt: "asc" } },
     },
   });
   if (!row) return response.status(404).json({ message: "Lançamento não encontrado." });
@@ -548,156 +531,13 @@ taxPaymentRouter.post("/import-xlsx/confirm", async (request, response) => {
   });
 });
 
-// ─── POST /tax-payments/:id/attachments ──────────────────────────────────────
-taxPaymentRouter.post("/:id/attachments", attachmentUpload.single("file"), async (request, response) => {
-  const user = await getSessionUser(request);
-  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+// ─── COMPROVANTES DESATIVADOS (decisão de produto 2026-06-23) ─────────────────
+// Comprovantes fiscais são mantidos fora do sistema — sem upload/download/delete.
+const ATTACHMENT_GONE = {
+  message: "Armazenamento de comprovantes desativado. Os comprovantes são mantidos fora do sistema.",
+  code: "ATTACHMENTS_DISABLED",
+} as const;
+taxPaymentRouter.post("/:id/attachments", (_req, res) => { res.status(410).json(ATTACHMENT_GONE); });
+taxPaymentRouter.delete("/:id/attachments/:attachmentId", (_req, res) => { res.status(410).json(ATTACHMENT_GONE); });
+taxPaymentRouter.get("/:id/attachments/:attachmentId/download", (_req, res) => { res.status(410).json(ATTACHMENT_GONE); });
 
-  // Em produção, bloquear upload se R2 não estiver configurado
-  if (!r2Enabled && process.env.NODE_ENV === "production") {
-    if (request.file) {
-      try { fs.unlinkSync(request.file.path); } catch { /* ignora */ }
-    }
-    return response.status(503).json({
-      message: "Storage persistente não configurado. Configure Cloudflare R2 antes de anexar comprovantes fiscais.",
-      code: "R2_NOT_CONFIGURED",
-    });
-  }
-
-  const { id } = request.params;
-  const taxPayment = await prisma.taxPayment.findFirst({ where: { id, deletedAt: null } });
-  if (!taxPayment) return response.status(404).json({ message: "Lançamento não encontrado." });
-  if (!request.file) return response.status(400).json({ message: "Arquivo obrigatório." });
-
-  const fileBuffer = fs.readFileSync(request.file.path);
-  const sha256 = crypto.createHash("sha256").update(fileBuffer).digest("hex");
-
-  let storagePath: string | null = null;
-  let storageKey: string | null = null;
-  const provider = r2Enabled ? ("R2" as const) : ("LOCAL" as const);
-
-  if (r2Enabled) {
-    // Chave no bucket: tax-payments/<taxPaymentId>/<attachmentId>/<originalname>
-    const attachmentId = crypto.randomUUID();
-    const safeFileName = path.basename(request.file.originalname).replace(/[^a-zA-Z0-9._-]/g, "_");
-    storageKey = `tax-payments/${id}/${attachmentId}/${safeFileName}`;
-    await uploadToR2(storageKey, fileBuffer, request.file.mimetype);
-    // Remover arquivo temporário do multer
-    fs.unlinkSync(request.file.path);
-
-    const attachment = await prisma.taxPaymentAttachment.create({
-      data: {
-        id: attachmentId,
-        taxPaymentId: id,
-        fileName: request.file.originalname,
-        storagePath: null,
-        storageProvider: provider,
-        storageKey,
-        mimeType: request.file.mimetype,
-        fileSize: request.file.size,
-        sha256,
-        uploadedById: user.id,
-      },
-    });
-
-    await auditLog({
-      userId: user.id,
-      action: "UPLOAD_TAX_PAYMENT_ATTACHMENT",
-      entity: "TaxPaymentAttachment",
-      entityId: attachment.id,
-      newValue: { taxPaymentId: id, fileName: attachment.fileName, fileSize: attachment.fileSize, storageProvider: provider },
-      ipAddress: requestIp(request),
-      userAgent: String(request.headers["user-agent"] ?? ""),
-    });
-
-    return response.status(201).json(attachment);
-  }
-
-  // Fallback: disco local (somente para desenvolvimento sem R2)
-  storagePath = request.file.path;
-  const attachment = await prisma.taxPaymentAttachment.create({
-    data: {
-      id: crypto.randomUUID(),
-      taxPaymentId: id,
-      fileName: request.file.originalname,
-      storagePath,
-      storageProvider: provider,
-      storageKey: null,
-      mimeType: request.file.mimetype,
-      fileSize: request.file.size,
-      sha256,
-      uploadedById: user.id,
-    },
-  });
-
-  await auditLog({
-    userId: user.id,
-    action: "UPLOAD_TAX_PAYMENT_ATTACHMENT",
-    entity: "TaxPaymentAttachment",
-    entityId: attachment.id,
-    newValue: { taxPaymentId: id, fileName: attachment.fileName, fileSize: attachment.fileSize, storageProvider: provider },
-    ipAddress: requestIp(request),
-    userAgent: String(request.headers["user-agent"] ?? ""),
-  });
-
-  return response.status(201).json(attachment);
-});
-
-// ─── DELETE /tax-payments/:id/attachments/:attachmentId ──────────────────────
-taxPaymentRouter.delete("/:id/attachments/:attachmentId", async (request, response) => {
-  const user = await getSessionUser(request);
-  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
-
-  const { id, attachmentId } = request.params;
-  const attachment = await prisma.taxPaymentAttachment.findFirst({
-    where: { id: attachmentId, taxPaymentId: id },
-  });
-  if (!attachment) return response.status(404).json({ message: "Comprovante não encontrado." });
-
-  // Deletar do storage correspondente
-  if (attachment.storageProvider === "R2" && attachment.storageKey) {
-    await deleteFromR2(attachment.storageKey);
-  } else if (attachment.storagePath && fs.existsSync(attachment.storagePath)) {
-    fs.unlinkSync(attachment.storagePath);
-  }
-
-  await prisma.taxPaymentAttachment.delete({ where: { id: attachmentId } });
-
-  await auditLog({
-    userId: user.id,
-    action: "DELETE_TAX_PAYMENT_ATTACHMENT",
-    entity: "TaxPaymentAttachment",
-    entityId: attachmentId,
-    previousValue: { taxPaymentId: id, fileName: attachment.fileName, storageProvider: attachment.storageProvider },
-    ipAddress: requestIp(request),
-    userAgent: String(request.headers["user-agent"] ?? ""),
-  });
-
-  return response.json({ ok: true });
-});
-
-// ─── GET /tax-payments/:id/attachments/:attachmentId/download ─────────────────
-taxPaymentRouter.get("/:id/attachments/:attachmentId/download", async (request, response) => {
-  const { id, attachmentId } = request.params;
-  const attachment = await prisma.taxPaymentAttachment.findFirst({
-    where: { id: attachmentId, taxPaymentId: id },
-  });
-  if (!attachment) return response.status(404).json({ message: "Comprovante não encontrado." });
-
-  if (attachment.storageProvider === "R2") {
-    if (!attachment.storageKey) {
-      return response.status(500).json({ message: "storageKey ausente no registro." });
-    }
-    // Redireciona para URL pré-assinada válida por 1 hora
-    const signedUrl = await getR2SignedUrl(attachment.storageKey, 3600);
-    return response.redirect(302, signedUrl);
-  }
-
-  // Fallback: disco local
-  if (!attachment.storagePath || !fs.existsSync(attachment.storagePath)) {
-    return response.status(404).json({ message: "Arquivo não encontrado no servidor." });
-  }
-  response.setHeader("Content-Disposition", `inline; filename="${attachment.fileName}"`);
-  if (attachment.mimeType) response.setHeader("Content-Type", attachment.mimeType);
-  return response.sendFile(path.resolve(attachment.storagePath));
-});
