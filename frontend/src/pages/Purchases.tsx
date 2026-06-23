@@ -1,4 +1,4 @@
-import { ChevronDown, Eye, FileText, Package, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { ChevronDown, Copy, Eye, FileText, Package, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { UNSAFE_NavigationContext, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -359,7 +359,7 @@ export function Purchases({ user }: { user: AppUser }) {
 
   useEffect(() => {
     void loadPurchases();
-    Promise.all([getSuppliers(), getProducts(), getPaymentMethods(), getUnits(), getCards(), getSmallExpenseTypes(), getCompanies().catch(() => [] as Company[])]).then(
+    Promise.all([getSuppliers({ activeOnly: true }), getProducts(), getPaymentMethods(), getUnits(), getCards(), getSmallExpenseTypes(), getCompanies().catch(() => [] as Company[])]).then(
       ([supplierList, productList, methodList, unitList, cardList, smallExpenseTypeList, companyList]) => {
         setSuppliers(supplierList);
         setProducts(productList);
@@ -490,11 +490,11 @@ export function Purchases({ user }: { user: AppUser }) {
 
   const filteredSupplierOptions = useMemo(() => {
     const query = normalize(supplierFilterQuery);
-    if (!query) return suppliers.slice(0, 8);
+    if (!query) return suppliers.slice(0, 12);
     return suppliers.filter((supplier) => {
       const haystack = [supplier.name, supplier.externalCode, supplier.document].map(normalize).join(" ");
       return haystack.includes(query);
-    }).slice(0, 8);
+    });
   }, [supplierFilterQuery, suppliers]);
 
   const supplierProductIds = useMemo(() => {
@@ -992,6 +992,60 @@ export function Purchases({ user }: { user: AppUser }) {
     navigate({ pathname: `/compras/${purchase.id}/editar`, search: location.search });
   }
 
+  async function openCopyPurchase(id: string) {
+    try {
+      const data = await getPurchase(id);
+      const resolvedPaymentMethodId = resolveBasePaymentMethodId(data.paymentMethodId, data.paymentMethodName ?? data.paymentMethod);
+      const nextInstallmentCount = installmentCountFromPurchase(data.paymentMethodName ?? data.paymentMethod, data.installments.length || null);
+      resetForm();
+      setForm({
+        supplierCode: data.rawSupplierCode ?? data.supplier.externalCode ?? "",
+        supplierId: data.supplierId,
+        supplierName: data.supplierName,
+        supplierDocument: data.supplierDocument ?? "",
+        purchaseDate: todayInputDate(),
+        invoiceNumber: "",
+        purchaseOrderNumber: "",
+        noInvoiceReason: "",
+        paymentMethodId: resolvedPaymentMethodId,
+        installmentCount: String(nextInstallmentCount),
+        paymentNotes: "",
+        notes: (data.rawRow as { notes?: string } | null)?.notes ?? "",
+        isSmallExpense: Boolean(data.isSmallExpense),
+        smallExpenseTypeId: data.smallExpenseTypeId ?? "",
+        smallExpenseResponsibleName: data.smallExpenseResponsibleName ?? "",
+        smallExpenseAuthorizedBy: data.smallExpenseAuthorizedBy ?? "",
+        smallExpenseMoneyOrigin: data.smallExpenseMoneyOrigin ?? "",
+        smallExpenseNotes: data.smallExpenseNotes ?? "",
+        creditCardId: "",
+        ccNumberOfInstallments: "1",
+        paymentDifferenceReason: "",
+        companyId: (data as Record<string, unknown>).companyId ? String((data as Record<string, unknown>).companyId) : ""
+      });
+      setItems(data.items.map((item) => ({
+        productCode: item.rawProductCode ?? item.productCode ?? "",
+        productId: item.productId,
+        productName: item.rawProductName ?? item.productName,
+        categoryName: item.rawCategory ?? item.categoryName ?? "",
+        subcategoryName: item.rawSubcategory ?? item.subcategoryName ?? "",
+        quantity: String(item.quantity ?? ""),
+        unit: item.unit ?? "",
+        unitPrice: String(item.unitPrice ?? ""),
+        totalPrice: String(item.totalPrice ?? ""),
+        notes: ""
+      })));
+      setInstallments([]);
+      setFieldErrors({});
+      setError(null);
+      setProductStep("conferencia");
+      setPaymentExpanded(true);
+      setShowForm(true);
+      navigate({ pathname: "/compras/nova", search: location.search });
+    } catch (loadError) {
+      setNotice({ tone: "error", message: loadError instanceof Error ? loadError.message : "Erro ao copiar compra." });
+    }
+  }
+
   function rebuildInstallments(methodId = form.paymentMethodId, total = totalAmount, explicitCount?: number) {
     if (usesCreditCard) {
       setInstallments([]);
@@ -1440,6 +1494,7 @@ export function Purchases({ user }: { user: AppUser }) {
                       <div className="actions-cell">
                         <button type="button" onClick={() => openDetail(purchase)}><Eye size={15} /> Ver</button>
                         {canEditPurchase && purchase.status !== "CANCELLED" && <button type="button" onClick={() => openEdit(purchase)}><Pencil size={15} /> Editar</button>}
+                        {canEditPurchase && <button type="button" title="Copiar esta compra para nova" onClick={() => void openCopyPurchase(purchase.id)}><Copy size={14} /> Copiar</button>}
                         {isAdmin && (
                           purchase.status === "CANCELLED"
                             ? <button type="button" onClick={() => handleRestore(purchase)}>Restaurar</button>
@@ -1500,6 +1555,7 @@ export function Purchases({ user }: { user: AppUser }) {
                   <div className="purch-mobile-actions">
                     <button className="secondary-button" type="button" onClick={() => openDetail(purchase)}><Eye size={14} /> Ver</button>
                     {canEditPurchase && purchase.status !== "CANCELLED" && <button className="secondary-button" type="button" onClick={() => openEdit(purchase)}><Pencil size={14} /> Editar</button>}
+                    {canEditPurchase && <button className="secondary-button" type="button" onClick={() => void openCopyPurchase(purchase.id)}><Copy size={14} /> Copiar</button>}
                     {isAdmin && (
                       purchase.status === "CANCELLED"
                         ? <button className="secondary-button" type="button" onClick={() => handleRestore(purchase)}>Restaurar</button>
