@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react";
+import { Copy, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getPaymentMethods, getSupplierHistory, getSuppliers, PaymentMethod, saveSupplier, setSupplierStatus, Supplier, SupplierHistory } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
@@ -59,7 +59,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
     setLoading(true);
     setError(null);
     try {
-      const [supplierList, methodList] = await Promise.all([getSuppliers(search), getPaymentMethods()]);
+      const [supplierList, methodList] = await Promise.all([getSuppliers({ search: search || undefined }), getPaymentMethods()]);
       setSuppliers(supplierList);
       setPaymentMethods(methodList.filter((m) => m.isActive));
     } catch (loadError) {
@@ -110,6 +110,32 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
   async function loadHistory(supplier: Supplier) {
     setSelectedSupplier(supplier);
     setHistory(await getSupplierHistory(supplier.id));
+  }
+
+  function copySupplier(supplier: Supplier) {
+    setForm({
+      id: "",
+      externalCode: "",
+      document: "",
+      name: "",
+      phone: "",
+      email: "",
+      contactName: "",
+      mainCategory: supplier.mainCategory ?? "",
+      defaultPaymentTermDays: supplier.defaultPaymentTermDays == null ? "" : String(supplier.defaultPaymentTermDays),
+      defaultPaymentMethodId: supplier.defaultPaymentMethodId ?? "",
+      defaultInstallmentCount: supplier.defaultInstallmentCount == null ? "" : String(supplier.defaultInstallmentCount),
+      defaultInstallmentDays: Array.isArray(supplier.defaultInstallmentDays) ? supplier.defaultInstallmentDays.join(", ") : "",
+      defaultFinancialNotes: supplier.defaultFinancialNotes ?? "",
+      registrationDate: "",
+      notes: supplier.notes ?? "",
+      isActive: true,
+      billingMode: supplier.billingMode ?? "DIRECT",
+      cycleFrequency: supplier.cycleFrequency ?? "",
+      cycleFirstDueDays: supplier.cycleFirstDueDays == null ? "" : String(supplier.cycleFirstDueDays),
+      cycleSecondDueDays: supplier.cycleSecondDueDays == null ? "" : String(supplier.cycleSecondDueDays),
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function editSupplier(supplier: Supplier) {
@@ -345,6 +371,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
                     </td>
                     <td className="actions-cell">
                       <button type="button" disabled={!canEdit} onClick={() => editSupplier(supplier)}>Editar</button>
+                      <button type="button" disabled={!canEdit} title="Criar novo fornecedor baseado neste (mantém condições de pagamento, limpa CNPJ/nome/código)" onClick={() => copySupplier(supplier)}><Copy size={13} /> Copiar base</button>
                       <button type="button" disabled={!canDelete} onClick={() => toggleStatus(supplier)}>
                         {supplier.isActive ? "Inativar" : "Reativar"}
                       </button>

@@ -93,34 +93,63 @@ supplierRouter.get("/", async (request, response) => {
   if (!user) return;
 
   const search = request.query.search ? String(request.query.search) : undefined;
+  const activeOnly = request.query.activeOnly === "true";
   const term = `%${search ?? ""}%`;
-  const suppliers = search
-    ? await prisma.$queryRaw<SupplierRow[]>`
-        SELECT
-          "id", "externalCode", "document", "name", "normalizedName",
+
+  const COLS = `"id", "externalCode", "document", "name", "normalizedName",
           "phone", "email", "contactName", "mainCategory",
           "defaultPaymentTermDays", "defaultPaymentMethodId",
           "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
           "registrationDate", "isActive", "notes",
-          "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
-        FROM "Supplier"
-        WHERE "name" ILIKE ${term}
-           OR "document" ILIKE ${term}
-           OR "externalCode" ILIKE ${term}
-           OR "normalizedName" ILIKE ${term}
-        ORDER BY "name" ASC
-      `
-    : await prisma.$queryRaw<SupplierRow[]>`
-        SELECT
-          "id", "externalCode", "document", "name", "normalizedName",
-          "phone", "email", "contactName", "mainCategory",
-          "defaultPaymentTermDays", "defaultPaymentMethodId",
-          "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
-          "registrationDate", "isActive", "notes",
-          "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
-        FROM "Supplier"
-        ORDER BY "name" ASC
-      `;
+          "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"`;
+  void COLS; // used only as documentation; queries below are explicit
+
+  let suppliers: SupplierRow[];
+  if (search && activeOnly) {
+    suppliers = await prisma.$queryRaw<SupplierRow[]>`
+      SELECT "id", "externalCode", "document", "name", "normalizedName",
+             "phone", "email", "contactName", "mainCategory",
+             "defaultPaymentTermDays", "defaultPaymentMethodId",
+             "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
+             "registrationDate", "isActive", "notes",
+             "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
+      FROM "Supplier"
+      WHERE ("name" ILIKE ${term} OR "document" ILIKE ${term} OR "externalCode" ILIKE ${term} OR "normalizedName" ILIKE ${term})
+        AND "isActive" = true
+      ORDER BY "name" ASC`;
+  } else if (search) {
+    suppliers = await prisma.$queryRaw<SupplierRow[]>`
+      SELECT "id", "externalCode", "document", "name", "normalizedName",
+             "phone", "email", "contactName", "mainCategory",
+             "defaultPaymentTermDays", "defaultPaymentMethodId",
+             "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
+             "registrationDate", "isActive", "notes",
+             "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
+      FROM "Supplier"
+      WHERE "name" ILIKE ${term} OR "document" ILIKE ${term} OR "externalCode" ILIKE ${term} OR "normalizedName" ILIKE ${term}
+      ORDER BY "name" ASC`;
+  } else if (activeOnly) {
+    suppliers = await prisma.$queryRaw<SupplierRow[]>`
+      SELECT "id", "externalCode", "document", "name", "normalizedName",
+             "phone", "email", "contactName", "mainCategory",
+             "defaultPaymentTermDays", "defaultPaymentMethodId",
+             "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
+             "registrationDate", "isActive", "notes",
+             "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
+      FROM "Supplier"
+      WHERE "isActive" = true
+      ORDER BY "name" ASC`;
+  } else {
+    suppliers = await prisma.$queryRaw<SupplierRow[]>`
+      SELECT "id", "externalCode", "document", "name", "normalizedName",
+             "phone", "email", "contactName", "mainCategory",
+             "defaultPaymentTermDays", "defaultPaymentMethodId",
+             "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
+             "registrationDate", "isActive", "notes",
+             "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
+      FROM "Supplier"
+      ORDER BY "name" ASC`;
+  }
   response.json(suppliers);
 });
 

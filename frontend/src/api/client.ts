@@ -1889,8 +1889,8 @@ export function getPayableHistory(id: string) {
   return request<AuditLog[]>(`/purchases/payables/${id}/history`);
 }
 
-export function getSuppliers(search?: string) {
-  return request<Supplier[]>(`/suppliers${toQueryString({ search })}`);
+export function getSuppliers(params?: { search?: string; activeOnly?: boolean }) {
+  return request<Supplier[]>(`/suppliers${toQueryString(params)}`);
 }
 
 export function saveSupplier(payload: Partial<Supplier> & { name: string }) {
