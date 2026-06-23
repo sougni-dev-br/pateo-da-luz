@@ -1,5 +1,5 @@
-import { CheckCircle2, Copy, Eye, Plus, Search, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2, ClipboardList, Copy, Eye, Plus, Search, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import {
   AppUser,
   CreateRequisitionPayload,
@@ -76,6 +76,7 @@ export function Requisitions({ user }: { user: AppUser }) {
   const { notice, setNotice } = useNotice();
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clientRequestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     getSectors().then(setSectors).catch(() => {});
@@ -84,6 +85,13 @@ export function Requisitions({ user }: { user: AppUser }) {
     }).catch(() => {});
     loadRequisitions();
   }, []);
+
+  // Auto-focus busca ao abrir formulário
+  useEffect(() => {
+    if (view === "form" && !confirmedRequisition) {
+      setTimeout(() => searchInputRef.current?.focus(), 80);
+    }
+  }, [view, confirmedRequisition]);
 
   useEffect(() => {
     if (!detailId) { setDetail(null); return; }
@@ -136,7 +144,7 @@ export function Requisitions({ user }: { user: AppUser }) {
       getProducts({ search: value.trim(), isActive: "true" }).then((results) => {
         setSearchResults(results.filter((p) => p.controlsStock !== false));
       }).catch(() => {});
-    }, 280);
+    }, 200);
   }
 
   function addProduct(product: Product) {
@@ -163,6 +171,7 @@ export function Requisitions({ user }: { user: AppUser }) {
     setProductSearch("");
     setSearchResults([]);
     setSearchOpen(false);
+    // Foco na quantidade do item recem adicionado
     setTimeout(() => {
       const inputs = document.querySelectorAll<HTMLInputElement>(".req-qty-input");
       inputs[inputs.length - 1]?.focus();
@@ -187,6 +196,7 @@ export function Requisitions({ user }: { user: AppUser }) {
     setConfirmedRequisition(null);
     setProductSearch("");
     setSearchResults([]);
+    clientRequestIdRef.current = null;
   }
 
   async function handleSubmit() {
@@ -195,8 +205,16 @@ export function Requisitions({ user }: { user: AppUser }) {
       setNotice({ tone: "error", message: "Adicione ao menos um item com quantidade valida." });
       return;
     }
+    if (submitting) return;
+
+    // Gera clientRequestId para idempotencia — reutiliza se ja existe (retry)
+    if (!clientRequestIdRef.current) {
+      clientRequestIdRef.current = crypto.randomUUID();
+    }
+    const clientRequestId = clientRequestIdRef.current;
 
     const payload: CreateRequisitionPayload = {
+      clientRequestId,
       date: form.date,
       shift: form.shift,
       reason: form.reason,
@@ -209,9 +227,11 @@ export function Requisitions({ user }: { user: AppUser }) {
     setSubmitting(true);
     try {
       const created = await createRequisition(payload);
+      clientRequestIdRef.current = null;
       setConfirmedRequisition(created);
       setNotice({ tone: "success", message: `${created.code} registrada com sucesso.` });
-      // Atualiza stockMap com novos saldos
+
+      // Atualiza stockMap localmente com novos saldos
       if (created.items) {
         const updates = new Map(stockMap);
         for (const item of created.items) {
@@ -221,15 +241,44 @@ export function Requisitions({ user }: { user: AppUser }) {
         }
         setStockMap(updates);
       }
-      loadRequisitions();
+
+      // Insere no topo da lista local — sem reload completo
+      const asListItem = {
+        ...(created as InventoryRequisition),
+        itemCount: created.items?.length ?? 0,
+      };
+      setRequisitions((prev) => [asListItem as InventoryRequisition, ...prev]);
     } catch (error) {
       const isAborted = error instanceof DOMException && error.name === "AbortError";
-      setNotice({
-        tone: "error",
-        message: isAborted
-          ? "O servidor demorou para responder. A requisicao pode ter sido registrada — verifique no historico antes de tentar novamente."
-          : error instanceof Error ? error.message : "Erro ao registrar a requisicao."
-      });
+      if (isAborted) {
+        // Timeout: verifica automaticamente se a requisicao foi salva
+        setNotice({ tone: "warning", message: "Verificando se a requisicao foi registrada..." });
+        try {
+          const found = await getRequisitions({ clientRequestId });
+          if (found.length > 0) {
+            clientRequestIdRef.current = null;
+            const created = found[0];
+            setConfirmedRequisition(created);
+            setRequisitions((prev) => [created, ...prev]);
+            setNotice({ tone: "success", message: `${created.code} registrada com sucesso (verificado apos timeout).` });
+          } else {
+            setNotice({
+              tone: "error",
+              message: "Requisicao nao foi registrada. Clique em Registrar novamente para tentar de novo."
+            });
+          }
+        } catch {
+          setNotice({
+            tone: "error",
+            message: "Requisicao nao foi registrada. Clique em Registrar novamente para tentar de novo."
+          });
+        }
+      } else {
+        setNotice({
+          tone: "error",
+          message: error instanceof Error ? error.message : "Erro ao registrar a requisicao."
+        });
+      }
     } finally {
       setSubmitting(false);
     }
@@ -241,119 +290,147 @@ export function Requisitions({ user }: { user: AppUser }) {
     return qty > i.currentStock;
   });
 
-  const selectedSector = useMemo(() => sectors.find((s) => s.id === form.sectorId), [sectors, form.sectorId]);
-
   return (
     <div className="stack">
       <Notice notice={notice} />
 
-      <div className="tab-row">
-        <button type="button" className={view === "form" ? "active" : ""} onClick={() => setView("form")}>Nova requisicao</button>
-        <button type="button" className={view === "list" ? "active" : ""} onClick={() => setView("list")}>Historico</button>
+      {/* Header */}
+      <div className="section-heading">
+        <div style={{ flex: 1 }}>
+          <p>Estoque</p>
+          <h2>Requisicoes de Insumos</h2>
+          <span className="muted">Registre retiradas de produtos do estoque para uso na cozinha.</span>
+        </div>
       </div>
 
+      {/* Tabs */}
+      <div className="tabs">
+        <button
+          type="button"
+          className={view === "form" ? "active" : ""}
+          onClick={() => { setView("form"); }}
+        >
+          <Plus size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />
+          Nova requisicao
+        </button>
+        <button
+          type="button"
+          className={view === "list" ? "active" : ""}
+          onClick={() => { setView("list"); if (view !== "list") loadRequisitions(); }}
+        >
+          <ClipboardList size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />
+          Historico{requisitions.length > 0 ? ` (${requisitions.length})` : ""}
+        </button>
+      </div>
+
+      {/* ── FORMULARIO ─────────────────────────────────────────────────── */}
       {view === "form" && !confirmedRequisition && (
         <div className="form-section">
-          <div className="section-heading compact-heading">
-            <div>
-              <p>Insumos</p>
-              <h3>Nova requisicao de insumos</h3>
-              <span className="muted">Registre a retirada de produtos do estoque para uso na cozinha.</span>
-            </div>
-          </div>
 
-          <div className="filters-row">
-            <label>
-              Data
-              <input
-                type="date"
-                value={form.date}
-                onChange={(e) => setForm({ ...form, date: e.target.value })}
-              />
-            </label>
-            <label>
-              Turno
-              <select value={form.shift} onChange={(e) => setForm({ ...form, shift: e.target.value as RequisitionShift })}>
-                {(Object.keys(shiftLabels) as RequisitionShift[]).map((k) => (
-                  <option key={k} value={k}>{shiftLabels[k]}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Setor de origem
-              <select value={form.sectorId} onChange={(e) => setForm({ ...form, sectorId: e.target.value })}>
-                <option value="">Todos os setores</option>
-                {sectors.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </label>
-            <label>
-              Motivo
-              <select value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value as RequisitionReason })}>
-                {(Object.keys(reasonLabels) as RequisitionReason[]).map((k) => (
-                  <option key={k} value={k}>{reasonLabels[k]}</option>
-                ))}
-              </select>
-            </label>
-            {form.reason === "OTHER" && (
-              <label className="span-2">
-                Especificar motivo
+          {/* Dados da requisicao */}
+          <div className="req-meta-section">
+            <h4 className="req-section-title">Dados da requisicao</h4>
+            <div className="req-meta-fields">
+              <label className="req-field">
+                <span>Data</span>
                 <input
-                  value={form.reasonNotes}
-                  placeholder="Descreva o motivo"
-                  onChange={(e) => setForm({ ...form, reasonNotes: e.target.value })}
+                  type="date"
+                  value={form.date}
+                  onChange={(e) => setForm({ ...form, date: e.target.value })}
                 />
               </label>
-            )}
-            <label className="span-2">
-              Observacoes
-              <input
-                value={form.notes}
-                placeholder="Opcional"
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              />
-            </label>
-          </div>
-
-          <div className="subsection" style={{ marginTop: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <h4 style={{ margin: 0 }}>Itens da requisicao</h4>
-            </div>
-
-            <div style={{ position: "relative", marginBottom: 12 }}>
-              <div className="filters-row" style={{ gap: 8 }}>
-                <label style={{ flex: 1 }}>
-                  <Search size={14} style={{ verticalAlign: "middle", marginRight: 4, color: "var(--muted)" }} />
-                  Buscar produto
+              <label className="req-field">
+                <span>Turno</span>
+                <select value={form.shift} onChange={(e) => setForm({ ...form, shift: e.target.value as RequisitionShift })}>
+                  {(Object.keys(shiftLabels) as RequisitionShift[]).map((k) => (
+                    <option key={k} value={k}>{shiftLabels[k]}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="req-field">
+                <span>Setor</span>
+                <select value={form.sectorId} onChange={(e) => setForm({ ...form, sectorId: e.target.value })}>
+                  <option value="">Todos os setores</option>
+                  {sectors.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </label>
+              <label className="req-field">
+                <span>Motivo</span>
+                <select value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value as RequisitionReason })}>
+                  {(Object.keys(reasonLabels) as RequisitionReason[]).map((k) => (
+                    <option key={k} value={k}>{reasonLabels[k]}</option>
+                  ))}
+                </select>
+              </label>
+              {form.reason === "OTHER" && (
+                <label className="req-field req-field-wide">
+                  <span>Especificar motivo</span>
                   <input
-                    ref={searchInputRef}
-                    type="text"
-                    placeholder="Digite o nome do produto..."
-                    value={productSearch}
-                    onChange={(e) => handleProductSearchChange(e.target.value)}
-                    onFocus={() => productSearch.trim() && setSearchOpen(true)}
-                    onBlur={() => setTimeout(() => setSearchOpen(false), 180)}
-                    autoComplete="off"
+                    value={form.reasonNotes}
+                    placeholder="Descreva o motivo"
+                    onChange={(e) => setForm({ ...form, reasonNotes: e.target.value })}
                   />
                 </label>
+              )}
+              <label className="req-field req-field-wide">
+                <span>Observacoes</span>
+                <input
+                  value={form.notes}
+                  placeholder="Opcional"
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                />
+              </label>
+            </div>
+          </div>
+
+          {/* Itens da requisicao */}
+          <div className="req-items-section">
+            <h4 className="req-section-title">
+              Itens retirados
+              {items.length > 0 && <span className="req-item-count">{items.length}</span>}
+            </h4>
+
+            {/* Busca de produto */}
+            <div className="req-search-wrap">
+              <div className="filter-input-wrap" style={{ flex: 1 }}>
+                <Search size={14} />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Buscar produto pelo nome ou codigo..."
+                  value={productSearch}
+                  onChange={(e) => handleProductSearchChange(e.target.value)}
+                  onFocus={() => productSearch.trim() && setSearchOpen(true)}
+                  onBlur={() => setTimeout(() => setSearchOpen(false), 180)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && searchResults.length > 0) {
+                      e.preventDefault();
+                      addProduct(searchResults[0]);
+                    }
+                    if (e.key === "Escape") { setSearchOpen(false); setProductSearch(""); }
+                  }}
+                  autoComplete="off"
+                />
               </div>
               {searchOpen && searchResults.length > 0 && (
-                <div className="dropdown-results" style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50, background: "#fff", border: "1px solid var(--line)", borderRadius: 8, boxShadow: "var(--shadow)", maxHeight: 280, overflowY: "auto" }}>
+                <div className="req-dropdown">
                   {searchResults.slice(0, 20).map((product) => {
                     const stock = stockMap.get(product.id);
                     return (
                       <button
                         key={product.id}
                         type="button"
-                        style={{ display: "flex", width: "100%", textAlign: "left", padding: "10px 14px", background: "none", border: "none", borderBottom: "1px solid var(--line)", cursor: "pointer", justifyContent: "space-between", alignItems: "center", gap: 12 }}
+                        className="req-dropdown-item"
                         onMouseDown={() => addProduct(product)}
                       >
                         <div>
-                          <strong style={{ display: "block", fontSize: 13 }}>{product.name}</strong>
-                          <small style={{ color: "var(--muted)" }}>{product.externalCode ?? ""} {product.stockUnit ?? product.unit ?? ""}</small>
+                          <strong>{product.name}</strong>
+                          {product.externalCode && <small style={{ color: "var(--muted)", marginLeft: 6 }}>{product.externalCode}</small>}
+                          <small style={{ display: "block", color: "var(--muted)", fontSize: 11 }}>{product.stockUnit ?? product.unit ?? ""}</small>
                         </div>
                         {stock != null && (
-                          <span style={{ fontSize: 12, color: stock <= 0 ? "var(--danger)" : "var(--success)", whiteSpace: "nowrap" }}>
-                            {formatNumber(stock)} em estoque
+                          <span className={`req-stock-badge ${stock <= 0 ? "danger" : stock < 5 ? "warning" : "ok"}`}>
+                            {formatNumber(stock)}
                           </span>
                         )}
                       </button>
@@ -362,33 +439,34 @@ export function Requisitions({ user }: { user: AppUser }) {
                 </div>
               )}
               {searchOpen && productSearch.trim() && searchResults.length === 0 && (
-                <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50, background: "#fff", border: "1px solid var(--line)", borderRadius: 8, padding: "12px 16px", color: "var(--muted)", fontSize: 13 }}>
+                <div className="req-dropdown" style={{ padding: "12px 16px", color: "var(--muted)", fontSize: 13 }}>
                   Nenhum produto encontrado para "{productSearch}"
                 </div>
               )}
             </div>
 
+            {/* Lista de itens */}
             {items.length > 0 ? (
-              <div className="table-wrap">
+              <div className="table-wrap" style={{ marginTop: 8 }}>
                 <table>
                   <thead>
                     <tr>
                       <th>Produto</th>
                       <th className="numeric-cell">Saldo atual</th>
-                      <th style={{ width: 120 }}>Quantidade</th>
+                      <th style={{ width: 130 }}>Quantidade</th>
                       <th style={{ width: 80 }}>Unidade</th>
-                      <th style={{ width: 40 }}></th>
+                      <th style={{ width: 36 }}></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((item) => {
+                    {items.map((item, idx) => {
                       const qty = Number(item.quantity);
                       const isInsufficient = qty > 0 && item.currentStock != null && qty > item.currentStock;
                       return (
-                        <tr key={item.productId}>
+                        <tr key={item.productId} className={isInsufficient ? "req-row-danger" : undefined}>
                           <td>
                             <strong>{item.productName}</strong>
-                            {item.productCode && <small>{item.productCode}</small>}
+                            {item.productCode && <small style={{ display: "block", color: "var(--muted)" }}>{item.productCode}</small>}
                           </td>
                           <td className="numeric-cell" style={{ color: (item.currentStock ?? 0) <= 0 ? "var(--danger)" : undefined }}>
                             {item.currentStock != null ? formatNumber(item.currentStock) : "—"}
@@ -402,10 +480,20 @@ export function Requisitions({ user }: { user: AppUser }) {
                               placeholder="0"
                               value={item.quantity}
                               onChange={(e) => updateItemQty(item.productId, e.target.value)}
-                              style={{ border: isInsufficient ? "1px solid var(--danger)" : undefined, width: "100%" }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  // Vai para proxima quantidade ou busca
+                                  const inputs = document.querySelectorAll<HTMLInputElement>(".req-qty-input");
+                                  const next = inputs[idx + 1];
+                                  if (next) next.focus();
+                                  else searchInputRef.current?.focus();
+                                }
+                              }}
+                              style={{ border: isInsufficient ? "1px solid var(--danger)" : undefined }}
                             />
                             {isInsufficient && (
-                              <small style={{ color: "var(--danger)", fontSize: 11 }}>Insuficiente</small>
+                              <small style={{ color: "var(--danger)", fontSize: 11, display: "block" }}>Insuficiente</small>
                             )}
                           </td>
                           <td>
@@ -416,9 +504,9 @@ export function Requisitions({ user }: { user: AppUser }) {
                               style={{ width: "100%" }}
                             />
                           </td>
-                          <td className="actions-cell">
-                            <button type="button" onClick={() => removeItem(item.productId)} title="Remover">
-                              <Trash2 size={14} />
+                          <td style={{ textAlign: "center" }}>
+                            <button type="button" className="btn-icon-sm danger" onClick={() => removeItem(item.productId)} title="Remover">
+                              <Trash2 size={13} />
                             </button>
                           </td>
                         </tr>
@@ -428,24 +516,28 @@ export function Requisitions({ user }: { user: AppUser }) {
                 </table>
               </div>
             ) : (
-              <EmptyState title="Nenhum item adicionado" description="Busque produtos acima para adicionar a requisicao." />
+              <div className="req-items-empty">
+                <Search size={20} style={{ color: "var(--muted)", marginBottom: 6 }} />
+                <p>Busque um produto acima para adicionar</p>
+              </div>
             )}
 
             {hasInsufficient && (
-              <div className="cash-alert-card" style={{ marginTop: 10, padding: "10px 14px", borderRadius: 8, fontSize: 13 }}>
-                Alguns itens excedem o saldo disponivel. O servidor ira recusar a requisicao se houver saldo insuficiente.
+              <div className="req-alert-danger" style={{ marginTop: 10 }}>
+                Alguns itens excedem o saldo disponivel. A requisicao sera recusada pelo servidor.
               </div>
             )}
           </div>
 
-          <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          {/* Acoes */}
+          <div className="req-form-actions">
             <button
               className="primary-button"
               type="button"
               disabled={submitting || items.length === 0}
               onClick={handleSubmit}
             >
-              {submitting ? "Confirmando..." : "Confirmar requisicao"}
+              {submitting ? "Registrando..." : "Registrar requisicao"}
             </button>
             <button
               className="secondary-button"
@@ -453,20 +545,20 @@ export function Requisitions({ user }: { user: AppUser }) {
               onClick={resetForm}
               disabled={submitting}
             >
-              <X size={15} />
-              Limpar
+              <X size={14} /> Limpar
             </button>
           </div>
         </div>
       )}
 
+      {/* ── CONFIRMACAO ────────────────────────────────────────────────── */}
       {view === "form" && confirmedRequisition && (
         <div className="form-section">
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-            <CheckCircle2 size={22} style={{ color: "var(--success)" }} />
+          <div className="req-success-header">
+            <CheckCircle2 size={28} className="req-success-icon" />
             <div>
-              <strong style={{ fontSize: 16 }}>{confirmedRequisition.code} registrada</strong>
-              <p style={{ margin: 0, color: "var(--muted)", fontSize: 13 }}>
+              <strong style={{ fontSize: 17 }}>{confirmedRequisition.code} registrada</strong>
+              <p style={{ margin: 0, color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
                 {shiftLabels[confirmedRequisition.shift as RequisitionShift] ?? confirmedRequisition.shift}
                 {confirmedRequisition.sectorName ? ` — ${confirmedRequisition.sectorName}` : ""}
                 {" — "}{reasonLabels[confirmedRequisition.reason as RequisitionReason] ?? confirmedRequisition.reason}
@@ -475,15 +567,15 @@ export function Requisitions({ user }: { user: AppUser }) {
           </div>
 
           {confirmedRequisition.items && confirmedRequisition.items.length > 0 && (
-            <div className="table-wrap subsection">
+            <div className="table-wrap" style={{ marginTop: 12 }}>
               <table>
                 <thead>
                   <tr>
                     <th>Produto</th>
-                    <th className="numeric-cell">Qtd retirada</th>
-                    <th>Unidade</th>
-                    <th className="numeric-cell">Saldo antes</th>
-                    <th className="numeric-cell">Saldo apos</th>
+                    <th className="numeric-cell">Retirado</th>
+                    <th>Un.</th>
+                    <th className="numeric-cell">Antes</th>
+                    <th className="numeric-cell">Apos</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -491,7 +583,7 @@ export function Requisitions({ user }: { user: AppUser }) {
                     <tr key={item.id}>
                       <td>
                         <strong>{item.productName}</strong>
-                        {item.productCode && <small>{item.productCode}</small>}
+                        {item.productCode && <small style={{ display: "block", color: "var(--muted)" }}>{item.productCode}</small>}
                       </td>
                       <td className="numeric-cell">{formatNumber(Number(item.quantity))}</td>
                       <td>{item.unit ?? "—"}</td>
@@ -508,31 +600,37 @@ export function Requisitions({ user }: { user: AppUser }) {
 
           <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
             <button className="primary-button" type="button" onClick={resetForm}>
-              <Plus size={15} />
-              Nova requisicao
+              <Plus size={14} /> Nova requisicao
             </button>
             <button className="secondary-button" type="button" onClick={() => { setView("list"); setConfirmedRequisition(null); }}>
-              Ver historico
+              <ClipboardList size={14} /> Ver historico
             </button>
           </div>
         </div>
       )}
 
+      {/* ── HISTORICO ──────────────────────────────────────────────────── */}
       {view === "list" && (
         <div className="form-section">
-          <div className="section-heading compact-heading">
-            <div>
-              <p>Insumos</p>
+          <div className="section-heading compact-heading" style={{ marginBottom: 12 }}>
+            <div style={{ flex: 1 }}>
+              <p>Estoque</p>
               <h3>Historico de requisicoes</h3>
               <span className="muted">Retiradas de insumos registradas do estoque.</span>
             </div>
+            <button type="button" className="primary-button" onClick={() => setView("form")}>
+              <Plus size={14} /> Nova requisicao
+            </button>
           </div>
 
           {/* Tabela desktop */}
-          <div className="table-wrap" style={{ marginTop: 12 }}>
-            {requisitions.length === 0 ? (
-              <EmptyState title="Nenhuma requisicao encontrada" description="As retiradas de insumos aparecero aqui apos serem registradas." />
-            ) : (
+          {requisitions.length === 0 ? (
+            <EmptyState
+              title="Nenhuma requisicao registrada"
+              description="As retiradas de insumos aparecero aqui apos serem registradas."
+            />
+          ) : (
+            <div className="table-wrap req-history-table">
               <table>
                 <thead>
                   <tr>
@@ -551,19 +649,20 @@ export function Requisitions({ user }: { user: AppUser }) {
                     <tr key={req.id}>
                       <td><strong>{req.code}</strong></td>
                       <td>{formatDate(req.date)}</td>
-                      <td><StatusBadge tone={shiftTone(req.shift)}>{shiftLabels[req.shift as RequisitionShift] ?? req.shift}</StatusBadge></td>
+                      <td>
+                        <StatusBadge tone={shiftTone(req.shift)}>
+                          {shiftLabels[req.shift as RequisitionShift] ?? req.shift}
+                        </StatusBadge>
+                      </td>
                       <td>{req.sectorName ?? "—"}</td>
-                      <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reasonLabels[req.reason as RequisitionReason] ?? req.reason}</td>
+                      <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {reasonLabels[req.reason as RequisitionReason] ?? req.reason}
+                      </td>
                       <td className="numeric-cell">{req.itemCount ?? "—"}</td>
                       <td>{req.requestedByName ?? "—"}</td>
                       <td className="actions-cell">
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          onClick={() => { setDetailId(req.id); }}
-                        >
-                          <Eye size={14} />
-                          Ver
+                        <button type="button" className="secondary-button" onClick={() => setDetailId(req.id)}>
+                          <Eye size={13} /> Ver
                         </button>
                         <button
                           type="button"
@@ -571,30 +670,36 @@ export function Requisitions({ user }: { user: AppUser }) {
                           title="Duplicar esta requisicao"
                           onClick={() => void duplicateRequisition(req.id)}
                         >
-                          <Copy size={14} />
-                          Duplicar
+                          <Copy size={13} /> Duplicar
                         </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Cards mobile */}
-          <div className="mobile-cards" style={{ marginTop: 8 }}>
+          <div className="mobile-cards">
             {requisitions.length === 0 && (
-              <EmptyState title="Nenhuma requisicao encontrada" description="As retiradas de insumos aparecero aqui apos serem registradas." />
+              <EmptyState
+                title="Nenhuma requisicao registrada"
+                description="As retiradas de insumos aparecero aqui apos serem registradas."
+              />
             )}
             {requisitions.map((req) => (
               <div key={req.id} className="mobile-card">
                 <div className="mobile-card-header">
                   <div style={{ minWidth: 0 }}>
                     <strong style={{ fontSize: "0.85rem" }}>{req.code}</strong>
-                    <span style={{ display: "block", fontSize: "0.78rem", color: "var(--muted)", marginTop: 2 }}>{formatDate(req.date)}</span>
+                    <span style={{ display: "block", fontSize: "0.78rem", color: "var(--muted)", marginTop: 2 }}>
+                      {formatDate(req.date)}
+                    </span>
                   </div>
-                  <StatusBadge tone={shiftTone(req.shift)}>{shiftLabels[req.shift as RequisitionShift] ?? req.shift}</StatusBadge>
+                  <StatusBadge tone={shiftTone(req.shift)}>
+                    {shiftLabels[req.shift as RequisitionShift] ?? req.shift}
+                  </StatusBadge>
                 </div>
                 <div className="mobile-card-body">
                   <div className="mobile-card-row">
@@ -603,7 +708,9 @@ export function Requisitions({ user }: { user: AppUser }) {
                   </div>
                   <div className="mobile-card-row">
                     <span>Motivo</span>
-                    <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55%" }}>{reasonLabels[req.reason as RequisitionReason] ?? req.reason}</strong>
+                    <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55%" }}>
+                      {reasonLabels[req.reason as RequisitionReason] ?? req.reason}
+                    </strong>
                   </div>
                   <div className="mobile-card-row">
                     <span>Itens</span>
@@ -617,17 +724,12 @@ export function Requisitions({ user }: { user: AppUser }) {
                   )}
                 </div>
                 <div className="mobile-card-actions">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => { setDetailId(req.id); }}
-                  >
+                  <button type="button" className="secondary-button" onClick={() => setDetailId(req.id)}>
                     <Eye size={13} /> Ver
                   </button>
                   <button
                     type="button"
                     className="secondary-button"
-                    title="Duplicar esta requisicao"
                     onClick={() => void duplicateRequisition(req.id)}
                   >
                     <Copy size={13} /> Duplicar
@@ -639,9 +741,10 @@ export function Requisitions({ user }: { user: AppUser }) {
         </div>
       )}
 
+      {/* ── MODAL DE DETALHE ───────────────────────────────────────────── */}
       {detailId && (
         <div className="modal-backdrop" onClick={() => setDetailId(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 680 }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 700 }}>
             <div className="modal-header">
               <div>
                 <p className="muted" style={{ margin: 0, fontSize: 12 }}>Detalhes da requisicao</p>
@@ -653,39 +756,30 @@ export function Requisitions({ user }: { user: AppUser }) {
               {loadingDetail && <p className="muted">Carregando...</p>}
               {detail && !loadingDetail && (
                 <>
-                  <div className="filters-row" style={{ gap: 16, marginBottom: 16 }}>
-                    <div>
-                      <small className="muted">Data</small>
-                      <p style={{ margin: 0 }}>{formatDate(detail.date)}</p>
-                    </div>
+                  <div className="req-detail-meta">
+                    <div><small className="muted">Data</small><p>{formatDate(detail.date)}</p></div>
                     <div>
                       <small className="muted">Turno</small>
-                      <p style={{ margin: 0 }}>{shiftLabels[detail.shift as RequisitionShift] ?? detail.shift}</p>
+                      <p><StatusBadge tone={shiftTone(detail.shift)}>{shiftLabels[detail.shift as RequisitionShift] ?? detail.shift}</StatusBadge></p>
                     </div>
-                    <div>
-                      <small className="muted">Setor</small>
-                      <p style={{ margin: 0 }}>{detail.sectorName ?? "—"}</p>
-                    </div>
+                    <div><small className="muted">Setor</small><p>{detail.sectorName ?? "—"}</p></div>
                     <div>
                       <small className="muted">Motivo</small>
-                      <p style={{ margin: 0 }}>{reasonLabels[detail.reason as RequisitionReason] ?? detail.reason}{detail.reasonNotes ? `: ${detail.reasonNotes}` : ""}</p>
+                      <p>{reasonLabels[detail.reason as RequisitionReason] ?? detail.reason}{detail.reasonNotes ? `: ${detail.reasonNotes}` : ""}</p>
                     </div>
-                    <div>
-                      <small className="muted">Registrado por</small>
-                      <p style={{ margin: 0 }}>{detail.requestedByName ?? "—"}</p>
-                    </div>
+                    <div><small className="muted">Registrado por</small><p>{detail.requestedByName ?? "—"}</p></div>
                   </div>
-                  {detail.notes && <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>{detail.notes}</p>}
+                  {detail.notes && <p style={{ fontSize: 13, color: "var(--muted)", margin: "0 0 12px" }}>{detail.notes}</p>}
                   <div className="table-wrap">
                     <table>
                       <thead>
                         <tr>
                           <th>Produto</th>
                           <th className="numeric-cell">Qtd</th>
-                          <th>Unidade</th>
-                          <th className="numeric-cell">Saldo antes</th>
-                          <th className="numeric-cell">Saldo apos</th>
-                          <th className="numeric-cell">Saldo atual</th>
+                          <th>Un.</th>
+                          <th className="numeric-cell">Antes</th>
+                          <th className="numeric-cell">Apos</th>
+                          <th className="numeric-cell">Atual</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -693,7 +787,7 @@ export function Requisitions({ user }: { user: AppUser }) {
                           <tr key={item.id}>
                             <td>
                               <strong>{item.productName}</strong>
-                              {item.productCode && <small>{item.productCode}</small>}
+                              {item.productCode && <small style={{ display: "block", color: "var(--muted)" }}>{item.productCode}</small>}
                             </td>
                             <td className="numeric-cell">{formatNumber(Number(item.quantity))}</td>
                             <td>{item.unit ?? "—"}</td>
