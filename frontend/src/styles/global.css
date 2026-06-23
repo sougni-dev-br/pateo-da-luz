@@ -4922,6 +4922,14 @@ td:nth-child(n+3):not(:last-child) {
   color: #065f46;
 }
 
+.source-badge.source-tax-payment {
+  background: #fdf4ff;
+  color: #7e22ce;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
 /* Chips de atalho rápido */
 .payables-chips {
   display: flex;
