@@ -662,6 +662,7 @@ cardsRouter.get("/statements/:id/pdf", async (request, response) => {
   response.send(pdf);
 });
 
+// LEGADO — módulo Pequenos Gastos descontinuado. Rotas mantidas por compatibilidade; nunca foram usadas em produção (zero registros). Remover na Fase 2 de limpeza.
 cardsRouter.get("/small-expenses", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
   if (!user) return;

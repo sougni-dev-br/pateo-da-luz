@@ -440,6 +440,7 @@ masterDataRouter.patch("/expense-types/:id/status", async (request, response) =>
   );
 });
 
+// LEGADO — SmallExpenseType descontinuado como módulo operacional. Rotas mantidas por compatibilidade; remover na Fase 2 de limpeza junto com campos smallExpense* em Purchase.
 masterDataRouter.get("/small-expense-types", async (request, response) => {
   const search = request.query.search ? String(request.query.search) : undefined;
   const where: Prisma.SmallExpenseTypeWhereInput = search
