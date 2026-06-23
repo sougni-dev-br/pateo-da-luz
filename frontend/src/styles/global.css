@@ -9246,3 +9246,102 @@ tr.dre-row-selected td {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* ── KPI cards (Impostos / genérico) ─────────────────────────────────── */
+.kpi-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 18px;
+  min-width: 140px;
+  flex: 1;
+}
+
+.kpi-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.kpi-value {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* ── TaxPayment mobile cards ──────────────────────────────────────────── */
+.mobile-cards {
+  display: none;
+}
+
+.mobile-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.mobile-card.overdue-card {
+  border-left: 3px solid #ef4444;
+}
+
+.mobile-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mobile-card-body {
+  padding: 10px 14px;
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.mobile-card-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+}
+
+.mobile-card-row > strong {
+  color: var(--ink);
+}
+
+.mobile-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  background: rgba(0,0,0,0.015);
+  border-radius: 0 0 12px 12px;
+}
+
+/* ── Overdue table row ────────────────────────────────────────────────── */
+.table-wrap tr.overdue-row td {
+  background: rgba(239, 68, 68, 0.04);
+}
+
+.table-wrap tr.overdue-row:hover td {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+@media (max-width: 768px) {
+  .mobile-cards {
+    display: block;
+  }
+  .tax-table-desktop {
+    display: none;
+  }
+}
