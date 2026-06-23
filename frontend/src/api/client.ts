@@ -1230,6 +1230,7 @@ export type InventoryRequisition = {
 };
 
 export type CreateRequisitionPayload = {
+  clientRequestId?: string;
   date: string;
   shift: string;
   reason: string;
@@ -1239,7 +1240,7 @@ export type CreateRequisitionPayload = {
   items: Array<{ productId: string; quantity: number; unit: string }>;
 };
 
-export function getRequisitions(filters?: { startDate?: string; endDate?: string; sectorId?: string; shift?: string }) {
+export function getRequisitions(filters?: { startDate?: string; endDate?: string; sectorId?: string; shift?: string; clientRequestId?: string }) {
   return request<InventoryRequisition[]>(`/inventory/requisitions${toQueryString(filters)}`);
 }
 
@@ -1252,7 +1253,7 @@ export function createRequisition(payload: CreateRequisitionPayload) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
-  }, 30_000);
+  }, 45_000);
 }
 
 export type InventoryMovement = {
