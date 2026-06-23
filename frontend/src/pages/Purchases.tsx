@@ -394,6 +394,27 @@ export function Purchases({ user }: { user: AppUser }) {
 
   useEffect(() => {
     if (isCreateRoute) {
+      type CopyData = { form: typeof form; items: PurchaseItemForm[]; showExtraNotes: boolean };
+      const copyData = (location.state as { copyData?: CopyData } | null)?.copyData;
+      if (copyData) {
+        // Limpa location.state para não reaplicar em re-render
+        navigate({ pathname: "/compras/nova", search: location.search }, { replace: true, state: null });
+        setForm(copyData.form);
+        setItems(copyData.items);
+        setInstallments([]);
+        setShowExtraNotes(copyData.showExtraNotes);
+        setShowNoInvoiceReason(false);
+        setShowPaymentNotes(false);
+        setFieldErrors({});
+        setDuplicateCheck(null);
+        setEditingId(null);
+        setError(null);
+        setProductStep("conferencia");
+        setPaymentExpanded(true);
+        setShowForm(true);
+        markFormClean({ formState: copyData.form, itemState: copyData.items, installmentState: [] });
+        return;
+      }
       resetForm();
       setError(null);
       setEditingId(null);
@@ -438,7 +459,7 @@ export function Purchases({ user }: { user: AppUser }) {
     }
     setShowForm(false);
     setEditingId(null);
-  }, [isCreateRoute, isEditRoute, params.id]);
+  }, [isCreateRoute, isEditRoute, params.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedSupplier = suppliers.find((supplier) => supplier.id === form.supplierId) ?? null;
   const selectedSupplierIsCycle = selectedSupplier?.billingMode === "CYCLE";
@@ -997,8 +1018,7 @@ export function Purchases({ user }: { user: AppUser }) {
       const data = await getPurchase(id);
       const resolvedPaymentMethodId = resolveBasePaymentMethodId(data.paymentMethodId, data.paymentMethodName ?? data.paymentMethod);
       const nextInstallmentCount = installmentCountFromPurchase(data.paymentMethodName ?? data.paymentMethod, data.installments.length || null);
-      resetForm();
-      setForm({
+      const copyForm = {
         supplierCode: data.rawSupplierCode ?? data.supplier.externalCode ?? "",
         supplierId: data.supplierId,
         supplierName: data.supplierName,
@@ -1021,8 +1041,8 @@ export function Purchases({ user }: { user: AppUser }) {
         ccNumberOfInstallments: "1",
         paymentDifferenceReason: "",
         companyId: (data as Record<string, unknown>).companyId ? String((data as Record<string, unknown>).companyId) : ""
-      });
-      setItems(data.items.map((item) => ({
+      };
+      const copyItems = data.items.map((item) => ({
         productCode: item.rawProductCode ?? item.productCode ?? "",
         productId: item.productId,
         productName: item.rawProductName ?? item.productName,
@@ -1033,14 +1053,13 @@ export function Purchases({ user }: { user: AppUser }) {
         unitPrice: String(item.unitPrice ?? ""),
         totalPrice: String(item.totalPrice ?? ""),
         notes: ""
-      })));
-      setInstallments([]);
-      setFieldErrors({});
-      setError(null);
-      setProductStep("conferencia");
-      setPaymentExpanded(true);
-      setShowForm(true);
-      navigate({ pathname: "/compras/nova", search: location.search });
+      }));
+      const showExtraCopy = Boolean((data.rawRow as { notes?: string } | null)?.notes);
+      // Dados passados via location.state; o useEffect de isCreateRoute vai aplicá-los
+      navigate(
+        { pathname: "/compras/nova", search: location.search },
+        { state: { copyData: { form: copyForm, items: copyItems, showExtraNotes: showExtraCopy } } }
+      );
     } catch (loadError) {
       setNotice({ tone: "error", message: loadError instanceof Error ? loadError.message : "Erro ao copiar compra." });
     }
