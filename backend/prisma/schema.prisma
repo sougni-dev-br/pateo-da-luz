@@ -1599,16 +1599,23 @@ model TaxPayment {
 }
 
 model TaxPaymentAttachment {
-  id           String     @id @default(cuid())
-  taxPaymentId String
-  taxPayment   TaxPayment @relation(fields: [taxPaymentId], references: [id])
-  fileName     String
-  storagePath  String
-  mimeType     String?
-  fileSize     Int?
-  sha256       String?
-  uploadedById String
-  createdAt    DateTime   @default(now())
+  id              String          @id @default(cuid())
+  taxPaymentId    String
+  taxPayment      TaxPayment      @relation(fields: [taxPaymentId], references: [id])
+  fileName        String
+  storagePath     String?
+  storageProvider StorageProvider @default(LOCAL)
+  storageKey      String?
+  mimeType        String?
+  fileSize        Int?
+  sha256          String?
+  uploadedById    String
+  createdAt       DateTime        @default(now())
 
   @@index([taxPaymentId])
+}
+
+enum StorageProvider {
+  LOCAL
+  R2
 }
