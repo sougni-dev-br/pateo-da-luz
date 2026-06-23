@@ -1403,6 +1403,7 @@ model CmvPeriod {
 
 model InventoryRequisition {
   id                  String   @id
+  clientRequestId     String?  @unique
   code                String   @unique
   date                DateTime
   shift               String

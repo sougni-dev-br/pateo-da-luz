@@ -2669,6 +2669,27 @@ inventoryRouter.get("/requisitions", async (request, response) => {
   const sectorId = asText(request.query.sectorId);
   const shift = asText(request.query.shift);
   const requestedBy = asText(request.query.requestedBy);
+  const clientRequestId = asText(request.query.clientRequestId);
+
+  // Busca por clientRequestId para verificação de idempotência pós-timeout
+  if (clientRequestId) {
+    const [row] = await prisma.$queryRaw<Array<InventoryRequisitionRow & { itemCount: bigint }>>`
+      SELECT r.*, u."name" AS "requestedByName", sec."name" AS "sectorName", COUNT(i."id") AS "itemCount"
+      FROM "InventoryRequisition" r
+      LEFT JOIN "User" u ON u."id" = r."requestedByUserId"
+      LEFT JOIN "InventorySector" sec ON sec."id" = r."sectorId"
+      LEFT JOIN "InventoryRequisitionItem" i ON i."requisitionId" = r."id"
+      WHERE r."clientRequestId" = ${clientRequestId}
+      GROUP BY r."id", u."name", sec."name"
+    `;
+    if (row) {
+      const items = await prisma.$queryRaw<Array<InventoryRequisitionItemRow>>`
+        SELECT * FROM "InventoryRequisitionItem" WHERE "requisitionId" = ${row.id} ORDER BY "createdAt"
+      `;
+      return response.json([{ ...row, itemCount: Number(row.itemCount), items }]);
+    }
+    return response.json([]);
+  }
 
   const rows = await prisma.$queryRaw<Array<InventoryRequisitionRow & { itemCount: bigint }>>`
     SELECT
@@ -2729,9 +2750,11 @@ inventoryRouter.get("/requisitions/:id", async (request, response) => {
 });
 
 inventoryRouter.post("/requisitions", async (request, response) => {
+  const t0 = Date.now();
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
   if (!user) return;
 
+  const clientRequestId = asText(request.body.clientRequestId);
   const date = parseLocalDate(request.body.date ?? new Date());
   const shift = asText(request.body.shift) ?? "MORNING";
   const reason = asText(request.body.reason) ?? "DAILY_PRODUCTION";
@@ -2743,6 +2766,24 @@ inventoryRouter.post("/requisitions", async (request, response) => {
   if (rawItems.length === 0) {
     response.status(400).json({ message: "Informe ao menos um produto na requisicao." });
     return;
+  }
+
+  // Idempotência: se clientRequestId já existe, retorna a requisição criada anteriormente
+  if (clientRequestId) {
+    const [existing] = await prisma.$queryRaw<Array<InventoryRequisitionRow>>`
+      SELECT r.*, u."name" AS "requestedByName", sec."name" AS "sectorName"
+      FROM "InventoryRequisition" r
+      LEFT JOIN "User" u ON u."id" = r."requestedByUserId"
+      LEFT JOIN "InventorySector" sec ON sec."id" = r."sectorId"
+      WHERE r."clientRequestId" = ${clientRequestId}
+    `;
+    if (existing) {
+      const existingItems = await prisma.$queryRaw<Array<InventoryRequisitionItemRow>>`
+        SELECT * FROM "InventoryRequisitionItem" WHERE "requisitionId" = ${existing.id} ORDER BY "createdAt"
+      `;
+      console.log(`[requisition] idempotent hit clientRequestId=${clientRequestId} code=${existing.code} ms=${Date.now() - t0}`);
+      return response.status(200).json({ ...existing, items: existingItems });
+    }
   }
 
   type ParsedItem = { productId: string; quantity: number; unit: string | null };
@@ -2761,13 +2802,21 @@ inventoryRouter.post("/requisitions", async (request, response) => {
 
   const productIds = parsedItems.map((item: ParsedItem) => item.productId);
 
-  // Busca produtos e valida existencia
-  const products = await prisma.$queryRaw<Array<{ id: string; name: string; externalCode: string | null; controlsStock: boolean; stockUnit: string | null; unit: string | null }>>`
-    SELECT "id", "name", "externalCode", "controlsStock", "stockUnit", "unit"
-    FROM "Product"
-    WHERE "id" = ANY(${productIds}::uuid[])
-      AND "isActive" = true
-  `;
+  // Busca produtos e saldos em paralelo
+  const [products, stocks] = await Promise.all([
+    prisma.$queryRaw<Array<{ id: string; name: string; externalCode: string | null; controlsStock: boolean; stockUnit: string | null; unit: string | null }>>`
+      SELECT "id", "name", "externalCode", "controlsStock", "stockUnit", "unit"
+      FROM "Product"
+      WHERE "id" = ANY(${productIds}::uuid[])
+        AND "isActive" = true
+    `,
+    prisma.$queryRaw<Array<{ productId: string; currentQuantity: Prisma.Decimal }>>`
+      SELECT "productId", "currentQuantity"
+      FROM "InventoryStock"
+      WHERE "productId" = ANY(${productIds}::uuid[])
+    `
+  ]);
+
   const productMap = new Map(products.map((p) => [p.id, p]));
   const missing = productIds.filter((id) => !productMap.has(id));
   if (missing.length > 0) {
@@ -2775,12 +2824,6 @@ inventoryRouter.post("/requisitions", async (request, response) => {
     return;
   }
 
-  // Busca saldos atuais
-  const stocks = await prisma.$queryRaw<Array<{ productId: string; currentQuantity: Prisma.Decimal }>>`
-    SELECT "productId", "currentQuantity"
-    FROM "InventoryStock"
-    WHERE "productId" = ANY(${productIds}::uuid[])
-  `;
   const stockMap = new Map(stocks.map((s) => [s.productId, Number(s.currentQuantity)]));
 
   // Valida saldo negativo — tudo ou nada
@@ -2809,13 +2852,15 @@ inventoryRouter.post("/requisitions", async (request, response) => {
   const requisitionId = crypto.randomUUID();
   const code = await nextRequisitionCode(date);
 
+  console.log(`[requisition] creating ${code} items=${parsedItems.length} ms=${Date.now() - t0}`);
+
   await prisma.$executeRaw`
     INSERT INTO "InventoryRequisition" (
-      "id", "code", "date", "shift", "reason", "reasonNotes", "sectorId", "sectorName",
+      "id", "clientRequestId", "code", "date", "shift", "reason", "reasonNotes", "sectorId", "sectorName",
       "requestedByUserId", "status", "notes", "createdAt", "updatedAt"
     )
     VALUES (
-      ${requisitionId}, ${code}, ${date}, ${shift}, ${reason}, ${reasonNotes},
+      ${requisitionId}, ${clientRequestId}, ${code}, ${date}, ${shift}, ${reason}, ${reasonNotes},
       ${sectorId}, ${sector?.name ?? null}, ${user.id}, 'CONFIRMED', ${notes},
       CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
     )
@@ -2869,7 +2914,7 @@ inventoryRouter.post("/requisitions", async (request, response) => {
     action: "CREATE_INVENTORY_REQUISITION",
     entity: "InventoryRequisition",
     entityId: requisitionId,
-    newValue: { code, shift, reason, sectorId, itemCount: parsedItems.length },
+    newValue: { code, shift, reason, sectorId, itemCount: parsedItems.length, clientRequestId },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? "")
   });
@@ -2885,6 +2930,7 @@ inventoryRouter.post("/requisitions", async (request, response) => {
     SELECT * FROM "InventoryRequisitionItem" WHERE "requisitionId" = ${requisitionId} ORDER BY "createdAt"
   `;
 
+  console.log(`[requisition] created ${code} total_ms=${Date.now() - t0}`);
   response.status(201).json({ ...created, items });
 });
 
