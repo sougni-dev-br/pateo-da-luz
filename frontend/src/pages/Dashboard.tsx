@@ -9,7 +9,6 @@ import {
   ShoppingCart,
   TicketPercent,
   TrendingUp,
-  Wallet,
 } from "lucide-react";
 import { ReactNode, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -173,7 +172,7 @@ export function Dashboard() {
         tone: "info",
         text: isCurrentMonth
           ? canCreateAnything
-            ? `${monthLabel} ainda não tem lançamentos suficientes para análise. Lance faturamento, compras ou pequenos gastos para liberar os indicadores.`
+            ? `${monthLabel} ainda não tem lançamentos suficientes para análise. Lance faturamento ou compras para liberar os indicadores.`
             : `${monthLabel} ainda não tem lançamentos suficientes para análise.`
           : `Nenhum dado encontrado para ${monthLabel}. Verifique se houve movimento neste período.`,
       });
@@ -247,7 +246,6 @@ export function Dashboard() {
   const quickActions = [
     canCreateRevenue   && { label: "Lançar faturamento", icon: <TrendingUp   size={16} />, path: "/financeiro/faturamento" },
     canCreatePurchases && { label: "Nova compra",         icon: <ShoppingCart size={16} />, path: "/compras" },
-    canCreateCash      && { label: "Pequeno gasto",       icon: <Wallet       size={16} />, path: "/financeiro/caixa" },
   ].filter(Boolean) as { label: string; icon: ReactNode; path: string }[];
 
   return (
@@ -410,26 +408,6 @@ export function Dashboard() {
                 onAction={!hasPurchases && !summary?.purchases.total && canCreatePurchases ? () => navigate("/compras") : undefined}
               />
               <KpiCard
-                label="Pequenos Gastos"
-                value={summary ? formatCurrency(summary.smallExpenses.total) : "—"}
-                sub={
-                  summary && summary.smallExpenses.prev.total > 0
-                    ? `Anterior: ${formatCurrency(summary.smallExpenses.prev.total)}`
-                    : summary && summary.smallExpenses.count > 0
-                    ? `${summary.smallExpenses.count} lançamento${summary.smallExpenses.count !== 1 ? "s" : ""}`
-                    : "Sem pequenos gastos"
-                }
-                tone="neutral"
-                icon={<Wallet size={18} />}
-                delta={
-                  summary && summary.smallExpenses.deltaPercent !== null
-                    ? deltaInfo(summary.smallExpenses.deltaPercent, false)
-                    : undefined
-                }
-                actionLabel={summary && summary.smallExpenses.total === 0 && canCreateCash ? "Registrar" : undefined}
-                onAction={summary && summary.smallExpenses.total === 0 && canCreateCash ? () => navigate("/financeiro/caixa") : undefined}
-              />
-              <KpiCard
                 label="CMV Real"
                 value={
                   summary?.cmvReal.status === "closed" && summary.cmvReal.value !== null
@@ -468,7 +446,7 @@ export function Dashboard() {
                   summary
                     ? summary.estimatedResult.marginPercent !== null
                       ? `Margem: ${summary.estimatedResult.marginPercent.toFixed(1)}%`
-                      : "Fat. - Compras - Peq. Gastos"
+                      : "Faturamento − Compras do período"
                     : "Aguardando dados"
                 }
                 tone={

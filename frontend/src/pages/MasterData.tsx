@@ -35,7 +35,7 @@ import {
 } from "../api/client";
 import { Notice, NoticeTone, useNotice } from "../components/Notice";
 
-type Mode = "sectors" | "categories" | "subcategories" | "units" | "expense-types" | "small-expense-types";
+type Mode = "sectors" | "categories" | "subcategories" | "units" | "expense-types";
 type Notify = (tone: NoticeTone, message: string) => void;
 
 const modes: Array<{ id: Mode; label: string }> = [
@@ -43,8 +43,7 @@ const modes: Array<{ id: Mode; label: string }> = [
   { id: "categories", label: "Categorias" },
   { id: "subcategories", label: "Subcategorias" },
   { id: "units", label: "Unidades" },
-  { id: "expense-types", label: "Tipos de gasto" },
-  { id: "small-expense-types", label: "Pequenos gastos" }
+  { id: "expense-types", label: "Tipos de gasto" }
 ];
 
 export function MasterData() {
@@ -74,7 +73,6 @@ export function MasterData() {
       {mode === "subcategories" && <SubcategoriesPanel notify={notify} />}
       {mode === "units" && <UnitsPanel notify={notify} />}
       {mode === "expense-types" && <ExpenseTypesPanel notify={notify} />}
-      {mode === "small-expense-types" && <SmallExpenseTypesPanel notify={notify} />}
     </div>
   );
 }
