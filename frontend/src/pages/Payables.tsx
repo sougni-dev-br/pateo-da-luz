@@ -1,11 +1,11 @@
-import { CheckCircle2, Eye, FileText, History, RefreshCw, RotateCcw, Search, X } from "lucide-react";
+import { Building2, CheckCircle2, Eye, FileText, History, Receipt, RefreshCw, RotateCcw, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   AppUser, AuditLog, Company, CompanyBankAccount,
   downloadPayablesFinancialPdf, getAllBankAccounts, getCompanies,
   getPayableHistory, getPayables, getPaymentMethods, getPurchase,
-  getSuppliers, payInstallment, Payable, PaymentMethod,
-  PurchaseDetail, reverseInstallment, Supplier
+  getTaxPaymentHistory, getSuppliers, payInstallment, payTaxPayment,
+  Payable, PaymentMethod, PurchaseDetail, reverseInstallment, reverseTaxPayment, Supplier
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { hasPermission } from "../lib/permissions";
@@ -19,6 +19,10 @@ const statusLabels: Record<string, string> = {
   OVERDUE: "Vencido",
   CANCELLED: "Cancelado"
 };
+
+function isTaxPayment(p: Payable) {
+  return p.sourceType === "TAX_PAYMENT";
+}
 
 function dateKey(value?: string | null) {
   if (!value) return "";
@@ -78,11 +82,13 @@ export function Payables({ user }: PayablesProps) {
   const [historyRows, setHistoryRows] = useState<AuditLog[]>([]);
   const [historyOnly, setHistoryOnly] = useState<Payable | null>(null);
   const [paying, setPaying] = useState<Payable | null>(null);
+  const [reversing, setReversing] = useState<Payable | null>(null);
+  const [reverseReason, setReverseReason] = useState("");
   const [paymentForm, setPaymentForm] = useState({
     paidDate: todayKey(), paidAmount: "", paidPaymentMethod: "",
     paymentNotes: "", differenceReason: "", payingCompanyId: "", companyBankAccountId: ""
   });
-  const [filters, setFilters] = useState({ filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", noDueDate: false });
+  const [filters, setFilters] = useState({ filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", origin: "all", noDueDate: false });
   const [activeChip, setActiveChip] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [period, setPeriod] = useState(currentMonthPeriod());
@@ -97,14 +103,14 @@ export function Payables({ user }: PayablesProps) {
     const activePeriod = periodOverride ?? period;
     try {
       const periodFilters = { startDate: activePeriod.startDate, endDate: activePeriod.endDate };
-      // sourceType and noDueDate are handled separately — exclude from spread
-      const { sourceType: _st, noDueDate: noDueDateFlag, ...apiFilters } = activeFilters;
+      // sourceType is client-side only; noDueDate and origin go to server
+      const { sourceType: _st, noDueDate: noDueDateFlag, origin, ...apiFilters } = activeFilters;
       const dateParams = noDueDateFlag
         ? { noDueDate: true as const }
         : periodFilters;
       const [payableRows, allRows, supplierRows, methodRows, companyRows] = await Promise.all([
-        getPayables({ ...apiFilters, ...dateParams }),
-        getPayables(periodFilters),
+        getPayables({ ...apiFilters, ...dateParams, origin: origin as "all" | "purchases" | "taxes" }),
+        getPayables({ ...periodFilters, origin: origin as "all" | "purchases" | "taxes" }),
         suppliers.length ? Promise.resolve(suppliers) : getSuppliers(),
         paymentMethods.length ? Promise.resolve(paymentMethods) : getPaymentMethods(),
         companies.length ? Promise.resolve(companies) : getCompanies().catch(() => [] as Company[])
@@ -148,11 +154,15 @@ export function Payables({ user }: PayablesProps) {
       p.supplierName.toLowerCase().includes(q) ||
       (p.invoiceNumber ?? "").toLowerCase().includes(q) ||
       (p.purchaseNumber ?? "").toLowerCase().includes(q) ||
-      String(p.amount ?? "").includes(q)
+      String(p.amount ?? "").includes(q) ||
+      (p.taxCompanyName ?? "").toLowerCase().includes(q) ||
+      (p.taxDocumentType ?? "").toLowerCase().includes(q) ||
+      (p.taxDescription ?? "").toLowerCase().includes(q) ||
+      (p.taxCnpj ?? "").includes(q)
     );
   }, [payables, searchQuery, filters.sourceType, activeChip]);
 
-  const activeFilterCount = [filters.supplierId, filters.paymentMethodId, filters.status, filters.sourceType].filter(Boolean).length + (activeChip === "noduedate" ? 1 : 0);
+  const activeFilterCount = [filters.supplierId, filters.paymentMethodId, filters.status, filters.sourceType, filters.origin !== "all" ? filters.origin : ""].filter(Boolean).length + (activeChip === "noduedate" ? 1 : 0);
 
   const effectivePaymentOptions = useMemo(() => {
     const seen = new Map<string, { id: string; label: string }>();
@@ -167,7 +177,7 @@ export function Payables({ user }: PayablesProps) {
   }, [paymentMethods]);
 
   function clearFilters() {
-    const cleared = { filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", noDueDate: false };
+    const cleared = { filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", origin: "all", noDueDate: false };
     setFilters(cleared);
     setSearchQuery("");
     setActiveChip(null);
@@ -281,10 +291,17 @@ export function Payables({ user }: PayablesProps) {
 
   async function openTitle(payable: Payable) {
     try {
-      const [purchase, audits] = await Promise.all([getPurchase(payable.purchaseId), getPayableHistory(payable.id)]);
-      setSelectedPayable(payable);
-      setDetail(purchase);
-      setHistoryRows(audits);
+      if (isTaxPayment(payable)) {
+        const audits = await getTaxPaymentHistory(payable.id);
+        setSelectedPayable(payable);
+        setDetail(null);
+        setHistoryRows(audits);
+      } else {
+        const [purchase, audits] = await Promise.all([getPurchase(payable.purchaseId!), getPayableHistory(payable.id)]);
+        setSelectedPayable(payable);
+        setDetail(purchase);
+        setHistoryRows(audits);
+      }
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao abrir conta a pagar." });
     }
@@ -292,7 +309,10 @@ export function Payables({ user }: PayablesProps) {
 
   async function openHistory(payable: Payable) {
     try {
-      setHistoryRows(await getPayableHistory(payable.id));
+      const rows = isTaxPayment(payable)
+        ? await getTaxPaymentHistory(payable.id)
+        : await getPayableHistory(payable.id);
+      setHistoryRows(rows);
       setHistoryOnly(payable);
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao carregar histórico." });
@@ -341,31 +361,40 @@ export function Payables({ user }: PayablesProps) {
       setNotice({ tone: "error", message: "Data do pagamento é obrigatória." });
       return;
     }
-    if (!paymentForm.paidPaymentMethod) {
-      setNotice({ tone: "error", message: "Forma de pagamento é obrigatória." });
-      return;
-    }
     const paidAmount = Number(paymentForm.paidAmount || 0);
     if (paidAmount <= 0) {
       setNotice({ tone: "error", message: "Valor pago deve ser maior que zero." });
       return;
     }
-    const originalAmount = Number(paying.amount ?? 0);
-    const difference = Number((paidAmount - originalAmount).toFixed(2));
-    if (Math.abs(difference) > 0.009 && !paymentForm.differenceReason.trim()) {
-      setNotice({ tone: "error", message: "Informe a justificativa para desconto ou juros/acréscimo." });
-      return;
-    }
+
     try {
-      await payInstallment(paying.id, {
-        paidDate: paymentForm.paidDate,
-        paidAmount,
-        ...selectedPaymentPayload(),
-        paymentNotes: paymentForm.paymentNotes || null,
-        differenceReason: paymentForm.differenceReason || null,
-        payingCompanyId: paymentForm.payingCompanyId || null,
-        companyBankAccountId: paymentForm.companyBankAccountId || null
-      });
+      if (isTaxPayment(paying)) {
+        await payTaxPayment(paying.id, {
+          paymentDate: paymentForm.paidDate,
+          paidAmount,
+          comments: paymentForm.paymentNotes || null
+        });
+      } else {
+        if (!paymentForm.paidPaymentMethod) {
+          setNotice({ tone: "error", message: "Forma de pagamento é obrigatória." });
+          return;
+        }
+        const originalAmount = Number(paying.amount ?? 0);
+        const difference = Number((paidAmount - originalAmount).toFixed(2));
+        if (Math.abs(difference) > 0.009 && !paymentForm.differenceReason.trim()) {
+          setNotice({ tone: "error", message: "Informe a justificativa para desconto ou juros/acréscimo." });
+          return;
+        }
+        await payInstallment(paying.id, {
+          paidDate: paymentForm.paidDate,
+          paidAmount,
+          ...selectedPaymentPayload(),
+          paymentNotes: paymentForm.paymentNotes || null,
+          differenceReason: paymentForm.differenceReason || null,
+          payingCompanyId: paymentForm.payingCompanyId || null,
+          companyBankAccountId: paymentForm.companyBankAccountId || null
+        });
+      }
       setNotice({ tone: "success", message: "Baixa registrada com sucesso." });
       setPaying(null);
       await load();
@@ -374,12 +403,23 @@ export function Payables({ user }: PayablesProps) {
     }
   }
 
-  async function submitReverse(payable: Payable) {
-    const reason = window.prompt("Informe o motivo do estorno:");
-    if (!reason?.trim()) return;
+  function openReverse(payable: Payable) {
+    setReverseReason("");
+    setReversing(payable);
+  }
+
+  async function submitReverse() {
+    if (!reversing) return;
+    const reason = reverseReason.trim();
+    if (!reason) { setNotice({ tone: "error", message: "Informe o motivo da reversão." }); return; }
     try {
-      await reverseInstallment(payable.id, reason);
+      if (isTaxPayment(reversing)) {
+        await reverseTaxPayment(reversing.id, reason);
+      } else {
+        await reverseInstallment(reversing.id, reason);
+      }
       setNotice({ tone: "success", message: "Pagamento estornado com sucesso." });
+      setReversing(null);
       await load();
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao estornar pagamento." });
@@ -529,15 +569,25 @@ export function Payables({ user }: PayablesProps) {
             </select>
           </label>
           <label>
-            Origem
-            <select value={filters.sourceType} onChange={(e) => { const u = { ...filters, sourceType: e.target.value }; setFilters(u); void load(u); }}>
-              <option value="">Todas</option>
-              <option value="DIRECT">Título normal</option>
-              <option value="CARD_STATEMENT">Fatura cartão</option>
-              <option value="LEGACY_CREDIT_CARD">Cartão legado</option>
-              <option value="SUPPLIER_CYCLE">Ciclo fornecedor</option>
+            Tipo
+            <select value={filters.origin} onChange={(e) => { const u = { ...filters, origin: e.target.value, supplierId: e.target.value === "taxes" ? "" : filters.supplierId, paymentMethodId: e.target.value === "taxes" ? "" : filters.paymentMethodId, sourceType: e.target.value === "taxes" ? "" : filters.sourceType }; setFilters(u); void load(u); }}>
+              <option value="all">Todos</option>
+              <option value="purchases">Compras</option>
+              <option value="taxes">Impostos</option>
             </select>
           </label>
+          {filters.origin !== "taxes" && (
+            <label>
+              Sub-tipo
+              <select value={filters.sourceType} onChange={(e) => { const u = { ...filters, sourceType: e.target.value }; setFilters(u); void load(u); }}>
+                <option value="">Todos</option>
+                <option value="DIRECT">Título normal</option>
+                <option value="CARD_STATEMENT">Fatura cartão</option>
+                <option value="LEGACY_CREDIT_CARD">Cartão legado</option>
+                <option value="SUPPLIER_CYCLE">Ciclo fornecedor</option>
+              </select>
+            </label>
+          )}
         </div>
 
         {(activeFilterCount > 0 || searchQuery) && (
@@ -583,11 +633,20 @@ export function Payables({ user }: PayablesProps) {
                 </span>
 
                 <div className="pr-supplier">
-                  <strong title={payable.supplierName}>{payable.supplierName}</strong>
-                  <small>
-                    {payable.invoiceNumber ? `NF ${payable.invoiceNumber}` : "Sem NF"}
-                    {payable.purchaseNumber ? ` · Ped. ${payable.purchaseNumber}` : ""}
-                  </small>
+                  {isTaxPayment(payable) ? (
+                    <>
+                      <strong title={payable.taxDocumentType ?? payable.supplierName}>{payable.taxDocumentType ?? payable.supplierName}</strong>
+                      <small>{payable.taxCompanyName ?? ""}{payable.taxDescription ? ` · ${payable.taxDescription}` : ""}</small>
+                    </>
+                  ) : (
+                    <>
+                      <strong title={payable.supplierName}>{payable.supplierName}</strong>
+                      <small>
+                        {payable.invoiceNumber ? `NF ${payable.invoiceNumber}` : "Sem NF"}
+                        {payable.purchaseNumber ? ` · Ped. ${payable.purchaseNumber}` : ""}
+                      </small>
+                    </>
+                  )}
                 </div>
 
                 <div className="pr-due">
@@ -601,16 +660,26 @@ export function Payables({ user }: PayablesProps) {
                 </div>
 
                 <div className="pr-meta">
-                  {payable.installment != null && <span>Parcela: {formatInstallment(payable.installment, payable.totalInstallments, payable.paymentMethodName)}</span>}
-                  {payable.paymentMethodName && <span>{payable.paymentMethodName}</span>}
-                  {payable.sourceType === "CARD_STATEMENT" && (
-                    <span className="source-badge source-card-statement">Fatura cartão</span>
-                  )}
-                  {payable.sourceType === "LEGACY_CREDIT_CARD" && (
-                    <span className="source-badge source-legacy">Cartão legado</span>
-                  )}
-                  {payable.sourceType === "SUPPLIER_CYCLE" && (
-                    <span className="source-badge source-supplier-cycle">Ciclo fornecedor</span>
+                  {isTaxPayment(payable) ? (
+                    <>
+                      <span className="source-badge source-tax-payment"><Receipt size={11} /> Imposto</span>
+                      {payable.taxCompetenceDate && <span>Comp.: {formatDate(payable.taxCompetenceDate)}</span>}
+                      {payable.taxDreCategoryName && <span>{payable.taxDreCategoryName}</span>}
+                    </>
+                  ) : (
+                    <>
+                      {payable.installment != null && <span>Parcela: {formatInstallment(payable.installment, payable.totalInstallments, payable.paymentMethodName)}</span>}
+                      {payable.paymentMethodName && <span>{payable.paymentMethodName}</span>}
+                      {payable.sourceType === "CARD_STATEMENT" && (
+                        <span className="source-badge source-card-statement">Fatura cartão</span>
+                      )}
+                      {payable.sourceType === "LEGACY_CREDIT_CARD" && (
+                        <span className="source-badge source-legacy">Cartão legado</span>
+                      )}
+                      {payable.sourceType === "SUPPLIER_CYCLE" && (
+                        <span className="source-badge source-supplier-cycle">Ciclo fornecedor</span>
+                      )}
+                    </>
                   )}
                   {(payable.paymentNotes ?? payable.notes) && (
                     <span className="pr-notes" title={payable.paymentNotes ?? payable.notes ?? ""}>
@@ -629,7 +698,7 @@ export function Payables({ user }: PayablesProps) {
                     </button>
                   )}
                   {canManage && ["PAID", "PAID_LATE"].includes(payable.status) && (
-                    <button className="secondary-button compact-action" type="button" onClick={() => submitReverse(payable)}>
+                    <button className="secondary-button compact-action" type="button" onClick={() => openReverse(payable)}>
                       <RotateCcw size={14} /> Estornar
                     </button>
                   )}
@@ -669,10 +738,21 @@ export function Payables({ user }: PayablesProps) {
             {/* Contexto do título */}
             <div className="pay-ctx">
               <div className="pay-ctx-row">
-                <div><span>Fornecedor</span><strong>{paying.supplierName}</strong></div>
-                {paying.invoiceNumber && <div><span>NF</span><strong>{paying.invoiceNumber}</strong></div>}
-                {paying.purchaseNumber && <div><span>Pedido</span><strong>{paying.purchaseNumber}</strong></div>}
-                {paying.installment != null && <div><span>Parcela</span><strong>{formatInstallment(paying.installment, paying.totalInstallments, paying.paymentMethodName)}</strong></div>}
+                {isTaxPayment(paying) ? (
+                  <>
+                    <div><span>Tipo</span><strong>{paying.taxDocumentType ?? paying.supplierName}</strong></div>
+                    {paying.taxCompanyName && <div><span>Empresa</span><strong>{paying.taxCompanyName}</strong></div>}
+                    {paying.taxDescription && <div><span>Descrição</span><strong>{paying.taxDescription}</strong></div>}
+                    {paying.taxCompetenceDate && <div><span>Competência</span><strong>{formatDate(paying.taxCompetenceDate)}</strong></div>}
+                  </>
+                ) : (
+                  <>
+                    <div><span>Fornecedor</span><strong>{paying.supplierName}</strong></div>
+                    {paying.invoiceNumber && <div><span>NF</span><strong>{paying.invoiceNumber}</strong></div>}
+                    {paying.purchaseNumber && <div><span>Pedido</span><strong>{paying.purchaseNumber}</strong></div>}
+                    {paying.installment != null && <div><span>Parcela</span><strong>{formatInstallment(paying.installment, paying.totalInstallments, paying.paymentMethodName)}</strong></div>}
+                  </>
+                )}
                 <div><span>Vencimento</span><strong>{formatDate(paying.dueDate)}</strong></div>
                 <div><span>Valor original</span><strong className="pay-ctx-amount">{formatCurrency(paymentOriginalAmount)}</strong></div>
               </div>
@@ -690,22 +770,24 @@ export function Payables({ user }: PayablesProps) {
                 <input type="number" min="0.01" step="0.01" value={paymentForm.paidAmount}
                   onChange={(e) => setPaymentForm({ ...paymentForm, paidAmount: e.target.value })} />
               </label>
-              <label>
-                Forma de pagamento *
-                <select value={paymentForm.paidPaymentMethod}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, paidPaymentMethod: e.target.value })}>
-                  <option value="">Selecione</option>
-                  {effectivePaymentOptions.map((opt) => (
-                    <option key={opt.id} value={`id:${opt.id}`}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
+              {!isTaxPayment(paying) && (
+                <label>
+                  Forma de pagamento *
+                  <select value={paymentForm.paidPaymentMethod}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, paidPaymentMethod: e.target.value })}>
+                    <option value="">Selecione</option>
+                    {effectivePaymentOptions.map((opt) => (
+                      <option key={opt.id} value={`id:${opt.id}`}>{opt.label}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label>
                 Observação
                 <input value={paymentForm.paymentNotes}
                   onChange={(e) => setPaymentForm({ ...paymentForm, paymentNotes: e.target.value })} />
               </label>
-              {companies.length > 0 && (
+              {!isTaxPayment(paying) && companies.length > 0 && (
                 <label>
                   Empresa pagadora
                   <select value={paymentForm.payingCompanyId}
@@ -715,7 +797,7 @@ export function Payables({ user }: PayablesProps) {
                   </select>
                 </label>
               )}
-              {paymentForm.payingCompanyId && (
+              {!isTaxPayment(paying) && paymentForm.payingCompanyId && (
                 <label>
                   Conta bancária
                   <select value={paymentForm.companyBankAccountId}
@@ -727,8 +809,8 @@ export function Payables({ user }: PayablesProps) {
               )}
             </div>
 
-            {/* Resumo de diferença */}
-            {paymentPaidAmount > 0 && (
+            {/* Resumo de diferença — apenas para compras */}
+            {!isTaxPayment(paying) && paymentPaidAmount > 0 && (
               <div className="pay-diff">
                 {Math.abs(paymentDifference) <= 0.009 ? (
                   <span className="pay-diff-equal">Sem diferença em relação ao valor original</span>
@@ -740,8 +822,8 @@ export function Payables({ user }: PayablesProps) {
               </div>
             )}
 
-            {/* Justificativa da diferença */}
-            {Math.abs(paymentDifference) > 0.009 && (
+            {/* Justificativa da diferença — apenas para compras */}
+            {!isTaxPayment(paying) && Math.abs(paymentDifference) > 0.009 && (
               <label className="pay-diff-reason">
                 Justificativa da diferença *
                 <input
@@ -754,14 +836,20 @@ export function Payables({ user }: PayablesProps) {
 
             {/* Frase de confirmação */}
             <p className="pay-confirm-phrase">
-              Você está baixando{paying.installment != null ? ` a parcela ${formatInstallment(paying.installment, paying.totalInstallments, paying.paymentMethodName)}` : ""}
-              {paying.invoiceNumber
-                ? ` da NF ${paying.invoiceNumber}`
-                : paying.purchaseNumber
-                  ? ` do pedido ${paying.purchaseNumber}`
-                  : ""}
-              {" "}no valor de{" "}
-              <strong>{paymentPaidAmount > 0 ? formatCurrency(paymentPaidAmount) : formatCurrency(paymentOriginalAmount)}</strong>.
+              {isTaxPayment(paying) ? (
+                <>Você está baixando <strong>{paying.taxDocumentType ?? paying.supplierName}</strong> no valor de{" "}<strong>{paymentPaidAmount > 0 ? formatCurrency(paymentPaidAmount) : formatCurrency(paymentOriginalAmount)}</strong>.</>
+              ) : (
+                <>
+                  Você está baixando{paying.installment != null ? ` a parcela ${formatInstallment(paying.installment, paying.totalInstallments, paying.paymentMethodName)}` : ""}
+                  {paying.invoiceNumber
+                    ? ` da NF ${paying.invoiceNumber}`
+                    : paying.purchaseNumber
+                      ? ` do pedido ${paying.purchaseNumber}`
+                      : ""}
+                  {" "}no valor de{" "}
+                  <strong>{paymentPaidAmount > 0 ? formatCurrency(paymentPaidAmount) : formatCurrency(paymentOriginalAmount)}</strong>.
+                </>
+              )}
             </p>
 
             <div className="modal-actions">
@@ -770,6 +858,81 @@ export function Payables({ user }: PayablesProps) {
                 <CheckCircle2 size={16} /> Confirmar baixa
               </button>
             </div>
+          </section>
+        </div>
+      )}
+
+      {/* ── Modal: Ver imposto ───────────────────────────────────── */}
+      {!detail && selectedPayable && isTaxPayment(selectedPayable) && (
+        <div className="modal-backdrop">
+          <section className="panel modal-panel wide-modal">
+            <div className="section-heading">
+              <div>
+                <p>Imposto / Guia</p>
+                <h2>{selectedPayable.taxDocumentType ?? selectedPayable.supplierName}</h2>
+              </div>
+              <button className="secondary-button" type="button"
+                onClick={() => { setSelectedPayable(null); setHistoryRows([]); }}>
+                <X size={16} /> Fechar
+              </button>
+            </div>
+
+            <div className="modal-section">
+              <p className="modal-section-title">Detalhes</p>
+              <div className="summary-columns">
+                <div>
+                  <h3>Identificação</h3>
+                  {selectedPayable.taxDocumentType && <p>Tipo: <strong>{selectedPayable.taxDocumentType}</strong></p>}
+                  {selectedPayable.taxDescription && <p>Descrição: <strong>{selectedPayable.taxDescription}</strong></p>}
+                  {selectedPayable.taxDreCategoryName && <p>Categoria DRE: <strong>{selectedPayable.taxDreCategoryName}</strong></p>}
+                  <p>
+                    <span className={`status-badge ${selectedPayable.status.toLowerCase()}`}>
+                      {statusLabels[selectedPayable.status] ?? selectedPayable.status}
+                    </span>
+                  </p>
+                </div>
+                <div>
+                  <h3>Empresa</h3>
+                  {selectedPayable.taxCompanyName && <p>Nome: <strong>{selectedPayable.taxCompanyName}</strong></p>}
+                  {selectedPayable.taxCnpj && <p>CNPJ: <strong>{selectedPayable.taxCnpj}</strong></p>}
+                </div>
+                <div>
+                  <h3>Datas e valores</h3>
+                  {selectedPayable.taxCompetenceDate && <p>Competência: <strong>{formatDate(selectedPayable.taxCompetenceDate)}</strong></p>}
+                  <p>Vencimento: <strong>{formatDate(selectedPayable.dueDate)}</strong></p>
+                  <p>Valor: <strong>{formatCurrency(Number(selectedPayable.amount ?? 0))}</strong></p>
+                  {selectedPayable.paidDate && <p>Pago em: <strong>{formatDate(selectedPayable.paidDate)}</strong></p>}
+                  {selectedPayable.paidAmount && <p>Valor pago: <strong>{formatCurrency(Number(selectedPayable.paidAmount))}</strong></p>}
+                </div>
+              </div>
+            </div>
+
+            {selectedPayable.paymentNotes && (
+              <div className="modal-section">
+                <p className="modal-section-title">Observações</p>
+                <p>{selectedPayable.paymentNotes}</p>
+              </div>
+            )}
+
+            {historyRows.length > 0 && (
+              <div className="modal-section">
+                <p className="modal-section-title">Histórico</p>
+                <div className="table-wrap">
+                  <table>
+                    <thead><tr><th>Data</th><th>Usuário</th><th>Ação</th></tr></thead>
+                    <tbody>
+                      {historyRows.map((a) => (
+                        <tr key={a.id}>
+                          <td>{formatDate(a.createdAt)}</td>
+                          <td>{a.userName ?? "-"}</td>
+                          <td>{a.action}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </section>
         </div>
       )}
@@ -927,6 +1090,71 @@ export function Payables({ user }: PayablesProps) {
                 </table>
               </div>
             </details>
+          </section>
+        </div>
+      )}
+
+      {/* ── Modal: Reversão com motivo ──────────────────────────── */}
+      {reversing && (
+        <div className="modal-backdrop">
+          <section className="panel modal-panel" style={{ maxWidth: 480 }}>
+            <div className="section-heading">
+              <div>
+                <p>Estorno de pagamento</p>
+                <h2>
+                  {isTaxPayment(reversing)
+                    ? (reversing.taxDocumentType ?? reversing.supplierName)
+                    : reversing.supplierName}
+                </h2>
+              </div>
+              <button className="secondary-button" type="button" onClick={() => setReversing(null)}>
+                <X size={16} /> Fechar
+              </button>
+            </div>
+
+            <Notice notice={notice} />
+
+            <div className="pay-ctx" style={{ marginBottom: 16 }}>
+              <div className="pay-ctx-row">
+                {isTaxPayment(reversing) ? (
+                  <>
+                    {reversing.taxCompanyName && <div><span>Empresa</span><strong>{reversing.taxCompanyName}</strong></div>}
+                    {reversing.taxCompetenceDate && <div><span>Competência</span><strong>{formatDate(reversing.taxCompetenceDate)}</strong></div>}
+                  </>
+                ) : (
+                  <>
+                    {reversing.invoiceNumber && <div><span>NF</span><strong>{reversing.invoiceNumber}</strong></div>}
+                    {reversing.installment != null && <div><span>Parcela</span><strong>{formatInstallment(reversing.installment, reversing.totalInstallments, reversing.paymentMethodName)}</strong></div>}
+                  </>
+                )}
+                <div><span>Valor pago</span><strong>{formatCurrency(Number(reversing.paidAmount ?? reversing.amount ?? 0))}</strong></div>
+                <div><span>Data pagto.</span><strong>{formatDate(reversing.paidDate)}</strong></div>
+              </div>
+            </div>
+
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>Motivo da reversão *</span>
+              <textarea
+                rows={3}
+                style={{ resize: "vertical", fontSize: "0.9rem" }}
+                placeholder="Descreva o motivo do estorno..."
+                value={reverseReason}
+                onChange={(e) => setReverseReason(e.target.value)}
+                autoFocus
+              />
+            </label>
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button className="secondary-button" type="button" onClick={() => setReversing(null)}>Cancelar</button>
+              <button
+                className="primary-button danger"
+                type="button"
+                disabled={!reverseReason.trim()}
+                onClick={() => void submitReverse()}
+              >
+                <RotateCcw size={16} /> Confirmar estorno
+              </button>
+            </div>
           </section>
         </div>
       )}

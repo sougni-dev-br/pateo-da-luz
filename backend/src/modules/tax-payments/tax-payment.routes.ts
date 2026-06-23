@@ -356,6 +356,9 @@ taxPaymentRouter.patch("/:id/reverse", async (request, response) => {
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
 
   const { id } = request.params;
+  const reason = typeof request.body?.reason === "string" ? request.body.reason.trim() : null;
+  if (!reason) return response.status(400).json({ message: "Motivo da reversão é obrigatório." });
+
   const existing = await prisma.taxPayment.findFirst({ where: { id, deletedAt: null } });
   if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
 
@@ -382,7 +385,7 @@ taxPaymentRouter.patch("/:id/reverse", async (request, response) => {
     entity: "TaxPayment",
     entityId: id,
     previousValue: existing,
-    newValue: updated,
+    newValue: { ...updated, reverseReason: reason },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? ""),
   });
