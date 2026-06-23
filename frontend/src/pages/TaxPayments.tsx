@@ -1,4 +1,4 @@
-import { Plus, Search, Upload, X } from "lucide-react";
+import { Copy, Plus, Search, Upload, X } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   type AppUser,
@@ -263,20 +263,21 @@ const EMPTY_FORM: FormData = {
 
 type EditModalProps = {
   editId: string | null;
+  prefillData?: Partial<FormData>;
   onClose: () => void;
   onSaved: () => void;
   notify: React.Dispatch<React.SetStateAction<NoticeState | null>>;
   canEdit: boolean;
 };
 
-function EditModal({ editId, onClose, onSaved, notify, canEdit }: EditModalProps) {
+function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: EditModalProps) {
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [detail, setDetail] = useState<TaxPaymentDetail | null>(null);
 
   useEffect(() => {
-    if (!editId) { setForm(EMPTY_FORM); return; }
+    if (!editId) { setForm(prefillData ? { ...EMPTY_FORM, ...prefillData } : EMPTY_FORM); return; }
     setLoading(true);
     getTaxPayment(editId)
       .then((d) => {
@@ -351,7 +352,7 @@ function EditModal({ editId, onClose, onSaved, notify, canEdit }: EditModalProps
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-card" style={{ maxWidth: 600, width: "100%" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{editId ? "Editar lançamento" : "Novo lançamento"}</h2>
+          <h2>{editId ? "Editar lançamento" : prefillData ? "Copiar lançamento" : "Novo lançamento"}</h2>
           <button type="button" className="modal-close" onClick={onClose}><X size={18} /></button>
         </div>
 
@@ -473,6 +474,7 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
   const [dueEnd, setDueEnd] = useState("");
 
   const [editId, setEditId] = useState<string | null | "new">(null);
+  const [copyPrefill, setCopyPrefill] = useState<Partial<FormData> | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
@@ -519,6 +521,30 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
       setNotice({ tone: "error", message: err instanceof Error ? err.message : "Erro ao remover." });
     } finally {
       setDeleteConfirmId(null);
+    }
+  }
+
+  async function openCopy(tp: TaxPayment) {
+    try {
+      const d = await getTaxPayment(tp.id);
+      setCopyPrefill({
+        cnpj: d.cnpj ?? "",
+        legalName: d.legalName ?? "",
+        tradeName: d.tradeName ?? "",
+        documentType: d.documentType,
+        description: d.description ?? "",
+        amount: d.amount,
+        comments: d.comments ?? "",
+        dreCategoryId: d.dreCategoryId ?? "",
+        competenceDate: "",
+        dueDate: "",
+        paymentDate: "",
+        paidAmount: "",
+        status: "PENDING",
+      });
+      setEditId("new");
+    } catch {
+      setNotice({ tone: "error", message: "Erro ao carregar lançamento para cópia." });
     }
   }
 
@@ -635,6 +661,11 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
                           <button type="button" className="action-button" onClick={() => setEditId(tp.id)}>
                             {canEdit ? "Editar" : "Ver"}
                           </button>
+                          {canEdit && (
+                            <button type="button" className="action-button" title="Copiar lançamento" onClick={() => void openCopy(tp)}>
+                              <Copy size={13} />
+                            </button>
+                          )}
                           {canDelete && (
                             <button type="button" className="action-button danger" onClick={() => setDeleteConfirmId(tp.id)}>
                               Excluir
@@ -703,6 +734,11 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
                 <button type="button" className="action-button" onClick={() => setEditId(tp.id)}>
                   {canEdit ? "Editar" : "Ver"}
                 </button>
+                {canEdit && (
+                  <button type="button" className="action-button" title="Copiar lançamento" onClick={() => void openCopy(tp)}>
+                    <Copy size={13} />
+                  </button>
+                )}
                 {canDelete && (
                   <button type="button" className="action-button danger" onClick={() => setDeleteConfirmId(tp.id)}>
                     Excluir
@@ -718,8 +754,9 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
       {editId != null && (
         <EditModal
           editId={editId === "new" ? null : editId}
-          onClose={() => setEditId(null)}
-          onSaved={() => void load(filters)}
+          prefillData={copyPrefill ?? undefined}
+          onClose={() => { setEditId(null); setCopyPrefill(null); }}
+          onSaved={() => { void load(filters); setCopyPrefill(null); }}
           notify={setNotice}
           canEdit={canEdit || canCreate}
         />

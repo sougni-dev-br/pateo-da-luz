@@ -1,4 +1,4 @@
-import { CheckCircle2, Eye, Plus, Search, Trash2, X } from "lucide-react";
+import { CheckCircle2, Copy, Eye, Plus, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AppUser,
@@ -96,6 +96,35 @@ export function Requisitions({ user }: { user: AppUser }) {
 
   function loadRequisitions() {
     getRequisitions().then(setRequisitions).catch(() => {});
+  }
+
+  async function duplicateRequisition(id: string) {
+    try {
+      const req = await getRequisition(id);
+      setForm({
+        date: todayIso(),
+        shift: req.shift as RequisitionShift,
+        reason: req.reason as RequisitionReason,
+        reasonNotes: req.reasonNotes ?? "",
+        sectorId: req.sectorId ?? "",
+        notes: req.notes ?? "",
+      });
+      setItems((req.items ?? [])
+        .filter((i) => i.productId)
+        .map((i) => ({
+          productId: i.productId!,
+          productName: i.productName,
+          productCode: i.productCode,
+          unit: i.unit ?? "UN",
+          quantity: String(i.quantity),
+          currentStock: stockMap.get(i.productId!) ?? null,
+        }))
+      );
+      setConfirmedRequisition(null);
+      setView("form");
+    } catch {
+      setNotice({ tone: "error", message: "Erro ao duplicar requisicao." });
+    }
   }
 
   function handleProductSearchChange(value: string) {
@@ -518,6 +547,15 @@ export function Requisitions({ user }: { user: AppUser }) {
                     >
                       <Eye size={14} />
                       Ver
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      title="Duplicar esta requisicao"
+                      onClick={() => void duplicateRequisition(req.id)}
+                    >
+                      <Copy size={14} />
+                      Duplicar
                     </button>
                   </td>
                 </tr>
