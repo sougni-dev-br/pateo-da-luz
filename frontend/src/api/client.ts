@@ -1241,7 +1241,7 @@ export type CreateRequisitionPayload = {
 };
 
 export function getRequisitions(filters?: { startDate?: string; endDate?: string; sectorId?: string; shift?: string; clientRequestId?: string }) {
-  return request<InventoryRequisition[]>(`/inventory/requisitions${toQueryString(filters)}`);
+  return request<InventoryRequisition[]>(`/inventory/requisitions${toQueryString(filters)}`, undefined, 30_000);
 }
 
 export function getRequisition(id: string) {

@@ -2696,18 +2696,16 @@ inventoryRouter.get("/requisitions", async (request, response) => {
       r.*,
       u."name" AS "requestedByName",
       sec."name" AS "sectorName",
-      COUNT(i."id") AS "itemCount"
+      (SELECT COUNT(*) FROM "InventoryRequisitionItem" WHERE "requisitionId" = r."id") AS "itemCount"
     FROM "InventoryRequisition" r
     LEFT JOIN "User" u ON u."id" = r."requestedByUserId"
     LEFT JOIN "InventorySector" sec ON sec."id" = r."sectorId"
-    LEFT JOIN "InventoryRequisitionItem" i ON i."requisitionId" = r."id"
     WHERE r."status" != 'CANCELLED'
       AND (${startDate} IS NULL OR r."date" >= ${startDate})
       AND (${endDate} IS NULL OR r."date" <= ${endDate})
       AND (${sectorId} IS NULL OR r."sectorId" = ${sectorId})
       AND (${shift} IS NULL OR r."shift" = ${shift})
       AND (${requestedBy} IS NULL OR r."requestedByUserId" = ${requestedBy})
-    GROUP BY r."id", u."name", sec."name"
     ORDER BY r."date" DESC, r."createdAt" DESC
     LIMIT 200
   `;

@@ -630,6 +630,7 @@ export function Requisitions({ user }: { user: AppUser }) {
               description="As retiradas de insumos aparecero aqui apos serem registradas."
             />
           ) : (
+            <>
             <div className="table-wrap req-history-table">
               <table>
                 <thead>
@@ -678,16 +679,9 @@ export function Requisitions({ user }: { user: AppUser }) {
                 </tbody>
               </table>
             </div>
-          )}
 
           {/* Cards mobile */}
           <div className="mobile-cards">
-            {requisitions.length === 0 && (
-              <EmptyState
-                title="Nenhuma requisicao registrada"
-                description="As retiradas de insumos aparecero aqui apos serem registradas."
-              />
-            )}
             {requisitions.map((req) => (
               <div key={req.id} className="mobile-card">
                 <div className="mobile-card-header">
@@ -738,6 +732,8 @@ export function Requisitions({ user }: { user: AppUser }) {
               </div>
             ))}
           </div>
+          </>
+          )}
         </div>
       )}
 
