@@ -462,6 +462,8 @@ purchaseRouter.get("/payables", async (request, response) => {
   const paymentMethodId = request.query.paymentMethodId ? String(request.query.paymentMethodId) : null;
   const status = request.query.status ? String(request.query.status).toUpperCase() : null;
   const noDueDate = request.query.noDueDate === "true";
+  // "all" | "purchases" | "taxes"
+  const origin = String(request.query.origin ?? "all");
   const computedStatus = payableStatusSql(startToday);
 
   let startDate: Date | null = null;
@@ -486,64 +488,147 @@ purchaseRouter.get("/payables", async (request, response) => {
     endDate = customRange.endDate;
   }
 
-  const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-    SELECT
-      pi."id",
-      pi."purchaseId",
-      pi."dueDate",
-      pi."paidDate",
-      pi."amount"::text AS "amount",
-      pi."paidAmount"::text AS "paidAmount",
-      pi."installment",
-      COUNT(*) OVER (PARTITION BY pi."purchaseId")::int AS "totalInstallments",
-      pi."paymentMethodId",
-      COALESCE(pi."paymentMethodName", pm."name", p."paymentMethod") AS "paymentMethodName",
-      pi."paidPaymentMethodId",
-      COALESCE(pi."paidPaymentMethodName", ppm."name") AS "paidPaymentMethodName",
-      pi."paymentNotes",
-      pi."sourceType",
-      ${computedStatus} AS "status",
-      pi."rawValue",
-      s."id" AS "supplierId",
-      s."name" AS "supplierName",
-      p."purchaseNumber",
-      p."invoiceNumber",
-      p."purchaseDate",
-      p."rawRow"->>'notes' AS "notes"
-    FROM "PaymentInstallment" pi
-    JOIN "Purchase" p ON p."id" = pi."purchaseId"
-    JOIN "Supplier" s ON s."id" = p."supplierId"
-    LEFT JOIN "PaymentMethod" pm ON pm."id" = pi."paymentMethodId"
-    LEFT JOIN "PaymentMethod" ppm ON ppm."id" = pi."paidPaymentMethodId"
-    WHERE ${supplierId ? Prisma.sql`s."id" = ${supplierId}` : Prisma.sql`true`}
-      AND ${paymentMethodId ? Prisma.sql`
-        EXISTS (
-          SELECT 1 FROM "PaymentMethod" ref WHERE ref."id" = ${paymentMethodId}
-          AND (
-            (pm."group" = ref."group" AND pm."type" = ref."type")
-            OR (ref."type" = 'CREDIT_CARD' AND pi."sourceType" IN ('CARD_STATEMENT', 'LEGACY_CREDIT_CARD'))
-          )
-        )
-      ` : Prisma.sql`true`}
-      AND ${noDueDate ? Prisma.sql`pi."dueDate" IS NULL` : Prisma.sql`true`}
-      AND ${!noDueDate && startDate ? Prisma.sql`pi."dueDate" >= ${startDate}` : Prisma.sql`true`}
-      AND ${!noDueDate && endDate ? Prisma.sql`pi."dueDate" < ${endDate}` : Prisma.sql`true`}
-      AND ${status ? Prisma.sql`
-        ${computedStatus} = ${status}
-      ` : Prisma.sql`true`}
-    ORDER BY pi."dueDate" NULLS LAST, s."name", p."purchaseNumber", pi."installment"
-    LIMIT 500
-  `;
+  const includePurchases = origin !== "taxes";
+  // TaxPayments don't have supplier/paymentMethod — skip when those filters are active
+  const includeTaxes = origin !== "purchases" && !supplierId && !paymentMethodId;
 
-  response.json(
-    rows.map((row) => ({
-      ...row,
-      paymentMethodName: getManualPaymentMethodDisplayName(
-        String(row.paymentMethodName ?? ""),
-        Number(row.totalInstallments ?? 1)
-      )
-    }))
-  );
+  // ── Purchase installments ──────────────────────────────────────────────────
+  const purchaseRows = includePurchases
+    ? await prisma.$queryRaw<Array<Record<string, unknown>>>`
+        SELECT
+          pi."id",
+          pi."purchaseId",
+          pi."dueDate",
+          pi."paidDate",
+          pi."amount"::text AS "amount",
+          pi."paidAmount"::text AS "paidAmount",
+          pi."installment",
+          COUNT(*) OVER (PARTITION BY pi."purchaseId")::int AS "totalInstallments",
+          pi."paymentMethodId",
+          COALESCE(pi."paymentMethodName", pm."name", p."paymentMethod") AS "paymentMethodName",
+          pi."paidPaymentMethodId",
+          COALESCE(pi."paidPaymentMethodName", ppm."name") AS "paidPaymentMethodName",
+          pi."paymentNotes",
+          COALESCE(pi."sourceType", 'DIRECT') AS "sourceType",
+          ${computedStatus} AS "status",
+          pi."rawValue",
+          s."id" AS "supplierId",
+          s."name" AS "supplierName",
+          p."purchaseNumber",
+          p."invoiceNumber",
+          p."purchaseDate",
+          p."rawRow"->>'notes' AS "notes",
+          NULL::text AS "taxDocumentType",
+          NULL::text AS "taxDescription",
+          NULL::text AS "taxCompanyName",
+          NULL::text AS "taxCnpj",
+          NULL::timestamp AS "taxCompetenceDate",
+          NULL::text AS "taxDreCategoryName"
+        FROM "PaymentInstallment" pi
+        JOIN "Purchase" p ON p."id" = pi."purchaseId"
+        JOIN "Supplier" s ON s."id" = p."supplierId"
+        LEFT JOIN "PaymentMethod" pm ON pm."id" = pi."paymentMethodId"
+        LEFT JOIN "PaymentMethod" ppm ON ppm."id" = pi."paidPaymentMethodId"
+        WHERE ${supplierId ? Prisma.sql`s."id" = ${supplierId}` : Prisma.sql`true`}
+          AND ${paymentMethodId ? Prisma.sql`
+            EXISTS (
+              SELECT 1 FROM "PaymentMethod" ref WHERE ref."id" = ${paymentMethodId}
+              AND (
+                (pm."group" = ref."group" AND pm."type" = ref."type")
+                OR (ref."type" = 'CREDIT_CARD' AND pi."sourceType" IN ('CARD_STATEMENT', 'LEGACY_CREDIT_CARD'))
+              )
+            )
+          ` : Prisma.sql`true`}
+          AND ${noDueDate ? Prisma.sql`pi."dueDate" IS NULL` : Prisma.sql`true`}
+          AND ${!noDueDate && startDate ? Prisma.sql`pi."dueDate" >= ${startDate}` : Prisma.sql`true`}
+          AND ${!noDueDate && endDate ? Prisma.sql`pi."dueDate" < ${endDate}` : Prisma.sql`true`}
+          AND ${status ? Prisma.sql`${computedStatus} = ${status}` : Prisma.sql`true`}
+        ORDER BY pi."dueDate" NULLS LAST, s."name", p."purchaseNumber", pi."installment"
+        LIMIT 400
+      `
+    : ([] as Array<Record<string, unknown>>);
+
+  // ── Tax payments ───────────────────────────────────────────────────────────
+  const taxStatusExpr = Prisma.sql`
+    CASE
+      WHEN tp."paymentDate" IS NOT NULL THEN 'PAID'
+      WHEN tp."dueDate" IS NOT NULL AND tp."dueDate" < ${startToday} THEN 'OVERDUE'
+      ELSE 'OPEN'
+    END
+  `;
+  const taxStatusFilter = !status
+    ? Prisma.sql`true`
+    : status === "OPEN"
+      ? Prisma.sql`tp."paymentDate" IS NULL AND (tp."dueDate" IS NULL OR tp."dueDate" >= ${startToday})`
+      : status === "PAID" || status === "PAID_LATE"
+        ? Prisma.sql`tp."paymentDate" IS NOT NULL`
+        : status === "OVERDUE"
+          ? Prisma.sql`tp."paymentDate" IS NULL AND tp."dueDate" IS NOT NULL AND tp."dueDate" < ${startToday}`
+          : status === "CANCELLED"
+            ? Prisma.sql`tp."status" = 'CANCELED'`
+            : Prisma.sql`false`;
+
+  const taxRows = includeTaxes
+    ? await prisma.$queryRaw<Array<Record<string, unknown>>>`
+        SELECT
+          tp."id",
+          NULL::text AS "purchaseId",
+          tp."dueDate",
+          tp."paymentDate" AS "paidDate",
+          tp."amount"::text AS "amount",
+          tp."paidAmount"::text AS "paidAmount",
+          NULL::int AS "installment",
+          NULL::int AS "totalInstallments",
+          NULL::text AS "paymentMethodId",
+          NULL::text AS "paymentMethodName",
+          NULL::text AS "paidPaymentMethodId",
+          NULL::text AS "paidPaymentMethodName",
+          tp."comments" AS "paymentNotes",
+          'TAX_PAYMENT' AS "sourceType",
+          ${taxStatusExpr} AS "status",
+          NULL::text AS "rawValue",
+          NULL::text AS "supplierId",
+          COALESCE(tp."documentType", 'Imposto / Guia') AS "supplierName",
+          NULL::text AS "purchaseNumber",
+          NULL::text AS "invoiceNumber",
+          NULL::timestamp AS "purchaseDate",
+          tp."description" AS "notes",
+          tp."documentType" AS "taxDocumentType",
+          tp."description" AS "taxDescription",
+          COALESCE(tp."tradeName", tp."legalName", tp."cnpj") AS "taxCompanyName",
+          tp."cnpj" AS "taxCnpj",
+          tp."competenceDate" AS "taxCompetenceDate",
+          dc."name" AS "taxDreCategoryName"
+        FROM "TaxPayment" tp
+        LEFT JOIN "DRECategory" dc ON dc."id" = tp."dreCategoryId"
+        WHERE tp."deletedAt" IS NULL
+          AND ${noDueDate ? Prisma.sql`tp."dueDate" IS NULL` : Prisma.sql`true`}
+          AND ${!noDueDate && startDate ? Prisma.sql`tp."dueDate" >= ${startDate}` : Prisma.sql`true`}
+          AND ${!noDueDate && endDate ? Prisma.sql`tp."dueDate" < ${endDate}` : Prisma.sql`true`}
+          AND ${taxStatusFilter}
+        ORDER BY tp."dueDate" NULLS LAST
+        LIMIT 400
+      `
+    : ([] as Array<Record<string, unknown>>);
+
+  // ── Merge & sort ───────────────────────────────────────────────────────────
+  const purchaseMapped = purchaseRows.map((row) => ({
+    ...row,
+    paymentMethodName: getManualPaymentMethodDisplayName(
+      String(row.paymentMethodName ?? ""),
+      Number(row.totalInstallments ?? 1)
+    )
+  }));
+
+  const allRows = [...purchaseMapped, ...taxRows];
+  allRows.sort((a, b) => {
+    const da = a.dueDate ? new Date(String(a.dueDate)).getTime() : Number.MAX_SAFE_INTEGER;
+    const db = b.dueDate ? new Date(String(b.dueDate)).getTime() : Number.MAX_SAFE_INTEGER;
+    if (da !== db) return da - db;
+    return String(a.supplierName ?? "").localeCompare(String(b.supplierName ?? ""));
+  });
+
+  response.json(allRows.slice(0, 500));
 });
 
 purchaseRouter.get("/reports/supplier-position.pdf", async (request, response) => {
