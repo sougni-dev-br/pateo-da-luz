@@ -223,7 +223,13 @@ export function Requisitions({ user }: { user: AppUser }) {
       }
       loadRequisitions();
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao registrar a requisicao." });
+      const isAborted = error instanceof DOMException && error.name === "AbortError";
+      setNotice({
+        tone: "error",
+        message: isAborted
+          ? "O servidor demorou para responder. A requisicao pode ter sido registrada — verifique no historico antes de tentar novamente."
+          : error instanceof Error ? error.message : "Erro ao registrar a requisicao."
+      });
     } finally {
       setSubmitting(false);
     }
@@ -513,58 +519,123 @@ export function Requisitions({ user }: { user: AppUser }) {
       )}
 
       {view === "list" && (
-        <div className="table-wrap subsection">
-          <h3>Historico de requisicoes</h3>
-          <p className="muted">Retiradas de insumos registradas do estoque.</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Codigo</th>
-                <th>Data</th>
-                <th>Turno</th>
-                <th>Setor</th>
-                <th>Motivo</th>
-                <th>Itens</th>
-                <th>Registrado por</th>
-                <th>Acoes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {requisitions.map((req) => (
-                <tr key={req.id}>
-                  <td><strong>{req.code}</strong></td>
-                  <td>{formatDate(req.date)}</td>
-                  <td><StatusBadge tone={shiftTone(req.shift)}>{shiftLabels[req.shift as RequisitionShift] ?? req.shift}</StatusBadge></td>
-                  <td>{req.sectorName ?? "—"}</td>
-                  <td>{reasonLabels[req.reason as RequisitionReason] ?? req.reason}</td>
-                  <td className="numeric-cell">{req.itemCount ?? "—"}</td>
-                  <td>{req.requestedByName ?? "—"}</td>
-                  <td className="actions-cell">
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() => { setDetailId(req.id); }}
-                    >
-                      <Eye size={14} />
-                      Ver
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      title="Duplicar esta requisicao"
-                      onClick={() => void duplicateRequisition(req.id)}
-                    >
-                      <Copy size={14} />
-                      Duplicar
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {requisitions.length === 0 && (
-                <tr><td colSpan={8}><EmptyState title="Nenhuma requisicao encontrada" description="As retiradas de insumos aparecero aqui apos serem registradas." /></td></tr>
-              )}
-            </tbody>
-          </table>
+        <div className="form-section">
+          <div className="section-heading compact-heading">
+            <div>
+              <p>Insumos</p>
+              <h3>Historico de requisicoes</h3>
+              <span className="muted">Retiradas de insumos registradas do estoque.</span>
+            </div>
+          </div>
+
+          {/* Tabela desktop */}
+          <div className="table-wrap" style={{ marginTop: 12 }}>
+            {requisitions.length === 0 ? (
+              <EmptyState title="Nenhuma requisicao encontrada" description="As retiradas de insumos aparecero aqui apos serem registradas." />
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Codigo</th>
+                    <th>Data</th>
+                    <th>Turno</th>
+                    <th>Setor</th>
+                    <th>Motivo</th>
+                    <th className="numeric-cell">Itens</th>
+                    <th>Registrado por</th>
+                    <th>Acoes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {requisitions.map((req) => (
+                    <tr key={req.id}>
+                      <td><strong>{req.code}</strong></td>
+                      <td>{formatDate(req.date)}</td>
+                      <td><StatusBadge tone={shiftTone(req.shift)}>{shiftLabels[req.shift as RequisitionShift] ?? req.shift}</StatusBadge></td>
+                      <td>{req.sectorName ?? "—"}</td>
+                      <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reasonLabels[req.reason as RequisitionReason] ?? req.reason}</td>
+                      <td className="numeric-cell">{req.itemCount ?? "—"}</td>
+                      <td>{req.requestedByName ?? "—"}</td>
+                      <td className="actions-cell">
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => { setDetailId(req.id); }}
+                        >
+                          <Eye size={14} />
+                          Ver
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          title="Duplicar esta requisicao"
+                          onClick={() => void duplicateRequisition(req.id)}
+                        >
+                          <Copy size={14} />
+                          Duplicar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Cards mobile */}
+          <div className="mobile-cards" style={{ marginTop: 8 }}>
+            {requisitions.length === 0 && (
+              <EmptyState title="Nenhuma requisicao encontrada" description="As retiradas de insumos aparecero aqui apos serem registradas." />
+            )}
+            {requisitions.map((req) => (
+              <div key={req.id} className="mobile-card">
+                <div className="mobile-card-header">
+                  <div style={{ minWidth: 0 }}>
+                    <strong style={{ fontSize: "0.85rem" }}>{req.code}</strong>
+                    <span style={{ display: "block", fontSize: "0.78rem", color: "var(--muted)", marginTop: 2 }}>{formatDate(req.date)}</span>
+                  </div>
+                  <StatusBadge tone={shiftTone(req.shift)}>{shiftLabels[req.shift as RequisitionShift] ?? req.shift}</StatusBadge>
+                </div>
+                <div className="mobile-card-body">
+                  <div className="mobile-card-row">
+                    <span>Setor</span>
+                    <strong>{req.sectorName ?? "—"}</strong>
+                  </div>
+                  <div className="mobile-card-row">
+                    <span>Motivo</span>
+                    <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55%" }}>{reasonLabels[req.reason as RequisitionReason] ?? req.reason}</strong>
+                  </div>
+                  <div className="mobile-card-row">
+                    <span>Itens</span>
+                    <strong>{req.itemCount ?? "—"}</strong>
+                  </div>
+                  {req.requestedByName && (
+                    <div className="mobile-card-row">
+                      <span>Por</span>
+                      <strong>{req.requestedByName}</strong>
+                    </div>
+                  )}
+                </div>
+                <div className="mobile-card-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => { setDetailId(req.id); }}
+                  >
+                    <Eye size={13} /> Ver
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    title="Duplicar esta requisicao"
+                    onClick={() => void duplicateRequisition(req.id)}
+                  >
+                    <Copy size={13} /> Duplicar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

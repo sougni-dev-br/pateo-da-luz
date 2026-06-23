@@ -1252,7 +1252,7 @@ export function createRequisition(payload: CreateRequisitionPayload) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
-  });
+  }, 30_000);
 }
 
 export type InventoryMovement = {
