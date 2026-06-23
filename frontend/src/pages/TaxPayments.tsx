@@ -554,6 +554,25 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
     <div className="stack">
       <Notice notice={notice} />
 
+      {/* Header */}
+      <div className="section-heading">
+        <div style={{ flex: 1 }}>
+          <p>Financeiro</p>
+          <h2>Impostos e Guias</h2>
+          <span className="muted">Controle de guias, tributos e obrigações fiscais.</span>
+        </div>
+        {canCreate && (
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexShrink: 0 }}>
+            <button type="button" className="secondary-button" onClick={() => setShowImport(true)}>
+              <Upload size={15} /> Importar XLSX
+            </button>
+            <button type="button" className="primary-button" onClick={() => setEditId("new")}>
+              <Plus size={15} /> Novo lançamento
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* KPI Cards */}
       {summary && (
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -565,53 +584,44 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
       )}
 
       {/* Filtros */}
-      <div className="filters-row">
+      <div className="purchase-filters-panel">
         <label className="filter-label">FILTROS</label>
-        <div className="filter-input-wrap">
-          <Search size={14} />
-          <input
-            type="text"
-            placeholder="Empresa, descrição, CNPJ..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") applyFilters(); }}
-          />
-        </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="filter-select">
-          <option value="">Todos os status</option>
-          {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
-        <select value={docTypeFilter} onChange={(e) => setDocTypeFilter(e.target.value)} className="filter-select">
-          <option value="">Todos os tipos</option>
-          {DOCUMENT_TYPES.map((dt) => <option key={dt} value={dt}>{dt}</option>)}
-        </select>
-        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Venc.</span>
-          <input type="date" value={dueStart} onChange={(e) => setDueStart(e.target.value)} className="filter-date" />
-          <span style={{ fontSize: "0.75rem" }}>–</span>
-          <input type="date" value={dueEnd} onChange={(e) => setDueEnd(e.target.value)} className="filter-date" />
-        </div>
-        <button type="button" className="primary-button" onClick={applyFilters}>Filtrar</button>
-        {hasFilters && (
-          <button type="button" className="secondary-button" onClick={clearFilters}>
-            <X size={14} /> Limpar
-          </button>
-        )}
-        <div style={{ flex: 1 }} />
-        {canCreate && (
-          <>
-            <button type="button" className="secondary-button" onClick={() => setShowImport(true)}>
-              <Upload size={16} /> Importar XLSX
+        <div className="purchase-filters-row">
+          <div className="filter-input-wrap" style={{ flex: 2, minWidth: 200 }}>
+            <Search size={14} />
+            <input
+              type="text"
+              placeholder="Empresa, descrição, CNPJ..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") applyFilters(); }}
+            />
+          </div>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="filter-select">
+            <option value="">Todos os status</option>
+            {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <select value={docTypeFilter} onChange={(e) => setDocTypeFilter(e.target.value)} className="filter-select">
+            <option value="">Todos os tipos</option>
+            {DOCUMENT_TYPES.map((dt) => <option key={dt} value={dt}>{dt}</option>)}
+          </select>
+          <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "nowrap" }}>
+            <span style={{ fontSize: "0.75rem", color: "var(--muted)", whiteSpace: "nowrap" }}>Venc.</span>
+            <input type="date" value={dueStart} onChange={(e) => setDueStart(e.target.value)} className="filter-date" />
+            <span style={{ fontSize: "0.75rem" }}>–</span>
+            <input type="date" value={dueEnd} onChange={(e) => setDueEnd(e.target.value)} className="filter-date" />
+          </div>
+          <button type="button" className="primary-button" onClick={applyFilters}>Filtrar</button>
+          {hasFilters && (
+            <button type="button" className="secondary-button" onClick={clearFilters}>
+              <X size={14} /> Limpar
             </button>
-            <button type="button" className="primary-button" onClick={() => setEditId("new")}>
-              <Plus size={16} /> Novo lançamento
-            </button>
-          </>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Tabela desktop */}
-      <div className="table-wrap">
+      <div className="table-wrap tax-table-desktop">
         {loadingList ? (
           <p style={{ padding: 16, color: "var(--text-secondary)" }}>Carregando...</p>
         ) : data.length === 0 ? (
@@ -628,9 +638,8 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Empresa</th>
-                  <th>CNPJ</th>
                   <th>Tipo</th>
+                  <th>Empresa</th>
                   <th>Descrição</th>
                   <th>Competência</th>
                   <th>Vencimento</th>
@@ -644,16 +653,18 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
                 {data.map((tp) => {
                   const effectiveStatus = computeEffectiveStatus(tp);
                   return (
-                    <tr key={tp.id}>
-                      <td>{tp.tradeName ?? tp.legalName ?? "—"}</td>
-                      <td style={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{formatCnpj(tp.cnpj)}</td>
-                      <td><strong>{tp.documentType}</strong></td>
-                      <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tp.description ?? "—"}</td>
+                    <tr key={tp.id} className={effectiveStatus === "OVERDUE" ? "overdue-row" : undefined}>
+                      <td><strong style={{ fontSize: "0.8rem" }}>{tp.documentType}</strong></td>
+                      <td>
+                        <span style={{ display: "block", fontWeight: 500 }}>{tp.tradeName ?? tp.legalName ?? "—"}</span>
+                        {tp.cnpj && <small style={{ color: "var(--muted)", fontFamily: "monospace", fontSize: "0.72rem" }}>{formatCnpj(tp.cnpj)}</small>}
+                      </td>
+                      <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tp.description ?? "—"}</td>
                       <td>{formatDate(tp.competenceDate)}</td>
                       <td style={{ color: effectiveStatus === "OVERDUE" ? "#ef4444" : undefined, fontWeight: effectiveStatus === "OVERDUE" ? 600 : undefined }}>
                         {formatDate(tp.dueDate)}
                       </td>
-                      <td style={{ textAlign: "right" }}>{formatCurrency(tp.amount)}</td>
+                      <td style={{ textAlign: "right", fontWeight: 600 }}>{formatCurrency(tp.amount)}</td>
                       <td>{tp.paymentDate ? formatDate(tp.paymentDate) : "—"}</td>
                       <td><StatusBadge status={effectiveStatus} /></td>
                       <td>
@@ -712,23 +723,52 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
 
       {/* Cards mobile */}
       <div className="mobile-cards">
+        {loadingList && <p style={{ color: "var(--muted)", fontSize: 13 }}>Carregando...</p>}
+        {!loadingList && data.length === 0 && (
+          <div className="empty-state">
+            <p>Nenhum lançamento encontrado.</p>
+            {canCreate && (
+              <button type="button" className="primary-button" onClick={() => setEditId("new")}>
+                <Plus size={16} /> Novo lançamento
+              </button>
+            )}
+          </div>
+        )}
         {data.map((tp) => {
           const effectiveStatus = computeEffectiveStatus(tp);
           return (
-            <div key={tp.id} className="mobile-card">
+            <div key={tp.id} className={`mobile-card${effectiveStatus === "OVERDUE" ? " overdue-card" : ""}`}>
               <div className="mobile-card-header">
-                <div>
-                  <strong>{tp.documentType}</strong>
-                  <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginLeft: 6 }}>{tp.tradeName ?? tp.legalName ?? "—"}</span>
+                <div style={{ minWidth: 0 }}>
+                  <strong style={{ fontSize: "0.85rem" }}>{tp.documentType}</strong>
+                  <span style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tp.tradeName ?? tp.legalName ?? "—"}</span>
                 </div>
-                <StatusBadge status={effectiveStatus} />
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+                  <strong style={{ fontSize: "1rem" }}>{formatCurrency(tp.amount)}</strong>
+                  <StatusBadge status={effectiveStatus} />
+                </div>
               </div>
               <div className="mobile-card-body">
-                {tp.description && <p style={{ fontSize: "0.85rem", margin: 0 }}>{tp.description}</p>}
-                <div style={{ display: "flex", gap: 16, fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: 4 }}>
-                  <span>Venc: <strong style={{ color: effectiveStatus === "OVERDUE" ? "#ef4444" : undefined }}>{formatDate(tp.dueDate)}</strong></span>
-                  <span>Valor: <strong>{formatCurrency(tp.amount)}</strong></span>
+                {tp.description && (
+                  <div className="mobile-card-row">
+                    <span>Descrição</span>
+                    <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55%" }}>{tp.description}</strong>
+                  </div>
+                )}
+                <div className="mobile-card-row">
+                  <span>Competência</span>
+                  <strong>{formatDate(tp.competenceDate)}</strong>
                 </div>
+                <div className="mobile-card-row">
+                  <span>Vencimento</span>
+                  <strong style={{ color: effectiveStatus === "OVERDUE" ? "#ef4444" : undefined }}>{formatDate(tp.dueDate)}</strong>
+                </div>
+                {tp.paymentDate && (
+                  <div className="mobile-card-row">
+                    <span>Pago em</span>
+                    <strong>{formatDate(tp.paymentDate)}</strong>
+                  </div>
+                )}
               </div>
               <div className="mobile-card-actions">
                 <button type="button" className="action-button" onClick={() => setEditId(tp.id)}>
