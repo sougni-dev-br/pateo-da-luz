@@ -620,12 +620,12 @@ purchaseRouter.get("/payables", async (request, response) => {
     )
   }));
 
-  const allRows = [...purchaseMapped, ...taxRows];
+  const allRows: Array<Record<string, unknown>> = [...purchaseMapped, ...taxRows];
   allRows.sort((a, b) => {
-    const da = a.dueDate ? new Date(String(a.dueDate)).getTime() : Number.MAX_SAFE_INTEGER;
-    const db = b.dueDate ? new Date(String(b.dueDate)).getTime() : Number.MAX_SAFE_INTEGER;
+    const da = a["dueDate"] ? new Date(String(a["dueDate"])).getTime() : Number.MAX_SAFE_INTEGER;
+    const db = b["dueDate"] ? new Date(String(b["dueDate"])).getTime() : Number.MAX_SAFE_INTEGER;
     if (da !== db) return da - db;
-    return String(a.supplierName ?? "").localeCompare(String(b.supplierName ?? ""));
+    return String(a["supplierName"] ?? "").localeCompare(String(b["supplierName"] ?? ""));
   });
 
   response.json(allRows.slice(0, 500));
