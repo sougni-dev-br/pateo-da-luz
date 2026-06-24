@@ -2701,11 +2701,11 @@ inventoryRouter.get("/requisitions", async (request, response) => {
     LEFT JOIN "User" u ON u."id" = r."requestedByUserId"
     LEFT JOIN "InventorySector" sec ON sec."id" = r."sectorId"
     WHERE r."status" != 'CANCELLED'
-      AND (${startDate} IS NULL OR r."date" >= ${startDate})
-      AND (${endDate} IS NULL OR r."date" <= ${endDate})
-      AND (${sectorId} IS NULL OR r."sectorId" = ${sectorId})
-      AND (${shift} IS NULL OR r."shift" = ${shift})
-      AND (${requestedBy} IS NULL OR r."requestedByUserId" = ${requestedBy})
+      AND (${startDate}::timestamp IS NULL OR r."date" >= ${startDate}::timestamp)
+      AND (${endDate}::timestamp IS NULL OR r."date" <= ${endDate}::timestamp)
+      AND (${sectorId}::text IS NULL OR r."sectorId" = ${sectorId}::text)
+      AND (${shift}::text IS NULL OR r."shift" = ${shift}::text)
+      AND (${requestedBy}::text IS NULL OR r."requestedByUserId" = ${requestedBy}::text)
     ORDER BY r."date" DESC, r."createdAt" DESC
     LIMIT 200
   `;
