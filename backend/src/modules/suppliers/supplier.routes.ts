@@ -95,6 +95,10 @@ supplierRouter.get("/", async (request, response) => {
   const search = request.query.search ? String(request.query.search) : undefined;
   const activeOnly = request.query.activeOnly === "true";
   const term = `%${search ?? ""}%`;
+  // Busca de documento por dígitos: ignora . / - do formato salvo (ex.: "17.847.991/0001-45").
+  // Quando o termo não tem dígitos, digitTerm = null e a condição de documento não casa nada.
+  const searchDigits = (search ?? "").replace(/\D/g, "");
+  const digitTerm = searchDigits ? `%${searchDigits}%` : null;
 
   const COLS = `"id", "externalCode", "document", "name", "normalizedName",
           "phone", "email", "contactName", "mainCategory",
@@ -114,7 +118,8 @@ supplierRouter.get("/", async (request, response) => {
              "registrationDate", "isActive", "notes",
              "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
       FROM "Supplier"
-      WHERE ("name" ILIKE ${term} OR "document" ILIKE ${term} OR "externalCode" ILIKE ${term} OR "normalizedName" ILIKE ${term})
+      WHERE ("name" ILIKE ${term} OR "document" ILIKE ${term} OR "externalCode" ILIKE ${term} OR "normalizedName" ILIKE ${term}
+             OR (${digitTerm}::text IS NOT NULL AND regexp_replace(COALESCE("document", ''), '[^0-9]', '', 'g') ILIKE ${digitTerm}))
         AND "isActive" = true
       ORDER BY "name" ASC`;
   } else if (search) {
@@ -127,6 +132,7 @@ supplierRouter.get("/", async (request, response) => {
              "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
       FROM "Supplier"
       WHERE "name" ILIKE ${term} OR "document" ILIKE ${term} OR "externalCode" ILIKE ${term} OR "normalizedName" ILIKE ${term}
+             OR (${digitTerm}::text IS NOT NULL AND regexp_replace(COALESCE("document", ''), '[^0-9]', '', 'g') ILIKE ${digitTerm})
       ORDER BY "name" ASC`;
   } else if (activeOnly) {
     suppliers = await prisma.$queryRaw<SupplierRow[]>`

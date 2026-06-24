@@ -511,11 +511,33 @@ export function Purchases({ user }: { user: AppUser }) {
 
   const filteredSupplierOptions = useMemo(() => {
     const query = normalize(supplierFilterQuery);
-    if (!query) return suppliers.slice(0, 12);
-    return suppliers.filter((supplier) => {
-      const haystack = [supplier.name, supplier.externalCode, supplier.document].map(normalize).join(" ");
-      return haystack.includes(query);
-    });
+    const queryDigits = supplierFilterQuery.replace(/\D/g, "");
+    // Sem busca: mostra a lista inteira de ativos (com fallback a uma prévia se a base crescer muito).
+    if (!query && !queryDigits) {
+      return suppliers.length <= 100 ? suppliers : suppliers.slice(0, 50);
+    }
+    // Com busca: pontua cada fornecedor por melhor correspondência (código exato → começa →
+    // nome começa → nome contém → CNPJ/CPF por dígitos → código contém) e ordena.
+    return suppliers
+      .map((supplier) => {
+        const code = normalize(supplier.externalCode);
+        const name = normalize(supplier.name);
+        const docDigits = (supplier.document ?? "").replace(/\D/g, "");
+        let rank = 99;
+        if (query) {
+          if (code && code === query) rank = 0;
+          else if (code && code.startsWith(query)) rank = 1;
+          else if (name.startsWith(query)) rank = 2;
+          else if (name.includes(query)) rank = 3;
+          else if (code && code.includes(query)) rank = 5;
+        }
+        // Documento: compara só dígitos, ignorando . / - do formato salvo.
+        if (queryDigits && docDigits.includes(queryDigits)) rank = Math.min(rank, 4);
+        return { supplier, rank };
+      })
+      .filter((entry) => entry.rank < 99)
+      .sort((a, b) => a.rank - b.rank || a.supplier.name.localeCompare(b.supplier.name))
+      .map((entry) => entry.supplier);
   }, [supplierFilterQuery, suppliers]);
 
   const supplierProductIds = useMemo(() => {
@@ -1395,7 +1417,7 @@ export function Purchases({ user }: { user: AppUser }) {
             </label>
             {supplierFilterOpen && (
               <div className="autocomplete-dropdown">
-                {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado.</div>}
+                {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado. Verifique o código, nome ou CNPJ.</div>}
                 {filteredSupplierOptions.map((supplier) => (
                   <button key={supplier.id} className="autocomplete-option" type="button" onClick={() => selectSupplier(supplier.id, "filter")}>
                     <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
@@ -1860,7 +1882,7 @@ export function Purchases({ user }: { user: AppUser }) {
                         <ChevronDown size={16} className="autocomplete-chevron" />
                         {supplierFilterOpen && (
                           <div className="autocomplete-dropdown">
-                            {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado.</div>}
+                            {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado. Verifique o código, nome ou CNPJ.</div>}
                             {filteredSupplierOptions.map((supplier) => (
                               <button key={supplier.id} className="autocomplete-option" type="button"
                                 onClick={() => { selectSupplier(supplier.id, "form"); setSupplierFilterOpen(false); }}>
