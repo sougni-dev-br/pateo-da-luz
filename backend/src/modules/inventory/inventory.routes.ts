@@ -2805,13 +2805,13 @@ inventoryRouter.post("/requisitions", async (request, response) => {
     prisma.$queryRaw<Array<{ id: string; name: string; externalCode: string | null; controlsStock: boolean; stockUnit: string | null; unit: string | null }>>`
       SELECT "id", "name", "externalCode", "controlsStock", "stockUnit", "unit"
       FROM "Product"
-      WHERE "id" = ANY(${productIds}::uuid[])
+      WHERE "id" = ANY(${productIds}::text[])
         AND "isActive" = true
     `,
     prisma.$queryRaw<Array<{ productId: string; currentQuantity: Prisma.Decimal }>>`
       SELECT "productId", "currentQuantity"
       FROM "InventoryStock"
-      WHERE "productId" = ANY(${productIds}::uuid[])
+      WHERE "productId" = ANY(${productIds}::text[])
     `
   ]);
 
