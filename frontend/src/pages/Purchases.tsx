@@ -532,7 +532,8 @@ export function Purchases({ user }: { user: AppUser }) {
           else if (code && code.includes(query)) rank = 5;
         }
         // Documento: compara só dígitos, ignorando . / - do formato salvo.
-        if (queryDigits && docDigits.includes(queryDigits)) rank = Math.min(rank, 4);
+        // Exige ≥4 dígitos para não poluir buscas por nome com dígito solto (ex.: "wp3").
+        if (queryDigits.length >= 4 && docDigits.includes(queryDigits)) rank = Math.min(rank, 4);
         return { supplier, rank };
       })
       .filter((entry) => entry.rank < 99)
