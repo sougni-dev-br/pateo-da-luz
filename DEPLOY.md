@@ -1,5 +1,17 @@
 # Pateo da Luz - Deploy Architecture
 
+> ## 🚫 REGRA OBRIGATÓRIA DE DEPLOY
+>
+> **Qualquer deploy em produção — seja backend (Render), frontend (SiteGround) ou
+> qualquer outro ambiente — só pode ser executado APÓS autorização explícita do
+> Eli/Pateo na conversa atual.**
+>
+> - Vale para `git push` que dispara auto-deploy no Render, upload SCP/SSH para o
+>   SiteGround, e qualquer outro mecanismo de publicação.
+> - Diagnóstico, `git fetch`, build local e rodar a aplicação localmente **não são
+>   deploy** e podem ser feitos livremente.
+> - Na dúvida, **pergunte antes**. Sem um "pode publicar" claro, não publique.
+
 ## Topologia
 
 ```
