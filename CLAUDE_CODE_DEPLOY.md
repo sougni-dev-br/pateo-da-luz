@@ -1,5 +1,13 @@
 # CMV Loja / Pateo da Luz - Deploy Guide
 
+> ## 🚫 REGRA OBRIGATÓRIA DE DEPLOY
+>
+> **Qualquer deploy em produção — backend (Render), frontend (SiteGround) ou
+> qualquer outro ambiente — só pode ser executado APÓS autorização explícita do
+> Eli/Pateo na conversa atual.** Isso inclui `git push` que dispara auto-deploy no
+> Render e qualquer upload para o SiteGround. Build e execução local não são deploy.
+> Na dúvida, pergunte antes.
+
 Este documento consolida o estado atual do sistema para deploy, manutencao e continuidade no Claude Code.
 
 ## Visao Geral

@@ -2,6 +2,12 @@
 
 Sistema local para gestao de compras, estoque, inventario e preparacao futura de CMV, DRE e integracao com vendas/PDV.
 
+> **🚫 REGRA OBRIGATÓRIA DE DEPLOY:** qualquer deploy em produção (backend Render,
+> frontend SiteGround ou qualquer outro ambiente) só pode ser executado após
+> autorização explícita do Eli/Pateo na conversa atual. Detalhes em
+> [DEPLOY.md](DEPLOY.md). Comandos para rodar localmente em
+> [docs/comandos-local.md](docs/comandos-local.md).
+
 ## V1
 
 - PostgreSQL local via Docker.
