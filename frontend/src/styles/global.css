@@ -10614,3 +10614,145 @@ tr.dre-row-selected td {
   .modal-body { padding: 16px; }
   .pnova-field-row { flex-direction: column; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* Impostos / TaxPayments – table, filters & action buttons                  */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Filter row ──────────────────────────────────────────────────────────── */
+.purchase-filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Search input wrapper */
+.filter-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  padding: 0 10px;
+  min-height: 36px;
+}
+
+.filter-input-wrap input {
+  border: none;
+  background: transparent;
+  outline: none;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+
+.filter-input-wrap svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+/* Filter selects */
+.filter-select {
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  padding: 0 8px;
+  font-size: 0.875rem;
+  color: var(--ink);
+  cursor: pointer;
+  min-width: 120px;
+}
+
+/* Date filter inputs */
+.filter-date {
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  padding: 0 6px;
+  font-size: 0.8rem;
+  color: var(--ink);
+  width: 130px;
+}
+
+/* ── Action buttons (table rows) ─────────────────────────────────────────── */
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 150ms ease;
+}
+
+.action-button:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.action-button.danger {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.action-button.danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.06);
+}
+
+/* ── Tax table desktop – scoped overrides ────────────────────────────────── */
+.tax-table-desktop table {
+  min-width: 1050px;
+}
+
+.tax-table-desktop thead th {
+  white-space: nowrap;
+}
+
+.tax-table-desktop td {
+  overflow-wrap: normal;
+}
+
+/* ── Responsive filter row ───────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .purchase-filters-row {
+    gap: 6px;
+  }
+  .filter-select {
+    min-width: 100px;
+  }
+}
+
+@media (max-width: 640px) {
+  .purchase-filters-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .filter-input-wrap {
+    width: 100%;
+  }
+  .filter-select,
+  .filter-date {
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
