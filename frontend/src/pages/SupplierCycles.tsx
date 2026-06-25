@@ -7,6 +7,7 @@ import {
   Clock,
   FileText,
   Lock,
+  Plus,
   Search,
   X
 } from "lucide-react";
@@ -14,6 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   checkSupplierCycleItem,
   closeSupplierCycle,
+  createSupplierCycle,
   getPaymentMethods,
   getSupplierCycle,
   getSupplierCycles,
@@ -112,6 +114,11 @@ export function SupplierCycles() {
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [checkForms, setCheckForms] = useState<Record<string, CheckFormState>>({});
   const [checkingSaving, setCheckingSaving] = useState<string | null>(null);
+
+  // create cycle modal
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({ supplierId: "", startDate: todayKey(), endDate: "", notes: "" });
+  const [creating, setCreating] = useState(false);
 
   // close cycle modal
   const [closeOpen, setCloseOpen] = useState(false);
@@ -222,6 +229,45 @@ export function SupplierCycles() {
     }
   }
 
+  // ── create cycle ────────────────────────────────────────────────────────────
+
+  function openCreate() {
+    setCreateForm({ supplierId: "", startDate: todayKey(), endDate: "", notes: "" });
+    setCreateOpen(true);
+  }
+
+  async function handleCreate() {
+    if (!createForm.supplierId) {
+      setNotice({ tone: "error", message: "Selecione o fornecedor." });
+      return;
+    }
+    if (!createForm.startDate) {
+      setNotice({ tone: "error", message: "Informe a data de início do ciclo." });
+      return;
+    }
+    if (createForm.endDate && createForm.endDate < createForm.startDate) {
+      setNotice({ tone: "error", message: "Data de fim deve ser maior ou igual à data de início." });
+      return;
+    }
+    setCreating(true);
+    try {
+      await createSupplierCycle({
+        supplierId: createForm.supplierId,
+        startDate: createForm.startDate,
+        endDate: createForm.endDate || undefined,
+        notes: createForm.notes || undefined,
+      });
+      setNotice({ tone: "success", message: "Ciclo criado com sucesso." });
+      setCreateOpen(false);
+      await loadCycles();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao criar ciclo.";
+      setNotice({ tone: "error", message: msg });
+    } finally {
+      setCreating(false);
+    }
+  }
+
   // ── close cycle ─────────────────────────────────────────────────────────────
 
   function openClose() {
@@ -286,6 +332,24 @@ export function SupplierCycles() {
   return (
     <div className="page-content">
       <Notice notice={notice} />
+
+      {/* ── Cabeçalho ── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Ciclos de fornecedor</h1>
+          <p style={{ fontSize: 13, color: "var(--ink-faint)", margin: "2px 0 0" }}>
+            Agrupa compras por fornecedor para pagamento consolidado
+          </p>
+        </div>
+        <button
+          type="button"
+          className="primary-button"
+          style={{ display: "flex", alignItems: "center", gap: 6 }}
+          onClick={openCreate}
+        >
+          <Plus size={14} /> Novo ciclo
+        </button>
+      </div>
 
       {/* ── Filtros ── */}
       <div className="filter-bar" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
@@ -404,6 +468,90 @@ export function SupplierCycles() {
           </table>
         </div>
       )}
+
+      {/* ── Modal novo ciclo ── */}
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => { if (!open && !creating) setCreateOpen(false); }}
+        title="Novo ciclo de fornecedor"
+        description="Cria um ciclo aberto. As compras lançadas para este fornecedor serão adicionadas automaticamente."
+        size="md"
+      >
+        <div className="form-group">
+          <label className="form-label">Fornecedor *</label>
+          <select
+            className="form-input"
+            value={createForm.supplierId}
+            onChange={(e) => setCreateForm((f) => ({ ...f, supplierId: e.target.value }))}
+          >
+            <option value="">Selecione o fornecedor…</option>
+            {suppliers
+              .filter((s) => s.isActive)
+              .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
+              .map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}{s.billingMode === "CYCLE" ? " ★" : ""}
+                </option>
+              ))}
+          </select>
+          <span style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 4, display: "block" }}>
+            Fornecedores com ★ usam faturamento por ciclo.
+          </span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">Data de início *</label>
+            <input
+              className="form-input"
+              type="date"
+              value={createForm.startDate}
+              onChange={(e) => setCreateForm((f) => ({ ...f, startDate: e.target.value }))}
+            />
+          </div>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">Data de fim (opcional)</label>
+            <input
+              className="form-input"
+              type="date"
+              value={createForm.endDate}
+              min={createForm.startDate}
+              onChange={(e) => setCreateForm((f) => ({ ...f, endDate: e.target.value }))}
+            />
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Observação</label>
+          <input
+            className="form-input"
+            placeholder="Opcional"
+            value={createForm.notes}
+            onChange={(e) => setCreateForm((f) => ({ ...f, notes: e.target.value }))}
+          />
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 8 }}>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setCreateOpen(false)}
+            disabled={creating}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={handleCreate}
+            disabled={creating || !createForm.supplierId || !createForm.startDate}
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <Plus size={14} />
+            {creating ? "Criando…" : "Criar ciclo"}
+          </button>
+        </div>
+      </Dialog>
 
       {/* ── Modal detalhe do ciclo ── */}
       <Dialog

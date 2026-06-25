@@ -150,6 +150,112 @@ supplierCyclesRouter.get("/:id", async (request, response) => {
   response.json({ ...cycle, items, installments });
 });
 
+// ── POST /supplier-cycles ─────────────────────────────────────────────────────
+
+supplierCyclesRouter.post("/", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const { supplierId, startDate: rawStartDate, endDate: rawEndDate, notes } = request.body as {
+    supplierId: string;
+    startDate: string;
+    endDate?: string;
+    notes?: string;
+  };
+
+  if (!supplierId) {
+    response.status(400).json({ message: "supplierId obrigatorio." });
+    return;
+  }
+  if (!rawStartDate) {
+    response.status(400).json({ message: "startDate obrigatorio." });
+    return;
+  }
+
+  const startDate = new Date(rawStartDate);
+  if (isNaN(startDate.getTime())) {
+    response.status(400).json({ message: "startDate invalido." });
+    return;
+  }
+
+  let endDate: Date | null = null;
+  if (rawEndDate) {
+    endDate = new Date(rawEndDate);
+    if (isNaN(endDate.getTime())) {
+      response.status(400).json({ message: "endDate invalido." });
+      return;
+    }
+    if (endDate < startDate) {
+      response.status(400).json({ message: "endDate deve ser maior ou igual a startDate." });
+      return;
+    }
+  }
+
+  const [supplier] = await prisma.$queryRaw<Array<{ id: string; name: string }>>`
+    SELECT "id", "name" FROM "Supplier" WHERE "id" = ${supplierId} AND "isActive" = true LIMIT 1
+  `;
+  if (!supplier) {
+    response.status(404).json({ message: "Fornecedor nao encontrado ou inativo." });
+    return;
+  }
+
+  const [existing] = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "SupplierBillingCycle"
+    WHERE "supplierId" = ${supplierId}
+      AND "status" IN ('OPEN', 'CHECKED')
+    LIMIT 1
+  `;
+  if (existing) {
+    response.status(409).json({ message: "Ja existe um ciclo aberto para este fornecedor. Feche o ciclo atual antes de criar um novo." });
+    return;
+  }
+
+  const cycleId = crypto.randomUUID();
+  await prisma.$executeRaw`
+    INSERT INTO "SupplierBillingCycle" (
+      "id", "supplierId", "periodStart", "periodEnd", "status",
+      "totalAmount", "notes", "createdByUserId",
+      "createdAt", "updatedAt"
+    ) VALUES (
+      ${cycleId}, ${supplierId}, ${startDate}, ${endDate},
+      'OPEN', 0, ${notes ?? null}, ${user.id},
+      CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+    )
+  `;
+
+  await auditLog({
+    userId: user.id,
+    action: "CREATE_SUPPLIER_CYCLE",
+    entity: "SupplierBillingCycle",
+    entityId: cycleId,
+    newValue: { supplierId, startDate: rawStartDate, endDate: rawEndDate ?? null } as Prisma.InputJsonValue,
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+
+  const [created] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+    SELECT
+      c."id",
+      c."supplierId",
+      s."name" AS "supplierName",
+      c."periodStart",
+      c."periodEnd",
+      c."status",
+      c."totalAmount"::text AS "totalAmount",
+      c."generatedPurchaseId",
+      0::int AS "itemCount",
+      0::int AS "checkedCount",
+      false AS "hasDivergence",
+      c."createdAt",
+      c."updatedAt"
+    FROM "SupplierBillingCycle" c
+    JOIN "Supplier" s ON s."id" = c."supplierId"
+    WHERE c."id" = ${cycleId}
+  `;
+
+  response.status(201).json(created);
+});
+
 // ── POST /supplier-cycles/:id/check-item ──────────────────────────────────────
 
 supplierCyclesRouter.post("/:id/check-item", async (request, response) => {

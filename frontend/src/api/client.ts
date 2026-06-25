@@ -3594,6 +3594,18 @@ export function closeSupplierCycle(cycleId: string, payload: {
   );
 }
 
+export function createSupplierCycle(payload: {
+  supplierId: string;
+  startDate: string;
+  endDate?: string;
+  notes?: string;
+}) {
+  return request<SupplierCycle>(
+    `/supplier-cycles`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+}
+
 // ─── Tax Payments ─────────────────────────────────────────────────────────────
 
 export type TaxPaymentStatus = "PENDING" | "PAID" | "OVERDUE" | "CANCELED" | "WITHOUT_RECEIPT";
