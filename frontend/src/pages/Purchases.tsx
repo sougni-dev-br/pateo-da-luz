@@ -1444,8 +1444,6 @@ export function Purchases({ user }: { user: AppUser }) {
         <>
       <div className="purch-page-header">
         <div className="purch-page-header-left">
-          <p className="purch-eyebrow">Operações</p>
-          <h1 className="purch-page-title">Compras</h1>
           <p className="purch-page-subtitle">Registro e controle de compras do período</p>
         </div>
         <div className="purch-page-actions">

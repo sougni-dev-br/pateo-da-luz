@@ -495,8 +495,8 @@ export function CmvReal({ user }: { user: AppUser }) {
 
       <section className="panel">
         <SectionHeader
-          eyebrow="Gestão operacional"
-          title="CMV Real"
+          eyebrow="Lista"
+          title="Períodos apurados"
           actions={(
             <>
               {canEdit && (

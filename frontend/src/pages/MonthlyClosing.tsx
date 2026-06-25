@@ -134,10 +134,7 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
 
       <section className="panel">
         <div className="section-heading">
-          <div>
-            <p>Operação mensal</p>
-            <h2>Fechamento mensal</h2>
-          </div>
+          <p className="muted">Competência do fechamento</p>
           <button className="icon-button" type="button" onClick={load} aria-label="Atualizar fechamento">
             <RefreshCw size={18} />
           </button>
@@ -180,19 +177,25 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
               Observacao
               <input value={inventoryForm.notes} onChange={(event) => setInventoryForm({ ...inventoryForm, notes: event.target.value })} />
             </label>
+          </div>
+        )}
+        {canEdit && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <label className="checkbox-label">
               <input type="checkbox" checked={inventoryForm.allowOverwrite} onChange={(event) => setInventoryForm({ ...inventoryForm, allowOverwrite: event.target.checked })} />
               Substituir inventario existente
             </label>
             {inventoryForm.allowOverwrite && (
-              <label>
+              <label style={{ display: "grid", gap: 5, color: "var(--muted)", fontSize: 13 }}>
                 Motivo
                 <input value={inventoryForm.overwriteReason} onChange={(event) => setInventoryForm({ ...inventoryForm, overwriteReason: event.target.value })} />
               </label>
             )}
-            <button className="secondary-button" type="button" disabled={!inventoryFile} onClick={handlePreviewInventory}>
-              <Upload size={16} /> Gerar preview
-            </button>
+            <div>
+              <button className="secondary-button" type="button" disabled={!inventoryFile} onClick={handlePreviewInventory}>
+                <Upload size={16} /> Gerar preview
+              </button>
+            </div>
           </div>
         )}
 
