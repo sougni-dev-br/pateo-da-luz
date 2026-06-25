@@ -557,8 +557,6 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
       {/* Header */}
       <div className="section-heading">
         <div style={{ flex: 1 }}>
-          <p>Financeiro</p>
-          <h2>Impostos e Guias</h2>
           <span className="muted">Controle de guias, tributos e obrigações fiscais.</span>
         </div>
         {canCreate && (

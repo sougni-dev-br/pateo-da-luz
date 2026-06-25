@@ -54,10 +54,7 @@ export function ImportsHub({ activeTab, onTabChange, onNavigate }: ImportsHubPro
     <div className="stack">
       <section className="panel">
         <div className="section-heading">
-          <div>
-            <p>Central operacional</p>
-            <h2>Importacoes</h2>
-          </div>
+          <p className="muted">Central de importações</p>
           <Icon size={22} />
         </div>
 

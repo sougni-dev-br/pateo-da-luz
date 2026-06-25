@@ -33,7 +33,7 @@ export function Audit() {
     <div className="stack">
       <section className="panel">
         <div className="section-heading">
-          <div><p>Controle</p><h2>Auditoria</h2></div>
+          <p className="muted">Registro de ações por usuário e entidade</p>
           <button className="icon-button" type="button" onClick={() => load(page)} aria-label="Atualizar"><RefreshCw size={18} /></button>
         </div>
         <div className="filters-row">

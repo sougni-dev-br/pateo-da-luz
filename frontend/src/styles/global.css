@@ -1015,7 +1015,8 @@ select:focus {
 }
 
 /* Label de largura total dentro de form-grid */
-.form-grid label.full-width {
+.form-grid label.full-width,
+.form-grid .checkbox-label {
   grid-column: 1 / -1;
 }
 

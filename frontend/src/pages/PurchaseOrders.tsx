@@ -157,8 +157,6 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
       <section className="panel">
         <div className="section-header">
           <div>
-            <span className="eyebrow">Compras</span>
-            <h2>Pedidos de compra</h2>
             <p className="muted">Pedidos operacionais gerados a partir da pre-lista do comprador. Ainda nao integram contas a pagar.</p>
           </div>
           <button className="secondary" type="button" onClick={load}><RefreshCw size={16} /> Atualizar</button>

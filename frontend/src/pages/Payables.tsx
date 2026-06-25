@@ -453,10 +453,7 @@ export function Payables({ user }: PayablesProps) {
 
       {/* ── Cabeçalho ───────────────────────────────────────────── */}
       <div className="section-heading">
-        <div>
-          <p>Módulo financeiro</p>
-          <h2>Contas a pagar</h2>
-        </div>
+        <p className="muted">Resumo financeiro</p>
         <div className="actions-cell">
           <button className="secondary-button" type="button" onClick={handleFinancialPdf}>
             <FileText size={16} /> PDF financeiro
