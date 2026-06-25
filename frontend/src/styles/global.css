@@ -2372,6 +2372,17 @@ select:disabled {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.purchase-filters-grid > label {
+  display: grid;
+  gap: 4px;
+}
+
+.purchase-filters-grid > label > input,
+.purchase-filters-grid > label > select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .purchase-filter-actions {
   display: flex;
   justify-content: flex-end;
@@ -2776,7 +2787,20 @@ select:disabled {
 }
 
 .purchases-list-table table {
-  min-width: 980px;
+  min-width: 1120px;
+}
+
+.purchases-list-table thead th {
+  white-space: nowrap;
+}
+
+.purchases-list-table td {
+  overflow-wrap: normal;
+}
+
+.purchases-list-table .actions-cell {
+  flex-wrap: nowrap;
+  gap: 4px;
 }
 
 .purchases-mobile-list {
@@ -2811,16 +2835,25 @@ select:disabled {
   line-height: 1.35;
 }
 
+.purchase-main-cell {
+  min-width: 150px;
+}
+
+.purchase-main-cell strong,
+.purchase-main-cell small {
+  white-space: nowrap;
+}
+
 .purchase-supplier-cell {
-  min-width: 220px;
+  min-width: 200px;
 }
 
 .purchase-items-summary {
-  min-width: 230px;
+  min-width: 180px;
 }
 
 .purchase-payment-cell {
-  min-width: 170px;
+  min-width: 150px;
 }
 
 .purchase-modal-header {
@@ -5469,6 +5502,7 @@ td:nth-child(n+3):not(:last-child) {
   background: var(--paper-soft);
   color: var(--muted);
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .agenda-day.submitted small,
