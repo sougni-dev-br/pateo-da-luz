@@ -1,5 +1,5 @@
 import { Building2, ChevronDown, ChevronRight, Plus, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   Company, CompanyBankAccount,
   getCompanies, getCompanyBankAccounts,
@@ -232,6 +232,7 @@ export function Companies() {
       setNotice({ tone: "success", message: accountForm.id ? "Conta atualizada." : "Conta cadastrada." });
       setShowAccountForm(false);
       await loadBankAccounts(expandedCompanyId);
+      await loadCompanies();
     } catch (err) {
       setAccountError(err instanceof Error ? err.message : "Erro ao salvar conta.");
     } finally {
@@ -245,6 +246,7 @@ export function Companies() {
       await setCompanyBankAccountStatus(expandedCompanyId, account.id, !account.isActive);
       setNotice({ tone: "success", message: account.isActive ? "Conta inativada." : "Conta reativada." });
       await loadBankAccounts(expandedCompanyId);
+      await loadCompanies();
     } catch (err) {
       setNotice({ tone: "error", message: err instanceof Error ? err.message : "Erro ao alterar status." });
     }
@@ -381,8 +383,8 @@ export function Companies() {
               </thead>
               <tbody>
                 {companies.map((company) => (
-                  <>
-                    <tr key={company.id} style={!company.isActive ? { opacity: 0.55 } : undefined}>
+                  <Fragment key={company.id}>
+                    <tr style={!company.isActive ? { opacity: 0.55 } : undefined}>
                       <td>
                         <button
                           className="icon-button"
@@ -417,7 +419,7 @@ export function Companies() {
 
                     {/* Linha expandida: contas bancárias */}
                     {expandedCompanyId === company.id && (
-                      <tr key={`${company.id}-accounts`}>
+                      <tr>
                         <td colSpan={canEdit ? 8 : 7} style={{ padding: 0, background: "var(--surface-alt, var(--paper))" }}>
                           <div style={{ padding: "12px 16px", borderTop: "1px solid var(--line)" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -487,7 +489,7 @@ export function Companies() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
                 {companies.length === 0 && (
                   <tr><td colSpan={canEdit ? 8 : 7} className="empty-state">Nenhuma empresa cadastrada.</td></tr>
