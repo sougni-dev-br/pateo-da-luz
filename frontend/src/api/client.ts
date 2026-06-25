@@ -3547,6 +3547,8 @@ export type SupplierCycleInstallment = {
 
 export type SupplierCycleDetail = SupplierCycle & {
   notes: string | null;
+  cycleFirstDueDays: number | null;
+  cycleSecondDueDays: number | null;
   createdByUserId: string | null;
   checkedByUserId: string | null;
   closedByUserId: string | null;
@@ -3554,6 +3556,18 @@ export type SupplierCycleDetail = SupplierCycle & {
   closedAt: string | null;
   items: SupplierCycleItem[];
   installments: SupplierCycleInstallment[];
+};
+
+export type AvailablePurchaseForCycle = {
+  id: string;
+  purchaseNumber: string | null;
+  purchaseDate: string;
+  invoiceNumber: string | null;
+  totalAmount: string;
+  status: string;
+  currentCycleId: string | null;
+  currentCycleStatus: string | null;
+  isOutsidePeriod: boolean;
 };
 
 export function getSupplierCycles(params?: { supplierId?: string; status?: string }) {
@@ -3603,6 +3617,42 @@ export function createSupplierCycle(payload: {
   return request<SupplierCycle>(
     `/supplier-cycles`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+}
+
+export function updateSupplierCycle(id: string, payload: {
+  startDate?: string;
+  endDate?: string;
+  notes?: string;
+}) {
+  return request<{ id: string; periodStart: string; periodEnd: string | null; notes: string | null }>(
+    `/supplier-cycles/${id}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+}
+
+export function getAvailablePurchasesForCycle(cycleId: string) {
+  return request<AvailablePurchaseForCycle[]>(`/supplier-cycles/${cycleId}/available-purchases`);
+}
+
+export function addPurchaseToSupplierCycle(cycleId: string, purchaseId: string) {
+  return request<{ success: boolean; purchaseId: string; cycleId: string }>(
+    `/supplier-cycles/${cycleId}/purchases`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purchaseId }) }
+  );
+}
+
+export function removePurchaseFromSupplierCycle(cycleId: string, purchaseId: string) {
+  return request<{ success: boolean; purchaseId: string; cycleId: string }>(
+    `/supplier-cycles/${cycleId}/purchases/${purchaseId}`,
+    { method: "DELETE" }
+  );
+}
+
+export function movePurchaseToSupplierCycle(sourceCycleId: string, purchaseId: string, targetCycleId: string) {
+  return request<{ success: boolean; purchaseId: string; sourceCycleId: string; targetCycleId: string }>(
+    `/supplier-cycles/${sourceCycleId}/purchases/${purchaseId}/move`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ targetCycleId }) }
   );
 }
 
