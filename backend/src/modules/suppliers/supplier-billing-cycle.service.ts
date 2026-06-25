@@ -3,23 +3,42 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 
 /**
- * Localiza o ciclo OPEN ou CHECKED do fornecedor, ou cria um novo ciclo OPEN.
+ * Localiza o ciclo OPEN ou CHECKED cujo período cobre a data da compra.
+ * Se não encontrar por data, usa o ciclo mais recente como fallback.
+ * Se não houver nenhum ciclo ativo, cria um novo ciclo OPEN.
  * Deve ser chamado dentro de uma transação.
  */
 export async function findOrCreateOpenCycle(
   tx: Prisma.TransactionClient,
   supplierId: string,
-  userId: string | null
+  userId: string | null,
+  purchaseDate?: Date | null
 ): Promise<string> {
-  const [existing] = await tx.$queryRaw<Array<{ id: string }>>`
+  // 1. Prefer the cycle whose period contains the purchase date
+  if (purchaseDate) {
+    const [byDate] = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "SupplierBillingCycle"
+      WHERE "supplierId" = ${supplierId}
+        AND "status" IN ('OPEN', 'CHECKED')
+        AND "periodStart" <= ${purchaseDate}
+        AND ("periodEnd" IS NULL OR "periodEnd" >= ${purchaseDate})
+      ORDER BY "periodStart" DESC
+      LIMIT 1
+    `;
+    if (byDate) return byDate.id;
+  }
+
+  // 2. Fallback: any OPEN/CHECKED cycle for this supplier (most recent period)
+  const [fallback] = await tx.$queryRaw<Array<{ id: string }>>`
     SELECT "id" FROM "SupplierBillingCycle"
     WHERE "supplierId" = ${supplierId}
       AND "status" IN ('OPEN', 'CHECKED')
-    ORDER BY "createdAt" ASC
+    ORDER BY "periodStart" DESC
     LIMIT 1
   `;
-  if (existing) return existing.id;
+  if (fallback) return fallback.id;
 
+  // 3. Create a new catch-all cycle (no end date)
   const cycleId = crypto.randomUUID();
   await tx.$executeRaw`
     INSERT INTO "SupplierBillingCycle" (

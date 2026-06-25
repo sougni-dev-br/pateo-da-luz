@@ -1378,7 +1378,7 @@ purchaseRouter.post("/", async (request, response) => {
     }
 
     if (isCycleSupplier) {
-      const cycleId = await findOrCreateOpenCycle(tx, supplierId, user.id);
+      const cycleId = await findOrCreateOpenCycle(tx, supplierId, user.id, purchaseDate);
       await addPurchaseToCycle(tx, {
         cycleId,
         purchaseId: purchase.id,
@@ -1824,7 +1824,7 @@ purchaseRouter.put("/:id", async (request, response) => {
           );
         }
       } else {
-        const cycleId = await findOrCreateOpenCycle(tx, nextSupplierId, user.id);
+        const cycleId = await findOrCreateOpenCycle(tx, nextSupplierId, user.id, purchaseDate);
         await addPurchaseToCycle(tx, {
           cycleId,
           purchaseId: request.params.id,
