@@ -302,6 +302,13 @@ export function Purchases({ user }: { user: AppUser }) {
   const [showPaymentNotes, setShowPaymentNotes] = useState(false);
   const [paymentExpanded, setPaymentExpanded] = useState(false);
   const [productStep, setProductStep] = useState<ProductStep>("produtos");
+  const [filtersExpanded, setFiltersExpanded] = useState(() => window.innerWidth > 640);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
+  const [productSheetOpen, setProductSheetOpen] = useState(false);
+  const [productSheetQuery, setProductSheetQuery] = useState("");
+  const [supplierSheetOpen, setSupplierSheetOpen] = useState(false);
+  const [supplierSheetQuery, setSupplierSheetQuery] = useState("");
   const [highlightedRow, setHighlightedRow] = useState<number | null>(null);
   const [entryFeedback, setEntryFeedback] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
   const [pasteReport, setPasteReport] = useState<string[]>([]);
@@ -319,6 +326,8 @@ export function Purchases({ user }: { user: AppUser }) {
   const gridQtyRefs = useRef<(HTMLInputElement | null)[]>([]);
   const gridPriceRefs = useRef<(HTMLInputElement | null)[]>([]);
   const paymentBlockRef = useRef<HTMLDivElement | null>(null);
+  const productSheetSearchRef = useRef<HTMLInputElement | null>(null);
+  const supplierSheetSearchRef = useRef<HTMLInputElement | null>(null);
   const { notice, setNotice } = useNotice();
 
   const isAdmin = hasPermission(user, "purchases", "admin");
@@ -583,6 +592,8 @@ export function Purchases({ user }: { user: AppUser }) {
       .slice(0, 10);
   }, [entry.query, products, supplierProductIds]);
 
+  const activeFilterCount = [filters.supplierId, filters.category, filters.paymentMethod, filters.search, filters.showCancelled].filter(Boolean).length;
+
   const displayedPurchases = useMemo(() => {
     const base = purchases.filter((purchase) => {
       if (!filters.showCancelled && purchase.status === "CANCELLED") return false;
@@ -620,6 +631,30 @@ export function Purchases({ user }: { user: AppUser }) {
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [isDirty]);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const check = () => setKeyboardOpen(vv.height < window.innerHeight * 0.75);
+    vv.addEventListener("resize", check);
+    return () => vv.removeEventListener("resize", check);
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  // Sync sheet queries into the existing filter states so shared useMemos are reused
+  useEffect(() => {
+    if (productSheetOpen) setEntry((e) => ({ ...e, query: productSheetQuery }));
+  }, [productSheetQuery, productSheetOpen]);
+
+  useEffect(() => {
+    if (supplierSheetOpen) setSupplierFilterQuery(supplierSheetQuery);
+  }, [supplierSheetQuery, supplierSheetOpen]);
 
   useEffect(() => {
     if (!isFormRoute || !form.supplierId) {
@@ -845,10 +880,39 @@ export function Purchases({ user }: { user: AppUser }) {
     });
     setEntryDropdownOpen(false);
     setProductStep("produtos");
-    window.setTimeout(() => {
-      entryProductRef.current?.focus();
-      entryProductRef.current?.select();
-    }, 0);
+    if (isMobile) {
+      setProductSheetQuery(item.productName);
+      setProductSheetOpen(true);
+      window.setTimeout(() => productSheetSearchRef.current?.focus(), 100);
+    } else {
+      window.setTimeout(() => {
+        entryProductRef.current?.focus();
+        entryProductRef.current?.select();
+      }, 0);
+    }
+  }
+
+  function handleSheetProductSelect(productId: string) {
+    const wasEditing = entry.editingIndex !== null;
+    selectEntryProduct(productId);
+    setProductSheetQuery("");
+    if (wasEditing) {
+      setProductSheetOpen(false);
+    } else {
+      window.setTimeout(() => productSheetSearchRef.current?.focus(), 150);
+    }
+  }
+
+  function closeProductSheet() {
+    setProductSheetOpen(false);
+    setProductSheetQuery("");
+    if (entry.editingIndex !== null) setEntry({ ...emptyEntry });
+  }
+
+  function handleSheetSupplierSelect(supplierId: string) {
+    selectSupplier(supplierId, "form");
+    setSupplierSheetOpen(false);
+    setSupplierSheetQuery("");
   }
 
   function goToStep(step: ProductStep) {
@@ -1389,92 +1453,108 @@ export function Purchases({ user }: { user: AppUser }) {
       </div>
 
       <section className="purchase-filters-panel">
-        <p className="purch-filters-label">Filtros</p>
-        <div className="purchase-filters-grid">
-          <PeriodFilter value={period} onChange={setPeriod} />
-          <div className="purchase-autocomplete-field" ref={supplierFilterRef}>
-            <label>
-              Fornecedor
-              <div className={`autocomplete-shell${supplierFilterOpen ? " active" : ""}`}>
-                <input
-                  autoComplete="off"
-                  name="purchase-supplier-filter"
-                  placeholder="Nome, código ou CNPJ/CPF"
-                  value={supplierFilterQuery}
-                  onChange={(event) => {
-                    setSupplierFilterQuery(event.target.value);
-                    setSupplierFilterOpen(true);
-                    if (!event.target.value.trim()) setFilters((current) => ({ ...current, supplierId: "" }));
-                  }}
-                  onFocus={() => setSupplierFilterOpen(true)}
-                />
-                {supplierFilterQuery && (
-                  <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor" onClick={clearFilterSupplier}>
-                    <X size={14} />
-                  </button>
-                )}
-                <ChevronDown size={16} className="autocomplete-chevron" />
-              </div>
-            </label>
-            {supplierFilterOpen && (
-              <div className="autocomplete-dropdown">
-                {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado. Verifique o código, nome ou CNPJ.</div>}
-                {filteredSupplierOptions.map((supplier) => (
-                  <button key={supplier.id} className="autocomplete-option" type="button" onClick={() => selectSupplier(supplier.id, "filter")}>
-                    <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
-                    <small>{supplier.document || "Sem documento"}</small>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <label>
-            Categoria
-            <select value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}>
-              <option value="">Todas</option>
-              {categories.map((category) => <option key={category} value={category}>{category}</option>)}
-            </select>
-          </label>
-          <label>
-            Status
-            <select value={filters.showCancelled} onChange={(event) => setFilters({ ...filters, showCancelled: event.target.value })}>
-              <option value="">Ativas</option>
-              <option value="true">Todas</option>
-              <option value="cancelled">Somente canceladas</option>
-            </select>
-          </label>
-          <label>
-            Forma de pagamento
-            <input autoComplete="off" placeholder="PIX, boleto, cartão..." value={filters.paymentMethod} onChange={(event) => setFilters({ ...filters, paymentMethod: event.target.value })} />
-          </label>
-          <label>
-            Busca geral
-            <input autoComplete="off" placeholder="NF, produto, fornecedor..." value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} />
-          </label>
-          <label>
-            Ordenação
-            <select value={sortBy} onChange={(event) => setSortBy(event.target.value as PurchaseSortOption)}>
-              <option value="recent">Mais recente</option>
-              <option value="oldest">Mais antigo</option>
-              <option value="highest">Maior valor</option>
-              <option value="lowest">Menor valor</option>
-            </select>
-          </label>
-        </div>
-        <div className="purchase-filter-actions">
-          <button className="primary-button" type="button" onClick={loadPurchases}>Filtrar</button>
+        <div className="purch-filters-header">
+          <p className="purch-filters-label">
+            Filtros{activeFilterCount > 0 ? <span className="purch-filters-badge">{activeFilterCount}</span> : null}
+          </p>
           <button
-            className="secondary-button"
             type="button"
-            onClick={() => {
-              setFilters({ supplierId: "", category: "", paymentMethod: "", search: "", showCancelled: "" });
-              setSupplierFilterQuery("");
-              setSortBy("recent");
-            }}
+            className="purch-filters-toggle"
+            onClick={() => setFiltersExpanded((v) => !v)}
+            aria-expanded={filtersExpanded}
           >
-            Limpar filtros
+            {filtersExpanded ? "Recolher ▲" : `Filtros${activeFilterCount > 0 ? ` (${activeFilterCount})` : ""} ▼`}
           </button>
         </div>
+        {filtersExpanded && (
+          <>
+            <div className="purchase-filters-grid">
+              <PeriodFilter value={period} onChange={setPeriod} />
+              <div className="purchase-autocomplete-field" ref={supplierFilterRef}>
+                <label>
+                  Fornecedor
+                  <div className={`autocomplete-shell${supplierFilterOpen ? " active" : ""}`}>
+                    <input
+                      autoComplete="off"
+                      name="purchase-supplier-filter"
+                      placeholder="Nome, código ou CNPJ/CPF"
+                      value={supplierFilterQuery}
+                      onChange={(event) => {
+                        setSupplierFilterQuery(event.target.value);
+                        setSupplierFilterOpen(true);
+                        if (!event.target.value.trim()) setFilters((current) => ({ ...current, supplierId: "" }));
+                      }}
+                      onFocus={() => setSupplierFilterOpen(true)}
+                    />
+                    {supplierFilterQuery && (
+                      <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor" onClick={clearFilterSupplier}>
+                        <X size={14} />
+                      </button>
+                    )}
+                    <ChevronDown size={16} className="autocomplete-chevron" />
+                  </div>
+                </label>
+                {supplierFilterOpen && (
+                  <div className="autocomplete-dropdown">
+                    {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado. Verifique o código, nome ou CNPJ.</div>}
+                    {filteredSupplierOptions.map((supplier) => (
+                      <button key={supplier.id} className="autocomplete-option" type="button" onClick={() => selectSupplier(supplier.id, "filter")}>
+                        <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
+                        <small>{supplier.document || "Sem documento"}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <label>
+                Categoria
+                <select value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}>
+                  <option value="">Todas</option>
+                  {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
+              </label>
+              <label>
+                Status
+                <select value={filters.showCancelled} onChange={(event) => setFilters({ ...filters, showCancelled: event.target.value })}>
+                  <option value="">Ativas</option>
+                  <option value="true">Todas</option>
+                  <option value="cancelled">Somente canceladas</option>
+                </select>
+              </label>
+              <label>
+                Forma de pagamento
+                <input autoComplete="off" placeholder="PIX, boleto, cartão..." value={filters.paymentMethod} onChange={(event) => setFilters({ ...filters, paymentMethod: event.target.value })} />
+              </label>
+              <label>
+                Busca geral
+                <input autoComplete="off" placeholder="NF, produto, fornecedor..." value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} />
+              </label>
+              <label>
+                Ordenação
+                <select value={sortBy} onChange={(event) => setSortBy(event.target.value as PurchaseSortOption)}>
+                  <option value="recent">Mais recente</option>
+                  <option value="oldest">Mais antigo</option>
+                  <option value="highest">Maior valor</option>
+                  <option value="lowest">Menor valor</option>
+                </select>
+              </label>
+            </div>
+            <div className="purchase-filter-actions">
+              <button className="primary-button" type="button" onClick={loadPurchases}>Filtrar</button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setFilters({ supplierId: "", category: "", paymentMethod: "", search: "", showCancelled: "" });
+                  setSupplierFilterQuery("");
+                  setSortBy("recent");
+                }}
+              >
+                Limpar filtros
+              </button>
+            </div>
+          </>
+        )}
       </section>
 
       {error && <div className="alert error">{error}</div>}
@@ -1566,42 +1646,46 @@ export function Purchases({ user }: { user: AppUser }) {
 
           <div className="purchases-mobile-list">
             {displayedPurchases.map((purchase) => (
-              <article className="purch-mobile-card" key={`${purchase.id}-mobile`}>
+              <article className={`purch-mobile-card${purchase.status === "CANCELLED" ? " purch-card-cancelled" : ""}`} key={`${purchase.id}-mobile`}>
                 <div className="purch-mobile-card-header">
                   <div className="purch-mobile-card-title">
                     <strong className="purch-mobile-supplier">{purchase.supplier.name}</strong>
-                    <span className="purch-mobile-ref">{purchase.invoiceNumber ? `NF ${purchase.invoiceNumber}` : purchase.purchaseNumber ?? "Compra manual"}</span>
+                    <div className="purch-mobile-meta-row">
+                      <span className="purch-mobile-ref">{purchase.invoiceNumber ? `NF ${purchase.invoiceNumber}` : purchase.purchaseNumber ?? "Compra manual"}</span>
+                      <span className="purch-mobile-date">{formatDate(purchase.purchaseDate)}</span>
+                    </div>
                   </div>
-                  <strong className="purch-mobile-amount">{formatCurrency(purchase.totalAmount)}</strong>
+                  <div className="purch-mobile-card-right">
+                    <strong className="purch-mobile-amount">{formatCurrency(purchase.totalAmount)}</strong>
+                    <span className={`status-badge purch-mobile-status ${purchaseStatusTone(purchase.status)}`}>{purchaseStatusLabel(purchase.status)}</span>
+                  </div>
                 </div>
                 <div className="purch-mobile-card-body">
                   <div className="purch-mobile-row">
-                    <span>Data</span>
-                    <span>{formatDate(purchase.purchaseDate)} · {String(purchase.competenceMonth).padStart(2, "0")}/{purchase.competenceYear}</span>
-                  </div>
-                  <div className="purch-mobile-row">
                     <span>Itens</span>
-                    <span>{purchase.items.length} item(ns){purchase.items[0]?.rawProductName ? ` · ${purchase.items[0].rawProductName}` : ""}</span>
+                    <span>
+                      {purchase.items.length} item{purchase.items.length !== 1 ? "ns" : ""}
+                      {purchase.items[0]?.rawProductName ? ` · ${purchase.items[0].rawProductName}${purchase.items.length > 1 ? ` +${purchase.items.length - 1}` : ""}` : ""}
+                    </span>
                   </div>
                   <div className="purch-mobile-row">
                     <span>Pagamento</span>
                     {purchase.cycleStatus != null ? (
                       <span>Ciclo · {{OPEN:"Aberto",CHECKED:"Conferido",CLOSED:"Fechado",PAID:"Pago",CANCELLED:"Cancelado"}[purchase.cycleStatus] ?? purchase.cycleStatus}</span>
                     ) : (
-                      <span>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"}</span>
+                      <span>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"} · {purchase.installments.length > 0 ? `${purchase.installments.length}x` : "à vista"}</span>
                     )}
                   </div>
                 </div>
                 <div className="purch-mobile-card-footer">
-                  <span className={`status-badge ${purchaseStatusTone(purchase.status)}`}>{purchaseStatusLabel(purchase.status)}</span>
                   <div className="purch-mobile-actions">
-                    <button className="secondary-button" type="button" onClick={() => openDetail(purchase)}><Eye size={14} /> Ver</button>
-                    {canEditPurchase && purchase.status !== "CANCELLED" && <button className="secondary-button" type="button" onClick={() => openEdit(purchase)}><Pencil size={14} /> Editar</button>}
-                    {canEditPurchase && <button className="secondary-button" type="button" onClick={() => void openCopyPurchase(purchase.id)}><Copy size={14} /> Copiar</button>}
+                    <button className="purch-mobile-btn" type="button" onClick={() => openDetail(purchase)}><Eye size={15} /> Ver</button>
+                    {canEditPurchase && purchase.status !== "CANCELLED" && <button className="purch-mobile-btn" type="button" onClick={() => openEdit(purchase)}><Pencil size={15} /> Editar</button>}
+                    {canEditPurchase && <button className="purch-mobile-btn purch-mobile-btn-ghost" type="button" title="Copiar" onClick={() => void openCopyPurchase(purchase.id)}><Copy size={14} /></button>}
                     {isAdmin && (
                       purchase.status === "CANCELLED"
-                        ? <button className="secondary-button" type="button" onClick={() => handleRestore(purchase)}>Restaurar</button>
-                        : <button className="danger-icon-button" type="button" title="Cancelar" onClick={() => handleCancel(purchase)}><Trash2 size={14} /></button>
+                        ? <button className="purch-mobile-btn purch-mobile-btn-ghost" type="button" onClick={() => handleRestore(purchase)}>Restaurar</button>
+                        : <button className="purch-mobile-btn purch-mobile-btn-danger" type="button" title="Cancelar" onClick={() => handleCancel(purchase)}><Trash2 size={14} /></button>
                     )}
                   </div>
                 </div>
@@ -1837,7 +1921,13 @@ export function Purchases({ user }: { user: AppUser }) {
                       type="button"
                       onClick={() => {
                         setForm((current) => ({ ...current, supplierId: "", supplierCode: "", supplierName: "", supplierDocument: "" }));
-                        window.setTimeout(() => setSupplierFilterOpen(true), 0);
+                        if (isMobile) {
+                          setSupplierSheetQuery("");
+                          setSupplierSheetOpen(true);
+                          window.setTimeout(() => supplierSheetSearchRef.current?.focus(), 100);
+                        } else {
+                          window.setTimeout(() => setSupplierFilterOpen(true), 0);
+                        }
                       }}
                     >
                       Trocar
@@ -1848,53 +1938,70 @@ export function Purchases({ user }: { user: AppUser }) {
                   <>
                     <div className="pnova-block-title">Fornecedor</div>
                     <div className={`pnova-supplier-search${fieldErrors.supplier ? " field-error" : ""}`}>
-                      <div className="autocomplete-shell active">
-                        <input
-                          autoComplete="off"
-                          name="purchase-supplier-form"
-                          placeholder="Buscar fornecedor por nome, código ou CNPJ…"
-                          value={form.supplierName || form.supplierCode}
-                          onChange={(event) => {
-                            setForm((current) => ({ ...current, supplierId: "", supplierCode: event.target.value, supplierName: event.target.value, supplierDocument: "" }));
-                            setSupplierFilterQuery(event.target.value);
-                            setSupplierFilterOpen(true);
+                      {isMobile ? (
+                        /* Mobile: botão trigger que abre bottom sheet */
+                        <button
+                          type="button"
+                          className={`pnova-supplier-mobile-trigger${!(form.supplierName || form.supplierCode) ? " empty" : ""}`}
+                          onClick={() => {
+                            setSupplierSheetQuery(form.supplierName || form.supplierCode);
+                            setSupplierSheetOpen(true);
+                            window.setTimeout(() => supplierSheetSearchRef.current?.focus(), 100);
                           }}
-                          onFocus={() => { setSupplierFilterQuery(form.supplierName || form.supplierCode); setSupplierFilterOpen(true); }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Escape") { setSupplierFilterOpen(false); return; }
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              if (filteredSupplierOptions.length === 1) { selectSupplier(filteredSupplierOptions[0].id, "form"); setSupplierFilterOpen(false); }
-                              else if (filteredSupplierOptions.length > 0) {
-                                const q = normalize(supplierFilterQuery);
-                                const exact = filteredSupplierOptions.find((s) => normalize(s.name) === q || normalize(s.externalCode ?? "") === q);
-                                if (exact) { selectSupplier(exact.id, "form"); setSupplierFilterOpen(false); }
-                                else setSupplierFilterOpen(true);
+                        >
+                          <span>{form.supplierName || form.supplierCode || "Toque para buscar fornecedor…"}</span>
+                          <ChevronDown size={16} style={{ flexShrink: 0, marginLeft: "auto", opacity: 0.5 }} />
+                        </button>
+                      ) : (
+                        /* Desktop: autocomplete inline */
+                        <div className="autocomplete-shell active">
+                          <input
+                            autoComplete="off"
+                            name="purchase-supplier-form"
+                            placeholder="Buscar fornecedor por nome, código ou CNPJ…"
+                            value={form.supplierName || form.supplierCode}
+                            onChange={(event) => {
+                              setForm((current) => ({ ...current, supplierId: "", supplierCode: event.target.value, supplierName: event.target.value, supplierDocument: "" }));
+                              setSupplierFilterQuery(event.target.value);
+                              setSupplierFilterOpen(true);
+                            }}
+                            onFocus={() => { setSupplierFilterQuery(form.supplierName || form.supplierCode); setSupplierFilterOpen(true); }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") { setSupplierFilterOpen(false); return; }
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                if (filteredSupplierOptions.length === 1) { selectSupplier(filteredSupplierOptions[0].id, "form"); setSupplierFilterOpen(false); }
+                                else if (filteredSupplierOptions.length > 0) {
+                                  const q = normalize(supplierFilterQuery);
+                                  const exact = filteredSupplierOptions.find((s) => normalize(s.name) === q || normalize(s.externalCode ?? "") === q);
+                                  if (exact) { selectSupplier(exact.id, "form"); setSupplierFilterOpen(false); }
+                                  else setSupplierFilterOpen(true);
+                                }
                               }
-                            }
-                          }}
-                        />
-                        {(form.supplierName || form.supplierCode) && (
-                          <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor"
-                            onClick={() => { setForm((current) => ({ ...current, supplierId: "", supplierCode: "", supplierName: "", supplierDocument: "" })); }}>
-                            <X size={14} />
-                          </button>
-                        )}
-                        <ChevronDown size={16} className="autocomplete-chevron" />
-                        {supplierFilterOpen && (
-                          <div className="autocomplete-dropdown">
-                            {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado. Verifique o código, nome ou CNPJ.</div>}
-                            {filteredSupplierOptions.map((supplier) => (
-                              <button key={supplier.id} className="autocomplete-option" type="button"
-                                onClick={() => { selectSupplier(supplier.id, "form"); setSupplierFilterOpen(false); }}>
-                                <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
-                                <small>{supplier.document || "Sem documento"}</small>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      {!form.supplierId && (form.supplierName || form.supplierCode) && (
+                            }}
+                          />
+                          {(form.supplierName || form.supplierCode) && (
+                            <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor"
+                              onClick={() => { setForm((current) => ({ ...current, supplierId: "", supplierCode: "", supplierName: "", supplierDocument: "" })); }}>
+                              <X size={14} />
+                            </button>
+                          )}
+                          <ChevronDown size={16} className="autocomplete-chevron" />
+                          {supplierFilterOpen && (
+                            <div className="autocomplete-dropdown">
+                              {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado. Verifique o código, nome ou CNPJ.</div>}
+                              {filteredSupplierOptions.map((supplier) => (
+                                <button key={supplier.id} className="autocomplete-option" type="button"
+                                  onClick={() => { selectSupplier(supplier.id, "form"); setSupplierFilterOpen(false); }}>
+                                  <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
+                                  <small>{supplier.document || "Sem documento"}</small>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {!isMobile && !form.supplierId && (form.supplierName || form.supplierCode) && (
                         <p className="pnova-supplier-hint">Selecione um fornecedor da lista.</p>
                       )}
                     </div>
@@ -2082,109 +2189,125 @@ export function Purchases({ user }: { user: AppUser }) {
                   )}
                   <div className="pnova-entry-line">
                     <div className="pnova-entry-product-wrap">
-                      <input
-                        ref={entryProductRef}
-                        className="pnova-entry-product-input"
-                        autoComplete="off"
-                        placeholder={entry.editingIndex !== null ? "Digite o novo produto..." : "Código ou nome — Enter para adicionar"}
-                        value={entry.query}
-                        onFocus={() => {
-                          setEntryDropdownCursor(-1);
-                          setProductStep("produtos");
-                          if (entry.query.trim()) setEntryDropdownOpen(true);
-                        }}
-                        onClick={() => { setEntryDropdownOpen(true); }}
-                        onChange={(event) => {
-                          const val = event.target.value;
-                          setEntry((e) => ({ ...e, query: val, productId: "", productName: val, productCode: "" }));
-                          setEntryDropdownOpen(val.trim().length > 0);
-                          setEntryDropdownCursor(-1);
-                        }}
-                        onPaste={(event) => {
-                          const text = event.clipboardData.getData("text");
-                          const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-                          if (lines.length <= 1) return;
-                          event.preventDefault();
-                          const notFound: string[] = [];
-                          const newItems: PurchaseItemForm[] = [];
-                          const existingIds = new Set(items.map((i) => i.productId));
-                          for (const line of lines) {
-                            const q = normalize(line);
-                            if (!q) continue;
-                            const match = products.filter((p) => p.isActive).find((p) => {
-                              const code = normalize(p.externalCode ?? "");
-                              const name = normalize(p.name);
-                              const aliases = p.aliases?.map((a) => normalize(a.alias)) ?? [];
-                              return (
-                                code === q || name === q ||
-                                (q.length >= 4 && (name.startsWith(q) || name.includes(q))) ||
-                                aliases.some((a) => a === q || (q.length >= 4 && a.includes(q)))
-                              );
-                            });
-                            if (match && !existingIds.has(match.id)) {
-                              existingIds.add(match.id);
-                              const def = productDefaults(match);
-                              newItems.push({ ...def, quantity: "1", unitPrice: "", totalPrice: "", notes: "" });
-                            } else if (!match) {
-                              notFound.push(line);
-                            }
-                          }
-                          if (newItems.length > 0) {
-                            const startIdx = items.length;
-                            setItems((current) => [...current, ...newItems]);
-                            setHighlightedRow(startIdx);
-                            window.setTimeout(() => setHighlightedRow(null), 1500);
-                          }
-                          setPasteReport(notFound);
-                          setEntry({ ...emptyEntry });
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Escape") { event.preventDefault(); setEntryDropdownOpen(false); setEntryDropdownCursor(-1); if (entry.editingIndex !== null) setEntry({ ...emptyEntry }); return; }
-                          if (event.key === "ArrowDown") { event.preventDefault(); setEntryDropdownOpen(true); setEntryDropdownCursor((c) => Math.min(c + 1, entryFilteredProducts.length - 1)); return; }
-                          if (event.key === "ArrowUp") { event.preventDefault(); setEntryDropdownCursor((c) => Math.max(c - 1, -1)); return; }
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            // Cursor ativo: seleciona o item destacado
-                            if (entryDropdownCursor >= 0 && entryFilteredProducts[entryDropdownCursor]) {
-                              selectEntryProduct(entryFilteredProducts[entryDropdownCursor].id); return;
-                            }
-                            // Sem cursor: seleciona o primeiro resultado (fluxo em lote)
-                            if (entryFilteredProducts.length > 0) {
-                              selectEntryProduct(entryFilteredProducts[0].id); return;
-                            }
-                            setEntryDropdownOpen(true);
-                          }
-                        }}
-                      />
-                      {entryDropdownOpen && (
-                        <div className="autocomplete-dropdown product-autocomplete-dropdown pnova-product-dropdown">
-                          {entryFilteredProducts.length === 0 ? (
-                            <div className="autocomplete-empty-actions">
-                              <p>Nenhum produto encontrado para "{entry.query}"</p>
-                              <button type="button" onClick={() => setEntry((e) => ({ ...e, query: "" }))}>✕ Limpar busca</button>
-                              <button type="button" onClick={() => window.open("/products/new", "_blank")}>+ Cadastrar produto</button>
-                            </div>
-                          ) : (
-                            <>
-                              {entryFilteredProducts.slice(0, 8).map((option, optIdx) => (
-                                <button
-                                  key={option.id}
-                                  className={`autocomplete-option pnova-product-option${optIdx === entryDropdownCursor ? " autocomplete-option-active" : ""}`}
-                                  type="button"
-                                  onClick={() => selectEntryProduct(option.id)}
-                                  title={option.name}
-                                >
-                                  <span className="pnova-option-code">{option.externalCode || ""}</span>
-                                  <span className="pnova-option-name">{option.name}</span>
-                                  <span className="pnova-option-meta">{option.category?.name ?? ""}{option.unit ? ` · ${option.unit}` : ""}{!option.isActive ? " · INATIVO" : ""}</span>
-                                </button>
-                              ))}
-                              {entryFilteredProducts.length > 8 && (
-                                <div className="pnova-dropdown-more">+{entryFilteredProducts.length - 8} mais — refine a busca</div>
+                      {isMobile ? (
+                        /* Mobile: botão trigger que abre bottom sheet */
+                        <button
+                          type="button"
+                          className={`pnova-entry-mobile-trigger${!entry.query ? " empty" : ""}`}
+                          onClick={() => {
+                            setProductSheetQuery(entry.query);
+                            setProductSheetOpen(true);
+                            window.setTimeout(() => productSheetSearchRef.current?.focus(), 100);
+                          }}
+                        >
+                          {entry.query || (entry.editingIndex !== null ? "Toque para trocar produto…" : "Toque para adicionar produto…")}
+                        </button>
+                      ) : (
+                        /* Desktop: input com dropdown inline */
+                        <>
+                          <input
+                            ref={entryProductRef}
+                            className="pnova-entry-product-input"
+                            autoComplete="off"
+                            placeholder={entry.editingIndex !== null ? "Digite o novo produto..." : "Código ou nome — Enter para adicionar"}
+                            value={entry.query}
+                            onFocus={() => {
+                              setEntryDropdownCursor(-1);
+                              setProductStep("produtos");
+                              if (entry.query.trim()) setEntryDropdownOpen(true);
+                            }}
+                            onClick={() => { setEntryDropdownOpen(true); }}
+                            onChange={(event) => {
+                              const val = event.target.value;
+                              setEntry((e) => ({ ...e, query: val, productId: "", productName: val, productCode: "" }));
+                              setEntryDropdownOpen(val.trim().length > 0);
+                              setEntryDropdownCursor(-1);
+                            }}
+                            onPaste={(event) => {
+                              const text = event.clipboardData.getData("text");
+                              const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+                              if (lines.length <= 1) return;
+                              event.preventDefault();
+                              const notFound: string[] = [];
+                              const newItems: PurchaseItemForm[] = [];
+                              const existingIds = new Set(items.map((i) => i.productId));
+                              for (const line of lines) {
+                                const q = normalize(line);
+                                if (!q) continue;
+                                const match = products.filter((p) => p.isActive).find((p) => {
+                                  const code = normalize(p.externalCode ?? "");
+                                  const name = normalize(p.name);
+                                  const aliases = p.aliases?.map((a) => normalize(a.alias)) ?? [];
+                                  return (
+                                    code === q || name === q ||
+                                    (q.length >= 4 && (name.startsWith(q) || name.includes(q))) ||
+                                    aliases.some((a) => a === q || (q.length >= 4 && a.includes(q)))
+                                  );
+                                });
+                                if (match && !existingIds.has(match.id)) {
+                                  existingIds.add(match.id);
+                                  const def = productDefaults(match);
+                                  newItems.push({ ...def, quantity: "1", unitPrice: "", totalPrice: "", notes: "" });
+                                } else if (!match) {
+                                  notFound.push(line);
+                                }
+                              }
+                              if (newItems.length > 0) {
+                                const startIdx = items.length;
+                                setItems((current) => [...current, ...newItems]);
+                                setHighlightedRow(startIdx);
+                                window.setTimeout(() => setHighlightedRow(null), 1500);
+                              }
+                              setPasteReport(notFound);
+                              setEntry({ ...emptyEntry });
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") { event.preventDefault(); setEntryDropdownOpen(false); setEntryDropdownCursor(-1); if (entry.editingIndex !== null) setEntry({ ...emptyEntry }); return; }
+                              if (event.key === "ArrowDown") { event.preventDefault(); setEntryDropdownOpen(true); setEntryDropdownCursor((c) => Math.min(c + 1, entryFilteredProducts.length - 1)); return; }
+                              if (event.key === "ArrowUp") { event.preventDefault(); setEntryDropdownCursor((c) => Math.max(c - 1, -1)); return; }
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                if (entryDropdownCursor >= 0 && entryFilteredProducts[entryDropdownCursor]) {
+                                  selectEntryProduct(entryFilteredProducts[entryDropdownCursor].id); return;
+                                }
+                                if (entryFilteredProducts.length > 0) {
+                                  selectEntryProduct(entryFilteredProducts[0].id); return;
+                                }
+                                setEntryDropdownOpen(true);
+                              }
+                            }}
+                          />
+                          {entryDropdownOpen && (
+                            <div className="autocomplete-dropdown product-autocomplete-dropdown pnova-product-dropdown">
+                              {entryFilteredProducts.length === 0 ? (
+                                <div className="autocomplete-empty-actions">
+                                  <p>Nenhum produto encontrado para "{entry.query}"</p>
+                                  <button type="button" onClick={() => setEntry((e) => ({ ...e, query: "" }))}>✕ Limpar busca</button>
+                                  <button type="button" onClick={() => window.open("/products/new", "_blank")}>+ Cadastrar produto</button>
+                                </div>
+                              ) : (
+                                <>
+                                  {entryFilteredProducts.slice(0, 8).map((option, optIdx) => (
+                                    <button
+                                      key={option.id}
+                                      className={`autocomplete-option pnova-product-option${optIdx === entryDropdownCursor ? " autocomplete-option-active" : ""}`}
+                                      type="button"
+                                      onClick={() => selectEntryProduct(option.id)}
+                                      title={option.name}
+                                    >
+                                      <span className="pnova-option-code">{option.externalCode || ""}</span>
+                                      <span className="pnova-option-name">{option.name}</span>
+                                      <span className="pnova-option-meta">{option.category?.name ?? ""}{option.unit ? ` · ${option.unit}` : ""}{!option.isActive ? " · INATIVO" : ""}</span>
+                                    </button>
+                                  ))}
+                                  {entryFilteredProducts.length > 8 && (
+                                    <div className="pnova-dropdown-more">+{entryFilteredProducts.length - 8} mais — refine a busca</div>
+                                  )}
+                                </>
                               )}
-                            </>
+                            </div>
                           )}
-                        </div>
+                        </>
                       )}
                     </div>
                   </div>
@@ -2599,8 +2722,125 @@ export function Purchases({ user }: { user: AppUser }) {
 
             </div>
 
+            {/* ─── BOTTOM SHEET — PRODUTO (mobile) ─── */}
+            {productSheetOpen && (
+              <>
+                <div className="pnova-bs-backdrop" onClick={closeProductSheet} />
+                <div className="pnova-bottom-sheet" role="dialog" aria-modal="true" aria-label="Buscar produto">
+                  <div className="pnova-bs-handle" />
+                  <div className="pnova-bs-header">
+                    <span className="pnova-bs-title">
+                      {entry.editingIndex !== null
+                        ? `Trocar produto do item ${entry.editingIndex + 1}`
+                        : "Adicionar produto"}
+                    </span>
+                    <button type="button" className="pnova-bs-close" onClick={closeProductSheet} aria-label="Fechar">✕</button>
+                  </div>
+                  {entry.editingIndex !== null && (
+                    <div className="pnova-bs-editing-banner">
+                      Trocando: <strong>{items[entry.editingIndex]?.productName}</strong>
+                    </div>
+                  )}
+                  <div className="pnova-bs-search-wrap">
+                    <input
+                      ref={productSheetSearchRef}
+                      type="search"
+                      className="pnova-bs-search"
+                      autoComplete="off"
+                      placeholder="Código ou nome do produto…"
+                      value={productSheetQuery}
+                      onChange={(event) => {
+                        setProductSheetQuery(event.target.value);
+                        setEntryDropdownCursor(-1);
+                      }}
+                    />
+                  </div>
+                  <div className="pnova-bs-list">
+                    {entryFilteredProducts.length === 0 ? (
+                      <div className="pnova-bs-empty">
+                        {productSheetQuery
+                          ? `Nenhum produto encontrado para "${productSheetQuery}"`
+                          : "Digite para buscar produtos"}
+                      </div>
+                    ) : (
+                      entryFilteredProducts.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className="pnova-bs-card"
+                          onClick={() => handleSheetProductSelect(option.id)}
+                        >
+                          <span className="pnova-bs-card-primary">{option.name}</span>
+                          <span className="pnova-bs-card-secondary">
+                            {option.externalCode && <span className="pnova-bs-card-chip">{option.externalCode}</span>}
+                            {option.unit && <span>{option.unit}</span>}
+                            {option.category?.name && <span>{option.category.name}</span>}
+                            {!option.isActive && <span style={{ color: "#c62828" }}>INATIVO</span>}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  {items.length > 0 && (
+                    <div className="pnova-bs-footer">
+                      <p className="pnova-bs-footer-count">{items.length} produto{items.length > 1 ? "s" : ""} adicionado{items.length > 1 ? "s" : ""} — toque para adicionar mais</p>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* ─── BOTTOM SHEET — FORNECEDOR (mobile) ─── */}
+            {supplierSheetOpen && (
+              <>
+                <div className="pnova-bs-backdrop" onClick={() => setSupplierSheetOpen(false)} />
+                <div className="pnova-bottom-sheet" role="dialog" aria-modal="true" aria-label="Buscar fornecedor">
+                  <div className="pnova-bs-handle" />
+                  <div className="pnova-bs-header">
+                    <span className="pnova-bs-title">Selecionar fornecedor</span>
+                    <button type="button" className="pnova-bs-close" onClick={() => setSupplierSheetOpen(false)} aria-label="Fechar">✕</button>
+                  </div>
+                  <div className="pnova-bs-search-wrap">
+                    <input
+                      ref={supplierSheetSearchRef}
+                      type="search"
+                      className="pnova-bs-search"
+                      autoComplete="off"
+                      placeholder="Nome, código ou CNPJ/CPF…"
+                      value={supplierSheetQuery}
+                      onChange={(event) => setSupplierSheetQuery(event.target.value)}
+                    />
+                  </div>
+                  <div className="pnova-bs-list">
+                    {filteredSupplierOptions.length === 0 ? (
+                      <div className="pnova-bs-empty">
+                        {supplierSheetQuery
+                          ? "Nenhum fornecedor encontrado. Verifique o nome, código ou CNPJ."
+                          : "Digite para buscar fornecedores"}
+                      </div>
+                    ) : (
+                      filteredSupplierOptions.map((supplier) => (
+                        <button
+                          key={supplier.id}
+                          type="button"
+                          className="pnova-bs-card"
+                          onClick={() => handleSheetSupplierSelect(supplier.id)}
+                        >
+                          <span className="pnova-bs-card-primary">{supplier.name}</span>
+                          <span className="pnova-bs-card-secondary">
+                            {supplier.externalCode && <span className="pnova-bs-card-chip">{supplier.externalCode}</span>}
+                            {supplier.document && <span>{supplier.document}</span>}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
             {/* ─── BARRA STICKY INFERIOR ─── */}
-            <div className="pnova-sticky-bar">
+            <div className={`pnova-sticky-bar${keyboardOpen ? " keyboard-open" : ""}`}>
               <div className="pnova-sticky-left">
                 <span className="pnova-sticky-total">{formatCurrency(totalAmount)}</span>
                 {!selectedSupplierIsCycle && Math.round(amountDifference * 100) !== 0 && (
