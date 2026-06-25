@@ -254,10 +254,6 @@ export function Dashboard() {
       {/* ── Cabeçalho ── */}
       <div className="dash-header panel">
         <div className="dash-header-inner">
-          <div className="dash-header-left">
-            <p className="dash-header-eyebrow">Visão geral</p>
-            <h1 className="dash-header-title">Dashboard</h1>
-          </div>
           <div className="dash-header-controls">
             <div className="dash-period-row">
               <label className="dash-period-label">Competência</label>

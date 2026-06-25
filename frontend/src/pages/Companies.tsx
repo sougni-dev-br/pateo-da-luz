@@ -387,13 +387,13 @@ export function Companies() {
                     <tr style={!company.isActive ? { opacity: 0.55 } : undefined}>
                       <td>
                         <button
-                          className="icon-button"
-                          style={{ width: 28, height: 28, padding: 0 }}
                           type="button"
                           onClick={() => toggleExpand(company)}
-                          aria-label={expandedCompanyId === company.id ? "Recolher" : "Ver contas bancárias"}
+                          style={{ background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 0", fontSize: "0.8em", fontWeight: 500, color: "var(--muted)", whiteSpace: "nowrap" }}
                         >
-                          {expandedCompanyId === company.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          {expandedCompanyId === company.id
+                            ? <><ChevronDown size={12} /> Ocultar</>
+                            : <><ChevronRight size={12} /> Ver contas</>}
                         </button>
                       </td>
                       <td className="nowrap-cell">{company.code}</td>
@@ -405,7 +405,7 @@ export function Companies() {
                       </td>
                       <td className="nowrap-cell">{company.cnpj}</td>
                       <td>{company.city ? `${company.city}${company.state ? ` / ${company.state}` : ""}` : "—"}</td>
-                      <td>{Number(company.activeBankAccountCount ?? 0)}</td>
+                      <td>{(() => { const n = Number(company.activeBankAccountCount ?? 0); return n === 0 ? <span style={{ color: "var(--muted)" }}>—</span> : n === 1 ? "1 conta" : `${n} contas`; })()}</td>
                       <td>{company.isActive ? "Ativa" : "Inativa"}</td>
                       {canEdit && (
                         <td className="actions-cell">

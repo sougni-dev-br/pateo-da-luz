@@ -186,11 +186,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
 
       {/* ── Cabeçalho da página ── */}
       <div className="supp-page-header">
-        <div>
-          <p className="supp-page-eyebrow">CADASTRO BASE</p>
-          <h1 className="supp-page-title">Fornecedores</h1>
-          <p className="supp-page-sub">Cadastro utilizado em compras, pagamentos e relatórios financeiros</p>
-        </div>
+        <p className="supp-page-sub">Cadastro utilizado em compras, pagamentos e relatórios financeiros</p>
         <div className="supp-page-actions">
           <button className="icon-button" type="button" onClick={loadSuppliers} aria-label="Atualizar">
             <RefreshCw size={16} />
