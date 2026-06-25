@@ -497,10 +497,6 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
 
       <section className="panel">
         <div className="section-heading">
-          <div>
-            <p>Operação</p>
-            <h2>Faturamento</h2>
-          </div>
           <div className="actions-cell revenue-header-actions">
             {canLaunchEvent && (
               <button className="secondary-button" type="button" onClick={() => setShowEventModal(true)}>
