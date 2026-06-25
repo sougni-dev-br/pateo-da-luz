@@ -518,6 +518,15 @@ export function Purchases({ user }: { user: AppUser }) {
     });
   }, [normalPurchaseUsesCreditCard, form.creditCardId, form.ccNumberOfInstallments, form.purchaseDate, totalAmount, creditCards]);
 
+  function supplierPaymentLabel(supplier: { billingMode?: string; defaultInstallmentDays?: number[] | null; defaultInstallmentCount?: number | null; defaultPaymentTermDays?: number | null }): string {
+    if (supplier.billingMode === "CYCLE") return "Por ciclo";
+    if (supplier.defaultInstallmentDays && Array.isArray(supplier.defaultInstallmentDays) && supplier.defaultInstallmentDays.length > 0) {
+      return `${supplier.defaultInstallmentCount ?? supplier.defaultInstallmentDays.length}x / ${supplier.defaultInstallmentDays.join(", ")}d`;
+    }
+    if (supplier.defaultPaymentTermDays) return `${supplier.defaultPaymentTermDays}d`;
+    return "";
+  }
+
   const filteredSupplierOptions = useMemo(() => {
     const query = normalize(supplierFilterQuery);
     const queryDigits = supplierFilterQuery.replace(/\D/g, "");
@@ -2830,6 +2839,7 @@ export function Purchases({ user }: { user: AppUser }) {
                           <span className="pnova-bs-card-secondary">
                             {supplier.externalCode && <span className="pnova-bs-card-chip">{supplier.externalCode}</span>}
                             {supplier.document && <span>{supplier.document}</span>}
+                            {(() => { const p = supplierPaymentLabel(supplier); return p ? <span className="pnova-bs-card-chip pnova-bs-card-chip-pay">{p}</span> : null; })()}
                           </span>
                         </button>
                       ))

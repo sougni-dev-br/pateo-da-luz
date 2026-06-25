@@ -1,5 +1,5 @@
-import { RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ChevronDown, ChevronUp, History, Pencil, PowerOff, RefreshCw, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { getPaymentMethods, getSupplierHistory, getSuppliers, PaymentMethod, saveSupplier, setSupplierStatus, Supplier, SupplierHistory } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
@@ -41,6 +41,15 @@ function parseInstallmentDaysInput(value: string): number[] | null {
   return parts.length > 0 ? parts : null;
 }
 
+function paymentLabel(supplier: Supplier): string {
+  if (supplier.billingMode === "CYCLE") return "Por ciclo";
+  if (supplier.defaultInstallmentDays && Array.isArray(supplier.defaultInstallmentDays) && supplier.defaultInstallmentDays.length > 0) {
+    return `${supplier.defaultInstallmentCount ?? supplier.defaultInstallmentDays.length}x / ${(supplier.defaultInstallmentDays as number[]).join(", ")}d`;
+  }
+  if (supplier.defaultPaymentTermDays) return `${supplier.defaultPaymentTermDays}d`;
+  return "-";
+}
+
 export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void }) {
   const { user } = useSession();
   const canEdit = hasPermission(user, "suppliers", "edit");
@@ -48,12 +57,17 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("active");
   const [form, setForm] = useState(emptySupplier);
+  const [formOpen, setFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
   const [history, setHistory] = useState<SupplierHistory | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const { notice, setNotice } = useNotice();
+  const formRef = useRef<HTMLElement | null>(null);
 
   async function loadSuppliers() {
     setLoading(true);
@@ -86,7 +100,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
         cycleFirstDueDays: form.cycleFirstDueDays === "" ? null : Number(form.cycleFirstDueDays),
         cycleSecondDueDays: form.cycleSecondDueDays === "" ? null : Number(form.cycleSecondDueDays)
       });
-      setForm(emptySupplier);
+      cancelEdit();
       await loadSuppliers();
       setNotice({ tone: "success", message: isUpdate ? "Cadastro atualizado com sucesso." : "Cadastro criado com sucesso." });
     } catch (saveError) {
@@ -135,7 +149,32 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
       cycleFirstDueDays: supplier.cycleFirstDueDays == null ? "" : String(supplier.cycleFirstDueDays),
       cycleSecondDueDays: supplier.cycleSecondDueDays == null ? "" : String(supplier.cycleSecondDueDays)
     });
+    setEditingId(supplier.id);
+    setEditingName(supplier.name);
+    setFormOpen(true);
+    window.setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
+
+  function cancelEdit() {
+    setForm(emptySupplier);
+    setEditingId(null);
+    setEditingName("");
+    setFormOpen(false);
+  }
+
+  function openNewForm() {
+    setForm(emptySupplier);
+    setEditingId(null);
+    setEditingName("");
+    setFormOpen(true);
+    window.setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+  }
+
+  const filteredSuppliers = suppliers.filter((s) => {
+    if (statusFilter === "active") return s.isActive;
+    if (statusFilter === "inactive") return !s.isActive;
+    return true;
+  });
 
   useEffect(() => {
     loadSuppliers();
@@ -145,222 +184,349 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
     <div className="stack">
       <Notice notice={notice} />
 
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p>Tabela mestre</p>
-            <h2>Fornecedor</h2>
-          </div>
+      {/* ── Cabeçalho da página ── */}
+      <div className="supp-page-header">
+        <div>
+          <p className="supp-page-eyebrow">CADASTRO BASE</p>
+          <h1 className="supp-page-title">Fornecedores</h1>
+          <p className="supp-page-sub">Cadastro utilizado em compras, pagamentos e relatórios financeiros</p>
         </div>
-
-        <p className="form-section-label">Dados do fornecedor</p>
-        <div className="form-grid">
-          <label>
-            Código do fornecedor
-            <input readOnly value={form.externalCode || "Gerado automaticamente"} title={form.externalCode || "Gerado automaticamente ao salvar"} />
-          </label>
-          <label>
-            Nome
-            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-          </label>
-          <label>
-            CNPJ/CPF
-            <input value={form.document} onChange={(event) => setForm({ ...form, document: event.target.value })} />
-          </label>
-          <label>
-            Telefone
-            <input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
-          </label>
-          <label>
-            Email
-            <input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
-          </label>
-          <label>
-            Contato
-            <input value={form.contactName} onChange={(event) => setForm({ ...form, contactName: event.target.value })} />
-          </label>
-          <label>
-            Categoria principal
-            <input value={form.mainCategory} onChange={(event) => setForm({ ...form, mainCategory: event.target.value })} />
-          </label>
-          <label>
-            Data de cadastro
-            <input type="date" value={form.registrationDate} onChange={(event) => setForm({ ...form, registrationDate: event.target.value })} />
-          </label>
-          <label className="full-width">
-            Observações
-            <input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
-          </label>
-          <label className="checkbox-label">
-            <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />
-            Fornecedor ativo
-          </label>
+        <div className="supp-page-actions">
+          <button className="icon-button" type="button" onClick={loadSuppliers} aria-label="Atualizar">
+            <RefreshCw size={16} />
+          </button>
+          {canEdit && (
+            <button className="primary-button" type="button" onClick={openNewForm}>
+              + Novo fornecedor
+            </button>
+          )}
         </div>
+      </div>
 
-        <div className="subsection">
-          <h3>Condição padrão de pagamento</h3>
-          <p className="hint">Essas condições serão usadas automaticamente nas novas compras. Se nada for informado, o sistema usa BOLETO em 2 parcelas: 15 e 30 dias.</p>
-          <div className="form-grid">
-            <label>
-              Forma de pagamento padrão
-              <select value={form.defaultPaymentMethodId} onChange={(event) => setForm({ ...form, defaultPaymentMethodId: event.target.value })}>
-                <option value="">Padrão do sistema (BOLETO)</option>
-                {paymentMethods.map((method) => (
-                  <option key={method.id} value={method.id}>{method.name}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Número de parcelas padrão
-              <input type="number" min="1" step="1" placeholder="Ex: 2" value={form.defaultInstallmentCount} onChange={(event) => setForm({ ...form, defaultInstallmentCount: event.target.value })} />
-            </label>
-            <label>
-              Dias de vencimento (separados por vírgula)
-              <input placeholder="Ex: 15, 30  ou  10, 20, 30" value={form.defaultInstallmentDays} onChange={(event) => setForm({ ...form, defaultInstallmentDays: event.target.value })} />
-            </label>
-            <label>
-              Prazo padrão em dias
-              <input type="number" min="0" placeholder="Ex: 30" value={form.defaultPaymentTermDays} onChange={(event) => setForm({ ...form, defaultPaymentTermDays: event.target.value })} />
-            </label>
-            <label className="full-width">
-              Observação financeira padrão
-              <input placeholder="Ex: Boleto enviado por email até o dia 5" value={form.defaultFinancialNotes} onChange={(event) => setForm({ ...form, defaultFinancialNotes: event.target.value })} />
-            </label>
-            {(() => {
-              const count = Number(form.defaultInstallmentCount);
-              const days = parseInstallmentDaysInput(form.defaultInstallmentDays);
-              if (count > 0 && days && count !== days.length) {
-                return (
-                  <p className="form-grid-warn">
-                    ⚠ {count} parcela{count !== 1 ? "s" : ""} configurada{count !== 1 ? "s" : ""} mas {days.length} dia{days.length !== 1 ? "s" : ""} de vencimento informado{days.length !== 1 ? "s" : ""} — os dois valores precisam ser iguais.
-                  </p>
-                );
-              }
-              return null;
-            })()}
-          </div>
-        </div>
+      {/* ── Formulário colapsável ── */}
+      <section
+        ref={formRef}
+        className={`panel supp-form-panel${formOpen ? " supp-form-open" : ""}`}
+        aria-expanded={formOpen}
+      >
+        <button
+          type="button"
+          className="supp-form-toggle"
+          onClick={() => { if (formOpen) cancelEdit(); else openNewForm(); }}
+          aria-expanded={formOpen}
+        >
+          <span className="supp-form-toggle-label">
+            {formOpen
+              ? (editingId ? `Editando: ${editingName}` : "Novo fornecedor")
+              : "Cadastrar / Editar fornecedor"}
+          </span>
+          {formOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
 
-        <div className="subsection">
-          <h3>Faturamento do fornecedor</h3>
-          <p className="hint">
-            <strong>Direto por compra:</strong> cada compra gera suas próprias parcelas no Contas a Pagar.<br />
-            <strong>Por ciclo / fatura:</strong> compras do período são acumuladas para gerar uma fatura depois.
-          </p>
-          <div className="form-grid">
-            <label>
-              Tipo de faturamento
-              <select value={form.billingMode} onChange={(event) => setForm({ ...form, billingMode: event.target.value, cycleFrequency: "", cycleFirstDueDays: "", cycleSecondDueDays: "" })}>
-                <option value="DIRECT">Direto por compra</option>
-                <option value="CYCLE">Por ciclo / fatura</option>
-              </select>
-            </label>
-            {form.billingMode === "CYCLE" && (
-              <>
+        {formOpen && (
+          <>
+            {editingId && (
+              <div className="supp-editing-banner">
+                <span>Editando fornecedor: <strong>{editingName}</strong></span>
+                <button type="button" className="supp-editing-cancel" onClick={cancelEdit}>
+                  <X size={14} /> Cancelar edição
+                </button>
+              </div>
+            )}
+
+            <p className="form-section-label">Dados do fornecedor</p>
+            <div className="form-grid">
+              <label>
+                Código
+                <input readOnly value={form.externalCode || "Gerado automaticamente"} title={form.externalCode || "Gerado automaticamente ao salvar"} />
+              </label>
+              <label>
+                Nome *
+                <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+              </label>
+              <label>
+                CNPJ/CPF
+                <input value={form.document} onChange={(event) => setForm({ ...form, document: event.target.value })} />
+              </label>
+              <label>
+                Telefone
+                <input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
+              </label>
+              <label>
+                Email
+                <input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
+              </label>
+              <label>
+                Contato
+                <input value={form.contactName} onChange={(event) => setForm({ ...form, contactName: event.target.value })} />
+              </label>
+              <label>
+                Categoria
+                <input value={form.mainCategory} onChange={(event) => setForm({ ...form, mainCategory: event.target.value })} />
+              </label>
+              <label>
+                Data de cadastro
+                <input type="date" value={form.registrationDate} onChange={(event) => setForm({ ...form, registrationDate: event.target.value })} />
+              </label>
+              <label className="full-width">
+                Observações
+                <input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
+              </label>
+              <label className="supp-checkbox-label">
+                <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />
+                <span>Fornecedor ativo</span>
+              </label>
+            </div>
+
+            <div className="subsection">
+              <h3>Condição padrão de pagamento</h3>
+              <p className="hint">Essas condições serão usadas automaticamente nas novas compras. Se nada for informado, o sistema usa BOLETO em 2 parcelas: 15 e 30 dias.</p>
+              <div className="form-grid">
                 <label>
-                  Frequência do ciclo
-                  <select value={form.cycleFrequency} onChange={(event) => setForm({ ...form, cycleFrequency: event.target.value })}>
-                    <option value="">Sem frequência definida</option>
-                    <option value="WEEKLY">Semanal</option>
-                    <option value="BIWEEKLY">Quinzenal</option>
-                    <option value="MONTHLY">Mensal</option>
-                    <option value="CUSTOM">Personalizado</option>
+                  Forma de pagamento
+                  <select value={form.defaultPaymentMethodId} onChange={(event) => setForm({ ...form, defaultPaymentMethodId: event.target.value })}>
+                    <option value="">Padrão do sistema (BOLETO)</option>
+                    {paymentMethods.map((method) => (
+                      <option key={method.id} value={method.id}>{method.name}</option>
+                    ))}
                   </select>
                 </label>
                 <label>
-                  Dias para 1º vencimento *
-                  <input type="number" min="1" step="1" placeholder="Ex: 15" value={form.cycleFirstDueDays} onChange={(event) => setForm({ ...form, cycleFirstDueDays: event.target.value })} />
+                  Parcelas
+                  <input type="number" min="1" step="1" placeholder="Ex: 2" value={form.defaultInstallmentCount} onChange={(event) => setForm({ ...form, defaultInstallmentCount: event.target.value })} />
                 </label>
                 <label>
-                  Dias para 2º vencimento (opcional)
-                  <input type="number" min="1" step="1" placeholder="Ex: 30" value={form.cycleSecondDueDays} onChange={(event) => setForm({ ...form, cycleSecondDueDays: event.target.value })} />
+                  Dias de vencimento (separados por vírgula)
+                  <input placeholder="Ex: 15, 30" value={form.defaultInstallmentDays} onChange={(event) => setForm({ ...form, defaultInstallmentDays: event.target.value })} />
                 </label>
-              </>
-            )}
-          </div>
-        </div>
+                <label>
+                  Prazo em dias
+                  <input type="number" min="0" placeholder="Ex: 30" value={form.defaultPaymentTermDays} onChange={(event) => setForm({ ...form, defaultPaymentTermDays: event.target.value })} />
+                </label>
+                <label className="full-width">
+                  Observação financeira
+                  <input placeholder="Ex: Boleto enviado por email até o dia 5" value={form.defaultFinancialNotes} onChange={(event) => setForm({ ...form, defaultFinancialNotes: event.target.value })} />
+                </label>
+                {(() => {
+                  const count = Number(form.defaultInstallmentCount);
+                  const days = parseInstallmentDaysInput(form.defaultInstallmentDays);
+                  if (count > 0 && days && count !== days.length) {
+                    return (
+                      <p className="form-grid-warn">
+                        ⚠ {count} parcela{count !== 1 ? "s" : ""} configurada{count !== 1 ? "s" : ""} mas {days.length} dia{days.length !== 1 ? "s" : ""} de vencimento informado{days.length !== 1 ? "s" : ""} — os dois valores precisam ser iguais.
+                      </p>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            </div>
 
-        <div className="form-actions">
-          <button className="secondary-button" type="button" onClick={() => setForm(emptySupplier)}>Cancelar</button>
-          <button className="primary-button" type="button" disabled={!canEdit} onClick={handleSubmit}>
-            {form.id ? "Salvar alterações" : "Cadastrar"}
-          </button>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p>Cadastro base</p>
-            <h2>Fornecedores</h2>
-          </div>
-          <button className="icon-button" type="button" onClick={loadSuppliers} aria-label="Atualizar fornecedores">
-            <RefreshCw size={18} />
-          </button>
-        </div>
-
-        <div className="filters-row">
-          <label>
-            Busca
-            <input placeholder="Nome, código ou documento" value={search} onChange={(event) => setSearch(event.target.value)} />
-          </label>
-          <button className="primary-button" type="button" onClick={loadSuppliers}>Filtrar</button>
-        </div>
-
-        {error && <div className="alert error">{error}</div>}
-        {loading && <div className="empty-state">Carregando fornecedores...</div>}
-
-        {!loading && (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Status</th>
-                  <th>Código</th>
-                  <th>Nome</th>
-                  <th>CNPJ/CPF</th>
-                  <th>Contato</th>
-                  <th>Categoria</th>
-                  <th>Pagamento padrão</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {suppliers.map((supplier) => (
-                  <tr key={supplier.id}>
-                    <td>{supplier.isActive ? "Ativo" : "Inativo"}</td>
-                    <td>{supplier.externalCode ?? "-"}</td>
-                    <td>{supplier.name}</td>
-                    <td>{supplier.document ?? "-"}</td>
-                    <td>{supplier.contactName ?? supplier.phone ?? supplier.email ?? "-"}</td>
-                    <td>{supplier.mainCategory ?? "-"}</td>
-                    <td>
-                      {supplier.billingMode === "CYCLE"
-                        ? <span title={`Ciclo${supplier.cycleFrequency ? ` ${supplier.cycleFrequency}` : ""}${supplier.cycleFirstDueDays ? ` — ${supplier.cycleFirstDueDays}d` : ""}`}>Por ciclo</span>
-                        : supplier.defaultInstallmentDays && Array.isArray(supplier.defaultInstallmentDays) && supplier.defaultInstallmentDays.length > 0
-                          ? `${supplier.defaultInstallmentCount ?? supplier.defaultInstallmentDays.length}x — dias ${(supplier.defaultInstallmentDays as number[]).join(", ")}`
-                          : supplier.defaultPaymentTermDays
-                            ? `${supplier.defaultPaymentTermDays} dias`
-                            : "-"}
-                    </td>
-                    <td className="actions-cell">
-                      <button type="button" disabled={!canEdit} onClick={() => editSupplier(supplier)}>Editar</button>
-                      <button type="button" disabled={!canDelete} onClick={() => toggleStatus(supplier)}>
-                        {supplier.isActive ? "Inativar" : "Reativar"}
-                      </button>
-                      <button type="button" onClick={() => loadHistory(supplier)}>Histórico</button>
-                    </td>
-                  </tr>
-                ))}
-                {suppliers.length === 0 && (
-                  <tr><td colSpan={8}>Nenhum fornecedor cadastrado.</td></tr>
+            <div className="subsection">
+              <h3>Faturamento</h3>
+              <p className="hint">
+                <strong>Direto por compra:</strong> cada compra gera suas próprias parcelas no Contas a Pagar.<br />
+                <strong>Por ciclo / fatura:</strong> compras do período são acumuladas para gerar uma fatura depois.
+              </p>
+              <div className="form-grid">
+                <label>
+                  Tipo de faturamento
+                  <select value={form.billingMode} onChange={(event) => setForm({ ...form, billingMode: event.target.value, cycleFrequency: "", cycleFirstDueDays: "", cycleSecondDueDays: "" })}>
+                    <option value="DIRECT">Direto por compra</option>
+                    <option value="CYCLE">Por ciclo / fatura</option>
+                  </select>
+                </label>
+                {form.billingMode === "CYCLE" && (
+                  <>
+                    <label>
+                      Frequência do ciclo
+                      <select value={form.cycleFrequency} onChange={(event) => setForm({ ...form, cycleFrequency: event.target.value })}>
+                        <option value="">Sem frequência definida</option>
+                        <option value="WEEKLY">Semanal</option>
+                        <option value="BIWEEKLY">Quinzenal</option>
+                        <option value="MONTHLY">Mensal</option>
+                        <option value="CUSTOM">Personalizado</option>
+                      </select>
+                    </label>
+                    <label>
+                      1º vencimento (dias)
+                      <input type="number" min="1" step="1" placeholder="Ex: 15" value={form.cycleFirstDueDays} onChange={(event) => setForm({ ...form, cycleFirstDueDays: event.target.value })} />
+                    </label>
+                    <label>
+                      2º vencimento (opcional)
+                      <input type="number" min="1" step="1" placeholder="Ex: 30" value={form.cycleSecondDueDays} onChange={(event) => setForm({ ...form, cycleSecondDueDays: event.target.value })} />
+                    </label>
+                  </>
                 )}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            </div>
+
+            <div className="form-actions">
+              <button className="secondary-button" type="button" onClick={cancelEdit}>Cancelar</button>
+              <button className="primary-button" type="button" disabled={!canEdit} onClick={handleSubmit}>
+                {form.id ? "Salvar alterações" : "Cadastrar"}
+              </button>
+            </div>
+          </>
         )}
       </section>
 
+      {/* ── Listagem ── */}
+      <section className="panel">
+        <div className="supp-list-header">
+          <div className="supp-search-wrap">
+            <input
+              className="supp-search-input"
+              placeholder="Buscar por nome, código ou documento…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") loadSuppliers(); }}
+            />
+            <button className="primary-button supp-search-btn" type="button" onClick={loadSuppliers}>Buscar</button>
+          </div>
+          <div className="supp-status-tabs">
+            {(["all", "active", "inactive"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                className={`supp-status-tab${statusFilter === tab ? " active" : ""}`}
+                onClick={() => setStatusFilter(tab)}
+              >
+                {tab === "all" ? "Todos" : tab === "active" ? "Ativos" : "Inativos"}
+                <span className="supp-tab-count">
+                  {tab === "all" ? suppliers.length : tab === "active" ? suppliers.filter(s => s.isActive).length : suppliers.filter(s => !s.isActive).length}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && <div className="alert error">{error}</div>}
+        {loading && <div className="empty-state">Carregando fornecedores…</div>}
+
+        {!loading && filteredSuppliers.length === 0 && (
+          <div className="supp-empty">
+            <p>{search ? `Nenhum fornecedor encontrado para "${search}"` : "Nenhum fornecedor cadastrado."}</p>
+            {canEdit && !search && (
+              <button className="primary-button" type="button" onClick={openNewForm}>+ Novo fornecedor</button>
+            )}
+          </div>
+        )}
+
+        {!loading && filteredSuppliers.length > 0 && (
+          <>
+            {/* Desktop table */}
+            <div className="table-wrap supp-table-wrap">
+              <table className="supp-table">
+                <thead>
+                  <tr>
+                    <th>Situação</th>
+                    <th>Código</th>
+                    <th>Fornecedor</th>
+                    <th>Documento</th>
+                    <th>Contato</th>
+                    <th>Categoria</th>
+                    <th>Pagamento</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSuppliers.map((supplier) => (
+                    <tr key={supplier.id} className={editingId === supplier.id ? "supp-row-editing" : ""}>
+                      <td>
+                        <span className={`supp-badge${supplier.isActive ? " supp-badge-active" : " supp-badge-inactive"}`}>
+                          {supplier.isActive ? "Ativo" : "Inativo"}
+                        </span>
+                      </td>
+                      <td className="supp-code-cell">{supplier.externalCode ?? "-"}</td>
+                      <td className="supp-name-cell">{supplier.name}</td>
+                      <td className="supp-doc-cell">{supplier.document ?? "-"}</td>
+                      <td className="supp-contact-cell">{supplier.contactName ?? supplier.phone ?? supplier.email ?? "-"}</td>
+                      <td className="supp-cat-cell">{supplier.mainCategory ?? "-"}</td>
+                      <td>
+                        <span
+                          className="supp-payment-badge"
+                          title={supplier.billingMode === "CYCLE"
+                            ? `Ciclo${supplier.cycleFrequency ? ` ${supplier.cycleFrequency}` : ""}${supplier.cycleFirstDueDays ? ` — ${supplier.cycleFirstDueDays}d` : ""}`
+                            : undefined}
+                        >
+                          {paymentLabel(supplier)}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="supp-actions">
+                          <button
+                            type="button"
+                            className="supp-action-btn"
+                            disabled={!canEdit}
+                            title="Editar"
+                            onClick={() => editSupplier(supplier)}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className={`supp-action-btn${supplier.isActive ? " supp-action-danger" : ""}`}
+                            disabled={!canDelete}
+                            title={supplier.isActive ? "Inativar" : "Reativar"}
+                            onClick={() => toggleStatus(supplier)}
+                          >
+                            <PowerOff size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="supp-action-btn"
+                            title="Histórico de compras"
+                            onClick={() => loadHistory(supplier)}
+                          >
+                            <History size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="supp-mobile-list">
+              {filteredSuppliers.map((supplier) => (
+                <div key={supplier.id} className={`supp-card${editingId === supplier.id ? " supp-card-editing" : ""}`}>
+                  <div className="supp-card-header">
+                    <div className="supp-card-title-wrap">
+                      {supplier.externalCode && <span className="supp-card-code">{supplier.externalCode}</span>}
+                      <span className="supp-card-name">{supplier.name}</span>
+                    </div>
+                    <span className={`supp-badge${supplier.isActive ? " supp-badge-active" : " supp-badge-inactive"}`}>
+                      {supplier.isActive ? "Ativo" : "Inativo"}
+                    </span>
+                  </div>
+                  <div className="supp-card-meta">
+                    {supplier.document && <span>{supplier.document}</span>}
+                    {(supplier.contactName || supplier.phone) && <span>{supplier.contactName ?? supplier.phone}</span>}
+                    {supplier.mainCategory && <span>{supplier.mainCategory}</span>}
+                    {paymentLabel(supplier) !== "-" && <span className="supp-payment-badge">{paymentLabel(supplier)}</span>}
+                  </div>
+                  <div className="supp-card-actions">
+                    <button type="button" className="supp-card-btn" disabled={!canEdit} onClick={() => editSupplier(supplier)}>
+                      <Pencil size={13} /> Editar
+                    </button>
+                    <button type="button" className={`supp-card-btn${supplier.isActive ? " danger" : ""}`} disabled={!canDelete} onClick={() => toggleStatus(supplier)}>
+                      <PowerOff size={13} /> {supplier.isActive ? "Inativar" : "Reativar"}
+                    </button>
+                    <button type="button" className="supp-card-btn" onClick={() => loadHistory(supplier)}>
+                      <History size={13} /> Histórico
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* ── Modal de histórico ── */}
       {selectedSupplier && history && (
         <div className="modal-backdrop">
           <section className="panel modal-panel">

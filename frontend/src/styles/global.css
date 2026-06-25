@@ -1942,6 +1942,363 @@ select:disabled {
   flex-wrap: wrap;
 }
 
+/* ── Suppliers page ─────────────────────────────────────────────────── */
+.supp-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 20px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.supp-page-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+
+.supp-page-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+.supp-page-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.supp-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* Formulário colapsável */
+.supp-form-panel {
+  transition: none;
+}
+
+.supp-form-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  gap: 8px;
+  text-align: left;
+}
+
+.supp-form-toggle-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.supp-form-open .supp-form-toggle {
+  padding-bottom: 16px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Banner de edição */
+.supp-editing-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fff8e1;
+  border: 1px solid #f9c74f;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 13.5px;
+  flex-wrap: wrap;
+}
+
+.supp-editing-cancel {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 1px solid #d4a017;
+  border-radius: 6px;
+  color: #7a5a00;
+  padding: 5px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.supp-editing-cancel:hover {
+  background: #fdf3c0;
+}
+
+/* Checkbox label corrigido */
+.supp-checkbox-label {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px !important;
+  cursor: pointer;
+  min-height: 40px;
+}
+
+.supp-checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-height: auto;
+  flex-shrink: 0;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.supp-checkbox-label span {
+  font-size: 14px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* Cabeçalho da listagem */
+.supp-list-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.supp-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.supp-search-input {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.supp-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(197, 172, 120, 0.15);
+}
+
+.supp-search-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Abas de status */
+.supp-status-tabs {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.supp-status-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+
+.supp-status-tab:hover {
+  background: #f5f5f5;
+  color: var(--ink);
+}
+
+.supp-status-tab.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.supp-status-tab.active .supp-tab-count {
+  background: rgba(255,255,255,0.25);
+  color: #fff;
+}
+
+.supp-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 4px;
+}
+
+/* Tabela */
+.supp-table-wrap {
+  overflow-x: auto;
+}
+
+.supp-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.supp-table th {
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  background: #fafafa;
+}
+
+.supp-table td {
+  padding: 9px 10px;
+  font-size: 13.5px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.supp-table tbody tr:hover {
+  background: #fafafa;
+}
+
+.supp-row-editing {
+  background: #fffbeb !important;
+  outline: 2px solid #f9c74f;
+  outline-offset: -1px;
+}
+
+.supp-code-cell { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.supp-name-cell { font-weight: 500; }
+.supp-doc-cell  { font-size: 12.5px; white-space: nowrap; }
+.supp-contact-cell { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.supp-cat-cell  { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Badges */
+.supp-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 20px;
+  padding: 2px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.supp-badge-active {
+  background: rgba(76, 175, 80, 0.12);
+  color: #2e7d32;
+}
+
+.supp-badge-inactive {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--muted);
+}
+
+.supp-payment-badge {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--muted);
+  background: #f3f4f6;
+  border-radius: 5px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+/* Ações compactas */
+.supp-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.supp-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  flex-shrink: 0;
+}
+
+.supp-action-btn:hover:not(:disabled) {
+  background: #f5f5f5;
+  color: var(--ink);
+  border-color: #bbb;
+}
+
+.supp-action-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.supp-action-danger:hover:not(:disabled) {
+  background: #fff0f0;
+  color: #c62828;
+  border-color: #ef9a9a;
+}
+
+/* Empty state */
+.supp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 40px 16px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* Mobile cards — ocultos no desktop */
+.supp-mobile-list {
+  display: none;
+}
+
 /* ── Purchases filter panel ─────────────────────────────────────────── */
 .purch-filters-header {
   display: flex;
@@ -4271,6 +4628,134 @@ select:disabled {
   min-width: 140px;
 }
 
+/* ─── Mobile Suppliers ─── */
+@media (max-width: 700px) {
+  .supp-table-wrap {
+    display: none;
+  }
+
+  .supp-mobile-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .supp-card {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .supp-card-editing {
+    border-color: #f9c74f;
+    background: #fffbeb;
+  }
+
+  .supp-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .supp-card-title-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .supp-card-code {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .supp-card-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .supp-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+
+  .supp-card-meta span:not(:last-child)::after {
+    content: "·";
+    margin-left: 5px;
+  }
+
+  .supp-card-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding-top: 4px;
+    border-top: 1px solid var(--line);
+  }
+
+  .supp-card-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 1 1 auto;
+    justify-content: center;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--ink);
+    font-size: 13px;
+    padding: 9px 10px;
+    cursor: pointer;
+    min-height: 40px;
+  }
+
+  .supp-card-btn.danger {
+    color: #c62828;
+    border-color: #ef9a9a;
+    background: #fff5f5;
+  }
+
+  .supp-list-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .supp-search-wrap {
+    flex: 1 1 auto;
+  }
+
+  .supp-status-tabs {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .supp-status-tab {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .supp-page-header {
+    padding-bottom: 14px;
+  }
+
+  .supp-page-title {
+    font-size: 18px;
+  }
+}
+
 /* ─── Mobile pnova ─── */
 @media (max-width: 640px) {
   .pnova-layout {
@@ -4579,6 +5064,10 @@ select:disabled {
   font-weight: 700;
   color: var(--accent-dark, #7a6040);
   letter-spacing: 0.02em;
+}
+.pnova-bs-card-chip-pay {
+  background: rgba(56, 142, 60, 0.1);
+  color: #2e7d32;
 }
 .pnova-bs-footer {
   padding: 10px 16px 8px;
