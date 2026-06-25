@@ -2,6 +2,7 @@ node_modules/
 dist/
 build/
 pateo-dist.zip
+frontend/dist-deploy.zip
 HANDOFF.md
 .env
 .env.local
