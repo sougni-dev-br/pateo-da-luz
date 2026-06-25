@@ -6,6 +6,7 @@ import {
   checkPurchaseDuplicate,
   cancelPurchase,
   createPurchase,
+  createSupplierCycle,
   CreditCard,
   CreditCardStatement,
   downloadSmallExpensesPdf,
@@ -18,6 +19,7 @@ import {
   getPurchases,
   getSmallExpenseReport,
   getSmallExpenseTypes,
+  getSupplierCycles,
   getSuppliers,
   getUnits,
   PaymentMethod,
@@ -29,6 +31,7 @@ import {
   SmallExpenseReport,
   SmallExpenseType,
   Supplier,
+  SupplierCycle,
   UnitMeasure,
   updatePurchase,
   Company,
@@ -329,6 +332,9 @@ export function Purchases({ user }: { user: AppUser }) {
   const productSheetSearchRef = useRef<HTMLInputElement | null>(null);
   const supplierSheetSearchRef = useRef<HTMLInputElement | null>(null);
   const { notice, setNotice } = useNotice();
+  const [activeCycle, setActiveCycle] = useState<SupplierCycle | null>(null);
+  const [cycleCheckState, setCycleCheckState] = useState<"idle" | "loading" | "found" | "not-found">("idle");
+  const [cycleCreating, setCycleCreating] = useState(false);
 
   const isAdmin = hasPermission(user, "purchases", "admin");
   const canEditPurchase = hasPermission(user, "purchases", "edit");
@@ -700,6 +706,38 @@ export function Purchases({ user }: { user: AppUser }) {
     };
   }, [editingId, form.invoiceNumber, form.purchaseOrderNumber, form.supplierId, isFormRoute]);
 
+  async function checkOpenCycle(supplierId: string) {
+    setCycleCheckState("loading");
+    setActiveCycle(null);
+    try {
+      const all = await getSupplierCycles({ supplierId });
+      const found = all.find((c) => c.status === "OPEN" || c.status === "CHECKED") ?? null;
+      setActiveCycle(found);
+      setCycleCheckState(found ? "found" : "not-found");
+    } catch {
+      setCycleCheckState("not-found");
+    }
+  }
+
+  async function handleCreateCycleFromPurchase() {
+    if (!form.supplierId) return;
+    setCycleCreating(true);
+    try {
+      const cycle = await createSupplierCycle({
+        supplierId: form.supplierId,
+        startDate: form.purchaseDate || todayInputDate(),
+      });
+      setActiveCycle(cycle);
+      setCycleCheckState("found");
+      setNotice({ tone: "success", message: "Ciclo aberto criado com sucesso." });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao criar ciclo.";
+      setNotice({ tone: "error", message: msg });
+    } finally {
+      setCycleCreating(false);
+    }
+  }
+
   function selectSupplier(supplierId: string, scope: "filter" | "form") {
     const supplier = suppliers.find((entry) => entry.id === supplierId);
     if (!supplier) return;
@@ -709,6 +747,10 @@ export function Purchases({ user }: { user: AppUser }) {
       setSupplierFilterOpen(false);
       return;
     }
+
+    // Reset cycle check on every supplier change in form scope
+    setCycleCheckState("idle");
+    setActiveCycle(null);
 
     // Fornecedor por ciclo: não resolve método de pagamento nem gera parcelas
     if (supplier.billingMode === "CYCLE") {
@@ -722,6 +764,7 @@ export function Purchases({ user }: { user: AppUser }) {
         installmentCount: "1"
       }));
       setInstallments([]);
+      void checkOpenCycle(supplierId);
       return;
     }
 
@@ -2544,7 +2587,37 @@ export function Purchases({ user }: { user: AppUser }) {
                     <p className="pnova-cycle-info-body">
                       A compra entrará no ciclo aberto do fornecedor e não gerará título direto no Contas a Pagar.
                     </p>
-                    <p className="pnova-cycle-info-hint">
+
+                    {cycleCheckState === "loading" && (
+                      <p className="pnova-cycle-info-hint" style={{ opacity: 0.6 }}>Verificando ciclo…</p>
+                    )}
+
+                    {cycleCheckState === "found" && activeCycle && (
+                      <p className="pnova-cycle-info-hint" style={{ color: "var(--success)" }}>
+                        ✓ Ciclo aberto encontrado — {formatDate(activeCycle.periodStart)}
+                        {activeCycle.periodEnd ? ` a ${formatDate(activeCycle.periodEnd)}` : " (período em aberto)"}
+                        {" · "}{activeCycle.itemCount} compra(s) · {formatCurrency(Number(activeCycle.totalAmount))}
+                      </p>
+                    )}
+
+                    {cycleCheckState === "not-found" && (
+                      <div style={{ marginTop: 6 }}>
+                        <p className="pnova-cycle-info-hint" style={{ color: "var(--warning)", marginBottom: 6 }}>
+                          Nenhum ciclo aberto para este fornecedor. Um ciclo será criado automaticamente ao salvar, ou crie agora:
+                        </p>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          style={{ fontSize: 12, padding: "4px 10px" }}
+                          disabled={cycleCreating}
+                          onClick={handleCreateCycleFromPurchase}
+                        >
+                          {cycleCreating ? "Criando ciclo…" : "Criar ciclo agora"}
+                        </button>
+                      </div>
+                    )}
+
+                    <p className="pnova-cycle-info-hint" style={{ marginTop: cycleCheckState !== "idle" ? 8 : 0 }}>
                       Fechamento em <strong>Financeiro › Ciclos de fornecedor</strong>.
                     </p>
                   </div>
