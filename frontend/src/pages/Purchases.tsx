@@ -2156,6 +2156,10 @@ export function Purchases({ user }: { user: AppUser }) {
                 {normalPurchaseUsesCreditCard && form.creditCardId && ccInstallmentPreview.length > 0 && (
                   <div className="pnova-data-extra-row">
                     <div className="pnova-cc-preview">
+                      <div className="pnova-cc-preview-header">
+                        <span className="pnova-cc-preview-ok">✓ Será lançado na fatura do cartão</span>
+                        <span className="pnova-cc-preview-total">{formatCurrency(totalAmount)}</span>
+                      </div>
                       {ccInstallmentPreview.map((item) => (
                         <div key={item.installment} className="pnova-cc-preview-row">
                           {ccInstallmentPreview.length > 1 && (
@@ -2548,7 +2552,7 @@ export function Purchases({ user }: { user: AppUser }) {
                     <strong>{formatCurrency(installmentTotal)}</strong>
                   </div>
                 )}
-                {!selectedSupplierIsCycle && Math.round(amountDifference * 100) !== 0 && (
+                {!selectedSupplierIsCycle && !usesCreditCard && Math.round(amountDifference * 100) !== 0 && (
                   <div className="pnova-summary-pill pnova-summary-warn">
                     <span>Dif.</span>
                     <strong>{formatCurrency(amountDifference)}</strong>
@@ -2632,7 +2636,7 @@ export function Purchases({ user }: { user: AppUser }) {
                     {/* Cabeçalho compacto clicável */}
                     <button
                       type="button"
-                      className={`pnova-payment-header${Math.round(amountDifference * 100) !== 0 ? " has-diff" : ""}`}
+                      className={`pnova-payment-header${!usesCreditCard && Math.round(amountDifference * 100) !== 0 ? " has-diff" : ""}`}
                       onClick={() => setPaymentExpanded((v) => !v)}
                     >
                       <span className="pnova-payment-header-method">
@@ -2657,7 +2661,7 @@ export function Purchases({ user }: { user: AppUser }) {
                           {" · "}{formatCurrency(totalAmount)}
                         </span>
                       ) : null}
-                      {Math.round(amountDifference * 100) !== 0 && (
+                      {!usesCreditCard && Math.round(amountDifference * 100) !== 0 && (
                         <span className="pnova-payment-header-diff">⚠ dif. {formatCurrency(amountDifference)}</span>
                       )}
                       <span className="pnova-payment-header-toggle">{paymentExpanded ? "▲ recolher" : "▼ editar"}</span>
@@ -2729,7 +2733,7 @@ export function Purchases({ user }: { user: AppUser }) {
                               onBlur={() => { if (!form.paymentNotes.trim()) setShowPaymentNotes(false); }} />
                           </label>
                         )}
-                        {isAdmin && Math.round(amountDifference * 100) !== 0 && (
+                        {isAdmin && !usesCreditCard && Math.round(amountDifference * 100) !== 0 && (
                           <label className="full-width">
                             Motivo da diferença
                             <input autoComplete="off" value={form.paymentDifferenceReason}
@@ -2924,7 +2928,7 @@ export function Purchases({ user }: { user: AppUser }) {
             <div className={`pnova-sticky-bar${keyboardOpen ? " keyboard-open" : ""}`}>
               <div className="pnova-sticky-left">
                 <span className="pnova-sticky-total">{formatCurrency(totalAmount)}</span>
-                {!selectedSupplierIsCycle && Math.round(amountDifference * 100) !== 0 && (
+                {!selectedSupplierIsCycle && !usesCreditCard && Math.round(amountDifference * 100) !== 0 && (
                   <span className="pnova-sticky-diff">⚠ dif. {formatCurrency(amountDifference)}</span>
                 )}
                 <span className={`pnova-sticky-status${validationMessages.length === 0 ? " ok" : " pending"}`}>
