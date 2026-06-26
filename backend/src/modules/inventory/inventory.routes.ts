@@ -424,8 +424,7 @@ function isInventoryManager(user: SessionUser) {
 function canCancelStockCountSession(session: StockCountSessionRow, user: SessionUser) {
   if (!cancelableStockCountSessionStatuses.has(session.status)) return false;
   if (session.generatedInventoryId) return false;
-  if (isInventoryManager(user)) return true;
-  return user.role === "ESTOQUISTA" && session.responsibleUserId === user.id && editableStockCountSessionStatuses.has(session.status);
+  return isInventoryManager(user);
 }
 
 function inventoryTypeLabel(type: string, sectorName?: string | null) {
@@ -716,8 +715,7 @@ inventoryRouter.get("/count-sessions", async (request, response) => {
     LEFT JOIN "User" u ON u."id" = s."responsibleUserId"
     LEFT JOIN "OperationalInventory" oi ON oi."id" = s."generatedInventoryId"
     LEFT JOIN "StockCountSessionItem" item ON item."stockCountSessionId" = s."id"
-    WHERE ${user.role === "ESTOQUISTA" ? Prisma.sql`s."responsibleUserId" = ${user.id}` : Prisma.sql`true`}
-      AND (${includeCanceled} = true OR s."status" <> 'CANCELADA')
+    WHERE (${includeCanceled} = true OR s."status" <> 'CANCELADA')
     GROUP BY s."id", u."name", oi."code"
     ORDER BY s."referenceDate" DESC, s."createdAt" DESC
     LIMIT 120
@@ -761,6 +759,26 @@ inventoryRouter.post("/count-sessions", async (request, response) => {
   }
   if (type === "SUBCATEGORIA" && !subcategoryId && !subcategoryName) {
     response.status(400).json({ message: "Contagem por subcategoria precisa de uma subcategoria." });
+    return;
+  }
+
+  // Bloquear duplicata: não permitir nova contagem ativa para o mesmo período/tipo/setor
+  const [existingSession] = await prisma.$queryRaw<Array<{ id: string; code: string }>>`
+    SELECT "id", "code"
+    FROM "StockCountSession"
+    WHERE "periodYear" = ${periodYear}
+      AND "periodMonth" = ${periodMonth}
+      AND "type" = ${type}
+      AND ("sectorId" IS NOT DISTINCT FROM ${sectorId}::text)
+      AND "status" IN ('ABERTA', 'EM_ANDAMENTO', 'CONCLUIDA')
+    LIMIT 1
+  `;
+  if (existingSession) {
+    response.status(409).json({
+      message: `Ja existe uma contagem ${type} para este periodo (${existingSession.code}). Abra a contagem existente ou solicite ao gestor que a cancele antes de iniciar uma nova.`,
+      existingId: existingSession.id,
+      existingCode: existingSession.code
+    });
     return;
   }
 
@@ -1069,11 +1087,7 @@ inventoryRouter.patch("/count-sessions/:id/items", async (request, response) => 
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
   if (!user) return;
 
-  const session = await assertCanEditStockCountSession(request.params.id, user);
-  if (user.role === "ESTOQUISTA" && session.responsibleUserId !== user.id) {
-    response.status(403).json({ message: "Voce nao pode editar esta contagem." });
-    return;
-  }
+  await assertCanEditStockCountSession(request.params.id, user);
 
   const items = Array.isArray(request.body.items) ? request.body.items : [];
   for (const item of items) {
@@ -1117,11 +1131,7 @@ inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) 
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
   if (!user) return;
 
-  const session = await assertCanEditStockCountSession(request.params.id, user);
-  if (user.role === "ESTOQUISTA" && session.responsibleUserId !== user.id) {
-    response.status(403).json({ message: "Voce nao pode concluir esta contagem." });
-    return;
-  }
+  await assertCanEditStockCountSession(request.params.id, user);
 
   const items = Array.isArray(request.body.items) ? request.body.items : [];
   if (items.length) {
