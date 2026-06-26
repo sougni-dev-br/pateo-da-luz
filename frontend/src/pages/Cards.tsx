@@ -1,4 +1,4 @@
-import { CheckCircle2, Eye, FileText, Pencil, Plus, RefreshCw, Save, WalletCards, X } from "lucide-react";
+import { ArrowRightLeft, CheckCircle2, Eye, FileText, Pencil, Plus, RefreshCw, Save, WalletCards, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   addCardStatementItem,
@@ -13,6 +13,7 @@ import {
   getCardStatements,
   getCards,
   payCardStatement,
+  reallocateCardStatementItem,
   saveCard,
   saveCardStatement,
   setCardStatementStatus,
@@ -79,6 +80,10 @@ export function Cards({ user }: CardsProps) {
     hasDivergence: false,
     notes: ""
   });
+  const [reallocateItem, setReallocateItem] = useState<CreditCardStatementDetail["items"][number] | null>(null);
+  const [reallocateTargetId, setReallocateTargetId] = useState("");
+  const [reallocateReason, setReallocateReason] = useState("");
+  const [reallocateTargets, setReallocateTargets] = useState<CreditCardStatement[]>([]);
   const canManage = hasPermission(user, "cards", "edit");
 
   async function load() {
@@ -270,6 +275,44 @@ export function Cards({ user }: CardsProps) {
       setNotice({ tone: "success", message: "PDF da fatura gerado." });
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao gerar PDF." });
+    }
+  }
+
+  async function openReallocate(item: CreditCardStatementDetail["items"][number]) {
+    if (!statementDetail) return;
+    setReallocateItem(item);
+    setReallocateTargetId("");
+    setReallocateReason("");
+    try {
+      const all = await getCardStatements({ creditCardId: statementDetail.creditCardId });
+      setReallocateTargets(
+        all.filter(
+          (s) =>
+            (s.status === "OPEN" || s.status === "CHECKED") &&
+            !s.generatedPurchaseId &&
+            s.id !== statementDetail.id
+        )
+      );
+    } catch {
+      setReallocateTargets([]);
+    }
+  }
+
+  async function submitReallocation() {
+    if (!reallocateItem || !reallocateTargetId || reallocateReason.trim().length < 5) return;
+    try {
+      await reallocateCardStatementItem(reallocateItem.id, {
+        targetStatementId: reallocateTargetId,
+        reason: reallocateReason.trim()
+      });
+      if (statementDetail) setStatementDetail(await getCardStatement(statementDetail.id));
+      setReallocateItem(null);
+      setReallocateTargetId("");
+      setReallocateReason("");
+      setNotice({ tone: "success", message: "Item realocado com sucesso." });
+      await load();
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao realocar item." });
     }
   }
 
@@ -643,6 +686,9 @@ export function Cards({ user }: CardsProps) {
                           <>
                             <button type="button" onClick={() => toggleItemCheck(item)}>{item.checked ? "Desmarcar" : "Conferir"}</button>
                             <button type="button" onClick={() => toggleItemDivergence(item)}>Div.</button>
+                            <button type="button" className="secondary-button realocar-btn" onClick={() => void openReallocate(item)}>
+                              <ArrowRightLeft size={13} /> Realocar
+                            </button>
                           </>
                         ) : (
                           <span>-</span>
@@ -668,6 +714,105 @@ export function Cards({ user }: CardsProps) {
                 </div>
               </div>
             )}
+          </section>
+        </div>
+      )}
+
+      {reallocateItem && statementDetail && (
+        <div className="modal-backdrop">
+          <section className="panel modal-panel">
+            <div className="section-heading">
+              <div>
+                <p>Cartão {statementDetail.creditCard.name} — {statementDetail.creditCard.bankName} final {statementDetail.creditCard.last4Digits}</p>
+                <h2>Realocar item entre faturas</h2>
+              </div>
+              <button className="secondary-button" type="button" onClick={() => setReallocateItem(null)}>
+                <X size={16} /> Cancelar
+              </button>
+            </div>
+
+            <div className="subsection">
+              <p className="realocar-info-text">
+                O item abaixo será <strong>movido</strong> para outra fatura aberta do mesmo cartão. Ele <strong>não será excluído</strong> — apenas transferido.
+              </p>
+              <div className="realocar-item-card">
+                <div className="realocar-item-row">
+                  <span className="realocar-label">NF / Descrição</span>
+                  <span className="realocar-value">{reallocateItem.description}</span>
+                </div>
+                <div className="realocar-item-row">
+                  <span className="realocar-label">Fornecedor</span>
+                  <span className="realocar-value">{reallocateItem.supplierName ?? reallocateItem.purchase?.supplier?.name ?? "—"}</span>
+                </div>
+                <div className="realocar-item-row">
+                  <span className="realocar-label">Valor</span>
+                  <span className="realocar-value realocar-value-amount">{formatCurrency(reallocateItem.value)}</span>
+                </div>
+                {reallocateItem.installment != null && reallocateItem.totalInstallments != null && (
+                  <div className="realocar-item-row">
+                    <span className="realocar-label">Parcela</span>
+                    <span className="realocar-value">{reallocateItem.installment}/{reallocateItem.totalInstallments}</span>
+                  </div>
+                )}
+              </div>
+              <div className="realocar-flow">
+                <span className="realocar-flow-origin">
+                  De: {String(statementDetail.competenceMonth).padStart(2, "0")}/{statementDetail.competenceYear}
+                </span>
+                <ArrowRightLeft size={16} className="realocar-flow-arrow" />
+                <span className="realocar-flow-dest">
+                  Para: {reallocateTargetId
+                    ? (() => { const s = reallocateTargets.find(t => t.id === reallocateTargetId); return s ? `${String(s.competenceMonth).padStart(2, "0")}/${s.competenceYear}` : "—"; })()
+                    : "aguardando seleção"}
+                </span>
+              </div>
+            </div>
+
+            <div className="subsection">
+              <div className="form-grid">
+                <label className="full-width">
+                  Fatura de destino
+                  {reallocateTargets.length === 0 ? (
+                    <p className="notice-inline notice-warning">Não há faturas abertas disponíveis para realocação neste cartão. Crie ou aguarde uma fatura aberta.</p>
+                  ) : (
+                    <select value={reallocateTargetId} onChange={(e) => setReallocateTargetId(e.target.value)}>
+                      <option value="">Selecione a fatura de destino</option>
+                      {reallocateTargets.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {String(s.competenceMonth).padStart(2, "0")}/{s.competenceYear}
+                          {s.name ? ` — ${s.name}` : ""}
+                          {" "}({statementStatusLabel(s.status)})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+                <label className="full-width">
+                  Motivo da realocação <span className="label-required">(obrigatório)</span>
+                  <input
+                    value={reallocateReason}
+                    onChange={(e) => setReallocateReason(e.target.value)}
+                    placeholder="Ex: item lançado na fatura errada"
+                    maxLength={200}
+                  />
+                  {reallocateReason.length > 0 && reallocateReason.trim().length < 5 && (
+                    <span className="field-error-msg">Informe ao menos 5 caracteres.</span>
+                  )}
+                </label>
+              </div>
+            </div>
+
+            <div className="form-actions">
+              <button className="secondary-button" type="button" onClick={() => setReallocateItem(null)}>Cancelar</button>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={!reallocateTargetId || reallocateReason.trim().length < 5}
+                onClick={() => void submitReallocation()}
+              >
+                <ArrowRightLeft size={16} /> Confirmar realocação
+              </button>
+            </div>
           </section>
         </div>
       )}
