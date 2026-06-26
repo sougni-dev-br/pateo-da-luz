@@ -1,6 +1,7 @@
 import { AlertTriangle, Archive, ArrowDown, CalendarDays, CheckCircle2, ClipboardCheck, Download, FileText, FilterX, Layers, Loader2, MessageSquare, Play, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { KeyboardEvent, useEffect, useMemo, useState } from "react";
 import {
+  ApiError,
   AppUser,
   approveOperationalInventory,
   BuyerSupportReport,
@@ -812,6 +813,16 @@ export function Inventory({
       await refreshCountSessions(created.id);
       onOpenCountSessionRoute?.(created.id);
     } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        const existingId = error.body?.existingId as string | undefined;
+        const existingCode = error.body?.existingCode as string | undefined;
+        setNotice({
+          tone: "warning",
+          message: `Ja existe uma contagem em andamento para este periodo${existingCode ? ` (${existingCode})` : ""}. Abra a contagem existente para continuar.`
+        });
+        if (existingId) await refreshCountSessions(existingId);
+        return;
+      }
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel iniciar a contagem." });
     }
   }
@@ -849,6 +860,10 @@ export function Inventory({
       setNotice({ tone: "success", message: "Contagem salva. Voce pode continuar depois." });
       await refreshCountSessions(countSessionDetail.id);
     } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        setNotice({ tone: "error", message: "Voce nao tem permissao para realizar esta acao." });
+        return;
+      }
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel salvar a contagem." });
     }
   }
@@ -873,6 +888,10 @@ export function Inventory({
       setNotice({ tone: "success", message: "Contagem concluida. Todos os itens estavam informados." });
       await refreshCountSessions(countSessionDetail.id);
     } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        setNotice({ tone: "error", message: "Voce nao tem permissao para realizar esta acao." });
+        return;
+      }
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel concluir a contagem." });
     }
   }
