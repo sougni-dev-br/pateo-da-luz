@@ -1598,12 +1598,147 @@ select:focus {
   width: min(960px, 100%);
   max-height: calc(100vh - 64px);
   overflow-y: auto;
+  overflow-x: auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+}
+
+/* Garantir scroll horizontal em modais com tabelas largas em mobile */
+.panel.modal-panel {
+  overflow-x: auto;
+}
+
+/* Impede que .operational-table table sobrescreva o min-width mínimo legível dentro de modais */
+.panel.modal-panel .operational-table table {
+  min-width: 720px;
 }
 
 .wide-modal {
   width: min(1180px, 100%);
 }
+
+/* ── Realocação de item de fatura ── */
+.realocar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.realocar-info-text {
+  font-size: 14px;
+  color: var(--text-secondary, #555);
+  background: var(--surface-alt, #f7f8fa);
+  border-left: 3px solid var(--accent, #1a56db);
+  padding: 10px 14px;
+  border-radius: 4px;
+  margin-bottom: 14px;
+}
+
+.realocar-item-card {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.realocar-item-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+}
+
+.realocar-item-row:last-child {
+  border-bottom: none;
+}
+
+.realocar-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #666);
+  min-width: 120px;
+  flex-shrink: 0;
+}
+
+.realocar-value {
+  font-size: 14px;
+  color: var(--text-primary, #1a1a1a);
+  word-break: break-word;
+}
+
+.realocar-value-amount {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.realocar-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-alt, #f7f8fa);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 14px;
+  flex-wrap: wrap;
+}
+
+.realocar-flow-origin {
+  font-weight: 600;
+  color: var(--text-secondary, #555);
+}
+
+.realocar-flow-arrow {
+  color: var(--accent, #1a56db);
+  flex-shrink: 0;
+}
+
+.realocar-flow-dest {
+  font-weight: 700;
+  color: var(--accent, #1a56db);
+}
+
+.label-required {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--text-secondary, #777);
+}
+
+.field-error-msg {
+  font-size: 12px;
+  color: #c62828;
+  margin-top: 4px;
+}
+
+.notice-inline {
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-top: 6px;
+}
+
+.notice-warning {
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  color: #7b5800;
+}
+
+@media (max-width: 600px) {
+  .realocar-label {
+    min-width: 90px;
+  }
+
+  .realocar-flow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}
+/* ── fim realocação ── */
 
 .purchase-modal-shell {
   display: flex;

@@ -472,6 +472,119 @@ cardsRouter.patch("/statements/:id/items/:itemId/check", async (request, respons
   response.json(item);
 });
 
+cardsRouter.post("/statements/items/:itemId/reallocate", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const itemId = request.params.itemId;
+  const targetStatementId = asText(request.body.targetStatementId);
+  const reason = String(request.body.reason ?? "").trim();
+
+  if (!targetStatementId) {
+    response.status(400).json({ message: "Fatura de destino e obrigatoria." });
+    return;
+  }
+  if (reason.length < 5) {
+    response.status(400).json({ message: "Motivo e obrigatorio (minimo 5 caracteres)." });
+    return;
+  }
+
+  const item = await prisma.creditCardStatementItem.findUnique({
+    where: { id: itemId },
+    include: { statement: true }
+  });
+  if (!item) {
+    response.status(404).json({ message: "Item nao encontrado." });
+    return;
+  }
+
+  const sourceStatement = item.statement;
+  const BLOCKED_STATUSES: CreditCardStatementStatus[] = ["CLOSED", "PAID", "CANCELLED"];
+
+  if (BLOCKED_STATUSES.includes(sourceStatement.status as CreditCardStatementStatus)) {
+    response.status(400).json({ message: "Fatura de origem esta fechada, paga ou cancelada. Nao e possivel realocar." });
+    return;
+  }
+  if (sourceStatement.generatedPurchaseId) {
+    response.status(400).json({ message: "Esta fatura ja foi fechada e possui titulo a pagar gerado. Nao e possivel realocar itens diretamente." });
+    return;
+  }
+  if (sourceStatement.id === targetStatementId) {
+    response.status(400).json({ message: "Fatura de origem e destino sao iguais." });
+    return;
+  }
+
+  const targetStatement = await prisma.creditCardStatement.findUnique({ where: { id: targetStatementId } });
+  if (!targetStatement) {
+    response.status(404).json({ message: "Fatura de destino nao encontrada." });
+    return;
+  }
+  if (BLOCKED_STATUSES.includes(targetStatement.status as CreditCardStatementStatus)) {
+    response.status(400).json({ message: "Fatura de destino esta fechada, paga ou cancelada." });
+    return;
+  }
+  if (targetStatement.generatedPurchaseId) {
+    response.status(400).json({ message: "Fatura de destino ja possui titulo a pagar gerado. Nao e possivel receber novos itens." });
+    return;
+  }
+  if (targetStatement.creditCardId !== sourceStatement.creditCardId) {
+    response.status(400).json({ message: "Fatura de destino pertence a outro cartao." });
+    return;
+  }
+
+  const previousItem = { ...item, statement: undefined };
+
+  const updatedItem = await prisma.creditCardStatementItem.update({
+    where: { id: itemId },
+    data: { statementId: targetStatementId }
+  });
+
+  const [sourceTotalRow] = await prisma.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
+    SELECT COALESCE(SUM("value"), 0) AS "total"
+    FROM "CreditCardStatementItem"
+    WHERE "statementId" = ${sourceStatement.id}
+  `;
+  await prisma.creditCardStatement.update({
+    where: { id: sourceStatement.id },
+    data: { totalAmount: new Prisma.Decimal(Number(sourceTotalRow?.total ?? 0)) }
+  });
+
+  const [targetTotalRow] = await prisma.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
+    SELECT COALESCE(SUM("value"), 0) AS "total"
+    FROM "CreditCardStatementItem"
+    WHERE "statementId" = ${targetStatementId}
+  `;
+  await prisma.creditCardStatement.update({
+    where: { id: targetStatementId },
+    data: { totalAmount: new Prisma.Decimal(Number(targetTotalRow?.total ?? 0)) }
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "REALLOCATE_CREDIT_CARD_STATEMENT_ITEM",
+    entity: "CreditCardStatementItem",
+    entityId: itemId,
+    previousValue: {
+      ...previousItem,
+      sourceStatementId: sourceStatement.id,
+      sourceStatementName: sourceStatement.name,
+      sourceStatementCompetence: `${String(sourceStatement.competenceMonth).padStart(2, "0")}/${sourceStatement.competenceYear}`,
+      reason
+    },
+    newValue: {
+      ...updatedItem,
+      targetStatementId,
+      targetStatementName: targetStatement.name,
+      targetStatementCompetence: `${String(targetStatement.competenceMonth).padStart(2, "0")}/${targetStatement.competenceYear}`,
+      reason
+    },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+
+  response.json({ item: updatedItem, reason });
+});
+
 cardsRouter.post("/statements/:id/close", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;

@@ -2097,6 +2097,14 @@ export function downloadCardStatementPdf(id: string) {
   return download(`/cards/statements/${id}/pdf`, "fatura-cartao.pdf");
 }
 
+export function reallocateCardStatementItem(itemId: string, payload: { targetStatementId: string; reason: string }) {
+  return request<{ item: CreditCardStatementItem; reason: string }>(`/cards/statements/items/${itemId}/reallocate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
 export function getSmallExpenseReport(filters?: {
   startDate?: string;
   endDate?: string;
