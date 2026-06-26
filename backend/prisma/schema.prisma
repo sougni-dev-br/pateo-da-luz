@@ -1000,6 +1000,7 @@ model Purchase {
   normalizedPurchaseOrderNumber String?
   workflowStatus   String             @default("confirmed")
   purchaseDate     DateTime
+  receivedAt       DateTime?
   competenceMonth  Int
   competenceYear   Int
   supplierId       String

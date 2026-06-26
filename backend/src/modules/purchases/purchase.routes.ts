@@ -1059,6 +1059,8 @@ purchaseRouter.post("/", async (request, response) => {
 
   supplierId = String(request.body.supplierId ?? "").trim();
   const purchaseDate = parseLocalDateInput(request.body.purchaseDate);
+  const receivedAt = request.body.receivedAt ? parseLocalDateInput(request.body.receivedAt) : null;
+  const competenceDate = (receivedAt && !isNaN(receivedAt.getTime())) ? receivedAt : purchaseDate;
   invoiceNumber = cleanPurchaseReference(request.body.invoiceNumber);
   purchaseOrderNumber = cleanPurchaseReference(request.body.purchaseOrderNumber);
   const normalizedInvoiceNumber = normalizePurchaseReference(invoiceNumber) || null;
@@ -1280,8 +1282,9 @@ purchaseRouter.post("/", async (request, response) => {
     const purchase = await tx.purchase.create({
       data: {
         purchaseDate,
-        competenceMonth: purchaseDate.getMonth() + 1,
-        competenceYear: purchaseDate.getFullYear(),
+        receivedAt: (receivedAt && !isNaN(receivedAt.getTime())) ? receivedAt : null,
+        competenceMonth: competenceDate.getMonth() + 1,
+        competenceYear: competenceDate.getFullYear(),
         supplierId,
         invoiceNumber,
         purchaseOrderNumber,
@@ -1533,6 +1536,8 @@ purchaseRouter.put("/:id", async (request, response) => {
 
   try {
   const purchaseDate = parseLocalDateInput(request.body.purchaseDate);
+  const receivedAtEdit = request.body.receivedAt ? parseLocalDateInput(request.body.receivedAt) : null;
+  const competenceDateEdit = (receivedAtEdit && !isNaN(receivedAtEdit.getTime())) ? receivedAtEdit : purchaseDate;
   invoiceNumber = cleanPurchaseReference(request.body.invoiceNumber);
   purchaseOrderNumber = cleanPurchaseReference(request.body.purchaseOrderNumber);
   const normalizedInvoiceNumber = normalizePurchaseReference(invoiceNumber) || null;
@@ -1722,8 +1727,9 @@ purchaseRouter.put("/:id", async (request, response) => {
       where: { id: request.params.id },
       data: {
         purchaseDate,
-        competenceMonth: purchaseDate.getMonth() + 1,
-        competenceYear: purchaseDate.getFullYear(),
+        receivedAt: (receivedAtEdit && !isNaN(receivedAtEdit.getTime())) ? receivedAtEdit : null,
+        competenceMonth: competenceDateEdit.getMonth() + 1,
+        competenceYear: competenceDateEdit.getFullYear(),
         supplierId: nextSupplierId,
         invoiceNumber,
         purchaseOrderNumber,

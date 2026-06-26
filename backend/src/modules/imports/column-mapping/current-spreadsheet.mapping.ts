@@ -1,5 +1,6 @@
 export type PurchaseSpreadsheetField =
   | "purchaseDate"
+  | "receivedAt"
   | "supplierCode"
   | "invoiceNumber"
   | "purchaseOrderNumber"
@@ -21,6 +22,7 @@ export type SpreadsheetColumnMapping = Record<PurchaseSpreadsheetField, string[]
 
 export const currentSpreadsheetMapping: SpreadsheetColumnMapping = {
   purchaseDate: ["DT. COMPRA", "DATA COMPRA", "DATA DA COMPRA"],
+  receivedAt: ["DT. RECEBIMENTO", "DATA RECEBIMENTO", "DATA DE RECEBIMENTO", "RECEBIMENTO", "DATA ENTRADA", "DT. ENTRADA", "ENTRADA ESTOQUE"],
   supplierCode: ["COD. FORNE", "COD FORNE", "CODIGO FORNECEDOR", "COD. FORNECEDOR"],
   invoiceNumber: ["N\u00ba NF", "N NF", "NF", "NOTA FISCAL", "NUMERO NF"],
   purchaseOrderNumber: ["PEDIDO", "NUMERO PEDIDO", "N PEDIDO", "NO PEDIDO", "PEDIDO COMPRA", "NUMERO DO PEDIDO"],

@@ -261,6 +261,7 @@ export function Purchases({ user }: { user: AppUser }) {
     supplierName: "",
     supplierDocument: "",
     purchaseDate: todayInputDate(),
+    receivedAt: "",
     invoiceNumber: "",
     purchaseOrderNumber: "",
     noInvoiceReason: "",
@@ -442,6 +443,7 @@ export function Purchases({ user }: { user: AppUser }) {
           supplierName: "",
           supplierDocument: "",
           purchaseDate: todayInputDate(),
+          receivedAt: "",
           invoiceNumber: "",
           purchaseOrderNumber: "",
           noInvoiceReason: "",
@@ -994,6 +996,7 @@ export function Purchases({ user }: { user: AppUser }) {
       supplierName: "",
       supplierDocument: "",
       purchaseDate: todayInputDate(),
+      receivedAt: "",
       invoiceNumber: "",
       purchaseOrderNumber: "",
       noInvoiceReason: "",
@@ -1085,6 +1088,7 @@ export function Purchases({ user }: { user: AppUser }) {
         supplierName: data.supplierName,
         supplierDocument: data.supplierDocument ?? "",
         purchaseDate: String(data.purchaseDate).slice(0, 10),
+        receivedAt: data.receivedAt ? String(data.receivedAt).slice(0, 10) : "",
         invoiceNumber: data.invoiceNumber ?? "",
         purchaseOrderNumber: data.purchaseOrderNumber ?? "",
         noInvoiceReason: data.noInvoiceReason ?? "",
@@ -1163,6 +1167,7 @@ export function Purchases({ user }: { user: AppUser }) {
         supplierName: data.supplierName,
         supplierDocument: data.supplierDocument ?? "",
         purchaseDate: todayInputDate(),
+        receivedAt: "",
         invoiceNumber: "",
         purchaseOrderNumber: "",
         noInvoiceReason: "",
@@ -1360,6 +1365,7 @@ export function Purchases({ user }: { user: AppUser }) {
         companyId: form.companyId || null,
         rawSupplierCode: form.supplierCode || selectedSupplier?.externalCode || null,
         purchaseDate: form.purchaseDate,
+        receivedAt: form.receivedAt || null,
         invoiceNumber: form.invoiceNumber || null,
         purchaseOrderNumber: form.purchaseOrderNumber || null,
         noInvoiceReason: showNoInvoiceReason ? form.noInvoiceReason || null : null,
@@ -1768,6 +1774,7 @@ export function Purchases({ user }: { user: AppUser }) {
                 <div className="purchase-detail-headline">
                   <span>{detail.invoiceNumber ? `NF ${detail.invoiceNumber}` : detail.purchaseNumber ?? "Compra manual"}</span>
                   <span>{formatDate(detail.purchaseDate)}</span>
+                  {detail.receivedAt && <span title="Data de recebimento físico">Recebido em {formatDate(detail.receivedAt)}</span>}
                   <span>{String(detail.competenceMonth).padStart(2, "0")}/{detail.competenceYear}</span>
                   <strong>{formatCurrency(detail.totalAmount)}</strong>
                 </div>
@@ -2079,9 +2086,14 @@ export function Purchases({ user }: { user: AppUser }) {
                     </select>
                   </div>
                   <div className={`pnova-data-field${fieldErrors.purchaseDate ? " field-error" : ""}`}>
-                    <span>Data</span>
+                    <span>Data compra/NF</span>
                     <input type="date" value={form.purchaseDate}
                       onChange={(event) => setForm({ ...form, purchaseDate: event.target.value })} />
+                  </div>
+                  <div className="pnova-data-field" title="Use quando a mercadoria chegou fisicamente em data diferente da data da compra/nota. Essa data define a competência de estoque/CMV.">
+                    <span>Recebimento físico <small style={{ color: "var(--color-text-secondary, #888)", fontWeight: 400 }}>(opcional)</small></span>
+                    <input type="date" value={form.receivedAt}
+                      onChange={(event) => setForm({ ...form, receivedAt: event.target.value })} />
                   </div>
                   <div className={`pnova-data-field${fieldErrors.invoiceNumber ? " field-error" : ""}`}>
                     <span>NF</span>
