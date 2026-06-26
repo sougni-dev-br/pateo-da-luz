@@ -282,6 +282,7 @@ export type ImportConflictSummary = {
 export type PurchaseImportOptions = {
   historicalMode?: boolean;
   ignoreRowsWithoutProduct?: boolean;
+  companyId?: string | null;
 };
 
 export type ImportReport = {
@@ -1050,6 +1051,7 @@ export type ManualPurchasePayload = {
   totalAmount?: number;
   paymentDifferenceReason?: string | null;
   workflowStatus?: string;
+  companyId?: string | null;
   items: Array<{
     productId: string;
     rawProductCode?: string | null;

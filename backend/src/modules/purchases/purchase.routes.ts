@@ -1105,6 +1105,17 @@ purchaseRouter.post("/", async (request, response) => {
     return;
   }
 
+  const companyId = request.body.companyId ? String(request.body.companyId) : null;
+  if (!companyId) {
+    await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Informe a empresa em que a nota foi faturada." });
+    return;
+  }
+  const billedCompany = await prisma.company.findFirst({ where: { id: companyId, isActive: true } });
+  if (!billedCompany) {
+    await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Empresa nao encontrada ou inativa." });
+    return;
+  }
+
   if (!invoiceNumber && !noInvoiceReason && !isSmallExpense) {
     await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Informe a NF ou o motivo para compra sem NF." });
     return;
@@ -1303,7 +1314,7 @@ purchaseRouter.post("/", async (request, response) => {
         smallExpenseMoneyOrigin: isSmallExpense ? effectiveSmallExpenseOrigin : null,
         smallExpenseNotes: isSmallExpense ? effectiveSmallExpenseNotes : null,
         rawRow: request.body as Prisma.InputJsonValue,
-        companyId: request.body.companyId ? String(request.body.companyId) : null
+        companyId
       }
     });
     await tx.$executeRaw`
@@ -1572,6 +1583,17 @@ purchaseRouter.put("/:id", async (request, response) => {
     return;
   }
 
+  const companyIdEdit = request.body.companyId ? String(request.body.companyId) : null;
+  if (!companyIdEdit) {
+    response.status(400).json({ message: "Informe a empresa em que a nota foi faturada." });
+    return;
+  }
+  const billedCompanyEdit = await prisma.company.findFirst({ where: { id: companyIdEdit, isActive: true } });
+  if (!billedCompanyEdit) {
+    response.status(400).json({ message: "Empresa nao encontrada ou inativa." });
+    return;
+  }
+
   if (!invoiceNumber && !noInvoiceReason && !isSmallExpense) {
     response.status(400).json({ message: "Informe a NF ou o motivo para compra sem NF." });
     return;
@@ -1747,7 +1769,7 @@ purchaseRouter.put("/:id", async (request, response) => {
         smallExpenseMoneyOrigin: isSmallExpense ? effectiveSmallExpenseOrigin : null,
         smallExpenseNotes: isSmallExpense ? effectiveSmallExpenseNotes : null,
         rawRow: request.body as Prisma.InputJsonValue,
-        companyId: request.body.companyId ? String(request.body.companyId) : null
+        companyId: companyIdEdit
       }
     });
 

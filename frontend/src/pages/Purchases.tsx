@@ -1262,6 +1262,7 @@ export function Purchases({ user }: { user: AppUser }) {
     const messages: string[] = [];
     const validItems = items.filter((item) => item.productId || item.quantity || item.unitPrice || item.totalPrice);
     if (!form.supplierId) messages.push("Selecione o fornecedor da compra.");
+    if (!form.companyId) messages.push("Informe a empresa em que a nota foi faturada.");
     if (!form.purchaseDate) messages.push("Preencha a data da compra.");
     if (!selectedSupplierIsCycle && !form.paymentMethodId) messages.push("Selecione a forma de pagamento.");
     if (!showNoInvoiceReason && !form.isSmallExpense && !form.invoiceNumber.trim()) messages.push("Informe o número da NF ou marque compra sem NF.");
@@ -1284,6 +1285,7 @@ export function Purchases({ user }: { user: AppUser }) {
   }, [
     amountDifference,
     duplicateCheck?.hasActiveDuplicate,
+    form.companyId,
     form.creditCardId,
     form.invoiceNumber,
     form.isSmallExpense,
@@ -1322,6 +1324,7 @@ export function Purchases({ user }: { user: AppUser }) {
     const errors: Record<string, string> = {};
     const validItems = items.filter((item) => item.productId || item.quantity || item.unitPrice || item.totalPrice);
     if (!form.supplierId) errors.supplier = "Fornecedor obrigatório.";
+    if (!form.companyId) errors.companyId = "Informe a empresa em que a nota foi faturada.";
     if (!form.purchaseDate) errors.purchaseDate = "Data obrigatória.";
     if (!form.invoiceNumber.trim() && !showNoInvoiceReason && !form.isSmallExpense) errors.invoiceNumber = "Informe o número da NF ou marque compra sem NF.";
     if ((showNoInvoiceReason || form.isSmallExpense) && !form.noInvoiceReason.trim() && !form.isSmallExpense) errors.noInvoiceReason = "Informe o motivo para compra sem NF.";
@@ -2073,8 +2076,11 @@ export function Purchases({ user }: { user: AppUser }) {
               <div className="pnova-data-block">
                 {/* Barra horizontal compacta */}
                 <div className="pnova-data-bar">
-                  <div className="pnova-data-field pnova-data-field-company">
-                    <span>Empresa (NF emitida para)</span>
+                  <div
+                    className={`pnova-data-field pnova-data-field-company${fieldErrors.companyId ? " field-error" : ""}`}
+                    title="Empresa/CNPJ que aparece como destinatária da nota fiscal. Essa informação será usada no financeiro, contas a pagar, DRE e auditoria."
+                  >
+                    <span>Empresa faturada</span>
                     <select
                       value={form.companyId}
                       onChange={(event) => setForm({ ...form, companyId: event.target.value })}
