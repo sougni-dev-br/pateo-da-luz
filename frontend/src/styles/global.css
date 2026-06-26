@@ -4587,6 +4587,24 @@ select:disabled {
   text-align: right;
   color: var(--accent-dark, #7a6040);
 }
+.pnova-cc-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.pnova-cc-preview-ok {
+  font-weight: 600;
+  color: var(--success, #2e7d32);
+  font-size: 13px;
+}
+.pnova-cc-preview-total {
+  font-weight: 700;
+  color: var(--text);
+  font-size: 13px;
+}
 
 /* ─── 6. Barra sticky inferior ─── */
 .pnova-sticky-bar {
