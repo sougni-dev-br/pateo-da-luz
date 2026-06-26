@@ -884,6 +884,7 @@ export type Purchase = {
   workflowStatus?: string | null;
   cycleStatus?: string | null;
   purchaseDate: string;
+  receivedAt?: string | null;
   competenceMonth: number;
   competenceYear: number;
   invoiceNumber: string | null;
@@ -1022,6 +1023,7 @@ export type PurchaseDuplicateCheck = {
 export type ManualPurchasePayload = {
   supplierId: string;
   purchaseDate: string;
+  receivedAt?: string | null;
   invoiceNumber?: string | null;
   purchaseOrderNumber?: string | null;
   noInvoiceReason?: string | null;

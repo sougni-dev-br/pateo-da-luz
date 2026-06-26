@@ -57,6 +57,7 @@ export function mapPurchaseSpreadsheetRow(
 
   return {
     purchaseDate: parseDate(getCell(row, columns, "purchaseDate")),
+    receivedAt: parseDate(getCell(row, columns, "receivedAt")),
     supplierCode: asText(getCell(row, columns, "supplierCode")),
     invoiceNumber: asText(getCell(row, columns, "invoiceNumber")),
     purchaseOrderNumber: asText(getCell(row, columns, "purchaseOrderNumber")),

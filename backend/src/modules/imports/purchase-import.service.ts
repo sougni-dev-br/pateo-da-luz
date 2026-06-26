@@ -1002,6 +1002,8 @@ export async function confirmPurchaseImport(
 
       const totalAmount = group.rows.reduce((sum, entry) => sum + entry.row.totalPrice, 0);
       const purchaseDate = group.header.purchaseDate as Date;
+      const receivedAt = group.header.receivedAt ?? null;
+      const competenceDate = receivedAt ?? purchaseDate;
       const invoiceNumber = cleanPurchaseReference(group.header.invoiceNumber);
       const purchaseOrderNumber = cleanPurchaseReference(group.header.purchaseOrderNumber);
       const duplicate = await findExistingDuplicatePurchase(tx, {
@@ -1046,8 +1048,9 @@ export async function confirmPurchaseImport(
       const purchase = await tx.purchase.create({
         data: {
           purchaseDate,
-          competenceMonth: purchaseDate.getMonth() + 1,
-          competenceYear: purchaseDate.getFullYear(),
+          receivedAt,
+          competenceMonth: competenceDate.getMonth() + 1,
+          competenceYear: competenceDate.getFullYear(),
           supplierId: supplier.id,
           invoiceNumber,
           purchaseOrderNumber,
