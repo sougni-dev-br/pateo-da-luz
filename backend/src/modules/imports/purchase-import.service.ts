@@ -41,6 +41,7 @@ export type PurchaseImportOptions = {
   authorizedByUserId?: string | null;
   ipAddress?: string | null;
   userAgent?: string | null;
+  companyId?: string | null;
 };
 
 type ImportError = {
@@ -870,6 +871,26 @@ export async function confirmPurchaseImport(
     };
   }
 
+  if (!options.companyId) {
+    return {
+      importedRows: 0,
+      ignoredRows: rows.length,
+      suppliersCreated: 0, suppliersReused: 0, categoriesCreated: 0, categoriesReused: 0,
+      subcategoriesCreated: 0, subcategoriesReused: 0, productsCreated: 0, productsReused: 0,
+      unitsCreated: 0, unitsReused: 0, expenseTypesCreated: 0, expenseTypesReused: 0,
+      importBatchId: null, purchasesCreated: 0, installmentsCreated: 0,
+      spreadsheetTotal: 0, importedTotal: 0, differenceTotal: 0,
+      duplicateProducts: [], categories: [], subcategories: [], paymentMethods: [],
+      conflictsFound: 0, conflictsResolved: 0, conflictsPending: 0,
+      decisionsAppliedAutomatically: 0, productsLinkedByFallback: 0,
+      ignoredWithoutProduct: 0, duplicatePurchasesBlocked: 0, duplicatePurchasesAuthorized: 0,
+      purchaseNumbers: [], emptyRowsIgnored: 0,
+      elapsedMs: Date.now() - startedAt,
+      errors: [{ rowNumber: 0, message: "Informe a empresa em que as notas foram faturadas antes de confirmar a importacao." }],
+      warnings: []
+    };
+  }
+
   const validRows: Array<{ rowNumber: number; row: PurchaseImportRow }> = [];
   const errors: ImportError[] = [];
   const warnings: ImportWarning[] = [];
@@ -1067,7 +1088,8 @@ export async function confirmPurchaseImport(
           totalAmount: new Prisma.Decimal(totalAmount),
           sourceFile: importFileId,
           importBatchId: importBatch.id,
-          rawRow: group.header.rawRow as Prisma.InputJsonValue
+          rawRow: group.header.rawRow as Prisma.InputJsonValue,
+          companyId: options.companyId || null
         }
       });
       await tx.$executeRaw`

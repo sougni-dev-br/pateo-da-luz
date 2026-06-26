@@ -1,9 +1,11 @@
 import { CheckCircle2, FileSpreadsheet, Loader2, Upload } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  Company,
   ConflictAction,
   confirmImport,
   deleteImport,
+  getCompanies,
   ImportPreview,
   ImportReport,
   previewImport,
@@ -23,7 +25,13 @@ export function ImportExcel() {
   const [historicalMode, setHistoricalMode] = useState(false);
   const [ignoreRowsWithoutProduct, setIgnoreRowsWithoutProduct] = useState(false);
   const [conflictActions, setConflictActions] = useState<Record<string, ConflictAction>>({});
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [importCompanyId, setImportCompanyId] = useState<string>("");
   const { notice, setNotice } = useNotice();
+
+  useEffect(() => {
+    getCompanies({ includeInactive: false }).then(setCompanies).catch(() => setCompanies([]));
+  }, []);
 
   async function handlePreview() {
     if (!file) return;
@@ -54,6 +62,10 @@ export function ImportExcel() {
 
   async function handleConfirm() {
     if (!preview?.importFileId) return;
+    if (!importCompanyId) {
+      setError("Informe a empresa em que as notas foram faturadas antes de confirmar a importação.");
+      return;
+    }
 
     setError(null);
     setStatus("confirming");
@@ -61,7 +73,8 @@ export function ImportExcel() {
     try {
       const result = await confirmImport(preview.importFileId, preview.originalFileName, {
         historicalMode,
-        ignoreRowsWithoutProduct
+        ignoreRowsWithoutProduct,
+        companyId: importCompanyId
       });
       setReport(result);
       if (result.errors.length > 0) {
@@ -543,15 +556,31 @@ export function ImportExcel() {
               <p>Primeiras linhas</p>
               <h2>Preview dos itens</h2>
             </div>
-            <button
-              className="primary-button"
-              type="button"
-              disabled={!canConfirm || status === "confirming"}
-              onClick={handleConfirm}
-            >
-              {status === "confirming" ? <Loader2 size={18} /> : <CheckCircle2 size={18} />}
-              Confirmar importacao
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "13px" }}
+                title="Empresa/CNPJ que aparece como destinatária das notas fiscais desta planilha. Usada no financeiro, contas a pagar, DRE e auditoria.">
+                <span style={{ fontWeight: 600 }}>Empresa faturada <span style={{ color: "red" }}>*</span></span>
+                <select
+                  value={importCompanyId}
+                  onChange={(e) => setImportCompanyId(e.target.value)}
+                  style={{ minWidth: "180px" }}
+                >
+                  <option value="">Selecione...</option>
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.id}>{c.tradeName}</option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={!canConfirm || status === "confirming" || !importCompanyId}
+                onClick={handleConfirm}
+              >
+                {status === "confirming" ? <Loader2 size={18} /> : <CheckCircle2 size={18} />}
+                Confirmar importacao
+              </button>
+            </div>
           </div>
 
           <div className="table-wrap">
