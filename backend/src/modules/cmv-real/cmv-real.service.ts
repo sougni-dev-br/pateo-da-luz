@@ -221,14 +221,19 @@ async function ensureSnapshotMatchesDate(snapshotId: string, expectedDate: Date,
 }
 
 async function purchaseTotals(startDate: Date, endDate: Date) {
-  const { start, end } = periodRange(startDate, endDate);
+  const startYear = startDate.getFullYear();
+  const startMonth = startDate.getMonth() + 1;
+  const endYear = endDate.getFullYear();
+  const endMonth = endDate.getMonth() + 1;
   const [row] = await prisma.$queryRaw<Array<PurchaseTotalRow>>`
     SELECT COALESCE(SUM("totalAmount"), 0) AS "totalAmount",
            COUNT(*) AS "purchasesCount"
     FROM "Purchase"
     WHERE "status" <> 'CANCELLED'
-      AND "purchaseDate" >= CAST(${start} AS timestamp)
-      AND "purchaseDate" <= CAST(${end} AS timestamp)
+      AND MAKE_DATE("competenceYear", "competenceMonth", 1)
+          >= MAKE_DATE(${startYear}::int, ${startMonth}::int, 1)
+      AND MAKE_DATE("competenceYear", "competenceMonth", 1)
+          <= MAKE_DATE(${endYear}::int, ${endMonth}::int, 1)
   `;
   return {
     total: toNumber(row?.totalAmount),
@@ -265,7 +270,10 @@ async function inventoryTotal(snapshotId: string) {
 }
 
 async function purchaseByCategory(startDate: Date, endDate: Date) {
-  const { start, end } = periodRange(startDate, endDate);
+  const startYear = startDate.getFullYear();
+  const startMonth = startDate.getMonth() + 1;
+  const endYear = endDate.getFullYear();
+  const endMonth = endDate.getMonth() + 1;
   const rows = await prisma.$queryRaw<Array<CategoryBreakdownRow>>`
     SELECT
       COALESCE(c."name", pi."rawCategory", 'Sem categoria') AS "categoryName",
@@ -276,8 +284,10 @@ async function purchaseByCategory(startDate: Date, endDate: Date) {
     LEFT JOIN "Product" pr ON pr."id" = pi."productId"
     LEFT JOIN "Category" c ON c."id" = pr."categoryId"
     WHERE p."status" <> 'CANCELLED'
-      AND p."purchaseDate" >= CAST(${start} AS timestamp)
-      AND p."purchaseDate" <= CAST(${end} AS timestamp)
+      AND MAKE_DATE(p."competenceYear", p."competenceMonth", 1)
+          >= MAKE_DATE(${startYear}::int, ${startMonth}::int, 1)
+      AND MAKE_DATE(p."competenceYear", p."competenceMonth", 1)
+          <= MAKE_DATE(${endYear}::int, ${endMonth}::int, 1)
     GROUP BY COALESCE(c."name", pi."rawCategory", 'Sem categoria')
     ORDER BY COALESCE(SUM(pi."totalPrice"), 0) DESC
     LIMIT 20
@@ -290,7 +300,10 @@ async function purchaseByCategory(startDate: Date, endDate: Date) {
 }
 
 async function purchaseBySupplier(startDate: Date, endDate: Date) {
-  const { start, end } = periodRange(startDate, endDate);
+  const startYear = startDate.getFullYear();
+  const startMonth = startDate.getMonth() + 1;
+  const endYear = endDate.getFullYear();
+  const endMonth = endDate.getMonth() + 1;
   const rows = await prisma.$queryRaw<Array<SupplierBreakdownRow>>`
     SELECT
       s."id" AS "supplierId",
@@ -301,8 +314,10 @@ async function purchaseBySupplier(startDate: Date, endDate: Date) {
     FROM "Purchase" p
     JOIN "Supplier" s ON s."id" = p."supplierId"
     WHERE p."status" <> 'CANCELLED'
-      AND p."purchaseDate" >= CAST(${start} AS timestamp)
-      AND p."purchaseDate" <= CAST(${end} AS timestamp)
+      AND MAKE_DATE(p."competenceYear", p."competenceMonth", 1)
+          >= MAKE_DATE(${startYear}::int, ${startMonth}::int, 1)
+      AND MAKE_DATE(p."competenceYear", p."competenceMonth", 1)
+          <= MAKE_DATE(${endYear}::int, ${endMonth}::int, 1)
     GROUP BY s."id", s."name", s."document"
     ORDER BY COALESCE(SUM(p."totalAmount"), 0) DESC
     LIMIT 20
