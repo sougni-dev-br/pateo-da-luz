@@ -1,5 +1,6 @@
 export type PurchaseImportRow = {
   purchaseDate: Date | null;
+  receivedAt: Date | null;
   supplierCode: string | null;
   invoiceNumber: string | null;
   purchaseOrderNumber: string | null;
