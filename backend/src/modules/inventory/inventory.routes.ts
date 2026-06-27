@@ -381,6 +381,8 @@ type StockCountSessionRow = {
   cancelReason: string | null;
   generatedInventoryId: string | null;
   generatedInventoryCode?: string | null;
+  source: string | null;
+  linkedSnapshotId: string | null;
   createdAt: Date;
   updatedAt: Date;
   totalItems?: number | bigint;
@@ -655,11 +657,11 @@ async function createInventorySnapshotFromOperationalInventory(id: string, user:
   await prisma.$executeRaw`
     INSERT INTO "InventorySnapshot" (
       "id", "competenceYear", "competenceMonth", "type", "countDate", "status", "totalItems", "totalValue",
-      "originalFileName", "createdByUserId", "notes", "createdAt", "updatedAt"
+      "originalFileName", "source", "createdByUserId", "notes", "createdAt", "updatedAt"
     )
     VALUES (
       ${snapshotId}, ${year}, ${month}, CAST('INVENTARIO_FINAL' AS "InventorySnapshotType"), ${inventory.date},
-      'APPROVED', ${totalItems}, ${totalValue}, ${`${inventory.code} - ${inventory.name}`}, ${user.id},
+      'APPROVED', ${totalItems}, ${totalValue}, ${`${inventory.code} - ${inventory.name}`}, 'SISTEMA', ${user.id},
       ${inventory.notes ?? "Gerado pelo inventario operacional."}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
     )
   `;

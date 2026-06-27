@@ -789,6 +789,8 @@ model StockCountSession {
   canceledByUserId      String?
   cancelReason          String?
   generatedInventoryId  String?
+  source                String                  @default("SISTEMA")
+  linkedSnapshotId      String?
   items                 StockCountSessionItem[]
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
@@ -804,6 +806,8 @@ model StockCountSession {
   @@index([responsibleUserId])
   @@index([canceledByUserId])
   @@index([generatedInventoryId])
+  // linkedSnapshotId: UNIQUE PARTIAL index gerenciado pela migration SQL (WHERE IS NOT NULL)
+  // Não declarar @@index aqui para evitar que o Prisma crie um índice comum sobreposto.
 }
 
 model StockCountSessionItem {
@@ -1215,6 +1219,7 @@ model InventorySnapshot {
   totalValue         Decimal                 @default(0) @db.Decimal(14, 2)
   importFileId       String?
   originalFileName   String?
+  source             String                  @default("SISTEMA")
   createdByUserId    String?
   linkedFromSnapshotId String?
   isAutoLinkedInitial Boolean                 @default(false)
@@ -1371,35 +1376,41 @@ model MonthlyCmv {
 }
 
 model CmvPeriod {
-  id                      String           @id
-  code                    String?          @unique
-  name                    String
-  dataInicial             DateTime
-  dataFinal               DateTime
+  id                       String           @id
+  code                     String?          @unique
+  name                     String
+  dataInicial              DateTime
+  dataFinal                DateTime
   estoqueInicialSnapshotId String?
   estoqueFinalSnapshotId   String?
-  comprasTotal            Decimal          @default(0) @db.Decimal(14, 2)
-  faturamentoTotal        Decimal          @default(0) @db.Decimal(14, 2)
-  estoqueInicialTotal     Decimal          @default(0) @db.Decimal(14, 2)
-  estoqueFinalTotal       Decimal          @default(0) @db.Decimal(14, 2)
-  cmvReal                 Decimal          @default(0) @db.Decimal(14, 2)
-  cmvPercentual           Decimal?         @db.Decimal(10, 4)
-  margemBruta             Decimal?         @db.Decimal(14, 2)
-  status                  CmvPeriodStatus  @default(OPEN)
-  fechadoPor              String?
-  fechadoEm               DateTime?
-  reabertoPor             String?
-  reabertoEm              DateTime?
-  motivoReabertura        String?
-  observacoes             String?
-  createdAt               DateTime         @default(now())
-  updatedAt               DateTime         @updatedAt
+  // Session references — traceability only; CMV engine still uses snapshotId.
+  // No hard FK constraint (same pattern as StockCountSession.linkedSnapshotId).
+  estoqueInicialSessionId  String?
+  estoqueFinalSessionId    String?
+  comprasTotal             Decimal          @default(0) @db.Decimal(14, 2)
+  faturamentoTotal         Decimal          @default(0) @db.Decimal(14, 2)
+  estoqueInicialTotal      Decimal          @default(0) @db.Decimal(14, 2)
+  estoqueFinalTotal        Decimal          @default(0) @db.Decimal(14, 2)
+  cmvReal                  Decimal          @default(0) @db.Decimal(14, 2)
+  cmvPercentual            Decimal?         @db.Decimal(10, 4)
+  margemBruta              Decimal?         @db.Decimal(14, 2)
+  status                   CmvPeriodStatus  @default(OPEN)
+  fechadoPor               String?
+  fechadoEm                DateTime?
+  reabertoPor              String?
+  reabertoEm               DateTime?
+  motivoReabertura         String?
+  observacoes              String?
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
 
   @@index([dataInicial, dataFinal])
   @@index([code])
   @@index([status])
   @@index([fechadoPor])
   @@index([reabertoPor])
+  @@index([estoqueInicialSessionId])
+  @@index([estoqueFinalSessionId])
 }
 
 model InventoryRequisition {
