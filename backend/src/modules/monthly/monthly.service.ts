@@ -352,13 +352,13 @@ async function cloneFinalAsNextInitial(tx: Prisma.TransactionClient, snapshotId:
   await tx.$executeRaw`
     INSERT INTO "InventorySnapshot" (
       "id", "competenceYear", "competenceMonth", "type", "countDate", "totalItems", "totalValue",
-      "importFileId", "originalFileName", "createdByUserId", "notes", "linkedFromSnapshotId",
+      "importFileId", "originalFileName", "source", "createdByUserId", "notes", "linkedFromSnapshotId",
       "isAutoLinkedInitial", "updatedAt"
     )
     VALUES (
       ${linkedInitialId}, ${next.year}, ${next.month}, CAST('INVENTARIO_INICIAL' AS "InventorySnapshotType"),
       ${input.countDate}, ${Number(finalSnapshot?.totalItems ?? 0)}, ${Number(finalSnapshot?.totalValue ?? 0)},
-      ${snapshotId}, ${input.originalFileName ?? null}, ${input.userId},
+      ${snapshotId}, ${input.originalFileName ?? null}, 'AUTO_VINCULADO', ${input.userId},
       ${`Gerado automaticamente a partir do inventario final ${String(input.competenceMonth).padStart(2, "0")}/${input.competenceYear}.`},
       ${snapshotId}, true, CURRENT_TIMESTAMP
     )
@@ -434,6 +434,23 @@ export async function confirmInventorySnapshot(input: {
   let storedTotalValue = totalValue;
   const snapshotId = crypto.randomUUID();
 
+  // Generate CNT code for the StockCountSession that will mirror this import in Estoque > Contagens
+  const cntRefDate = new Date(input.countDate);
+  const cntYear = cntRefDate.getFullYear();
+  const [lastCntRow] = await prisma.$queryRaw<Array<{ code: string | null }>>`
+    SELECT "code" FROM "StockCountSession"
+    WHERE "code" LIKE ${`CNT-${cntYear}-%`}
+    ORDER BY "code" DESC
+    LIMIT 1
+  `;
+  const lastCntNum = Number(String(lastCntRow?.code ?? "").split("-").pop() ?? 0);
+  const stockCountSessionCode = `CNT-${cntYear}-${String(lastCntNum + 1).padStart(4, "0")}`;
+  const stockCountSessionId = crypto.randomUUID();
+  const sessionNotes = [
+    `Contagem importada via planilha${input.originalFileName ? `: ${input.originalFileName}` : ""}`,
+    input.notes?.trim() ? `Obs: ${input.notes.trim()}` : null
+  ].filter(Boolean).join(" — ");
+
   let linkedInitialSnapshotId: string | null = null;
 
   await prisma.$transaction(async (tx) => {
@@ -464,12 +481,12 @@ export async function confirmInventorySnapshot(input: {
     await tx.$executeRaw`
       INSERT INTO "InventorySnapshot" (
         "id", "competenceYear", "competenceMonth", "type", "countDate", "totalItems", "totalValue",
-        "importFileId", "originalFileName", "createdByUserId", "notes", "updatedAt"
+        "importFileId", "originalFileName", "source", "createdByUserId", "notes", "updatedAt"
       )
       VALUES (
         ${snapshotId}, ${input.competenceYear}, ${input.competenceMonth}, CAST(${input.type} AS "InventorySnapshotType"),
         ${input.countDate}, ${fullRows.length}, ${totalValue}, ${input.importFileId}, ${input.originalFileName ?? null},
-        ${input.userId}, ${input.notes ?? null}, CURRENT_TIMESTAMP
+        'IMPORTACAO_PLANILHA', ${input.userId}, ${input.notes ?? null}, CURRENT_TIMESTAMP
       )
     `;
 
@@ -510,6 +527,39 @@ export async function confirmInventorySnapshot(input: {
         userRole: input.userRole
       });
     }
+
+    // Create a StockCountSession so this import appears in Estoque > Contagens.
+    // linkedSnapshotId is the idempotency key: backfill checks "WHERE linkedSnapshotId = snapshotId" before inserting.
+    await tx.$executeRaw`
+      INSERT INTO "StockCountSession" (
+        "id", "code", "type", "status", "referenceDate", "periodMonth", "periodYear",
+        "isMonthEnd", "notes", "source", "linkedSnapshotId", "concludedAt", "updatedAt"
+      )
+      VALUES (
+        ${stockCountSessionId}, ${stockCountSessionCode}, 'IMPORTACAO_PLANILHA', 'CONCLUIDA',
+        ${input.countDate}, ${input.competenceMonth}, ${input.competenceYear},
+        ${input.type === "INVENTARIO_FINAL"}, ${sessionNotes}, 'IMPORTACAO_PLANILHA',
+        ${snapshotId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )
+    `;
+
+    for (const row of fullRows) {
+      const qty = row.quantity ?? 0;
+      const itemStatus = qty === 0 ? "ZERO" : "CONTADO";
+      await tx.$executeRaw`
+        INSERT INTO "StockCountSessionItem" (
+          "id", "stockCountSessionId", "productId", "productCodeSnapshot", "productNameSnapshot",
+          "sectorSnapshot", "categorySnapshot", "subcategorySnapshot", "unitSnapshot",
+          "expectedQuantity", "countedQuantity", "differenceQuantity", "status", "countedAt", "updatedAt"
+        )
+        VALUES (
+          ${crypto.randomUUID()}, ${stockCountSessionId}, ${row.productId ?? null},
+          ${row.productCode ?? null}, ${row.productName},
+          ${row.sectorName ?? null}, ${row.categoryName ?? null}, ${row.subcategoryName ?? null},
+          ${row.unit ?? null}, 0, ${qty}, ${qty}, ${itemStatus}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+      `;
+    }
   });
 
   await prisma.$executeRaw`
@@ -525,7 +575,9 @@ export async function confirmInventorySnapshot(input: {
     totalValue: storedTotalValue,
     warnings: preview.warnings,
     replacedSnapshotId: existing[0]?.id ?? null,
-    linkedInitialSnapshotId
+    linkedInitialSnapshotId,
+    stockCountSessionId,
+    stockCountSessionCode
   };
 }
 

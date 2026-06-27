@@ -125,14 +125,15 @@ const countSessionStatusLabels: Record<string, string> = {
   CANCELADA: "cancelada"
 };
 
-const countSessionTypeLabels: Record<StockCountSessionType, string> = {
+const countSessionTypeLabels: Record<string, string> = {
   GERAL: "Geral",
   SETORIAL: "Setorial",
   CATEGORIA: "Categoria",
   SUBCATEGORIA: "Subcategoria",
   FINAL_MES: "Final do mes",
   ALEATORIA: "Aleatoria",
-  TAREFA: "Tarefa"
+  TAREFA: "Tarefa",
+  IMPORTACAO_PLANILHA: "Importacao"
 };
 
 const editableCountSessionStatuses = new Set(["ABERTA", "EM_ANDAMENTO"]);
@@ -1385,10 +1386,10 @@ export function Inventory({
               <button className="secondary-button" type="button" onClick={() => { setCountSessionDetail(null); onCloseCountSessionRoute?.(); }}><X size={16} />Voltar</button>
               <button className="secondary-button large-action" type="button" disabled={locked} onClick={saveCountSessionDraft}><Save size={17} />Salvar Contagem</button>
               <button className="primary-button large-action" type="button" disabled={locked} onClick={concludeCountSession}><CheckCircle2 size={17} />Concluir Contagem</button>
-              {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && (
+              {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && countSessionDetail.source !== "IMPORTACAO_PLANILHA" && (
                 <button className="primary-button large-action" type="button" onClick={generateInventoryFromCountSession}>Gerar inventario</button>
               )}
-              {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && (
+              {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && countSessionDetail.source !== "IMPORTACAO_PLANILHA" && (
                 <button className="secondary-button" type="button" onClick={reopenCountSessionAction}>Reabrir</button>
               )}
               {canCancelCountSession(countSessionDetail) && (
@@ -1713,16 +1714,16 @@ export function Inventory({
                   markFilteredCountSessionItemsAsZero();
                   setMobileCountMoreActionsOpen(false);
                 }}>Marcar filtrados como zero</button>
-                {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && (
+                {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && countSessionDetail.source !== "IMPORTACAO_PLANILHA" && (
                   <button className="primary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); generateInventoryFromCountSession(); }}>Gerar inventario</button>
                 )}
-                {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && (
+                {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && countSessionDetail.source !== "IMPORTACAO_PLANILHA" && (
                   <button className="secondary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); reopenCountSessionAction(); }}>Reabrir contagem</button>
                 )}
                 {canCancelCountSession(countSessionDetail) && (
                   <button className="danger-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); cancelCountSessionAction(countSessionDetail); }}>Cancelar contagem</button>
                 )}
-                {locked && !(canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId) && !canCancelCountSession(countSessionDetail) && (
+                {locked && !(canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && countSessionDetail.source !== "IMPORTACAO_PLANILHA") && !canCancelCountSession(countSessionDetail) && (
                   <span>Nenhuma acao adicional disponivel para este status.</span>
                 )}
               </div>
@@ -2020,10 +2021,14 @@ export function Inventory({
               <tbody>
                 {countSessions.map((session) => (
                   <tr key={session.id}>
-                    <td title={session.notes ?? session.code}><strong>{session.code}</strong><small>{session.generatedInventoryCode ? `Inventario: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mes" : "Contagem operacional"}</small></td>
+                    <td title={session.notes ?? session.code}>
+                      <strong>{session.code}</strong>
+                      {session.source === "IMPORTACAO_PLANILHA" && <StatusBadge tone="info">Importada</StatusBadge>}
+                      <small>{session.generatedInventoryCode ? `Inventario: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mes" : session.source === "IMPORTACAO_PLANILHA" ? "Importada via planilha" : "Contagem operacional"}</small>
+                    </td>
                     <td>{formatDate(session.referenceDate)}</td>
                     <td>
-                      {countSessionTypeLabels[session.type]}
+                      {countSessionTypeLabels[session.type] ?? session.type}
                       {session.type === "SETORIAL" && session.sectorName && <small>SETOR: {session.sectorName}</small>}
                     </td>
                     <td title={[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ") || "-"}>
@@ -2038,7 +2043,7 @@ export function Inventory({
                     <td>{formatNumber(session.divergentItems)}</td>
                     <td className="actions-cell">
                       <button className="secondary-button" type="button" onClick={() => openCountSession(session.id)}>{editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}</button>
-                      {canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && (
+                      {canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA" && (
                         <button className="primary-button" type="button" onClick={async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventario gerado a partir da contagem." }); }}>Gerar inventario</button>
                       )}
                       {canCancelCountSession(session) && (

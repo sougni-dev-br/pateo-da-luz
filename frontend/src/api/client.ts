@@ -453,6 +453,7 @@ export type InventorySnapshot = {
   totalItems: number;
   totalValue: string | number;
   originalFileName: string | null;
+  source: string | null;
   notes: string | null;
   createdAt: string;
   items?: MonthlyInventoryPreview["previewRows"];
@@ -606,6 +607,20 @@ export type RevenueImportReport = {
   errors: Array<{ rowNumber: number; message: string }>;
 };
 
+export type CmvSessionOption = {
+  sessionId: string;
+  code: string;
+  source: string;
+  referenceDate: string;
+  periodMonth: number | null;
+  periodYear: number | null;
+  isMonthEnd: boolean;
+  totalItems: number;
+  linkedSnapshotId: string | null;
+  snapshotTotalValue: number | null;
+  notes: string | null;
+};
+
 export type CmvPeriod = {
   id: string;
   code: string | null;
@@ -614,8 +629,12 @@ export type CmvPeriod = {
   dataFinal: string;
   estoqueInicialSnapshotId: string | null;
   estoqueFinalSnapshotId: string | null;
+  estoqueInicialSessionId: string | null;
+  estoqueFinalSessionId: string | null;
   estoqueInicialSnapshotData: string | null;
   estoqueFinalSnapshotData: string | null;
+  estoqueInicialSessionCode: string | null;
+  estoqueFinalSessionCode: string | null;
   comprasTotal: number;
   faturamentoTotal: number;
   estoqueInicialTotal: number;
@@ -651,8 +670,16 @@ export type CmvPeriodDetail = CmvPeriod & {
 export type CmvRealSuggestions = {
   suggestedStartDate: string;
   suggestedInitialSnapshotId: string | null;
+  suggestedInitialSessionId: string | null;
   continuityLocked: boolean;
-  latestPeriod: { id: string; dataInicial: string; dataFinal: string; status: "OPEN" | "CLOSED"; estoqueFinalSnapshotId: string | null } | null;
+  latestPeriod: {
+    id: string;
+    dataInicial: string;
+    dataFinal: string;
+    status: "OPEN" | "CLOSED";
+    estoqueFinalSnapshotId: string | null;
+    estoqueFinalSessionId: string | null;
+  } | null;
 };
 
 export type Supplier = {
@@ -1293,7 +1320,7 @@ export type StockCount = {
   countedAt: string;
 };
 
-export type StockCountSessionType = "GERAL" | "SETORIAL" | "CATEGORIA" | "SUBCATEGORIA" | "FINAL_MES" | "ALEATORIA" | "TAREFA";
+export type StockCountSessionType = "GERAL" | "SETORIAL" | "CATEGORIA" | "SUBCATEGORIA" | "FINAL_MES" | "ALEATORIA" | "TAREFA" | "IMPORTACAO_PLANILHA";
 export type StockCountSessionStatus = "ABERTA" | "EM_ANDAMENTO" | "CONCLUIDA" | "CANCELADA";
 export type StockCountSessionItemStatus = "PENDENTE" | "CONTADO" | "ZERO" | "DIVERGENTE";
 
@@ -1347,6 +1374,8 @@ export type StockCountSession = {
   cancelReason: string | null;
   generatedInventoryId: string | null;
   generatedInventoryCode?: string | null;
+  source: string | null;
+  linkedSnapshotId: string | null;
   totalItems: number;
   countedItems: number;
   pendingItems: number;
@@ -2877,6 +2906,10 @@ export function getCmvRealSuggestions() {
   return request<CmvRealSuggestions>("/monthly/cmv-real/suggestions");
 }
 
+export function getCmvRealSessions() {
+  return request<CmvSessionOption[]>("/monthly/cmv-real/sessions");
+}
+
 export function getCmvPeriods() {
   return request<CmvPeriod[]>("/monthly/cmv-real");
 }
@@ -2890,8 +2923,10 @@ export function saveCmvPeriod(payload: {
   name?: string;
   dataInicial: string;
   dataFinal: string;
-  estoqueInicialSnapshotId: string;
-  estoqueFinalSnapshotId: string;
+  estoqueInicialSnapshotId?: string;
+  estoqueFinalSnapshotId?: string;
+  estoqueInicialSessionId?: string | null;
+  estoqueFinalSessionId?: string | null;
   observacoes?: string | null;
   continuityOverrideReason?: string | null;
 }) {

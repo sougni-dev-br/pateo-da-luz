@@ -13,6 +13,8 @@ export type CmvPeriodInput = {
   dataFinal: Date;
   estoqueInicialSnapshotId: string;
   estoqueFinalSnapshotId: string;
+  estoqueInicialSessionId?: string | null;
+  estoqueFinalSessionId?: string | null;
   observacoes?: string | null;
   userId: string;
   userRole?: string;
@@ -28,6 +30,58 @@ type SnapshotRow = {
   totalValue: Prisma.Decimal | null;
   originalFileName: string | null;
   status: string;
+};
+
+export type CmvSessionOption = {
+  sessionId: string;
+  code: string;
+  source: string;
+  referenceDate: string;
+  periodMonth: number | null;
+  periodYear: number | null;
+  isMonthEnd: boolean;
+  totalItems: number;
+  linkedSnapshotId: string | null;
+  snapshotTotalValue: number | null;
+  notes: string | null;
+};
+
+type SessionRow = {
+  sessionId: string;
+  code: string;
+  source: string;
+  referenceDate: Date;
+  periodMonth: number | null;
+  periodYear: number | null;
+  isMonthEnd: boolean;
+  totalItems: bigint | number;
+  linkedSnapshotId: string | null;
+  snapshotTotalValue: Prisma.Decimal | null;
+  notes: string | null;
+};
+
+type StockCountSessionBaseRow = {
+  id: string;
+  code: string;
+  status: string;
+  source: string;
+  referenceDate: Date;
+  isMonthEnd: boolean;
+  periodMonth: number | null;
+  periodYear: number | null;
+  linkedSnapshotId: string | null;
+};
+
+type SessionItemRow = {
+  productId: string | null;
+  productCodeSnapshot: string | null;
+  productNameSnapshot: string;
+  sectorSnapshot: string | null;
+  categorySnapshot: string | null;
+  subcategorySnapshot: string | null;
+  unitSnapshot: string | null;
+  countedQuantity: Prisma.Decimal | null;
+  unitCost: Prisma.Decimal | null;
 };
 
 type RevenueRow = {
@@ -71,6 +125,8 @@ type CmvPeriodRow = {
   dataFinal: Date;
   estoqueInicialSnapshotId: string | null;
   estoqueFinalSnapshotId: string | null;
+  estoqueInicialSessionId: string | null;
+  estoqueFinalSessionId: string | null;
   comprasTotal: Prisma.Decimal | null;
   faturamentoTotal: Prisma.Decimal | null;
   estoqueInicialTotal: Prisma.Decimal | null;
@@ -91,6 +147,8 @@ type CmvPeriodRow = {
   reabertoPorNome: string | null;
   estoqueInicialSnapshotData: Date | null;
   estoqueFinalSnapshotData: Date | null;
+  estoqueInicialSessionCode: string | null;
+  estoqueFinalSessionCode: string | null;
 };
 
 export type CmvPeriodSummary = {
@@ -101,8 +159,12 @@ export type CmvPeriodSummary = {
   dataFinal: string;
   estoqueInicialSnapshotId: string | null;
   estoqueFinalSnapshotId: string | null;
+  estoqueInicialSessionId: string | null;
+  estoqueFinalSessionId: string | null;
   estoqueInicialSnapshotData: string | null;
   estoqueFinalSnapshotData: string | null;
+  estoqueInicialSessionCode: string | null;
+  estoqueFinalSessionCode: string | null;
   comprasTotal: number;
   faturamentoTotal: number;
   estoqueInicialTotal: number;
@@ -398,8 +460,12 @@ function mapRow(row: CmvPeriodRow): CmvPeriodSummary {
     dataFinal: toDateKey(toLocalDate(row.dataFinal)),
     estoqueInicialSnapshotId: row.estoqueInicialSnapshotId,
     estoqueFinalSnapshotId: row.estoqueFinalSnapshotId,
+    estoqueInicialSessionId: row.estoqueInicialSessionId,
+    estoqueFinalSessionId: row.estoqueFinalSessionId,
     estoqueInicialSnapshotData: row.estoqueInicialSnapshotData ? toDateKey(toLocalDate(row.estoqueInicialSnapshotData)) : null,
     estoqueFinalSnapshotData: row.estoqueFinalSnapshotData ? toDateKey(toLocalDate(row.estoqueFinalSnapshotData)) : null,
+    estoqueInicialSessionCode: row.estoqueInicialSessionCode,
+    estoqueFinalSessionCode: row.estoqueFinalSessionCode,
     comprasTotal: toNumber(row.comprasTotal),
     faturamentoTotal: toNumber(row.faturamentoTotal),
     estoqueInicialTotal: toNumber(row.estoqueInicialTotal),
@@ -441,12 +507,16 @@ async function loadPeriodRow(id: string) {
       u1."name" AS "fechadoPorNome",
       u2."name" AS "reabertoPorNome",
       i."countDate" AS "estoqueInicialSnapshotData",
-      f."countDate" AS "estoqueFinalSnapshotData"
+      f."countDate" AS "estoqueFinalSnapshotData",
+      si."code" AS "estoqueInicialSessionCode",
+      sf."code" AS "estoqueFinalSessionCode"
     FROM "CmvPeriod" p
     LEFT JOIN "User" u1 ON u1."id" = p."fechadoPor"
     LEFT JOIN "User" u2 ON u2."id" = p."reabertoPor"
     LEFT JOIN "InventorySnapshot" i ON i."id" = p."estoqueInicialSnapshotId"
     LEFT JOIN "InventorySnapshot" f ON f."id" = p."estoqueFinalSnapshotId"
+    LEFT JOIN "StockCountSession" si ON si."id" = p."estoqueInicialSessionId"
+    LEFT JOIN "StockCountSession" sf ON sf."id" = p."estoqueFinalSessionId"
     WHERE p."id" = ${id}
     LIMIT 1
   `;
@@ -479,8 +549,13 @@ async function findPeriodsByDateRange(startDate: Date, endDate: Date, excludeId?
 
 async function latestPreviousPeriod(startDate: Date, excludeId?: string | null) {
   const startKey = formatDateKey(startDate) ?? toDateKey(startDate);
-  const [row] = await prisma.$queryRaw<Array<{ id: string; dataFinal: Date; estoqueFinalSnapshotId: string | null }>>`
-    SELECT "id", "dataFinal", "estoqueFinalSnapshotId"
+  const [row] = await prisma.$queryRaw<Array<{
+    id: string;
+    dataFinal: Date;
+    estoqueFinalSnapshotId: string | null;
+    estoqueFinalSessionId: string | null;
+  }>>`
+    SELECT "id", "dataFinal", "estoqueFinalSnapshotId", "estoqueFinalSessionId"
     FROM "CmvPeriod"
     WHERE DATE("dataFinal") < CAST(${startKey} AS date)
       ${excludeId ? Prisma.sql`AND "id" <> ${excludeId}` : Prisma.empty}
@@ -508,8 +583,27 @@ async function validatePeriodContinuity(input: CmvPeriodInput) {
 
   const expectedStart = toDateKey(addDays(previous.dataFinal, 1));
   const actualStart = toDateKey(input.dataInicial);
-  const expectedSnapshot = previous.estoqueFinalSnapshotId ?? "";
-  const breaksContinuity = actualStart !== expectedStart || input.estoqueInicialSnapshotId !== expectedSnapshot;
+
+  // Session-aware continuity: prefer session comparison when both sides have sessions.
+  // Falls back to snapshot comparison for legacy periods without session IDs.
+  let breaksContinuity: boolean;
+  if (previous.estoqueFinalSessionId && input.estoqueInicialSessionId) {
+    // Both session-based: compare sessions directly
+    breaksContinuity = actualStart !== expectedStart || input.estoqueInicialSessionId !== previous.estoqueFinalSessionId;
+  } else if (previous.estoqueFinalSessionId && !input.estoqueInicialSessionId && input.estoqueInicialSnapshotId) {
+    // Previous has session, new has snapshot: compare the new snapshot against the
+    // snapshot that the previous session is linked to
+    const [prevSessionSnap] = await prisma.$queryRaw<Array<{ linkedSnapshotId: string | null }>>`
+      SELECT "linkedSnapshotId" FROM "StockCountSession" WHERE "id" = ${previous.estoqueFinalSessionId} LIMIT 1
+    `;
+    const expectedSnap = prevSessionSnap?.linkedSnapshotId ?? previous.estoqueFinalSnapshotId ?? "";
+    breaksContinuity = actualStart !== expectedStart || input.estoqueInicialSnapshotId !== expectedSnap;
+  } else {
+    // Legacy fallback: compare snapshot IDs
+    const expectedSnapshot = previous.estoqueFinalSnapshotId ?? "";
+    breaksContinuity = actualStart !== expectedStart || input.estoqueInicialSnapshotId !== expectedSnapshot;
+  }
+
   if (!breaksContinuity) return;
 
   if (input.userRole === "ADMIN") {
@@ -528,15 +622,22 @@ async function persistPeriod(input: CmvPeriodInput, status: CmvPeriodStatus, clo
   const current = input.id ? await loadPeriodRow(input.id).catch(() => null) : null;
   const code = current?.code ?? await nextCmvPeriodCode(input.dataInicial);
   const name = labelPeriod(input.dataInicial, input.dataFinal);
+  const inicialSessionId = input.estoqueInicialSessionId ?? null;
+  const finalSessionId = input.estoqueFinalSessionId ?? null;
+
   await prisma.$executeRaw`
     INSERT INTO "CmvPeriod" (
-      "id", "code", "name", "dataInicial", "dataFinal", "estoqueInicialSnapshotId", "estoqueFinalSnapshotId",
+      "id", "code", "name", "dataInicial", "dataFinal",
+      "estoqueInicialSnapshotId", "estoqueFinalSnapshotId",
+      "estoqueInicialSessionId", "estoqueFinalSessionId",
       "comprasTotal", "faturamentoTotal", "estoqueInicialTotal", "estoqueFinalTotal", "cmvReal", "cmvPercentual",
       "margemBruta", "status", "fechadoPor", "fechadoEm", "observacoes", "updatedAt"
     )
     VALUES (
       ${id}, ${code}, ${name}, ${input.dataInicial}, ${input.dataFinal},
-      ${input.estoqueInicialSnapshotId}, ${input.estoqueFinalSnapshotId}, ${computation.comprasTotal},
+      ${input.estoqueInicialSnapshotId}, ${input.estoqueFinalSnapshotId},
+      ${inicialSessionId}, ${finalSessionId},
+      ${computation.comprasTotal},
       ${computation.faturamentoTotal}, ${computation.estoqueInicialTotal}, ${computation.estoqueFinalTotal},
       ${computation.cmvReal}, ${computation.cmvPercentual}, ${computation.margemBruta}, CAST(${status} AS "CmvPeriodStatus"),
       ${closedFields?.fechadoPor ?? null}, ${closedFields?.fechadoEm ?? null}, ${input.observacoes ?? null}, CURRENT_TIMESTAMP
@@ -548,6 +649,8 @@ async function persistPeriod(input: CmvPeriodInput, status: CmvPeriodStatus, clo
       "dataFinal" = EXCLUDED."dataFinal",
       "estoqueInicialSnapshotId" = EXCLUDED."estoqueInicialSnapshotId",
       "estoqueFinalSnapshotId" = EXCLUDED."estoqueFinalSnapshotId",
+      "estoqueInicialSessionId" = EXCLUDED."estoqueInicialSessionId",
+      "estoqueFinalSessionId" = EXCLUDED."estoqueFinalSessionId",
       "comprasTotal" = EXCLUDED."comprasTotal",
       "faturamentoTotal" = EXCLUDED."faturamentoTotal",
       "estoqueInicialTotal" = EXCLUDED."estoqueInicialTotal",
@@ -564,37 +667,242 @@ async function persistPeriod(input: CmvPeriodInput, status: CmvPeriodStatus, clo
   return loadPeriodRow(id);
 }
 
+// ─── Session → Snapshot bridge ────────────────────────────────────────────────
+
+export async function ensureSnapshotForSession(
+  sessionId: string,
+  snapshotType: "INVENTARIO_INICIAL" | "INVENTARIO_FINAL"
+): Promise<string> {
+  // 1. Load and validate session
+  const [session] = await prisma.$queryRaw<Array<StockCountSessionBaseRow>>`
+    SELECT "id", "code", "status", "source", "referenceDate", "isMonthEnd",
+           "periodMonth", "periodYear", "linkedSnapshotId"
+    FROM "StockCountSession"
+    WHERE "id" = ${sessionId}
+    LIMIT 1
+  `;
+  if (!session) throw new Error(`Contagem nao encontrada: ${sessionId}`);
+  if (session.status !== "CONCLUIDA") {
+    throw new Error(`Contagem ${session.code} nao esta concluida (status: ${session.status}). Apenas contagens concluidas podem ser usadas como inventario.`);
+  }
+
+  // 2. If already has a valid linked snapshot → reuse (idempotency)
+  if (session.linkedSnapshotId) {
+    const [existing] = await prisma.$queryRaw<Array<{ id: string; status: string }>>`
+      SELECT "id", "status" FROM "InventorySnapshot"
+      WHERE "id" = ${session.linkedSnapshotId}
+      LIMIT 1
+    `;
+    if (existing && !["CANCELLED", "CANCELADO"].includes(String(existing.status).toUpperCase())) {
+      return existing.id;
+    }
+  }
+
+  // 3. Validate that session has items
+  const [itemCount] = await prisma.$queryRaw<Array<{ cnt: bigint | number }>>`
+    SELECT COUNT(*) AS cnt FROM "StockCountSessionItem"
+    WHERE "stockCountSessionId" = ${sessionId}
+  `;
+  if (toNumber(itemCount?.cnt) === 0) {
+    throw new Error(`Contagem ${session.code} nao possui itens. Nao e possivel gerar inventario a partir de uma contagem vazia.`);
+  }
+
+  // 4. Load items with last-purchase unit cost for each product
+  const items = await prisma.$queryRaw<Array<SessionItemRow>>`
+    SELECT
+      i."productId",
+      i."productCodeSnapshot",
+      i."productNameSnapshot",
+      i."sectorSnapshot",
+      i."categorySnapshot",
+      i."subcategorySnapshot",
+      i."unitSnapshot",
+      i."countedQuantity",
+      (
+        SELECT pi."unitPrice"
+        FROM "PurchaseItem" pi
+        JOIN "Purchase" p ON p."id" = pi."purchaseId"
+        WHERE pi."productId" = i."productId"
+          AND p."status" <> 'CANCELLED'
+        ORDER BY p."purchaseDate" DESC
+        LIMIT 1
+      ) AS "unitCost"
+    FROM "StockCountSessionItem" i
+    WHERE i."stockCountSessionId" = ${sessionId}
+    ORDER BY i."productNameSnapshot"
+  `;
+
+  // 5. Calculate totalValue (items without pricing contribute 0 — honest about gaps)
+  let totalValue = 0;
+  for (const item of items) {
+    const qty = toNumber(item.countedQuantity);
+    const cost = toNumber(item.unitCost);
+    totalValue += Math.round(qty * cost * 100) / 100;
+  }
+
+  // 6. Determine snapshot source
+  const snapshotSource = session.source === "IMPORTACAO_PLANILHA" ? "IMPORTACAO_PLANILHA" : "SISTEMA";
+  const competenceYear = session.periodYear ?? new Date(session.referenceDate).getFullYear();
+  const competenceMonth = session.periodMonth ?? (new Date(session.referenceDate).getMonth() + 1);
+
+  // 7. Create InventorySnapshot
+  const snapshotId = crypto.randomUUID();
+  await prisma.$executeRaw`
+    INSERT INTO "InventorySnapshot" (
+      "id", "competenceYear", "competenceMonth", "type", "countDate",
+      "status", "totalItems", "totalValue", "source", "updatedAt"
+    )
+    VALUES (
+      ${snapshotId}, ${competenceYear}, ${competenceMonth},
+      CAST(${snapshotType} AS "InventorySnapshotType"),
+      ${new Date(session.referenceDate)},
+      'ACTIVE', ${items.length}, ${totalValue}, ${snapshotSource}, CURRENT_TIMESTAMP
+    )
+  `;
+
+  // 8. Create InventorySnapshotItems
+  for (const item of items) {
+    const qty = toNumber(item.countedQuantity);
+    const cost = toNumber(item.unitCost);
+    const totalCost = Math.round(qty * cost * 100) / 100;
+    const itemId = crypto.randomUUID();
+    await prisma.$executeRaw`
+      INSERT INTO "InventorySnapshotItem" (
+        "id", "snapshotId", "productId", "productCode", "productName",
+        "sectorName", "categoryName", "subcategoryName", "unit",
+        "quantity", "unitCost", "totalCost", "resolutionStatus", "createdAt"
+      )
+      VALUES (
+        ${itemId}, ${snapshotId},
+        ${item.productId ?? null},
+        ${item.productCodeSnapshot ?? null},
+        ${item.productNameSnapshot},
+        ${item.sectorSnapshot ?? null},
+        ${item.categorySnapshot ?? null},
+        ${item.subcategorySnapshot ?? null},
+        ${item.unitSnapshot ?? null},
+        ${qty},
+        ${cost > 0 ? cost : null},
+        ${totalCost > 0 ? totalCost : null},
+        'MATCHED', CURRENT_TIMESTAMP
+      )
+    `;
+  }
+
+  // 9. Link snapshot back to session (idempotency key for future calls)
+  await prisma.$executeRaw`
+    UPDATE "StockCountSession"
+    SET "linkedSnapshotId" = ${snapshotId}, "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${sessionId}
+      AND ("linkedSnapshotId" IS NULL OR "linkedSnapshotId" = '')
+  `;
+
+  return snapshotId;
+}
+
+export async function listCmvSessions(): Promise<CmvSessionOption[]> {
+  const rows = await prisma.$queryRaw<Array<SessionRow>>`
+    SELECT
+      s."id"                  AS "sessionId",
+      s."code",
+      s."source",
+      s."referenceDate",
+      s."periodMonth",
+      s."periodYear",
+      s."isMonthEnd",
+      s."notes",
+      s."linkedSnapshotId",
+      COUNT(i."id")           AS "totalItems",
+      snap."totalValue"       AS "snapshotTotalValue"
+    FROM "StockCountSession" s
+    LEFT JOIN "StockCountSessionItem" i ON i."stockCountSessionId" = s."id"
+    LEFT JOIN "InventorySnapshot" snap
+      ON snap."id" = s."linkedSnapshotId"
+      AND snap."status" NOT IN ('CANCELLED', 'CANCELADO')
+    WHERE s."status" = 'CONCLUIDA'
+    GROUP BY s."id", snap."totalValue"
+    ORDER BY s."referenceDate" DESC
+  `;
+  return rows.map((row) => ({
+    sessionId: row.sessionId,
+    code: row.code,
+    source: row.source,
+    referenceDate: toDateKey(toLocalDate(row.referenceDate)),
+    periodMonth: row.periodMonth,
+    periodYear: row.periodYear,
+    isMonthEnd: row.isMonthEnd,
+    totalItems: toNumber(row.totalItems),
+    linkedSnapshotId: row.linkedSnapshotId,
+    snapshotTotalValue: row.snapshotTotalValue != null ? toNumber(row.snapshotTotalValue) : null,
+    notes: row.notes
+  }));
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
 export async function getCmvRealSuggestions() {
-  const [lastPeriod, latestPeriod] = await Promise.all([
-    prisma.$queryRaw<Array<{ id: string; dataFinal: Date; estoqueFinalSnapshotId: string | null }>>`
-      SELECT "id", "dataFinal", "estoqueFinalSnapshotId"
+  const [lastPeriodRows, latestPeriodRows] = await Promise.all([
+    prisma.$queryRaw<Array<{
+      id: string;
+      dataFinal: Date;
+      estoqueFinalSnapshotId: string | null;
+      estoqueFinalSessionId: string | null;
+    }>>`
+      SELECT "id", "dataFinal", "estoqueFinalSnapshotId", "estoqueFinalSessionId"
       FROM "CmvPeriod"
       ORDER BY "dataFinal" DESC, "createdAt" DESC
       LIMIT 1
     `,
-    prisma.$queryRaw<Array<{ id: string; dataInicial: Date; dataFinal: Date; status: CmvPeriodStatus; estoqueFinalSnapshotId: string | null }>>`
-      SELECT "id", "dataInicial", "dataFinal", "status", "estoqueFinalSnapshotId"
+    prisma.$queryRaw<Array<{
+      id: string;
+      dataInicial: Date;
+      dataFinal: Date;
+      status: CmvPeriodStatus;
+      estoqueFinalSnapshotId: string | null;
+      estoqueFinalSessionId: string | null;
+    }>>`
+      SELECT "id", "dataInicial", "dataFinal", "status", "estoqueFinalSnapshotId", "estoqueFinalSessionId"
       FROM "CmvPeriod"
       ORDER BY "dataFinal" DESC, "createdAt" DESC
       LIMIT 1
     `
   ]);
-  const suggestedStartDate = lastPeriod[0]?.dataFinal
-    ? (() => {
-        const next = addDays(lastPeriod[0].dataFinal, 1);
-        return toDateKey(next);
-      })()
+
+  const lastPeriod = lastPeriodRows[0] ?? null;
+  const latestPeriod = latestPeriodRows[0] ?? null;
+
+  const suggestedStartDate = lastPeriod?.dataFinal
+    ? toDateKey(addDays(lastPeriod.dataFinal, 1))
     : toDateKey(new Date());
+
+  // Find the session that was the final of the last period (for suggestions)
+  let suggestedInitialSessionId: string | null = null;
+  if (lastPeriod?.estoqueFinalSessionId) {
+    suggestedInitialSessionId = lastPeriod.estoqueFinalSessionId;
+  } else if (lastPeriod?.estoqueFinalSnapshotId) {
+    // Legacy: try to find a session linked to the final snapshot
+    const [sessionRow] = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "StockCountSession"
+      WHERE "linkedSnapshotId" = ${lastPeriod.estoqueFinalSnapshotId}
+      ORDER BY "createdAt" DESC
+      LIMIT 1
+    `;
+    suggestedInitialSessionId = sessionRow?.id ?? null;
+  }
+
   return {
     suggestedStartDate,
-    suggestedInitialSnapshotId: lastPeriod[0]?.estoqueFinalSnapshotId ?? null,
-    continuityLocked: Boolean(lastPeriod[0]),
-    latestPeriod: latestPeriod[0]
+    suggestedInitialSnapshotId: lastPeriod?.estoqueFinalSnapshotId ?? null,
+    suggestedInitialSessionId,
+    continuityLocked: Boolean(lastPeriod),
+    latestPeriod: latestPeriod
       ? {
-          ...latestPeriod[0],
-          dataInicial: toDateKey(latestPeriod[0].dataInicial),
-          dataFinal: toDateKey(latestPeriod[0].dataFinal),
-          estoqueFinalSnapshotId: latestPeriod[0].estoqueFinalSnapshotId ?? null
+          id: latestPeriod.id,
+          dataInicial: toDateKey(latestPeriod.dataInicial),
+          dataFinal: toDateKey(latestPeriod.dataFinal),
+          status: latestPeriod.status,
+          estoqueFinalSnapshotId: latestPeriod.estoqueFinalSnapshotId ?? null,
+          estoqueFinalSessionId: latestPeriod.estoqueFinalSessionId ?? null
         }
       : null
   };
@@ -607,12 +915,16 @@ export async function listCmvPeriods() {
       u1."name" AS "fechadoPorNome",
       u2."name" AS "reabertoPorNome",
       i."countDate" AS "estoqueInicialSnapshotData",
-      f."countDate" AS "estoqueFinalSnapshotData"
+      f."countDate" AS "estoqueFinalSnapshotData",
+      si."code" AS "estoqueInicialSessionCode",
+      sf."code" AS "estoqueFinalSessionCode"
     FROM "CmvPeriod" p
     LEFT JOIN "User" u1 ON u1."id" = p."fechadoPor"
     LEFT JOIN "User" u2 ON u2."id" = p."reabertoPor"
     LEFT JOIN "InventorySnapshot" i ON i."id" = p."estoqueInicialSnapshotId"
     LEFT JOIN "InventorySnapshot" f ON f."id" = p."estoqueFinalSnapshotId"
+    LEFT JOIN "StockCountSession" si ON si."id" = p."estoqueInicialSessionId"
+    LEFT JOIN "StockCountSession" sf ON sf."id" = p."estoqueFinalSessionId"
     ORDER BY p."dataFinal" DESC, p."createdAt" DESC
   `;
   return Promise.all(rows.map(async (row) => applyComputation(
@@ -639,8 +951,24 @@ export async function getCmvPeriod(id: string) {
 }
 
 export async function saveCmvPeriod(input: CmvPeriodInput) {
-  const resolvedId = await validateNoDuplicatePeriod(input);
-  const nextInput = { ...input, id: resolvedId ?? input.id };
+  // If session IDs provided but snapshot IDs are empty → generate snapshots idempotently.
+  // Determine snapshotType from isMonthEnd on the session (inicial → never month-end by convention).
+  let resolvedInput = { ...input };
+  if (input.estoqueInicialSessionId && !input.estoqueInicialSnapshotId) {
+    resolvedInput.estoqueInicialSnapshotId = await ensureSnapshotForSession(
+      input.estoqueInicialSessionId,
+      "INVENTARIO_INICIAL"
+    );
+  }
+  if (input.estoqueFinalSessionId && !input.estoqueFinalSnapshotId) {
+    resolvedInput.estoqueFinalSnapshotId = await ensureSnapshotForSession(
+      input.estoqueFinalSessionId,
+      "INVENTARIO_FINAL"
+    );
+  }
+
+  const resolvedId = await validateNoDuplicatePeriod(resolvedInput);
+  const nextInput = { ...resolvedInput, id: resolvedId ?? resolvedInput.id };
   await validatePeriodContinuity(nextInput);
   if (nextInput.id) {
     const current = await loadPeriodRow(nextInput.id);
@@ -659,6 +987,8 @@ export async function saveCmvPeriod(input: CmvPeriodInput) {
       dataFinal: nextInput.dataFinal,
       estoqueInicialSnapshotId: nextInput.estoqueInicialSnapshotId,
       estoqueFinalSnapshotId: nextInput.estoqueFinalSnapshotId,
+      estoqueInicialSessionId: nextInput.estoqueInicialSessionId ?? null,
+      estoqueFinalSessionId: nextInput.estoqueFinalSessionId ?? null,
       observacoes: nextInput.observacoes,
       continuityOverrideReason: nextInput.continuityOverrideReason ?? null
     },
