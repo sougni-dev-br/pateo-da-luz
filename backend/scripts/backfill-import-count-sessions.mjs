@@ -17,7 +17,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 
 const prisma = new PrismaClient();
 const shouldApply = process.argv.includes("--apply");
@@ -128,49 +128,57 @@ async function main() {
         `[Backfill retroativo — snapshot: ${snap.id}]`
       ].filter(Boolean).join(" — ");
 
-      await prisma.$transaction(async (tx) => {
-        // Gera CNT code dentro da tx para evitar concorrência
-        const code = await nextCntCode(year, tx);
-        const sessionId = randomUUID();
-        const isMonthEnd = snap.type === "INVENTARIO_FINAL";
+      // Sem $transaction — Render usa PgBouncer em transaction mode que não suporta
+      // interactive transactions. Idempotência garantida pelo WHERE NOT EXISTS acima
+      // e pelo UNIQUE INDEX em linkedSnapshotId.
+      const code = await nextCntCode(year);
+      const sessionId = randomUUID();
+      const isMonthEnd = snap.type === "INVENTARIO_FINAL";
 
-        await tx.$executeRaw`
-          INSERT INTO "StockCountSession" (
-            "id", "code", "type", "status", "referenceDate", "periodMonth", "periodYear",
-            "isMonthEnd", "notes", "source", "linkedSnapshotId", "concludedAt", "updatedAt"
-          )
-          VALUES (
-            ${sessionId}, ${code}, 'IMPORTACAO_PLANILHA', 'CONCLUIDA',
-            ${countDate}, ${snap.competenceMonth}, ${snap.competenceYear},
-            ${isMonthEnd}, ${sessionNotes}, 'IMPORTACAO_PLANILHA',
-            ${snap.id}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-          )
-        `;
+      await prisma.$executeRaw`
+        INSERT INTO "StockCountSession" (
+          "id", "code", "type", "status", "referenceDate", "periodMonth", "periodYear",
+          "isMonthEnd", "notes", "source", "linkedSnapshotId", "concludedAt", "updatedAt"
+        )
+        VALUES (
+          ${sessionId}, ${code}, 'IMPORTACAO_PLANILHA', 'CONCLUIDA',
+          ${countDate}, ${snap.competenceMonth}, ${snap.competenceYear},
+          ${isMonthEnd}, ${sessionNotes}, 'IMPORTACAO_PLANILHA',
+          ${snap.id}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+      `;
 
-        for (const item of items) {
-          const qty = Number(item.quantity ?? 0);
-          const itemStatus = qty === 0 ? "ZERO" : "CONTADO";
-          await tx.$executeRaw`
+      // Bulk INSERT — um único round-trip por snapshot (evita timeout em snapshots com 700+ itens)
+      if (items.length > 0) {
+        const BATCH = 200;
+        for (let start = 0; start < items.length; start += BATCH) {
+          const batch = items.slice(start, start + BATCH);
+          const rows = batch.map((item) => {
+            const qty = Number(item.quantity ?? 0);
+            const itemStatus = qty === 0 ? "ZERO" : "CONTADO";
+            return Prisma.sql`(
+              ${randomUUID()}, ${sessionId}, ${item.productId ?? null},
+              ${item.productCode ?? null}, ${item.productName},
+              ${item.sectorName ?? null}, ${item.categoryName ?? null}, ${item.subcategoryName ?? null},
+              ${item.unit ?? null}, 0, ${qty}, ${qty}, ${itemStatus}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )`;
+          });
+          await prisma.$executeRaw`
             INSERT INTO "StockCountSessionItem" (
               "id", "stockCountSessionId", "productId", "productCodeSnapshot", "productNameSnapshot",
               "sectorSnapshot", "categorySnapshot", "subcategorySnapshot", "unitSnapshot",
               "expectedQuantity", "countedQuantity", "differenceQuantity", "status", "countedAt", "updatedAt"
             )
-            VALUES (
-              ${randomUUID()}, ${sessionId}, ${item.productId ?? null},
-              ${item.productCode ?? null}, ${item.productName},
-              ${item.sectorName ?? null}, ${item.categoryName ?? null}, ${item.subcategoryName ?? null},
-              ${item.unit ?? null}, 0, ${qty}, ${qty}, ${itemStatus}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
+            VALUES ${Prisma.join(rows)}
           `;
         }
+      }
 
-        console.log(
-          `  [OK] Criado ${code} (${sessionId}) para snapshot ${snap.id} ` +
-          `— ${items.length} item(s) | ${snap.competenceYear}-${String(snap.competenceMonth).padStart(2, "0")}`
-        );
-        created++;
-      });
+      console.log(
+        `  [OK] Criado ${code} (${sessionId}) para snapshot ${snap.id} ` +
+        `— ${items.length} item(s) | ${snap.competenceYear}-${String(snap.competenceMonth).padStart(2, "0")}`
+      );
+      created++;
     } catch (err) {
       console.error(`  [ERRO] Snapshot ${snap.id}: ${err.message}`);
       failed++;
