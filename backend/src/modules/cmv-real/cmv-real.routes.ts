@@ -8,6 +8,7 @@ import {
   getCmvPeriodPdf,
   getCmvRealSuggestions,
   listCmvPeriods,
+  listCmvSessions,
   recalculateCmvPeriod,
   reopenCmvPeriod,
   saveCmvPeriod
@@ -23,6 +24,12 @@ function asText(value: unknown) {
 function asId(value: unknown) {
   return String(value ?? "").trim();
 }
+
+cmvRealRouter.get("/sessions", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+  response.json(await listCmvSessions());
+});
 
 cmvRealRouter.get("/suggestions", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
@@ -44,7 +51,11 @@ cmvRealRouter.post("/", async (request, response) => {
     const dataFinal = parseDate(request.body.dataFinal);
     const estoqueInicialSnapshotId = asId(request.body.estoqueInicialSnapshotId);
     const estoqueFinalSnapshotId = asId(request.body.estoqueFinalSnapshotId);
-    if (!dataInicial || !dataFinal || !estoqueInicialSnapshotId || !estoqueFinalSnapshotId) {
+    const estoqueInicialSessionId = asText(request.body.estoqueInicialSessionId);
+    const estoqueFinalSessionId = asText(request.body.estoqueFinalSessionId);
+    const hasInicial = estoqueInicialSnapshotId || estoqueInicialSessionId;
+    const hasFinal = estoqueFinalSnapshotId || estoqueFinalSessionId;
+    if (!dataInicial || !dataFinal || !hasInicial || !hasFinal) {
       response.status(400).json({ message: "Periodo, inventarios inicial/final e obrigatorio." });
       return;
     }
@@ -54,6 +65,8 @@ cmvRealRouter.post("/", async (request, response) => {
       dataFinal,
       estoqueInicialSnapshotId,
       estoqueFinalSnapshotId,
+      estoqueInicialSessionId,
+      estoqueFinalSessionId,
       observacoes: asText(request.body.observacoes),
       userId: user.id,
       userRole: user.role,
@@ -74,7 +87,11 @@ cmvRealRouter.put("/:id", async (request, response) => {
     const dataFinal = parseDate(request.body.dataFinal);
     const estoqueInicialSnapshotId = asId(request.body.estoqueInicialSnapshotId);
     const estoqueFinalSnapshotId = asId(request.body.estoqueFinalSnapshotId);
-    if (!dataInicial || !dataFinal || !estoqueInicialSnapshotId || !estoqueFinalSnapshotId) {
+    const estoqueInicialSessionId = asText(request.body.estoqueInicialSessionId);
+    const estoqueFinalSessionId = asText(request.body.estoqueFinalSessionId);
+    const hasInicial = estoqueInicialSnapshotId || estoqueInicialSessionId;
+    const hasFinal = estoqueFinalSnapshotId || estoqueFinalSessionId;
+    if (!dataInicial || !dataFinal || !hasInicial || !hasFinal) {
       response.status(400).json({ message: "Periodo, inventarios inicial/final e obrigatorio." });
       return;
     }
@@ -85,6 +102,8 @@ cmvRealRouter.put("/:id", async (request, response) => {
       dataFinal,
       estoqueInicialSnapshotId,
       estoqueFinalSnapshotId,
+      estoqueInicialSessionId,
+      estoqueFinalSessionId,
       observacoes: asText(request.body.observacoes),
       userId: user.id,
       userRole: user.role,

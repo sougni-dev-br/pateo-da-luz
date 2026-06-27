@@ -7,13 +7,13 @@ import {
   CmvPeriod,
   CmvPeriodDetail,
   CmvRealSuggestions,
+  CmvSessionOption,
   deleteCmvPeriod,
   downloadCmvPeriodPdf,
   getCmvPeriod,
   getCmvPeriods,
+  getCmvRealSessions,
   getCmvRealSuggestions,
-  getMonthlyInventories,
-  InventorySnapshot,
   reopenCmvPeriod,
   saveCmvPeriod
 } from "../api/client";
@@ -26,13 +26,29 @@ function todayInput() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function snapshotLabel(snapshot: InventorySnapshot) {
-  const typeLabel = snapshot.type === "INVENTARIO_INICIAL"
-    ? "Inventário inicial"
-    : snapshot.type === "INVENTARIO_FINAL"
-      ? "Inventário final"
-      : snapshot.type;
-  return `${formatDate(snapshot.countDate)} • ${typeLabel} • ${snapshot.originalFileName ?? "arquivo"}`;
+function sessionSourceLabel(source: string) {
+  if (source === "IMPORTACAO_PLANILHA") return "Importada";
+  if (source === "SISTEMA") return "Sistema";
+  return source;
+}
+
+function sessionLabel(session: CmvSessionOption) {
+  const month = session.periodMonth != null && session.periodYear != null
+    ? `${String(session.periodMonth).padStart(2, "0")}/${session.periodYear}`
+    : formatDate(session.referenceDate);
+  return `${session.code} — ${month} — ${sessionSourceLabel(session.source)}${session.isMonthEnd ? " — Final" : ""}`;
+}
+
+function sessionTooltip(session: CmvSessionOption) {
+  const lines = [sessionLabel(session)];
+  lines.push(`Itens: ${session.totalItems}`);
+  if (session.snapshotTotalValue != null) {
+    lines.push(`Valor inventário: R$ ${session.snapshotTotalValue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`);
+  } else {
+    lines.push("Snapshot será gerado ao salvar");
+  }
+  if (session.notes) lines.push(`Obs: ${session.notes}`);
+  return lines.join("\n");
 }
 
 function defaultPeriodName(startDate: string, endDate: string) {
@@ -199,7 +215,7 @@ export function CmvReal({ user }: { user: AppUser }) {
   const canEdit = hasPermission(user, "cmv-real", "edit");
   const isAdmin = hasPermission(user, "cmv-real", "admin");
   const [periods, setPeriods] = useState<CmvPeriod[]>([]);
-  const [inventorySnapshots, setInventorySnapshots] = useState<InventorySnapshot[]>([]);
+  const [cmvSessions, setCmvSessions] = useState<CmvSessionOption[]>([]);
   const [suggestions, setSuggestions] = useState<CmvRealSuggestions | null>(null);
   const [continuityLocked, setContinuityLocked] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -212,8 +228,8 @@ export function CmvReal({ user }: { user: AppUser }) {
     name: "",
     dataInicial: todayInput(),
     dataFinal: todayInput(),
-    estoqueInicialSnapshotId: "",
-    estoqueFinalSnapshotId: "",
+    estoqueInicialSessionId: "",
+    estoqueFinalSessionId: "",
     observacoes: ""
   });
   const { notice, setNotice } = useNotice();
@@ -225,21 +241,14 @@ export function CmvReal({ user }: { user: AppUser }) {
 
   const cmvHealth = useMemo(() => classifyCmv(selectedPeriod?.cmvPercentual), [selectedPeriod?.cmvPercentual]);
 
-  const snapshotOptions = useMemo(
-    () => inventorySnapshots
-      .filter((snapshot) => snapshot.status !== "CANCELLED")
-      .sort((left, right) => String(right.countDate).localeCompare(String(left.countDate))),
-    [inventorySnapshots]
-  );
-
-  const snapshotLabels = useMemo(() => {
+  const sessionLabels = useMemo(() => {
     const labels = new Map<string, string>();
-    snapshotOptions.forEach((snapshot) => labels.set(snapshot.id, snapshotLabel(snapshot)));
+    cmvSessions.forEach((session) => labels.set(session.sessionId, sessionLabel(session)));
     return labels;
-  }, [snapshotOptions]);
+  }, [cmvSessions]);
 
-  const selectedInitialSnapshotLabel = snapshotLabels.get(form.estoqueInicialSnapshotId) ?? "";
-  const selectedFinalSnapshotLabel = snapshotLabels.get(form.estoqueFinalSnapshotId) ?? "";
+  const selectedInitialSessionLabel = sessionLabels.get(form.estoqueInicialSessionId) ?? "";
+  const selectedFinalSessionLabel = sessionLabels.get(form.estoqueFinalSessionId) ?? "";
 
   const duplicatePeriodKeys = useMemo(() => {
     const counts = new Map<string, number>();
@@ -259,14 +268,14 @@ export function CmvReal({ user }: { user: AppUser }) {
     duplicates: duplicatePeriods.length
   }), [duplicatePeriods.length, periods]);
 
-  const applyPeriodToForm = useCallback((period: Pick<CmvPeriod, "name" | "code" | "dataInicial" | "dataFinal" | "estoqueInicialSnapshotId" | "estoqueFinalSnapshotId" | "observacoes">) => {
+  const applyPeriodToForm = useCallback((period: Pick<CmvPeriod, "name" | "code" | "dataInicial" | "dataFinal" | "estoqueInicialSessionId" | "estoqueFinalSessionId" | "observacoes">) => {
     setForm({
       name: period.name,
       code: period.code ?? "",
       dataInicial: period.dataInicial,
       dataFinal: period.dataFinal,
-      estoqueInicialSnapshotId: period.estoqueInicialSnapshotId ?? "",
-      estoqueFinalSnapshotId: period.estoqueFinalSnapshotId ?? "",
+      estoqueInicialSessionId: period.estoqueInicialSessionId ?? "",
+      estoqueFinalSessionId: period.estoqueFinalSessionId ?? "",
       observacoes: period.observacoes ?? ""
     });
   }, []);
@@ -284,8 +293,8 @@ export function CmvReal({ user }: { user: AppUser }) {
       code: "",
       dataInicial: startDate,
       dataFinal: startDate,
-      estoqueInicialSnapshotId: nextSuggestions?.suggestedInitialSnapshotId ?? "",
-      estoqueFinalSnapshotId: "",
+      estoqueInicialSessionId: nextSuggestions?.suggestedInitialSessionId ?? "",
+      estoqueFinalSessionId: "",
       observacoes: ""
     });
   }, []);
@@ -293,13 +302,13 @@ export function CmvReal({ user }: { user: AppUser }) {
   const load = useCallback(async (nextSelectedId: string | null = selectedId) => {
     setLoading(true);
     try {
-      const [periodList, snapshots, nextSuggestions] = await Promise.all([
+      const [periodList, sessions, nextSuggestions] = await Promise.all([
         getCmvPeriods(),
-        getMonthlyInventories({}),
+        getCmvRealSessions(),
         getCmvRealSuggestions()
       ]);
       setPeriods(periodList);
-      setInventorySnapshots(snapshots);
+      setCmvSessions(sessions);
       setSuggestions(nextSuggestions);
       if (nextSelectedId) {
         const selected = await getCmvPeriod(nextSelectedId);
@@ -344,8 +353,8 @@ export function CmvReal({ user }: { user: AppUser }) {
 
   async function handleSave() {
     if (!canEdit) return;
-    if (!form.estoqueInicialSnapshotId || !form.estoqueFinalSnapshotId) {
-      setNotice({ tone: "warning", message: "Selecione os inventários inicial e final." });
+    if (!form.estoqueInicialSessionId || !form.estoqueFinalSessionId) {
+      setNotice({ tone: "warning", message: "Selecione as contagens inicial e final." });
       return;
     }
     setSaving(true);
@@ -353,7 +362,7 @@ export function CmvReal({ user }: { user: AppUser }) {
       let continuityOverrideReason: string | null = null;
       const changingSuggestedContinuity = !selectedId
         && suggestions?.continuityLocked
-        && (form.dataInicial !== suggestions.suggestedStartDate || form.estoqueInicialSnapshotId !== (suggestions.suggestedInitialSnapshotId ?? ""));
+        && (form.dataInicial !== suggestions.suggestedStartDate || form.estoqueInicialSessionId !== (suggestions.suggestedInitialSessionId ?? ""));
       if (isAdmin && changingSuggestedContinuity) {
         const reason = window.prompt("Informe o motivo para alterar a continuidade da apuração:");
         if (!reason?.trim()) {
@@ -367,8 +376,8 @@ export function CmvReal({ user }: { user: AppUser }) {
         name: form.name.trim() || defaultPeriodName(form.dataInicial, form.dataFinal),
         dataInicial: form.dataInicial,
         dataFinal: form.dataFinal,
-        estoqueInicialSnapshotId: form.estoqueInicialSnapshotId,
-        estoqueFinalSnapshotId: form.estoqueFinalSnapshotId,
+        estoqueInicialSessionId: form.estoqueInicialSessionId,
+        estoqueFinalSessionId: form.estoqueFinalSessionId,
         observacoes: form.observacoes,
         continuityOverrideReason
       });
@@ -588,34 +597,46 @@ export function CmvReal({ user }: { user: AppUser }) {
             />
           </label>
           <label>
-            Inventário inicial
+            Contagem inicial
             <select
               className={!selectedId && continuityLocked && !isAdmin ? "locked-field" : undefined}
-              value={form.estoqueInicialSnapshotId}
+              value={form.estoqueInicialSessionId}
               disabled={!selectedId && continuityLocked && !isAdmin}
-              title={selectedInitialSnapshotLabel || "Selecionar"}
-              onChange={(event) => setForm({ ...form, estoqueInicialSnapshotId: event.target.value })}
+              title={selectedInitialSessionLabel || "Selecionar"}
+              onChange={(event) => setForm({ ...form, estoqueInicialSessionId: event.target.value })}
             >
-              <option value="">Selecionar</option>
-              {snapshotOptions.map((snapshot) => (
-                <option key={snapshot.id} value={snapshot.id} title={snapshotLabel(snapshot)}>
-                  {snapshotLabel(snapshot)}
+              <option value="">Selecionar contagem</option>
+              {cmvSessions.map((session) => (
+                <option key={session.sessionId} value={session.sessionId} title={sessionTooltip(session)}>
+                  {sessionLabel(session)}
                 </option>
               ))}
             </select>
-            {selectedInitialSnapshotLabel && <small className="selected-field-label" title={selectedInitialSnapshotLabel}>{selectedInitialSnapshotLabel}</small>}
+            {selectedInitialSessionLabel && (
+              <small className="selected-field-label" title={selectedInitialSessionLabel}>
+                {selectedInitialSessionLabel}
+              </small>
+            )}
           </label>
           <label>
-            Inventário final
-            <select value={form.estoqueFinalSnapshotId} title={selectedFinalSnapshotLabel || "Selecionar"} onChange={(event) => setForm({ ...form, estoqueFinalSnapshotId: event.target.value })}>
-              <option value="">Selecionar</option>
-              {snapshotOptions.map((snapshot) => (
-                <option key={snapshot.id} value={snapshot.id} title={snapshotLabel(snapshot)}>
-                  {snapshotLabel(snapshot)}
+            Contagem final
+            <select
+              value={form.estoqueFinalSessionId}
+              title={selectedFinalSessionLabel || "Selecionar"}
+              onChange={(event) => setForm({ ...form, estoqueFinalSessionId: event.target.value })}
+            >
+              <option value="">Selecionar contagem</option>
+              {cmvSessions.map((session) => (
+                <option key={session.sessionId} value={session.sessionId} title={sessionTooltip(session)}>
+                  {sessionLabel(session)}
                 </option>
               ))}
             </select>
-            {selectedFinalSnapshotLabel && <small className="selected-field-label" title={selectedFinalSnapshotLabel}>{selectedFinalSnapshotLabel}</small>}
+            {selectedFinalSessionLabel && (
+              <small className="selected-field-label" title={selectedFinalSessionLabel}>
+                {selectedFinalSessionLabel}
+              </small>
+            )}
           </label>
           <label className="full-width">
             Observações
