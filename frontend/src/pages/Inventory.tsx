@@ -356,6 +356,7 @@ export function Inventory({
   const [inventoryDeskTab, setInventoryDeskTab] = useState<InventoryDeskTab>("official");
   const [stockFilters, setStockFilters] = useState({ sector: "", category: "", subcategory: "", supplier: "", alert: "" });
   const [consolidationSelected, setConsolidationSelected] = useState<Set<string>>(new Set());
+  const [isConsolidating, setIsConsolidating] = useState(false);
   const { notice, setNotice } = useNotice();
 
   const selectedAgenda = useMemo(
@@ -946,16 +947,25 @@ export function Inventory({
   }
 
   async function consolidateMonthEnd() {
-    if (consolidationSelected.size === 0) return;
+    if (consolidationSelected.size === 0 || isConsolidating) return;
     const ids = [...consolidationSelected];
     if (!window.confirm(`Consolidar ${ids.length} contagem(ns) setorial(is) em um unico inventario Final CMV?`)) return;
+    setIsConsolidating(true);
     try {
       const inventory = await consolidateMonthEndSessions(ids);
       setNotice({ tone: "success", message: `${inventory.code} gerado — ${ids.length} setor(es) consolidados.` });
       setConsolidationSelected(new Set());
       await Promise.all([refreshCountSessions(), refreshOperational(inventory.id)]);
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel consolidar as contagens." });
+      const isAbort = error instanceof Error && (error.name === "AbortError" || error.message.includes("aborted"));
+      setNotice({
+        tone: "error",
+        message: isAbort
+          ? "A consolidacao demorou mais que o esperado. Verifique se o inventario foi gerado em Inventarios antes de tentar novamente."
+          : error instanceof Error ? error.message : "Nao foi possivel consolidar as contagens."
+      });
+    } finally {
+      setIsConsolidating(false);
     }
   }
 
@@ -1999,10 +2009,10 @@ export function Inventory({
                 <button
                   className="primary-button"
                   type="button"
-                  disabled={consolidationSelected.size === 0}
+                  disabled={consolidationSelected.size === 0 || isConsolidating}
                   onClick={consolidateMonthEnd}
                 >
-                  <Layers size={15} />Gerar inventario final unificado ({consolidationSelected.size} setor{consolidationSelected.size !== 1 ? "es" : ""})
+                  <Layers size={15} />{isConsolidating ? "Gerando inventario..." : `Gerar inventario final unificado (${consolidationSelected.size} setor${consolidationSelected.size !== 1 ? "es" : ""})`}
                 </button>
                 {consolidationSelected.size > 0 && (
                   <button className="secondary-button" type="button" onClick={() => setConsolidationSelected(new Set())}>Limpar selecao</button>
