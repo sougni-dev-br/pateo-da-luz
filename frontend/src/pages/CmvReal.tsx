@@ -14,8 +14,10 @@ import {
   getCmvPeriods,
   getCmvRealSessions,
   getCmvRealSuggestions,
+  previewConsolidationCoverage,
   reopenCmvPeriod,
-  saveCmvPeriod
+  saveCmvPeriod,
+  StockCoverageAudit
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { ConfirmDialog } from "../components/ui";
@@ -26,17 +28,19 @@ function todayInput() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function sessionSourceLabel(source: string) {
-  if (source === "IMPORTACAO_PLANILHA") return "Importada";
-  if (source === "SISTEMA") return "Sistema";
-  return source;
+function sessionTypeLabel(type: string) {
+  if (type === "SETORIAL") return "Setorial";
+  if (type === "IMPORTACAO_PLANILHA") return "Planilha";
+  if (type === "FINAL_MES") return "Final Mes";
+  if (type === "GERAL") return "Geral";
+  return type;
 }
 
 function sessionLabel(session: CmvSessionOption) {
   const month = session.periodMonth != null && session.periodYear != null
     ? `${String(session.periodMonth).padStart(2, "0")}/${session.periodYear}`
     : formatDate(session.referenceDate);
-  return `${session.code} — ${month} — ${sessionSourceLabel(session.source)}${session.isMonthEnd ? " — Final" : ""}`;
+  return `${session.code} — ${month} — ${sessionTypeLabel(session.type)}${session.isMonthEnd ? " — Final" : ""}`;
 }
 
 function sessionTooltip(session: CmvSessionOption) {
@@ -223,6 +227,8 @@ export function CmvReal({ user }: { user: AppUser }) {
   const [deleteDialog, setDeleteDialog] = useState<{ period: CmvPeriod; reason: string | null } | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [finalSessionCoverage, setFinalSessionCoverage] = useState<StockCoverageAudit | null>(null);
+  const [checkingCoverage, setCheckingCoverage] = useState(false);
   const [form, setForm] = useState({
     code: "",
     name: "",
@@ -351,10 +357,33 @@ export function CmvReal({ user }: { user: AppUser }) {
     }
   }, [applyPeriodToForm, setNotice]);
 
+  async function checkFinalSessionCoverage(sessionId: string) {
+    const session = cmvSessions.find((s) => s.sessionId === sessionId);
+    // Verificar cobertura apenas para contagens de fechamento (isMonthEnd)
+    if (!session?.isMonthEnd) { setFinalSessionCoverage(null); return; }
+    setCheckingCoverage(true);
+    try {
+      const cov = await previewConsolidationCoverage([sessionId]);
+      setFinalSessionCoverage(cov);
+    } catch {
+      setFinalSessionCoverage(null);
+    } finally {
+      setCheckingCoverage(false);
+    }
+  }
+
   async function handleSave() {
     if (!canEdit) return;
     if (!form.estoqueInicialSessionId || !form.estoqueFinalSessionId) {
       setNotice({ tone: "warning", message: "Selecione as contagens inicial e final." });
+      return;
+    }
+    // Bloquear se a contagem final de fechamento estiver com cobertura incompleta
+    if (finalSessionCoverage && !finalSessionCoverage.isComplete) {
+      setNotice({
+        tone: "error",
+        message: `Base de estoque incompleta: ${finalSessionCoverage.coveredTotal}/${finalSessionCoverage.expectedTotal} produtos cobertos. Corrija o inventario antes de salvar.`
+      });
       return;
     }
     setSaving(true);
@@ -575,7 +604,13 @@ export function CmvReal({ user }: { user: AppUser }) {
           </label>
           <label>
             Nome da apuração
-            <input className="locked-field" title="Nome gerado automaticamente pelo período" value={form.name || defaultPeriodName(form.dataInicial, form.dataFinal)} readOnly />
+            <input
+              value={form.name || defaultPeriodName(form.dataInicial, form.dataFinal)}
+              readOnly={Boolean(selectedId && selectedPeriod?.status === "CLOSED")}
+              className={Boolean(selectedId && selectedPeriod?.status === "CLOSED") ? "locked-field" : undefined}
+              title={Boolean(selectedId && selectedPeriod?.status === "CLOSED") ? "Nome bloqueado em apuracoes fechadas" : "Nome da apuracao"}
+              onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+            />
           </label>
           <label>
             Data inicial
@@ -585,7 +620,12 @@ export function CmvReal({ user }: { user: AppUser }) {
               value={form.dataInicial}
               disabled={!selectedId && continuityLocked && !isAdmin}
               title={!selectedId && continuityLocked ? "Data herdada da última apuração fechada/cadastrada" : form.dataInicial}
-              onChange={(event) => setForm((current) => ({ ...current, dataInicial: event.target.value, name: defaultPeriodName(event.target.value, current.dataFinal) }))}
+              onChange={(event) => setForm((current) => {
+                const newStart = event.target.value;
+                const autoName = defaultPeriodName(current.dataInicial, current.dataFinal);
+                const nameIsAuto = !current.name || current.name === autoName;
+                return { ...current, dataInicial: newStart, name: nameIsAuto ? defaultPeriodName(newStart, current.dataFinal) : current.name };
+              })}
             />
           </label>
           <label>
@@ -593,7 +633,12 @@ export function CmvReal({ user }: { user: AppUser }) {
             <input
               type="date"
               value={form.dataFinal}
-              onChange={(event) => setForm((current) => ({ ...current, dataFinal: event.target.value, name: defaultPeriodName(current.dataInicial, event.target.value) }))}
+              onChange={(event) => setForm((current) => {
+                const newEnd = event.target.value;
+                const autoName = defaultPeriodName(current.dataInicial, current.dataFinal);
+                const nameIsAuto = !current.name || current.name === autoName;
+                return { ...current, dataFinal: newEnd, name: nameIsAuto ? defaultPeriodName(current.dataInicial, newEnd) : current.name };
+              })}
             />
           </label>
           <label>
@@ -623,7 +668,11 @@ export function CmvReal({ user }: { user: AppUser }) {
             <select
               value={form.estoqueFinalSessionId}
               title={selectedFinalSessionLabel || "Selecionar"}
-              onChange={(event) => setForm({ ...form, estoqueFinalSessionId: event.target.value })}
+              onChange={(event) => {
+                const sessionId = event.target.value;
+                setForm({ ...form, estoqueFinalSessionId: sessionId });
+                checkFinalSessionCoverage(sessionId);
+              }}
             >
               <option value="">Selecionar contagem</option>
               {cmvSessions.map((session) => (
@@ -636,6 +685,34 @@ export function CmvReal({ user }: { user: AppUser }) {
               <small className="selected-field-label" title={selectedFinalSessionLabel}>
                 {selectedFinalSessionLabel}
               </small>
+            )}
+            {checkingCoverage && (
+              <small style={{ color: "var(--muted)", fontSize: 12, marginTop: 4, display: "block" }}>Verificando cobertura...</small>
+            )}
+            {!checkingCoverage && finalSessionCoverage && (
+              <div style={{
+                marginTop: 6,
+                padding: "8px 12px",
+                borderRadius: 5,
+                background: finalSessionCoverage.isComplete ? "var(--success-soft, #e6f4ea)" : "var(--error-soft, #fdecea)",
+                border: `1px solid ${finalSessionCoverage.isComplete ? "var(--success, #2e7d32)" : "var(--error, #c62828)"}`,
+                fontSize: 12
+              }}>
+                {finalSessionCoverage.isComplete ? (
+                  <span style={{ color: "var(--success, #2e7d32)", fontWeight: 600 }}>
+                    Cobertura completa: {finalSessionCoverage.coveredTotal}/{finalSessionCoverage.expectedTotal} produtos.
+                  </span>
+                ) : (
+                  <>
+                    <span style={{ color: "var(--error, #c62828)", fontWeight: 600 }}>
+                      Base incompleta: {finalSessionCoverage.coveredTotal}/{finalSessionCoverage.expectedTotal} produtos cobertos. {finalSessionCoverage.missingTotal} sem contagem — salvar bloqueado.
+                    </span>
+                    {finalSessionCoverage.missingSectors.length > 0 && (
+                      <div style={{ marginTop: 4 }}>Setores ausentes: <strong>{finalSessionCoverage.missingSectors.join(", ")}</strong></div>
+                    )}
+                  </>
+                )}
+              </div>
             )}
           </label>
           <label className="full-width">
@@ -652,7 +729,12 @@ export function CmvReal({ user }: { user: AppUser }) {
 
         {canEdit && (
           <div className="actions-cell subsection wrap">
-            <button className="primary-button" type="button" onClick={handleSave} disabled={saving}>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={handleSave}
+              disabled={saving || checkingCoverage || (finalSessionCoverage != null && !finalSessionCoverage.isComplete)}
+            >
               <Save size={16} /> {selectedId ? "Atualizar apuração" : "Criar apuração"}
             </button>
             <button className="secondary-button" type="button" onClick={handleCalculate} disabled={!selectedId}>

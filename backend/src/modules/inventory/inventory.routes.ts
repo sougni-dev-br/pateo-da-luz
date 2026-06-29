@@ -513,6 +513,239 @@ function countedStatus(countedQuantity: number | null, expectedQuantity: number)
   return { status: "CONTADO", differenceQuantity };
 }
 
+// ─── Auditoria de cobertura de estoque ────────────────────────────────────────
+
+type CoverageMissingProduct = {
+  id: string;
+  code: string | null;
+  name: string;
+  sector: string | null;
+  category: string | null;
+  unit: string | null;
+};
+
+type CoverageDuplicate = {
+  productId: string;
+  name: string;
+  sessions: string[];
+};
+
+type CoverageSectorMismatch = {
+  productId: string;
+  name: string;
+  catalogSector: string | null;
+  countedSector: string | null;
+  sessionCode: string;
+};
+
+export type StockCoverageAudit = {
+  expectedTotal: number;
+  coveredTotal: number;
+  missingTotal: number;
+  duplicateTotal: number;
+  sectorMismatchTotal: number;
+  coveragePercent: number;
+  isComplete: boolean;
+  missingSectors: string[];
+  missingProducts: CoverageMissingProduct[];
+  duplicateProducts: CoverageDuplicate[];
+  sectorMismatches: CoverageSectorMismatch[];
+};
+
+async function auditStockCoverageForSessions(sessionIds: string[]): Promise<StockCoverageAudit> {
+  const [{ expected }] = await prisma.$queryRaw<Array<{ expected: number }>>`
+    SELECT COUNT(*)::int AS "expected"
+    FROM "Product"
+    WHERE "isActive" = true AND "controlsStock" = true
+  `;
+
+  const items = await prisma.$queryRaw<Array<{
+    productId: string | null;
+    productName: string;
+    sectorSnapshot: string | null;
+    sessionCode: string;
+    catalogSector: string | null;
+  }>>`
+    SELECT i."productId", i."productNameSnapshot" AS "productName",
+           i."sectorSnapshot", s."code" AS "sessionCode",
+           sec."name" AS "catalogSector"
+    FROM "StockCountSessionItem" i
+    JOIN "StockCountSession" s ON s."id" = i."stockCountSessionId"
+    LEFT JOIN "Product" p ON p."id" = i."productId"
+    LEFT JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
+    WHERE i."stockCountSessionId" = ANY(${sessionIds})
+      AND i."productId" IS NOT NULL
+  `;
+
+  const byProduct = new Map<string, { name: string; sessions: string[]; catalogSector: string | null; countedSector: string | null; sessionCode: string }>();
+  for (const row of items) {
+    if (!row.productId) continue;
+    const existing = byProduct.get(row.productId);
+    if (existing) {
+      existing.sessions.push(row.sessionCode);
+    } else {
+      byProduct.set(row.productId, {
+        name: row.productName,
+        sessions: [row.sessionCode],
+        catalogSector: row.catalogSector,
+        countedSector: row.sectorSnapshot,
+        sessionCode: row.sessionCode
+      });
+    }
+  }
+
+  const coveredIds = new Set(byProduct.keys());
+
+  const missingRows = await prisma.$queryRaw<Array<CoverageMissingProduct>>`
+    SELECT p."id", p."externalCode" AS "code", p."name",
+           sec."name" AS "sector",
+           cat."name" AS "category",
+           COALESCE(p."stockUnit", p."unit") AS "unit"
+    FROM "Product" p
+    LEFT JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
+    LEFT JOIN "Category" cat ON cat."id" = p."categoryId"
+    WHERE p."isActive" = true AND p."controlsStock" = true
+      AND p."id" NOT IN (
+        SELECT DISTINCT "productId" FROM "StockCountSessionItem"
+        WHERE "stockCountSessionId" = ANY(${sessionIds}) AND "productId" IS NOT NULL
+      )
+    ORDER BY sec."name" NULLS LAST, cat."name" NULLS LAST, p."name"
+  `;
+
+  const duplicates: CoverageDuplicate[] = [];
+  const mismatches: CoverageSectorMismatch[] = [];
+  for (const [productId, info] of byProduct.entries()) {
+    if (info.sessions.length > 1) {
+      duplicates.push({ productId, name: info.name, sessions: info.sessions });
+    }
+    if (info.catalogSector !== info.countedSector && (info.catalogSector != null || info.countedSector != null)) {
+      mismatches.push({
+        productId,
+        name: info.name,
+        catalogSector: info.catalogSector,
+        countedSector: info.countedSector,
+        sessionCode: info.sessionCode
+      });
+    }
+  }
+
+  const allSectors = await prisma.$queryRaw<Array<{ name: string }>>`
+    SELECT DISTINCT sec."name"
+    FROM "Product" p
+    JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
+    WHERE p."isActive" = true AND p."controlsStock" = true
+    ORDER BY sec."name"
+  `;
+  const coveredSectors = new Set(items.map((i) => i.sectorSnapshot).filter(Boolean) as string[]);
+  const missingSectors = allSectors.map((s) => s.name).filter((n) => !coveredSectors.has(n));
+
+  const coveredTotal = coveredIds.size;
+  return {
+    expectedTotal: expected,
+    coveredTotal,
+    missingTotal: missingRows.length,
+    duplicateTotal: duplicates.length,
+    sectorMismatchTotal: mismatches.length,
+    coveragePercent: expected === 0 ? 100 : Math.round((coveredTotal / expected) * 1000) / 10,
+    isComplete: missingRows.length === 0,
+    missingSectors,
+    missingProducts: missingRows,
+    duplicateProducts: duplicates,
+    sectorMismatches: mismatches
+  };
+}
+
+async function auditStockCoverageForOperationalInventory(inventoryId: string): Promise<StockCoverageAudit> {
+  const [{ expected }] = await prisma.$queryRaw<Array<{ expected: number }>>`
+    SELECT COUNT(*)::int AS "expected"
+    FROM "Product"
+    WHERE "isActive" = true AND "controlsStock" = true
+  `;
+
+  const itemRows = await prisma.$queryRaw<Array<{
+    productId: string | null;
+    productName: string;
+    sectorName: string | null;
+    catalogSector: string | null;
+  }>>`
+    SELECT oi."productId", oi."productName", oi."sectorName",
+           sec."name" AS "catalogSector"
+    FROM "OperationalInventoryItem" oi
+    LEFT JOIN "Product" p ON p."id" = oi."productId"
+    LEFT JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
+    WHERE oi."inventoryId" = ${inventoryId} AND oi."productId" IS NOT NULL
+  `;
+
+  const byProduct = new Map<string, { name: string; count: number; catalogSector: string | null; sectorName: string | null }>();
+  for (const row of itemRows) {
+    if (!row.productId) continue;
+    const existing = byProduct.get(row.productId);
+    if (existing) {
+      existing.count++;
+    } else {
+      byProduct.set(row.productId, { name: row.productName, count: 1, catalogSector: row.catalogSector, sectorName: row.sectorName });
+    }
+  }
+
+  const missingRows = await prisma.$queryRaw<Array<CoverageMissingProduct>>`
+    SELECT p."id", p."externalCode" AS "code", p."name",
+           sec."name" AS "sector",
+           cat."name" AS "category",
+           COALESCE(p."stockUnit", p."unit") AS "unit"
+    FROM "Product" p
+    LEFT JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
+    LEFT JOIN "Category" cat ON cat."id" = p."categoryId"
+    WHERE p."isActive" = true AND p."controlsStock" = true
+      AND p."id" NOT IN (
+        SELECT "productId" FROM "OperationalInventoryItem"
+        WHERE "inventoryId" = ${inventoryId} AND "productId" IS NOT NULL
+      )
+    ORDER BY sec."name" NULLS LAST, cat."name" NULLS LAST, p."name"
+  `;
+
+  const duplicates: CoverageDuplicate[] = [];
+  const mismatches: CoverageSectorMismatch[] = [];
+  for (const [productId, info] of byProduct.entries()) {
+    if (info.count > 1) {
+      duplicates.push({ productId, name: info.name, sessions: [`${info.count}x no inventario`] });
+    }
+    if (info.catalogSector !== info.sectorName && (info.catalogSector != null || info.sectorName != null)) {
+      mismatches.push({
+        productId,
+        name: info.name,
+        catalogSector: info.catalogSector,
+        countedSector: info.sectorName,
+        sessionCode: inventoryId
+      });
+    }
+  }
+
+  const allSectors = await prisma.$queryRaw<Array<{ name: string }>>`
+    SELECT DISTINCT sec."name"
+    FROM "Product" p
+    JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
+    WHERE p."isActive" = true AND p."controlsStock" = true
+    ORDER BY sec."name"
+  `;
+  const coveredSectors = new Set(itemRows.map((r) => r.sectorName).filter(Boolean) as string[]);
+  const missingSectors = allSectors.map((s) => s.name).filter((n) => !coveredSectors.has(n));
+
+  const coveredTotal = byProduct.size;
+  return {
+    expectedTotal: expected,
+    coveredTotal,
+    missingTotal: missingRows.length,
+    duplicateTotal: duplicates.length,
+    sectorMismatchTotal: mismatches.length,
+    coveragePercent: expected === 0 ? 100 : Math.round((coveredTotal / expected) * 1000) / 10,
+    isComplete: missingRows.length === 0,
+    missingSectors,
+    missingProducts: missingRows,
+    duplicateProducts: duplicates,
+    sectorMismatches: mismatches
+  };
+}
+
 function stockCountSessionItemStatus(countedQuantity: number | null, expectedQuantity: number) {
   if (countedQuantity == null) return { status: "PENDENTE", differenceQuantity: null as number | null };
   return { status: "CONTADO", differenceQuantity: countedQuantity - expectedQuantity };
@@ -965,6 +1198,16 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
     }
   }
 
+  // Bloquear consolidação com cobertura incompleta
+  const coverage = await auditStockCoverageForSessions(sessionIds);
+  if (!coverage.isComplete) {
+    response.status(422).json({
+      message: `Cobertura incompleta: ${coverage.coveredTotal}/${coverage.expectedTotal} produtos controlados cobertos. ${coverage.missingTotal === 1 ? "Existe 1 produto" : `Existem ${coverage.missingTotal} produtos`} sem informacao de contagem.`,
+      coverage
+    });
+    return;
+  }
+
   const allItems = await prisma.$queryRaw<Array<StockCountSessionItemRow>>`
     SELECT *
     FROM "StockCountSessionItem"
@@ -1042,6 +1285,37 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
     newValue: { code, sourceSessionIds: sessionIds, sourceCodes: sessionCodes, totalItems: itemsByProduct.size }
   });
   response.status(201).json(await getOperationalInventorySummary(inventoryId));
+});
+
+// Preview de cobertura antes de consolidar (não cria nada)
+inventoryRouter.post("/count-sessions/coverage-preview", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const sessionIds = request.body.sessionIds;
+  if (!Array.isArray(sessionIds) || sessionIds.length === 0) {
+    response.status(400).json({ message: "Informe ao menos uma contagem." });
+    return;
+  }
+  const coverage = await auditStockCoverageForSessions(sessionIds);
+  response.json(coverage);
+});
+
+// Auditoria de cobertura de inventário FINAL_CMV existente
+inventoryRouter.get("/final-cmv/:id/coverage", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const [inv] = await prisma.$queryRaw<Array<{ id: string; type: string; code: string }>>`
+    SELECT "id", "type"::text, "code" FROM "OperationalInventory"
+    WHERE "id" = ${request.params.id} AND "type" = 'FINAL_CMV'
+  `;
+  if (!inv) {
+    response.status(404).json({ message: "Inventario FINAL_CMV nao encontrado." });
+    return;
+  }
+  const coverage = await auditStockCoverageForOperationalInventory(request.params.id);
+  response.json({ inventoryId: inv.id, inventoryCode: inv.code, ...coverage });
 });
 
 inventoryRouter.get("/count-sessions/:id", async (request, response) => {
@@ -1191,6 +1465,50 @@ inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) 
       pendingItems
     });
     return;
+  }
+
+  // Para contagens SETORIAIS: verificar se há produtos ativos controlados do setor
+  // que foram adicionados após a criação da sessão e não estão presentes nela.
+  const [sessionMeta] = await prisma.$queryRaw<Array<{ type: string; sectorId: string | null; sectorName: string | null }>>`
+    SELECT "type"::text, "sectorId", "sectorName"
+    FROM "StockCountSession" WHERE "id" = ${request.params.id}
+  `;
+  if (sessionMeta?.type === "SETORIAL") {
+    const sectorId = sessionMeta.sectorId;
+    const sectorName = sessionMeta.sectorName;
+    const sectorFilter = sectorId
+      ? Prisma.sql`AND p."inventorySectorId" = ${sectorId}`
+      : sectorName
+        ? Prisma.sql`AND sec."name" = ${sectorName}`
+        : Prisma.empty;
+    const missingFromSession = await prisma.$queryRaw<Array<{ id: string; code: string | null; name: string; sector: string | null; unit: string | null }>>`
+      SELECT p."id", p."externalCode" AS "code", p."name",
+             sec."name" AS "sector",
+             COALESCE(p."stockUnit", p."unit") AS "unit"
+      FROM "Product" p
+      LEFT JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
+      WHERE p."isActive" = true AND p."controlsStock" = true
+        ${sectorFilter}
+        AND p."id" NOT IN (
+          SELECT "productId" FROM "StockCountSessionItem"
+          WHERE "stockCountSessionId" = ${request.params.id} AND "productId" IS NOT NULL
+        )
+      ORDER BY p."name"
+    `;
+    if (missingFromSession.length > 0) {
+      await auditLog({
+        userId: user.id,
+        action: "BLOCK_CONCLUDE_STOCK_COUNT_SESSION_MISSING_PRODUCTS",
+        entity: "StockCountSession",
+        entityId: request.params.id,
+        newValue: { missingCount: missingFromSession.length, missingProducts: missingFromSession.map((p) => p.name) }
+      });
+      response.status(400).json({
+        message: `${missingFromSession.length} produto(s) ativo(s) controlado(s) do setor ${sectorName ?? "informado"} nao estao nesta contagem. Reabra e inclua-os antes de concluir.`,
+        missingProducts: missingFromSession
+      });
+      return;
+    }
   }
 
   await prisma.$executeRaw`
