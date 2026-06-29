@@ -955,8 +955,8 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
       response.status(400).json({ message: `Contagem ${session.code} ainda nao esta concluida.` });
       return;
     }
-    if (!session.isMonthEnd) {
-      response.status(400).json({ message: `Contagem ${session.code} nao esta marcada como final do mes.` });
+    if (session.type !== "SETORIAL") {
+      response.status(400).json({ message: `Contagem ${session.code} nao e do tipo setorial e nao pode ser consolidada.` });
       return;
     }
     if (session.generatedInventoryId) {
