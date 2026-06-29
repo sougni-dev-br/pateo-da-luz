@@ -1344,7 +1344,7 @@ export type StockCount = {
   countedAt: string;
 };
 
-export type StockCountSessionType = "GERAL" | "SETORIAL" | "CATEGORIA" | "SUBCATEGORIA" | "FINAL_MES" | "ALEATORIA" | "TAREFA" | "IMPORTACAO_PLANILHA";
+export type StockCountSessionType = "GERAL" | "SETORIAL" | "CATEGORIA" | "SUBCATEGORIA" | "FINAL_MES" | "ALEATORIA" | "TAREFA" | "IMPORTACAO_PLANILHA" | "COMPLEMENTAR_CMV";
 export type StockCountSessionStatus = "ABERTA" | "EM_ANDAMENTO" | "CONCLUIDA" | "CANCELADA";
 export type StockCountSessionItemStatus = "PENDENTE" | "CONTADO" | "ZERO" | "DIVERGENTE";
 
@@ -2587,6 +2587,21 @@ export function previewConsolidationCoverage(sessionIds: string[]) {
 
 export function getFinalCmvCoverage(inventoryId: string) {
   return request<StockCoverageAudit & { inventoryId: string; inventoryCode: string }>(`/inventory/final-cmv/${inventoryId}/coverage`);
+}
+
+export function createMissingCount(inventoryId: string) {
+  return request<StockCountSession>(`/inventory/final-cmv/${inventoryId}/create-missing-count`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" }
+  });
+}
+
+export function appendMissingCount(inventoryId: string, countSessionId: string) {
+  return request<StockCoverageAudit & { inventoryId: string; inventoryCode: string; appendedItems: number }>(`/inventory/final-cmv/${inventoryId}/append-missing-count`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ countSessionId })
+  });
 }
 
 export function getMonthEndStockCountSession(filters: { year: number; month: number }) {
