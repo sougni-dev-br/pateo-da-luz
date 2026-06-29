@@ -610,6 +610,7 @@ export type RevenueImportReport = {
 export type CmvSessionOption = {
   sessionId: string;
   code: string;
+  type: string;
   source: string;
   referenceDate: string;
   periodMonth: number | null;
@@ -619,6 +620,29 @@ export type CmvSessionOption = {
   linkedSnapshotId: string | null;
   snapshotTotalValue: number | null;
   notes: string | null;
+};
+
+export type CoverageMissingProduct = {
+  id: string;
+  code: string | null;
+  name: string;
+  sector: string | null;
+  category: string | null;
+  unit: string | null;
+};
+
+export type StockCoverageAudit = {
+  expectedTotal: number;
+  coveredTotal: number;
+  missingTotal: number;
+  duplicateTotal: number;
+  sectorMismatchTotal: number;
+  coveragePercent: number;
+  isComplete: boolean;
+  missingSectors: string[];
+  missingProducts: CoverageMissingProduct[];
+  duplicateProducts: Array<{ productId: string; name: string; sessions: string[] }>;
+  sectorMismatches: Array<{ productId: string; name: string; catalogSector: string | null; countedSector: string | null; sessionCode: string }>;
 };
 
 export type CmvPeriod = {
@@ -2551,6 +2575,18 @@ export function consolidateMonthEndSessions(sessionIds: string[], notes?: string
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sessionIds, notes })
   }, 120_000);
+}
+
+export function previewConsolidationCoverage(sessionIds: string[]) {
+  return request<StockCoverageAudit>("/inventory/count-sessions/coverage-preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionIds })
+  });
+}
+
+export function getFinalCmvCoverage(inventoryId: string) {
+  return request<StockCoverageAudit & { inventoryId: string; inventoryCode: string }>(`/inventory/final-cmv/${inventoryId}/coverage`);
 }
 
 export function getMonthEndStockCountSession(filters: { year: number; month: number }) {

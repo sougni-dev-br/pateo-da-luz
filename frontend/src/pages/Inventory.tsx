@@ -43,6 +43,8 @@ import {
   Product,
   generateInventoryFromStockCountSession,
   consolidateMonthEndSessions,
+  previewConsolidationCoverage,
+  StockCoverageAudit,
   rejectOperationalInventory,
   reopenStockCountSession,
   reopenOperationalInventory,
@@ -357,6 +359,8 @@ export function Inventory({
   const [stockFilters, setStockFilters] = useState({ sector: "", category: "", subcategory: "", supplier: "", alert: "" });
   const [consolidationSelected, setConsolidationSelected] = useState<Set<string>>(new Set());
   const [isConsolidating, setIsConsolidating] = useState(false);
+  const [consolidationCoverage, setConsolidationCoverage] = useState<StockCoverageAudit | null>(null);
+  const [isFetchingCoverage, setIsFetchingCoverage] = useState(false);
   const { notice, setNotice } = useNotice();
 
   const selectedAgenda = useMemo(
@@ -946,15 +950,51 @@ export function Inventory({
     }
   }
 
+  async function checkConsolidationCoverage(ids: string[]) {
+    if (ids.length === 0) { setConsolidationCoverage(null); return; }
+    setIsFetchingCoverage(true);
+    try {
+      const cov = await previewConsolidationCoverage(ids);
+      setConsolidationCoverage(cov);
+    } catch {
+      setConsolidationCoverage(null);
+    } finally {
+      setIsFetchingCoverage(false);
+    }
+  }
+
   async function consolidateMonthEnd() {
     if (consolidationSelected.size === 0 || isConsolidating) return;
     const ids = [...consolidationSelected];
+
+    // Verificar cobertura antes de consolidar
+    setIsFetchingCoverage(true);
+    let cov: StockCoverageAudit | null = null;
+    try {
+      cov = await previewConsolidationCoverage(ids);
+      setConsolidationCoverage(cov);
+    } catch {
+      // se falhar, deixar o backend bloquear
+    } finally {
+      setIsFetchingCoverage(false);
+    }
+
+    if (cov && !cov.isComplete) {
+      // Alerta já exibido no painel — não prosseguir
+      setNotice({
+        tone: "error",
+        message: `Cobertura incompleta: ${cov.coveredTotal}/${cov.expectedTotal} produtos cobertos. Inclua todos os produtos controlados antes de consolidar.`
+      });
+      return;
+    }
+
     if (!window.confirm(`Consolidar ${ids.length} contagem(ns) setorial(is) em um unico inventario Final CMV?`)) return;
     setIsConsolidating(true);
     try {
       const inventory = await consolidateMonthEndSessions(ids);
       setNotice({ tone: "success", message: `${inventory.code} gerado — ${ids.length} setor(es) consolidados.` });
       setConsolidationSelected(new Set());
+      setConsolidationCoverage(null);
       await Promise.all([refreshCountSessions(), refreshOperational(inventory.id)]);
     } catch (error) {
       const isAbort = error instanceof Error && (error.name === "AbortError" || error.message.includes("aborted"));
@@ -1999,23 +2039,71 @@ export function Inventory({
                         const next = new Set(consolidationSelected);
                         if (e.target.checked) next.add(s.id); else next.delete(s.id);
                         setConsolidationSelected(next);
+                        checkConsolidationCoverage([...next]);
                       }}
                     />
                     <span><strong>{s.code}</strong>{s.sectorName ? ` — ${s.sectorName}` : ""}<small style={{ display: "block", color: "var(--muted)", fontSize: 11 }}>{s.totalItems} produtos contados</small></span>
                   </label>
                 ))}
               </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+              {/* Painel de cobertura */}
+              {isFetchingCoverage && (
+                <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 8 }}>Verificando cobertura...</p>
+              )}
+              {!isFetchingCoverage && consolidationCoverage && (
+                <div style={{
+                  marginTop: 10,
+                  padding: "10px 14px",
+                  borderRadius: 6,
+                  background: consolidationCoverage.isComplete ? "var(--success-soft, #e6f4ea)" : "var(--error-soft, #fdecea)",
+                  border: `1px solid ${consolidationCoverage.isComplete ? "var(--success, #2e7d32)" : "var(--error, #c62828)"}`,
+                  fontSize: 13
+                }}>
+                  {consolidationCoverage.isComplete ? (
+                    <strong style={{ color: "var(--success, #2e7d32)" }}>
+                      Cobertura completa: {consolidationCoverage.coveredTotal}/{consolidationCoverage.expectedTotal} produtos controlados cobertos.
+                    </strong>
+                  ) : (
+                    <>
+                      <strong style={{ color: "var(--error, #c62828)" }}>
+                        Inventario incompleto: {consolidationCoverage.coveredTotal}/{consolidationCoverage.expectedTotal} produtos controlados cobertos.
+                      </strong>
+                      <p style={{ margin: "6px 0 4px" }}>
+                        {consolidationCoverage.missingTotal} produto(s) sem informacao de contagem — a consolidacao esta bloqueada:
+                      </p>
+                      <ul style={{ margin: 0, paddingLeft: 18 }}>
+                        {consolidationCoverage.missingProducts.slice(0, 20).map((p) => (
+                          <li key={p.id}>
+                            <strong>{p.code ? `[${p.code}]` : ""} {p.name}</strong>
+                            {p.sector ? ` — ${p.sector}` : ""}
+                            {p.category ? ` — ${p.category}` : ""}
+                            {p.unit ? ` — ${p.unit}` : ""}
+                          </li>
+                        ))}
+                        {consolidationCoverage.missingProducts.length > 20 && (
+                          <li>...e mais {consolidationCoverage.missingProducts.length - 20} produto(s).</li>
+                        )}
+                      </ul>
+                      {consolidationCoverage.missingSectors.length > 0 && (
+                        <p style={{ margin: "6px 0 0" }}>
+                          Setores sem contagem: <strong>{consolidationCoverage.missingSectors.join(", ")}</strong>
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
                 <button
                   className="primary-button"
                   type="button"
-                  disabled={consolidationSelected.size === 0 || isConsolidating}
+                  disabled={consolidationSelected.size === 0 || isConsolidating || isFetchingCoverage || (consolidationCoverage != null && !consolidationCoverage.isComplete)}
                   onClick={consolidateMonthEnd}
                 >
                   <Layers size={15} />{isConsolidating ? "Gerando inventario..." : `Gerar inventario final unificado (${consolidationSelected.size} setor${consolidationSelected.size !== 1 ? "es" : ""})`}
                 </button>
                 {consolidationSelected.size > 0 && (
-                  <button className="secondary-button" type="button" onClick={() => setConsolidationSelected(new Set())}>Limpar selecao</button>
+                  <button className="secondary-button" type="button" onClick={() => { setConsolidationSelected(new Set()); setConsolidationCoverage(null); }}>Limpar selecao</button>
                 )}
               </div>
             </div>
