@@ -1001,22 +1001,29 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
     )
   `;
 
-  for (const item of itemsByProduct.values()) {
-    const countedQuantity = item.countedQuantity == null ? 0 : Number(item.countedQuantity);
-    const expectedQuantity = Number(item.expectedQuantity ?? 0);
-    const result = countedStatus(countedQuantity, expectedQuantity);
+  // Bulk INSERT em batches de 200 — evita timeout por round-trips individuais
+  const itemsArray = [...itemsByProduct.values()];
+  const BATCH_SIZE = 200;
+  for (let i = 0; i < itemsArray.length; i += BATCH_SIZE) {
+    const batch = itemsArray.slice(i, i + BATCH_SIZE);
+    const rows = batch.map((item) => {
+      const countedQuantity = item.countedQuantity == null ? 0 : Number(item.countedQuantity);
+      const expectedQuantity = Number(item.expectedQuantity ?? 0);
+      const result = countedStatus(countedQuantity, expectedQuantity);
+      return Prisma.sql`(
+        ${crypto.randomUUID()}, ${inventoryId}, ${item.productId}, ${item.productCodeSnapshot}, ${item.productNameSnapshot},
+        ${item.sectorSnapshot}, ${item.categorySnapshot}, ${item.subcategorySnapshot}, ${item.locationSnapshot}, ${item.unitSnapshot},
+        ${expectedQuantity}, ${countedQuantity}, ${result.differenceQuantity}, ${result.status}, ${item.notes}, ${item.countedByUserId},
+        ${item.countedAt}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )`;
+    });
     await prisma.$executeRaw`
       INSERT INTO "OperationalInventoryItem" (
         "id", "inventoryId", "productId", "productCode", "productName", "sectorName", "categoryName", "subcategoryName",
         "location", "unit", "expectedQuantity", "countedQuantity", "differenceQuantity", "status", "notes", "countedByUserId",
         "countedAt", "createdAt", "updatedAt"
       )
-      VALUES (
-        ${crypto.randomUUID()}, ${inventoryId}, ${item.productId}, ${item.productCodeSnapshot}, ${item.productNameSnapshot},
-        ${item.sectorSnapshot}, ${item.categorySnapshot}, ${item.subcategorySnapshot}, ${item.locationSnapshot}, ${item.unitSnapshot},
-        ${expectedQuantity}, ${countedQuantity}, ${result.differenceQuantity}, ${result.status}, ${item.notes}, ${item.countedByUserId},
-        ${item.countedAt}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-      )
+      VALUES ${Prisma.join(rows)}
     `;
   }
 
@@ -1024,7 +1031,7 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
     UPDATE "StockCountSession"
     SET "generatedInventoryId" = ${inventoryId},
         "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ANY(${sessionIds}::uuid[])
+    WHERE "id" = ANY(${sessionIds})
   `;
 
   await auditLog({
