@@ -2550,7 +2550,7 @@ export function consolidateMonthEndSessions(sessionIds: string[], notes?: string
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sessionIds, notes })
-  });
+  }, 120_000);
 }
 
 export function getMonthEndStockCountSession(filters: { year: number; month: number }) {
