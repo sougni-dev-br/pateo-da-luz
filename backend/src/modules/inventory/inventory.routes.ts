@@ -1318,6 +1318,253 @@ inventoryRouter.get("/final-cmv/:id/coverage", async (request, response) => {
   response.json({ inventoryId: inv.id, inventoryCode: inv.code, ...coverage });
 });
 
+// Criar contagem complementar para produtos ausentes de um FINAL_CMV
+inventoryRouter.post("/final-cmv/:id/create-missing-count", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  if (!user) return;
+
+  const inventoryId = request.params.id;
+
+  const [inv] = await prisma.$queryRaw<Array<{ id: string; code: string; type: string; status: string }>>`
+    SELECT "id", "code", "type"::text, "status"::text FROM "OperationalInventory"
+    WHERE "id" = ${inventoryId}
+  `;
+  if (!inv) {
+    response.status(404).json({ message: "Inventario nao encontrado." });
+    return;
+  }
+  if (inv.type !== "FINAL_CMV") {
+    response.status(400).json({ message: "Contagem complementar so e permitida para inventarios do tipo FINAL_CMV." });
+    return;
+  }
+  if (!editableOperationalInventoryStatuses.has(inv.status)) {
+    response.status(400).json({ message: `Inventario ${inv.code} esta com status ${inv.status} e nao pode ser editado.` });
+    return;
+  }
+
+  const coverage = await auditStockCoverageForOperationalInventory(inventoryId);
+  if (coverage.isComplete) {
+    response.status(400).json({ message: `Inventario ${inv.code} ja esta completo: ${coverage.coveredTotal}/${coverage.expectedTotal} produtos cobertos.` });
+    return;
+  }
+
+  // Verificar se já existe complementar aberta/em_andamento para este inventário (anti-duplicata)
+  const [existingComplement] = await prisma.$queryRaw<Array<{ id: string; code: string; status: string }>>`
+    SELECT s."id", s."code", s."status"::text
+    FROM "StockCountSession" s
+    WHERE s."type" = 'COMPLEMENTAR_CMV'
+      AND s."notes" LIKE ${`%[COMPLEMENTO:${inventoryId}]%`}
+      AND s."status" NOT IN ('CANCELADA', 'CONCLUIDA')
+    LIMIT 1
+  `;
+  if (existingComplement) {
+    response.status(409).json({
+      message: `Ja existe uma contagem complementar em aberto para este inventario: ${existingComplement.code} (${existingComplement.status}). Conclua ou cancele-a antes de criar uma nova.`,
+      existingSessionId: existingComplement.id,
+      existingSessionCode: existingComplement.code
+    });
+    return;
+  }
+
+  const sessionId = crypto.randomUUID();
+  const now = new Date();
+  const date = dateOnly(now);
+  const code = await nextStockCountSessionCode(now);
+  const notes = `[COMPLEMENTO:${inventoryId}] Contagem complementar do ${inv.code} — cobertura ${coverage.coveredTotal}/${coverage.expectedTotal}. Produto(s) ausente(s): ${coverage.missingProducts.map((p) => `[${p.code ?? "?"}] ${p.name}`).join("; ")}.`;
+
+  await prisma.$executeRaw`
+    INSERT INTO "StockCountSession" (
+      "id", "code", "type", "status", "referenceDate", "isMonthEnd",
+      "responsibleUserId", "notes", "source", "createdAt", "updatedAt"
+    ) VALUES (
+      ${sessionId}, ${code}, 'COMPLEMENTAR_CMV', 'ABERTA', ${date}, false,
+      ${user.id}, ${notes}, 'SISTEMA', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+    )
+  `;
+
+  // Buscar dados completos dos produtos ausentes para criar os itens da sessão
+  const missingProductIds = coverage.missingProducts.map((p) => p.id);
+  const missingProductData = await prisma.$queryRaw<Array<{
+    id: string;
+    code: string | null;
+    name: string;
+    sector: string | null;
+    category: string | null;
+    subcategory: string | null;
+    unit: string | null;
+  }>>`
+    SELECT
+      p."id",
+      p."externalCode" AS "code",
+      p."name",
+      sec."name" AS "sector",
+      cat."name" AS "category",
+      sub."name" AS "subcategory",
+      COALESCE(p."stockUnit", p."unit") AS "unit"
+    FROM "Product" p
+    LEFT JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
+    LEFT JOIN "Category" cat ON cat."id" = p."categoryId"
+    LEFT JOIN "Subcategory" sub ON sub."id" = p."subcategoryId"
+    WHERE p."id" = ANY(${missingProductIds})
+    ORDER BY sec."name" NULLS LAST, cat."name" NULLS LAST, p."name"
+  `;
+
+  if (missingProductData.length > 0) {
+    const itemRows = missingProductData.map((p) => Prisma.sql`(
+      ${crypto.randomUUID()}, ${sessionId},
+      ${p.id}, ${p.code}, ${p.name},
+      ${p.sector}, ${p.category}, ${p.subcategory}, ${null}, ${p.unit},
+      ${0}, ${null}, ${null}, 'PENDENTE', ${null}, ${null}, ${null},
+      CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+    )`);
+    await prisma.$executeRaw`
+      INSERT INTO "StockCountSessionItem" (
+        "id", "stockCountSessionId",
+        "productId", "productCodeSnapshot", "productNameSnapshot",
+        "sectorSnapshot", "categorySnapshot", "subcategorySnapshot", "locationSnapshot", "unitSnapshot",
+        "expectedQuantity", "countedQuantity", "differenceQuantity", "status", "notes", "countedByUserId", "countedAt",
+        "createdAt", "updatedAt"
+      )
+      VALUES ${Prisma.join(itemRows)}
+    `;
+  }
+
+  await auditLog({
+    userId: user.id,
+    action: "CREATE_COMPLEMENTARY_COUNT",
+    entity: "StockCountSession",
+    entityId: sessionId,
+    newValue: { code, inventoryId, inventoryCode: inv.code, missingProducts: coverage.missingTotal }
+  });
+
+  response.status(201).json(await getStockCountSessionSummary(sessionId));
+});
+
+// Anexar contagem complementar concluída ao inventário FINAL_CMV
+inventoryRouter.post("/final-cmv/:id/append-missing-count", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  if (!user) return;
+
+  const inventoryId = request.params.id;
+  const countSessionId = asText(request.body.countSessionId);
+  if (!countSessionId) {
+    response.status(400).json({ message: "Informe o ID da contagem complementar (countSessionId)." });
+    return;
+  }
+
+  const [inv] = await prisma.$queryRaw<Array<{ id: string; code: string; type: string; status: string }>>`
+    SELECT "id", "code", "type"::text, "status"::text FROM "OperationalInventory"
+    WHERE "id" = ${inventoryId}
+  `;
+  if (!inv) {
+    response.status(404).json({ message: "Inventario nao encontrado." });
+    return;
+  }
+  if (inv.type !== "FINAL_CMV") {
+    response.status(400).json({ message: "Append so e permitido para inventarios do tipo FINAL_CMV." });
+    return;
+  }
+  if (!editableOperationalInventoryStatuses.has(inv.status)) {
+    response.status(400).json({ message: `Inventario ${inv.code} esta com status ${inv.status} e nao pode ser editado.` });
+    return;
+  }
+
+  const [cnt] = await prisma.$queryRaw<Array<{ id: string; code: string; type: string; status: string; generatedInventoryId: string | null }>>`
+    SELECT "id", "code", "type"::text, "status"::text, "generatedInventoryId"
+    FROM "StockCountSession"
+    WHERE "id" = ${countSessionId}
+  `;
+  if (!cnt) {
+    response.status(404).json({ message: "Contagem nao encontrada." });
+    return;
+  }
+  if (cnt.type !== "COMPLEMENTAR_CMV") {
+    response.status(400).json({ message: `Contagem ${cnt.code} nao e do tipo COMPLEMENTAR_CMV.` });
+    return;
+  }
+  if (cnt.status !== "CONCLUIDA") {
+    response.status(400).json({ message: `Contagem ${cnt.code} precisa estar CONCLUIDA para ser anexada (status atual: ${cnt.status}).` });
+    return;
+  }
+  if (cnt.generatedInventoryId != null) {
+    response.status(409).json({ message: `Contagem ${cnt.code} ja foi anexada ao inventario ${cnt.generatedInventoryId}.` });
+    return;
+  }
+
+  // Verificar se há itens pendentes (countedQuantity IS NULL)
+  const [{ pendingCount }] = await prisma.$queryRaw<Array<{ pendingCount: number }>>`
+    SELECT COUNT(*)::int AS "pendingCount"
+    FROM "StockCountSessionItem"
+    WHERE "stockCountSessionId" = ${countSessionId}
+      AND "countedQuantity" IS NULL
+  `;
+  if (pendingCount > 0) {
+    response.status(400).json({ message: `Contagem ${cnt.code} tem ${pendingCount} item(ns) sem quantidade informada. Preencha todos os itens antes de anexar.` });
+    return;
+  }
+
+  // Buscar itens da complementar que ainda não existem no inventário (anti-duplicata)
+  const newItems = await prisma.$queryRaw<Array<StockCountSessionItemRow>>`
+    SELECT i.*
+    FROM "StockCountSessionItem" i
+    WHERE i."stockCountSessionId" = ${countSessionId}
+      AND i."productId" IS NOT NULL
+      AND i."productId" NOT IN (
+        SELECT "productId" FROM "OperationalInventoryItem"
+        WHERE "inventoryId" = ${inventoryId} AND "productId" IS NOT NULL
+      )
+    ORDER BY i."sectorSnapshot" NULLS LAST, i."categorySnapshot" NULLS LAST, i."productNameSnapshot"
+  `;
+
+  if (newItems.length > 0) {
+    const insertRows = newItems.map((item) => {
+      const countedQuantity = item.countedQuantity == null ? 0 : Number(item.countedQuantity);
+      const expectedQuantity = Number(item.expectedQuantity ?? 0);
+      const result = countedStatus(countedQuantity, expectedQuantity);
+      return Prisma.sql`(
+        ${crypto.randomUUID()}, ${inventoryId},
+        ${item.productId}, ${item.productCodeSnapshot}, ${item.productNameSnapshot},
+        ${item.sectorSnapshot}, ${item.categorySnapshot}, ${item.subcategorySnapshot},
+        ${item.locationSnapshot}, ${item.unitSnapshot},
+        ${expectedQuantity}, ${countedQuantity}, ${result.differenceQuantity}, ${result.status},
+        ${item.notes}, ${item.countedByUserId}, ${item.countedAt},
+        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )`;
+    });
+    await prisma.$executeRaw`
+      INSERT INTO "OperationalInventoryItem" (
+        "id", "inventoryId",
+        "productId", "productCode", "productName",
+        "sectorName", "categoryName", "subcategoryName",
+        "location", "unit",
+        "expectedQuantity", "countedQuantity", "differenceQuantity", "status",
+        "notes", "countedByUserId", "countedAt",
+        "createdAt", "updatedAt"
+      )
+      VALUES ${Prisma.join(insertRows)}
+    `;
+  }
+
+  await prisma.$executeRaw`
+    UPDATE "StockCountSession"
+    SET "generatedInventoryId" = ${inventoryId},
+        "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${countSessionId}
+      AND "generatedInventoryId" IS NULL
+  `;
+
+  await auditLog({
+    userId: user.id,
+    action: "APPEND_COMPLEMENTARY_COUNT",
+    entity: "OperationalInventory",
+    entityId: inventoryId,
+    newValue: { inventoryCode: inv.code, countSessionId, countSessionCode: cnt.code, appendedItems: newItems.length }
+  });
+
+  const newCoverage = await auditStockCoverageForOperationalInventory(inventoryId);
+  response.json({ inventoryId: inv.id, inventoryCode: inv.code, appendedItems: newItems.length, ...newCoverage });
+});
+
 inventoryRouter.get("/count-sessions/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
   if (!user) return;

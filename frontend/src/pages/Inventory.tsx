@@ -45,6 +45,9 @@ import {
   consolidateMonthEndSessions,
   previewConsolidationCoverage,
   StockCoverageAudit,
+  createMissingCount,
+  appendMissingCount,
+  getFinalCmvCoverage,
   rejectOperationalInventory,
   reopenStockCountSession,
   reopenOperationalInventory,
@@ -361,6 +364,10 @@ export function Inventory({
   const [isConsolidating, setIsConsolidating] = useState(false);
   const [consolidationCoverage, setConsolidationCoverage] = useState<StockCoverageAudit | null>(null);
   const [isFetchingCoverage, setIsFetchingCoverage] = useState(false);
+  const [finalCmvCoverage, setFinalCmvCoverage] = useState<(StockCoverageAudit & { inventoryId: string; inventoryCode: string }) | null>(null);
+  const [isFetchingFinalCmvCoverage, setIsFetchingFinalCmvCoverage] = useState(false);
+  const [isCreatingComplement, setIsCreatingComplement] = useState(false);
+  const [isAppendingComplement, setIsAppendingComplement] = useState(false);
   const { notice, setNotice } = useNotice();
 
   const selectedAgenda = useMemo(
@@ -963,6 +970,56 @@ export function Inventory({
     }
   }
 
+  async function loadFinalCmvCoverage(inventoryId: string) {
+    setIsFetchingFinalCmvCoverage(true);
+    try {
+      const cov = await getFinalCmvCoverage(inventoryId);
+      setFinalCmvCoverage(cov);
+    } catch {
+      setFinalCmvCoverage(null);
+    } finally {
+      setIsFetchingFinalCmvCoverage(false);
+    }
+  }
+
+  async function handleCreateMissingCount() {
+    if (!operationalDetail || isCreatingComplement) return;
+    setIsCreatingComplement(true);
+    try {
+      const session = await createMissingCount(operationalDetail.id);
+      setNotice({ tone: "success", message: `Contagem complementar ${session.code} criada com ${session.totalItems} produto(s) pendente(s).` });
+      await Promise.all([refreshCountSessions(), loadFinalCmvCoverage(operationalDetail.id)]);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Erro ao criar contagem complementar.";
+      setNotice({ tone: "error", message: msg });
+    } finally {
+      setIsCreatingComplement(false);
+    }
+  }
+
+  async function handleAppendMissingCount(countSessionId: string) {
+    if (!operationalDetail || isAppendingComplement) return;
+    setIsAppendingComplement(true);
+    try {
+      // Re-verificar cobertura imediatamente antes de anexar para evitar duplicata
+      const currentCoverage = await getFinalCmvCoverage(operationalDetail.id);
+      setFinalCmvCoverage(currentCoverage);
+      if (currentCoverage.isComplete) {
+        setNotice({ tone: "error", message: `Inventario ${currentCoverage.inventoryCode} ja esta completo (${currentCoverage.coveredTotal}/${currentCoverage.expectedTotal}). Nao ha pendencias para incluir.` });
+        return;
+      }
+      const result = await appendMissingCount(operationalDetail.id, countSessionId);
+      setNotice({ tone: "success", message: `${result.appendedItems} produto(s) incluido(s) no ${result.inventoryCode}. Cobertura: ${result.coveredTotal}/${result.expectedTotal}${result.isComplete ? " — inventario completo." : "."}` });
+      setFinalCmvCoverage(result);
+      await refreshOperational(operationalDetail.id);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Erro ao incluir complemento no inventario.";
+      setNotice({ tone: "error", message: msg });
+    } finally {
+      setIsAppendingComplement(false);
+    }
+  }
+
   async function consolidateMonthEnd() {
     if (consolidationSelected.size === 0 || isConsolidating) return;
     const ids = [...consolidationSelected];
@@ -1117,12 +1174,16 @@ export function Inventory({
   async function openOperationalInventory(id: string, showMessage = true) {
     const detail = await getOperationalInventory(id);
     setOperationalDetail(detail);
+    setFinalCmvCoverage(null);
     setOperationalSectorFilter("");
     setOperationalLines(Object.fromEntries(detail.items.map((item) => [
       item.id,
       { countedQuantity: item.countedQuantity == null ? "" : String(item.countedQuantity), notes: item.notes ?? "" }
     ])));
     if (showMessage) setNotice({ tone: "success", message: `${detail.code} aberto para consulta.` });
+    if (detail.type === "FINAL_CMV" && detail.status === "RASCUNHO") {
+      void loadFinalCmvCoverage(id);
+    }
   }
 
   async function saveOperationalDraft() {
@@ -2246,6 +2307,58 @@ export function Inventory({
               <article><span>Pendentes</span><strong>{formatNumber(operationalDetail.pendingItems)}</strong></article>
               <article><span>Divergentes</span><strong>{formatNumber(operationalDetail.divergentItems)}</strong></article>
             </div>
+
+            {operationalDetail.type === "FINAL_CMV" && operationalDetail.status === "RASCUNHO" && (() => {
+              const complementSessions = countSessions.filter((s) =>
+                s.type === "COMPLEMENTAR_CMV" &&
+                s.notes?.includes(`[COMPLEMENTO:${operationalDetail.id}]`)
+              );
+              const readyToAppend = complementSessions.filter((s) => s.status === "CONCLUIDA" && !s.generatedInventoryId);
+              const inProgress = complementSessions.filter((s) => s.status === "ABERTA" || s.status === "EM_ANDAMENTO");
+              const isIncomplete = finalCmvCoverage != null && !finalCmvCoverage.isComplete;
+              const isComplete = finalCmvCoverage != null && finalCmvCoverage.isComplete;
+              return (
+                <div style={{ margin: "0 0 12px", padding: "12px 14px", borderRadius: 6, fontSize: 13, background: isComplete ? "var(--success-soft, #e6f4ea)" : isIncomplete ? "var(--error-soft, #fdecea)" : "var(--surface-2, #f5f5f5)", border: `1px solid ${isComplete ? "var(--success, #2e7d32)" : isIncomplete ? "var(--error, #c62828)" : "var(--border, #ddd)"}` }}>
+                  {isFetchingFinalCmvCoverage && <p style={{ margin: 0, color: "var(--text-muted, #666)" }}>Verificando cobertura de estoque...</p>}
+                  {!isFetchingFinalCmvCoverage && finalCmvCoverage && (
+                    <>
+                      <p style={{ margin: "0 0 6px", fontWeight: 600, color: isComplete ? "var(--success, #2e7d32)" : "var(--error, #c62828)" }}>
+                        {isComplete
+                          ? `Inventario completo: ${finalCmvCoverage.coveredTotal}/${finalCmvCoverage.expectedTotal} produtos controlados cobertos.`
+                          : `Inventario incompleto: ${finalCmvCoverage.coveredTotal}/${finalCmvCoverage.expectedTotal} produtos cobertos — ${finalCmvCoverage.missingTotal} produto(s) sem contagem:`}
+                      </p>
+                      {isIncomplete && (
+                        <ul style={{ margin: "0 0 10px", paddingLeft: 18 }}>
+                          {finalCmvCoverage.missingProducts.slice(0, 20).map((p) => (
+                            <li key={p.id}><strong>[{p.code ?? "?"}]</strong> {p.name} — {p.sector ?? "sem setor"}{p.unit ? ` (${p.unit})` : ""}</li>
+                          ))}
+                          {finalCmvCoverage.missingProducts.length > 20 && <li>...e mais {finalCmvCoverage.missingProducts.length - 20} produto(s).</li>}
+                        </ul>
+                      )}
+                    </>
+                  )}
+                  {inProgress.length > 0 && (
+                    <p style={{ margin: "6px 0 0", color: "var(--warning, #b45309)" }}>
+                      Contagem complementar em andamento: {inProgress.map((s) => s.code).join(", ")} — conclua-a para habilitar o anexo.
+                    </p>
+                  )}
+                  {readyToAppend.length > 0 && !isComplete && (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                      {readyToAppend.map((s) => (
+                        <button key={s.id} className="primary-button" type="button" disabled={isAppendingComplement} onClick={() => handleAppendMissingCount(s.id)}>
+                          {isAppendingComplement ? "Incluindo..." : `Incluir complemento ${s.code} no inventario`}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {isIncomplete && readyToAppend.length === 0 && inProgress.length === 0 && (
+                    <button className="secondary-button" type="button" disabled={isCreatingComplement} onClick={handleCreateMissingCount} style={{ marginTop: 4 }}>
+                      {isCreatingComplement ? "Criando..." : `Criar contagem complementar com ${finalCmvCoverage?.missingTotal ?? "?"} produto(s) pendente(s)`}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="filters-row">
               <label>Setor<select value={operationalSectorFilter} onChange={(event) => setOperationalSectorFilter(event.target.value)}>
