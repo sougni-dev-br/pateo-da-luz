@@ -35,6 +35,7 @@ type SnapshotRow = {
 export type CmvSessionOption = {
   sessionId: string;
   code: string;
+  type: string;
   source: string;
   referenceDate: string;
   periodMonth: number | null;
@@ -49,6 +50,7 @@ export type CmvSessionOption = {
 type SessionRow = {
   sessionId: string;
   code: string;
+  type: string;
   source: string;
   referenceDate: Date;
   periodMonth: number | null;
@@ -63,6 +65,7 @@ type SessionRow = {
 type StockCountSessionBaseRow = {
   id: string;
   code: string;
+  type: string;
   status: string;
   source: string;
   referenceDate: Date;
@@ -70,6 +73,7 @@ type StockCountSessionBaseRow = {
   periodMonth: number | null;
   periodYear: number | null;
   linkedSnapshotId: string | null;
+  generatedInventoryId: string | null;
 };
 
 type SessionItemRow = {
@@ -621,7 +625,7 @@ async function persistPeriod(input: CmvPeriodInput, status: CmvPeriodStatus, clo
   const id = input.id ?? crypto.randomUUID();
   const current = input.id ? await loadPeriodRow(input.id).catch(() => null) : null;
   const code = current?.code ?? await nextCmvPeriodCode(input.dataInicial);
-  const name = labelPeriod(input.dataInicial, input.dataFinal);
+  const name = input.name.trim() || labelPeriod(input.dataInicial, input.dataFinal);
   const inicialSessionId = input.estoqueInicialSessionId ?? null;
   const finalSessionId = input.estoqueFinalSessionId ?? null;
 
@@ -675,8 +679,8 @@ export async function ensureSnapshotForSession(
 ): Promise<string> {
   // 1. Load and validate session
   const [session] = await prisma.$queryRaw<Array<StockCountSessionBaseRow>>`
-    SELECT "id", "code", "status", "source", "referenceDate", "isMonthEnd",
-           "periodMonth", "periodYear", "linkedSnapshotId"
+    SELECT "id", "code", "type", "status", "source", "referenceDate", "isMonthEnd",
+           "periodMonth", "periodYear", "linkedSnapshotId", "generatedInventoryId"
     FROM "StockCountSession"
     WHERE "id" = ${sessionId}
     LIMIT 1
@@ -684,6 +688,9 @@ export async function ensureSnapshotForSession(
   if (!session) throw new Error(`Contagem nao encontrada: ${sessionId}`);
   if (session.status !== "CONCLUIDA") {
     throw new Error(`Contagem ${session.code} nao esta concluida (status: ${session.status}). Apenas contagens concluidas podem ser usadas como inventario.`);
+  }
+  if (session.type === "SETORIAL" && session.generatedInventoryId != null) {
+    throw new Error(`Contagem ${session.code} e setorial e ja foi consolidada em inventario final unificado. Selecione a contagem consolidada correspondente para apuracao do CMV.`);
   }
 
   // 2. If already has a valid linked snapshot → reuse (idempotency)
@@ -705,6 +712,26 @@ export async function ensureSnapshotForSession(
   `;
   if (toNumber(itemCount?.cnt) === 0) {
     throw new Error(`Contagem ${session.code} nao possui itens. Nao e possivel gerar inventario a partir de uma contagem vazia.`);
+  }
+
+  // 3b. Para contagens de fechamento (isMonthEnd), exigir cobertura 100% dos produtos controlados.
+  // Contagens setoriais avulsas são intencionalmente parciais — não aplicar o bloqueio.
+  if (session.isMonthEnd || session.type === "GERAL") {
+    const [{ missing }] = await prisma.$queryRaw<Array<{ missing: number }>>`
+      SELECT COUNT(*)::int AS "missing"
+      FROM "Product"
+      WHERE "isActive" = true AND "controlsStock" = true
+        AND "id" NOT IN (
+          SELECT "productId" FROM "StockCountSessionItem"
+          WHERE "stockCountSessionId" = ${sessionId} AND "productId" IS NOT NULL
+        )
+    `;
+    if (missing > 0) {
+      throw new Error(
+        `Base de estoque incompleta (${session.code}): existem ${missing} produto(s) ativo(s) com controlsStock=true sem informacao de contagem. ` +
+        `Corrija o inventario antes de usar como base do CMV Real.`
+      );
+    }
   }
 
   // 4. Load items with last-purchase unit cost for each product
@@ -805,6 +832,7 @@ export async function listCmvSessions(): Promise<CmvSessionOption[]> {
     SELECT
       s."id"                  AS "sessionId",
       s."code",
+      s."type",
       s."source",
       s."referenceDate",
       s."periodMonth",
@@ -820,12 +848,14 @@ export async function listCmvSessions(): Promise<CmvSessionOption[]> {
       ON snap."id" = s."linkedSnapshotId"
       AND snap."status" NOT IN ('CANCELLED', 'CANCELADO')
     WHERE s."status" = 'CONCLUIDA'
+      AND NOT (s."type" = 'SETORIAL' AND s."generatedInventoryId" IS NOT NULL)
     GROUP BY s."id", snap."totalValue"
     ORDER BY s."referenceDate" DESC
   `;
   return rows.map((row) => ({
     sessionId: row.sessionId,
     code: row.code,
+    type: row.type,
     source: row.source,
     referenceDate: toDateKey(toLocalDate(row.referenceDate)),
     periodMonth: row.periodMonth,
