@@ -943,7 +943,7 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
     FROM "StockCountSession" s
     LEFT JOIN "User" u ON u."id" = s."responsibleUserId"
     LEFT JOIN "OperationalInventory" oi ON oi."id" = s."generatedInventoryId"
-    WHERE s."id" = ANY(${sessionIds}::uuid[])
+    WHERE s."id" = ANY(${sessionIds})
   `;
 
   if (sessions.length !== sessionIds.length) {
@@ -968,7 +968,7 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
   const allItems = await prisma.$queryRaw<Array<StockCountSessionItemRow>>`
     SELECT *
     FROM "StockCountSessionItem"
-    WHERE "stockCountSessionId" = ANY(${sessionIds}::uuid[])
+    WHERE "stockCountSessionId" = ANY(${sessionIds})
     ORDER BY "countedAt" DESC NULLS LAST, "createdAt" DESC
   `;
   const itemsByProduct = new Map<string, StockCountSessionItemRow>();
