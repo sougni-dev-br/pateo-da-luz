@@ -1969,7 +1969,7 @@ export function Inventory({
         )}
 
         {activeView === "counting" && (() => {
-          const consolidatable = countSessions.filter((s) => s.isMonthEnd && s.status === "CONCLUIDA" && !s.generatedInventoryId);
+          const consolidatable = countSessions.filter((s) => s.type === "SETORIAL" && s.status === "CONCLUIDA" && !s.generatedInventoryId);
           return consolidatable.length > 0 && canManageOperationalInventory ? (
             <div className="form-section" style={{ borderColor: "var(--gold)", background: "var(--surface)" }}>
               <div className="section-heading compact-heading">
