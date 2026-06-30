@@ -138,7 +138,8 @@ const countSessionTypeLabels: Record<string, string> = {
   FINAL_MES: "Final do mes",
   ALEATORIA: "Aleatoria",
   TAREFA: "Tarefa",
-  IMPORTACAO_PLANILHA: "Importacao"
+  IMPORTACAO_PLANILHA: "Importacao",
+  COMPLEMENTAR_CMV: "Complementar CMV"
 };
 
 const editableCountSessionStatuses = new Set(["ABERTA", "EM_ANDAMENTO"]);
@@ -368,6 +369,8 @@ export function Inventory({
   const [isFetchingFinalCmvCoverage, setIsFetchingFinalCmvCoverage] = useState(false);
   const [isCreatingComplement, setIsCreatingComplement] = useState(false);
   const [isAppendingComplement, setIsAppendingComplement] = useState(false);
+  const [finalCmvCoverageMap, setFinalCmvCoverageMap] = useState<Record<string, StockCoverageAudit & { inventoryId: string; inventoryCode: string }>>({});
+  const [isLoadingCoverageMap, setIsLoadingCoverageMap] = useState(false);
   const { notice, setNotice } = useNotice();
 
   const selectedAgenda = useMemo(
@@ -983,38 +986,47 @@ export function Inventory({
   }
 
   async function handleCreateMissingCount() {
-    if (!operationalDetail || isCreatingComplement) return;
+    if (!operationalDetail) return;
+    await handleCreateMissingCountForInv(operationalDetail.id);
+  }
+
+  async function handleAppendMissingCount(countSessionId: string) {
+    if (!operationalDetail || isAppendingComplement) return;
+    await handleAppendMissingCountForInv(operationalDetail.id, countSessionId);
+  }
+
+  async function handleCreateMissingCountForInv(inventoryId: string) {
+    if (isCreatingComplement) return;
     setIsCreatingComplement(true);
     try {
-      const session = await createMissingCount(operationalDetail.id);
+      const session = await createMissingCount(inventoryId);
       setNotice({ tone: "success", message: `Contagem complementar ${session.code} criada com ${session.totalItems} produto(s) pendente(s).` });
-      await Promise.all([refreshCountSessions(), loadFinalCmvCoverage(operationalDetail.id)]);
+      await Promise.all([refreshCountSessions(), refreshOperational()]);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Erro ao criar contagem complementar.";
-      setNotice({ tone: "error", message: msg });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao criar contagem complementar." });
     } finally {
       setIsCreatingComplement(false);
     }
   }
 
-  async function handleAppendMissingCount(countSessionId: string) {
-    if (!operationalDetail || isAppendingComplement) return;
+  async function handleAppendMissingCountForInv(inventoryId: string, countSessionId: string) {
+    if (isAppendingComplement) return;
     setIsAppendingComplement(true);
     try {
-      // Re-verificar cobertura imediatamente antes de anexar para evitar duplicata
-      const currentCoverage = await getFinalCmvCoverage(operationalDetail.id);
-      setFinalCmvCoverage(currentCoverage);
+      const currentCoverage = await getFinalCmvCoverage(inventoryId);
+      setFinalCmvCoverageMap((prev) => ({ ...prev, [inventoryId]: currentCoverage }));
+      if (inventoryId === operationalDetail?.id) setFinalCmvCoverage(currentCoverage);
       if (currentCoverage.isComplete) {
-        setNotice({ tone: "error", message: `Inventario ${currentCoverage.inventoryCode} ja esta completo (${currentCoverage.coveredTotal}/${currentCoverage.expectedTotal}). Nao ha pendencias para incluir.` });
+        setNotice({ tone: "error", message: `Inventario ja esta completo (${currentCoverage.coveredTotal}/${currentCoverage.expectedTotal}). Nao ha pendencias para incluir.` });
         return;
       }
-      const result = await appendMissingCount(operationalDetail.id, countSessionId);
+      const result = await appendMissingCount(inventoryId, countSessionId);
+      setFinalCmvCoverageMap((prev) => ({ ...prev, [inventoryId]: result }));
+      if (inventoryId === operationalDetail?.id) setFinalCmvCoverage(result);
       setNotice({ tone: "success", message: `${result.appendedItems} produto(s) incluido(s) no ${result.inventoryCode}. Cobertura: ${result.coveredTotal}/${result.expectedTotal}${result.isComplete ? " — inventario completo." : "."}` });
-      setFinalCmvCoverage(result);
-      await refreshOperational(operationalDetail.id);
+      await refreshOperational(inventoryId === operationalDetail?.id ? inventoryId : undefined);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Erro ao incluir complemento no inventario.";
-      setNotice({ tone: "error", message: msg });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao incluir complemento no inventario." });
     } finally {
       setIsAppendingComplement(false);
     }
@@ -1420,6 +1432,21 @@ export function Inventory({
   useEffect(() => {
     setActiveView(user.role === "ESTOQUISTA" ? "counting" : initialView);
   }, [initialView, user.role]);
+
+  useEffect(() => {
+    const drafts = operationalInventories.filter(
+      (inv) => inv.type === "FINAL_CMV" && inv.status === "RASCUNHO"
+    );
+    if (drafts.length === 0) { setFinalCmvCoverageMap({}); return; }
+    setIsLoadingCoverageMap(true);
+    void Promise.all(drafts.map((inv) => getFinalCmvCoverage(inv.id).catch(() => null)))
+      .then((results) => {
+        const map: Record<string, StockCoverageAudit & { inventoryId: string; inventoryCode: string }> = {};
+        results.forEach((cov) => { if (cov) map[cov.inventoryId] = cov; });
+        setFinalCmvCoverageMap(map);
+      })
+      .finally(() => setIsLoadingCoverageMap(false));
+  }, [operationalInventories]);
 
   useEffect(() => {
     if (activeView !== "counting") return;
@@ -2171,6 +2198,83 @@ export function Inventory({
           ) : null;
         })()}
 
+        {activeView === "counting" && canManageOperationalInventory && (() => {
+          const finalCmvDrafts = operationalInventories.filter(
+            (inv) => inv.type === "FINAL_CMV" && inv.status === "RASCUNHO"
+          );
+          if (finalCmvDrafts.length === 0) return null;
+          return finalCmvDrafts.map((inv) => {
+            const cov = finalCmvCoverageMap[inv.id];
+            const complementSessions = countSessions.filter((s) =>
+              s.type === "COMPLEMENTAR_CMV" && s.notes?.includes(`[COMPLEMENTO:${inv.id}]`)
+            );
+            const readyToAppend = complementSessions.filter((s) => s.status === "CONCLUIDA" && !s.generatedInventoryId);
+            const inProgress = complementSessions.filter((s) => s.status === "ABERTA" || s.status === "EM_ANDAMENTO");
+            const isComplete = cov?.isComplete === true;
+            const isIncomplete = cov != null && !isComplete;
+            const borderColor = isComplete ? "var(--success, #2e7d32)" : isIncomplete ? "var(--error, #c62828)" : "var(--gold)";
+            return (
+              <div key={inv.id} className="form-section" style={{ borderColor, background: "var(--surface)" }}>
+                <div className="section-heading compact-heading">
+                  <div>
+                    <p>Fechamento do mes</p>
+                    <h3>Cobertura do inventario final CMV</h3>
+                    <span className="muted">{inv.code} • {formatDate(inv.date)}</span>
+                  </div>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => { setActiveView("inventory"); setInventoryDeskTab("official"); void openOperationalInventory(inv.id); }}
+                  >
+                    Ver inventario
+                  </button>
+                </div>
+                {isLoadingCoverageMap && !cov && (
+                  <p style={{ color: "var(--text-muted, #666)", fontSize: 13, margin: "4px 0" }}>Verificando cobertura de estoque...</p>
+                )}
+                {cov && (
+                  <div style={{
+                    padding: "10px 14px", borderRadius: 6, fontSize: 13, marginBottom: 8,
+                    background: isComplete ? "var(--success-soft, #e6f4ea)" : "var(--error-soft, #fdecea)",
+                    border: `1px solid ${isComplete ? "var(--success, #2e7d32)" : "var(--error, #c62828)"}`
+                  }}>
+                    <p style={{ margin: 0, fontWeight: 600, color: isComplete ? "var(--success, #2e7d32)" : "var(--error, #c62828)" }}>
+                      {isComplete
+                        ? `Inventario completo: ${cov.coveredTotal}/${cov.expectedTotal} produtos controlados cobertos.`
+                        : `Inventario incompleto: ${cov.coveredTotal}/${cov.expectedTotal} — ${cov.missingTotal} produto(s) sem contagem:`}
+                    </p>
+                    {isIncomplete && (
+                      <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                        {cov.missingProducts.slice(0, 20).map((p) => (
+                          <li key={p.id}><strong>[{p.code ?? "?"}]</strong> {p.name} — {p.sector ?? "sem setor"}{p.unit ? ` (${p.unit})` : ""}</li>
+                        ))}
+                        {cov.missingProducts.length > 20 && <li>...e mais {cov.missingProducts.length - 20} produto(s).</li>}
+                      </ul>
+                    )}
+                  </div>
+                )}
+                {inProgress.length > 0 && (
+                  <p style={{ color: "var(--warning, #b45309)", fontSize: 13, margin: "0 0 8px" }}>
+                    Contagem complementar em andamento: {inProgress.map((s) => s.code).join(", ")} — conclua-a para habilitar o anexo.
+                  </p>
+                )}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {readyToAppend.map((s) => (
+                    <button key={s.id} className="primary-button" type="button" disabled={isAppendingComplement || isComplete} onClick={() => handleAppendMissingCountForInv(inv.id, s.id)}>
+                      {isAppendingComplement ? "Incluindo..." : `Incluir complemento ${s.code} no inventario`}
+                    </button>
+                  ))}
+                  {isIncomplete && readyToAppend.length === 0 && inProgress.length === 0 && (
+                    <button className="secondary-button" type="button" disabled={isCreatingComplement} onClick={() => handleCreateMissingCountForInv(inv.id)}>
+                      {isCreatingComplement ? "Criando..." : `Criar contagem complementar com ${cov.missingTotal} produto(s) pendente(s)`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          });
+        })()}
+
         {activeView === "counting" && (
           <div className="table-wrap subsection">
             <h3>Contagens de estoque</h3>
@@ -2254,6 +2358,58 @@ export function Inventory({
               <button className="primary-button" type="button" onClick={createOperational}><ClipboardCheck size={16} />Criar inventario</button>
             </div>
           </div>
+
+          {operationalCounts.length > 0 && (
+            <div className="table-wrap subsection">
+              <div className="inventory-block-heading">
+                <div>
+                  <h3>Inventarios em andamento</h3>
+                  <p className="muted">Rascunhos, em revisao e rejeitados — ainda nao oficializados.</p>
+                </div>
+              </div>
+              <table className="inventory-official-table">
+                <thead><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Cobertura CMV</th><th>Acoes</th></tr></thead>
+                <tbody>
+                  {operationalCounts.map((inventory) => {
+                    const cov = inventory.type === "FINAL_CMV" ? finalCmvCoverageMap[inventory.id] : undefined;
+                    return (
+                      <tr key={inventory.id}>
+                        <td title={inventory.name}>
+                          <strong>{inventory.code}</strong><small>{inventory.name}</small>
+                          <div className="badge-row inventory-inline-badges">
+                            {inventory.type === "FINAL_CMV" && <StatusBadge tone="warning">final CMV</StatusBadge>}
+                          </div>
+                        </td>
+                        <td>{formatDate(inventory.date)}</td>
+                        <td>{operationalTypeLabels[inventory.type]}</td>
+                        <td title={inventory.sectorName ?? "-"}>{inventory.sectorName ?? "-"}</td>
+                        <td><StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge></td>
+                        <td title={inventory.responsibleName ?? "-"}>{inventory.responsibleName ?? "-"}</td>
+                        <td>{formatNumber(inventory.totalItems)}</td>
+                        <td>{formatNumber(inventory.countedItems)}</td>
+                        <td>{formatNumber(inventory.pendingItems)}</td>
+                        <td>
+                          {isLoadingCoverageMap && !cov && inventory.type === "FINAL_CMV" && inventory.status === "RASCUNHO" && (
+                            <span style={{ color: "var(--text-muted, #666)", fontSize: 12 }}>...</span>
+                          )}
+                          {cov && (
+                            <StatusBadge tone={cov.isComplete ? "success" : "warning"}>
+                              {cov.coveredTotal}/{cov.expectedTotal}
+                            </StatusBadge>
+                          )}
+                          {!cov && !(isLoadingCoverageMap && inventory.type === "FINAL_CMV" && inventory.status === "RASCUNHO") && "-"}
+                        </td>
+                        <td className="actions-cell">
+                          <button className="secondary-button" type="button" onClick={() => openOperationalInventory(inventory.id)}>Abrir</button>
+                          <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>Gerar PDF</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           <div className="table-wrap subsection inventory-official-list">
             <div className="inventory-block-heading">
