@@ -1,4 +1,4 @@
-import { BadgeDollarSign, CalendarPlus, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { BadgeDollarSign, CalendarPlus, ChevronDown, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppUser, cancelRevenueEntry, getCmvPeriods, getRevenue, RevenueEntry, RevenueSummary, saveRevenueEntry } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
@@ -163,7 +163,7 @@ function RevenueEntryMobileCard({
         <span>2º turno</span>
         <span>{formatCurrency(Number(entry.salesSecondShift ?? 0))}</span>
       </div>
-      <div className="revenue-mobile-row">
+      <div className="revenue-mobile-row revenue-mobile-row--highlight">
         <span>Venda total</span>
         <strong>{formatCurrency(Number(entry.grossAmount ?? 0))}</strong>
       </div>
@@ -219,6 +219,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
   const [showEventModal, setShowEventModal] = useState(false);
   const [eventForm, setEventForm] = useState(emptyEventForm);
   const [savingEvent, setSavingEvent] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const { notice, setNotice } = useNotice();
   const loadControllerRef = useRef<AbortController | null>(null);
   const autoLoadedInitialMonthRef = useRef(false);
@@ -519,7 +520,17 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
           </div>
         </div>
 
-        <div className="filters-row revenue-filters">
+        <button
+          className="secondary-button revenue-filter-toggle"
+          type="button"
+          onClick={() => setFiltersOpen((v) => !v)}
+          aria-expanded={filtersOpen}
+        >
+          <ChevronDown size={15} className={`revenue-filter-chevron${filtersOpen ? " open" : ""}`} />
+          Filtros
+        </button>
+
+        <div className="filters-row revenue-filters" data-open={String(filtersOpen)}>
           <label>
             Competência
             <input
@@ -566,7 +577,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
       <section className="panel">
         <SectionHeader eyebrow="Resumo aplicado" title="Indicadores" />
 
-        <div className="summary-grid financial-summary">
+        <div className="summary-grid financial-summary revenue-kpi-grid">
           {topCards.map((card) => (
             <MetricCard key={card.label} label={card.label} value={card.value} />
           ))}

@@ -6947,6 +6947,33 @@ details[open] .modal-section-summary::before {
   margin-top: 4px;
 }
 
+/* Revenue: toggle de filtros — oculto por padrão no desktop */
+.revenue-filter-toggle {
+  display: none;
+}
+
+.revenue-filter-chevron {
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+
+.revenue-filter-chevron.open {
+  transform: rotate(180deg);
+}
+
+/* Revenue: linha de venda total com destaque visual */
+.revenue-mobile-row--highlight {
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding-top: 10px;
+}
+
+.revenue-mobile-row--highlight strong {
+  color: #1d3d6b;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .cmv-mobile-list {
   display: none;
 }
@@ -8600,6 +8627,58 @@ details[open] .modal-section-summary::before {
 
   .revenue-desktop-entries {
     display: block;
+  }
+}
+
+/* ─── Revenue: melhorias mobile ─────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  /* Toggle de filtros visível e compacto no mobile */
+  .revenue-filter-toggle {
+    align-items: center;
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    margin-bottom: 4px;
+    min-height: 40px;
+    width: 100%;
+  }
+
+  /* Filtros ocultos quando o painel está fechado */
+  .revenue-filters[data-open="false"] {
+    display: none;
+  }
+
+  /* KPI grid: 2 colunas com Bruto e Líquido em destaque */
+  .revenue-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  /* Faturamento bruto (1º card) e Faturamento líquido (3º card) — full-width, destacados */
+  .revenue-kpi-grid > article:nth-child(1),
+  .revenue-kpi-grid > article:nth-child(3) {
+    background: rgba(47, 95, 152, 0.04) !important;
+    border-color: rgba(47, 95, 152, 0.2) !important;
+    grid-column: 1 / -1;
+  }
+
+  .revenue-kpi-grid > article:nth-child(1) strong,
+  .revenue-kpi-grid > article:nth-child(3) strong {
+    color: #1d3d6b;
+    font-size: 1.35rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Cards de entradas: padding mais generoso */
+  .revenue-mobile-card {
+    padding: 14px !important;
+  }
+
+  /* Inputs dos filtros de Faturamento: font-size 16px para evitar zoom iOS */
+  .revenue-filters input,
+  .revenue-filters select {
+    font-size: 16px;
+    min-height: 40px;
   }
 }
 
