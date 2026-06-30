@@ -406,6 +406,19 @@ monthlyRouter.post("/revenue", async (request, response) => {
     const debitAmount = numberParam(request.body.debitAmount, 0);
     const creditAmount = numberParam(request.body.creditAmount, 0);
     const voucherAmount = numberParam(request.body.voucherAmount, 0);
+    const shift1Cash = numberParam(request.body.shift1Cash, 0);
+    const shift1Pix = numberParam(request.body.shift1Pix, 0);
+    const shift1Card = numberParam(request.body.shift1Card, 0);
+    const shift1Ticket = numberParam(request.body.shift1Ticket, 0);
+    const shift1Service = numberParam(request.body.shift1Service, 0);
+    const shift1Tcs = numberParam(request.body.shift1Tcs, 0);
+    const shift2Cash = numberParam(request.body.shift2Cash, 0);
+    const shift2Pix = numberParam(request.body.shift2Pix, 0);
+    const shift2Card = numberParam(request.body.shift2Card, 0);
+    const shift2Ticket = numberParam(request.body.shift2Ticket, 0);
+    const shift2Service = numberParam(request.body.shift2Service, 0);
+    const shift2Tcs = numberParam(request.body.shift2Tcs, 0);
+    const tcsAmount = numberParam(request.body.tcsAmount, 0);
     const accumulatedAmount = request.body.accumulatedAmount == null || request.body.accumulatedAmount === ""
       ? null
       : numberParam(request.body.accumulatedAmount, 0);
@@ -416,7 +429,10 @@ monthlyRouter.post("/revenue", async (request, response) => {
         "discounts", "platformFees", "netAmount", "serviceAmount", "tickets", "ticketAverage",
         "salesFirstShift", "ticketsFirstShift", "salesSecondShift", "ticketsSecondShift", "repiqueAmount", "salesTables",
         "ticketsTables", "accumulatedAmount", "weekdayName", "paymentMethod", "cashAmount", "pixAmount",
-        "debitAmount", "creditAmount", "voucherAmount", "notes", "createdByUserId", "updatedAt"
+        "debitAmount", "creditAmount", "voucherAmount",
+        "shift1Cash", "shift1Pix", "shift1Card", "shift1Ticket", "shift1Service", "shift1Tcs",
+        "shift2Cash", "shift2Pix", "shift2Card", "shift2Ticket", "shift2Service", "shift2Tcs",
+        "tcsAmount", "notes", "createdByUserId", "updatedAt"
       )
       VALUES (
         ${id}, ${calendarDate}, ${competenceYear}, ${competenceMonth}, ${String(request.body.channel ?? "Outros")},
@@ -424,7 +440,9 @@ monthlyRouter.post("/revenue", async (request, response) => {
         ${serviceAmount}, ${tickets}, ${ticketAverage}, ${salesFirstShift}, ${ticketsFirstShift}, ${salesSecondShift},
         ${ticketsSecondShift}, ${repiqueAmount}, ${salesTables}, ${ticketsTables}, ${accumulatedAmount}, ${text(request.body.weekdayName)},
         ${text(request.body.paymentMethod)}, ${cashAmount}, ${pixAmount}, ${debitAmount}, ${creditAmount}, ${voucherAmount},
-        ${text(request.body.notes)}, ${user.id}, CURRENT_TIMESTAMP
+        ${shift1Cash}, ${shift1Pix}, ${shift1Card}, ${shift1Ticket}, ${shift1Service}, ${shift1Tcs},
+        ${shift2Cash}, ${shift2Pix}, ${shift2Card}, ${shift2Ticket}, ${shift2Service}, ${shift2Tcs},
+        ${tcsAmount}, ${text(request.body.notes)}, ${user.id}, CURRENT_TIMESTAMP
       )
     `;
     await auditLog({
@@ -518,6 +536,19 @@ monthlyRouter.put("/revenue/:id", async (request, response) => {
     const debitAmount = numberParam(request.body.debitAmount, 0);
     const creditAmount = numberParam(request.body.creditAmount, 0);
     const voucherAmount = numberParam(request.body.voucherAmount, 0);
+    const shift1Cash = numberParam(request.body.shift1Cash, 0);
+    const shift1Pix = numberParam(request.body.shift1Pix, 0);
+    const shift1Card = numberParam(request.body.shift1Card, 0);
+    const shift1Ticket = numberParam(request.body.shift1Ticket, 0);
+    const shift1Service = numberParam(request.body.shift1Service, 0);
+    const shift1Tcs = numberParam(request.body.shift1Tcs, 0);
+    const shift2Cash = numberParam(request.body.shift2Cash, 0);
+    const shift2Pix = numberParam(request.body.shift2Pix, 0);
+    const shift2Card = numberParam(request.body.shift2Card, 0);
+    const shift2Ticket = numberParam(request.body.shift2Ticket, 0);
+    const shift2Service = numberParam(request.body.shift2Service, 0);
+    const shift2Tcs = numberParam(request.body.shift2Tcs, 0);
+    const tcsAmount = numberParam(request.body.tcsAmount, 0);
     const accumulatedAmount = request.body.accumulatedAmount == null || request.body.accumulatedAmount === ""
       ? null
       : numberParam(request.body.accumulatedAmount, 0);
@@ -551,6 +582,19 @@ monthlyRouter.put("/revenue/:id", async (request, response) => {
           "debitAmount" = ${debitAmount},
           "creditAmount" = ${creditAmount},
           "voucherAmount" = ${voucherAmount},
+          "shift1Cash" = ${shift1Cash},
+          "shift1Pix" = ${shift1Pix},
+          "shift1Card" = ${shift1Card},
+          "shift1Ticket" = ${shift1Ticket},
+          "shift1Service" = ${shift1Service},
+          "shift1Tcs" = ${shift1Tcs},
+          "shift2Cash" = ${shift2Cash},
+          "shift2Pix" = ${shift2Pix},
+          "shift2Card" = ${shift2Card},
+          "shift2Ticket" = ${shift2Ticket},
+          "shift2Service" = ${shift2Service},
+          "shift2Tcs" = ${shift2Tcs},
+          "tcsAmount" = ${tcsAmount},
           "notes" = ${text(request.body.notes)},
           "updatedAt" = CURRENT_TIMESTAMP
       WHERE "id" = ${request.params.id}
