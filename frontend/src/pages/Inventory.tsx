@@ -352,6 +352,9 @@ export function Inventory({
   const [mobileCountFiltersOpen, setMobileCountFiltersOpen] = useState(false);
   const [mobileCountMoreActionsOpen, setMobileCountMoreActionsOpen] = useState(false);
   const [mobileQuickCountMode, setMobileQuickCountMode] = useState(false);
+  const [mobileCountFormOpen, setMobileCountFormOpen] = useState(false);
+  const [mobileInvFormOpen, setMobileInvFormOpen] = useState(false);
+  const [mobileInvMoreActionsOpen, setMobileInvMoreActionsOpen] = useState(false);
   const [activeCountSessionInputId, setActiveCountSessionInputId] = useState<string | null>(null);
   const [purchasingReport, setPurchasingReport] = useState<OperationalInventoryPurchasingReport | null>(null);
   const [buyerSupport, setBuyerSupport] = useState<BuyerSupportReport | null>(null);
@@ -2053,10 +2056,19 @@ export function Inventory({
 
             <div className="inventory-action-strip">
               <button className="primary-button" type="button" onClick={() => setInventoryDeskTab("official")}><ClipboardCheck size={16} />Criar inventario</button>
-              <button className="secondary-button" type="button" disabled={!operationalDetail} onClick={() => operationalDetail && downloadInventoryPdf(operationalDetail)}><Download size={16} />Gerar PDF</button>
-              <button className="secondary-button" type="button" onClick={() => { setInventoryDeskTab("purchase"); loadBuyerSupport(); }}><RefreshCw size={16} />Atualizar relatorio</button>
-              <button className="secondary-button" type="button" disabled={!buyerSupport} onClick={exportBuyerPrelist}><FileText size={16} />Exportar CSV</button>
-              <button className="primary-button" type="button" disabled={!buyerSupport} onClick={generatePurchaseOrdersFromPrelist}><ShoppingCart size={16} />Gerar pedido de compra</button>
+              <button className="secondary-button inv-action-secondary" type="button" disabled={!operationalDetail} onClick={() => operationalDetail && downloadInventoryPdf(operationalDetail)}><Download size={16} />Gerar PDF</button>
+              <button className="secondary-button inv-action-secondary" type="button" onClick={() => { setInventoryDeskTab("purchase"); loadBuyerSupport(); }}><RefreshCw size={16} />Atualizar relatorio</button>
+              <button className="secondary-button inv-action-secondary" type="button" disabled={!buyerSupport} onClick={exportBuyerPrelist}><FileText size={16} />Exportar CSV</button>
+              <button className="primary-button inv-action-secondary" type="button" disabled={!buyerSupport} onClick={generatePurchaseOrdersFromPrelist}><ShoppingCart size={16} />Gerar pedido de compra</button>
+              <div className="inv-more-actions-wrap">
+                <button className="secondary-button" type="button" onClick={() => setMobileInvMoreActionsOpen(v => !v)}>Mais ações ▾</button>
+                <div className={`inv-more-actions-menu${mobileInvMoreActionsOpen ? " open" : ""}`}>
+                  <button type="button" disabled={!operationalDetail} onClick={() => { operationalDetail && void downloadInventoryPdf(operationalDetail); setMobileInvMoreActionsOpen(false); }}><Download size={14} />Gerar PDF</button>
+                  <button type="button" onClick={() => { setInventoryDeskTab("purchase"); void loadBuyerSupport(); setMobileInvMoreActionsOpen(false); }}><RefreshCw size={14} />Atualizar relatorio</button>
+                  <button type="button" disabled={!buyerSupport} onClick={() => { exportBuyerPrelist(); setMobileInvMoreActionsOpen(false); }}><FileText size={14} />Exportar CSV</button>
+                  <button type="button" disabled={!buyerSupport} onClick={() => { void generatePurchaseOrdersFromPrelist(); setMobileInvMoreActionsOpen(false); }}><ShoppingCart size={14} />Gerar pedido de compra</button>
+                </div>
+              </div>
             </div>
 
             {operationalSummary.activeFinalCmv && inventoryDeskTab === "official" && (() => {
@@ -2130,45 +2142,50 @@ export function Inventory({
               );
             })()}
 
-            <div className="form-section">
-              <div className="section-heading compact-heading">
-                <div>
-                  <p>Nova contagem</p>
-                  <h3>Iniciar Contagem</h3>
-                  <span className="muted">Esta etapa abre uma ficha de lancamento. Inventario oficial sera gerado depois, apenas com contagem concluida.</span>
+            <button className="inv-mobile-form-toggle" type="button" onClick={() => setMobileCountFormOpen(v => !v)}>
+              <Play size={15} />{mobileCountFormOpen ? "Cancelar" : "Nova contagem"}
+            </button>
+            <div className={`inv-collapsible-form${mobileCountFormOpen ? " open" : ""}`}>
+              <div className="form-section">
+                <div className="section-heading compact-heading">
+                  <div>
+                    <p>Nova contagem</p>
+                    <h3>Iniciar Contagem</h3>
+                    <span className="muted">Esta etapa abre uma ficha de lancamento. Inventario oficial sera gerado depois, apenas com contagem concluida.</span>
+                  </div>
                 </div>
-              </div>
-              <div className="filters-row">
-                <label>Data<input type="date" value={countSessionForm.referenceDate} onChange={(event) => setCountSessionForm({ ...countSessionForm, referenceDate: event.target.value })} /></label>
-                <label>Tipo<select value={countSessionForm.type} onChange={(event) => setCountSessionForm({ ...countSessionForm, type: event.target.value as StockCountSessionType })}>
-                  <option value="GERAL">Geral</option>
-                  <option value="SETORIAL">Por setor</option>
-                  <option value="CATEGORIA">Por categoria</option>
-                  <option value="SUBCATEGORIA">Por subcategoria</option>
-                  <option value="FINAL_MES">Final do mes</option>
-                  <option value="ALEATORIA">Aleatoria</option>
-                </select></label>
-                {countSessionForm.type === "SETORIAL" && (
-                  <label>Setor<select value={countSessionForm.sectorId} onChange={(event) => setCountSessionForm({ ...countSessionForm, sectorId: event.target.value })}>
-                    <option value="">{sectors.length ? "Selecione" : "Nenhum setor disponível para contagem"}</option>
-                    {sectors.map((sector) => <option key={sector.id} value={sector.id}>{sector.name}</option>)}
+                <div className="filters-row">
+                  <label>Data<input type="date" value={countSessionForm.referenceDate} onChange={(event) => setCountSessionForm({ ...countSessionForm, referenceDate: event.target.value })} /></label>
+                  <label>Tipo<select value={countSessionForm.type} onChange={(event) => setCountSessionForm({ ...countSessionForm, type: event.target.value as StockCountSessionType })}>
+                    <option value="GERAL">Geral</option>
+                    <option value="SETORIAL">Por setor</option>
+                    <option value="CATEGORIA">Por categoria</option>
+                    <option value="SUBCATEGORIA">Por subcategoria</option>
+                    <option value="FINAL_MES">Final do mes</option>
+                    <option value="ALEATORIA">Aleatoria</option>
                   </select></label>
-                )}
-                {countSessionForm.type === "CATEGORIA" && (
-                  <label>Categoria<select value={countSessionForm.categoryId} onChange={(event) => setCountSessionForm({ ...countSessionForm, categoryId: event.target.value })}>
-                    <option value="">Selecione</option>
-                    {productCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-                  </select></label>
-                )}
-                {countSessionForm.type === "SUBCATEGORIA" && (
-                  <label>Subcategoria<select value={countSessionForm.subcategoryId} onChange={(event) => setCountSessionForm({ ...countSessionForm, subcategoryId: event.target.value })}>
-                    <option value="">Selecione</option>
-                    {productSubcategories.map((subcategory) => <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>)}
-                  </select></label>
-                )}
-                <label className="checkbox-label"><input type="checkbox" checked={countSessionForm.isMonthEnd || countSessionForm.type === "FINAL_MES"} onChange={(event) => setCountSessionForm({ ...countSessionForm, isMonthEnd: event.target.checked })} />Contagem final do mes</label>
-                <label>Observacoes<input value={countSessionForm.notes} onChange={(event) => setCountSessionForm({ ...countSessionForm, notes: event.target.value })} /></label>
-                <button className="primary-button" type="button" onClick={createCountSession}><Play size={16} />Iniciar Contagem</button>
+                  {countSessionForm.type === "SETORIAL" && (
+                    <label>Setor<select value={countSessionForm.sectorId} onChange={(event) => setCountSessionForm({ ...countSessionForm, sectorId: event.target.value })}>
+                      <option value="">{sectors.length ? "Selecione" : "Nenhum setor disponível para contagem"}</option>
+                      {sectors.map((sector) => <option key={sector.id} value={sector.id}>{sector.name}</option>)}
+                    </select></label>
+                  )}
+                  {countSessionForm.type === "CATEGORIA" && (
+                    <label>Categoria<select value={countSessionForm.categoryId} onChange={(event) => setCountSessionForm({ ...countSessionForm, categoryId: event.target.value })}>
+                      <option value="">Selecione</option>
+                      {productCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                    </select></label>
+                  )}
+                  {countSessionForm.type === "SUBCATEGORIA" && (
+                    <label>Subcategoria<select value={countSessionForm.subcategoryId} onChange={(event) => setCountSessionForm({ ...countSessionForm, subcategoryId: event.target.value })}>
+                      <option value="">Selecione</option>
+                      {productSubcategories.map((subcategory) => <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>)}
+                    </select></label>
+                  )}
+                  <label className="checkbox-label"><input type="checkbox" checked={countSessionForm.isMonthEnd || countSessionForm.type === "FINAL_MES"} onChange={(event) => setCountSessionForm({ ...countSessionForm, isMonthEnd: event.target.checked })} />Contagem final do mes</label>
+                  <label>Observacoes<input value={countSessionForm.notes} onChange={(event) => setCountSessionForm({ ...countSessionForm, notes: event.target.value })} /></label>
+                  <button className="primary-button" type="button" onClick={createCountSession}><Play size={16} />Iniciar Contagem</button>
+                </div>
               </div>
             </div>
           </>
@@ -2344,50 +2361,95 @@ export function Inventory({
         })()}
 
         {activeView === "counting" && (
-          <div className="table-wrap subsection">
+          <div className="subsection inv-cards-section">
             <h3>Contagens de estoque</h3>
             <p className="muted">Atividade operacional do estoquista. Concluir contagem nao fecha inventario.</p>
-            <table>
-              <thead style={{ whiteSpace: 'nowrap' }}><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor/Categoria</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Divergentes</th><th>Acoes</th></tr></thead>
-              <tbody>
-                {countSessions.map((session) => (
-                  <tr key={session.id}>
-                    <td title={session.notes ?? session.code}>
+
+            {/* Desktop table */}
+            <div className="table-wrap inv-desktop-table-wrap">
+              <table>
+                <thead style={{ whiteSpace: 'nowrap' }}><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor/Categoria</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Divergentes</th><th>Acoes</th></tr></thead>
+                <tbody>
+                  {countSessions.map((session) => (
+                    <tr key={session.id}>
+                      <td title={session.notes ?? session.code}>
+                        <strong>{session.code}</strong>
+                        {session.source === "IMPORTACAO_PLANILHA" && <StatusBadge tone="info">Importada</StatusBadge>}
+                        <small>{session.generatedInventoryCode ? `Inventario: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mes" : session.source === "IMPORTACAO_PLANILHA" ? "Importada via planilha" : "Contagem operacional"}</small>
+                      </td>
+                      <td>{formatDate(session.referenceDate)}</td>
+                      <td>
+                        {countSessionTypeLabels[session.type] ?? session.type}
+                        {session.type === "SETORIAL" && session.sectorName && <small>SETOR: {session.sectorName}</small>}
+                      </td>
+                      <td title={[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ") || "-"}>
+                        {[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ") || "-"}
+                        <small>{formatNumber(session.countedItems)}/{formatNumber(session.totalItems)} contados</small>
+                      </td>
+                      <td><StatusBadge tone={countSessionTone(session.status)}>{countSessionStatusLabels[session.status] ?? session.status}</StatusBadge></td>
+                      <td title={session.responsibleName ?? "-"}>{session.responsibleName ?? "-"}</td>
+                      <td>{formatNumber(session.totalItems)}</td>
+                      <td>{formatNumber(session.countedItems)}</td>
+                      <td>{formatNumber(session.pendingItems)}</td>
+                      <td>{formatNumber(session.divergentItems)}</td>
+                      <td className="actions-cell">
+                        <button className="secondary-button" type="button" onClick={() => openCountSession(session.id)}>{editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}</button>
+                        {canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA" && (
+                          <button className="primary-button" type="button" onClick={async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventario gerado a partir da contagem." }); }}>Gerar inventario</button>
+                        )}
+                        {canCancelCountSession(session) && (
+                          <button className="danger-button" type="button" onClick={() => cancelCountSessionAction(session)}>Cancelar</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {countSessions.length === 0 && (
+                    <tr><td colSpan={11}><EmptyState title="Nenhuma contagem encontrada" description="Clique em Iniciar Contagem para abrir uma ficha de lancamento com produtos controlados." /></td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="inv-mobile-cards">
+              {countSessions.length === 0 && (
+                <EmptyState title="Nenhuma contagem encontrada" description="Toque em Nova contagem para abrir uma ficha de lancamento." />
+              )}
+              {countSessions.map((session) => (
+                <div key={session.id} className="inv-mobile-card">
+                  <div className="inv-mc-header">
+                    <div className="inv-mc-header-left">
                       <strong>{session.code}</strong>
-                      {session.source === "IMPORTACAO_PLANILHA" && <StatusBadge tone="info">Importada</StatusBadge>}
-                      <small>{session.generatedInventoryCode ? `Inventario: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mes" : session.source === "IMPORTACAO_PLANILHA" ? "Importada via planilha" : "Contagem operacional"}</small>
-                    </td>
-                    <td>{formatDate(session.referenceDate)}</td>
-                    <td>
-                      {countSessionTypeLabels[session.type] ?? session.type}
-                      {session.type === "SETORIAL" && session.sectorName && <small>SETOR: {session.sectorName}</small>}
-                    </td>
-                    <td title={[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ") || "-"}>
-                      {[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ") || "-"}
-                      <small>{formatNumber(session.countedItems)}/{formatNumber(session.totalItems)} contados</small>
-                    </td>
-                    <td><StatusBadge tone={countSessionTone(session.status)}>{countSessionStatusLabels[session.status] ?? session.status}</StatusBadge></td>
-                    <td title={session.responsibleName ?? "-"}>{session.responsibleName ?? "-"}</td>
-                    <td>{formatNumber(session.totalItems)}</td>
-                    <td>{formatNumber(session.countedItems)}</td>
-                    <td>{formatNumber(session.pendingItems)}</td>
-                    <td>{formatNumber(session.divergentItems)}</td>
-                    <td className="actions-cell">
-                      <button className="secondary-button" type="button" onClick={() => openCountSession(session.id)}>{editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}</button>
-                      {canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA" && (
-                        <button className="primary-button" type="button" onClick={async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventario gerado a partir da contagem." }); }}>Gerar inventario</button>
+                      <small>{session.generatedInventoryCode ? `Inv: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mes" : countSessionTypeLabels[session.type] ?? session.type}</small>
+                      {[session.sectorName, session.categoryName, session.subcategoryName].some(Boolean) && (
+                        <small>{[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ")}</small>
                       )}
-                      {canCancelCountSession(session) && (
-                        <button className="danger-button" type="button" onClick={() => cancelCountSessionAction(session)}>Cancelar</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {countSessions.length === 0 && (
-                  <tr><td colSpan={11}><EmptyState title="Nenhuma contagem encontrada" description="Clique em Iniciar Contagem para abrir uma ficha de lancamento com produtos controlados." /></td></tr>
-                )}
-              </tbody>
-            </table>
+                    </div>
+                    <StatusBadge tone={countSessionTone(session.status)}>{countSessionStatusLabels[session.status] ?? session.status}</StatusBadge>
+                  </div>
+                  <div className="inv-mc-meta">
+                    <span>{formatDate(session.referenceDate)}</span>
+                    {session.responsibleName && <span>{session.responsibleName}</span>}
+                  </div>
+                  <div className="inv-mc-progress">
+                    <span>{formatNumber(session.countedItems)}/{formatNumber(session.totalItems)} contados</span>
+                    {Number(session.pendingItems) > 0 && <span className="inv-mc-pending">{formatNumber(session.pendingItems)} pend.</span>}
+                    {Number(session.divergentItems) > 0 && <span className="inv-mc-divergent">{formatNumber(session.divergentItems)} div.</span>}
+                  </div>
+                  <div className="inv-mc-actions">
+                    <button className="secondary-button" type="button" onClick={() => openCountSession(session.id)}>
+                      {editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}
+                    </button>
+                    {canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA" && (
+                      <button className="primary-button" type="button" onClick={async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventario gerado a partir da contagem." }); }}>Gerar inv.</button>
+                    )}
+                    {canCancelCountSession(session) && (
+                      <button className="danger-button" type="button" onClick={() => cancelCountSessionAction(session)}>Cancelar</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -2407,118 +2469,209 @@ export function Inventory({
             <SummaryCard label="Divergentes (CMV)" value={operationalSummary.divergent} tone={operationalSummary.divergent ? "danger" : "success"} />
           </div>
 
-          <div className="form-section inventory-create-panel">
-            <div className="section-heading compact-heading">
-              <div>
-                <p>Novo inventario</p>
-                <h3>Criar inventario manual</h3>
+          <button className="inv-mobile-form-toggle" type="button" onClick={() => setMobileInvFormOpen(v => !v)}>
+            <ClipboardCheck size={15} />{mobileInvFormOpen ? "Cancelar" : "Criar inventario"}
+          </button>
+          <div className={`inv-collapsible-form${mobileInvFormOpen ? " open" : ""}`}>
+            <div className="form-section inventory-create-panel">
+              <div className="section-heading compact-heading">
+                <div>
+                  <p>Novo inventario</p>
+                  <h3>Criar inventario manual</h3>
+                </div>
+                <span className="muted">Use para inventario oficial, conferencia ou fechamento de CMV com estrutura pronta para lancamento.</span>
               </div>
-              <span className="muted">Use para inventario oficial, conferencia ou fechamento de CMV com estrutura pronta para lancamento.</span>
-            </div>
-            <div className="filters-row">
-              <label>Data<input type="date" value={operationalForm.date} onChange={(event) => setOperationalForm({ ...operationalForm, date: event.target.value })} /></label>
-              <label>Tipo<select value={operationalForm.type} onChange={(event) => setOperationalForm({ ...operationalForm, type: event.target.value as OperationalInventoryType })}>
-                <option value="GERAL">Geral</option>
-                <option value="SETORIAL">Setorial</option>
-                <option value="FINAL_CMV">Final CMV</option>
-                <option value="CONFERENCIA">Conferencia</option>
-              </select></label>
-              {operationalForm.type === "SETORIAL" && (
-                <label>Setor<select value={operationalForm.sectorId} onChange={(event) => setOperationalForm({ ...operationalForm, sectorId: event.target.value })}>
-                  <option value="">Selecione</option>
-                  {sectors.map((sector) => <option key={sector.id} value={sector.id}>{sector.name}</option>)}
+              <div className="filters-row">
+                <label>Data<input type="date" value={operationalForm.date} onChange={(event) => setOperationalForm({ ...operationalForm, date: event.target.value })} /></label>
+                <label>Tipo<select value={operationalForm.type} onChange={(event) => setOperationalForm({ ...operationalForm, type: event.target.value as OperationalInventoryType })}>
+                  <option value="GERAL">Geral</option>
+                  <option value="SETORIAL">Setorial</option>
+                  <option value="FINAL_CMV">Final CMV</option>
+                  <option value="CONFERENCIA">Conferencia</option>
                 </select></label>
-              )}
-              <label className="span-2">Observacoes<input value={operationalForm.notes} onChange={(event) => setOperationalForm({ ...operationalForm, notes: event.target.value })} /></label>
-              <button className="primary-button" type="button" onClick={createOperational}><ClipboardCheck size={16} />Criar inventario</button>
+                {operationalForm.type === "SETORIAL" && (
+                  <label>Setor<select value={operationalForm.sectorId} onChange={(event) => setOperationalForm({ ...operationalForm, sectorId: event.target.value })}>
+                    <option value="">Selecione</option>
+                    {sectors.map((sector) => <option key={sector.id} value={sector.id}>{sector.name}</option>)}
+                  </select></label>
+                )}
+                <label className="span-2">Observacoes<input value={operationalForm.notes} onChange={(event) => setOperationalForm({ ...operationalForm, notes: event.target.value })} /></label>
+                <button className="primary-button" type="button" onClick={createOperational}><ClipboardCheck size={16} />Criar inventario</button>
+              </div>
             </div>
           </div>
 
           {operationalCounts.length > 0 && (
-            <div className="table-wrap subsection">
+            <div className="subsection inv-cards-section">
               <div className="inventory-block-heading">
                 <div>
                   <h3>Inventarios em andamento</h3>
                   <p className="muted">Rascunhos, em revisao e rejeitados — ainda nao oficializados.</p>
                 </div>
               </div>
-              <table className="inventory-official-table">
-                <thead style={{ whiteSpace: 'nowrap' }}><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Cobertura CMV</th><th>Acoes</th></tr></thead>
-                <tbody>
-                  {operationalCounts.map((inventory) => {
-                    const cov = inventory.type === "FINAL_CMV" ? finalCmvCoverageMap[inventory.id] : undefined;
-                    return (
-                      <tr key={inventory.id}>
-                        <td title={inventory.name}>
-                          <strong>{inventory.code}</strong><small>{inventory.name}</small>
-                          <div className="badge-row inventory-inline-badges">
-                            {inventory.type === "FINAL_CMV" && <StatusBadge tone="warning">final CMV</StatusBadge>}
+
+              {/* Desktop table */}
+              <div className="table-wrap inv-desktop-table-wrap">
+                <table className="inventory-official-table">
+                  <thead style={{ whiteSpace: 'nowrap' }}><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Cobertura CMV</th><th>Acoes</th></tr></thead>
+                  <tbody>
+                    {operationalCounts.map((inventory) => {
+                      const cov = inventory.type === "FINAL_CMV" ? finalCmvCoverageMap[inventory.id] : undefined;
+                      return (
+                        <tr key={inventory.id}>
+                          <td title={inventory.name}>
+                            <strong>{inventory.code}</strong><small>{inventory.name}</small>
+                            <div className="badge-row inventory-inline-badges">
+                              {inventory.type === "FINAL_CMV" && <StatusBadge tone="warning">final CMV</StatusBadge>}
+                            </div>
+                          </td>
+                          <td>{formatDate(inventory.date)}</td>
+                          <td>{operationalTypeLabels[inventory.type]}</td>
+                          <td title={inventory.sectorName ?? "-"}>{inventory.sectorName ?? "-"}</td>
+                          <td><StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge></td>
+                          <td title={inventory.responsibleName ?? "-"}>{inventory.responsibleName ?? "-"}</td>
+                          <td>{formatNumber(inventory.totalItems)}</td>
+                          <td>{formatNumber(inventory.countedItems)}</td>
+                          <td>{formatNumber(inventory.pendingItems)}</td>
+                          <td>
+                            {isLoadingCoverageMap && !cov && inventory.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inventory.status) && (
+                              <span style={{ color: "var(--text-muted, #666)", fontSize: 12 }}>...</span>
+                            )}
+                            {cov && (
+                              <StatusBadge tone={cov.isComplete ? "success" : "warning"}>
+                                {cov.coveredTotal}/{cov.expectedTotal}
+                              </StatusBadge>
+                            )}
+                            {!cov && !(isLoadingCoverageMap && inventory.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inventory.status)) && "-"}
+                          </td>
+                          <td className="actions-cell">
+                            <button className="secondary-button" type="button" onClick={() => openOperationalInventory(inventory.id)}>Abrir</button>
+                            <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>Gerar PDF</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile cards */}
+              <div className="inv-mobile-cards">
+                {operationalCounts.map((inventory) => {
+                  const cov = inventory.type === "FINAL_CMV" ? finalCmvCoverageMap[inventory.id] : undefined;
+                  return (
+                    <div key={inventory.id} className="inv-mobile-card">
+                      <div className="inv-mc-header">
+                        <div className="inv-mc-header-left">
+                          <strong>{inventory.code}</strong>
+                          <small>{inventory.name}</small>
+                          <div className="inv-mc-badges">
+                            {inventory.type === "FINAL_CMV" && <StatusBadge tone="warning">Final CMV</StatusBadge>}
                           </div>
-                        </td>
-                        <td>{formatDate(inventory.date)}</td>
-                        <td>{operationalTypeLabels[inventory.type]}</td>
-                        <td title={inventory.sectorName ?? "-"}>{inventory.sectorName ?? "-"}</td>
-                        <td><StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge></td>
-                        <td title={inventory.responsibleName ?? "-"}>{inventory.responsibleName ?? "-"}</td>
-                        <td>{formatNumber(inventory.totalItems)}</td>
-                        <td>{formatNumber(inventory.countedItems)}</td>
-                        <td>{formatNumber(inventory.pendingItems)}</td>
-                        <td>
-                          {isLoadingCoverageMap && !cov && inventory.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inventory.status) && (
-                            <span style={{ color: "var(--text-muted, #666)", fontSize: 12 }}>...</span>
-                          )}
-                          {cov && (
-                            <StatusBadge tone={cov.isComplete ? "success" : "warning"}>
-                              {cov.coveredTotal}/{cov.expectedTotal}
-                            </StatusBadge>
-                          )}
-                          {!cov && !(isLoadingCoverageMap && inventory.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inventory.status)) && "-"}
-                        </td>
-                        <td className="actions-cell">
-                          <button className="secondary-button" type="button" onClick={() => openOperationalInventory(inventory.id)}>Abrir</button>
-                          <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>Gerar PDF</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        </div>
+                        <StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge>
+                      </div>
+                      <div className="inv-mc-meta">
+                        <span>{operationalTypeLabels[inventory.type]}</span>
+                        <span>{formatDate(inventory.date)}</span>
+                        {inventory.sectorName && <span>{inventory.sectorName}</span>}
+                      </div>
+                      <div className="inv-mc-progress">
+                        <span>{formatNumber(inventory.countedItems)}/{formatNumber(inventory.totalItems)} contados</span>
+                        {Number(inventory.pendingItems) > 0 && <span className="inv-mc-pending">{formatNumber(inventory.pendingItems)} pend.</span>}
+                      </div>
+                      {inventory.type === "FINAL_CMV" && (
+                        <div className="inv-mc-coverage">
+                          <span>Cobertura:</span>
+                          {isLoadingCoverageMap && !cov ? <span style={{ fontSize: 12, color: "var(--muted)" }}>...</span> : cov ? (
+                            <StatusBadge tone={cov.isComplete ? "success" : "warning"}>{cov.coveredTotal}/{cov.expectedTotal}</StatusBadge>
+                          ) : null}
+                        </div>
+                      )}
+                      <div className="inv-mc-actions">
+                        <button className="primary-button" type="button" onClick={() => openOperationalInventory(inventory.id)}>Abrir</button>
+                        <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>PDF</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
-          <div className="table-wrap subsection inventory-official-list">
+          <div className="subsection inventory-official-list inv-cards-section">
             <div className="inventory-block-heading">
               <div>
                 <h3>Inventarios oficiais</h3>
                 <p className="muted">Documentos aprovados, fechados ou cancelados. Apenas aprovados/fechados geram snapshot valido para CMV Real.</p>
               </div>
             </div>
-            <table className="inventory-official-table">
-            <thead style={{ whiteSpace: 'nowrap' }}><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Divergentes</th><th>Acoes</th></tr></thead>
-            <tbody>
-              {officialInventories.map((inventory) => (
-                <tr key={inventory.id}>
-                  <td title={inventory.name}><strong>{inventory.code}</strong><small>{inventory.name}</small><div className="badge-row inventory-inline-badges">{inventory.status === "FECHADO" && <StatusBadge tone="success">fechado</StatusBadge>}{inventory.inventorySnapshotId && <StatusBadge tone="info">snapshot CMV</StatusBadge>}{inventory.type === "FINAL_CMV" && <StatusBadge tone="warning">final CMV</StatusBadge>}</div></td>
-                  <td>{formatDate(inventory.date)}</td>
-                  <td>{operationalTypeLabels[inventory.type]}</td>
-                  <td title={inventory.sectorName ?? "-"}>{inventory.sectorName ?? "-"}</td>
-                  <td><StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge></td>
-                  <td title={inventory.responsibleName ?? "-"}>{inventory.responsibleName ?? "-"}</td>
-                  <td>{formatNumber(inventory.totalItems)}</td>
-                  <td>{formatNumber(inventory.countedItems)}</td>
-                  <td>{formatNumber(inventory.pendingItems)}</td>
-                  <td>{formatNumber(inventory.divergentItems)}</td>
-                  <td className="actions-cell">
-                    <button className="secondary-button" type="button" onClick={() => openOperationalInventory(inventory.id)}>Abrir</button>
-                    <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>Gerar PDF</button>
-                  </td>
-                </tr>
-              ))}
+
+            {/* Desktop table */}
+            <div className="table-wrap inv-desktop-table-wrap">
+              <table className="inventory-official-table">
+                <thead style={{ whiteSpace: 'nowrap' }}><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Divergentes</th><th>Acoes</th></tr></thead>
+                <tbody>
+                  {officialInventories.map((inventory) => (
+                    <tr key={inventory.id}>
+                      <td title={inventory.name}><strong>{inventory.code}</strong><small>{inventory.name}</small><div className="badge-row inventory-inline-badges">{inventory.status === "FECHADO" && <StatusBadge tone="success">fechado</StatusBadge>}{inventory.inventorySnapshotId && <StatusBadge tone="info">snapshot CMV</StatusBadge>}{inventory.type === "FINAL_CMV" && <StatusBadge tone="warning">final CMV</StatusBadge>}</div></td>
+                      <td>{formatDate(inventory.date)}</td>
+                      <td>{operationalTypeLabels[inventory.type]}</td>
+                      <td title={inventory.sectorName ?? "-"}>{inventory.sectorName ?? "-"}</td>
+                      <td><StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge></td>
+                      <td title={inventory.responsibleName ?? "-"}>{inventory.responsibleName ?? "-"}</td>
+                      <td>{formatNumber(inventory.totalItems)}</td>
+                      <td>{formatNumber(inventory.countedItems)}</td>
+                      <td>{formatNumber(inventory.pendingItems)}</td>
+                      <td>{formatNumber(inventory.divergentItems)}</td>
+                      <td className="actions-cell">
+                        <button className="secondary-button" type="button" onClick={() => openOperationalInventory(inventory.id)}>Abrir</button>
+                        <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>Gerar PDF</button>
+                      </td>
+                    </tr>
+                  ))}
+                  {officialInventories.length === 0 && (
+                    <tr><td colSpan={11}><EmptyState title="Nenhum inventario oficial" description="Aprove ou feche uma contagem para gerar o documento oficial." /></td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="inv-mobile-cards">
               {officialInventories.length === 0 && (
-                <tr><td colSpan={11}><EmptyState title="Nenhum inventario oficial" description="Aprove ou feche uma contagem para gerar o documento oficial." /></td></tr>
+                <EmptyState title="Nenhum inventario oficial" description="Aprove ou feche uma contagem para gerar o documento oficial." />
               )}
-            </tbody>
-            </table>
+              {officialInventories.map((inventory) => (
+                <div key={inventory.id} className="inv-mobile-card">
+                  <div className="inv-mc-header">
+                    <div className="inv-mc-header-left">
+                      <strong>{inventory.code}</strong>
+                      <small>{inventory.name}</small>
+                      <div className="inv-mc-badges">
+                        {inventory.status === "FECHADO" && <StatusBadge tone="success">Fechado</StatusBadge>}
+                        {inventory.inventorySnapshotId && <StatusBadge tone="info">Snapshot CMV</StatusBadge>}
+                        {inventory.type === "FINAL_CMV" && <StatusBadge tone="warning">Final CMV</StatusBadge>}
+                      </div>
+                    </div>
+                    <StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge>
+                  </div>
+                  <div className="inv-mc-meta">
+                    <span>{operationalTypeLabels[inventory.type]}</span>
+                    <span>{formatDate(inventory.date)}</span>
+                    {inventory.sectorName && <span>{inventory.sectorName}</span>}
+                  </div>
+                  <div className="inv-mc-progress">
+                    <span>{formatNumber(inventory.countedItems)}/{formatNumber(inventory.totalItems)} contados</span>
+                    {Number(inventory.divergentItems) > 0 && <span className="inv-mc-divergent">{formatNumber(inventory.divergentItems)} div.</span>}
+                  </div>
+                  <div className="inv-mc-actions">
+                    <button className="primary-button" type="button" onClick={() => openOperationalInventory(inventory.id)}>Abrir</button>
+                    <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>PDF</button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </>}
 
