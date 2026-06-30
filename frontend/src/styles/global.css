@@ -6648,10 +6648,40 @@ details[open] .modal-section-summary::before {
     max-width: 100%;
     overflow-x: hidden;
     padding:
-      18px
-      max(16px, env(safe-area-inset-right))
-      calc(22px + env(safe-area-inset-bottom))
-      max(16px, env(safe-area-inset-left));
+      10px
+      max(14px, env(safe-area-inset-right))
+      calc(20px + env(safe-area-inset-bottom))
+      max(14px, env(safe-area-inset-left));
+  }
+
+  /* Compact panel/card on mobile */
+  .panel,
+  .summary-grid article {
+    padding: 12px 14px;
+  }
+
+  /* Tighter stacks on mobile */
+  .stack {
+    gap: 14px;
+  }
+
+  /* Smaller h2 inside panels */
+  .panel h2 {
+    font-size: 16px;
+    margin-bottom: 4px;
+  }
+
+  /* Breadcrumb in section-heading: smaller */
+  .section-heading > div > p:first-child,
+  .section-heading > div > p {
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+
+  /* Any table not already handled: scroll horizontally */
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .summary-grid {
@@ -8295,10 +8325,10 @@ details[open] .modal-section-summary::before {
     width: 100%;
     max-width: 100%;
     padding:
-      16px
-      max(16px, env(safe-area-inset-right))
+      10px
+      max(14px, env(safe-area-inset-right))
       calc(16px + env(safe-area-inset-bottom))
-      max(16px, env(safe-area-inset-left));
+      max(14px, env(safe-area-inset-left));
     overflow-x: hidden;
   }
 
@@ -8353,9 +8383,17 @@ details[open] .modal-section-summary::before {
     width: 100%;
   }
 
-  .section-heading .actions-cell button,
-  .form-section-header .actions-cell button {
+  .section-heading .actions-cell button:not(.icon-button),
+  .form-section-header .actions-cell button:not(.icon-button) {
     flex: 1 1 100%;
+  }
+
+  /* Icon-only buttons stay compact — never stretch full-width */
+  .section-heading .actions-cell .icon-button,
+  .form-section-header .actions-cell .icon-button {
+    flex: 0 0 40px;
+    width: 40px;
+    min-width: 40px;
   }
 
   .financial-summary {
@@ -11203,4 +11241,97 @@ tr.dre-row-selected td {
     width: auto !important;
     flex-shrink: 0;
   }
+
+  /* ── Inventory operational panel header (inv-op-header) ── */
+  /* Override the generic 560px rule that makes actions-cell full-width */
+  .inv-op-header {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: nowrap;
+  }
+  .inv-op-header > div:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .inv-op-header h2 {
+    font-size: 15px;
+    margin-bottom: 0;
+  }
+  .inv-op-header > div > p {
+    font-size: 10px;
+    margin-bottom: 1px;
+  }
+  .inv-op-header .actions-cell {
+    width: auto !important;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+    gap: 6px;
+  }
+  .inv-op-header .actions-cell button {
+    flex: 0 0 auto !important;
+  }
+  .inv-op-header .checkbox-label {
+    font-size: 12px;
+    white-space: nowrap;
+    gap: 5px;
+  }
+}
+
+/* ── Mobile Utility Classes ────────────────────────────────────────────── */
+
+/* Mobile page header: compact breadcrumb + title */
+.mobile-page-header {
+  display: none;
+}
+
+/* Mobile action row: compact horizontal strip of primary/secondary actions */
+.mobile-action-row {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.mobile-action-row::-webkit-scrollbar { display: none; }
+
+/* Mobile filter panel: compact collapsible filters */
+.mobile-filter-panel {
+  display: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface, #f8f7f4);
+  padding: 12px 14px;
+  gap: 10px;
+}
+
+/* Mobile card list (generic — complementary to inv-mobile-cards) */
+.mobile-card-list {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Mobile card (generic — complementary to inv-mobile-card) */
+.mobile-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.96);
+  padding: 14px 16px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 768px) {
+  .mobile-page-header { display: block; }
+  .mobile-action-row { display: flex; }
+  .mobile-filter-panel { display: grid; }
+  .mobile-card-list { display: flex; }
+  /* .mobile-card is always display: grid — no change needed on mobile */
 }

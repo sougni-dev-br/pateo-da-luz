@@ -2029,7 +2029,7 @@ export function Inventory({
       </section>
 
       <section className={panelClass(["counting", "inventory", "reports"])}>
-        <div className="section-heading">
+        <div className="section-heading inv-op-header">
           <div>
             <p>Estoque</p>
             <h2>{activeView === "counting" ? "Contagens de estoque" : "Inventario operacional"}</h2>
