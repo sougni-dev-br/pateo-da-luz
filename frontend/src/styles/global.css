@@ -7632,6 +7632,33 @@ details[open] .modal-section-summary::before {
   margin-bottom: 0;
 }
 
+/* ─── Cash — tab switcher (desktop: oculto) ─── */
+.cash-shift-tabs {
+  display: none;
+}
+
+/* ─── Cash — total geral destacado ─── */
+.cash-total-geral {
+  grid-column: 1 / -1;
+  border: 1.5px solid rgba(47, 95, 152, 0.28) !important;
+  background: rgba(47, 95, 152, 0.05) !important;
+}
+
+.cash-total-geral span {
+  color: #2f5f98;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.cash-total-geral strong {
+  font-size: 26px;
+  color: #1d3d6b;
+  font-variant-numeric: tabular-nums;
+}
+
 .cmv-workspace-grid {
   display: grid;
   gap: 16px;
@@ -7988,6 +8015,99 @@ details[open] .modal-section-summary::before {
     border-radius: 8px;
     min-height: 42px;
     padding: 0 10px;
+  }
+}
+
+/* ─── Cash screen — Mobile UX aprimorado (≤ 640px) ─── */
+@media (max-width: 640px) {
+  /* Tab switcher de turno: visível só no mobile */
+  .cash-shift-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .cash-shift-tab {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    flex: 1;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--muted);
+    justify-content: space-between;
+    min-height: 48px;
+    padding: 10px 14px;
+    transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+  }
+
+  .cash-shift-tab.active {
+    background: rgba(47, 95, 152, 0.07);
+    border-color: rgba(47, 95, 152, 0.5);
+    color: #2f5f98;
+    font-weight: 600;
+  }
+
+  .cash-shift-tab-total {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.85;
+  }
+
+  /* Painel inativo: oculto no mobile */
+  .cash-shift-pane[data-active="false"] {
+    display: none;
+  }
+
+  /* Status chips compactos: 3 colunas horizontais */
+  .cash-status-chips-grid {
+    gap: 8px !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .cash-status-chips-grid .summary-card-icon {
+    display: none;
+  }
+
+  .cash-status-chips-grid .compact-summary-card {
+    min-height: 0;
+    padding: 10px 10px;
+  }
+
+  .cash-status-chips-grid .compact-summary-card small {
+    display: none;
+  }
+
+  .cash-status-chips-grid .compact-summary-card > div > span {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .cash-status-chips-grid .compact-summary-card > div > strong {
+    font-size: 12px;
+  }
+
+}
+
+/* Delivery 2 colunas: só quando há espaço suficiente (431–640px) */
+@media (min-width: 431px) and (max-width: 640px) {
+  .cash-delivery-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* 5 cards: última plataforma ocupa linha inteira */
+  .cash-delivery-grid > article:last-child {
+    grid-column: 1 / -1;
+  }
+
+  /* Badge de ticket médio: não forçar width 100% dentro das plataformas */
+  .cash-delivery-grid .status-badge {
+    width: auto;
   }
 }
 

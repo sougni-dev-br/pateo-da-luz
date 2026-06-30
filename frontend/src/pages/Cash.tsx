@@ -117,6 +117,7 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [currentEntry, setCurrentEntry] = useState<RevenueEntry | null>(null);
   const [date, setDate] = useState(today());
+  const [activeShift, setActiveShift] = useState<1 | 2>(1);
   const [shift1, setShift1] = useState<ShiftFields>(emptyShift());
   const [shift2, setShift2] = useState<ShiftFields>(emptyShift());
   const [meta, setMeta] = useState<SalonMeta>(emptyMeta());
@@ -391,7 +392,7 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
           </div>
         </div>
 
-        <div className="summary-grid dashboard-compact-grid">
+        <div className="summary-grid dashboard-compact-grid cash-status-chips-grid">
           <CashStatusCard
             label="Mesas"
             status={dailyStatus.salon ? "Concluído" : "Pendente"}
@@ -443,8 +444,30 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
         </div>
 
         <div className="cash-shifts-container">
-          <ShiftCard label="1º Turno" shift={shift1} onChange={setShift1} disabled={disabled} />
-          <ShiftCard label="2º Turno" shift={shift2} onChange={setShift2} disabled={disabled} />
+          <div className="cash-shift-tabs">
+            <button
+              type="button"
+              className={`cash-shift-tab${activeShift === 1 ? " active" : ""}`}
+              onClick={() => setActiveShift(1)}
+            >
+              <span>1º Turno</span>
+              <span className="cash-shift-tab-total">{formatCurrency(shift1Total)}</span>
+            </button>
+            <button
+              type="button"
+              className={`cash-shift-tab${activeShift === 2 ? " active" : ""}`}
+              onClick={() => setActiveShift(2)}
+            >
+              <span>2º Turno</span>
+              <span className="cash-shift-tab-total">{formatCurrency(shift2Total)}</span>
+            </button>
+          </div>
+          <div className="cash-shift-pane" data-active={String(activeShift === 1)}>
+            <ShiftCard label="1º Turno" shift={shift1} onChange={setShift1} disabled={disabled} />
+          </div>
+          <div className="cash-shift-pane" data-active={String(activeShift === 2)}>
+            <ShiftCard label="2º Turno" shift={shift2} onChange={setShift2} disabled={disabled} />
+          </div>
         </div>
 
         <div className="form-grid cash-meta-grid">
