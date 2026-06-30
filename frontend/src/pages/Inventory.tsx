@@ -406,18 +406,26 @@ export function Inventory({
     if (canManageOperationalInventory) return true;
     return user.role === "ESTOQUISTA" && session.responsibleUserId === user.id && ["ABERTA", "EM_ANDAMENTO"].includes(session.status);
   };
-  const operationalSummary = useMemo(() => ({
-    drafts: operationalInventories.filter((item) => item.status === "RASCUNHO").length,
-    review: operationalInventories.filter((item) => item.status === "EM_REVISAO").length,
-    closed: operationalInventories.filter((item) => item.status === "FECHADO").length,
-    lastFinalCmv: operationalInventories.find((item) => item.type === "FINAL_CMV" && ["APROVADO", "FECHADO"].includes(item.status)),
-    pending: operationalInventories
-      .filter((item) => !["CANCELADO", "REJEITADO"].includes(item.status))
-      .reduce((sum, item) => sum + Number(item.pendingItems ?? 0), 0),
-    divergent: operationalInventories
-      .filter((item) => !["CANCELADO", "REJEITADO"].includes(item.status))
-      .reduce((sum, item) => sum + Number(item.divergentItems ?? 0), 0)
-  }), [operationalInventories]);
+  const operationalSummary = useMemo(() => {
+    const activeFinalCmv = operationalInventories.find(
+      (item) => item.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(item.status)
+    );
+    const lastFinalCmv = operationalInventories.find(
+      (item) => item.type === "FINAL_CMV" && ["APROVADO", "FECHADO"].includes(item.status)
+    );
+    const finalCmvActive = operationalInventories.filter(
+      (item) => item.type === "FINAL_CMV" && !["CANCELADO", "REJEITADO"].includes(item.status)
+    );
+    return {
+      drafts: operationalInventories.filter((item) => item.status === "RASCUNHO").length,
+      review: operationalInventories.filter((item) => item.status === "EM_REVISAO").length,
+      closed: operationalInventories.filter((item) => item.status === "FECHADO").length,
+      activeFinalCmv,
+      lastFinalCmv,
+      pending: finalCmvActive.reduce((sum, item) => sum + Number(item.pendingItems ?? 0), 0),
+      divergent: finalCmvActive.reduce((sum, item) => sum + Number(item.divergentItems ?? 0), 0)
+    };
+  }, [operationalInventories]);
   const operationalCounts = useMemo(
     () => operationalInventories.filter((item) => ["RASCUNHO", "EM_REVISAO", "REJEITADO"].includes(item.status)),
     [operationalInventories]
@@ -1435,7 +1443,7 @@ export function Inventory({
 
   useEffect(() => {
     const drafts = operationalInventories.filter(
-      (inv) => inv.type === "FINAL_CMV" && inv.status === "RASCUNHO"
+      (inv) => inv.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inv.status)
     );
     if (drafts.length === 0) { setFinalCmvCoverageMap({}); return; }
     setIsLoadingCoverageMap(true);
@@ -2050,6 +2058,36 @@ export function Inventory({
               <button className="secondary-button" type="button" disabled={!buyerSupport} onClick={exportBuyerPrelist}><FileText size={16} />Exportar CSV</button>
               <button className="primary-button" type="button" disabled={!buyerSupport} onClick={generatePurchaseOrdersFromPrelist}><ShoppingCart size={16} />Gerar pedido de compra</button>
             </div>
+
+            {operationalSummary.activeFinalCmv && inventoryDeskTab === "official" && (() => {
+              const inv = operationalSummary.activeFinalCmv!;
+              const cov = finalCmvCoverageMap[inv.id];
+              const isEmRevisao = inv.status === "EM_REVISAO";
+              const isComplete = cov?.isComplete === true;
+              return (
+                <div className="form-section" style={{ borderLeft: `4px solid ${isEmRevisao ? "var(--warning, #b45309)" : "var(--success, #2e7d32)"}`, background: "var(--surface)", marginTop: 12 }}>
+                  <div className="section-heading compact-heading" style={{ margin: 0 }}>
+                    <div>
+                      <p>Fechamento do mes</p>
+                      <h3 style={{ margin: "2px 0 4px" }}>
+                        {isEmRevisao ? "Inventario Final CMV em revisao" : "Inventario Final CMV em andamento"}
+                      </h3>
+                      <span className="muted">{inv.code} • {formatDate(inv.date)}</span>
+                      {cov && (
+                        <p style={{ margin: "4px 0 0", fontSize: 13, fontWeight: 600, color: isComplete ? "var(--success, #2e7d32)" : "var(--warning, #b45309)" }}>
+                          {cov.coveredTotal}/{cov.expectedTotal} produtos controlados cobertos{isComplete ? " — completo" : ` — ${cov.missingTotal} pendente(s)`}
+                        </p>
+                      )}
+                      {isEmRevisao && <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-muted, #666)" }}>Aguardando revisao e aprovacao para fechamento do CMV Real.</p>}
+                    </div>
+                    <div className="actions-cell">
+                      <StatusBadge tone={operationalTone(inv.status)}>{operationalStatusLabels[inv.status] ?? inv.status}</StatusBadge>
+                      <button className="secondary-button" type="button" onClick={() => void openOperationalInventory(inv.id)}>Ver inventario</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </>
         )}
 
@@ -2059,8 +2097,38 @@ export function Inventory({
               <SummaryCard label="Abertas" value={activeCountSessions.filter((item) => item.status === "ABERTA").length} tone="warning" icon={<ClipboardCheck size={18} />} />
               <SummaryCard label="Em andamento" value={activeCountSessions.filter((item) => item.status === "EM_ANDAMENTO").length} tone="info" />
               <SummaryCard label="Concluidas" value={completedCountSessions.length} tone="success" icon={<CheckCircle2 size={18} />} />
-              <SummaryCard label="Progresso medio" value={`${activeCountProgress}%`} tone={activeCountProgress >= 80 ? "success" : activeCountSessions.length ? "warning" : "info"} />
+              {activeCountSessions.length > 0 && <SummaryCard label="Progresso medio" value={`${activeCountProgress}%`} tone={activeCountProgress >= 80 ? "success" : "warning"} />}
             </div>
+
+            {operationalSummary.activeFinalCmv && (() => {
+              const inv = operationalSummary.activeFinalCmv!;
+              const cov = finalCmvCoverageMap[inv.id];
+              const isEmRevisao = inv.status === "EM_REVISAO";
+              const isComplete = cov?.isComplete === true;
+              return (
+                <div className="form-section" style={{ borderLeft: `4px solid ${isEmRevisao ? "var(--warning, #b45309)" : "var(--success, #2e7d32)"}`, background: "var(--surface)" }}>
+                  <div className="section-heading compact-heading" style={{ margin: 0 }}>
+                    <div>
+                      <p>Fechamento do mes</p>
+                      <h3 style={{ margin: "2px 0 4px" }}>
+                        {isEmRevisao ? "Inventario Final CMV em revisao" : "Inventario Final CMV em andamento"}
+                      </h3>
+                      <span className="muted">{inv.code} • {formatDate(inv.date)}</span>
+                      {cov && (
+                        <p style={{ margin: "4px 0 0", fontSize: 13, fontWeight: 600, color: isComplete ? "var(--success, #2e7d32)" : "var(--warning, #b45309)" }}>
+                          {cov.coveredTotal}/{cov.expectedTotal} produtos controlados cobertos{isComplete ? " — completo" : ` — ${cov.missingTotal} pendente(s)`}
+                        </p>
+                      )}
+                      {isEmRevisao && <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-muted, #666)" }}>Aguardando revisao e aprovacao para fechamento do CMV Real.</p>}
+                    </div>
+                    <div className="actions-cell">
+                      <StatusBadge tone={operationalTone(inv.status)}>{operationalStatusLabels[inv.status] ?? inv.status}</StatusBadge>
+                      <button className="secondary-button" type="button" onClick={() => { setActiveView("inventory"); setInventoryDeskTab("official"); void openOperationalInventory(inv.id); }}>Ver inventario</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="form-section">
               <div className="section-heading compact-heading">
@@ -2200,7 +2268,7 @@ export function Inventory({
 
         {activeView === "counting" && canManageOperationalInventory && (() => {
           const finalCmvDrafts = operationalInventories.filter(
-            (inv) => inv.type === "FINAL_CMV" && inv.status === "RASCUNHO"
+            (inv) => inv.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inv.status)
           );
           if (finalCmvDrafts.length === 0) return null;
           return finalCmvDrafts.map((inv) => {
@@ -2327,9 +2395,16 @@ export function Inventory({
           <div className="summary-grid inventory-compact-summary">
             <SummaryCard label="Inventarios em rascunho" value={operationalSummary.drafts} tone={operationalSummary.drafts ? "warning" : "info"} icon={<Archive size={18} />} />
             <SummaryCard label="Em revisao" value={operationalSummary.review} tone={operationalSummary.review ? "warning" : "info"} />
-            <SummaryCard label="Ultimo final CMV" value={operationalSummary.lastFinalCmv?.code ?? "-"} detail={operationalSummary.lastFinalCmv ? formatDate(operationalSummary.lastFinalCmv.date) : "Nenhum final aprovado"} />
-            <SummaryCard label="Pendentes" value={operationalSummary.pending} tone={operationalSummary.pending ? "warning" : "success"} />
-            <SummaryCard label="Divergentes" value={operationalSummary.divergent} tone={operationalSummary.divergent ? "danger" : "success"} />
+            <SummaryCard
+              label={operationalSummary.activeFinalCmv ? "Fechamento atual" : "Ultimo final CMV"}
+              value={operationalSummary.activeFinalCmv?.code ?? operationalSummary.lastFinalCmv?.code ?? "-"}
+              detail={operationalSummary.activeFinalCmv
+                ? `${operationalStatusLabels[operationalSummary.activeFinalCmv.status] ?? operationalSummary.activeFinalCmv.status} • ${formatDate(operationalSummary.activeFinalCmv.date)}`
+                : (operationalSummary.lastFinalCmv ? formatDate(operationalSummary.lastFinalCmv.date) : "Nenhum final aprovado")}
+              tone={operationalSummary.activeFinalCmv ? "warning" : "info"}
+            />
+            <SummaryCard label="Pendentes (CMV)" value={operationalSummary.pending} tone={operationalSummary.pending ? "warning" : "success"} />
+            <SummaryCard label="Divergentes (CMV)" value={operationalSummary.divergent} tone={operationalSummary.divergent ? "danger" : "success"} />
           </div>
 
           <div className="form-section inventory-create-panel">
@@ -2389,7 +2464,7 @@ export function Inventory({
                         <td>{formatNumber(inventory.countedItems)}</td>
                         <td>{formatNumber(inventory.pendingItems)}</td>
                         <td>
-                          {isLoadingCoverageMap && !cov && inventory.type === "FINAL_CMV" && inventory.status === "RASCUNHO" && (
+                          {isLoadingCoverageMap && !cov && inventory.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inventory.status) && (
                             <span style={{ color: "var(--text-muted, #666)", fontSize: 12 }}>...</span>
                           )}
                           {cov && (
@@ -2397,7 +2472,7 @@ export function Inventory({
                               {cov.coveredTotal}/{cov.expectedTotal}
                             </StatusBadge>
                           )}
-                          {!cov && !(isLoadingCoverageMap && inventory.type === "FINAL_CMV" && inventory.status === "RASCUNHO") && "-"}
+                          {!cov && !(isLoadingCoverageMap && inventory.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inventory.status)) && "-"}
                         </td>
                         <td className="actions-cell">
                           <button className="secondary-button" type="button" onClick={() => openOperationalInventory(inventory.id)}>Abrir</button>
