@@ -2348,7 +2348,7 @@ export function Inventory({
             <h3>Contagens de estoque</h3>
             <p className="muted">Atividade operacional do estoquista. Concluir contagem nao fecha inventario.</p>
             <table>
-              <thead><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor/Categoria</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Divergentes</th><th>Acoes</th></tr></thead>
+              <thead style={{ whiteSpace: 'nowrap' }}><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor/Categoria</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Divergentes</th><th>Acoes</th></tr></thead>
               <tbody>
                 {countSessions.map((session) => (
                   <tr key={session.id}>
@@ -2443,7 +2443,7 @@ export function Inventory({
                 </div>
               </div>
               <table className="inventory-official-table">
-                <thead><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Cobertura CMV</th><th>Acoes</th></tr></thead>
+                <thead style={{ whiteSpace: 'nowrap' }}><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Cobertura CMV</th><th>Acoes</th></tr></thead>
                 <tbody>
                   {operationalCounts.map((inventory) => {
                     const cov = inventory.type === "FINAL_CMV" ? finalCmvCoverageMap[inventory.id] : undefined;
@@ -2494,7 +2494,7 @@ export function Inventory({
               </div>
             </div>
             <table className="inventory-official-table">
-            <thead><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Divergentes</th><th>Acoes</th></tr></thead>
+            <thead style={{ whiteSpace: 'nowrap' }}><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Divergentes</th><th>Acoes</th></tr></thead>
             <tbody>
               {officialInventories.map((inventory) => (
                 <tr key={inventory.id}>
