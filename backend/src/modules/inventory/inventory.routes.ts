@@ -887,6 +887,22 @@ async function createInventorySnapshotFromOperationalInventory(id: string, user:
     return sum + quantity * unitCost;
   }, 0);
 
+  const conflicting = await prisma.$queryRaw<Array<{ id: string; originalFileName: string | null }>>`
+    SELECT "id", "originalFileName" FROM "InventorySnapshot"
+    WHERE "competenceYear" = ${year}
+      AND "competenceMonth" = ${month}
+      AND "type" = CAST('INVENTARIO_FINAL' AS "InventorySnapshotType")
+      AND "status" <> 'CANCELLED'
+    LIMIT 1
+  `;
+  if (conflicting.length > 0) {
+    const name = conflicting[0].originalFileName ?? `base existente (${conflicting[0].id.slice(0, 8)})`;
+    throw new Error(
+      `Já existe uma base de estoque final para ${String(month).padStart(2, "0")}/${year}: "${name}". ` +
+      `Cancele ou substitua a base anterior antes de aprovar este inventário.`
+    );
+  }
+
   await prisma.$executeRaw`
     INSERT INTO "InventorySnapshot" (
       "id", "competenceYear", "competenceMonth", "type", "countDate", "status", "totalItems", "totalValue",

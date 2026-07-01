@@ -870,6 +870,159 @@ export async function listCmvSessions(): Promise<CmvSessionOption[]> {
 
 // ──────────────────────────────────────────────────────────────────────────────
 
+export type StockBase = {
+  id: string;
+  sourceType: "SESSION" | "SNAPSHOT";
+  code: string;
+  label: string;
+  inventoryType: string;
+  totalItems: number;
+  origin: "MANUAL" | "SISTEMA" | "PLANILHA";
+  date: string;
+  snapshotId: string | null;
+  status: string;
+  competenceYear: number | null;
+  competenceMonth: number | null;
+  displayLabel: string;
+  isMonthEnd: boolean;
+  snapshotTotal: number | null;
+  originalFileName: string | null;
+};
+
+type SnapshotBaseRow = {
+  id: string;
+  type: string;
+  originalFileName: string | null;
+  source: string;
+  countDate: Date;
+  status: string;
+  totalItems: bigint | number;
+  totalValue: Prisma.Decimal | null;
+  competenceYear: number;
+  competenceMonth: number;
+  linkedSessionId: string | null;
+};
+
+export async function listCmvBases(): Promise<StockBase[]> {
+  const [sessionRows, snapshotRows] = await Promise.all([
+    prisma.$queryRaw<Array<SessionRow>>`
+      SELECT
+        s."id"                  AS "sessionId",
+        s."code",
+        s."type",
+        s."source",
+        s."referenceDate",
+        s."periodMonth",
+        s."periodYear",
+        s."isMonthEnd",
+        s."notes",
+        s."linkedSnapshotId",
+        COUNT(i."id")           AS "totalItems",
+        snap."totalValue"       AS "snapshotTotalValue"
+      FROM "StockCountSession" s
+      LEFT JOIN "StockCountSessionItem" i ON i."stockCountSessionId" = s."id"
+      LEFT JOIN "InventorySnapshot" snap
+        ON snap."id" = s."linkedSnapshotId"
+        AND snap."status" NOT IN ('CANCELLED', 'CANCELADO')
+      WHERE s."status" = 'CONCLUIDA'
+        AND NOT (s."type" = 'SETORIAL' AND s."generatedInventoryId" IS NOT NULL)
+      GROUP BY s."id", snap."totalValue"
+      ORDER BY s."referenceDate" DESC
+    `,
+    prisma.$queryRaw<Array<SnapshotBaseRow>>`
+      SELECT
+        snap."id",
+        snap."type",
+        snap."originalFileName",
+        snap."source",
+        snap."countDate",
+        snap."status",
+        snap."totalItems",
+        snap."totalValue",
+        snap."competenceYear",
+        snap."competenceMonth",
+        sess."id" AS "linkedSessionId"
+      FROM "InventorySnapshot" snap
+      LEFT JOIN "StockCountSession" sess ON sess."linkedSnapshotId" = snap."id"
+      WHERE snap."type" IN ('INVENTARIO_INICIAL', 'INVENTARIO_FINAL')
+        AND snap."status" NOT IN ('CANCELLED', 'CANCELADO')
+        AND sess."id" IS NULL
+      ORDER BY snap."countDate" DESC
+    `
+  ]);
+
+  const PT_MONTHS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  const shortMonthPt = (month: number, year: number) =>
+    `${PT_MONTHS[month - 1] ?? String(month)}/${year}`;
+
+  const sessionBases: StockBase[] = sessionRows.map((row) => {
+    const month = row.periodMonth;
+    const year = row.periodYear;
+    const typeLabel =
+      row.type === "GERAL" ? "Contagem geral"
+      : row.type === "SETORIAL" ? "Contagem setorial"
+      : row.type === "IMPORTACAO_PLANILHA" ? "Planilha importada"
+      : row.type === "COMPLETO" ? "Contagem completa"
+      : row.type;
+    const parts: string[] = [row.code];
+    if (month != null && year != null) parts.push(shortMonthPt(month, year));
+    parts.push(typeLabel);
+    parts.push(`${toNumber(row.totalItems)} itens`);
+    const origin: "MANUAL" | "SISTEMA" | "PLANILHA" =
+      row.source === "SISTEMA" ? "SISTEMA" : row.source === "PLANILHA" ? "PLANILHA" : "MANUAL";
+    return {
+      id: row.sessionId,
+      sourceType: "SESSION",
+      code: row.code,
+      label: row.code,
+      inventoryType: row.type,
+      totalItems: toNumber(row.totalItems),
+      origin,
+      date: toDateKey(toLocalDate(row.referenceDate)),
+      snapshotId: row.linkedSnapshotId,
+      status: "CONCLUIDA",
+      competenceYear: row.periodYear,
+      competenceMonth: row.periodMonth,
+      displayLabel: parts.join(" — "),
+      isMonthEnd: row.isMonthEnd,
+      snapshotTotal: row.snapshotTotalValue != null ? toNumber(row.snapshotTotalValue) : null,
+      originalFileName: null,
+    };
+  });
+
+  const snapshotBases: StockBase[] = snapshotRows.map((row) => {
+    const typeLabel = row.type === "INVENTARIO_FINAL" ? "Inventário final" : "Inventário inicial";
+    const origin: "MANUAL" | "SISTEMA" | "PLANILHA" =
+      row.source === "SISTEMA" ? "SISTEMA" : row.source === "PLANILHA" ? "PLANILHA" : "MANUAL";
+    const originLabel = origin === "SISTEMA" ? "Sistema" : origin === "PLANILHA" ? "Planilha" : "Manual";
+    const monthLabel = shortMonthPt(row.competenceMonth, row.competenceYear);
+    const name = row.originalFileName ?? row.id.slice(0, 8);
+    const parts = [monthLabel, typeLabel, `${toNumber(row.totalItems)} itens`, originLabel];
+    return {
+      id: row.id,
+      sourceType: "SNAPSHOT",
+      code: name,
+      label: name,
+      inventoryType: row.type,
+      totalItems: toNumber(row.totalItems),
+      origin,
+      date: toDateKey(toLocalDate(row.countDate)),
+      snapshotId: row.id,
+      status: row.status,
+      competenceYear: row.competenceYear,
+      competenceMonth: row.competenceMonth,
+      displayLabel: parts.join(" — "),
+      isMonthEnd: false,
+      snapshotTotal: row.totalValue != null ? toNumber(row.totalValue) : null,
+      originalFileName: row.originalFileName ?? null,
+    };
+  });
+
+  return [...sessionBases, ...snapshotBases];
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
 export async function getCmvRealSuggestions() {
   const [lastPeriodRows, latestPeriodRows] = await Promise.all([
     prisma.$queryRaw<Array<{
