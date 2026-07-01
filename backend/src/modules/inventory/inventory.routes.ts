@@ -2085,6 +2085,169 @@ export async function buildBuyerSupportReport(query: Record<string, unknown>) {
   const subcategory = asText(query.subcategory);
   const statusFilter = asText(query.status);
 
+  // ─── Origem do estoque (Etapa 2) ──────────────────────────────────────────────
+  // Permite partir de um inventario/contagem especifico. Default LATEST_FINAL_CMV
+  // preserva o comportamento historico (ultimo FINAL_CMV aprovado/fechado).
+  // Nunca altera dados; apenas troca a fonte da "quantidade contada" e do escopo de produtos.
+  const sourceTypeRaw = asText(query.sourceType)?.toUpperCase() ?? "LATEST_FINAL_CMV";
+  if (!["LATEST_FINAL_CMV", "OPERATIONAL_INVENTORY", "STOCK_COUNT_SESSION"].includes(sourceTypeRaw)) {
+    // Nao ecoar o valor bruto do cliente na mensagem (evita log injection / payload longo).
+    throw new Error("Origem de planejamento nao suportada. Use LATEST_FINAL_CMV, OPERATIONAL_INVENTORY ou STOCK_COUNT_SESSION.");
+  }
+  const sourceType = sourceTypeRaw as "LATEST_FINAL_CMV" | "OPERATIONAL_INVENTORY" | "STOCK_COUNT_SESSION";
+  // Premissa single-tenant: sem checagem de posse do sourceId (um unico restaurante).
+  // Se evoluir para multi-tenant, filtrar a origem pelo escopo do usuario aqui.
+  const sourceId = asText(query.sourceId);
+  // Metadados da origem para a futura tela de Planejamento de Compra: identifica a fonte,
+  // seu escopo (setor/categoria), se e parcial e o proposito. purpose fixo BUYER_SUPPORT
+  // porque este endpoint so serve apoio ao comprador (CMV e outro fluxo/finalidade).
+  let sourceMeta: {
+    sourceType: string;
+    sourceId: string | null;
+    code: string | null;
+    status: string | null;
+    type: string | null;
+    date: Date | null;
+    totalItems: number;
+    partial: boolean;
+    scopeLabel: string | null;
+    note: string | null;
+    purpose: "BUYER_SUPPORT";
+    // Sempre true quando sourceMeta e montado: so chegamos aqui apos passar nas validacoes
+    // de compra. Elegibilidade para CMV NAO e decidida aqui (regra/fluxo proprio de CMV).
+    canUseForBuyer: true;
+  } = {
+    sourceType, sourceId: null, code: null, status: null, type: null, date: null,
+    totalItems: 0, partial: false, scopeLabel: null, note: null, purpose: "BUYER_SUPPORT",
+    canUseForBuyer: true
+  };
+
+  let latestCteAndScope: Prisma.Sql;
+  let scopeSubquery: Prisma.Sql;
+
+  if (sourceType === "OPERATIONAL_INVENTORY") {
+    if (!sourceId) throw new Error("Informe o inventario de origem (sourceId) para OPERATIONAL_INVENTORY.");
+    const [inv] = await prisma.$queryRaw<Array<{ id: string; code: string; type: string; status: string; date: Date; sectorName: string | null }>>`
+      SELECT "id", "code", "type", "status", "date", "sectorName" FROM "OperationalInventory" WHERE "id" = ${sourceId} LIMIT 1`;
+    if (!inv) throw new Error("Inventario de origem nao encontrado.");
+    if (inv.status === "CANCELADO") throw new Error("Inventario cancelado nao pode ser usado como origem de planejamento.");
+    // Bloqueia origem incompleta: qualquer status so pode ser usado com 0 itens pendentes.
+    // Pendente = ainda nao contado (countedQuantity IS NULL) ou status 'PENDENTE'. COUNT unico traz total + pendentes.
+    const [invCounts] = await prisma.$queryRaw<Array<{ totalItems: bigint; pendingCount: bigint }>>`
+      SELECT COUNT(*) AS "totalItems",
+             COUNT(*) FILTER (WHERE "countedQuantity" IS NULL OR "status" = 'PENDENTE') AS "pendingCount"
+      FROM "OperationalInventoryItem"
+      WHERE "inventoryId" = ${sourceId}`;
+    if (Number(invCounts.pendingCount) > 0) {
+      throw new Error("A origem selecionada possui itens pendentes de contagem. Conclua ou zere todos os itens antes de usar no planejamento de compra.");
+    }
+    // FINAL_CMV/GERAL completos = escopo total (partial=false); demais tipos = escopo parcial.
+    const invPartial = inv.type !== "FINAL_CMV" && inv.type !== "GERAL";
+    sourceMeta = {
+      sourceType, sourceId: inv.id, code: inv.code, status: inv.status, type: inv.type,
+      date: inv.date, totalItems: Number(invCounts.totalItems), partial: invPartial,
+      scopeLabel: inv.sectorName ?? null,
+      note: invPartial ? "Planejamento baseado em contagem parcial/setorial." : null,
+      purpose: "BUYER_SUPPORT",
+      canUseForBuyer: true
+    };
+    latestCteAndScope = Prisma.sql`
+      latest AS (
+        SELECT DISTINCT ON (item."productId")
+          item."productId",
+          inv."code" AS "lastInventoryCode",
+          inv."type" AS "lastInventoryType",
+          inv."status" AS "lastInventoryStatus",
+          inv."date" AS "lastCountDate",
+          item."countedQuantity" AS "lastQuantity",
+          item."status" AS "lastItemStatus",
+          item."notes" AS "lastNotes"
+        FROM "OperationalInventoryItem" item
+        JOIN "OperationalInventory" inv ON inv."id" = item."inventoryId"
+        WHERE inv."id" = ${sourceId} AND item."productId" IS NOT NULL
+        -- inv."date"/"createdAt" sao constantes num unico inventario; item."createdAt"/"id"
+        -- garantem desempate deterministico caso haja linha duplicada do mesmo produto.
+        ORDER BY item."productId", inv."date" DESC, inv."createdAt" DESC, item."createdAt" DESC, item."id" DESC
+      )`;
+    scopeSubquery = Prisma.sql`SELECT DISTINCT item."productId" FROM "OperationalInventoryItem" item WHERE item."inventoryId" = ${sourceId} AND item."productId" IS NOT NULL`;
+  } else if (sourceType === "STOCK_COUNT_SESSION") {
+    if (!sourceId) throw new Error("Informe a contagem de origem (sourceId) para STOCK_COUNT_SESSION.");
+    const [session] = await prisma.$queryRaw<Array<{ id: string; code: string; type: string; status: string; referenceDate: Date; sectorName: string | null; categoryName: string | null }>>`
+      SELECT "id", "code", "type", "status", "referenceDate", "sectorName", "categoryName" FROM "StockCountSession" WHERE "id" = ${sourceId} LIMIT 1`;
+    if (!session) throw new Error("Contagem de origem nao encontrada.");
+    // Somente contagem CONCLUIDA vale para planejamento — bloqueia ABERTA, EM_ANDAMENTO e CANCELADA.
+    // Contagem SETORIAL concluida e valida: permitida e marcada como parcial (escopo do setor/categoria).
+    if (session.status !== "CONCLUIDA") {
+      throw new Error("A contagem selecionada precisa estar concluída antes de ser usada no planejamento de compra.");
+    }
+    const [sessionCounts] = await prisma.$queryRaw<Array<{ totalItems: bigint }>>`
+      SELECT COUNT(*) AS "totalItems" FROM "StockCountSessionItem" WHERE "stockCountSessionId" = ${sourceId}`;
+    // SETORIAL (e qualquer type != GERAL/FINAL_MES) = escopo parcial.
+    const sessionPartial = session.type !== "GERAL" && session.type !== "FINAL_MES";
+    sourceMeta = {
+      sourceType, sourceId: session.id, code: session.code, status: session.status, type: session.type,
+      date: session.referenceDate, totalItems: Number(sessionCounts.totalItems), partial: sessionPartial,
+      scopeLabel: session.sectorName ?? session.categoryName ?? null,
+      note: sessionPartial ? "Planejamento baseado em contagem parcial/setorial." : null,
+      purpose: "BUYER_SUPPORT",
+      canUseForBuyer: true
+    };
+    latestCteAndScope = Prisma.sql`
+      latest AS (
+        SELECT DISTINCT ON (item."productId")
+          item."productId",
+          s."code" AS "lastInventoryCode",
+          s."type" AS "lastInventoryType",
+          s."status" AS "lastInventoryStatus",
+          s."referenceDate" AS "lastCountDate",
+          item."countedQuantity" AS "lastQuantity",
+          CASE
+            WHEN item."differenceQuantity" IS NOT NULL AND item."differenceQuantity" <> 0 THEN 'DIVERGENTE'
+            ELSE item."status"
+          END AS "lastItemStatus",
+          item."notes" AS "lastNotes"
+        FROM "StockCountSessionItem" item
+        JOIN "StockCountSession" s ON s."id" = item."stockCountSessionId"
+        WHERE s."id" = ${sourceId} AND item."productId" IS NOT NULL
+        -- item."id" como desempate final deterministico (paridade com OPERATIONAL_INVENTORY).
+        ORDER BY item."productId", item."createdAt" DESC, item."id" DESC
+      )`;
+    scopeSubquery = Prisma.sql`SELECT DISTINCT item."productId" FROM "StockCountSessionItem" item WHERE item."stockCountSessionId" = ${sourceId} AND item."productId" IS NOT NULL`;
+  } else {
+    // LATEST_FINAL_CMV (default) — reproduz exatamente o comportamento anterior.
+    latestCteAndScope = Prisma.sql`
+      latest AS (
+        SELECT DISTINCT ON (item."productId")
+          item."productId",
+          inv."code" AS "lastInventoryCode",
+          inv."type" AS "lastInventoryType",
+          inv."status" AS "lastInventoryStatus",
+          inv."date" AS "lastCountDate",
+          item."countedQuantity" AS "lastQuantity",
+          item."status" AS "lastItemStatus",
+          item."notes" AS "lastNotes"
+        FROM "OperationalInventoryItem" item
+        JOIN "OperationalInventory" inv ON inv."id" = item."inventoryId"
+        WHERE inv."status" <> 'CANCELADO' AND item."productId" IS NOT NULL
+        ORDER BY item."productId", inv."date" DESC, inv."createdAt" DESC
+      ),
+      latest_final_inventory AS (
+        SELECT "id"
+        FROM "OperationalInventory"
+        WHERE "type" = 'FINAL_CMV'
+          AND "status" IN ('APROVADO', 'FECHADO')
+        ORDER BY "date" DESC, "createdAt" DESC
+        LIMIT 1
+      ),
+      latest_final_items AS (
+        SELECT DISTINCT item."productId"
+        FROM "OperationalInventoryItem" item
+        JOIN latest_final_inventory inv ON inv."id" = item."inventoryId"
+        WHERE item."productId" IS NOT NULL
+      )`;
+    scopeSubquery = Prisma.sql`SELECT "productId" FROM latest_final_items`;
+  }
+
   const rows = await prisma.$queryRaw<Array<{
     productId: string;
     productCode: string | null;
@@ -2111,36 +2274,7 @@ export async function buildBuyerSupportReport(query: Record<string, unknown>) {
     consumptionPeriodStart: Date | null;
     consumptionPeriodEnd: Date | null;
   }>>`
-    WITH latest AS (
-      SELECT DISTINCT ON (item."productId")
-        item."productId",
-        inv."code" AS "lastInventoryCode",
-        inv."type" AS "lastInventoryType",
-        inv."status" AS "lastInventoryStatus",
-        inv."date" AS "lastCountDate",
-        item."countedQuantity" AS "lastQuantity",
-        item."status" AS "lastItemStatus",
-        item."notes" AS "lastNotes"
-      FROM "OperationalInventoryItem" item
-      JOIN "OperationalInventory" inv ON inv."id" = item."inventoryId"
-      WHERE inv."status" <> 'CANCELADO'
-        AND item."productId" IS NOT NULL
-      ORDER BY item."productId", inv."date" DESC, inv."createdAt" DESC
-    ),
-    latest_final_inventory AS (
-      SELECT "id"
-      FROM "OperationalInventory"
-      WHERE "type" = 'FINAL_CMV'
-        AND "status" IN ('APROVADO', 'FECHADO')
-      ORDER BY "date" DESC, "createdAt" DESC
-      LIMIT 1
-    ),
-    latest_final_items AS (
-      SELECT DISTINCT item."productId"
-      FROM "OperationalInventoryItem" item
-      JOIN latest_final_inventory inv ON inv."id" = item."inventoryId"
-      WHERE item."productId" IS NOT NULL
-    ),
+    WITH ${latestCteAndScope},
     latest_period AS (
       SELECT "id", "dataInicial", "dataFinal", "estoqueInicialSnapshotId", "estoqueFinalSnapshotId"
       FROM "CmvPeriod"
@@ -2239,7 +2373,7 @@ export async function buildBuyerSupportReport(query: Record<string, unknown>) {
     LEFT JOIN consumption ON consumption."productId" = p."id"
     WHERE p."controlsStock" = true
       AND p."isActive" = true
-      AND p."id" IN (SELECT "productId" FROM latest_final_items)
+      AND p."id" IN (${scopeSubquery})
     ORDER BY sec."name" NULLS LAST, cat."name" NULLS LAST, p."name"
   `;
 
@@ -2504,7 +2638,11 @@ export async function buildBuyerSupportReport(query: Record<string, unknown>) {
       withoutIdeal: items.filter((item) => item.estoqueIdeal == null).length,
       withoutMinimum: items.filter((item) => item.estoqueMinimo == null).length,
       controlledTotal,
-      latestFinalCmv: latestFinal[0] ?? null
+      // latestFinalCmv = SEMPRE o ultimo FINAL_CMV do sistema, independente da origem escolhida.
+      // Nao confundir com `source` (a origem efetivamente usada neste relatorio). A tela futura
+      // deve ler `source` para saber de onde vieram as quantidades; `latestFinalCmv` e referencia.
+      latestFinalCmv: latestFinal[0] ?? null,
+      source: sourceMeta
     },
     supplierGroups,
     prelist,
@@ -2515,7 +2653,13 @@ export async function buildBuyerSupportReport(query: Record<string, unknown>) {
 inventoryRouter.get("/operational/buyer-support", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
   if (!user) return;
-  const report = await buildBuyerSupportReport(request.query);
+  let report: Awaited<ReturnType<typeof buildBuyerSupportReport>>;
+  try {
+    report = await buildBuyerSupportReport(request.query);
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Origem de planejamento invalida." });
+    return;
+  }
   await auditLog({
     userId: user.id,
     action: "VIEW_BUYER_SUPPORT_REPORT",
@@ -2530,7 +2674,13 @@ inventoryRouter.get("/operational/buyer-support", async (request, response) => {
 inventoryRouter.get("/operational/buyer-support/prelist.csv", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
   if (!user) return;
-  const report = await buildBuyerSupportReport(request.query);
+  let report: Awaited<ReturnType<typeof buildBuyerSupportReport>>;
+  try {
+    report = await buildBuyerSupportReport(request.query);
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Origem de planejamento invalida." });
+    return;
+  }
   const rows = report.prelist.flatMap((group) => group.items.map((item) => [
     group.supplierName,
     item.productCode ?? "",
