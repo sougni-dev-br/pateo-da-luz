@@ -67,9 +67,10 @@ import {
 import { Notice, useNotice } from "../components/Notice";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { SimpleBarChart } from "../components/SimpleBarChart";
-import { EmptyState, StatusBadge, SummaryCard } from "../components/ui";
+import { ConfirmDialog, EmptyState, StatusBadge, SummaryCard } from "../components/ui";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
+import { useNavigate } from "react-router-dom";
 
 type InventoryProps = {
   user: AppUser;
@@ -374,7 +375,10 @@ export function Inventory({
   const [isAppendingComplement, setIsAppendingComplement] = useState(false);
   const [finalCmvCoverageMap, setFinalCmvCoverageMap] = useState<Record<string, StockCoverageAudit & { inventoryId: string; inventoryCode: string }>>({});
   const [isLoadingCoverageMap, setIsLoadingCoverageMap] = useState(false);
+  const [showCmvApproveModal, setShowCmvApproveModal] = useState(false);
+  const [approvingFinalCmv, setApprovingFinalCmv] = useState(false);
   const { notice, setNotice } = useNotice();
+  const navigate = useNavigate();
 
   const selectedAgenda = useMemo(
     () => agenda?.items.find((item) => item.id === selectedAgendaId) ?? null,
@@ -1259,6 +1263,21 @@ export function Inventory({
       await refreshOperational(operationalDetail.id);
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel atualizar o inventario." });
+    }
+  }
+
+  async function handleApproveFinalCmv() {
+    if (!operationalDetail) return;
+    setShowCmvApproveModal(false);
+    setApprovingFinalCmv(true);
+    try {
+      await approveOperationalInventory(operationalDetail.id);
+      setNotice({ tone: "success", message: "Inventario aprovado. Base de estoque criada para o CMV Real." });
+      await refreshOperational(operationalDetail.id);
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao aprovar inventario." });
+    } finally {
+      setApprovingFinalCmv(false);
     }
   }
 
@@ -2744,6 +2763,87 @@ export function Inventory({
               );
             })()}
 
+            {operationalDetail.type === "FINAL_CMV" && operationalDetail.status === "EM_REVISAO" && (
+              <div className="cmv-closing-assistant">
+                <div className="cmv-closing-assistant__header">
+                  <CheckCircle2 size={20} className="cmv-closing-assistant__icon" />
+                  <div>
+                    <h4 className="cmv-closing-assistant__title">Inventário Final CMV pronto para aprovação</h4>
+                    <p className="cmv-closing-assistant__subtitle">{operationalDetail.code} — {operationalDetail.totalItems} itens cobertos</p>
+                  </div>
+                </div>
+                <div className="cmv-closing-stepper">
+                  <div className="cmv-closing-stepper__step cmv-closing-stepper__step--done">
+                    <span className="cmv-closing-stepper__dot">✓</span>
+                    <span>Cobertura<small>{operationalDetail.totalItems}/{operationalDetail.totalItems} cobertos</small></span>
+                  </div>
+                  <div className="cmv-closing-stepper__step cmv-closing-stepper__step--done">
+                    <span className="cmv-closing-stepper__dot">✓</span>
+                    <span>Revisão<small>{operationalDetail.pendingItems} pendentes{operationalDetail.divergentItems > 0 ? `, ${formatNumber(operationalDetail.divergentItems)} divergências` : ""}</small></span>
+                  </div>
+                  <div className="cmv-closing-stepper__step cmv-closing-stepper__step--active">
+                    <span className="cmv-closing-stepper__dot">3</span>
+                    <span>Aprovação</span>
+                  </div>
+                  <div className="cmv-closing-stepper__step">
+                    <span className="cmv-closing-stepper__dot">4</span>
+                    <span>Base CMV</span>
+                  </div>
+                  <div className="cmv-closing-stepper__step">
+                    <span className="cmv-closing-stepper__dot">5</span>
+                    <span>Fechamento</span>
+                  </div>
+                </div>
+                <div className="cmv-closing-stats">
+                  <div><span>Zerados</span><strong>{formatNumber(operationalDetail.zeroItems)}</strong></div>
+                  <div><span>Contados</span><strong>{formatNumber(operationalDetail.countedItems)}</strong></div>
+                  <div><span>Divergentes</span><strong>{formatNumber(operationalDetail.divergentItems)}</strong></div>
+                  <div><span>Pendentes</span><strong>{formatNumber(operationalDetail.pendingItems)}</strong></div>
+                </div>
+                {operationalDetail.divergentItems > 0 && (
+                  <p className="cmv-closing-assistant__warn">
+                    <AlertTriangle size={14} />{formatNumber(operationalDetail.divergentItems)} item(ns) com quantidade diferente do esperado — registrado como divergência, não impede a aprovação.
+                  </p>
+                )}
+                <p className="cmv-closing-assistant__info">
+                  Ao aprovar, será criada automaticamente a base de estoque para o CMV Real com {operationalDetail.totalItems} produtos.
+                </p>
+                <div className="cmv-closing-assistant__actions">
+                  <button className="primary-button cmv-closing-assistant__cta" type="button" disabled={approvingFinalCmv} onClick={() => setShowCmvApproveModal(true)}>
+                    {approvingFinalCmv ? "Aprovando..." : "Aprovar e disponibilizar para CMV"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {operationalDetail.type === "FINAL_CMV" && ["APROVADO", "FECHADO"].includes(operationalDetail.status) && operationalDetail.inventorySnapshotId && (
+              <div className="cmv-snapshot-panel">
+                <div className="cmv-snapshot-panel__header">
+                  <CheckCircle2 size={20} className="cmv-snapshot-panel__icon" />
+                  <div>
+                    <h4 className="cmv-snapshot-panel__title">Base de estoque criada para o CMV Real</h4>
+                    <p className="cmv-snapshot-panel__subtitle">Inventário aprovado e disponível para apuração do CMV</p>
+                  </div>
+                </div>
+                <div className="cmv-snapshot-panel__details">
+                  <div><span>Tipo</span><strong>Inventário Final CMV</strong></div>
+                  <div><span>Origem</span><strong>Sistema</strong></div>
+                  <div><span>Itens</span><strong>{formatNumber(operationalDetail.totalItems)}</strong></div>
+                  <div><span>Status</span><strong>Aprovado</strong></div>
+                </div>
+                <div className="cmv-snapshot-panel__actions">
+                  {operationalDetail.status === "APROVADO" && (
+                    <button className="secondary-button" type="button" onClick={() => operationalAction("close")}>
+                      Fechar inventário final
+                    </button>
+                  )}
+                  <button className="primary-button" type="button" onClick={() => navigate(`/cmv/real?estoqueFinalSnapshotId=${operationalDetail.inventorySnapshotId}&inventoryCode=${encodeURIComponent(operationalDetail.code)}&totalItems=${operationalDetail.totalItems}`)}>
+                    Usar no CMV Real
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="filters-row">
               <label>Setor<select value={operationalSectorFilter} onChange={(event) => setOperationalSectorFilter(event.target.value)}>
                 <option value="">Todos</option>
@@ -2753,9 +2853,9 @@ export function Inventory({
               <button className="secondary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={markOperationalFilteredZero}>Marcar filtrados como zero</button>
               <button className="secondary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={saveOperationalDraft}><Save size={16} />Salvar rascunho</button>
               <button className="primary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={() => operationalAction("submit")}><Send size={16} />Enviar para revisao</button>
-              {canManageOperationalInventory && <button className="secondary-button" type="button" disabled={operationalDetail.status !== "EM_REVISAO"} onClick={() => operationalAction("approve")}>Aprovar</button>}
+              {canManageOperationalInventory && operationalDetail.type !== "FINAL_CMV" && <button className="secondary-button" type="button" disabled={operationalDetail.status !== "EM_REVISAO"} onClick={() => operationalAction("approve")}>Aprovar</button>}
               {canManageOperationalInventory && <button className="secondary-button" type="button" disabled={operationalDetail.status !== "EM_REVISAO"} onClick={() => operationalAction("reject")}>Rejeitar</button>}
-              {canManageOperationalInventory && <button className="primary-button" type="button" disabled={operationalDetail.status !== "APROVADO"} onClick={() => operationalAction("close")}>Fechar</button>}
+              {canManageOperationalInventory && operationalDetail.type !== "FINAL_CMV" && <button className="primary-button" type="button" disabled={operationalDetail.status !== "APROVADO"} onClick={() => operationalAction("close")}>Fechar</button>}
               {canManageOperationalInventory && <button className="danger-button" type="button" disabled={["FECHADO", "CANCELADO"].includes(operationalDetail.status)} onClick={() => operationalAction("cancel")}>Cancelar</button>}
             </div>
 
@@ -3260,6 +3360,29 @@ export function Inventory({
           </div>
         )}
       </section>
+
+      <ConfirmDialog
+        open={showCmvApproveModal}
+        title="Confirmar inventário final para CMV"
+        description={
+          operationalDetail?.type === "FINAL_CMV" ? (
+            <div>
+              <p><strong>Inventário:</strong> {operationalDetail.code}</p>
+              <p><strong>Cobertura:</strong> {operationalDetail.totalItems}/{operationalDetail.totalItems} produtos controlados</p>
+              <p><strong>Produtos pendentes:</strong> {operationalDetail.pendingItems}</p>
+              <p><strong>Itens zerados:</strong> {formatNumber(operationalDetail.zeroItems)}</p>
+              <p><strong>Itens contados:</strong> {formatNumber(operationalDetail.countedItems)}</p>
+              <p><strong>Itens divergentes:</strong> {formatNumber(operationalDetail.divergentItems)}</p>
+              <p style={{ marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+                Esta ação aprovará o inventário final e criará uma base de estoque para uso no CMV Real. Depois disso, o inventário poderá ser fechado e utilizado na apuração do CMV.
+              </p>
+            </div>
+          ) : ""
+        }
+        confirmLabel="Confirmar aprovação"
+        onConfirm={handleApproveFinalCmv}
+        onCancel={() => setShowCmvApproveModal(false)}
+      />
 
       <section className={panelClass(["movements", "reports"])}>
         <div className="section-heading"><div><p>Historico</p><h2>{user.role === "ESTOQUISTA" ? "Minhas contagens e movimentacoes" : "Movimentacoes recentes"}</h2></div></div>
