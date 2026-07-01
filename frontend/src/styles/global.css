@@ -12491,14 +12491,14 @@ tr.dre-row-selected td {
 }
 
 .pplan-decision-card {
-  display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(0, 1.7fr);
-  gap: 12px 20px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--paper);
+  min-width: 0;
 }
 
 .pplan-product-main {
@@ -12506,6 +12506,7 @@ tr.dre-row-selected td {
   flex-direction: column;
   gap: 5px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .pplan-product-title {
@@ -12514,11 +12515,14 @@ tr.dre-row-selected td {
   font-weight: 600;
   line-height: 1.35;
   color: var(--ink);
-  /* Ate 3 linhas antes de qualquer corte; title expoe o nome completo. */
+  /* Ate 2 linhas antes de cortar; tooltip nativo (title=) expoe o nome completo.
+     overflow-wrap: anywhere lida com palavras muito longas sem espaco. */
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .pplan-product-meta {
@@ -12947,6 +12951,912 @@ tr.dre-row-selected td {
   color: var(--muted);
 }
 
+/* ── Remocao de item da lista ──────────────────────────────────────── */
+.pplan-product-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pplan-remove-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.pplan-remove-button:hover {
+  background: #fff3f1;
+  color: var(--danger);
+  border-color: #f2c9c2;
+}
+
+.pplan-removed-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: #f4f4f5;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.pplan-removed-bar span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Item já gerado: chip verde + card bloqueado ─────────────────── */
+.pplan-decision-card.is-generated {
+  background: #f7fbf7;
+  border-color: #cde6cf;
+}
+
+.pplan-decision-card-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Fieldset[disabled] neutraliza cor de fundo; opacidade sutil marca o "read only". */
+.pplan-decision-card-fields[disabled] {
+  opacity: 0.62;
+  pointer-events: none;
+}
+
+.pplan-generated-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  border: 1px solid #cde6cf;
+  background: #f0f8f0;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #2c6b31;
+  align-self: flex-start;
+}
+
+.pplan-generated-chip-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10.5px;
+}
+
+.pplan-generated-chip-code {
+  font-weight: 700;
+  color: #16532a;
+  text-decoration: none;
+  padding: 2px 6px;
+  background: white;
+  border: 1px solid #cde6cf;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.pplan-generated-chip-code:hover {
+  border-color: #2c6b31;
+}
+
+.pplan-generated-chip-redo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #2c6b31;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pplan-generated-chip-redo:hover {
+  border-color: #2c6b31;
+  background: white;
+}
+
+/* KPI "Prontos para pedir": verde suave so no valor quando ha itens no draft.
+   Rotulo e sublinha seguem paleta neutra dos demais KPIs. */
+.pplan-kpi-card.is-ready .pplan-kpi-value {
+  color: #2c6b31;
+}
+
+/* Chip amarelo de sugestao pendente — reusa os mesmos tokens do bloco
+   "Sem fornecedor escolhido" (.pplan-supplier-empty) e do .pplan-origin-alert. */
+.pplan-suggestion-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #fff8e8;
+  border: 1px solid #ecd9a6;
+  color: #8a6510;
+  font-size: 12px;
+  align-self: flex-start;
+}
+
+.pplan-suggestion-chip-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pplan-suggestion-chip-label strong {
+  color: #6b4d0a;
+  font-weight: 700;
+}
+
+.pplan-suggestion-chip-accept {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #ecd9a6;
+  background: white;
+  color: #8a6510;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pplan-suggestion-chip-accept:hover {
+  border-color: #8a6510;
+  background: #fff8e8;
+}
+
+/* Chip discreto pos-edicao: mostra que veio de sugestao mas foi alterado */
+.pplan-suggestion-edited {
+  align-self: flex-start;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f4f4f5;
+  border: 1px dashed var(--line);
+}
+
+/* Botao global "Aceitar todas as sugestoes" — secundario, herda estilo mas
+   ganha destaque amarelo sutil quando ha sugestoes pendentes. */
+.pplan-accept-all {
+  border-color: #ecd9a6;
+  color: #8a6510;
+}
+
+.pplan-accept-all:not(:disabled):hover {
+  background: #fff8e8;
+  border-color: #8a6510;
+}
+
+.pplan-accept-all:disabled {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+/* ── Barra sticky de ações no rodapé ─────────────────────────────── */
+.pplan-sticky-actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  background: var(--paper);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.06);
+  flex-wrap: wrap;
+}
+
+.pplan-sticky-count {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.pplan-sticky-count strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.pplan-sticky-actions .primary-button {
+  flex-shrink: 0;
+}
+
+/* Altura estimada da barra sticky — variavel para o toast e o padding-bottom
+   nao dessincronizarem se a barra crescer (mobile empilha texto + botao). */
+:root {
+  --pplan-sticky-h: 72px;
+}
+
+@media (max-width: 430px) {
+  :root {
+    /* Em mobile a barra empilha em 2 linhas (contador full-width + botao full-width) */
+    --pplan-sticky-h: 108px;
+  }
+}
+
+/* Empurra o toast de undo para cima quando a barra sticky esta visivel,
+   sem tocar em JS — CSS :has cuida da presenca do container. */
+body:has(.pplan-sticky-actions) .pplan-undo-toast {
+  bottom: calc(var(--pplan-sticky-h) + 12px + env(safe-area-inset-bottom));
+}
+
+/* Espaço no fim da página para o conteúdo não ficar coberto pela barra */
+body:has(.pplan-sticky-actions) .pplan {
+  padding-bottom: calc(var(--pplan-sticky-h) + 8px + env(safe-area-inset-bottom));
+}
+
+@media (max-width: 430px) {
+  .pplan-sticky-actions {
+    padding: 10px 14px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+  .pplan-sticky-count {
+    flex-basis: 100%;
+    font-size: 12px;
+  }
+  .pplan-sticky-actions .primary-button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ── Card compacto (4 linhas) ─────────────────────────────────────── */
+.pplan-decision-card.is-warning {
+  border-color: #ecd9a6;
+  background: #fffdf6;
+}
+
+.pplan-card-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.pplan-card-row--head {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.pplan-card-row--fields {
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+}
+
+.pplan-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pplan-field span:first-child {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pplan-field--ask {
+  flex: 1 1 140px;
+}
+
+.pplan-field--model {
+  flex: 1 1 130px;
+}
+
+.pplan-field--have,
+.pplan-field--status {
+  flex: 0 0 auto;
+}
+
+.pplan-card-row--supplier {
+  flex-direction: column;
+}
+
+.pplan-card-row--foot {
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pplan-note-inline {
+  flex: 1 1 260px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pplan-note-inline textarea {
+  flex: 1;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.pplan-note-toggle {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pplan-note-toggle:hover {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+/* Botao "Nao comprar" mais visivel */
+.pplan-remove-button {
+  padding: 6px 10px;
+  font-weight: 600;
+  color: var(--danger);
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.pplan-remove-button:hover {
+  background: #fff3f1;
+  border-color: #f2c9c2;
+}
+
+/* ── Fornecedor: bloco atual + combobox + chips leves ─────────────── */
+.pplan-supplier-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pplan-supplier-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #cde6cf;
+  background: #f0f8f0;
+  font-size: 13px;
+}
+
+.pplan-supplier-current-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #2c6b31;
+  letter-spacing: 0.08em;
+}
+
+.pplan-supplier-current-name {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pplan-supplier-clear {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  display: inline-flex;
+}
+
+.pplan-supplier-clear:hover {
+  color: var(--danger);
+  background: #fff3f1;
+}
+
+.pplan-supplier-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #ecd9a6;
+  background: #fff8e8;
+  color: #8a6510;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Chips de recomendacao mais leves */
+.pplan-rec-chip {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 8px;
+  background: #fafafa;
+  border: 1px solid var(--line);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  transition: border-color 120ms, background 120ms;
+  min-width: 0;
+}
+
+.pplan-rec-chip:hover {
+  border-color: var(--text);
+}
+
+.pplan-rec-chip.is-selected {
+  border-color: #2c6b31;
+  background: #f0f8f0;
+}
+
+.pplan-rec-chip.is-top {
+  border-color: #cde6cf;
+}
+
+.pplan-rec-rank {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.pplan-rec-chip.is-selected .pplan-rec-rank,
+.pplan-rec-chip.is-top .pplan-rec-rank {
+  color: #2c6b31;
+}
+
+.pplan-rec-name {
+  font-weight: 600;
+  font-size: 12px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pplan-rec-price {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Combobox local (input + lista filtrada) */
+.pplan-supplier-combo {
+  position: relative;
+}
+
+.pplan-supplier-combo-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.pplan-supplier-combo-toggle:hover {
+  border-color: var(--text);
+}
+
+.pplan-supplier-combo-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  z-index: 20;
+  padding: 6px;
+  max-width: 360px;
+}
+
+.pplan-supplier-combo-search {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.pplan-supplier-combo-list {
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pplan-supplier-combo-option {
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.pplan-supplier-combo-option:hover {
+  background: #f4f4f5;
+}
+
+.pplan-supplier-combo-option.is-selected {
+  background: #f0f8f0;
+  font-weight: 600;
+}
+
+.pplan-supplier-combo-empty {
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pplan-supplier-combo-more {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+  text-align: center;
+}
+
+/* ── Modal: grid + lista de fornecedores ──────────────────────────── */
+.pplan-confirm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 16px;
+  margin: 0;
+}
+
+.pplan-confirm-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pplan-confirm-grid dt {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+
+.pplan-confirm-grid dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.pplan-confirm-total {
+  grid-column: 1 / -1;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.pplan-confirm-total dd {
+  font-size: 18px;
+}
+
+.pplan-confirm-suppliers {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fafafa;
+}
+
+.pplan-confirm-suppliers h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+
+.pplan-confirm-suppliers ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pplan-confirm-suppliers li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.pplan-confirm-supplier-name {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pplan-confirm-supplier-meta {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+/* ── Painel de pedidos gerados: cards ─────────────────────────────── */
+.pplan-generated-panel {
+  padding: 18px 20px;
+  gap: 14px;
+}
+
+.pplan-generated-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pplan-generated-title {
+  font-size: 17px;
+}
+
+.pplan-generated-subtitle {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pplan-generated-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 240px;
+}
+
+.pplan-generated-filter input {
+  border: 0;
+  outline: 0;
+  flex: 1;
+  font-size: 13px;
+  background: transparent;
+}
+
+.pplan-generated-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.pplan-generated-card {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pplan-generated-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.pplan-generated-card .pplan-generated-code {
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.pplan-generated-card .pplan-generated-supplier {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.pplan-generated-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.pplan-generated-meta-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pplan-generated-meta-grid dt {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+
+.pplan-generated-meta-grid dd {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pplan-generated-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pplan-generated-actions .primary-button,
+.pplan-generated-actions .secondary-button {
+  flex: 1 1 auto;
+  justify-content: center;
+  font-size: 13px;
+  padding: 8px 12px;
+}
+
+/* ── Toast de desfazer remoção ────────────────────────────────────── */
+.pplan-undo-toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #1a1a1a;
+  color: white;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+  font-size: 13px;
+  z-index: 40;
+  max-width: 92vw;
+}
+
+.pplan-undo-toast strong {
+  color: white;
+}
+
+.pplan-undo-toast-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pplan-undo-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: transparent;
+  color: white;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pplan-undo-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.pplan-undo-close {
+  background: transparent;
+  border: 0;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  padding: 4px;
+  display: inline-flex;
+}
+
+.pplan-undo-close:hover {
+  color: white;
+}
+
+/* Mobile-only ajustes do card compacto e combobox */
+@media (max-width: 768px) {
+  .pplan-card-row--fields {
+    gap: 10px;
+  }
+  .pplan-field--ask,
+  .pplan-field--model {
+    flex: 1 1 calc(50% - 5px);
+  }
+  .pplan-supplier-combo-panel {
+    max-width: none;
+    left: 0;
+    right: 0;
+  }
+  .pplan-generated-filter {
+    min-width: 0;
+    width: 100%;
+  }
+  .pplan-generated-cards {
+    grid-template-columns: 1fr;
+  }
+  .pplan-confirm-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 @media (max-width: 768px) {
   /* Header: acoes descem para baixo do titulo */
   .pplan-header-actions {
@@ -12990,11 +13900,8 @@ tr.dre-row-selected td {
     flex: 1;
   }
 
-  /* Card de decisao empilha: produto no topo, controles abaixo. */
-  .pplan-decision-card {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
+  /* Card de decisao ja e flex column desde o desktop; mantido aqui apenas para
+     legibilidade — nada a sobrescrever. */
 
   /* Generico primeiro (full width), depois o override de Tem + Pedir lado a lado. */
   .pplan-control {
