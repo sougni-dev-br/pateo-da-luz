@@ -1588,6 +1588,9 @@ export function Inventory({
               <button className="secondary-button" type="button" onClick={() => { setCountSessionDetail(null); onCloseCountSessionRoute?.(); }}><X size={16} />Voltar</button>
               <button className="secondary-button large-action" type="button" disabled={locked} onClick={saveCountSessionDraft}><Save size={17} />Salvar Contagem</button>
               <button className="primary-button large-action" type="button" disabled={locked} onClick={concludeCountSession}><CheckCircle2 size={17} />Concluir Contagem</button>
+              {countSessionDetail.status === "CONCLUIDA" && (
+                <button className="secondary-button" type="button" onClick={() => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${countSessionDetail.id}`)}><ShoppingCart size={16} />Planejar compra</button>
+              )}
               {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && countSessionDetail.source !== "IMPORTACAO_PLANILHA" && (
                 <button className="primary-button large-action" type="button" onClick={generateInventoryFromCountSession}>Gerar inventario</button>
               )}
@@ -2767,7 +2770,18 @@ export function Inventory({
                 <p>{operationalDetail.code} • {formatDate(operationalDetail.date)} • {operationalTypeLabels[operationalDetail.type]}</p>
                 <h3 title={operationalDetail.name}>{operationalDetail.name}</h3>
               </div>
-              <StatusBadge tone={operationalTone(operationalDetail.status)}>{operationalStatusLabels[operationalDetail.status] ?? operationalDetail.status}</StatusBadge>
+              <div className="op-detail-head-actions">
+                <StatusBadge tone={operationalTone(operationalDetail.status)}>{operationalStatusLabels[operationalDetail.status] ?? operationalDetail.status}</StatusBadge>
+                {operationalDetail.status !== "CANCELADO" && operationalDetail.pendingItems === 0 && (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => navigate(`/estoque/planejamento-compra?sourceType=OPERATIONAL_INVENTORY&sourceId=${operationalDetail.id}`)}
+                  >
+                    <ShoppingCart size={15} /> Planejar compra
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="summary-grid op-summary-pills">
