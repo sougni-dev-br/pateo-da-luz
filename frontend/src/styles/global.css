@@ -11177,6 +11177,35 @@ tr.dre-row-selected td {
   /* full display on desktop */
 }
 
+.operational-count-table th,
+.operational-count-table td.diff-above,
+.operational-count-table td.diff-below,
+.operational-count-table td.diff-neutral {
+  white-space: nowrap;
+}
+
+.operational-count-table td.diff-above {
+  color: var(--info);
+  font-weight: 500;
+}
+
+.operational-count-table td.diff-below {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.operational-count-table td.diff-neutral {
+  color: var(--muted);
+}
+
+/* Center the Dif value on the class itself so alignment does not depend on
+   the source order of the nth-child(6) width rule further down the file. */
+.operational-count-table td.diff-above,
+.operational-count-table td.diff-below,
+.operational-count-table td.diff-neutral {
+  text-align: center;
+}
+
 /* Mobile cards — hidden on desktop */
 .inv-mobile-cards {
   display: none;
@@ -11862,5 +11891,326 @@ tr.dre-row-selected td {
   .cmv-snapshot-panel__actions button {
     width: 100%;
   }
+}
+
+/* ──── Operational Inventory Detail — Compact UI ──────────────────────── */
+
+/* 1. Compact metric pills (op-summary-pills overrides inside operational panel) */
+.op-summary-pills {
+  gap: 8px;
+}
+
+.op-summary-pills article {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.op-summary-pills article:hover {
+  transform: none;
+}
+
+.op-summary-pills span {
+  margin-bottom: 0;
+  font-size: 12px;
+  order: 2;
+}
+
+.op-summary-pills strong {
+  font-size: 18px;
+  order: 1;
+  line-height: 1.2;
+}
+
+/* 2. Compact CMV snapshot panel (APROVADO/FECHADO state) */
+.cmv-snapshot-panel--compact {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.cmv-snapshot-panel--compact .cmv-snapshot-panel__header {
+  flex: 1;
+  min-width: 160px;
+  align-items: center;
+}
+
+.cmv-snapshot-panel--compact .cmv-snapshot-panel__title {
+  font-size: 13px;
+}
+
+.cmv-snapshot-panel--compact .cmv-snapshot-panel__subtitle {
+  font-size: 11px;
+}
+
+.cmv-snapshot-panel--compact .cmv-snapshot-panel__details > div {
+  padding: 4px 8px;
+  min-width: 44px;
+}
+
+.cmv-snapshot-panel--compact .cmv-snapshot-panel__details > div span {
+  font-size: 9px;
+}
+
+.cmv-snapshot-panel--compact .cmv-snapshot-panel__details > div strong {
+  font-size: 12px;
+}
+
+.cmv-snapshot-panel--compact .cmv-snapshot-panel__actions {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+/* 3. Operational filter/actions bar */
+.op-filters-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.op-filters-bar__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.op-filters-bar__filters label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.op-filters-bar__filters input,
+.op-filters-bar__filters select {
+  min-height: 36px;
+  min-width: 120px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.op-filters-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.op-filters-bar__danger-sep {
+  width: 1px;
+  height: 26px;
+  background: var(--line);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* 4. Narrow count input — fits inside the Qtd cell with breathing room.
+   box-sizing + width:100% keeps it bounded by the cell so it never
+   overflows into the Dif column. */
+.operational-count-table .count-input {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 56px;
+  min-width: 44px;
+  text-align: right;
+}
+
+/* Produto column — overflow: hidden is required for -webkit-line-clamp to
+   clip the product name to 2 lines within the cell. */
+.operational-count-table td:nth-child(2) {
+  overflow: hidden;
+}
+
+/* 2-line clamp: shows enough of the name to identify the product */
+.op-product-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.operational-count-table td:nth-child(2) small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* table-layout: fixed keeps all 8 cols within the table-wrap width */
+.operational-count-table table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+/* Column widths — 8 colunas: Cód | Produto | Setor | Saldo esp. | Qtd. | Dif. | Status | Nota
+   Fixed cols sum: 44+58+68+76+46+82+28 = 402px → Produto takes the rest (~161px on 563px wrap) */
+.operational-count-table th:nth-child(1),
+.operational-count-table td:nth-child(1) { width: 44px; }
+/* nth-child(2) = Produto — takes remaining space */
+.operational-count-table th:nth-child(3),
+.operational-count-table td:nth-child(3) { width: 58px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Saldo esp. — 68px fits the header label without colliding with Qtd. */
+.operational-count-table th:nth-child(4),
+.operational-count-table td:nth-child(4) { width: 68px; white-space: nowrap; }
+/* Qtd — extra right padding opens a gap before the Dif column */
+.operational-count-table th:nth-child(5),
+.operational-count-table td:nth-child(5) { width: 76px; padding-right: 14px; }
+/* Dif — centered with a little left room so the sign isn't glued to the input */
+.operational-count-table th:nth-child(6),
+.operational-count-table td:nth-child(6) { width: 46px; white-space: nowrap; text-align: center; padding-left: 4px; }
+.operational-count-table th:nth-child(7),
+.operational-count-table td:nth-child(7) { width: 82px; white-space: nowrap; }
+.operational-count-table th:nth-child(8),
+.operational-count-table td:nth-child(8) { width: 28px; text-align: center; }
+
+/* Unit tag inline with quantity */
+.op-unit-tag {
+  margin-left: 3px;
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+/* Mobile overrides */
+@media (max-width: 600px) {
+  .cmv-snapshot-panel--compact {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .cmv-snapshot-panel--compact .cmv-snapshot-panel__actions {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .cmv-snapshot-panel--compact .cmv-snapshot-panel__actions button {
+    flex: 1;
+    min-width: 100px;
+  }
+
+  .op-filters-bar__danger-sep {
+    display: none;
+  }
+
+  .op-filters-bar__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .op-filters-bar__actions button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 560px) {
+  .op-summary-pills {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 5. Observação expansível por item */
+.op-note-col-header,
+.op-note-col {
+  width: 36px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.op-note-btn {
+  align-items: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px 5px;
+  position: relative;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+
+.op-note-btn:hover {
+  background: var(--bg-muted, #f4f5f6);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.op-note-btn.has-note {
+  background: #fff7df;
+  border-color: #d79a2b;
+  color: #8c5a00;
+}
+
+.op-note-dot {
+  background: #d79a2b;
+  border-radius: 50%;
+  height: 5px;
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  width: 5px;
+}
+
+.op-note-expansion-row td {
+  background: #fafaf8;
+  border-top: none;
+  padding: 0;
+}
+
+.op-note-expansion {
+  align-items: flex-start;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 12px;
+}
+
+.op-note-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.op-note-textarea {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  resize: vertical;
+  width: 100%;
+}
+
+.op-note-textarea:focus {
+  border-color: var(--accent, #3b82f6);
+  outline: none;
+}
+
+.op-note-close {
+  align-self: flex-end;
+  font-size: 12px;
+  padding: 4px 12px;
 }
 
