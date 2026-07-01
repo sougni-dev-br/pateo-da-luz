@@ -1,5 +1,6 @@
 import { CheckCircle2, Download, Eye, PackageCheck, RefreshCw, Send, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   AppUser,
   cancelPurchaseOrder,
@@ -37,12 +38,19 @@ function toInputDate(value?: string | null) {
   return value ? new Date(value).toISOString().slice(0, 10) : "";
 }
 
+const sourceLabels: Record<string, string> = {
+  PRE_LISTA_COMPRADOR: "Pre-lista",
+  PLANEJAMENTO_COMPRA: "Planejamento de compra",
+  MANUAL: "Manual"
+};
+
 export function PurchaseOrders({ user }: { user: AppUser }) {
   const { notice, setNotice } = useNotice();
+  const [searchParams] = useSearchParams();
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [summary, setSummary] = useState<Record<string, number>>({});
   const [selected, setSelected] = useState<PurchaseOrder | null>(null);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => (searchParams.get("search") ?? "").slice(0, 200));
   const [loading, setLoading] = useState(false);
   const [detailDraft, setDetailDraft] = useState<{ expectedDeliveryDate: string; notes: string; items: Record<string, { requestedQuantity: string; receivedQuantity: string; notes: string }> }>({
     expectedDeliveryDate: "",
@@ -188,7 +196,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
                   <td>{order.code}</td>
                   <td title={order.supplierNameSnapshot}>{order.supplierNameSnapshot}</td>
                   <td><StatusBadge tone={statusTone(order.status)}>{statusLabels[order.status] ?? order.status}</StatusBadge></td>
-                  <td>{order.source === "PRE_LISTA_COMPRADOR" ? "Pre-lista" : "Manual"}</td>
+                  <td>{sourceLabels[order.source] ?? "Manual"}</td>
                   <td>{formatDate(order.createdAt)}</td>
                   <td>{formatDate(order.expectedDeliveryDate)}</td>
                   <td>{order.totalItems ?? 0}</td>
@@ -219,7 +227,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
 
           <div className="form-grid three">
             <label>Fornecedor<input readOnly value={selected.supplierNameSnapshot} title={selected.supplierNameSnapshot} /></label>
-            <label>Origem<input readOnly value={selected.source === "PRE_LISTA_COMPRADOR" ? "Pre-lista do comprador" : "Manual"} /></label>
+            <label>Origem<input readOnly value={sourceLabels[selected.source] ?? "Manual"} /></label>
             <label>Previsao entrega<input type="date" disabled={selected.status !== "RASCUNHO"} value={detailDraft.expectedDeliveryDate} onChange={(event) => setDetailDraft({ ...detailDraft, expectedDeliveryDate: event.target.value })} /></label>
             <label className="wide">Observacoes<textarea disabled={selected.status !== "RASCUNHO"} value={detailDraft.notes} onChange={(event) => setDetailDraft({ ...detailDraft, notes: event.target.value })} /></label>
           </div>

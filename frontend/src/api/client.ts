@@ -1737,7 +1737,7 @@ export type PurchaseOrder = {
   supplierId: string;
   supplierNameSnapshot: string;
   status: "RASCUNHO" | "EM_REVISAO" | "APROVADO" | "ENVIADO" | "RECEBIDO_PARCIAL" | "RECEBIDO" | "CANCELADO";
-  source: "MANUAL" | "PRE_LISTA_COMPRADOR";
+  source: "MANUAL" | "PRE_LISTA_COMPRADOR" | "PLANEJAMENTO_COMPRA";
   createdByUserId: string | null;
   createdByUserName?: string | null;
   approvedByUserName?: string | null;
@@ -2824,6 +2824,42 @@ export function createPurchaseOrdersFromPrelist(payload: {
   notes?: string | null;
 }) {
   return request<{ orders: Array<{ id: string; code: string; supplierName: string; items: number }>; pendingWithoutSupplier: number }>("/purchase-orders/from-prelist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export type PurchaseOrderFromPlanningItem = {
+  productId: string;
+  supplierId: string;
+  requestedQuantity: number;
+  purchaseModel?: string | null;
+  unitSnapshot?: string | null;
+  unitPriceEstimated?: number | null;
+  notes?: string | null;
+};
+
+export type PurchaseOrderFromPlanningResult = {
+  createdOrders: Array<{
+    id: string;
+    code: string;
+    supplierId: string;
+    supplierName: string;
+    totalItems: number;
+    totalEstimated: number;
+    status: string;
+  }>;
+  skippedItems: Array<{ productId: string | null; reason: string }>;
+};
+
+export function createPurchaseOrdersFromPlanning(payload: {
+  sourceType?: string;
+  sourceId?: string | null;
+  expectedDeliveryDate?: string | null;
+  items: PurchaseOrderFromPlanningItem[];
+}) {
+  return request<PurchaseOrderFromPlanningResult>("/purchase-orders/from-planning", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)

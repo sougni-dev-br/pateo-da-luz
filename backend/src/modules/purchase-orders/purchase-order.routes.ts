@@ -205,6 +205,129 @@ purchaseOrderRouter.post("/from-prelist", async (request, response) => {
   response.status(201).json({ orders, pendingWithoutSupplier: pending.length });
 });
 
+purchaseOrderRouter.post("/from-planning", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const expectedDeliveryDate = asDate(request.body?.expectedDeliveryDate);
+  const rawItems: Array<Record<string, unknown>> = Array.isArray(request.body?.items) ? request.body.items : [];
+  const skippedItems: Array<{ productId: string | null; reason: string }> = [];
+
+  const candidates = rawItems.flatMap((raw) => {
+    const productId = asText(raw?.productId);
+    const supplierId = asText(raw?.supplierId);
+    const requestedQuantity = toNumber(raw?.requestedQuantity);
+    if (!productId) {
+      skippedItems.push({ productId: null, reason: "Produto invalido." });
+      return [];
+    }
+    if (requestedQuantity == null || requestedQuantity <= 0) {
+      skippedItems.push({ productId, reason: "Quantidade invalida." });
+      return [];
+    }
+    if (!supplierId) {
+      skippedItems.push({ productId, reason: "Fornecedor nao selecionado." });
+      return [];
+    }
+    const unitPriceEstimatedRaw = toNumber(raw?.unitPriceEstimated);
+    return [{
+      productId,
+      supplierId,
+      requestedQuantity,
+      purchaseModel: asText(raw?.purchaseModel),
+      unitSnapshot: asText(raw?.unitSnapshot),
+      unitPriceEstimated: unitPriceEstimatedRaw != null && unitPriceEstimatedRaw >= 0 ? unitPriceEstimatedRaw : null,
+      notes: asText(raw?.notes)
+    }];
+  });
+
+  const productIds = Array.from(new Set(candidates.map((item) => item.productId)));
+  const supplierIds = Array.from(new Set(candidates.map((item) => item.supplierId)));
+  const [products, suppliers] = await Promise.all([
+    productIds.length
+      ? prisma.$queryRaw<Array<{ id: string; code: string | null; name: string; unit: string | null; isActive: boolean }>>`
+          SELECT "id", "externalCode" AS "code", "name", "unit", "isActive" FROM "Product" WHERE "id" IN (${Prisma.join(productIds)})
+        `
+      : Promise.resolve([]),
+    supplierIds.length
+      ? prisma.$queryRaw<Array<{ id: string; name: string; isActive: boolean }>>`
+          SELECT "id", "name", "isActive" FROM "Supplier" WHERE "id" IN (${Prisma.join(supplierIds)})
+        `
+      : Promise.resolve([])
+  ]);
+  const activeProductById = new Map(products.filter((product) => product.isActive).map((product) => [product.id, product]));
+  const activeSupplierById = new Map(suppliers.filter((supplier) => supplier.isActive).map((supplier) => [supplier.id, supplier]));
+
+  const validItems: Array<typeof candidates[number] & { product: { code: string | null; name: string; unit: string | null }; supplierName: string }> = [];
+  for (const item of candidates) {
+    const product = activeProductById.get(item.productId);
+    if (!product) {
+      skippedItems.push({ productId: item.productId, reason: "Produto nao encontrado ou inativo." });
+      continue;
+    }
+    const supplier = activeSupplierById.get(item.supplierId);
+    if (!supplier) {
+      skippedItems.push({ productId: item.productId, reason: "Fornecedor nao encontrado ou inativo." });
+      continue;
+    }
+    validItems.push({ ...item, product, supplierName: supplier.name });
+  }
+
+  const groups = new Map<string, { supplierId: string; supplierName: string; items: typeof validItems }>();
+  for (const item of validItems) {
+    const group = groups.get(item.supplierId) ?? { supplierId: item.supplierId, supplierName: item.supplierName, items: [] };
+    group.items.push(item);
+    groups.set(item.supplierId, group);
+  }
+
+  const createdOrders = await prisma.$transaction(async (tx) => {
+    const created: Array<{ id: string; code: string; supplierId: string; supplierName: string; totalItems: number; totalEstimated: number; status: string }> = [];
+    for (const group of groups.values()) {
+      const id = crypto.randomUUID();
+      const code = await nextPurchaseOrderCode(tx, new Date().getFullYear());
+      await tx.$executeRaw`
+        INSERT INTO "PurchaseOrder" (
+          "id", "code", "supplierId", "supplierNameSnapshot", "status", "source",
+          "createdByUserId", "expectedDeliveryDate", "createdAt", "updatedAt"
+        )
+        VALUES (
+          ${id}, ${code}, ${group.supplierId}, ${group.supplierName}, 'RASCUNHO', 'PLANEJAMENTO_COMPRA',
+          ${user.id}, ${expectedDeliveryDate}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+      `;
+      let totalEstimated = 0;
+      for (const item of group.items) {
+        const unitSnapshot = item.purchaseModel || item.unitSnapshot || item.product.unit;
+        const totalEstimatedItem = item.unitPriceEstimated != null ? item.unitPriceEstimated * item.requestedQuantity : null;
+        totalEstimated += totalEstimatedItem ?? 0;
+        await tx.$executeRaw`
+          INSERT INTO "PurchaseOrderItem" (
+            "id", "purchaseOrderId", "productId", "productCodeSnapshot", "productNameSnapshot", "unitSnapshot",
+            "requestedQuantity", "unitPriceEstimated", "totalEstimated", "notes", "createdAt", "updatedAt"
+          )
+          VALUES (
+            ${crypto.randomUUID()}, ${id}, ${item.productId}, ${item.product.code}, ${item.product.name}, ${unitSnapshot},
+            ${item.requestedQuantity}, ${item.unitPriceEstimated}, ${totalEstimatedItem}, ${item.notes},
+            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          )
+        `;
+      }
+      created.push({ id, code, supplierId: group.supplierId, supplierName: group.supplierName, totalItems: group.items.length, totalEstimated, status: "RASCUNHO" });
+    }
+    return created;
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "CREATE_PURCHASE_ORDER_FROM_PLANNING",
+    entity: "PurchaseOrder",
+    newValue: { createdOrders, skippedItems },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+  response.status(201).json({ createdOrders, skippedItems });
+});
+
 purchaseOrderRouter.patch("/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;

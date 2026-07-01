@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, FileText, PackageSearch, Search, ShoppingCart, Tag } from "lucide-react";
-import { StatusBadge, EmptyState } from "../components/ui";
-import { getBuyerSupportReport, getSuppliers, type BuyerSupportItem, type BuyerSupportReport, type Supplier } from "../api/client";
+import { Link, useSearchParams } from "react-router-dom";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, FileText, PackageSearch, Search, ShoppingCart, Tag } from "lucide-react";
+import { StatusBadge, EmptyState, Dialog } from "../components/ui";
+import {
+  createPurchaseOrdersFromPlanning,
+  getBuyerSupportReport,
+  getSuppliers,
+  type BuyerSupportItem,
+  type BuyerSupportReport,
+  type PurchaseOrderFromPlanningResult,
+  type Supplier
+} from "../api/client";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
 
 // Modelos de compra oferecidos ao comprador. Sem conversao automatica nesta etapa.
@@ -103,6 +111,11 @@ export function PurchasePlanning() {
   const [view, setView] = useState<ViewMode>("product");
   const [activeSuppliers, setActiveSuppliers] = useState<Supplier[]>([]);
 
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [generatedResult, setGeneratedResult] = useState<PurchaseOrderFromPlanningResult | null>(null);
+
   // Base de fornecedores ativos para escolha livre (GET somente leitura, endpoint existente).
   useEffect(() => {
     let active = true;
@@ -192,6 +205,43 @@ export function PurchasePlanning() {
     return { sourceType, sourceId, items: draftItems, supplierCount: new Set(draftItems.map((i) => i.supplierId)).size };
   }, [report, edits, sourceType, sourceId]);
 
+  // Itens visiveis mas ignorados do pedido: sem quantidade valida ou sem fornecedor escolhido.
+  const skippedCount = (report?.items.length ?? 0) - draft.items.length;
+
+  const draftEstimatedTotal = useMemo(
+    () => draft.items.reduce((sum, item) => sum + (item.unitPriceEstimated != null ? item.unitPriceEstimated * item.requestedQuantity : 0), 0),
+    [draft]
+  );
+
+  const canGenerate = draft.items.length > 0 && !generating;
+
+  const handleGenerate = async () => {
+    if (!canGenerate || generating) return;
+    setGenerating(true);
+    setGenerateError(null);
+    try {
+      const result = await createPurchaseOrdersFromPlanning({
+        sourceType,
+        sourceId,
+        items: draft.items.map((item) => ({
+          productId: item.productId,
+          supplierId: item.supplierId,
+          requestedQuantity: item.requestedQuantity,
+          purchaseModel: item.purchaseModel,
+          unitSnapshot: item.unitSnapshot,
+          unitPriceEstimated: item.unitPriceEstimated,
+          notes: item.notes || null
+        }))
+      });
+      setGeneratedResult(result);
+      setConfirmOpen(false);
+    } catch (err: unknown) {
+      setGenerateError(err instanceof Error ? err.message : "Não foi possível gerar os pedidos de compra.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   // KPIs a partir do payload (nao inventar numeros).
   const kpis = useMemo(() => {
     const items = report?.items ?? [];
@@ -277,7 +327,13 @@ export function PurchasePlanning() {
             <button type="button" className="secondary-button" onClick={goBack}>
               <ArrowLeft size={16} /> Voltar
             </button>
-            <button type="button" className="primary-button" disabled title={futureNote}>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!canGenerate}
+              title={canGenerate ? undefined : "Escolha quantidade e fornecedor de pelo menos um item."}
+              onClick={() => setConfirmOpen(true)}
+            >
               <ShoppingCart size={16} /> Gerar pedidos por fornecedor
             </button>
           </div>
@@ -287,6 +343,12 @@ export function PurchasePlanning() {
             <AlertTriangle size={15} />
             Planejamento baseado em contagem parcial/setorial
             {report.summary.source.scopeLabel ? `: ${report.summary.source.scopeLabel}` : ""}.
+          </div>
+        )}
+        {kpis.withoutSupplier > 0 && (
+          <div className="pplan-origin-alert pplan-origin-alert--danger">
+            <AlertTriangle size={15} />
+            {formatNumber(kpis.withoutSupplier)} produto(s) sem fornecedor escolhido — não entrarão no pedido até que um fornecedor seja definido.
           </div>
         )}
       </header>
@@ -418,8 +480,8 @@ export function PurchasePlanning() {
           <section className="pplan-actions">
             <p className="pplan-muted">
               {draft.items.length > 0
-                ? `${formatNumber(draft.items.length)} itens prontos para pedido em ${formatNumber(draft.supplierCount)} fornecedor(es) — rascunho local, nada é salvo ainda.`
-                : "Rascunho apenas nesta tela — nada é salvo no sistema ainda."}
+                ? `${formatNumber(draft.items.length)} itens prontos para pedido em ${formatNumber(draft.supplierCount)} fornecedor(es) — clique em "Gerar pedidos por fornecedor" para criar os rascunhos.`
+                : "Nenhum item com quantidade e fornecedor definidos ainda."}
             </p>
             <div className="pplan-actions-buttons">
               <button type="button" className="secondary-button" disabled title={futureNote}>
@@ -427,8 +489,71 @@ export function PurchasePlanning() {
               </button>
             </div>
           </section>
+
+          {generatedResult && (
+            <section className="pplan-generated-panel" aria-label="Pedidos gerados">
+              <h2 className="pplan-generated-title"><CheckCircle2 size={16} /> Pedidos gerados</h2>
+              <div className="pplan-generated-list">
+                {generatedResult.createdOrders.map((order) => (
+                  <div key={order.id} className="pplan-generated-row">
+                    <span className="pplan-generated-code">{order.code}</span>
+                    <span className="pplan-generated-supplier">{order.supplierName}</span>
+                    <span className="pplan-generated-meta">{formatNumber(order.totalItems)} itens</span>
+                    <span className="pplan-generated-meta">{formatCurrency(order.totalEstimated)}</span>
+                    <StatusBadge tone="neutral">{order.status}</StatusBadge>
+                    <Link className="secondary-button" to={`/compras/pedidos?search=${encodeURIComponent(order.code)}`}>
+                      <ExternalLink size={14} /> Abrir pedido
+                    </Link>
+                  </div>
+                ))}
+              </div>
+              {generatedResult.skippedItems.length > 0 && (
+                <p className="pplan-muted">{formatNumber(generatedResult.skippedItems.length)} item(ns) ignorado(s) na geração.</p>
+              )}
+            </section>
+          )}
         </>
       )}
+
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Confirmar geração de pedidos"
+        description="Revise o resumo antes de criar os pedidos de compra."
+      >
+        <div className="pplan-confirm-body">
+          <ul className="pplan-confirm-list">
+            <li>Origem: {report ? sourceTitle(report.summary.source) : "—"}</li>
+            <li>Fornecedores: {formatNumber(draft.supplierCount)}</li>
+            <li>Pedidos a criar: {formatNumber(draft.supplierCount)}</li>
+            <li>Itens válidos: {formatNumber(draft.items.length)}</li>
+            <li>Itens ignorados: {formatNumber(Math.max(skippedCount, 0))}</li>
+            <li>Total estimado: {formatCurrency(draftEstimatedTotal)}</li>
+          </ul>
+          <div className="pplan-alert pplan-alert--warning pplan-confirm-warning">
+            <AlertTriangle size={15} />
+            <ul>
+              <li>Os pedidos serão criados como RASCUNHO.</li>
+              <li>Itens sem fornecedor não serão gerados.</li>
+              <li>Itens com quantidade zero serão ignorados.</li>
+              <li>Revise antes de enviar ao fornecedor.</li>
+            </ul>
+          </div>
+          {generateError && (
+            <div className="pplan-alert pplan-alert--danger">
+              <AlertTriangle size={16} /> {generateError}
+            </div>
+          )}
+          <div className="pplan-confirm-actions">
+            <button type="button" className="secondary-button" onClick={() => setConfirmOpen(false)} disabled={generating}>
+              Cancelar
+            </button>
+            <button type="button" className="primary-button" onClick={handleGenerate} disabled={generating}>
+              {generating ? "Gerando…" : "Confirmar geração"}
+            </button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }
