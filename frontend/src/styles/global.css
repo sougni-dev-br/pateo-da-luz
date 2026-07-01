@@ -12851,6 +12851,102 @@ tr.dre-row-selected td {
   border-top: 1px solid var(--line);
 }
 
+/* ── Confirmação de geração de pedidos ─────────────────────────────── */
+.pplan-confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pplan-confirm-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.pplan-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.pplan-confirm-warning {
+  align-items: flex-start;
+}
+
+.pplan-confirm-warning ul {
+  margin: 2px 0 0;
+  padding: 0 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-weight: 400;
+}
+
+.pplan-confirm-warning li:first-child {
+  font-weight: 600;
+}
+
+.pplan-origin-alert--danger {
+  background: #fff3f1;
+  border-color: #f2c9c2;
+  color: var(--danger);
+}
+
+/* ── Painel de pedidos gerados ──────────────────────────────────────── */
+.pplan-generated-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: var(--shadow-soft);
+}
+
+.pplan-generated-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  color: var(--success, #1a7f37);
+}
+
+.pplan-generated-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pplan-generated-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.pplan-generated-code {
+  font-weight: 700;
+}
+
+.pplan-generated-supplier {
+  color: var(--muted);
+}
+
+.pplan-generated-meta {
+  font-size: 13px;
+  color: var(--muted);
+}
+
 @media (max-width: 768px) {
   /* Header: acoes descem para baixo do titulo */
   .pplan-header-actions {
