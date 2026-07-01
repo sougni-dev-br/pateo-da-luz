@@ -1596,6 +1596,18 @@ export type OperationalInventoryPurchasingReport = {
   };
 };
 
+export type BuyerSupportPriceOption = {
+  supplierId: string;
+  supplierName: string;
+  bestUnitPrice: number;
+  bestPriceDate: string;
+  lastUnitPrice: number;
+  lastPurchaseDate: string;
+  purchaseCount: number;
+  unit: string | null;
+  conversionMissing: boolean;
+};
+
 export type BuyerSupportItem = {
   productId: string;
   productCode: string | null;
@@ -1624,6 +1636,21 @@ export type BuyerSupportItem = {
   coverageDays: number | null;
   consumptionPeriodStart: string | null;
   consumptionPeriodEnd: string | null;
+  // Etapa 1 — inteligencia de preco por fornecedor (24 meses)
+  supplierPriceOptions: BuyerSupportPriceOption[];
+  bestPriceSupplierId: string | null;
+  bestPriceSupplierName: string | null;
+  bestUnitPrice: number | null;
+  bestPriceDate: string | null;
+  lastPurchaseSupplierId: string | null;
+  lastPurchaseSupplierName: string | null;
+  lastUnitPrice: number | null;
+  lastPurchaseDate: string | null;
+  preferredSupplierId: string | null;
+  preferredSupplierName: string | null;
+  hasCheaperAlternative: boolean;
+  priceComparisonNote: string | null;
+  conversionMissing: boolean;
 };
 
 export type BuyerSupportSupplierGroup = {
@@ -1651,10 +1678,36 @@ export type BuyerSupportReport = {
     withoutMinimum: number;
     controlledTotal: number;
     latestFinalCmv: { code: string; date: string; inventorySnapshotId: string | null } | null;
+    // Etapa 2 — origem efetivamente usada neste relatorio (inventario/contagem especifico ou default)
+    source: {
+      sourceType: string;
+      sourceId: string | null;
+      code: string | null;
+      status: string | null;
+      type: string | null;
+      date: string | null;
+      totalItems: number;
+      partial: boolean;
+      scopeLabel: string | null;
+      note: string | null;
+      purpose: string;
+      canUseForBuyer: boolean;
+    };
   };
   supplierGroups: BuyerSupportSupplierGroup[];
   prelist: BuyerSupportSupplierGroup[];
   items: BuyerSupportItem[];
+};
+
+export type BuyerSupportFilters = {
+  search?: string;
+  supplier?: string;
+  sector?: string;
+  category?: string;
+  subcategory?: string;
+  status?: string;
+  sourceType?: string;
+  sourceId?: string;
 };
 
 export type PurchaseOrderItem = {
@@ -2743,7 +2796,7 @@ export function getOperationalInventoryPurchasingReport() {
   return request<OperationalInventoryPurchasingReport>("/inventory/operational/purchasing-report");
 }
 
-export function getBuyerSupportReport(filters?: { search?: string; supplier?: string; sector?: string; category?: string; subcategory?: string; status?: string }) {
+export function getBuyerSupportReport(filters?: BuyerSupportFilters) {
   return request<BuyerSupportReport>(`/inventory/operational/buyer-support${toQueryString(filters)}`);
 }
 
