@@ -1,5 +1,5 @@
 import { AlertTriangle, Archive, ArrowDown, CalendarDays, CheckCircle2, ClipboardCheck, Download, FileText, FilterX, Layers, Loader2, MessageSquare, Play, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
-import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   AppUser,
@@ -113,6 +113,14 @@ const operationalStatusLabels: Record<string, string> = {
   REJEITADO: "rejeitado",
   FECHADO: "fechado",
   CANCELADO: "cancelado"
+};
+
+const itemStatusLabels: Record<string, string> = {
+  PENDENTE: "Pendente",
+  ZERO: "Zerado",
+  CONTADO: "Contado",
+  DIVERGENTE: "Divergente",
+  IGNORADO: "Ignorado"
 };
 
 const operationalTypeLabels: Record<OperationalInventoryType, string> = {
@@ -247,6 +255,21 @@ function operationalTone(status: string) {
   return "warning" as const;
 }
 
+function itemTone(status: string) {
+  if (status === "CONTADO") return "success" as const;
+  if (status === "DIVERGENTE") return "danger" as const;
+  if (status === "ZERO") return "info" as const;
+  return "warning" as const;
+}
+
+const DIFF_EPSILON = 0.0001;
+
+function formatDiff(diff: number | null): string {
+  if (diff == null || Math.abs(diff) < DIFF_EPSILON) return "—";
+  const formatted = Math.abs(diff) % 1 === 0 ? String(diff) : diff.toFixed(3).replace(/\.?0+$/, "");
+  return (diff > 0 ? "+" : "") + formatted;
+}
+
 function countSessionTone(status: string) {
   if (status === "CONCLUIDA") return "success" as const;
   if (status === "EM_ANDAMENTO") return "info" as const;
@@ -327,6 +350,7 @@ export function Inventory({
   const [savingMinQty, setSavingMinQty] = useState<Record<string, boolean>>({});
   const [countSessionVisibleColumns, setCountSessionVisibleColumns] = useState<Record<CountSessionColumn, boolean>>(loadCountSessionColumnPreferences);
   const [editingCountSessionNoteId, setEditingCountSessionNoteId] = useState<string | null>(null);
+  const [editingOperationalNoteId, setEditingOperationalNoteId] = useState<string | null>(null);
   const [operationalForm, setOperationalForm] = useState({
     date: new Date().toISOString().slice(0, 10),
     type: "GERAL" as OperationalInventoryType,
@@ -2746,7 +2770,7 @@ export function Inventory({
               <StatusBadge tone={operationalTone(operationalDetail.status)}>{operationalStatusLabels[operationalDetail.status] ?? operationalDetail.status}</StatusBadge>
             </div>
 
-            <div className="summary-grid">
+            <div className="summary-grid op-summary-pills">
               <article><span>Total</span><strong>{formatNumber(operationalDetail.totalItems)}</strong></article>
               <article><span>Contados</span><strong>{formatNumber(operationalDetail.countedItems)}</strong></article>
               <article><span>Pendentes</span><strong>{formatNumber(operationalDetail.pendingItems)}</strong></article>
@@ -2859,9 +2883,9 @@ export function Inventory({
             )}
 
             {operationalDetail.type === "FINAL_CMV" && ["APROVADO", "FECHADO"].includes(operationalDetail.status) && operationalDetail.inventorySnapshotId && (
-              <div className="cmv-snapshot-panel">
+              <div className="cmv-snapshot-panel cmv-snapshot-panel--compact">
                 <div className="cmv-snapshot-panel__header">
-                  <CheckCircle2 size={20} className="cmv-snapshot-panel__icon" />
+                  <CheckCircle2 size={16} className="cmv-snapshot-panel__icon" />
                   <div>
                     <h4 className="cmv-snapshot-panel__title">Base de estoque criada para o CMV Real</h4>
                     <p className="cmv-snapshot-panel__subtitle">Inventário aprovado e disponível para apuração do CMV</p>
@@ -2886,44 +2910,84 @@ export function Inventory({
               </div>
             )}
 
-            <div className="filters-row">
-              <label>Setor<select value={operationalSectorFilter} onChange={(event) => setOperationalSectorFilter(event.target.value)}>
-                <option value="">Todos</option>
-                {operationalSectors.map((sector) => <option key={sector} value={sector}>{sector}</option>)}
-              </select></label>
-              <label>Busca<input value={operationalSearch} onChange={(event) => setOperationalSearch(event.target.value)} placeholder="Codigo ou produto" /></label>
-              <button className="secondary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={markOperationalFilteredZero}>Marcar filtrados como zero</button>
-              <button className="secondary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={saveOperationalDraft}><Save size={16} />Salvar rascunho</button>
-              <button className="primary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={() => operationalAction("submit")}><Send size={16} />Enviar para revisao</button>
-              {canManageOperationalInventory && operationalDetail.type !== "FINAL_CMV" && <button className="secondary-button" type="button" disabled={operationalDetail.status !== "EM_REVISAO"} onClick={() => operationalAction("approve")}>Aprovar</button>}
-              {canManageOperationalInventory && <button className="secondary-button" type="button" disabled={operationalDetail.status !== "EM_REVISAO"} onClick={() => operationalAction("reject")}>Rejeitar</button>}
-              {canManageOperationalInventory && operationalDetail.type !== "FINAL_CMV" && <button className="primary-button" type="button" disabled={operationalDetail.status !== "APROVADO"} onClick={() => operationalAction("close")}>Fechar</button>}
-              {canManageOperationalInventory && <button className="danger-button" type="button" disabled={["FECHADO", "CANCELADO"].includes(operationalDetail.status)} onClick={() => operationalAction("cancel")}>Cancelar</button>}
+            <div className="op-filters-bar">
+              <div className="op-filters-bar__filters">
+                <label>Setor<select value={operationalSectorFilter} onChange={(event) => setOperationalSectorFilter(event.target.value)}>
+                  <option value="">Todos</option>
+                  {operationalSectors.map((sector) => <option key={sector} value={sector}>{sector}</option>)}
+                </select></label>
+                <label>Busca<input value={operationalSearch} onChange={(event) => setOperationalSearch(event.target.value)} placeholder="Codigo ou produto" /></label>
+              </div>
+              <div className="op-filters-bar__actions">
+                <button className="secondary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={markOperationalFilteredZero}>Marcar filtrados como zero</button>
+                <button className="secondary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={saveOperationalDraft}><Save size={16} />Salvar rascunho</button>
+                <button className="primary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={() => operationalAction("submit")}><Send size={16} />Enviar para revisao</button>
+                {canManageOperationalInventory && (<>
+                  {operationalDetail.type !== "FINAL_CMV" && <button className="secondary-button" type="button" disabled={operationalDetail.status !== "EM_REVISAO"} onClick={() => operationalAction("approve")}>Aprovar</button>}
+                  <button className="secondary-button" type="button" disabled={operationalDetail.status !== "EM_REVISAO"} onClick={() => operationalAction("reject")}>Rejeitar</button>
+                  {operationalDetail.type !== "FINAL_CMV" && <button className="primary-button" type="button" disabled={operationalDetail.status !== "APROVADO"} onClick={() => operationalAction("close")}>Fechar</button>}
+                  <span className="op-filters-bar__danger-sep" aria-hidden="true" />
+                  <button className="danger-button" type="button" disabled={["FECHADO", "CANCELADO"].includes(operationalDetail.status)} onClick={() => operationalAction("cancel")}>Cancelar</button>
+                </>)}
+              </div>
             </div>
 
             <div className="table-wrap operational-count-table">
               <table>
-                <thead><tr><th>Codigo</th><th>Produto</th><th>Setor</th><th>Localizacao</th><th>Unidade</th><th>Esperado</th><th>Quantidade contada</th><th>Observacao</th><th>Status</th></tr></thead>
+                <thead><tr><th>Cód.</th><th>Produto</th><th>Setor</th><th title="Saldo teórico no sistema na hora da criação do inventário.">Saldo esp.</th><th>Qtd.</th><th>Dif.</th><th>Status</th><th className="op-note-col-header" title="Observação do item"><MessageSquare size={14} /></th></tr></thead>
                 <tbody>
                   {filteredOperationalItems.map((item) => {
                     const line = operationalLines[item.id] ?? { countedQuantity: "", notes: "" };
                     const locked = !editableOperationalInventoryStatuses.has(operationalDetail.status);
+                    const hasNote = line.notes.trim().length > 0;
+                    const noteOpen = editingOperationalNoteId === item.id;
                     return (
-                      <tr key={item.id}>
-                        <td>{item.productCode ?? "-"}</td>
-                        <td title={item.productName}>{item.productName}<small>{[item.categoryName, item.subcategoryName].filter(Boolean).join(" • ") || "-"}</small></td>
-                        <td title={item.sectorName ?? "-"}>{item.sectorName ?? "-"}</td>
-                        <td title={item.location ?? "-"}>{item.location ?? "-"}</td>
-                        <td>{item.unit ?? "-"}</td>
-                        <td>{formatNumber(item.expectedQuantity)}</td>
-                        <td><input className="count-input" inputMode="decimal" disabled={locked} value={line.countedQuantity} onChange={(event) => setOperationalLines({ ...operationalLines, [item.id]: { ...line, countedQuantity: event.target.value } })} /></td>
-                        <td><input disabled={locked} value={line.notes} onChange={(event) => setOperationalLines({ ...operationalLines, [item.id]: { ...line, notes: event.target.value } })} /></td>
-                        <td><StatusBadge tone={operationalTone(item.status)}>{item.status.toLowerCase()}</StatusBadge></td>
-                      </tr>
+                      <Fragment key={item.id}>
+                        <tr>
+                          <td>{item.productCode ?? "-"}</td>
+                          <td title={item.productName}><span className="op-product-name">{item.productName}</span><small>{[item.categoryName, item.subcategoryName].filter(Boolean).join(" • ") || "-"}</small></td>
+                          <td title={item.sectorName ?? "-"}>{item.sectorName ?? "-"}</td>
+                          <td>{formatNumber(item.expectedQuantity)}{item.unit && <small className="op-unit-tag">{item.unit}</small>}</td>
+                          <td><input className="count-input" inputMode="decimal" disabled={locked} value={line.countedQuantity} onChange={(event) => setOperationalLines({ ...operationalLines, [item.id]: { ...line, countedQuantity: event.target.value } })} /></td>
+                          <td className={item.differenceQuantity != null && Math.abs(item.differenceQuantity) > DIFF_EPSILON ? (item.differenceQuantity > 0 ? "diff-above" : "diff-below") : "diff-neutral"}>{formatDiff(item.differenceQuantity)}</td>
+                          <td><StatusBadge tone={itemTone(item.status)}>{itemStatusLabels[item.status] ?? item.status}</StatusBadge></td>
+                          <td className="op-note-col">
+                            <button
+                              type="button"
+                              className={`op-note-btn${hasNote ? " has-note" : ""}`}
+                              title={hasNote ? line.notes : "Adicionar observação"}
+                              aria-label={hasNote ? "Editar observação do item" : "Adicionar observação"}
+                              onClick={() => setEditingOperationalNoteId(noteOpen ? null : item.id)}
+                            >
+                              <MessageSquare size={13} />
+                              {hasNote && <span className="op-note-dot" aria-hidden="true" />}
+                            </button>
+                          </td>
+                        </tr>
+                        {noteOpen && (
+                          <tr className="op-note-expansion-row">
+                            <td colSpan={8}>
+                              <div className="op-note-expansion">
+                                <label className="op-note-label">Observação do item</label>
+                                <textarea
+                                  autoFocus
+                                  disabled={locked}
+                                  className="op-note-textarea"
+                                  placeholder="Sem observação"
+                                  value={line.notes}
+                                  rows={2}
+                                  onChange={(event) => setOperationalLines({ ...operationalLines, [item.id]: { ...line, notes: event.target.value } })}
+                                />
+                                <button type="button" className="secondary-button op-note-close" onClick={() => setEditingOperationalNoteId(null)}>Fechar</button>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     );
                   })}
                   {filteredOperationalItems.length === 0 && (
-                    <tr><td colSpan={9}><EmptyState title="Nenhum produto nesta contagem" description="Revise o setor selecionado ou crie uma contagem geral/final CMV para carregar todos os produtos controlados." /></td></tr>
+                    <tr><td colSpan={8}><EmptyState title="Nenhum produto nesta contagem" description="Revise o setor selecionado ou crie uma contagem geral/final CMV para carregar todos os produtos controlados." /></td></tr>
                   )}
                 </tbody>
               </table>
