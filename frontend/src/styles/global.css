@@ -1,4 +1,4 @@
-* {
+﻿* {
   box-sizing: border-box;
   min-width: 0;
 }
@@ -11534,3 +11534,42 @@ tr.dre-row-selected td {
   .mobile-card-list { display: flex; }
   /* .mobile-card is always display: grid — no change needed on mobile */
 }
+
+/* ──── CMV Real — card de base de estoque selecionada ──── */
+.stock-base-card {
+  margin-top: 6px;
+  padding: 9px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #e0e0e0);
+  background: var(--surface-alt, #f5f5f5);
+  font-size: 12px;
+  color: var(--text-secondary, #555);
+  line-height: 1.6;
+}
+
+.stock-base-card__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+}
+
+.stock-base-card__label {
+  font-weight: 600;
+  color: var(--text, #222);
+}
+
+.stock-base-card__filename {
+  margin-top: 5px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  color: var(--muted, #6b7280);
+  font-size: 11px;
+}
+
+@media (max-width: 480px) {
+  .stock-base-card__row {
+    flex-direction: column;
+    gap: 1px;
+  }
+}
+

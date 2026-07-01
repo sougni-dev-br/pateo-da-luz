@@ -635,6 +635,25 @@ export type CmvSessionOption = {
   notes: string | null;
 };
 
+export type StockBase = {
+  id: string;
+  sourceType: "SESSION" | "SNAPSHOT";
+  code: string;
+  label: string;
+  inventoryType: string;
+  totalItems: number;
+  origin: "MANUAL" | "SISTEMA" | "PLANILHA";
+  date: string;
+  snapshotId: string | null;
+  status: string;
+  competenceYear: number | null;
+  competenceMonth: number | null;
+  displayLabel: string;
+  isMonthEnd: boolean;
+  snapshotTotal: number | null;
+  originalFileName: string | null;
+};
+
 export type CoverageMissingProduct = {
   id: string;
   code: string | null;
@@ -2972,6 +2991,10 @@ export function getCmvRealSuggestions() {
 
 export function getCmvRealSessions() {
   return request<CmvSessionOption[]>("/monthly/cmv-real/sessions");
+}
+
+export function getCmvRealBases() {
+  return request<StockBase[]>("/monthly/cmv-real/bases");
 }
 
 export function getCmvPeriods() {
