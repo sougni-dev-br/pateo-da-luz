@@ -51,6 +51,7 @@ const Payables = lazy(() => import("./pages/Payables").then((module) => ({ defau
 const PaymentMethods = lazy(() => import("./pages/PaymentMethods").then((module) => ({ default: module.PaymentMethods })));
 const Products = lazy(() => import("./pages/Products").then((module) => ({ default: module.Products })));
 const PurchaseOrders = lazy(() => import("./pages/PurchaseOrders").then((module) => ({ default: module.PurchaseOrders })));
+const PurchasePlanning = lazy(() => import("./pages/PurchasePlanning").then((module) => ({ default: module.PurchasePlanning })));
 const Purchases = lazy(() => import("./pages/Purchases").then((module) => ({ default: module.Purchases })));
 const Revenue = lazy(() => import("./pages/Revenue").then((module) => ({ default: module.Revenue })));
 const Suppliers = lazy(() => import("./pages/Suppliers").then((module) => ({ default: module.Suppliers })));
@@ -88,7 +89,7 @@ const sections = [
   { id: "products", label: "Produtos", icon: Package, showInSidebar: true, group: "Estoque", path: "/estoque/produtos", matchers: ["/estoque/produtos"] },
   { id: "inventory-movements", label: "Movimentações", icon: Truck, showInSidebar: true, group: "Estoque", path: "/estoque/movimentacoes", matchers: ["/estoque/movimentacoes"] },
   { id: "inventory-counting", label: "Contagem de Estoque", icon: ClipboardList, showInSidebar: true, group: "Estoque", path: "/estoque/contagens", matchers: ["/estoque/contagens", "/estoque/contagens/:sessionId/lancar"] },
-  { id: "inventory-official", label: "Inventário", icon: FileSpreadsheet, showInSidebar: true, group: "Estoque", path: "/estoque/inventario", matchers: ["/estoque/inventario"] },
+  { id: "inventory-official", label: "Inventário", icon: FileSpreadsheet, showInSidebar: true, group: "Estoque", path: "/estoque/inventario", matchers: ["/estoque/inventario", "/estoque/planejamento-compra"] },
   { id: "inventory-reports", label: "Relatórios", icon: BarChart3, showInSidebar: true, group: "Estoque", path: "/estoque/relatorios", matchers: ["/estoque/relatorios"] },
   { id: "requisitions", label: "Requisições", icon: ClipboardCheck, showInSidebar: true, group: "Estoque", path: "/estoque/requisicoes", matchers: ["/estoque/requisicoes"] },
   { id: "dishes", label: "Fichas Técnicas", icon: ChefHat, showInSidebar: true, group: "Cardápio", path: "/cardapio/fichas-tecnicas", matchers: ["/cardapio/fichas-tecnicas"] },
@@ -522,6 +523,7 @@ export function App() {
               <Route path="/estoque/contagens/:sessionId/lancar" element={<InventoryRouteView user={user} initialView="counting" onOpenProducts={() => handleNavigate("products")} onOpenPurchaseOrders={() => handleNavigate("purchase-orders")} />} />
               <Route path="/estoque/inventario" element={<InventoryRouteView user={user} initialView="inventory" onOpenProducts={() => handleNavigate("products")} onOpenPurchaseOrders={() => handleNavigate("purchase-orders")} />} />
               <Route path="/estoque/relatorios" element={<InventoryRouteView user={user} initialView="reports" onOpenProducts={() => handleNavigate("products")} onOpenPurchaseOrders={() => handleNavigate("purchase-orders")} />} />
+              <Route path="/estoque/planejamento-compra" element={<PurchasePlanning />} />
               <Route path="/inventory/counts/:agendaId" element={<Navigate to="/estoque/contagens" replace />} />
               <Route path="/estoque/requisicoes" element={<Requisitions user={user} />} />
               <Route path="/cardapio/fichas-tecnicas" element={<Dishes />} />
