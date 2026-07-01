@@ -1,5 +1,5 @@
 import { AlertTriangle, Archive, ArrowDown, CalendarDays, CheckCircle2, ClipboardCheck, Download, FileText, FilterX, Layers, Loader2, MessageSquare, Play, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
-import { KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   AppUser,
@@ -320,6 +320,8 @@ export function Inventory({
   const [countLines, setCountLines] = useState<Record<string, { countedQuantity: string; notes: string }>>({});
   const [operationalInventories, setOperationalInventories] = useState<OperationalInventory[]>([]);
   const [operationalDetail, setOperationalDetail] = useState<OperationalInventoryDetail | null>(null);
+  const [openingInventoryId, setOpeningInventoryId] = useState<string | null>(null);
+  const operationalDetailRef = useRef<HTMLDivElement>(null);
   const [showCanceledStockData, setShowCanceledStockData] = useState(false);
   const [minQtyEdit, setMinQtyEdit] = useState<Record<string, string>>({});
   const [savingMinQty, setSavingMinQty] = useState<Record<string, boolean>>({});
@@ -1199,17 +1201,25 @@ export function Inventory({
   }
 
   async function openOperationalInventory(id: string, showMessage = true) {
-    const detail = await getOperationalInventory(id);
-    setOperationalDetail(detail);
-    setFinalCmvCoverage(null);
-    setOperationalSectorFilter("");
-    setOperationalLines(Object.fromEntries(detail.items.map((item) => [
-      item.id,
-      { countedQuantity: item.countedQuantity == null ? "" : String(item.countedQuantity), notes: item.notes ?? "" }
-    ])));
-    if (showMessage) setNotice({ tone: "success", message: `${detail.code} aberto para consulta.` });
-    if (detail.type === "FINAL_CMV" && detail.status === "RASCUNHO") {
-      void loadFinalCmvCoverage(id);
+    setOpeningInventoryId(id);
+    try {
+      const detail = await getOperationalInventory(id);
+      setOperationalDetail(detail);
+      setFinalCmvCoverage(null);
+      setOperationalSectorFilter("");
+      setOperationalLines(Object.fromEntries(detail.items.map((item) => [
+        item.id,
+        { countedQuantity: item.countedQuantity == null ? "" : String(item.countedQuantity), notes: item.notes ?? "" }
+      ])));
+      if (showMessage) setNotice({ tone: "success", message: `${detail.code} aberto para consulta.` });
+      if (detail.type === "FINAL_CMV" && detail.status === "RASCUNHO") {
+        void loadFinalCmvCoverage(id);
+      }
+      setTimeout(() => {
+        operationalDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 80);
+    } finally {
+      setOpeningInventoryId(null);
     }
   }
 
@@ -2564,7 +2574,15 @@ export function Inventory({
                             {!cov && !(isLoadingCoverageMap && inventory.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inventory.status)) && "-"}
                           </td>
                           <td className="actions-cell">
-                            <button className="secondary-button" type="button" onClick={() => openOperationalInventory(inventory.id)}>Abrir</button>
+                            <button
+                              className={inventory.type === "FINAL_CMV" && inventory.status === "EM_REVISAO" ? "primary-button" : "secondary-button"}
+                              type="button"
+                              disabled={openingInventoryId === inventory.id}
+                              onClick={() => void openOperationalInventory(inventory.id)}
+                            >
+                              {openingInventoryId === inventory.id ? <Loader2 size={14} className="spin" /> : null}
+                              {inventory.type === "FINAL_CMV" && inventory.status === "EM_REVISAO" ? "Continuar análise" : "Abrir"}
+                            </button>
                             <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>Gerar PDF</button>
                           </td>
                         </tr>
@@ -2608,7 +2626,15 @@ export function Inventory({
                         </div>
                       )}
                       <div className="inv-mc-actions">
-                        <button className="primary-button" type="button" onClick={() => openOperationalInventory(inventory.id)}>Abrir</button>
+                        <button
+                          className="primary-button"
+                          type="button"
+                          disabled={openingInventoryId === inventory.id}
+                          onClick={() => void openOperationalInventory(inventory.id)}
+                        >
+                          {openingInventoryId === inventory.id ? <Loader2 size={14} className="spin" /> : null}
+                          {inventory.type === "FINAL_CMV" && inventory.status === "EM_REVISAO" ? "Continuar análise" : "Abrir"}
+                        </button>
                         <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>PDF</button>
                       </div>
                     </div>
@@ -2644,7 +2670,15 @@ export function Inventory({
                       <td>{formatNumber(inventory.pendingItems)}</td>
                       <td>{formatNumber(inventory.divergentItems)}</td>
                       <td className="actions-cell">
-                        <button className="secondary-button" type="button" onClick={() => openOperationalInventory(inventory.id)}>Abrir</button>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={openingInventoryId === inventory.id}
+                          onClick={() => void openOperationalInventory(inventory.id)}
+                        >
+                          {openingInventoryId === inventory.id ? <Loader2 size={14} className="spin" /> : null}
+                          Abrir
+                        </button>
                         <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>Gerar PDF</button>
                       </td>
                     </tr>
@@ -2685,7 +2719,15 @@ export function Inventory({
                     {Number(inventory.divergentItems) > 0 && <span className="inv-mc-divergent">{formatNumber(inventory.divergentItems)} div.</span>}
                   </div>
                   <div className="inv-mc-actions">
-                    <button className="primary-button" type="button" onClick={() => openOperationalInventory(inventory.id)}>Abrir</button>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={openingInventoryId === inventory.id}
+                      onClick={() => void openOperationalInventory(inventory.id)}
+                    >
+                      {openingInventoryId === inventory.id ? <Loader2 size={14} className="spin" /> : null}
+                      Abrir
+                    </button>
                     <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>PDF</button>
                   </div>
                 </div>
@@ -2695,7 +2737,7 @@ export function Inventory({
         </>}
 
         {activeView !== "counting" && inventoryDeskTab === "official" && operationalDetail && (
-          <div className="subsection operational-count-panel">
+          <div ref={operationalDetailRef} className="subsection operational-count-panel">
             <div className="section-heading">
               <div>
                 <p>{operationalDetail.code} • {formatDate(operationalDetail.date)} • {operationalTypeLabels[operationalDetail.type]}</p>
