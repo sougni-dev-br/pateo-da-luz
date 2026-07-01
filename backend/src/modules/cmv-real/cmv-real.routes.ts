@@ -7,6 +7,7 @@ import {
   getCmvPeriod,
   getCmvPeriodPdf,
   getCmvRealSuggestions,
+  listCmvBases,
   listCmvPeriods,
   listCmvSessions,
   recalculateCmvPeriod,
@@ -29,6 +30,12 @@ cmvRealRouter.get("/sessions", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
   if (!user) return;
   response.json(await listCmvSessions());
+});
+
+cmvRealRouter.get("/bases", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+  response.json(await listCmvBases());
 });
 
 cmvRealRouter.get("/suggestions", async (request, response) => {

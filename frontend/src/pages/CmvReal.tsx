@@ -7,20 +7,21 @@ import {
   CmvPeriod,
   CmvPeriodDetail,
   CmvRealSuggestions,
-  CmvSessionOption,
   deleteCmvPeriod,
   downloadCmvPeriodPdf,
   getCmvPeriod,
   getCmvPeriods,
-  getCmvRealSessions,
+  getCmvRealBases,
   getCmvRealSuggestions,
   previewConsolidationCoverage,
   reopenCmvPeriod,
   saveCmvPeriod,
+  StockBase,
   StockCoverageAudit
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { ConfirmDialog } from "../components/ui";
+import { useSearchParams } from "react-router-dom";
 import { hasPermission } from "../lib/permissions";
 import { formatCurrency, formatDate } from "../utils/format";
 
@@ -28,31 +29,53 @@ function todayInput() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function sessionTypeLabel(type: string) {
-  if (type === "SETORIAL") return "Setorial";
-  if (type === "IMPORTACAO_PLANILHA") return "Planilha";
-  if (type === "FINAL_MES") return "Final Mes";
-  if (type === "GERAL") return "Geral";
-  return type;
+const PT_MONTHS_SHORT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+
+function shortMonthPt(month: number, year: number) {
+  return `${PT_MONTHS_SHORT[month - 1] ?? String(month)}/${year}`;
 }
 
-function sessionLabel(session: CmvSessionOption) {
-  const month = session.periodMonth != null && session.periodYear != null
-    ? `${String(session.periodMonth).padStart(2, "0")}/${session.periodYear}`
-    : formatDate(session.referenceDate);
-  return `${session.code} — ${month} — ${sessionTypeLabel(session.type)}${session.isMonthEnd ? " — Final" : ""}`;
-}
-
-function sessionTooltip(session: CmvSessionOption) {
-  const lines = [sessionLabel(session)];
-  lines.push(`Itens: ${session.totalItems}`);
-  if (session.snapshotTotalValue != null) {
-    lines.push(`Valor inventário: R$ ${session.snapshotTotalValue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`);
-  } else {
-    lines.push("Snapshot será gerado ao salvar");
+function stockBaseTypeLabel(base: StockBase): string {
+  if (base.sourceType === "SESSION") {
+    switch (base.inventoryType) {
+      case "GERAL": return "Contagem geral";
+      case "SETORIAL": return "Contagem setorial";
+      case "IMPORTACAO_PLANILHA": return "Planilha importada";
+      case "COMPLETO": return "Contagem completa";
+      default: return base.inventoryType;
+    }
   }
-  if (session.notes) lines.push(`Obs: ${session.notes}`);
-  return lines.join("\n");
+  switch (base.inventoryType) {
+    case "INVENTARIO_FINAL": return "Inventário final";
+    case "INVENTARIO_INICIAL": return "Inventário inicial";
+    default: return base.inventoryType;
+  }
+}
+
+function StockBaseCard({ base }: { base: StockBase }) {
+  const month = base.competenceMonth != null && base.competenceYear != null
+    ? shortMonthPt(base.competenceMonth, base.competenceYear) : null;
+  const typeLabel = stockBaseTypeLabel(base);
+  const originLabel = base.origin === "SISTEMA" ? "Sistema" : base.origin === "PLANILHA" ? "Planilha" : "Manual";
+  return (
+    <div className="stock-base-card">
+      <div className="stock-base-card__row">
+        {base.sourceType === "SESSION" && (
+          <span><span className="stock-base-card__label">Código:</span> {base.code}</span>
+        )}
+        {month && <span><span className="stock-base-card__label">Competência:</span> {month}</span>}
+        <span><span className="stock-base-card__label">Tipo:</span> {typeLabel}</span>
+        <span><span className="stock-base-card__label">Itens:</span> {base.totalItems}</span>
+        <span><span className="stock-base-card__label">Origem:</span> {originLabel}</span>
+        {base.snapshotTotal != null && (
+          <span><span className="stock-base-card__label">Total:</span> {formatCurrency(base.snapshotTotal)}</span>
+        )}
+      </div>
+      {base.originalFileName && (
+        <div className="stock-base-card__filename">Arquivo: {base.originalFileName}</div>
+      )}
+    </div>
+  );
 }
 
 function defaultPeriodName(startDate: string, endDate: string) {
@@ -219,7 +242,7 @@ export function CmvReal({ user }: { user: AppUser }) {
   const canEdit = hasPermission(user, "cmv-real", "edit");
   const isAdmin = hasPermission(user, "cmv-real", "admin");
   const [periods, setPeriods] = useState<CmvPeriod[]>([]);
-  const [cmvSessions, setCmvSessions] = useState<CmvSessionOption[]>([]);
+  const [cmvBases, setCmvBases] = useState<StockBase[]>([]);
   const [suggestions, setSuggestions] = useState<CmvRealSuggestions | null>(null);
   const [continuityLocked, setContinuityLocked] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -229,13 +252,16 @@ export function CmvReal({ user }: { user: AppUser }) {
   const [saving, setSaving] = useState(false);
   const [finalSessionCoverage, setFinalSessionCoverage] = useState<StockCoverageAudit | null>(null);
   const [checkingCoverage, setCheckingCoverage] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [form, setForm] = useState({
     code: "",
     name: "",
     dataInicial: todayInput(),
     dataFinal: todayInput(),
     estoqueInicialSessionId: "",
+    estoqueInicialSnapshotId: "",
     estoqueFinalSessionId: "",
+    estoqueFinalSnapshotId: "",
     observacoes: ""
   });
   const { notice, setNotice } = useNotice();
@@ -247,14 +273,17 @@ export function CmvReal({ user }: { user: AppUser }) {
 
   const cmvHealth = useMemo(() => classifyCmv(selectedPeriod?.cmvPercentual), [selectedPeriod?.cmvPercentual]);
 
-  const sessionLabels = useMemo(() => {
-    const labels = new Map<string, string>();
-    cmvSessions.forEach((session) => labels.set(session.sessionId, sessionLabel(session)));
-    return labels;
-  }, [cmvSessions]);
+  const initialDropdownValue = form.estoqueInicialSnapshotId ? `SNAPSHOT:${form.estoqueInicialSnapshotId}` : form.estoqueInicialSessionId;
+  const finalDropdownValue = form.estoqueFinalSnapshotId ? `SNAPSHOT:${form.estoqueFinalSnapshotId}` : form.estoqueFinalSessionId;
 
-  const selectedInitialSessionLabel = sessionLabels.get(form.estoqueInicialSessionId) ?? "";
-  const selectedFinalSessionLabel = sessionLabels.get(form.estoqueFinalSessionId) ?? "";
+  const selectedInitialBase = useMemo(
+    () => cmvBases.find((b) => (b.sourceType === "SNAPSHOT" ? `SNAPSHOT:${b.id}` : b.id) === initialDropdownValue) ?? null,
+    [cmvBases, initialDropdownValue]
+  );
+  const selectedFinalBase = useMemo(
+    () => cmvBases.find((b) => (b.sourceType === "SNAPSHOT" ? `SNAPSHOT:${b.id}` : b.id) === finalDropdownValue) ?? null,
+    [cmvBases, finalDropdownValue]
+  );
 
   const duplicatePeriodKeys = useMemo(() => {
     const counts = new Map<string, number>();
@@ -274,22 +303,25 @@ export function CmvReal({ user }: { user: AppUser }) {
     duplicates: duplicatePeriods.length
   }), [duplicatePeriods.length, periods]);
 
-  const applyPeriodToForm = useCallback((period: Pick<CmvPeriod, "name" | "code" | "dataInicial" | "dataFinal" | "estoqueInicialSessionId" | "estoqueFinalSessionId" | "observacoes">) => {
+  const applyPeriodToForm = useCallback((period: Pick<CmvPeriod, "name" | "code" | "dataInicial" | "dataFinal" | "estoqueInicialSessionId" | "estoqueInicialSnapshotId" | "estoqueFinalSessionId" | "estoqueFinalSnapshotId" | "observacoes">) => {
     setForm({
       name: period.name,
       code: period.code ?? "",
       dataInicial: period.dataInicial,
       dataFinal: period.dataFinal,
       estoqueInicialSessionId: period.estoqueInicialSessionId ?? "",
+      estoqueInicialSnapshotId: period.estoqueInicialSnapshotId ?? "",
       estoqueFinalSessionId: period.estoqueFinalSessionId ?? "",
+      estoqueFinalSnapshotId: period.estoqueFinalSnapshotId ?? "",
       observacoes: period.observacoes ?? ""
     });
   }, []);
 
   const suggestionsRef = useRef(suggestions);
   suggestionsRef.current = suggestions;
+  const pendingSnapshotRef = useRef<string | null>(null);
 
-  const startNewPeriod = useCallback((nextSuggestions: CmvRealSuggestions | null = suggestionsRef.current) => {
+  const startNewPeriod = useCallback((nextSuggestions: CmvRealSuggestions | null = suggestionsRef.current, options?: { estoqueFinalSnapshotId?: string }) => {
     const startDate = nextSuggestions?.suggestedStartDate ?? todayInput();
     setSelectedId(null);
     setDetail(null);
@@ -300,7 +332,9 @@ export function CmvReal({ user }: { user: AppUser }) {
       dataInicial: startDate,
       dataFinal: startDate,
       estoqueInicialSessionId: nextSuggestions?.suggestedInitialSessionId ?? "",
+      estoqueInicialSnapshotId: "",
       estoqueFinalSessionId: "",
+      estoqueFinalSnapshotId: options?.estoqueFinalSnapshotId ?? "",
       observacoes: ""
     });
   }, []);
@@ -308,14 +342,16 @@ export function CmvReal({ user }: { user: AppUser }) {
   const load = useCallback(async (nextSelectedId: string | null = selectedId) => {
     setLoading(true);
     try {
-      const [periodList, sessions, nextSuggestions] = await Promise.all([
+      const [periodList, bases, nextSuggestions] = await Promise.all([
         getCmvPeriods(),
-        getCmvRealSessions(),
+        getCmvRealBases(),
         getCmvRealSuggestions()
       ]);
       setPeriods(periodList);
-      setCmvSessions(sessions);
+      setCmvBases(bases);
       setSuggestions(nextSuggestions);
+      const pendingSnapshot = pendingSnapshotRef.current;
+      pendingSnapshotRef.current = null;
       if (nextSelectedId) {
         const selected = await getCmvPeriod(nextSelectedId);
         setSelectedId(nextSelectedId);
@@ -323,6 +359,8 @@ export function CmvReal({ user }: { user: AppUser }) {
         setDetail(selected);
         setContinuityLocked(false);
         applyPeriodToForm(selected);
+      } else if (pendingSnapshot) {
+        startNewPeriod(nextSuggestions, { estoqueFinalSnapshotId: pendingSnapshot });
       } else if (periodList[0]) {
         const selected = await getCmvPeriod(periodList[0].id);
         setSelectedId(periodList[0].id);
@@ -344,6 +382,14 @@ export function CmvReal({ user }: { user: AppUser }) {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const snapshotId = searchParams.get("estoqueFinalSnapshotId");
+    if (snapshotId) {
+      pendingSnapshotRef.current = snapshotId;
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   const openPeriod = useCallback(async (period: CmvPeriod) => {
     try {
       setSelectedId(period.id);
@@ -358,9 +404,8 @@ export function CmvReal({ user }: { user: AppUser }) {
   }, [applyPeriodToForm, setNotice]);
 
   async function checkFinalSessionCoverage(sessionId: string) {
-    const session = cmvSessions.find((s) => s.sessionId === sessionId);
-    // Verificar cobertura apenas para contagens de fechamento (isMonthEnd)
-    if (!session?.isMonthEnd) { setFinalSessionCoverage(null); return; }
+    const base = cmvBases.find((b) => b.sourceType === "SESSION" && b.id === sessionId);
+    if (!base?.isMonthEnd) { setFinalSessionCoverage(null); return; }
     setCheckingCoverage(true);
     try {
       const cov = await previewConsolidationCoverage([sessionId]);
@@ -374,8 +419,10 @@ export function CmvReal({ user }: { user: AppUser }) {
 
   async function handleSave() {
     if (!canEdit) return;
-    if (!form.estoqueInicialSessionId || !form.estoqueFinalSessionId) {
-      setNotice({ tone: "warning", message: "Selecione as contagens inicial e final." });
+    const hasInicial = form.estoqueInicialSessionId || form.estoqueInicialSnapshotId;
+    const hasFinal = form.estoqueFinalSessionId || form.estoqueFinalSnapshotId;
+    if (!hasInicial || !hasFinal) {
+      setNotice({ tone: "warning", message: "Selecione o estoque inicial e o estoque final." });
       return;
     }
     // Bloquear se a contagem final de fechamento estiver com cobertura incompleta
@@ -391,7 +438,7 @@ export function CmvReal({ user }: { user: AppUser }) {
       let continuityOverrideReason: string | null = null;
       const changingSuggestedContinuity = !selectedId
         && suggestions?.continuityLocked
-        && (form.dataInicial !== suggestions.suggestedStartDate || form.estoqueInicialSessionId !== (suggestions.suggestedInitialSessionId ?? ""));
+        && (form.dataInicial !== suggestions.suggestedStartDate || form.estoqueInicialSessionId !== (suggestions.suggestedInitialSessionId ?? "") || !!form.estoqueInicialSnapshotId);
       if (isAdmin && changingSuggestedContinuity) {
         const reason = window.prompt("Informe o motivo para alterar a continuidade da apuração:");
         if (!reason?.trim()) {
@@ -405,8 +452,10 @@ export function CmvReal({ user }: { user: AppUser }) {
         name: form.name.trim() || defaultPeriodName(form.dataInicial, form.dataFinal),
         dataInicial: form.dataInicial,
         dataFinal: form.dataFinal,
-        estoqueInicialSessionId: form.estoqueInicialSessionId,
-        estoqueFinalSessionId: form.estoqueFinalSessionId,
+        estoqueInicialSessionId: form.estoqueInicialSessionId || null,
+        estoqueInicialSnapshotId: form.estoqueInicialSnapshotId || undefined,
+        estoqueFinalSessionId: form.estoqueFinalSessionId || null,
+        estoqueFinalSnapshotId: form.estoqueFinalSnapshotId || undefined,
         observacoes: form.observacoes,
         continuityOverrideReason
       });
@@ -642,50 +691,65 @@ export function CmvReal({ user }: { user: AppUser }) {
             />
           </label>
           <label>
-            Contagem inicial
+            Estoque inicial
             <select
               className={!selectedId && continuityLocked && !isAdmin ? "locked-field" : undefined}
-              value={form.estoqueInicialSessionId}
+              value={initialDropdownValue}
               disabled={!selectedId && continuityLocked && !isAdmin}
-              title={selectedInitialSessionLabel || "Selecionar"}
-              onChange={(event) => setForm({ ...form, estoqueInicialSessionId: event.target.value })}
-            >
-              <option value="">Selecionar contagem</option>
-              {cmvSessions.map((session) => (
-                <option key={session.sessionId} value={session.sessionId} title={sessionTooltip(session)}>
-                  {sessionLabel(session)}
-                </option>
-              ))}
-            </select>
-            {selectedInitialSessionLabel && (
-              <small className="selected-field-label" title={selectedInitialSessionLabel}>
-                {selectedInitialSessionLabel}
-              </small>
-            )}
-          </label>
-          <label>
-            Contagem final
-            <select
-              value={form.estoqueFinalSessionId}
-              title={selectedFinalSessionLabel || "Selecionar"}
+              title={selectedInitialBase ? selectedInitialBase.displayLabel : "Selecionar"}
               onChange={(event) => {
-                const sessionId = event.target.value;
-                setForm({ ...form, estoqueFinalSessionId: sessionId });
-                checkFinalSessionCoverage(sessionId);
+                const val = event.target.value;
+                if (!val) {
+                  setForm((f) => ({ ...f, estoqueInicialSessionId: "", estoqueInicialSnapshotId: "" }));
+                } else if (val.startsWith("SNAPSHOT:")) {
+                  setForm((f) => ({ ...f, estoqueInicialSnapshotId: val.slice(9), estoqueInicialSessionId: "" }));
+                } else {
+                  setForm((f) => ({ ...f, estoqueInicialSessionId: val, estoqueInicialSnapshotId: "" }));
+                }
               }}
             >
-              <option value="">Selecionar contagem</option>
-              {cmvSessions.map((session) => (
-                <option key={session.sessionId} value={session.sessionId} title={sessionTooltip(session)}>
-                  {sessionLabel(session)}
-                </option>
-              ))}
+              <option value="">Selecionar estoque</option>
+              {cmvBases.map((base) => {
+                const optionValue = base.sourceType === "SNAPSHOT" ? `SNAPSHOT:${base.id}` : base.id;
+                return (
+                  <option key={optionValue} value={optionValue}>
+                    {base.displayLabel}
+                  </option>
+                );
+              })}
             </select>
-            {selectedFinalSessionLabel && (
-              <small className="selected-field-label" title={selectedFinalSessionLabel}>
-                {selectedFinalSessionLabel}
-              </small>
-            )}
+            {selectedInitialBase && <StockBaseCard base={selectedInitialBase} />}
+          </label>
+          <label>
+            Estoque final
+            <select
+              value={finalDropdownValue}
+              title={selectedFinalBase ? selectedFinalBase.displayLabel : "Selecionar"}
+              onChange={(event) => {
+                const val = event.target.value;
+                if (!val) {
+                  setForm((f) => ({ ...f, estoqueFinalSessionId: "", estoqueFinalSnapshotId: "" }));
+                  setFinalSessionCoverage(null);
+                } else if (val.startsWith("SNAPSHOT:")) {
+                  setForm((f) => ({ ...f, estoqueFinalSnapshotId: val.slice(9), estoqueFinalSessionId: "" }));
+                  setFinalSessionCoverage(null);
+                } else {
+                  setForm((f) => ({ ...f, estoqueFinalSessionId: val, estoqueFinalSnapshotId: "" }));
+                  checkFinalSessionCoverage(val);
+                }
+              }}
+            >
+              <option value="">Selecionar estoque</option>
+              {cmvBases.map((base) => {
+                const optionValue = base.sourceType === "SNAPSHOT" ? `SNAPSHOT:${base.id}` : base.id;
+                return (
+                  <option key={optionValue} value={optionValue}>
+                    {base.displayLabel}
+                  </option>
+                );
+              })}
+            </select>
+            {selectedFinalBase && <StockBaseCard base={selectedFinalBase} />}
             {checkingCoverage && (
               <small style={{ color: "var(--muted)", fontSize: 12, marginTop: 4, display: "block" }}>Verificando cobertura...</small>
             )}
