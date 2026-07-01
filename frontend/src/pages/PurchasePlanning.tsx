@@ -342,6 +342,19 @@ export function PurchasePlanning() {
     return { noSupplier, zeroQty };
   }, [report, edits, removedIds, generatedByProduct]);
 
+  // Derivados do draft para os avisos B1/B3 no modal de confirmacao.
+  const draftHighQtyItems = useMemo(() => {
+    const nameById = new Map((report?.items ?? []).map((i) => [i.productId, i.productName]));
+    return draft.items
+      .filter((item) => item.requestedQuantity > 500)
+      .map((item) => ({ productName: nameById.get(item.productId) ?? item.productId, qty: item.requestedQuantity }));
+  }, [draft, report]);
+
+  const draftMissingPriceCount = useMemo(
+    () => draft.items.filter((item) => item.unitPriceEstimated == null || item.unitPriceEstimated === 0).length,
+    [draft]
+  );
+
   const canGenerate = draft.items.length > 0 && !generating;
 
   const handleGenerate = async () => {
@@ -708,6 +721,27 @@ export function PurchasePlanning() {
         description="Revise o resumo antes de criar os pedidos de compra."
       >
         <div className="pplan-confirm-body">
+          {draftHighQtyItems.length > 0 && (
+            <div className="pplan-confirm-highqty" role="alert">
+              <AlertTriangle size={16} />
+              <div>
+                <strong>{formatNumber(draftHighQtyItems.length)} item(ns) com quantidade acima do padrão — reveja antes de gerar</strong>
+                <ul>
+                  {draftHighQtyItems.slice(0, 5).map((it) => (
+                    <li key={it.productName}>
+                      <span className="pplan-confirm-highqty-name">{it.productName}</span>
+                      <span className="pplan-confirm-highqty-qty">{formatNumber(it.qty)}</span>
+                    </li>
+                  ))}
+                  {draftHighQtyItems.length > 5 && (
+                    <li className="pplan-confirm-highqty-more">
+                      + {formatNumber(draftHighQtyItems.length - 5)} outro(s)
+                    </li>
+                  )}
+                </ul>
+              </div>
+            </div>
+          )}
           <dl className="pplan-confirm-grid">
             <div><dt>Origem</dt><dd>{report ? sourceTitle(report.summary.source) : "—"}</dd></div>
             <div><dt>Pedidos a criar</dt><dd>{formatNumber(draft.supplierCount)}</dd></div>
@@ -715,6 +749,9 @@ export function PurchasePlanning() {
             <div><dt>Itens válidos</dt><dd>{formatNumber(draft.items.length)}</dd></div>
             <div><dt>Sem fornecedor</dt><dd>{formatNumber(skippedBreakdown.noSupplier)}</dd></div>
             <div><dt>Quantidade zero</dt><dd>{formatNumber(skippedBreakdown.zeroQty)}</dd></div>
+            {draftMissingPriceCount > 0 && (
+              <div><dt>Sem preço estimado</dt><dd>{formatNumber(draftMissingPriceCount)}</dd></div>
+            )}
             <div><dt>Removidos</dt><dd>{formatNumber(removedIds.size)}</dd></div>
             <div className="pplan-confirm-total"><dt>Total estimado</dt><dd>{formatCurrency(draftEstimatedTotal)}</dd></div>
           </dl>
@@ -986,7 +1023,7 @@ function PriceRef({ item }: { item: BuyerSupportItem }) {
       {parts.length > 0 ? (
         <span className="pplan-price-ref-line" title={item.priceComparisonNote ?? undefined}>{parts.join(" · ")}</span>
       ) : (
-        <span className="pplan-price-ref-line pplan-muted">Sem histórico de preço</span>
+        <span className="pplan-price-ref-line pplan-muted" aria-label="Sem histórico de preço">—</span>
       )}
       {item.conversionMissing && (
         <span className="pplan-price-ref-warn"><AlertTriangle size={11} /> Revisar unidade</span>
@@ -1030,6 +1067,15 @@ function DecisionCard({
   const showSuggestionChip = !locked && suggested != null && (edit?.qty ?? "") === "";
   const showEditedChip = !locked && suggested != null && !!edit?.acceptedSuggestion && edit.qty !== "" && Number(edit.qty) !== suggested;
 
+  // B1 — Aviso de quantidade incomum (nao bloqueia geracao, apenas sinaliza).
+  const HIGH_QTY_THRESHOLD = 500;
+  const showHighQtyChip = !locked && qty > HIGH_QTY_THRESHOLD;
+  const [showHighQtyDetail, setShowHighQtyDetail] = useState(false);
+
+  // B3 — Preco de referencia ausente (item entra no pedido mas nao soma ao total).
+  const unitPrice = unitPriceForSupplier(item, supplierId);
+  const missingPrice = !locked && (unitPrice == null || unitPrice === 0);
+
   return (
     <article className={`pplan-decision-card${!supplierId && !locked ? " is-warning" : ""}${locked ? " is-generated" : ""}`}>
       {locked && (
@@ -1056,6 +1102,28 @@ function DecisionCard({
       {showEditedChip && (
         <div className="pplan-suggestion-edited">
           Sugerido {formatNumber(suggested!)} {item.unit ?? "un"} — editado por você
+        </div>
+      )}
+      {showHighQtyChip && (
+        <div className="pplan-high-qty">
+          <button
+            type="button"
+            className="pplan-high-qty-chip"
+            aria-expanded={showHighQtyDetail}
+            onClick={() => setShowHighQtyDetail((v) => !v)}
+          >
+            <AlertTriangle size={12} /> Quantidade incomum — confirme
+          </button>
+          {showHighQtyDetail && (
+            <p className="pplan-high-qty-detail">
+              Este item tem quantidade acima do padrão. Confirme antes de gerar.
+            </p>
+          )}
+        </div>
+      )}
+      {missingPrice && (
+        <div className="pplan-missing-price">
+          Sem histórico de preço — não conta no total estimado
         </div>
       )}
       <fieldset className="pplan-decision-card-fields" disabled={locked}>
