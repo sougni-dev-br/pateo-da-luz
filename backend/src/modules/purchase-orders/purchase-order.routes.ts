@@ -213,6 +213,22 @@ purchaseOrderRouter.post("/from-planning", async (request, response) => {
   const rawItems: Array<Record<string, unknown>> = Array.isArray(request.body?.items) ? request.body.items : [];
   const skippedItems: Array<{ productId: string | null; reason: string }> = [];
 
+  // Guarda de sanidade: qualquer restaurante que digite acima disso e' erro grosseiro
+  // (99% dos itens sao <= 500 no dia-a-dia). Aborta o batch inteiro com HTTP 400 para
+  // forcar o comprador a revisar antes de gerar o pedido.
+  const MAX_REQUESTED_QUANTITY = 100_000;
+  // Cap defensivo do tamanho do batch: um restaurante nao gera mais que dezenas de
+  // itens por planejamento; 1000 e' folga larga. Bloqueia payloads gigantes que
+  // poderiam pesar a query IN(...) subsequente.
+  const MAX_ITEMS_PER_REQUEST = 1000;
+  if (rawItems.length > MAX_ITEMS_PER_REQUEST) {
+    response.status(400).json({
+      message: `Payload excede o limite de ${MAX_ITEMS_PER_REQUEST} itens por requisicao (recebido: ${rawItems.length}).`
+    });
+    return;
+  }
+  const overLimit: Array<{ productId: string; requestedQuantity: number }> = [];
+
   const candidates = rawItems.flatMap((raw) => {
     const productId = asText(raw?.productId);
     const supplierId = asText(raw?.supplierId);
@@ -223,6 +239,12 @@ purchaseOrderRouter.post("/from-planning", async (request, response) => {
     }
     if (requestedQuantity == null || requestedQuantity <= 0) {
       skippedItems.push({ productId, reason: "Quantidade invalida." });
+      return [];
+    }
+    if (requestedQuantity > MAX_REQUESTED_QUANTITY) {
+      // Prioridade sobre a checagem de supplierId: quantidade fora de escala e' erro
+      // de digitacao mais grave (ex: virgula/ponto trocados) — precisa parar tudo.
+      overLimit.push({ productId, requestedQuantity });
       return [];
     }
     if (!supplierId) {
@@ -240,6 +262,20 @@ purchaseOrderRouter.post("/from-planning", async (request, response) => {
       notes: asText(raw?.notes)
     }];
   });
+
+  if (overLimit.length > 0) {
+    // Resolve nomes para uma mensagem clara ao comprador.
+    const names = await prisma.$queryRaw<Array<{ id: string; name: string }>>`
+      SELECT "id", "name" FROM "Product" WHERE "id" IN (${Prisma.join(overLimit.map((o) => o.productId))})
+    `;
+    const nameById = new Map(names.map((n) => [n.id, n.name]));
+    const details = overLimit.map((o) => `${nameById.get(o.productId) ?? o.productId}: ${o.requestedQuantity}`);
+    response.status(400).json({
+      message: `Quantidade fora do intervalo aceitavel (maximo ${MAX_REQUESTED_QUANTITY}). Reveja o(s) item(ns): ${details.join("; ")}.`,
+      overLimit: overLimit.map((o) => ({ ...o, productName: nameById.get(o.productId) ?? null }))
+    });
+    return;
+  }
 
   const productIds = Array.from(new Set(candidates.map((item) => item.productId)));
   const supplierIds = Array.from(new Set(candidates.map((item) => item.supplierId)));

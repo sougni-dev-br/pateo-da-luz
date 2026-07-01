@@ -13144,6 +13144,121 @@ tr.dre-row-selected td {
   border: 1px dashed var(--line);
 }
 
+/* B1 — Aviso de quantidade incomum (chip laranja suave + linha expandivel).
+   Laranja para diferenciar do amarelo ja usado em sugestao/sem-fornecedor. */
+.pplan-high-qty {
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.pplan-high-qty-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #fff3e0;
+  border: 1px solid #ffcc80;
+  color: #a8560b;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pplan-high-qty-chip:hover,
+.pplan-high-qty-chip[aria-expanded="true"] {
+  border-color: #a8560b;
+}
+
+.pplan-high-qty-detail {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #fff8ee;
+  border: 1px dashed #ffcc80;
+  color: #7a3f08;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* B3 — Preco de referencia ausente (chip cinza discreto, mesma paleta
+   do "editado por voce"). */
+.pplan-missing-price {
+  align-self: flex-start;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f4f4f5;
+  border: 1px dashed var(--line);
+}
+
+/* Aviso B1 no topo do modal de confirmacao (amarelo forte pois e chamada global) */
+.pplan-confirm-highqty {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff8e8;
+  border: 1px solid #ecd9a6;
+  color: #6b4d0a;
+  font-size: 13px;
+}
+
+.pplan-confirm-highqty > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #8a6510;
+}
+
+.pplan-confirm-highqty strong {
+  color: #6b4d0a;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.pplan-confirm-highqty ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pplan-confirm-highqty li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.pplan-confirm-highqty-name {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.pplan-confirm-highqty-qty {
+  font-weight: 700;
+  color: #8a6510;
+  flex-shrink: 0;
+}
+
+.pplan-confirm-highqty-more {
+  color: var(--muted);
+  font-style: italic;
+  justify-content: flex-start;
+}
+
 /* Botao global "Aceitar todas as sugestoes" — secundario, herda estilo mas
    ganha destaque amarelo sutil quando ha sugestoes pendentes. */
 .pplan-accept-all {
