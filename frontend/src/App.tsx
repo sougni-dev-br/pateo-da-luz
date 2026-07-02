@@ -18,7 +18,6 @@ import {
   RefreshCw,
   ScrollText,
   Shield,
-  Star,
   Truck,
   WalletCards,
   Warehouse,
@@ -29,10 +28,18 @@ import type { PanInfo } from "framer-motion";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, matchPath, useLocation, useNavigate, useParams } from "react-router-dom";
 import { AppUser, addMenuFavorite, getMe, getMenuFavorites, getStockCountSessions, logout, removeMenuFavorite, type PermissionAction } from "./api/client";
-import { PageHeader, StatusBadge } from "./components/ui";
+import { PageHeader } from "./components/ui";
 import { SessionContext } from "./context/SessionContext";
 import { MockUserBadge } from "./components/MockUserBadge";
-import { AppShell, ContentErrorBoundary, HideValuesProvider } from "./design-system";
+import {
+  AppShell,
+  ContentErrorBoundary,
+  HideValuesProvider,
+  Sidebar,
+  SidebarNav,
+  withFavoritesGroup
+} from "./design-system";
+import type { SidebarSectionGroup } from "./design-system";
 import { isMockUserMode, MOCK_USER } from "./lib/mockUser";
 import { canAccessModule, hasPermission as userHasPermission } from "./lib/permissions";
 import { ForcedPasswordChange } from "./pages/ForcedPasswordChange";
@@ -299,62 +306,18 @@ export function App() {
     if (info.offset.x < -80 || info.velocity.x < -450) setMobileMenuOpen(false);
   }
 
-  function renderNavItem(section: (typeof sections)[number], onSelect: (sectionId: SectionId) => void) {
-    const Icon = section.icon;
-    const isFav = favorites.includes(section.id);
-    // Badge no item Pedidos de compra: conta contagens CONCLUIDAS ainda nao convertidas.
-    const showPendingBadge = section.id === "purchase-orders" && pendingCountSessionCount > 0;
-    return (
-      <div className="nav-item-wrap" key={section.id}>
-        <button
-          className={effectiveSection.id === section.id ? "active" : ""}
-          type="button"
-          title={section.label}
-          aria-current={effectiveSection.id === section.id ? "page" : undefined}
-          onClick={() => onSelect(section.id)}
-        >
-          <Icon size={18} />
-          <span>{section.label}</span>
-          {showPendingBadge && (
-            <StatusBadge tone="info" title={`${pendingCountSessionCount} contagem(ns) concluida(s) aguardando conversao em pedido ou inventario`}>
-              {pendingCountSessionCount}
-            </StatusBadge>
-          )}
-        </button>
-        <button
-          className={`nav-star${isFav ? " nav-star-active" : ""}`}
-          type="button"
-          title={isFav ? "Remover dos favoritos" : "Adicionar aos favoritos"}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleFavorite(section.id);
-          }}
-        >
-          <Star size={13} fill={isFav ? "currentColor" : "none"} />
-        </button>
-      </div>
-    );
-  }
-
-  function renderNavigation(onSelect: (sectionId: SectionId) => void) {
-    const favSections = visibleSections.filter((s) => favorites.includes(s.id));
-    return (
-      <nav>
-        {favSections.length > 0 && (
-          <div className="nav-group" key="__favoritos">
-            <span>Favoritos</span>
-            {favSections.map((section) => renderNavItem(section, onSelect))}
-          </div>
-        )}
-        {groupedSections.map((group) => (
-          <div className="nav-group" key={group.group}>
-            <span>{group.group}</span>
-            {group.items.map((section) => renderNavItem(section, onSelect))}
-          </div>
-        ))}
-      </nav>
-    );
-  }
+  // Props reutilizadas pela <Sidebar /> desktop e pelo <SidebarNav /> do mobile drawer.
+  const sidebarGroups: SidebarSectionGroup[] = groupedSections.map((group) => ({
+    group: group.group,
+    items: group.items.map((section) => ({
+      id: section.id,
+      label: section.label,
+      icon: section.icon
+    }))
+  }));
+  const sidebarBadges: Record<string, number> =
+    pendingCountSessionCount > 0 ? { "purchase-orders": pendingCountSessionCount } : {};
+  const mobileDrawerGroups = withFavoritesGroup(sidebarGroups, favorites);
 
   // /design-system e dev-only e nao depende de auth. Renderiza antes das checagens
   // de sessao para permitir preview sem backend/login em desenvolvimento.
@@ -440,21 +403,20 @@ export function App() {
             onDragEnd={handleMobileDrawerDragEnd}
           >
             <div className="mobile-drawer-header">
-              <div className="brand-block">
-                <div className="brand-logo-wrap">
+              <div className="ds-sidebar-brand">
+                <div className="ds-sidebar-brand-logo-wrap">
                   <img
-                    className="brand-logo"
                     src={logoPath}
                     alt="Pateo da Luz"
                     onError={(event) => {
                       event.currentTarget.style.display = "none";
                     }}
                   />
-                  <span className="brand-logo-fallback">PL</span>
+                  <span className="ds-sidebar-brand-logo-fallback">PL</span>
                 </div>
-                <div>
-                  <strong>Pateo da Luz</strong>
-                  <span>Gestão eficiente</span>
+                <div className="ds-sidebar-brand-meta">
+                  <strong className="ds-sidebar-brand-name">Pateo da Luz</strong>
+                  <span className="ds-sidebar-brand-tag">Gestão eficiente</span>
                 </div>
               </div>
               <button className="mobile-drawer-close" type="button" aria-label="Fechar menu" onClick={() => setMobileMenuOpen(false)}>
@@ -462,18 +424,30 @@ export function App() {
               </button>
             </div>
             <div className="mobile-drawer-body">
-              {renderNavigation(handleNavigate)}
-              <div className="sidebar-user sidebar-footer mobile-drawer-user">
-                <div className="sidebar-footer-meta">
-                  <span>{user.name}</span>
-                  <small>{user.role}</small>
+              <SidebarNav
+                groups={mobileDrawerGroups}
+                activeId={effectiveSection.id}
+                favorites={favorites}
+                onNavigate={(id) => handleNavigate(id as SectionId)}
+                onToggleFavorite={(id) => toggleFavorite(id as SectionId)}
+                badges={sidebarBadges}
+              />
+              <div className="ds-sidebar-footer mobile-drawer-user">
+                <div className="ds-sidebar-footer-meta">
+                  <span className="ds-sidebar-footer-meta-name">{user.name}</span>
+                  <small className="ds-sidebar-footer-meta-role">{user.role}</small>
                 </div>
-                <div className="sidebar-footer-actions">
-                  <button className="sidebar-footer-button" type="button" onClick={toggleSensitiveValues}>
+                <div className="ds-sidebar-footer-actions">
+                  <button
+                    className="ds-sidebar-footer-button"
+                    type="button"
+                    aria-pressed={hideSensitiveValues}
+                    onClick={toggleSensitiveValues}
+                  >
                     {hideSensitiveValues ? "Mostrar valores" : "Ocultar valores"}
                   </button>
                   <button
-                    className="sidebar-footer-button sidebar-footer-button-danger"
+                    className="ds-sidebar-footer-button ds-sidebar-footer-button-danger"
                     type="button"
                     onClick={() => {
                       setMobileMenuOpen(false);
@@ -494,49 +468,23 @@ export function App() {
   );
 
   const sidebarNode = (
-    <aside className="sidebar">
-      <div className="brand-block">
-        <div className="brand-logo-wrap">
-          <img
-            className="brand-logo"
-            src={logoPath}
-            alt="Pateo da Luz"
-            onError={(event) => {
-              event.currentTarget.style.display = "none";
-            }}
-          />
-          <span className="brand-logo-fallback">PL</span>
-        </div>
-        <div>
-          <strong>Pateo da Luz</strong>
-          <span>Gestão eficiente</span>
-        </div>
-      </div>
-      {renderNavigation(handleNavigate)}
-      <div className="sidebar-user sidebar-footer">
-        <div className="sidebar-footer-meta">
-          <span>{user.name}</span>
-          <small>{user.role}</small>
-        </div>
-        <div className="sidebar-footer-actions">
-          <button className="sidebar-footer-button" type="button" onClick={toggleSensitiveValues}>
-            {hideSensitiveValues ? "Mostrar valores" : "Ocultar valores"}
-          </button>
-          <button
-            className="sidebar-footer-button sidebar-footer-button-danger"
-            type="button"
-            onClick={() => {
-              setUser(null);
-              logout();
-            }}
-          >
-            <LogOut size={16} />
-            Sair
-          </button>
-        </div>
-      </div>
-      {isLocal && <span className="version-badge">DEV</span>}
-    </aside>
+    <Sidebar
+      groups={sidebarGroups}
+      activeId={effectiveSection.id}
+      user={{ name: user.name, role: user.role }}
+      favorites={favorites}
+      onNavigate={(id) => handleNavigate(id as SectionId)}
+      onToggleFavorite={(id) => toggleFavorite(id as SectionId)}
+      badges={sidebarBadges}
+      hideValues={hideSensitiveValues}
+      onToggleValues={toggleSensitiveValues}
+      onLogout={() => {
+        setUser(null);
+        logout();
+      }}
+      showDevBadge={isLocal}
+      logoPath={logoPath}
+    />
   );
 
   return (

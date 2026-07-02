@@ -33,4 +33,10 @@
 
   /* ── Ink hover (Button primary) ── */
   --ink-hover: #2d2922;
+
+  /* ── Sidebar (kit.css gradient 176deg 3-stop) ──
+     Nao usam --coal/--charcoal diretos porque o gradient e mais rico. */
+  --sidebar-gradient-start: #1a1815;
+  --sidebar-gradient-mid: #211f1a;
+  --sidebar-gradient-end: #17150f;
 }
