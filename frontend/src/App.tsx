@@ -31,7 +31,7 @@ import { Navigate, Route, Routes, matchPath, useLocation, useNavigate, useParams
 import { AppUser, addMenuFavorite, getMe, getMenuFavorites, getStockCountSessions, logout, removeMenuFavorite, type PermissionAction } from "./api/client";
 import { PageHeader, StatusBadge } from "./components/ui";
 import { SessionContext } from "./context/SessionContext";
-import { HideValuesProvider } from "./design-system";
+import { AppShell, HideValuesProvider } from "./design-system";
 import { canAccessModule, hasPermission as userHasPermission } from "./lib/permissions";
 import { ForcedPasswordChange } from "./pages/ForcedPasswordChange";
 import type { ImportTab } from "./pages/ImportsHub";
@@ -398,139 +398,149 @@ export function App() {
     );
   }
 
+  const mobileHeaderNode = (
+    <header className="mobile-app-header">
+      <button type="button" aria-label="Abrir menu" onClick={() => setMobileMenuOpen(true)}>
+        <Menu size={22} />
+      </button>
+      <strong>{activeLabel}</strong>
+    </header>
+  );
+
+  const drawerNode = (
+    <AnimatePresence>
+      {mobileMenuOpen && (
+        <>
+          <motion.button
+            aria-label="Fechar menu"
+            className="mobile-drawer-backdrop"
+            type="button"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <motion.aside
+            className="mobile-drawer"
+            initial={{ x: "-104%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "-104%" }}
+            transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.8 }}
+            drag="x"
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={{ left: 0.24, right: 0 }}
+            onDragEnd={handleMobileDrawerDragEnd}
+          >
+            <div className="mobile-drawer-header">
+              <div className="brand-block">
+                <div className="brand-logo-wrap">
+                  <img
+                    className="brand-logo"
+                    src={logoPath}
+                    alt="Pateo da Luz"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
+                  <span className="brand-logo-fallback">PL</span>
+                </div>
+                <div>
+                  <strong>Pateo da Luz</strong>
+                  <span>Gestão eficiente</span>
+                </div>
+              </div>
+              <button className="mobile-drawer-close" type="button" aria-label="Fechar menu" onClick={() => setMobileMenuOpen(false)}>
+                <X size={21} />
+              </button>
+            </div>
+            <div className="mobile-drawer-body">
+              {renderNavigation(handleNavigate)}
+              <div className="sidebar-user sidebar-footer mobile-drawer-user">
+                <div className="sidebar-footer-meta">
+                  <span>{user.name}</span>
+                  <small>{user.role}</small>
+                </div>
+                <div className="sidebar-footer-actions">
+                  <button className="sidebar-footer-button" type="button" onClick={toggleSensitiveValues}>
+                    {hideSensitiveValues ? "Mostrar valores" : "Ocultar valores"}
+                  </button>
+                  <button
+                    className="sidebar-footer-button sidebar-footer-button-danger"
+                    type="button"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      setUser(null);
+                      logout();
+                    }}
+                  >
+                    <LogOut size={16} />
+                    Sair
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.aside>
+        </>
+      )}
+    </AnimatePresence>
+  );
+
+  const sidebarNode = (
+    <aside className="sidebar">
+      <div className="brand-block">
+        <div className="brand-logo-wrap">
+          <img
+            className="brand-logo"
+            src={logoPath}
+            alt="Pateo da Luz"
+            onError={(event) => {
+              event.currentTarget.style.display = "none";
+            }}
+          />
+          <span className="brand-logo-fallback">PL</span>
+        </div>
+        <div>
+          <strong>Pateo da Luz</strong>
+          <span>Gestão eficiente</span>
+        </div>
+      </div>
+      {renderNavigation(handleNavigate)}
+      <div className="sidebar-user sidebar-footer">
+        <div className="sidebar-footer-meta">
+          <span>{user.name}</span>
+          <small>{user.role}</small>
+        </div>
+        <div className="sidebar-footer-actions">
+          <button className="sidebar-footer-button" type="button" onClick={toggleSensitiveValues}>
+            {hideSensitiveValues ? "Mostrar valores" : "Ocultar valores"}
+          </button>
+          <button
+            className="sidebar-footer-button sidebar-footer-button-danger"
+            type="button"
+            onClick={() => {
+              setUser(null);
+              logout();
+            }}
+          >
+            <LogOut size={16} />
+            Sair
+          </button>
+        </div>
+      </div>
+      {isLocal && <span className="version-badge">DEV</span>}
+    </aside>
+  );
+
   return (
     <SessionContext.Provider value={sessionContextValue}>
       <HideValuesProvider>
-      <main className="app-shell">
-        <header className="mobile-app-header">
-          <button type="button" aria-label="Abrir menu" onClick={() => setMobileMenuOpen(true)}>
-            <Menu size={22} />
-          </button>
-          <strong>{activeLabel}</strong>
-        </header>
-
-        <AnimatePresence>
-          {mobileMenuOpen && (
-            <>
-              <motion.button
-                aria-label="Fechar menu"
-                className="mobile-drawer-backdrop"
-                type="button"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-                onClick={() => setMobileMenuOpen(false)}
-              />
-              <motion.aside
-                className="mobile-drawer"
-                initial={{ x: "-104%" }}
-                animate={{ x: 0 }}
-                exit={{ x: "-104%" }}
-                transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.8 }}
-                drag="x"
-                dragConstraints={{ left: 0, right: 0 }}
-                dragElastic={{ left: 0.24, right: 0 }}
-                onDragEnd={handleMobileDrawerDragEnd}
-              >
-                <div className="mobile-drawer-header">
-                  <div className="brand-block">
-                    <div className="brand-logo-wrap">
-                      <img
-                        className="brand-logo"
-                        src={logoPath}
-                        alt="Pateo da Luz"
-                        onError={(event) => {
-                          event.currentTarget.style.display = "none";
-                        }}
-                      />
-                      <span className="brand-logo-fallback">PL</span>
-                    </div>
-                    <div>
-                      <strong>Pateo da Luz</strong>
-                      <span>Gestão eficiente</span>
-                    </div>
-                  </div>
-                  <button className="mobile-drawer-close" type="button" aria-label="Fechar menu" onClick={() => setMobileMenuOpen(false)}>
-                    <X size={21} />
-                  </button>
-                </div>
-                <div className="mobile-drawer-body">
-                  {renderNavigation(handleNavigate)}
-                  <div className="sidebar-user sidebar-footer mobile-drawer-user">
-                    <div className="sidebar-footer-meta">
-                      <span>{user.name}</span>
-                      <small>{user.role}</small>
-                    </div>
-                    <div className="sidebar-footer-actions">
-                      <button className="sidebar-footer-button" type="button" onClick={toggleSensitiveValues}>
-                        {hideSensitiveValues ? "Mostrar valores" : "Ocultar valores"}
-                      </button>
-                      <button
-                        className="sidebar-footer-button sidebar-footer-button-danger"
-                        type="button"
-                        onClick={() => {
-                          setMobileMenuOpen(false);
-                          setUser(null);
-                          logout();
-                        }}
-                      >
-                        <LogOut size={16} />
-                        Sair
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </motion.aside>
-            </>
-          )}
-        </AnimatePresence>
-
-        <aside className="sidebar">
-          <div className="brand-block">
-            <div className="brand-logo-wrap">
-              <img
-                className="brand-logo"
-                src={logoPath}
-                alt="Pateo da Luz"
-                onError={(event) => {
-                  event.currentTarget.style.display = "none";
-                }}
-              />
-              <span className="brand-logo-fallback">PL</span>
-            </div>
-            <div>
-              <strong>Pateo da Luz</strong>
-              <span>Gestão eficiente</span>
-            </div>
-          </div>
-          {renderNavigation(handleNavigate)}
-          <div className="sidebar-user sidebar-footer">
-            <div className="sidebar-footer-meta">
-              <span>{user.name}</span>
-              <small>{user.role}</small>
-            </div>
-            <div className="sidebar-footer-actions">
-              <button className="sidebar-footer-button" type="button" onClick={toggleSensitiveValues}>
-                {hideSensitiveValues ? "Mostrar valores" : "Ocultar valores"}
-              </button>
-              <button
-                className="sidebar-footer-button sidebar-footer-button-danger"
-                type="button"
-                onClick={() => {
-                  setUser(null);
-                  logout();
-                }}
-              >
-                <LogOut size={16} />
-                Sair
-              </button>
-            </div>
-          </div>
-          {isLocal && <span className="version-badge">DEV</span>}
-        </aside>
-
-        <section className="content" ref={contentRef}>
+        <AppShell
+          ref={contentRef}
+          mobileHeader={mobileHeaderNode}
+          drawer={drawerNode}
+          sidebar={sidebarNode}
+        >
           <div className="desktop-page-header">
             <PageHeader eyebrow={`Pateo da Luz / ${activeGroup}`} title={activeLabel} />
           </div>
@@ -601,8 +611,7 @@ export function App() {
               <Route path="*" element={<Navigate to={fallbackSection.path} replace />} />
             </Routes>
           </Suspense>
-        </section>
-      </main>
+        </AppShell>
       </HideValuesProvider>
     </SessionContext.Provider>
   );
