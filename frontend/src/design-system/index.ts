@@ -34,5 +34,14 @@ export type { TextFieldProps } from "./components/TextField";
 export { Select } from "./components/Select";
 export type { SelectProps, SelectOption } from "./components/Select";
 
+export { SummaryCard } from "./components/SummaryCard";
+export type { SummaryCardProps, SummaryTone } from "./components/SummaryCard";
+
+export { KpiCard } from "./components/KpiCard";
+export type { KpiCardProps, KpiTone, KpiDelta, KpiDeltaDirection } from "./components/KpiCard";
+
+export { Sparkline } from "./components/Sparkline";
+export type { SparklineProps } from "./components/Sparkline";
+
 export { HideValuesProvider, useHideValues } from "./context/HideValuesContext";
 export type { HideValuesContextValue } from "./context/HideValuesContext";
