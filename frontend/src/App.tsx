@@ -31,7 +31,9 @@ import { Navigate, Route, Routes, matchPath, useLocation, useNavigate, useParams
 import { AppUser, addMenuFavorite, getMe, getMenuFavorites, getStockCountSessions, logout, removeMenuFavorite, type PermissionAction } from "./api/client";
 import { PageHeader, StatusBadge } from "./components/ui";
 import { SessionContext } from "./context/SessionContext";
-import { AppShell, HideValuesProvider } from "./design-system";
+import { MockUserBadge } from "./components/MockUserBadge";
+import { AppShell, ContentErrorBoundary, HideValuesProvider } from "./design-system";
+import { isMockUserMode, MOCK_USER } from "./lib/mockUser";
 import { canAccessModule, hasPermission as userHasPermission } from "./lib/permissions";
 import { ForcedPasswordChange } from "./pages/ForcedPasswordChange";
 import type { ImportTab } from "./pages/ImportsHub";
@@ -169,8 +171,11 @@ export function App() {
   const location = useLocation();
   const [importsTab, setImportsTab] = useState<ImportTab>("revenue");
   const [cashEntryId, setCashEntryId] = useState<string | null>(null);
-  const [user, setUser] = useState<AppUser | null>(null);
-  const [checkingSession, setCheckingSession] = useState(true);
+  // mock-user (dev-only): bypassa auth e usa um AppUser sintetico. Sempre
+  // avaliado no mount — se ligar ?mock-user=1 apos start, e preciso reload.
+  const mockMode = isMockUserMode();
+  const [user, setUser] = useState<AppUser | null>(mockMode ? MOCK_USER : null);
+  const [checkingSession, setCheckingSession] = useState(!mockMode);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hideSensitiveValues, setHideSensitiveValues] = useState(() => window.localStorage.getItem("hideSensitiveValues") === "true");
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -213,6 +218,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (mockMode) return;
     getMe()
       .then((me) => {
         setUser(me);
@@ -220,7 +226,7 @@ export function App() {
       })
       .catch(() => setUser(null))
       .finally(() => setCheckingSession(false));
-  }, []);
+  }, [mockMode]);
 
   useEffect(() => {
     if (!user || checkingSession) return;
@@ -232,6 +238,7 @@ export function App() {
   // sem polling). Falhas silenciosas: badge simplesmente nao renderiza se usuario nao
   // tiver permissao no endpoint.
   useEffect(() => {
+    if (mockMode) return;
     if (!user || checkingSession) return;
     let active = true;
     getStockCountSessions()
@@ -242,7 +249,7 @@ export function App() {
       })
       .catch(() => { if (active) setPendingCountSessionCount(0); });
     return () => { active = false; };
-  }, [user, checkingSession, location.pathname]);
+  }, [mockMode, user, checkingSession, location.pathname]);
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -535,6 +542,7 @@ export function App() {
   return (
     <SessionContext.Provider value={sessionContextValue}>
       <HideValuesProvider>
+        <MockUserBadge />
         <AppShell
           ref={contentRef}
           mobileHeader={mobileHeaderNode}
@@ -546,6 +554,7 @@ export function App() {
           </div>
 
           <Suspense fallback={<div className="page-loading">Carregando módulo...</div>}>
+            <ContentErrorBoundary>
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/dashboard" element={<Navigate to="/" replace />} />
@@ -610,6 +619,7 @@ export function App() {
               <Route path="/configuracoes/auditoria" element={<Audit />} />
               <Route path="*" element={<Navigate to={fallbackSection.path} replace />} />
             </Routes>
+            </ContentErrorBoundary>
           </Suspense>
         </AppShell>
       </HideValuesProvider>
