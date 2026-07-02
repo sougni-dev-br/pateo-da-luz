@@ -2483,6 +2483,9 @@ export function Inventory({
                       <td>{formatNumber(session.divergentItems)}</td>
                       <td className="actions-cell">
                         <button className="secondary-button" type="button" onClick={() => openCountSession(session.id)}>{editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}</button>
+                        {session.status === "CONCLUIDA" && (
+                          <button className="secondary-button" type="button" onClick={() => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`)}><ShoppingCart size={16} />Gerar pedido de compra</button>
+                        )}
                         {canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA" && (
                           <button className="primary-button" type="button" onClick={async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventario gerado a partir da contagem." }); }}>Gerar inventario</button>
                         )}
@@ -2529,6 +2532,9 @@ export function Inventory({
                     <button className="secondary-button" type="button" onClick={() => openCountSession(session.id)}>
                       {editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}
                     </button>
+                    {session.status === "CONCLUIDA" && (
+                      <button className="secondary-button" type="button" onClick={() => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`)}><ShoppingCart size={16} />Gerar pedido</button>
+                    )}
                     {canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA" && (
                       <button className="primary-button" type="button" onClick={async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventario gerado a partir da contagem." }); }}>Gerar inv.</button>
                     )}
