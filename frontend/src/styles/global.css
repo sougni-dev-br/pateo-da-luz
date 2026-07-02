@@ -58,13 +58,7 @@ select {
   white-space: nowrap;
 }
 
-.app-shell {
-  min-height: 100vh;
-  max-width: 100%;
-  display: grid;
-  grid-template-columns: 264px 1fr;
-  background: linear-gradient(90deg, #24231f 264px, transparent 264px);
-}
+/* .app-shell agora vive em src/design-system/shell/AppShell.css (Fase 4A). */
 
 .mobile-app-header,
 .mobile-drawer,
@@ -460,12 +454,7 @@ select {
   padding: 6px 12px;
 }
 
-.content {
-  min-width: 0;
-  width: 100%;
-  max-width: 100%;
-  padding: 30px;
-}
+/* .content agora vive em src/design-system/shell/AppShell.css (Fase 4A). */
 
 .page-header,
 .section-heading,

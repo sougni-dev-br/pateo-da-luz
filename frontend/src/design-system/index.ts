@@ -45,3 +45,6 @@ export type { SparklineProps } from "./components/Sparkline";
 
 export { HideValuesProvider, useHideValues } from "./context/HideValuesContext";
 export type { HideValuesContextValue } from "./context/HideValuesContext";
+
+export { AppShell } from "./shell/AppShell";
+export type { AppShellProps } from "./shell/AppShell";
