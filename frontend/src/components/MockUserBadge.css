@@ -1,34 +1,43 @@
 .mock-user-badge {
   position: fixed;
-  top: 12px;
-  right: 16px;
-  z-index: 9999;
+  top: 14px;
+  right: 18px;
+  /* 2147483647 = int32 max. Vence qualquer z-index de modal / drawer /
+     radix layer. E na body via portal, entao nao ha stacking context pai
+     que consiga sombrear. */
+  z-index: 2147483647;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
+  gap: 7px;
+  padding: 7px 13px;
   border-radius: var(--radius-pill);
   background: var(--danger);
   color: var(--paper);
   font-family: var(--font-sans);
-  font-size: var(--fs-2xs);
+  /* Sobe de --fs-2xs (11px) para 12px + tracking mais amplo — legivel
+     mesmo em screenshots comprimidos. */
+  font-size: 12px;
   font-weight: var(--fw-bold);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  box-shadow: 0 4px 12px rgba(159, 45, 45, 0.35);
+  box-shadow: 0 4px 14px rgba(159, 45, 45, 0.4);
   pointer-events: none;
+  /* Nao herda opacity de nenhum wrapper. */
+  opacity: 1;
 }
 
 .mock-user-badge::before {
   content: "";
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
   background: var(--paper);
+  /* Min opacity 0.7 (nao 0.35) — mantem legivel em captures que possam
+     pegar o momento de dip da animacao. */
   animation: mock-user-badge-pulse 1.6s ease-in-out infinite;
 }
 
 @keyframes mock-user-badge-pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  50% { opacity: 0.7; }
 }
