@@ -60,8 +60,15 @@ function mockResponseFor(url: string): unknown {
   if (path.endsWith("/auth/me") || path.endsWith("/me")) return MOCK_USER;
   if (path.endsWith("/health")) return { status: "ok" };
   if (path.includes("/auth/logout")) return { ok: true };
+  // Dashboard alerts endpoint returns shape `{ alerts: [...] }`, nao lista crua.
+  if (path.endsWith("/dashboard/alerts")) return { alerts: [] };
+  // Dashboard raiz e summary sao objetos — evita cair no fallback `{}` que
+  // ja funciona, mas explicito ajuda a documentar.
+  if (path.endsWith("/dashboard") || path.endsWith("/dashboard/summary")) return {};
 
-  // Endpoints que sabidamente devolvem lista.
+  // Endpoints que sabidamente devolvem lista. Larga rede — qualquer
+  // ambiguidade cai para [] em vez de {}, o que evita crashes de
+  // `resposta.filter(...)` em callsites nao-defensivos.
   const listPatterns = [
     "favorites",
     "alerts",
@@ -69,6 +76,10 @@ function mockResponseFor(url: string): unknown {
     "purchases",
     "suppliers",
     "products",
+    "categories",
+    "subcategories",
+    "sectors",
+    "units",
     "companies",
     "payables",
     "orders",
@@ -80,7 +91,11 @@ function mockResponseFor(url: string): unknown {
     "users",
     "audit",
     "payment-methods",
-    "tax-payments"
+    "tax-payments",
+    "dre",
+    "menu-favorites",
+    "stock",
+    "cycles"
   ];
   if (listPatterns.some((p) => path.includes(p))) return [];
 

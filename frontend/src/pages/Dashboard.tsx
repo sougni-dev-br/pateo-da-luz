@@ -113,7 +113,11 @@ export function Dashboard() {
       ]);
       if (dashData.status === "fulfilled") setData(dashData.value);
       else throw dashData.reason;
-      setBackendAlerts(alertsData.status === "fulfilled" ? alertsData.value.alerts : []);
+      // Guard defensivo: se o endpoint retornar shape parcial (mock, backend
+      // com bug, resposta incompleta), Array.isArray protege o .filter em
+      // linhas 205/208.
+      const rawAlerts = alertsData.status === "fulfilled" ? alertsData.value?.alerts : undefined;
+      setBackendAlerts(Array.isArray(rawAlerts) ? rawAlerts : []);
       setSummary(summaryData.status === "fulfilled" ? summaryData.value : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao carregar dashboard.");
