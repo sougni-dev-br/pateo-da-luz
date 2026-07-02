@@ -1,0 +1,7 @@
+/* Pateo da Luz — Design System tokens
+   Ponto de entrada dos tokens do DS. Importar antes de qualquer CSS de app.
+   Origem: design-handoff/design-system/tokens/. Não editar aqui — atualizar via handoff. */
+
+@import url("./colors.css");
+@import url("./typography.css");
+@import url("./spacing.css");

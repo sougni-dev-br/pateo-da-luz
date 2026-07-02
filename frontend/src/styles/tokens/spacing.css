@@ -1,0 +1,41 @@
+/* Pateo da Luz — Spacing, radii, shadow & motion tokens
+   Values sampled directly from the ERP stylesheet. */
+
+:root {
+  /* ── Spacing scale (px) ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 18px;   /* card padding */
+  --space-6: 20px;
+  --space-7: 24px;
+  --space-8: 30px;   /* content / login padding */
+
+  /* ── Radii ── */
+  --radius-sm: 6px;   /* buttons, inputs, tabs */
+  --radius-md: 8px;   /* cards, panels, summary */
+  --radius-lg: 10px;  /* kpi cards, login card */
+  --radius-xl: 12px;  /* mobile cards */
+  --radius-pill: 999px;
+
+  /* ── Shadows ── */
+  --shadow: 0 16px 38px rgba(22, 21, 18, 0.08);
+  --shadow-soft: 0 10px 24px rgba(22, 21, 18, 0.06);
+  --shadow-sm: var(--shadow-soft);
+  --shadow-button: 0 8px 18px rgba(22, 21, 18, 0.16);
+  --shadow-login: 0 24px 80px rgba(0, 0, 0, 0.34);
+
+  /* ── Focus ring (gold) ── */
+  --focus-ring: 0 0 0 3px rgba(185, 154, 88, 0.18);
+  --focus-outline: 2px solid rgba(185, 154, 88, 0.28); /* @kind other */
+
+  /* ── Motion ── */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1); /* @kind other */
+  --dur-fast: 160ms; /* @kind other */
+  --dur: 180ms; /* @kind other */
+  --lift: translateY(-1px);   /* @kind other */  /* hover lift on cards & primary button */
+
+  /* ── Layout ── */
+  --sidebar-w: 264px;
+}
