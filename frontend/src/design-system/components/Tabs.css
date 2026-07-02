@@ -1,0 +1,44 @@
+.ds-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  max-width: 100%;
+  font-family: var(--font-sans);
+}
+
+.ds-tab {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--ink);
+  padding: 9px 12px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.ds-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.ds-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ds-tab-active {
+  border-color: var(--gold);
+  background: var(--gold-tint);
+  color: var(--gold-dark);
+}
+
+.ds-tab:not(:disabled):not(.ds-tab-active):hover {
+  border-color: var(--line-strong);
+}

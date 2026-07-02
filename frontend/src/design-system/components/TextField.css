@@ -1,0 +1,57 @@
+.ds-text-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  font-family: var(--font-sans);
+}
+
+.ds-text-field-label {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.ds-text-field-input {
+  min-height: 38px;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  outline: none;
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+.ds-text-field-input:focus-visible {
+  border-color: var(--gold);
+  box-shadow: var(--focus-ring);
+}
+
+.ds-text-field-input:disabled {
+  background: var(--paper-soft);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.ds-text-field-input-error {
+  border-color: var(--danger);
+}
+
+.ds-text-field-input-error:focus-visible {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px rgba(159, 45, 45, 0.18);
+}
+
+.ds-text-field-helper {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.ds-text-field-helper-error {
+  color: var(--danger);
+}
