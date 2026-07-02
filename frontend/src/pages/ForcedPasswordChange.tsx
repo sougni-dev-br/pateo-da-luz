@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AppUser, changeOwnPassword } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { isPasswordValid, PasswordField, passwordPolicyMessage } from "../components/PasswordField";
+import { Button, LoginShell } from "../design-system";
 
 export function ForcedPasswordChange({ user, onChanged }: { user: AppUser; onChanged: (user: AppUser) => void }) {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -29,28 +30,24 @@ export function ForcedPasswordChange({ user, onChanged }: { user: AppUser; onCha
   }
 
   return (
-    <main className="login-shell">
-      <section className="login-card">
-        <Notice notice={notice} />
-        <div>
-          <p>Você precisa alterar sua senha antes de continuar.</p>
-          <h1>Alteração obrigatória de senha</h1>
+    <LoginShell brandTitle="Alteração obrigatória de senha" brandSubtitle="Você precisa alterar sua senha antes de continuar.">
+      <Notice notice={notice} />
+      <PasswordField label="Senha temporária/atual" value={currentPassword} onChange={setCurrentPassword} />
+      <div>
+        <PasswordField label="Nova senha" value={newPassword} onChange={setNewPassword} />
+        <div className={`password-hint ${isPasswordValid(newPassword) ? "ok" : "error"}`}>
+          {passwordPolicyMessage(newPassword)}
         </div>
-        <PasswordField label="Senha temporária/atual" value={currentPassword} onChange={setCurrentPassword} />
-        <div>
-          <PasswordField label="Nova senha" value={newPassword} onChange={setNewPassword} />
-          <div className={`password-hint ${isPasswordValid(newPassword) ? "ok" : "error"}`}>
-            {passwordPolicyMessage(newPassword)}
-          </div>
+      </div>
+      <div>
+        <PasswordField label="Confirmar nova senha" value={confirmPassword} onChange={setConfirmPassword} />
+        <div className={`password-hint ${matches ? "ok" : "error"}`}>
+          {matches ? "Senhas iguais." : "Senhas diferentes."}
         </div>
-        <div>
-          <PasswordField label="Confirmar nova senha" value={confirmPassword} onChange={setConfirmPassword} />
-          <div className={`password-hint ${matches ? "ok" : "error"}`}>
-            {matches ? "Senhas iguais." : "Senhas diferentes."}
-          </div>
-        </div>
-        <button className="primary-button" type="button" onClick={submit}>Alterar senha e continuar</button>
-      </section>
-    </main>
+      </div>
+      <Button type="button" onClick={submit}>
+        Alterar senha e continuar
+      </Button>
+    </LoginShell>
   );
 }
