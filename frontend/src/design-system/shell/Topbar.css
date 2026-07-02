@@ -1,6 +1,7 @@
 /* Topbar do DS. Portado do kit.css linhas 114-158.
    Sticky no topo da .main-col; fundo semi-transparente com blur para
-   destacar do content ao rolar. */
+   destacar do content ao rolar. Borda forte + sombra rasa dao o peso
+   visual que separa a barra do content (fundo dos dois e quase igual). */
 
 .ds-topbar {
   flex: 0 0 auto;
@@ -12,7 +13,8 @@
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: saturate(1.4) blur(8px);
   -webkit-backdrop-filter: saturate(1.4) blur(8px);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-strong);
+  box-shadow: 0 4px 14px rgba(22, 21, 18, 0.05);
   font-family: var(--font-sans);
 }
 

@@ -98,7 +98,10 @@
   transform: none;
 }
 
-/* Estrela de favoritos. */
+/* Estrela de favoritos. Em ponteiro com hover, fica invisivel ate o
+   hover da linha (ou foco por teclado) para nao pesar a coluna direita
+   do menu; estrela ja favoritada permanece visivel. Em touch (sem
+   hover) mantem a opacidade reduzida sempre, senao seria inacessivel. */
 .ds-sidebar-nav-star {
   flex: 0 0 26px;
   width: 26px;
@@ -117,6 +120,17 @@
     opacity var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease),
     background var(--dur-fast) var(--ease);
+}
+
+@media (hover: hover) {
+  .ds-sidebar-nav-star {
+    opacity: 0;
+  }
+
+  .ds-sidebar-nav-item-wrap:hover .ds-sidebar-nav-star,
+  .ds-sidebar-nav-star:focus-visible {
+    opacity: 0.55;
+  }
 }
 
 .ds-sidebar-nav-star:hover {
