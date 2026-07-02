@@ -1,9 +1,10 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, FileText, PackageSearch, RotateCcw, Search, ShoppingCart, Tag, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, FileText, Loader2, PackageSearch, RotateCcw, Search, ShoppingCart, Tag, Trash2, X } from "lucide-react";
 import { StatusBadge, EmptyState, Dialog } from "../components/ui";
 import {
   createPurchaseOrdersFromPlanning,
+  downloadPurchaseOrderPdf,
   getBuyerSupportReport,
   getSuppliers,
   type BuyerSupportItem,
@@ -42,10 +43,23 @@ function sourceTitle(source: BuyerSupportReport["summary"]["source"]): string {
   return byType[source.type ?? ""] ?? (source.sourceType === "STOCK_COUNT_SESSION" ? "Contagem de estoque" : "Inventário");
 }
 
+// Mapa entre abreviacoes reais do banco (UNI, CX, PCTE...) e o vocabulario canonico do
+// dropdown (PURCHASE_MODELS). Cobre ~98% dos produtos ativos; residual cai em "outro"
+// via defaultModel. Vocabulario alinhado com Product.unit / Product.purchaseUnit em uso.
+const UNIT_ALIASES: Record<string, typeof PURCHASE_MODELS[number]> = {
+  uni: "unidade", un: "unidade",
+  cx: "caixa",
+  kg: "kg",
+  pcte: "pacote", pacte: "pacote", pct: "pacote",
+  bdj: "bandeja", bde: "bandeja"
+};
+
 function defaultModel(item: BuyerSupportItem): string {
-  const unit = (item.unit ?? "").trim().toLowerCase();
-  const match = PURCHASE_MODELS.find((model) => model === unit);
-  return match ?? (unit ? "outro" : "unidade");
+  // Preferir purchaseUnit (unidade de compra do cadastro do produto) sobre unit (unidade
+  // de estoque) — comprador nao precisa trocar de "kg" pra "caixa" toda vez.
+  const raw = ((item.purchaseUnit ?? item.unit) ?? "").trim().toLowerCase();
+  if (!raw) return "unidade";
+  return UNIT_ALIASES[raw] ?? (PURCHASE_MODELS.find((model) => model === raw) ?? "outro");
 }
 
 function chosenSupplierOf(item: BuyerSupportItem, edit: LineEdit | undefined): string | null {
@@ -472,8 +486,6 @@ export function PurchasePlanning() {
 
   const goBack = () => window.history.back();
 
-  const futureNote = "Disponível na próxima etapa. Nenhum pedido será criado agora.";
-
   return (
     <div className="pplan">
       <header className="pplan-hero">
@@ -682,7 +694,7 @@ export function PurchasePlanning() {
                   </div>
                   {!group.noSupplier && (
                     <div className="pplan-supplier-foot">
-                      <button type="button" className="secondary-button" disabled title={futureNote}>
+                      <button type="button" className="secondary-button" disabled title="PDF disponível após gerar o pedido">
                         <FileText size={15} /> Gerar PDF deste fornecedor
                       </button>
                     </div>
@@ -699,7 +711,7 @@ export function PurchasePlanning() {
                 : "Nenhum item com quantidade e fornecedor definidos ainda."}
             </p>
             <div className="pplan-actions-buttons">
-              <button type="button" className="secondary-button" disabled title={futureNote}>
+              <button type="button" className="secondary-button" disabled title="PDF disponível após gerar o pedido">
                 <FileText size={16} /> Gerar PDF por fornecedor
               </button>
             </div>
@@ -1197,12 +1209,24 @@ function DecisionCard({
 const GeneratedPanel = forwardRef<HTMLElement, { result: PurchaseOrderFromPlanningResult }>(
   function GeneratedPanel({ result }, ref) {
     const [filter, setFilter] = useState("");
+    // Set de order.id em download — impede clique duplo -> 2 downloads e mostra spinner por card.
+    const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
     const term = filter.trim().toLowerCase();
-    const orders = term
+    // Ordem decrescente: pedido mais novo no topo. slice() evita mutar `result.createdOrders`.
+    const orders = (term
       ? result.createdOrders.filter((o) =>
           `${o.code} ${o.supplierName}`.toLowerCase().includes(term)
         )
-      : result.createdOrders;
+      : result.createdOrders).slice().reverse();
+    async function handleDownloadPdf(id: string, code: string) {
+      if (downloadingIds.has(id)) return;
+      setDownloadingIds((prev) => { const next = new Set(prev); next.add(id); return next; });
+      try {
+        await downloadPurchaseOrderPdf(id, code);
+      } finally {
+        setDownloadingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+      }
+    }
     return (
       <section ref={ref} className="pplan-generated-panel" aria-label="Pedidos gerados">
         <header className="pplan-generated-header">
@@ -1242,8 +1266,15 @@ const GeneratedPanel = forwardRef<HTMLElement, { result: PurchaseOrderFromPlanni
                 <Link className="primary-button" to={`/compras/pedidos?search=${encodeURIComponent(order.code)}`}>
                   <ExternalLink size={14} /> Abrir pedido
                 </Link>
-                <button type="button" className="secondary-button" disabled title="PDF disponível na próxima etapa.">
-                  <FileText size={14} /> PDF em breve
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={downloadingIds.has(order.id)}
+                  onClick={() => handleDownloadPdf(order.id, order.code)}
+                >
+                  {downloadingIds.has(order.id)
+                    ? <><Loader2 size={14} className="spin" /> Baixando...</>
+                    : <><FileText size={14} /> Baixar PDF</>}
                 </button>
               </div>
             </article>
