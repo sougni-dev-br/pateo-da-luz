@@ -185,8 +185,7 @@ importRouter.post("/suppliers/confirm", async (request, response) => {
       await confirmSupplierCatalogImport(
         importFileId,
         request.body.originalFileName ? String(request.body.originalFileName) : null,
-        request.body.sheetName ? String(request.body.sheetName) : null,
-        Boolean(request.body.updateExisting)
+        request.body.sheetName ? String(request.body.sheetName) : null
       )
     );
   } catch (error) {
@@ -235,8 +234,7 @@ importRouter.post("/products/confirm", async (request, response) => {
       await confirmProductCatalogImport(
         importFileId,
         request.body.originalFileName ? String(request.body.originalFileName) : null,
-        request.body.sheetName ? String(request.body.sheetName) : null,
-        Boolean(request.body.updateExisting)
+        request.body.sheetName ? String(request.body.sheetName) : null
       )
     );
   } catch (error) {

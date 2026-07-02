@@ -112,6 +112,12 @@ type CatalogPreview = {
   previewRows: CatalogRow[];
 };
 
+type CatalogImportSummary = {
+  inseridos: number;
+  atualizados: number;
+  erros: Array<{ linha: number; motivo: string }>;
+};
+
 type CatalogImportReport = {
   importBatchId: string | null;
   totalRows: number;
@@ -135,6 +141,7 @@ type CatalogImportReport = {
     label: string | null;
     reason: string;
   }>;
+  summary?: CatalogImportSummary;
 };
 
 function safeUploadPath(importFileId: string): string {
@@ -401,16 +408,81 @@ async function summarizeProductRows(rows: ProductCatalogRow[]) {
   };
 }
 
-function supplierErrors(rows: SupplierCatalogRow[]) {
-  return rows
-    .filter((row) => !row.name)
-    .map((row) => ({ rowNumber: row.rowNumber, message: "Nome do fornecedor ausente." }));
+export function supplierErrors(rows: SupplierCatalogRow[]) {
+  const errors: ImportError[] = [];
+  for (const row of rows) {
+    if (!row.code && !row.name) {
+      errors.push({
+        rowNumber: row.rowNumber,
+        message: "Codigo e nome do fornecedor ausentes."
+      });
+    }
+  }
+  return errors;
 }
 
-function productErrors(rows: ProductCatalogRow[]) {
-  return rows
-    .filter((row) => !row.description)
-    .map((row) => ({ rowNumber: row.rowNumber, message: "Descricao do produto ausente." }));
+export type SupplierLookupEntry = {
+  id: string;
+  externalCode: string | null;
+  name: string;
+};
+
+export type SupplierMatchAction =
+  | { type: "update-by-code"; targetId: string }
+  | { type: "update-by-name"; targetId: string }
+  | { type: "insert" }
+  | { type: "error"; motivo: string };
+
+export function resolveSupplierAction(
+  row: SupplierCatalogRow,
+  byCode: Map<string, SupplierLookupEntry>,
+  byNormalizedName: Map<string, SupplierLookupEntry>
+): SupplierMatchAction {
+  if (!row.code && !row.name) {
+    return { type: "error", motivo: "Codigo e nome do fornecedor ausentes." };
+  }
+
+  const byCodeMatch = row.code ? byCode.get(row.code) : null;
+  const nameKey = normalizeText(row.name);
+  const byNameMatch = nameKey ? byNormalizedName.get(nameKey) : null;
+
+  if (byCodeMatch && byNameMatch && byCodeMatch.id !== byNameMatch.id) {
+    return {
+      type: "error",
+      motivo: `Ambiguidade: codigo ${row.code} pertence a "${byCodeMatch.name}", mas o nome "${row.name}" bate com outro fornecedor ja cadastrado ("${byNameMatch.name}").`
+    };
+  }
+
+  if (byCodeMatch) {
+    return { type: "update-by-code", targetId: byCodeMatch.id };
+  }
+
+  if (byNameMatch) {
+    return { type: "update-by-name", targetId: byNameMatch.id };
+  }
+
+  if (!row.name) {
+    return {
+      type: "error",
+      motivo: "Nome do fornecedor ausente para criar novo cadastro."
+    };
+  }
+
+  return { type: "insert" };
+}
+
+export function productErrors(rows: ProductCatalogRow[]) {
+  const errors: ImportError[] = [];
+  for (const row of rows) {
+    if (!row.code) {
+      errors.push({ rowNumber: row.rowNumber, message: "Codigo do produto (cod_produto) ausente." });
+      continue;
+    }
+    if (!row.description) {
+      errors.push({ rowNumber: row.rowNumber, message: "Descricao do produto ausente." });
+    }
+  }
+  return errors;
 }
 
 function countErrorsByRow<T extends { rowNumber: number }>(rows: T[], errors: ImportError[]) {
@@ -582,50 +654,27 @@ export async function previewProductCatalog(filePath: string, originalFileName: 
   } satisfies CatalogPreview;
 }
 
-async function findSupplierFallback(tx: TransactionClient, row: SupplierCatalogRow) {
-  if (row.code) {
-    const supplier = await tx.supplier.findFirst({ where: { externalCode: row.code } });
-    if (supplier) return supplier;
-  }
-
-  if (row.document) {
-    const supplier = await tx.supplier.findFirst({ where: { document: row.document } });
-    if (supplier) return supplier;
-  }
-
-  return tx.supplier.findFirst({ where: { name: { equals: row.name, mode: "insensitive" } } });
+function withSummary(report: CatalogImportReport): CatalogImportReport {
+  const erros = report.errors.map((error) => ({
+    linha: error.rowNumber,
+    motivo: error.message
+  }));
+  return {
+    ...report,
+    summary: {
+      inseridos: report.createdRows,
+      atualizados: report.updatedRows,
+      erros
+    }
+  };
 }
 
-async function findProductFallback(tx: TransactionClient, row: ProductCatalogRow) {
-  if (row.code) {
-    const product = await tx.product.findFirst({ where: { externalCode: row.code } });
-    if (product) return product;
-  }
-
-  const normalizedName = normalizeText(row.description);
-  const product = await tx.product.findFirst({ where: { normalizedName } });
-  if (product) return product;
-
-  const alias = await tx.productAlias.findUnique({ where: { normalizedAlias: normalizedName } });
-  if (!alias) return null;
-
-  return tx.product.findUnique({ where: { id: alias.productId } });
-}
-
-function findProductFallbackFromCache(row: ProductCatalogRow, caches: ProductCatalogCaches) {
-  if (row.code) {
-    const product = caches.productsByCode.get(row.code);
-    if (product) return product;
-  }
-
-  const normalizedName = normalizeText(row.description);
-  const product = caches.productsByName.get(normalizedName);
-  if (product) return product;
-
-  const aliasProductId = caches.productIdByAlias.get(normalizedName);
-  if (!aliasProductId) return null;
-
-  return caches.productsById.get(aliasProductId) ?? null;
+function isUniqueExternalCodeViolation(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (error.code !== "P2002") return false;
+  const target = (error.meta as { target?: string[] | string } | undefined)?.target;
+  const targets = Array.isArray(target) ? target : typeof target === "string" ? [target] : [];
+  return targets.includes("externalCode");
 }
 
 async function findOrCreateCategory(tx: TransactionClient, name?: string | null) {
@@ -854,8 +903,7 @@ async function buildProductCatalogCaches(rows: ProductCatalogRow[]): Promise<Pro
 export async function confirmSupplierCatalogImport(
   importFileId: string,
   originalFileName: string | null,
-  sheetName: string | null,
-  updateExisting: boolean
+  sheetName: string | null
 ) {
   const filePath = safeUploadPath(importFileId);
   const worksheet = await readWorksheetRows(filePath, sheetName);
@@ -878,10 +926,68 @@ export async function confirmSupplierCatalogImport(
   });
 
   if (validRows.length === 0) {
-    return baseReport;
+    return withSummary(baseReport);
   }
 
-  return prisma.$transaction(async (tx) => {
+  const lookupCodes = [...new Set(validRows.map((row) => row.code).filter(Boolean) as string[])];
+  const lookupNormalizedNames = [
+    ...new Set(
+      validRows
+        .map((row) => normalizeText(row.name))
+        .filter((value): value is string => Boolean(value))
+    )
+  ];
+  const [byCodeRows, byNameRows] = await Promise.all([
+    lookupCodes.length
+      ? prisma.supplier.findMany({ where: { externalCode: { in: lookupCodes } } })
+      : Promise.resolve([]),
+    lookupNormalizedNames.length
+      ? prisma.supplier.findMany({
+          where: { normalizedName: { in: lookupNormalizedNames } }
+        })
+      : Promise.resolve([])
+  ]);
+  const byCode = new Map<string, SupplierLookupEntry>();
+  for (const supplier of byCodeRows) {
+    if (supplier.externalCode) {
+      byCode.set(supplier.externalCode, {
+        id: supplier.id,
+        externalCode: supplier.externalCode,
+        name: supplier.name
+      });
+    }
+  }
+  const suppliersByNormalizedName = new Map<string, SupplierLookupEntry[]>();
+  for (const supplier of [...byCodeRows, ...byNameRows]) {
+    const key = normalizeText(supplier.name);
+    if (!key) continue;
+    const bucket = suppliersByNormalizedName.get(key) ?? [];
+    if (!bucket.some((entry) => entry.id === supplier.id)) {
+      bucket.push({
+        id: supplier.id,
+        externalCode: supplier.externalCode,
+        name: supplier.name
+      });
+      suppliersByNormalizedName.set(key, bucket);
+    }
+  }
+  const byNormalizedName = new Map<string, SupplierLookupEntry>();
+  for (const [key, bucket] of suppliersByNormalizedName) {
+    byNormalizedName.set(key, bucket[0]);
+  }
+  const preExistingDuplicateGroups = [...suppliersByNormalizedName.entries()]
+    .filter(([, bucket]) => bucket.length > 1);
+  for (const [, bucket] of preExistingDuplicateGroups) {
+    const codes = bucket
+      .map((entry) => entry.externalCode ?? "(sem codigo)")
+      .join(", ");
+    warnings.push({
+      rowNumber: 0,
+      message: `Duplicata pre-existente no banco: fornecedores com o mesmo nome "${bucket[0].name}" (codigos: ${codes}). Revise manualmente e consolide o cadastro antes da proxima importacao.`
+    });
+  }
+
+  const report = await prisma.$transaction(async (tx) => {
     const batchId = randomUUID();
     const batchImportFileId = catalogBatchImportFileId(importFileId, batchId);
     await tx.$executeRaw`
@@ -900,52 +1006,103 @@ export async function confirmSupplierCatalogImport(
     }
 
     for (const row of validRows) {
-      const existing = await findSupplierFallback(tx, row);
+      const action = resolveSupplierAction(row, byCode, byNormalizedName);
 
-      if (existing && !updateExisting) {
+      if (action.type === "update-by-code") {
+        const key = normalizeText(row.name);
+        const bucket = key ? suppliersByNormalizedName.get(key) ?? [] : [];
+        const otherWithSameName = bucket.find((entry) => entry.id !== action.targetId);
+        if (otherWithSameName) {
+          warnings.push({
+            rowNumber: row.rowNumber,
+            message: `Linha atualiza codigo ${row.code}, mas outro fornecedor com o mesmo nome ("${otherWithSameName.name}", codigo ${otherWithSameName.externalCode ?? "sem codigo"}) permanece no banco. Consolide manualmente se for duplicata.`
+          });
+        }
+      }
+
+      if (action.type === "error") {
+        errors.push({ rowNumber: row.rowNumber, message: action.motivo });
         report.ignoredRows += 1;
-        warnings.push({ rowNumber: row.rowNumber, message: "Fornecedor existente nao atualizado." });
-        report.reusedRows += 1;
-        pushReason(ignoredReasons, "EXISTENTE_NAO_ATUALIZADO");
+        pushReason(ignoredReasons, "LINHA_INVALIDA");
         continue;
       }
 
-      const data = {
-        externalCode: row.code,
-        document: row.document,
-        name: row.name,
-        isActive: true
-      };
-
-      if (existing) {
-        const previousSnapshot = await selectSupplierSnapshot(tx, existing.id);
-        const updated = await tx.supplier.update({ where: { id: existing.id }, data });
-        await updateSupplierRegistrationDate(tx, updated.id, row.registrationDate);
-        const updatedSnapshot = await selectSupplierSnapshot(tx, updated.id);
-        await insertCatalogChange(
-          tx,
-          batchId,
-          "UPDATED",
-          "SUPPLIERS",
-          updated.id,
-          previousSnapshot,
-          updatedSnapshot
-        );
-        report.updatedRows += 1;
-      } else {
-        const created = await tx.supplier.create({ data });
-        await updateSupplierRegistrationDate(tx, created.id, row.registrationDate);
-        const createdSnapshot = await selectSupplierSnapshot(tx, created.id);
-        await insertCatalogChange(
-          tx,
-          batchId,
-          "CREATED",
-          "SUPPLIERS",
-          created.id,
-          null,
-          createdSnapshot
-        );
-        report.createdRows += 1;
+      try {
+        if (action.type === "update-by-code" || action.type === "update-by-name") {
+          const previousSnapshot = await selectSupplierSnapshot(tx, action.targetId);
+          const nextExternalCode = row.code ?? previousSnapshot?.externalCode ?? null;
+          const nextDocument = row.document ?? previousSnapshot?.document ?? null;
+          const nextName = row.name || previousSnapshot?.name || "";
+          const updateData = {
+            externalCode: nextExternalCode,
+            document: nextDocument,
+            name: nextName,
+            normalizedName: normalizeText(nextName),
+            isActive: true
+          };
+          const updated = await tx.supplier.update({
+            where: { id: action.targetId },
+            data: updateData
+          });
+          await updateSupplierRegistrationDate(tx, updated.id, row.registrationDate);
+          const updatedSnapshot = await selectSupplierSnapshot(tx, updated.id);
+          await insertCatalogChange(
+            tx,
+            batchId,
+            "UPDATED",
+            "SUPPLIERS",
+            updated.id,
+            previousSnapshot,
+            updatedSnapshot
+          );
+          report.updatedRows += 1;
+          const entry: SupplierLookupEntry = {
+            id: updated.id,
+            externalCode: updated.externalCode,
+            name: updated.name
+          };
+          if (updated.externalCode) byCode.set(updated.externalCode, entry);
+          const nextNameKey = normalizeText(updated.name);
+          if (nextNameKey) byNormalizedName.set(nextNameKey, entry);
+        } else {
+          const insertData = {
+            externalCode: row.code,
+            document: row.document,
+            name: row.name,
+            normalizedName: normalizeText(row.name),
+            isActive: true
+          };
+          const created = await tx.supplier.create({ data: insertData });
+          await updateSupplierRegistrationDate(tx, created.id, row.registrationDate);
+          const createdSnapshot = await selectSupplierSnapshot(tx, created.id);
+          await insertCatalogChange(
+            tx,
+            batchId,
+            "CREATED",
+            "SUPPLIERS",
+            created.id,
+            null,
+            createdSnapshot
+          );
+          report.createdRows += 1;
+          const entry: SupplierLookupEntry = {
+            id: created.id,
+            externalCode: created.externalCode,
+            name: created.name
+          };
+          if (created.externalCode) byCode.set(created.externalCode, entry);
+          const nameKey = normalizeText(created.name);
+          if (nameKey) byNormalizedName.set(nameKey, entry);
+        }
+      } catch (error) {
+        const motivo = isUniqueExternalCodeViolation(error)
+          ? `Codigo ${row.code ?? ""} da planilha ja pertence a outro fornecedor.`.trim()
+          : error instanceof Error
+            ? error.message
+            : "Erro ao importar fornecedor.";
+        errors.push({ rowNumber: row.rowNumber, message: motivo });
+        report.ignoredRows += 1;
+        pushReason(ignoredReasons, isUniqueExternalCodeViolation(error) ? "LINHA_INVALIDA" : "ERRO_AO_PROCESSAR_LINHA");
       }
     }
 
@@ -956,13 +1113,14 @@ export async function confirmSupplierCatalogImport(
 
     return report;
   });
+
+  return withSummary(report);
 }
 
 export async function confirmProductCatalogImport(
   importFileId: string,
   originalFileName: string | null,
-  sheetName: string | null,
-  updateExisting: boolean
+  sheetName: string | null
 ) {
   const filePath = safeUploadPath(importFileId);
   const worksheet = await readWorksheetRows(filePath, sheetName);
@@ -990,7 +1148,7 @@ export async function confirmProductCatalogImport(
   });
 
   if (validRows.length === 0) {
-    return baseReport;
+    return withSummary(baseReport);
   }
 
   const batchId = randomUUID();
@@ -1016,7 +1174,8 @@ export async function confirmProductCatalogImport(
   for (const row of validRows) {
     try {
       await prisma.$transaction(async (tx) => {
-        const existing = findProductFallbackFromCache(row, caches);
+        const externalCode = row.code as string;
+        const existing = caches.productsByCode.get(externalCode) ?? null;
         const category = await findOrCreateCategoryCached(tx, caches, row.categoryName);
         const subcategory = await findOrCreateSubcategoryCached(
           tx,
@@ -1027,16 +1186,8 @@ export async function confirmProductCatalogImport(
         const unitMeasure = await findOrCreateUnitCached(tx, caches, row.unit);
         const sector = await findOrCreateSectorCached(tx, caches, row.sectorName);
 
-        if (existing && !updateExisting) {
-          report.ignoredRows += 1;
-          report.reusedRows += 1;
-          warnings.push({ rowNumber: row.rowNumber, message: "Produto existente nao atualizado." });
-          pushReason(ignoredReasons, "EXISTENTE_NAO_ATUALIZADO");
-          return;
-        }
-
         const data = {
-          externalCode: row.code,
+          externalCode,
           name: row.description,
           normalizedName: normalizeText(row.description),
           unit: row.unit,
@@ -1049,52 +1200,45 @@ export async function confirmProductCatalogImport(
           isActive: true
         };
 
+        const upserted = await tx.product.upsert({
+          where: { externalCode },
+          create: data,
+          update: data
+        });
+        await updateProductStorageFields(tx, upserted.id, row);
+        await tx.productAlias
+          .upsert({
+            where: { normalizedAlias: data.normalizedName },
+            create: { alias: row.description, normalizedAlias: data.normalizedName, productId: upserted.id },
+            update: { alias: row.description, productId: upserted.id }
+          })
+          .catch(() => undefined);
+
         if (existing) {
-          const updated = await tx.product.update({ where: { id: existing.id }, data });
-          await updateProductStorageFields(tx, updated.id, row);
-          await tx.productAlias
-            .upsert({
-              where: { normalizedAlias: data.normalizedName },
-              create: { alias: row.description, normalizedAlias: data.normalizedName, productId: updated.id },
-              update: { alias: row.description, productId: updated.id }
-            })
-            .catch(() => undefined);
           await insertCatalogChange(
             tx,
             batchId,
             "UPDATED",
             "PRODUCTS",
-            updated.id,
+            upserted.id,
             productSnapshot(existing),
-            productSnapshot(updated)
+            productSnapshot(upserted)
           );
-          rememberProduct(caches, updated);
-          caches.productIdByAlias.set(data.normalizedName, updated.id);
           report.updatedRows += 1;
-          return;
+        } else {
+          await insertCatalogChange(
+            tx,
+            batchId,
+            "CREATED",
+            "PRODUCTS",
+            upserted.id,
+            null,
+            productSnapshot(upserted)
+          );
+          report.createdRows += 1;
         }
-
-        const created = await tx.product.create({
-          data: {
-            ...data,
-            aliases: {
-              create: { alias: row.description, normalizedAlias: data.normalizedName }
-            }
-          }
-        });
-        await updateProductStorageFields(tx, created.id, row);
-        await insertCatalogChange(
-          tx,
-          batchId,
-          "CREATED",
-          "PRODUCTS",
-          created.id,
-          null,
-          productSnapshot(created)
-        );
-        rememberProduct(caches, created);
-        caches.productIdByAlias.set(data.normalizedName, created.id);
-        report.createdRows += 1;
+        rememberProduct(caches, upserted);
+        caches.productIdByAlias.set(data.normalizedName, upserted.id);
       });
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : "Erro ao importar produtos.";
@@ -1120,7 +1264,7 @@ export async function confirmProductCatalogImport(
     `;
   });
 
-  return report;
+  return withSummary(report);
 }
 
 function emptyReport(errors: ImportError[], warnings: ImportWarning[]): CatalogImportReport {

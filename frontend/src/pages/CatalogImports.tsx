@@ -30,7 +30,6 @@ export function CatalogImports() {
   const [kind, setKind] = useState<CatalogImportKind>("suppliers");
   const [file, setFile] = useState<File | null>(null);
   const [sheetName, setSheetName] = useState<string>("");
-  const [updateExisting, setUpdateExisting] = useState(false);
   const [preview, setPreview] = useState<CatalogPreview | null>(null);
   const [report, setReport] = useState<CatalogImportReport | null>(null);
   const [status, setStatus] = useState<Status>("idle");
@@ -72,8 +71,7 @@ export function CatalogImports() {
       const result = await confirmCatalogImport(kind, {
         importFileId: preview.importFileId,
         originalFileName: preview.originalFileName,
-        sheetName: preview.sheetName,
-        updateExisting
+        sheetName: preview.sheetName
       });
       setReport(result);
       if (result.processedRows > 0 && result.ignoredRows > 0) {
@@ -129,7 +127,7 @@ export function CatalogImports() {
   const reportIgnoredRows = report?.ignoredRowDetails ?? [];
   const invalidIgnoredCount = report?.ignoredReasons.find((item) => item.reason === "LINHA_INVALIDA")?.count ?? 0;
   const processingErrorCount = report?.ignoredReasons.find((item) => item.reason === "ERRO_AO_PROCESSAR_LINHA")?.count ?? 0;
-  const unchangedExistingCount = report?.reusedRows ?? 0;
+  const summary = report?.summary;
 
   return (
     <div className="stack">
@@ -200,14 +198,20 @@ export function CatalogImports() {
           </div>
         )}
 
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={updateExisting}
-            onChange={(event) => setUpdateExisting(event.target.checked)}
-          />
-          Atualizar registros existentes quando houver divergencia confirmada
-        </label>
+        <p className="hint">
+          {kind === "suppliers" ? (
+            <>
+              A importação faz upsert automático por <code>cod_fornecedor</code>. Se o código já existe, o cadastro é atualizado.
+              Se o código não bate mas o nome sim, o cadastro é atualizado pelo nome (inclusive o código muda para o da planilha).
+              Casos ambíguos ou linhas sem código nem nome são reportados como erro.
+            </>
+          ) : (
+            <>
+              A importação faz upsert automático por <code>cod_produto</code>: linhas com código já cadastrado são atualizadas,
+              novas são inseridas. Linhas sem código são reportadas como erro.
+            </>
+          )}
+        </p>
 
         {error && <div className="alert error">{error}</div>}
       </section>
@@ -425,6 +429,26 @@ export function CatalogImports() {
             )}
           </div>
 
+          {summary && (
+            <div className="alert success" data-testid="upsert-summary">
+              <strong>
+                Inseridos: {summary.inseridos} · Atualizados: {summary.atualizados} · Erros: {summary.erros.length}
+              </strong>
+              {summary.erros.length > 0 && (
+                <ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>
+                  {summary.erros.slice(0, MAX_IGNORED_ROWS_PREVIEW).map((item) => (
+                    <li key={`erro-${item.linha}`}>
+                      Linha {item.linha}: {item.motivo}
+                    </li>
+                  ))}
+                  {summary.erros.length > MAX_IGNORED_ROWS_PREVIEW && (
+                    <li>+{summary.erros.length - MAX_IGNORED_ROWS_PREVIEW} outros erros</li>
+                  )}
+                </ul>
+              )}
+            </div>
+          )}
+
           <div className="summary-grid">
             <article>
               <span>Total linhas</span>
@@ -455,20 +479,8 @@ export function CatalogImports() {
               <strong>{report.updatedRows}</strong>
             </article>
             <article>
-              <span>Reaproveitados existentes</span>
-              <strong>{report.reusedRows}</strong>
-            </article>
-            <article>
-              <span>Existentes mantidos</span>
-              <strong>{unchangedExistingCount}</strong>
-            </article>
-            <article>
               <span>Linhas invalidas ignoradas</span>
               <strong>{invalidIgnoredCount}</strong>
-            </article>
-            <article>
-              <span>Nao alterados</span>
-              <strong>{report.ignoredRows}</strong>
             </article>
             {kind === "products" && (
               <>
@@ -496,7 +508,7 @@ export function CatalogImports() {
                 </div>
               ))}
               <div>
-                Resumo: {report.processedRows} processadas, {report.importedRows} importadas, {unchangedExistingCount} existentes mantidas e {invalidIgnoredCount} invalidas ignoradas.
+                Resumo: {report.processedRows} processadas, {report.importedRows} importadas e {invalidIgnoredCount} invalidas ignoradas.
               </div>
               {processingErrorCount > 0 && (
                 <div>Falhas durante o processamento: {processingErrorCount}</div>
