@@ -1,0 +1,94 @@
+.ds-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: 100%;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    transform var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+.ds-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.ds-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ds-button:not(:disabled):active {
+  transform: scale(0.985);
+}
+
+/* ── Tamanhos ── */
+.ds-button-md {
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: var(--fs-body);
+}
+
+.ds-button-sm {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: var(--fs-sm);
+}
+
+.ds-button-icon-only {
+  min-height: 40px;
+  width: 40px;
+  padding: 0;
+}
+
+/* ── Variantes ── */
+.ds-button-primary {
+  background: var(--ink);
+  color: var(--paper);
+  box-shadow: var(--shadow-button);
+}
+
+.ds-button-primary:not(:disabled):hover {
+  background: var(--ink-hover);
+  transform: var(--lift);
+}
+
+.ds-button-secondary {
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.ds-button-secondary:not(:disabled):hover {
+  border-color: var(--gold);
+  color: var(--gold-dark);
+}
+
+.ds-button-danger {
+  border: 1px solid var(--tint-danger-border);
+  background: var(--paper);
+  color: var(--danger);
+}
+
+.ds-button-danger:not(:disabled):hover {
+  background: var(--tint-danger);
+}
+
+.ds-button-icon {
+  background: var(--paper-soft);
+  color: var(--ink);
+}
+
+.ds-button-icon:not(:disabled):hover {
+  background: var(--paper);
+  box-shadow: var(--shadow-soft);
+}
