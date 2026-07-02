@@ -63,6 +63,11 @@ const Dishes = lazy(() => import("./pages/Dishes").then((module) => ({ default: 
 const DRE = lazy(() => import("./pages/DRE").then((module) => ({ default: module.DRE })));
 const SupplierCycles = lazy(() => import("./pages/SupplierCycles").then((module) => ({ default: module.SupplierCycles })));
 const TaxPayments = lazy(() => import("./pages/TaxPayments").then((module) => ({ default: module.TaxPayments })));
+// Rota /design-system: dev-only (isLocal). Em prod, o ternario resolve para null
+// no build e Vite tree-shake o chunk. Nao aparece na sidebar (nao esta em sections).
+const DesignSystem = isLocal
+  ? lazy(() => import("./pages/DesignSystem").then((module) => ({ default: module.DesignSystem })))
+  : null;
 
 type InventoryView = "overview" | "movements" | "counting" | "inventory" | "reports";
 
@@ -341,6 +346,20 @@ export function App() {
           </div>
         ))}
       </nav>
+    );
+  }
+
+  // /design-system e dev-only e nao depende de auth. Renderiza antes das checagens
+  // de sessao para permitir preview sem backend/login em desenvolvimento.
+  if (isLocal && DesignSystem && location.pathname === "/design-system") {
+    return (
+      <SessionContext.Provider value={sessionContextValue}>
+        <HideValuesProvider>
+          <Suspense fallback={<div className="page-loading">Carregando DS...</div>}>
+            <DesignSystem />
+          </Suspense>
+        </HideValuesProvider>
+      </SessionContext.Provider>
     );
   }
 
