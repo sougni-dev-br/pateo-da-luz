@@ -35,6 +35,7 @@ import {
   AppShell,
   ContentErrorBoundary,
   HideValuesProvider,
+  LoginShell,
   Sidebar,
   SidebarNav,
   Topbar,
@@ -348,12 +349,9 @@ export function App() {
     return (
       <SessionContext.Provider value={sessionContextValue}>
         <HideValuesProvider>
-          <main className="login-shell">
-            <div className="login-card">
-              <img src={logoPath} alt="Pateo da Luz" />
-              <p>Carregando sessão...</p>
-            </div>
-          </main>
+          <LoginShell brandTitle="Gestão Pateo da Luz">
+            <p style={{ textAlign: "center", color: "var(--muted)", margin: 0 }}>Carregando sessão...</p>
+          </LoginShell>
         </HideValuesProvider>
       </SessionContext.Provider>
     );

@@ -57,6 +57,9 @@ export type { SidebarProps, SidebarUser } from "./shell/Sidebar";
 export { Topbar } from "./shell/Topbar";
 export type { TopbarProps } from "./shell/Topbar";
 
+export { LoginShell } from "./shell/LoginShell";
+export type { LoginShellProps } from "./shell/LoginShell";
+
 export { SidebarNav, withFavoritesGroup } from "./shell/SidebarNav";
 export type { SidebarNavProps } from "./shell/SidebarNav";
 

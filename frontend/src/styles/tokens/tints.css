@@ -39,4 +39,9 @@
   --sidebar-gradient-start: #1a1815;
   --sidebar-gradient-mid: #211f1a;
   --sidebar-gradient-end: #17150f;
+
+  /* ── Login shell (kit.css gradient 150deg 3-stop + 2 radials ouro) ── */
+  --login-gradient-start: #100f0d;
+  --login-gradient-mid: #1c1a15;
+  --login-gradient-end: #2a2519;
 }

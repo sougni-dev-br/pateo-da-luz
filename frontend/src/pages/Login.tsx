@@ -2,9 +2,8 @@ import { Loader2, LogIn, ShieldAlert } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { API_BASE_URL, ApiError, AppUser, BACKEND_TARGET_URL, checkBackendHealth, login } from "../api/client";
 import { PasswordField } from "../components/PasswordField";
+import { Alert, Button, LoginShell, TextField } from "../design-system";
 import { isLocal, isStaging } from "../utils/env";
-
-const logoPath = "/logo-pateo-luz.png";
 
 export function Login({ onLogin }: { onLogin: (user: AppUser) => void }) {
   const [email, setEmail] = useState("");
@@ -56,73 +55,86 @@ export function Login({ onLogin }: { onLogin: (user: AppUser) => void }) {
   function renderBackendStatus() {
     if (isLocal) {
       return (
-        <div className={`alert ${backendOnline === false ? "error" : "success"}`}>
+        <Alert tone={backendOnline === false ? "error" : "success"} icon={null}>
           <strong>Backend:</strong>{" "}
           {backendOnline === null ? "VERIFICANDO" : backendOnline ? "ONLINE" : "OFFLINE"}
           <br />
           <small>API: {API_BASE_URL}</small>
           <br />
           <small>Alvo: {BACKEND_TARGET_URL}</small>
-        </div>
+        </Alert>
       );
     }
     if (backendOnline === null) return null;
     if (backendOnline) {
       return (
-        <div className="alert success login-status-pill">
+        <Alert tone="success" icon={null}>
           Sistema online
-        </div>
+        </Alert>
       );
     }
     return (
-      <div className="alert error">
+      <Alert tone="error">
         Não foi possível conectar ao servidor. Verifique sua internet ou chame o responsável.
-      </div>
+      </Alert>
     );
   }
 
   return (
-    <main className="login-shell">
-      <form className="login-card" onSubmit={handleSubmit} autoComplete="off">
-        <img src={logoPath} alt="Pateo da Luz" />
-        <div>
-          <h1>Gestão Pateo da Luz</h1>
-          <p>Controle financeiro, compras e estoque</p>
-        </div>
-        {isStaging && (
-          <div className="alert warning login-env-badge">
-            Ambiente de testes
-          </div>
-        )}
-        {renderBackendStatus()}
-        <label>
-          Email
-          <input name="pateo-login-email" value={email} autoComplete="off" onChange={(event) => { setEmail(event.target.value); setSessionConflict(null); }} />
-        </label>
-        <PasswordField label="Senha" value={password} onChange={(v) => { setPassword(v); setSessionConflict(null); }} autoComplete="new-password" />
-        <button className="primary-button" type="submit" disabled={loading}>
-          {loading ? <Loader2 size={18} className="spin" /> : <LogIn size={18} />}
-          Entrar
-        </button>
-        {error && (
-          <div className="alert error">
-            {sessionConflict ? <ShieldAlert size={16} style={{ flexShrink: 0 }} /> : null}
-            {error}
-          </div>
-        )}
-        {sessionConflict?.canForce && (
-          <button
-            className="primary-button"
-            type="button"
-            disabled={loading}
-            style={{ background: "var(--danger, #c0392b)" }}
-            onClick={(e) => handleSubmit(e as unknown as FormEvent, true)}
-          >
-            {loading ? <Loader2 size={18} className="spin" /> : <ShieldAlert size={18} />}
-            Encerrar sessão anterior e entrar
-          </button>
-        )}
-      </form>
-    </main>
+    <LoginShell
+      onSubmit={handleSubmit}
+      brandTitle="Gestão Pateo da Luz"
+      brandSubtitle="Controle financeiro, compras e estoque"
+      desdeYear="2003"
+    >
+      {isStaging && (
+        <Alert tone="warning" icon={null}>
+          Ambiente de testes
+        </Alert>
+      )}
+      {renderBackendStatus()}
+      <TextField
+        label="Email"
+        name="pateo-login-email"
+        value={email}
+        autoComplete="off"
+        onChange={(event) => {
+          setEmail(event.target.value);
+          setSessionConflict(null);
+        }}
+      />
+      <PasswordField
+        label="Senha"
+        value={password}
+        onChange={(v) => {
+          setPassword(v);
+          setSessionConflict(null);
+        }}
+        autoComplete="new-password"
+      />
+      <Button
+        type="submit"
+        disabled={loading}
+        leadingIcon={loading ? <Loader2 size={18} className="spin" /> : <LogIn size={18} />}
+      >
+        Entrar
+      </Button>
+      {error && (
+        <Alert tone="error" icon={sessionConflict ? <ShieldAlert size={16} /> : undefined}>
+          {error}
+        </Alert>
+      )}
+      {sessionConflict?.canForce && (
+        <Button
+          type="button"
+          variant="danger"
+          disabled={loading}
+          leadingIcon={loading ? <Loader2 size={18} className="spin" /> : <ShieldAlert size={18} />}
+          onClick={(e) => handleSubmit(e as unknown as FormEvent, true)}
+        >
+          Encerrar sessão anterior e entrar
+        </Button>
+      )}
+    </LoginShell>
   );
 }
