@@ -1,0 +1,23 @@
+.ds-money {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-money-cur {
+  font-size: 0.62em;
+  font-weight: 600;
+  color: var(--muted);
+  margin-right: 3px;
+  letter-spacing: 0;
+}
+
+.ds-money-sign {
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.ds-money-hidden {
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  font-variant-numeric: normal;
+}
