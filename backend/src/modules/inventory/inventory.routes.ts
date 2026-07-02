@@ -990,74 +990,127 @@ inventoryRouter.post("/count-sessions", async (request, response) => {
   }
 
   const sectorId = asText(request.body.sectorId);
-  const sectorName = asText(request.body.sectorName);
   const categoryId = asText(request.body.categoryId);
-  const categoryName = asText(request.body.categoryName);
   const subcategoryId = asText(request.body.subcategoryId);
-  const subcategoryName = asText(request.body.subcategoryName);
   const notes = asText(request.body.notes);
   const isMonthEnd = Boolean(request.body.isMonthEnd) || type === "FINAL_MES";
   const periodMonth = Number(request.body.periodMonth ?? referenceDate.getMonth() + 1);
   const periodYear = Number(request.body.periodYear ?? referenceDate.getFullYear());
 
-  if (type === "SETORIAL" && !sectorId && !sectorName) {
-    response.status(400).json({ message: "Contagem setorial precisa de um setor." });
+  // Exigir sectorId em SETORIAL (nao aceitar apenas sectorName). Fecha o risco de dedupe
+  // colidir entre setores identificados so por nome quando sectorId=NULL (todos NULL sao iguais
+  // sob IS NOT DISTINCT FROM). Categoria e' processada apos esta guarda.
+  if (type === "SETORIAL" && !sectorId) {
+    response.status(400).json({ message: "Contagem setorial requer sectorId." });
     return;
   }
-  if (type === "CATEGORIA" && !categoryId && !categoryName) {
-    response.status(400).json({ message: "Contagem por categoria precisa de uma categoria." });
+  if (type === "CATEGORIA" && !categoryId) {
+    response.status(400).json({ message: "Contagem por categoria requer categoryId." });
     return;
   }
-  if (type === "SUBCATEGORIA" && !subcategoryId && !subcategoryName) {
-    response.status(400).json({ message: "Contagem por subcategoria precisa de uma subcategoria." });
+  if (type === "SUBCATEGORIA" && !subcategoryId) {
+    response.status(400).json({ message: "Contagem por subcategoria requer subcategoryId." });
     return;
   }
 
-  // Bloquear duplicata: não permitir nova contagem ativa para o mesmo período/tipo/setor
-  const [existingSession] = await prisma.$queryRaw<Array<{ id: string; code: string }>>`
-    SELECT "id", "code"
-    FROM "StockCountSession"
-    WHERE "periodYear" = ${periodYear}
-      AND "periodMonth" = ${periodMonth}
-      AND "type" = ${type}
-      AND ("sectorId" IS NOT DISTINCT FROM ${sectorId}::text)
-      AND "status" IN ('ABERTA', 'EM_ANDAMENTO', 'CONCLUIDA')
-    LIMIT 1
-  `;
-  if (existingSession) {
-    response.status(409).json({
-      message: `Ja existe uma contagem ${type} para este periodo (${existingSession.code}). Abra a contagem existente ou solicite ao gestor que a cancele antes de iniciar uma nova.`,
-      existingId: existingSession.id,
-      existingCode: existingSession.code
-    });
-    return;
-  }
+  // SETORIAL aceita categoryId opcional: escopo "setor + categoria" (ex: FLV da Camara Fria).
+  // Quando categoryId nao vem, comportamento identico ao historico (setor inteiro).
+  const setorialCategoryId = type === "SETORIAL" ? categoryId : null;
+  // effectiveCategoryId e' a fonte de verdade unica para o categoryId gravado/consultado nesta
+  // sessao (SETORIAL usa setorialCategoryId, CATEGORIA usa categoryId; demais tipos ignoram).
+  const effectiveCategoryId = type === "CATEGORIA" ? categoryId : setorialCategoryId;
 
   const id = crypto.randomUUID();
   const code = await nextStockCountSessionCode(referenceDate);
   const title = type === "FINAL_MES" ? "contagem final do mes" : "contagem operacional";
 
-  await prisma.$executeRaw`
-    INSERT INTO "StockCountSession" (
-      "id", "code", "type", "status", "referenceDate", "periodMonth", "periodYear", "isMonthEnd",
-      "sectorId", "sectorName", "categoryId", "categoryName", "subcategoryId", "subcategoryName",
-      "inventoryAgendaItemId", "responsibleUserId", "notes", "createdAt", "updatedAt"
-    )
-    VALUES (
-      ${id}, ${code}, ${type}, 'ABERTA', ${referenceDate}, ${periodMonth}, ${periodYear}, ${isMonthEnd},
-      ${sectorId}, ${sectorName}, ${categoryId}, ${categoryName}, ${subcategoryId}, ${subcategoryName},
-      ${asText(request.body.inventoryAgendaItemId)}, ${user.id}, ${notes ?? `Nova ${title}.`}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-    )
-  `;
+  // Envolve lookup + guardas + dedupe + INSERT em transacao para minimizar TOCTOU
+  // (setor/categoria/subcategoria deletados entre lookup e INSERT). Erros com prefixo tipado
+  // "STATUS::mensagem" sao mapeados para resposta HTTP correspondente apos o rollback.
+  type TxError = { status: number; body: Record<string, unknown> };
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Nomes SEMPRE derivados do banco a partir dos IDs (source of truth). Payload nao mais
+      // aceita sectorName/categoryName/subcategoryName — evita denormalizado divergente/null
+      // do cliente. Query unica combinando os 3 lookups. IDs null viram WHERE id = NULL
+      // (zero linhas em SQL — nome fica null naturalmente, sem placeholder).
+      const [names] = await tx.$queryRaw<Array<{ sectorName: string | null; categoryName: string | null; subcategoryName: string | null }>>`
+        SELECT
+          (SELECT "name" FROM "InventorySector" WHERE "id" = ${sectorId} LIMIT 1) AS "sectorName",
+          (SELECT "name" FROM "Category" WHERE "id" = ${effectiveCategoryId} LIMIT 1) AS "categoryName",
+          (SELECT "name" FROM "Subcategory" WHERE "id" = ${subcategoryId} LIMIT 1) AS "subcategoryName"
+      `;
+      const sectorName = names?.sectorName ?? null;
+      const categoryName = names?.categoryName ?? null;
+      const subcategoryName = names?.subcategoryName ?? null;
 
-  const sectorFilter = type === "SETORIAL"
-    ? Prisma.sql`AND (${sectorId ? Prisma.sql`p."inventorySectorId" = ${sectorId}` : Prisma.sql`FALSE`} OR ${sectorName ? Prisma.sql`sec."name" = ${sectorName}` : Prisma.sql`FALSE`})`
+      if (sectorId && !sectorName) {
+        throw { status: 400, body: { message: "Setor informado nao existe." } } satisfies TxError;
+      }
+      if (effectiveCategoryId && !categoryName) {
+        throw { status: 400, body: { message: "Categoria informada nao existe." } } satisfies TxError;
+      }
+      if (subcategoryId && !subcategoryName) {
+        throw { status: 400, body: { message: "Subcategoria informada nao existe." } } satisfies TxError;
+      }
+
+      // Bloquear duplicata: chave (periodYear, periodMonth, type, sectorId, categoryId).
+      // IS NOT DISTINCT FROM trata NULL como igual — preserva o caso "so setor" (categoryId=null).
+      const [existingSession] = await tx.$queryRaw<Array<{ id: string; code: string }>>`
+        SELECT "id", "code"
+        FROM "StockCountSession"
+        WHERE "periodYear" = ${periodYear}
+          AND "periodMonth" = ${periodMonth}
+          AND "type" = ${type}
+          AND ("sectorId" IS NOT DISTINCT FROM ${sectorId}::text)
+          AND ("categoryId" IS NOT DISTINCT FROM ${setorialCategoryId}::text)
+          AND "status" IN ('ABERTA', 'EM_ANDAMENTO', 'CONCLUIDA')
+        LIMIT 1
+      `;
+      if (existingSession) {
+        throw {
+          status: 409,
+          body: {
+            message: `Ja existe uma contagem ${type} para este periodo (${existingSession.code}). Abra a contagem existente ou solicite ao gestor que a cancele antes de iniciar uma nova.`,
+            existingId: existingSession.id,
+            existingCode: existingSession.code
+          }
+        } satisfies TxError;
+      }
+
+      await tx.$executeRaw`
+        INSERT INTO "StockCountSession" (
+          "id", "code", "type", "status", "referenceDate", "periodMonth", "periodYear", "isMonthEnd",
+          "sectorId", "sectorName", "categoryId", "categoryName", "subcategoryId", "subcategoryName",
+          "inventoryAgendaItemId", "responsibleUserId", "notes", "createdAt", "updatedAt"
+        )
+        VALUES (
+          ${id}, ${code}, ${type}, 'ABERTA', ${referenceDate}, ${periodMonth}, ${periodYear}, ${isMonthEnd},
+          ${sectorId}, ${sectorName}, ${effectiveCategoryId}, ${categoryName}, ${subcategoryId}, ${subcategoryName},
+          ${asText(request.body.inventoryAgendaItemId)}, ${user.id}, ${notes ?? `Nova ${title}.`}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+      `;
+    });
+  } catch (err) {
+    if (err && typeof err === "object" && "status" in err && "body" in err) {
+      const txErr = err as TxError;
+      response.status(txErr.status).json(txErr.body);
+      return;
+    }
+    throw err;
+  }
+
+  // IDs sao fonte de verdade (validados acima). Filtros usam somente ID — sem fallback por nome.
+  const sectorFilter = type === "SETORIAL" && sectorId
+    ? Prisma.sql`AND p."inventorySectorId" = ${sectorId}`
     : Prisma.empty;
-  const categoryFilter = type === "CATEGORIA"
-    ? Prisma.sql`AND (${categoryId ? Prisma.sql`p."categoryId" = ${categoryId}` : Prisma.sql`FALSE`} OR ${categoryName ? Prisma.sql`cat."name" = ${categoryName}` : Prisma.sql`FALSE`})`
+  // SETORIAL + categoria opcional: quando categoryId vem, restringe tambem por categoria
+  // — escopo "setor E categoria" (AND). Sem categoria: comportamento antigo.
+  const categoryFilter = effectiveCategoryId
+    ? Prisma.sql`AND p."categoryId" = ${effectiveCategoryId}`
     : Prisma.empty;
-  const subcategoryFilter = type === "SUBCATEGORIA"
-    ? Prisma.sql`AND (${subcategoryId ? Prisma.sql`p."subcategoryId" = ${subcategoryId}` : Prisma.sql`FALSE`} OR ${subcategoryName ? Prisma.sql`sub."name" = ${subcategoryName}` : Prisma.sql`FALSE`})`
+  const subcategoryFilter = type === "SUBCATEGORIA" && subcategoryId
+    ? Prisma.sql`AND p."subcategoryId" = ${subcategoryId}`
     : Prisma.empty;
 
   const products = await prisma.$queryRaw<Array<{
@@ -1732,17 +1785,25 @@ inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) 
 
   // Para contagens SETORIAIS: verificar se há produtos ativos controlados do setor
   // que foram adicionados após a criação da sessão e não estão presentes nela.
-  const [sessionMeta] = await prisma.$queryRaw<Array<{ type: string; sectorId: string | null; sectorName: string | null }>>`
-    SELECT "type"::text, "sectorId", "sectorName"
+  // Se a sessao tiver categoryId/categoryName, restringir a busca ao escopo (setor E categoria).
+  const [sessionMeta] = await prisma.$queryRaw<Array<{ type: string; sectorId: string | null; sectorName: string | null; categoryId: string | null; categoryName: string | null }>>`
+    SELECT "type"::text, "sectorId", "sectorName", "categoryId", "categoryName"
     FROM "StockCountSession" WHERE "id" = ${request.params.id}
   `;
   if (sessionMeta?.type === "SETORIAL") {
     const sectorId = sessionMeta.sectorId;
     const sectorName = sessionMeta.sectorName;
+    const categoryId = sessionMeta.categoryId;
+    const categoryName = sessionMeta.categoryName;
     const sectorFilter = sectorId
       ? Prisma.sql`AND p."inventorySectorId" = ${sectorId}`
       : sectorName
         ? Prisma.sql`AND sec."name" = ${sectorName}`
+        : Prisma.empty;
+    const categoryFilter = categoryId
+      ? Prisma.sql`AND p."categoryId" = ${categoryId}`
+      : categoryName
+        ? Prisma.sql`AND cat."name" = ${categoryName}`
         : Prisma.empty;
     const missingFromSession = await prisma.$queryRaw<Array<{ id: string; code: string | null; name: string; sector: string | null; unit: string | null }>>`
       SELECT p."id", p."externalCode" AS "code", p."name",
@@ -1750,8 +1811,10 @@ inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) 
              COALESCE(p."stockUnit", p."unit") AS "unit"
       FROM "Product" p
       LEFT JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
+      LEFT JOIN "Category" cat ON cat."id" = p."categoryId"
       WHERE p."isActive" = true AND p."controlsStock" = true
         ${sectorFilter}
+        ${categoryFilter}
         AND p."id" NOT IN (
           SELECT "productId" FROM "StockCountSessionItem"
           WHERE "stockCountSessionId" = ${request.params.id} AND "productId" IS NOT NULL
@@ -1767,7 +1830,7 @@ inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) 
         newValue: { missingCount: missingFromSession.length, missingProducts: missingFromSession.map((p) => p.name) }
       });
       response.status(400).json({
-        message: `${missingFromSession.length} produto(s) ativo(s) controlado(s) do setor ${sectorName ?? "informado"} nao estao nesta contagem. Reabra e inclua-os antes de concluir.`,
+        message: `${missingFromSession.length} produto(s) ativo(s) controlado(s) do escopo ${sectorName ?? "informado"}${categoryName ? ` - ${categoryName}` : ""} nao estao nesta contagem. Reabra e inclua-os antes de concluir.`,
         missingProducts: missingFromSession
       });
       return;
@@ -2184,10 +2247,15 @@ export async function buildBuyerSupportReport(query: Record<string, unknown>) {
       SELECT COUNT(*) AS "totalItems" FROM "StockCountSessionItem" WHERE "stockCountSessionId" = ${sourceId}`;
     // SETORIAL (e qualquer type != GERAL/FINAL_MES) = escopo parcial.
     const sessionPartial = session.type !== "GERAL" && session.type !== "FINAL_MES";
+    // Escopo composto (SETORIAL com categoria opcional): "Setor - Categoria" quando ambos preenchidos.
+    // Fallback para o comportamento antigo quando so um dos dois esta definido.
+    const composedScopeLabel = session.sectorName && session.categoryName
+      ? `${session.sectorName} - ${session.categoryName}`
+      : session.sectorName ?? session.categoryName ?? null;
     sourceMeta = {
       sourceType, sourceId: session.id, code: session.code, status: session.status, type: session.type,
       date: session.referenceDate, totalItems: Number(sessionCounts.totalItems), partial: sessionPartial,
-      scopeLabel: session.sectorName ?? session.categoryName ?? null,
+      scopeLabel: composedScopeLabel,
       note: sessionPartial ? "Planejamento baseado em contagem parcial/setorial." : null,
       purpose: "BUYER_SUPPORT",
       canUseForBuyer: true

@@ -179,14 +179,31 @@ masterDataRouter.patch("/sectors/:id/status", async (request, response) => {
 
 masterDataRouter.get("/categories", async (request, response) => {
   const search = request.query.search ? String(request.query.search) : undefined;
-  const where: Prisma.CategoryWhereInput = search
-    ? {
-        OR: [
-          { name: { contains: search, mode: "insensitive" } },
-          { mainGroup: { contains: search, mode: "insensitive" } }
-        ]
+  // sectorId opcional: restringe as categorias as que possuem pelo menos 1 produto ativo,
+  // com controlsStock e no setor informado. Usado pelo form de "Nova contagem" SETORIAL
+  // pra permitir escopo composto (setor + categoria). Sem sectorId: comportamento antigo.
+  const sectorId = request.query.sectorId ? String(request.query.sectorId) : undefined;
+  const conditions: Prisma.CategoryWhereInput[] = [];
+  if (search) {
+    conditions.push({
+      OR: [
+        { name: { contains: search, mode: "insensitive" } },
+        { mainGroup: { contains: search, mode: "insensitive" } }
+      ]
+    });
+  }
+  if (sectorId) {
+    conditions.push({
+      products: {
+        some: {
+          inventorySectorId: sectorId,
+          isActive: true,
+          controlsStock: true
+        }
       }
-    : {};
+    });
+  }
+  const where: Prisma.CategoryWhereInput = conditions.length ? { AND: conditions } : {};
   response.json(await prisma.category.findMany({ where, orderBy: { name: "asc" } }));
 });
 
