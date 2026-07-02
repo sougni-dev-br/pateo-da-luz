@@ -178,7 +178,7 @@ export function Products() {
   }
 
   async function loadBaseData() {
-    const [categoryRows, subcategoryRows, sectorRows, unitRows, supplierRows, nextCode, dreCategoryRows] = await Promise.all([
+    const [rawCategoryRows, rawSubcategoryRows, rawSectorRows, rawUnitRows, rawSupplierRows, nextCode, rawDreCategoryRows] = await Promise.all([
       getCategories(),
       getSubcategories(),
       getSectors(),
@@ -187,6 +187,15 @@ export function Products() {
       getNextProductCode().catch(() => ({ code: "" })),
       getDRECategories(true)
     ]);
+    // Guards defensivos: se um endpoint retornar payload parcial (mock, backend
+    // com bug, resposta antes de terminar), Array.isArray filtra em silencio.
+    const categoryRows = Array.isArray(rawCategoryRows) ? rawCategoryRows : [];
+    const subcategoryRows = Array.isArray(rawSubcategoryRows) ? rawSubcategoryRows : [];
+    const sectorRows = Array.isArray(rawSectorRows) ? rawSectorRows : [];
+    const unitRows = Array.isArray(rawUnitRows) ? rawUnitRows : [];
+    const supplierRows = Array.isArray(rawSupplierRows) ? rawSupplierRows : [];
+    const dreCategoryRows = Array.isArray(rawDreCategoryRows) ? rawDreCategoryRows : [];
+
     setCategories(categoryRows);
     setSubcategories(subcategoryRows);
     setSectors(sanitizeSectorOptions(sectorRows));
@@ -369,7 +378,10 @@ export function Products() {
     loadBaseData();
   }, []);
 
-  const filteredSubcategories = subcategories.filter((subcategory) => subcategory.categoryId === form.categoryId);
+  // Guard defensivo: mesmo com o setter garantindo array acima, protege
+  // renders inicial quando o state ainda nao chegou.
+  const filteredSubcategories = (Array.isArray(subcategories) ? subcategories : [])
+    .filter((subcategory) => subcategory.categoryId === form.categoryId);
 
   return (
     <div className="stack">
