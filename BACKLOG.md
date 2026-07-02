@@ -52,6 +52,39 @@ a uma revisão consciente.
 
 ## Observações vigiadas (não são débitos a executar)
 
+### OBS-004 — Dívida de vocabulário Product.unit ↔ PURCHASE_MODELS
+
+- **Origem:** validação end-to-end do Prompt 18 revelou que 683/795 produtos (86%) caíam em "outro" no dropdown do PurchasePlanning por incompatibilidade de vocabulário
+- **Sintoma:** 2 vocabulários paralelos convivem sem contrato:
+  - **Banco (Product.unit / Product.purchaseUnit):** abreviações operacionais em CAIXA ALTA — `UNI` (626), `KG` (112), `PCTE` (28), `MÇ` (9), `PACTE` (5), `CX` (4), `BALD` (4), `BDJ` (3), `LITROS` (1), `BALDE` (1), `POTE` (1), `BDE` (1)
+  - **Frontend (PURCHASE_MODELS):** vocabulário canônico em minúsculas — `unidade`, `caixa`, `saco`, `kg`, `bandeja`, `pacote`, `fardo`, `outro`
+- **Correção pontual aplicada (Prompt 18):** `UNIT_ALIASES` no `defaultModel` de PurchasePlanning.tsx cobre 98% (779/795): `UNI/UN→unidade, CX→caixa, KG→kg, PCTE/PACTE/PCT→pacote, BDJ/BDE→bandeja`. Residual = 16 produtos (2%): `MÇ` (9), `BALDE/BALD` (5), `POTE` (1), `LITROS` (1) — continuam caindo em "outro"
+- **Correção estrutural pendente (prompt dedicado):**
+  1. Normalizar `unit`/`purchaseUnit` no boundary de escrita (POST/PUT `product` + import de catálogo) para vocabulário canônico
+  2. Backfill dos 795 produtos ativos
+  3. Revisão do Rafael sobre significado semântico das 4 abreviações restantes: `MÇ` = "maço"? `BALDE/POTE` = novo valor no enum ou "outro"? `LITROS` = unidade real distinta de "unidade"?
+  4. Considerar expandir `PURCHASE_MODELS` para cobrir 100% ou deixar residual como "outro" documentado
+- **Vigiar:** se importações futuras trouxerem abreviações novas (fora do UNIT_ALIASES + PURCHASE_MODELS), degradam silenciosamente para "outro"
+
+### OBS-003 — Divergência de estado de Product.purchaseUnit entre auditorias
+
+- **Origem:** confronto entre Prompt 10 (auditoria de conversion factor) e Prompt 18 Etapa B (auditoria de modelo de compra padrão), ambos rodados em 2026-07
+- **Divergência:** Prompt 10 reportou **795/795 produtos ativos sem purchaseUnit**. Prompt 18 Etapa B reportou o campo como **populado ativamente** via cadastro (`Products.tsx:580`), import de catálogo (`catalog-import.service.ts:240`) e default no POST/PUT product (`product.routes.ts:129`, `purchaseUnit = normalizeUnit(body.purchaseUnit ?? body.unit)`).
+- **Por que importa:** o fix de Etapa C do Prompt 18 (priorizar `purchaseUnit` no `defaultModel`) assume que a maioria dos produtos tem valor preenchido. Se Prompt 10 estiver certo, o novo default é indistinguível do atual (`??` cai em `unit`).
+- **Vigiar antes de:** partir pro fix de conversion factor de Prompt futuro. Rodar contagem real no banco:
+  ```sql
+  SELECT COUNT(*) FROM "Product" WHERE "isActive" AND "purchaseUnit" IS NOT NULL;
+  SELECT COUNT(*) FROM "Product" WHERE "isActive";
+  ```
+  Se resultado divergir do assumido em qualquer um dos prompts, **redesenhar estratégia de backfill** antes de tocar em código de conversion factor.
+
+### OBS-002 — Refetch de count-sessions em toda navegação de rota
+
+- **Origem:** code-reviewer, Prompt 18 Fase 1 (MEDIUM)
+- **O que é:** o `useEffect` do badge de "Pedidos de compra" em `App.tsx` tem `location.pathname` nas deps, então dispara `getStockCountSessions()` em toda troca de rota — inclusive rotas não relacionadas a estoque/compras. Padrão `active` previne race, mas gera N requests HTTP descartados sequencialmente em navegação rápida.
+- **Por que não vai virar ação:** o requisito explícito foi "sem endpoint novo, sem polling agressivo". Refetch em mudança de rota é o meio termo pragmático. Endpoint é leve; volume single-tenant absorve.
+- **Vigiar se:** aparecerem múltiplos badges de contador em outros itens do menu (multiplicaria o custo), OU o app crescer com muitas rotas rápidas. Nesse dia, considerar SWR/react-query com staleTime, WebSocket para push, ou fetch condicionado ao pathname (só refetch quando sair de tela de estoque).
+
 ### OBS-001 — Race UX transitória no form de "Nova contagem" (SETORIAL + categoria)
 
 - **Origem:** code-reviewer, Passo 2 do Prompt 17 Fase 2 revisada (MEDIUM, marcado como observação por decisão explícita)
