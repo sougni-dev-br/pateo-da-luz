@@ -37,6 +37,7 @@ import {
   HideValuesProvider,
   Sidebar,
   SidebarNav,
+  Topbar,
   withFavoritesGroup
 } from "./design-system";
 import type { SidebarSectionGroup } from "./design-system";
@@ -319,6 +320,16 @@ export function App() {
     pendingCountSessionCount > 0 ? { "purchase-orders": pendingCountSessionCount } : {};
   const mobileDrawerGroups = withFavoritesGroup(sidebarGroups, favorites);
 
+  // Topbar: breadcrumb "Pateo da Luz / <grupo atual>" + periodo em pt-BR
+  // corrente. Search e sino sao stubs por enquanto — apenas visuais.
+  const MONTH_NAMES_PT = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+  ];
+  const _now = new Date();
+  const topbarPeriod = `${MONTH_NAMES_PT[_now.getMonth()]} ${_now.getFullYear()}`;
+  const topbarBreadcrumb = ["Pateo da Luz", activeGroup];
+
   // /design-system e dev-only e nao depende de auth. Renderiza antes das checagens
   // de sessao para permitir preview sem backend/login em desenvolvimento.
   if (isLocal && DesignSystem && location.pathname === "/design-system") {
@@ -496,6 +507,15 @@ export function App() {
           mobileHeader={mobileHeaderNode}
           drawer={drawerNode}
           sidebar={sidebarNode}
+          topbar={(
+            <Topbar
+              breadcrumb={topbarBreadcrumb}
+              period={topbarPeriod}
+              hideValues={hideSensitiveValues}
+              onToggleValues={toggleSensitiveValues}
+              notificationCount={pendingCountSessionCount}
+            />
+          )}
         >
           <div className="desktop-page-header">
             <PageHeader eyebrow={`Pateo da Luz / ${activeGroup}`} title={activeLabel} />
