@@ -1,0 +1,10 @@
+.ds-percent {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-percent-hidden {
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  font-variant-numeric: normal;
+}

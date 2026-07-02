@@ -31,6 +31,7 @@ import { Navigate, Route, Routes, matchPath, useLocation, useNavigate, useParams
 import { AppUser, addMenuFavorite, getMe, getMenuFavorites, getStockCountSessions, logout, removeMenuFavorite, type PermissionAction } from "./api/client";
 import { PageHeader, StatusBadge } from "./components/ui";
 import { SessionContext } from "./context/SessionContext";
+import { HideValuesProvider } from "./design-system";
 import { canAccessModule, hasPermission as userHasPermission } from "./lib/permissions";
 import { ForcedPasswordChange } from "./pages/ForcedPasswordChange";
 import type { ImportTab } from "./pages/ImportsHub";
@@ -346,26 +347,41 @@ export function App() {
   if (checkingSession) {
     return (
       <SessionContext.Provider value={sessionContextValue}>
-        <main className="login-shell">
-          <div className="login-card">
-            <img src={logoPath} alt="Pateo da Luz" />
-            <p>Carregando sessão...</p>
-          </div>
-        </main>
+        <HideValuesProvider>
+          <main className="login-shell">
+            <div className="login-card">
+              <img src={logoPath} alt="Pateo da Luz" />
+              <p>Carregando sessão...</p>
+            </div>
+          </main>
+        </HideValuesProvider>
       </SessionContext.Provider>
     );
   }
 
   if (!user) {
-    return <SessionContext.Provider value={sessionContextValue}><Login onLogin={setUser} /></SessionContext.Provider>;
+    return (
+      <SessionContext.Provider value={sessionContextValue}>
+        <HideValuesProvider>
+          <Login onLogin={setUser} />
+        </HideValuesProvider>
+      </SessionContext.Provider>
+    );
   }
 
   if (user.mustChangePassword) {
-    return <SessionContext.Provider value={sessionContextValue}><ForcedPasswordChange user={user} onChanged={setUser} /></SessionContext.Provider>;
+    return (
+      <SessionContext.Provider value={sessionContextValue}>
+        <HideValuesProvider>
+          <ForcedPasswordChange user={user} onChanged={setUser} />
+        </HideValuesProvider>
+      </SessionContext.Provider>
+    );
   }
 
   return (
     <SessionContext.Provider value={sessionContextValue}>
+      <HideValuesProvider>
       <main className="app-shell">
         <header className="mobile-app-header">
           <button type="button" aria-label="Abrir menu" onClick={() => setMobileMenuOpen(true)}>
@@ -568,6 +584,7 @@ export function App() {
           </Suspense>
         </section>
       </main>
+      </HideValuesProvider>
     </SessionContext.Provider>
   );
 }
