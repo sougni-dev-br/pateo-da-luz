@@ -2592,11 +2592,8 @@ export function createStockCountSession(payload: {
   referenceDate: string;
   type: StockCountSessionType;
   sectorId?: string | null;
-  sectorName?: string | null;
   categoryId?: string | null;
-  categoryName?: string | null;
   subcategoryId?: string | null;
-  subcategoryName?: string | null;
   periodMonth?: number | null;
   periodYear?: number | null;
   isMonthEnd?: boolean;
@@ -3162,8 +3159,8 @@ export function confirmInventoryAgendaItem(id: string) {
   return request<{ id: string; status: string }>(`/inventory/agenda/${id}/confirm`, { method: "PATCH" });
 }
 
-export function getCategories(search?: string) {
-  return request<Category[]>(`/master-data/categories${toQueryString({ search })}`);
+export function getCategories(search?: string, filters?: { sectorId?: string }) {
+  return request<Category[]>(`/master-data/categories${toQueryString({ search, sectorId: filters?.sectorId })}`);
 }
 
 export function getSectors(search?: string, filters?: { forStockCounting?: boolean }) {
