@@ -2321,6 +2321,7 @@ export async function buildBuyerSupportReport(query: Record<string, unknown>) {
     productCode: string | null;
     productName: string;
     unit: string | null;
+    purchaseUnit: string | null;
     logisticsNotes: string | null;
     supplierId: string | null;
     sectorName: string | null;
@@ -2410,6 +2411,7 @@ export async function buildBuyerSupportReport(query: Record<string, unknown>) {
       p."externalCode" AS "productCode",
       p."name" AS "productName",
       COALESCE(p."stockUnit", p."unit", u."code") AS "unit",
+      p."purchaseUnit",
       p."logisticsNotes",
       p."fornecedorPrincipalId" AS "supplierId",
       sec."name" AS "sectorName",
@@ -2619,6 +2621,7 @@ export async function buildBuyerSupportReport(query: Record<string, unknown>) {
       categoryName: row.categoryName,
       subcategoryName: row.subcategoryName,
       unit: row.unit,
+      purchaseUnit: row.purchaseUnit,
       logisticsNotes: row.logisticsNotes,
       estoqueMinimo: min,
       estoqueIdeal: ideal,

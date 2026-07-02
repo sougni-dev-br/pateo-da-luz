@@ -1618,6 +1618,7 @@ export type BuyerSupportItem = {
   categoryName: string | null;
   subcategoryName: string | null;
   unit: string | null;
+  purchaseUnit: string | null;
   logisticsNotes: string | null;
   estoqueMinimo: number | null;
   estoqueIdeal: number | null;
@@ -1991,6 +1992,10 @@ export function getTaxPaymentHistory(id: string) {
 
 export function downloadSupplierPositionPdf(filters?: { supplierId?: string; startDate?: string; endDate?: string }) {
   return download(`/purchases/reports/supplier-position.pdf${toQueryString(filters)}`, "posicao-fornecedor.pdf");
+}
+
+export function downloadPurchaseOrderPdf(id: string, code: string) {
+  return download(`/purchase-orders/${id}/pdf`, `pedido-${code}.pdf`);
 }
 
 export function downloadPayablesFinancialPdf(filters?: {
