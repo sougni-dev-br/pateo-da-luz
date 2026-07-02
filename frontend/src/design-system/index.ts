@@ -50,3 +50,11 @@ export { AppShell } from "./shell/AppShell";
 export type { AppShellProps } from "./shell/AppShell";
 
 export { ContentErrorBoundary } from "./shell/ContentErrorBoundary";
+
+export { Sidebar } from "./shell/Sidebar";
+export type { SidebarProps, SidebarUser } from "./shell/Sidebar";
+
+export { SidebarNav, withFavoritesGroup } from "./shell/SidebarNav";
+export type { SidebarNavProps } from "./shell/SidebarNav";
+
+export type { SidebarSection, SidebarSectionGroup } from "./shell/types";
