@@ -20,15 +20,27 @@
 
 html,
 body,
+/* html/body/#root com background solido de fallback: garante que qualquer
+   area do viewport que nao seja coberta pelo AppShell fique com o cinza
+   claro do canvas do app, nunca com preto default do browser (que pode
+   aparecer em dark-mode do SO ou em capture headless). */
+html {
+  height: 100%;
+  background: var(--app-bg-from);
+}
+
 #root {
   width: 100%;
   max-width: 100%;
+  min-height: 100%;
   overflow-x: hidden;
+  background: var(--app-bg-from);
 }
 
 body {
   margin: 0;
   min-width: 0;
+  min-height: 100%;
   font-family: Inter, Segoe UI, Arial, sans-serif;
   background: linear-gradient(180deg, #f7f8fa 0%, #eef1f4 100%);
   color: var(--ink);
