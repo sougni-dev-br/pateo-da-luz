@@ -5,6 +5,7 @@ import { prisma } from "../../config/database.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { buildBuyerSupportReport } from "../inventory/inventory.routes.js";
+import { createPurchaseOrderPdf, type PurchaseOrderItemEntry } from "./purchase-order-pdf.js";
 
 export const purchaseOrderRouter = Router();
 
@@ -60,7 +61,8 @@ async function nextPurchaseOrderCode(tx: Prisma.TransactionClient, year: number)
   return `PC-${year}-${String(row.currentValue).padStart(4, "0")}`;
 }
 
-async function getOrder(id: string): Promise<PurchaseOrderRecord | null> {
+async function getOrder(id: string, opts: { includeAudits?: boolean } = {}): Promise<PurchaseOrderRecord | null> {
+  const includeAudits = opts.includeAudits ?? true;
   const [order] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
     SELECT po.*, u."name" AS "createdByUserName", au."name" AS "approvedByUserName"
     FROM "PurchaseOrder" po
@@ -69,33 +71,36 @@ async function getOrder(id: string): Promise<PurchaseOrderRecord | null> {
     WHERE po."id" = ${id}
   `;
   if (!order) return null;
-  const [items, audits] = await Promise.all([
-    prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT
-        i.*,
-        i."suggestedQuantity"::text AS "suggestedQuantity",
-        i."requestedQuantity"::text AS "requestedQuantity",
-        i."approvedQuantity"::text AS "approvedQuantity",
-        i."receivedQuantity"::text AS "receivedQuantity",
-        i."lastCountedQuantity"::text AS "lastCountedQuantity",
-        i."estoqueMinimoSnapshot"::text AS "estoqueMinimoSnapshot",
-        i."estoqueIdealSnapshot"::text AS "estoqueIdealSnapshot",
-        i."unitPriceEstimated"::text AS "unitPriceEstimated",
-        i."totalEstimated"::text AS "totalEstimated"
-      FROM "PurchaseOrderItem" i
-      WHERE i."purchaseOrderId" = ${id}
-      ORDER BY i."productNameSnapshot"
-    `,
-    prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT a.*, u."name" AS "userName"
-      FROM "AuditLog" a
-      LEFT JOIN "User" u ON u."id" = a."userId"
-      WHERE a."entity" IN ('PurchaseOrder', 'PurchaseOrderItem')
-        AND (a."entityId" = ${id} OR a."newValue"::text ILIKE ${`%${id}%`})
-      ORDER BY a."createdAt" DESC
-      LIMIT 40
-    `
-  ]);
+  const itemsQuery = prisma.$queryRaw<Array<Record<string, unknown>>>`
+    SELECT
+      i.*,
+      i."suggestedQuantity"::text AS "suggestedQuantity",
+      i."requestedQuantity"::text AS "requestedQuantity",
+      i."approvedQuantity"::text AS "approvedQuantity",
+      i."receivedQuantity"::text AS "receivedQuantity",
+      i."lastCountedQuantity"::text AS "lastCountedQuantity",
+      i."estoqueMinimoSnapshot"::text AS "estoqueMinimoSnapshot",
+      i."estoqueIdealSnapshot"::text AS "estoqueIdealSnapshot",
+      i."unitPriceEstimated"::text AS "unitPriceEstimated",
+      i."totalEstimated"::text AS "totalEstimated"
+    FROM "PurchaseOrderItem" i
+    WHERE i."purchaseOrderId" = ${id}
+    ORDER BY i."productNameSnapshot"
+  `;
+  // Query de audits e' cara (ILIKE '%id%' em newValue::text sem indice). Fluxos que so
+  // precisam do pedido + items (ex: geracao de PDF) passam includeAudits=false pra pular.
+  const auditsQuery = includeAudits
+    ? prisma.$queryRaw<Array<Record<string, unknown>>>`
+        SELECT a.*, u."name" AS "userName"
+        FROM "AuditLog" a
+        LEFT JOIN "User" u ON u."id" = a."userId"
+        WHERE a."entity" IN ('PurchaseOrder', 'PurchaseOrderItem')
+          AND (a."entityId" = ${id} OR a."newValue"::text ILIKE ${`%${id}%`})
+        ORDER BY a."createdAt" DESC
+        LIMIT 40
+      `
+    : Promise.resolve<Array<Record<string, unknown>>>([]);
+  const [items, audits] = await Promise.all([itemsQuery, auditsQuery]);
   const estimatedTotal = items.reduce((sum, item) => sum + Number(item.totalEstimated ?? 0), 0);
   return { ...order, items, audits, totalItems: items.length, estimatedTotal } as PurchaseOrderRecord;
 }
@@ -137,6 +142,57 @@ purchaseOrderRouter.get("/:id", async (request, response) => {
   const order = await getOrder(request.params.id);
   if (!order) return response.status(404).json({ message: "Pedido de compra nao encontrado." });
   response.json(order);
+});
+
+purchaseOrderRouter.get("/:id/pdf", async (request, response) => {
+  // RBAC identico ao GET /:id — sem permissao nova.
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+  // Pula query cara de audits — PDF nao consome auditlog.
+  const order = await getOrder(request.params.id, { includeAudits: false });
+  if (!order) {
+    response.status(404).json({ message: "Pedido de compra nao encontrado." });
+    return;
+  }
+  // `order` vem tipado como PurchaseOrderRecord (indexavel), com colunas variaveis do RAW.
+  // Acesso via cast `unknown` para snapshots do PDF — sem impor tipo estrito aqui.
+  const rec = order as unknown as Record<string, unknown>;
+  const rawItems = Array.isArray(rec["items"]) ? (rec["items"] as Array<Record<string, unknown>>) : [];
+  const items: PurchaseOrderItemEntry[] = rawItems.map((raw) => ({
+    productCode: raw["productCodeSnapshot"] != null ? String(raw["productCodeSnapshot"]) : null,
+    productName: String(raw["productNameSnapshot"] ?? "-"),
+    unit: raw["unitSnapshot"] != null ? String(raw["unitSnapshot"]) : null,
+    requestedQuantity: Number(raw["requestedQuantity"] ?? 0),
+    unitPriceEstimated: raw["unitPriceEstimated"] != null ? Number(raw["unitPriceEstimated"]) : null,
+    totalEstimated: raw["totalEstimated"] != null ? Number(raw["totalEstimated"]) : null
+  }));
+  const totalEstimated = items.reduce((acc, it) => acc + (it.totalEstimated ?? 0), 0);
+  const buffer = createPurchaseOrderPdf({
+    code: String(rec["code"] ?? "-"),
+    status: String(rec["status"] ?? "-"),
+    createdAt: rec["createdAt"] ? new Date(String(rec["createdAt"])).toISOString() : new Date().toISOString(),
+    expectedDeliveryDate: rec["expectedDeliveryDate"] ? new Date(String(rec["expectedDeliveryDate"])).toISOString() : null,
+    supplierName: String(rec["supplierNameSnapshot"] ?? "-"),
+    notes: rec["notes"] != null ? String(rec["notes"]) : null,
+    items,
+    totalEstimated
+  });
+  await auditLog({
+    userId: user.id,
+    action: "DOWNLOAD_PURCHASE_ORDER_PDF",
+    entity: "PurchaseOrder",
+    entityId: order.id,
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+  // Guard defensivo: code e' gerado server-side no padrao PC-YYYY-NNNN, mas o filename
+  // em Content-Disposition e' um vetor sensivel — se algum futuro caminho gerar codigos
+  // com aspa/newline, cai no default "pedido" ao inves de vazar caractere hostil.
+  const rawCode = String(rec["code"] ?? "");
+  const safeCode = /^[A-Za-z0-9-]+$/.test(rawCode) ? rawCode : "pedido";
+  response.setHeader("Content-Type", "application/pdf");
+  response.setHeader("Content-Disposition", `attachment; filename="pedido-${safeCode}.pdf"`);
+  response.send(buffer);
 });
 
 purchaseOrderRouter.post("/from-prelist", async (request, response) => {
