@@ -2,6 +2,7 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL ?? "/api";
 export const BACKEND_TARGET_URL = import.meta.env.VITE_BACKEND_TARGET_URL ?? "http://127.0.0.1:3334";
 const FALLBACK_BACKEND_URL = BACKEND_TARGET_URL;
 const REQUEST_TIMEOUT_MS = 10000;
+const IMPORT_REQUEST_TIMEOUT_MS = 120000;
 const SESSION_TOKEN_KEY = "pateo_session_token";
 
 export class ApiError extends Error {
@@ -409,6 +410,11 @@ export type CatalogImportReport = {
     label: string | null;
     reason: string;
   }>;
+  summary?: {
+    inseridos: number;
+    atualizados: number;
+    erros: Array<{ linha: number; motivo: string }>;
+  };
 };
 
 export type InventorySnapshotType = "INVENTARIO_INICIAL" | "INVENTARIO_FINAL" | "CONTAGEM_PARCIAL" | "AJUSTE";
@@ -1850,7 +1856,7 @@ export async function previewImport(file: File, options: PurchaseImportOptions =
   return request<ImportPreview>("/imports/purchases/preview", {
     method: "POST",
     body: formData
-  });
+  }, IMPORT_REQUEST_TIMEOUT_MS);
 }
 
 export async function confirmImport(
@@ -1862,7 +1868,7 @@ export async function confirmImport(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ importFileId, originalFileName, ...options })
-  });
+  }, IMPORT_REQUEST_TIMEOUT_MS);
 }
 
 export function deleteImport(importBatchId: string) {
@@ -1897,7 +1903,7 @@ export async function previewCatalogImport(kind: CatalogImportKind, file: File, 
   return request<CatalogPreview>(`/imports/${kind}/preview`, {
     method: "POST",
     body: formData
-  });
+  }, IMPORT_REQUEST_TIMEOUT_MS);
 }
 
 export function confirmCatalogImport(
@@ -1906,14 +1912,13 @@ export function confirmCatalogImport(
     importFileId: string;
     originalFileName?: string | null;
     sheetName?: string | null;
-    updateExisting: boolean;
   }
 ) {
   return request<CatalogImportReport>(`/imports/${kind}/confirm`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
-  });
+  }, IMPORT_REQUEST_TIMEOUT_MS);
 }
 
 export function deleteCatalogImport(importBatchId: string) {
