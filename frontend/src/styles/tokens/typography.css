@@ -1,0 +1,39 @@
+/* Pateo da Luz — Typography tokens
+   The ERP ships system Inter (font-family: Inter, Segoe UI, Arial).
+   We load Inter from Google Fonts so consumers render identically online.
+   NOTE: the brand wordmark ("Pateo da Luz") is a hand-lettered script logo
+   supplied as a PNG asset — it is NOT a UI font and must not be substituted. */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+:root {
+  /* ── Families ── */
+  --font-sans: Inter, "Segoe UI", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* ── Weights ── */
+  --fw-regular: 400; /* @kind font */
+  --fw-medium: 500; /* @kind font */
+  --fw-semibold: 600; /* @kind font */
+  --fw-bold: 700; /* @kind font */
+
+  /* ── Type scale (px, matching the app) ── */
+  --fs-page-title: 31px;   /* .page-header h1 */
+  --fs-h2: 20px;           /* .panel h2 */
+  --fs-kpi: 24px;          /* KPI value */
+  --fs-summary: 22px;      /* summary strong */
+  --fs-lg: 18px;
+  --fs-body: 14px;         /* base body */
+  --fs-sm: 13px;           /* tables, labels, inputs */
+  --fs-xs: 12px;           /* small captions, badges */
+  --fs-2xs: 11px;          /* eyebrows, deltas */
+
+  /* ── Line heights ── */
+  --lh-tight: 1.15; /* @kind font */
+  --lh-snug: 1.35; /* @kind font */
+  --lh-body: 1.5; /* @kind font */
+
+  /* ── Uppercase eyebrow / section-label tracking ── */
+  --ls-eyebrow: 0.06em; /* @kind font */
+  --ls-nav: 0.08em; /* @kind font */
+}

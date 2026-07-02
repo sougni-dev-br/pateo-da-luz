@@ -3,29 +3,19 @@
   min-width: 0;
 }
 
+/* Tokens de cor, tipografia, spacing, sombras e motion vivem em
+   src/styles/tokens/. main.tsx importa tokens ANTES deste arquivo,
+   então --ink, --gold, --shadow, --ease, etc. já estão disponíveis aqui.
+
+   Aliases abaixo cobrem nomes legados que este arquivo referencia mas que
+   nunca foram declarados (antes do DS, renderizavam com fallback do browser).
+   Serão removidos gradualmente conforme cada tela migra para tokens canônicos. */
 :root {
-  --ink: #161512;
-  --ink-soft: #26231d;
-  --coal: #11100e;
-  --charcoal: #1f1d19;
-  --paper: #ffffff;
-  --paper-soft: #f2f4f7;
-  --line: #dfe4ea;
-  --line-strong: #c8d0da;
-  --muted: #667085;
-  --gold: #b99a58;
-  --gold-soft: #d8c391;
-  --success: #276749;
-  --warning: #8a650f;
-  --danger: #9f2d2d;
-  --info: #2f5f98;
-  --shadow: 0 16px 38px rgba(22, 21, 18, 0.08);
-  --shadow-soft: 0 10px 24px rgba(22, 21, 18, 0.06);
-  --border: var(--line);
-  --surface: var(--paper);
-  --text: var(--ink);
-  --accent: var(--gold);
-  --shadow-sm: var(--shadow-soft);
+  --text-muted: var(--muted);
+  --card-bg: var(--paper);
+  --radius: var(--radius-md);
+  --brand: var(--gold);
+  --bg: var(--paper-soft);
 }
 
 html,
