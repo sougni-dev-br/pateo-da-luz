@@ -27,6 +27,7 @@ import {
   getStockCountSessions,
   getBuyerSupportReport,
   downloadBuyerPrelistCsv,
+  getCategories,
   getProducts,
   getSectors,
   getStockCounts,
@@ -511,6 +512,33 @@ export function Inventory({
     });
     return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [products]);
+  // Categorias com produtos no setor selecionado — usado no form de "Nova contagem" SETORIAL
+  // pra permitir escopo "setor + categoria" (ex: FLV da Camara Fria).
+  // Vem do backend (GET /master-data/categories?sectorId=X): `products` local esta filtrado por
+  // agendaItem, entao derivar client-side devolveria vazio quando sectorId != setor da agenda.
+  const [categoriesForSector, setCategoriesForSector] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => {
+    if (countSessionForm.type !== "SETORIAL" || !countSessionForm.sectorId) {
+      setCategoriesForSector([]);
+      return;
+    }
+    let cancelled = false;
+    getCategories(undefined, { sectorId: countSessionForm.sectorId })
+      .then((rows) => { if (!cancelled) setCategoriesForSector(rows.map((c) => ({ id: c.id, name: c.name }))); })
+      .catch(() => { if (!cancelled) setCategoriesForSector([]); });
+    return () => { cancelled = true; };
+  }, [countSessionForm.type, countSessionForm.sectorId]);
+  // Se a lista recarregar em SETORIAL e o categoryId atual sair dela (ex: produto reclassificado
+  // com form aberto), limpa a selecao para nao deixar o <select> com value sem <option>.
+  useEffect(() => {
+    if (
+      countSessionForm.type === "SETORIAL" &&
+      countSessionForm.categoryId &&
+      !categoriesForSector.some((c) => c.id === countSessionForm.categoryId)
+    ) {
+      setCountSessionForm((prev) => ({ ...prev, categoryId: "" }));
+    }
+  }, [categoriesForSector, countSessionForm.type, countSessionForm.categoryId]);
   const productSubcategories = useMemo(() => {
     const rows = new Map<string, { id: string; name: string; categoryId?: string | null }>();
     products.forEach((product) => {
@@ -836,18 +864,17 @@ export function Inventory({
 
   async function createCountSession() {
     try {
-      const sector = sectors.find((item) => item.id === countSessionForm.sectorId);
-      const category = productCategories.find((item) => item.id === countSessionForm.categoryId);
-      const subcategory = productSubcategories.find((item) => item.id === countSessionForm.subcategoryId);
-      if (countSessionForm.type === "SETORIAL" && !sector) {
+      // Backend deriva os nomes (sectorName/categoryName/subcategoryName) a partir dos IDs —
+      // aqui so validamos presenca dos IDs e enviamos IDs. Sem denormalizado no payload.
+      if (countSessionForm.type === "SETORIAL" && !countSessionForm.sectorId) {
         setNotice({ tone: "warning", message: "Selecione um setor para iniciar a contagem por setor." });
         return;
       }
-      if (countSessionForm.type === "CATEGORIA" && !category) {
+      if (countSessionForm.type === "CATEGORIA" && !countSessionForm.categoryId) {
         setNotice({ tone: "warning", message: "Selecione uma categoria para iniciar a contagem por categoria." });
         return;
       }
-      if (countSessionForm.type === "SUBCATEGORIA" && !subcategory) {
+      if (countSessionForm.type === "SUBCATEGORIA" && !countSessionForm.subcategoryId) {
         setNotice({ tone: "warning", message: "Selecione uma subcategoria para iniciar a contagem por subcategoria." });
         return;
       }
@@ -856,11 +883,11 @@ export function Inventory({
         referenceDate: countSessionForm.referenceDate,
         type: countSessionForm.type,
         sectorId: countSessionForm.type === "SETORIAL" ? countSessionForm.sectorId || null : null,
-        sectorName: countSessionForm.type === "SETORIAL" ? sector?.name ?? null : null,
-        categoryId: countSessionForm.type === "CATEGORIA" ? countSessionForm.categoryId || null : null,
-        categoryName: countSessionForm.type === "CATEGORIA" ? category?.name ?? null : null,
+        // SETORIAL aceita categoria opcional (escopo composto). CATEGORIA exige categoria.
+        categoryId: countSessionForm.type === "CATEGORIA" || countSessionForm.type === "SETORIAL"
+          ? countSessionForm.categoryId || null
+          : null,
         subcategoryId: countSessionForm.type === "SUBCATEGORIA" ? countSessionForm.subcategoryId || null : null,
-        subcategoryName: countSessionForm.type === "SUBCATEGORIA" ? subcategory?.name ?? null : null,
         isMonthEnd: countSessionForm.isMonthEnd || countSessionForm.type === "FINAL_MES",
         periodMonth: reference.getMonth() + 1,
         periodYear: reference.getFullYear(),
@@ -2212,7 +2239,7 @@ export function Inventory({
                 </div>
                 <div className="filters-row">
                   <label>Data<input type="date" value={countSessionForm.referenceDate} onChange={(event) => setCountSessionForm({ ...countSessionForm, referenceDate: event.target.value })} /></label>
-                  <label>Tipo<select value={countSessionForm.type} onChange={(event) => setCountSessionForm({ ...countSessionForm, type: event.target.value as StockCountSessionType })}>
+                  <label>Tipo<select value={countSessionForm.type} onChange={(event) => setCountSessionForm({ ...countSessionForm, type: event.target.value as StockCountSessionType, sectorId: "", categoryId: "", subcategoryId: "" })}>
                     <option value="GERAL">Geral</option>
                     <option value="SETORIAL">Por setor</option>
                     <option value="CATEGORIA">Por categoria</option>
@@ -2221,9 +2248,15 @@ export function Inventory({
                     <option value="ALEATORIA">Aleatoria</option>
                   </select></label>
                   {countSessionForm.type === "SETORIAL" && (
-                    <label>Setor<select value={countSessionForm.sectorId} onChange={(event) => setCountSessionForm({ ...countSessionForm, sectorId: event.target.value })}>
+                    <label>Setor<select value={countSessionForm.sectorId} onChange={(event) => setCountSessionForm({ ...countSessionForm, sectorId: event.target.value, categoryId: "" })}>
                       <option value="">{sectors.length ? "Selecione" : "Nenhum setor disponível para contagem"}</option>
                       {sectors.map((sector) => <option key={sector.id} value={sector.id}>{sector.name}</option>)}
+                    </select></label>
+                  )}
+                  {countSessionForm.type === "SETORIAL" && countSessionForm.sectorId && (
+                    <label>Categoria (opcional)<select value={countSessionForm.categoryId} onChange={(event) => setCountSessionForm({ ...countSessionForm, categoryId: event.target.value })}>
+                      <option value="">{categoriesForSector.length ? "Todas do setor" : "Nenhuma categoria com produtos neste setor"}</option>
+                      {categoriesForSector.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
                     </select></label>
                   )}
                   {countSessionForm.type === "CATEGORIA" && (
