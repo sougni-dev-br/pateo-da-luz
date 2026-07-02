@@ -48,3 +48,5 @@ export type { HideValuesContextValue } from "./context/HideValuesContext";
 
 export { AppShell } from "./shell/AppShell";
 export type { AppShellProps } from "./shell/AppShell";
+
+export { ContentErrorBoundary } from "./shell/ContentErrorBoundary";
