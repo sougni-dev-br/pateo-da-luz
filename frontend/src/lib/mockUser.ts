@@ -26,6 +26,110 @@ export const MOCK_USER: AppUser = {
   mustChangePassword: false
 };
 
+// ─── Builders de shape completo do Dashboard ────────────────────────────
+// Cada helper retorna um objeto fresco no shape exato esperado pelo
+// api/client.ts (DashboardData, DashboardSummaryData, DashboardAlertsData).
+// Todos os campos numericos = 0, arrays = [], nulls onde permitido.
+// cmvReal.status = "pending" para exercitar mais UI (status "closed" mostra
+// valor, "missing" some, "pending" e o meio-termo com badge warning).
+
+function currentPeriod() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const monthStr = String(month).padStart(2, "0");
+  const startDate = `${year}-${monthStr}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, "0")}`;
+  return { year, month, monthStr, startDate, endDate };
+}
+
+function buildEmptyPurchases() {
+  const p = currentPeriod();
+  return {
+    year: p.year,
+    month: p.month,
+    startDate: p.startDate,
+    endDate: p.endDate,
+    totalAmount: 0,
+    previousMonth: p.month === 1 ? 12 : p.month - 1,
+    previousYear: p.month === 1 ? p.year - 1 : p.year,
+    previousTotalAmount: 0,
+    comparisonAmount: 0,
+    comparisonPercent: null,
+    revenue: {
+      grossAmount: 0,
+      serviceAmount: 0,
+      netAmount: 0,
+      tickets: 0,
+      ticketAverageGeneral: 0,
+      count: 0,
+      byChannel: []
+    },
+    bySupplier: [],
+    byCategory: [],
+    byProduct: [],
+    recentPurchases: []
+  };
+}
+
+function buildEmptySummary() {
+  const p = currentPeriod();
+  return {
+    year: p.year,
+    month: p.month,
+    revenue: {
+      grossAmount: 0,
+      netAmount: 0,
+      serviceAmount: 0,
+      tickets: 0,
+      count: 0,
+      ticketAverage: 0,
+      prev: { grossAmount: 0, netAmount: 0 },
+      deltaPercent: null
+    },
+    purchases: {
+      total: 0,
+      count: 0,
+      prev: { total: 0 },
+      deltaPercent: null
+    },
+    smallExpenses: {
+      total: 0,
+      count: 0,
+      prev: { total: 0 },
+      deltaPercent: null
+    },
+    cmvReal: {
+      status: "pending" as const,
+      value: null,
+      percent: null
+    },
+    estimatedResult: {
+      value: 0,
+      marginPercent: null
+    }
+  };
+}
+
+function buildEmptyAlerts() {
+  const p = currentPeriod();
+  return {
+    competence: `${p.year}-${p.monthStr}`,
+    alerts: [],
+    summary: {
+      overduePayablesCount: 0,
+      overduePayablesAmount: 0,
+      dueSoonPayablesCount: 0,
+      dueSoonPayablesAmount: 0,
+      unpaidPurchasesCount: 0,
+      unpaidPurchasesAmount: 0,
+      missingRevenueDays: 0,
+      cmvStatus: "pending" as const
+    }
+  };
+}
+
 export function isMockUserMode(): boolean {
   if (!isLocal) return false;
   if (typeof window === "undefined") return false;
@@ -60,11 +164,16 @@ function mockResponseFor(url: string): unknown {
   if (path.endsWith("/auth/me") || path.endsWith("/me")) return MOCK_USER;
   if (path.endsWith("/health")) return { status: "ok" };
   if (path.includes("/auth/logout")) return { ok: true };
-  // Dashboard alerts endpoint returns shape `{ alerts: [...] }`, nao lista crua.
-  if (path.endsWith("/dashboard/alerts")) return { alerts: [] };
-  // Dashboard raiz e summary sao objetos — evita cair no fallback `{}` que
-  // ja funciona, mas explicito ajuda a documentar.
-  if (path.endsWith("/dashboard") || path.endsWith("/dashboard/summary")) return {};
+
+  // Endpoints do Dashboard exigem shape completo (varios acessos aninhados
+  // tipo summary.revenue.deltaPercent que crasham em undefined). Mock zerado
+  // valido para exercitar a UI sem crash.
+  //
+  // Datas dinamicas: mes/ano corrente no momento da chamada — evita o mock
+  // apontar para "junho/2026" enquanto o cliente esta em outro mes.
+  if (path.endsWith("/dashboard/purchases")) return buildEmptyPurchases();
+  if (path.endsWith("/dashboard/summary")) return buildEmptySummary();
+  if (path.endsWith("/dashboard/alerts")) return buildEmptyAlerts();
 
   // Endpoints que sabidamente devolvem lista. Larga rede — qualquer
   // ambiguidade cai para [] em vez de {}, o que evita crashes de
