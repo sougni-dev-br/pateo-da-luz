@@ -28,8 +28,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { PanInfo } from "framer-motion";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, matchPath, useLocation, useNavigate, useParams } from "react-router-dom";
-import { AppUser, addMenuFavorite, getMe, getMenuFavorites, logout, removeMenuFavorite, type PermissionAction } from "./api/client";
-import { PageHeader } from "./components/ui";
+import { AppUser, addMenuFavorite, getMe, getMenuFavorites, getStockCountSessions, logout, removeMenuFavorite, type PermissionAction } from "./api/client";
+import { PageHeader, StatusBadge } from "./components/ui";
 import { SessionContext } from "./context/SessionContext";
 import { canAccessModule, hasPermission as userHasPermission } from "./lib/permissions";
 import { ForcedPasswordChange } from "./pages/ForcedPasswordChange";
@@ -168,6 +168,9 @@ export function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hideSensitiveValues, setHideSensitiveValues] = useState(() => window.localStorage.getItem("hideSensitiveValues") === "true");
   const [favorites, setFavorites] = useState<string[]>([]);
+  // Contagens CONCLUIDAS ainda nao convertidas em pedido/inventario — usado no badge
+  // do item "Pedidos de compra" no sidebar. Derivado do endpoint que a Inventory ja consome.
+  const [pendingCountSessionCount, setPendingCountSessionCount] = useState(0);
   const contentRef = useRef<HTMLElement | null>(null);
 
   const toggleSensitiveValues = () => {
@@ -218,6 +221,22 @@ export function App() {
     if (matchedSection && sectionAllowedForUser(matchedSection.id, user)) return;
     navigate(fallbackSection.path, { replace: true });
   }, [checkingSession, fallbackSection.path, matchedSection, navigate, user]);
+
+  // Badge de contagens prontas para virar pedido: refetch em mudanca de rota (natural,
+  // sem polling). Falhas silenciosas: badge simplesmente nao renderiza se usuario nao
+  // tiver permissao no endpoint.
+  useEffect(() => {
+    if (!user || checkingSession) return;
+    let active = true;
+    getStockCountSessions()
+      .then((rows) => {
+        if (!active) return;
+        const count = rows.filter((s) => s.status === "CONCLUIDA" && !s.generatedInventoryId).length;
+        setPendingCountSessionCount(count);
+      })
+      .catch(() => { if (active) setPendingCountSessionCount(0); });
+    return () => { active = false; };
+  }, [user, checkingSession, location.pathname]);
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -270,6 +289,8 @@ export function App() {
   function renderNavItem(section: (typeof sections)[number], onSelect: (sectionId: SectionId) => void) {
     const Icon = section.icon;
     const isFav = favorites.includes(section.id);
+    // Badge no item Pedidos de compra: conta contagens CONCLUIDAS ainda nao convertidas.
+    const showPendingBadge = section.id === "purchase-orders" && pendingCountSessionCount > 0;
     return (
       <div className="nav-item-wrap" key={section.id}>
         <button
@@ -281,6 +302,11 @@ export function App() {
         >
           <Icon size={18} />
           <span>{section.label}</span>
+          {showPendingBadge && (
+            <StatusBadge tone="info" title={`${pendingCountSessionCount} contagem(ns) concluida(s) aguardando conversao em pedido ou inventario`}>
+              {pendingCountSessionCount}
+            </StatusBadge>
+          )}
         </button>
         <button
           className={`nav-star${isFav ? " nav-star-active" : ""}`}
