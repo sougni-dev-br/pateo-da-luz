@@ -54,6 +54,9 @@ export { ContentErrorBoundary } from "./shell/ContentErrorBoundary";
 export { Sidebar } from "./shell/Sidebar";
 export type { SidebarProps, SidebarUser } from "./shell/Sidebar";
 
+export { Topbar } from "./shell/Topbar";
+export type { TopbarProps } from "./shell/Topbar";
+
 export { SidebarNav, withFavoritesGroup } from "./shell/SidebarNav";
 export type { SidebarNavProps } from "./shell/SidebarNav";
 
