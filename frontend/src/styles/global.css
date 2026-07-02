@@ -6295,10 +6295,6 @@ details[open] .modal-section-summary::before {
     border-color: rgba(216, 195, 145, 0.16);
   }
 
-  .desktop-page-header {
-    display: none;
-  }
-
   .version-badge {
     margin-top: 18px;
   }

@@ -515,9 +515,7 @@ export function App() {
             />
           )}
         >
-          <div className="desktop-page-header">
-            <PageHeader eyebrow={`Pateo da Luz / ${activeGroup}`} title={activeLabel} />
-          </div>
+          <PageHeader title={activeLabel} />
 
           <Suspense fallback={<div className="page-loading">Carregando módulo...</div>}>
             <ContentErrorBoundary>
