@@ -12,7 +12,7 @@
 }
 
 .ds-status-badge-neutral {
-  background: var(--tint-neutral);
+  background: var(--paper-soft);
   color: var(--muted);
 }
 

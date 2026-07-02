@@ -51,8 +51,7 @@ const COLOR_TOKENS: { name: string; hex: string; hint?: string }[] = [
   { name: "--tint-success", hex: "#eaf4ee", hint: "extended" },
   { name: "--tint-warning", hex: "#fff8e8", hint: "extended" },
   { name: "--tint-danger", hex: "#fdeeee", hint: "extended" },
-  { name: "--tint-info", hex: "#eaf1fa", hint: "extended" },
-  { name: "--tint-neutral", hex: "#f1f4f8", hint: "extended" }
+  { name: "--tint-info", hex: "#eaf1fa", hint: "extended" }
 ];
 
 const TYPO_SAMPLES: { label: string; className: string; sample: string }[] = [

@@ -103,9 +103,9 @@
 }
 
 .ds-kpi-card-delta-flat {
-  background: var(--tint-warning);
-  color: var(--warning);
-  border-color: var(--tint-warning-border);
+  background: var(--gold-tint);
+  color: var(--gold-dark);
+  border-color: var(--gold-soft);
 }
 
 .ds-kpi-card-sparkline {
