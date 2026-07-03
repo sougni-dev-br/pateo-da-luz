@@ -1,4 +1,4 @@
-import { CheckCircle2, Download, Eye, PackageCheck, RefreshCw, Send, XCircle } from "lucide-react";
+import { BadgeDollarSign, CheckCircle2, Download, Eye, PackageCheck, RefreshCw, Send, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -20,6 +20,7 @@ import {
   FormGrid,
   IconButton,
   Money,
+  PanelEyebrow,
   StatusBadge,
   SummaryCard,
   Table,
@@ -27,7 +28,7 @@ import {
   TextField
 } from "../design-system";
 import { hasPermission } from "../lib/permissions";
-import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { formatDate, formatNumber } from "../utils/format";
 
 const statusLabels: Record<string, string> = {
   RASCUNHO: "Rascunho",
@@ -180,14 +181,30 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
           <Button variant="secondary" leadingIcon={<RefreshCw size={16} />} onClick={load}>Atualizar</Button>
         </div>
 
-        <div className="summary-grid">
-          <SummaryCard label="Rascunho" value={summary.RASCUNHO ?? 0} tone="warning" />
-          <SummaryCard label="Em revisão" value={summary.EM_REVISAO ?? 0} tone="info" />
-          <SummaryCard label="Aprovados" value={summary.APROVADO ?? 0} tone="success" />
-          <SummaryCard label="Enviados" value={summary.ENVIADO ?? 0} />
-          <SummaryCard label="Recebidos" value={(summary.RECEBIDO ?? 0) + (summary.RECEBIDO_PARCIAL ?? 0)} tone="success" />
-          <SummaryCard label="Cancelados" value={summary.CANCELADO ?? 0} tone="danger" />
-          <SummaryCard label="Valor estimado" value={formatCurrency(estimatedTotal)} />
+        {/* Contadores operacionais e valores em R$ separados em blocos
+            semanticos — padrao do handoff, reusado em Contas a pagar/
+            Faturamento/DRE nas proximas ondas. */}
+        <div className="po-kpi-block">
+          <PanelEyebrow>Situação operacional</PanelEyebrow>
+          <div className="po-status-grid">
+            <SummaryCard label="Rascunho" value={summary.RASCUNHO ?? 0} tone="warning" />
+            <SummaryCard label="Em revisão" value={summary.EM_REVISAO ?? 0} tone="info" />
+            <SummaryCard label="Aprovados" value={summary.APROVADO ?? 0} tone="success" />
+            <SummaryCard label="Enviados" value={summary.ENVIADO ?? 0} />
+            <SummaryCard label="Recebidos" value={(summary.RECEBIDO ?? 0) + (summary.RECEBIDO_PARCIAL ?? 0)} tone="success" />
+            <SummaryCard label="Cancelados" value={summary.CANCELADO ?? 0} tone="danger" />
+          </div>
+        </div>
+        <div className="po-kpi-block">
+          <PanelEyebrow>Resumo financeiro</PanelEyebrow>
+          <div className="po-finance-grid">
+            <SummaryCard
+              label="Valor estimado"
+              value={<Money value={estimatedTotal} />}
+              detail="Soma dos pedidos listados"
+              icon={<BadgeDollarSign size={18} />}
+            />
+          </div>
         </div>
 
         <div className="filter-bar">
