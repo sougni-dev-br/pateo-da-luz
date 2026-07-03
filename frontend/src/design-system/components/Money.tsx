@@ -2,7 +2,12 @@ import { useHideValues } from "../context/HideValuesContext";
 import "./Money.css";
 
 export type MoneyProps = {
-  value: number | null | undefined;
+  /**
+   * Valor monetário. Aceita `number` ou `string` numérica (útil para
+   * `Decimal` serializado do Prisma). `null`, `undefined`, `NaN`,
+   * `Infinity` ou string não-numérica renderizam "—".
+   */
+  value: number | string | null | undefined;
   /**
    * Sobrescreve o estado do HideValuesContext.
    * Se omitido, o componente lê `hidden` do contexto.
@@ -26,10 +31,22 @@ function formatAmount(value: number, decimals: number): string {
   });
 }
 
+function normalize(value: number | string | null | undefined): number | null {
+  if (value == null) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  // string: rejeitar vazia/whitespace antes de Number() (JS: Number("") === 0)
+  if (value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function Money({ value, hidden, decimals = 2, className }: MoneyProps) {
   const { hidden: contextHidden } = useHideValues();
   const isHidden = hidden ?? contextHidden;
   const rootClass = className ? `ds-money ${className}` : "ds-money";
+  const normalizedValue = normalize(value);
 
   if (isHidden) {
     return (
@@ -40,12 +57,12 @@ export function Money({ value, hidden, decimals = 2, className }: MoneyProps) {
     );
   }
 
-  if (value === null || value === undefined) {
+  if (normalizedValue === null) {
     return <span className={rootClass}>—</span>;
   }
 
-  const isNegative = value < 0;
-  const amount = formatAmount(value, decimals);
+  const isNegative = normalizedValue < 0;
+  const amount = formatAmount(normalizedValue, decimals);
 
   return (
     <span className={rootClass}>

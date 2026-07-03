@@ -21,7 +21,7 @@ import {
 } from "../api/client";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { Notice, useNotice } from "../components/Notice";
-import { StatusBadge as DsStatusBadge } from "../design-system";
+import { Money, StatusBadge as DsStatusBadge } from "../design-system";
 import type { StatusTone } from "../design-system";
 
 const CARDS_TONE_TO_DS: Record<string, StatusTone> = {
@@ -33,7 +33,7 @@ const CARDS_TONE_TO_DS: Record<string, StatusTone> = {
   info: "info"
 };
 import { hasPermission } from "../lib/permissions";
-import { formatCurrency, formatDate } from "../utils/format";
+import { formatDate } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 
 type CardsProps = { user: AppUser };
@@ -353,7 +353,7 @@ export function Cards({ user }: CardsProps) {
           <article className="summary-card compact-summary-card tone-warning">
             <div>
               <span>Faturas abertas</span>
-              <strong>{formatCurrency(summary.open)}</strong>
+              <strong><Money value={summary.open} /></strong>
               <small>Exigem acompanhamento e conferência.</small>
             </div>
             <WalletCards className="summary-card-icon" size={20} />
@@ -361,7 +361,7 @@ export function Cards({ user }: CardsProps) {
           <article className="summary-card compact-summary-card tone-info">
             <div>
               <span>Faturas conferidas</span>
-              <strong>{formatCurrency(summary.checked)}</strong>
+              <strong><Money value={summary.checked} /></strong>
               <small>Prontas para fechamento ou pagamento.</small>
             </div>
             <CheckCircle2 className="summary-card-icon" size={20} />
@@ -504,7 +504,7 @@ export function Cards({ user }: CardsProps) {
                   <td>{String(statement.competenceMonth).padStart(2, "0")}/{statement.competenceYear}</td>
                   <td>{formatDate(statement.closingDate)}</td>
                   <td>{formatDate(statement.dueDate)}</td>
-                  <td className="numeric-cell nowrap-cell">{formatCurrency(statement.totalAmount)}</td>
+                  <td className="numeric-cell nowrap-cell"><Money value={statement.totalAmount} /></td>
                   <td><DsStatusBadge tone={CARDS_TONE_TO_DS[statementStatusTone(statement.status)] ?? "neutral"}>{statementStatusLabel(statement.status)}</DsStatusBadge></td>
                   <td className="numeric-cell">{statement._count?.items ?? 0}</td>
                   <td>
@@ -659,7 +659,7 @@ export function Cards({ user }: CardsProps) {
             <div className="summary-columns">
               <div><h3>Cartão</h3><p>{statementDetail.creditCard.bankName}</p><p>Final {statementDetail.creditCard.last4Digits}</p></div>
               <div><h3>Competência</h3><p>{String(statementDetail.competenceMonth).padStart(2, "0")}/{statementDetail.competenceYear}</p><p>Status {statementStatusLabel(statementDetail.status)}</p></div>
-              <div><h3>Resumo</h3><p>Total {formatCurrency(statementDetail.totalAmount)}</p><p>{statementDetail.items.length} item(ns)</p></div>
+              <div><h3>Resumo</h3><p>Total <Money value={statementDetail.totalAmount} /></p><p>{statementDetail.items.length} item(ns)</p></div>
             </div>
             <div className="subsection table-wrap operational-table">
               <h3>Itens</h3>
@@ -689,7 +689,7 @@ export function Cards({ user }: CardsProps) {
                       <td title={item.description}>{item.description}</td>
                       <td title={supplierDisplay}>{supplierDisplay}</td>
                       <td>{item.categoryName ?? "-"}</td>
-                      <td className="numeric-cell nowrap-cell">{formatCurrency(item.value)}</td>
+                      <td className="numeric-cell nowrap-cell"><Money value={item.value} /></td>
                       <td>{item.checked ? "✓" : "–"}</td>
                       <td>{item.hasDivergence ? "⚠" : "–"}</td>
                       <td className="actions-cell">
@@ -757,7 +757,7 @@ export function Cards({ user }: CardsProps) {
                 </div>
                 <div className="realocar-item-row">
                   <span className="realocar-label">Valor</span>
-                  <span className="realocar-value realocar-value-amount">{formatCurrency(reallocateItem.value)}</span>
+                  <Money value={reallocateItem.value} className="realocar-value realocar-value-amount" />
                 </div>
                 {reallocateItem.installment != null && reallocateItem.totalInstallments != null && (
                   <div className="realocar-item-row">
