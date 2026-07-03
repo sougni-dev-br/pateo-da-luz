@@ -69,7 +69,7 @@ import { Notice, useNotice } from "../components/Notice";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { SimpleBarChart } from "../components/SimpleBarChart";
 import { ConfirmDialog } from "../components/ui";
-import { EmptyState, StatusBadge, SummaryCard } from "../design-system";
+import { Button, EmptyState, RowMenu, StatusBadge, SummaryCard, Table } from "../design-system";
 import { OverviewSection } from "./inventory/OverviewSection";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
@@ -1870,7 +1870,7 @@ export function Inventory({
                     <td>{product.stockUnit ?? product.unit ?? "-"}</td>
                     <td><input data-count-quantity={product.id} inputMode="decimal" value={line.countedQuantity} onKeyDown={(event) => focusNextCountInput(event, product.id)} onChange={(event) => setCountLines({ ...countLines, [product.id]: { ...line, countedQuantity: event.target.value } })} /></td>
                     <td><input value={line.notes} onChange={(event) => setCountLines({ ...countLines, [product.id]: { ...line, notes: event.target.value } })} /></td>
-                    <td><span className={`status-badge ${divergent ? "overdue" : hasValue ? "confirmed" : "pending"}`}>{divergent ? "divergente" : hasValue ? "contado" : "pendente"}</span></td>
+                    <td><StatusBadge tone={divergent ? "danger" : hasValue ? "success" : "warning"}>{divergent ? "divergente" : hasValue ? "contado" : "pendente"}</StatusBadge></td>
                   </tr>
                 );
               })}</tbody>
@@ -2256,51 +2256,76 @@ export function Inventory({
             <p className="muted">Atividade operacional do estoquista. Concluir contagem nao fecha inventario.</p>
 
             {/* Desktop table */}
-            <div className="table-wrap inv-desktop-table-wrap">
-              <table>
-                <thead style={{ whiteSpace: 'nowrap' }}><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor/Categoria</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Divergentes</th><th>Acoes</th></tr></thead>
-                <tbody>
+            <div className="inv-desktop-table-wrap">
+              <Table>
+                <Table.Head>
+                  <Table.Row>
+                    <Table.Th minWidth={160}>Código</Table.Th>
+                    <Table.Th>Data</Table.Th>
+                    <Table.Th>Tipo</Table.Th>
+                    <Table.Th>Setor/Categoria</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th>Responsável</Table.Th>
+                    <Table.Th align="right">Total</Table.Th>
+                    <Table.Th align="right">Contados</Table.Th>
+                    <Table.Th align="right">Pendentes</Table.Th>
+                    <Table.Th align="right">Divergentes</Table.Th>
+                    <Table.Th actions>Ações</Table.Th>
+                  </Table.Row>
+                </Table.Head>
+                <Table.Body>
                   {countSessions.map((session) => (
-                    <tr key={session.id}>
-                      <td title={session.notes ?? session.code}>
+                    <Table.Row key={session.id}>
+                      <Table.Td title={session.notes ?? session.code}>
                         <strong>{session.code}</strong>
                         {session.source === "IMPORTACAO_PLANILHA" && <StatusBadge tone="info">Importada</StatusBadge>}
-                        <small>{session.generatedInventoryCode ? `Inventario: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mes" : session.source === "IMPORTACAO_PLANILHA" ? "Importada via planilha" : "Contagem operacional"}</small>
-                      </td>
-                      <td>{formatDate(session.referenceDate)}</td>
-                      <td>
+                        <small>{session.generatedInventoryCode ? `Inventário: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mês" : session.source === "IMPORTACAO_PLANILHA" ? "Importada via planilha" : "Contagem operacional"}</small>
+                      </Table.Td>
+                      <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(session.referenceDate)}</Table.Td>
+                      <Table.Td>
                         {countSessionTypeLabels[session.type] ?? session.type}
                         {session.type === "SETORIAL" && session.sectorName && <small>SETOR: {session.sectorName}</small>}
-                      </td>
-                      <td title={[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ") || "-"}>
+                      </Table.Td>
+                      <Table.Td truncate style={{ maxWidth: 200 }} title={[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ") || "-"}>
                         {[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ") || "-"}
                         <small>{formatNumber(session.countedItems)}/{formatNumber(session.totalItems)} contados</small>
-                      </td>
-                      <td><StatusBadge tone={countSessionTone(session.status)}>{countSessionStatusLabels[session.status] ?? session.status}</StatusBadge></td>
-                      <td title={session.responsibleName ?? "-"}>{session.responsibleName ?? "-"}</td>
-                      <td>{formatNumber(session.totalItems)}</td>
-                      <td>{formatNumber(session.countedItems)}</td>
-                      <td>{formatNumber(session.pendingItems)}</td>
-                      <td>{formatNumber(session.divergentItems)}</td>
-                      <td className="actions-cell">
-                        <button className="secondary-button" type="button" onClick={() => openCountSession(session.id)}>{editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}</button>
-                        {session.status === "CONCLUIDA" && (
-                          <button className="secondary-button" type="button" onClick={() => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`)}><ShoppingCart size={16} />Gerar pedido de compra</button>
+                      </Table.Td>
+                      <Table.Td><StatusBadge tone={countSessionTone(session.status)}>{countSessionStatusLabels[session.status] ?? session.status}</StatusBadge></Table.Td>
+                      <Table.Td truncate style={{ maxWidth: 140 }} title={session.responsibleName ?? "-"}>{session.responsibleName ?? "-"}</Table.Td>
+                      <Table.Td align="right">{formatNumber(session.totalItems)}</Table.Td>
+                      <Table.Td align="right">{formatNumber(session.countedItems)}</Table.Td>
+                      <Table.Td align="right">{formatNumber(session.pendingItems)}</Table.Td>
+                      <Table.Td align="right">{formatNumber(session.divergentItems)}</Table.Td>
+                      <Table.Td actions>
+                        <Button variant="secondary" size="sm" onClick={() => openCountSession(session.id)}>{editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}</Button>
+                        {(session.status === "CONCLUIDA" || canCancelCountSession(session)) && (
+                          <RowMenu
+                            label={`Mais ações — ${session.code}`}
+                            items={[
+                              ...(session.status === "CONCLUIDA"
+                                ? [{ label: "Gerar pedido de compra", icon: <ShoppingCart size={15} />, onClick: () => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`) }]
+                                : []),
+                              ...(canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA"
+                                ? [{ label: "Gerar inventário", icon: <ClipboardCheck size={15} />, onClick: async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventário gerado a partir da contagem." }); } }]
+                                : []),
+                              ...(canCancelCountSession(session)
+                                ? [{ separator: true as const }, { label: "Cancelar contagem", icon: <Trash2 size={15} />, tone: "danger" as const, onClick: () => cancelCountSessionAction(session) }]
+                                : [])
+                            ]}
+                          />
                         )}
-                        {canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA" && (
-                          <button className="primary-button" type="button" onClick={async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventario gerado a partir da contagem." }); }}>Gerar inventario</button>
-                        )}
-                        {canCancelCountSession(session) && (
-                          <button className="danger-button" type="button" onClick={() => cancelCountSessionAction(session)}>Cancelar</button>
-                        )}
-                      </td>
-                    </tr>
+                      </Table.Td>
+                    </Table.Row>
                   ))}
                   {countSessions.length === 0 && (
-                    <tr><td colSpan={11}><EmptyState title="Nenhuma contagem encontrada" description="Clique em Iniciar Contagem para abrir uma ficha de lancamento com produtos controlados." /></td></tr>
+                    <Table.Row>
+                      <Table.Td colSpan={11}>
+                        <EmptyState title="Nenhuma contagem encontrada" description="Clique em Iniciar Contagem para abrir uma ficha de lançamento com produtos controlados." />
+                      </Table.Td>
+                    </Table.Row>
                   )}
-                </tbody>
-              </table>
+                </Table.Body>
+              </Table>
             </div>
 
             {/* Mobile cards */}
