@@ -246,6 +246,48 @@ function mockResponseFor(url: string): unknown {
     };
   }
   if (path.endsWith("/suppliers")) return buildMockSuppliers();
+  if (path.includes("/companies") && path.includes("bank-accounts")) {
+    return [
+      {
+        id: "acc-1",
+        name: "Conta principal Bradesco",
+        accountType: "CONTA_CORRENTE",
+        bankName: "Bradesco",
+        agency: "1234",
+        account: "56789",
+        accountDigit: "0",
+        pixKey: "12.345.678/0001-90",
+        notes: null,
+        isActive: true
+      }
+    ];
+  }
+  if (path.endsWith("/companies")) {
+    return [
+      {
+        id: "co-1",
+        code: "EMP01",
+        tradeName: "Pateo da Luz",
+        legalName: "Pateo da Luz Restaurante Ltda",
+        cnpj: "12.345.678/0001-90",
+        city: "São Paulo",
+        state: "SP",
+        activeBankAccountCount: 1,
+        isActive: true
+      },
+      {
+        id: "co-2",
+        code: "EMP02",
+        tradeName: "Pateo Eventos",
+        legalName: "Pateo Eventos e Producoes Gastronomicas Eireli",
+        cnpj: "98.765.432/0001-10",
+        city: null,
+        state: null,
+        activeBankAccountCount: 0,
+        isActive: false
+      }
+    ];
+  }
   if (path.endsWith("/payment-methods")) {
     return [
       { id: "pm-1", name: "PIX", isActive: true },

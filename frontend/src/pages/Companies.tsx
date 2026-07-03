@@ -1,4 +1,4 @@
-import { Building2, ChevronDown, ChevronRight, Plus, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Pencil, Plus, PowerOff, RefreshCw } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 import {
   Company, CompanyBankAccount,
@@ -7,6 +7,22 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
+import {
+  Alert,
+  Button,
+  EmptyState,
+  FormField,
+  FormGrid,
+  FormSection,
+  IconButton,
+  RowMenu,
+  Select,
+  StatusBadge,
+  Switch,
+  Table,
+  Textarea,
+  TextField
+} from "../design-system";
 import { hasPermission } from "../lib/permissions";
 
 const BANK_ACCOUNT_TYPE_LABELS: Record<CompanyBankAccount["accountType"], string> = {
@@ -252,6 +268,8 @@ export function Companies() {
     }
   }
 
+  const columnCount = canEdit ? 8 : 7;
+
   return (
     <div className="stack">
       <Notice notice={notice} />
@@ -261,42 +279,81 @@ export function Companies() {
         <section className="panel">
           <div className="section-heading">
             <div>
-              <p>Cadastro base</p>
+              <p>Cadastro operacional</p>
               <h2>{form.id ? "Editar empresa" : "Nova empresa"}</h2>
             </div>
-            <button className="secondary-button" type="button" onClick={() => setShowForm(false)}>Fechar</button>
+            <Button variant="secondary" onClick={() => setShowForm(false)}>Fechar</Button>
           </div>
-          {error && <div className="alert error">{error}</div>}
-          <div className="form-grid">
-            <label>Nome fantasia *<input value={form.tradeName} onChange={(e) => setForm({ ...form, tradeName: e.target.value })} placeholder="Ex.: Pateo da Luz" /></label>
-            <label>Razão social *<input value={form.legalName} onChange={(e) => setForm({ ...form, legalName: e.target.value })} placeholder="Ex.: Pateo da Luz Ltda" /></label>
-            <label>CNPJ *<input value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: applyCnpjMask(e.target.value) })} placeholder="00.000.000/0000-00" maxLength={18} /></label>
-            <label>Código<input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} placeholder="Gerado automaticamente" /></label>
-            <label>Inscrição estadual<input value={form.stateRegistration} onChange={(e) => setForm({ ...form, stateRegistration: e.target.value })} /></label>
-            <label>Inscrição municipal<input value={form.municipalRegistration} onChange={(e) => setForm({ ...form, municipalRegistration: e.target.value })} /></label>
-            <label>E-mail financeiro<input type="email" value={form.financialEmail} onChange={(e) => setForm({ ...form, financialEmail: e.target.value })} /></label>
-            <label>Telefone<input value={form.phone} onChange={(e) => setForm({ ...form, phone: applyPhoneMask(e.target.value) })} placeholder="(00) 00000-0000" maxLength={15} /></label>
-          </div>
-          <div className="subsection">
-            <p className="hint">Endereço</p>
-            <div className="form-grid">
-              <label>CEP<input value={form.zipCode} onChange={(e) => setForm({ ...form, zipCode: applyZipMask(e.target.value) })} placeholder="00000-000" maxLength={9} /></label>
-              <label className="full-width">Logradouro<input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></label>
-              <label>Número<input value={form.addressNumber} onChange={(e) => setForm({ ...form, addressNumber: e.target.value })} /></label>
-              <label>Complemento<input value={form.addressComplement} onChange={(e) => setForm({ ...form, addressComplement: e.target.value })} /></label>
-              <label>Bairro<input value={form.neighborhood} onChange={(e) => setForm({ ...form, neighborhood: e.target.value })} /></label>
-              <label>Cidade<input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label>
-              <label>UF<input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value.toUpperCase().slice(0, 2) })} maxLength={2} placeholder="SP" style={{ width: 60 }} /></label>
+          {error && <Alert tone="error">{error}</Alert>}
+          <div className="stack">
+            <FormSection title="Identificação">
+              <FormGrid cols={4}>
+                <FormField label="Nome fantasia" required>
+                  <TextField value={form.tradeName} onChange={(e) => setForm({ ...form, tradeName: e.target.value })} placeholder="Ex.: Pateo da Luz" />
+                </FormField>
+                <FormField label="Razão social" required>
+                  <TextField value={form.legalName} onChange={(e) => setForm({ ...form, legalName: e.target.value })} placeholder="Ex.: Pateo da Luz Ltda" />
+                </FormField>
+                <FormField label="CNPJ" required>
+                  <TextField value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: applyCnpjMask(e.target.value) })} placeholder="00.000.000/0000-00" maxLength={18} />
+                </FormField>
+                <FormField label="Código" hint="Gerado automaticamente">
+                  <TextField value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} />
+                </FormField>
+                <FormField label="Inscrição estadual">
+                  <TextField value={form.stateRegistration} onChange={(e) => setForm({ ...form, stateRegistration: e.target.value })} />
+                </FormField>
+                <FormField label="Inscrição municipal">
+                  <TextField value={form.municipalRegistration} onChange={(e) => setForm({ ...form, municipalRegistration: e.target.value })} />
+                </FormField>
+                <FormField label="E-mail financeiro">
+                  <TextField type="email" value={form.financialEmail} onChange={(e) => setForm({ ...form, financialEmail: e.target.value })} />
+                </FormField>
+                <FormField label="Telefone">
+                  <TextField value={form.phone} onChange={(e) => setForm({ ...form, phone: applyPhoneMask(e.target.value) })} placeholder="(00) 00000-0000" maxLength={15} />
+                </FormField>
+              </FormGrid>
+            </FormSection>
+
+            <FormSection title="Endereço">
+              <FormGrid cols={4}>
+                <FormField label="CEP">
+                  <TextField value={form.zipCode} onChange={(e) => setForm({ ...form, zipCode: applyZipMask(e.target.value) })} placeholder="00000-000" maxLength={9} />
+                </FormField>
+                <div className="ds-form-grid-span-all">
+                  <FormField label="Logradouro">
+                    <TextField value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+                  </FormField>
+                </div>
+                <FormField label="Número">
+                  <TextField value={form.addressNumber} onChange={(e) => setForm({ ...form, addressNumber: e.target.value })} />
+                </FormField>
+                <FormField label="Complemento">
+                  <TextField value={form.addressComplement} onChange={(e) => setForm({ ...form, addressComplement: e.target.value })} />
+                </FormField>
+                <FormField label="Bairro">
+                  <TextField value={form.neighborhood} onChange={(e) => setForm({ ...form, neighborhood: e.target.value })} />
+                </FormField>
+                <FormField label="Cidade">
+                  <TextField value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+                </FormField>
+                <FormField label="UF">
+                  <TextField value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value.toUpperCase().slice(0, 2) })} maxLength={2} placeholder="SP" />
+                </FormField>
+                <div className="ds-form-grid-span-all">
+                  <FormField label="Observações">
+                    <Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+                  </FormField>
+                </div>
+              </FormGrid>
+            </FormSection>
+
+            <div className="form-actions">
+              <Button variant="secondary" onClick={() => setShowForm(false)}>Cancelar</Button>
+              <Button onClick={handleSaveCompany} disabled={saving}>
+                {saving ? "Salvando..." : "Salvar"}
+              </Button>
             </div>
-          </div>
-          <div className="form-grid">
-            <label className="full-width">Observações<textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></label>
-          </div>
-          <div className="form-actions">
-            <button className="secondary-button" type="button" onClick={() => setShowForm(false)}>Cancelar</button>
-            <button className="primary-button" type="button" onClick={handleSaveCompany} disabled={saving}>
-              {saving ? "Salvando..." : "Salvar"}
-            </button>
           </div>
         </section>
       )}
@@ -310,28 +367,50 @@ export function Companies() {
                 <p>Conta bancária</p>
                 <h2>{accountForm.id ? "Editar conta" : "Nova conta"}</h2>
               </div>
-              <button className="secondary-button" type="button" onClick={() => setShowAccountForm(false)}>Fechar</button>
+              <Button variant="secondary" onClick={() => setShowAccountForm(false)}>Fechar</Button>
             </div>
-            {accountError && <div className="alert error">{accountError}</div>}
-            <div className="form-grid">
-              <label className="full-width">Nome / Descrição *<input value={accountForm.name} onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })} placeholder="Ex.: Conta principal Bradesco" /></label>
-              <label>Tipo<select value={accountForm.accountType} onChange={(e) => setAccountForm({ ...accountForm, accountType: e.target.value as CompanyBankAccount["accountType"] })}>
-                {(Object.entries(BANK_ACCOUNT_TYPE_LABELS) as [CompanyBankAccount["accountType"], string][]).map(([k, v]) => (
-                  <option key={k} value={k}>{v}</option>
-                ))}
-              </select></label>
-              <label>Banco<input value={accountForm.bankName} onChange={(e) => setAccountForm({ ...accountForm, bankName: e.target.value })} placeholder="Ex.: Bradesco" /></label>
-              <label>Agência<input value={accountForm.agency} onChange={(e) => setAccountForm({ ...accountForm, agency: e.target.value })} placeholder="0000" /></label>
-              <label>Conta<input value={accountForm.account} onChange={(e) => setAccountForm({ ...accountForm, account: e.target.value })} placeholder="00000" /></label>
-              <label>Dígito<input value={accountForm.accountDigit} onChange={(e) => setAccountForm({ ...accountForm, accountDigit: e.target.value.slice(0, 2) })} maxLength={2} placeholder="0" style={{ width: 60 }} /></label>
-              <label className="full-width">Chave PIX<input value={accountForm.pixKey} onChange={(e) => setAccountForm({ ...accountForm, pixKey: e.target.value })} placeholder="CNPJ, e-mail, telefone ou chave aleatória" /></label>
-              <label className="full-width">Observações<input value={accountForm.notes} onChange={(e) => setAccountForm({ ...accountForm, notes: e.target.value })} /></label>
-            </div>
+            {accountError && <Alert tone="error">{accountError}</Alert>}
+            <FormGrid cols={3}>
+              <div className="ds-form-grid-span-all">
+                <FormField label="Nome / Descrição" required>
+                  <TextField value={accountForm.name} onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })} placeholder="Ex.: Conta principal Bradesco" />
+                </FormField>
+              </div>
+              <FormField label="Tipo">
+                <Select
+                  value={accountForm.accountType}
+                  onChange={(e) => setAccountForm({ ...accountForm, accountType: e.target.value as CompanyBankAccount["accountType"] })}
+                  options={(Object.entries(BANK_ACCOUNT_TYPE_LABELS) as [CompanyBankAccount["accountType"], string][]).map(([value, label]) => ({ value, label }))}
+                />
+              </FormField>
+              <FormField label="Banco">
+                <TextField value={accountForm.bankName} onChange={(e) => setAccountForm({ ...accountForm, bankName: e.target.value })} placeholder="Ex.: Bradesco" />
+              </FormField>
+              <FormField label="Agência">
+                <TextField value={accountForm.agency} onChange={(e) => setAccountForm({ ...accountForm, agency: e.target.value })} placeholder="0000" />
+              </FormField>
+              <FormField label="Conta">
+                <TextField value={accountForm.account} onChange={(e) => setAccountForm({ ...accountForm, account: e.target.value })} placeholder="00000" />
+              </FormField>
+              <FormField label="Dígito">
+                <TextField value={accountForm.accountDigit} onChange={(e) => setAccountForm({ ...accountForm, accountDigit: e.target.value.slice(0, 2) })} maxLength={2} placeholder="0" />
+              </FormField>
+              <div className="ds-form-grid-span-all">
+                <FormField label="Chave PIX">
+                  <TextField value={accountForm.pixKey} onChange={(e) => setAccountForm({ ...accountForm, pixKey: e.target.value })} placeholder="CNPJ, e-mail, telefone ou chave aleatória" />
+                </FormField>
+              </div>
+              <div className="ds-form-grid-span-all">
+                <FormField label="Observações">
+                  <TextField value={accountForm.notes} onChange={(e) => setAccountForm({ ...accountForm, notes: e.target.value })} />
+                </FormField>
+              </div>
+            </FormGrid>
             <div className="form-actions">
-              <button className="secondary-button" type="button" onClick={() => setShowAccountForm(false)}>Cancelar</button>
-              <button className="primary-button" type="button" onClick={handleSaveAccount} disabled={savingAccount}>
+              <Button variant="secondary" onClick={() => setShowAccountForm(false)}>Cancelar</Button>
+              <Button onClick={handleSaveAccount} disabled={savingAccount}>
                 {savingAccount ? "Salvando..." : "Salvar"}
-              </button>
+              </Button>
             </div>
           </section>
         </div>
@@ -341,162 +420,182 @@ export function Companies() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p>Cadastro base</p>
+            <p>Cadastro operacional</p>
             <h2>Empresas / Filiais</h2>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button className="icon-button" type="button" onClick={loadCompanies} aria-label="Atualizar"><RefreshCw size={18} /></button>
+            <IconButton icon={<RefreshCw size={16} />} label="Atualizar" onClick={loadCompanies} />
             {canEdit && (
-              <button className="primary-button" type="button" onClick={openNewCompany}>
-                <Plus size={14} style={{ display: "inline", marginRight: 4 }} />Nova empresa
-              </button>
+              <Button leadingIcon={<Plus size={14} />} onClick={openNewCompany}>Nova empresa</Button>
             )}
           </div>
         </div>
 
-        <div className="filters-row">
-          <label>Busca<input placeholder="Nome, CNPJ ou código" value={search} onChange={(e) => setSearch(e.target.value)} /></label>
-          <label style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
-            Incluir inativas
-          </label>
-          <button className="primary-button" type="button" onClick={loadCompanies}>Filtrar</button>
+        <div className="companies-filters">
+          <FormField label="Busca" className="companies-filters-search">
+            <TextField placeholder="Nome, CNPJ ou código" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </FormField>
+          <FormField label="Incluir inativas" inline>
+            <Switch checked={includeInactive} onChange={setIncludeInactive} />
+          </FormField>
+          <Button variant="secondary" onClick={loadCompanies}>Filtrar</Button>
         </div>
 
-        {error && <div className="alert error">{error}</div>}
-        {loading && <div className="empty-state">Carregando empresas...</div>}
+        {error && <Alert tone="error">{error}</Alert>}
+        {loading && <EmptyState title="Carregando empresas..." />}
 
-        {!loading && (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: 32 }}></th>
-                  <th>Código</th>
-                  <th>Nome fantasia</th>
-                  <th>CNPJ</th>
-                  <th>Cidade</th>
-                  <th>Contas ativas</th>
-                  <th>Status</th>
-                  {canEdit && <th>Ações</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {companies.map((company) => (
-                  <Fragment key={company.id}>
-                    <tr style={!company.isActive ? { opacity: 0.55 } : undefined}>
-                      <td>
-                        <button
-                          type="button"
-                          onClick={() => toggleExpand(company)}
-                          style={{ background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 0", fontSize: "0.8em", fontWeight: 500, color: "var(--muted)", whiteSpace: "nowrap" }}
-                        >
-                          {expandedCompanyId === company.id
-                            ? <><ChevronDown size={12} /> Ocultar</>
-                            : <><ChevronRight size={12} /> Ver contas</>}
-                        </button>
-                      </td>
-                      <td className="nowrap-cell">{company.code}</td>
-                      <td>
-                        <strong>{company.tradeName}</strong>
-                        {company.legalName !== company.tradeName && (
-                          <div style={{ fontSize: "0.8em", color: "var(--text-muted)" }}>{company.legalName}</div>
-                        )}
-                      </td>
-                      <td className="nowrap-cell">{company.cnpj}</td>
-                      <td>{company.city ? `${company.city}${company.state ? ` / ${company.state}` : ""}` : "—"}</td>
-                      <td>{(() => { const n = Number(company.activeBankAccountCount ?? 0); return n === 0 ? <span style={{ color: "var(--muted)" }}>—</span> : n === 1 ? "1 conta" : `${n} contas`; })()}</td>
-                      <td>{company.isActive ? "Ativa" : "Inativa"}</td>
-                      {canEdit && (
-                        <td className="actions-cell">
-                          <button type="button" onClick={() => openEditCompany(company)}>Editar</button>
-                          <button type="button" onClick={() => handleToggleStatus(company)}>
-                            {company.isActive ? "Inativar" : "Reativar"}
-                          </button>
-                        </td>
+        {!loading && companies.length === 0 && (
+          <EmptyState
+            title="Nenhuma empresa cadastrada."
+            action={canEdit ? <Button leadingIcon={<Plus size={14} />} onClick={openNewCompany}>Nova empresa</Button> : undefined}
+          />
+        )}
+
+        {!loading && companies.length > 0 && (
+          <Table>
+            <Table.Head>
+              <Table.Row>
+                <Table.Th style={{ width: 110 }} />
+                <Table.Th>Código</Table.Th>
+                <Table.Th minWidth={180}>Nome fantasia</Table.Th>
+                <Table.Th>CNPJ</Table.Th>
+                <Table.Th>Cidade</Table.Th>
+                <Table.Th>Contas ativas</Table.Th>
+                <Table.Th>Status</Table.Th>
+                {canEdit && <Table.Th actions>Ações</Table.Th>}
+              </Table.Row>
+            </Table.Head>
+            <Table.Body>
+              {companies.map((company) => (
+                <Fragment key={company.id}>
+                  <Table.Row style={!company.isActive ? { opacity: 0.55 } : undefined}>
+                    <Table.Td>
+                      <button
+                        type="button"
+                        className="companies-expand-toggle"
+                        onClick={() => toggleExpand(company)}
+                      >
+                        {expandedCompanyId === company.id
+                          ? <><ChevronDown size={12} /> Ocultar</>
+                          : <><ChevronRight size={12} /> Ver contas</>}
+                      </button>
+                    </Table.Td>
+                    <Table.Td style={{ whiteSpace: "nowrap" }}>{company.code}</Table.Td>
+                    <Table.Td truncate title={company.legalName !== company.tradeName ? `${company.tradeName} — ${company.legalName}` : company.tradeName}>
+                      <strong>{company.tradeName}</strong>
+                      {company.legalName !== company.tradeName && (
+                        <div style={{ fontSize: "0.85em", color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis" }}>{company.legalName}</div>
                       )}
-                    </tr>
-
-                    {/* Linha expandida: contas bancárias */}
-                    {expandedCompanyId === company.id && (
-                      <tr>
-                        <td colSpan={canEdit ? 8 : 7} style={{ padding: 0, background: "var(--surface-alt, var(--paper))" }}>
-                          <div style={{ padding: "12px 16px", borderTop: "1px solid var(--line)" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                              <strong>Contas bancárias — {company.tradeName}</strong>
-                              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                <label style={{ flexDirection: "row", alignItems: "center", gap: 6, fontSize: "0.85em" }}>
-                                  <input type="checkbox" checked={includeInactiveAccounts}
-                                    onChange={(e) => {
-                                      setIncludeInactiveAccounts(e.target.checked);
-                                      void loadBankAccounts(company.id, e.target.checked);
-                                    }} />
-                                  Incluir inativas
-                                </label>
-                                {canEdit && (
-                                  <button className="primary-button" type="button" style={{ fontSize: "0.8em", padding: "4px 10px" }} onClick={openNewAccount}>
-                                    + Conta
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-
-                            {loadingAccounts ? (
-                              <div style={{ padding: 12, color: "var(--text-muted)" }}>Carregando...</div>
-                            ) : bankAccounts.length === 0 ? (
-                              <div style={{ padding: 12, color: "var(--text-muted)" }}>Nenhuma conta bancária cadastrada.</div>
-                            ) : (
-                              <table style={{ width: "100%", fontSize: "0.9em" }}>
-                                <thead>
-                                  <tr>
-                                    <th>Nome</th>
-                                    <th>Tipo</th>
-                                    <th>Banco</th>
-                                    <th>Agência / Conta</th>
-                                    <th>PIX</th>
-                                    <th>Status</th>
-                                    {canEdit && <th>Ações</th>}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {bankAccounts.map((account) => (
-                                    <tr key={account.id} style={!account.isActive ? { opacity: 0.55 } : undefined}>
-                                      <td><strong>{account.name}</strong></td>
-                                      <td>{BANK_ACCOUNT_TYPE_LABELS[account.accountType]}</td>
-                                      <td>{account.bankName ?? "—"}</td>
-                                      <td className="nowrap-cell">
-                                        {account.agency && account.account
-                                          ? `${account.agency} / ${account.account}${account.accountDigit ? `-${account.accountDigit}` : ""}`
-                                          : "—"
-                                        }
-                                      </td>
-                                      <td style={{ fontSize: "0.9em" }}>{account.pixKey ?? "—"}</td>
-                                      <td>{account.isActive ? "Ativa" : "Inativa"}</td>
-                                      {canEdit && (
-                                        <td className="actions-cell">
-                                          <button type="button" onClick={() => openEditAccount(account)}>Editar</button>
-                                          <button type="button" onClick={() => handleToggleAccountStatus(account)}>
-                                            {account.isActive ? "Inativar" : "Reativar"}
-                                          </button>
-                                        </td>
-                                      )}
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
+                    </Table.Td>
+                    <Table.Td style={{ whiteSpace: "nowrap" }}>{company.cnpj}</Table.Td>
+                    <Table.Td>{company.city ? `${company.city}${company.state ? ` / ${company.state}` : ""}` : "—"}</Table.Td>
+                    <Table.Td>{(() => { const n = Number(company.activeBankAccountCount ?? 0); return n === 0 ? <span style={{ color: "var(--muted)" }}>—</span> : n === 1 ? "1 conta" : `${n} contas`; })()}</Table.Td>
+                    <Table.Td>
+                      <StatusBadge tone={company.isActive ? "success" : "danger"}>
+                        {company.isActive ? "Ativa" : "Inativa"}
+                      </StatusBadge>
+                    </Table.Td>
+                    {canEdit && (
+                      <Table.Td actions>
+                        <IconButton icon={<Pencil size={16} />} label="Editar" onClick={() => openEditCompany(company)} />
+                        <RowMenu
+                          label={`Mais ações — ${company.tradeName}`}
+                          items={[
+                            {
+                              label: company.isActive ? "Inativar" : "Reativar",
+                              icon: <PowerOff size={15} />,
+                              tone: company.isActive ? "danger" : "default",
+                              onClick: () => handleToggleStatus(company)
+                            }
+                          ]}
+                        />
+                      </Table.Td>
                     )}
-                  </Fragment>
-                ))}
-                {companies.length === 0 && (
-                  <tr><td colSpan={canEdit ? 8 : 7} className="empty-state">Nenhuma empresa cadastrada.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                  </Table.Row>
+
+                  {/* Linha expandida: contas bancárias */}
+                  {expandedCompanyId === company.id && (
+                    <Table.Row>
+                      <Table.Td colSpan={columnCount} style={{ padding: 0, background: "var(--paper-soft)" }}>
+                        <div style={{ padding: "12px 16px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
+                            <strong>Contas bancárias — {company.tradeName}</strong>
+                            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                              <FormField label="Incluir inativas" inline>
+                                <Switch
+                                  checked={includeInactiveAccounts}
+                                  onChange={(checked) => {
+                                    setIncludeInactiveAccounts(checked);
+                                    void loadBankAccounts(company.id, checked);
+                                  }}
+                                />
+                              </FormField>
+                              {canEdit && (
+                                <Button size="sm" leadingIcon={<Plus size={13} />} onClick={openNewAccount}>Conta</Button>
+                              )}
+                            </div>
+                          </div>
+
+                          {loadingAccounts ? (
+                            <div style={{ padding: 12, color: "var(--muted)" }}>Carregando...</div>
+                          ) : bankAccounts.length === 0 ? (
+                            <div style={{ padding: 12, color: "var(--muted)" }}>Nenhuma conta bancária cadastrada.</div>
+                          ) : (
+                            <Table>
+                              <Table.Head>
+                                <Table.Row>
+                                  <Table.Th>Nome</Table.Th>
+                                  <Table.Th>Tipo</Table.Th>
+                                  <Table.Th>Banco</Table.Th>
+                                  <Table.Th>Agência / Conta</Table.Th>
+                                  <Table.Th>PIX</Table.Th>
+                                  <Table.Th>Status</Table.Th>
+                                  {canEdit && <Table.Th actions>Ações</Table.Th>}
+                                </Table.Row>
+                              </Table.Head>
+                              <Table.Body>
+                                {bankAccounts.map((account) => (
+                                  <Table.Row key={account.id} style={!account.isActive ? { opacity: 0.55 } : undefined}>
+                                    <Table.Td><strong>{account.name}</strong></Table.Td>
+                                    <Table.Td>{BANK_ACCOUNT_TYPE_LABELS[account.accountType]}</Table.Td>
+                                    <Table.Td>{account.bankName ?? "—"}</Table.Td>
+                                    <Table.Td style={{ whiteSpace: "nowrap" }}>
+                                      {account.agency && account.account
+                                        ? `${account.agency} / ${account.account}${account.accountDigit ? `-${account.accountDigit}` : ""}`
+                                        : "—"
+                                      }
+                                    </Table.Td>
+                                    <Table.Td truncate style={{ maxWidth: 180 }} title={account.pixKey ?? undefined}>{account.pixKey ?? "—"}</Table.Td>
+                                    <Table.Td>
+                                      <StatusBadge tone={account.isActive ? "success" : "danger"}>
+                                        {account.isActive ? "Ativa" : "Inativa"}
+                                      </StatusBadge>
+                                    </Table.Td>
+                                    {canEdit && (
+                                      <Table.Td actions>
+                                        <IconButton icon={<Pencil size={16} />} label="Editar" size="sm" onClick={() => openEditAccount(account)} />
+                                        <IconButton
+                                          icon={<PowerOff size={16} />}
+                                          label={account.isActive ? "Inativar" : "Reativar"}
+                                          size="sm"
+                                          variant={account.isActive ? "danger" : "default"}
+                                          onClick={() => handleToggleAccountStatus(account)}
+                                        />
+                                      </Table.Td>
+                                    )}
+                                  </Table.Row>
+                                ))}
+                              </Table.Body>
+                            </Table>
+                          )}
+                        </div>
+                      </Table.Td>
+                    </Table.Row>
+                  )}
+                </Fragment>
+              ))}
+            </Table.Body>
+          </Table>
         )}
       </section>
     </div>
