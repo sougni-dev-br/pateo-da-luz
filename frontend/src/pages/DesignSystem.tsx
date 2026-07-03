@@ -17,6 +17,9 @@ import {
   Button,
   Card,
   EmptyState,
+  FormField,
+  FormGrid,
+  FormSection,
   KpiCard,
   Money,
   PageHeader,
@@ -24,7 +27,9 @@ import {
   Select,
   StatusBadge,
   SummaryCard,
+  Switch,
   Tabs,
+  Textarea,
   TextField,
   useHideValues
 } from "../design-system";
@@ -152,6 +157,7 @@ export function DesignSystem() {
   const [tab, setTab] = useState("todas");
   const [text, setText] = useState("");
   const [sel, setSel] = useState("");
+  const [switchOn, setSwitchOn] = useState(true);
 
   return (
     <div className="ds-showcase">
@@ -350,6 +356,57 @@ export function DesignSystem() {
               placeholder="Selecione"
             />
           </div>
+        </Section>
+
+        {/* ─── Formulário denso (Fase 5.0) ─── */}
+        <Section
+          title="Formulário denso"
+          subtitle="FormSection + FormGrid + FormField + Switch + Textarea"
+        >
+          <Card>
+            <FormSection
+              eyebrow="Cadastro operacional"
+              title="Dados do fornecedor"
+              description="Informações fiscais e de contato."
+              actions={<Button variant="secondary" size="sm">Limpar</Button>}
+            >
+              <FormGrid cols={3}>
+                <FormField label="Razão social" required>
+                  <TextField placeholder="Nome da empresa" />
+                </FormField>
+                <FormField label="CNPJ" hint="Somente números">
+                  <TextField placeholder="00.000.000/0000-00" />
+                </FormField>
+                <FormField label="Categoria" error="Escolha uma categoria">
+                  <Select options={DEMO_SELECT_OPTIONS} placeholder="Selecione" />
+                </FormField>
+                <FormField label="Fornecedor ativo" inline>
+                  <Switch checked={switchOn} onChange={setSwitchOn} />
+                </FormField>
+                <div className="ds-form-grid-span-all">
+                  <FormField label="Observações" hint="Visível apenas internamente">
+                    <Textarea placeholder="Anotações do fornecedor..." />
+                  </FormField>
+                </div>
+              </FormGrid>
+            </FormSection>
+            <FormSection eyebrow="Financeiro" title="Condições de pagamento">
+              <FormGrid cols={2}>
+                <FormField label="Prazo (dias)">
+                  <TextField type="number" defaultValue={28} />
+                </FormField>
+                <FormField label="Forma preferida">
+                  <Select
+                    options={[
+                      { value: "pix", label: "PIX" },
+                      { value: "boleto", label: "Boleto" }
+                    ]}
+                    placeholder="Selecione"
+                  />
+                </FormField>
+              </FormGrid>
+            </FormSection>
+          </Card>
         </Section>
 
         {/* ─── Compostos ─── */}

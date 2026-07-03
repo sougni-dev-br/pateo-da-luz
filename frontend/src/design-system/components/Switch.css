@@ -1,0 +1,50 @@
+.ds-switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--paper-soft);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.ds-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--paper);
+  box-shadow: 0 1px 3px rgba(22, 21, 18, 0.25);
+  transition: transform var(--dur) var(--ease);
+}
+
+.ds-switch-on {
+  background: var(--gold);
+  border-color: var(--gold);
+}
+
+.ds-switch-on .ds-switch-thumb {
+  transform: translateX(18px);
+}
+
+.ds-switch:hover:not(:disabled) {
+  border-color: var(--gold);
+}
+
+.ds-switch:focus-visible {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: var(--focus-ring);
+}
+
+.ds-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
