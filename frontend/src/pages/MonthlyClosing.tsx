@@ -13,6 +13,7 @@ import {
   undoMonthlyInventory
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
+import { Alert, Button, IconButton, PanelEyebrow } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
@@ -134,10 +135,8 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
 
       <section className="panel">
         <div className="section-heading">
-          <p className="muted">Competência do fechamento</p>
-          <button className="icon-button" type="button" onClick={load} aria-label="Atualizar fechamento">
-            <RefreshCw size={18} />
-          </button>
+          <PanelEyebrow>Competência do fechamento</PanelEyebrow>
+          <IconButton icon={<RefreshCw size={16} />} label="Atualizar fechamento" onClick={load} />
         </div>
         <div className="filters-row">
           <label>
@@ -152,8 +151,8 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p>Excel</p>
-            <h2>Inventarios mensais</h2>
+            <PanelEyebrow>Excel</PanelEyebrow>
+            <h2>Inventários mensais</h2>
           </div>
         </div>
 
@@ -192,9 +191,9 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
               </label>
             )}
             <div>
-              <button className="secondary-button" type="button" disabled={!inventoryFile} onClick={handlePreviewInventory}>
-                <Upload size={16} /> Gerar preview
-              </button>
+              <Button variant="secondary" leadingIcon={<Upload size={16} />} disabled={!inventoryFile} onClick={handlePreviewInventory}>
+                Gerar preview
+              </Button>
             </div>
           </div>
         )}
@@ -208,9 +207,9 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
               <article><span>Valor total</span><strong>{formatCurrency(inventoryPreview.validation.totalValue)}</strong></article>
             </div>
             {inventoryPreview.warnings.length > 0 && (
-              <div className="alert warning">
+              <Alert tone="warning">
                 {inventoryPreview.warnings.map((warning, index) => <div key={index}>{warning.message}</div>)}
-              </div>
+              </Alert>
             )}
             <div className="columns-list">
               {Object.entries(inventoryPreview.detectedColumns).map(([field, column]) => <span key={field}>{field}: <strong>{column}</strong></span>)}
@@ -235,9 +234,9 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
                 </tbody>
               </table>
             </div>
-            <button className="primary-button" type="button" onClick={handleConfirmInventory}>
-              <CheckCircle2 size={16} /> Confirmar inventario
-            </button>
+            <Button leadingIcon={<CheckCircle2 size={16} />} onClick={handleConfirmInventory}>
+              Confirmar inventário
+            </Button>
           </div>
         )}
 
@@ -263,7 +262,7 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
       </section>
 
       <section className="panel">
-        <div className="section-heading"><div><p>Resumo</p><h2>Faturamento aplicado no CMV</h2></div></div>
+        <div className="section-heading"><div><PanelEyebrow>Resumo</PanelEyebrow><h2>Faturamento aplicado no CMV</h2></div></div>
         <div className="summary-grid subsection">
           <article><span>Bruto</span><strong>{formatCurrency(revenue?.summary.grossAmount ?? 0)}</strong></article>
           <article><span>Descontos</span><strong>{formatCurrency(revenue?.summary.discounts ?? 0)}</strong></article>
