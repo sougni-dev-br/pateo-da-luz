@@ -21,6 +21,17 @@ import {
 } from "../api/client";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { Notice, useNotice } from "../components/Notice";
+import { StatusBadge as DsStatusBadge } from "../design-system";
+import type { StatusTone } from "../design-system";
+
+const CARDS_TONE_TO_DS: Record<string, StatusTone> = {
+  open: "warning",
+  paid: "success",
+  cancelled: "neutral",
+  warning: "warning",
+  overdue: "danger",
+  info: "info"
+};
 import { hasPermission } from "../lib/permissions";
 import { formatCurrency, formatDate } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
@@ -494,7 +505,7 @@ export function Cards({ user }: CardsProps) {
                   <td>{formatDate(statement.closingDate)}</td>
                   <td>{formatDate(statement.dueDate)}</td>
                   <td className="numeric-cell nowrap-cell">{formatCurrency(statement.totalAmount)}</td>
-                  <td><span className={`status-badge ${statementStatusTone(statement.status)}`}>{statementStatusLabel(statement.status)}</span></td>
+                  <td><DsStatusBadge tone={CARDS_TONE_TO_DS[statementStatusTone(statement.status)] ?? "neutral"}>{statementStatusLabel(statement.status)}</DsStatusBadge></td>
                   <td className="numeric-cell">{statement._count?.items ?? 0}</td>
                   <td>
                     <div className="actions-cell">
@@ -553,7 +564,7 @@ export function Cards({ user }: CardsProps) {
             <tbody>
               {cards.map((card) => (
                 <tr key={card.id}>
-                  <td><span className={`status-badge ${card.isActive ? "paid" : "cancelled"}`}>{card.isActive ? "Ativo" : "Inativo"}</span></td>
+                  <td><DsStatusBadge tone={card.isActive ? "success" : "neutral"}>{card.isActive ? "Ativo" : "Inativo"}</DsStatusBadge></td>
                   <td className="cards-main-cell" title={card.name}>
                     <strong>{card.name}</strong>
                     {card.notes ? <small title={card.notes}>{card.notes}</small> : <small>Sem observações operacionais.</small>}
