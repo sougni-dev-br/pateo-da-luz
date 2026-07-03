@@ -16,7 +16,16 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
-import { formatCurrency } from "../utils/format";
+import {
+  Button,
+  EmptyState,
+  IconButton,
+  Money,
+  StatusBadge,
+  Table,
+  Tabs
+} from "../design-system";
+import { formatCurrency, formatPercent } from "../utils/format";
 
 type FormItem = {
   tempId: string;
@@ -38,8 +47,8 @@ type Mode = "list" | "categories";
 
 function cmvBadge(cmv: number | null) {
   if (cmv == null) return null;
-  const cls = cmv > 40 ? "badge-error" : cmv > 32 ? "badge-warning" : "badge-success";
-  return <span className={`badge ${cls}`}>{cmv.toFixed(1)}%</span>;
+  const tone = cmv > 40 ? "danger" : cmv > 32 ? "warning" : "success";
+  return <StatusBadge tone={tone}>{formatPercent(cmv)}</StatusBadge>;
 }
 
 // ──────────────────────────────────────────────
@@ -116,14 +125,14 @@ export function Dishes() {
     <div className="stack">
       <Notice notice={notice} />
 
-      <div className="tabs-row">
-        <button className={mode === "list" ? "active" : ""} type="button" onClick={() => setMode("list")}>
-          Fichas técnicas
-        </button>
-        <button className={mode === "categories" ? "active" : ""} type="button" onClick={() => setMode("categories")}>
-          Categorias de pratos
-        </button>
-      </div>
+      <Tabs
+        value={mode}
+        onChange={(v) => setMode(v as typeof mode)}
+        tabs={[
+          { value: "list", label: "Fichas técnicas" },
+          { value: "categories", label: "Categorias de pratos" }
+        ]}
+      />
 
       {mode === "categories" && (
         <CategoriesPanel categories={categories} canEdit={canEdit} onSaved={load} notify={(t, m) => setNotice({ tone: t, message: m })} />
@@ -150,76 +159,61 @@ export function Dishes() {
               <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
               Mostrar inativos
             </label>
-            <button type="button" className="btn-icon" onClick={load} title="Atualizar">
-              <RefreshCw size={15} />
-            </button>
+            <IconButton icon={<RefreshCw size={16} />} label="Atualizar" onClick={load} />
             {canEdit && (
-              <button type="button" className="btn-primary" onClick={() => { setSelected(null); setEditing(true); }}>
-                <Plus size={15} /> Novo prato
-              </button>
+              <Button leadingIcon={<Plus size={15} />} onClick={() => { setSelected(null); setEditing(true); }}>Novo prato</Button>
             )}
           </div>
 
           {loading ? (
-            <p className="text-muted">Carregando...</p>
+            <EmptyState title="Carregando..." />
           ) : dishes.length === 0 ? (
-            <div className="empty-state">
-              <ChefHat size={32} />
-              <p>Nenhum prato encontrado.</p>
-              {canEdit && (
-                <button type="button" className="btn-primary" onClick={() => setEditing(true)}>
-                  <Plus size={15} /> Cadastrar primeiro prato
-                </button>
-              )}
-            </div>
+            <EmptyState
+              title="Nenhum prato encontrado."
+              action={canEdit ? <Button leadingIcon={<Plus size={15} />} onClick={() => setEditing(true)}>Cadastrar primeiro prato</Button> : undefined}
+            />
           ) : (
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Código</th>
-                    <th>Prato</th>
-                    <th>Categoria</th>
-                    <th className="text-right">Custo</th>
-                    <th className="text-right">Venda</th>
-                    <th className="text-right">Margem</th>
-                    <th className="text-center">CMV%</th>
-                    <th className="text-center">Itens</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dishes.map((dish) => (
-                    <tr
-                      key={dish.id}
-                      className={`clickable-row ${!dish.isActive ? "row-inactive" : ""}`}
-                      onClick={() => openDetail(dish.id)}
-                    >
-                      <td className="text-muted">{dish.code ?? "—"}</td>
-                      <td><strong>{dish.name}</strong></td>
-                      <td>{dish.category?.name ?? "—"}</td>
-                      <td className="text-right">{formatCurrency(dish.calculatedCost)}</td>
-                      <td className="text-right">{dish.salePriceDefault != null ? formatCurrency(dish.salePriceDefault) : "—"}</td>
-                      <td className="text-right">{dish.margemBruta != null ? formatCurrency(dish.margemBruta) : "—"}</td>
-                      <td className="text-center">{cmvBadge(dish.cmvPercentual)}</td>
-                      <td className="text-center">{dish.itemsCount}</td>
-                      <td className="actions-cell" onClick={(e) => e.stopPropagation()}>
-                        {canEdit && (
-                          <button type="button" className="btn-icon-sm" title="Copiar ficha técnica" onClick={() => void handleCopyDish(dish.id)}>
-                            <Copy size={13} />
-                          </button>
-                        )}
-                        {canEdit && dish.isActive && (
-                          <button type="button" className="btn-icon-sm btn-danger" title="Inativar" onClick={() => handleDeactivate(dish.id)}>
-                            <Trash2 size={13} />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table>
+              <Table.Head>
+                <Table.Row>
+                  <Table.Th>Código</Table.Th>
+                  <Table.Th minWidth={180}>Prato</Table.Th>
+                  <Table.Th>Categoria</Table.Th>
+                  <Table.Th align="right">Custo</Table.Th>
+                  <Table.Th align="right">Venda</Table.Th>
+                  <Table.Th align="right">Margem</Table.Th>
+                  <Table.Th align="center">CMV%</Table.Th>
+                  <Table.Th align="center">Itens</Table.Th>
+                  <Table.Th actions />
+                </Table.Row>
+              </Table.Head>
+              <Table.Body>
+                {dishes.map((dish) => (
+                  <Table.Row
+                    key={dish.id}
+                    className={!dish.isActive ? "row-inactive" : undefined}
+                    onClick={() => openDetail(dish.id)}
+                  >
+                    <Table.Td style={{ color: "var(--muted)" }}>{dish.code ?? "—"}</Table.Td>
+                    <Table.Td truncate title={dish.name}><strong>{dish.name}</strong></Table.Td>
+                    <Table.Td>{dish.category?.name ?? "—"}</Table.Td>
+                    <Table.Td align="right"><Money value={Number(dish.calculatedCost)} /></Table.Td>
+                    <Table.Td align="right">{dish.salePriceDefault != null ? <Money value={Number(dish.salePriceDefault)} /> : "—"}</Table.Td>
+                    <Table.Td align="right">{dish.margemBruta != null ? <Money value={Number(dish.margemBruta)} /> : "—"}</Table.Td>
+                    <Table.Td align="center">{cmvBadge(dish.cmvPercentual)}</Table.Td>
+                    <Table.Td align="center">{dish.itemsCount}</Table.Td>
+                    <Table.Td actions onClick={(e) => e.stopPropagation()}>
+                      {canEdit && (
+                        <IconButton icon={<Copy size={16} />} label="Copiar ficha técnica" size="sm" onClick={() => void handleCopyDish(dish.id)} />
+                      )}
+                      {canEdit && dish.isActive && (
+                        <IconButton icon={<Trash2 size={16} />} label="Inativar" size="sm" variant="danger" onClick={() => handleDeactivate(dish.id)} />
+                      )}
+                    </Table.Td>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table>
           )}
 
           {selected && !editing && (
@@ -300,7 +294,7 @@ function DishDetailPanel({
         </div>
         <div className="kpi-card">
           <span>CMV%</span>
-          <strong>{dish.cmvPercentual != null ? `${dish.cmvPercentual.toFixed(1)}%` : "—"}</strong>
+          <strong>{formatPercent(dish.cmvPercentual)}</strong>
         </div>
       </div>
 
@@ -327,11 +321,11 @@ function DishDetailPanel({
               </td>
               <td className="text-right">{item.quantity}</td>
               <td>{item.unit}</td>
-              <td className="text-right">{item.wasteFactor > 0 ? `${(item.wasteFactor * 100).toFixed(1)}%` : "—"}</td>
+              <td className="text-right">{item.wasteFactor > 0 ? formatPercent(item.wasteFactor * 100) : "—"}</td>
               <td className="text-right">{formatCurrency(item.unitCost)}</td>
               <td className="text-right">{formatCurrency(item.itemCost)}</td>
               <td className="text-right">
-                {dish.calculatedCost > 0 ? `${((item.itemCost / dish.calculatedCost) * 100).toFixed(1)}%` : "—"}
+                {dish.calculatedCost > 0 ? formatPercent((item.itemCost / dish.calculatedCost) * 100) : "—"}
               </td>
             </tr>
           ))}
@@ -537,7 +531,7 @@ function DishFormPanel({
         </div>
         <div className="kpi-card">
           <span>CMV%</span>
-          <strong>{previewCmv != null ? `${previewCmv.toFixed(1)}%` : "—"}</strong>
+          <strong>{formatPercent(previewCmv)}</strong>
         </div>
       </div>
 

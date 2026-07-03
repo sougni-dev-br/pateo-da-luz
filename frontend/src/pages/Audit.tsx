@@ -2,6 +2,15 @@ import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AuditLog, AuditLogsResponse, getAuditLogs } from "../api/client";
 import { PeriodFilter } from "../components/PeriodFilter";
+import {
+  Button,
+  EmptyState,
+  FormField,
+  IconButton,
+  PanelEyebrow,
+  Table,
+  TextField
+} from "../design-system";
 import { formatDate } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 
@@ -33,49 +42,66 @@ export function Audit() {
     <div className="stack">
       <section className="panel">
         <div className="section-heading">
-          <p className="muted">Registro de ações por usuário e entidade</p>
-          <button className="icon-button" type="button" onClick={() => load(page)} aria-label="Atualizar"><RefreshCw size={18} /></button>
+          <PanelEyebrow>Registro de ações por usuário e entidade</PanelEyebrow>
+          <IconButton icon={<RefreshCw size={16} />} label="Atualizar" onClick={() => load(page)} />
         </div>
         <div className="filters-row">
-          <label>Usuário ID<input value={filters.userId} onChange={(event) => setFilters({ ...filters, userId: event.target.value })} /></label>
-          <label>Entidade<input placeholder="Purchase, User..." value={filters.entity} onChange={(event) => setFilters({ ...filters, entity: event.target.value })} /></label>
+          <FormField label="Usuário ID">
+            <TextField value={filters.userId} onChange={(event) => setFilters({ ...filters, userId: event.target.value })} />
+          </FormField>
+          <FormField label="Entidade">
+            <TextField placeholder="Purchase, User..." value={filters.entity} onChange={(event) => setFilters({ ...filters, entity: event.target.value })} />
+          </FormField>
           <PeriodFilter value={period} onChange={setPeriod} />
-          <button className="primary-button" type="button" onClick={handleFilter}>Filtrar</button>
+          <Button onClick={handleFilter}>Filtrar</Button>
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Data</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>ID</th><th>IP</th><th>Detalhes</th></tr></thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td>{formatDate(row.createdAt)}</td>
-                  <td>{row.userName ?? row.userEmail ?? row.userId ?? "-"}</td>
-                  <td>{row.action}</td>
-                  <td>{row.entity}</td>
-                  <td>{row.entityId ?? "-"}</td>
-                  <td>{row.ipAddress ?? "-"}</td>
-                  <td><button type="button" onClick={() => setSelected(row)}>Ver</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table>
+          <Table.Head>
+            <Table.Row>
+              <Table.Th>Data</Table.Th>
+              <Table.Th>Usuário</Table.Th>
+              <Table.Th>Ação</Table.Th>
+              <Table.Th>Entidade</Table.Th>
+              <Table.Th>ID</Table.Th>
+              <Table.Th>IP</Table.Th>
+              <Table.Th actions>Detalhes</Table.Th>
+            </Table.Row>
+          </Table.Head>
+          <Table.Body>
+            {rows.map((row) => (
+              <Table.Row key={row.id}>
+                <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(row.createdAt)}</Table.Td>
+                <Table.Td truncate style={{ maxWidth: 180 }} title={row.userName ?? row.userEmail ?? undefined}>{row.userName ?? row.userEmail ?? row.userId ?? "-"}</Table.Td>
+                <Table.Td>{row.action}</Table.Td>
+                <Table.Td>{row.entity}</Table.Td>
+                <Table.Td truncate style={{ maxWidth: 140 }} title={row.entityId ?? undefined}>{row.entityId ?? "-"}</Table.Td>
+                <Table.Td>{row.ipAddress ?? "-"}</Table.Td>
+                <Table.Td actions>
+                  <Button variant="secondary" size="sm" onClick={() => setSelected(row)}>Ver</Button>
+                </Table.Td>
+              </Table.Row>
+            ))}
+            {rows.length === 0 && (
+              <Table.Row>
+                <Table.Td colSpan={7}>
+                  <EmptyState title="Nenhum registro no período" />
+                </Table.Td>
+              </Table.Row>
+            )}
+          </Table.Body>
+        </Table>
         {pagination && pagination.totalPages > 1 && (
           <div className="pagination-row">
-            <button className="icon-button" type="button" disabled={page <= 1} onClick={() => load(page - 1)} aria-label="Página anterior">
-              <ChevronLeft size={16} />
-            </button>
+            <IconButton icon={<ChevronLeft size={16} />} label="Página anterior" disabled={page <= 1} onClick={() => load(page - 1)} />
             <span>Página {pagination.page} de {pagination.totalPages} — {pagination.total} registros</span>
-            <button className="icon-button" type="button" disabled={page >= pagination.totalPages} onClick={() => load(page + 1)} aria-label="Próxima página">
-              <ChevronRight size={16} />
-            </button>
+            <IconButton icon={<ChevronRight size={16} />} label="Próxima página" disabled={page >= pagination.totalPages} onClick={() => load(page + 1)} />
           </div>
         )}
         {pagination && <p className="hint">{pagination.total} registro{pagination.total !== 1 ? "s" : ""} encontrado{pagination.total !== 1 ? "s" : ""}.</p>}
       </section>
       {selected && (
         <section className="panel">
-          <div className="section-heading"><div><p>Antes/depois</p><h2>Detalhes da auditoria</h2></div><button type="button" onClick={() => setSelected(null)}>Fechar</button></div>
+          <div className="section-heading"><div><PanelEyebrow>Antes/depois</PanelEyebrow><h2>Detalhes da auditoria</h2></div><Button variant="secondary" onClick={() => setSelected(null)}>Fechar</Button></div>
           <div className="summary-columns">
             <div><h3>Antes</h3><pre>{JSON.stringify(selected.previousValue, null, 2)}</pre></div>
             <div><h3>Depois</h3><pre>{JSON.stringify(selected.newValue, null, 2)}</pre></div>

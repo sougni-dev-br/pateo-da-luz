@@ -1,0 +1,135 @@
+.ds-kpi-card {
+  position: relative;
+  min-height: 132px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.94);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-soft);
+  font-family: var(--font-sans);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ds-kpi-card-accent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 8px 8px 0 0;
+}
+
+.ds-kpi-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.ds-kpi-card-label {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.ds-kpi-card-chip {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-lg);
+}
+
+.ds-kpi-card-value {
+  display: block;
+  font-size: var(--fs-kpi);
+  font-weight: var(--fw-bold);
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-kpi-card-sub {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-snug);
+}
+
+.ds-kpi-card-foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.ds-kpi-card-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.ds-kpi-card-delta svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ds-kpi-card-delta-up {
+  background: var(--tint-success);
+  color: var(--success);
+  border-color: var(--tint-success-border);
+}
+
+.ds-kpi-card-delta-down {
+  background: var(--tint-danger);
+  color: var(--danger);
+  border-color: var(--tint-danger-border);
+}
+
+.ds-kpi-card-delta-flat {
+  background: var(--gold-tint);
+  color: var(--gold-dark);
+  border-color: var(--gold-soft);
+}
+
+.ds-kpi-card-sparkline {
+  align-self: flex-end;
+  opacity: 0.85;
+}
+
+/* ── Tons: barra de acento + valor + chip ── */
+.ds-kpi-card-neutral .ds-kpi-card-accent { background: var(--line); }
+.ds-kpi-card-neutral .ds-kpi-card-value { color: var(--ink); }
+.ds-kpi-card-neutral .ds-kpi-card-chip { background: var(--paper-soft); color: var(--ink-soft); }
+
+.ds-kpi-card-success .ds-kpi-card-accent { background: var(--success); }
+.ds-kpi-card-success .ds-kpi-card-value { color: var(--success); }
+.ds-kpi-card-success .ds-kpi-card-chip { background: var(--tint-success); color: var(--success); }
+
+.ds-kpi-card-warning .ds-kpi-card-accent { background: var(--warning); }
+.ds-kpi-card-warning .ds-kpi-card-value { color: var(--warning); }
+.ds-kpi-card-warning .ds-kpi-card-chip { background: var(--gold-tint); color: var(--gold-dark); }
+
+.ds-kpi-card-danger .ds-kpi-card-accent { background: var(--danger); }
+.ds-kpi-card-danger .ds-kpi-card-value { color: var(--danger); }
+.ds-kpi-card-danger .ds-kpi-card-chip { background: var(--tint-danger); color: var(--danger); }
+
+.ds-kpi-card-info .ds-kpi-card-accent { background: var(--info); }
+.ds-kpi-card-info .ds-kpi-card-value { color: var(--info); }
+.ds-kpi-card-info .ds-kpi-card-chip { background: var(--tint-info); color: var(--info); }

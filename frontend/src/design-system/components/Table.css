@@ -1,0 +1,82 @@
+/* Tabela canônica do DS. <table> semântico, wrapper com overflow-x
+   para não estourar o content em telas estreitas. */
+
+.ds-table-scroll {
+  overflow-x: auto;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.ds-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+}
+
+.ds-table-th {
+  padding: 11px 14px;
+  text-align: left;
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-soft);
+}
+
+.ds-table-td {
+  padding: 11px 14px;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.ds-table-body .ds-table-row:last-child .ds-table-td {
+  border-bottom: 0;
+}
+
+/* Row hover creme do handoff — padrão universal. */
+.ds-table-body .ds-table-row:hover .ds-table-td {
+  background: var(--row-hover);
+}
+
+.ds-table-row-clickable {
+  cursor: pointer;
+}
+
+/* Alinhamento. */
+.ds-table-cell-right {
+  text-align: right;
+}
+
+.ds-table-cell-center {
+  text-align: center;
+}
+
+/* Texto longo: ellipsis + nowrap. max-width default de 280px —
+   sobrescreva via style quando a coluna pedir outro corte. */
+.ds-table-cell-truncate {
+  max-width: 280px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Coluna de ações: largura mínima, botões à direita, sem quebra. */
+.ds-table-cell-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.ds-table-actions-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}

@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react";
+import { Pencil, PowerOff, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   getPaymentMethods,
@@ -8,6 +8,22 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
+import {
+  Alert,
+  Button,
+  EmptyState,
+  FormField,
+  FormGrid,
+  FormSection,
+  IconButton,
+  PanelEyebrow,
+  RowMenu,
+  Select,
+  StatusBadge,
+  Switch,
+  Table,
+  TextField
+} from "../design-system";
 import { hasPermission } from "../lib/permissions";
 
 const emptyMethod = {
@@ -19,7 +35,15 @@ const emptyMethod = {
   isActive: true
 };
 
-const methodTypes = ["CASH", "PIX", "CREDIT_CARD", "DEBIT_CARD", "BANK_SLIP", "TRANSFER", "OTHER"];
+const methodTypeOptions = [
+  { value: "CASH", label: "CASH" },
+  { value: "PIX", label: "PIX" },
+  { value: "CREDIT_CARD", label: "CREDIT_CARD" },
+  { value: "DEBIT_CARD", label: "DEBIT_CARD" },
+  { value: "BANK_SLIP", label: "BANK_SLIP" },
+  { value: "TRANSFER", label: "TRANSFER" },
+  { value: "OTHER", label: "OTHER" }
+];
 
 function looksLikeInstallmentVariant(name: string) {
   return /(?:\s+|\/|-)?\d{1,2}\s*x$/i.test(String(name).trim());
@@ -43,7 +67,7 @@ export function PaymentMethods() {
     try {
       setMethods(await getPaymentMethods(search));
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Erro ao carregar metodos.");
+      setError(loadError instanceof Error ? loadError.message : "Erro ao carregar métodos.");
     } finally {
       setLoading(false);
     }
@@ -52,8 +76,8 @@ export function PaymentMethods() {
   async function handleSubmit() {
     if (!form.name.trim()) return;
     if (looksLikeInstallmentVariant(form.name)) {
-      setError("Cadastre apenas o metodo base. O numero de parcelas deve ser informado no lancamento da compra.");
-      setNotice({ tone: "warning", message: "Use apenas o metodo base, como BOLETO ou CARTAO CREDITO." });
+      setError("Cadastre apenas o método base. O número de parcelas deve ser informado no lançamento da compra.");
+      setNotice({ tone: "warning", message: "Use apenas o método base, como BOLETO ou CARTÃO CRÉDITO." });
       return;
     }
     const isUpdate = Boolean(form.id);
@@ -68,7 +92,7 @@ export function PaymentMethods() {
         message: isUpdate ? "Cadastro atualizado com sucesso." : "Cadastro criado com sucesso."
       });
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Erro ao salvar metodo.");
+      setError(saveError instanceof Error ? saveError.message : "Erro ao salvar método.");
       setNotice({ tone: "error", message: "Erro ao salvar." });
     }
   }
@@ -98,126 +122,122 @@ export function PaymentMethods() {
       <Notice notice={notice} />
 
       <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p>Tabela mestre</p>
-            <h2>Metodo de pagamento</h2>
+        <FormSection
+          eyebrow="Tabela mestre"
+          title="Método de pagamento"
+          description="Cadastre apenas métodos base, como DINHEIRO, PIX, BOLETO, FATURADO, CARTÃO CRÉDITO e CARTÃO DÉBITO. O número de parcelas agora é informado no lançamento da compra."
+        >
+          <FormGrid cols={3}>
+            <FormField label="Nome" required>
+              <TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+            </FormField>
+            <FormField label="Tipo">
+              <Select
+                value={form.type}
+                onChange={(event) => setForm({ ...form, type: event.target.value })}
+                options={methodTypeOptions}
+              />
+            </FormField>
+            <FormField label="Grupo">
+              <TextField value={form.group} onChange={(event) => setForm({ ...form, group: event.target.value })} />
+            </FormField>
+            <div className="ds-form-grid-span-all">
+              <FormField label="Observações">
+                <TextField value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
+              </FormField>
+            </div>
+            <FormField label="Ativo" inline>
+              <Switch checked={form.isActive} onChange={(checked) => setForm({ ...form, isActive: checked })} />
+            </FormField>
+          </FormGrid>
+          <div className="form-actions">
+            <Button disabled={!canEdit} onClick={handleSubmit}>
+              {form.id ? "Salvar alterações" : "Cadastrar"}
+            </Button>
           </div>
-        </div>
-
-        <div className="alert info">
-          Cadastre apenas metodos base, como DINHEIRO, PIX, BOLETO, FATURADO, CARTAO CREDITO e CARTAO DEBITO. O numero de parcelas agora e informado no lancamento da compra.
-        </div>
-
-        <div className="form-grid">
-          <label>
-            Nome
-            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-          </label>
-          <label>
-            Tipo
-            <select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}>
-              {methodTypes.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Grupo
-            <input value={form.group} onChange={(event) => setForm({ ...form, group: event.target.value })} />
-          </label>
-          <label>
-            Observações
-            <input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
-          </label>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={form.isActive}
-              onChange={(event) => setForm({ ...form, isActive: event.target.checked })}
-            />
-            Ativo
-          </label>
-          <button className="primary-button" type="button" disabled={!canEdit} onClick={handleSubmit}>
-            {form.id ? "Salvar alterações" : "Cadastrar"}
-          </button>
-        </div>
+        </FormSection>
       </section>
 
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p>Cadastro base</p>
+            <PanelEyebrow>Cadastro base</PanelEyebrow>
             <h2>Métodos de pagamento</h2>
           </div>
-          <button className="icon-button" type="button" onClick={loadMethods} aria-label="Atualizar métodos">
-            <RefreshCw size={18} />
-          </button>
+          <IconButton icon={<RefreshCw size={16} />} label="Atualizar métodos" onClick={loadMethods} />
         </div>
 
         <div className="filters-row">
-          <label>
-            Busca
-            <input value={search} onChange={(event) => setSearch(event.target.value)} />
-          </label>
-          <button className="primary-button" type="button" onClick={loadMethods}>
-            Filtrar
-          </button>
+          <FormField label="Busca">
+            <TextField value={search} onChange={(event) => setSearch(event.target.value)} />
+          </FormField>
+          <Button variant="secondary" onClick={loadMethods}>Filtrar</Button>
         </div>
 
-        {error && <div className="alert error">{error}</div>}
-        {loading && <div className="empty-state">Carregando métodos...</div>}
+        {error && <Alert tone="error">{error}</Alert>}
+        {loading && <EmptyState title="Carregando métodos..." />}
 
-        {!loading && (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Status</th>
-                  <th>Nome</th>
-                  <th>Normalizado</th>
-                  <th>Tipo</th>
-                  <th>Grupo</th>
-                  <th>Observações</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {methods.map((method) => (
-                  <tr key={method.id}>
-                    <td>{method.isActive ? "Ativo" : "Inativo"}</td>
-                    <td>{method.name}</td>
-                    <td>{method.normalizedName}</td>
-                    <td>{method.type}</td>
-                    <td>{method.group ?? "-"}</td>
-                    <td>{method.notes ?? "-"}</td>
-                    <td className="actions-cell">
-                      <button type="button" disabled={!canEdit} onClick={() => setForm({
+        {!loading && methods.length === 0 && (
+          <EmptyState title="Nenhum método cadastrado." />
+        )}
+
+        {!loading && methods.length > 0 && (
+          <Table>
+            <Table.Head>
+              <Table.Row>
+                <Table.Th>Status</Table.Th>
+                <Table.Th minWidth={160}>Nome</Table.Th>
+                <Table.Th>Normalizado</Table.Th>
+                <Table.Th>Tipo</Table.Th>
+                <Table.Th>Grupo</Table.Th>
+                <Table.Th>Observações</Table.Th>
+                <Table.Th actions>Ações</Table.Th>
+              </Table.Row>
+            </Table.Head>
+            <Table.Body>
+              {methods.map((method) => (
+                <Table.Row key={method.id}>
+                  <Table.Td>
+                    <StatusBadge tone={method.isActive ? "success" : "danger"}>
+                      {method.isActive ? "Ativo" : "Inativo"}
+                    </StatusBadge>
+                  </Table.Td>
+                  <Table.Td truncate title={method.name}>{method.name}</Table.Td>
+                  <Table.Td truncate style={{ maxWidth: 160 }}>{method.normalizedName}</Table.Td>
+                  <Table.Td>{method.type}</Table.Td>
+                  <Table.Td>{method.group ?? "-"}</Table.Td>
+                  <Table.Td truncate style={{ maxWidth: 200 }} title={method.notes ?? undefined}>{method.notes ?? "-"}</Table.Td>
+                  <Table.Td actions>
+                    <IconButton
+                      icon={<Pencil size={16} />}
+                      label="Editar"
+                      disabled={!canEdit}
+                      onClick={() => setForm({
                         id: method.id,
                         name: method.name,
                         type: method.type,
                         group: method.group ?? "",
                         notes: method.notes ?? "",
                         isActive: method.isActive
-                      })}>
-                        Editar
-                      </button>
-                      <button type="button" disabled={!canDelete} onClick={() => toggleStatus(method)}>
-                        {method.isActive ? "Inativar" : "Reativar"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {methods.length === 0 && (
-                  <tr>
-                    <td colSpan={7}>Nenhum metodo cadastrado.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                      })}
+                    />
+                    <RowMenu
+                      label={`Mais ações — ${method.name}`}
+                      items={[
+                        {
+                          label: method.isActive ? "Inativar" : "Reativar",
+                          icon: <PowerOff size={15} />,
+                          tone: method.isActive ? "danger" : "default",
+                          disabled: !canDelete,
+                          onClick: () => toggleStatus(method)
+                        }
+                      ]}
+                    />
+                  </Table.Td>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </Table>
         )}
       </section>
     </div>

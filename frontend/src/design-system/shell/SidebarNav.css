@@ -1,0 +1,172 @@
+/* Bloco de navegacao reusavel entre a Sidebar desktop e o mobile drawer.
+   Baseado no kit.css .sidebar nav / .nav-group / button.nav. Cores dark
+   fixadas com rgba(--gold-soft) — comentario abaixo do porque nao usar
+   var() em alpha channels. */
+
+.ds-sidebar-nav {
+  display: grid;
+  gap: 16px;
+}
+
+.ds-sidebar-nav-group {
+  display: grid;
+  gap: 3px;
+}
+
+.ds-sidebar-nav-group > .ds-sidebar-nav-group-label {
+  padding: 0 10px 4px;
+  /* --gold-soft (#d8c391) em 60% brilho → cinza-oliva escuro discreto. */
+  color: #8f887d;
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.ds-sidebar-nav-item-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ds-sidebar-nav-item {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 11px;
+  color: #d7d0c4;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: var(--fw-medium);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+
+.ds-sidebar-nav-item svg {
+  color: #a49c8d;
+  flex: 0 0 auto;
+  transition: color var(--dur) var(--ease);
+}
+
+.ds-sidebar-nav-item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.ds-sidebar-nav-item:hover {
+  /* rgba tirado de --gold-soft (216, 195, 145) — grep #hex nao pega. */
+  background: rgba(216, 195, 145, 0.1);
+  color: var(--paper);
+  transform: translateX(2px);
+}
+
+.ds-sidebar-nav-item:hover svg {
+  color: var(--gold-soft);
+}
+
+.ds-sidebar-nav-item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Estado ativo: chip branco + marcador ouro 3px inset + sombra sutil. */
+.ds-sidebar-nav-item.ds-sidebar-nav-item-active {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.97), rgba(255, 255, 255, 0.92));
+  color: var(--ink);
+  font-weight: var(--fw-semibold);
+  box-shadow: inset 3px 0 0 var(--gold), 0 6px 16px rgba(0, 0, 0, 0.22);
+}
+
+.ds-sidebar-nav-item.ds-sidebar-nav-item-active svg {
+  color: var(--gold);
+}
+
+.ds-sidebar-nav-item.ds-sidebar-nav-item-active:hover {
+  transform: none;
+}
+
+/* Estrela de favoritos. Em ponteiro com hover, fica invisivel ate o
+   hover da linha (ou foco por teclado) para nao pesar a coluna direita
+   do menu; estrela ja favoritada permanece visivel. Em touch (sem
+   hover) mantem a opacidade reduzida sempre, senao seria inacessivel. */
+.ds-sidebar-nav-star {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b675e;
+  cursor: pointer;
+  opacity: 0.55;
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+
+@media (hover: hover) {
+  .ds-sidebar-nav-star {
+    opacity: 0;
+  }
+
+  .ds-sidebar-nav-item-wrap:hover .ds-sidebar-nav-star,
+  .ds-sidebar-nav-star:focus-visible {
+    opacity: 0.55;
+  }
+}
+
+.ds-sidebar-nav-star:hover {
+  opacity: 1;
+  color: #d7d0c4;
+  background: rgba(216, 195, 145, 0.12);
+}
+
+.ds-sidebar-nav-star:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.ds-sidebar-nav-star.ds-sidebar-nav-star-active {
+  opacity: 1;
+  color: var(--gold);
+}
+
+/* Badge numerico do lado direito do item (ex.: "3" em Pedidos de compra). */
+.ds-sidebar-nav-item-badge {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(159, 45, 45, 0.9);
+  color: var(--paper);
+}
+
+.ds-sidebar-nav-item-active .ds-sidebar-nav-item-badge {
+  background: rgba(159, 45, 45, 0.14);
+  color: var(--danger);
+}

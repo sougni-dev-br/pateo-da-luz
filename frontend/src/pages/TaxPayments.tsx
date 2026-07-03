@@ -17,6 +17,8 @@ import {
   updateTaxPayment,
 } from "../api/client";
 import { Notice, type NoticeState, useNotice } from "../components/Notice";
+import { StatusBadge as DsStatusBadge } from "../design-system";
+import type { StatusTone } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 
 const DOCUMENT_TYPES = [
@@ -32,11 +34,11 @@ const STATUS_LABELS: Record<string, string> = {
   CANCELED: "Cancelado",
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: "#f59e0b",
-  PAID: "#22c55e",
-  OVERDUE: "#ef4444",
-  CANCELED: "#94a3b8",
+const STATUS_TONES: Record<string, StatusTone> = {
+  PENDING: "warning",
+  PAID: "success",
+  OVERDUE: "danger",
+  CANCELED: "neutral",
 };
 
 function formatCurrency(value: string | number | null | undefined): string {
@@ -80,21 +82,9 @@ function KpiCard({ label, value, color }: { label: string; value: string; color?
 // ─── Status badge ─────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
   return (
-    <span
-      className="status-badge"
-      style={{
-        background: `${STATUS_COLORS[status] ?? "#94a3b8"}22`,
-        color: STATUS_COLORS[status] ?? "#94a3b8",
-        border: `1px solid ${STATUS_COLORS[status] ?? "#94a3b8"}44`,
-        borderRadius: "4px",
-        padding: "2px 8px",
-        fontSize: "0.75rem",
-        fontWeight: 600,
-        whiteSpace: "nowrap",
-      }}
-    >
+    <DsStatusBadge tone={STATUS_TONES[status] ?? "neutral"}>
       {STATUS_LABELS[status] ?? status}
-    </span>
+    </DsStatusBadge>
   );
 }
 
@@ -575,9 +565,9 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
       {summary && (
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <KpiCard label="Total no período" value={formatCurrency(summary.total)} />
-          <KpiCard label="Pago" value={formatCurrency(summary.paid)} color={STATUS_COLORS.PAID} />
-          <KpiCard label="Pendente" value={formatCurrency(summary.pending)} color={STATUS_COLORS.PENDING} />
-          <KpiCard label="Vencido" value={formatCurrency(summary.overdue)} color={STATUS_COLORS.OVERDUE} />
+          <KpiCard label="Pago" value={formatCurrency(summary.paid)} color="var(--success)" />
+          <KpiCard label="Pendente" value={formatCurrency(summary.pending)} color="var(--warning)" />
+          <KpiCard label="Vencido" value={formatCurrency(summary.overdue)} color="var(--danger)" />
         </div>
       )}
 
