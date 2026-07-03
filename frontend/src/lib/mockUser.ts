@@ -247,6 +247,28 @@ function mockResponseFor(url: string): unknown {
   }
   if (path.endsWith("/suppliers")) return buildMockSuppliers();
 
+  // DRE: shape completo do DRESummary (revenue/cmv/expenses/expenseGroups
+  // acessados sem defesa nas paginas — inclui expenses.filter na linha 597).
+  if (path.includes("/dre/summary") || path.endsWith("/dre")) {
+    const p = currentPeriod();
+    const emptyDreBlock = () => ({
+      period: { from: p.startDate, to: p.endDate },
+      revenue: { grossAmount: 0, netAmount: 0, serviceAmount: 0, byChannel: {}, discounts: 0, platformFees: 0, deductions: 0, tickets: 0 },
+      cmv: { cmvReal: 0, cmvPercent: null, estoqueInicial: 0, compras: 0, estoqueFinal: 0, hasInventoryData: false, warning: null },
+      lucroBruto: 0,
+      margemBruta: 0,
+      expenses: [],
+      expenseGroups: [],
+      totalExpenses: 0,
+      ebitda: 0,
+      ebitdaPercent: 0
+    });
+    return { current: emptyDreBlock(), prevMonth: null, prevYear: null };
+  }
+  if (path.includes("/dre/categories")) return [];
+  if (path.includes("/dre/pending")) return { total: 0, totalAmount: 0, page: 1, perPage: 20, rows: [] };
+  if (path.includes("/dre/drill")) return [];
+
   // Estoque: endpoints com shape estruturado que o fallback {} quebraria
   // (agenda.items.find, buyer-support.summary, operational e counts = listas).
   if (path.includes("/inventory/agenda")) {
