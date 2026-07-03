@@ -8,7 +8,8 @@ import {
   undoMonthlyInventory
 } from "../api/client";
 import { Notice, useNotice } from "./Notice";
-import { formatCurrency, formatNumber } from "../utils/format";
+import { Money } from "../design-system";
+import { formatNumber } from "../utils/format";
 
 const inventoryTypes: Array<{ value: InventorySnapshotType; label: string }> = [
   { value: "INVENTARIO_INICIAL", label: "Inventario inicial" },
@@ -217,7 +218,7 @@ export function MonthlyInventoryImportPanel() {
             </article>
             <article>
               <span>Valor total</span>
-              <strong>{formatCurrency(inventoryPreview.validation.totalValue)}</strong>
+              <strong><Money value={inventoryPreview.validation.totalValue} /></strong>
             </article>
           </div>
           <div className="table-wrap subsection">
@@ -244,8 +245,8 @@ export function MonthlyInventoryImportPanel() {
                     <td>{row.sectorName ?? "-"}</td>
                     <td>{row.unit ?? "-"}</td>
                     <td>{formatNumber(row.quantity)}</td>
-                    <td>{row.unitCost == null ? "-" : formatCurrency(row.unitCost)}</td>
-                    <td>{row.totalCost == null ? "-" : formatCurrency(row.totalCost)}</td>
+                    <td><Money value={row.unitCost} /></td>
+                    <td><Money value={row.totalCost} /></td>
                     <td>{row.resolutionStatus === "MATCHED" ? "Encontrado" : "Pendente"}</td>
                   </tr>
                 ))}
