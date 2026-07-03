@@ -53,6 +53,15 @@ atualizar, rode `frontend/scripts/capture-fase5-batches.mjs` + `capture-fase4-fi
 
 **Total: 28 PNGs, ~5.3 MB.**
 
+## Nota sobre memória retroativa (`4E-final-*` e `5.0-vitrine`)
+
+Os PNGs `4E-final-*` e `5.0-design-system-completo.png` foram capturados
+retroativamente (regenerados no fim da Fase 5, não no fim da Fase 4 / 5.0).
+Refletem o estado atual do código, incluindo fixes intercalados posteriores
+(Money nowrap, Percent pt-BR, mocks especializados). Se precisar do estado
+exato do fim da Fase 4, consulte o commit `d27fc68` (4E cleanup) ou `ae629b7`
+(Fase 5.0 fundação).
+
 ## O que `-v2` significa
 
 3 telas do cluster CMV+fiscal (`/cmv/fechamento-mensal`, `/cmv/real`, `/financeiro/impostos`) caíam no `ContentErrorBoundary` no primeiro batch porque o `mockUser.ts` não cobria os endpoints `/monthly/inventory`, `/monthly/cmv-real*` e retornava array vazio pra `/tax-payments` (que espera shape objeto). O fix (commit `49fc6ae`) adicionou specials para esses endpoints. Os `-v2` são as capturas pós-fix, todas renderizando limpas.
