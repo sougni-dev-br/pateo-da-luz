@@ -1,4 +1,4 @@
-import { BadgeDollarSign, CheckCircle2, Download, Eye, PackageCheck, RefreshCw, Send, XCircle } from "lucide-react";
+﻿import { BadgeDollarSign, CheckCircle2, Download, Eye, PackageCheck, RefreshCw, Send, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -184,9 +184,9 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
         {/* Contadores operacionais e valores em R$ separados em blocos
             semanticos — padrao do handoff, reusado em Contas a pagar/
             Faturamento/DRE nas proximas ondas. */}
-        <div className="po-kpi-block">
+        <div className="kpi-block">
           <PanelEyebrow>Situação operacional</PanelEyebrow>
-          <div className="po-status-grid">
+          <div className="kpi-counters-grid">
             <SummaryCard label="Rascunho" value={summary.RASCUNHO ?? 0} tone="warning" />
             <SummaryCard label="Em revisão" value={summary.EM_REVISAO ?? 0} tone="info" />
             <SummaryCard label="Aprovados" value={summary.APROVADO ?? 0} tone="success" />
@@ -195,9 +195,9 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
             <SummaryCard label="Cancelados" value={summary.CANCELADO ?? 0} tone="danger" />
           </div>
         </div>
-        <div className="po-kpi-block">
+        <div className="kpi-block">
           <PanelEyebrow>Resumo financeiro</PanelEyebrow>
-          <div className="po-finance-grid">
+          <div className="kpi-finance-grid">
             <SummaryCard
               label="Valor estimado"
               value={<Money value={estimatedTotal} />}
