@@ -1,7 +1,8 @@
-import { AlertTriangle, BadgeDollarSign, CheckCircle2, ChevronLeft, Store, Truck, Wallet } from "lucide-react";
+﻿import { AlertTriangle, BadgeDollarSign, CheckCircle2, ChevronLeft, Store, Truck, Wallet } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AppUser, closeDailyRevenue, getRevenueEntry, RevenueEntry, saveRevenueEntry } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
+import { Button, Money, PanelEyebrow, StatusBadge } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { formatCurrency } from "../utils/format";
 
@@ -95,7 +96,7 @@ function ShiftCard({
     <div className="cash-shift-card">
       <div className="cash-shift-header">
         <h3>{label}</h3>
-        <span className="status-badge tone-info">Total {formatCurrency(total)}</span>
+        <StatusBadge tone="info">Total <Money value={total} /></StatusBadge>
       </div>
       <div className="form-grid cash-shift-grid">
         <label>Dinheiro<input type="number" min="0" step="0.01" value={shift.cash} onChange={set("cash")} disabled={disabled} /></label>
@@ -365,18 +366,16 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
       <section className="panel cash-workspace">
         <div className="section-heading">
           <div>
-            <p>Caixa</p>
+            <PanelEyebrow>Caixa</PanelEyebrow>
             <h2>{title}</h2>
           </div>
           <div className="actions-cell">
             {onOpenRevenue && (
-              <button className="secondary-button" type="button" onClick={onOpenRevenue}>
-                <ChevronLeft size={16} /> Voltar para faturamento
-              </button>
+              <Button variant="secondary" leadingIcon={<ChevronLeft size={16} />} onClick={onOpenRevenue}>
+                Voltar para faturamento
+              </Button>
             )}
-            <button className="secondary-button" type="button" onClick={resetAll} disabled={disabled}>
-              Novo dia
-            </button>
+            <Button variant="secondary" onClick={resetAll} disabled={disabled}>Novo dia</Button>
           </div>
         </div>
 
@@ -386,9 +385,9 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={disabled} />
           </label>
           <div className="cash-toolbar-actions">
-            <button className="primary-button" type="button" onClick={handleCloseDay} disabled={disabled || !closeReady}>
-              <CheckCircle2 size={16} /> Fechar caixa
-            </button>
+            <Button leadingIcon={<CheckCircle2 size={16} />} onClick={handleCloseDay} disabled={disabled || !closeReady}>
+              Fechar caixa
+            </Button>
           </div>
         </div>
 
@@ -433,7 +432,7 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p>Etapa 1</p>
+            <PanelEyebrow>Etapa 1</PanelEyebrow>
             <h2>Mesas</h2>
           </div>
           <div className="actions-cell">
@@ -498,7 +497,7 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p>Etapa 2</p>
+            <PanelEyebrow>Etapa 2</PanelEyebrow>
             <h2>Delivery</h2>
           </div>
           <div className="actions-cell">
@@ -517,7 +516,7 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
               <article className="cash-platform-card" key={platform.key}>
                 <div className="cash-platform-header">
                   <h3>{platform.label}</h3>
-                  {orders > 0 && <span className="status-badge tone-info">Ticket médio {formatCurrency(avg)}</span>}
+                  {orders > 0 && <StatusBadge tone="info">Ticket médio <Money value={avg} /></StatusBadge>}
                 </div>
                 <div className="form-grid cash-platform-fields">
                   <label>
@@ -558,7 +557,7 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p>Resumo</p>
+            <PanelEyebrow>Resumo</PanelEyebrow>
             <h2>Totais do dia</h2>
           </div>
         </div>
