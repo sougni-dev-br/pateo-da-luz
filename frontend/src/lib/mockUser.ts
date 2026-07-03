@@ -247,6 +247,36 @@ function mockResponseFor(url: string): unknown {
   }
   if (path.endsWith("/suppliers")) return buildMockSuppliers();
 
+  // Ciclos de fornecedor: lista para exercitar a tabela DS.
+  if (path.endsWith("/supplier-cycles")) {
+    return [
+      {
+        id: "cy-1",
+        supplierId: "sup-2",
+        supplierName: "Casa de Carnes Bom Corte",
+        periodStart: new Date().toISOString(),
+        periodEnd: null,
+        status: "OPEN",
+        totalAmount: 3120.4,
+        itemCount: 3,
+        checkedCount: 1,
+        hasDivergence: true
+      },
+      {
+        id: "cy-2",
+        supplierId: "sup-1",
+        supplierName: "Distribuidora Hortifruti Central do Vale Ltda ME",
+        periodStart: new Date().toISOString(),
+        periodEnd: new Date().toISOString(),
+        status: "PAID",
+        totalAmount: 1890,
+        itemCount: 5,
+        checkedCount: 5,
+        hasDivergence: false
+      }
+    ];
+  }
+
   // Pedidos de compra: shape { orders, summary } — lista crua quebraria
   // data.orders.map na pagina.
   if (path.endsWith("/purchase-orders")) {

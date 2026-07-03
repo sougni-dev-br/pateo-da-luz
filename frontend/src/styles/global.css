@@ -1897,6 +1897,17 @@ select:disabled {
   color: var(--ink);
 }
 
+/* ── Ciclos de fornecedor ── */
+.cycles-filter-search {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.cycles-filter-select {
+  flex: 0 1 200px;
+  min-width: 150px;
+}
+
 /* ── Purchases filter panel ─────────────────────────────────────────── */
 .purch-filters-header {
   display: flex;
