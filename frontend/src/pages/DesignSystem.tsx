@@ -25,6 +25,7 @@ import {
   FormGrid,
   FormSection,
   IconButton,
+  ListDetailLayout,
   KpiCard,
   Money,
   PageHeader,
@@ -165,6 +166,7 @@ export function DesignSystem() {
   const [text, setText] = useState("");
   const [sel, setSel] = useState("");
   const [switchOn, setSwitchOn] = useState(true);
+  const [selectedUser, setSelectedUser] = useState("rafael");
 
   return (
     <div className="ds-showcase">
@@ -479,6 +481,71 @@ export function DesignSystem() {
               </Table.Row>
             </Table.Body>
           </Table>
+        </Section>
+
+        {/* ─── Lista + editor (Fase 5.0) ─── */}
+        <Section
+          title="Lista + editor"
+          subtitle="ListDetailLayout · 320px + 1fr no desktop, navegação empilhada no mobile"
+        >
+          <ListDetailLayout
+            list={
+              <ListDetailLayout.List
+                header={<TextField placeholder="Buscar usuário..." />}
+                footer={
+                  <Button variant="secondary" size="sm" leadingIcon={<Plus size={15} />}>
+                    Novo usuário
+                  </Button>
+                }
+              >
+                <ListDetailLayout.Item
+                  title="Rafael"
+                  subtitle="ADMIN"
+                  active={selectedUser === "rafael"}
+                  onClick={() => setSelectedUser("rafael")}
+                  meta={<StatusBadge tone="success">Ativo</StatusBadge>}
+                />
+                <ListDetailLayout.Item
+                  title="Marcos Vinícius de Albuquerque Nascimento"
+                  subtitle="ESTOQUISTA"
+                  active={selectedUser === "marcos"}
+                  onClick={() => setSelectedUser("marcos")}
+                  meta={<StatusBadge tone="neutral">Ativo</StatusBadge>}
+                />
+                <ListDetailLayout.Item
+                  title="Ana"
+                  subtitle="VISUALIZACAO"
+                  active={selectedUser === "ana"}
+                  onClick={() => setSelectedUser("ana")}
+                  meta={<StatusBadge tone="danger">Inativo</StatusBadge>}
+                />
+              </ListDetailLayout.List>
+            }
+            detail={
+              <Card>
+                <FormSection
+                  eyebrow="Configurações"
+                  title={`Editando: ${selectedUser}`}
+                  description="O painel de detalhe recebe qualquer conteúdo."
+                >
+                  <FormGrid cols={2}>
+                    <FormField label="Nome">
+                      <TextField defaultValue={selectedUser} />
+                    </FormField>
+                    <FormField label="Perfil">
+                      <Select
+                        options={[
+                          { value: "admin", label: "ADMIN" },
+                          { value: "estoquista", label: "ESTOQUISTA" }
+                        ]}
+                        placeholder="Selecione"
+                      />
+                    </FormField>
+                  </FormGrid>
+                </FormSection>
+              </Card>
+            }
+          />
         </Section>
 
         {/* ─── Compostos ─── */}

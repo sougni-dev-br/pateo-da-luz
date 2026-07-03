@@ -1,0 +1,157 @@
+/* Layout 2-col lista + editor. Desktop: 320px + 1fr; mobile: navegação
+   empilhada controlada por detailActive (classe no root). */
+
+.ds-list-detail {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  min-width: 0;
+  font-family: var(--font-sans);
+}
+
+.ds-list-detail-list-pane,
+.ds-list-detail-detail-pane {
+  min-width: 0;
+}
+
+.ds-list-detail-back {
+  display: none;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+
+.ds-list-detail-back:hover {
+  border-color: var(--line-strong);
+  background: var(--paper-soft);
+}
+
+.ds-list-detail-back:focus-visible {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Painel de lista ── */
+.ds-list-detail-list {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  overflow: hidden;
+}
+
+.ds-list-detail-list-header {
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ds-list-detail-list-scroll {
+  display: grid;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.ds-list-detail-list-footer {
+  padding: 12px;
+  border-top: 1px solid var(--line);
+}
+
+/* ── Item ── */
+.ds-list-detail-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+
+.ds-list-detail-item:last-child {
+  border-bottom: 0;
+}
+
+.ds-list-detail-item:hover {
+  background: var(--row-hover);
+}
+
+.ds-list-detail-item:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--gold);
+}
+
+.ds-list-detail-item-active {
+  background: var(--gold-tint);
+  box-shadow: inset 3px 0 0 var(--gold);
+}
+
+.ds-list-detail-item-active:hover {
+  background: var(--gold-tint);
+}
+
+.ds-list-detail-item-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.ds-list-detail-item-title {
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-list-detail-item-subtitle {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-list-detail-item-meta {
+  flex: 0 0 auto;
+}
+
+/* ── Mobile: empilha e alterna painéis ── */
+@media (max-width: 900px) {
+  .ds-list-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ds-list-detail-detail-pane {
+    display: none;
+  }
+
+  .ds-list-detail-detail-active .ds-list-detail-list-pane {
+    display: none;
+  }
+
+  .ds-list-detail-detail-active .ds-list-detail-detail-pane {
+    display: block;
+  }
+
+  .ds-list-detail-detail-active .ds-list-detail-back {
+    display: inline-flex;
+  }
+}

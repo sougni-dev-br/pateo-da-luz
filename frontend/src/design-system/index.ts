@@ -58,6 +58,13 @@ export type { IconButtonProps, IconButtonVariant, IconButtonSize } from "./compo
 export { RowMenu } from "./components/RowMenu";
 export type { RowMenuProps, RowMenuItem, RowMenuSeparator } from "./components/RowMenu";
 
+export { ListDetailLayout } from "./components/ListDetailLayout";
+export type {
+  ListDetailLayoutProps,
+  ListDetailListProps,
+  ListDetailItemProps
+} from "./components/ListDetailLayout";
+
 export { SummaryCard } from "./components/SummaryCard";
 export type { SummaryCardProps, SummaryTone } from "./components/SummaryCard";
 
