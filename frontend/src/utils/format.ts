@@ -1,13 +1,47 @@
-export function formatCurrency(value: string | number | null | undefined) {
-  if (typeof window !== "undefined" && window.localStorage.getItem("hideSensitiveValues") === "true") {
-    return "R$ ••••";
-  }
+/**
+ * Formata número em moeda BRL (pt-BR) SEM aplicar mascaramento.
+ *
+ * Use este helper APENAS em contextos non-JSX:
+ *   - export de CSV/XLSX
+ *   - tooltip (attribute `title`)
+ *   - aria-label
+ *   - título de página / meta tags
+ *
+ * Para renderizar em JSX, use `<Money />` (respeita HideValuesContext
+ * automaticamente) ou o hook `useFormatCurrency()` (também reativo).
+ *
+ * A variante antiga lia `localStorage["hideSensitiveValues"]` para mascarar
+ * — comportamento removido. A única fonte de verdade do mascaramento agora é
+ * o `HideValuesContext`.
+ */
+export function formatCurrencyString(value: string | number | null | undefined) {
   const amount = Number(value ?? 0);
 
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL"
   }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+/**
+ * @deprecated Use `<Money />` em JSX ou `useFormatCurrency()` reativo.
+ * Fallback non-JSX: `formatCurrencyString`.
+ *
+ * MUDANÇA DE COMPORTAMENTO: este alias NÃO mascara mais. As call sites
+ * remanescentes exibirão o valor real mesmo com toggle "ocultar valores"
+ * ligado, até serem migradas — comportamento intencional durante a
+ * migração progressiva (Fase 0 → 1..3).
+ */
+let formatCurrencyDeprecationWarned = false;
+export function formatCurrency(value: string | number | null | undefined) {
+  if (!formatCurrencyDeprecationWarned) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[deprecated] formatCurrency: use <Money /> em JSX ou useFormatCurrency() reativo; para non-JSX, use formatCurrencyString."
+    );
+    formatCurrencyDeprecationWarned = true;
+  }
+  return formatCurrencyString(value);
 }
 
 export function formatDate(value: string | null | undefined) {
