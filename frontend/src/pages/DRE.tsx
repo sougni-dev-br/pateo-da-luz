@@ -29,6 +29,7 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
+import { Alert, Button, IconButton, Money, Select, Tabs } from "../design-system";
 import { formatCurrency, formatDate } from "../utils/format";
 
 // ─────────────────────────────────────────────
@@ -247,14 +248,15 @@ export function DRE() {
     <div className="stack">
       <Notice notice={notice} />
 
-      <div className="tabs-row">
-        <button className={mode === "dre" ? "active" : ""} type="button" onClick={() => setMode("dre")}>DRE Gerencial</button>
-        <button className={mode === "categories" ? "active" : ""} type="button" onClick={() => setMode("categories")}>Categorias DRE</button>
-        <button className={mode === "classify" ? "active" : ""} type="button" onClick={() => setMode("classify")}>
-          <Tag size={13} style={{ verticalAlign: "middle", marginRight: 4 }} />
-          Classificar Despesas
-        </button>
-      </div>
+      <Tabs
+        value={mode}
+        onChange={(v) => setMode(v as typeof mode)}
+        tabs={[
+          { value: "dre", label: "DRE Gerencial" },
+          { value: "categories", label: "Categorias DRE" },
+          { value: "classify", label: <><Tag size={13} style={{ verticalAlign: "middle", marginRight: 4 }} />Classificar Despesas</> }
+        ]}
+      />
 
       {mode === "categories" && (
         <CategoriesPanel
@@ -329,18 +331,17 @@ export function DRE() {
             </div>
 
             <div className="dre-filter-right">
-              <button type="button" className="btn-icon" onClick={load} title="Atualizar DRE">
-                <RefreshCw size={15} />
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
+              <IconButton icon={<RefreshCw size={16} />} label="Atualizar DRE" onClick={load} />
+              <Button
+                variant="secondary"
+                size="sm"
+                leadingIcon={<Download size={14} />}
                 onClick={handleExportPdf}
                 disabled={loading || !data || pdfLoading}
                 title={loading || !data ? "Carregue o DRE antes de exportar" : "Exportar PDF"}
               >
-                <Download size={14} /> {pdfLoading ? "Gerando PDF..." : "Exportar PDF"}
-              </button>
+                {pdfLoading ? "Gerando PDF..." : "Exportar PDF"}
+              </Button>
             </div>
           </div>
 
@@ -365,12 +366,9 @@ export function DRE() {
             <>
               {/* ── Aviso receita zero ── */}
               {cur.revenue.grossAmount === 0 && (
-                <div className="dre-info-banner">
-                  <AlertTriangle size={15} />
-                  <span>
-                    Não há faturamento lançado neste período. Percentuais e margem não podem ser calculados.
-                  </span>
-                </div>
+                <Alert tone="info" icon={<AlertTriangle size={15} />}>
+                  Não há faturamento lançado neste período. Percentuais e margem não podem ser calculados.
+                </Alert>
               )}
 
               {/* ── Cards ── */}
@@ -416,10 +414,7 @@ export function DRE() {
 
               {/* ── CMV warning ── */}
               {cur.cmv.warning && (
-                <div className="dre-cmv-warn">
-                  <AlertTriangle size={15} />
-                  <span>{cur.cmv.warning}</span>
-                </div>
+                <Alert tone="warning" icon={<AlertTriangle size={15} />}>{cur.cmv.warning}</Alert>
               )}
 
               {/* ── DRE table ── */}
