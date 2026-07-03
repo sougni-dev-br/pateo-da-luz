@@ -283,6 +283,11 @@ function mockResponseFor(url: string): unknown {
   }
   if (path.endsWith("/users/sessions") || path.includes("/users/sessions")) return [];
 
+  // Auditoria: shape { data, pagination }.
+  if (path.includes("/audit")) {
+    return { data: [], pagination: { page: 1, totalPages: 0, total: 0, limit: 50 } };
+  }
+
   // Estoque: endpoints com shape estruturado que o fallback {} quebraria
   // (agenda.items.find, buyer-support.summary, operational e counts = listas).
   if (path.includes("/inventory/agenda")) {
