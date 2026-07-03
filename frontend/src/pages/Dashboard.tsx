@@ -22,6 +22,7 @@ import {
   Purchase,
 } from "../api/client";
 import { useSession } from "../context/SessionContext";
+import { Alert, Button, IconButton } from "../design-system";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 
@@ -272,20 +273,17 @@ export function Dashboard() {
                 {isCurrentMonth && <span className="dash-live-badge">Em andamento</span>}
               </span>
             </div>
-            <button
-              className="icon-button"
-              type="button"
+            <IconButton
+              icon={<RefreshCw size={16} className={loading ? "spin" : ""} />}
+              label="Atualizar"
               onClick={() => load()}
-              title="Atualizar"
               disabled={loading}
-            >
-              <RefreshCw size={16} className={loading ? "spin" : ""} />
-            </button>
+            />
           </div>
         </div>
       </div>
 
-      {error && <div className="alert error">{error}</div>}
+      {error && <Alert tone="error">{error}</Alert>}
 
       {/* ── Alertas importantes ── */}
       {hasAnyAlert && (
@@ -331,14 +329,7 @@ export function Dashboard() {
           <p className="dash-quick-actions-title">Ações rápidas para começar</p>
           <div className="dash-quick-actions-row">
             {quickActions.map((a) => (
-              <button
-                key={a.path}
-                className="primary-button"
-                type="button"
-                onClick={() => navigate(a.path)}
-              >
-                {a.icon} {a.label}
-              </button>
+              <Button key={a.path} leadingIcon={a.icon} onClick={() => navigate(a.path)}>{a.label}</Button>
             ))}
           </div>
         </div>
