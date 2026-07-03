@@ -1865,6 +1865,38 @@ select:disabled {
   display: none;
 }
 
+/* ── Empresas ── */
+.companies-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.companies-filters-search {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.companies-expand-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.8em;
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.companies-expand-toggle:hover {
+  color: var(--ink);
+}
+
 /* ── Purchases filter panel ─────────────────────────────────────────── */
 .purch-filters-header {
   display: flex;
