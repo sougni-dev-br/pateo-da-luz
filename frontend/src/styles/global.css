@@ -1897,6 +1897,40 @@ select:disabled {
   color: var(--ink);
 }
 
+/* ── Pedidos de compra: blocos de KPI (operacional vs financeiro) ── */
+.po-kpi-block {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.po-status-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.po-finance-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 320px);
+}
+
+@media (max-width: 1200px) {
+  .po-status-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .po-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .po-finance-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* ── Ciclos de fornecedor ── */
 .cycles-filter-search {
   flex: 1 1 200px;
