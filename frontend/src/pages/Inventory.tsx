@@ -69,7 +69,7 @@ import { Notice, useNotice } from "../components/Notice";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { SimpleBarChart } from "../components/SimpleBarChart";
 import { ConfirmDialog } from "../components/ui";
-import { Button, EmptyState, RowMenu, StatusBadge, SummaryCard, Table } from "../design-system";
+import { Alert, Button, EmptyState, Money, PanelEyebrow, RowMenu, StatusBadge, SummaryCard, Table } from "../design-system";
 import { OverviewSection } from "./inventory/OverviewSection";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
@@ -3325,24 +3325,24 @@ export function Inventory({
       </section>
 
       <section className={panelClass(["movements"])}>
-        <div className="section-heading"><div><p>Movimentacao autorizada</p><h2>Registrar movimentacao</h2></div></div>
+        <div className="section-heading"><div><PanelEyebrow>Movimentação autorizada</PanelEyebrow><h2>Registrar movimentação</h2></div></div>
         <div className="form-grid">
-          <label>Buscar produto<input list="movement-products" value={movementSearch} onBlur={findMovementProduct} onChange={(event) => setMovementSearch(event.target.value)} placeholder="Codigo ou nome" /><datalist id="movement-products">{products.map((product) => <option key={product.id} value={product.externalCode ? `${product.externalCode} - ${product.name}` : product.name} />)}</datalist></label>
-          <button className="secondary-button" type="button" onClick={findMovementProduct}><Search size={16} />Buscar</button>
+          <label>Buscar produto<input list="movement-products" value={movementSearch} onBlur={findMovementProduct} onChange={(event) => setMovementSearch(event.target.value)} placeholder="Código ou nome" /><datalist id="movement-products">{products.map((product) => <option key={product.id} value={product.externalCode ? `${product.externalCode} - ${product.name}` : product.name} />)}</datalist></label>
+          <Button variant="secondary" leadingIcon={<Search size={16} />} onClick={findMovementProduct}>Buscar</Button>
           <label>Produto<select value={movementForm.productId} onChange={(event) => selectMovementProduct(event.target.value)}>{products.map((product) => <option key={product.id} value={product.id}>{product.externalCode ? `${product.externalCode} - ` : ""}{product.name}</option>)}</select></label>
           <label>Tipo<select value={movementForm.type} onChange={(event) => setMovementForm({ ...movementForm, type: event.target.value })}>{movementTypes.filter((type) => canViewCosts || type.value !== "PURCHASE_IN").map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
           <label>Quantidade<input inputMode="decimal" value={movementForm.quantity} onChange={(event) => setMovementForm({ ...movementForm, quantity: event.target.value })} /></label>
           <label>Unidade<input value={movementForm.unit} onChange={(event) => setMovementForm({ ...movementForm, unit: event.target.value })} /></label>
-          <label className={sensitiveMovementTypes.includes(movementForm.type) && !movementForm.notes.trim() ? "field-error" : ""}>Motivo/observacao<input value={movementForm.notes} onChange={(event) => setMovementForm({ ...movementForm, notes: event.target.value })} /></label>
-          <button className="primary-button large-action" type="button" onClick={submitMovement}>Salvar movimentacao</button>
+          <label className={sensitiveMovementTypes.includes(movementForm.type) && !movementForm.notes.trim() ? "field-error" : ""}>Motivo/observação<input value={movementForm.notes} onChange={(event) => setMovementForm({ ...movementForm, notes: event.target.value })} /></label>
+          <Button className="large-action" onClick={submitMovement}>Salvar movimentação</Button>
         </div>
         {movementForm.productId && (
-          <div className="alert success">
+          <Alert tone="success">
             {(() => {
               const product = products.find((item) => item.id === movementForm.productId);
-              return product ? `Selecionado: ${product.externalCode ?? "-"} - ${product.name} | Setor ${product.inventorySector?.name ?? "-"} | ${[product.storageLocation, product.storageShelf, product.storagePosition].filter(Boolean).join(" - ") || "sem localizacao"}` : "";
+              return product ? `Selecionado: ${product.externalCode ?? "-"} - ${product.name} | Setor ${product.inventorySector?.name ?? "-"} | ${[product.storageLocation, product.storageShelf, product.storagePosition].filter(Boolean).join(" - ") || "sem localização"}` : "";
             })()}
-          </div>
+          </Alert>
         )}
       </section>
 
@@ -3370,22 +3370,49 @@ export function Inventory({
       />
 
       <section className={panelClass(["movements", "reports"])}>
-        <div className="section-heading"><div><p>Historico</p><h2>{user.role === "ESTOQUISTA" ? "Minhas contagens e movimentacoes" : "Movimentacoes recentes"}</h2></div></div>
+        <div className="section-heading"><div><PanelEyebrow>Histórico</PanelEyebrow><h2>{user.role === "ESTOQUISTA" ? "Minhas contagens e movimentações" : "Movimentações recentes"}</h2></div></div>
         <div className="filters-row">
           <PeriodFilter value={movementPeriod} onChange={setMovementPeriod} />
-          <button className="primary-button" type="button" onClick={load}>Filtrar</button>
+          <Button onClick={load}>Filtrar</Button>
         </div>
         <div className="chart-grid">
           <SimpleBarChart title="Entradas x saídas por tipo" items={movementsByType} />
           <SimpleBarChart title="Produtos mais movimentados" items={movementsByProduct} />
           <SimpleBarChart title="Linha temporal de movimentações" items={movementsTimeline} />
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Data</th><th>Produto</th><th>Tipo/status</th><th>Quantidade</th><th>Unidade</th>{canViewCosts && <th>Custo total</th>}<th>Obs.</th></tr></thead>
-            <tbody>{movements.map((movement) => <tr key={movement.id}><td>{formatDate(movement.createdAt)}</td><td>{movement.productName}</td><td>{movement.type}</td><td>{formatNumber(Number(movement.quantity))}</td><td>{movement.unit ?? "-"}</td>{canViewCosts && <td>{movement.totalCost ? formatCurrency(Number(movement.totalCost)) : "-"}</td>}<td>{movement.notes ?? "-"}</td></tr>)}</tbody>
-          </table>
-        </div>
+        <Table>
+          <Table.Head>
+            <Table.Row>
+              <Table.Th>Data</Table.Th>
+              <Table.Th minWidth={180}>Produto</Table.Th>
+              <Table.Th>Tipo/status</Table.Th>
+              <Table.Th align="right">Quantidade</Table.Th>
+              <Table.Th>Unidade</Table.Th>
+              {canViewCosts && <Table.Th align="right">Custo total</Table.Th>}
+              <Table.Th>Obs.</Table.Th>
+            </Table.Row>
+          </Table.Head>
+          <Table.Body>
+            {movements.map((movement) => (
+              <Table.Row key={movement.id}>
+                <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(movement.createdAt)}</Table.Td>
+                <Table.Td truncate title={movement.productName}>{movement.productName}</Table.Td>
+                <Table.Td>{movement.type}</Table.Td>
+                <Table.Td align="right">{formatNumber(Number(movement.quantity))}</Table.Td>
+                <Table.Td>{movement.unit ?? "-"}</Table.Td>
+                {canViewCosts && <Table.Td align="right">{movement.totalCost ? <Money value={Number(movement.totalCost)} /> : "-"}</Table.Td>}
+                <Table.Td truncate style={{ maxWidth: 200 }} title={movement.notes ?? undefined}>{movement.notes ?? "-"}</Table.Td>
+              </Table.Row>
+            ))}
+            {movements.length === 0 && (
+              <Table.Row>
+                <Table.Td colSpan={canViewCosts ? 7 : 6}>
+                  <EmptyState title="Nenhuma movimentação no período" />
+                </Table.Td>
+              </Table.Row>
+            )}
+          </Table.Body>
+        </Table>
         {canConfigureAgenda && (
           <div className="subsection table-wrap">
             <table>
