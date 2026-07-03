@@ -33,13 +33,14 @@ import { SimpleBarChart } from "../components/SimpleBarChart";
 import {
   EmptyState,
   IconButton,
+  Money,
   PanelEyebrow,
   RowMenu,
   StatusBadge,
   SummaryCard,
   Table
 } from "../design-system";
-import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { formatDate, formatNumber } from "../utils/format";
 
 const emptyProduct = {
   id: "",
@@ -1102,8 +1103,8 @@ export function Products() {
                       <td title={purchase.supplierName}>{purchase.supplierName}</td>
                       <td>{formatNumber(purchase.quantity)}</td>
                       <td>{purchase.unit ?? "-"}</td>
-                      <td>{formatCurrency(purchase.unitPrice)}</td>
-                      <td>{formatCurrency(purchase.totalPrice)}</td>
+                      <td><Money value={purchase.unitPrice} /></td>
+                      <td><Money value={purchase.totalPrice} /></td>
                       <td>{[purchase.purchaseNumber, purchase.invoiceNumber].filter(Boolean).join(" / ") || "-"}</td>
                     </tr>
                   ))}

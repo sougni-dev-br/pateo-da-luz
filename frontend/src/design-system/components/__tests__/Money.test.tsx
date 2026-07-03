@@ -120,6 +120,55 @@ describe("Money", () => {
     expect(container.querySelector('[aria-label="valor oculto"]')).not.toBeNull();
   });
 
+  describe("hardening — value flexivel", () => {
+    test("aceita string numerica (Decimal do Prisma serializado)", () => {
+      const { container } = withProviders(<Money value="1234.5" />);
+      expect(container.textContent).toBe("R$1.234,50");
+    });
+
+    test("string '0' renderiza R$ 0,00 (nao vira travessao)", () => {
+      const { container } = withProviders(<Money value="0" />);
+      expect(container.textContent).toBe("R$0,00");
+    });
+
+    test("string nao-numerica renderiza travessao", () => {
+      const { container } = withProviders(<Money value="abc" />);
+      expect(container.textContent).toBe("—");
+    });
+
+    test("string vazia renderiza travessao", () => {
+      const { container } = withProviders(<Money value="" />);
+      expect(container.textContent).toBe("—");
+    });
+
+    test("NaN explicito renderiza travessao (nao R$ NaN)", () => {
+      const { container } = withProviders(<Money value={NaN} />);
+      expect(container.textContent).toBe("—");
+    });
+
+    test("Infinity renderiza travessao", () => {
+      const { container } = withProviders(<Money value={Infinity} />);
+      expect(container.textContent).toBe("—");
+    });
+
+    test("-Infinity renderiza travessao", () => {
+      const { container } = withProviders(<Money value={-Infinity} />);
+      expect(container.textContent).toBe("—");
+    });
+
+    test("string valida ainda mascara quando hidden context true", () => {
+      const { container } = withProviders(<Money value="1234.5" />, {
+        hideSensitiveValues: true
+      });
+      expect(container.textContent).toBe("R$••••");
+    });
+
+    test("string negativa formata com sinal en-dash", () => {
+      const { container } = withProviders(<Money value="-820" />);
+      expect(container.textContent).toBe("– R$820,00");
+    });
+  });
+
   test("nao explode se HideValuesContext ausente e contexto padrao esperado", () => {
     // useHideValues lanca fora de HideValuesProvider — comportamento intencional.
     // Silenciamos o console.error do React durante o assert.
