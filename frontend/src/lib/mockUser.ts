@@ -246,6 +246,40 @@ function mockResponseFor(url: string): unknown {
     };
   }
   if (path.endsWith("/suppliers")) return buildMockSuppliers();
+
+  // Pedidos de compra: shape { orders, summary } — lista crua quebraria
+  // data.orders.map na pagina.
+  if (path.endsWith("/purchase-orders")) {
+    return {
+      orders: [
+        {
+          id: "po-1",
+          code: "PC-0001",
+          supplierNameSnapshot: "Distribuidora Hortifruti Central do Vale Ltda ME",
+          status: "RASCUNHO",
+          source: "PLANEJAMENTO_COMPRA",
+          createdAt: new Date().toISOString(),
+          expectedDeliveryDate: null,
+          totalItems: 12,
+          estimatedTotal: 1840.5,
+          createdByUserName: "Mock Admin"
+        },
+        {
+          id: "po-2",
+          code: "PC-0002",
+          supplierNameSnapshot: "Casa de Carnes Bom Corte",
+          status: "ENVIADO",
+          source: "MANUAL",
+          createdAt: new Date().toISOString(),
+          expectedDeliveryDate: new Date().toISOString(),
+          totalItems: 4,
+          estimatedTotal: 920,
+          createdByUserName: "Mock Admin"
+        }
+      ],
+      summary: { RASCUNHO: 1, ENVIADO: 1 }
+    };
+  }
   if (path.includes("/companies") && path.includes("bank-accounts")) {
     return [
       {
