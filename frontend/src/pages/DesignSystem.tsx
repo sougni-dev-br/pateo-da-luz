@@ -2,9 +2,13 @@ import {
   BadgeDollarSign,
   Boxes,
   Building2,
+  Eye,
+  History,
   Package,
+  Pencil,
   Percent as PercentIcon,
   Plus,
+  PowerOff,
   Search,
   Target,
   TrendingDown,
@@ -20,14 +24,17 @@ import {
   FormField,
   FormGrid,
   FormSection,
+  IconButton,
   KpiCard,
   Money,
   PageHeader,
   Percent,
+  RowMenu,
   Select,
   StatusBadge,
   SummaryCard,
   Switch,
+  Table,
   Tabs,
   Textarea,
   TextField,
@@ -407,6 +414,71 @@ export function DesignSystem() {
               </FormGrid>
             </FormSection>
           </Card>
+        </Section>
+
+        {/* ─── Tabela canônica (Fase 5.0) ─── */}
+        <Section
+          title="Tabela canônica"
+          subtitle="Table + IconButton 40x40 + RowMenu · truncate com tooltip · row hover creme"
+        >
+          <Table>
+            <Table.Head>
+              <Table.Row>
+                <Table.Th minWidth={180}>Fornecedor</Table.Th>
+                <Table.Th>Categoria</Table.Th>
+                <Table.Th align="right">Total do mês</Table.Th>
+                <Table.Th align="center">Status</Table.Th>
+                <Table.Th actions>Ações</Table.Th>
+              </Table.Row>
+            </Table.Head>
+            <Table.Body>
+              <Table.Row>
+                <Table.Td truncate title="Distribuidora Hortifruti Central do Vale Ltda ME">
+                  Distribuidora Hortifruti Central do Vale Ltda ME
+                </Table.Td>
+                <Table.Td>Hortifruti</Table.Td>
+                <Table.Td align="right"><Money value={12480} /></Table.Td>
+                <Table.Td align="center"><StatusBadge tone="success">Ativo</StatusBadge></Table.Td>
+                <Table.Td actions>
+                  <IconButton icon={<Pencil size={16} />} label="Editar" />
+                  <RowMenu
+                    items={[
+                      { label: "Ver histórico", icon: <History size={15} /> },
+                      { label: "Ver compras", icon: <Eye size={15} /> },
+                      { separator: true },
+                      { label: "Inativar", icon: <PowerOff size={15} />, tone: "danger" }
+                    ]}
+                  />
+                </Table.Td>
+              </Table.Row>
+              <Table.Row>
+                <Table.Td truncate>Casa de Carnes Bom Corte</Table.Td>
+                <Table.Td>Carnes</Table.Td>
+                <Table.Td align="right"><Money value={31240} /></Table.Td>
+                <Table.Td align="center"><StatusBadge tone="warning">Pendente</StatusBadge></Table.Td>
+                <Table.Td actions>
+                  <IconButton icon={<Pencil size={16} />} label="Editar" />
+                  <RowMenu
+                    items={[
+                      { label: "Ver histórico", icon: <History size={15} /> },
+                      { separator: true },
+                      { label: "Inativar", icon: <PowerOff size={15} />, tone: "danger" }
+                    ]}
+                  />
+                </Table.Td>
+              </Table.Row>
+              <Table.Row>
+                <Table.Td truncate>Bebidas Serra Azul</Table.Td>
+                <Table.Td>Bebidas</Table.Td>
+                <Table.Td align="right"><Money value={8020} /></Table.Td>
+                <Table.Td align="center"><StatusBadge tone="danger">Inativo</StatusBadge></Table.Td>
+                <Table.Td actions>
+                  <IconButton icon={<Pencil size={16} />} label="Editar" />
+                  <IconButton icon={<PowerOff size={16} />} label="Reativar" variant="danger" />
+                </Table.Td>
+              </Table.Row>
+            </Table.Body>
+          </Table>
         </Section>
 
         {/* ─── Compostos ─── */}

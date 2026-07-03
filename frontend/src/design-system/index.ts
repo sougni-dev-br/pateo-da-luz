@@ -49,6 +49,15 @@ export type { SwitchProps } from "./components/Switch";
 export { Textarea } from "./components/Textarea";
 export type { TextareaProps } from "./components/Textarea";
 
+export { Table } from "./components/Table";
+export type { TableProps, TableRowProps, TableThProps, TableTdProps } from "./components/Table";
+
+export { IconButton } from "./components/IconButton";
+export type { IconButtonProps, IconButtonVariant, IconButtonSize } from "./components/IconButton";
+
+export { RowMenu } from "./components/RowMenu";
+export type { RowMenuProps, RowMenuItem, RowMenuSeparator } from "./components/RowMenu";
+
 export { SummaryCard } from "./components/SummaryCard";
 export type { SummaryCardProps, SummaryTone } from "./components/SummaryCard";
 
