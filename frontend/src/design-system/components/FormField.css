@@ -1,0 +1,63 @@
+.ds-form-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  font-family: var(--font-sans);
+}
+
+.ds-form-field-label {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.ds-form-field-required {
+  color: var(--danger);
+  font-weight: var(--fw-semibold);
+}
+
+.ds-form-field-control {
+  min-width: 0;
+}
+
+.ds-form-field-helper {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.ds-form-field-helper-error {
+  color: var(--danger);
+}
+
+/* Estado invalido: pinta a borda de qualquer controle DS ou nativo
+   dentro do campo — o filho nao precisa receber prop error. */
+.ds-form-field-invalid .ds-text-field-input,
+.ds-form-field-invalid .ds-select-native,
+.ds-form-field-invalid .ds-textarea-input,
+.ds-form-field-invalid input:not([type="checkbox"]):not([type="radio"]),
+.ds-form-field-invalid select,
+.ds-form-field-invalid textarea {
+  border-color: var(--danger);
+}
+
+/* Variante inline: label e controle lado a lado (Switch, checkbox). */
+.ds-form-field-inline {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.ds-form-field-inline .ds-form-field-label {
+  color: var(--ink);
+  order: 2;
+}
+
+.ds-form-field-inline .ds-form-field-control {
+  order: 1;
+}
+
+.ds-form-field-inline .ds-form-field-helper {
+  grid-column: 1 / -1;
+}

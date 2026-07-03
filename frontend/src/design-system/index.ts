@@ -34,6 +34,21 @@ export type { TextFieldProps } from "./components/TextField";
 export { Select } from "./components/Select";
 export type { SelectProps, SelectOption } from "./components/Select";
 
+export { FormField } from "./components/FormField";
+export type { FormFieldProps } from "./components/FormField";
+
+export { FormGrid } from "./components/FormGrid";
+export type { FormGridProps } from "./components/FormGrid";
+
+export { FormSection } from "./components/FormSection";
+export type { FormSectionProps } from "./components/FormSection";
+
+export { Switch } from "./components/Switch";
+export type { SwitchProps } from "./components/Switch";
+
+export { Textarea } from "./components/Textarea";
+export type { TextareaProps } from "./components/Textarea";
+
 export { SummaryCard } from "./components/SummaryCard";
 export type { SummaryCardProps, SummaryTone } from "./components/SummaryCard";
 
