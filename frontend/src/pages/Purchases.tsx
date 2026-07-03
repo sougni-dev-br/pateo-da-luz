@@ -2908,7 +2908,7 @@ export function Purchases({ user }: { user: AppUser }) {
                             {option.externalCode && <span className="pnova-bs-card-chip">{option.externalCode}</span>}
                             {option.unit && <span>{option.unit}</span>}
                             {option.category?.name && <span>{option.category.name}</span>}
-                            {!option.isActive && <span style={{ color: "#c62828" }}>INATIVO</span>}
+                            {!option.isActive && <span style={{ color: "var(--danger)" }}>INATIVO</span>}
                           </span>
                         </button>
                       ))
