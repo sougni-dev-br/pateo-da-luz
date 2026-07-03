@@ -119,13 +119,15 @@ function classifyCmv(percentual: number | null | undefined) {
   return { label: "Crítico", tone: "tone-danger" };
 }
 
+// pt-BR: virgula decimal. Aceita fracao (0-1) e multiplica por 100 internamente.
 function formatPercent(value: number | null | undefined) {
-  return value == null ? "-" : `${(value * 100).toFixed(2)}%`;
+  if (value == null) return "-";
+  return `${(value * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
 }
 
 function percentageOf(total: number, amount: number) {
   if (!total) return "-";
-  return `${((amount / total) * 100).toFixed(1)}%`;
+  return `${((amount / total) * 100).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 
 function SectionHeader({ eyebrow, title, actions }: { eyebrow: string; title: string; actions?: ReactNode }) {

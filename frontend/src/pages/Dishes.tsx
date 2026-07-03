@@ -25,7 +25,7 @@ import {
   Table,
   Tabs
 } from "../design-system";
-import { formatCurrency } from "../utils/format";
+import { formatCurrency, formatPercent } from "../utils/format";
 
 type FormItem = {
   tempId: string;
@@ -48,7 +48,7 @@ type Mode = "list" | "categories";
 function cmvBadge(cmv: number | null) {
   if (cmv == null) return null;
   const tone = cmv > 40 ? "danger" : cmv > 32 ? "warning" : "success";
-  return <StatusBadge tone={tone}>{cmv.toFixed(1)}%</StatusBadge>;
+  return <StatusBadge tone={tone}>{formatPercent(cmv)}</StatusBadge>;
 }
 
 // ──────────────────────────────────────────────
@@ -294,7 +294,7 @@ function DishDetailPanel({
         </div>
         <div className="kpi-card">
           <span>CMV%</span>
-          <strong>{dish.cmvPercentual != null ? `${dish.cmvPercentual.toFixed(1)}%` : "—"}</strong>
+          <strong>{formatPercent(dish.cmvPercentual)}</strong>
         </div>
       </div>
 
@@ -321,11 +321,11 @@ function DishDetailPanel({
               </td>
               <td className="text-right">{item.quantity}</td>
               <td>{item.unit}</td>
-              <td className="text-right">{item.wasteFactor > 0 ? `${(item.wasteFactor * 100).toFixed(1)}%` : "—"}</td>
+              <td className="text-right">{item.wasteFactor > 0 ? formatPercent(item.wasteFactor * 100) : "—"}</td>
               <td className="text-right">{formatCurrency(item.unitCost)}</td>
               <td className="text-right">{formatCurrency(item.itemCost)}</td>
               <td className="text-right">
-                {dish.calculatedCost > 0 ? `${((item.itemCost / dish.calculatedCost) * 100).toFixed(1)}%` : "—"}
+                {dish.calculatedCost > 0 ? formatPercent((item.itemCost / dish.calculatedCost) * 100) : "—"}
               </td>
             </tr>
           ))}
@@ -531,7 +531,7 @@ function DishFormPanel({
         </div>
         <div className="kpi-card">
           <span>CMV%</span>
-          <strong>{previewCmv != null ? `${previewCmv.toFixed(1)}%` : "—"}</strong>
+          <strong>{formatPercent(previewCmv)}</strong>
         </div>
       </div>
 

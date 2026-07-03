@@ -23,7 +23,7 @@ import {
 } from "../api/client";
 import { useSession } from "../context/SessionContext";
 import { Alert, Button, IconButton } from "../design-system";
-import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { formatCurrency, formatDate, formatNumber, formatPercent } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 
 // ─────────────────────────────────────────────
@@ -62,7 +62,7 @@ function deltaInfo(pct: number | null, higherIsGood: boolean): { text: string; t
     pct === 0 ? "neutral"
     : higherIsGood ? (pct > 0 ? "success" : "warning")
     : (pct > 0 ? "warning" : "success");
-  return { text: `${sign}${pct.toFixed(1)}% vs mês anterior`, tone };
+  return { text: `${sign}${formatPercent(pct)} vs mês anterior`, tone };
 }
 
 // Mapa path → moduleId para verificação de permissão nos botões de ação
@@ -408,7 +408,7 @@ export function Dashboard() {
                 sub={
                   summary?.cmvReal.status === "closed"
                     ? summary.cmvReal.percent !== null
-                      ? `${summary.cmvReal.percent.toFixed(1)}% do faturamento`
+                      ? `${formatPercent(summary.cmvReal.percent)} do faturamento`
                       : "Período fechado"
                     : summary?.cmvReal.status === "pending"
                     ? "Inventário aberto — fechamento pendente"
@@ -436,7 +436,7 @@ export function Dashboard() {
                 sub={
                   summary
                     ? summary.estimatedResult.marginPercent !== null
-                      ? `Margem: ${summary.estimatedResult.marginPercent.toFixed(1)}%`
+                      ? `Margem: ${formatPercent(summary.estimatedResult.marginPercent)}`
                       : "Faturamento − Compras do período"
                     : "Aguardando dados"
                 }
@@ -670,7 +670,7 @@ function RankingPanel({
                   </div>
                   <div className="dash-ranking-bar-wrap">
                     <div className="dash-ranking-bar" style={{ width: `${Math.max(pct, 2)}%` }} />
-                    <span className="dash-ranking-pct">{pct.toFixed(1)}%{row.sub ? ` · ${row.sub}` : ""}</span>
+                    <span className="dash-ranking-pct">{formatPercent(pct)}{row.sub ? ` · ${row.sub}` : ""}</span>
                   </div>
                 </div>
               </li>

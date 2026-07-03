@@ -14,7 +14,7 @@ import type { StatusTone } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { PeriodFilter } from "../components/PeriodFilter";
 import type { ImportTab } from "./ImportsHub";
-import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { formatCurrency, formatDate, formatNumber, formatPercent } from "../utils/format";
 import { currentMonthPeriod, periodForPreset, type PeriodState } from "../utils/period";
 
 const channels = ["Salão", "Delivery", "Eventos / Empreitada", "Outros"];
@@ -630,9 +630,9 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
         <div className="subsection">
           <h3>Participação e serviço</h3>
           <div className="summary-grid financial-summary">
-            <MetricCard label="1º turno sobre vendas" value={`${firstShiftShare.toFixed(1)}%`} />
-            <MetricCard label="2º turno sobre vendas" value={`${secondShiftShare.toFixed(1)}%`} />
-            <MetricCard label="Serviço sobre vendas" value={`${serviceShare.toFixed(1)}%`} />
+            <MetricCard label="1º turno sobre vendas" value={formatPercent(firstShiftShare)} />
+            <MetricCard label="2º turno sobre vendas" value={formatPercent(secondShiftShare)} />
+            <MetricCard label="Serviço sobre vendas" value={formatPercent(serviceShare)} />
           </div>
         </div>
 
@@ -779,7 +779,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                     <td>{formatCurrency(row.grossAmount)}</td>
                     <td>{formatCurrency(row.netAmount)}</td>
                     <td>{formatNumber(row.tickets)}</td>
-                    <td>{row.grossAmount > 0 ? `${((row.serviceAmount / row.grossAmount) * 100).toFixed(1)}%` : "0,0%"}</td>
+                    <td>{row.grossAmount > 0 ? formatPercent((row.serviceAmount / row.grossAmount) * 100) : "0,0%"}</td>
                   </tr>
                 ))}
                 {weekdayRows.length === 0 && <EmptyTableRow colSpan={5} message="Sem dados." />}
