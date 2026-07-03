@@ -69,7 +69,13 @@ const MONTHS = [
 
 function pct(v: number | null | undefined, decimals = 1) {
   if (v == null || !isFinite(v)) return "—";
-  return `${v.toFixed(decimals)}%`;
+  // Formato pt-BR (virgula decimal) — .toFixed() produz ponto e sai errado
+  // em telas em portugues. Consistente com o componente <Percent /> do DS.
+  const formatted = v.toLocaleString("pt-BR", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  });
+  return `${formatted}%`;
 }
 
 function safePct(numerator: number, base: number): number | null {
