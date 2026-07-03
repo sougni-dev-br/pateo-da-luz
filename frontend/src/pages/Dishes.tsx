@@ -25,7 +25,7 @@ import {
   Table,
   Tabs
 } from "../design-system";
-import { formatCurrency, formatPercent } from "../utils/format";
+import { formatPercent } from "../utils/format";
 
 type FormItem = {
   tempId: string;
@@ -282,15 +282,15 @@ function DishDetailPanel({
       <div className="kpi-row" style={{ marginBottom: 16 }}>
         <div className="kpi-card">
           <span>Custo calculado</span>
-          <strong>{formatCurrency(dish.calculatedCost)}</strong>
+          <strong><Money value={dish.calculatedCost} /></strong>
         </div>
         <div className="kpi-card">
           <span>Preço de venda</span>
-          <strong>{dish.salePriceDefault != null ? formatCurrency(dish.salePriceDefault) : "—"}</strong>
+          <strong><Money value={dish.salePriceDefault} /></strong>
         </div>
         <div className="kpi-card">
           <span>Margem bruta</span>
-          <strong>{dish.margemBruta != null ? formatCurrency(dish.margemBruta) : "—"}</strong>
+          <strong><Money value={dish.margemBruta} /></strong>
         </div>
         <div className="kpi-card">
           <span>CMV%</span>
@@ -322,8 +322,8 @@ function DishDetailPanel({
               <td className="text-right">{item.quantity}</td>
               <td>{item.unit}</td>
               <td className="text-right">{item.wasteFactor > 0 ? formatPercent(item.wasteFactor * 100) : "—"}</td>
-              <td className="text-right">{formatCurrency(item.unitCost)}</td>
-              <td className="text-right">{formatCurrency(item.itemCost)}</td>
+              <td className="text-right"><Money value={item.unitCost} /></td>
+              <td className="text-right"><Money value={item.itemCost} /></td>
               <td className="text-right">
                 {dish.calculatedCost > 0 ? formatPercent((item.itemCost / dish.calculatedCost) * 100) : "—"}
               </td>
@@ -333,7 +333,7 @@ function DishDetailPanel({
         <tfoot>
           <tr>
             <td colSpan={5}><strong>Total</strong></td>
-            <td className="text-right"><strong>{formatCurrency(dish.calculatedCost)}</strong></td>
+            <td className="text-right"><strong><Money value={dish.calculatedCost} /></strong></td>
             <td></td>
           </tr>
         </tfoot>
@@ -523,11 +523,11 @@ function DishFormPanel({
       <div className="kpi-row" style={{ margin: "12px 0" }}>
         <div className="kpi-card">
           <span>Custo calculado</span>
-          <strong>{formatCurrency(previewCost)}</strong>
+          <strong><Money value={previewCost} /></strong>
         </div>
         <div className="kpi-card">
           <span>Margem bruta</span>
-          <strong>{previewMargem != null ? formatCurrency(previewMargem) : "—"}</strong>
+          <strong><Money value={previewMargem} /></strong>
         </div>
         <div className="kpi-card">
           <span>CMV%</span>
@@ -552,7 +552,7 @@ function DishFormPanel({
             {productResults.map((p) => (
               <button key={p.id} type="button" className="dropdown-item" onClick={() => addProduct(p)}>
                 <span>{p.name}</span>
-                <span className="text-muted">{p.externalCode} · {p.unit} · custo: {formatCurrency(p.averageCost)}</span>
+                <span className="text-muted">{p.externalCode} · {p.unit} · custo: <Money value={p.averageCost} /></span>
               </button>
             ))}
           </div>
@@ -608,8 +608,8 @@ function DishFormPanel({
                       style={{ width: 60 }}
                     />
                   </td>
-                  <td className="text-right">{formatCurrency(item.unitCost)}</td>
-                  <td className="text-right">{formatCurrency(itemCost)}</td>
+                  <td className="text-right"><Money value={item.unitCost} /></td>
+                  <td className="text-right"><Money value={itemCost} /></td>
                   <td>
                     <button type="button" className="btn-icon-sm btn-danger" onClick={() => removeItem(item.tempId)}>
                       <Trash2 size={12} />

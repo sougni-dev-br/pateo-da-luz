@@ -12,7 +12,8 @@ import {
   saveImportConflictDecision
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
-import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { Money } from "../design-system";
+import { formatDate, formatNumber } from "../utils/format";
 
 type Status = "idle" | "loading-preview" | "preview-ready" | "confirming" | "done" | "error";
 
@@ -289,7 +290,7 @@ export function ImportExcel() {
             </article>
             <article>
               <span>Total da planilha</span>
-              <strong>{formatCurrency(preview.validation.spreadsheetTotal)}</strong>
+              <strong><Money value={preview.validation.spreadsheetTotal} /></strong>
             </article>
             <article>
               <span>Compras/NFs agrupadas</span>
@@ -439,7 +440,7 @@ export function ImportExcel() {
                     <tr key={`${group.invoiceNumber}-${index}`}>
                       <td>{group.invoiceNumber ?? "-"}</td>
                       <td>{group.supplierName}</td>
-                      <td>{formatCurrency(group.total)}</td>
+                      <td><Money value={group.total} /></td>
                       <td>{group.paymentMethod ?? "-"}</td>
                       <td>{group.expectedInstallments ?? 1}</td>
                       <td>{group.dueDates?.length ? group.dueDates.join(", ") : "-"}</td>
@@ -613,7 +614,7 @@ export function ImportExcel() {
                     <td>{row.categoryName ?? "-"}</td>
                     <td>{formatNumber(row.quantity)}</td>
                     <td>{row.unit ?? "-"}</td>
-                    <td>{formatCurrency(row.totalPrice)}</td>
+                    <td><Money value={row.totalPrice} /></td>
                     <td>{row.paymentMethod ?? "-"}</td>
                     <td>{row.dueDates ?? "-"}</td>
                   </tr>
@@ -641,15 +642,15 @@ export function ImportExcel() {
           <div className="summary-grid">
             <article>
               <span>Total planilha</span>
-              <strong>{formatCurrency(report.spreadsheetTotal)}</strong>
+              <strong><Money value={report.spreadsheetTotal} /></strong>
             </article>
             <article>
               <span>Total importado</span>
-              <strong>{formatCurrency(report.importedTotal)}</strong>
+              <strong><Money value={report.importedTotal} /></strong>
             </article>
             <article>
               <span>Diferenca</span>
-              <strong>{formatCurrency(report.differenceTotal)}</strong>
+              <strong><Money value={report.differenceTotal} /></strong>
             </article>
             <article>
               <span>Linhas importadas</span>
