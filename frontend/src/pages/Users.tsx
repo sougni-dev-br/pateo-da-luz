@@ -34,6 +34,17 @@ import {
 import { Notice, useNotice } from "../components/Notice";
 import { isPasswordValid, PasswordField, passwordPolicyMessage } from "../components/PasswordField";
 import { useSession } from "../context/SessionContext";
+import {
+  Alert,
+  Button,
+  FormField,
+  FormGrid,
+  IconButton,
+  PanelEyebrow,
+  Select,
+  StatusBadge,
+  TextField
+} from "../design-system";
 import { normalizeModulePermission } from "../lib/permissions";
 import { formatDate } from "../utils/format";
 
@@ -461,13 +472,9 @@ export function Users() {
           <div className="users-sidebar-header">
             <h2>Usuários</h2>
             <div className="users-sidebar-btns">
-              <button type="button" className="icon-button" onClick={load} title="Atualizar lista">
-                <RefreshCw size={16} />
-              </button>
+              <IconButton icon={<RefreshCw size={16} />} label="Atualizar lista" size="sm" onClick={load} />
               {canAdminUsers && (
-                <button type="button" className="icon-button" onClick={() => { setShowNewForm(true); setSelectedId(""); setConfirmAction(null); }} title="Novo usuário">
-                  <Plus size={16} />
-                </button>
+                <IconButton icon={<Plus size={16} />} label="Novo usuário" size="sm" onClick={() => { setShowNewForm(true); setSelectedId(""); setConfirmAction(null); }} />
               )}
             </div>
           </div>
@@ -526,34 +533,28 @@ export function Users() {
           {showNewForm && (
             <section className="panel">
               <div className="section-heading">
-                <div><p>Segurança</p><h2>Novo usuário</h2></div>
-                <button type="button" className="icon-button" onClick={() => setShowNewForm(false)} title="Cancelar">
-                  ✕
-                </button>
+                <div><PanelEyebrow>Segurança</PanelEyebrow><h2>Novo usuário</h2></div>
+                <IconButton icon={<span aria-hidden>✕</span>} label="Cancelar" onClick={() => setShowNewForm(false)} />
               </div>
-              <div className="form-grid">
-                <label>
-                  Nome
-                  <input value={newForm.name} autoComplete="off" onChange={(e) => setNewForm({ ...newForm, name: e.target.value })} />
-                </label>
-                <label>
-                  E-mail
-                  <input type="email" value={newForm.email} autoComplete="off" onChange={(e) => setNewForm({ ...newForm, email: e.target.value })} />
-                </label>
-                <label>
-                  Modelo de acesso
-                  <select value={newForm.role} onChange={(e) => setNewForm({ ...newForm, role: e.target.value as UserRole })}>
-                    {ALL_ROLES.filter((r) => r !== "ADMIN" || isAdmin).map((r) => (
-                      <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                    ))}
-                  </select>
-                </label>
-                <p className="role-desc-hint" style={{ gridColumn: "1 / -1" }}>
-                  {ROLE_DESCRIPTIONS[newForm.role]}
-                </p>
+              <FormGrid cols={2}>
+                <FormField label="Nome" required>
+                  <TextField value={newForm.name} autoComplete="off" onChange={(e) => setNewForm({ ...newForm, name: e.target.value })} />
+                </FormField>
+                <FormField label="E-mail" required>
+                  <TextField type="email" value={newForm.email} autoComplete="off" onChange={(e) => setNewForm({ ...newForm, email: e.target.value })} />
+                </FormField>
+                <div className="ds-form-grid-span-all">
+                  <FormField label="Modelo de acesso" hint={ROLE_DESCRIPTIONS[newForm.role]}>
+                    <Select
+                      value={newForm.role}
+                      onChange={(e) => setNewForm({ ...newForm, role: e.target.value as UserRole })}
+                      options={ALL_ROLES.filter((r) => r !== "ADMIN" || isAdmin).map((r) => ({ value: r, label: ROLE_LABELS[r] }))}
+                    />
+                  </FormField>
+                </div>
                 <PasswordField label="Senha inicial" value={newForm.password} onChange={(v) => setNewForm({ ...newForm, password: v })} />
                 <PasswordField label="Confirmar senha" value={newForm.confirmPassword} onChange={(v) => setNewForm({ ...newForm, confirmPassword: v })} />
-              </div>
+              </FormGrid>
               <div className={`password-hint ${isPasswordValid(newForm.password) ? "ok" : "error"}`}>
                 {passwordPolicyMessage(newForm.password)}
               </div>
