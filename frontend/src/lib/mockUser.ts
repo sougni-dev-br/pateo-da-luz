@@ -130,6 +130,62 @@ function buildEmptyAlerts() {
   };
 }
 
+function buildMockSuppliers() {
+  const base = {
+    phone: null,
+    email: null,
+    notes: null,
+    registrationDate: null,
+    defaultPaymentTermDays: null,
+    defaultPaymentMethodId: null,
+    defaultInstallmentCount: null,
+    defaultInstallmentDays: null,
+    defaultFinancialNotes: null,
+    billingMode: "DIRECT",
+    cycleFrequency: null,
+    cycleFirstDueDays: null,
+    cycleSecondDueDays: null
+  };
+  return [
+    {
+      ...base,
+      id: "sup-1",
+      externalCode: "F001",
+      name: "Distribuidora Hortifruti Central do Vale Ltda ME",
+      document: "12.345.678/0001-90",
+      contactName: "Seu João",
+      mainCategory: "Hortifruti",
+      isActive: true,
+      defaultInstallmentCount: 2,
+      defaultInstallmentDays: [15, 30]
+    },
+    {
+      ...base,
+      id: "sup-2",
+      externalCode: "F002",
+      name: "Casa de Carnes Bom Corte",
+      document: "98.765.432/0001-10",
+      contactName: "Dona Maria",
+      mainCategory: "Carnes",
+      isActive: true,
+      billingMode: "CYCLE",
+      cycleFrequency: "WEEKLY",
+      cycleFirstDueDays: 15
+    },
+    {
+      ...base,
+      id: "sup-3",
+      externalCode: "F003",
+      name: "Bebidas Serra Azul",
+      document: null,
+      contactName: null,
+      mainCategory: "Bebidas",
+      isActive: false,
+      defaultPaymentTermDays: 28
+    }
+  ];
+}
+
 export function isMockUserMode(): boolean {
   if (!isLocal) return false;
   if (typeof window === "undefined") return false;
@@ -174,6 +230,28 @@ function mockResponseFor(url: string): unknown {
   if (path.endsWith("/dashboard/purchases")) return buildEmptyPurchases();
   if (path.endsWith("/dashboard/summary")) return buildEmptySummary();
   if (path.endsWith("/dashboard/alerts")) return buildEmptyAlerts();
+
+  // Fornecedores: lista pequena com nome longo para exercitar a tabela DS
+  // (truncate + tooltip) e o historico com shape completo (evita crash em
+  // history.recentInvoices.map).
+  if (path.includes("/suppliers") && path.includes("/history")) {
+    return {
+      monthTotal: 0,
+      yearTotal: 0,
+      lastPurchase: null,
+      averagePaymentTermDays: null,
+      recentInvoices: [],
+      topProducts: [],
+      paymentMethods: []
+    };
+  }
+  if (path.endsWith("/suppliers")) return buildMockSuppliers();
+  if (path.endsWith("/payment-methods")) {
+    return [
+      { id: "pm-1", name: "PIX", isActive: true },
+      { id: "pm-2", name: "Boleto", isActive: true }
+    ];
+  }
 
   // Endpoints que sabidamente devolvem lista. Larga rede — qualquer
   // ambiguidade cai para [] em vez de {}, o que evita crashes de
