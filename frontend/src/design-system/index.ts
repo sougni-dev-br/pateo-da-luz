@@ -80,6 +80,9 @@ export type { SparklineProps } from "./components/Sparkline";
 export { HideValuesProvider, useHideValues } from "./context/HideValuesContext";
 export type { HideValuesContextValue } from "./context/HideValuesContext";
 
+export { useFormatCurrency } from "./hooks/useFormatCurrency";
+export type { FormatCurrencyFn, FormatCurrencyOptions } from "./hooks/useFormatCurrency";
+
 export { AppShell } from "./shell/AppShell";
 export type { AppShellProps } from "./shell/AppShell";
 

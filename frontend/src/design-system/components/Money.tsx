@@ -34,6 +34,7 @@ export function Money({ value, hidden, decimals = 2, className }: MoneyProps) {
   if (isHidden) {
     return (
       <span className={rootClass} aria-label="valor oculto">
+        <span className="ds-money-cur">R$</span>
         <span className="ds-money-hidden">••••</span>
       </span>
     );
