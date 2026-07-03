@@ -288,8 +288,25 @@ function mockResponseFor(url: string): unknown {
         incompleteRegistration: 0,
         withoutIdeal: 0,
         withoutMinimum: 0,
-        controlledTotal: 0
+        controlledTotal: 0,
+        latestFinalCmv: null,
+        source: {
+          sourceType: "DEFAULT",
+          sourceId: null,
+          code: null,
+          status: null,
+          type: null,
+          date: null,
+          totalItems: 0,
+          partial: false,
+          scopeLabel: null,
+          note: null,
+          purpose: "buyer-support",
+          canUseForBuyer: true
+        }
       },
+      supplierGroups: [],
+      prelist: [],
       items: []
     };
   }
