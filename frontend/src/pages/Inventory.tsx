@@ -71,7 +71,7 @@ import { SimpleBarChart } from "../components/SimpleBarChart";
 import { ConfirmDialog } from "../components/ui";
 import { Alert, Button, EmptyState, Money, PanelEyebrow, RowMenu, StatusBadge, SummaryCard, Table, Tabs } from "../design-system";
 import { OverviewSection } from "./inventory/OverviewSection";
-import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 import { useNavigate } from "react-router-dom";
 
@@ -3286,7 +3286,7 @@ export function Inventory({
                       )}
                     </td>
                     <td>{displayLabel(stock.unitCode, "-")}</td>
-                    {canViewCosts && <><td className="numeric-cell">{formatCurrency(Number(stock.averageCost ?? 0))}</td><td className="numeric-cell">{stock.costPerKg ? formatCurrency(Number(stock.costPerKg)) : "-"}</td><td className="numeric-cell">{stock.costPerBox ? formatCurrency(Number(stock.costPerBox)) : "-"}</td><td className="numeric-cell">{stock.costPerUnit ? formatCurrency(Number(stock.costPerUnit)) : "-"}</td></>}
+                    {canViewCosts && <><td className="numeric-cell"><Money value={stock.averageCost ?? 0} /></td><td className="numeric-cell">{stock.costPerKg ? <Money value={stock.costPerKg} /> : "-"}</td><td className="numeric-cell">{stock.costPerBox ? <Money value={stock.costPerBox} /> : "-"}</td><td className="numeric-cell">{stock.costPerUnit ? <Money value={stock.costPerUnit} /> : "-"}</td></>}
                     <td>{formatDate(stock.lastMovementAt)}</td>
                     <td>
                       <div className="badge-row">
