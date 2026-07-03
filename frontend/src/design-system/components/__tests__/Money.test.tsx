@@ -84,15 +84,16 @@ describe("Money", () => {
     expect(container.textContent).toBe("—");
   });
 
-  test("prop hidden=true mascara com marcador", () => {
+  test("prop hidden=true mascara com marcador (glifo canonico R$ ••••)", () => {
     const { container } = withProviders(<Money value={128450} hidden />);
-    expect(container.textContent).toBe("••••");
-    expect(screen.queryByText("R$")).not.toBeInTheDocument();
+    expect(container.textContent).toBe("R$••••");
+    // R$ discreto continua presente para sinalizar "isso é moeda oculta"
+    expect(screen.getByText("R$").className).toBe("ds-money-cur");
   });
 
   test("mascara quando SessionContext.hideSensitiveValues=true e prop omitida", () => {
     const { container } = withProviders(<Money value={128450} />, { hideSensitiveValues: true });
-    expect(container.textContent).toBe("••••");
+    expect(container.textContent).toBe("R$••••");
   });
 
   test("prop hidden=false sobrescreve context hidden=true", () => {

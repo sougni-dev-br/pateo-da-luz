@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { SessionContext } from "../../../context/SessionContext";
 import type { SessionContextValue } from "../../../context/SessionContext";
 import { HideValuesProvider } from "../../context/HideValuesContext";
@@ -39,14 +39,16 @@ describe("KpiCard", () => {
     expect(container.querySelector("article")?.className).toContain(`ds-kpi-card-${tone}`);
   });
 
-  test("value em R$ delega para Money", () => {
+  test("string com R$ agora e literal (sem auto-delegacao)", () => {
     withProviders(<KpiCard label="x" value="R$ 128.450" />);
-    expect(screen.getByText("R$").className).toBe("ds-money-cur");
+    expect(screen.getByText("R$ 128.450")).toBeInTheDocument();
+    expect(screen.queryByText((_, el) => el?.className === "ds-money-cur")).toBeNull();
   });
 
-  test("respeita hideValues global no value monetario", () => {
-    withProviders(<KpiCard label="x" value="R$ 100" />, { hideSensitiveValues: true });
-    expect(screen.getByText("••••")).toBeInTheDocument();
+  test("numero cru em value passa through como literal", () => {
+    withProviders(<KpiCard label="x" value={42} />);
+    expect(screen.getByText("42")).toBeInTheDocument();
+    expect(screen.queryByText("R$")).not.toBeInTheDocument();
   });
 
   test("sub renderiza quando fornecido", () => {
@@ -95,5 +97,42 @@ describe("KpiCard", () => {
   test("foot so renderiza se tem delta ou sparkline", () => {
     const { container } = withProviders(<KpiCard label="x" value="y" />);
     expect(container.querySelector(".ds-kpi-card-foot")).toBeNull();
+  });
+
+  describe("moneyValue", () => {
+    test("moneyValue=number renderiza via Money (R$ discreto)", () => {
+      withProviders(<KpiCard label="x" value={undefined} moneyValue={128450} />);
+      expect(screen.getByText("R$").className).toBe("ds-money-cur");
+    });
+
+    test("moneyValue respeita HideValuesContext (glifo R$ ••••)", () => {
+      const { container } = withProviders(
+        <KpiCard label="x" value={undefined} moneyValue={100} />,
+        { hideSensitiveValues: true }
+      );
+      expect(container.textContent).toContain("R$");
+      expect(container.textContent).toContain("••••");
+    });
+
+    test("moneyValue=null renderiza travessao via Money", () => {
+      const { container } = withProviders(<KpiCard label="x" value={undefined} moneyValue={null} />);
+      expect(container.textContent).toContain("—");
+    });
+
+    test("sem value E sem moneyValue: renderiza estrutura vazia sem crash", () => {
+      const { container } = withProviders(<KpiCard label="x" />);
+      const valueEl = container.querySelector(".ds-kpi-card-value");
+      expect(valueEl).not.toBeNull();
+      expect(valueEl?.textContent).toBe("");
+    });
+
+    test("moneyValue tem prioridade sobre value E warna em dev", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      withProviders(<KpiCard label="x" value="ignorado" moneyValue={200} />);
+      expect(screen.queryByText("ignorado")).toBeNull();
+      expect(screen.getByText("R$").className).toBe("ds-money-cur");
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("moneyValue"));
+      warn.mockRestore();
+    });
   });
 });
