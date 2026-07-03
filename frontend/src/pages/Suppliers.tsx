@@ -11,6 +11,7 @@ import {
   FormGrid,
   FormSection,
   IconButton,
+  Money,
   PanelEyebrow,
   RowMenu,
   Select,
@@ -21,7 +22,7 @@ import {
   TextField
 } from "../design-system";
 import { hasPermission } from "../lib/permissions";
-import { formatCurrency, formatDate } from "../utils/format";
+import { formatDate } from "../utils/format";
 
 const emptySupplier = {
   id: "",
@@ -540,19 +541,19 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
               <Button variant="secondary" onClick={() => { setSelectedSupplier(null); setHistory(null); }}>Fechar</Button>
             </div>
             <div className="summary-grid">
-              <article><span>Total no mês</span><strong>{formatCurrency(history.monthTotal)}</strong></article>
-              <article><span>Total no ano</span><strong>{formatCurrency(history.yearTotal)}</strong></article>
+              <article><span>Total no mês</span><strong><Money value={history.monthTotal} /></strong></article>
+              <article><span>Total no ano</span><strong><Money value={history.yearTotal} /></strong></article>
               <article><span>Última compra</span><strong>{history.lastPurchase ? formatDate(history.lastPurchase.purchaseDate) : "-"}</strong></article>
               <article><span>Prazo médio</span><strong>{history.averagePaymentTermDays == null ? "-" : `${Math.round(history.averagePaymentTermDays)} dias`}</strong></article>
             </div>
             <div className="summary-columns">
               <div>
                 <h3>Últimas NFs</h3>
-                {history.recentInvoices.map((invoice) => <p key={invoice.id}>{invoice.purchaseNumber ?? "-"} NF {invoice.invoiceNumber ?? "-"} - {formatCurrency(invoice.totalAmount)}</p>)}
+                {history.recentInvoices.map((invoice) => <p key={invoice.id}>{invoice.purchaseNumber ?? "-"} NF {invoice.invoiceNumber ?? "-"} - <Money value={invoice.totalAmount} /></p>)}
               </div>
               <div>
                 <h3>Produtos mais comprados</h3>
-                {history.topProducts.map((product) => <p key={product.name}>{product.name} - {formatCurrency(product.total)}</p>)}
+                {history.topProducts.map((product) => <p key={product.name}>{product.name} - <Money value={product.total} /></p>)}
               </div>
               <div>
                 <h3>Pagamentos usados</h3>
@@ -577,7 +578,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
                       <Table.Td>{invoice.purchaseNumber ?? "-"}</Table.Td>
                       <Table.Td>{formatDate(invoice.purchaseDate)}</Table.Td>
                       <Table.Td>{invoice.invoiceNumber ?? "-"}</Table.Td>
-                      <Table.Td align="right">{formatCurrency(invoice.totalAmount)}</Table.Td>
+                      <Table.Td align="right"><Money value={invoice.totalAmount} /></Table.Td>
                       <Table.Td>{invoice.status}</Table.Td>
                       <Table.Td actions>
                         <Button variant="secondary" size="sm" onClick={onOpenPurchases}>Abrir compra</Button>
