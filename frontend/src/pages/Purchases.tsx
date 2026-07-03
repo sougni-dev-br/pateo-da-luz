@@ -39,6 +39,24 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import {
+  EmptyState as DsEmptyState,
+  IconButton,
+  RowMenu,
+  StatusBadge as DsStatusBadge,
+  Table
+} from "../design-system";
+import type { StatusTone } from "../design-system";
+
+// Tons legacy (.status-badge .paid/.overdue/...) -> tons do DS.
+const LEGACY_TONE_TO_DS: Record<string, StatusTone> = {
+  paid: "success",
+  paid_late: "warning",
+  overdue: "danger",
+  cancelled: "neutral",
+  open: "warning",
+  warning: "warning"
+};
 import { PeriodFilter } from "../components/PeriodFilter";
 import { hasPermission } from "../lib/permissions";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
@@ -1621,39 +1639,39 @@ export function Purchases({ user }: { user: AppUser }) {
 
       {!loading && (
         <>
-          <div className="table-wrap operational-table purchases-list-table purchases-desktop-list">
-            <table>
-              <thead>
-                <tr>
-                  <th>Compra</th>
-                  <th>Fornecedor</th>
-                  <th>Itens</th>
-                  <th>Pagamento</th>
-                  <th className="numeric-cell">Total</th>
-                  <th>Status</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="purchases-desktop-list">
+            <Table>
+              <Table.Head>
+                <Table.Row>
+                  <Table.Th>Compra</Table.Th>
+                  <Table.Th minWidth={180}>Fornecedor</Table.Th>
+                  <Table.Th>Itens</Table.Th>
+                  <Table.Th>Pagamento</Table.Th>
+                  <Table.Th align="right">Total</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                  <Table.Th actions>Ações</Table.Th>
+                </Table.Row>
+              </Table.Head>
+              <Table.Body>
                 {displayedPurchases.map((purchase) => (
-                  <tr key={purchase.id}>
-                    <td className="purchase-main-cell">
+                  <Table.Row key={purchase.id}>
+                    <Table.Td className="purchase-main-cell">
                       <strong>{purchase.invoiceNumber ? `NF ${purchase.invoiceNumber}` : purchase.purchaseNumber ?? "Compra manual"}</strong>
                       <small>{formatDate(purchase.purchaseDate)} • {String(purchase.competenceMonth).padStart(2, "0")}/{purchase.competenceYear}</small>
-                    </td>
-                    <td className="purchase-supplier-cell" title={purchase.supplier.name}>
+                    </Table.Td>
+                    <Table.Td truncate className="purchase-supplier-cell" title={purchase.supplier.name}>
                       <strong className="truncate-cell">{purchase.supplier.name}</strong>
                       <small>{purchase.supplier.document ?? purchase.rawSupplierCode ?? "Sem documento"}</small>
-                    </td>
-                    <td className="purchase-items-summary">
+                    </Table.Td>
+                    <Table.Td className="purchase-items-summary">
                       <strong>{purchase.items.length} item(ns)</strong>
                       <small className="truncate-cell" title={purchase.items.map((item) => item.rawProductName).join(", ")}>
                         {purchase.items[0]?.rawProductCode ? `${purchase.items[0].rawProductCode} • ` : ""}
                         {purchase.items[0]?.rawProductName ?? "-"}
                         {purchase.items.length > 1 ? ` +${purchase.items.length - 1}` : ""}
                       </small>
-                    </td>
-                    <td className="purchase-payment-cell">
+                    </Table.Td>
+                    <Table.Td className="purchase-payment-cell">
                       {purchase.cycleStatus != null ? (
                         <>
                           <strong>Ciclo fornecedor</strong>
@@ -1665,42 +1683,55 @@ export function Purchases({ user }: { user: AppUser }) {
                           <small>{purchase.creditCardId && purchase.installments.length === 0 ? "Fatura(s) cartão" : `${purchase.installments.length} parcela(s)`}</small>
                         </>
                       )}
-                    </td>
-                    <td className="numeric-cell nowrap-cell">{formatCurrency(purchase.totalAmount)}</td>
-                    <td>
-                      <span className={`status-badge ${purchaseStatusTone(purchase.status)}`}>{purchaseStatusLabel(purchase.status)}</span>
+                    </Table.Td>
+                    <Table.Td align="right" style={{ whiteSpace: "nowrap" }}>{formatCurrency(purchase.totalAmount)}</Table.Td>
+                    <Table.Td>
+                      <DsStatusBadge tone={LEGACY_TONE_TO_DS[purchaseStatusTone(purchase.status)] ?? "neutral"}>
+                        {purchaseStatusLabel(purchase.status)}
+                      </DsStatusBadge>
                       {purchase.cancellationReason && <small className="block-note" title={purchase.cancellationReason}>{purchase.cancellationReason}</small>}
-                    </td>
-                    <td>
-                      <div className="actions-cell">
-                        <button type="button" onClick={() => openDetail(purchase)}><Eye size={15} /> Ver</button>
-                        {canEditPurchase && purchase.status !== "CANCELLED" && <button type="button" onClick={() => openEdit(purchase)}><Pencil size={15} /> Editar</button>}
-                        {canEditPurchase && <button type="button" title="Copiar esta compra para nova" onClick={() => void openCopyPurchase(purchase.id)}><Copy size={14} /> Copiar</button>}
-                        {isAdmin && (
-                          purchase.status === "CANCELLED"
-                            ? <button type="button" onClick={() => handleRestore(purchase)}>Restaurar</button>
-                            : <button className="danger-icon-button" type="button" title="Cancelar compra" onClick={() => handleCancel(purchase)}><Trash2 size={14} /></button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                    </Table.Td>
+                    <Table.Td actions>
+                      <IconButton icon={<Eye size={16} />} label="Ver compra" onClick={() => openDetail(purchase)} />
+                      {canEditPurchase && purchase.status !== "CANCELLED" && (
+                        <IconButton icon={<Pencil size={16} />} label="Editar" onClick={() => openEdit(purchase)} />
+                      )}
+                      <RowMenu
+                        label={`Mais ações — ${purchase.supplier.name}`}
+                        items={[
+                          ...(canEditPurchase
+                            ? [{ label: "Copiar para nova compra", icon: <Copy size={15} />, onClick: () => void openCopyPurchase(purchase.id) }]
+                            : []),
+                          ...(isAdmin
+                            ? [
+                                { separator: true as const },
+                                purchase.status === "CANCELLED"
+                                  ? { label: "Restaurar", onClick: () => handleRestore(purchase) }
+                                  : { label: "Cancelar compra", icon: <Trash2 size={15} />, tone: "danger" as const, onClick: () => handleCancel(purchase) }
+                              ]
+                            : [])
+                        ]}
+                      />
+                    </Table.Td>
+                  </Table.Row>
                 ))}
                 {displayedPurchases.length === 0 && (
-                  <tr>
-                    <td colSpan={7}>
-                      <div className="purch-empty-state">
-                        <Package size={40} className="purch-empty-icon" />
-                        <p className="purch-empty-title">Nenhuma compra encontrada</p>
-                        <p className="purch-empty-desc">Ajuste os filtros ou cadastre uma nova compra.</p>
-                        <button className="primary-button" type="button" onClick={openNewPurchase}>
-                          <Plus size={15} /> Cadastrar nova compra
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                  <Table.Row>
+                    <Table.Td colSpan={7}>
+                      <DsEmptyState
+                        title="Nenhuma compra encontrada"
+                        description="Ajuste os filtros ou cadastre uma nova compra."
+                        action={
+                          <button className="primary-button" type="button" onClick={openNewPurchase}>
+                            <Plus size={15} /> Cadastrar nova compra
+                          </button>
+                        }
+                      />
+                    </Table.Td>
+                  </Table.Row>
                 )}
-              </tbody>
-            </table>
+              </Table.Body>
+            </Table>
           </div>
 
           <div className="purchases-mobile-list">
@@ -1716,7 +1747,7 @@ export function Purchases({ user }: { user: AppUser }) {
                   </div>
                   <div className="purch-mobile-card-right">
                     <strong className="purch-mobile-amount">{formatCurrency(purchase.totalAmount)}</strong>
-                    <span className={`status-badge purch-mobile-status ${purchaseStatusTone(purchase.status)}`}>{purchaseStatusLabel(purchase.status)}</span>
+                    <DsStatusBadge className="purch-mobile-status" tone={LEGACY_TONE_TO_DS[purchaseStatusTone(purchase.status)] ?? "neutral"}>{purchaseStatusLabel(purchase.status)}</DsStatusBadge>
                   </div>
                 </div>
                 <div className="purch-mobile-card-body">
@@ -1811,7 +1842,7 @@ export function Purchases({ user }: { user: AppUser }) {
               </div>
               <div className="purchase-detail-infobar-item">
                 <span className="detail-label">Status</span>
-                <strong><span className={`status-badge ${purchaseStatusTone(detail.status)}`}>{purchaseStatusLabel(detail.status)}</span></strong>
+                <strong><DsStatusBadge tone={LEGACY_TONE_TO_DS[purchaseStatusTone(detail.status)] ?? "neutral"}>{purchaseStatusLabel(detail.status)}</DsStatusBadge></strong>
                 <small>{detail.purchaseNumber ?? "Sem pedido interno"}</small>
               </div>
               <div className="purchase-detail-infobar-item purchase-detail-infobar-amount">
@@ -1855,7 +1886,7 @@ export function Purchases({ user }: { user: AppUser }) {
                         <td>{item.statementName ?? `${String(item.competenceMonth).padStart(2, "0")}/${item.competenceYear}`}</td>
                         <td>{item.statementDueDate ? formatDate(item.statementDueDate) : "-"}</td>
                         <td className="numeric-cell nowrap-cell">{formatCurrency(Number(item.value))}</td>
-                        <td><span className={`status-badge ${statementStatusTone(item.statementStatus)}`}>{statementStatusLabel(item.statementStatus)}</span></td>
+                        <td><DsStatusBadge tone={LEGACY_TONE_TO_DS[statementStatusTone(item.statementStatus)] ?? "neutral"}>{statementStatusLabel(item.statementStatus)}</DsStatusBadge></td>
                       </tr>
                     ))}</tbody>
                   </table>
@@ -1868,7 +1899,7 @@ export function Purchases({ user }: { user: AppUser }) {
                         <td>{installment.paymentMethodName ?? detail.paymentMethodName ?? "-"}</td>
                         <td>{formatDate(installment.dueDate)}</td>
                         <td className="numeric-cell nowrap-cell">{formatCurrency(Number(installment.amount ?? 0))}</td>
-                        <td><span className={`status-badge ${installmentStatusTone(installment.status)}`}>{installmentStatusLabel(installment.status)}</span></td>
+                        <td><DsStatusBadge tone={LEGACY_TONE_TO_DS[installmentStatusTone(installment.status)] ?? "neutral"}>{installmentStatusLabel(installment.status)}</DsStatusBadge></td>
                       </tr>
                     ))}</tbody>
                   </table>

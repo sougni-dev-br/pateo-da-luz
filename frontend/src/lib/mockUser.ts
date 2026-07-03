@@ -247,6 +247,53 @@ function mockResponseFor(url: string): unknown {
   }
   if (path.endsWith("/suppliers")) return buildMockSuppliers();
 
+  // Compras: lista minima para exercitar a tabela DS da listagem.
+  if (path.endsWith("/purchases")) {
+    const today = new Date().toISOString();
+    const period = currentPeriod();
+    return [
+      {
+        id: "pu-1",
+        purchaseNumber: "C-0101",
+        invoiceNumber: "48213",
+        purchaseDate: today,
+        competenceMonth: period.month,
+        competenceYear: period.year,
+        status: "ACTIVE",
+        totalAmount: 1840.5,
+        paymentMethod: "BOLETO",
+        creditCardId: null,
+        cycleStatus: null,
+        cancellationReason: null,
+        rawSupplierCode: null,
+        supplier: { id: "sup-1", name: "Distribuidora Hortifruti Central do Vale Ltda ME", document: "12.345.678/0001-90" },
+        items: [
+          { id: "it-1", rawProductCode: "P001", rawProductName: "Tomate italiano kg" },
+          { id: "it-2", rawProductCode: "P002", rawProductName: "Alface crespa un" }
+        ],
+        installments: [{ id: "in-1", paymentMethodName: "Boleto", status: "OPEN" }]
+      },
+      {
+        id: "pu-2",
+        purchaseNumber: "C-0102",
+        invoiceNumber: null,
+        purchaseDate: today,
+        competenceMonth: period.month,
+        competenceYear: period.year,
+        status: "CANCELLED",
+        totalAmount: 920,
+        paymentMethod: "PIX",
+        creditCardId: null,
+        cycleStatus: "OPEN",
+        cancellationReason: "Lancamento duplicado",
+        rawSupplierCode: "F002",
+        supplier: { id: "sup-2", name: "Casa de Carnes Bom Corte", document: null },
+        items: [{ id: "it-3", rawProductCode: null, rawProductName: "Picanha kg" }],
+        installments: []
+      }
+    ];
+  }
+
   // Ciclos de fornecedor: lista para exercitar a tabela DS.
   if (path.endsWith("/supplier-cycles")) {
     return [
