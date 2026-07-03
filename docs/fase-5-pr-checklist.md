@@ -102,27 +102,22 @@ Todas as rotas abaixo com `?mock-user=1` na query — bypassa auth + intercepta 
 
 ## Screenshots
 
-**Recomendação:** commitar `docs/screenshots/` com os PNGs finais de auditoria (`4E-final-*.png`, `5B-*.png`, `5C-*.png`, `5D-*.png`, `5E-*.png` — cerca de 30 arquivos, ~5 MB total) como memória do PR. Facilita revisão remota via GitHub UI sem exigir clone.
+**Commitados** em [`docs/screenshots/pr-final/`](docs/screenshots/pr-final/) — 28 PNGs
+(4E-final × 4 + 5.0 vitrine + 5B × 6 + 5C × 6 + 5D × 5 + 5E × 6), ~5.3 MB. Memória
+visual do PR para revisão remota via GitHub UI sem precisar clonar o repo.
 
-**Alternativa:** manter `frontend/screenshots/` gitignored (política atual) — reviewer roda `node frontend/scripts/capture-fase5-batches.mjs` para gerar localmente.
-
-Decisão fica a critério do Rafael. Se optar por commitar:
-
-```bash
-mkdir -p docs/screenshots/pr-final
-cp frontend/screenshots/{4E-*,5B-*,5C-*,5D-*,5E-*}.png docs/screenshots/pr-final/
-# Remover -v2 dos pré-fix se ainda existirem — já fiz para Onda E
-git add docs/screenshots/pr-final/
-git commit -m "chore(docs): screenshots finais da migração DS para revisão do PR"
-```
+`frontend/screenshots/` continua gitignored (lixo local, regerável). Ver
+[`docs/screenshots/pr-final/README.md`](docs/screenshots/pr-final/README.md)
+para índice completo e instruções de regerar.
 
 ## Backend CORS
 
-**Anotado desde a Fase 1**: o CORS do backend só permite `pateo.sougni.com` + `localhost:5173/5174/3000`. **Não é bloqueio para o merge do PR** — mas quando este for para staging/prod, precisa:
-1. Se o frontend continuar em `pateo.sougni.com` → nada muda.
-2. Se mover para outro domínio → atualizar CORS no backend (`backend/src/index.ts` ou config de origins do Render) e fazer deploy backend antes do frontend.
+**CORS não bloqueia merge** — documentado como ticket futuro em
+[`docs/todos/backend-cors-frontend.md`](docs/todos/backend-cors-frontend.md).
 
-**Não incluído neste PR** — é decisão de infra separada.
+TL;DR: whitelist atual (`pateo.sougni.com` + `localhost:5173/5174/3000`) cobre todos
+os cenários usados nesse PR (mock-user bypass, proxy Vite em dev, domínio de prod).
+Só precisa mexer se o frontend mudar de domínio ou aparecer novo ambiente.
 
 ## Comandos git para abrir o PR (não executar automaticamente)
 
