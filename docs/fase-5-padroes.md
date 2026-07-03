@@ -104,6 +104,19 @@ Comportamento: grid `320px + 1fr` no desktop; no mobile colapsa em navegação e
 
 ---
 
+## 3.5 Regra: contexto de módulo vs contexto de painel (aprovada no Checkpoint 1)
+
+| Onde o texto vive | Componente | Estilo | Exemplo |
+|---|---|---|---|
+| Contexto do **MÓDULO** (vale para a rota inteira) | `PageHeader` prop `description` — definida no `sections` do `App.tsx` | Sentence case, cinza, abaixo do h1 | Fornecedores: "Cadastro utilizado em compras, pagamentos e relatórios financeiros" |
+| Contexto do **PAINEL/CARD** (vale para um bloco da tela) | `<PanelEyebrow>` (DS) acima do título do painel | CAPS + tracking, muted (gold-dark) | Empresas: "CADASTRO OPERACIONAL" sobre "Empresas / Filiais" |
+
+Nunca duplicar: se o texto já está no PageHeader, não repetir dentro do painel.
+Dentro de formulários, o eyebrow do `FormSection` cumpre o papel de PanelEyebrow.
+Aplicada em: Fornecedores, Empresas, Compras, Pedidos de compra, Ciclos de fornecedor.
+
+---
+
 ## 4. Agrupamento em 5 ondas
 
 Pré-requisito de cada onda entre parênteses. Rotas que você não citou estão marcadas ⊕ (alocação minha — confirme).

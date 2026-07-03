@@ -19,6 +19,7 @@ import {
   FormField,
   FormGrid,
   IconButton,
+  Money,
   StatusBadge,
   SummaryCard,
   Table,
@@ -175,9 +176,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
       <Notice notice={notice} />
       <section className="panel">
         <div className="section-header">
-          <div>
-            <p className="muted">Pedidos operacionais gerados a partir da pré-lista do comprador. Ainda não integram contas a pagar.</p>
-          </div>
+          <span />
           <Button variant="secondary" leadingIcon={<RefreshCw size={16} />} onClick={load}>Atualizar</Button>
         </div>
 
@@ -223,7 +222,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
                 <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(order.createdAt)}</Table.Td>
                 <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(order.expectedDeliveryDate)}</Table.Td>
                 <Table.Td align="right">{order.totalItems ?? 0}</Table.Td>
-                <Table.Td align="right">{formatCurrency(order.estimatedTotal)}</Table.Td>
+                <Table.Td align="right"><Money value={Number(order.estimatedTotal ?? 0)} /></Table.Td>
                 <Table.Td truncate style={{ maxWidth: 140 }} title={order.createdByUserName ?? "-"}>{order.createdByUserName ?? "-"}</Table.Td>
                 <Table.Td actions>
                   <IconButton icon={<Eye size={16} />} label="Abrir pedido" onClick={() => openOrder(order.id)} />

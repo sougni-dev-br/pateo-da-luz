@@ -25,6 +25,9 @@ export type { EmptyStateProps } from "./components/EmptyState";
 export { PageHeader } from "./components/PageHeader";
 export type { PageHeaderProps } from "./components/PageHeader";
 
+export { PanelEyebrow } from "./components/PanelEyebrow";
+export type { PanelEyebrowProps } from "./components/PanelEyebrow";
+
 export { Tabs } from "./components/Tabs";
 export type { TabsProps, TabItem } from "./components/Tabs";
 

@@ -8,16 +8,25 @@ export type MoneyProps = {
    * Se omitido, o componente lê `hidden` do contexto.
    */
   hidden?: boolean;
+  /**
+   * Casas decimais. Default 2 — moeda pt-BR sempre exibe centavos
+   * ("R$ 2.760,50", nunca "R$ 2.760,5"). Use 0 para valores redondos
+   * em displays compactos.
+   */
+  decimals?: number;
   className?: string;
 };
 
 const EN_DASH = "–";
 
-function formatAmount(value: number): string {
-  return Math.abs(value).toLocaleString("pt-BR");
+function formatAmount(value: number, decimals: number): string {
+  return Math.abs(value).toLocaleString("pt-BR", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  });
 }
 
-export function Money({ value, hidden, className }: MoneyProps) {
+export function Money({ value, hidden, decimals = 2, className }: MoneyProps) {
   const { hidden: contextHidden } = useHideValues();
   const isHidden = hidden ?? contextHidden;
   const rootClass = className ? `ds-money ${className}` : "ds-money";
@@ -35,7 +44,7 @@ export function Money({ value, hidden, className }: MoneyProps) {
   }
 
   const isNegative = value < 0;
-  const amount = formatAmount(value);
+  const amount = formatAmount(value, decimals);
 
   return (
     <span className={rootClass}>

@@ -43,6 +43,7 @@ import {
   Button,
   EmptyState,
   IconButton,
+  Money,
   Select,
   StatusBadge as DsStatusBadge,
   Table,
@@ -531,9 +532,7 @@ export function SupplierCycles() {
 
       {/* ── Cabeçalho ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
-        <p style={{ fontSize: 13, color: "var(--ink-faint)", margin: 0 }}>
-          Agrupa compras por fornecedor para pagamento consolidado
-        </p>
+        <span />
         <Button leadingIcon={<Plus size={14} />} onClick={openCreate}>Novo ciclo</Button>
       </div>
 
@@ -606,7 +605,7 @@ export function SupplierCycles() {
                   {cycle.periodEnd ? ` – ${formatDate(cycle.periodEnd)}` : " – aberto"}
                 </Table.Td>
                 <Table.Td><StatusBadge status={cycle.status} /></Table.Td>
-                <Table.Td align="right" style={{ fontWeight: 600 }}>{formatCurrency(cycle.totalAmount)}</Table.Td>
+                <Table.Td align="right" style={{ fontWeight: 600 }}><Money value={Number(cycle.totalAmount ?? 0)} /></Table.Td>
                 <Table.Td align="center">{cycle.itemCount}</Table.Td>
                 <Table.Td align="center">
                   <span style={{ color: cycle.checkedCount === cycle.itemCount && cycle.itemCount > 0 ? "var(--success)" : undefined }}>
