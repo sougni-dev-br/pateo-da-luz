@@ -247,6 +247,30 @@ function mockResponseFor(url: string): unknown {
   }
   if (path.endsWith("/suppliers")) return buildMockSuppliers();
 
+  // Faturamento: shape { entries, summary } — summary.byChannel/byPlatform
+  // sao acessados sem optional chaining na pagina.
+  if (path.endsWith("/revenue")) {
+    const today = new Date().toISOString();
+    const entryBase = { serviceAmount: 118.4, tickets: 62, ticketAverage: 21.3, status: "ACTIVE" };
+    return {
+      entries: [
+        { ...entryBase, id: "rev-1", date: today, weekdayName: "Quinta", channel: "Salao", salesFirstShift: 812.5, salesSecondShift: 508.9, grossAmount: 1321.4, accumulatedAmount: 1321.4 },
+        { ...entryBase, id: "rev-2", date: today, weekdayName: "Quinta", channel: "Delivery", salesFirstShift: 240, salesSecondShift: 388.6, grossAmount: 628.6, accumulatedAmount: 1950, status: "CANCELLED" }
+      ],
+      summary: {
+        grossAmount: 1950,
+        serviceAmount: 236.8,
+        netAmount: 1713.2,
+        tickets: 124,
+        ticketAverageGeneral: 15.7,
+        salesFirstShift: 1052.5,
+        salesSecondShift: 897.5,
+        byChannel: [],
+        byPlatform: []
+      }
+    };
+  }
+
   // Contas a pagar: titulos variados (aberto/vencido/pago/imposto) para
   // exercitar KPIs clicaveis, chips e a lista.
   if (path.endsWith("/payables")) {
