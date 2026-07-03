@@ -4,6 +4,7 @@ import { ImportExcel } from "./ImportExcel";
 import { MonthlyInventoryImportPanel } from "../components/MonthlyInventoryImportPanel";
 import { ImportHistoryPanel } from "../components/ImportHistoryPanel";
 import { RevenueImportPanel } from "../components/RevenueImportPanel";
+import { Button, PanelEyebrow, Tabs } from "../design-system";
 
 export type ImportTab = "purchases" | "catalog-imports" | "monthly-closing" | "revenue" | "history";
 
@@ -28,14 +29,14 @@ const tabs: Array<{ id: ImportTab; label: string; description: string; icon: typ
   },
   {
     id: "monthly-closing",
-    label: "Inventario mensal",
-    description: "Importacao de inventarios e snapshots usados no fechamento e CMV.",
+    label: "Inventário mensal",
+    description: "Importação de inventários e snapshots usados no fechamento e CMV.",
     icon: Layers3
   },
   {
     id: "revenue",
     label: "Faturamento",
-    description: "Planilhas mensais de faturamento diario por canal.",
+    description: "Planilhas mensais de faturamento diário por canal.",
     icon: WalletCards
   },
   {
@@ -54,38 +55,23 @@ export function ImportsHub({ activeTab, onTabChange, onNavigate }: ImportsHubPro
     <div className="stack">
       <section className="panel">
         <div className="section-heading">
-          <p className="muted">Central de importações</p>
+          <PanelEyebrow>Central de importações</PanelEyebrow>
           <Icon size={22} />
         </div>
 
-        <div className="tabs">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              className={activeTab === tab.id ? "active" : ""}
-              type="button"
-              onClick={() => onTabChange(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          value={activeTab}
+          onChange={(v) => onTabChange(v as ImportTab)}
+          tabs={tabs.map((tab) => ({ value: tab.id, label: tab.label }))}
+        />
 
         <p className="muted-inline">{active.description}</p>
 
         <div className="actions-cell wrap" style={{ marginTop: 16 }}>
-          <button className="secondary-button" type="button" onClick={() => onNavigate("purchases")}>
-            <FileSpreadsheet size={16} /> Abrir compras
-          </button>
-          <button className="secondary-button" type="button" onClick={() => onNavigate("revenue")}>
-            <WalletCards size={16} /> Abrir faturamento
-          </button>
-          <button className="secondary-button" type="button" onClick={() => onNavigate("monthly-closing")}>
-            <Layers3 size={16} /> Abrir fechamento mensal
-          </button>
-          <button className="secondary-button" type="button" onClick={() => onNavigate("catalog-imports")}>
-            <Database size={16} /> Abrir cadastros
-          </button>
+          <Button variant="secondary" leadingIcon={<FileSpreadsheet size={16} />} onClick={() => onNavigate("purchases")}>Abrir compras</Button>
+          <Button variant="secondary" leadingIcon={<WalletCards size={16} />} onClick={() => onNavigate("revenue")}>Abrir faturamento</Button>
+          <Button variant="secondary" leadingIcon={<Layers3 size={16} />} onClick={() => onNavigate("monthly-closing")}>Abrir fechamento mensal</Button>
+          <Button variant="secondary" leadingIcon={<Database size={16} />} onClick={() => onNavigate("catalog-imports")}>Abrir cadastros</Button>
         </div>
       </section>
 

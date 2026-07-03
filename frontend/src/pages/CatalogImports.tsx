@@ -9,6 +9,7 @@ import {
   previewCatalogImport
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
+import { Alert, Button, PanelEyebrow, Tabs } from "../design-system";
 import { formatDate } from "../utils/format";
 
 type Status = "idle" | "loading-preview" | "preview-ready" | "confirming" | "done" | "error";
@@ -134,27 +135,20 @@ export function CatalogImports() {
       <Notice notice={notice} />
 
       <section className="panel">
-        <div className="tabs">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              className={kind === tab.id ? "active" : ""}
-              type="button"
-              onClick={() => {
-                setKind(tab.id);
-                setFile(null);
-                setSheetName("");
-                resetResult();
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          value={kind}
+          onChange={(v) => {
+            setKind(v as typeof kind);
+            setFile(null);
+            setSheetName("");
+            resetResult();
+          }}
+          tabs={tabs.map((tab) => ({ value: tab.id, label: tab.label }))}
+        />
 
         <div className="section-heading">
           <div>
-            <p>Cadastro mestre</p>
+            <PanelEyebrow>Cadastro mestre</PanelEyebrow>
             <h2>Importar {kind === "suppliers" ? "fornecedores" : "produtos"}</h2>
           </div>
           <Upload size={24} />
@@ -171,10 +165,13 @@ export function CatalogImports() {
               resetResult();
             }}
           />
-          <button className="primary-button" type="button" disabled={!file} onClick={() => handlePreview()}>
-            {status === "loading-preview" ? <Loader2 size={18} /> : <Upload size={18} />}
+          <Button
+            leadingIcon={status === "loading-preview" ? <Loader2 size={18} /> : <Upload size={18} />}
+            disabled={!file}
+            onClick={() => handlePreview()}
+          >
             Gerar preview
-          </button>
+          </Button>
         </div>
 
         {preview && preview.sheetNames.length > 1 && (
@@ -213,7 +210,7 @@ export function CatalogImports() {
           )}
         </p>
 
-        {error && <div className="alert error">{error}</div>}
+        {error && <Alert tone="error">{error}</Alert>}
       </section>
 
       {preview && (
