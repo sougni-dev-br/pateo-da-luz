@@ -13,10 +13,10 @@ import {
   undoMonthlyInventory
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
-import { Alert, Button, IconButton, PanelEyebrow } from "../design-system";
+import { Alert, Button, IconButton, Money, PanelEyebrow } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { PeriodFilter } from "../components/PeriodFilter";
-import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 
 const inventoryTypes: Array<{ value: InventorySnapshotType; label: string }> = [
@@ -204,7 +204,7 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
               <article><span>Linhas</span><strong>{inventoryPreview.totalRows}</strong></article>
               <article><span>Produtos encontrados</span><strong>{inventoryPreview.validation.matchedItems}</strong></article>
               <article><span>Pendentes</span><strong>{inventoryPreview.validation.pendingItems}</strong></article>
-              <article><span>Valor total</span><strong>{formatCurrency(inventoryPreview.validation.totalValue)}</strong></article>
+              <article><span>Valor total</span><strong><Money value={inventoryPreview.validation.totalValue} /></strong></article>
             </div>
             {inventoryPreview.warnings.length > 0 && (
               <Alert tone="warning">
@@ -226,8 +226,8 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
                       <td>{row.sectorName ?? "-"}</td>
                       <td>{row.unit ?? "-"}</td>
                       <td>{formatNumber(row.quantity)}</td>
-                      <td>{row.unitCost == null ? "-" : formatCurrency(row.unitCost)}</td>
-                      <td>{row.totalCost == null ? "-" : formatCurrency(row.totalCost)}</td>
+                      <td><Money value={row.unitCost} /></td>
+                      <td><Money value={row.totalCost} /></td>
                       <td>{row.resolutionStatus === "MATCHED" ? "Encontrado" : "Pendente"}</td>
                     </tr>
                   ))}
@@ -249,7 +249,7 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
                   <td>{inventoryTypes.find((type) => type.value === snapshot.type)?.label ?? snapshot.type}</td>
                   <td>{formatDate(snapshot.countDate)}</td>
                   <td>{formatNumber(snapshot.totalItems)}</td>
-                  <td>{formatCurrency(snapshot.totalValue)}</td>
+                  <td><Money value={snapshot.totalValue} /></td>
                   <td>{snapshot.status}</td>
                   <td>{snapshot.originalFileName ?? "-"}</td>
                   <td>{isAdmin && snapshot.status !== "CANCELLED" ? <button type="button" onClick={() => handleUndoInventory(snapshot)}>Desfazer</button> : "-"}</td>
@@ -264,10 +264,10 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
       <section className="panel">
         <div className="section-heading"><div><PanelEyebrow>Resumo</PanelEyebrow><h2>Faturamento aplicado no CMV</h2></div></div>
         <div className="summary-grid subsection">
-          <article><span>Bruto</span><strong>{formatCurrency(revenue?.summary.grossAmount ?? 0)}</strong></article>
-          <article><span>Descontos</span><strong>{formatCurrency(revenue?.summary.discounts ?? 0)}</strong></article>
-          <article><span>Taxas</span><strong>{formatCurrency(revenue?.summary.platformFees ?? 0)}</strong></article>
-          <article><span>Liquido</span><strong>{formatCurrency(revenue?.summary.netAmount ?? 0)}</strong></article>
+          <article><span>Bruto</span><strong><Money value={revenue?.summary.grossAmount ?? 0} /></strong></article>
+          <article><span>Descontos</span><strong><Money value={revenue?.summary.discounts ?? 0} /></strong></article>
+          <article><span>Taxas</span><strong><Money value={revenue?.summary.platformFees ?? 0} /></strong></article>
+          <article><span>Liquido</span><strong><Money value={revenue?.summary.netAmount ?? 0} /></strong></article>
         </div>
         <div className="table-wrap subsection">
           <table>
@@ -277,10 +277,10 @@ export function MonthlyClosing({ user }: { user: AppUser }) {
                 <tr key={String(item.channel)}>
                   <td>{String(item.channel ?? "-")}</td>
                   <td>{formatNumber(Number(item.count ?? 0))}</td>
-                  <td>{formatCurrency(Number(item.grossAmount ?? 0))}</td>
-                  <td>{formatCurrency(Number(item.discounts ?? 0))}</td>
-                  <td>{formatCurrency(Number(item.platformFees ?? 0))}</td>
-                  <td>{formatCurrency(Number(item.netAmount ?? 0))}</td>
+                  <td><Money value={item.grossAmount ?? 0} /></td>
+                  <td><Money value={item.discounts ?? 0} /></td>
+                  <td><Money value={item.platformFees ?? 0} /></td>
+                  <td><Money value={item.netAmount ?? 0} /></td>
                 </tr>
               ))}
               {(revenue?.summary.byChannel ?? []).length === 0 && <tr><td colSpan={6}>Nenhum faturamento lançado.</td></tr>}
