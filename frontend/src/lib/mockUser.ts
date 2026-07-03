@@ -267,6 +267,39 @@ function mockResponseFor(url: string): unknown {
   }
   if (path.includes("/dre/categories")) return [];
   if (path.includes("/dre/pending")) return { total: 0, totalAmount: 0, page: 1, perPage: 20, rows: [] };
+
+  // Fechamento mensal (/cmv/fechamento-mensal — pagina MonthlyClosing):
+  // /monthly/inventory e uma lista de InventorySnapshot[] usada em .map/.length.
+  if (path.endsWith("/monthly/inventory")) return [];
+
+  // CMV Real (/cmv/real — pagina CmvReal): 3 endpoints em Promise.all.
+  // /monthly/cmv-real → CmvPeriod[] (.find, .filter, .length)
+  // /monthly/cmv-real/bases → StockBase[]
+  // /monthly/cmv-real/suggestions → objeto com latestPeriod nullable
+  if (path.endsWith("/monthly/cmv-real")) return [];
+  if (path.endsWith("/monthly/cmv-real/bases")) return [];
+  if (path.endsWith("/monthly/cmv-real/suggestions")) {
+    const p = currentPeriod();
+    return {
+      suggestedStartDate: p.startDate,
+      suggestedInitialSnapshotId: null,
+      suggestedInitialSessionId: null,
+      continuityLocked: false,
+      latestPeriod: null
+    };
+  }
+
+  // Impostos e Guias (/financeiro/impostos — pagina TaxPayments):
+  // /tax-payments retorna TaxPaymentListResponse com shape { data, pagination,
+  // summary }, nao lista crua. O listPatterns generico pegaria "tax-payments"
+  // e devolveria [] — este special vence.
+  if (path.startsWith("/tax-payments")) {
+    return {
+      data: [],
+      pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
+      summary: { total: "0", paid: "0", pending: "0", overdue: "0", withoutReceipt: "0" }
+    };
+  }
   if (path.includes("/dre/drill")) return [];
 
   // Usuarios: /menu-permissions retorna shape estruturado (menus/actions
