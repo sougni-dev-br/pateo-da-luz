@@ -247,6 +247,33 @@ function mockResponseFor(url: string): unknown {
   }
   if (path.endsWith("/suppliers")) return buildMockSuppliers();
 
+  // Estoque: endpoints com shape estruturado que o fallback {} quebraria
+  // (agenda.items.find, buyer-support.summary, operational e counts = listas).
+  if (path.includes("/inventory/agenda")) {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() + 1, items: [], rules: [] };
+  }
+  if (path.includes("/inventory/operational") && path.includes("buyer-support")) {
+    return {
+      summary: {
+        itemsWithSuggestion: 0,
+        suggestedSuppliers: 0,
+        productsWithoutSupplier: 0,
+        zeros: 0,
+        belowMinimum: 0,
+        withoutCount: 0,
+        divergent: 0,
+        incompleteRegistration: 0,
+        withoutIdeal: 0,
+        withoutMinimum: 0,
+        controlledTotal: 0
+      },
+      items: []
+    };
+  }
+  if (path.includes("/inventory/operational")) return [];
+  if (path.includes("/inventory/counts")) return [];
+
   // Faturamento: shape { entries, summary } — summary.byChannel/byPlatform
   // sao acessados sem optional chaining na pagina.
   if (path.endsWith("/revenue")) {

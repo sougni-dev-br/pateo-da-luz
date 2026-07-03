@@ -68,7 +68,9 @@ import {
 import { Notice, useNotice } from "../components/Notice";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { SimpleBarChart } from "../components/SimpleBarChart";
-import { ConfirmDialog, EmptyState, StatusBadge, SummaryCard } from "../components/ui";
+import { ConfirmDialog } from "../components/ui";
+import { EmptyState, StatusBadge, SummaryCard } from "../design-system";
+import { OverviewSection } from "./inventory/OverviewSection";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 import { useNavigate } from "react-router-dom";
@@ -1891,36 +1893,24 @@ export function Inventory({
         ))}
       </div>
 
-      <section className={panelClass(["overview"])}>
-        <div className="section-heading">
-          <div>
-            <p>Estoque</p>
-            <h2>Visão Geral</h2>
-          </div>
-          <button className="icon-button" type="button" onClick={load} aria-label="Atualizar estoque">
-            {loading ? <Loader2 size={18} /> : <RefreshCw size={18} />}
-          </button>
-        </div>
-        <div className="summary-grid dashboard-summary">
-          <SummaryCard label="Produtos cadastrados" value={products.length} />
-          <SummaryCard label="Produtos ativos" value={activeProducts.length} tone="success" />
-          <SummaryCard label="Estoque baixo" value={lowStockItems.length} tone={lowStockItems.length ? "warning" : "success"} />
-          <SummaryCard label="Última contagem" value={latestCountSession?.code ?? "-"} detail={latestCountSession ? formatDate(latestCountSession.referenceDate) : "Nenhuma contagem encontrada"} />
-          <SummaryCard label="Último inventário fechado" value={latestClosedInventory?.code ?? "-"} detail={latestClosedInventory ? formatDate(latestClosedInventory.date) : "Nenhum fechamento"} />
-          <SummaryCard label="Progresso em aberto" value={`${activeCountProgress}%`} detail={`${openCounts.length} contagem(ns) abertas`} tone={activeCountProgress >= 80 ? "success" : openCounts.length ? "warning" : "info"} />
-        </div>
-        <div className="quick-actions-row">
-          <button className="primary-button large-action" type="button" onClick={() => setActiveView("counting")}>Iniciar Contagem</button>
-          <button className="secondary-button large-action" type="button" onClick={() => setActiveView("inventory")}>Ver Inventário</button>
-        </div>
-        <div className="chart-grid">
-          <SimpleBarChart title="Produtos por categoria" items={productsByCategory} />
-          <SimpleBarChart title="Produtos por setor" items={productsBySector} />
-          <SimpleBarChart title="Movimentações dos últimos 30 dias" items={movementsByType} />
-          <SimpleBarChart title="Evolução de contagens" items={countsByStatus} />
-          <SimpleBarChart title="Produtos com estoque baixo" items={countBy(lowStockItems, (item) => item.sectorName ?? item.categoryName)} />
-        </div>
-      </section>
+      <OverviewSection
+        className={panelClass(["overview"])}
+        loading={loading}
+        onRefresh={load}
+        products={products}
+        activeProducts={activeProducts}
+        lowStockItems={lowStockItems}
+        latestCountSession={latestCountSession}
+        latestClosedInventory={latestClosedInventory}
+        activeCountProgress={activeCountProgress}
+        openCountsCount={openCounts.length}
+        productsByCategory={productsByCategory}
+        productsBySector={productsBySector}
+        movementsByType={movementsByType}
+        countsByStatus={countsByStatus}
+        onStartCounting={() => setActiveView("counting")}
+        onOpenInventory={() => setActiveView("inventory")}
+      />
 
       <section className={panelClass(["counting", "inventory", "reports"])}>
         <div className="section-heading inv-op-header">
