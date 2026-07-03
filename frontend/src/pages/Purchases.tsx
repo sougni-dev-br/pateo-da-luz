@@ -2,6 +2,7 @@ import { ChevronDown, Copy, Eye, FileText, Package, Pencil, Plus, RefreshCw, Tra
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { UNSAFE_NavigationContext, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
+  ApiError,
   AppUser,
   checkPurchaseDuplicate,
   cancelPurchase,
@@ -394,17 +395,60 @@ export function Purchases({ user }: { user: AppUser }) {
 
   useEffect(() => {
     void loadPurchases();
-    Promise.all([getSuppliers({ activeOnly: true }), getProducts(), getPaymentMethods(), getUnits(), getCards(), getSmallExpenseTypes(), getCompanies().catch(() => [] as Company[])]).then(
-      ([supplierList, productList, methodList, unitList, cardList, smallExpenseTypeList, companyList]) => {
-        setSuppliers(supplierList);
-        setProducts(productList);
-        setPaymentMethods(methodList.filter((method) => method.isActive));
-        setUnits(unitList.filter((unit) => unit.isActive));
-        setCreditCards(cardList.filter((card) => card.isActive));
-        setSmallExpenseTypes(smallExpenseTypeList.filter((type) => type.isActive));
-        setCompanies(companyList.filter((c) => c.isActive));
-      }
-    );
+
+    // Rótulos human-friendly por recurso, para toast quando 403.
+    const RESOURCE_LABELS: Record<string, string> = {
+      suppliers: "fornecedores",
+      products: "produtos",
+      paymentMethods: "métodos de pagamento",
+      units: "unidades",
+      cards: "cartões",
+      smallExpenseTypes: "tipos de pequenos gastos",
+      companies: "empresas"
+    };
+
+    function handleLoadError(resourceKey: string, error: unknown) {
+      const label = RESOURCE_LABELS[resourceKey] ?? resourceKey;
+      console.error(`[Purchases] falha ao carregar ${resourceKey}:`, error);
+      const isForbidden = error instanceof ApiError && error.status === 403;
+      const message = isForbidden
+        ? `Você não tem permissão para acessar ${label}. Contate o administrador.`
+        : `Erro ao carregar ${label}: ${error instanceof Error ? error.message : "erro desconhecido"}.`;
+      setNotice({ tone: "error", message });
+    }
+
+    Promise.allSettled([
+      getSuppliers({ activeOnly: true }),
+      getProducts(),
+      getPaymentMethods(),
+      getUnits(),
+      getCards(),
+      getSmallExpenseTypes(),
+      getCompanies().catch(() => [] as Company[])
+    ]).then(([
+      supplierRes, productRes, methodRes, unitRes, cardRes, smallExpenseTypeRes, companyRes
+    ]) => {
+      if (supplierRes.status === "fulfilled") setSuppliers(supplierRes.value);
+      else handleLoadError("suppliers", supplierRes.reason);
+
+      if (productRes.status === "fulfilled") setProducts(productRes.value);
+      else handleLoadError("products", productRes.reason);
+
+      if (methodRes.status === "fulfilled") setPaymentMethods(methodRes.value.filter((method) => method.isActive));
+      else handleLoadError("paymentMethods", methodRes.reason);
+
+      if (unitRes.status === "fulfilled") setUnits(unitRes.value.filter((unit) => unit.isActive));
+      else handleLoadError("units", unitRes.reason);
+
+      if (cardRes.status === "fulfilled") setCreditCards(cardRes.value.filter((card) => card.isActive));
+      else handleLoadError("cards", cardRes.reason);
+
+      if (smallExpenseTypeRes.status === "fulfilled") setSmallExpenseTypes(smallExpenseTypeRes.value.filter((type) => type.isActive));
+      else handleLoadError("smallExpenseTypes", smallExpenseTypeRes.reason);
+
+      if (companyRes.status === "fulfilled") setCompanies(companyRes.value.filter((c) => c.isActive));
+      else handleLoadError("companies", companyRes.reason);
+    });
   }, []);
 
   useEffect(() => {
