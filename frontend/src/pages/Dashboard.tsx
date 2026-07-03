@@ -22,7 +22,8 @@ import {
   Purchase,
 } from "../api/client";
 import { useSession } from "../context/SessionContext";
-import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { Alert, Button, IconButton } from "../design-system";
+import { formatCurrency, formatDate, formatNumber, formatPercent } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 
 // ─────────────────────────────────────────────
@@ -61,7 +62,7 @@ function deltaInfo(pct: number | null, higherIsGood: boolean): { text: string; t
     pct === 0 ? "neutral"
     : higherIsGood ? (pct > 0 ? "success" : "warning")
     : (pct > 0 ? "warning" : "success");
-  return { text: `${sign}${pct.toFixed(1)}% vs mês anterior`, tone };
+  return { text: `${sign}${formatPercent(pct)} vs mês anterior`, tone };
 }
 
 // Mapa path → moduleId para verificação de permissão nos botões de ação
@@ -113,7 +114,11 @@ export function Dashboard() {
       ]);
       if (dashData.status === "fulfilled") setData(dashData.value);
       else throw dashData.reason;
-      setBackendAlerts(alertsData.status === "fulfilled" ? alertsData.value.alerts : []);
+      // Guard defensivo: se o endpoint retornar shape parcial (mock, backend
+      // com bug, resposta incompleta), Array.isArray protege o .filter em
+      // linhas 205/208.
+      const rawAlerts = alertsData.status === "fulfilled" ? alertsData.value?.alerts : undefined;
+      setBackendAlerts(Array.isArray(rawAlerts) ? rawAlerts : []);
       setSummary(summaryData.status === "fulfilled" ? summaryData.value : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao carregar dashboard.");
@@ -268,20 +273,17 @@ export function Dashboard() {
                 {isCurrentMonth && <span className="dash-live-badge">Em andamento</span>}
               </span>
             </div>
-            <button
-              className="icon-button"
-              type="button"
+            <IconButton
+              icon={<RefreshCw size={16} className={loading ? "spin" : ""} />}
+              label="Atualizar"
               onClick={() => load()}
-              title="Atualizar"
               disabled={loading}
-            >
-              <RefreshCw size={16} className={loading ? "spin" : ""} />
-            </button>
+            />
           </div>
         </div>
       </div>
 
-      {error && <div className="alert error">{error}</div>}
+      {error && <Alert tone="error">{error}</Alert>}
 
       {/* ── Alertas importantes ── */}
       {hasAnyAlert && (
@@ -327,14 +329,7 @@ export function Dashboard() {
           <p className="dash-quick-actions-title">Ações rápidas para começar</p>
           <div className="dash-quick-actions-row">
             {quickActions.map((a) => (
-              <button
-                key={a.path}
-                className="primary-button"
-                type="button"
-                onClick={() => navigate(a.path)}
-              >
-                {a.icon} {a.label}
-              </button>
+              <Button key={a.path} leadingIcon={a.icon} onClick={() => navigate(a.path)}>{a.label}</Button>
             ))}
           </div>
         </div>
@@ -413,7 +408,7 @@ export function Dashboard() {
                 sub={
                   summary?.cmvReal.status === "closed"
                     ? summary.cmvReal.percent !== null
-                      ? `${summary.cmvReal.percent.toFixed(1)}% do faturamento`
+                      ? `${formatPercent(summary.cmvReal.percent)} do faturamento`
                       : "Período fechado"
                     : summary?.cmvReal.status === "pending"
                     ? "Inventário aberto — fechamento pendente"
@@ -441,7 +436,7 @@ export function Dashboard() {
                 sub={
                   summary
                     ? summary.estimatedResult.marginPercent !== null
-                      ? `Margem: ${summary.estimatedResult.marginPercent.toFixed(1)}%`
+                      ? `Margem: ${formatPercent(summary.estimatedResult.marginPercent)}`
                       : "Faturamento − Compras do período"
                     : "Aguardando dados"
                 }
@@ -675,7 +670,7 @@ function RankingPanel({
                   </div>
                   <div className="dash-ranking-bar-wrap">
                     <div className="dash-ranking-bar" style={{ width: `${Math.max(pct, 2)}%` }} />
-                    <span className="dash-ranking-pct">{pct.toFixed(1)}%{row.sub ? ` · ${row.sub}` : ""}</span>
+                    <span className="dash-ranking-pct">{formatPercent(pct)}{row.sub ? ` · ${row.sub}` : ""}</span>
                   </div>
                 </div>
               </li>

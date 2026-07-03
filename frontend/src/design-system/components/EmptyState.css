@@ -1,0 +1,29 @@
+.ds-empty-state {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: center;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  padding: var(--space-7);
+  text-align: center;
+  font-family: var(--font-sans);
+  color: var(--muted);
+}
+
+.ds-empty-state-title {
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+}
+
+.ds-empty-state-description {
+  margin: 0;
+  max-width: 520px;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+
+.ds-empty-state-action {
+  margin-top: 4px;
+}

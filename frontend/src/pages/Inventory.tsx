@@ -1,4 +1,4 @@
-import { AlertTriangle, Archive, ArrowDown, CalendarDays, CheckCircle2, ClipboardCheck, Download, FileText, FilterX, Layers, Loader2, MessageSquare, Play, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
+﻿import { AlertTriangle, Archive, ArrowDown, CalendarDays, CheckCircle2, ClipboardCheck, Download, FileText, FilterX, Layers, Loader2, MessageSquare, Play, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { Fragment, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
@@ -68,7 +68,9 @@ import {
 import { Notice, useNotice } from "../components/Notice";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { SimpleBarChart } from "../components/SimpleBarChart";
-import { ConfirmDialog, EmptyState, StatusBadge, SummaryCard } from "../components/ui";
+import { ConfirmDialog } from "../components/ui";
+import { Alert, Button, EmptyState, Money, PanelEyebrow, RowMenu, StatusBadge, SummaryCard, Table, Tabs } from "../design-system";
+import { OverviewSection } from "./inventory/OverviewSection";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 import { useNavigate } from "react-router-dom";
@@ -86,229 +88,40 @@ type InventoryProps = {
 type InventoryView = "overview" | "movements" | "counting" | "inventory" | "reports";
 type InventoryDeskTab = "official" | "purchase" | "stock" | "reports";
 
-const weekdays = [
-  { value: "", label: "Sem dia fixo" },
-  { value: "1", label: "Segunda" },
-  { value: "2", label: "Terca" },
-  { value: "3", label: "Quarta" },
-  { value: "4", label: "Quinta" },
-  { value: "5", label: "Sexta" },
-  { value: "6", label: "Sabado" },
-  { value: "0", label: "Domingo" }
-];
-
-const statusLabels: Record<string, string> = {
-  PENDING: "pendente",
-  IN_PROGRESS: "em andamento",
-  DRAFT: "rascunho",
-  SUBMITTED: "enviado para revisao",
-  CONFIRMED: "confirmado",
-  LATE: "atrasado",
-  CANCELLED: "cancelada"
-};
-
-const operationalStatusLabels: Record<string, string> = {
-  RASCUNHO: "rascunho",
-  EM_REVISAO: "em revisao",
-  APROVADO: "aprovado",
-  REJEITADO: "rejeitado",
-  FECHADO: "fechado",
-  CANCELADO: "cancelado"
-};
-
-const itemStatusLabels: Record<string, string> = {
-  PENDENTE: "Pendente",
-  ZERO: "Zerado",
-  CONTADO: "Contado",
-  DIVERGENTE: "Divergente",
-  IGNORADO: "Ignorado"
-};
-
-const operationalTypeLabels: Record<OperationalInventoryType, string> = {
-  GERAL: "Geral",
-  SETORIAL: "Setorial",
-  FINAL_CMV: "Final CMV",
-  CONFERENCIA: "Conferencia"
-};
-
-const editableOperationalInventoryStatuses = new Set(["RASCUNHO", "REJEITADO"]);
-
-const countSessionStatusLabels: Record<string, string> = {
-  ABERTA: "aberta",
-  EM_ANDAMENTO: "em andamento",
-  CONCLUIDA: "concluida",
-  CANCELADA: "cancelada"
-};
-
-const countSessionTypeLabels: Record<string, string> = {
-  GERAL: "Geral",
-  SETORIAL: "Setorial",
-  CATEGORIA: "Categoria",
-  SUBCATEGORIA: "Subcategoria",
-  FINAL_MES: "Final do mes",
-  ALEATORIA: "Aleatoria",
-  TAREFA: "Tarefa",
-  IMPORTACAO_PLANILHA: "Importacao",
-  COMPLEMENTAR_CMV: "Complementar CMV"
-};
-
-const editableCountSessionStatuses = new Set(["ABERTA", "EM_ANDAMENTO"]);
-
-const countSessionColumnOptions = [
-  { key: "sector", label: "Setor", required: false },
-  { key: "category", label: "Categoria", required: false },
-  { key: "subcategory", label: "Subcategoria", required: false },
-  { key: "unit", label: "Unidade", required: false },
-  { key: "code", label: "Codigo", required: false },
-  { key: "product", label: "Produto", required: true },
-  { key: "quantity", label: "Quantidade", required: true },
-  { key: "notes", label: "Observacao", required: false },
-  { key: "status", label: "Status", required: true }
-] as const;
-
-type CountSessionColumn = typeof countSessionColumnOptions[number]["key"];
-
-const defaultCountSessionColumns: Record<CountSessionColumn, boolean> = {
-  sector: false,
-  category: false,
-  subcategory: false,
-  unit: true,
-  code: true,
-  product: true,
-  quantity: true,
-  notes: true,
-  status: true
-};
-
-function displayLabel(value: string | null | undefined, fallback: string) {
-  if (!value) return fallback;
-  const text = String(value).trim();
-  if (!text || text === "[object Object]" || text === "undefined" || text === "null") return fallback;
-  return text;
-}
-
-function loadCountSessionColumnPreferences() {
-  try {
-    const stored = window.localStorage.getItem("stockCountLaunchColumns");
-    if (!stored) return defaultCountSessionColumns;
-    const parsed = JSON.parse(stored) as Partial<Record<CountSessionColumn, boolean>>;
-    return {
-      ...defaultCountSessionColumns,
-      ...parsed,
-      product: true,
-      quantity: true
-    };
-  } catch {
-    return defaultCountSessionColumns;
-  }
-}
-
-const movementTypes = [
-  { value: "MANUAL_OUT", label: "Saida manual" },
-  { value: "BREAKAGE", label: "Quebra" },
-  { value: "LOSS", label: "Perda" },
-  { value: "INTERNAL_CONSUMPTION", label: "Consumo interno" },
-  { value: "EMPLOYEE_PURCHASE", label: "Compra por funcionario" },
-  { value: "POSITIVE_ADJUSTMENT", label: "Ajuste positivo" },
-  { value: "NEGATIVE_ADJUSTMENT", label: "Ajuste negativo" },
-  { value: "RETURN", label: "Devolucao" },
-  { value: "TRANSFER", label: "Transferencia futura" },
-  { value: "PURCHASE_IN", label: "Entrada manual" }
-];
-
-const sensitiveMovementTypes = ["BREAKAGE", "LOSS", "EMPLOYEE_PURCHASE", "NEGATIVE_ADJUSTMENT"];
-
-function monthValue(date = new Date()) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function parseMonth(value: string) {
-  const [year, month] = value.split("-").map(Number);
-  return { year: String(year), month: String(month) };
-}
-
-function dateKey(value: string) {
-  return new Date(value).toISOString().slice(0, 10);
-}
-
-function stockCountSortText(value: string | null | undefined, fallback = "") {
-  return String(value ?? fallback)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLocaleLowerCase("pt-BR");
-}
-
-function inventoryClassificationSortText(value: string | null | undefined, fallback = "") {
-  return String(value ?? fallback)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLocaleLowerCase("pt-BR");
-}
-
-function sameDay(a: string, b: Date) {
-  return dateKey(a) === b.toISOString().slice(0, 10);
-}
-
-function operationalTone(status: string) {
-  if (["APROVADO", "FECHADO"].includes(status)) return "success" as const;
-  if (status === "EM_REVISAO") return "info" as const;
-  if (["REJEITADO", "CANCELADO"].includes(status)) return "danger" as const;
-  return "warning" as const;
-}
-
-function itemTone(status: string) {
-  if (status === "CONTADO") return "success" as const;
-  if (status === "DIVERGENTE") return "danger" as const;
-  if (status === "ZERO") return "info" as const;
-  return "warning" as const;
-}
-
-const DIFF_EPSILON = 0.0001;
-
-function formatDiff(diff: number | null): string {
-  if (diff == null || Math.abs(diff) < DIFF_EPSILON) return "—";
-  const formatted = Math.abs(diff) % 1 === 0 ? String(diff) : diff.toFixed(3).replace(/\.?0+$/, "");
-  return (diff > 0 ? "+" : "") + formatted;
-}
-
-function countSessionTone(status: string) {
-  if (status === "CONCLUIDA") return "success" as const;
-  if (status === "EM_ANDAMENTO") return "info" as const;
-  if (status === "CANCELADA") return "danger" as const;
-  return "warning" as const;
-}
-
-function buyerAlertTone(alert: string) {
-  if (["ZERADO", "DIVERGENTE", "SEM_FORNECEDOR"].includes(alert)) return "danger" as const;
-  if (["ABAIXO DO MINIMO", "CADASTRO INCOMPLETO", "SEM CONTAGEM", "SEM_ESTOQUE_MINIMO", "SEM_ESTOQUE_IDEAL"].includes(alert)) return "warning" as const;
-  return "info" as const;
-}
-
-function buyerAlertLabel(alert: string) {
-  return alert.replace(/_/g, " ").toLowerCase();
-}
-
-function countBy<T>(items: T[], getKey: (item: T) => string | null | undefined) {
-  const totals = new Map<string, number>();
-  items.forEach((item) => {
-    const key = getKey(item) || "Sem classificacao";
-    totals.set(key, (totals.get(key) ?? 0) + 1);
-  });
-  return [...totals.entries()].map(([label, value]) => ({ label, value }));
-}
-
-function sumBy<T>(items: T[], getKey: (item: T) => string | null | undefined, getValue: (item: T) => number) {
-  const totals = new Map<string, number>();
-  items.forEach((item) => {
-    const key = getKey(item) || "Sem classificacao";
-    totals.set(key, (totals.get(key) ?? 0) + getValue(item));
-  });
-  return [...totals.entries()].map(([label, value]) => ({ label, value: Math.round(value) }));
-}
-
-function settledValue<T>(result: PromiseSettledResult<T>, fallback: T) {
-  return result.status === "fulfilled" ? result.value : fallback;
-}
+import {
+  buyerAlertLabel,
+  buyerAlertTone,
+  countBy,
+  countSessionColumnOptions,
+  countSessionStatusLabels,
+  countSessionTone,
+  countSessionTypeLabels,
+  dateKey,
+  defaultCountSessionColumns,
+  DIFF_EPSILON,
+  displayLabel,
+  editableCountSessionStatuses,
+  editableOperationalInventoryStatuses,
+  formatDiff,
+  inventoryClassificationSortText,
+  itemStatusLabels,
+  itemTone,
+  loadCountSessionColumnPreferences,
+  monthValue,
+  movementTypes,
+  operationalStatusLabels,
+  operationalTone,
+  operationalTypeLabels,
+  parseMonth,
+  sameDay,
+  sensitiveMovementTypes,
+  settledValue,
+  statusLabels,
+  stockCountSortText,
+  sumBy,
+  weekdays
+} from "./inventory/shared";
+import type { CountSessionColumn } from "./inventory/shared";
 
 export function Inventory({
   user,
@@ -2057,7 +1870,7 @@ export function Inventory({
                     <td>{product.stockUnit ?? product.unit ?? "-"}</td>
                     <td><input data-count-quantity={product.id} inputMode="decimal" value={line.countedQuantity} onKeyDown={(event) => focusNextCountInput(event, product.id)} onChange={(event) => setCountLines({ ...countLines, [product.id]: { ...line, countedQuantity: event.target.value } })} /></td>
                     <td><input value={line.notes} onChange={(event) => setCountLines({ ...countLines, [product.id]: { ...line, notes: event.target.value } })} /></td>
-                    <td><span className={`status-badge ${divergent ? "overdue" : hasValue ? "confirmed" : "pending"}`}>{divergent ? "divergente" : hasValue ? "contado" : "pendente"}</span></td>
+                    <td><StatusBadge tone={divergent ? "danger" : hasValue ? "success" : "warning"}>{divergent ? "divergente" : hasValue ? "contado" : "pendente"}</StatusBadge></td>
                   </tr>
                 );
               })}</tbody>
@@ -2080,36 +1893,24 @@ export function Inventory({
         ))}
       </div>
 
-      <section className={panelClass(["overview"])}>
-        <div className="section-heading">
-          <div>
-            <p>Estoque</p>
-            <h2>Visão Geral</h2>
-          </div>
-          <button className="icon-button" type="button" onClick={load} aria-label="Atualizar estoque">
-            {loading ? <Loader2 size={18} /> : <RefreshCw size={18} />}
-          </button>
-        </div>
-        <div className="summary-grid dashboard-summary">
-          <SummaryCard label="Produtos cadastrados" value={products.length} />
-          <SummaryCard label="Produtos ativos" value={activeProducts.length} tone="success" />
-          <SummaryCard label="Estoque baixo" value={lowStockItems.length} tone={lowStockItems.length ? "warning" : "success"} />
-          <SummaryCard label="Última contagem" value={latestCountSession?.code ?? "-"} detail={latestCountSession ? formatDate(latestCountSession.referenceDate) : "Nenhuma contagem encontrada"} />
-          <SummaryCard label="Último inventário fechado" value={latestClosedInventory?.code ?? "-"} detail={latestClosedInventory ? formatDate(latestClosedInventory.date) : "Nenhum fechamento"} />
-          <SummaryCard label="Progresso em aberto" value={`${activeCountProgress}%`} detail={`${openCounts.length} contagem(ns) abertas`} tone={activeCountProgress >= 80 ? "success" : openCounts.length ? "warning" : "info"} />
-        </div>
-        <div className="quick-actions-row">
-          <button className="primary-button large-action" type="button" onClick={() => setActiveView("counting")}>Iniciar Contagem</button>
-          <button className="secondary-button large-action" type="button" onClick={() => setActiveView("inventory")}>Ver Inventário</button>
-        </div>
-        <div className="chart-grid">
-          <SimpleBarChart title="Produtos por categoria" items={productsByCategory} />
-          <SimpleBarChart title="Produtos por setor" items={productsBySector} />
-          <SimpleBarChart title="Movimentações dos últimos 30 dias" items={movementsByType} />
-          <SimpleBarChart title="Evolução de contagens" items={countsByStatus} />
-          <SimpleBarChart title="Produtos com estoque baixo" items={countBy(lowStockItems, (item) => item.sectorName ?? item.categoryName)} />
-        </div>
-      </section>
+      <OverviewSection
+        className={panelClass(["overview"])}
+        loading={loading}
+        onRefresh={load}
+        products={products}
+        activeProducts={activeProducts}
+        lowStockItems={lowStockItems}
+        latestCountSession={latestCountSession}
+        latestClosedInventory={latestClosedInventory}
+        activeCountProgress={activeCountProgress}
+        openCountsCount={openCounts.length}
+        productsByCategory={productsByCategory}
+        productsBySector={productsBySector}
+        movementsByType={movementsByType}
+        countsByStatus={countsByStatus}
+        onStartCounting={() => setActiveView("counting")}
+        onOpenInventory={() => setActiveView("inventory")}
+      />
 
       <section className={panelClass(["counting", "inventory", "reports"])}>
         <div className="section-heading inv-op-header">
@@ -2130,21 +1931,25 @@ export function Inventory({
 
         {activeView !== "counting" && (
           <>
-            <div className="inventory-workspace-tabs">
-              <button className={inventoryDeskTab === "official" ? "active" : ""} type="button" onClick={() => setInventoryDeskTab("official")}>Inventarios oficiais</button>
-              <button className={inventoryDeskTab === "purchase" ? "active" : ""} type="button" onClick={() => setInventoryDeskTab("purchase")}>Sugestao de compras</button>
-              <button className={inventoryDeskTab === "stock" ? "active" : ""} type="button" onClick={() => setInventoryDeskTab("stock")}>Estoque atual</button>
-              <button className={inventoryDeskTab === "reports" ? "active" : ""} type="button" onClick={() => setInventoryDeskTab("reports")}>Relatorios</button>
-            </div>
+            <Tabs
+              value={inventoryDeskTab}
+              onChange={(v) => setInventoryDeskTab(v as InventoryDeskTab)}
+              tabs={[
+                { value: "official", label: "Inventários oficiais" },
+                { value: "purchase", label: "Sugestão de compras" },
+                { value: "stock", label: "Estoque atual" },
+                { value: "reports", label: "Relatórios" }
+              ]}
+            />
 
             <div className="inventory-action-strip">
-              <button className="primary-button" type="button" onClick={() => setInventoryDeskTab("official")}><ClipboardCheck size={16} />Criar inventario</button>
-              <button className="secondary-button inv-action-secondary" type="button" disabled={!operationalDetail} onClick={() => operationalDetail && downloadInventoryPdf(operationalDetail)}><Download size={16} />Gerar PDF</button>
-              <button className="secondary-button inv-action-secondary" type="button" onClick={() => { setInventoryDeskTab("purchase"); loadBuyerSupport(); }}><RefreshCw size={16} />Atualizar relatorio</button>
-              <button className="secondary-button inv-action-secondary" type="button" disabled={!buyerSupport} onClick={exportBuyerPrelist}><FileText size={16} />Exportar CSV</button>
-              <button className="primary-button inv-action-secondary" type="button" disabled={!buyerSupport} onClick={generatePurchaseOrdersFromPrelist}><ShoppingCart size={16} />Gerar pedido de compra</button>
+              <Button leadingIcon={<ClipboardCheck size={16} />} onClick={() => setInventoryDeskTab("official")}>Criar inventário</Button>
+              <Button variant="secondary" className="inv-action-secondary" leadingIcon={<Download size={16} />} disabled={!operationalDetail} onClick={() => operationalDetail && downloadInventoryPdf(operationalDetail)}>Gerar PDF</Button>
+              <Button variant="secondary" className="inv-action-secondary" leadingIcon={<RefreshCw size={16} />} onClick={() => { setInventoryDeskTab("purchase"); loadBuyerSupport(); }}>Atualizar relatório</Button>
+              <Button variant="secondary" className="inv-action-secondary" leadingIcon={<FileText size={16} />} disabled={!buyerSupport} onClick={exportBuyerPrelist}>Exportar CSV</Button>
+              <Button className="inv-action-secondary" leadingIcon={<ShoppingCart size={16} />} disabled={!buyerSupport} onClick={generatePurchaseOrdersFromPrelist}>Gerar pedido de compra</Button>
               <div className="inv-more-actions-wrap">
-                <button className="secondary-button" type="button" onClick={() => setMobileInvMoreActionsOpen(v => !v)}>Mais ações ▾</button>
+                <Button variant="secondary" onClick={() => setMobileInvMoreActionsOpen(v => !v)}>Mais ações ▾</Button>
                 <div className={`inv-more-actions-menu${mobileInvMoreActionsOpen ? " open" : ""}`}>
                   <button type="button" disabled={!operationalDetail} onClick={() => { operationalDetail && void downloadInventoryPdf(operationalDetail); setMobileInvMoreActionsOpen(false); }}><Download size={14} />Gerar PDF</button>
                   <button type="button" onClick={() => { setInventoryDeskTab("purchase"); void loadBuyerSupport(); setMobileInvMoreActionsOpen(false); }}><RefreshCw size={14} />Atualizar relatorio</button>
@@ -2160,16 +1965,16 @@ export function Inventory({
               const isEmRevisao = inv.status === "EM_REVISAO";
               const isComplete = cov?.isComplete === true;
               return (
-                <div className="form-section" style={{ borderLeft: `4px solid ${isEmRevisao ? "var(--warning, #b45309)" : "var(--success, #2e7d32)"}`, background: "var(--surface)", marginTop: 12 }}>
+                <div className="form-section" style={{ borderLeft: `4px solid ${isEmRevisao ? "var(--warning)" : "var(--success)"}`, background: "var(--paper-soft)", marginTop: 12 }}>
                   <div className="section-heading compact-heading" style={{ margin: 0 }}>
                     <div>
-                      <p>Fechamento do mes</p>
+                      <PanelEyebrow>Fechamento do mês</PanelEyebrow>
                       <h3 style={{ margin: "2px 0 4px" }}>
-                        {isEmRevisao ? "Inventario Final CMV em revisao" : "Inventario Final CMV em andamento"}
+                        {isEmRevisao ? "Inventário Final CMV em revisão" : "Inventário Final CMV em andamento"}
                       </h3>
                       <span className="muted">{inv.code} • {formatDate(inv.date)}</span>
                       {cov && (
-                        <p style={{ margin: "4px 0 0", fontSize: 13, fontWeight: 600, color: isComplete ? "var(--success, #2e7d32)" : "var(--warning, #b45309)" }}>
+                        <p style={{ margin: "4px 0 0", fontSize: 13, fontWeight: 600, color: isComplete ? "var(--success)" : "var(--warning)" }}>
                           {cov.coveredTotal}/{cov.expectedTotal} produtos controlados cobertos{isComplete ? " — completo" : ` — ${cov.missingTotal} pendente(s)`}
                         </p>
                       )}
@@ -2455,51 +2260,76 @@ export function Inventory({
             <p className="muted">Atividade operacional do estoquista. Concluir contagem nao fecha inventario.</p>
 
             {/* Desktop table */}
-            <div className="table-wrap inv-desktop-table-wrap">
-              <table>
-                <thead style={{ whiteSpace: 'nowrap' }}><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor/Categoria</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Divergentes</th><th>Acoes</th></tr></thead>
-                <tbody>
+            <div className="inv-desktop-table-wrap">
+              <Table>
+                <Table.Head>
+                  <Table.Row>
+                    <Table.Th minWidth={160}>Código</Table.Th>
+                    <Table.Th>Data</Table.Th>
+                    <Table.Th>Tipo</Table.Th>
+                    <Table.Th>Setor/Categoria</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th>Responsável</Table.Th>
+                    <Table.Th align="right">Total</Table.Th>
+                    <Table.Th align="right">Contados</Table.Th>
+                    <Table.Th align="right">Pendentes</Table.Th>
+                    <Table.Th align="right">Divergentes</Table.Th>
+                    <Table.Th actions>Ações</Table.Th>
+                  </Table.Row>
+                </Table.Head>
+                <Table.Body>
                   {countSessions.map((session) => (
-                    <tr key={session.id}>
-                      <td title={session.notes ?? session.code}>
+                    <Table.Row key={session.id}>
+                      <Table.Td title={session.notes ?? session.code}>
                         <strong>{session.code}</strong>
                         {session.source === "IMPORTACAO_PLANILHA" && <StatusBadge tone="info">Importada</StatusBadge>}
-                        <small>{session.generatedInventoryCode ? `Inventario: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mes" : session.source === "IMPORTACAO_PLANILHA" ? "Importada via planilha" : "Contagem operacional"}</small>
-                      </td>
-                      <td>{formatDate(session.referenceDate)}</td>
-                      <td>
+                        <small>{session.generatedInventoryCode ? `Inventário: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mês" : session.source === "IMPORTACAO_PLANILHA" ? "Importada via planilha" : "Contagem operacional"}</small>
+                      </Table.Td>
+                      <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(session.referenceDate)}</Table.Td>
+                      <Table.Td>
                         {countSessionTypeLabels[session.type] ?? session.type}
                         {session.type === "SETORIAL" && session.sectorName && <small>SETOR: {session.sectorName}</small>}
-                      </td>
-                      <td title={[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ") || "-"}>
+                      </Table.Td>
+                      <Table.Td truncate style={{ maxWidth: 200 }} title={[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ") || "-"}>
                         {[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ") || "-"}
                         <small>{formatNumber(session.countedItems)}/{formatNumber(session.totalItems)} contados</small>
-                      </td>
-                      <td><StatusBadge tone={countSessionTone(session.status)}>{countSessionStatusLabels[session.status] ?? session.status}</StatusBadge></td>
-                      <td title={session.responsibleName ?? "-"}>{session.responsibleName ?? "-"}</td>
-                      <td>{formatNumber(session.totalItems)}</td>
-                      <td>{formatNumber(session.countedItems)}</td>
-                      <td>{formatNumber(session.pendingItems)}</td>
-                      <td>{formatNumber(session.divergentItems)}</td>
-                      <td className="actions-cell">
-                        <button className="secondary-button" type="button" onClick={() => openCountSession(session.id)}>{editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}</button>
-                        {session.status === "CONCLUIDA" && (
-                          <button className="secondary-button" type="button" onClick={() => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`)}><ShoppingCart size={16} />Gerar pedido de compra</button>
+                      </Table.Td>
+                      <Table.Td><StatusBadge tone={countSessionTone(session.status)}>{countSessionStatusLabels[session.status] ?? session.status}</StatusBadge></Table.Td>
+                      <Table.Td truncate style={{ maxWidth: 140 }} title={session.responsibleName ?? "-"}>{session.responsibleName ?? "-"}</Table.Td>
+                      <Table.Td align="right">{formatNumber(session.totalItems)}</Table.Td>
+                      <Table.Td align="right">{formatNumber(session.countedItems)}</Table.Td>
+                      <Table.Td align="right">{formatNumber(session.pendingItems)}</Table.Td>
+                      <Table.Td align="right">{formatNumber(session.divergentItems)}</Table.Td>
+                      <Table.Td actions>
+                        <Button variant="secondary" size="sm" onClick={() => openCountSession(session.id)}>{editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}</Button>
+                        {(session.status === "CONCLUIDA" || canCancelCountSession(session)) && (
+                          <RowMenu
+                            label={`Mais ações — ${session.code}`}
+                            items={[
+                              ...(session.status === "CONCLUIDA"
+                                ? [{ label: "Gerar pedido de compra", icon: <ShoppingCart size={15} />, onClick: () => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`) }]
+                                : []),
+                              ...(canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA"
+                                ? [{ label: "Gerar inventário", icon: <ClipboardCheck size={15} />, onClick: async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventário gerado a partir da contagem." }); } }]
+                                : []),
+                              ...(canCancelCountSession(session)
+                                ? [{ separator: true as const }, { label: "Cancelar contagem", icon: <Trash2 size={15} />, tone: "danger" as const, onClick: () => cancelCountSessionAction(session) }]
+                                : [])
+                            ]}
+                          />
                         )}
-                        {canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA" && (
-                          <button className="primary-button" type="button" onClick={async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventario gerado a partir da contagem." }); }}>Gerar inventario</button>
-                        )}
-                        {canCancelCountSession(session) && (
-                          <button className="danger-button" type="button" onClick={() => cancelCountSessionAction(session)}>Cancelar</button>
-                        )}
-                      </td>
-                    </tr>
+                      </Table.Td>
+                    </Table.Row>
                   ))}
                   {countSessions.length === 0 && (
-                    <tr><td colSpan={11}><EmptyState title="Nenhuma contagem encontrada" description="Clique em Iniciar Contagem para abrir uma ficha de lancamento com produtos controlados." /></td></tr>
+                    <Table.Row>
+                      <Table.Td colSpan={11}>
+                        <EmptyState title="Nenhuma contagem encontrada" description="Clique em Iniciar Contagem para abrir uma ficha de lançamento com produtos controlados." />
+                      </Table.Td>
+                    </Table.Row>
                   )}
-                </tbody>
-              </table>
+                </Table.Body>
+              </Table>
             </div>
 
             {/* Mobile cards */}
@@ -2550,10 +2380,10 @@ export function Inventory({
 
         {activeView !== "counting" && inventoryDeskTab === "official" && <>
           <div className="summary-grid inventory-compact-summary">
-            <SummaryCard label="Inventarios em rascunho" value={operationalSummary.drafts} tone={operationalSummary.drafts ? "warning" : "info"} icon={<Archive size={18} />} />
-            <SummaryCard label="Em revisao" value={operationalSummary.review} tone={operationalSummary.review ? "warning" : "info"} />
+            <SummaryCard label="Inventários em rascunho" value={operationalSummary.drafts} tone={operationalSummary.drafts ? "warning" : "info"} icon={<Archive size={18} />} />
+            <SummaryCard label="Em revisão" value={operationalSummary.review} tone={operationalSummary.review ? "warning" : "info"} />
             <SummaryCard
-              label={operationalSummary.activeFinalCmv ? "Fechamento atual" : "Ultimo final CMV"}
+              label={operationalSummary.activeFinalCmv ? "Fechamento atual" : "Último final CMV"}
               value={operationalSummary.activeFinalCmv?.code ?? operationalSummary.lastFinalCmv?.code ?? "-"}
               detail={operationalSummary.activeFinalCmv
                 ? `${operationalStatusLabels[operationalSummary.activeFinalCmv.status] ?? operationalSummary.activeFinalCmv.status} • ${formatDate(operationalSummary.activeFinalCmv.date)}`
@@ -3094,10 +2924,10 @@ export function Inventory({
               <SummaryCard label="Fornecedores sugeridos" value={buyerSupport.summary.suggestedSuppliers} />
               <SummaryCard label="Sem fornecedor" value={buyerSupport.summary.productsWithoutSupplier} tone={buyerSupport.summary.productsWithoutSupplier ? "danger" : "success"} icon={<AlertTriangle size={18} />} />
               <SummaryCard label="Zerados" value={buyerSupport.summary.zeros} tone={buyerSupport.summary.zeros ? "danger" : "success"} />
-              <SummaryCard label="Abaixo do minimo" value={buyerSupport.summary.belowMinimum} tone={buyerSupport.summary.belowMinimum ? "warning" : "success"} />
+              <SummaryCard label="Abaixo do mínimo" value={buyerSupport.summary.belowMinimum} tone={buyerSupport.summary.belowMinimum ? "warning" : "success"} />
               <SummaryCard label="Sem ideal" value={buyerSupport.summary.withoutIdeal} tone={buyerSupport.summary.withoutIdeal ? "warning" : "success"} />
               <SummaryCard label="Sem minimo" value={buyerSupport.summary.withoutMinimum} tone={buyerSupport.summary.withoutMinimum ? "warning" : "success"} />
-              <SummaryCard label="Ultimo final CMV" value={buyerSupport.summary.latestFinalCmv?.code ?? "-"} detail={buyerSupport.summary.latestFinalCmv ? formatDate(buyerSupport.summary.latestFinalCmv.date) : "Sem final aprovado"} />
+              <SummaryCard label="Último final CMV" value={buyerSupport.summary.latestFinalCmv?.code ?? "-"} detail={buyerSupport.summary.latestFinalCmv ? formatDate(buyerSupport.summary.latestFinalCmv.date) : "Sem final aprovado"} />
             </div>
 
             <div className="filters-row inventory-filter-row">
@@ -3122,7 +2952,7 @@ export function Inventory({
               <label>Alerta<select value={buyerFilters.status} onChange={(event) => setBuyerFilters({ ...buyerFilters, status: event.target.value })}>
                 <option value="">Todos</option>
                 <option value="ZERADO">Zerado</option>
-                <option value="ABAIXO DO MINIMO">Abaixo do minimo</option>
+                <option value="ABAIXO DO MINIMO">Abaixo do mínimo</option>
                 <option value="SEM CONTAGEM">Sem contagem</option>
                 <option value="DIVERGENTE">Divergente</option>
                 <option value="CADASTRO INCOMPLETO">Cadastro incompleto</option>
@@ -3148,7 +2978,7 @@ export function Inventory({
                   <h3>Prioridades da operacao</h3>
                   <p>Sem fornecedor: <strong>{buyerSupport.summary.productsWithoutSupplier}</strong></p>
                   <p>Zerados: <strong>{buyerSupport.summary.zeros}</strong></p>
-                  <p>Abaixo do minimo: <strong>{buyerSupport.summary.belowMinimum}</strong></p>
+                  <p>Abaixo do mínimo: <strong>{buyerSupport.summary.belowMinimum}</strong></p>
                   <p>Cadastro incompleto: <strong>{buyerSupport.summary.incompleteRegistration}</strong></p>
                 </div>
                 <div>
@@ -3367,7 +3197,7 @@ export function Inventory({
       <section className={panelClass(["inventory", "reports"])}>
         <div className="section-heading">
           <div>
-            <p>{inventoryDeskTab === "reports" ? "Relatorios" : "Estoque atual"}</p>
+            <PanelEyebrow>{inventoryDeskTab === "reports" ? "Relatórios" : "Estoque atual"}</PanelEyebrow>
             <h2>{inventoryDeskTab === "reports" ? "Leitura gerencial" : "Estoque atual"}</h2>
           </div>
         </div>
@@ -3376,7 +3206,7 @@ export function Inventory({
         <div className="summary-grid inventory-compact-summary stock-summary-grid">
           <SummaryCard label="Itens em estoque" value={stockSummary.total} tone="info" icon={<Archive size={18} />} />
           <SummaryCard label="Zerados" value={stockSummary.zeros} tone={stockSummary.zeros ? "danger" : "success"} />
-          <SummaryCard label="Abaixo do minimo" value={stockSummary.belowMinimum} tone={stockSummary.belowMinimum ? "warning" : "success"} />
+          <SummaryCard label="Abaixo do mínimo" value={stockSummary.belowMinimum} tone={stockSummary.belowMinimum ? "warning" : "success"} />
           <SummaryCard label="Divergentes" value={stockSummary.divergent} tone={stockSummary.divergent ? "danger" : "success"} />
           <SummaryCard label="Sem fornecedor" value={stockSummary.withoutSupplier} tone={stockSummary.withoutSupplier ? "danger" : "success"} />
           <SummaryCard label="Cadastro incompleto" value={stockSummary.incomplete} tone={stockSummary.incomplete ? "warning" : "success"} />
@@ -3388,14 +3218,11 @@ export function Inventory({
           <label>Subcategoria<select value={stockFilters.subcategory} onChange={(event) => setStockFilters((current) => ({ ...current, subcategory: event.target.value }))}><option value="">Todas</option>{stockFilterOptions.subcategories.map((subcategory) => <option key={subcategory} value={subcategory}>{subcategory}</option>)}</select></label>
           <label>Fornecedor<select value={stockFilters.supplier} onChange={(event) => setStockFilters((current) => ({ ...current, supplier: event.target.value }))}><option value="">Todos</option>{stockFilterOptions.suppliers.map((supplier) => <option key={supplier} value={supplier}>{supplier}</option>)}</select></label>
           <label>Status/alerta<select value={stockFilters.alert} onChange={(event) => setStockFilters((current) => ({ ...current, alert: event.target.value }))}><option value="">Todos</option>{stockFilterOptions.alerts.map((alert) => <option key={alert} value={alert}>{buyerAlertLabel(alert)}</option>)}</select></label>
-          <button className="primary-button" type="button" onClick={load}>Filtrar</button>
-          <button className="secondary-button" type="button" onClick={() => {
+          <Button onClick={load}>Filtrar</Button>
+          <Button variant="secondary" leadingIcon={<FilterX size={16} />} onClick={() => {
             setSearch("");
             setStockFilters({ sector: "", category: "", subcategory: "", supplier: "", alert: "" });
-          }}>
-            <FilterX size={16} />
-            Limpar
-          </button>
+          }}>Limpar</Button>
         </div>
         <div className="chart-grid">
           <SimpleBarChart title="Divergências por setor/tipo" items={divergencesBySector} />
@@ -3481,14 +3308,14 @@ export function Inventory({
         {inventoryDeskTab === "reports" && (
           <>
             <div className="summary-grid inventory-compact-summary">
-              <SummaryCard label="Movimentacoes" value={movements.length} tone="info" />
+              <SummaryCard label="Movimentações" value={movements.length} tone="info" />
               <SummaryCard label="Contagens" value={counts.length} tone="info" />
-              <SummaryCard label="Inventarios oficiais" value={officialInventories.length} tone="success" />
-              <SummaryCard label="Divergencias" value={counts.filter((count) => Number(count.divergenceQuantity) !== 0).length} tone="warning" />
+              <SummaryCard label="Inventários oficiais" value={officialInventories.length} tone="success" />
+              <SummaryCard label="Divergências" value={counts.filter((count) => Number(count.divergenceQuantity) !== 0).length} tone="warning" />
             </div>
             <div className="chart-grid">
-              <SimpleBarChart title="Divergencias por setor/tipo" items={divergencesBySector} />
-              <SimpleBarChart title="Status dos inventarios" items={countsByStatus} />
+              <SimpleBarChart title="Divergências por setor/tipo" items={divergencesBySector} />
+              <SimpleBarChart title="Status dos inventários" items={countsByStatus} />
               <SimpleBarChart title="Estoque contado x pendente" items={[
                 { label: "Contados", value: operationalInventories.reduce((sum, item) => sum + Number(item.countedItems ?? 0), 0) },
                 { label: "Pendentes", value: operationalInventories.reduce((sum, item) => sum + Number(item.pendingItems ?? 0), 0) }
@@ -3499,24 +3326,24 @@ export function Inventory({
       </section>
 
       <section className={panelClass(["movements"])}>
-        <div className="section-heading"><div><p>Movimentacao autorizada</p><h2>Registrar movimentacao</h2></div></div>
+        <div className="section-heading"><div><PanelEyebrow>Movimentação autorizada</PanelEyebrow><h2>Registrar movimentação</h2></div></div>
         <div className="form-grid">
-          <label>Buscar produto<input list="movement-products" value={movementSearch} onBlur={findMovementProduct} onChange={(event) => setMovementSearch(event.target.value)} placeholder="Codigo ou nome" /><datalist id="movement-products">{products.map((product) => <option key={product.id} value={product.externalCode ? `${product.externalCode} - ${product.name}` : product.name} />)}</datalist></label>
-          <button className="secondary-button" type="button" onClick={findMovementProduct}><Search size={16} />Buscar</button>
+          <label>Buscar produto<input list="movement-products" value={movementSearch} onBlur={findMovementProduct} onChange={(event) => setMovementSearch(event.target.value)} placeholder="Código ou nome" /><datalist id="movement-products">{products.map((product) => <option key={product.id} value={product.externalCode ? `${product.externalCode} - ${product.name}` : product.name} />)}</datalist></label>
+          <Button variant="secondary" leadingIcon={<Search size={16} />} onClick={findMovementProduct}>Buscar</Button>
           <label>Produto<select value={movementForm.productId} onChange={(event) => selectMovementProduct(event.target.value)}>{products.map((product) => <option key={product.id} value={product.id}>{product.externalCode ? `${product.externalCode} - ` : ""}{product.name}</option>)}</select></label>
           <label>Tipo<select value={movementForm.type} onChange={(event) => setMovementForm({ ...movementForm, type: event.target.value })}>{movementTypes.filter((type) => canViewCosts || type.value !== "PURCHASE_IN").map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
           <label>Quantidade<input inputMode="decimal" value={movementForm.quantity} onChange={(event) => setMovementForm({ ...movementForm, quantity: event.target.value })} /></label>
           <label>Unidade<input value={movementForm.unit} onChange={(event) => setMovementForm({ ...movementForm, unit: event.target.value })} /></label>
-          <label className={sensitiveMovementTypes.includes(movementForm.type) && !movementForm.notes.trim() ? "field-error" : ""}>Motivo/observacao<input value={movementForm.notes} onChange={(event) => setMovementForm({ ...movementForm, notes: event.target.value })} /></label>
-          <button className="primary-button large-action" type="button" onClick={submitMovement}>Salvar movimentacao</button>
+          <label className={sensitiveMovementTypes.includes(movementForm.type) && !movementForm.notes.trim() ? "field-error" : ""}>Motivo/observação<input value={movementForm.notes} onChange={(event) => setMovementForm({ ...movementForm, notes: event.target.value })} /></label>
+          <Button className="large-action" onClick={submitMovement}>Salvar movimentação</Button>
         </div>
         {movementForm.productId && (
-          <div className="alert success">
+          <Alert tone="success">
             {(() => {
               const product = products.find((item) => item.id === movementForm.productId);
-              return product ? `Selecionado: ${product.externalCode ?? "-"} - ${product.name} | Setor ${product.inventorySector?.name ?? "-"} | ${[product.storageLocation, product.storageShelf, product.storagePosition].filter(Boolean).join(" - ") || "sem localizacao"}` : "";
+              return product ? `Selecionado: ${product.externalCode ?? "-"} - ${product.name} | Setor ${product.inventorySector?.name ?? "-"} | ${[product.storageLocation, product.storageShelf, product.storagePosition].filter(Boolean).join(" - ") || "sem localização"}` : "";
             })()}
-          </div>
+          </Alert>
         )}
       </section>
 
@@ -3544,27 +3371,60 @@ export function Inventory({
       />
 
       <section className={panelClass(["movements", "reports"])}>
-        <div className="section-heading"><div><p>Historico</p><h2>{user.role === "ESTOQUISTA" ? "Minhas contagens e movimentacoes" : "Movimentacoes recentes"}</h2></div></div>
+        <div className="section-heading"><div><PanelEyebrow>Histórico</PanelEyebrow><h2>{user.role === "ESTOQUISTA" ? "Minhas contagens e movimentações" : "Movimentações recentes"}</h2></div></div>
         <div className="filters-row">
           <PeriodFilter value={movementPeriod} onChange={setMovementPeriod} />
-          <button className="primary-button" type="button" onClick={load}>Filtrar</button>
+          <Button onClick={load}>Filtrar</Button>
         </div>
         <div className="chart-grid">
           <SimpleBarChart title="Entradas x saídas por tipo" items={movementsByType} />
           <SimpleBarChart title="Produtos mais movimentados" items={movementsByProduct} />
           <SimpleBarChart title="Linha temporal de movimentações" items={movementsTimeline} />
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Data</th><th>Produto</th><th>Tipo/status</th><th>Quantidade</th><th>Unidade</th>{canViewCosts && <th>Custo total</th>}<th>Obs.</th></tr></thead>
-            <tbody>{movements.map((movement) => <tr key={movement.id}><td>{formatDate(movement.createdAt)}</td><td>{movement.productName}</td><td>{movement.type}</td><td>{formatNumber(Number(movement.quantity))}</td><td>{movement.unit ?? "-"}</td>{canViewCosts && <td>{movement.totalCost ? formatCurrency(Number(movement.totalCost)) : "-"}</td>}<td>{movement.notes ?? "-"}</td></tr>)}</tbody>
-          </table>
-        </div>
+        <Table>
+          <Table.Head>
+            <Table.Row>
+              <Table.Th>Data</Table.Th>
+              <Table.Th minWidth={180}>Produto</Table.Th>
+              <Table.Th>Tipo/status</Table.Th>
+              <Table.Th align="right">Quantidade</Table.Th>
+              <Table.Th>Unidade</Table.Th>
+              {canViewCosts && <Table.Th align="right">Custo total</Table.Th>}
+              <Table.Th>Obs.</Table.Th>
+            </Table.Row>
+          </Table.Head>
+          <Table.Body>
+            {movements.map((movement) => (
+              <Table.Row key={movement.id}>
+                <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(movement.createdAt)}</Table.Td>
+                <Table.Td truncate title={movement.productName}>{movement.productName}</Table.Td>
+                <Table.Td>{movement.type}</Table.Td>
+                <Table.Td align="right">{formatNumber(Number(movement.quantity))}</Table.Td>
+                <Table.Td>{movement.unit ?? "-"}</Table.Td>
+                {canViewCosts && <Table.Td align="right">{movement.totalCost ? <Money value={Number(movement.totalCost)} /> : "-"}</Table.Td>}
+                <Table.Td truncate style={{ maxWidth: 200 }} title={movement.notes ?? undefined}>{movement.notes ?? "-"}</Table.Td>
+              </Table.Row>
+            ))}
+            {movements.length === 0 && (
+              <Table.Row>
+                <Table.Td colSpan={canViewCosts ? 7 : 6}>
+                  <EmptyState title="Nenhuma movimentação no período" />
+                </Table.Td>
+              </Table.Row>
+            )}
+          </Table.Body>
+        </Table>
         {canConfigureAgenda && (
           <div className="subsection table-wrap">
             <table>
               <thead><tr><th>Dia</th><th>Categoria</th><th>Status</th><th>Responsavel</th><th>Acoes</th></tr></thead>
-              <tbody>{agenda?.items.map((item) => <tr key={item.id}><td>{formatDate(item.scheduledDate)}</td><td>{item.sectorName || item.categoryName}</td><td><span className={`status-badge ${item.status.toLowerCase()}`}>{statusLabels[item.status] ?? item.status}</span></td><td>{item.responsibleName ?? "-"}</td><td>{item.status === "SUBMITTED" ? <button className="secondary-button" type="button" onClick={() => confirmAgenda(item)}><CheckCircle2 size={16} />Confirmar</button> : "-"}</td></tr>)}</tbody>
+              <tbody>{agenda?.items.map((item) => {
+                const st = item.status;
+                const tone = st === "CONFIRMED" ? "success" : st === "LATE" ? "danger" : st === "SUBMITTED" ? "info" : "warning";
+                return (
+                <tr key={item.id}><td>{formatDate(item.scheduledDate)}</td><td>{item.sectorName || item.categoryName}</td><td><StatusBadge tone={tone}>{statusLabels[st] ?? st}</StatusBadge></td><td>{item.responsibleName ?? "-"}</td><td>{st === "SUBMITTED" ? <Button variant="secondary" size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={() => confirmAgenda(item)}>Confirmar</Button> : "-"}</td></tr>
+                );
+              })}</tbody>
             </table>
           </div>
         )}

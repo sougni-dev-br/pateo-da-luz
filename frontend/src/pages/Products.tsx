@@ -1,4 +1,4 @@
-import { RefreshCw, X } from "lucide-react";
+﻿import { History, Pencil, PowerOff, RefreshCw, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addProductAlias,
@@ -30,7 +30,15 @@ import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
 import { hasPermission } from "../lib/permissions";
 import { SimpleBarChart } from "../components/SimpleBarChart";
-import { EmptyState, StatusBadge, SummaryCard } from "../components/ui";
+import {
+  EmptyState,
+  IconButton,
+  PanelEyebrow,
+  RowMenu,
+  StatusBadge,
+  SummaryCard,
+  Table
+} from "../design-system";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
 
 const emptyProduct = {
@@ -113,7 +121,7 @@ function sanitizeSectorOptions(sectors: InventorySector[]) {
 }
 
 const productFormTabs = [
-  { id: "identification", label: "Identificacao" },
+  { id: "identification", label: "Identificação" },
   { id: "classification", label: "Classificação" },
   { id: "units", label: "Unidades" },
   { id: "location", label: "Localização" },
@@ -178,7 +186,7 @@ export function Products() {
   }
 
   async function loadBaseData() {
-    const [categoryRows, subcategoryRows, sectorRows, unitRows, supplierRows, nextCode, dreCategoryRows] = await Promise.all([
+    const [rawCategoryRows, rawSubcategoryRows, rawSectorRows, rawUnitRows, rawSupplierRows, nextCode, rawDreCategoryRows] = await Promise.all([
       getCategories(),
       getSubcategories(),
       getSectors(),
@@ -187,6 +195,15 @@ export function Products() {
       getNextProductCode().catch(() => ({ code: "" })),
       getDRECategories(true)
     ]);
+    // Guards defensivos: se um endpoint retornar payload parcial (mock, backend
+    // com bug, resposta antes de terminar), Array.isArray filtra em silencio.
+    const categoryRows = Array.isArray(rawCategoryRows) ? rawCategoryRows : [];
+    const subcategoryRows = Array.isArray(rawSubcategoryRows) ? rawSubcategoryRows : [];
+    const sectorRows = Array.isArray(rawSectorRows) ? rawSectorRows : [];
+    const unitRows = Array.isArray(rawUnitRows) ? rawUnitRows : [];
+    const supplierRows = Array.isArray(rawSupplierRows) ? rawSupplierRows : [];
+    const dreCategoryRows = Array.isArray(rawDreCategoryRows) ? rawDreCategoryRows : [];
+
     setCategories(categoryRows);
     setSubcategories(subcategoryRows);
     setSectors(sanitizeSectorOptions(sectorRows));
@@ -369,7 +386,10 @@ export function Products() {
     loadBaseData();
   }, []);
 
-  const filteredSubcategories = subcategories.filter((subcategory) => subcategory.categoryId === form.categoryId);
+  // Guard defensivo: mesmo com o setter garantindo array acima, protege
+  // renders inicial quando o state ainda nao chegou.
+  const filteredSubcategories = (Array.isArray(subcategories) ? subcategories : [])
+    .filter((subcategory) => subcategory.categoryId === form.categoryId);
 
   return (
     <div className="stack">
@@ -721,12 +741,10 @@ export function Products() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p>Normalizacao inicial</p>
+            <PanelEyebrow>Normalização inicial</PanelEyebrow>
             <h2>Produtos</h2>
           </div>
-          <button className="icon-button" type="button" onClick={loadProducts} aria-label="Atualizar produtos">
-            <RefreshCw size={18} />
-          </button>
+          <IconButton icon={<RefreshCw size={16} />} label="Atualizar produtos" onClick={loadProducts} />
         </div>
 
         <div className="filters-row">
@@ -771,7 +789,7 @@ export function Products() {
 
         {/* Painel de sugestões por categoria */}
         {showSuggestions && (
-          <div style={{ border: "1px solid var(--color-border, #334155)", borderRadius: "8px", padding: "1rem", marginBottom: "0.5rem" }}>
+          <div style={{ border: "1px solid var(--line)", borderRadius: "8px", padding: "1rem", marginBottom: "0.5rem" }}>
             <h3 style={{ marginTop: 0, marginBottom: "0.75rem", fontSize: "0.95rem" }}>Sugestões de Categoria DRE por categoria de produto</h3>
             <table>
               <thead>
@@ -791,8 +809,8 @@ export function Products() {
                     <td style={{ textAlign: "center" }}>{g.controlsStock}</td>
                     <td>
                       {g.dreCatName
-                        ? <span style={{ color: "var(--color-success, #22c55e)", fontSize: "0.88em" }}>{g.dreCatName}</span>
-                        : <span style={{ color: "var(--color-text-muted)", fontStyle: "italic", fontSize: "0.88em" }}>— sem sugestão —</span>}
+                        ? <span style={{ color: "var(--success)", fontSize: "0.88em" }}>{g.dreCatName}</span>
+                        : <span style={{ color: "var(--muted)", fontStyle: "italic", fontSize: "0.88em" }}>— sem sugestão —</span>}
                     </td>
                     <td className="actions-cell">
                       {g.dreCatId && (
@@ -818,7 +836,7 @@ export function Products() {
                   </tr>
                 ))}
                 {suggestionGroups.length === 0 && (
-                  <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--color-success, #22c55e)" }}>Todos os produtos têm Categoria DRE!</td></tr>
+                  <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--success)" }}>Todos os produtos têm Categoria DRE!</td></tr>
                 )}
               </tbody>
             </table>
@@ -832,12 +850,12 @@ export function Products() {
             onClick={() => !bulkSaving && setPendingSuggestion(null)}
           >
             <div
-              style={{ background: "var(--color-surface, #0f172a)", border: "1px solid var(--color-border, #334155)", borderRadius: "12px", padding: "1.5rem", maxWidth: "420px", width: "90%" }}
+              style={{ background: "var(--paper)", border: "1px solid var(--line)", borderRadius: "12px", padding: "1.5rem", maxWidth: "420px", width: "90%" }}
               onClick={(e) => e.stopPropagation()}
             >
               <h3 style={{ marginTop: 0 }}>Confirmar classificação em lote</h3>
               <p>Aplicar <strong>{pendingSuggestion.dreCatName}</strong> em <strong>{pendingSuggestion.ids.length}</strong> produto(s) da categoria <strong>{pendingSuggestion.catName}</strong>?</p>
-              <p style={{ fontSize: "0.85em", color: "var(--color-text-muted)" }}>Essa ação pode ser desfeita editando cada produto individualmente.</p>
+              <p style={{ fontSize: "0.85em", color: "var(--muted)" }}>Essa ação pode ser desfeita editando cada produto individualmente.</p>
               <div className="actions-cell" style={{ marginTop: "1.25rem" }}>
                 <button className="primary-button" type="button" disabled={bulkSaving} onClick={() => applyBulkDre(pendingSuggestion.ids, pendingSuggestion.dreCatId)}>
                   {bulkSaving ? "Aplicando..." : "Confirmar"}
@@ -855,7 +873,7 @@ export function Products() {
             onClick={() => !bulkSaving && setShowBulkConfirm(false)}
           >
             <div
-              style={{ background: "var(--color-surface, #0f172a)", border: "1px solid var(--color-border, #334155)", borderRadius: "12px", padding: "1.5rem", maxWidth: "420px", width: "90%" }}
+              style={{ background: "var(--paper)", border: "1px solid var(--line)", borderRadius: "12px", padding: "1.5rem", maxWidth: "420px", width: "90%" }}
               onClick={(e) => e.stopPropagation()}
             >
               <h3 style={{ marginTop: 0 }}>Confirmar classificação em lote</h3>
@@ -872,7 +890,7 @@ export function Products() {
 
         {/* Barra de ação em lote */}
         {selected.size > 0 && (
-          <div style={{ position: "sticky", top: 0, zIndex: 10, background: "var(--color-surface-raised, #1e293b)", border: "1px solid var(--color-border, #334155)", borderRadius: "8px", padding: "0.75rem 1rem", display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ position: "sticky", top: 0, zIndex: 10, background: "var(--paper-soft)", border: "1px solid var(--line)", borderRadius: "8px", padding: "0.75rem 1rem", display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
             <strong style={{ whiteSpace: "nowrap" }}>{selected.size} selecionado(s)</strong>
             <select
               value={bulkDreCategoryId}
@@ -900,35 +918,34 @@ export function Products() {
         {loading && <div className="empty-state">Carregando produtos...</div>}
 
         {!loading && (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: "2rem" }}>
-                    <input
-                      type="checkbox"
-                      title="Selecionar todos visíveis"
-                      checked={products.length > 0 && products.every((p) => selected.has(p.id))}
-                      onChange={(e) => {
-                        if (e.target.checked) setSelected(new Set(products.map((p) => p.id)));
-                        else setSelected(new Set());
-                      }}
-                    />
-                  </th>
-                  <th>Status</th>
-                  <th>Código</th>
-                  <th>Produto</th>
-                  <th>Categoria</th>
-                  <th>Estoque</th>
-                  <th>Categoria DRE</th>
-                  <th>Aliases</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
+          <Table>
+            <Table.Head>
+              <Table.Row>
+                <Table.Th style={{ width: "2rem" }}>
+                  <input
+                    type="checkbox"
+                    title="Selecionar todos visíveis"
+                    checked={products.length > 0 && products.every((p) => selected.has(p.id))}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelected(new Set(products.map((p) => p.id)));
+                      else setSelected(new Set());
+                    }}
+                  />
+                </Table.Th>
+                <Table.Th>Status</Table.Th>
+                <Table.Th>Código</Table.Th>
+                <Table.Th minWidth={180}>Produto</Table.Th>
+                <Table.Th>Categoria</Table.Th>
+                <Table.Th align="center">Estoque</Table.Th>
+                <Table.Th>Categoria DRE</Table.Th>
+                <Table.Th align="right">Aliases</Table.Th>
+                <Table.Th actions>Ações</Table.Th>
+              </Table.Row>
+            </Table.Head>
+            <Table.Body>
                 {products.map((product) => (
-                  <tr key={product.id} style={selected.has(product.id) ? { backgroundColor: "var(--color-primary-muted, rgba(59,130,246,0.08))" } : undefined}>
-                    <td>
+                  <Table.Row key={product.id} style={selected.has(product.id) ? { backgroundColor: "var(--gold-tint)" } : undefined}>
+                    <Table.Td>
                       <input
                         type="checkbox"
                         checked={selected.has(product.id)}
@@ -938,26 +955,30 @@ export function Products() {
                           setSelected(next);
                         }}
                       />
-                    </td>
-                    <td>{product.isActive ? "Ativo" : "Inativo"}</td>
-                    <td>{product.externalCode ?? "-"}</td>
-                    <td>
+                    </Table.Td>
+                    <Table.Td>
+                      <StatusBadge tone={product.isActive ? "success" : "danger"}>
+                        {product.isActive ? "Ativo" : "Inativo"}
+                      </StatusBadge>
+                    </Table.Td>
+                    <Table.Td style={{ whiteSpace: "nowrap" }}>{product.externalCode ?? "-"}</Table.Td>
+                    <Table.Td truncate title={product.name}>
                       {product.name}
                       <small>{product.normalizedName}</small>
-                    </td>
-                    <td>
+                    </Table.Td>
+                    <Table.Td>
                       {product.category?.name ?? "-"}
                       {product.subcategory && <small>{product.subcategory.name}</small>}
-                    </td>
-                    <td>{product.controlsStock === false ? "Nao" : "Sim"}</td>
-                    <td>
+                    </Table.Td>
+                    <Table.Td align="center">{product.controlsStock === false ? "Não" : "Sim"}</Table.Td>
+                    <Table.Td truncate style={{ maxWidth: 180 }}>
                       {product.dreCategory
                         ? <span title={product.dreCategory.name} style={{ fontSize: "0.82em" }}>{product.dreCategory.name}</span>
-                        : <span style={{ color: "var(--color-warning, #f59e0b)", fontStyle: "italic", fontSize: "0.82em" }}>— pendente —</span>}
-                    </td>
-                    <td>{product.aliases?.length ?? 0}</td>
-                    <td className="actions-cell">
-                      <button type="button" disabled={!canEdit} onClick={() => {
+                        : <span style={{ color: "var(--warning)", fontStyle: "italic", fontSize: "0.82em" }}>— pendente —</span>}
+                    </Table.Td>
+                    <Table.Td align="right">{product.aliases?.length ?? 0}</Table.Td>
+                    <Table.Td actions>
+                      <IconButton icon={<Pencil size={16} />} label="Editar" disabled={!canEdit} onClick={() => {
                         setActiveFormTab("identification");
                         setForm({
                           id: product.id,
@@ -1000,26 +1021,33 @@ export function Products() {
                           notes: product.notes ?? "",
                           isActive: product.isActive
                         });
-                      }}>
-                        Editar
-                      </button>
-                      <button type="button" disabled={!canDelete} onClick={() => toggleStatus(product)}>
-                        {product.isActive ? "Inativar" : "Reativar"}
-                      </button>
-                      <button type="button" onClick={() => openHistory(product)}>
-                        Ver historico
-                      </button>
-                    </td>
-                  </tr>
+                      }} />
+                      <RowMenu
+                        label={`Mais ações — ${product.name}`}
+                        items={[
+                          { label: "Ver histórico", icon: <History size={15} />, onClick: () => openHistory(product) },
+                          { separator: true },
+                          {
+                            label: product.isActive ? "Inativar" : "Reativar",
+                            icon: <PowerOff size={15} />,
+                            tone: product.isActive ? "danger" : "default",
+                            disabled: !canDelete,
+                            onClick: () => toggleStatus(product)
+                          }
+                        ]}
+                      />
+                    </Table.Td>
+                  </Table.Row>
                 ))}
                 {products.length === 0 && (
-                  <tr>
-                    <td colSpan={9}>Nenhum produto cadastrado.</td>
-                  </tr>
+                  <Table.Row>
+                    <Table.Td colSpan={9}>
+                      <EmptyState title="Nenhum produto cadastrado." />
+                    </Table.Td>
+                  </Table.Row>
                 )}
-              </tbody>
-            </table>
-          </div>
+            </Table.Body>
+          </Table>
         )}
       </section>
 

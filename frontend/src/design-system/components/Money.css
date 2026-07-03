@@ -1,0 +1,45 @@
+/* inline-block + nowrap: garante que o "R$" nunca quebra do numero,
+   mesmo em coluna comprimida. Se genuinamente nao couber, corta com
+   ellipsis em vez de quebrar o valor no meio.
+
+   Seletores dobrados (.ds-money.ds-money) de proposito: containers
+   legacy tem regras genericas tipo `.summary-grid span { display:block }`
+   com especificidade (0,1,1) que quebravam o R$ do numero. O double
+   class (0,2,0) blinda o componente sem !important. */
+.ds-money.ds-money {
+  display: inline-block;
+  max-width: 100%;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  font-size: inherit;
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-money .ds-money-cur {
+  display: inline;
+  margin: 0 3px 0 0;
+  font-size: 0.62em;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+
+.ds-money .ds-money-sign {
+  display: inline;
+  margin: 0 2px 0 0;
+  font-size: inherit;
+  color: var(--muted);
+}
+
+.ds-money .ds-money-hidden {
+  display: inline;
+  margin: 0;
+  font-size: inherit;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  font-variant-numeric: normal;
+}

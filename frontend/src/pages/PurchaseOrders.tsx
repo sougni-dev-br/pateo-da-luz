@@ -1,4 +1,4 @@
-import { CheckCircle2, Download, Eye, PackageCheck, RefreshCw, Send, XCircle } from "lucide-react";
+﻿import { BadgeDollarSign, CheckCircle2, Download, Eye, PackageCheck, RefreshCw, Send, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -13,13 +13,26 @@ import {
   updatePurchaseOrder
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
+import {
+  Button,
+  EmptyState,
+  FormField,
+  FormGrid,
+  IconButton,
+  Money,
+  PanelEyebrow,
+  StatusBadge,
+  SummaryCard,
+  Table,
+  Textarea,
+  TextField
+} from "../design-system";
 import { hasPermission } from "../lib/permissions";
-import { EmptyState, StatusBadge, SummaryCard } from "../components/ui";
-import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { formatDate, formatNumber } from "../utils/format";
 
 const statusLabels: Record<string, string> = {
   RASCUNHO: "Rascunho",
-  EM_REVISAO: "Em revisao",
+  EM_REVISAO: "Em revisão",
   APROVADO: "Aprovado",
   ENVIADO: "Enviado",
   RECEBIDO_PARCIAL: "Recebido parcial",
@@ -164,51 +177,84 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
       <Notice notice={notice} />
       <section className="panel">
         <div className="section-header">
-          <div>
-            <p className="muted">Pedidos operacionais gerados a partir da pre-lista do comprador. Ainda nao integram contas a pagar.</p>
-          </div>
-          <button className="secondary" type="button" onClick={load}><RefreshCw size={16} /> Atualizar</button>
+          <span />
+          <Button variant="secondary" leadingIcon={<RefreshCw size={16} />} onClick={load}>Atualizar</Button>
         </div>
 
-        <div className="summary-grid">
-          <SummaryCard label="Rascunho" value={summary.RASCUNHO ?? 0} tone="warning" />
-          <SummaryCard label="Em revisao" value={summary.EM_REVISAO ?? 0} tone="info" />
-          <SummaryCard label="Aprovados" value={summary.APROVADO ?? 0} tone="success" />
-          <SummaryCard label="Enviados" value={summary.ENVIADO ?? 0} />
-          <SummaryCard label="Recebidos" value={(summary.RECEBIDO ?? 0) + (summary.RECEBIDO_PARCIAL ?? 0)} tone="success" />
-          <SummaryCard label="Cancelados" value={summary.CANCELADO ?? 0} tone="danger" />
-          <SummaryCard label="Valor estimado" value={formatCurrency(estimatedTotal)} />
+        {/* Contadores operacionais e valores em R$ separados em blocos
+            semanticos — padrao do handoff, reusado em Contas a pagar/
+            Faturamento/DRE nas proximas ondas. */}
+        <div className="kpi-block">
+          <PanelEyebrow>Situação operacional</PanelEyebrow>
+          <div className="kpi-counters-grid">
+            <SummaryCard label="Rascunho" value={summary.RASCUNHO ?? 0} tone="warning" />
+            <SummaryCard label="Em revisão" value={summary.EM_REVISAO ?? 0} tone="info" />
+            <SummaryCard label="Aprovados" value={summary.APROVADO ?? 0} tone="success" />
+            <SummaryCard label="Enviados" value={summary.ENVIADO ?? 0} />
+            <SummaryCard label="Recebidos" value={(summary.RECEBIDO ?? 0) + (summary.RECEBIDO_PARCIAL ?? 0)} tone="success" />
+            <SummaryCard label="Cancelados" value={summary.CANCELADO ?? 0} tone="danger" />
+          </div>
+        </div>
+        <div className="kpi-block">
+          <PanelEyebrow>Resumo financeiro</PanelEyebrow>
+          <div className="kpi-finance-grid">
+            <SummaryCard
+              label="Valor estimado"
+              value={<Money value={estimatedTotal} />}
+              detail="Soma dos pedidos listados"
+              icon={<BadgeDollarSign size={18} />}
+            />
+          </div>
         </div>
 
         <div className="filter-bar">
-          <label>Busca<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Codigo ou fornecedor" /></label>
-          <button type="button" onClick={load}>Filtrar</button>
+          <FormField label="Busca">
+            <TextField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Código ou fornecedor" />
+          </FormField>
+          <Button variant="secondary" onClick={load}>Filtrar</Button>
         </div>
 
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Codigo</th><th>Fornecedor</th><th>Status</th><th>Origem</th><th>Criacao</th><th>Previsao</th><th>Itens</th><th>Estimado</th><th>Responsavel</th><th>Acoes</th></tr>
-            </thead>
-            <tbody>
-              {orders.map((order) => (
-                <tr key={order.id}>
-                  <td>{order.code}</td>
-                  <td title={order.supplierNameSnapshot}>{order.supplierNameSnapshot}</td>
-                  <td><StatusBadge tone={statusTone(order.status)}>{statusLabels[order.status] ?? order.status}</StatusBadge></td>
-                  <td>{sourceLabels[order.source] ?? "Manual"}</td>
-                  <td>{formatDate(order.createdAt)}</td>
-                  <td>{formatDate(order.expectedDeliveryDate)}</td>
-                  <td>{order.totalItems ?? 0}</td>
-                  <td>{formatCurrency(order.estimatedTotal)}</td>
-                  <td title={order.createdByUserName ?? "-"}>{order.createdByUserName ?? "-"}</td>
-                  <td><button className="ghost" type="button" onClick={() => openOrder(order.id)}><Eye size={15} /> Abrir</button></td>
-                </tr>
-              ))}
-              {!loading && orders.length === 0 && <tr><td colSpan={10}><EmptyState title="Nenhum pedido de compra" description="Gere pedidos a partir da pre-lista do comprador." /></td></tr>}
-            </tbody>
-          </table>
-        </div>
+        <Table>
+          <Table.Head>
+            <Table.Row>
+              <Table.Th>Código</Table.Th>
+              <Table.Th minWidth={180}>Fornecedor</Table.Th>
+              <Table.Th>Status</Table.Th>
+              <Table.Th>Origem</Table.Th>
+              <Table.Th>Criação</Table.Th>
+              <Table.Th>Previsão</Table.Th>
+              <Table.Th align="right">Itens</Table.Th>
+              <Table.Th align="right">Estimado</Table.Th>
+              <Table.Th>Responsável</Table.Th>
+              <Table.Th actions>Ações</Table.Th>
+            </Table.Row>
+          </Table.Head>
+          <Table.Body>
+            {orders.map((order) => (
+              <Table.Row key={order.id}>
+                <Table.Td style={{ whiteSpace: "nowrap" }}>{order.code}</Table.Td>
+                <Table.Td truncate title={order.supplierNameSnapshot}>{order.supplierNameSnapshot}</Table.Td>
+                <Table.Td><StatusBadge tone={statusTone(order.status)}>{statusLabels[order.status] ?? order.status}</StatusBadge></Table.Td>
+                <Table.Td style={{ whiteSpace: "nowrap" }}>{sourceLabels[order.source] ?? "Manual"}</Table.Td>
+                <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(order.createdAt)}</Table.Td>
+                <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(order.expectedDeliveryDate)}</Table.Td>
+                <Table.Td align="right">{order.totalItems ?? 0}</Table.Td>
+                <Table.Td align="right"><Money value={Number(order.estimatedTotal ?? 0)} /></Table.Td>
+                <Table.Td truncate style={{ maxWidth: 140 }} title={order.createdByUserName ?? "-"}>{order.createdByUserName ?? "-"}</Table.Td>
+                <Table.Td actions>
+                  <IconButton icon={<Eye size={16} />} label="Abrir pedido" onClick={() => openOrder(order.id)} />
+                </Table.Td>
+              </Table.Row>
+            ))}
+            {!loading && orders.length === 0 && (
+              <Table.Row>
+                <Table.Td colSpan={10}>
+                  <EmptyState title="Nenhum pedido de compra" description="Gere pedidos a partir da pré-lista do comprador." />
+                </Table.Td>
+              </Table.Row>
+            )}
+          </Table.Body>
+        </Table>
       </section>
 
       {selected && (
@@ -221,50 +267,70 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
             </div>
             <div className="action-row">
               <StatusBadge tone={statusTone(selected.status)}>{statusLabels[selected.status] ?? selected.status}</StatusBadge>
-              <button className="secondary" type="button" onClick={() => downloadPurchaseOrderCsv(selected.id, selected.code)}><Download size={16} /> Exportar</button>
+              <Button variant="secondary" leadingIcon={<Download size={16} />} onClick={() => downloadPurchaseOrderCsv(selected.id, selected.code)}>Exportar</Button>
             </div>
           </div>
 
-          <div className="form-grid three">
-            <label>Fornecedor<input readOnly value={selected.supplierNameSnapshot} title={selected.supplierNameSnapshot} /></label>
-            <label>Origem<input readOnly value={sourceLabels[selected.source] ?? "Manual"} /></label>
-            <label>Previsao entrega<input type="date" disabled={selected.status !== "RASCUNHO"} value={detailDraft.expectedDeliveryDate} onChange={(event) => setDetailDraft({ ...detailDraft, expectedDeliveryDate: event.target.value })} /></label>
-            <label className="wide">Observacoes<textarea disabled={selected.status !== "RASCUNHO"} value={detailDraft.notes} onChange={(event) => setDetailDraft({ ...detailDraft, notes: event.target.value })} /></label>
-          </div>
+          <FormGrid cols={3}>
+            <FormField label="Fornecedor">
+              <TextField readOnly value={selected.supplierNameSnapshot} title={selected.supplierNameSnapshot} />
+            </FormField>
+            <FormField label="Origem">
+              <TextField readOnly value={sourceLabels[selected.source] ?? "Manual"} />
+            </FormField>
+            <FormField label="Previsão de entrega">
+              <TextField type="date" disabled={selected.status !== "RASCUNHO"} value={detailDraft.expectedDeliveryDate} onChange={(event) => setDetailDraft({ ...detailDraft, expectedDeliveryDate: event.target.value })} />
+            </FormField>
+            <div className="ds-form-grid-span-all">
+              <FormField label="Observações">
+                <Textarea disabled={selected.status !== "RASCUNHO"} value={detailDraft.notes} onChange={(event) => setDetailDraft({ ...detailDraft, notes: event.target.value })} />
+              </FormField>
+            </div>
+          </FormGrid>
 
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr><th>Codigo</th><th>Produto</th><th>Un.</th><th>Ult. contagem</th><th>Min.</th><th>Ideal</th><th>Sugestao</th><th>Solicitada</th><th>Aprovada</th><th>Recebida</th><th>Obs.</th></tr>
-              </thead>
-              <tbody>
-                {(selected.items ?? []).map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.productCodeSnapshot ?? "-"}</td>
-                    <td title={item.productNameSnapshot}>{item.productNameSnapshot}</td>
-                    <td>{item.unitSnapshot ?? "-"}</td>
-                    <td>{formatNumber(item.lastCountedQuantity)}</td>
-                    <td>{formatNumber(item.estoqueMinimoSnapshot)}</td>
-                    <td>{formatNumber(item.estoqueIdealSnapshot)}</td>
-                    <td><span title={item.alertSnapshot ?? ""}>{formatNumber(item.suggestedQuantity)} {item.suggestionTypeSnapshot}</span></td>
-                    <td><input className="compact-input" type="number" min="0" disabled={selected.status !== "RASCUNHO"} value={detailDraft.items[item.id]?.requestedQuantity ?? ""} onChange={(event) => setDetailDraft({ ...detailDraft, items: { ...detailDraft.items, [item.id]: { ...(detailDraft.items[item.id] ?? { receivedQuantity: "", notes: "" }), requestedQuantity: event.target.value } } })} /></td>
-                    <td>{formatNumber(item.approvedQuantity ?? item.requestedQuantity)}</td>
-                    <td><input className="compact-input" type="number" min="0" disabled={!["ENVIADO", "RECEBIDO_PARCIAL"].includes(selected.status)} value={detailDraft.items[item.id]?.receivedQuantity ?? ""} onChange={(event) => setDetailDraft({ ...detailDraft, items: { ...detailDraft.items, [item.id]: { ...(detailDraft.items[item.id] ?? { requestedQuantity: String(item.requestedQuantity ?? ""), notes: "" }), receivedQuantity: event.target.value } } })} /></td>
-                    <td><input disabled={selected.status !== "RASCUNHO"} value={detailDraft.items[item.id]?.notes ?? ""} onChange={(event) => setDetailDraft({ ...detailDraft, items: { ...detailDraft.items, [item.id]: { ...(detailDraft.items[item.id] ?? { requestedQuantity: String(item.requestedQuantity ?? ""), receivedQuantity: "" }), notes: event.target.value } } })} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <Table.Head>
+              <Table.Row>
+                <Table.Th>Código</Table.Th>
+                <Table.Th minWidth={180}>Produto</Table.Th>
+                <Table.Th>Un.</Table.Th>
+                <Table.Th align="right">Últ. contagem</Table.Th>
+                <Table.Th align="right">Mín.</Table.Th>
+                <Table.Th align="right">Ideal</Table.Th>
+                <Table.Th align="right">Sugestão</Table.Th>
+                <Table.Th align="right">Solicitada</Table.Th>
+                <Table.Th align="right">Aprovada</Table.Th>
+                <Table.Th align="right">Recebida</Table.Th>
+                <Table.Th>Obs.</Table.Th>
+              </Table.Row>
+            </Table.Head>
+            <Table.Body>
+              {(selected.items ?? []).map((item) => (
+                <Table.Row key={item.id}>
+                  <Table.Td>{item.productCodeSnapshot ?? "-"}</Table.Td>
+                  <Table.Td truncate title={item.productNameSnapshot}>{item.productNameSnapshot}</Table.Td>
+                  <Table.Td>{item.unitSnapshot ?? "-"}</Table.Td>
+                  <Table.Td align="right">{formatNumber(item.lastCountedQuantity)}</Table.Td>
+                  <Table.Td align="right">{formatNumber(item.estoqueMinimoSnapshot)}</Table.Td>
+                  <Table.Td align="right">{formatNumber(item.estoqueIdealSnapshot)}</Table.Td>
+                  <Table.Td align="right"><span title={item.alertSnapshot ?? ""}>{formatNumber(item.suggestedQuantity)} {item.suggestionTypeSnapshot}</span></Table.Td>
+                  <Table.Td align="right"><input className="compact-input" type="number" min="0" disabled={selected.status !== "RASCUNHO"} value={detailDraft.items[item.id]?.requestedQuantity ?? ""} onChange={(event) => setDetailDraft({ ...detailDraft, items: { ...detailDraft.items, [item.id]: { ...(detailDraft.items[item.id] ?? { receivedQuantity: "", notes: "" }), requestedQuantity: event.target.value } } })} /></Table.Td>
+                  <Table.Td align="right">{formatNumber(item.approvedQuantity ?? item.requestedQuantity)}</Table.Td>
+                  <Table.Td align="right"><input className="compact-input" type="number" min="0" disabled={!["ENVIADO", "RECEBIDO_PARCIAL"].includes(selected.status)} value={detailDraft.items[item.id]?.receivedQuantity ?? ""} onChange={(event) => setDetailDraft({ ...detailDraft, items: { ...detailDraft.items, [item.id]: { ...(detailDraft.items[item.id] ?? { requestedQuantity: String(item.requestedQuantity ?? ""), notes: "" }), receivedQuantity: event.target.value } } })} /></Table.Td>
+                  <Table.Td><input disabled={selected.status !== "RASCUNHO"} value={detailDraft.items[item.id]?.notes ?? ""} onChange={(event) => setDetailDraft({ ...detailDraft, items: { ...detailDraft.items, [item.id]: { ...(detailDraft.items[item.id] ?? { requestedQuantity: String(item.requestedQuantity ?? ""), receivedQuantity: "" }), notes: event.target.value } } })} /></Table.Td>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </Table>
 
           <div className="action-row end">
-            {selected.status === "RASCUNHO" && canOperate && <button className="secondary" type="button" onClick={saveDraft}>Salvar rascunho</button>}
-            {selected.status === "RASCUNHO" && canOperate && <button type="button" onClick={() => runStatus("SEND_REVIEW")}><Send size={16} /> Enviar para revisao</button>}
-            {selected.status === "EM_REVISAO" && canApprove && <button type="button" onClick={() => runStatus("APPROVE")}><CheckCircle2 size={16} /> Aprovar</button>}
-            {selected.status === "APROVADO" && canOperate && <button type="button" onClick={() => runStatus("MARK_SENT")}><Send size={16} /> Marcar enviado</button>}
-            {["ENVIADO", "RECEBIDO_PARCIAL"].includes(selected.status) && canOperate && <button type="button" onClick={receive}><PackageCheck size={16} /> Registrar recebimento</button>}
-            {!["RECEBIDO", "CANCELADO"].includes(selected.status) && canOperate && <button className="danger" type="button" onClick={cancel}><XCircle size={16} /> Cancelar</button>}
-            <button className="ghost" type="button" onClick={refreshSelected}>Recarregar</button>
+            {selected.status === "RASCUNHO" && canOperate && <Button variant="secondary" onClick={saveDraft}>Salvar rascunho</Button>}
+            {selected.status === "RASCUNHO" && canOperate && <Button leadingIcon={<Send size={16} />} onClick={() => runStatus("SEND_REVIEW")}>Enviar para revisão</Button>}
+            {selected.status === "EM_REVISAO" && canApprove && <Button leadingIcon={<CheckCircle2 size={16} />} onClick={() => runStatus("APPROVE")}>Aprovar</Button>}
+            {selected.status === "APROVADO" && canOperate && <Button leadingIcon={<Send size={16} />} onClick={() => runStatus("MARK_SENT")}>Marcar enviado</Button>}
+            {["ENVIADO", "RECEBIDO_PARCIAL"].includes(selected.status) && canOperate && <Button leadingIcon={<PackageCheck size={16} />} onClick={receive}>Registrar recebimento</Button>}
+            {!["RECEBIDO", "CANCELADO"].includes(selected.status) && canOperate && <Button variant="danger" leadingIcon={<XCircle size={16} />} onClick={cancel}>Cancelar</Button>}
+            <Button variant="secondary" onClick={refreshSelected}>Recarregar</Button>
           </div>
         </section>
       )}

@@ -18,7 +18,6 @@ import {
   RefreshCw,
   ScrollText,
   Shield,
-  Star,
   Truck,
   WalletCards,
   Warehouse,
@@ -29,8 +28,21 @@ import type { PanInfo } from "framer-motion";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, matchPath, useLocation, useNavigate, useParams } from "react-router-dom";
 import { AppUser, addMenuFavorite, getMe, getMenuFavorites, getStockCountSessions, logout, removeMenuFavorite, type PermissionAction } from "./api/client";
-import { PageHeader, StatusBadge } from "./components/ui";
+import { PageHeader } from "./components/ui";
 import { SessionContext } from "./context/SessionContext";
+import { MockUserBadge } from "./components/MockUserBadge";
+import {
+  AppShell,
+  ContentErrorBoundary,
+  HideValuesProvider,
+  LoginShell,
+  Sidebar,
+  SidebarNav,
+  Topbar,
+  withFavoritesGroup
+} from "./design-system";
+import type { SidebarSectionGroup } from "./design-system";
+import { isMockUserMode, MOCK_USER } from "./lib/mockUser";
 import { canAccessModule, hasPermission as userHasPermission } from "./lib/permissions";
 import { ForcedPasswordChange } from "./pages/ForcedPasswordChange";
 import type { ImportTab } from "./pages/ImportsHub";
@@ -62,6 +74,11 @@ const Dishes = lazy(() => import("./pages/Dishes").then((module) => ({ default: 
 const DRE = lazy(() => import("./pages/DRE").then((module) => ({ default: module.DRE })));
 const SupplierCycles = lazy(() => import("./pages/SupplierCycles").then((module) => ({ default: module.SupplierCycles })));
 const TaxPayments = lazy(() => import("./pages/TaxPayments").then((module) => ({ default: module.TaxPayments })));
+// Rota /design-system: dev-only (isLocal). Em prod, o ternario resolve para null
+// no build e Vite tree-shake o chunk. Nao aparece na sidebar (nao esta em sections).
+const DesignSystem = isLocal
+  ? lazy(() => import("./pages/DesignSystem").then((module) => ({ default: module.DesignSystem })))
+  : null;
 
 type InventoryView = "overview" | "movements" | "counting" | "inventory" | "reports";
 
@@ -73,12 +90,14 @@ type SectionDefinition = {
   group: string;
   path: string;
   matchers: string[];
+  /** Contexto do módulo exibido como description do PageHeader (regra Fase 5). */
+  description?: string;
 };
 
 const sections = [
   { id: "dashboard", label: "Dashboard", icon: BarChart3, showInSidebar: true, group: "Visão geral", path: "/", matchers: ["/", "/dashboard"] },
-  { id: "purchases", label: "Compras", icon: ReceiptText, showInSidebar: true, group: "Operação", path: "/compras", matchers: ["/compras", "/compras/nova", "/compras/:id/editar"] },
-  { id: "purchase-orders", label: "Pedidos de compra", icon: ClipboardList, showInSidebar: true, group: "Operação", path: "/compras/pedidos", matchers: ["/compras/pedidos"] },
+  { id: "purchases", label: "Compras", icon: ReceiptText, showInSidebar: true, group: "Operação", path: "/compras", matchers: ["/compras", "/compras/nova", "/compras/:id/editar"], description: "Registro e controle de compras do período" },
+  { id: "purchase-orders", label: "Pedidos de compra", icon: ClipboardList, showInSidebar: true, group: "Operação", path: "/compras/pedidos", matchers: ["/compras/pedidos"], description: "Pedidos operacionais gerados a partir da pré-lista do comprador. Ainda não integram contas a pagar." },
   { id: "payables", label: "Contas a pagar", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-pagar", matchers: ["/financeiro/contas-a-pagar"] },
   { id: "revenue", label: "Faturamento", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento", matchers: ["/financeiro/faturamento"] },
   { id: "cards", label: "Cartões", icon: CreditCard, showInSidebar: true, group: "Financeiro", path: "/financeiro/cartoes", matchers: ["/financeiro/cartoes"] },
@@ -95,8 +114,8 @@ const sections = [
   { id: "dishes", label: "Fichas Técnicas", icon: ChefHat, showInSidebar: true, group: "Cardápio", path: "/cardapio/fichas-tecnicas", matchers: ["/cardapio/fichas-tecnicas"] },
   { id: "dre", label: "DRE Gerencial", icon: BarChart3, showInSidebar: true, group: "Financeiro", path: "/financeiro/dre", matchers: ["/financeiro/dre"] },
   { id: "tax-payments", label: "Impostos e Guias", icon: ScrollText, showInSidebar: true, group: "Financeiro", path: "/financeiro/impostos", matchers: ["/financeiro/impostos"] },
-  { id: "supplier-cycles", label: "Ciclos de fornecedor", icon: RefreshCw, showInSidebar: true, group: "Financeiro", path: "/financeiro/ciclos-fornecedor", matchers: ["/financeiro/ciclos-fornecedor"] },
-  { id: "suppliers", label: "Fornecedores", icon: Truck, showInSidebar: true, group: "Cadastros", path: "/cadastros/fornecedores", matchers: ["/cadastros/fornecedores"] },
+  { id: "supplier-cycles", label: "Ciclos de fornecedor", icon: RefreshCw, showInSidebar: true, group: "Financeiro", path: "/financeiro/ciclos-fornecedor", matchers: ["/financeiro/ciclos-fornecedor"], description: "Agrupa compras por fornecedor para pagamento consolidado" },
+  { id: "suppliers", label: "Fornecedores", icon: Truck, showInSidebar: true, group: "Cadastros", path: "/cadastros/fornecedores", matchers: ["/cadastros/fornecedores"], description: "Cadastro utilizado em compras, pagamentos e relatórios financeiros" },
   { id: "companies", label: "Empresas", icon: Building2, showInSidebar: true, group: "Cadastros", path: "/cadastros/empresas", matchers: ["/cadastros/empresas"] },
   { id: "import", label: "Importações", icon: FileSpreadsheet, showInSidebar: true, group: "Dados", path: "/dados/importacoes", matchers: ["/dados/importacoes"] },
   { id: "catalog-imports", label: "Importar cadastros", icon: Database, showInSidebar: false, group: "Dados", path: "/dados/importacoes/cadastros", matchers: ["/dados/importacoes/cadastros"] },
@@ -163,8 +182,11 @@ export function App() {
   const location = useLocation();
   const [importsTab, setImportsTab] = useState<ImportTab>("revenue");
   const [cashEntryId, setCashEntryId] = useState<string | null>(null);
-  const [user, setUser] = useState<AppUser | null>(null);
-  const [checkingSession, setCheckingSession] = useState(true);
+  // mock-user (dev-only): bypassa auth e usa um AppUser sintetico. Sempre
+  // avaliado no mount — se ligar ?mock-user=1 apos start, e preciso reload.
+  const mockMode = isMockUserMode();
+  const [user, setUser] = useState<AppUser | null>(mockMode ? MOCK_USER : null);
+  const [checkingSession, setCheckingSession] = useState(!mockMode);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hideSensitiveValues, setHideSensitiveValues] = useState(() => window.localStorage.getItem("hideSensitiveValues") === "true");
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -207,6 +229,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (mockMode) return;
     getMe()
       .then((me) => {
         setUser(me);
@@ -214,7 +237,7 @@ export function App() {
       })
       .catch(() => setUser(null))
       .finally(() => setCheckingSession(false));
-  }, []);
+  }, [mockMode]);
 
   useEffect(() => {
     if (!user || checkingSession) return;
@@ -226,6 +249,7 @@ export function App() {
   // sem polling). Falhas silenciosas: badge simplesmente nao renderiza se usuario nao
   // tiver permissao no endpoint.
   useEffect(() => {
+    if (mockMode) return;
     if (!user || checkingSession) return;
     let active = true;
     getStockCountSessions()
@@ -236,7 +260,7 @@ export function App() {
       })
       .catch(() => { if (active) setPendingCountSessionCount(0); });
     return () => { active = false; };
-  }, [user, checkingSession, location.pathname]);
+  }, [mockMode, user, checkingSession, location.pathname]);
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -286,221 +310,217 @@ export function App() {
     if (info.offset.x < -80 || info.velocity.x < -450) setMobileMenuOpen(false);
   }
 
-  function renderNavItem(section: (typeof sections)[number], onSelect: (sectionId: SectionId) => void) {
-    const Icon = section.icon;
-    const isFav = favorites.includes(section.id);
-    // Badge no item Pedidos de compra: conta contagens CONCLUIDAS ainda nao convertidas.
-    const showPendingBadge = section.id === "purchase-orders" && pendingCountSessionCount > 0;
-    return (
-      <div className="nav-item-wrap" key={section.id}>
-        <button
-          className={effectiveSection.id === section.id ? "active" : ""}
-          type="button"
-          title={section.label}
-          aria-current={effectiveSection.id === section.id ? "page" : undefined}
-          onClick={() => onSelect(section.id)}
-        >
-          <Icon size={18} />
-          <span>{section.label}</span>
-          {showPendingBadge && (
-            <StatusBadge tone="info" title={`${pendingCountSessionCount} contagem(ns) concluida(s) aguardando conversao em pedido ou inventario`}>
-              {pendingCountSessionCount}
-            </StatusBadge>
-          )}
-        </button>
-        <button
-          className={`nav-star${isFav ? " nav-star-active" : ""}`}
-          type="button"
-          title={isFav ? "Remover dos favoritos" : "Adicionar aos favoritos"}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleFavorite(section.id);
-          }}
-        >
-          <Star size={13} fill={isFav ? "currentColor" : "none"} />
-        </button>
-      </div>
-    );
-  }
+  // Props reutilizadas pela <Sidebar /> desktop e pelo <SidebarNav /> do mobile drawer.
+  const sidebarGroups: SidebarSectionGroup[] = groupedSections.map((group) => ({
+    group: group.group,
+    items: group.items.map((section) => ({
+      id: section.id,
+      label: section.label,
+      icon: section.icon
+    }))
+  }));
+  const sidebarBadges: Record<string, number> =
+    pendingCountSessionCount > 0 ? { "purchase-orders": pendingCountSessionCount } : {};
+  const mobileDrawerGroups = withFavoritesGroup(sidebarGroups, favorites);
 
-  function renderNavigation(onSelect: (sectionId: SectionId) => void) {
-    const favSections = visibleSections.filter((s) => favorites.includes(s.id));
+  // Topbar: breadcrumb "Pateo da Luz / <grupo atual>" + periodo em pt-BR
+  // corrente. Search e sino sao stubs por enquanto — apenas visuais.
+  const MONTH_NAMES_PT = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+  ];
+  const _now = new Date();
+  const topbarPeriod = `${MONTH_NAMES_PT[_now.getMonth()]} ${_now.getFullYear()}`;
+  const topbarBreadcrumb = ["Pateo da Luz", activeGroup];
+
+  // /design-system e dev-only e nao depende de auth. Renderiza antes das checagens
+  // de sessao para permitir preview sem backend/login em desenvolvimento.
+  if (isLocal && DesignSystem && location.pathname === "/design-system") {
     return (
-      <nav>
-        {favSections.length > 0 && (
-          <div className="nav-group" key="__favoritos">
-            <span>Favoritos</span>
-            {favSections.map((section) => renderNavItem(section, onSelect))}
-          </div>
-        )}
-        {groupedSections.map((group) => (
-          <div className="nav-group" key={group.group}>
-            <span>{group.group}</span>
-            {group.items.map((section) => renderNavItem(section, onSelect))}
-          </div>
-        ))}
-      </nav>
+      <SessionContext.Provider value={sessionContextValue}>
+        <HideValuesProvider>
+          <Suspense fallback={<div className="page-loading">Carregando DS...</div>}>
+            <DesignSystem />
+          </Suspense>
+        </HideValuesProvider>
+      </SessionContext.Provider>
     );
   }
 
   if (checkingSession) {
     return (
       <SessionContext.Provider value={sessionContextValue}>
-        <main className="login-shell">
-          <div className="login-card">
-            <img src={logoPath} alt="Pateo da Luz" />
-            <p>Carregando sessão...</p>
-          </div>
-        </main>
+        <HideValuesProvider>
+          <LoginShell brandTitle="Gestão Pateo da Luz">
+            <p style={{ textAlign: "center", color: "var(--muted)", margin: 0 }}>Carregando sessão...</p>
+          </LoginShell>
+        </HideValuesProvider>
       </SessionContext.Provider>
     );
   }
 
   if (!user) {
-    return <SessionContext.Provider value={sessionContextValue}><Login onLogin={setUser} /></SessionContext.Provider>;
+    return (
+      <SessionContext.Provider value={sessionContextValue}>
+        <HideValuesProvider>
+          <Login onLogin={setUser} />
+        </HideValuesProvider>
+      </SessionContext.Provider>
+    );
   }
 
   if (user.mustChangePassword) {
-    return <SessionContext.Provider value={sessionContextValue}><ForcedPasswordChange user={user} onChanged={setUser} /></SessionContext.Provider>;
+    return (
+      <SessionContext.Provider value={sessionContextValue}>
+        <HideValuesProvider>
+          <ForcedPasswordChange user={user} onChanged={setUser} />
+        </HideValuesProvider>
+      </SessionContext.Provider>
+    );
   }
+
+  const mobileHeaderNode = (
+    <header className="mobile-app-header">
+      <button type="button" aria-label="Abrir menu" onClick={() => setMobileMenuOpen(true)}>
+        <Menu size={22} />
+      </button>
+      <strong>{activeLabel}</strong>
+    </header>
+  );
+
+  const drawerNode = (
+    <AnimatePresence>
+      {mobileMenuOpen && (
+        <>
+          <motion.button
+            aria-label="Fechar menu"
+            className="mobile-drawer-backdrop"
+            type="button"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <motion.aside
+            className="mobile-drawer"
+            initial={{ x: "-104%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "-104%" }}
+            transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.8 }}
+            drag="x"
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={{ left: 0.24, right: 0 }}
+            onDragEnd={handleMobileDrawerDragEnd}
+          >
+            <div className="mobile-drawer-header">
+              <div className="ds-sidebar-brand">
+                <div className="ds-sidebar-brand-logo-wrap">
+                  <img
+                    src={logoPath}
+                    alt="Pateo da Luz"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
+                  <span className="ds-sidebar-brand-logo-fallback">PL</span>
+                </div>
+                <div className="ds-sidebar-brand-meta">
+                  <strong className="ds-sidebar-brand-name">Pateo da Luz</strong>
+                  <span className="ds-sidebar-brand-tag">Gestão eficiente</span>
+                </div>
+              </div>
+              <button className="mobile-drawer-close" type="button" aria-label="Fechar menu" onClick={() => setMobileMenuOpen(false)}>
+                <X size={21} />
+              </button>
+            </div>
+            <div className="mobile-drawer-body">
+              <SidebarNav
+                groups={mobileDrawerGroups}
+                activeId={effectiveSection.id}
+                favorites={favorites}
+                onNavigate={(id) => handleNavigate(id as SectionId)}
+                onToggleFavorite={(id) => toggleFavorite(id as SectionId)}
+                badges={sidebarBadges}
+              />
+              <div className="ds-sidebar-footer mobile-drawer-user">
+                <div className="ds-sidebar-footer-meta">
+                  <span className="ds-sidebar-footer-meta-name">{user.name}</span>
+                  <small className="ds-sidebar-footer-meta-role">{user.role}</small>
+                </div>
+                <div className="ds-sidebar-footer-actions">
+                  <button
+                    className="ds-sidebar-footer-button"
+                    type="button"
+                    aria-pressed={hideSensitiveValues}
+                    onClick={toggleSensitiveValues}
+                  >
+                    {hideSensitiveValues ? "Mostrar valores" : "Ocultar valores"}
+                  </button>
+                  <button
+                    className="ds-sidebar-footer-button ds-sidebar-footer-button-danger"
+                    type="button"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      setUser(null);
+                      logout();
+                    }}
+                  >
+                    <LogOut size={16} />
+                    Sair
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.aside>
+        </>
+      )}
+    </AnimatePresence>
+  );
+
+  const sidebarNode = (
+    <Sidebar
+      groups={sidebarGroups}
+      activeId={effectiveSection.id}
+      user={{ name: user.name, role: user.role }}
+      favorites={favorites}
+      onNavigate={(id) => handleNavigate(id as SectionId)}
+      onToggleFavorite={(id) => toggleFavorite(id as SectionId)}
+      badges={sidebarBadges}
+      hideValues={hideSensitiveValues}
+      onToggleValues={toggleSensitiveValues}
+      onLogout={() => {
+        setUser(null);
+        logout();
+      }}
+      showDevBadge={isLocal}
+      logoPath={logoPath}
+    />
+  );
 
   return (
     <SessionContext.Provider value={sessionContextValue}>
-      <main className="app-shell">
-        <header className="mobile-app-header">
-          <button type="button" aria-label="Abrir menu" onClick={() => setMobileMenuOpen(true)}>
-            <Menu size={22} />
-          </button>
-          <strong>{activeLabel}</strong>
-        </header>
-
-        <AnimatePresence>
-          {mobileMenuOpen && (
-            <>
-              <motion.button
-                aria-label="Fechar menu"
-                className="mobile-drawer-backdrop"
-                type="button"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-                onClick={() => setMobileMenuOpen(false)}
-              />
-              <motion.aside
-                className="mobile-drawer"
-                initial={{ x: "-104%" }}
-                animate={{ x: 0 }}
-                exit={{ x: "-104%" }}
-                transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.8 }}
-                drag="x"
-                dragConstraints={{ left: 0, right: 0 }}
-                dragElastic={{ left: 0.24, right: 0 }}
-                onDragEnd={handleMobileDrawerDragEnd}
-              >
-                <div className="mobile-drawer-header">
-                  <div className="brand-block">
-                    <div className="brand-logo-wrap">
-                      <img
-                        className="brand-logo"
-                        src={logoPath}
-                        alt="Pateo da Luz"
-                        onError={(event) => {
-                          event.currentTarget.style.display = "none";
-                        }}
-                      />
-                      <span className="brand-logo-fallback">PL</span>
-                    </div>
-                    <div>
-                      <strong>Pateo da Luz</strong>
-                      <span>Gestão eficiente</span>
-                    </div>
-                  </div>
-                  <button className="mobile-drawer-close" type="button" aria-label="Fechar menu" onClick={() => setMobileMenuOpen(false)}>
-                    <X size={21} />
-                  </button>
-                </div>
-                <div className="mobile-drawer-body">
-                  {renderNavigation(handleNavigate)}
-                  <div className="sidebar-user sidebar-footer mobile-drawer-user">
-                    <div className="sidebar-footer-meta">
-                      <span>{user.name}</span>
-                      <small>{user.role}</small>
-                    </div>
-                    <div className="sidebar-footer-actions">
-                      <button className="sidebar-footer-button" type="button" onClick={toggleSensitiveValues}>
-                        {hideSensitiveValues ? "Mostrar valores" : "Ocultar valores"}
-                      </button>
-                      <button
-                        className="sidebar-footer-button sidebar-footer-button-danger"
-                        type="button"
-                        onClick={() => {
-                          setMobileMenuOpen(false);
-                          setUser(null);
-                          logout();
-                        }}
-                      >
-                        <LogOut size={16} />
-                        Sair
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </motion.aside>
-            </>
+      <HideValuesProvider>
+        <MockUserBadge />
+        <AppShell
+          ref={contentRef}
+          mobileHeader={mobileHeaderNode}
+          drawer={drawerNode}
+          sidebar={sidebarNode}
+          topbar={(
+            <Topbar
+              breadcrumb={topbarBreadcrumb}
+              period={topbarPeriod}
+              hideValues={hideSensitiveValues}
+              onToggleValues={toggleSensitiveValues}
+              notificationCount={pendingCountSessionCount}
+            />
           )}
-        </AnimatePresence>
-
-        <aside className="sidebar">
-          <div className="brand-block">
-            <div className="brand-logo-wrap">
-              <img
-                className="brand-logo"
-                src={logoPath}
-                alt="Pateo da Luz"
-                onError={(event) => {
-                  event.currentTarget.style.display = "none";
-                }}
-              />
-              <span className="brand-logo-fallback">PL</span>
-            </div>
-            <div>
-              <strong>Pateo da Luz</strong>
-              <span>Gestão eficiente</span>
-            </div>
-          </div>
-          {renderNavigation(handleNavigate)}
-          <div className="sidebar-user sidebar-footer">
-            <div className="sidebar-footer-meta">
-              <span>{user.name}</span>
-              <small>{user.role}</small>
-            </div>
-            <div className="sidebar-footer-actions">
-              <button className="sidebar-footer-button" type="button" onClick={toggleSensitiveValues}>
-                {hideSensitiveValues ? "Mostrar valores" : "Ocultar valores"}
-              </button>
-              <button
-                className="sidebar-footer-button sidebar-footer-button-danger"
-                type="button"
-                onClick={() => {
-                  setUser(null);
-                  logout();
-                }}
-              >
-                <LogOut size={16} />
-                Sair
-              </button>
-            </div>
-          </div>
-          {isLocal && <span className="version-badge">DEV</span>}
-        </aside>
-
-        <section className="content" ref={contentRef}>
-          <div className="desktop-page-header">
-            <PageHeader eyebrow={`Pateo da Luz / ${activeGroup}`} title={activeLabel} />
-          </div>
+        >
+          <PageHeader title={activeLabel} description={(effectiveSection as SectionDefinition).description} />
 
           <Suspense fallback={<div className="page-loading">Carregando módulo...</div>}>
+            <ContentErrorBoundary>
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/dashboard" element={<Navigate to="/" replace />} />
@@ -565,9 +585,10 @@ export function App() {
               <Route path="/configuracoes/auditoria" element={<Audit />} />
               <Route path="*" element={<Navigate to={fallbackSection.path} replace />} />
             </Routes>
+            </ContentErrorBoundary>
           </Suspense>
-        </section>
-      </main>
+        </AppShell>
+      </HideValuesProvider>
     </SessionContext.Provider>
   );
 }

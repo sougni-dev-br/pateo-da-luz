@@ -1,0 +1,77 @@
+/* Shell da tela de login. Portado do kit.css linhas 281-301.
+   Gradient carvao 3-stop + 2 radials ouro suave para dar profundidade
+   (canto sup dir e inf esq). */
+
+.ds-login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow-x: hidden;
+  background:
+    radial-gradient(1100px 620px at 78% -8%, rgba(185, 154, 88, 0.2), transparent 62%),
+    radial-gradient(760px 520px at 8% 108%, rgba(185, 154, 88, 0.09), transparent 60%),
+    linear-gradient(
+      150deg,
+      var(--login-gradient-start) 0%,
+      var(--login-gradient-mid) 52%,
+      var(--login-gradient-end) 100%
+    );
+  color: var(--paper);
+  font-family: var(--font-sans);
+}
+
+.ds-login-card {
+  width: min(408px, 100%);
+  display: grid;
+  gap: 15px;
+  padding: 32px 30px;
+  border: 1px solid rgba(216, 195, 145, 0.24);
+  border-radius: 16px;
+  /* Papel quase branco com micro-warmth (kit.css: rgba(252,251,248,.98)). */
+  background: rgba(252, 251, 248, 0.98);
+  box-shadow: var(--shadow-login);
+  color: var(--ink);
+}
+
+.ds-login-brand {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.ds-login-brand img {
+  width: 76px;
+  height: 76px;
+  object-fit: contain;
+  border-radius: 14px;
+  background: var(--coal);
+  padding: 8px;
+}
+
+.ds-login-brand h1 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: var(--fw-semibold);
+  color: var(--ink);
+}
+
+.ds-login-brand-subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.ds-login-desde {
+  justify-self: center;
+  margin-top: 2px;
+  padding: 3px 11px;
+  border-radius: var(--radius-pill);
+  background: var(--gold-tint);
+  color: var(--gold-dark);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}

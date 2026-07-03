@@ -1,7 +1,8 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, FileText, Loader2, PackageSearch, RotateCcw, Search, ShoppingCart, Tag, Trash2, X } from "lucide-react";
-import { StatusBadge, EmptyState, Dialog } from "../components/ui";
+import { Dialog } from "../components/ui";
+import { Button, EmptyState, StatusBadge, Tabs } from "../design-system";
 import {
   createPurchaseOrdersFromPlanning,
   downloadPurchaseOrderPdf,
@@ -625,10 +626,14 @@ export function PurchasePlanning() {
                 <option key={supplier} value={supplier}>{supplier}</option>
               ))}
             </select>
-            <div className="pplan-view-toggle" role="tablist" aria-label="Alternar visão">
-              <button type="button" role="tab" aria-selected={view === "product"} className={view === "product" ? "active" : ""} onClick={() => setView("product")}>Por produto</button>
-              <button type="button" role="tab" aria-selected={view === "supplier"} className={view === "supplier" ? "active" : ""} onClick={() => setView("supplier")}>Por fornecedor</button>
-            </div>
+            <Tabs
+              value={view}
+              onChange={(v) => setView(v as typeof view)}
+              tabs={[
+                { value: "product", label: "Por produto" },
+                { value: "supplier", label: "Por fornecedor" }
+              ]}
+            />
           </section>
 
           <section className="pplan-chips">
@@ -641,9 +646,7 @@ export function PurchasePlanning() {
           {removedIds.size > 0 && (
             <div className="pplan-removed-bar">
               <span><Trash2 size={14} /> {formatNumber(removedIds.size)} item(ns) removido(s) desta compra.</span>
-              <button type="button" className="secondary-button" onClick={restoreAll}>
-                <RotateCcw size={14} /> Restaurar todos
-              </button>
+              <Button variant="secondary" size="sm" leadingIcon={<RotateCcw size={14} />} onClick={restoreAll}>Restaurar todos</Button>
             </div>
           )}
 
@@ -694,9 +697,9 @@ export function PurchasePlanning() {
                   </div>
                   {!group.noSupplier && (
                     <div className="pplan-supplier-foot">
-                      <button type="button" className="secondary-button" disabled title="PDF disponível após gerar o pedido">
-                        <FileText size={15} /> Gerar PDF deste fornecedor
-                      </button>
+                      <Button variant="secondary" size="sm" leadingIcon={<FileText size={15} />} disabled title="PDF disponível após gerar o pedido">
+                        Gerar PDF deste fornecedor
+                      </Button>
                     </div>
                   )}
                 </details>
@@ -711,9 +714,9 @@ export function PurchasePlanning() {
                 : "Nenhum item com quantidade e fornecedor definidos ainda."}
             </p>
             <div className="pplan-actions-buttons">
-              <button type="button" className="secondary-button" disabled title="PDF disponível após gerar o pedido">
-                <FileText size={16} /> Gerar PDF por fornecedor
-              </button>
+              <Button variant="secondary" leadingIcon={<FileText size={16} />} disabled title="PDF disponível após gerar o pedido">
+                Gerar PDF por fornecedor
+              </Button>
             </div>
           </section>
 

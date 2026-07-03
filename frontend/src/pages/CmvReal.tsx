@@ -21,6 +21,8 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { ConfirmDialog } from "../components/ui";
+import { Button, IconButton, StatusBadge as DsStatusBadge } from "../design-system";
+import type { StatusTone } from "../design-system";
 import { useSearchParams } from "react-router-dom";
 import { hasPermission } from "../lib/permissions";
 import { formatCurrency, formatDate } from "../utils/format";
@@ -104,10 +106,10 @@ function formatStatusLabel(status: string) {
     .replace(/^\w|\s\w/g, (letter) => letter.toUpperCase());
 }
 
-function statusToneClass(status: string) {
-  if (status === "CLOSED") return "tone-neutral";
-  if (status === "OPEN") return "open";
-  return "tone-info";
+function statusToneClass(status: string): StatusTone {
+  if (status === "CLOSED") return "neutral";
+  if (status === "OPEN") return "warning";
+  return "info";
 }
 
 function classifyCmv(percentual: number | null | undefined) {
@@ -117,13 +119,15 @@ function classifyCmv(percentual: number | null | undefined) {
   return { label: "Crítico", tone: "tone-danger" };
 }
 
+// pt-BR: virgula decimal. Aceita fracao (0-1) e multiplica por 100 internamente.
 function formatPercent(value: number | null | undefined) {
-  return value == null ? "-" : `${(value * 100).toFixed(2)}%`;
+  if (value == null) return "-";
+  return `${(value * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
 }
 
 function percentageOf(total: number, amount: number) {
   if (!total) return "-";
-  return `${((amount / total) * 100).toFixed(1)}%`;
+  return `${((amount / total) * 100).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 
 function SectionHeader({ eyebrow, title, actions }: { eyebrow: string; title: string; actions?: ReactNode }) {
@@ -149,7 +153,7 @@ function MetricCard({ label, value, detail, className = "" }: { label: string; v
 }
 
 function StatusBadge({ status }: { status: string }) {
-  return <span className={`status-badge ${statusToneClass(status)}`}>{formatStatusLabel(status)}</span>;
+  return <DsStatusBadge tone={statusToneClass(status)}>{formatStatusLabel(status)}</DsStatusBadge>;
 }
 
 function EmptyTableRow({ colSpan, message }: { colSpan: number; message: string }) {
@@ -587,13 +591,9 @@ export function CmvReal({ user }: { user: AppUser }) {
           actions={(
             <>
               {canEdit && (
-                <button className="primary-button" type="button" onClick={() => startNewPeriod()}>
-                  <Plus size={16} /> Nova apuração
-                </button>
+                <Button leadingIcon={<Plus size={16} />} onClick={() => startNewPeriod()}>Nova apuração</Button>
               )}
-              <button className="icon-button" type="button" onClick={() => load()} aria-label="Atualizar CMV Real">
-                <RefreshCw size={18} className={loading ? "spin" : ""} />
-              </button>
+              <IconButton icon={<RefreshCw size={16} className={loading ? "spin" : ""} />} label="Atualizar CMV Real" onClick={() => load()} />
             </>
           )}
         />

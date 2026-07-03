@@ -1,0 +1,67 @@
+.ds-summary-card {
+  position: relative;
+  min-height: 132px;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.94);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-soft);
+  font-family: var(--font-sans);
+  overflow: hidden;
+}
+
+.ds-summary-card-body {
+  display: grid;
+  align-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ds-summary-card-label {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.ds-summary-card-value {
+  font-size: var(--fs-summary);
+  line-height: var(--lh-tight);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-summary-card-detail {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-snug);
+}
+
+.ds-summary-card-chip {
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+}
+
+/* ── Tons: colorem valor + chip ── */
+.ds-summary-card-neutral .ds-summary-card-value { color: var(--ink); }
+.ds-summary-card-neutral .ds-summary-card-chip { background: var(--paper-soft); color: var(--ink-soft); }
+
+.ds-summary-card-success .ds-summary-card-value { color: var(--success); }
+.ds-summary-card-success .ds-summary-card-chip { background: var(--tint-success); color: var(--success); }
+
+.ds-summary-card-warning .ds-summary-card-value { color: var(--warning); }
+.ds-summary-card-warning .ds-summary-card-chip { background: var(--gold-tint); color: var(--gold-dark); }
+
+.ds-summary-card-danger .ds-summary-card-value { color: var(--danger); }
+.ds-summary-card-danger .ds-summary-card-chip { background: var(--tint-danger); color: var(--danger); }
+
+.ds-summary-card-info .ds-summary-card-value { color: var(--info); }
+.ds-summary-card-info .ds-summary-card-chip { background: var(--tint-info); color: var(--info); }

@@ -1,0 +1,30 @@
+.ds-card {
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.94);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-soft);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+.ds-card-interactive {
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+
+.ds-card-interactive:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow);
+  transform: var(--lift);
+}
+
+.ds-card-interactive:focus-visible {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: var(--focus-ring);
+}
