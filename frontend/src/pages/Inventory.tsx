@@ -69,7 +69,7 @@ import { Notice, useNotice } from "../components/Notice";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { SimpleBarChart } from "../components/SimpleBarChart";
 import { ConfirmDialog } from "../components/ui";
-import { Alert, Button, EmptyState, Money, PanelEyebrow, RowMenu, StatusBadge, SummaryCard, Table } from "../design-system";
+import { Alert, Button, EmptyState, Money, PanelEyebrow, RowMenu, StatusBadge, SummaryCard, Table, Tabs } from "../design-system";
 import { OverviewSection } from "./inventory/OverviewSection";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
@@ -1931,21 +1931,25 @@ export function Inventory({
 
         {activeView !== "counting" && (
           <>
-            <div className="inventory-workspace-tabs">
-              <button className={inventoryDeskTab === "official" ? "active" : ""} type="button" onClick={() => setInventoryDeskTab("official")}>Inventarios oficiais</button>
-              <button className={inventoryDeskTab === "purchase" ? "active" : ""} type="button" onClick={() => setInventoryDeskTab("purchase")}>Sugestao de compras</button>
-              <button className={inventoryDeskTab === "stock" ? "active" : ""} type="button" onClick={() => setInventoryDeskTab("stock")}>Estoque atual</button>
-              <button className={inventoryDeskTab === "reports" ? "active" : ""} type="button" onClick={() => setInventoryDeskTab("reports")}>Relatorios</button>
-            </div>
+            <Tabs
+              value={inventoryDeskTab}
+              onChange={(v) => setInventoryDeskTab(v as InventoryDeskTab)}
+              tabs={[
+                { value: "official", label: "Inventários oficiais" },
+                { value: "purchase", label: "Sugestão de compras" },
+                { value: "stock", label: "Estoque atual" },
+                { value: "reports", label: "Relatórios" }
+              ]}
+            />
 
             <div className="inventory-action-strip">
-              <button className="primary-button" type="button" onClick={() => setInventoryDeskTab("official")}><ClipboardCheck size={16} />Criar inventario</button>
-              <button className="secondary-button inv-action-secondary" type="button" disabled={!operationalDetail} onClick={() => operationalDetail && downloadInventoryPdf(operationalDetail)}><Download size={16} />Gerar PDF</button>
-              <button className="secondary-button inv-action-secondary" type="button" onClick={() => { setInventoryDeskTab("purchase"); loadBuyerSupport(); }}><RefreshCw size={16} />Atualizar relatorio</button>
-              <button className="secondary-button inv-action-secondary" type="button" disabled={!buyerSupport} onClick={exportBuyerPrelist}><FileText size={16} />Exportar CSV</button>
-              <button className="primary-button inv-action-secondary" type="button" disabled={!buyerSupport} onClick={generatePurchaseOrdersFromPrelist}><ShoppingCart size={16} />Gerar pedido de compra</button>
+              <Button leadingIcon={<ClipboardCheck size={16} />} onClick={() => setInventoryDeskTab("official")}>Criar inventário</Button>
+              <Button variant="secondary" className="inv-action-secondary" leadingIcon={<Download size={16} />} disabled={!operationalDetail} onClick={() => operationalDetail && downloadInventoryPdf(operationalDetail)}>Gerar PDF</Button>
+              <Button variant="secondary" className="inv-action-secondary" leadingIcon={<RefreshCw size={16} />} onClick={() => { setInventoryDeskTab("purchase"); loadBuyerSupport(); }}>Atualizar relatório</Button>
+              <Button variant="secondary" className="inv-action-secondary" leadingIcon={<FileText size={16} />} disabled={!buyerSupport} onClick={exportBuyerPrelist}>Exportar CSV</Button>
+              <Button className="inv-action-secondary" leadingIcon={<ShoppingCart size={16} />} disabled={!buyerSupport} onClick={generatePurchaseOrdersFromPrelist}>Gerar pedido de compra</Button>
               <div className="inv-more-actions-wrap">
-                <button className="secondary-button" type="button" onClick={() => setMobileInvMoreActionsOpen(v => !v)}>Mais ações ▾</button>
+                <Button variant="secondary" onClick={() => setMobileInvMoreActionsOpen(v => !v)}>Mais ações ▾</Button>
                 <div className={`inv-more-actions-menu${mobileInvMoreActionsOpen ? " open" : ""}`}>
                   <button type="button" disabled={!operationalDetail} onClick={() => { operationalDetail && void downloadInventoryPdf(operationalDetail); setMobileInvMoreActionsOpen(false); }}><Download size={14} />Gerar PDF</button>
                   <button type="button" onClick={() => { setInventoryDeskTab("purchase"); void loadBuyerSupport(); setMobileInvMoreActionsOpen(false); }}><RefreshCw size={14} />Atualizar relatorio</button>
@@ -1961,16 +1965,16 @@ export function Inventory({
               const isEmRevisao = inv.status === "EM_REVISAO";
               const isComplete = cov?.isComplete === true;
               return (
-                <div className="form-section" style={{ borderLeft: `4px solid ${isEmRevisao ? "var(--warning, #b45309)" : "var(--success, #2e7d32)"}`, background: "var(--surface)", marginTop: 12 }}>
+                <div className="form-section" style={{ borderLeft: `4px solid ${isEmRevisao ? "var(--warning)" : "var(--success)"}`, background: "var(--paper-soft)", marginTop: 12 }}>
                   <div className="section-heading compact-heading" style={{ margin: 0 }}>
                     <div>
-                      <p>Fechamento do mes</p>
+                      <PanelEyebrow>Fechamento do mês</PanelEyebrow>
                       <h3 style={{ margin: "2px 0 4px" }}>
-                        {isEmRevisao ? "Inventario Final CMV em revisao" : "Inventario Final CMV em andamento"}
+                        {isEmRevisao ? "Inventário Final CMV em revisão" : "Inventário Final CMV em andamento"}
                       </h3>
                       <span className="muted">{inv.code} • {formatDate(inv.date)}</span>
                       {cov && (
-                        <p style={{ margin: "4px 0 0", fontSize: 13, fontWeight: 600, color: isComplete ? "var(--success, #2e7d32)" : "var(--warning, #b45309)" }}>
+                        <p style={{ margin: "4px 0 0", fontSize: 13, fontWeight: 600, color: isComplete ? "var(--success)" : "var(--warning)" }}>
                           {cov.coveredTotal}/{cov.expectedTotal} produtos controlados cobertos{isComplete ? " — completo" : ` — ${cov.missingTotal} pendente(s)`}
                         </p>
                       )}
@@ -2376,10 +2380,10 @@ export function Inventory({
 
         {activeView !== "counting" && inventoryDeskTab === "official" && <>
           <div className="summary-grid inventory-compact-summary">
-            <SummaryCard label="Inventarios em rascunho" value={operationalSummary.drafts} tone={operationalSummary.drafts ? "warning" : "info"} icon={<Archive size={18} />} />
-            <SummaryCard label="Em revisao" value={operationalSummary.review} tone={operationalSummary.review ? "warning" : "info"} />
+            <SummaryCard label="Inventários em rascunho" value={operationalSummary.drafts} tone={operationalSummary.drafts ? "warning" : "info"} icon={<Archive size={18} />} />
+            <SummaryCard label="Em revisão" value={operationalSummary.review} tone={operationalSummary.review ? "warning" : "info"} />
             <SummaryCard
-              label={operationalSummary.activeFinalCmv ? "Fechamento atual" : "Ultimo final CMV"}
+              label={operationalSummary.activeFinalCmv ? "Fechamento atual" : "Último final CMV"}
               value={operationalSummary.activeFinalCmv?.code ?? operationalSummary.lastFinalCmv?.code ?? "-"}
               detail={operationalSummary.activeFinalCmv
                 ? `${operationalStatusLabels[operationalSummary.activeFinalCmv.status] ?? operationalSummary.activeFinalCmv.status} • ${formatDate(operationalSummary.activeFinalCmv.date)}`
@@ -2923,7 +2927,7 @@ export function Inventory({
               <SummaryCard label="Abaixo do minimo" value={buyerSupport.summary.belowMinimum} tone={buyerSupport.summary.belowMinimum ? "warning" : "success"} />
               <SummaryCard label="Sem ideal" value={buyerSupport.summary.withoutIdeal} tone={buyerSupport.summary.withoutIdeal ? "warning" : "success"} />
               <SummaryCard label="Sem minimo" value={buyerSupport.summary.withoutMinimum} tone={buyerSupport.summary.withoutMinimum ? "warning" : "success"} />
-              <SummaryCard label="Ultimo final CMV" value={buyerSupport.summary.latestFinalCmv?.code ?? "-"} detail={buyerSupport.summary.latestFinalCmv ? formatDate(buyerSupport.summary.latestFinalCmv.date) : "Sem final aprovado"} />
+              <SummaryCard label="Último final CMV" value={buyerSupport.summary.latestFinalCmv?.code ?? "-"} detail={buyerSupport.summary.latestFinalCmv ? formatDate(buyerSupport.summary.latestFinalCmv.date) : "Sem final aprovado"} />
             </div>
 
             <div className="filters-row inventory-filter-row">
@@ -3417,7 +3421,13 @@ export function Inventory({
           <div className="subsection table-wrap">
             <table>
               <thead><tr><th>Dia</th><th>Categoria</th><th>Status</th><th>Responsavel</th><th>Acoes</th></tr></thead>
-              <tbody>{agenda?.items.map((item) => <tr key={item.id}><td>{formatDate(item.scheduledDate)}</td><td>{item.sectorName || item.categoryName}</td><td><span className={`status-badge ${item.status.toLowerCase()}`}>{statusLabels[item.status] ?? item.status}</span></td><td>{item.responsibleName ?? "-"}</td><td>{item.status === "SUBMITTED" ? <button className="secondary-button" type="button" onClick={() => confirmAgenda(item)}><CheckCircle2 size={16} />Confirmar</button> : "-"}</td></tr>)}</tbody>
+              <tbody>{agenda?.items.map((item) => {
+                const st = item.status;
+                const tone = st === "CONFIRMED" ? "success" : st === "LATE" ? "danger" : st === "SUBMITTED" ? "info" : "warning";
+                return (
+                <tr key={item.id}><td>{formatDate(item.scheduledDate)}</td><td>{item.sectorName || item.categoryName}</td><td><StatusBadge tone={tone}>{statusLabels[st] ?? st}</StatusBadge></td><td>{item.responsibleName ?? "-"}</td><td>{st === "SUBMITTED" ? <Button variant="secondary" size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={() => confirmAgenda(item)}>Confirmar</Button> : "-"}</td></tr>
+                );
+              })}</tbody>
             </table>
           </div>
         )}
