@@ -2924,7 +2924,7 @@ export function Inventory({
               <SummaryCard label="Fornecedores sugeridos" value={buyerSupport.summary.suggestedSuppliers} />
               <SummaryCard label="Sem fornecedor" value={buyerSupport.summary.productsWithoutSupplier} tone={buyerSupport.summary.productsWithoutSupplier ? "danger" : "success"} icon={<AlertTriangle size={18} />} />
               <SummaryCard label="Zerados" value={buyerSupport.summary.zeros} tone={buyerSupport.summary.zeros ? "danger" : "success"} />
-              <SummaryCard label="Abaixo do minimo" value={buyerSupport.summary.belowMinimum} tone={buyerSupport.summary.belowMinimum ? "warning" : "success"} />
+              <SummaryCard label="Abaixo do mínimo" value={buyerSupport.summary.belowMinimum} tone={buyerSupport.summary.belowMinimum ? "warning" : "success"} />
               <SummaryCard label="Sem ideal" value={buyerSupport.summary.withoutIdeal} tone={buyerSupport.summary.withoutIdeal ? "warning" : "success"} />
               <SummaryCard label="Sem minimo" value={buyerSupport.summary.withoutMinimum} tone={buyerSupport.summary.withoutMinimum ? "warning" : "success"} />
               <SummaryCard label="Último final CMV" value={buyerSupport.summary.latestFinalCmv?.code ?? "-"} detail={buyerSupport.summary.latestFinalCmv ? formatDate(buyerSupport.summary.latestFinalCmv.date) : "Sem final aprovado"} />
@@ -2952,7 +2952,7 @@ export function Inventory({
               <label>Alerta<select value={buyerFilters.status} onChange={(event) => setBuyerFilters({ ...buyerFilters, status: event.target.value })}>
                 <option value="">Todos</option>
                 <option value="ZERADO">Zerado</option>
-                <option value="ABAIXO DO MINIMO">Abaixo do minimo</option>
+                <option value="ABAIXO DO MINIMO">Abaixo do mínimo</option>
                 <option value="SEM CONTAGEM">Sem contagem</option>
                 <option value="DIVERGENTE">Divergente</option>
                 <option value="CADASTRO INCOMPLETO">Cadastro incompleto</option>
@@ -2978,7 +2978,7 @@ export function Inventory({
                   <h3>Prioridades da operacao</h3>
                   <p>Sem fornecedor: <strong>{buyerSupport.summary.productsWithoutSupplier}</strong></p>
                   <p>Zerados: <strong>{buyerSupport.summary.zeros}</strong></p>
-                  <p>Abaixo do minimo: <strong>{buyerSupport.summary.belowMinimum}</strong></p>
+                  <p>Abaixo do mínimo: <strong>{buyerSupport.summary.belowMinimum}</strong></p>
                   <p>Cadastro incompleto: <strong>{buyerSupport.summary.incompleteRegistration}</strong></p>
                 </div>
                 <div>
@@ -3197,7 +3197,7 @@ export function Inventory({
       <section className={panelClass(["inventory", "reports"])}>
         <div className="section-heading">
           <div>
-            <p>{inventoryDeskTab === "reports" ? "Relatorios" : "Estoque atual"}</p>
+            <PanelEyebrow>{inventoryDeskTab === "reports" ? "Relatórios" : "Estoque atual"}</PanelEyebrow>
             <h2>{inventoryDeskTab === "reports" ? "Leitura gerencial" : "Estoque atual"}</h2>
           </div>
         </div>
@@ -3206,7 +3206,7 @@ export function Inventory({
         <div className="summary-grid inventory-compact-summary stock-summary-grid">
           <SummaryCard label="Itens em estoque" value={stockSummary.total} tone="info" icon={<Archive size={18} />} />
           <SummaryCard label="Zerados" value={stockSummary.zeros} tone={stockSummary.zeros ? "danger" : "success"} />
-          <SummaryCard label="Abaixo do minimo" value={stockSummary.belowMinimum} tone={stockSummary.belowMinimum ? "warning" : "success"} />
+          <SummaryCard label="Abaixo do mínimo" value={stockSummary.belowMinimum} tone={stockSummary.belowMinimum ? "warning" : "success"} />
           <SummaryCard label="Divergentes" value={stockSummary.divergent} tone={stockSummary.divergent ? "danger" : "success"} />
           <SummaryCard label="Sem fornecedor" value={stockSummary.withoutSupplier} tone={stockSummary.withoutSupplier ? "danger" : "success"} />
           <SummaryCard label="Cadastro incompleto" value={stockSummary.incomplete} tone={stockSummary.incomplete ? "warning" : "success"} />
@@ -3218,14 +3218,11 @@ export function Inventory({
           <label>Subcategoria<select value={stockFilters.subcategory} onChange={(event) => setStockFilters((current) => ({ ...current, subcategory: event.target.value }))}><option value="">Todas</option>{stockFilterOptions.subcategories.map((subcategory) => <option key={subcategory} value={subcategory}>{subcategory}</option>)}</select></label>
           <label>Fornecedor<select value={stockFilters.supplier} onChange={(event) => setStockFilters((current) => ({ ...current, supplier: event.target.value }))}><option value="">Todos</option>{stockFilterOptions.suppliers.map((supplier) => <option key={supplier} value={supplier}>{supplier}</option>)}</select></label>
           <label>Status/alerta<select value={stockFilters.alert} onChange={(event) => setStockFilters((current) => ({ ...current, alert: event.target.value }))}><option value="">Todos</option>{stockFilterOptions.alerts.map((alert) => <option key={alert} value={alert}>{buyerAlertLabel(alert)}</option>)}</select></label>
-          <button className="primary-button" type="button" onClick={load}>Filtrar</button>
-          <button className="secondary-button" type="button" onClick={() => {
+          <Button onClick={load}>Filtrar</Button>
+          <Button variant="secondary" leadingIcon={<FilterX size={16} />} onClick={() => {
             setSearch("");
             setStockFilters({ sector: "", category: "", subcategory: "", supplier: "", alert: "" });
-          }}>
-            <FilterX size={16} />
-            Limpar
-          </button>
+          }}>Limpar</Button>
         </div>
         <div className="chart-grid">
           <SimpleBarChart title="Divergências por setor/tipo" items={divergencesBySector} />
@@ -3311,14 +3308,14 @@ export function Inventory({
         {inventoryDeskTab === "reports" && (
           <>
             <div className="summary-grid inventory-compact-summary">
-              <SummaryCard label="Movimentacoes" value={movements.length} tone="info" />
+              <SummaryCard label="Movimentações" value={movements.length} tone="info" />
               <SummaryCard label="Contagens" value={counts.length} tone="info" />
-              <SummaryCard label="Inventarios oficiais" value={officialInventories.length} tone="success" />
-              <SummaryCard label="Divergencias" value={counts.filter((count) => Number(count.divergenceQuantity) !== 0).length} tone="warning" />
+              <SummaryCard label="Inventários oficiais" value={officialInventories.length} tone="success" />
+              <SummaryCard label="Divergências" value={counts.filter((count) => Number(count.divergenceQuantity) !== 0).length} tone="warning" />
             </div>
             <div className="chart-grid">
-              <SimpleBarChart title="Divergencias por setor/tipo" items={divergencesBySector} />
-              <SimpleBarChart title="Status dos inventarios" items={countsByStatus} />
+              <SimpleBarChart title="Divergências por setor/tipo" items={divergencesBySector} />
+              <SimpleBarChart title="Status dos inventários" items={countsByStatus} />
               <SimpleBarChart title="Estoque contado x pendente" items={[
                 { label: "Contados", value: operationalInventories.reduce((sum, item) => sum + Number(item.countedItems ?? 0), 0) },
                 { label: "Pendentes", value: operationalInventories.reduce((sum, item) => sum + Number(item.pendingItems ?? 0), 0) }
