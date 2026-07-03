@@ -247,6 +247,38 @@ function mockResponseFor(url: string): unknown {
   }
   if (path.endsWith("/suppliers")) return buildMockSuppliers();
 
+  // Contas a pagar: titulos variados (aberto/vencido/pago/imposto) para
+  // exercitar KPIs clicaveis, chips e a lista.
+  if (path.endsWith("/payables")) {
+    const today = new Date();
+    const iso = (d: Date) => d.toISOString();
+    const plusDays = (n: number) => { const d = new Date(today); d.setDate(d.getDate() + n); return iso(d); };
+    const base = {
+      purchaseId: null,
+      purchaseNumber: null,
+      invoiceNumber: null,
+      installment: null,
+      totalInstallments: null,
+      paymentMethodName: null,
+      paidDate: null,
+      paidAmount: null,
+      paymentNotes: null,
+      notes: null,
+      sourceType: "DIRECT",
+      taxDocumentType: null,
+      taxCompanyName: null,
+      taxDescription: null,
+      taxCompetenceDate: null,
+      taxDreCategoryName: null
+    };
+    return [
+      { ...base, id: "pay-1", supplierName: "Distribuidora Hortifruti Central do Vale Ltda ME", invoiceNumber: "48213", purchaseNumber: "C-0101", amount: 920.25, dueDate: plusDays(3), status: "OPEN", installment: 1, totalInstallments: 2, paymentMethodName: "BOLETO / 2x" },
+      { ...base, id: "pay-2", supplierName: "Casa de Carnes Bom Corte", amount: 1840.5, dueDate: plusDays(-4), status: "OVERDUE", paymentMethodName: "PIX", notes: "Renegociar com o vendedor" },
+      { ...base, id: "pay-3", supplierName: "Bebidas Serra Azul", amount: 640, dueDate: plusDays(-10), status: "PAID", paidDate: iso(today), paidAmount: 640, paymentMethodName: "PIX" },
+      { ...base, id: "pay-4", supplierName: "DAS — Simples Nacional", amount: 2312.4, dueDate: plusDays(12), status: "OPEN", sourceType: "TAX_PAYMENT", taxDocumentType: "DAS", taxCompanyName: "Pateo da Luz", taxDescription: "Competência anterior", taxCompetenceDate: plusDays(-30), taxDreCategoryName: "Impostos" }
+    ];
+  }
+
   // Compras: lista minima para exercitar a tabela DS da listagem.
   if (path.endsWith("/purchases")) {
     const today = new Date().toISOString();

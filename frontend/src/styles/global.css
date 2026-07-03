@@ -1897,38 +1897,57 @@ select:disabled {
   color: var(--ink);
 }
 
-/* ── Pedidos de compra: blocos de KPI (operacional vs financeiro) ── */
-.po-kpi-block {
+/* ── Blocos de KPI: contadores operacionais vs resumo financeiro ── */
+.kpi-block {
   display: grid;
   gap: 10px;
   margin-bottom: 18px;
 }
 
-.po-status-grid {
+.kpi-counters-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
 }
 
-.po-finance-grid {
+.kpi-finance-grid {
   display: grid;
   grid-template-columns: minmax(0, 320px);
 }
 
 @media (max-width: 1200px) {
-  .po-status-grid {
+  .kpi-counters-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 640px) {
-  .po-status-grid {
+  .kpi-counters-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .po-finance-grid {
+  .kpi-finance-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ── Contas a pagar: KPIs clicáveis ── */
+.payables-kpi-grid {
+  margin-bottom: 18px;
+}
+
+.payables-kpi-clickable {
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+
+.payables-kpi-clickable:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
 }
 
 /* ── Ciclos de fornecedor ── */
