@@ -1,0 +1,18 @@
+.ds-sparkline {
+  display: block;
+  overflow: visible;
+}
+
+.ds-sparkline-fill {
+  fill: var(--gold);
+  fill-opacity: 0.1;
+}
+
+.ds-sparkline-line {
+  fill: none;
+  stroke: var(--gold);
+  stroke-opacity: 0.65;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}

@@ -1,0 +1,47 @@
+/* Pateo da Luz — tokens estendidos usados pelos primitivos do DS.
+   NAO faz parte do handoff colors.css original. Sao consolidacoes
+   necessarias para exprimir StatusBadge / Alert / Tabs / Button hover
+   sem hex hardcoded nos componentes.
+
+   Se algum destes divergir do kit.css do prototipo, kit.css vence e
+   este arquivo vira o desempate — atualizar aqui. */
+
+:root {
+  /* ── Tints suaves para chips/badges/pills (fundos) ──
+     kit.css .kpi-chip.t-* e README concordam nestes 4 fundos.
+     Neutro usa --paper-soft direto (colors.css) — dispensavel token
+     separado por serem indistinguiveis (#f2f4f7 vs #f1f4f8). */
+  --tint-success: #eaf4ee;
+  --tint-warning: #fff8e8;
+  --tint-danger: #fdeeee;
+  --tint-info: #eaf1fa;
+
+  /* ── Bordas de Alert (mais fortes que tints, ainda dentro do tom) ── */
+  --tint-success-border: #9dc9ad;
+  --tint-warning-border: #e1c882;
+  --tint-danger-border: #e0b3b3;
+  --tint-info-border: #bcd3ef;
+
+  /* ── Extensoes do sistema ouro ──
+     --gold-dark: texto sobre superficies ouro (kpi-chip.t-gold, Tabs active,
+       Button secondary hover). Prototipo tem duas variantes muito proximas
+       (#6f5523 no kpi-chip, #72551e em Tabs) — canonizamos #6f5523.
+     --gold-tint: fundo warm-gold para Tabs active (nao confundir com
+       --tint-warning que e mais amarelo). */
+  --gold-dark: #6f5523;
+  --gold-tint: #f7f1e3;
+
+  /* ── Ink hover (Button primary) ── */
+  --ink-hover: #2d2922;
+
+  /* ── Sidebar (kit.css gradient 176deg 3-stop) ──
+     Nao usam --coal/--charcoal diretos porque o gradient e mais rico. */
+  --sidebar-gradient-start: #1a1815;
+  --sidebar-gradient-mid: #211f1a;
+  --sidebar-gradient-end: #17150f;
+
+  /* ── Login shell (kit.css gradient 150deg 3-stop + 2 radials ouro) ── */
+  --login-gradient-start: #100f0d;
+  --login-gradient-mid: #1c1a15;
+  --login-gradient-end: #2a2519;
+}

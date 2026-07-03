@@ -1,4 +1,4 @@
-import { Building2, CheckCircle2, Eye, FileText, History, Receipt, RefreshCw, RotateCcw, Search, X } from "lucide-react";
+﻿import { Building2, CheckCircle2, Eye, FileText, History, Receipt, RefreshCw, RotateCcw, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   AppUser, AuditLog, Company, CompanyBankAccount,
@@ -8,6 +8,17 @@ import {
   Payable, PaymentMethod, PurchaseDetail, reverseInstallment, reverseTaxPayment, Supplier
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
+import {
+  Button,
+  EmptyState,
+  IconButton,
+  Money,
+  PanelEyebrow,
+  Select,
+  StatusBadge as DsStatusBadge,
+  SummaryCard
+} from "../design-system";
+import type { StatusTone } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { formatCurrency, formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod, periodForPreset, PeriodPreset, PeriodState } from "../utils/period";
@@ -18,6 +29,14 @@ const statusLabels: Record<string, string> = {
   PAID_LATE: "Pago c/ atraso",
   OVERDUE: "Vencido",
   CANCELLED: "Cancelado"
+};
+
+const statusTones: Record<string, StatusTone> = {
+  OPEN: "warning",
+  PAID: "success",
+  PAID_LATE: "warning",
+  OVERDUE: "danger",
+  CANCELLED: "neutral"
 };
 
 function isTaxPayment(p: Payable) {
@@ -453,37 +472,23 @@ export function Payables({ user }: PayablesProps) {
 
       {/* ── Cabeçalho ───────────────────────────────────────────── */}
       <div className="section-heading">
-        <p className="muted">Resumo financeiro</p>
+        <PanelEyebrow>Resumo financeiro</PanelEyebrow>
         <div className="actions-cell">
-          <button className="secondary-button" type="button" onClick={handleFinancialPdf}>
-            <FileText size={16} /> PDF financeiro
-          </button>
-          <button className="icon-button" type="button" onClick={() => load()} aria-label="Atualizar">
-            <RefreshCw size={18} />
-          </button>
+          <Button variant="secondary" leadingIcon={<FileText size={16} />} onClick={handleFinancialPdf}>
+            PDF financeiro
+          </Button>
+          <IconButton icon={<RefreshCw size={16} />} label="Atualizar" onClick={() => load()} />
         </div>
       </div>
 
-      {/* ── Resumo compacto (cards clicáveis) ───────────────────── */}
-      <div className="summary-grid financial-summary payables-summary">
-        <article onClick={() => applyCardFilter("open")} title="Ver em aberto" style={{ cursor: "pointer" }}>
-          <span>Em aberto</span><strong>{formatCurrency(totals.open)}</strong>
-        </article>
-        <article onClick={() => applyCardFilter("overdue")} title="Ver vencidos" style={{ cursor: "pointer" }}>
-          <span>Vencido</span><strong className="payables-overdue-total">{formatCurrency(totals.overdue)}</strong>
-        </article>
-        <article onClick={() => applyCardFilter("paidMonth")} title="Ver pago no mês" style={{ cursor: "pointer" }}>
-          <span>Pago no mês</span><strong>{formatCurrency(totals.paidMonth)}</strong>
-        </article>
-        <article onClick={() => applyCardFilter("paidToday")} title="Ver pago hoje" style={{ cursor: "pointer" }}>
-          <span>Pago hoje</span><strong>{formatCurrency(totals.paidToday)}</strong>
-        </article>
-        <article onClick={() => applyCardFilter("next7")} title="Ver próximos 7 dias" style={{ cursor: "pointer" }}>
-          <span>Próx. 7 dias</span><strong>{formatCurrency(totals.next7)}</strong>
-        </article>
-        <article onClick={() => applyCardFilter("next30")} title="Ver próximos 30 dias" style={{ cursor: "pointer" }}>
-          <span>Próx. 30 dias</span><strong>{formatCurrency(totals.next30)}</strong>
-        </article>
+      {/* ── Resumo compacto (cards clicáveis filtram a lista) ───── */}
+      <div className="kpi-counters-grid payables-kpi-grid">
+        <SummaryCard label="Em aberto" value={formatCurrency(totals.open)} tone="warning" className="payables-kpi-clickable" onClick={() => applyCardFilter("open")} />
+        <SummaryCard label="Vencido" value={formatCurrency(totals.overdue)} tone="danger" className="payables-kpi-clickable" onClick={() => applyCardFilter("overdue")} />
+        <SummaryCard label="Pago no mês" value={formatCurrency(totals.paidMonth)} tone="success" className="payables-kpi-clickable" onClick={() => applyCardFilter("paidMonth")} />
+        <SummaryCard label="Pago hoje" value={formatCurrency(totals.paidToday)} tone="success" className="payables-kpi-clickable" onClick={() => applyCardFilter("paidToday")} />
+        <SummaryCard label="Próx. 7 dias" value={formatCurrency(totals.next7)} tone="info" className="payables-kpi-clickable" onClick={() => applyCardFilter("next7")} />
+        <SummaryCard label="Próx. 30 dias" value={formatCurrency(totals.next30)} tone="info" className="payables-kpi-clickable" onClick={() => applyCardFilter("next30")} />
       </div>
 
       {/* ── Filtros ──────────────────────────────────────────────── */}
@@ -513,21 +518,23 @@ export function Payables({ user }: PayablesProps) {
         </div>
 
         <div className="payables-filter-row">
-          <label>
-            Período de vencimento
-            <select value={period.preset} onChange={(e) => handlePeriodChange(e.target.value)}>
-              <option value="overdue">Vencidos</option>
-              <option value="today">Vence hoje</option>
-              <option value="next7">Próximos 7 dias</option>
-              <option value="next15">Próximos 15 dias</option>
-              <option value="next30">Próximos 30 dias</option>
-              <option value="currentMonth">Mês atual</option>
-              <option value="nextMonth">Mês seguinte</option>
-              <option value="currentYear">Ano atual</option>
-              <option value="paidMonth">Pago no mês</option>
-              <option value="custom">Período personalizado</option>
-            </select>
-          </label>
+          <Select
+            label="Período de vencimento"
+            value={period.preset}
+            onChange={(e) => handlePeriodChange(e.target.value)}
+            options={[
+              { value: "overdue", label: "Vencidos" },
+              { value: "today", label: "Vence hoje" },
+              { value: "next7", label: "Próximos 7 dias" },
+              { value: "next15", label: "Próximos 15 dias" },
+              { value: "next30", label: "Próximos 30 dias" },
+              { value: "currentMonth", label: "Mês atual" },
+              { value: "nextMonth", label: "Mês seguinte" },
+              { value: "currentYear", label: "Ano atual" },
+              { value: "paidMonth", label: "Pago no mês" },
+              { value: "custom", label: "Período personalizado" }
+            ]}
+          />
           {period.preset === "custom" && (
             <>
               <label>
@@ -540,50 +547,56 @@ export function Payables({ user }: PayablesProps) {
               </label>
             </>
           )}
-          <label>
-            Fornecedor
-            <select value={filters.supplierId} onChange={(e) => { const u = { ...filters, supplierId: e.target.value }; setFilters(u); void load(u); }}>
-              <option value="">Todos</option>
-              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </label>
-          <label>
-            Forma de pagamento
-            <select value={filters.paymentMethodId} onChange={(e) => { const u = { ...filters, paymentMethodId: e.target.value }; setFilters(u); void load(u); }}>
-              <option value="">Todas</option>
-              {effectivePaymentOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
-          </label>
-          <label>
-            Status
-            <select value={filters.status} onChange={(e) => { const u = { ...filters, status: e.target.value }; setFilters(u); void load(u); }}>
-              <option value="">Todos</option>
-              <option value="OPEN">Em aberto</option>
-              <option value="OVERDUE">Vencido</option>
-              <option value="PAID">Pago</option>
-              <option value="PAID_LATE">Pago com atraso</option>
-              <option value="CANCELLED">Cancelado</option>
-            </select>
-          </label>
-          <label>
-            Tipo
-            <select value={filters.origin} onChange={(e) => { const u = { ...filters, origin: e.target.value, supplierId: e.target.value === "taxes" ? "" : filters.supplierId, paymentMethodId: e.target.value === "taxes" ? "" : filters.paymentMethodId, sourceType: e.target.value === "taxes" ? "" : filters.sourceType }; setFilters(u); void load(u); }}>
-              <option value="all">Todos</option>
-              <option value="purchases">Compras</option>
-              <option value="taxes">Impostos</option>
-            </select>
-          </label>
+          <Select
+            label="Fornecedor"
+            value={filters.supplierId}
+            onChange={(e) => { const u = { ...filters, supplierId: e.target.value }; setFilters(u); void load(u); }}
+            placeholder="Todos"
+            options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+          />
+          <Select
+            label="Forma de pagamento"
+            value={filters.paymentMethodId}
+            onChange={(e) => { const u = { ...filters, paymentMethodId: e.target.value }; setFilters(u); void load(u); }}
+            placeholder="Todas"
+            options={effectivePaymentOptions.map((o) => ({ value: o.id, label: o.label }))}
+          />
+          <Select
+            label="Status"
+            value={filters.status}
+            onChange={(e) => { const u = { ...filters, status: e.target.value }; setFilters(u); void load(u); }}
+            placeholder="Todos"
+            options={[
+              { value: "OPEN", label: "Em aberto" },
+              { value: "OVERDUE", label: "Vencido" },
+              { value: "PAID", label: "Pago" },
+              { value: "PAID_LATE", label: "Pago com atraso" },
+              { value: "CANCELLED", label: "Cancelado" }
+            ]}
+          />
+          <Select
+            label="Tipo"
+            value={filters.origin}
+            onChange={(e) => { const u = { ...filters, origin: e.target.value, supplierId: e.target.value === "taxes" ? "" : filters.supplierId, paymentMethodId: e.target.value === "taxes" ? "" : filters.paymentMethodId, sourceType: e.target.value === "taxes" ? "" : filters.sourceType }; setFilters(u); void load(u); }}
+            options={[
+              { value: "all", label: "Todos" },
+              { value: "purchases", label: "Compras" },
+              { value: "taxes", label: "Impostos" }
+            ]}
+          />
           {filters.origin !== "taxes" && (
-            <label>
-              Sub-tipo
-              <select value={filters.sourceType} onChange={(e) => { const u = { ...filters, sourceType: e.target.value }; setFilters(u); void load(u); }}>
-                <option value="">Todos</option>
-                <option value="DIRECT">Título normal</option>
-                <option value="CARD_STATEMENT">Fatura cartão</option>
-                <option value="LEGACY_CREDIT_CARD">Cartão legado</option>
-                <option value="SUPPLIER_CYCLE">Ciclo fornecedor</option>
-              </select>
-            </label>
+            <Select
+              label="Sub-tipo"
+              value={filters.sourceType}
+              onChange={(e) => { const u = { ...filters, sourceType: e.target.value }; setFilters(u); void load(u); }}
+              placeholder="Todos"
+              options={[
+                { value: "DIRECT", label: "Título normal" },
+                { value: "CARD_STATEMENT", label: "Fatura cartão" },
+                { value: "LEGACY_CREDIT_CARD", label: "Cartão legado" },
+                { value: "SUPPLIER_CYCLE", label: "Ciclo fornecedor" }
+              ]}
+            />
           )}
         </div>
 
@@ -625,9 +638,9 @@ export function Payables({ user }: PayablesProps) {
             const alert = payableAlertStatus(payable);
             return (
               <div className={`payable-row-item${alert ? ` ${alert}` : ""}`} key={payable.id}>
-                <span className={`status-badge ${payable.status.toLowerCase()} pr-status`}>
+                <DsStatusBadge className="pr-status" tone={statusTones[payable.status] ?? "neutral"}>
                   {statusLabels[payable.status] ?? payable.status}
-                </span>
+                </DsStatusBadge>
 
                 <div className="pr-supplier">
                   {isTaxPayment(payable) ? (
@@ -653,7 +666,7 @@ export function Payables({ user }: PayablesProps) {
 
                 <div className="pr-amount">
                   <span className="pr-label">Valor</span>
-                  <strong>{formatCurrency(Number(payable.amount ?? 0))}</strong>
+                  <strong><Money value={Number(payable.amount ?? 0)} /></strong>
                 </div>
 
                 <div className="pr-meta">
@@ -686,32 +699,29 @@ export function Payables({ user }: PayablesProps) {
                 </div>
 
                 <div className="pr-actions">
-                  <button className="secondary-button compact-action" type="button" onClick={() => openTitle(payable)}>
-                    <Eye size={14} /> Ver
-                  </button>
+                  <IconButton icon={<Eye size={16} />} label="Ver título" size="sm" onClick={() => openTitle(payable)} />
                   {canManage && ["OPEN", "OVERDUE"].includes(payable.status) && (
-                    <button className="primary-button compact-action" type="button" onClick={() => startPayment(payable)}>
-                      <CheckCircle2 size={14} /> Baixar
-                    </button>
+                    <Button size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={() => startPayment(payable)}>
+                      Baixar
+                    </Button>
                   )}
                   {canManage && ["PAID", "PAID_LATE"].includes(payable.status) && (
-                    <button className="secondary-button compact-action" type="button" onClick={() => openReverse(payable)}>
-                      <RotateCcw size={14} /> Estornar
-                    </button>
+                    <Button variant="secondary" size="sm" leadingIcon={<RotateCcw size={14} />} onClick={() => openReverse(payable)}>
+                      Estornar
+                    </Button>
                   )}
-                  <button className="secondary-button compact-action" type="button" onClick={() => openHistory(payable)}>
-                    <History size={14} />
-                  </button>
+                  <IconButton icon={<History size={16} />} label="Histórico" size="sm" onClick={() => openHistory(payable)} />
                 </div>
               </div>
             );
           })}
           {displayedPayables.length === 0 && (
-            <div className="empty-state">
-              {searchQuery
+            <EmptyState
+              title={searchQuery
                 ? `Nenhum título encontrado para "${searchQuery}".`
                 : "Conta a pagar não encontrada para este período."}
-            </div>
+              description="Ajuste o período ou os filtros acima."
+            />
           )}
         </div>
       )}
@@ -883,9 +893,9 @@ export function Payables({ user }: PayablesProps) {
                   {selectedPayable.taxDescription && <p>Descrição: <strong>{selectedPayable.taxDescription}</strong></p>}
                   {selectedPayable.taxDreCategoryName && <p>Categoria DRE: <strong>{selectedPayable.taxDreCategoryName}</strong></p>}
                   <p>
-                    <span className={`status-badge ${selectedPayable.status.toLowerCase()}`}>
+                    <DsStatusBadge tone={statusTones[selectedPayable.status] ?? "neutral"}>
                       {statusLabels[selectedPayable.status] ?? selectedPayable.status}
-                    </span>
+                    </DsStatusBadge>
                   </p>
                 </div>
                 <div>
@@ -959,9 +969,9 @@ export function Payables({ user }: PayablesProps) {
                   {selectedPayable.purchaseNumber && <p>Pedido: <strong>{selectedPayable.purchaseNumber}</strong></p>}
                   {selectedPayable.installment != null && <p>Parcela: <strong>{formatInstallment(selectedPayable.installment, selectedPayable.totalInstallments, selectedPayable.paymentMethodName)}</strong></p>}
                   <p>
-                    <span className={`status-badge ${selectedPayable.status.toLowerCase()}`}>
+                    <DsStatusBadge tone={statusTones[selectedPayable.status] ?? "neutral"}>
                       {statusLabels[selectedPayable.status] ?? selectedPayable.status}
-                    </span>
+                    </DsStatusBadge>
                   </p>
                 </div>
                 <div>
@@ -1033,9 +1043,9 @@ export function Payables({ user }: PayablesProps) {
                         <td>{formatDate(inst.paidDate)}</td>
                         <td>{formatCurrency(Number(inst.paidAmount ?? 0))}</td>
                         <td>
-                          <span className={`status-badge ${(inst.status ?? "OPEN").toLowerCase()}`}>
+                          <DsStatusBadge tone={statusTones[inst.status ?? "OPEN"] ?? "neutral"}>
                             {statusLabels[inst.status ?? "OPEN"] ?? inst.status}
-                          </span>
+                          </DsStatusBadge>
                         </td>
                       </tr>
                     ))}

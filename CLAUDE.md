@@ -88,6 +88,18 @@ git push             # Render auto-deploys via render.yaml
 
 ## Ferramentas do ecossistema disponíveis
 
+### semble — busca de código para agentes (98% menos tokens)
+`C:\Projeto_pateo_Claude\semble`
+
+MCP Server de busca de código semântica. O Claude encontra trechos relevantes do ERP sem ler arquivos inteiros — ~98% menos tokens, ~200x mais rápido. Instalar uma vez, ativo em todas as sessões:
+```bash
+pip install uv
+uv tool install semble
+cd C:\Projeto_pateo_Claude\pateo-da-luz
+semble install   # → configura MCP automaticamente
+```
+Uso: perguntas em linguagem natural ("onde o JWT é validado?", "quais rotas não têm autenticação?")
+
 ### Pake — app desktop do ERP
 `C:\Projeto_pateo_Claude\Pake`
 

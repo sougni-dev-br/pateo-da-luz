@@ -3,42 +3,44 @@
   min-width: 0;
 }
 
+/* Tokens de cor, tipografia, spacing, sombras e motion vivem em
+   src/styles/tokens/. main.tsx importa tokens ANTES deste arquivo,
+   então --ink, --gold, --shadow, --ease, etc. já estão disponíveis aqui.
+
+   Aliases abaixo cobrem nomes legados que este arquivo referencia mas que
+   nunca foram declarados (antes do DS, renderizavam com fallback do browser).
+   Serão removidos gradualmente conforme cada tela migra para tokens canônicos. */
 :root {
-  --ink: #161512;
-  --ink-soft: #26231d;
-  --coal: #11100e;
-  --charcoal: #1f1d19;
-  --paper: #ffffff;
-  --paper-soft: #f2f4f7;
-  --line: #dfe4ea;
-  --line-strong: #c8d0da;
-  --muted: #667085;
-  --gold: #b99a58;
-  --gold-soft: #d8c391;
-  --success: #276749;
-  --warning: #8a650f;
-  --danger: #9f2d2d;
-  --info: #2f5f98;
-  --shadow: 0 16px 38px rgba(22, 21, 18, 0.08);
-  --shadow-soft: 0 10px 24px rgba(22, 21, 18, 0.06);
-  --border: var(--line);
-  --surface: var(--paper);
-  --text: var(--ink);
-  --accent: var(--gold);
-  --shadow-sm: var(--shadow-soft);
+  --text-muted: var(--muted);
+  --card-bg: var(--paper);
+  --radius: var(--radius-md);
+  --brand: var(--gold);
+  --bg: var(--paper-soft);
 }
 
 html,
 body,
+/* html/body/#root com background solido de fallback: garante que qualquer
+   area do viewport que nao seja coberta pelo AppShell fique com o cinza
+   claro do canvas do app, nunca com preto default do browser (que pode
+   aparecer em dark-mode do SO ou em capture headless). */
+html {
+  height: 100%;
+  background: var(--app-bg-from);
+}
+
 #root {
   width: 100%;
   max-width: 100%;
+  min-height: 100%;
   overflow-x: hidden;
+  background: var(--app-bg-from);
 }
 
 body {
   margin: 0;
   min-width: 0;
+  min-height: 100%;
   font-family: Inter, Segoe UI, Arial, sans-serif;
   background: linear-gradient(180deg, #f7f8fa 0%, #eef1f4 100%);
   color: var(--ink);
@@ -68,13 +70,7 @@ select {
   white-space: nowrap;
 }
 
-.app-shell {
-  min-height: 100vh;
-  max-width: 100%;
-  display: grid;
-  grid-template-columns: 264px 1fr;
-  background: linear-gradient(90deg, #24231f 264px, transparent 264px);
-}
+/* .app-shell agora vive em src/design-system/shell/AppShell.css (Fase 4A). */
 
 .mobile-app-header,
 .mobile-drawer,
@@ -82,260 +78,6 @@ select {
   display: none;
 }
 
-.sidebar {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  height: 100dvh;
-  align-self: start;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  background: linear-gradient(180deg, #171717 0%, #24231f 100%);
-  color: var(--paper);
-  padding: 24px 18px;
-  border-right: 1px solid rgba(216, 195, 145, 0.18);
-}
-
-.brand-block {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 30px;
-  padding-bottom: 22px;
-  border-bottom: 1px solid rgba(216, 195, 145, 0.2);
-}
-
-.brand-logo-wrap {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 58px;
-  height: 58px;
-  flex: 0 0 58px;
-  border: 1px solid rgba(216, 195, 145, 0.36);
-  border-radius: 8px;
-  background: rgba(251, 250, 247, 0.06);
-  overflow: hidden;
-}
-
-.brand-logo {
-  position: absolute;
-  inset: 8px;
-  width: calc(100% - 16px);
-  height: calc(100% - 16px);
-  object-fit: contain;
-  z-index: 1;
-}
-
-.brand-logo-fallback {
-  color: var(--gold-soft);
-  font-weight: 700;
-  font-size: 18px;
-}
-
-.brand-block strong {
-  display: block;
-  font-size: 19px;
-  line-height: 1.15;
-}
-
-.brand-block span:not(.brand-logo-fallback) {
-  display: block;
-  margin-top: 5px;
-  color: #d8d1c4;
-  font-size: 13px;
-}
-
-.sidebar nav {
-  display: grid;
-  gap: 16px;
-}
-
-.nav-group {
-  display: grid;
-  gap: 6px;
-}
-
-.nav-group > span {
-  padding: 0 10px;
-  color: #aaa39a;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.sidebar button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  border: 0;
-  border-radius: 6px;
-  padding: 11px 12px;
-  color: #e8e1d6;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-  min-width: 0;
-  transition: background 180ms ease, color 180ms ease, transform 180ms ease;
-}
-
-.sidebar button span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar button:hover {
-  background: rgba(216, 195, 145, 0.12);
-  color: #fff;
-  transform: translateX(2px);
-}
-
-.sidebar button.active {
-  background: var(--paper);
-  color: var(--ink);
-  box-shadow: inset 3px 0 0 var(--gold);
-}
-
-.nav-item-wrap {
-  display: flex;
-  align-items: center;
-}
-
-.nav-item-wrap > button:first-child {
-  flex: 1;
-  min-width: 0;
-  width: auto;
-}
-
-.sidebar button.nav-star {
-  flex-shrink: 0;
-  width: 30px;
-  min-width: 30px;
-  padding: 6px;
-  justify-content: center;
-  opacity: 0.35;
-  color: #aaa39a;
-  transition: opacity 150ms ease, color 150ms ease, background 150ms ease;
-}
-
-.sidebar button.nav-star.nav-star-active {
-  opacity: 1;
-  color: var(--gold);
-}
-
-.sidebar button.nav-star:hover {
-  opacity: 1;
-  transform: none;
-  color: #e8e1d6;
-  background: rgba(216, 195, 145, 0.12);
-}
-
-.version-badge {
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
-  margin-top: auto;
-  border: 1px solid rgba(216, 195, 145, 0.28);
-  border-radius: 999px;
-  padding: 6px 10px;
-  color: #d8d1c4;
-  font-size: 12px;
-}
-
-.sidebar-user {
-  display: grid;
-  gap: 4px;
-  margin-top: 24px;
-  border-top: 1px solid rgba(216, 195, 145, 0.2);
-  padding-top: 18px;
-  color: #f7f1e7;
-}
-
-.sidebar-footer {
-  gap: 12px;
-}
-
-.sidebar-footer-meta {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.sidebar-footer-meta span,
-.sidebar-footer-meta small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-user small {
-  color: #d8d1c4;
-}
-
-.sidebar-footer-actions {
-  display: grid;
-  gap: 10px;
-}
-
-.sidebar-footer-button {
-  align-items: center;
-  appearance: none;
-  -webkit-appearance: none;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(216, 195, 145, 0.24);
-  border-radius: 10px;
-  color: #f7f1e7;
-  display: inline-flex;
-  gap: 10px;
-  justify-content: flex-start;
-  margin-top: 0;
-  min-height: 46px;
-  padding: 0 14px;
-  transition: background 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease, transform 180ms ease, opacity 180ms ease;
-}
-
-.sidebar-footer-button svg {
-  color: currentColor;
-  flex: 0 0 auto;
-}
-
-.sidebar-footer-button:hover:not(:disabled) {
-  background: rgba(216, 195, 145, 0.16);
-  border-color: rgba(216, 195, 145, 0.4);
-  color: #fff;
-}
-
-.sidebar-footer-button:active:not(:disabled) {
-  background: rgba(216, 195, 145, 0.2);
-  transform: scale(0.985);
-}
-
-.sidebar-footer-button:focus-visible {
-  border-color: rgba(216, 195, 145, 0.6);
-  box-shadow: 0 0 0 3px rgba(216, 195, 145, 0.18);
-  outline: none;
-}
-
-.sidebar-footer-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.sidebar-footer-button-danger:hover:not(:disabled) {
-  background: rgba(159, 45, 45, 0.18);
-  border-color: rgba(216, 160, 160, 0.48);
-  color: #fff3f1;
-}
-
-.sidebar-footer-button-danger:active:not(:disabled) {
-  background: rgba(159, 45, 45, 0.24);
-}
 
 .link-button {
   border: 0;
@@ -351,62 +93,6 @@ select {
   background: rgba(216, 195, 145, 0.08);
 }
 
-.login-shell {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: linear-gradient(135deg, #11100e, #2b261d);
-  overflow-x: hidden;
-}
-
-.login-card {
-  width: min(420px, 100%);
-  min-width: 0;
-  box-sizing: border-box;
-  display: grid;
-  gap: 16px;
-  border: 1px solid rgba(216, 195, 145, 0.26);
-  border-radius: 10px;
-  background: rgba(251, 250, 247, 0.96);
-  padding: 30px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
-}
-
-.login-card img {
-  width: 120px;
-  height: 120px;
-  object-fit: contain;
-  justify-self: center;
-  border-radius: 8px;
-  background: #11100e;
-}
-
-.login-card p {
-  margin: 0;
-  color: var(--muted);
-  text-align: center;
-}
-
-.login-card h1 {
-  margin: 0;
-  text-align: center;
-}
-
-.login-card label {
-  display: grid;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.login-card input {
-  min-width: 0;
-  min-height: 42px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 0 12px;
-}
 
 .password-field {
   display: grid;
@@ -448,34 +134,8 @@ select {
   color: var(--danger);
 }
 
-.login-card small {
-  color: var(--muted);
-  text-align: center;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
 
-.login-status-pill {
-  text-align: center;
-  font-size: 0.8rem;
-  padding: 6px 12px;
-}
-
-.login-env-badge {
-  text-align: center;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 6px 12px;
-}
-
-.content {
-  min-width: 0;
-  width: 100%;
-  max-width: 100%;
-  padding: 30px;
-}
+/* .content agora vive em src/design-system/shell/AppShell.css (Fase 4A). */
 
 .page-header,
 .section-heading,
@@ -2090,23 +1750,6 @@ select:disabled {
   flex-wrap: wrap;
 }
 
-.supp-page-eyebrow {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  margin: 0 0 4px;
-}
-
-.supp-page-title {
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.3px;
-  color: var(--ink);
-  margin: 0 0 4px;
-}
-
 .supp-page-sub {
   font-size: 13px;
   color: var(--muted);
@@ -2184,32 +1827,6 @@ select:disabled {
   background: #fdf3c0;
 }
 
-/* Checkbox label corrigido */
-.supp-checkbox-label {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 8px !important;
-  cursor: pointer;
-  min-height: 40px;
-}
-
-.supp-checkbox-label input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  min-height: auto;
-  flex-shrink: 0;
-  margin: 0;
-  cursor: pointer;
-  accent-color: var(--accent);
-}
-
-.supp-checkbox-label span {
-  font-size: 14px;
-  color: var(--ink);
-  white-space: nowrap;
-}
-
 /* Cabeçalho da listagem */
 .supp-list-header {
   display: flex;
@@ -2227,212 +1844,121 @@ select:disabled {
   min-width: 0;
 }
 
-.supp-search-input {
+/* Busca: TextField do DS ocupa o espaço flexível da linha. */
+.supp-search-field {
   flex: 1 1 0;
   min-width: 0;
-  height: 38px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font-size: 14px;
-  background: #fff;
-  color: var(--ink);
 }
 
-.supp-search-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(197, 172, 120, 0.15);
-}
-
-.supp-search-btn {
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-/* Abas de status */
-.supp-status-tabs {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.supp-status-tab {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #fff;
-  color: var(--muted);
-  padding: 6px 12px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
-  white-space: nowrap;
-}
-
-.supp-status-tab:hover {
-  background: #f5f5f5;
-  color: var(--ink);
-}
-
-.supp-status-tab.active {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-  font-weight: 600;
-}
-
-.supp-status-tab.active .supp-tab-count {
-  background: rgba(255,255,255,0.25);
-  color: #fff;
-}
-
-.supp-tab-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  border-radius: 9px;
-  background: var(--line);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-  padding: 0 4px;
-}
-
-/* Tabela */
+/* Tabela: DS Table; wrapper permanece para o hide mobile. */
 .supp-table-wrap {
-  overflow-x: auto;
+  min-width: 0;
 }
 
-.supp-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.supp-table th {
-  white-space: nowrap;
-  font-size: 11.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  background: #fafafa;
-}
-
-.supp-table td {
-  padding: 9px 10px;
-  font-size: 13.5px;
-  border-bottom: 1px solid var(--line);
-  vertical-align: middle;
-}
-
-.supp-table tbody tr:hover {
-  background: #fafafa;
-}
-
-.supp-row-editing {
-  background: #fffbeb !important;
-  outline: 2px solid #f9c74f;
-  outline-offset: -1px;
-}
-
-.supp-code-cell { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
-.supp-name-cell { font-weight: 500; }
-.supp-doc-cell  { font-size: 12.5px; white-space: nowrap; }
-.supp-contact-cell { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.supp-cat-cell  { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* Badges */
-.supp-badge {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 20px;
-  padding: 2px 9px;
-  font-size: 11.5px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.supp-badge-active {
-  background: rgba(76, 175, 80, 0.12);
-  color: #2e7d32;
-}
-
-.supp-badge-inactive {
-  background: rgba(0, 0, 0, 0.06);
-  color: var(--muted);
-}
-
-.supp-payment-badge {
-  display: inline-block;
-  font-size: 12px;
-  color: var(--muted);
-  background: #f3f4f6;
-  border-radius: 5px;
-  padding: 2px 7px;
-  white-space: nowrap;
-}
-
-/* Ações compactas */
-.supp-actions {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-
-.supp-action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #fff;
-  color: var(--muted);
-  cursor: pointer;
-  transition: background 0.1s, color 0.1s, border-color 0.1s;
-  flex-shrink: 0;
-}
-
-.supp-action-btn:hover:not(:disabled) {
-  background: #f5f5f5;
-  color: var(--ink);
-  border-color: #bbb;
-}
-
-.supp-action-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.supp-action-danger:hover:not(:disabled) {
-  background: #fff0f0;
-  color: #c62828;
-  border-color: #ef9a9a;
-}
-
-/* Empty state */
-.supp-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  padding: 40px 16px;
-  color: var(--muted);
-  font-size: 14px;
+/* Linha em edição destacada sobre o hover creme do DS. */
+.supp-row-editing .ds-table-td {
+  background: var(--tint-warning) !important;
 }
 
 /* Mobile cards — ocultos no desktop */
 .supp-mobile-list {
   display: none;
+}
+
+/* ── Empresas ── */
+.companies-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.companies-filters-search {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.companies-expand-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.8em;
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.companies-expand-toggle:hover {
+  color: var(--ink);
+}
+
+/* ── Blocos de KPI: contadores operacionais vs resumo financeiro ── */
+.kpi-block {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.kpi-counters-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.kpi-finance-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 320px);
+}
+
+@media (max-width: 1200px) {
+  .kpi-counters-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .kpi-counters-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kpi-finance-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── Contas a pagar: KPIs clicáveis ── */
+.payables-kpi-grid {
+  margin-bottom: 18px;
+}
+
+.payables-kpi-clickable {
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+
+.payables-kpi-clickable:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+
+/* ── Ciclos de fornecedor ── */
+.cycles-filter-search {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.cycles-filter-select {
+  flex: 0 1 200px;
+  min-width: 150px;
 }
 
 /* ── Purchases filter panel ─────────────────────────────────────────── */
@@ -4924,22 +4450,8 @@ select:disabled {
     flex: 1 1 auto;
   }
 
-  .supp-status-tabs {
-    flex-wrap: wrap;
-    width: 100%;
-  }
-
-  .supp-status-tab {
-    flex: 1;
-    justify-content: center;
-  }
-
   .supp-page-header {
     padding-bottom: 14px;
-  }
-
-  .supp-page-title {
-    font-size: 18px;
   }
 }
 
@@ -6633,10 +6145,6 @@ details[open] .modal-section-summary::before {
   .mobile-drawer .sidebar-footer-button:disabled {
     background: rgba(255, 255, 255, 0.05);
     border-color: rgba(216, 195, 145, 0.16);
-  }
-
-  .desktop-page-header {
-    display: none;
   }
 
   .version-badge {

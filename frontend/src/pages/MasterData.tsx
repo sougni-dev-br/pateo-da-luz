@@ -1,4 +1,4 @@
-import { RefreshCw, X } from "lucide-react";
+﻿import { RefreshCw, X } from "lucide-react";
 import type React from "react";
 import { DRECategoryOptions } from "../components/DRECategoryOptions";
 import { useEffect, useRef, useState } from "react";
@@ -34,6 +34,20 @@ import {
   InventorySector
 } from "../api/client";
 import { Notice, NoticeTone, useNotice } from "../components/Notice";
+import {
+  Button,
+  EmptyState,
+  FormField,
+  FormGrid,
+  IconButton,
+  PanelEyebrow,
+  Select as DsSelect,
+  StatusBadge,
+  Switch,
+  Table as DsTable,
+  Tabs,
+  TextField
+} from "../design-system";
 
 type Mode = "sectors" | "categories" | "subcategories" | "units" | "expense-types";
 type Notify = (tone: NoticeTone, message: string) => void;
@@ -55,18 +69,11 @@ export function MasterData() {
     <div className="stack">
       <Notice notice={notice} />
 
-      <div className="tabs-row">
-        {modes.map((item) => (
-          <button
-            className={mode === item.id ? "active" : ""}
-            key={item.id}
-            type="button"
-            onClick={() => setMode(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        value={mode}
+        onChange={(v) => setMode(v as Mode)}
+        tabs={modes.map((item) => ({ value: item.id, label: item.label }))}
+      />
 
       {mode === "sectors" && <SectorsPanel notify={notify} />}
       {mode === "categories" && <CategoriesPanel notify={notify} />}
@@ -122,18 +129,18 @@ function SectorsPanel({ notify }: { notify: Notify }) {
       table={
         <Table headers={["Status", "Ordem", "Nome", "Normalizado", "Descricao", "Observacoes", "Acoes"]}>
           {rows.map((row) => (
-            <tr key={row.id}>
-              <td>{row.isActive ? "Ativo" : "Inativo"}</td>
-              <td>{row.countOrder}</td>
-              <td>{row.name}</td>
-              <td>{row.normalizedName}</td>
-              <td>{row.description ?? "-"}</td>
-              <td>{row.notes ?? "-"}</td>
-              <td className="actions-cell">
+            <DsTable.Row key={row.id}>
+              <DsTable.Td>{row.isActive ? "Ativo" : "Inativo"}</DsTable.Td>
+              <DsTable.Td>{row.countOrder}</DsTable.Td>
+              <DsTable.Td>{row.name}</DsTable.Td>
+              <DsTable.Td>{row.normalizedName}</DsTable.Td>
+              <DsTable.Td>{row.description ?? "-"}</DsTable.Td>
+              <DsTable.Td>{row.notes ?? "-"}</DsTable.Td>
+              <DsTable.Td actions>
                 <button type="button" onClick={() => setForm({ id: row.id, name: row.name, description: row.description ?? "", countOrder: row.countOrder, notes: row.notes ?? "", isActive: row.isActive })}>Editar</button>
                 <button type="button" onClick={async () => { try { await setSectorStatus(row.id, !row.isActive); await load(); notify("success", row.isActive ? "Cadastro inativado com sucesso." : "Cadastro reativado com sucesso."); } catch { notify("error", "Erro ao salvar."); } }}>{row.isActive ? "Inativar" : "Reativar"}</button>
-              </td>
-            </tr>
+              </DsTable.Td>
+            </DsTable.Row>
           ))}
         </Table>
       }
@@ -185,16 +192,16 @@ function CategoriesPanel({ notify }: { notify: Notify }) {
       table={
         <Table headers={["Status", "Nome", "Grupo", "Observacoes", "Acoes"]}>
           {rows.map((row) => (
-            <tr key={row.id}>
-              <td>{row.isActive ? "Ativo" : "Inativo"}</td>
-              <td>{row.name}</td>
-              <td>{row.mainGroup ?? "-"}</td>
-              <td>{row.notes ?? "-"}</td>
-              <td className="actions-cell">
+            <DsTable.Row key={row.id}>
+              <DsTable.Td>{row.isActive ? "Ativo" : "Inativo"}</DsTable.Td>
+              <DsTable.Td>{row.name}</DsTable.Td>
+              <DsTable.Td>{row.mainGroup ?? "-"}</DsTable.Td>
+              <DsTable.Td>{row.notes ?? "-"}</DsTable.Td>
+              <DsTable.Td actions>
                 <button type="button" onClick={() => setForm({ id: row.id, name: row.name, mainGroup: row.mainGroup ?? "", notes: row.notes ?? "", isActive: row.isActive })}>Editar</button>
                 <button type="button" onClick={async () => { try { await setCategoryStatus(row.id, !row.isActive); await load(); notify("success", row.isActive ? "Cadastro inativado com sucesso." : "Cadastro reativado com sucesso."); } catch { notify("error", "Erro ao salvar."); } }}>{row.isActive ? "Inativar" : "Reativar"}</button>
-              </td>
-            </tr>
+              </DsTable.Td>
+            </DsTable.Row>
           ))}
         </Table>
       }
@@ -250,16 +257,16 @@ function SubcategoriesPanel({ notify }: { notify: Notify }) {
       table={
         <Table headers={["Status", "Nome", "Categoria", "Observacoes", "Acoes"]}>
           {rows.map((row) => (
-            <tr key={row.id}>
-              <td>{row.isActive ? "Ativo" : "Inativo"}</td>
-              <td>{row.name}</td>
-              <td>{row.category?.name ?? "-"}</td>
-              <td>{row.notes ?? "-"}</td>
-              <td className="actions-cell">
+            <DsTable.Row key={row.id}>
+              <DsTable.Td>{row.isActive ? "Ativo" : "Inativo"}</DsTable.Td>
+              <DsTable.Td>{row.name}</DsTable.Td>
+              <DsTable.Td>{row.category?.name ?? "-"}</DsTable.Td>
+              <DsTable.Td>{row.notes ?? "-"}</DsTable.Td>
+              <DsTable.Td actions>
                 <button type="button" onClick={() => setForm({ id: row.id, name: row.name, categoryId: row.categoryId, notes: row.notes ?? "", isActive: row.isActive })}>Editar</button>
                 <button type="button" onClick={async () => { try { await setSubcategoryStatus(row.id, !row.isActive); await load(); notify("success", row.isActive ? "Cadastro inativado com sucesso." : "Cadastro reativado com sucesso."); } catch { notify("error", "Erro ao salvar."); } }}>{row.isActive ? "Inativar" : "Reativar"}</button>
-              </td>
-            </tr>
+              </DsTable.Td>
+            </DsTable.Row>
           ))}
         </Table>
       }
@@ -288,7 +295,7 @@ function UnitsPanel({ notify }: { notify: Notify }) {
   return (
     <CrudPanel title="Unidades de medida" search={search} setSearch={setSearch} load={load}
       form={<div className="form-grid"><Text label="Sigla" value={form.code} onChange={(code) => setForm({ ...form, code })} /><Text label="Nome" value={form.name} onChange={(name) => setForm({ ...form, name })} /><Text label="Tipo" value={form.type} onChange={(type) => setForm({ ...form, type })} /><Text label="Observacoes" value={form.notes} onChange={(notes) => setForm({ ...form, notes })} /><Active checked={form.isActive} onChange={(isActive) => setForm({ ...form, isActive })} /><button className="primary-button" type="button" onClick={submit}>{form.id ? "Salvar" : "Cadastrar"}</button></div>}
-      table={<Table headers={["Status", "Sigla", "Nome", "Tipo", "Observacoes", "Acoes"]}>{rows.map((row) => <tr key={row.id}><td>{row.isActive ? "Ativo" : "Inativo"}</td><td>{row.code}</td><td>{row.name}</td><td>{row.type ?? "-"}</td><td>{row.notes ?? "-"}</td><td className="actions-cell"><button type="button" onClick={() => setForm({ id: row.id, code: row.code, name: row.name, type: row.type ?? "", notes: row.notes ?? "", isActive: row.isActive })}>Editar</button><button type="button" onClick={async () => { try { await setUnitStatus(row.id, !row.isActive); await load(); notify("success", row.isActive ? "Cadastro inativado com sucesso." : "Cadastro reativado com sucesso."); } catch { notify("error", "Erro ao salvar."); } }}>{row.isActive ? "Inativar" : "Reativar"}</button></td></tr>)}</Table>}
+      table={<Table headers={["Status", "Sigla", "Nome", "Tipo", "Observacoes", "Acoes"]}>{rows.map((row) => <DsTable.Row key={row.id}><DsTable.Td>{row.isActive ? "Ativo" : "Inativo"}</DsTable.Td><DsTable.Td>{row.code}</DsTable.Td><DsTable.Td>{row.name}</DsTable.Td><DsTable.Td>{row.type ?? "-"}</DsTable.Td><DsTable.Td>{row.notes ?? "-"}</DsTable.Td><DsTable.Td actions><button type="button" onClick={() => setForm({ id: row.id, code: row.code, name: row.name, type: row.type ?? "", notes: row.notes ?? "", isActive: row.isActive })}>Editar</button><button type="button" onClick={async () => { try { await setUnitStatus(row.id, !row.isActive); await load(); notify("success", row.isActive ? "Cadastro inativado com sucesso." : "Cadastro reativado com sucesso."); } catch { notify("error", "Erro ao salvar."); } }}>{row.isActive ? "Inativar" : "Reativar"}</button></DsTable.Td></DsTable.Row>)}</Table>}
     />
   );
 }
@@ -314,7 +321,7 @@ function ExpenseTypesPanel({ notify }: { notify: Notify }) {
   return (
     <CrudPanel title="Tipos de gasto" search={search} setSearch={setSearch} load={load}
       form={<div className="form-grid"><Text label="Nome" value={form.name} onChange={(name) => setForm({ ...form, name })} /><Text label="Grupo" value={form.group} onChange={(group) => setForm({ ...form, group })} /><Text label="Observacoes" value={form.notes} onChange={(notes) => setForm({ ...form, notes })} /><Active checked={form.isActive} onChange={(isActive) => setForm({ ...form, isActive })} /><button className="primary-button" type="button" onClick={submit}>{form.id ? "Salvar" : "Cadastrar"}</button></div>}
-      table={<Table headers={["Status", "Nome", "Normalizado", "Grupo", "Observacoes", "Acoes"]}>{rows.map((row) => <tr key={row.id}><td>{row.isActive ? "Ativo" : "Inativo"}</td><td>{row.name}</td><td>{row.normalizedName}</td><td>{row.group ?? "-"}</td><td>{row.notes ?? "-"}</td><td className="actions-cell"><button type="button" onClick={() => setForm({ id: row.id, name: row.name, group: row.group ?? "", notes: row.notes ?? "", isActive: row.isActive })}>Editar</button><button type="button" onClick={async () => { try { await setExpenseTypeStatus(row.id, !row.isActive); await load(); notify("success", row.isActive ? "Cadastro inativado com sucesso." : "Cadastro reativado com sucesso."); } catch { notify("error", "Erro ao salvar."); } }}>{row.isActive ? "Inativar" : "Reativar"}</button></td></tr>)}</Table>}
+      table={<Table headers={["Status", "Nome", "Normalizado", "Grupo", "Observacoes", "Acoes"]}>{rows.map((row) => <DsTable.Row key={row.id}><DsTable.Td>{row.isActive ? "Ativo" : "Inativo"}</DsTable.Td><DsTable.Td>{row.name}</DsTable.Td><DsTable.Td>{row.normalizedName}</DsTable.Td><DsTable.Td>{row.group ?? "-"}</DsTable.Td><DsTable.Td>{row.notes ?? "-"}</DsTable.Td><DsTable.Td actions><button type="button" onClick={() => setForm({ id: row.id, name: row.name, group: row.group ?? "", notes: row.notes ?? "", isActive: row.isActive })}>Editar</button><button type="button" onClick={async () => { try { await setExpenseTypeStatus(row.id, !row.isActive); await load(); notify("success", row.isActive ? "Cadastro inativado com sucesso." : "Cadastro reativado com sucesso."); } catch { notify("error", "Erro ao salvar."); } }}>{row.isActive ? "Inativar" : "Reativar"}</button></DsTable.Td></DsTable.Row>)}</Table>}
     />
   );
 }
@@ -565,10 +572,10 @@ function SmallExpenseTypesPanel({ notify }: { notify: Notify }) {
       {/* Tabela com edição inline */}
       <section className="panel">
         <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th style={{ width: "2rem" }}>
+          <DsTable>
+            <DsTable.Head>
+              <DsTable.Row>
+                <DsTable.Th style={{ width: "2rem" }}>
                   <input
                     type="checkbox"
                     checked={allVisibleSelected}
@@ -578,15 +585,15 @@ function SmallExpenseTypesPanel({ notify }: { notify: Notify }) {
                       else setSelected(new Set());
                     }}
                   />
-                </th>
-                <th>Nome</th>
-                <th>Natureza gerencial</th>
-                <th>Categoria DRE padrão</th>
-                <th style={{ width: "3rem" }}>Ativo</th>
-                <th style={{ width: "5rem" }}>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
+                </DsTable.Th>
+                <DsTable.Th minWidth={180}>Nome</DsTable.Th>
+                <DsTable.Th>Natureza gerencial</DsTable.Th>
+                <DsTable.Th>Categoria DRE padrão</DsTable.Th>
+                <DsTable.Th style={{ width: "3rem" }}>Ativo</DsTable.Th>
+                <DsTable.Th actions>Ações</DsTable.Th>
+              </DsTable.Row>
+            </DsTable.Head>
+            <DsTable.Body>
               {filtered.map((row) => {
                 const edit = edits[row.id] ?? { naturezaGerencial: "", suggestedDreCategoryId: "" };
                 const isSaving = saving.has(row.id);
@@ -596,11 +603,11 @@ function SmallExpenseTypesPanel({ notify }: { notify: Notify }) {
                   edit.suggestedDreCategoryId !== (row.suggestedDreCategoryId ?? "");
 
                 return (
-                  <tr
+                  <DsTable.Row
                     key={row.id}
-                    style={isSaved ? { backgroundColor: "var(--color-success-muted, rgba(34,197,94,0.12))", transition: "background-color 0.3s" } : { transition: "background-color 0.6s" }}
+                    style={isSaved ? { backgroundColor: "var(--tint-success)", transition: "background-color 0.3s" } : { transition: "background-color 0.6s" }}
                   >
-                    <td>
+                    <DsTable.Td>
                       <input
                         type="checkbox"
                         checked={selected.has(row.id)}
@@ -610,9 +617,9 @@ function SmallExpenseTypesPanel({ notify }: { notify: Notify }) {
                           setSelected(next);
                         }}
                       />
-                    </td>
-                    <td style={{ fontWeight: 500 }}>{row.name}</td>
-                    <td>
+                    </DsTable.Td>
+                    <DsTable.Td style={{ fontWeight: 500 }}>{row.name}</DsTable.Td>
+                    <DsTable.Td>
                       <select
                         value={edit.naturezaGerencial}
                         onChange={(e) => setEdits((prev) => ({ ...prev, [row.id]: { ...edit, naturezaGerencial: e.target.value } }))}
@@ -623,8 +630,8 @@ function SmallExpenseTypesPanel({ notify }: { notify: Notify }) {
                           <option key={v} value={v}>{l}</option>
                         ))}
                       </select>
-                    </td>
-                    <td>
+                    </DsTable.Td>
+                    <DsTable.Td>
                       <select
                         value={edit.suggestedDreCategoryId}
                         onChange={(e) => setEdits((prev) => ({ ...prev, [row.id]: { ...edit, suggestedDreCategoryId: e.target.value } }))}
@@ -633,8 +640,8 @@ function SmallExpenseTypesPanel({ notify }: { notify: Notify }) {
                         <option value="">— Nenhuma —</option>
                         <DRECategoryOptions categories={dreCategories} />
                       </select>
-                    </td>
-                    <td style={{ textAlign: "center" }}>
+                    </DsTable.Td>
+                    <DsTable.Td style={{ textAlign: "center" }}>
                       <input
                         type="checkbox"
                         checked={row.isActive}
@@ -649,8 +656,8 @@ function SmallExpenseTypesPanel({ notify }: { notify: Notify }) {
                           }
                         }}
                       />
-                    </td>
-                    <td className="actions-cell">
+                    </DsTable.Td>
+                    <DsTable.Td actions>
                       <button
                         className="primary-button"
                         type="button"
@@ -660,15 +667,15 @@ function SmallExpenseTypesPanel({ notify }: { notify: Notify }) {
                       >
                         {isSaving ? "…" : "Salvar"}
                       </button>
-                    </td>
-                  </tr>
+                    </DsTable.Td>
+                  </DsTable.Row>
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: "center", color: "var(--color-text-muted)", padding: "1.5rem" }}>Nenhum tipo encontrado.</td></tr>
+                <DsTable.Row><DsTable.Td colSpan={6}><EmptyState title="Nenhum tipo encontrado." /></DsTable.Td></DsTable.Row>
               )}
-            </tbody>
-          </table>
+            </DsTable.Body>
+          </DsTable>
         </div>
       </section>
     </div>
@@ -676,17 +683,60 @@ function SmallExpenseTypesPanel({ notify }: { notify: Notify }) {
 }
 
 function CrudPanel({ title, search, setSearch, load, form, table }: { title: string; search: string; setSearch: (value: string) => void; load: () => void; form: React.ReactNode; table: React.ReactNode }) {
-  return <div className="stack"><section className="panel"><div className="section-heading"><div><p>Tabela mestre</p><h2>{title}</h2></div></div>{form}</section><section className="panel"><div className="section-heading"><div><p>Lista</p><h2>{title}</h2></div><button className="icon-button" type="button" onClick={load} aria-label="Atualizar"><RefreshCw size={18} /></button></div><div className="filters-row"><label>Busca<input value={search} onChange={(event) => setSearch(event.target.value)} /></label><button className="primary-button" type="button" onClick={load}>Filtrar</button></div><div className="table-wrap">{table}</div></section></div>;
+  return (
+    <div className="stack">
+      <section className="panel">
+        <div className="section-heading">
+          <div><PanelEyebrow>Tabela mestre</PanelEyebrow><h2>{title}</h2></div>
+        </div>
+        {form}
+      </section>
+      <section className="panel">
+        <div className="section-heading">
+          <div><PanelEyebrow>Lista</PanelEyebrow><h2>{title}</h2></div>
+          <IconButton icon={<RefreshCw size={16} />} label="Atualizar" onClick={load} />
+        </div>
+        <div className="filters-row">
+          <FormField label="Busca">
+            <TextField value={search} onChange={(event) => setSearch(event.target.value)} />
+          </FormField>
+          <Button variant="secondary" onClick={load}>Filtrar</Button>
+        </div>
+        {table}
+      </section>
+    </div>
+  );
 }
 
 function Table({ headers, children }: { headers: string[]; children: React.ReactNode }) {
-  return <table><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{children}</tbody></table>;
+  return (
+    <DsTable>
+      <DsTable.Head>
+        <DsTable.Row>
+          {headers.map((header, i) => {
+            const isLast = i === headers.length - 1;
+            const isFirst = i === 0;
+            return <DsTable.Th key={header} actions={isLast} minWidth={isFirst ? undefined : undefined}>{header}</DsTable.Th>;
+          })}
+        </DsTable.Row>
+      </DsTable.Head>
+      <DsTable.Body>{children}</DsTable.Body>
+    </DsTable>
+  );
 }
 
 function Text({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <label>{label}<input value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+  return (
+    <FormField label={label}>
+      <TextField value={value} onChange={(event) => onChange(event.target.value)} />
+    </FormField>
+  );
 }
 
 function Active({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) {
-  return <label className="checkbox-label"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />Ativo</label>;
+  return (
+    <FormField label="Ativo" inline>
+      <Switch checked={checked} onChange={onChange} />
+    </FormField>
+  );
 }

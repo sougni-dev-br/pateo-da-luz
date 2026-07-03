@@ -2,10 +2,19 @@ import { BadgeDollarSign, CalendarPlus, ChevronDown, Pencil, RefreshCw, Trash2 }
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppUser, cancelRevenueEntry, getCmvPeriods, getRevenue, RevenueEntry, RevenueSummary, saveRevenueEntry } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
+import {
+  IconButton,
+  Money,
+  PanelEyebrow,
+  StatusBadge as DsStatusBadge,
+  SummaryCard,
+  Table
+} from "../design-system";
+import type { StatusTone } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { PeriodFilter } from "../components/PeriodFilter";
 import type { ImportTab } from "./ImportsHub";
-import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { formatCurrency, formatDate, formatNumber, formatPercent } from "../utils/format";
 import { currentMonthPeriod, periodForPreset, type PeriodState } from "../utils/period";
 
 const channels = ["Salão", "Delivery", "Eventos / Empreitada", "Outros"];
@@ -101,7 +110,7 @@ function SectionHeader({ eyebrow, title }: { eyebrow?: string; title: string }) 
   return (
     <div className="section-heading">
       <div>
-        {eyebrow ? <p>{eyebrow}</p> : null}
+        {eyebrow ? <PanelEyebrow>{eyebrow}</PanelEyebrow> : null}
         <h2>{title}</h2>
       </div>
     </div>
@@ -109,13 +118,7 @@ function SectionHeader({ eyebrow, title }: { eyebrow?: string; title: string }) 
 }
 
 function MetricCard({ label, value, detail }: { label: string; value: string; detail?: string }) {
-  return (
-    <article>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {detail ? <small className="muted-inline">{detail}</small> : null}
-    </article>
-  );
+  return <SummaryCard label={label} value={value} detail={detail} />;
 }
 
 function EmptyTableRow({ colSpan, message }: { colSpan: number; message: string }) {
@@ -126,8 +129,14 @@ function EmptyTableRow({ colSpan, message }: { colSpan: number; message: string 
   );
 }
 
+function statusTone(status: string): StatusTone {
+  if (status === "CANCELLED") return "neutral";
+  if (status === "ACTIVE") return "success";
+  return "info";
+}
+
 function StatusBadge({ status }: { status: string }) {
-  return <span className={`status-badge ${statusToneClass(status)}`}>{formatStatusLabel(status)}</span>;
+  return <DsStatusBadge tone={statusTone(status)}>{formatStatusLabel(status)}</DsStatusBadge>;
 }
 
 function RevenueEntryMobileCard({
@@ -621,9 +630,9 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
         <div className="subsection">
           <h3>Participação e serviço</h3>
           <div className="summary-grid financial-summary">
-            <MetricCard label="1º turno sobre vendas" value={`${firstShiftShare.toFixed(1)}%`} />
-            <MetricCard label="2º turno sobre vendas" value={`${secondShiftShare.toFixed(1)}%`} />
-            <MetricCard label="Serviço sobre vendas" value={`${serviceShare.toFixed(1)}%`} />
+            <MetricCard label="1º turno sobre vendas" value={formatPercent(firstShiftShare)} />
+            <MetricCard label="2º turno sobre vendas" value={formatPercent(secondShiftShare)} />
+            <MetricCard label="Serviço sobre vendas" value={formatPercent(serviceShare)} />
           </div>
         </div>
 
@@ -770,7 +779,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                     <td>{formatCurrency(row.grossAmount)}</td>
                     <td>{formatCurrency(row.netAmount)}</td>
                     <td>{formatNumber(row.tickets)}</td>
-                    <td>{row.grossAmount > 0 ? `${((row.serviceAmount / row.grossAmount) * 100).toFixed(1)}%` : "0,0%"}</td>
+                    <td>{row.grossAmount > 0 ? formatPercent((row.serviceAmount / row.grossAmount) * 100) : "0,0%"}</td>
                   </tr>
                 ))}
                 {weekdayRows.length === 0 && <EmptyTableRow colSpan={5} message="Sem dados." />}
@@ -782,61 +791,57 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
         <div className="subsection">
           <h3>Entradas</h3>
 
-          <div className="table-wrap revenue-desktop-entries">
-            <table className="compact-revenue-table">
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Dia da semana</th>
-                  <th>Canal</th>
-                  <th>1º turno</th>
-                  <th>2º turno</th>
-                  <th>Serviço</th>
-                  <th>Venda total</th>
-                  <th>TCs</th>
-                  <th>TM</th>
-                  <th>Acumulado</th>
-                  <th>Status</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="revenue-desktop-entries">
+            <Table>
+              <Table.Head>
+                <Table.Row>
+                  <Table.Th>Data</Table.Th>
+                  <Table.Th>Dia da semana</Table.Th>
+                  <Table.Th>Canal</Table.Th>
+                  <Table.Th align="right">1º turno</Table.Th>
+                  <Table.Th align="right">2º turno</Table.Th>
+                  <Table.Th align="right">Serviço</Table.Th>
+                  <Table.Th align="right">Venda total</Table.Th>
+                  <Table.Th align="right">TCs</Table.Th>
+                  <Table.Th align="right">TM</Table.Th>
+                  <Table.Th align="right">Acumulado</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                  <Table.Th actions>Ações</Table.Th>
+                </Table.Row>
+              </Table.Head>
+              <Table.Body>
                 {entries.map((entry) => (
-                  <tr key={entry.id}>
-                    <td>{formatDate(entry.date)}</td>
-                    <td>{entry.weekdayName ?? "-"}</td>
-                    <td>{displayChannel(entry.channel)}</td>
-                    <td>{formatCurrency(Number(entry.salesFirstShift ?? 0))}</td>
-                    <td>{formatCurrency(Number(entry.salesSecondShift ?? 0))}</td>
-                    <td>{formatCurrency(Number(entry.serviceAmount ?? 0))}</td>
-                    <td>{formatCurrency(Number(entry.grossAmount ?? 0))}</td>
-                    <td>{formatNumber(Number(entry.tickets ?? 0))}</td>
-                    <td>{formatCurrency(Number(entry.ticketAverage ?? 0))}</td>
-                    <td>{formatCurrency(Number(entry.accumulatedAmount ?? 0))}</td>
-                    <td><StatusBadge status={entry.status} /></td>
-                    <td>
+                  <Table.Row key={entry.id}>
+                    <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(entry.date)}</Table.Td>
+                    <Table.Td>{entry.weekdayName ?? "-"}</Table.Td>
+                    <Table.Td>{displayChannel(entry.channel)}</Table.Td>
+                    <Table.Td align="right"><Money value={Number(entry.salesFirstShift ?? 0)} /></Table.Td>
+                    <Table.Td align="right"><Money value={Number(entry.salesSecondShift ?? 0)} /></Table.Td>
+                    <Table.Td align="right"><Money value={Number(entry.serviceAmount ?? 0)} /></Table.Td>
+                    <Table.Td align="right"><strong><Money value={Number(entry.grossAmount ?? 0)} /></strong></Table.Td>
+                    <Table.Td align="right">{formatNumber(Number(entry.tickets ?? 0))}</Table.Td>
+                    <Table.Td align="right"><Money value={Number(entry.ticketAverage ?? 0)} /></Table.Td>
+                    <Table.Td align="right"><Money value={Number(entry.accumulatedAmount ?? 0)} /></Table.Td>
+                    <Table.Td><StatusBadge status={entry.status} /></Table.Td>
+                    <Table.Td actions>
                       {entry.status !== "CANCELLED" && (canEdit || canLaunchEvent) ? (
-                        <div className="actions-cell">
+                        <>
                           {canEdit && entry.channel !== EVENT_CHANNEL && (
-                            <button className="secondary-button compact-action-button" type="button" onClick={() => onOpenCash?.(entry.id)}>
-                              <Pencil size={15} /> Editar
-                            </button>
+                            <IconButton icon={<Pencil size={16} />} label="Editar no Caixa" size="sm" onClick={() => onOpenCash?.(entry.id)} />
                           )}
                           {(canEdit || (canLaunchEvent && entry.channel === EVENT_CHANNEL)) && (
-                            <button className="danger-button compact-action-button" type="button" onClick={() => handleCancel(entry)}>
-                              <Trash2 size={15} /> Cancelar
-                            </button>
+                            <IconButton icon={<Trash2 size={16} />} label="Cancelar lançamento" size="sm" variant="danger" onClick={() => handleCancel(entry)} />
                           )}
-                        </div>
+                        </>
                       ) : (
                         "-"
                       )}
-                    </td>
-                  </tr>
+                    </Table.Td>
+                  </Table.Row>
                 ))}
                 {entries.length === 0 && <EmptyTableRow colSpan={12} message="Nenhum faturamento lançado." />}
-              </tbody>
-            </table>
+              </Table.Body>
+            </Table>
           </div>
 
           <div className="revenue-mobile-list">

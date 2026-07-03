@@ -1,4 +1,4 @@
-import { CheckCircle2, ClipboardList, Copy, Eye, Plus, Search, Trash2, X } from "lucide-react";
+﻿import { CheckCircle2, ClipboardList, Copy, Eye, Plus, Search, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   AppUser,
@@ -15,7 +15,7 @@ import {
   getRequisitions,
   getSectors
 } from "../api/client";
-import { EmptyState, StatusBadge } from "../components/ui";
+import { EmptyState, IconButton, StatusBadge, Table } from "../design-system";
 import { Notice, useNotice } from "../components/Notice";
 import { formatDate, formatNumber } from "../utils/format";
 
@@ -32,13 +32,13 @@ type RequisitionLineItem = {
 };
 
 const shiftLabels: Record<RequisitionShift, string> = {
-  MORNING: "Manha",
+  MORNING: "Manhã",
   AFTERNOON: "Tarde",
   NIGHT: "Noite"
 };
 
 const reasonLabels: Record<RequisitionReason, string> = {
-  DAILY_PRODUCTION: "Producao do dia",
+  DAILY_PRODUCTION: "Produção do dia",
   PREP: "Pre-preparo",
   EVENT: "Evento",
   OTHER: "Outro"
@@ -298,7 +298,7 @@ export function Requisitions({ user }: { user: AppUser }) {
       <div className="section-heading">
         <div style={{ flex: 1 }}>
           <p>Estoque</p>
-          <h2>Requisicoes de Insumos</h2>
+          <h2>Requisições de Insumos</h2>
           <span className="muted">Registre retiradas de produtos do estoque para uso na cozinha.</span>
         </div>
       </div>
@@ -327,9 +327,9 @@ export function Requisitions({ user }: { user: AppUser }) {
       {view === "form" && !confirmedRequisition && (
         <div className="form-section">
 
-          {/* Dados da requisicao */}
+          {/* DADOS DA REQUISIÇÃO */}
           <div className="req-meta-section">
-            <h4 className="req-section-title">Dados da requisicao</h4>
+            <h4 className="req-section-title">DADOS DA REQUISIÇÃO</h4>
             <div className="req-meta-fields">
               <label className="req-field">
                 <span>Data</span>
@@ -373,7 +373,7 @@ export function Requisitions({ user }: { user: AppUser }) {
                 </label>
               )}
               <label className="req-field req-field-wide">
-                <span>Observacoes</span>
+                <span>Observações</span>
                 <input
                   value={form.notes}
                   placeholder="Opcional"
@@ -397,7 +397,7 @@ export function Requisitions({ user }: { user: AppUser }) {
                 <input
                   ref={searchInputRef}
                   type="text"
-                  placeholder="Buscar produto pelo nome ou codigo..."
+                  placeholder="Buscar produto pelo nome ou código..."
                   value={productSearch}
                   onChange={(e) => handleProductSearchChange(e.target.value)}
                   onFocus={() => productSearch.trim() && setSearchOpen(true)}
@@ -537,7 +537,7 @@ export function Requisitions({ user }: { user: AppUser }) {
               disabled={submitting || items.length === 0}
               onClick={handleSubmit}
             >
-              {submitting ? "Registrando..." : "Registrar requisicao"}
+              {submitting ? "Registrando..." : "Registrar requisição"}
             </button>
             <button
               className="secondary-button"
@@ -619,65 +619,56 @@ export function Requisitions({ user }: { user: AppUser }) {
               <span className="muted">Retiradas de insumos registradas do estoque.</span>
             </div>
             <button type="button" className="primary-button" onClick={() => setView("form")}>
-              <Plus size={14} /> Nova requisicao
+              <Plus size={14} /> Nova requisição
             </button>
           </div>
 
           {/* Tabela desktop */}
           {requisitions.length === 0 ? (
             <EmptyState
-              title="Nenhuma requisicao registrada"
-              description="As retiradas de insumos aparecero aqui apos serem registradas."
+              title="Nenhuma requisição registrada"
+              description="As retiradas de insumos aparecerão aqui após serem registradas."
             />
           ) : (
             <>
-            <div className="table-wrap req-history-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Codigo</th>
-                    <th>Data</th>
-                    <th>Turno</th>
-                    <th>Setor</th>
-                    <th>Motivo</th>
-                    <th className="numeric-cell">Itens</th>
-                    <th>Registrado por</th>
-                    <th>Acoes</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <div className="req-history-table">
+              <Table>
+                <Table.Head>
+                  <Table.Row>
+                    <Table.Th>Código</Table.Th>
+                    <Table.Th>Data</Table.Th>
+                    <Table.Th>Turno</Table.Th>
+                    <Table.Th>Setor</Table.Th>
+                    <Table.Th>Motivo</Table.Th>
+                    <Table.Th align="right">Itens</Table.Th>
+                    <Table.Th>Registrado por</Table.Th>
+                    <Table.Th actions>Ações</Table.Th>
+                  </Table.Row>
+                </Table.Head>
+                <Table.Body>
                   {requisitions.map((req) => (
-                    <tr key={req.id}>
-                      <td><strong>{req.code}</strong></td>
-                      <td>{formatDate(req.date)}</td>
-                      <td>
+                    <Table.Row key={req.id}>
+                      <Table.Td><strong>{req.code}</strong></Table.Td>
+                      <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(req.date)}</Table.Td>
+                      <Table.Td>
                         <StatusBadge tone={shiftTone(req.shift)}>
                           {shiftLabels[req.shift as RequisitionShift] ?? req.shift}
                         </StatusBadge>
-                      </td>
-                      <td>{req.sectorName ?? "—"}</td>
-                      <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      </Table.Td>
+                      <Table.Td>{req.sectorName ?? "—"}</Table.Td>
+                      <Table.Td truncate style={{ maxWidth: 160 }} title={reasonLabels[req.reason as RequisitionReason] ?? req.reason}>
                         {reasonLabels[req.reason as RequisitionReason] ?? req.reason}
-                      </td>
-                      <td className="numeric-cell">{req.itemCount ?? "—"}</td>
-                      <td>{req.requestedByName ?? "—"}</td>
-                      <td className="actions-cell">
-                        <button type="button" className="secondary-button" onClick={() => setDetailId(req.id)}>
-                          <Eye size={13} /> Ver
-                        </button>
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          title="Duplicar esta requisicao"
-                          onClick={() => void duplicateRequisition(req.id)}
-                        >
-                          <Copy size={13} /> Duplicar
-                        </button>
-                      </td>
-                    </tr>
+                      </Table.Td>
+                      <Table.Td align="right">{req.itemCount ?? "—"}</Table.Td>
+                      <Table.Td truncate style={{ maxWidth: 140 }} title={req.requestedByName ?? undefined}>{req.requestedByName ?? "—"}</Table.Td>
+                      <Table.Td actions>
+                        <IconButton icon={<Eye size={16} />} label="Ver requisição" onClick={() => setDetailId(req.id)} />
+                        <IconButton icon={<Copy size={16} />} label="Duplicar requisição" onClick={() => void duplicateRequisition(req.id)} />
+                      </Table.Td>
+                    </Table.Row>
                   ))}
-                </tbody>
-              </table>
+                </Table.Body>
+              </Table>
             </div>
 
           {/* Cards mobile */}

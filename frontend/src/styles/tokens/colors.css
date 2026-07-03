@@ -1,0 +1,45 @@
+/* Pateo da Luz — Color tokens
+   Extracted verbatim from the ERP frontend (:root in styles/global.css).
+   Base palette first, then semantic aliases. */
+
+:root {
+  /* ── Ink / dark neutrals (text, sidebar, login) ── */
+  --ink: #161512;        /* primary text, primary button */
+  --ink-soft: #26231d;   /* softened ink */
+  --coal: #11100e;       /* near-black, login gradient start */
+  --charcoal: #1f1d19;   /* sidebar gradient end */
+
+  /* ── Paper / light surfaces ── */
+  --paper: #ffffff;      /* card & surface base */
+  --paper-soft: #f2f4f7; /* muted fills, icon chips */
+
+  /* ── Lines / borders ── */
+  --line: #dfe4ea;         /* default hairline border */
+  --line-strong: #c8d0da;  /* emphasized / hover border */
+
+  /* ── Muted text ── */
+  --muted: #667085;      /* secondary / label text */
+
+  /* ── Gold — the brand accent (warm, understated) ── */
+  --gold: #b99a58;       /* accent, active markers, focus */
+  --gold-soft: #d8c391;  /* soft gold on dark surfaces */
+
+  /* ── Semantic status colors ── */
+  --success: #276749;
+  --warning: #8a650f;
+  --danger: #9f2d2d;
+  --info: #2f5f98;
+
+  /* ── Semantic aliases (used across the app) ── */
+  --border: var(--line);
+  --surface: var(--paper);
+  --text: var(--ink);
+  --accent: var(--gold);
+
+  /* ── App backdrop gradient ── */
+  --app-bg-from: #f7f8fa;
+  --app-bg-to: #eef1f4;
+
+  /* ── Warm row hover tint (tables, agenda days) ── */
+  --row-hover: #fffaf0;
+}

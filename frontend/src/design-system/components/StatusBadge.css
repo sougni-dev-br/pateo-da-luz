@@ -1,0 +1,37 @@
+.ds-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  justify-self: start;
+  border-radius: var(--radius-pill);
+  padding: 4px 8px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+
+.ds-status-badge-neutral {
+  background: var(--paper-soft);
+  color: var(--muted);
+}
+
+.ds-status-badge-success {
+  background: var(--tint-success);
+  color: var(--success);
+}
+
+.ds-status-badge-warning {
+  background: var(--tint-warning);
+  color: var(--warning);
+}
+
+.ds-status-badge-danger {
+  background: var(--tint-danger);
+  color: var(--danger);
+}
+
+.ds-status-badge-info {
+  background: var(--tint-info);
+  color: var(--info);
+}

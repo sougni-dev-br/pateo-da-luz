@@ -1,0 +1,9 @@
+.ds-panel-eyebrow {
+  margin: 0;
+  color: var(--gold-dark);
+  font-family: var(--font-sans);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}

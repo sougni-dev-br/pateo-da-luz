@@ -8,6 +8,7 @@ import {
   Circle,
   Clock,
   Edit2,
+  Eye,
   FileText,
   Lock,
   Plus,
@@ -38,6 +39,17 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { Dialog } from "../components/ui/Dialog";
+import {
+  Button,
+  EmptyState,
+  IconButton,
+  Money,
+  Select,
+  StatusBadge as DsStatusBadge,
+  Table,
+  TextField
+} from "../design-system";
+import type { StatusTone } from "../design-system";
 import { formatCurrency, formatDate } from "../utils/format";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -73,31 +85,19 @@ const STATUS_LABELS: Record<string, string> = {
   CANCELLED: "Cancelado"
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  OPEN: "#c18a1f",
-  CHECKED: "#2563a8",
-  CLOSED: "#276749",
-  PAID: "#276749",
-  CANCELLED: "#888"
+const STATUS_TONES: Record<string, StatusTone> = {
+  OPEN: "warning",
+  CHECKED: "info",
+  CLOSED: "success",
+  PAID: "success",
+  CANCELLED: "neutral"
 };
 
 function StatusBadge({ status }: { status: string }) {
   return (
-    <span style={{
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 4,
-      padding: "2px 8px",
-      borderRadius: 99,
-      fontSize: 11,
-      fontWeight: 600,
-      letterSpacing: "0.03em",
-      background: `${STATUS_COLORS[status] ?? "#888"}18`,
-      color: STATUS_COLORS[status] ?? "#888",
-      border: `1px solid ${STATUS_COLORS[status] ?? "#888"}40`
-    }}>
+    <DsStatusBadge tone={STATUS_TONES[status] ?? "neutral"}>
       {STATUS_LABELS[status] ?? status}
-    </span>
+    </DsStatusBadge>
   );
 }
 
@@ -532,46 +532,43 @@ export function SupplierCycles() {
 
       {/* ── Cabeçalho ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
-        <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Ciclos de fornecedor</h1>
-          <p style={{ fontSize: 13, color: "var(--ink-faint)", margin: "2px 0 0" }}>
-            Agrupa compras por fornecedor para pagamento consolidado
-          </p>
-        </div>
-        <button type="button" className="primary-button" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={openCreate}>
-          <Plus size={14} /> Novo ciclo
-        </button>
+        <span />
+        <Button leadingIcon={<Plus size={14} />} onClick={openCreate}>Novo ciclo</Button>
       </div>
 
       {/* ── Filtros ── */}
       <div className="filter-bar" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
-        <div className="form-group" style={{ margin: 0, minWidth: 200, flex: 1 }}>
-          <div style={{ position: "relative" }}>
-            <Search size={14} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "var(--ink-faint)" }} />
-            <input className="form-input" placeholder="Buscar fornecedor…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ paddingLeft: 30 }} />
-          </div>
-        </div>
-        <div className="form-group" style={{ margin: 0, minWidth: 180 }}>
-          <select className="form-input" value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)}>
-            <option value="">Todos os fornecedores</option>
-            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </div>
-        <div className="form-group" style={{ margin: 0, minWidth: 140 }}>
-          <select className="form-input" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-            <option value="">Todos os status</option>
-            <option value="OPEN">Aberto</option>
-            <option value="CHECKED">Conferido</option>
-            <option value="CLOSED">Fechado</option>
-            <option value="PAID">Pago</option>
-            <option value="CANCELLED">Cancelado</option>
-          </select>
-        </div>
+        <TextField
+          placeholder="Buscar fornecedor…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          containerClassName="cycles-filter-search"
+        />
+        <Select
+          value={filterSupplier}
+          onChange={(e) => setFilterSupplier(e.target.value)}
+          placeholder="Todos os fornecedores"
+          options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+          containerClassName="cycles-filter-select"
+        />
+        <Select
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value)}
+          placeholder="Todos os status"
+          options={[
+            { value: "OPEN", label: "Aberto" },
+            { value: "CHECKED", label: "Conferido" },
+            { value: "CLOSED", label: "Fechado" },
+            { value: "PAID", label: "Pago" },
+            { value: "CANCELLED", label: "Cancelado" }
+          ]}
+          containerClassName="cycles-filter-select"
+        />
         {(filterSupplier || filterStatus || search) && (
-          <button type="button" className="secondary-button" style={{ display: "flex", alignItems: "center", gap: 4 }}
+          <Button variant="secondary" leadingIcon={<X size={13} />}
             onClick={() => { setFilterSupplier(""); setFilterStatus(""); setSearch(""); }}>
-            <X size={13} /> Limpar
-          </button>
+            Limpar
+          </Button>
         )}
       </div>
 
@@ -579,61 +576,54 @@ export function SupplierCycles() {
       {loading ? (
         <div className="page-loading">Carregando ciclos…</div>
       ) : filteredCycles.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--ink-faint)" }}>
-          <FileText size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
-          <p>Nenhum ciclo encontrado.</p>
-          {!filterStatus && !filterSupplier && (
-            <p style={{ fontSize: 13, marginTop: 4 }}>
-              Ciclos são criados automaticamente quando uma compra é lançada para um fornecedor com faturamento por ciclo.
-            </p>
-          )}
-        </div>
+        <EmptyState
+          title="Nenhum ciclo encontrado."
+          description={!filterStatus && !filterSupplier
+            ? "Ciclos são criados automaticamente quando uma compra é lançada para um fornecedor com faturamento por ciclo."
+            : undefined}
+        />
       ) : (
-        <div className="panel" style={{ padding: 0, overflowX: "auto" }}>
-          <table className="data-table" style={{ width: "100%", minWidth: 640 }}>
-            <thead>
-              <tr>
-                <th>Fornecedor</th>
-                <th>Período</th>
-                <th>Status</th>
-                <th style={{ textAlign: "right" }}>Total</th>
-                <th style={{ textAlign: "center" }}>Compras</th>
-                <th style={{ textAlign: "center" }}>Conferidas</th>
-                <th style={{ textAlign: "center" }}>Divergência</th>
-                <th style={{ textAlign: "right" }}>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredCycles.map((cycle) => (
-                <tr key={cycle.id}>
-                  <td style={{ fontWeight: 500 }}>{cycle.supplierName}</td>
-                  <td style={{ fontSize: 13, color: "var(--ink-soft)" }}>
-                    {formatDate(cycle.periodStart)}
-                    {cycle.periodEnd ? ` – ${formatDate(cycle.periodEnd)}` : " – aberto"}
-                  </td>
-                  <td><StatusBadge status={cycle.status} /></td>
-                  <td style={{ textAlign: "right", fontWeight: 600 }}>{formatCurrency(cycle.totalAmount)}</td>
-                  <td style={{ textAlign: "center" }}>{cycle.itemCount}</td>
-                  <td style={{ textAlign: "center" }}>
-                    <span style={{ color: cycle.checkedCount === cycle.itemCount && cycle.itemCount > 0 ? "var(--success)" : undefined }}>
-                      {cycle.checkedCount}/{cycle.itemCount}
-                    </span>
-                  </td>
-                  <td style={{ textAlign: "center" }}>
-                    {cycle.hasDivergence
-                      ? <span title="Há divergências"><AlertTriangle size={14} color="var(--warning)" /></span>
-                      : <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>—</span>}
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    <button type="button" className="secondary-button" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => openDetail(cycle.id)}>
-                      Ver
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table>
+          <Table.Head>
+            <Table.Row>
+              <Table.Th minWidth={180}>Fornecedor</Table.Th>
+              <Table.Th>Período</Table.Th>
+              <Table.Th>Status</Table.Th>
+              <Table.Th align="right">Total</Table.Th>
+              <Table.Th align="center">Compras</Table.Th>
+              <Table.Th align="center">Conferidas</Table.Th>
+              <Table.Th align="center">Divergência</Table.Th>
+              <Table.Th actions>Ações</Table.Th>
+            </Table.Row>
+          </Table.Head>
+          <Table.Body>
+            {filteredCycles.map((cycle) => (
+              <Table.Row key={cycle.id}>
+                <Table.Td truncate title={cycle.supplierName} style={{ fontWeight: 500 }}>{cycle.supplierName}</Table.Td>
+                <Table.Td style={{ fontSize: 13, color: "var(--ink-soft)", whiteSpace: "nowrap" }}>
+                  {formatDate(cycle.periodStart)}
+                  {cycle.periodEnd ? ` – ${formatDate(cycle.periodEnd)}` : " – aberto"}
+                </Table.Td>
+                <Table.Td><StatusBadge status={cycle.status} /></Table.Td>
+                <Table.Td align="right" style={{ fontWeight: 600 }}><Money value={Number(cycle.totalAmount ?? 0)} /></Table.Td>
+                <Table.Td align="center">{cycle.itemCount}</Table.Td>
+                <Table.Td align="center">
+                  <span style={{ color: cycle.checkedCount === cycle.itemCount && cycle.itemCount > 0 ? "var(--success)" : undefined }}>
+                    {cycle.checkedCount}/{cycle.itemCount}
+                  </span>
+                </Table.Td>
+                <Table.Td align="center">
+                  {cycle.hasDivergence
+                    ? <span title="Há divergências"><AlertTriangle size={14} color="var(--warning)" /></span>
+                    : <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>—</span>}
+                </Table.Td>
+                <Table.Td actions>
+                  <IconButton icon={<Eye size={16} />} label="Ver ciclo" onClick={() => openDetail(cycle.id)} />
+                </Table.Td>
+              </Table.Row>
+            ))}
+          </Table.Body>
+        </Table>
       )}
 
       {/* ── Modal novo ciclo ── */}
@@ -825,7 +815,7 @@ export function SupplierCycles() {
               </div>
             )}
             {(detail.status === "CLOSED" || detail.status === "PAID") && (
-              <div className="alert" style={{ marginBottom: 14, background: "var(--success-bg, #edfcf2)", color: "var(--success)", border: "1px solid #9fe9c0", display: "flex", alignItems: "center", gap: 8 }}>
+              <div className="alert" style={{ marginBottom: 14, background: "var(--tint-success)", color: "var(--success)", border: "1px solid var(--success)", display: "flex", alignItems: "center", gap: 8 }}>
                 <CheckCircle2 size={15} />
                 <span>
                   Ciclo {detail.status === "PAID" ? "pago" : "fechado"}.
@@ -887,7 +877,7 @@ export function SupplierCycles() {
                                 <ArrowRightLeft size={11} />
                               </button>
                               <button type="button" className="secondary-button"
-                                style={{ fontSize: 11, padding: "2px 7px", display: "inline-flex", alignItems: "center", gap: 2, color: "#c53030" }}
+                                style={{ fontSize: 11, padding: "2px 7px", display: "inline-flex", alignItems: "center", gap: 2, color: "var(--danger)" }}
                                 onClick={() => handleRemovePurchase(item.purchaseId, item.purchaseNumber)}
                                 disabled={removingPurchaseId === item.purchaseId}
                                 title="Remover do ciclo">

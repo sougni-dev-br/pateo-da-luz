@@ -1,0 +1,54 @@
+.ds-form-section {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  font-family: var(--font-sans);
+}
+
+.ds-form-section + .ds-form-section {
+  margin-top: 10px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.ds-form-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.ds-form-section-heading {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ds-form-section-eyebrow {
+  color: var(--gold-dark);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+
+.ds-form-section-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+}
+
+.ds-form-section-description {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.ds-form-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}

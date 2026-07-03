@@ -1,0 +1,41 @@
+.ds-form-grid {
+  display: grid;
+  gap: 14px 16px;
+  min-width: 0;
+}
+
+.ds-form-grid-1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ds-form-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ds-form-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ds-form-grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* Campo que ocupa a linha inteira (ex.: Textarea de observações). */
+.ds-form-grid .ds-form-grid-span-all {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 920px) {
+  .ds-form-grid-3,
+  .ds-form-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .ds-form-grid-2,
+  .ds-form-grid-3,
+  .ds-form-grid-4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

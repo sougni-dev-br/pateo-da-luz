@@ -3,6 +3,23 @@ import { useEffect, useRef, useState } from "react";
 import { getPaymentMethods, getSupplierHistory, getSuppliers, PaymentMethod, saveSupplier, setSupplierStatus, Supplier, SupplierHistory } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
+import {
+  Alert,
+  Button,
+  EmptyState,
+  FormField,
+  FormGrid,
+  FormSection,
+  IconButton,
+  PanelEyebrow,
+  RowMenu,
+  Select,
+  StatusBadge,
+  Switch,
+  Table,
+  Tabs,
+  TextField
+} from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { formatCurrency, formatDate } from "../utils/format";
 
@@ -180,21 +197,28 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
     loadSuppliers();
   }, []);
 
+  const activeCount = suppliers.filter((s) => s.isActive).length;
+  const statusTabs = [
+    { value: "all", label: `Todos (${suppliers.length})` },
+    { value: "active", label: `Ativos (${activeCount})` },
+    { value: "inactive", label: `Inativos (${suppliers.length - activeCount})` }
+  ];
+
+  const installmentCount = Number(form.defaultInstallmentCount);
+  const installmentDays = parseInstallmentDaysInput(form.defaultInstallmentDays);
+  const installmentMismatch =
+    installmentCount > 0 && installmentDays && installmentCount !== installmentDays.length;
+
   return (
     <div className="stack">
       <Notice notice={notice} />
 
       {/* ── Cabeçalho da página ── */}
       <div className="supp-page-header">
-        <p className="supp-page-sub">Cadastro utilizado em compras, pagamentos e relatórios financeiros</p>
         <div className="supp-page-actions">
-          <button className="icon-button" type="button" onClick={loadSuppliers} aria-label="Atualizar">
-            <RefreshCw size={16} />
-          </button>
+          <IconButton icon={<RefreshCw size={16} />} label="Atualizar" onClick={loadSuppliers} />
           {canEdit && (
-            <button className="primary-button" type="button" onClick={openNewForm}>
-              + Novo fornecedor
-            </button>
+            <Button onClick={openNewForm}>+ Novo fornecedor</Button>
           )}
         </div>
       </div>
@@ -220,7 +244,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
         </button>
 
         {formOpen && (
-          <>
+          <div className="stack">
             {editingId && (
               <div className="supp-editing-banner">
                 <span>Editando fornecedor: <strong>{editingName}</strong></span>
@@ -230,140 +254,131 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
               </div>
             )}
 
-            <p className="form-section-label">Dados do fornecedor</p>
-            <div className="form-grid">
-              <label>
-                Código
-                <input readOnly value={form.externalCode || "Gerado automaticamente"} title={form.externalCode || "Gerado automaticamente ao salvar"} />
-              </label>
-              <label>
-                Nome *
-                <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-              </label>
-              <label>
-                CNPJ/CPF
-                <input value={form.document} onChange={(event) => setForm({ ...form, document: event.target.value })} />
-              </label>
-              <label>
-                Telefone
-                <input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
-              </label>
-              <label>
-                Email
-                <input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
-              </label>
-              <label>
-                Contato
-                <input value={form.contactName} onChange={(event) => setForm({ ...form, contactName: event.target.value })} />
-              </label>
-              <label>
-                Categoria
-                <input value={form.mainCategory} onChange={(event) => setForm({ ...form, mainCategory: event.target.value })} />
-              </label>
-              <label>
-                Data de cadastro
-                <input type="date" value={form.registrationDate} onChange={(event) => setForm({ ...form, registrationDate: event.target.value })} />
-              </label>
-              <label className="full-width">
-                Observações
-                <input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
-              </label>
-              <label className="supp-checkbox-label">
-                <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />
-                <span>Fornecedor ativo</span>
-              </label>
-            </div>
+            <FormSection eyebrow="Cadastro operacional" title="Dados do fornecedor">
+              <FormGrid cols={4}>
+                <FormField label="Código" hint="Gerado automaticamente ao salvar">
+                  <TextField readOnly value={form.externalCode || "Gerado automaticamente"} />
+                </FormField>
+                <FormField label="Nome" required>
+                  <TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+                </FormField>
+                <FormField label="CNPJ/CPF">
+                  <TextField value={form.document} onChange={(event) => setForm({ ...form, document: event.target.value })} />
+                </FormField>
+                <FormField label="Telefone">
+                  <TextField value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
+                </FormField>
+                <FormField label="Email">
+                  <TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
+                </FormField>
+                <FormField label="Contato">
+                  <TextField value={form.contactName} onChange={(event) => setForm({ ...form, contactName: event.target.value })} />
+                </FormField>
+                <FormField label="Categoria">
+                  <TextField value={form.mainCategory} onChange={(event) => setForm({ ...form, mainCategory: event.target.value })} />
+                </FormField>
+                <FormField label="Data de cadastro">
+                  <TextField type="date" value={form.registrationDate} onChange={(event) => setForm({ ...form, registrationDate: event.target.value })} />
+                </FormField>
+                <div className="ds-form-grid-span-all">
+                  <FormField label="Observações">
+                    <TextField value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
+                  </FormField>
+                </div>
+                <FormField label="Fornecedor ativo" inline>
+                  <Switch checked={form.isActive} onChange={(checked) => setForm({ ...form, isActive: checked })} />
+                </FormField>
+              </FormGrid>
+            </FormSection>
 
-            <div className="subsection">
-              <h3>Condição padrão de pagamento</h3>
-              <p className="hint">Essas condições serão usadas automaticamente nas novas compras. Se nada for informado, o sistema usa BOLETO em 2 parcelas: 15 e 30 dias.</p>
-              <div className="form-grid">
-                <label>
-                  Forma de pagamento
-                  <select value={form.defaultPaymentMethodId} onChange={(event) => setForm({ ...form, defaultPaymentMethodId: event.target.value })}>
-                    <option value="">Padrão do sistema (BOLETO)</option>
-                    {paymentMethods.map((method) => (
-                      <option key={method.id} value={method.id}>{method.name}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Parcelas
-                  <input type="number" min="1" step="1" placeholder="Ex: 2" value={form.defaultInstallmentCount} onChange={(event) => setForm({ ...form, defaultInstallmentCount: event.target.value })} />
-                </label>
-                <label>
-                  Dias de vencimento (separados por vírgula)
-                  <input placeholder="Ex: 15, 30" value={form.defaultInstallmentDays} onChange={(event) => setForm({ ...form, defaultInstallmentDays: event.target.value })} />
-                </label>
-                <label>
-                  Prazo em dias
-                  <input type="number" min="0" placeholder="Ex: 30" value={form.defaultPaymentTermDays} onChange={(event) => setForm({ ...form, defaultPaymentTermDays: event.target.value })} />
-                </label>
-                <label className="full-width">
-                  Observação financeira
-                  <input placeholder="Ex: Boleto enviado por email até o dia 5" value={form.defaultFinancialNotes} onChange={(event) => setForm({ ...form, defaultFinancialNotes: event.target.value })} />
-                </label>
-                {(() => {
-                  const count = Number(form.defaultInstallmentCount);
-                  const days = parseInstallmentDaysInput(form.defaultInstallmentDays);
-                  if (count > 0 && days && count !== days.length) {
-                    return (
-                      <p className="form-grid-warn">
-                        ⚠ {count} parcela{count !== 1 ? "s" : ""} configurada{count !== 1 ? "s" : ""} mas {days.length} dia{days.length !== 1 ? "s" : ""} de vencimento informado{days.length !== 1 ? "s" : ""} — os dois valores precisam ser iguais.
-                      </p>
-                    );
-                  }
-                  return null;
-                })()}
-              </div>
-            </div>
+            <FormSection
+              eyebrow="Financeiro"
+              title="Condição padrão de pagamento"
+              description="Essas condições serão usadas automaticamente nas novas compras. Se nada for informado, o sistema usa BOLETO em 2 parcelas: 15 e 30 dias."
+            >
+              <FormGrid cols={4}>
+                <FormField label="Forma de pagamento">
+                  <Select
+                    value={form.defaultPaymentMethodId}
+                    onChange={(event) => setForm({ ...form, defaultPaymentMethodId: event.target.value })}
+                    placeholder="Padrão do sistema (BOLETO)"
+                    options={paymentMethods.map((method) => ({ value: method.id, label: method.name }))}
+                  />
+                </FormField>
+                <FormField label="Parcelas">
+                  <TextField type="number" min="1" step="1" placeholder="Ex: 2" value={form.defaultInstallmentCount} onChange={(event) => setForm({ ...form, defaultInstallmentCount: event.target.value })} />
+                </FormField>
+                <FormField label="Dias de vencimento" hint="Separados por vírgula">
+                  <TextField placeholder="Ex: 15, 30" value={form.defaultInstallmentDays} onChange={(event) => setForm({ ...form, defaultInstallmentDays: event.target.value })} />
+                </FormField>
+                <FormField label="Prazo em dias">
+                  <TextField type="number" min="0" placeholder="Ex: 30" value={form.defaultPaymentTermDays} onChange={(event) => setForm({ ...form, defaultPaymentTermDays: event.target.value })} />
+                </FormField>
+                <div className="ds-form-grid-span-all">
+                  <FormField label="Observação financeira">
+                    <TextField placeholder="Ex: Boleto enviado por email até o dia 5" value={form.defaultFinancialNotes} onChange={(event) => setForm({ ...form, defaultFinancialNotes: event.target.value })} />
+                  </FormField>
+                </div>
+                {installmentMismatch && (
+                  <div className="ds-form-grid-span-all">
+                    <Alert tone="warning">
+                      {installmentCount} parcela{installmentCount !== 1 ? "s" : ""} configurada{installmentCount !== 1 ? "s" : ""} mas {installmentDays!.length} dia{installmentDays!.length !== 1 ? "s" : ""} de vencimento informado{installmentDays!.length !== 1 ? "s" : ""} — os dois valores precisam ser iguais.
+                    </Alert>
+                  </div>
+                )}
+              </FormGrid>
+            </FormSection>
 
-            <div className="subsection">
-              <h3>Faturamento</h3>
-              <p className="hint">
-                <strong>Direto por compra:</strong> cada compra gera suas próprias parcelas no Contas a Pagar.<br />
-                <strong>Por ciclo / fatura:</strong> compras do período são acumuladas para gerar uma fatura depois.
-              </p>
-              <div className="form-grid">
-                <label>
-                  Tipo de faturamento
-                  <select value={form.billingMode} onChange={(event) => setForm({ ...form, billingMode: event.target.value, cycleFrequency: "", cycleFirstDueDays: "", cycleSecondDueDays: "" })}>
-                    <option value="DIRECT">Direto por compra</option>
-                    <option value="CYCLE">Por ciclo / fatura</option>
-                  </select>
-                </label>
+            <FormSection eyebrow="Financeiro" title="Faturamento">
+              <FormGrid cols={4}>
+                <FormField
+                  label="Tipo de faturamento"
+                  hint={form.billingMode === "CYCLE"
+                    ? "Compras do período são acumuladas para gerar uma fatura depois."
+                    : "Cada compra gera suas próprias parcelas no Contas a Pagar."}
+                >
+                  <Select
+                    value={form.billingMode}
+                    onChange={(event) => setForm({ ...form, billingMode: event.target.value, cycleFrequency: "", cycleFirstDueDays: "", cycleSecondDueDays: "" })}
+                    options={[
+                      { value: "DIRECT", label: "Direto por compra" },
+                      { value: "CYCLE", label: "Por ciclo / fatura" }
+                    ]}
+                  />
+                </FormField>
                 {form.billingMode === "CYCLE" && (
                   <>
-                    <label>
-                      Frequência do ciclo
-                      <select value={form.cycleFrequency} onChange={(event) => setForm({ ...form, cycleFrequency: event.target.value })}>
-                        <option value="">Sem frequência definida</option>
-                        <option value="WEEKLY">Semanal</option>
-                        <option value="BIWEEKLY">Quinzenal</option>
-                        <option value="MONTHLY">Mensal</option>
-                        <option value="CUSTOM">Personalizado</option>
-                      </select>
-                    </label>
-                    <label>
-                      1º vencimento (dias)
-                      <input type="number" min="1" step="1" placeholder="Ex: 15" value={form.cycleFirstDueDays} onChange={(event) => setForm({ ...form, cycleFirstDueDays: event.target.value })} />
-                    </label>
-                    <label>
-                      2º vencimento (opcional)
-                      <input type="number" min="1" step="1" placeholder="Ex: 30" value={form.cycleSecondDueDays} onChange={(event) => setForm({ ...form, cycleSecondDueDays: event.target.value })} />
-                    </label>
+                    <FormField label="Frequência do ciclo">
+                      <Select
+                        value={form.cycleFrequency}
+                        onChange={(event) => setForm({ ...form, cycleFrequency: event.target.value })}
+                        placeholder="Sem frequência definida"
+                        options={[
+                          { value: "WEEKLY", label: "Semanal" },
+                          { value: "BIWEEKLY", label: "Quinzenal" },
+                          { value: "MONTHLY", label: "Mensal" },
+                          { value: "CUSTOM", label: "Personalizado" }
+                        ]}
+                      />
+                    </FormField>
+                    <FormField label="1º vencimento (dias)">
+                      <TextField type="number" min="1" step="1" placeholder="Ex: 15" value={form.cycleFirstDueDays} onChange={(event) => setForm({ ...form, cycleFirstDueDays: event.target.value })} />
+                    </FormField>
+                    <FormField label="2º vencimento (opcional)">
+                      <TextField type="number" min="1" step="1" placeholder="Ex: 30" value={form.cycleSecondDueDays} onChange={(event) => setForm({ ...form, cycleSecondDueDays: event.target.value })} />
+                    </FormField>
                   </>
                 )}
-              </div>
-            </div>
+              </FormGrid>
+            </FormSection>
 
             <div className="form-actions">
-              <button className="secondary-button" type="button" onClick={cancelEdit}>Cancelar</button>
-              <button className="primary-button" type="button" disabled={!canEdit} onClick={handleSubmit}>
+              <Button variant="secondary" onClick={cancelEdit}>Cancelar</Button>
+              <Button disabled={!canEdit} onClick={handleSubmit}>
                 {form.id ? "Salvar alterações" : "Cadastrar"}
-              </button>
+              </Button>
             </div>
-          </>
+          </div>
         )}
       </section>
 
@@ -371,118 +386,109 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
       <section className="panel">
         <div className="supp-list-header">
           <div className="supp-search-wrap">
-            <input
-              className="supp-search-input"
+            <TextField
               placeholder="Buscar por nome, código ou documento…"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") loadSuppliers(); }}
+              containerClassName="supp-search-field"
             />
-            <button className="primary-button supp-search-btn" type="button" onClick={loadSuppliers}>Buscar</button>
+            <Button variant="secondary" onClick={loadSuppliers}>Buscar</Button>
           </div>
-          <div className="supp-status-tabs">
-            {(["all", "active", "inactive"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                className={`supp-status-tab${statusFilter === tab ? " active" : ""}`}
-                onClick={() => setStatusFilter(tab)}
-              >
-                {tab === "all" ? "Todos" : tab === "active" ? "Ativos" : "Inativos"}
-                <span className="supp-tab-count">
-                  {tab === "all" ? suppliers.length : tab === "active" ? suppliers.filter(s => s.isActive).length : suppliers.filter(s => !s.isActive).length}
-                </span>
-              </button>
-            ))}
-          </div>
+          <Tabs
+            tabs={statusTabs}
+            value={statusFilter}
+            onChange={(value) => setStatusFilter(value as typeof statusFilter)}
+          />
         </div>
 
-        {error && <div className="alert error">{error}</div>}
-        {loading && <div className="empty-state">Carregando fornecedores…</div>}
+        {error && <Alert tone="error">{error}</Alert>}
+        {loading && <EmptyState title="Carregando fornecedores…" />}
 
         {!loading && filteredSuppliers.length === 0 && (
-          <div className="supp-empty">
-            <p>{search ? `Nenhum fornecedor encontrado para "${search}"` : "Nenhum fornecedor cadastrado."}</p>
-            {canEdit && !search && (
-              <button className="primary-button" type="button" onClick={openNewForm}>+ Novo fornecedor</button>
-            )}
-          </div>
+          <EmptyState
+            title={search ? `Nenhum fornecedor encontrado para "${search}"` : "Nenhum fornecedor cadastrado."}
+            action={canEdit && !search
+              ? <Button onClick={openNewForm}>+ Novo fornecedor</Button>
+              : undefined}
+          />
         )}
 
         {!loading && filteredSuppliers.length > 0 && (
           <>
             {/* Desktop table */}
-            <div className="table-wrap supp-table-wrap">
-              <table className="supp-table">
-                <thead>
-                  <tr>
-                    <th>Situação</th>
-                    <th>Código</th>
-                    <th>Fornecedor</th>
-                    <th>Documento</th>
-                    <th>Contato</th>
-                    <th>Categoria</th>
-                    <th>Pagamento</th>
-                    <th>Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <div className="supp-table-wrap">
+              <Table>
+                <Table.Head>
+                  <Table.Row>
+                    <Table.Th>Situação</Table.Th>
+                    <Table.Th>Código</Table.Th>
+                    <Table.Th minWidth={180}>Fornecedor</Table.Th>
+                    <Table.Th>Documento</Table.Th>
+                    <Table.Th>Contato</Table.Th>
+                    <Table.Th>Categoria</Table.Th>
+                    <Table.Th>Pagamento</Table.Th>
+                    <Table.Th actions>Ações</Table.Th>
+                  </Table.Row>
+                </Table.Head>
+                <Table.Body>
                   {filteredSuppliers.map((supplier) => (
-                    <tr key={supplier.id} className={editingId === supplier.id ? "supp-row-editing" : ""}>
-                      <td>
-                        <span className={`supp-badge${supplier.isActive ? " supp-badge-active" : " supp-badge-inactive"}`}>
+                    <Table.Row
+                      key={supplier.id}
+                      className={editingId === supplier.id ? "supp-row-editing" : undefined}
+                    >
+                      <Table.Td>
+                        <StatusBadge tone={supplier.isActive ? "success" : "danger"}>
                           {supplier.isActive ? "Ativo" : "Inativo"}
-                        </span>
-                      </td>
-                      <td className="supp-code-cell">{supplier.externalCode ?? "-"}</td>
-                      <td className="supp-name-cell">{supplier.name}</td>
-                      <td className="supp-doc-cell">{supplier.document ?? "-"}</td>
-                      <td className="supp-contact-cell">{supplier.contactName ?? supplier.phone ?? supplier.email ?? "-"}</td>
-                      <td className="supp-cat-cell">{supplier.mainCategory ?? "-"}</td>
-                      <td>
-                        <span
-                          className="supp-payment-badge"
+                        </StatusBadge>
+                      </Table.Td>
+                      <Table.Td style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{supplier.externalCode ?? "-"}</Table.Td>
+                      <Table.Td truncate title={supplier.name} style={{ fontWeight: "var(--fw-medium)" as never }}>
+                        {supplier.name}
+                      </Table.Td>
+                      <Table.Td style={{ whiteSpace: "nowrap" }}>{supplier.document ?? "-"}</Table.Td>
+                      <Table.Td truncate style={{ maxWidth: 150 }} title={supplier.contactName ?? supplier.phone ?? supplier.email ?? undefined}>
+                        {supplier.contactName ?? supplier.phone ?? supplier.email ?? "-"}
+                      </Table.Td>
+                      <Table.Td truncate style={{ maxWidth: 120 }} title={supplier.mainCategory ?? undefined}>
+                        {supplier.mainCategory ?? "-"}
+                      </Table.Td>
+                      <Table.Td>
+                        <StatusBadge
+                          tone="neutral"
                           title={supplier.billingMode === "CYCLE"
                             ? `Ciclo${supplier.cycleFrequency ? ` ${supplier.cycleFrequency}` : ""}${supplier.cycleFirstDueDays ? ` — ${supplier.cycleFirstDueDays}d` : ""}`
                             : undefined}
                         >
                           {paymentLabel(supplier)}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="supp-actions">
-                          <button
-                            type="button"
-                            className="supp-action-btn"
-                            disabled={!canEdit}
-                            title="Editar"
-                            onClick={() => editSupplier(supplier)}
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className={`supp-action-btn${supplier.isActive ? " supp-action-danger" : ""}`}
-                            disabled={!canDelete}
-                            title={supplier.isActive ? "Inativar" : "Reativar"}
-                            onClick={() => toggleStatus(supplier)}
-                          >
-                            <PowerOff size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className="supp-action-btn"
-                            title="Histórico de compras"
-                            onClick={() => loadHistory(supplier)}
-                          >
-                            <History size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                        </StatusBadge>
+                      </Table.Td>
+                      <Table.Td actions>
+                        <IconButton
+                          icon={<Pencil size={16} />}
+                          label="Editar"
+                          disabled={!canEdit}
+                          onClick={() => editSupplier(supplier)}
+                        />
+                        <RowMenu
+                          label={`Mais ações — ${supplier.name}`}
+                          items={[
+                            { label: "Histórico de compras", icon: <History size={15} />, onClick: () => loadHistory(supplier) },
+                            { separator: true },
+                            {
+                              label: supplier.isActive ? "Inativar" : "Reativar",
+                              icon: <PowerOff size={15} />,
+                              tone: supplier.isActive ? "danger" : "default",
+                              disabled: !canDelete,
+                              onClick: () => toggleStatus(supplier)
+                            }
+                          ]}
+                        />
+                      </Table.Td>
+                    </Table.Row>
                   ))}
-                </tbody>
-              </table>
+                </Table.Body>
+              </Table>
             </div>
 
             {/* Mobile cards */}
@@ -494,15 +500,15 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
                       {supplier.externalCode && <span className="supp-card-code">{supplier.externalCode}</span>}
                       <span className="supp-card-name">{supplier.name}</span>
                     </div>
-                    <span className={`supp-badge${supplier.isActive ? " supp-badge-active" : " supp-badge-inactive"}`}>
+                    <StatusBadge tone={supplier.isActive ? "success" : "danger"}>
                       {supplier.isActive ? "Ativo" : "Inativo"}
-                    </span>
+                    </StatusBadge>
                   </div>
                   <div className="supp-card-meta">
                     {supplier.document && <span>{supplier.document}</span>}
                     {(supplier.contactName || supplier.phone) && <span>{supplier.contactName ?? supplier.phone}</span>}
                     {supplier.mainCategory && <span>{supplier.mainCategory}</span>}
-                    {paymentLabel(supplier) !== "-" && <span className="supp-payment-badge">{paymentLabel(supplier)}</span>}
+                    {paymentLabel(supplier) !== "-" && <span>{paymentLabel(supplier)}</span>}
                   </div>
                   <div className="supp-card-actions">
                     <button type="button" className="supp-card-btn" disabled={!canEdit} onClick={() => editSupplier(supplier)}>
@@ -528,10 +534,10 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
           <section className="panel modal-panel">
             <div className="section-heading">
               <div>
-                <p>Histórico do fornecedor</p>
+                <PanelEyebrow>Histórico do fornecedor</PanelEyebrow>
                 <h2>{selectedSupplier.name}</h2>
               </div>
-              <button className="secondary-button" type="button" onClick={() => { setSelectedSupplier(null); setHistory(null); }}>Fechar</button>
+              <Button variant="secondary" onClick={() => { setSelectedSupplier(null); setHistory(null); }}>Fechar</Button>
             </div>
             <div className="summary-grid">
               <article><span>Total no mês</span><strong>{formatCurrency(history.monthTotal)}</strong></article>
@@ -553,20 +559,33 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
                 {history.paymentMethods.map((method) => <p key={method.name}>{method.name}: {method.count}</p>)}
               </div>
             </div>
-            <div className="subsection table-wrap">
-              <table>
-                <thead><tr><th>Pedido interno</th><th>Data</th><th>NF</th><th>Total</th><th>Status</th><th>Abrir</th></tr></thead>
-                <tbody>{history.recentInvoices.map((invoice) => (
-                  <tr key={invoice.id}>
-                    <td>{invoice.purchaseNumber ?? "-"}</td>
-                    <td>{formatDate(invoice.purchaseDate)}</td>
-                    <td>{invoice.invoiceNumber ?? "-"}</td>
-                    <td>{formatCurrency(invoice.totalAmount)}</td>
-                    <td>{invoice.status}</td>
-                    <td><button type="button" onClick={onOpenPurchases}>Abrir compra</button></td>
-                  </tr>
-                ))}</tbody>
-              </table>
+            <div className="subsection">
+              <Table>
+                <Table.Head>
+                  <Table.Row>
+                    <Table.Th>Pedido interno</Table.Th>
+                    <Table.Th>Data</Table.Th>
+                    <Table.Th>NF</Table.Th>
+                    <Table.Th align="right">Total</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th actions>Abrir</Table.Th>
+                  </Table.Row>
+                </Table.Head>
+                <Table.Body>
+                  {history.recentInvoices.map((invoice) => (
+                    <Table.Row key={invoice.id}>
+                      <Table.Td>{invoice.purchaseNumber ?? "-"}</Table.Td>
+                      <Table.Td>{formatDate(invoice.purchaseDate)}</Table.Td>
+                      <Table.Td>{invoice.invoiceNumber ?? "-"}</Table.Td>
+                      <Table.Td align="right">{formatCurrency(invoice.totalAmount)}</Table.Td>
+                      <Table.Td>{invoice.status}</Table.Td>
+                      <Table.Td actions>
+                        <Button variant="secondary" size="sm" onClick={onOpenPurchases}>Abrir compra</Button>
+                      </Table.Td>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
             </div>
           </section>
         </div>
