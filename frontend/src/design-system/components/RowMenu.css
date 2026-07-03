@@ -1,0 +1,86 @@
+/* Trigger: mesmo footprint do IconButton md (40x40) para alinhar na célula. */
+.ds-row-menu-trigger {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.ds-row-menu-trigger:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+  background: var(--paper-soft);
+}
+
+.ds-row-menu-trigger:focus-visible,
+.ds-row-menu-trigger[data-state="open"] {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: var(--focus-ring);
+}
+
+.ds-row-menu-content {
+  min-width: 180px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  font-family: var(--font-sans);
+  z-index: 60;
+}
+
+.ds-row-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+
+.ds-row-menu-item[data-highlighted] {
+  background: var(--gold-tint);
+  color: var(--ink);
+}
+
+.ds-row-menu-item[data-disabled] {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.ds-row-menu-item-danger {
+  color: var(--danger);
+}
+
+.ds-row-menu-item-danger[data-highlighted] {
+  background: var(--tint-danger);
+  color: var(--danger);
+}
+
+.ds-row-menu-item-icon {
+  display: inline-flex;
+  color: currentColor;
+}
+
+.ds-row-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
