@@ -4,7 +4,6 @@ import { AppUser, closeDailyRevenue, getRevenueEntry, RevenueEntry, saveRevenueE
 import { Notice, useNotice } from "../components/Notice";
 import { Button, Money, PanelEyebrow, StatusBadge } from "../design-system";
 import { hasPermission } from "../lib/permissions";
-import { formatCurrency } from "../utils/format";
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -450,7 +449,7 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
               onClick={() => setActiveShift(1)}
             >
               <span>1º Turno</span>
-              <span className="cash-shift-tab-total">{formatCurrency(shift1Total)}</span>
+              <span className="cash-shift-tab-total"><Money value={shift1Total} /></span>
             </button>
             <button
               type="button"
@@ -458,7 +457,7 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
               onClick={() => setActiveShift(2)}
             >
               <span>2º Turno</span>
-              <span className="cash-shift-tab-total">{formatCurrency(shift2Total)}</span>
+              <span className="cash-shift-tab-total"><Money value={shift2Total} /></span>
             </button>
           </div>
           <div className="cash-shift-pane" data-active={String(activeShift === 1)}>
@@ -549,7 +548,7 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
 
         <div className="summary-grid dashboard-compact-grid cash-metrics-grid">
           <article><span>Pedidos totais</span><strong>{totalOrders}</strong></article>
-          <article><span>Total delivery</span><strong>{formatCurrency(totalDelivery)}</strong></article>
+          <article><span>Total delivery</span><strong><Money value={totalDelivery} /></strong></article>
         </div>
       </section>
 
@@ -562,13 +561,13 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
           </div>
         </div>
         <div className="summary-grid dashboard-compact-grid cash-metrics-grid">
-          <article><span>Mesas 1º turno</span><strong>{formatCurrency(shift1Total)}</strong></article>
-          <article><span>Mesas 2º turno</span><strong>{formatCurrency(shift2Total)}</strong></article>
-          <article><span>Total mesas</span><strong>{formatCurrency(totalMesas)}</strong></article>
-          <article><span>Total delivery</span><strong>{formatCurrency(totalDelivery)}</strong></article>
-          <article><span>Total serviço</span><strong>{formatCurrency(totalService)}</strong></article>
-          <article><span>Total TC's</span><strong>{formatCurrency(totalTcs)}</strong></article>
-          <article className="cash-total-geral"><span>Total geral do dia</span><strong>{formatCurrency(totalGeral)}</strong></article>
+          <article><span>Mesas 1º turno</span><strong><Money value={shift1Total} /></strong></article>
+          <article><span>Mesas 2º turno</span><strong><Money value={shift2Total} /></strong></article>
+          <article><span>Total mesas</span><strong><Money value={totalMesas} /></strong></article>
+          <article><span>Total delivery</span><strong><Money value={totalDelivery} /></strong></article>
+          <article><span>Total serviço</span><strong><Money value={totalService} /></strong></article>
+          <article><span>Total TC's</span><strong><Money value={totalTcs} /></strong></article>
+          <article className="cash-total-geral"><span>Total geral do dia</span><strong><Money value={totalGeral} /></strong></article>
         </div>
       </section>
 
