@@ -1,11 +1,12 @@
 import { useHideValues } from "../context/HideValuesContext";
+import { normalizeMoneyValue, type MoneyValueInput } from "../utils/normalizeMoneyValue";
 
 export type FormatCurrencyOptions = {
   decimals?: number;
 };
 
 export type FormatCurrencyFn = (
-  value: number | null | undefined,
+  value: MoneyValueInput,
   opts?: FormatCurrencyOptions
 ) => string;
 
@@ -17,24 +18,30 @@ const HIDDEN_GLYPH = "R$ ••••";
  * limitação de estrutura (ex: string dentro de <td>, tooltip, label) não dá
  * pra renderizar <Money />.
  *
- * - Se HideValuesContext.hidden === true → retorna "R$ ••••".
+ * Aceita `number`, string numérica (útil para Prisma Decimal serializado),
+ * `null` e `undefined`. Valores inválidos (`NaN`, `Infinity`, string
+ * não-numérica, string vazia/whitespace) retornam "R$ 0,00" — fallback
+ * intencionalmente diferente do `<Money />` (que retorna "—"): o hook é
+ * usado em contextos de string legada (prop `value: string` de KpiCard
+ * local, aria-label, tooltip) onde em-dash pode confundir.
+ *
+ * - Se HideValuesContext.hidden === true → sempre retorna "R$ ••••"
+ *   (precedência do mascaramento sobre o fallback).
  * - Se visível → formata Intl.NumberFormat("pt-BR", currency BRL) com 2 casas
  *   por default.
- * - null/undefined → mesmo comportamento do legacy formatCurrency: "R$ 0,00".
- *   (Documentação: alinhamento intencional com o helper antigo para não
- *   quebrar contratos das telas durante migração.)
  */
 export function useFormatCurrency(): FormatCurrencyFn {
   const { hidden } = useHideValues();
   return (value, opts) => {
     if (hidden) return HIDDEN_GLYPH;
-    const amount = Number(value ?? 0);
+    const normalized = normalizeMoneyValue(value);
+    const amount = normalized ?? 0;
     const decimals = opts?.decimals ?? 2;
     return new Intl.NumberFormat("pt-BR", {
       style: "currency",
       currency: "BRL",
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals
-    }).format(Number.isFinite(amount) ? amount : 0);
+    }).format(amount);
   };
 }

@@ -1,4 +1,5 @@
 import { useHideValues } from "../context/HideValuesContext";
+import { normalizeMoneyValue, type MoneyValueInput } from "../utils/normalizeMoneyValue";
 import "./Money.css";
 
 export type MoneyProps = {
@@ -7,7 +8,7 @@ export type MoneyProps = {
    * `Decimal` serializado do Prisma). `null`, `undefined`, `NaN`,
    * `Infinity` ou string não-numérica renderizam "—".
    */
-  value: number | string | null | undefined;
+  value: MoneyValueInput;
   /**
    * Sobrescreve o estado do HideValuesContext.
    * Se omitido, o componente lê `hidden` do contexto.
@@ -31,22 +32,11 @@ function formatAmount(value: number, decimals: number): string {
   });
 }
 
-function normalize(value: number | string | null | undefined): number | null {
-  if (value == null) return null;
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
-  }
-  // string: rejeitar vazia/whitespace antes de Number() (JS: Number("") === 0)
-  if (value.trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 export function Money({ value, hidden, decimals = 2, className }: MoneyProps) {
   const { hidden: contextHidden } = useHideValues();
   const isHidden = hidden ?? contextHidden;
   const rootClass = className ? `ds-money ${className}` : "ds-money";
-  const normalizedValue = normalize(value);
+  const normalizedValue = normalizeMoneyValue(value);
 
   if (isHidden) {
     return (

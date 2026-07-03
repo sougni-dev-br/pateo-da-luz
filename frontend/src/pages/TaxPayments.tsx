@@ -17,7 +17,7 @@ import {
   updateTaxPayment,
 } from "../api/client";
 import { Notice, type NoticeState, useNotice } from "../components/Notice";
-import { StatusBadge as DsStatusBadge } from "../design-system";
+import { Money, StatusBadge as DsStatusBadge, useFormatCurrency } from "../design-system";
 import type { StatusTone } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 
@@ -40,13 +40,6 @@ const STATUS_TONES: Record<string, StatusTone> = {
   OVERDUE: "danger",
   CANCELED: "neutral",
 };
-
-function formatCurrency(value: string | number | null | undefined): string {
-  if (value == null) return "—";
-  const n = typeof value === "string" ? parseFloat(value) : value;
-  if (isNaN(n)) return "—";
-  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
@@ -184,7 +177,7 @@ function ImportModal({ onClose, onImported, notify }: ImportModalProps) {
                       <tr key={dt}>
                         <td>{dt}</td>
                         <td>{info.count}</td>
-                        <td>{formatCurrency(info.total)}</td>
+                        <td><Money value={info.total} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -468,6 +461,8 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
   const [showImport, setShowImport] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
+  const fmt = useFormatCurrency();
+
   const load = useCallback(async (f: TaxPaymentFilters) => {
     setLoadingList(true);
     try {
@@ -564,10 +559,10 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
       {/* KPI Cards */}
       {summary && (
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <KpiCard label="Total no período" value={formatCurrency(summary.total)} />
-          <KpiCard label="Pago" value={formatCurrency(summary.paid)} color="var(--success)" />
-          <KpiCard label="Pendente" value={formatCurrency(summary.pending)} color="var(--warning)" />
-          <KpiCard label="Vencido" value={formatCurrency(summary.overdue)} color="var(--danger)" />
+          <KpiCard label="Total no período" value={fmt(summary.total)} />
+          <KpiCard label="Pago" value={fmt(summary.paid)} color="var(--success)" />
+          <KpiCard label="Pendente" value={fmt(summary.pending)} color="var(--warning)" />
+          <KpiCard label="Vencido" value={fmt(summary.overdue)} color="var(--danger)" />
         </div>
       )}
 
@@ -652,7 +647,7 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
                       <td style={{ color: effectiveStatus === "OVERDUE" ? "#ef4444" : undefined, fontWeight: effectiveStatus === "OVERDUE" ? 600 : undefined }}>
                         {formatDate(tp.dueDate)}
                       </td>
-                      <td style={{ textAlign: "right", fontWeight: 600 }}>{formatCurrency(tp.amount)}</td>
+                      <td style={{ textAlign: "right", fontWeight: 600 }}><Money value={tp.amount} /></td>
                       <td>{tp.paymentDate ? formatDate(tp.paymentDate) : "—"}</td>
                       <td><StatusBadge status={effectiveStatus} /></td>
                       <td>
@@ -732,7 +727,7 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
                   <span style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tp.tradeName ?? tp.legalName ?? "—"}</span>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-                  <strong style={{ fontSize: "1rem" }}>{formatCurrency(tp.amount)}</strong>
+                  <strong style={{ fontSize: "1rem" }}><Money value={tp.amount} /></strong>
                   <StatusBadge status={effectiveStatus} />
                 </div>
               </div>
