@@ -483,12 +483,12 @@ export function Payables({ user }: PayablesProps) {
 
       {/* ── Resumo compacto (cards clicáveis filtram a lista) ───── */}
       <div className="kpi-counters-grid payables-kpi-grid">
-        <SummaryCard label="Em aberto" value={formatCurrency(totals.open)} tone="warning" className="payables-kpi-clickable" onClick={() => applyCardFilter("open")} />
-        <SummaryCard label="Vencido" value={formatCurrency(totals.overdue)} tone="danger" className="payables-kpi-clickable" onClick={() => applyCardFilter("overdue")} />
-        <SummaryCard label="Pago no mês" value={formatCurrency(totals.paidMonth)} tone="success" className="payables-kpi-clickable" onClick={() => applyCardFilter("paidMonth")} />
-        <SummaryCard label="Pago hoje" value={formatCurrency(totals.paidToday)} tone="success" className="payables-kpi-clickable" onClick={() => applyCardFilter("paidToday")} />
-        <SummaryCard label="Próx. 7 dias" value={formatCurrency(totals.next7)} tone="info" className="payables-kpi-clickable" onClick={() => applyCardFilter("next7")} />
-        <SummaryCard label="Próx. 30 dias" value={formatCurrency(totals.next30)} tone="info" className="payables-kpi-clickable" onClick={() => applyCardFilter("next30")} />
+        <SummaryCard label="Em aberto" moneyValue={totals.open} tone="warning" className="payables-kpi-clickable" onClick={() => applyCardFilter("open")} />
+        <SummaryCard label="Vencido" moneyValue={totals.overdue} tone="danger" className="payables-kpi-clickable" onClick={() => applyCardFilter("overdue")} />
+        <SummaryCard label="Pago no mês" moneyValue={totals.paidMonth} tone="success" className="payables-kpi-clickable" onClick={() => applyCardFilter("paidMonth")} />
+        <SummaryCard label="Pago hoje" moneyValue={totals.paidToday} tone="success" className="payables-kpi-clickable" onClick={() => applyCardFilter("paidToday")} />
+        <SummaryCard label="Próx. 7 dias" moneyValue={totals.next7} tone="info" className="payables-kpi-clickable" onClick={() => applyCardFilter("next7")} />
+        <SummaryCard label="Próx. 30 dias" moneyValue={totals.next30} tone="info" className="payables-kpi-clickable" onClick={() => applyCardFilter("next30")} />
       </div>
 
       {/* ── Filtros ──────────────────────────────────────────────── */}
