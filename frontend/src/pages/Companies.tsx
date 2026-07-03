@@ -15,6 +15,7 @@ import {
   FormGrid,
   FormSection,
   IconButton,
+  PanelEyebrow,
   RowMenu,
   Select,
   StatusBadge,
@@ -279,7 +280,7 @@ export function Companies() {
         <section className="panel">
           <div className="section-heading">
             <div>
-              <p>Cadastro operacional</p>
+              <PanelEyebrow>Cadastro operacional</PanelEyebrow>
               <h2>{form.id ? "Editar empresa" : "Nova empresa"}</h2>
             </div>
             <Button variant="secondary" onClick={() => setShowForm(false)}>Fechar</Button>
@@ -364,7 +365,7 @@ export function Companies() {
           <section className="panel modal-panel">
             <div className="section-heading">
               <div>
-                <p>Conta bancária</p>
+                <PanelEyebrow>Conta bancária</PanelEyebrow>
                 <h2>{accountForm.id ? "Editar conta" : "Nova conta"}</h2>
               </div>
               <Button variant="secondary" onClick={() => setShowAccountForm(false)}>Fechar</Button>
@@ -420,7 +421,7 @@ export function Companies() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p>Cadastro operacional</p>
+            <PanelEyebrow>Cadastro operacional</PanelEyebrow>
             <h2>Empresas / Filiais</h2>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

@@ -42,6 +42,7 @@ import { StatusBadge } from "../components/ui/StatusBadge";
 import {
   EmptyState as DsEmptyState,
   IconButton,
+  Money as DsMoney,
   RowMenu,
   StatusBadge as DsStatusBadge,
   Table
@@ -1513,9 +1514,6 @@ export function Purchases({ user }: { user: AppUser }) {
       {!isFormRoute && (
         <>
       <div className="purch-page-header">
-        <div className="purch-page-header-left">
-          <p className="purch-page-subtitle">Registro e controle de compras do período</p>
-        </div>
         <div className="purch-page-actions">
           <button className="icon-button" type="button" onClick={loadPurchases} aria-label="Atualizar compras">
             <RefreshCw size={18} />
@@ -1664,7 +1662,7 @@ export function Purchases({ user }: { user: AppUser }) {
                       <small>{purchase.supplier.document ?? purchase.rawSupplierCode ?? "Sem documento"}</small>
                     </Table.Td>
                     <Table.Td className="purchase-items-summary">
-                      <strong>{purchase.items.length} item(ns)</strong>
+                      <strong>{purchase.items.length} {purchase.items.length === 1 ? "item" : "itens"}</strong>
                       <small className="truncate-cell" title={purchase.items.map((item) => item.rawProductName).join(", ")}>
                         {purchase.items[0]?.rawProductCode ? `${purchase.items[0].rawProductCode} • ` : ""}
                         {purchase.items[0]?.rawProductName ?? "-"}
@@ -1684,7 +1682,7 @@ export function Purchases({ user }: { user: AppUser }) {
                         </>
                       )}
                     </Table.Td>
-                    <Table.Td align="right" style={{ whiteSpace: "nowrap" }}>{formatCurrency(purchase.totalAmount)}</Table.Td>
+                    <Table.Td align="right" style={{ whiteSpace: "nowrap" }}><DsMoney value={Number(purchase.totalAmount ?? 0)} /></Table.Td>
                     <Table.Td>
                       <DsStatusBadge tone={LEGACY_TONE_TO_DS[purchaseStatusTone(purchase.status)] ?? "neutral"}>
                         {purchaseStatusLabel(purchase.status)}
@@ -1754,7 +1752,7 @@ export function Purchases({ user }: { user: AppUser }) {
                   <div className="purch-mobile-row">
                     <span>Itens</span>
                     <span>
-                      {purchase.items.length} item{purchase.items.length !== 1 ? "ns" : ""}
+                      {purchase.items.length} {purchase.items.length === 1 ? "item" : "itens"}
                       {purchase.items[0]?.rawProductName ? ` · ${purchase.items[0].rawProductName}${purchase.items.length > 1 ? ` +${purchase.items.length - 1}` : ""}` : ""}
                     </span>
                   </div>

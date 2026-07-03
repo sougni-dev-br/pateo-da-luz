@@ -24,9 +24,9 @@ function withProviders(ui: ReactNode, sessionOverride: Partial<SessionContextVal
 }
 
 describe("Money", () => {
-  test("formata valor positivo em pt-BR (milhar com ponto)", () => {
+  test("formata valor positivo em pt-BR com 2 decimais sempre", () => {
     const { container } = withProviders(<Money value={128450} />);
-    expect(container.textContent).toBe("R$128.450");
+    expect(container.textContent).toBe("R$128.450,00");
     expect(screen.getByText("R$")).toBeInTheDocument();
   });
 
@@ -35,15 +35,43 @@ describe("Money", () => {
     expect(container.textContent).toBe("R$1.234,56");
   });
 
-  test("zero renderiza como R$ 0 (nao como travessao)", () => {
+  test("decimal parcial completa 2 casas: 2760.5 -> R$ 2.760,50", () => {
+    const { container } = withProviders(<Money value={2760.5} />);
+    expect(container.textContent).toBe("R$2.760,50");
+  });
+
+  test("decimal parcial completa 2 casas: 1840.5 -> R$ 1.840,50", () => {
+    const { container } = withProviders(<Money value={1840.5} />);
+    expect(container.textContent).toBe("R$1.840,50");
+  });
+
+  test("prop decimals=0 para displays compactos", () => {
+    const { container } = withProviders(<Money value={128450.75} decimals={0} />);
+    expect(container.textContent).toBe("R$128.451");
+  });
+
+  test("zero renderiza como R$ 0,00 (nao como travessao)", () => {
     const { container } = withProviders(<Money value={0} />);
-    expect(container.textContent).toBe("R$0");
+    expect(container.textContent).toBe("R$0,00");
   });
 
   test("valor negativo tem sinal en-dash discreto antes do R$", () => {
     const { container } = withProviders(<Money value={-820} />);
     // U+2013 (en dash) + espaco + R$ + numero absoluto
-    expect(container.textContent).toBe("– R$820");
+    expect(container.textContent).toBe("– R$820,00");
+  });
+
+  test("nao quebra linha em container estreito (nowrap + inline-block)", () => {
+    const { container } = withProviders(
+      <div style={{ width: 60 }}>
+        <Money value={2760.5} />
+      </div>
+    );
+    const money = container.querySelector(".ds-money") as HTMLElement;
+    const style = window.getComputedStyle(money);
+    expect(style.whiteSpace).toBe("nowrap");
+    expect(style.display).toBe("inline-block");
+    expect(style.textOverflow).toBe("ellipsis");
   });
 
   test("null renderiza travessao em-dash", () => {
@@ -71,7 +99,7 @@ describe("Money", () => {
     const { container } = withProviders(<Money value={128450} hidden={false} />, {
       hideSensitiveValues: true
     });
-    expect(container.textContent).toBe("R$128.450");
+    expect(container.textContent).toBe("R$128.450,00");
   });
 
   test("aceita className adicional preservando ds-money", () => {

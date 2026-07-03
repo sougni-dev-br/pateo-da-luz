@@ -11,6 +11,7 @@ import {
   FormGrid,
   FormSection,
   IconButton,
+  PanelEyebrow,
   RowMenu,
   Select,
   StatusBadge,
@@ -214,7 +215,6 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
 
       {/* ── Cabeçalho da página ── */}
       <div className="supp-page-header">
-        <p className="supp-page-sub">Cadastro utilizado em compras, pagamentos e relatórios financeiros</p>
         <div className="supp-page-actions">
           <IconButton icon={<RefreshCw size={16} />} label="Atualizar" onClick={loadSuppliers} />
           {canEdit && (
@@ -534,7 +534,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
           <section className="panel modal-panel">
             <div className="section-heading">
               <div>
-                <p>Histórico do fornecedor</p>
+                <PanelEyebrow>Histórico do fornecedor</PanelEyebrow>
                 <h2>{selectedSupplier.name}</h2>
               </div>
               <Button variant="secondary" onClick={() => { setSelectedSupplier(null); setHistory(null); }}>Fechar</Button>
