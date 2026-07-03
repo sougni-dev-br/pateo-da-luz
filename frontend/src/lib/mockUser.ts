@@ -269,6 +269,20 @@ function mockResponseFor(url: string): unknown {
   if (path.includes("/dre/pending")) return { total: 0, totalAmount: 0, page: 1, perPage: 20, rows: [] };
   if (path.includes("/dre/drill")) return [];
 
+  // Usuarios: /menu-permissions retorna shape estruturado (menus/actions
+  // usados em reduce) — precisa antes do fallback list-patterns.
+  if (path.endsWith("/menu-permissions")) {
+    return { menus: [], accessLevels: ["NONE", "VIEW", "FULL"], actions: ["view", "create", "edit", "delete", "approve", "admin"] };
+  }
+  if (path.endsWith("/users")) {
+    return [
+      { id: "u-1", name: "Rafael Admin", email: "rafael@pateo.local", role: "ADMIN", isActive: true, mustChangePassword: false, lastLoginAt: new Date().toISOString(), modulePermissions: {}, menuPermissions: {} },
+      { id: "u-2", name: "Marcos Vinícius de Albuquerque Nascimento", email: "marcos@pateo.local", role: "ESTOQUISTA", isActive: true, mustChangePassword: false, lastLoginAt: null, modulePermissions: {}, menuPermissions: {} },
+      { id: "u-3", name: "Ana Silva", email: "ana@pateo.local", role: "VISUALIZACAO", isActive: false, mustChangePassword: false, lastLoginAt: null, modulePermissions: {}, menuPermissions: {} }
+    ];
+  }
+  if (path.endsWith("/users/sessions") || path.includes("/users/sessions")) return [];
+
   // Estoque: endpoints com shape estruturado que o fallback {} quebraria
   // (agenda.items.find, buyer-support.summary, operational e counts = listas).
   if (path.includes("/inventory/agenda")) {
