@@ -23,27 +23,6 @@ export function formatCurrencyString(value: string | number | null | undefined) 
   }).format(Number.isFinite(amount) ? amount : 0);
 }
 
-/**
- * @deprecated Use `<Money />` em JSX ou `useFormatCurrency()` reativo.
- * Fallback non-JSX: `formatCurrencyString`.
- *
- * MUDANÇA DE COMPORTAMENTO: este alias NÃO mascara mais. As call sites
- * remanescentes exibirão o valor real mesmo com toggle "ocultar valores"
- * ligado, até serem migradas — comportamento intencional durante a
- * migração progressiva (Fase 0 → 1..3).
- */
-let formatCurrencyDeprecationWarned = false;
-export function formatCurrency(value: string | number | null | undefined) {
-  if (!formatCurrencyDeprecationWarned) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      "[deprecated] formatCurrency: use <Money /> em JSX ou useFormatCurrency() reativo; para non-JSX, use formatCurrencyString."
-    );
-    formatCurrencyDeprecationWarned = true;
-  }
-  return formatCurrencyString(value);
-}
-
 export function formatDate(value: string | null | undefined) {
   if (!value) return "-";
 
