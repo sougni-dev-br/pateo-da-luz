@@ -513,7 +513,6 @@ export function App() {
               period={topbarPeriod}
               hideValues={hideSensitiveValues}
               onToggleValues={toggleSensitiveValues}
-              notificationCount={pendingCountSessionCount}
             />
           )}
         >

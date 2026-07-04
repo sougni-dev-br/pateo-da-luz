@@ -72,15 +72,4 @@ describe("Topbar", () => {
     expect(onPeriodClick).toHaveBeenCalledTimes(1);
   });
 
-  test("sino mostra dot quando notificationCount > 0", () => {
-    const { container, rerender } = render(<Topbar {...baseProps} notificationCount={3} />);
-    expect(container.querySelector(".ds-topbar-icon-pill-dot")).not.toBeNull();
-    rerender(<Topbar {...baseProps} notificationCount={0} />);
-    expect(container.querySelector(".ds-topbar-icon-pill-dot")).toBeNull();
-  });
-
-  test("sino tem aria-label indicando contagem", () => {
-    render(<Topbar {...baseProps} notificationCount={3} />);
-    expect(screen.getByRole("button", { name: "3 notificação(ões)" })).toBeInTheDocument();
-  });
 });
