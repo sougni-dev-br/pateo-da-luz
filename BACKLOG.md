@@ -52,6 +52,46 @@ a uma revisão consciente.
 
 ## Observações vigiadas (não são débitos a executar)
 
+### OBS-013 — Validar botão "Realocar" na tabela de itens do modal de fatura em `/financeiro/cartoes`
+
+- **Origem:** investigação do OBS-007 em produção (screenshot do teste do Eli). Descoberto durante inspeção da tabela de itens dentro do modal de detalhe da fatura.
+- **O que é:**
+  - A tabela de itens do modal de fatura (Cards.tsx, dentro do fluxo iniciado por `openStatement`) exibe 3 botões por linha: **Conferir**, **Div.** (Divergência), **Realocar**.
+  - Botão **Realocar** tem escopo semântico esperado: alterar a fatura a qual o item pertence (Eli mencionou explicitamente "onde posso alterar a fatura que a compra pertence").
+  - Estado funcional do botão **não foi investigado ainda** — não sabemos se abre modal/dropdown para escolher fatura destino, se é no-op, ou se é handler parcialmente quebrado (mesmo padrão do "Conferir" externo).
+- **Hipóteses:**
+  1. Botão totalmente funcional: fluxo completo implementado, só falta documentação/visibilidade.
+  2. Botão no-op: mais um botão morto — mesmo padrão OBS-005 (Competência), OBS-006 (sino), OBS-007 (Conferir externo) — feature declarada mas não conectada.
+  3. Botão parcialmente funcional: chama API mas UX quebrada (sem refetch, sem feedback) — mesmo padrão do OBS-007 reformulado.
+- **Impacto atual:** desconhecido até auditoria. Se botão for no-op, usuário não consegue realocar item entre faturas pela UI — fluxo essencial em fechamento de cartão travado.
+- **Escopo:** auditoria read-only primeiro (`Cards.tsx` + `api/client.ts` + backend se necessário). Só depois decidir fix vs. implementação vs. remoção.
+- **Vigiar antes de:**
+  - Qualquer prompt de correção do OBS-007 (bota Conferir na tabela externa) — aproveitar contexto do arquivo `Cards.tsx`.
+  - Se botão for funcional, verificar se ele reage bem a itens com divergência marcada ou já conferidos.
+  - Se botão for no-op, avaliar prioridade — Eli mencionou como necessidade real do fluxo mensal de conferência.
+
+### OBS-012 — Fatura de cartão fechada não pode ser reaberta
+
+- **Origem:** investigação do OBS-007 em produção (teste do Eli). Descoberto durante inspeção do fluxo de fechamento em `Cards.tsx`.
+- **O que é:**
+  - Ao fechar uma fatura de cartão (botão "Fechar" na tabela em `Cards.tsx` quando `status !== "CLOSED"`), fatura transita para `CLOSED`.
+  - Uma vez `CLOSED`, **não existe UI para reabrir**. Se usuário fechou por engano ou descobriu erro após fechar (item errado, divergência não anotada, compra realocada errado), o registro fica travado.
+  - Reabrir manualmente exigiria SQL direto no banco — indesejável: quebra rastreabilidade, ignora sistema de permissões, sem log de ação do usuário.
+- **Impacto:** bloqueio operacional. Erro humano trivial (clicar "Fechar" na fatura errada) obriga intervenção técnica no banco de dados.
+- **Regra de negócio para reabrir (decisão Eli):**
+  - Reabrir permitido **apenas** se o título gerado no Contas a Pagar ainda **não foi baixado** (`payable.paidAt IS NULL`).
+  - Se título já foi baixado (pago), fatura permanece trancada — desfazer teria efeitos colaterais no Contas a Pagar e no Caixa.
+  - Ação permission-gated (só usuários com `canManage` sobre cartões).
+- **Escopo:**
+  - **Backend:** verificar se existe endpoint `POST /cards/statements/:id/reopen` (ou similar). Se não houver, adicionar — com guard de permissão + verificação de `payable.paidAt IS NULL`. Verificar no schema Prisma a relação entre `CreditCardStatement.id` e `Payable.id` (existência de FK, campo de vínculo).
+  - **Frontend:** botão "Reabrir" na tabela quando `statement.status === "CLOSED" && canManage && !payableJaBaixado`. Toast de sucesso/erro. Refetch dos statements após ação.
+- **Requer auditoria read-only antes de implementação:**
+  - Modelo Prisma de `CreditCardStatement` e `Payable` (vínculo + `paidAt`).
+  - Endpoints existentes de `/cards/statements` no backend.
+  - Sistema de permissões (`canManage` para cartão).
+- **Vigiar:**
+  - Se reabrir permitir alterar valores (via edição de itens), verificar consistência com CMV real e Caixa — auditoria read-only vai confirmar se há efeitos indiretos.
+
 ### OBS-011 — Ausência de testes em viewport mobile durante toda a migração de mascaramento monetário (Fases 0/1/2/3)
 
 - **Origem:** reflexão pós-deploy Fase 3. Débito técnico da migração.
@@ -124,17 +164,27 @@ Detectados no smoke test em produção após deploy dos PRs #10-#13 (Fase 3 da m
 
 ---
 
-### OBS-007 — Botão "Conferir" em `/financeiro/cartoes` não abre nada
+### OBS-007 — Botão "Conferir" na tabela de faturas de `/financeiro/cartoes` não abre modal de conferência (mas faz PATCH silencioso perigoso)
 
-- **Origem:** smoke test em produção após deploy dos PRs #2-#9 (padrão único de mascaramento monetário). Preexistente à migração.
-- **O que é:** na tabela de faturas de cartão, cada linha tem dois botões de ação: "Ver" e "Conferir". "Ver" funciona corretamente (abre modal "Detalhe da fatura"). "Conferir" **não abre nada** ao ser clicado — nenhum modal, painel, drawer ou toast.
-- **Hipóteses:**
-  1. Handler `onClick` do botão está quebrado ou não conectado (regressão ou nunca implementado).
-  2. Fluxo de conferência item-a-item foi previsto mas nunca finalizado (feature incompleta).
-  3. Modal existe mas abre com `z-index` errado ou `visibility: hidden`.
-- **Impacto atual:** funcionalidade de conferência de fatura indisponível pela UI. Workaround: usar "Ver" para inspecionar itens (leitura), mas sem ação de marcar como conferido item-a-item. Se o fluxo é essencial para o fechamento de cartão, é bloqueador operacional; se opcional, é apenas UX confusa (botão "morto" gera dúvida).
-- **Escopo de investigação:** frontend puro, arquivo `Cards.tsx`. Auditoria read-only antes de decidir fix vs. remoção do botão.
-- **Vigiar antes de:** tocar em `Cards.tsx` para outros fins (aproveitar contexto), OU se o processo de fechamento de cartão do Rafael passar a depender de conferência formal (aí vira bloqueador).
+- **Origem:** registrado inicialmente após smoke test em produção pós PRs #2-#9 como "botão Conferir não abre nada". Investigação posterior (auditoria read-only + teste em produção pelo Eli lançando compra via cartão de crédito) revelou comportamento **pior que o suposto** e obrigou reformulação. Preexistente à migração de mascaramento monetário.
+- **O que é:**
+  - Botão "Conferir" na tabela de faturas (`Cards.tsx:517`) executa handler que chama `setCardStatementStatus(id, "OPEN" ↔ "CHECKED")` — **PATCH real no backend**, não um no-op.
+  - PATCH persiste no banco mas a UI não reflete: sem `await`, sem refetch dos statements, sem toast, sem feedback visual.
+  - **Resultado observado em produção:** status da fatura muda para "Conferida" **sem o usuário ter conferido nada**. Falso positivo silencioso.
+  - **Comportamento correto esperado (confirmado por Eli):** o botão deveria abrir o modal de detalhe da fatura em modo conferência, focando/rolando até a tabela de itens onde já existem os botões por item (`Conferir | Div. | Realocar` na linha 698 do modal). A conferência real (item-a-item) **já está implementada dentro do modal** — falta apenas o gatilho para entrar no modal em modo conferência.
+- **Fluxo real de conferência de cartão (contexto de negócio):**
+  1. Compra lançada com cartão de crédito → sistema atribui à fatura aberta do período.
+  2. Fim do mês → usuário abre fatura, confere lançamento a lançamento contra o extrato físico do banco.
+  3. Conferência pode envolver: **Realocar** o item para outra fatura, marcar **Divergência** (Div.), ou **Conferir** por item.
+  4. Depois de tudo conferido, "Fechar" fatura → gera título no Contas a Pagar.
+- **Impacto:** **alto risco de dados errados**. Usuário clica sem entender o efeito, fatura fica marcada como conferida sem conferência real, gera título no Contas a Pagar com dados não validados. Diferente do diagnóstico original — não é apenas "botão morto"; é botão que age silenciosamente contra a intenção do usuário.
+- **Opções de resolução:**
+  - **Fix mínimo (recomendado):** mudar handler para chamar `openStatement(statement)` com sinalizador de "entrar em modo conferência" (foca/rola até a tabela de itens). **Remover o PATCH silencioso** — a marcação de `CHECKED` só pode ocorrer após conferência real por item.
+  - **Alternativa:** manter comportamento atual mas adicionar refetch + toast + diálogo de confirmação antes do PATCH ("Marcar fatura inteira como conferida sem revisar itens?"). Menos alinhado com o fluxo real; mantém o atalho de marca-em-massa como opção deliberada.
+- **Escopo:** pequeno (frontend puro, `Cards.tsx`).
+- **Vigiar:**
+  - A fatura do teste em produção do Eli já aparece como "Conferida" após o clique. **Verificar se há faturas no banco em `CHECKED` sem conferência real** — dívida técnica de dados históricos que pode ter se acumulado desde o primeiro deploy do módulo.
+  - Se optar por fix mínimo, também considerar rever o botão "Fechar" — hoje aceita fechar fatura em qualquer status (`!== "CLOSED"`), inclusive `OPEN` sem passar por `CHECKED`. Semanticamente estranho: dá pra fechar sem nunca conferir.
 
 ### OBS-006 — Sino de notificação no Topbar exibe badge mas clique não abre painel
 
