@@ -52,6 +52,68 @@ a uma revisão consciente.
 
 ## Observações vigiadas (não são débitos a executar)
 
+### OBS-016 — Escalonamento de fatura de cartão pós-PR #16 é silencioso; sem feedback visual da competência real
+
+- **Origem:** validação empírica do PR #16 em produção (SHA `aa454a1`). Compra parcelada de R$ 30,00 em 04/07/2026 (Sicredi Marcos C M., `closingDay=5`) escalou globalmente `shift=1` para 08/2026 (parcela 1) e 09/2026 (parcela 2). Compra e itens vinculados corretamente no banco, mas operador que tentou conferir em `/financeiro/cartoes` com filtro em Julho/2026 (competência natural do dashboard) não viu a compra — teve que trocar o filtro para Agosto para encontrá-la.
+- **O que é:**
+  - Fix do OBS-014 (PR #16, [cards.service.ts:191-229](pateo-da-luz/backend/src/modules/cards/cards.service.ts#L191)) escala competência automaticamente quando fatura calculada está em `CLOSED`/`PAID`/`CANCELLED`.
+  - Escalonamento é silencioso: nenhum feedback visual mostra ao usuário que a compra foi parar em Ago/Set/Out/Nov em vez de Jul.
+  - Em compras à vista, a fricção é menor (1 competência só).
+  - Em compras parceladas, a fricção aumenta: parcela N pode cair em ano diferente da N-1 dependendo do shift + número de parcelas.
+  - Conferência manual exige navegar por múltiplas competências até achar.
+- **Impacto:** nenhum bug funcional. Fricção operacional para Rafael/Valéria durante conferência. Confusão potencial ao lançar compra e não encontrar imediatamente em `/financeiro/cartoes`.
+- **Ideias de melhoria (não urgentes):**
+  1. **Toast pós-submit em `/compras/nova`** mostrando competência real onde a compra caiu. Já usa padrão `setNotice({ tone: "success" })` em vários lugares — trivial adicionar competência no message. Idealmente com link direto para a fatura correspondente.
+  2. **Chip preview pré-submit** em `/compras/nova` mostrando qual fatura receberá antes de clicar Salvar. Requer endpoint de preview no backend ou cálculo espelhado no frontend duplicando `resolveOpenStatementShift`.
+- **Escopo técnico:**
+  - **Opção 1 (toast):** apenas frontend + retornar competência no response do `POST /purchases` (backend já tem o dado). Pequeno.
+  - **Opção 2 (chip preview):** endpoint novo `GET /purchases/preview-statement` ou lógica de cálculo no frontend duplicando `resolveOpenStatementShift`. Médio.
+- **Vigiar:**
+  - Se aumentar volume de suporte ("cadê minha compra que sumiu?"), promover a fix prioritário.
+  - Combinar com [[OBS-005]] (filtro global de competência): se filtro sincronizar entre páginas, o efeito colateral positivo é que trocar competência em uma tela reflete em todas.
+
+### OBS-015 — Setup de testes backend usa PrismaTestingHelper sem stub de `$transaction`; testes em múltiplos módulos falharão
+
+- **Origem:** investigação Etapa 1 do OBS-014 tentou identificar suite de testes existente. Backend deste projeto **não tem framework de testes instalado** (`spec.ts` inexistente conforme `CLAUDE.md` e confirmado por `find backend -name "*.test.*"`), mas quando/se for adicionado, o padrão de mock usual (`PrismaTestingHelper` ou variantes) não stub `prisma.$transaction` por padrão.
+- **O que é:**
+  - Código existente em vários módulos usa `prisma.$transaction` para operações atômicas: `tax-payments`, `purchase-planning`, `reports`, `dashboard`, `purchases` (linhas 1291, 1747, 2044, 2185 de `purchase.routes.ts`), `monthly-inventory-import`, e o próprio `cards` após PR #16 (`syncCardStatementItemsForPurchase` e `findOrCreateStatementForPurchase` dependem de `tx: Prisma.TransactionClient`).
+  - Se algum dia forem escritos testes unitários que instanciem `PrismaTestingHelper` sem stub explícito de `$transaction`, esses testes falharão com `prisma.$transaction is not a function` — bug de setup, não de código.
+  - Não afeta produção. Afeta apenas viabilidade futura de escrever testes.
+- **Impacto:** bloqueia adoção de suite de testes no backend enquanto não resolvido. Cada módulo transacional exigiria patch de setup ou skip.
+- **Escopo:**
+  - Se decidir instalar framework de testes (Vitest ou Jest), incluir no setup:
+    - Estender `PrismaTestingHelper` (ou mock ad-hoc) para expor `$transaction` como função pass-through: `(fn) => fn(mockPrisma)`.
+    - Ou usar biblioteca já existente (`prisma-mock`, `jest-mock-extended`, `vitest-mock-extended`).
+  - Enquanto não há testes, fica como débito registrado.
+- **Vigiar:**
+  - Se decidir escrever primeiro teste do backend, começar pelo setup do mock. Sem isso, cada teste transacional falha em cascata.
+  - PR #16 já registrou a lacuna na "Nota técnica" do body: "Backend deste projeto não possui framework de testes (`spec.ts`) instalado. Regressão coberta por `tsc` + `npm run build` + script de validação." Se essa cobertura deixar de ser aceitável (ex.: cresce complexidade dos módulos transacionais), OBS-015 vira gate para adoção.
+
+### OBS-014 — Sistema de cartão de crédito bloqueava compras quando competência calculada apontava para fatura fechada (RESOLVIDO no PR #16)
+
+- **Origem:** relato de operação em produção (Rafael/Valéria) após deploy do PR #15 (`0da7cca`). Tentativa de lançar compra via CC em 04/07/2026 disparava: *"Fatura Marcos C Morra 07/2026 está fechada e não pode receber novos lançamentos. Reabra a fatura antes de lançar esta compra."*
+- **Status:** **RESOLVIDO no PR #16** (SHA `aa454a1`, merged 2026-07-04). Mantido aqui para rastreabilidade histórica — segue padrão dos OBS-006/007 que também foram registrados antes de virarem fix.
+- **O que era:**
+  - `getCardStatementPeriod` ([cards.service.ts:31-47](pateo-da-luz/backend/src/modules/cards/cards.service.ts#L31)) calcula competência rigidamente por `day <= closingDay ? mês atual : próximo mês`.
+  - `findOrCreateStatementForPurchase` e `syncCardStatementItemsForPurchase` (ambos em `cards.service.ts`) usavam o resultado direto sem verificar se a fatura da competência resultante aceitava novos lançamentos.
+  - Se a fatura estava em `CLOSED`/`PAID`/`CANCELLED`, disparavam `throw` — sem escalonamento para próxima competência disponível.
+- **Cenário confirmado em produção (query `scripts/audit-obs-014-statements.sql`):**
+  - Cartão Sicredi 3890, `closingDay=5`, `dueDay=18`.
+  - Fatura 07/2026 em `CLOSED`.
+  - Faturas 08/2026, 09/2026, 10/2026 em `OPEN` (pré-criadas por compra parcelada anterior).
+  - Compra em 04/07/2026 (dia 4 ≤ closingDay 5) → competência calculada 07/2026 → encontrava Julho fechada → throw. Não escalava para Agosto que já existia aberta.
+- **Impacto original:** **alto** — bloqueio total de operação. Rafael/Valéria não conseguiam lançar compras via CC até que a próxima competência natural virasse alvo (06/07 seguiria a mesma lógica; só destravava naturalmente após passar o `closingDay`).
+- **Fix aplicado (PR #16):**
+  - Novo helper privado `resolveOpenStatementShift` ([cards.service.ts:191-229](pateo-da-luz/backend/src/modules/cards/cards.service.ts#L191)) que testa se todas as N competências consecutivas a partir de um `shift` estão livres (não `CLOSED`/`PAID`/`CANCELLED`). Retorna o menor `shift` que satisfaz. Limite `MAX_SCALE=12`.
+  - `shift` global aplicado a todas as parcelas — preserva espaçamento entre parcelas e evita colisão.
+  - Ambos consumidores atualizados; contrato de retorno preservado; `getCardStatementPeriod` intocada; `purchase.routes.ts` intocado; schema intocado.
+- **Validação empírica pós-deploy:** compra parcelada 2x em 04/07/2026 escalou `shift=1` global. Parcela 1 → 2026/08 OPEN, parcela 2 → 2026/09 OPEN. Statements existentes reutilizados, sem `throw`, sem órfã. Operação desbloqueada.
+- **Sinalizações que ficaram para depois (não estão no fix):**
+  - Escalonamento silencioso — falta de feedback visual da competência real onde a compra caiu. → registrada como [[OBS-016]].
+  - Fatura 07/2026 continua em `CLOSED` pós-fix (comportamento intencional, fix não desfaz histórico). Dívida de dados históricos onde Rafael marcou como `CHECKED` sem conferência real (bug antigo do OBS-007) é assunto separado.
+  - Botão "Fechar" da fatura aceita transição `OPEN → CLOSED` direto (sem passar por `CHECKED`) — nota antiga do OBS-007, escopo próprio.
+  - [[OBS-012]] (reabrir fatura fechada) segue pendente e complementa este contexto.
+
 ### OBS-013 — Validar botão "Realocar" na tabela de itens do modal de fatura em `/financeiro/cartoes`
 
 - **Origem:** investigação do OBS-007 em produção (screenshot do teste do Eli). Descoberto durante inspeção da tabela de itens dentro do modal de detalhe da fatura.
