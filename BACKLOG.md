@@ -52,6 +52,78 @@ a uma revisão consciente.
 
 ## Observações vigiadas (não são débitos a executar)
 
+### OBS-011 — Ausência de testes em viewport mobile durante toda a migração de mascaramento monetário (Fases 0/1/2/3)
+
+- **Origem:** reflexão pós-deploy Fase 3. Débito técnico da migração.
+- **O que é:**
+  - Nenhuma das 19 telas migradas (12 PRs feat, 252 call sites) foi validada em viewport mobile durante preview local.
+  - Todo o preview foi feito em viewport desktop 1440x900. Uma única menção acidental de "viewport estreita mostrou sidebar" no PR #6 não foi teste sistemático.
+  - Padrões com risco específico em mobile **não verificados**:
+    - `Purchases`: `purch-mobile-amount` (linha 1791), `pnova-sticky-total`/`pnova-sticky-diff` (3021, 3023) — `<Money>` inline-block em contexto sticky/mobile.
+    - `Cash`: `cash-shift-tab-total` (453, 461) — abas de turno em viewport estreita.
+    - `Revenue`: templates `detail` do MetricCard (`Bruto R$ •••• | Serviço R$ •••• | TCs 0 | TM R$ ••••`) — pode quebrar em várias linhas em mobile.
+    - `Payables`: SummaryCards em grid — reflow em mobile.
+    - `DRE`: 3 componentes locais refatorados (DRECard/DRERow/DRETotal) com valores monetários inline em células — comportamento de tabela em mobile.
+  - `<Money>` é `inline-block`: em telas estreitas com texto adjacente em `<span>`, pode gerar quebras de baseline ou wrap inesperados diferentes do desktop.
+  - **Nenhum bug funcional reportado até agora** — mas ausência de reporte não equivale a ausência de bug.
+- **Hipóteses:**
+  1. Sistema está OK em mobile e a preocupação é infundada (esperado dado que a migração trocou string por componente que aceita o mesmo texto).
+  2. Existem problemas cosméticos localizados que nenhum usuário reportou até agora.
+  3. Existem bugs visuais em fluxos específicos que só aparecem em contexto mobile real (não emulado).
+- **Escopo sugerido:** auditoria read-only usando DevTools mobile emulation nas 11 telas migradas + validação em dispositivo real (usuário final). Ordem sugerida por complexidade:
+  1. Purchases mobile (padrões explícitos `purch-mobile-amount` + `pnova-sticky`).
+  2. Revenue mobile (templates detail com quebras).
+  3. Cash mobile (abas de turno em viewport estreita).
+  4. Demais telas em varredura.
+- **Vigiar:** não é urgente. Zero bug funcional reportado. Registro para calibrar decisão de investir tempo em auditoria mobile em algum momento futuro.
+
+### OBS-010 — Bloco de filtros em `/compras` visualmente desconexo do restante do sistema
+
+- **Origem:** smoke test em produção após deploy PRs #10-#13. Não introduzido pela migração de mascaramento — preexistente. Ficou mais visível após padronização do resto do sistema.
+- **O que é:**
+  - Bloco "FILTROS" tem fundo branco com bordas retas — diferente dos cards arredondados que o resto do sistema usa.
+  - Inputs (Fornecedor, Categoria, Status, Forma de pagamento, Busca geral, Ordenação) com bordas grossas e cantos retos.
+  - Título "FILTROS" em caps small pequeno vs. hierarquia usada em outras telas.
+  - Botões "Filtrar" e "Limpar filtros" com estilo divergente dos botões padrão do DS.
+  - Contrasta especialmente com a tabela abaixo (linhas de compras) que segue o padrão moderno.
+- **Impacto:** cosmético + quebra de coesão visual. Não bloqueia uso.
+- **Escopo:** frontend, bloco de filtros em `Purchases.tsx` (verificar se é componente próprio ou inline). Requer auditoria read-only + decisão sobre migrar para `<Card>`/`<FilterPanel>` do DS.
+- **Vigiar antes de:** qualquer refactor de UI em Purchases, OU quando revisar padronização de blocos de filtro em outras telas (talvez seja padrão sistêmico — vale checar se existe reuse).
+
+### OBS-009 — Tela de Requisições (`/estoque/requisicoes`) parece não ter passado pela padronização do DS
+
+- **Origem:** smoke test em produção após deploy PRs #10-#13. Preexistente à migração de mascaramento monetário.
+- **O que é:**
+  - Selects (Turno, Setor, Motivo) com bordas grossas divergentes do padrão do DS.
+  - Formulário "DADOS DA REQUISIÇÃO" sem card wrapper.
+  - Campo "Observações" com estilo de input bruto (`border-only`).
+  - Cabeçalho "Requisições de Insumos" com hierarquia visual diferente das outras telas.
+- **Impacto:** cosmético + inconsistência. Não bloqueia uso.
+- **Escopo:** frontend, provavelmente `StockRequisitions.tsx` ou similar (a confirmar via grep). Requer auditoria read-only + comparação com padrão do DS antes de refactor.
+- **Vigiar antes de:** ciclo dedicado a padronização visual do DS nas telas restantes, OU quando o módulo de estoque receber atenção maior.
+
+### OBS-008 — Tela de Fichas Técnicas (`/cardapio/fichas-tecnicas`) com layout amontoado e fora do padrão visual
+
+- **Origem:** smoke test em produção após deploy PRs #10-#13. Não introduzido pela migração de mascaramento — preexistente. Ficou mais visível após padronização do resto do sistema.
+- **O que é:**
+  - Filtros (busca + select categoria + checkbox "Mostrar inativos" + botão "Novo prato") aparecem amontoados sem espaçamento consistente com o resto do design system.
+  - Checkbox "Mostrar inativos" solto entre select e botão — sem agrupamento visual.
+  - Botão "+ Novo prato" mal alinhado com o restante da barra de ações.
+  - Ausência de card wrapper que o resto do sistema usa nos blocos de filtro.
+- **Impacto:** cosmético. Não bloqueia uso do módulo.
+- **Escopo:** frontend, `Dishes.tsx` (`pages/Dishes.tsx`). Requer auditoria read-only do CSS + estrutura JSX antes de qualquer refactor visual.
+- **Vigiar antes de:** ciclo dedicado a padronização visual do módulo Cardápio, OU quando revisar o padrão de FilterBar do DS (talvez esta tela seja outlier que sinaliza que o padrão não foi consolidado ainda).
+
+---
+
+## Contexto compartilhado — OBS-008/009/010
+
+Detectados no smoke test em produção após deploy dos PRs #10-#13 (Fase 3 da migração de mascaramento monetário). Migração validada OK. Estes 3 itens são **preexistentes à migração** (não introduzidos por ela) e ficaram mais visíveis após a padronização do resto do sistema. Nenhum bloqueia operação crítica do negócio.
+
+**OBS-011** (viewport mobile) é reflexão pós-deploy separada — débito técnico de cobertura da própria migração, não bug preexistente.
+
+---
+
 ### OBS-007 — Botão "Conferir" em `/financeiro/cartoes` não abre nada
 
 - **Origem:** smoke test em produção após deploy dos PRs #2-#9 (padrão único de mascaramento monetário). Preexistente à migração.
