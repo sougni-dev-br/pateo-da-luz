@@ -21,11 +21,11 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { ConfirmDialog } from "../components/ui";
-import { Button, IconButton, StatusBadge as DsStatusBadge } from "../design-system";
+import { Button, IconButton, Money, StatusBadge as DsStatusBadge } from "../design-system";
 import type { StatusTone } from "../design-system";
 import { useSearchParams } from "react-router-dom";
 import { hasPermission } from "../lib/permissions";
-import { formatCurrency, formatDate } from "../utils/format";
+import { formatDate } from "../utils/format";
 
 function todayInput() {
   return new Date().toISOString().slice(0, 10);
@@ -70,7 +70,7 @@ function StockBaseCard({ base }: { base: StockBase }) {
         <span><span className="stock-base-card__label">Itens:</span> {base.totalItems}</span>
         <span><span className="stock-base-card__label">Origem:</span> {originLabel}</span>
         {base.snapshotTotal != null && (
-          <span><span className="stock-base-card__label">Total:</span> {formatCurrency(base.snapshotTotal)}</span>
+          <span><span className="stock-base-card__label">Total:</span> <Money value={base.snapshotTotal} /></span>
         )}
       </div>
       {base.originalFileName && (
@@ -193,23 +193,23 @@ function CmvPeriodMobileCard({
       </div>
       <div className="cmv-mobile-row">
         <span>Estoque inicial</span>
-        <span>{formatCurrency(period.estoqueInicialTotal)}</span>
+        <span><Money value={period.estoqueInicialTotal} /></span>
       </div>
       <div className="cmv-mobile-row">
         <span>Compras</span>
-        <span>{formatCurrency(period.comprasTotal)}</span>
+        <span><Money value={period.comprasTotal} /></span>
       </div>
       <div className="cmv-mobile-row">
         <span>Estoque final</span>
-        <span>{formatCurrency(period.estoqueFinalTotal)}</span>
+        <span><Money value={period.estoqueFinalTotal} /></span>
       </div>
       <div className="cmv-mobile-row">
         <span>CMV real</span>
-        <strong>{formatCurrency(period.cmvReal)}</strong>
+        <strong><Money value={period.cmvReal} /></strong>
       </div>
       <div className="cmv-mobile-row">
         <span>Faturamento</span>
-        <span>{formatCurrency(period.faturamentoTotal)}</span>
+        <span><Money value={period.faturamentoTotal} /></span>
       </div>
       <div className="cmv-mobile-row">
         <span>CMV %</span>
@@ -848,11 +848,11 @@ export function CmvReal({ user }: { user: AppUser }) {
                       {duplicatePeriodKeys.has(periodKey(period)) && <span className="status-pill warning">Duplicada</span>}
                     </td>
                     <td className="nowrap-cell">{period.code ?? "-"}</td>
-                    <td className="numeric-cell nowrap-cell">{formatCurrency(period.estoqueInicialTotal)}</td>
-                    <td className="numeric-cell nowrap-cell">{formatCurrency(period.comprasTotal)}</td>
-                    <td className="numeric-cell nowrap-cell">{formatCurrency(period.estoqueFinalTotal)}</td>
-                    <td className="numeric-cell nowrap-cell">{formatCurrency(period.cmvReal)}</td>
-                    <td className="numeric-cell nowrap-cell">{formatCurrency(period.faturamentoTotal)}</td>
+                    <td className="numeric-cell nowrap-cell"><Money value={period.estoqueInicialTotal} /></td>
+                    <td className="numeric-cell nowrap-cell"><Money value={period.comprasTotal} /></td>
+                    <td className="numeric-cell nowrap-cell"><Money value={period.estoqueFinalTotal} /></td>
+                    <td className="numeric-cell nowrap-cell"><Money value={period.cmvReal} /></td>
+                    <td className="numeric-cell nowrap-cell"><Money value={period.faturamentoTotal} /></td>
                     <td className="numeric-cell nowrap-cell">{formatPercent(period.cmvPercentual)}</td>
                     <td><StatusBadge status={period.status} /></td>
                     <td>
@@ -902,12 +902,12 @@ export function CmvReal({ user }: { user: AppUser }) {
               <MetricCard label="Período" value={`${formatDate(selectedPeriod.dataInicial)} a ${formatDate(selectedPeriod.dataFinal)}`} />
               <MetricCard label="Status" value={<StatusBadge status={selectedPeriod.status} />} />
               <MetricCard label="CMV %" value={formatPercent(selectedPeriod.cmvPercentual)} className={`cmv-highlight-card ${cmvHealth.tone}`} detail={cmvHealth.label} />
-              <MetricCard label="Margem bruta" value={selectedPeriod.margemBruta == null ? "-" : formatCurrency(selectedPeriod.margemBruta)} className="cmv-highlight-card tone-info" />
-              <MetricCard label="Estoque inicial" value={formatCurrency(selectedPeriod.estoqueInicialTotal)} />
-              <MetricCard label="Compras" value={formatCurrency(selectedPeriod.comprasTotal)} />
-              <MetricCard label="Estoque final" value={formatCurrency(selectedPeriod.estoqueFinalTotal)} />
-              <MetricCard label="CMV real" value={formatCurrency(selectedPeriod.cmvReal)} />
-              <MetricCard label="Faturamento" value={formatCurrency(selectedPeriod.faturamentoTotal)} />
+              <MetricCard label="Margem bruta" value={<Money value={selectedPeriod.margemBruta} />} className="cmv-highlight-card tone-info" />
+              <MetricCard label="Estoque inicial" value={<Money value={selectedPeriod.estoqueInicialTotal} />} />
+              <MetricCard label="Compras" value={<Money value={selectedPeriod.comprasTotal} />} />
+              <MetricCard label="Estoque final" value={<Money value={selectedPeriod.estoqueFinalTotal} />} />
+              <MetricCard label="CMV real" value={<Money value={selectedPeriod.cmvReal} />} />
+              <MetricCard label="Faturamento" value={<Money value={selectedPeriod.faturamentoTotal} />} />
             </div>
 
             <div className="subsection">
@@ -916,16 +916,16 @@ export function CmvReal({ user }: { user: AppUser }) {
                 <MetricCard label="Fórmula" value="Estoque inicial + Compras - Estoque final" />
                 <MetricCard
                   label="Aplicação"
-                  value={`${formatCurrency(selectedPeriod.estoqueInicialTotal)} + ${formatCurrency(selectedPeriod.comprasTotal)} - ${formatCurrency(selectedPeriod.estoqueFinalTotal)}`}
+                  value={<><Money value={selectedPeriod.estoqueInicialTotal} /> + <Money value={selectedPeriod.comprasTotal} /> - <Money value={selectedPeriod.estoqueFinalTotal} /></>}
                 />
-                <MetricCard label="Resultado" value={formatCurrency(selectedPeriod.cmvReal)} />
+                <MetricCard label="Resultado" value={<Money value={selectedPeriod.cmvReal} />} />
                 <MetricCard label="CMV %" value={formatPercent(selectedPeriod.cmvPercentual)} detail={cmvHealth.label} />
-                <MetricCard label="Faturamento líquido" value={formatCurrency(selectedPeriod.faturamentoTotal)} />
-                <MetricCard label="Compras consideradas" value={formatCurrency(detail?.purchasesGrossTotal ?? selectedPeriod.comprasTotal)} detail={`${detail?.purchasesCount ?? 0} compras`} />
+                <MetricCard label="Faturamento líquido" value={<Money value={selectedPeriod.faturamentoTotal} />} />
+                <MetricCard label="Compras consideradas" value={<Money value={detail?.purchasesGrossTotal ?? selectedPeriod.comprasTotal} />} detail={`${detail?.purchasesCount ?? 0} compras`} />
                 <MetricCard label="Dias com faturamento" value={detail?.revenueDaysCount ?? 0} />
-                <MetricCard label="Receita bruta" value={formatCurrency(detail?.revenueGrossTotal ?? 0)} />
-                <MetricCard label="Serviço" value={formatCurrency(detail?.revenueServiceTotal ?? 0)} />
-                <MetricCard label="Receita líquida" value={formatCurrency(detail?.revenueNetTotal ?? selectedPeriod.faturamentoTotal)} />
+                <MetricCard label="Receita bruta" value={<Money value={detail?.revenueGrossTotal ?? 0} />} />
+                <MetricCard label="Serviço" value={<Money value={detail?.revenueServiceTotal ?? 0} />} />
+                <MetricCard label="Receita líquida" value={<Money value={detail?.revenueNetTotal ?? selectedPeriod.faturamentoTotal} />} />
                 <MetricCard label="Inventário inicial" value={selectedPeriod.estoqueInicialSnapshotData ? formatDate(selectedPeriod.estoqueInicialSnapshotData) : "-"} />
                 <MetricCard label="Inventário final" value={selectedPeriod.estoqueFinalSnapshotData ? formatDate(selectedPeriod.estoqueFinalSnapshotData) : "-"} />
               </div>
@@ -943,7 +943,7 @@ export function CmvReal({ user }: { user: AppUser }) {
                         <td title={row.categoryName}>{row.categoryName}</td>
                         <td className="numeric-cell">{row.itemsCount}</td>
                         <td className="numeric-cell nowrap-cell">{percentageOf(detail?.purchasesGrossTotal ?? 0, row.totalAmount)}</td>
-                        <td className="numeric-cell nowrap-cell">{formatCurrency(row.totalAmount)}</td>
+                        <td className="numeric-cell nowrap-cell"><Money value={row.totalAmount} /></td>
                       </tr>
                     )) ?? null}
                     {detail?.purchaseByCategory.length === 0 && <EmptyTableRow colSpan={5} message="Sem dados." />}
@@ -965,7 +965,7 @@ export function CmvReal({ user }: { user: AppUser }) {
                         <td className="nowrap-cell">{row.supplierDocument ?? "-"}</td>
                         <td className="numeric-cell">{row.purchasesCount}</td>
                         <td className="numeric-cell nowrap-cell">{percentageOf(detail?.purchasesGrossTotal ?? 0, row.totalAmount)}</td>
-                        <td className="numeric-cell nowrap-cell">{formatCurrency(row.totalAmount)}</td>
+                        <td className="numeric-cell nowrap-cell"><Money value={row.totalAmount} /></td>
                       </tr>
                     )) ?? null}
                     {detail?.purchaseBySupplier.length === 0 && <EmptyTableRow colSpan={6} message="Sem dados." />}
@@ -985,8 +985,8 @@ export function CmvReal({ user }: { user: AppUser }) {
                         <td>{row.channel}</td>
                         <td className="numeric-cell">{row.count}</td>
                         <td className="numeric-cell nowrap-cell">{percentageOf(detail?.revenueNetTotal ?? 0, row.netAmount)}</td>
-                        <td className="numeric-cell nowrap-cell">{formatCurrency(row.grossAmount)}</td>
-                        <td className="numeric-cell nowrap-cell">{formatCurrency(row.netAmount)}</td>
+                        <td className="numeric-cell nowrap-cell"><Money value={row.grossAmount} /></td>
+                        <td className="numeric-cell nowrap-cell"><Money value={row.netAmount} /></td>
                       </tr>
                     )) ?? null}
                     {detail?.revenueByChannel.length === 0 && <EmptyTableRow colSpan={5} message="Sem dados." />}
