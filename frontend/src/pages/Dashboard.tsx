@@ -22,8 +22,8 @@ import {
   Purchase,
 } from "../api/client";
 import { useSession } from "../context/SessionContext";
-import { Alert, Button, IconButton } from "../design-system";
-import { formatCurrency, formatDate, formatNumber, formatPercent } from "../utils/format";
+import { Alert, Button, IconButton, Money, useFormatCurrency } from "../design-system";
+import { formatDate, formatNumber, formatPercent } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 
 // ─────────────────────────────────────────────
@@ -82,6 +82,7 @@ const MODULE_BY_PATH: Record<string, string> = {
 // ─────────────────────────────────────────────
 
 export function Dashboard() {
+  const fmt = useFormatCurrency();
   const navigate = useNavigate();
   const { canAccessSection, hasPermission } = useSession();
 
@@ -228,7 +229,7 @@ export function Dashboard() {
   const toDisplay = (a: DashboardAlert): DisplayAlert => ({
     tone: a.type === "success" ? "info" : a.type,
     label: a.title,
-    text: a.description + (a.amount != null && a.amount > 0 ? ` Total: ${formatCurrency(a.amount)}.` : ""),
+    text: a.description + (a.amount != null && a.amount > 0 ? ` Total: ${fmt(a.amount)}.` : ""),
     actionLabel: a.actionLabel,
     actionPath: a.actionPath,
   });
@@ -355,7 +356,7 @@ export function Dashboard() {
             <div className="dash-kpi-grid">
               <KpiCard
                 label="Faturamento Bruto"
-                value={hasRevenue ? formatCurrency(rev!.grossAmount) : "—"}
+                value={hasRevenue ? fmt(rev!.grossAmount) : "—"}
                 sub={
                   hasRevenue
                     ? `${formatNumber(rev!.count)} lançamento${rev!.count !== 1 ? "s" : ""}`
@@ -369,7 +370,7 @@ export function Dashboard() {
               />
               <KpiCard
                 label="Ticket Médio"
-                value={hasRevenue && rev!.tickets > 0 ? formatCurrency(rev!.ticketAverageGeneral) : "—"}
+                value={hasRevenue && rev!.tickets > 0 ? fmt(rev!.ticketAverageGeneral) : "—"}
                 sub={
                   hasRevenue
                     ? `${formatNumber(rev!.tickets)} ticket${rev!.tickets !== 1 ? "s" : ""}`
@@ -380,10 +381,10 @@ export function Dashboard() {
               />
               <KpiCard
                 label="Compras do Período"
-                value={summary ? formatCurrency(summary.purchases.total) : hasPurchases ? formatCurrency(data.totalAmount) : "—"}
+                value={summary ? fmt(summary.purchases.total) : hasPurchases ? fmt(data.totalAmount) : "—"}
                 sub={
                   summary && summary.purchases.prev.total > 0
-                    ? `Anterior: ${formatCurrency(summary.purchases.prev.total)}`
+                    ? `Anterior: ${fmt(summary.purchases.prev.total)}`
                     : summary && summary.purchases.total > 0
                     ? "Sem dados do mês anterior"
                     : "Sem compras no período"
@@ -402,7 +403,7 @@ export function Dashboard() {
                 label="CMV Real"
                 value={
                   summary?.cmvReal.status === "closed" && summary.cmvReal.value !== null
-                    ? formatCurrency(summary.cmvReal.value)
+                    ? fmt(summary.cmvReal.value)
                     : "—"
                 }
                 sub={
@@ -432,7 +433,7 @@ export function Dashboard() {
               />
               <KpiCard
                 label="Resultado Estimado"
-                value={summary ? formatCurrency(summary.estimatedResult.value) : "—"}
+                value={summary ? fmt(summary.estimatedResult.value) : "—"}
                 sub={
                   summary
                     ? summary.estimatedResult.marginPercent !== null
@@ -603,7 +604,7 @@ function RecentPurchasesList({
             {p.invoiceNumber ? `NF ${p.invoiceNumber}` : p.purchaseNumber ? `#${p.purchaseNumber}` : ""}
           </span>
           <span className="dash-recent-date">{formatDate(p.purchaseDate)}</span>
-          <strong className="dash-recent-amount">{formatCurrency(Number(p.totalAmount))}</strong>
+          <strong className="dash-recent-amount"><Money value={p.totalAmount} /></strong>
         </li>
       ))}
       <li className="dash-recent-footer">
@@ -666,7 +667,7 @@ function RankingPanel({
                 <div className="dash-ranking-body">
                   <div className="dash-ranking-top-row">
                     <span className="dash-ranking-name">{row.name}</span>
-                    <strong className="dash-ranking-value">{formatCurrency(row.total)}</strong>
+                    <strong className="dash-ranking-value"><Money value={row.total} /></strong>
                   </div>
                   <div className="dash-ranking-bar-wrap">
                     <div className="dash-ranking-bar" style={{ width: `${Math.max(pct, 2)}%` }} />
