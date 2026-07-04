@@ -47,10 +47,11 @@ import {
   Select,
   StatusBadge as DsStatusBadge,
   Table,
-  TextField
+  TextField,
+  useFormatCurrency
 } from "../design-system";
 import type { StatusTone } from "../design-system";
-import { formatCurrency, formatDate } from "../utils/format";
+import { formatDate } from "../utils/format";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -112,6 +113,7 @@ function emptyCheckForm(): CheckFormState {
 
 export function SupplierCycles() {
   const { notice, setNotice } = useNotice();
+  const fmt = useFormatCurrency();
 
   // list state
   const [cycles, setCycles] = useState<SupplierCycle[]>([]);
@@ -747,7 +749,7 @@ export function SupplierCycles() {
               <option value="">Selecione…</option>
               {targetCycles.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {formatDate(c.periodStart)}{c.periodEnd ? ` – ${formatDate(c.periodEnd)}` : " – aberto"} · {STATUS_LABELS[c.status]} · {formatCurrency(c.totalAmount)}
+                  {formatDate(c.periodStart)}{c.periodEnd ? ` – ${formatDate(c.periodEnd)}` : " – aberto"} · {STATUS_LABELS[c.status]} · {fmt(c.totalAmount)}
                 </option>
               ))}
             </select>
@@ -789,7 +791,7 @@ export function SupplierCycles() {
               </div>
               <div>
                 <div style={{ fontSize: 11, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Total do ciclo</div>
-                <div style={{ fontWeight: 700, fontSize: 18 }}>{formatCurrency(detail.totalAmount)}</div>
+                <div style={{ fontWeight: 700, fontSize: 18 }}><Money value={detail.totalAmount} /></div>
               </div>
               <div>
                 <div style={{ fontSize: 11, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Conferência</div>
@@ -846,7 +848,7 @@ export function SupplierCycles() {
                         <td style={{ fontWeight: 500, fontSize: 13 }}>{item.purchaseNumber ?? "—"}</td>
                         <td style={{ fontSize: 13, color: "var(--ink-soft)" }}>{item.invoiceNumber ?? "—"}</td>
                         <td style={{ fontSize: 13 }}>{formatDate(item.purchaseDate)}</td>
-                        <td style={{ textAlign: "right", fontWeight: 600 }}>{formatCurrency(item.amount)}</td>
+                        <td style={{ textAlign: "right", fontWeight: 600 }}><Money value={item.amount} /></td>
                         <td>
                           <span style={{ fontSize: 12, color: item.purchaseStatus === "ACTIVE" ? "var(--success)" : "var(--ink-faint)" }}>
                             {item.purchaseStatus === "ACTIVE" ? "Ativa" : item.purchaseStatus}
@@ -857,7 +859,7 @@ export function SupplierCycles() {
                         </td>
                         <td style={{ textAlign: "center" }}>
                           {item.hasDivergence
-                            ? <span title={item.divergenceAmount ? `Divergência: ${formatCurrency(item.divergenceAmount)}` : "Divergência"}><AlertTriangle size={14} color="var(--warning)" /></span>
+                            ? <span title={item.divergenceAmount ? `Divergência: ${fmt(item.divergenceAmount)}` : "Divergência"}><AlertTriangle size={14} color="var(--warning)" /></span>
                             : <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>—</span>}
                         </td>
                         <td style={{ textAlign: "center" }}>
@@ -996,7 +998,7 @@ export function SupplierCycles() {
                                   </span>
                                 )}
                               </td>
-                              <td style={{ textAlign: "right", fontWeight: 600 }}>{formatCurrency(p.totalAmount)}</td>
+                              <td style={{ textAlign: "right", fontWeight: 600 }}><Money value={p.totalAmount} /></td>
                               <td style={{ fontSize: 12 }}>
                                 {p.currentCycleId
                                   ? <span style={{ color: "var(--warning)" }}>Em outro ciclo ({STATUS_LABELS[p.currentCycleStatus ?? ""] ?? p.currentCycleStatus})</span>
@@ -1032,7 +1034,7 @@ export function SupplierCycles() {
                       <div style={{ fontSize: 11, color: "var(--ink-faint)", marginBottom: 2 }}>
                         Parcela {inst.installment}/{detail.installments.length} · {inst.paymentMethodName}
                       </div>
-                      <div style={{ fontSize: 18, fontWeight: 700 }}>{formatCurrency(inst.amount)}</div>
+                      <div style={{ fontSize: 18, fontWeight: 700 }}><Money value={inst.amount} /></div>
                       <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>Venc. {formatDate(inst.dueDate)}</div>
                       <div style={{ marginTop: 4 }}><StatusBadge status={inst.status} /></div>
                     </div>
@@ -1080,7 +1082,7 @@ export function SupplierCycles() {
               <div style={{ fontSize: 12, color: "var(--ink-faint)" }}>Fornecedor</div>
               <div style={{ fontWeight: 600 }}>{detail.supplierName}</div>
               <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 4 }}>
-                {detail.items.length} compra(s) · Total: <strong>{formatCurrency(detail.totalAmount)}</strong>
+                {detail.items.length} compra(s) · Total: <strong><Money value={detail.totalAmount} /></strong>
               </div>
             </div>
 
@@ -1169,19 +1171,19 @@ export function SupplierCycles() {
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", background: "var(--paper)", minWidth: 150 }}>
                     <div style={{ fontSize: 11, color: "var(--ink-faint)" }}>Boleto 1/{closeForm.installmentCount} · {selectedPm?.name}</div>
-                    <div style={{ fontSize: 17, fontWeight: 700, marginTop: 2 }}>{formatCurrency(firstAmount)}</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, marginTop: 2 }}><Money value={firstAmount} /></div>
                     <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>Venc. {formatDate(closeForm.firstDueDate)}</div>
                   </div>
                   {closeForm.installmentCount === 2 && closeForm.secondDueDate && (
                     <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", background: "var(--paper)", minWidth: 150 }}>
                       <div style={{ fontSize: 11, color: "var(--ink-faint)" }}>Boleto 2/2 · {selectedPm?.name}</div>
-                      <div style={{ fontSize: 17, fontWeight: 700, marginTop: 2 }}>{formatCurrency(secondAmount)}</div>
+                      <div style={{ fontSize: 17, fontWeight: 700, marginTop: 2 }}><Money value={secondAmount} /></div>
                       <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>Venc. {formatDate(closeForm.secondDueDate)}</div>
                     </div>
                   )}
                 </div>
                 <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 8 }}>
-                  Total: {formatCurrency(totalAmount)} · Os títulos serão criados em Contas a Pagar com origem SUPPLIER_CYCLE.
+                  Total: <Money value={totalAmount} /> · Os títulos serão criados em Contas a Pagar com origem SUPPLIER_CYCLE.
                 </div>
               </div>
             )}
