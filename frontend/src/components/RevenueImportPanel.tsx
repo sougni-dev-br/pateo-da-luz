@@ -8,7 +8,8 @@ import {
   RevenueImportReport
 } from "../api/client";
 import { Notice, useNotice } from "./Notice";
-import { formatCurrency, formatNumber } from "../utils/format";
+import { Money } from "../design-system";
+import { formatNumber } from "../utils/format";
 
 const channels = ["Salão", "Delivery", "Eventos / Empreitada", "Outros"];
 
@@ -195,22 +196,22 @@ export function RevenueImportPanel({ onImported, onOpenRevenue }: Props) {
 
           <div className="summary-grid financial-summary">
             <article><span>Dias</span><strong>{formatNumber(importPreview.validation.dailyRows)}</strong></article>
-            <article><span>{isDeliveryPreview ? "Faturamento bruto delivery" : "Venda total"}</span><strong>{formatCurrency(importPreview.validation.totalGross)}</strong></article>
+            <article><span>{isDeliveryPreview ? "Faturamento bruto delivery" : "Venda total"}</span><strong><Money value={importPreview.validation.totalGross} /></strong></article>
             {isDeliveryPreview ? (
               <>
-                <article><span>99Food total</span><strong>{formatCurrency(importPreview.validation.total99Food)}</strong></article>
-                <article><span>iFood total</span><strong>{formatCurrency(importPreview.validation.totalIfood)}</strong></article>
-                <article><span>Keeta total</span><strong>{formatCurrency(importPreview.validation.totalKeeta)}</strong></article>
+                <article><span>99Food total</span><strong><Money value={importPreview.validation.total99Food} /></strong></article>
+                <article><span>iFood total</span><strong><Money value={importPreview.validation.totalIfood} /></strong></article>
+                <article><span>Keeta total</span><strong><Money value={importPreview.validation.totalKeeta} /></strong></article>
               </>
             ) : (
               <>
-                <article><span>Servico</span><strong>{formatCurrency(importPreview.validation.totalService)}</strong></article>
-                <article><span>1 turno</span><strong>{formatCurrency(importPreview.validation.totalFirstShift)}</strong></article>
-                <article><span>2 turno</span><strong>{formatCurrency(importPreview.validation.totalSecondShift)}</strong></article>
+                <article><span>Servico</span><strong><Money value={importPreview.validation.totalService} /></strong></article>
+                <article><span>1 turno</span><strong><Money value={importPreview.validation.totalFirstShift} /></strong></article>
+                <article><span>2 turno</span><strong><Money value={importPreview.validation.totalSecondShift} /></strong></article>
               </>
             )}
             <article><span>{isDeliveryPreview ? "Pedidos totais" : "Tickets"}</span><strong>{formatNumber(importPreview.validation.totalTickets)}</strong></article>
-            <article><span>Ticket medio</span><strong>{formatCurrency(importPreview.validation.ticketAverageGeneral)}</strong></article>
+            <article><span>Ticket medio</span><strong><Money value={importPreview.validation.ticketAverageGeneral} /></strong></article>
             <article><span>Ignoradas</span><strong>{formatNumber(importPreview.validation.ignoredRows)}</strong></article>
             <article><span>Primeiro dia</span><strong>{importPreview.validation.firstDate ?? "-"}</strong></article>
             <article><span>Ultimo dia</span><strong>{importPreview.validation.lastDate ?? "-"}</strong></article>
@@ -241,14 +242,14 @@ export function RevenueImportPanel({ onImported, onOpenRevenue }: Props) {
                         <td>{row.date}</td>
                         <td>{row.dayOfWeek ?? "-"}</td>
                         <td>{formatNumber(row.delivery?.orders99Food ?? 0)}</td>
-                        <td>{formatCurrency(row.delivery?.earnings99Food ?? 0)}</td>
+                        <td><Money value={row.delivery?.earnings99Food ?? 0} /></td>
                         <td>{formatNumber(row.delivery?.ordersIfood ?? 0)}</td>
-                        <td>{formatCurrency(row.delivery?.earningsIfood ?? 0)}</td>
+                        <td><Money value={row.delivery?.earningsIfood ?? 0} /></td>
                         <td>{formatNumber(row.delivery?.ordersKeeta ?? 0)}</td>
-                        <td>{formatCurrency(row.delivery?.earningsKeeta ?? 0)}</td>
+                        <td><Money value={row.delivery?.earningsKeeta ?? 0} /></td>
                         <td>{formatNumber(row.tickets)}</td>
-                        <td>{formatCurrency(row.grossAmount)}</td>
-                        <td>{formatCurrency(row.ticketAverage)}</td>
+                        <td><Money value={row.grossAmount} /></td>
+                        <td><Money value={row.ticketAverage} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -273,15 +274,15 @@ export function RevenueImportPanel({ onImported, onOpenRevenue }: Props) {
                 {importPreview.previewRows.slice(0, 3).map((row) => (
                   <tr key={row.rowNumber}>
                     <td>{Number(row.date.slice(-2))}</td>
-                    <td>{formatCurrency(row.salesFirstShift)}</td>
-                    <td>{formatCurrency(row.salesSecondShift)}</td>
-                    <td>{formatCurrency(row.grossAmount)}</td>
+                    <td><Money value={row.salesFirstShift} /></td>
+                    <td><Money value={row.salesSecondShift} /></td>
+                    <td><Money value={row.grossAmount} /></td>
                     <td>{formatNumber(row.ticketsFirstShift)}</td>
                     <td>{formatNumber(row.ticketsSecondShift)}</td>
                     <td>{formatNumber(row.tickets)}</td>
-                    <td>{formatCurrency(row.serviceAmount)}</td>
-                    <td>{formatCurrency(row.repiqueAmount)}</td>
-                    <td>{formatCurrency(row.ticketAverage)}</td>
+                    <td><Money value={row.serviceAmount} /></td>
+                    <td><Money value={row.repiqueAmount} /></td>
+                    <td><Money value={row.ticketAverage} /></td>
                   </tr>
                 ))}
                   </tbody>
@@ -348,8 +349,8 @@ export function RevenueImportPanel({ onImported, onOpenRevenue }: Props) {
             <article><span>Criadas</span><strong>{formatNumber(importReport.createdRows)}</strong></article>
             <article><span>Atualizadas</span><strong>{formatNumber(importReport.updatedRows)}</strong></article>
             <article><span>Ignoradas</span><strong>{formatNumber(importReport.ignoredRows)}</strong></article>
-            <article><span>Bruto</span><strong>{formatCurrency(importReport.totalGross)}</strong></article>
-            <article><span>Servico</span><strong>{formatCurrency(importReport.totalService)}</strong></article>
+            <article><span>Bruto</span><strong><Money value={importReport.totalGross} /></strong></article>
+            <article><span>Servico</span><strong><Money value={importReport.totalService} /></strong></article>
           </div>
           <p className="muted-inline">Lote importado: {importReport.importBatchId}</p>
         </section>
