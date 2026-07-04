@@ -8,13 +8,14 @@ import {
   PanelEyebrow,
   StatusBadge as DsStatusBadge,
   SummaryCard,
-  Table
+  Table,
+  useFormatCurrency
 } from "../design-system";
 import type { StatusTone } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { PeriodFilter } from "../components/PeriodFilter";
 import type { ImportTab } from "./ImportsHub";
-import { formatCurrency, formatDate, formatNumber, formatPercent } from "../utils/format";
+import { formatDate, formatNumber, formatPercent } from "../utils/format";
 import { currentMonthPeriod, periodForPreset, type PeriodState } from "../utils/period";
 
 const channels = ["Salão", "Delivery", "Eventos / Empreitada", "Outros"];
@@ -166,19 +167,19 @@ function RevenueEntryMobileCard({
       </div>
       <div className="revenue-mobile-row">
         <span>1º turno</span>
-        <span>{formatCurrency(Number(entry.salesFirstShift ?? 0))}</span>
+        <span><Money value={entry.salesFirstShift ?? 0} /></span>
       </div>
       <div className="revenue-mobile-row">
         <span>2º turno</span>
-        <span>{formatCurrency(Number(entry.salesSecondShift ?? 0))}</span>
+        <span><Money value={entry.salesSecondShift ?? 0} /></span>
       </div>
       <div className="revenue-mobile-row revenue-mobile-row--highlight">
         <span>Venda total</span>
-        <strong>{formatCurrency(Number(entry.grossAmount ?? 0))}</strong>
+        <strong><Money value={entry.grossAmount ?? 0} /></strong>
       </div>
       <div className="revenue-mobile-row">
         <span>Serviço</span>
-        <span>{formatCurrency(Number(entry.serviceAmount ?? 0))}</span>
+        <span><Money value={entry.serviceAmount ?? 0} /></span>
       </div>
       <div className="revenue-mobile-row">
         <span>TCs</span>
@@ -186,11 +187,11 @@ function RevenueEntryMobileCard({
       </div>
       <div className="revenue-mobile-row">
         <span>Ticket médio</span>
-        <span>{formatCurrency(Number(entry.ticketAverage ?? 0))}</span>
+        <span><Money value={entry.ticketAverage ?? 0} /></span>
       </div>
       <div className="revenue-mobile-row">
         <span>Acumulado</span>
-        <span>{formatCurrency(Number(entry.accumulatedAmount ?? 0))}</span>
+        <span><Money value={entry.accumulatedAmount ?? 0} /></span>
       </div>
       <div className="revenue-mobile-row">
         <span>Status</span>
@@ -218,6 +219,7 @@ type RevenueProps = {
 };
 
 export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
+  const fmt = useFormatCurrency();
   const canEdit = hasPermission(user, "revenue", "edit");
   const canLaunchEvent = hasPermission(user, "revenue", "approve");
   const [month, setMonth] = useState(currentMonth());
@@ -446,14 +448,14 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
   }, [dailyAnalytics]);
 
   const topCards = useMemo(() => [
-    { label: "Faturamento bruto", value: formatCurrency(summaryData?.grossAmount ?? 0) },
-    { label: "Serviço", value: formatCurrency(summaryData?.serviceAmount ?? 0) },
-    { label: "Faturamento líquido", value: formatCurrency(summaryData?.netAmount ?? 0) },
+    { label: "Faturamento bruto", value: fmt(summaryData?.grossAmount ?? 0) },
+    { label: "Serviço", value: fmt(summaryData?.serviceAmount ?? 0) },
+    { label: "Faturamento líquido", value: fmt(summaryData?.netAmount ?? 0) },
     { label: "TCs / Pessoas", value: formatNumber(summaryData?.tickets ?? 0) },
-    { label: "Ticket médio", value: formatCurrency(summaryData?.ticketAverageGeneral ?? 0) },
+    { label: "Ticket médio", value: fmt(summaryData?.ticketAverageGeneral ?? 0) },
     { label: "Dias operados", value: formatNumber(dailyAnalytics.length) },
-    { label: "Total 1º turno", value: formatCurrency(summaryData?.salesFirstShift ?? 0) },
-    { label: "Total 2º turno", value: formatCurrency(summaryData?.salesSecondShift ?? 0) }
+    { label: "Total 1º turno", value: fmt(summaryData?.salesFirstShift ?? 0) },
+    { label: "Total 2º turno", value: fmt(summaryData?.salesSecondShift ?? 0) }
   ], [summaryData, dailyAnalytics.length]);
 
   const channelCards = useMemo(() => {
@@ -599,8 +601,8 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
               <MetricCard
                 key={card.channel}
                 label={displayChannel(card.channel)}
-                value={formatCurrency(card.net)}
-                detail={`Bruto ${formatCurrency(card.gross)} | Serviço ${formatCurrency(card.service)} | TCs ${formatNumber(card.tickets)} | TM ${formatCurrency(card.average)}`}
+                value={fmt(card.net)}
+                detail={`Bruto ${fmt(card.gross)} | Serviço ${fmt(card.service)} | TCs ${formatNumber(card.tickets)} | TM ${fmt(card.average)}`}
               />
             ))}
           </div>
@@ -614,13 +616,13 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                 <MetricCard
                   key={card.sourcePlatform}
                   label={card.sourcePlatform}
-                  value={formatCurrency(card.gross)}
-                  detail={`TCs ${formatNumber(card.tickets)} | TM ${formatCurrency(card.average)}`}
+                  value={fmt(card.gross)}
+                  detail={`TCs ${formatNumber(card.tickets)} | TM ${fmt(card.average)}`}
                 />
               ))}
               <MetricCard
                 label="Total geral"
-                value={formatCurrency(platformCards.reduce((sum, card) => sum + card.gross, 0))}
+                value={fmt(platformCards.reduce((sum, card) => sum + card.gross, 0))}
                 detail={`TCs ${formatNumber(platformCards.reduce((sum, card) => sum + card.tickets, 0))}`}
               />
             </div>
@@ -654,11 +656,11 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                 {channelCards.map((card) => (
                   <tr key={`${card.channel}-row`}>
                     <td>{displayChannel(card.channel)}</td>
-                    <td>{formatCurrency(card.gross)}</td>
-                    <td>{formatCurrency(card.service)}</td>
-                    <td>{formatCurrency(card.net)}</td>
+                    <td><Money value={card.gross} /></td>
+                    <td><Money value={card.service} /></td>
+                    <td><Money value={card.net} /></td>
                     <td>{formatNumber(card.tickets)}</td>
-                    <td>{formatCurrency(card.average)}</td>
+                    <td><Money value={card.average} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -687,12 +689,12 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                   <tr key={String(item.date)}>
                     <td>{formatDate(String(item.date ?? ""))}</td>
                     <td>{String(item.weekdayName ?? "-")}</td>
-                    <td>{formatCurrency(Number(item.salesFirstShift ?? 0))}</td>
-                    <td>{formatCurrency(Number(item.salesSecondShift ?? 0))}</td>
-                    <td>{formatCurrency(Number(item.serviceAmount ?? 0))}</td>
-                    <td>{formatCurrency(Number(item.grossAmount ?? 0))}</td>
+                    <td><Money value={item.salesFirstShift ?? 0} /></td>
+                    <td><Money value={item.salesSecondShift ?? 0} /></td>
+                    <td><Money value={item.serviceAmount ?? 0} /></td>
+                    <td><Money value={item.grossAmount ?? 0} /></td>
                     <td>{formatNumber(Number(item.tickets ?? 0))}</td>
-                    <td>{formatCurrency(Number(item.netAmount ?? 0))}</td>
+                    <td><Money value={item.netAmount ?? 0} /></td>
                   </tr>
                 ))}
                 {dailyRows.length === 0 && <EmptyTableRow colSpan={8} message="Nenhum faturamento encontrado." />}
@@ -721,8 +723,8 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                     <td>{index + 1}</td>
                     <td>{formatDate(item.date)}</td>
                     <td>{item.weekdayName}</td>
-                    <td>{formatCurrency(item.grossAmount)}</td>
-                    <td>{formatCurrency(item.netAmount)}</td>
+                    <td><Money value={item.grossAmount} /></td>
+                    <td><Money value={item.netAmount} /></td>
                     <td>{formatNumber(item.tickets)}</td>
                   </tr>
                 ))}
@@ -748,8 +750,8 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                     <td>{index + 1}</td>
                     <td>{formatDate(item.date)}</td>
                     <td>{item.weekdayName}</td>
-                    <td>{formatCurrency(item.grossAmount)}</td>
-                    <td>{formatCurrency(item.netAmount)}</td>
+                    <td><Money value={item.grossAmount} /></td>
+                    <td><Money value={item.netAmount} /></td>
                     <td>{formatNumber(item.tickets)}</td>
                   </tr>
                 ))}
@@ -776,8 +778,8 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                 {weekdayRows.map((row) => (
                   <tr key={row.weekdayName}>
                     <td>{row.weekdayName}</td>
-                    <td>{formatCurrency(row.grossAmount)}</td>
-                    <td>{formatCurrency(row.netAmount)}</td>
+                    <td><Money value={row.grossAmount} /></td>
+                    <td><Money value={row.netAmount} /></td>
                     <td>{formatNumber(row.tickets)}</td>
                     <td>{row.grossAmount > 0 ? formatPercent((row.serviceAmount / row.grossAmount) * 100) : "0,0%"}</td>
                   </tr>
@@ -954,20 +956,20 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                 <div className="summary-grid event-launch-preview">
                   <article>
                     <span>Valor bruto</span>
-                    <strong>{formatCurrency(eventGross)}</strong>
+                    <strong><Money value={eventGross} /></strong>
                   </article>
                   <article>
                     <span>Taxa de serviço</span>
-                    <strong>{formatCurrency(eventService)}</strong>
+                    <strong><Money value={eventService} /></strong>
                   </article>
                   <article>
                     <span>Valor líquido</span>
-                    <strong>{formatCurrency(eventNet)}</strong>
+                    <strong><Money value={eventNet} /></strong>
                   </article>
                   {eventTicketAverage !== null && Number(eventForm.tickets) > 0 && (
                     <article>
                       <span>Ticket médio</span>
-                      <strong>{formatCurrency(eventTicketAverage)}</strong>
+                      <strong><Money value={eventTicketAverage} /></strong>
                     </article>
                   )}
                 </div>
