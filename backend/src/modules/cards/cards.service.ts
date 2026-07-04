@@ -73,7 +73,8 @@ export async function findOrCreateStatementForPurchase(tx: Prisma.TransactionCli
   purchaseDate: Date;
   purchaseId: string;
 }) {
-  const period = getCardStatementPeriod(input.card, input.purchaseDate);
+  const shift = await resolveOpenStatementShift(tx, input.card, input.purchaseDate, 1);
+  const period = getCardStatementPeriodForInstallment(input.card, input.purchaseDate, shift);
   const existing = await tx.creditCardStatement.findFirst({
     where: {
       creditCardId: input.card.id,
@@ -187,6 +188,46 @@ export function getCardStatementPeriodForInstallment(card: CardRow, purchaseDate
   return { competenceYear: targetYear, competenceMonth: targetMonth, closingDate, dueDate };
 }
 
+const BLOCKED_STATEMENT_STATUSES = ["CLOSED", "PAID", "CANCELLED"];
+const MAX_STATEMENT_SCALE = 12;
+
+// Calcula o deslocamento minimo (em meses) para que TODAS as competencias
+// [purchaseDate+shift .. purchaseDate+shift+installmentCount-1] apontem para
+// faturas que aceitam lancamento (nao CLOSED/PAID/CANCELLED). Retorna 0 quando
+// a competencia natural ja aceita. Retorna erro apos MAX_STATEMENT_SCALE
+// competencias consecutivas bloqueadas.
+async function resolveOpenStatementShift(
+  tx: Prisma.TransactionClient,
+  card: CardRow,
+  purchaseDate: Date,
+  installmentCount: number
+): Promise<number> {
+  for (let shift = 0; shift <= MAX_STATEMENT_SCALE; shift++) {
+    let allClear = true;
+    for (let i = 0; i < installmentCount; i++) {
+      const period = getCardStatementPeriodForInstallment(card, purchaseDate, i + shift);
+      const existing = await tx.creditCardStatement.findFirst({
+        where: {
+          creditCardId: card.id,
+          competenceYear: period.competenceYear,
+          competenceMonth: period.competenceMonth
+        },
+        orderBy: { createdAt: "asc" }
+      });
+      if (existing && BLOCKED_STATEMENT_STATUSES.includes(existing.status)) {
+        allClear = false;
+        break;
+      }
+    }
+    if (allClear) return shift;
+  }
+  throw new Error(
+    `Nao foi possivel encontrar fatura aberta para este cartao apos ${MAX_STATEMENT_SCALE} competencias consecutivas. ` +
+      "Todas as faturas encontradas estao CLOSED/PAID/CANCELLED. " +
+      "Verifique o cadastro do cartao e o status das faturas."
+  );
+}
+
 export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionClient, input: {
   purchaseId: string;
   cardId: string;
@@ -213,20 +254,15 @@ export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionCl
   const affectedStatementIds = new Set<string>();
   const results: { statementId: string; installment: number; value: number }[] = [];
 
+  const statementShift = await resolveOpenStatementShift(tx, card, input.purchaseDate, n);
+
   for (let i = 0; i < n; i++) {
-    const period = getCardStatementPeriodForInstallment(card, input.purchaseDate, i);
+    const period = getCardStatementPeriodForInstallment(card, input.purchaseDate, i + statementShift);
 
     const existing = await tx.creditCardStatement.findFirst({
       where: { creditCardId: card.id, competenceYear: period.competenceYear, competenceMonth: period.competenceMonth },
       orderBy: { createdAt: "asc" }
     });
-    if (existing && ["CLOSED", "PAID", "CANCELLED"].includes(existing.status)) {
-      throw new Error(
-        `Fatura ${existing.name || `${String(existing.competenceMonth).padStart(2, "0")}/${existing.competenceYear}`} ` +
-        `está ${existing.status === "CLOSED" ? "fechada" : existing.status === "PAID" ? "paga" : "cancelada"} ` +
-        `e não pode receber novos lançamentos. Reabra a fatura antes de lançar esta compra.`
-      );
-    }
     const statement = existing ?? await tx.creditCardStatement.create({
       data: {
         id: crypto.randomUUID(),
