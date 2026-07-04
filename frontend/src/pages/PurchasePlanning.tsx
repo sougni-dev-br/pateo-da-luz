@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, FileText, Loader2, PackageSearch, RotateCcw, Search, ShoppingCart, Tag, Trash2, X } from "lucide-react";
 import { Dialog } from "../components/ui";
-import { Button, EmptyState, StatusBadge, Tabs } from "../design-system";
+import { Button, EmptyState, Money, StatusBadge, Tabs, useFormatCurrency } from "../design-system";
 import {
   createPurchaseOrdersFromPlanning,
   downloadPurchaseOrderPdf,
@@ -13,7 +13,7 @@ import {
   type PurchaseOrderFromPlanningResult,
   type Supplier
 } from "../api/client";
-import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { formatDate, formatNumber } from "../utils/format";
 
 // Modelos de compra oferecidos ao comprador. Sem conversao automatica nesta etapa.
 const PURCHASE_MODELS = ["unidade", "caixa", "saco", "kg", "bandeja", "pacote", "fardo", "outro"] as const;
@@ -111,6 +111,7 @@ const STATUS_TONE: Record<PlanningStatus, "success" | "warning" | "danger" | "ne
 };
 
 export function PurchasePlanning() {
+  const fmt = useFormatCurrency();
   const [params] = useSearchParams();
   const sourceType = params.get("sourceType") ?? undefined;
   const sourceId = params.get("sourceId") ?? undefined;
@@ -593,13 +594,13 @@ export function PurchasePlanning() {
               </strong>
               <small className="pplan-kpi-sub">
                 {draft.items.length > 0
-                  ? `${formatNumber(draft.supplierCount)} fornecedor${draft.supplierCount === 1 ? "" : "es"}${draftEstimatedTotal > 0 ? ` · ${formatCurrency(draftEstimatedTotal)}` : ""}`
+                  ? `${formatNumber(draft.supplierCount)} fornecedor${draft.supplierCount === 1 ? "" : "es"}${draftEstimatedTotal > 0 ? ` · ${fmt(draftEstimatedTotal)}` : ""}`
                   : "aguardando decisões"}
               </small>
             </div>
             <div className="pplan-kpi-card is-strong pplan-kpi-card--wide">
               <span className="pplan-kpi-label">Custo estimado</span>
-              <strong className="pplan-kpi-value">{kpis.estimated != null ? formatCurrency(kpis.estimated) : "—"}</strong>
+              <strong className="pplan-kpi-value"><Money value={kpis.estimated} /></strong>
               <small className="pplan-kpi-sub">estimativa baseada nas quantidades sugeridas/preenchidas</small>
             </div>
           </section>
@@ -676,7 +677,7 @@ export function PurchasePlanning() {
                     <span className="pplan-supplier-name">{group.name}</span>
                     <span className="pplan-supplier-meta">
                       {formatNumber(group.items.length)} itens
-                      {group.hasEstimate ? ` · ${formatCurrency(group.subtotal)}` : ""}
+                      {group.hasEstimate ? ` · ${fmt(group.subtotal)}` : ""}
                     </span>
                   </summary>
                   <div className="pplan-supplier-items">
@@ -689,7 +690,7 @@ export function PurchasePlanning() {
                           <span className="pplan-supplier-row-name" title={item.productName}>{item.productName}</span>
                           <span className="pplan-supplier-row-qty">
                             {qty > 0 ? `${formatNumber(qty)} ${edit?.model ?? item.unit ?? ""}` : "—"}
-                            {qty > 0 && price != null ? ` · ${formatCurrency(qty * price)}` : ""}
+                            {qty > 0 && price != null ? ` · ${fmt(qty * price)}` : ""}
                           </span>
                         </div>
                       );
@@ -768,7 +769,7 @@ export function PurchasePlanning() {
               <div><dt>Sem preço estimado</dt><dd>{formatNumber(draftMissingPriceCount)}</dd></div>
             )}
             <div><dt>Removidos</dt><dd>{formatNumber(removedIds.size)}</dd></div>
-            <div className="pplan-confirm-total"><dt>Total estimado</dt><dd>{formatCurrency(draftEstimatedTotal)}</dd></div>
+            <div className="pplan-confirm-total"><dt>Total estimado</dt><dd><Money value={draftEstimatedTotal} /></dd></div>
           </dl>
 
           {draftBySupplier.length > 0 && (
@@ -781,7 +782,7 @@ export function PurchasePlanning() {
                     <li key={group.supplierId}>
                       <span className="pplan-confirm-supplier-name">{name}</span>
                       <span className="pplan-confirm-supplier-meta">
-                        {formatNumber(group.totalItems)} item(ns) · {group.totalEstimated > 0 ? formatCurrency(group.totalEstimated) : "—"}
+                        {formatNumber(group.totalItems)} item(ns) · {fmt(group.totalEstimated)}
                       </span>
                     </li>
                   );
@@ -821,7 +822,7 @@ export function PurchasePlanning() {
           <p className="pplan-sticky-count">
             <strong>{formatNumber(draft.items.length)} itens</strong> prontos em{" "}
             <strong>{formatNumber(draft.supplierCount)} fornecedor{draft.supplierCount === 1 ? "" : "es"}</strong>
-            {draftEstimatedTotal > 0 && <> · {formatCurrency(draftEstimatedTotal)}</>}
+            {draftEstimatedTotal > 0 && <> · <Money value={draftEstimatedTotal} /></>}
           </p>
           <button
             type="button"
@@ -886,6 +887,7 @@ type SupplierBlockProps = LineProps & { suppliers: Supplier[] };
 // Fornecedor: chips leves de ranking + combobox local buscavel (input + lista filtrada)
 // substituindo o select nativo que abre tela cheia em mobile.
 function SupplierBlock({ item, edit, onChange, suppliers }: SupplierBlockProps) {
+  const fmt = useFormatCurrency();
   const chosen = chosenSupplierOf(item, edit);
   const recommended = recommendedSuppliers(item);
   const chosenName = chosen
@@ -896,8 +898,8 @@ function SupplierBlock({ item, edit, onChange, suppliers }: SupplierBlockProps) 
 
   const rankLabel = (i: number) => (i === 0 ? "#1 Recomendado" : `#${i + 1} Alternativa`);
   const chipHint = (opt: BuyerSupportItem["supplierPriceOptions"][number], i: number) => {
-    if (i === 0) return `${formatCurrency(opt.bestUnitPrice)} · menor preço`;
-    if (opt.lastUnitPrice != null) return `último ${formatCurrency(opt.lastUnitPrice)}`;
+    if (i === 0) return `${fmt(opt.bestUnitPrice)} · menor preço`;
+    if (opt.lastUnitPrice != null) return `último ${fmt(opt.lastUnitPrice)}`;
     return "histórico recente";
   };
 
@@ -1030,9 +1032,10 @@ function SupplierCombobox({ chosen, suppliers, onSelect }: { chosen: string | nu
 
 // Preço auxiliar: menor preço + último preço + aviso de unidade. Nunca compete com o produto.
 function PriceRef({ item }: { item: BuyerSupportItem }) {
+  const fmt = useFormatCurrency();
   const parts: string[] = [];
-  if (item.bestUnitPrice != null) parts.push(`Menor ${formatCurrency(item.bestUnitPrice)}`);
-  if (item.lastUnitPrice != null) parts.push(`Último ${formatCurrency(item.lastUnitPrice)}${item.lastPurchaseDate ? ` em ${formatDate(item.lastPurchaseDate)}` : ""}`);
+  if (item.bestUnitPrice != null) parts.push(`Menor ${fmt(item.bestUnitPrice)}`);
+  if (item.lastUnitPrice != null) parts.push(`Último ${fmt(item.lastUnitPrice)}${item.lastPurchaseDate ? ` em ${formatDate(item.lastPurchaseDate)}` : ""}`);
   return (
     <div className="pplan-price-ref">
       {parts.length > 0 ? (
@@ -1148,7 +1151,7 @@ function DecisionCard({
           <span className="pplan-product-meta">{meta || "—"}</span>
           {item.hasCheaperAlternative && item.bestPriceSupplierName && (
             <span className="pplan-badge pplan-badge--cheaper" title={item.priceComparisonNote ?? undefined}>
-              <Tag size={11} /> Menor preço: {item.bestPriceSupplierName} · {formatCurrency(item.bestUnitPrice)}
+              <Tag size={11} /> Menor preço: {item.bestPriceSupplierName} · <Money value={item.bestUnitPrice} />
             </span>
           )}
         </div>
@@ -1262,7 +1265,7 @@ const GeneratedPanel = forwardRef<HTMLElement, { result: PurchaseOrderFromPlanni
               <p className="pplan-generated-supplier">{order.supplierName}</p>
               <dl className="pplan-generated-meta-grid">
                 <div><dt>Itens</dt><dd>{formatNumber(order.totalItems)}</dd></div>
-                <div><dt>Total estimado</dt><dd>{order.totalEstimated > 0 ? formatCurrency(order.totalEstimated) : "—"}</dd></div>
+                <div><dt>Total estimado</dt><dd><Money value={order.totalEstimated} /></dd></div>
                 <div><dt>Origem</dt><dd>Planejamento de compra</dd></div>
               </dl>
               <div className="pplan-generated-actions">
