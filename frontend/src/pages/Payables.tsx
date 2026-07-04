@@ -20,7 +20,7 @@ import {
 } from "../design-system";
 import type { StatusTone } from "../design-system";
 import { hasPermission } from "../lib/permissions";
-import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod, periodForPreset, PeriodPreset, PeriodState } from "../utils/period";
 
 const statusLabels: Record<string, string> = {
@@ -761,7 +761,7 @@ export function Payables({ user }: PayablesProps) {
                   </>
                 )}
                 <div><span>Vencimento</span><strong>{formatDate(paying.dueDate)}</strong></div>
-                <div><span>Valor original</span><strong className="pay-ctx-amount">{formatCurrency(paymentOriginalAmount)}</strong></div>
+                <div><span>Valor original</span><strong className="pay-ctx-amount"><Money value={paymentOriginalAmount} /></strong></div>
               </div>
             </div>
 
@@ -822,9 +822,9 @@ export function Payables({ user }: PayablesProps) {
                 {Math.abs(paymentDifference) <= 0.009 ? (
                   <span className="pay-diff-equal">Sem diferença em relação ao valor original</span>
                 ) : paymentDifference < 0 ? (
-                  <span className="pay-diff-discount">Desconto: {formatCurrency(paymentDiscount)}</span>
+                  <span className="pay-diff-discount">Desconto: <Money value={paymentDiscount} /></span>
                 ) : (
-                  <span className="pay-diff-surcharge">Juros / acréscimo: {formatCurrency(paymentSurcharge)}</span>
+                  <span className="pay-diff-surcharge">Juros / acréscimo: <Money value={paymentSurcharge} /></span>
                 )}
               </div>
             )}
@@ -844,7 +844,7 @@ export function Payables({ user }: PayablesProps) {
             {/* Frase de confirmação */}
             <p className="pay-confirm-phrase">
               {isTaxPayment(paying) ? (
-                <>Você está baixando <strong>{paying.taxDocumentType ?? paying.supplierName}</strong> no valor de{" "}<strong>{paymentPaidAmount > 0 ? formatCurrency(paymentPaidAmount) : formatCurrency(paymentOriginalAmount)}</strong>.</>
+                <>Você está baixando <strong>{paying.taxDocumentType ?? paying.supplierName}</strong> no valor de{" "}<strong><Money value={paymentPaidAmount > 0 ? paymentPaidAmount : paymentOriginalAmount} /></strong>.</>
               ) : (
                 <>
                   Você está baixando{paying.installment != null ? ` a parcela ${formatInstallment(paying.installment, paying.totalInstallments, paying.paymentMethodName)}` : ""}
@@ -854,7 +854,7 @@ export function Payables({ user }: PayablesProps) {
                       ? ` do pedido ${paying.purchaseNumber}`
                       : ""}
                   {" "}no valor de{" "}
-                  <strong>{paymentPaidAmount > 0 ? formatCurrency(paymentPaidAmount) : formatCurrency(paymentOriginalAmount)}</strong>.
+                  <strong><Money value={paymentPaidAmount > 0 ? paymentPaidAmount : paymentOriginalAmount} /></strong>.
                 </>
               )}
             </p>
@@ -907,9 +907,9 @@ export function Payables({ user }: PayablesProps) {
                   <h3>Datas e valores</h3>
                   {selectedPayable.taxCompetenceDate && <p>Competência: <strong>{formatDate(selectedPayable.taxCompetenceDate)}</strong></p>}
                   <p>Vencimento: <strong>{formatDate(selectedPayable.dueDate)}</strong></p>
-                  <p>Valor: <strong>{formatCurrency(Number(selectedPayable.amount ?? 0))}</strong></p>
+                  <p>Valor: <strong><Money value={selectedPayable.amount ?? 0} /></strong></p>
                   {selectedPayable.paidDate && <p>Pago em: <strong>{formatDate(selectedPayable.paidDate)}</strong></p>}
-                  {selectedPayable.paidAmount && <p>Valor pago: <strong>{formatCurrency(Number(selectedPayable.paidAmount))}</strong></p>}
+                  {selectedPayable.paidAmount && <p>Valor pago: <strong><Money value={selectedPayable.paidAmount} /></strong></p>}
                 </div>
               </div>
             </div>
@@ -977,11 +977,11 @@ export function Payables({ user }: PayablesProps) {
                 <div>
                   <h3>Valores</h3>
                   <p>Vencimento: <strong>{formatDate(selectedPayable.dueDate)}</strong></p>
-                  <p>Valor original: <strong>{formatCurrency(Number(selectedPayable.amount ?? 0))}</strong></p>
+                  <p>Valor original: <strong><Money value={selectedPayable.amount ?? 0} /></strong></p>
                   {["PAID", "PAID_LATE"].includes(selectedPayable.status) && selectedPayable.paidDate && (
                     <>
                       <p>Pago em: <strong>{formatDate(selectedPayable.paidDate)}</strong></p>
-                      <p>Valor pago: <strong>{formatCurrency(Number(selectedPayable.paidAmount ?? 0))}</strong></p>
+                      <p>Valor pago: <strong><Money value={selectedPayable.paidAmount ?? 0} /></strong></p>
                     </>
                   )}
                 </div>
@@ -989,7 +989,7 @@ export function Payables({ user }: PayablesProps) {
                   <h3>Compra</h3>
                   <p>Data: <strong>{formatDate(detail.purchaseDate)}</strong></p>
                   <p>Forma: <strong>{detail.paymentMethodName ?? detail.paymentMethod ?? "-"}</strong></p>
-                  <p>Total NF: <strong>{formatCurrency(detail.totalAmount)}</strong></p>
+                  <p>Total NF: <strong><Money value={detail.totalAmount} /></strong></p>
                 </div>
               </div>
             </div>
@@ -1013,8 +1013,8 @@ export function Payables({ user }: PayablesProps) {
                         <td>{item.rawCategory ?? item.categoryName ?? "-"}</td>
                         <td>{item.unit ?? "-"}</td>
                         <td>{formatNumber(Number(item.quantity))}</td>
-                        <td>{formatCurrency(Number(item.unitPrice))}</td>
-                        <td>{formatCurrency(Number(item.totalPrice))}</td>
+                        <td><Money value={item.unitPrice} /></td>
+                        <td><Money value={item.totalPrice} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -1039,9 +1039,9 @@ export function Payables({ user }: PayablesProps) {
                         <td>{inst.paymentMethodName ?? detail.paymentMethodName ?? "-"}</td>
                         <td>{formatDate(inst.dueDate)}</td>
                         <td>{inst.installment != null ? formatInstallment(inst.installment, inst.totalInstallments, inst.paymentMethodName) : "-"}</td>
-                        <td>{formatCurrency(Number(inst.amount ?? 0))}</td>
+                        <td><Money value={inst.amount ?? 0} /></td>
                         <td>{formatDate(inst.paidDate)}</td>
-                        <td>{formatCurrency(Number(inst.paidAmount ?? 0))}</td>
+                        <td><Money value={inst.paidAmount ?? 0} /></td>
                         <td>
                           <DsStatusBadge tone={statusTones[inst.status ?? "OPEN"] ?? "neutral"}>
                             {statusLabels[inst.status ?? "OPEN"] ?? inst.status}
@@ -1134,7 +1134,7 @@ export function Payables({ user }: PayablesProps) {
                     {reversing.installment != null && <div><span>Parcela</span><strong>{formatInstallment(reversing.installment, reversing.totalInstallments, reversing.paymentMethodName)}</strong></div>}
                   </>
                 )}
-                <div><span>Valor pago</span><strong>{formatCurrency(Number(reversing.paidAmount ?? reversing.amount ?? 0))}</strong></div>
+                <div><span>Valor pago</span><strong><Money value={reversing.paidAmount ?? reversing.amount ?? 0} /></strong></div>
                 <div><span>Data pagto.</span><strong>{formatDate(reversing.paidDate)}</strong></div>
               </div>
             </div>
