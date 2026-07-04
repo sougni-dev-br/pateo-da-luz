@@ -76,18 +76,38 @@ a uma revisão consciente.
 - **Escopo de investigação:** frontend, componente do Topbar (provavelmente em `design-system/shell/Topbar.tsx` + integração no App.tsx). Auditoria read-only para determinar se é bug de handler ou feature incompleta.
 - **Vigiar antes de:** implementar. Se for feature incompleta que nunca foi priorizada, avaliar se vale o esforço vs. remover o sino/badge para reduzir confusão. Se for bug de handler quebrado, é fix rápido.
 
-### OBS-005 — Filtro de mês duplicado no Dashboard (Topbar não funcional + card interno funcional)
+### OBS-005 — Filtro global de competência do Topbar não implementado (arquitetura incompleta)
 
-- **Origem:** smoke test em produção após deploy dos PRs #2-#9. Preexistente à migração.
-- **O que é:** o Dashboard tem **dois seletores de mês duplicados**:
-  1. Botão "Julho 2026" no Topbar global (visível em todas as rotas) — **sem handler funcional** no contexto do Dashboard.
-  2. Input "COMPETENCIA" abaixo do título "Dashboard" — **funciona corretamente**, altera o período dos KpiCards.
-- **Decisão do Eli:** manter o do Topbar como o funcional (conectar handler ao mesmo state do Dashboard) e **remover o duplicado interno** abaixo do título. Simplifica UX + libera vertical space.
-- **Escopo:** frontend puro, provavelmente `Dashboard.tsx` (remover input interno + expor state para o Topbar) + `design-system/shell/Topbar.tsx` ou `App.tsx` (conectar handler do botão de período ao state do Dashboard). Requer auditoria read-only antes de implementar para entender:
-  - Onde `period` state vive hoje no Dashboard.
-  - Como o Topbar recebe o `period` prop e se já tem canal de callback.
-  - Se outras rotas (Payables, Cash, DRE) esperam comportamento semelhante do Topbar (padrão global vs. local por tela).
-- **Vigiar antes de:** aceitar Fase 3 da migração de mascaramento monetário (Revenue/CmvReal/Purchases/DRE tocam Dashboard-adjacent), OU quando revisar UX do shell (Topbar).
+- **Origem:** smoke test em produção após deploy dos PRs #2-#9 (padrão único de mascaramento monetário). Registrado inicialmente como "filtro duplicado no Dashboard". Auditoria read-only posterior (mesma sessão) revelou escopo sistêmico.
+- **O que é:**
+  - Botão "Competência" no Topbar (`Calendar` icon + string do mês) é **100% cosmético em toda a aplicação**. `topbarPeriod` é calculado com `new Date()` hard-coded no render de `App.tsx` (linha ~333). Prop `onPeriodClick` **nunca é passada** → clique é no-op (nenhum console error, nenhum feedback).
+  - **Não existe state global de competência.** `SessionContext` não tem esse campo. `utils/period.ts` é utilitário puro (fábrica `currentMonthPeriod()`), não state.
+  - **9 telas financeiras** (Dashboard, Payables, Cards, Cash, TaxPayments, Revenue, Purchases, DRE, MonthlyClosing) mantêm state **local** + picker próprio (`<input type="month">` ou componente `<PeriodFilter>`). Sem sincronização entre elas.
+  - **2 telas** não filtram por competência: CmvReal navega por cards de fechamento, SupplierCycles filtra por fornecedor/status.
+  - **Sem persistência:** navegar entre telas reseta o período para o mês atual — cada `useState(currentMonthPeriod())` roda de novo no mount.
+- **Escopo real:** sistêmico, não isolado ao Dashboard.
+- **Hipóteses da causa raiz:**
+  1. Design system definiu `Topbar.period` como trigger genérico com `onPeriodClick` opcional — deixando ao consumidor a responsabilidade de abrir picker externo.
+  2. `App.tsx` nunca implementou o handler global — só passa o texto do mês atual como decoração.
+  3. Cada tela reinventou seu próprio picker porque não havia global disponível.
+- **Não é regressão** — é feature incompleta desde a fundação.
+- **Impacto UX:**
+  - Botão do Topbar sugere ao usuário que há filtro global; clique não faz nada, sem feedback.
+  - Nenhuma memória cross-page: usuário ajusta período em Payables, vai para Cards, período volta para mês atual.
+  - Duplicação de lógica: 9 implementações independentes de picker + fetch reativo.
+- **Opções de correção mapeadas:**
+  - **Fix mínimo (~1 dia):** conectar Topbar somente ao Dashboard. Deixar outras 8 telas como estão. **Contra:** cria inconsistência UX (Topbar funciona só no Dashboard, é local nas outras) — piora percepção vs. estado atual uniforme.
+  - **Fix médio (~2-3 dias):** criar `CompetenceContext` global + conectar Topbar + migrar apenas Dashboard. Outras telas ficam locais até serem migradas depois. **Contra:** coexistência temporária de dois padrões vira débito eterno se as outras não forem migradas.
+  - **Fix grande (~1 semana):** `CompetenceContext` global + Topbar conectado + migrar as 9 telas para consumir. Cross-page memory. Uniformidade total. Alinhado com UX de ERP profissional. Bônus: elimina duplicação de código.
+- **Recomendação (Eli decidir quando atacar):** **fix grande**, como mini-fase própria de arquitetura. Não está no caminho crítico da migração de mascaramento monetário — pode ser tratado depois da Fase 3 e Fase 4.
+- **Escopo técnico do fix grande (para referência futura):**
+  - Design decision de UX: picker abre como popover disparado pelo Topbar, ou modal? O que acontece se mês selecionado não tem dados? Presets (mês atual, 30 dias, ano, custom range)?
+  - Criar `frontend/src/context/CompetenceContext.tsx` com shape `{ month, year, preset }` + setter + persistência em `localStorage`.
+  - Conectar Topbar em `App.tsx` passando `onPeriodClick` e `period` reativo.
+  - Migrar as 9 telas uma por uma. Ordem sugerida por facilidade: Cash (data diária) e TaxPayments (range custom) exigem decisão específica; Payables/Cards/Revenue/Purchases/DRE/MonthlyClosing são migração mecânica; Dashboard como primeiro para validar padrão.
+- **Vigiar:**
+  - Se aparecer decisão de UX que altere significativamente a arquitetura acima (ex.: filtro por fornecedor+período composto), reavaliar antes de implementar.
+  - Feature de "trocar período afeta tudo" pode confundir usuários acostumados ao padrão atual (cada tela independente). Considerar transição gradual com feature flag.
 
 ---
 
