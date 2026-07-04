@@ -29,8 +29,8 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
-import { Alert, Button, IconButton, Money, Select, Tabs } from "../design-system";
-import { formatCurrency, formatDate } from "../utils/format";
+import { Alert, Button, IconButton, Money, Select, Tabs, useFormatCurrency } from "../design-system";
+import { formatDate } from "../utils/format";
 
 // ─────────────────────────────────────────────
 // Types
@@ -106,6 +106,7 @@ function toDateInput(d: Date): string {
 // ─────────────────────────────────────────────
 
 export function DRE() {
+  const fmt = useFormatCurrency();
   const { user } = useSession();
   const canEdit = user?.role === "ADMIN" || user?.role === "GESTAO_COMPLETA";
   const isAdmin = user?.role === "ADMIN";
@@ -382,7 +383,7 @@ export function DRE() {
                 <DRECard
                   label="Receita Bruta"
                   value={cur.revenue.grossAmount}
-                  sub={`Líquida: ${formatCurrency(cur.revenue.netAmount)}`}
+                  sub={`Líquida: ${fmt(cur.revenue.netAmount)}`}
                 />
                 <DRECard
                   label="CMV"
@@ -544,10 +545,10 @@ export function DRE() {
                               <strong>{grp.label}</strong>
                               <span className="dre-group-count"> ({grp.lines.length})</span>
                             </td>
-                            <td className="text-right"><strong>{formatCurrency(grp.total)}</strong></td>
+                            <td className="text-right"><strong><Money value={grp.total} /></strong></td>
                             <td className="text-right dre-pct-col text-muted">{pct(grpPct)}</td>
-                            {pm && <td className="text-right text-muted">{pmGrp ? formatCurrency(pmGrp.total) : "—"}</td>}
-                            {py && <td className="text-right text-muted">{pyGrp ? formatCurrency(pyGrp.total) : "—"}</td>}
+                            {pm && <td className="text-right text-muted">{pmGrp ? <Money value={pmGrp.total} /> : "—"}</td>}
+                            {py && <td className="text-right text-muted">{pyGrp ? <Money value={pyGrp.total} /> : "—"}</td>}
                           </tr>
 
                           {/* Category lines within group */}
@@ -572,10 +573,10 @@ export function DRE() {
                                     </span>
                                     {exp.dreCategoryName}
                                   </td>
-                                  <td className="text-right">{formatCurrency(exp.total)}</td>
+                                  <td className="text-right"><Money value={exp.total} /></td>
                                   <td className="text-right dre-pct-col text-muted">{pct(expPct)}</td>
-                                  {pm && <td className="text-right text-muted">{pmExp ? formatCurrency(pmExp.total) : "—"}</td>}
-                                  {py && <td className="text-right text-muted">{pyExp ? formatCurrency(pyExp.total) : "—"}</td>}
+                                  {pm && <td className="text-right text-muted">{pmExp ? <Money value={pmExp.total} /> : "—"}</td>}
+                                  {py && <td className="text-right text-muted">{pyExp ? <Money value={pyExp.total} /> : "—"}</td>}
                                 </tr>
 
                                 {isExpOpen && (
@@ -618,7 +619,7 @@ export function DRE() {
                               <span className="dre-chevron">{isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}</span>
                               Não categorizadas
                             </td>
-                            <td className="text-right">{formatCurrency(uncatTotal)}</td>
+                            <td className="text-right"><Money value={uncatTotal} /></td>
                             <td className="text-right dre-pct-col text-muted">{pct(safePct(uncatTotal, cur.revenue.grossAmount))}</td>
                             {pm && <td className="text-right text-muted">—</td>}
                             {py && <td className="text-right text-muted">—</td>}
@@ -694,7 +695,7 @@ function DRECard({
       ) : (
         <>
           <div className={`dre-card-value${signed ? (positive ? " text-success" : " text-danger") : ""}`}>
-            {value != null ? formatCurrency(value) : "—"}
+            <Money value={value} />
           </div>
           <div className="dre-card-sub">{sub}</div>
         </>
@@ -727,10 +728,10 @@ function DRERow({
   return (
     <tr className="dre-row">
       <td>{label}</td>
-      <td className={`text-right${negative && cur < 0 ? " text-danger" : ""}`}>{formatCurrency(Math.abs(cur))}</td>
+      <td className={`text-right${negative && cur < 0 ? " text-danger" : ""}`}><Money value={Math.abs(cur)} /></td>
       <td className="text-right dre-pct-col text-muted">{pct(pctVal)}</td>
-      {hasPm && <td className="text-right text-muted">{pm != null ? formatCurrency(Math.abs(pm)) : "—"}</td>}
-      {hasPy && <td className="text-right text-muted">{py != null ? formatCurrency(Math.abs(py)) : "—"}</td>}
+      {hasPm && <td className="text-right text-muted"><Money value={pm != null ? Math.abs(pm) : null} /></td>}
+      {hasPy && <td className="text-right text-muted"><Money value={py != null ? Math.abs(py) : null} /></td>}
     </tr>
   );
 }
@@ -748,10 +749,10 @@ function DRETotal({
   return (
     <tr className={cls}>
       <td><strong>{label}</strong></td>
-      <td className={`text-right ${colorClass(cur)}`}><strong>{formatCurrency(cur)}</strong></td>
+      <td className={`text-right ${colorClass(cur)}`}><strong><Money value={cur} /></strong></td>
       <td className="text-right dre-pct-col"><span className={`dre-pct${strong ? " dre-pct-strong" : ""}`}>{pct(pctVal)}</span></td>
-      {hasPm && <td className="text-right text-muted">{pm != null ? formatCurrency(pm) : "—"}</td>}
-      {hasPy && <td className="text-right text-muted">{py != null ? formatCurrency(py) : "—"}</td>}
+      {hasPm && <td className="text-right text-muted"><Money value={pm} /></td>}
+      {hasPy && <td className="text-right text-muted"><Money value={py} /></td>}
     </tr>
   );
 }
@@ -809,7 +810,7 @@ function DrillPanel({
             <td>{r.invoiceNumber ?? "—"}{r.installment != null ? <span className="text-muted"> ({r.installment}ª parc.)</span> : null}</td>
             <td className="text-center">{r.dueDate ? formatDate(r.dueDate) : "—"}</td>
             <td className="text-center">{r.paidDate ? formatDate(r.paidDate) : "—"}</td>
-            <td className="text-right">{formatCurrency(r.effectiveAmount)}</td>
+            <td className="text-right"><Money value={r.effectiveAmount} /></td>
             <td>
               <span className={`badge ${r.status === "PAID" || r.status === "PAID_LATE" ? "badge-success" : r.status === "OVERDUE" ? "badge-error" : "badge-neutral"}`}>
                 {statusLabel(r.status)}
@@ -834,7 +835,7 @@ function DrillPanel({
       <tfoot>
         <tr>
           <td colSpan={canEdit ? 4 : 3}><strong>Total</strong></td>
-          <td className="text-right"><strong>{formatCurrency(rows.reduce((s, r) => s + r.effectiveAmount, 0))}</strong></td>
+          <td className="text-right"><strong><Money value={rows.reduce((s, r) => s + r.effectiveAmount, 0)} /></strong></td>
           <td colSpan={canEdit ? 2 : 1}></td>
         </tr>
       </tfoot>
@@ -858,6 +859,7 @@ function ClassifyPanel({
   notify: (tone: "success" | "error", message: string) => void;
   onClassified: () => void;
 }) {
+  const fmt = useFormatCurrency();
   const [rows, setRows] = useState<DREPendingRow[]>([]);
   const [total, setTotal] = useState(0);
   const [totalAmount, setTotalAmount] = useState(0);
@@ -1050,7 +1052,7 @@ function ClassifyPanel({
           {!loading && (
             <span className="badge badge-neutral" style={{ fontSize: 13 }}>
               {total} lançamento{total !== 1 ? "s" : ""} não categorizados
-              {total > 0 && ` · ${formatCurrency(totalAmount)}`}
+              {total > 0 && ` · ${fmt(totalAmount)}`}
             </span>
           )}
         </div>
@@ -1269,7 +1271,7 @@ function ClassifyPanel({
                     <td className="text-center">{r.dueDate ? formatDate(r.dueDate) : "—"}</td>
                     <td className="text-center">{r.paidDate ? formatDate(r.paidDate) : "—"}</td>
                     <td className="text-muted" style={{ fontSize: "0.85em" }}>{r.paymentMethod ?? "—"}</td>
-                    <td className="text-right" style={{ fontWeight: 500 }}>{formatCurrency(r.effectiveAmount)}</td>
+                    <td className="text-right" style={{ fontWeight: 500 }}><Money value={r.effectiveAmount} /></td>
                     <td>
                       <span className={`badge ${r.status === "PAID" || r.status === "PAID_LATE" ? "badge-success" : r.status === "OVERDUE" ? "badge-error" : "badge-neutral"}`}>
                         {statusLabel(r.status)}
@@ -1317,7 +1319,7 @@ function ClassifyPanel({
             <tfoot>
               <tr>
                 <td colSpan={canEdit ? 6 : 5}><strong>Total ({total} lançamentos)</strong></td>
-                <td className="text-right"><strong>{formatCurrency(totalAmount)}</strong></td>
+                <td className="text-right"><strong><Money value={totalAmount} /></strong></td>
                 <td colSpan={canEdit ? 2 : 1}></td>
               </tr>
             </tfoot>
