@@ -46,7 +46,8 @@ import {
   Money as DsMoney,
   RowMenu,
   StatusBadge as DsStatusBadge,
-  Table
+  Table,
+  useFormatCurrency
 } from "../design-system";
 import type { StatusTone } from "../design-system";
 
@@ -61,7 +62,7 @@ const LEGACY_TONE_TO_DS: Record<string, StatusTone> = {
 };
 import { PeriodFilter } from "../components/PeriodFilter";
 import { hasPermission } from "../lib/permissions";
-import { formatCurrency, formatDate, formatNumber } from "../utils/format";
+import { formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 
 type PurchaseItemForm = {
@@ -252,6 +253,7 @@ function useNavigationPrompt(when: boolean, message: string) {
 }
 
 export function Purchases({ user }: { user: AppUser }) {
+  const fmt = useFormatCurrency();
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams<{ id?: string }>();
@@ -1788,7 +1790,7 @@ export function Purchases({ user }: { user: AppUser }) {
                     </div>
                   </div>
                   <div className="purch-mobile-card-right">
-                    <strong className="purch-mobile-amount">{formatCurrency(purchase.totalAmount)}</strong>
+                    <strong className="purch-mobile-amount"><DsMoney value={purchase.totalAmount} /></strong>
                     <DsStatusBadge className="purch-mobile-status" tone={LEGACY_TONE_TO_DS[purchaseStatusTone(purchase.status)] ?? "neutral"}>{purchaseStatusLabel(purchase.status)}</DsStatusBadge>
                   </div>
                 </div>
@@ -1852,7 +1854,7 @@ export function Purchases({ user }: { user: AppUser }) {
                   <span>{formatDate(detail.purchaseDate)}</span>
                   {detail.receivedAt && <span title="Data de recebimento físico">Recebido em {formatDate(detail.receivedAt)}</span>}
                   <span>{String(detail.competenceMonth).padStart(2, "0")}/{detail.competenceYear}</span>
-                  <strong>{formatCurrency(detail.totalAmount)}</strong>
+                  <strong><DsMoney value={detail.totalAmount} /></strong>
                 </div>
               </div>
               <button className="secondary-button" type="button" onClick={() => setDetail(null)}>Fechar</button>
@@ -1889,7 +1891,7 @@ export function Purchases({ user }: { user: AppUser }) {
               </div>
               <div className="purchase-detail-infobar-item purchase-detail-infobar-amount">
                 <span className="detail-label">Total</span>
-                <strong>{formatCurrency(Number(detail.totalAmount))}</strong>
+                <strong><DsMoney value={detail.totalAmount} /></strong>
                 <small>{detail.isSmallExpense ? "Pequeno gasto" : `${detail.items.length} item(s)`}</small>
               </div>
             </div>
@@ -1908,8 +1910,8 @@ export function Purchases({ user }: { user: AppUser }) {
                       <td><small>{item.rawCategory ?? item.categoryName ?? "-"}</small><small>{item.rawSubcategory ?? item.subcategoryName ?? "-"}</small></td>
                       <td>{item.unit ?? "-"}</td>
                       <td className="numeric-cell">{formatNumber(Number(item.quantity))}</td>
-                      <td className="numeric-cell nowrap-cell">{formatCurrency(Number(item.unitPrice))}</td>
-                      <td className="numeric-cell nowrap-cell">{formatCurrency(Number(item.totalPrice))}</td>
+                      <td className="numeric-cell nowrap-cell"><DsMoney value={item.unitPrice} /></td>
+                      <td className="numeric-cell nowrap-cell"><DsMoney value={item.totalPrice} /></td>
                     </tr>
                   ))}</tbody>
                 </table>
@@ -1927,7 +1929,7 @@ export function Purchases({ user }: { user: AppUser }) {
                         <td>{item.installment != null && item.totalInstallments != null ? `${item.installment}/${item.totalInstallments}` : "À vista"}</td>
                         <td>{item.statementName ?? `${String(item.competenceMonth).padStart(2, "0")}/${item.competenceYear}`}</td>
                         <td>{item.statementDueDate ? formatDate(item.statementDueDate) : "-"}</td>
-                        <td className="numeric-cell nowrap-cell">{formatCurrency(Number(item.value))}</td>
+                        <td className="numeric-cell nowrap-cell"><DsMoney value={item.value} /></td>
                         <td><DsStatusBadge tone={LEGACY_TONE_TO_DS[statementStatusTone(item.statementStatus)] ?? "neutral"}>{statementStatusLabel(item.statementStatus)}</DsStatusBadge></td>
                       </tr>
                     ))}</tbody>
@@ -1940,7 +1942,7 @@ export function Purchases({ user }: { user: AppUser }) {
                         <td>{installment.installment ?? "-"}</td>
                         <td>{installment.paymentMethodName ?? detail.paymentMethodName ?? "-"}</td>
                         <td>{formatDate(installment.dueDate)}</td>
-                        <td className="numeric-cell nowrap-cell">{formatCurrency(Number(installment.amount ?? 0))}</td>
+                        <td className="numeric-cell nowrap-cell"><DsMoney value={installment.amount ?? 0} /></td>
                         <td><DsStatusBadge tone={LEGACY_TONE_TO_DS[installmentStatusTone(installment.status)] ?? "neutral"}>{installmentStatusLabel(installment.status)}</DsStatusBadge></td>
                       </tr>
                     ))}</tbody>
@@ -1980,7 +1982,7 @@ export function Purchases({ user }: { user: AppUser }) {
                   {(form.invoiceNumber || form.purchaseOrderNumber) && (
                     <span>{form.invoiceNumber || "Sem NF"}{form.purchaseOrderNumber ? ` · Ped. ${form.purchaseOrderNumber}` : ""}</span>
                   )}
-                  {totalAmount > 0 && <span>{formatCurrency(totalAmount)}</span>}
+                  {totalAmount > 0 && <span><DsMoney value={totalAmount} /></span>}
                   <span className={validationMessages.length === 0 ? "purchase-context-ok" : "purchase-context-pending"}>
                     {validationMessages.length === 0 ? "✓ Conferida" : `${validationMessages.length} pendência${validationMessages.length > 1 ? "s" : ""}`}
                   </span>
@@ -1999,7 +2001,7 @@ export function Purchases({ user }: { user: AppUser }) {
               <div className="alert error prominent-alert">
                 <strong>Já existe uma compra ativa para este fornecedor com esta NF/pedido.</strong>
                 <div>
-                  {formatDate(duplicateCheck.existingPurchase.purchaseDate)} • {duplicateCheck.existingPurchase.referenceLabel} • {formatCurrency(Number(duplicateCheck.existingPurchase.totalAmount))}
+                  {formatDate(duplicateCheck.existingPurchase.purchaseDate)} • {duplicateCheck.existingPurchase.referenceLabel} • {fmt(duplicateCheck.existingPurchase.totalAmount)}
                 </div>
                 <div className="actions-cell">
                   <button
@@ -2014,7 +2016,7 @@ export function Purchases({ user }: { user: AppUser }) {
             )}
             {!duplicateCheck?.existingPurchase && duplicateCheck?.cancelledPurchase && (
               <div className="alert warning">
-                Existe uma compra cancelada com esta NF/pedido: {formatDate(duplicateCheck.cancelledPurchase.purchaseDate)} • {duplicateCheck.cancelledPurchase.referenceLabel} • {formatCurrency(Number(duplicateCheck.cancelledPurchase.totalAmount))}
+                Existe uma compra cancelada com esta NF/pedido: {formatDate(duplicateCheck.cancelledPurchase.purchaseDate)} • {duplicateCheck.cancelledPurchase.referenceLabel} • {fmt(duplicateCheck.cancelledPurchase.totalAmount)}
               </div>
             )}
 
@@ -2235,7 +2237,7 @@ export function Purchases({ user }: { user: AppUser }) {
                 {form.creditCardId && openCardStatement && smallExpenseUsesCreditCard && (
                   <div className="pnova-data-extra-row">
                     <div className="alert info" style={{ margin: "0 16px 0" }}>
-                      Fatura aberta: {openCardStatement.creditCard?.name ?? "Cartão"} • {String(openCardStatement.competenceMonth).padStart(2, "0")}/{openCardStatement.competenceYear} • venc. {formatDate(openCardStatement.dueDate)} • {openCardStatement.status} • {formatCurrency(openCardStatement.totalAmount)}
+                      Fatura aberta: {openCardStatement.creditCard?.name ?? "Cartão"} • {String(openCardStatement.competenceMonth).padStart(2, "0")}/{openCardStatement.competenceYear} • venc. {formatDate(openCardStatement.dueDate)} • {openCardStatement.status} • {fmt(openCardStatement.totalAmount)}
                     </div>
                   </div>
                 )}
@@ -2249,7 +2251,7 @@ export function Purchases({ user }: { user: AppUser }) {
                     <div className="pnova-cc-preview">
                       <div className="pnova-cc-preview-header">
                         <span className="pnova-cc-preview-ok">✓ Será lançado na fatura do cartão</span>
-                        <span className="pnova-cc-preview-total">{formatCurrency(totalAmount)}</span>
+                        <span className="pnova-cc-preview-total"><DsMoney value={totalAmount} /></span>
                       </div>
                       {ccInstallmentPreview.map((item) => (
                         <div key={item.installment} className="pnova-cc-preview-row">
@@ -2258,7 +2260,7 @@ export function Purchases({ user }: { user: AppUser }) {
                           )}
                           <span className="pnova-cc-preview-fatura">{item.label}</span>
                           <span className="pnova-cc-preview-due">venc. {item.dueDate.toLocaleDateString("pt-BR")}</span>
-                          <span className="pnova-cc-preview-value">{formatCurrency(item.value)}</span>
+                          <span className="pnova-cc-preview-value"><DsMoney value={item.value} /></span>
                         </div>
                       ))}
                     </div>
@@ -2606,7 +2608,7 @@ export function Purchases({ user }: { user: AppUser }) {
 
                         {/* Total calculado */}
                         <span className="pnova-gr-total">
-                          {item.totalPrice ? formatCurrency(Number(item.totalPrice)) : <span className="pnova-gr-empty">–</span>}
+                          {item.totalPrice ? <DsMoney value={item.totalPrice} /> : <span className="pnova-gr-empty">–</span>}
                         </span>
 
                         {/* Obs inline */}
@@ -2635,18 +2637,18 @@ export function Purchases({ user }: { user: AppUser }) {
               <div className="pnova-summary-strip">
                 <div className="pnova-summary-pill">
                   <span>{items.filter((item) => item.productId).length} itens</span>
-                  <strong>{formatCurrency(totalAmount)}</strong>
+                  <strong><DsMoney value={totalAmount} /></strong>
                 </div>
                 {installments.length > 0 && (
                   <div className="pnova-summary-pill">
                     <span>{installments.length}x</span>
-                    <strong>{formatCurrency(installmentTotal)}</strong>
+                    <strong><DsMoney value={installmentTotal} /></strong>
                   </div>
                 )}
                 {!selectedSupplierIsCycle && !usesCreditCard && Math.round(amountDifference * 100) !== 0 && (
                   <div className="pnova-summary-pill pnova-summary-warn">
                     <span>Dif.</span>
-                    <strong>{formatCurrency(amountDifference)}</strong>
+                    <strong><DsMoney value={amountDifference} /></strong>
                   </div>
                 )}
                 <div className="pnova-pending-wrap">
@@ -2691,7 +2693,7 @@ export function Purchases({ user }: { user: AppUser }) {
                       <p className="pnova-cycle-info-hint" style={{ color: "var(--success)" }}>
                         ✓ Ciclo aberto encontrado — {formatDate(activeCycle.periodStart)}
                         {activeCycle.periodEnd ? ` a ${formatDate(activeCycle.periodEnd)}` : " (período em aberto)"}
-                        {" · "}{activeCycle.itemCount} compra(s) · {formatCurrency(Number(activeCycle.totalAmount))}
+                        {" · "}{activeCycle.itemCount} compra(s) · {fmt(activeCycle.totalAmount)}
                       </p>
                     )}
 
@@ -2739,7 +2741,7 @@ export function Purchases({ user }: { user: AppUser }) {
                           {ccInstallmentPreview.length > 1 && ` · ${ccInstallmentPreview.length}x`}
                           {" · "}{ccInstallmentPreview[0]?.label}
                           {ccInstallmentPreview.length > 1 && ` → ${ccInstallmentPreview[ccInstallmentPreview.length - 1]?.label}`}
-                          {" · "}{formatCurrency(totalAmount)}
+                          {" · "}{fmt(totalAmount)}
                         </span>
                       ) : normalPurchaseUsesCreditCard ? (
                         <span className="pnova-payment-header-info">Selecione o cartão</span>
@@ -2749,11 +2751,11 @@ export function Purchases({ user }: { user: AppUser }) {
                           {installments[0]?.dueDate && (
                             <> · 1ª em {new Date(`${installments[0].dueDate}T12:00:00`).toLocaleDateString("pt-BR")}</>
                           )}
-                          {" · "}{formatCurrency(totalAmount)}
+                          {" · "}{fmt(totalAmount)}
                         </span>
                       ) : null}
                       {!usesCreditCard && Math.round(amountDifference * 100) !== 0 && (
-                        <span className="pnova-payment-header-diff">⚠ dif. {formatCurrency(amountDifference)}</span>
+                        <span className="pnova-payment-header-diff">⚠ dif. <DsMoney value={amountDifference} /></span>
                       )}
                       <span className="pnova-payment-header-toggle">{paymentExpanded ? "▲ recolher" : "▼ editar"}</span>
                     </button>
@@ -2878,10 +2880,10 @@ export function Purchases({ user }: { user: AppUser }) {
                                   Total das parcelas
                                 </td>
                                 <td className="pnova-inst-footer-total">
-                                  {formatCurrency(installmentTotal)}
+                                  <DsMoney value={installmentTotal} />
                                   {Math.round(amountDifference * 100) === 0
                                     ? <span className="pnova-inst-ok">✓</span>
-                                    : <span className="pnova-inst-diff"> ⚠ dif. {formatCurrency(amountDifference)}</span>
+                                    : <span className="pnova-inst-diff"> ⚠ dif. <DsMoney value={amountDifference} /></span>
                                   }
                                 </td>
                               </tr>
@@ -3018,9 +3020,9 @@ export function Purchases({ user }: { user: AppUser }) {
             {/* ─── BARRA STICKY INFERIOR ─── */}
             <div className={`pnova-sticky-bar${keyboardOpen ? " keyboard-open" : ""}`}>
               <div className="pnova-sticky-left">
-                <span className="pnova-sticky-total">{formatCurrency(totalAmount)}</span>
+                <span className="pnova-sticky-total"><DsMoney value={totalAmount} /></span>
                 {!selectedSupplierIsCycle && !usesCreditCard && Math.round(amountDifference * 100) !== 0 && (
-                  <span className="pnova-sticky-diff">⚠ dif. {formatCurrency(amountDifference)}</span>
+                  <span className="pnova-sticky-diff">⚠ dif. <DsMoney value={amountDifference} /></span>
                 )}
                 <span className={`pnova-sticky-status${validationMessages.length === 0 ? " ok" : " pending"}`}>
                   {validationMessages.length === 0 ? "✓ Conferida" : `${validationMessages.length} pendência${validationMessages.length > 1 ? "s" : ""}`}
