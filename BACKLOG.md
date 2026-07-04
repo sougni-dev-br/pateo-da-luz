@@ -52,6 +52,51 @@ a uma revisão consciente.
 
 ## Observações vigiadas (não são débitos a executar)
 
+### OBS-007 — Botão "Conferir" em `/financeiro/cartoes` não abre nada
+
+- **Origem:** smoke test em produção após deploy dos PRs #2-#9 (padrão único de mascaramento monetário). Preexistente à migração.
+- **O que é:** na tabela de faturas de cartão, cada linha tem dois botões de ação: "Ver" e "Conferir". "Ver" funciona corretamente (abre modal "Detalhe da fatura"). "Conferir" **não abre nada** ao ser clicado — nenhum modal, painel, drawer ou toast.
+- **Hipóteses:**
+  1. Handler `onClick` do botão está quebrado ou não conectado (regressão ou nunca implementado).
+  2. Fluxo de conferência item-a-item foi previsto mas nunca finalizado (feature incompleta).
+  3. Modal existe mas abre com `z-index` errado ou `visibility: hidden`.
+- **Impacto atual:** funcionalidade de conferência de fatura indisponível pela UI. Workaround: usar "Ver" para inspecionar itens (leitura), mas sem ação de marcar como conferido item-a-item. Se o fluxo é essencial para o fechamento de cartão, é bloqueador operacional; se opcional, é apenas UX confusa (botão "morto" gera dúvida).
+- **Escopo de investigação:** frontend puro, arquivo `Cards.tsx`. Auditoria read-only antes de decidir fix vs. remoção do botão.
+- **Vigiar antes de:** tocar em `Cards.tsx` para outros fins (aproveitar contexto), OU se o processo de fechamento de cartão do Rafael passar a depender de conferência formal (aí vira bloqueador).
+
+### OBS-006 — Sino de notificação no Topbar exibe badge mas clique não abre painel
+
+- **Origem:** smoke test em produção após deploy dos PRs #2-#9. Preexistente à migração.
+- **O que é:** o ícone de sino no Topbar global exibe badge vermelho (indicando notificação pendente — provavelmente vindo de `pendingCountSessionCount` do App.tsx). Ao clicar no sino, **nada acontece**: sem dropdown, sem painel lateral, sem modal, sem toast.
+- **Hipóteses:**
+  1. Handler `onClick` nunca foi conectado no componente do Topbar (feature incompleta — badge visual sem interação).
+  2. Painel/dropdown existe mas abre invisível (z-index abaixo do backdrop, visibility errada, largura zero).
+  3. Bug de regressão: handler existia mas foi removido em algum refactor.
+- **Impacto atual:** feature de notificação inutilizável pela UI. O usuário vê que há algo pendente (badge) mas não consegue acessar de forma centralizada. Alternativa atual é navegar diretamente para os módulos.
+- **Escopo de investigação:** frontend, componente do Topbar (provavelmente em `design-system/shell/Topbar.tsx` + integração no App.tsx). Auditoria read-only para determinar se é bug de handler ou feature incompleta.
+- **Vigiar antes de:** implementar. Se for feature incompleta que nunca foi priorizada, avaliar se vale o esforço vs. remover o sino/badge para reduzir confusão. Se for bug de handler quebrado, é fix rápido.
+
+### OBS-005 — Filtro de mês duplicado no Dashboard (Topbar não funcional + card interno funcional)
+
+- **Origem:** smoke test em produção após deploy dos PRs #2-#9. Preexistente à migração.
+- **O que é:** o Dashboard tem **dois seletores de mês duplicados**:
+  1. Botão "Julho 2026" no Topbar global (visível em todas as rotas) — **sem handler funcional** no contexto do Dashboard.
+  2. Input "COMPETENCIA" abaixo do título "Dashboard" — **funciona corretamente**, altera o período dos KpiCards.
+- **Decisão do Eli:** manter o do Topbar como o funcional (conectar handler ao mesmo state do Dashboard) e **remover o duplicado interno** abaixo do título. Simplifica UX + libera vertical space.
+- **Escopo:** frontend puro, provavelmente `Dashboard.tsx` (remover input interno + expor state para o Topbar) + `design-system/shell/Topbar.tsx` ou `App.tsx` (conectar handler do botão de período ao state do Dashboard). Requer auditoria read-only antes de implementar para entender:
+  - Onde `period` state vive hoje no Dashboard.
+  - Como o Topbar recebe o `period` prop e se já tem canal de callback.
+  - Se outras rotas (Payables, Cash, DRE) esperam comportamento semelhante do Topbar (padrão global vs. local por tela).
+- **Vigiar antes de:** aceitar Fase 3 da migração de mascaramento monetário (Revenue/CmvReal/Purchases/DRE tocam Dashboard-adjacent), OU quando revisar UX do shell (Topbar).
+
+---
+
+## Contexto compartilhado — OBS-005/006/007
+
+Detectados no smoke test em produção após deploy dos PRs #2-#9 (padrão único de mascaramento monetário). Migração de mascaramento validada OK. Estes 3 itens são **preexistentes à migração** (não introduzidos por ela) e não bloqueiam operação crítica do negócio, mas precisam ser tratados quando fizer sentido.
+
+---
+
 ### OBS-004 — Dívida de vocabulário Product.unit ↔ PURCHASE_MODELS
 
 - **Origem:** validação end-to-end do Prompt 18 revelou que 683/795 produtos (86%) caíam em "outro" no dropdown do PurchasePlanning por incompatibilidade de vocabulário
