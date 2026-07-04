@@ -1,5 +1,5 @@
 import { ArrowRightLeft, CheckCircle2, Eye, FileText, Pencil, Plus, RefreshCw, Save, WalletCards, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addCardStatementItem,
   AppUser,
@@ -16,7 +16,6 @@ import {
   reallocateCardStatementItem,
   saveCard,
   saveCardStatement,
-  setCardStatementStatus,
   setCardStatus
 } from "../api/client";
 import { PeriodFilter } from "../components/PeriodFilter";
@@ -95,6 +94,8 @@ export function Cards({ user }: CardsProps) {
   const [reallocateTargetId, setReallocateTargetId] = useState("");
   const [reallocateReason, setReallocateReason] = useState("");
   const [reallocateTargets, setReallocateTargets] = useState<CreditCardStatement[]>([]);
+  const [openStatementMode, setOpenStatementMode] = useState<"review" | null>(null);
+  const itemsSectionRef = useRef<HTMLDivElement | null>(null);
   const canManage = hasPermission(user, "cards", "edit");
 
   async function load() {
@@ -208,13 +209,23 @@ export function Cards({ user }: CardsProps) {
     await load();
   }
 
-  async function openStatement(statement: CreditCardStatement) {
+  async function openStatement(statement: CreditCardStatement, opts?: { mode?: "review" }) {
     try {
       setStatementDetail(await getCardStatement(statement.id));
+      if (opts?.mode === "review") setOpenStatementMode("review");
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao abrir fatura." });
     }
   }
+
+  useEffect(() => {
+    if (openStatementMode !== "review") return;
+    if (!statementDetail) return;
+    const target = itemsSectionRef.current;
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    setOpenStatementMode(null);
+  }, [openStatementMode, statementDetail]);
 
   async function closeStatement(statement: CreditCardStatement) {
     try {
@@ -514,7 +525,7 @@ export function Cards({ user }: CardsProps) {
                       {canManage && statement.status === "CLOSED" && <button type="button" onClick={() => payStatement(statement)}>Pagar</button>}
                       <button type="button" onClick={() => pdf(statement)}><FileText size={15} /> PDF</button>
                       {canManage && ["OPEN", "CHECKED"].includes(statement.status) && (
-                        <button type="button" onClick={() => setCardStatementStatus(statement.id, statement.status === "CHECKED" ? "OPEN" : "CHECKED")}>
+                        <button type="button" onClick={() => void openStatement(statement, { mode: "review" })}>
                           Conferir
                         </button>
                       )}
@@ -661,7 +672,7 @@ export function Cards({ user }: CardsProps) {
               <div><h3>Competência</h3><p>{String(statementDetail.competenceMonth).padStart(2, "0")}/{statementDetail.competenceYear}</p><p>Status {statementStatusLabel(statementDetail.status)}</p></div>
               <div><h3>Resumo</h3><p>Total <Money value={statementDetail.totalAmount} /></p><p>{statementDetail.items.length} item(ns)</p></div>
             </div>
-            <div className="subsection table-wrap operational-table">
+            <div ref={itemsSectionRef} className="subsection table-wrap operational-table">
               <h3>Itens</h3>
               <table>
                 <thead>
