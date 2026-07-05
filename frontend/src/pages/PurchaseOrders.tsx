@@ -214,6 +214,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
           <Button variant="secondary" onClick={load}>Filtrar</Button>
         </div>
 
+        <div className="po-desktop-list">
         <Table>
           <Table.Head>
             <Table.Row>
@@ -255,6 +256,43 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
             )}
           </Table.Body>
         </Table>
+        </div>
+
+        <div className="po-mobile-cards">
+          {orders.map((order) => (
+            <article className={`purch-mobile-card${order.status === "CANCELADO" ? " purch-card-cancelled" : ""}`} key={`${order.id}-mobile`}>
+              <div className="purch-mobile-card-header">
+                <div className="purch-mobile-card-title">
+                  <strong className="purch-mobile-supplier">{order.supplierNameSnapshot}</strong>
+                  <div className="purch-mobile-meta-row">
+                    <span className="purch-mobile-ref">{order.code}</span>
+                    <span className="purch-mobile-date">{formatDate(order.createdAt)}</span>
+                  </div>
+                </div>
+                <div className="purch-mobile-card-right">
+                  <strong className="purch-mobile-amount"><Money value={Number(order.estimatedTotal ?? 0)} /></strong>
+                  <StatusBadge className="purch-mobile-status" tone={statusTone(order.status)}>{statusLabels[order.status] ?? order.status}</StatusBadge>
+                </div>
+              </div>
+              <div className="purch-mobile-card-body">
+                <div className="purch-mobile-row"><span>Origem</span><span>{sourceLabels[order.source] ?? "Manual"}</span></div>
+                <div className="purch-mobile-row"><span>Previsão</span><span>{formatDate(order.expectedDeliveryDate)}</span></div>
+                <div className="purch-mobile-row"><span>Itens</span><span>{order.totalItems ?? 0}</span></div>
+                {order.createdByUserName && (
+                  <div className="purch-mobile-row"><span>Responsável</span><span>{order.createdByUserName}</span></div>
+                )}
+              </div>
+              <div className="purch-mobile-card-footer">
+                <div className="purch-mobile-actions">
+                  <button className="purch-mobile-btn" type="button" onClick={() => openOrder(order.id)}><Eye size={15} /> Abrir</button>
+                </div>
+              </div>
+            </article>
+          ))}
+          {!loading && orders.length === 0 && (
+            <EmptyState title="Nenhum pedido de compra" description="Gere pedidos a partir da pré-lista do comprador." />
+          )}
+        </div>
       </section>
 
       {selected && (
