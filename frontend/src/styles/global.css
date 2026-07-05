@@ -2491,6 +2491,22 @@ select:disabled {
   }
 }
 
+/* Swap desktop/mobile de PurchaseOrders. Reusa as classes
+   .purch-mobile-* definidas em global.css:2122-2299 (estrutura
+   visual identica); so o swap e proprio desta tela. */
+.po-mobile-cards {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .po-desktop-list {
+    display: none;
+  }
+  .po-mobile-cards {
+    display: block;
+  }
+}
+
 .purchase-main-cell strong,
 .purchase-supplier-cell strong,
 .purchase-items-summary strong,
