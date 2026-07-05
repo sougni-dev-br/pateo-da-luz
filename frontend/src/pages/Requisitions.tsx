@@ -15,7 +15,7 @@ import {
   getRequisitions,
   getSectors
 } from "../api/client";
-import { EmptyState, IconButton, StatusBadge, Table } from "../design-system";
+import { Button, EmptyState, IconButton, PanelEyebrow, StatusBadge, Table } from "../design-system";
 import { Notice, useNotice } from "../components/Notice";
 import { formatDate, formatNumber } from "../utils/format";
 
@@ -297,7 +297,7 @@ export function Requisitions({ user }: { user: AppUser }) {
       {/* Header */}
       <div className="section-heading">
         <div style={{ flex: 1 }}>
-          <p>Estoque</p>
+          <PanelEyebrow>Estoque</PanelEyebrow>
           <h2>Requisições de Insumos</h2>
           <span className="muted">Registre retiradas de produtos do estoque para uso na cozinha.</span>
         </div>
@@ -447,31 +447,30 @@ export function Requisitions({ user }: { user: AppUser }) {
 
             {/* Lista de itens */}
             {items.length > 0 ? (
-              <div className="table-wrap" style={{ marginTop: 8 }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Produto</th>
-                      <th className="numeric-cell">Saldo atual</th>
-                      <th style={{ width: 130 }}>Quantidade</th>
-                      <th style={{ width: 80 }}>Unidade</th>
-                      <th style={{ width: 36 }}></th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              <Table style={{ marginTop: 8 }}>
+                <Table.Head>
+                  <Table.Row>
+                    <Table.Th>Produto</Table.Th>
+                    <Table.Th align="right">Saldo atual</Table.Th>
+                    <Table.Th minWidth={130}>Quantidade</Table.Th>
+                    <Table.Th minWidth={80}>Unidade</Table.Th>
+                    <Table.Th minWidth={36}></Table.Th>
+                  </Table.Row>
+                </Table.Head>
+                <Table.Body>
                     {items.map((item, idx) => {
                       const qty = Number(item.quantity);
                       const isInsufficient = qty > 0 && item.currentStock != null && qty > item.currentStock;
                       return (
-                        <tr key={item.productId} className={isInsufficient ? "req-row-danger" : undefined}>
-                          <td>
+                        <Table.Row key={item.productId} className={isInsufficient ? "req-row-danger" : undefined}>
+                          <Table.Td>
                             <strong>{item.productName}</strong>
                             {item.productCode && <small style={{ display: "block", color: "var(--muted)" }}>{item.productCode}</small>}
-                          </td>
-                          <td className="numeric-cell" style={{ color: (item.currentStock ?? 0) <= 0 ? "var(--danger)" : undefined }}>
+                          </Table.Td>
+                          <Table.Td align="right" style={{ color: (item.currentStock ?? 0) <= 0 ? "var(--danger)" : undefined }}>
                             {item.currentStock != null ? formatNumber(item.currentStock) : "—"}
-                          </td>
-                          <td>
+                          </Table.Td>
+                          <Table.Td>
                             <input
                               className="req-qty-input"
                               type="number"
@@ -495,26 +494,25 @@ export function Requisitions({ user }: { user: AppUser }) {
                             {isInsufficient && (
                               <small style={{ color: "var(--danger)", fontSize: 11, display: "block" }}>Insuficiente</small>
                             )}
-                          </td>
-                          <td>
+                          </Table.Td>
+                          <Table.Td>
                             <input
                               type="text"
                               value={item.unit}
                               onChange={(e) => updateItemUnit(item.productId, e.target.value)}
                               style={{ width: "100%" }}
                             />
-                          </td>
-                          <td style={{ textAlign: "center" }}>
+                          </Table.Td>
+                          <Table.Td align="center">
                             <button type="button" className="btn-icon-sm danger" onClick={() => removeItem(item.productId)} title="Remover">
                               <Trash2 size={13} />
                             </button>
-                          </td>
-                        </tr>
+                          </Table.Td>
+                        </Table.Row>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
+                </Table.Body>
+              </Table>
             ) : (
               <div className="req-items-empty">
                 <Search size={20} style={{ color: "var(--muted)", marginBottom: 6 }} />
@@ -531,22 +529,21 @@ export function Requisitions({ user }: { user: AppUser }) {
 
           {/* Acoes */}
           <div className="req-form-actions">
-            <button
-              className="primary-button"
-              type="button"
+            <Button
+              variant="primary"
               disabled={submitting || items.length === 0}
               onClick={handleSubmit}
             >
               {submitting ? "Registrando..." : "Registrar requisição"}
-            </button>
-            <button
-              className="secondary-button"
-              type="button"
+            </Button>
+            <Button
+              variant="secondary"
+              leadingIcon={<X size={14} />}
               onClick={resetForm}
               disabled={submitting}
             >
-              <X size={14} /> Limpar
-            </button>
+              Limpar
+            </Button>
           </div>
         </div>
       )}
@@ -567,44 +564,42 @@ export function Requisitions({ user }: { user: AppUser }) {
           </div>
 
           {confirmedRequisition.items && confirmedRequisition.items.length > 0 && (
-            <div className="table-wrap" style={{ marginTop: 12 }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Produto</th>
-                    <th className="numeric-cell">Retirado</th>
-                    <th>Un.</th>
-                    <th className="numeric-cell">Antes</th>
-                    <th className="numeric-cell">Apos</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {confirmedRequisition.items.map((item: InventoryRequisitionItem) => (
-                    <tr key={item.id}>
-                      <td>
-                        <strong>{item.productName}</strong>
-                        {item.productCode && <small style={{ display: "block", color: "var(--muted)" }}>{item.productCode}</small>}
-                      </td>
-                      <td className="numeric-cell">{formatNumber(Number(item.quantity))}</td>
-                      <td>{item.unit ?? "—"}</td>
-                      <td className="numeric-cell">{item.stockBefore != null ? formatNumber(Number(item.stockBefore)) : "—"}</td>
-                      <td className="numeric-cell" style={{ color: Number(item.stockAfter ?? 0) <= 0 ? "var(--danger)" : "var(--success)" }}>
-                        {item.stockAfter != null ? formatNumber(Number(item.stockAfter)) : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table style={{ marginTop: 12 }}>
+              <Table.Head>
+                <Table.Row>
+                  <Table.Th>Produto</Table.Th>
+                  <Table.Th align="right">Retirado</Table.Th>
+                  <Table.Th>Un.</Table.Th>
+                  <Table.Th align="right">Antes</Table.Th>
+                  <Table.Th align="right">Apos</Table.Th>
+                </Table.Row>
+              </Table.Head>
+              <Table.Body>
+                {confirmedRequisition.items.map((item: InventoryRequisitionItem) => (
+                  <Table.Row key={item.id}>
+                    <Table.Td>
+                      <strong>{item.productName}</strong>
+                      {item.productCode && <small style={{ display: "block", color: "var(--muted)" }}>{item.productCode}</small>}
+                    </Table.Td>
+                    <Table.Td align="right">{formatNumber(Number(item.quantity))}</Table.Td>
+                    <Table.Td>{item.unit ?? "—"}</Table.Td>
+                    <Table.Td align="right">{item.stockBefore != null ? formatNumber(Number(item.stockBefore)) : "—"}</Table.Td>
+                    <Table.Td align="right" style={{ color: Number(item.stockAfter ?? 0) <= 0 ? "var(--danger)" : "var(--success)" }}>
+                      {item.stockAfter != null ? formatNumber(Number(item.stockAfter)) : "—"}
+                    </Table.Td>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table>
           )}
 
           <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-            <button className="primary-button" type="button" onClick={resetForm}>
-              <Plus size={14} /> Nova requisicao
-            </button>
-            <button className="secondary-button" type="button" onClick={() => { setView("list"); setConfirmedRequisition(null); }}>
-              <ClipboardList size={14} /> Ver historico
-            </button>
+            <Button variant="primary" leadingIcon={<Plus size={14} />} onClick={resetForm}>
+              Nova requisicao
+            </Button>
+            <Button variant="secondary" leadingIcon={<ClipboardList size={14} />} onClick={() => { setView("list"); setConfirmedRequisition(null); }}>
+              Ver historico
+            </Button>
           </div>
         </div>
       )}
@@ -614,13 +609,13 @@ export function Requisitions({ user }: { user: AppUser }) {
         <div className="form-section">
           <div className="section-heading compact-heading" style={{ marginBottom: 12 }}>
             <div style={{ flex: 1 }}>
-              <p>Estoque</p>
+              <PanelEyebrow>Estoque</PanelEyebrow>
               <h3>Historico de requisicoes</h3>
               <span className="muted">Retiradas de insumos registradas do estoque.</span>
             </div>
-            <button type="button" className="primary-button" onClick={() => setView("form")}>
-              <Plus size={14} /> Nova requisição
-            </button>
+            <Button variant="primary" leadingIcon={<Plus size={14} />} onClick={() => setView("form")}>
+              Nova requisição
+            </Button>
           </div>
 
           {/* Tabela desktop */}
@@ -709,16 +704,12 @@ export function Requisitions({ user }: { user: AppUser }) {
                   )}
                 </div>
                 <div className="mobile-card-actions">
-                  <button type="button" className="secondary-button" onClick={() => setDetailId(req.id)}>
-                    <Eye size={13} /> Ver
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => void duplicateRequisition(req.id)}
-                  >
-                    <Copy size={13} /> Duplicar
-                  </button>
+                  <Button variant="secondary" leadingIcon={<Eye size={13} />} onClick={() => setDetailId(req.id)}>
+                    Ver
+                  </Button>
+                  <Button variant="secondary" leadingIcon={<Copy size={13} />} onClick={() => void duplicateRequisition(req.id)}>
+                    Duplicar
+                  </Button>
                 </div>
               </div>
             ))}
@@ -757,37 +748,35 @@ export function Requisitions({ user }: { user: AppUser }) {
                     <div><small className="muted">Registrado por</small><p>{detail.requestedByName ?? "—"}</p></div>
                   </div>
                   {detail.notes && <p style={{ fontSize: 13, color: "var(--muted)", margin: "0 0 12px" }}>{detail.notes}</p>}
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Produto</th>
-                          <th className="numeric-cell">Qtd</th>
-                          <th>Un.</th>
-                          <th className="numeric-cell">Antes</th>
-                          <th className="numeric-cell">Apos</th>
-                          <th className="numeric-cell">Atual</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(detail.items ?? []).map((item: InventoryRequisitionItem) => (
-                          <tr key={item.id}>
-                            <td>
-                              <strong>{item.productName}</strong>
-                              {item.productCode && <small style={{ display: "block", color: "var(--muted)" }}>{item.productCode}</small>}
-                            </td>
-                            <td className="numeric-cell">{formatNumber(Number(item.quantity))}</td>
-                            <td>{item.unit ?? "—"}</td>
-                            <td className="numeric-cell">{item.stockBefore != null ? formatNumber(Number(item.stockBefore)) : "—"}</td>
-                            <td className="numeric-cell">{item.stockAfter != null ? formatNumber(Number(item.stockAfter)) : "—"}</td>
-                            <td className="numeric-cell" style={{ color: Number(item.currentStock ?? 0) <= 0 ? "var(--danger)" : undefined }}>
-                              {item.currentStock != null ? formatNumber(Number(item.currentStock)) : "—"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <Table>
+                    <Table.Head>
+                      <Table.Row>
+                        <Table.Th>Produto</Table.Th>
+                        <Table.Th align="right">Qtd</Table.Th>
+                        <Table.Th>Un.</Table.Th>
+                        <Table.Th align="right">Antes</Table.Th>
+                        <Table.Th align="right">Apos</Table.Th>
+                        <Table.Th align="right">Atual</Table.Th>
+                      </Table.Row>
+                    </Table.Head>
+                    <Table.Body>
+                      {(detail.items ?? []).map((item: InventoryRequisitionItem) => (
+                        <Table.Row key={item.id}>
+                          <Table.Td>
+                            <strong>{item.productName}</strong>
+                            {item.productCode && <small style={{ display: "block", color: "var(--muted)" }}>{item.productCode}</small>}
+                          </Table.Td>
+                          <Table.Td align="right">{formatNumber(Number(item.quantity))}</Table.Td>
+                          <Table.Td>{item.unit ?? "—"}</Table.Td>
+                          <Table.Td align="right">{item.stockBefore != null ? formatNumber(Number(item.stockBefore)) : "—"}</Table.Td>
+                          <Table.Td align="right">{item.stockAfter != null ? formatNumber(Number(item.stockAfter)) : "—"}</Table.Td>
+                          <Table.Td align="right" style={{ color: Number(item.currentStock ?? 0) <= 0 ? "var(--danger)" : undefined }}>
+                            {item.currentStock != null ? formatNumber(Number(item.currentStock)) : "—"}
+                          </Table.Td>
+                        </Table.Row>
+                      ))}
+                    </Table.Body>
+                  </Table>
                 </>
               )}
             </div>
