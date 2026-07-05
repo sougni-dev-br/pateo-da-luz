@@ -2573,6 +2573,7 @@ export function Purchases({ user }: { user: AppUser }) {
                           type="number"
                           min="0"
                           step="0.01"
+                          inputMode="decimal"
                           className={`pnova-gr-input pnova-gr-price-input${productStep === "valores" ? " col-active" : ""}${!item.unitPrice || Number(item.unitPrice) <= 0 ? " cell-warn" : ""}`}
                           value={item.unitPrice}
                           placeholder="0,00"
@@ -2788,7 +2789,7 @@ export function Purchases({ user }: { user: AppUser }) {
                             <label>
                               Parcelas no cartão
                               <div className="pnova-installment-count-wrap">
-                                <input type="number" min="1" max="24" step="1"
+                                <input type="number" min="1" max="24" step="1" inputMode="numeric"
                                   value={form.ccNumberOfInstallments}
                                   onChange={(event) => setForm((current) => ({ ...current, ccNumberOfInstallments: String(Math.max(1, Math.min(24, Number(event.target.value || 1)))) }))} />
                               </div>
@@ -2799,7 +2800,7 @@ export function Purchases({ user }: { user: AppUser }) {
                             <label className={fieldErrors.installmentCount ? "field-error" : ""}>
                               Quantidade de parcelas
                               <div className="pnova-installment-count-wrap">
-                                <input type="number" min="1" step="1" value={form.installmentCount}
+                                <input type="number" min="1" step="1" inputMode="numeric" value={form.installmentCount}
                                   disabled={!selectedPaymentMethod || !selectedPaymentMethodAllowsInstallments || smallExpenseUsesCreditCard}
                                   onChange={(event) => setForm((current) => ({ ...current, installmentCount: String(Math.max(1, Number(event.target.value || 1))) }))} />
                               </div>
@@ -2867,6 +2868,7 @@ export function Purchases({ user }: { user: AppUser }) {
                                       type="number"
                                       min="0"
                                       step="0.01"
+                                      inputMode="decimal"
                                       value={installment.amount}
                                       onChange={(event) => setInstallments((current) => current.map((inst, entryIndex) => entryIndex === index ? { ...inst, amount: event.target.value } : inst))}
                                     />

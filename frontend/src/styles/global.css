@@ -10396,6 +10396,14 @@ tr.dre-row-selected td {
     grid-template-columns: 1fr 1fr;
   }
 }
+/* Titulo interno duplicava o PageHeader do DS em mobile.
+   Mantem-se no desktop porque o PageHeader nao propaga o
+   eyebrow "Estoque" hoje. */
+@media (max-width: 640px) {
+  .req-page-heading {
+    display: none;
+  }
+}
 
 /* ── Generic modal overlay + card (TaxPayments e outros) ─────────────── */
 .modal-overlay {

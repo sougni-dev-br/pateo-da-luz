@@ -295,7 +295,7 @@ export function Requisitions({ user }: { user: AppUser }) {
       <Notice notice={notice} />
 
       {/* Header */}
-      <div className="section-heading">
+      <div className="section-heading req-page-heading">
         <div style={{ flex: 1 }}>
           <PanelEyebrow>Estoque</PanelEyebrow>
           <h2>Requisições de Insumos</h2>
