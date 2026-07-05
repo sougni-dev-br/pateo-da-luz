@@ -910,6 +910,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                 Valor bruto (R$)
                 <input
                   type="number"
+                  inputMode="decimal"
                   min="0"
                   step="0.01"
                   placeholder="0,00"
@@ -922,6 +923,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                 Número de pessoas
                 <input
                   type="number"
+                  inputMode="numeric"
                   min="0"
                   step="1"
                   placeholder="0"

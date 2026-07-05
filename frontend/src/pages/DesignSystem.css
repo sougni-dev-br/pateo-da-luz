@@ -1,5 +1,6 @@
 .ds-showcase {
   min-height: 100vh;
+  min-height: 100dvh;
   background: linear-gradient(180deg, var(--app-bg-from) 0%, var(--app-bg-to) 100%);
   font-family: var(--font-sans);
   color: var(--ink);

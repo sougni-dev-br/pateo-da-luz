@@ -70,6 +70,20 @@ select {
   white-space: nowrap;
 }
 
+/* Impede zoom automático do iOS Safari ao focar campos (<16px dispara zoom).
+   Precisa alcançar as classes do design system que definem font-size:var(--fs-sm)
+   com maior especificidade que o seletor de elemento nativo. */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea,
+  .ds-text-field-input,
+  .ds-textarea-input,
+  .ds-select-native {
+    font-size: 16px;
+  }
+}
+
 /* .app-shell agora vive em src/design-system/shell/AppShell.css (Fase 4A). */
 
 .mobile-app-header,
