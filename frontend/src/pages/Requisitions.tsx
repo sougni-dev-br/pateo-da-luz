@@ -474,6 +474,7 @@ export function Requisitions({ user }: { user: AppUser }) {
                             <input
                               className="req-qty-input"
                               type="number"
+                              inputMode="decimal"
                               min="0.001"
                               step="0.001"
                               placeholder="0"

@@ -774,7 +774,7 @@ export function Payables({ user }: PayablesProps) {
               </label>
               <label>
                 Valor pago *
-                <input type="number" min="0.01" step="0.01" value={paymentForm.paidAmount}
+                <input type="number" min="0.01" step="0.01" inputMode="decimal" value={paymentForm.paidAmount}
                   onChange={(e) => setPaymentForm({ ...paymentForm, paidAmount: e.target.value })} />
               </label>
               {!isTaxPayment(paying) && (

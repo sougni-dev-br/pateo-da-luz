@@ -1408,7 +1408,7 @@ function CategoriesPanel({
           </div>
           <div className="form-group">
             <label>Ordem</label>
-            <input type="number" value={form.sortOrder} onChange={(e) => setField("sortOrder", Number(e.target.value))} />
+            <input type="number" inputMode="numeric" value={form.sortOrder} onChange={(e) => setField("sortOrder", Number(e.target.value))} />
           </div>
           <div className="form-group" style={{ alignSelf: "flex-end" }}>
             <button type="button" className="btn-primary" onClick={handleSubmit}>
