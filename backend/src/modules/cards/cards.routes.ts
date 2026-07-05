@@ -660,6 +660,92 @@ cardsRouter.post("/statements/:id/close", async (request, response) => {
   response.json(updated);
 });
 
+cardsRouter.post("/statements/:id/reopen", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const statement = await cardStatementDetail(request.params.id);
+  if (!statement) {
+    response.status(404).json({ message: "Fatura nao encontrada." });
+    return;
+  }
+
+  if (statement.status !== "CLOSED" && statement.status !== "PAID") {
+    response.status(400).json({
+      message: `Nao e possivel reabrir fatura em status ${statement.status}. Apenas CLOSED ou PAID.`
+    });
+    return;
+  }
+
+  const REOPEN_BLOCKED_INSTALLMENT_PAID = "REOPEN_BLOCKED_INSTALLMENT_PAID";
+
+  let installmentsCancelled = 0;
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (statement.generatedPurchaseId) {
+        const installments = await tx.paymentInstallment.findMany({
+          where: {
+            purchaseId: statement.generatedPurchaseId,
+            sourceType: "CARD_STATEMENT"
+          },
+          select: { id: true, status: true, paidDate: true }
+        });
+
+        const hasPaid = installments.some(
+          (inst) => inst.status === "PAID" || inst.status === "PAID_LATE" || inst.paidDate !== null
+        );
+
+        if (hasPaid) {
+          throw new Error(REOPEN_BLOCKED_INSTALLMENT_PAID);
+        }
+
+        const cancelled = await tx.paymentInstallment.updateMany({
+          where: {
+            purchaseId: statement.generatedPurchaseId,
+            sourceType: "CARD_STATEMENT",
+            status: { notIn: ["PAID", "PAID_LATE", "CANCELLED"] }
+          },
+          data: { status: "CANCELLED" }
+        });
+
+        installmentsCancelled = cancelled.count;
+      }
+
+      await tx.creditCardStatement.update({
+        where: { id: statement.id },
+        data: { status: "OPEN" }
+      });
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === REOPEN_BLOCKED_INSTALLMENT_PAID) {
+      response.status(409).json({
+        message: "Fatura possui parcela ja baixada. Reabertura bloqueada. Se necessario, estorne o pagamento antes."
+      });
+      return;
+    }
+    throw err;
+  }
+
+  const updated = await cardStatementDetail(statement.id);
+  await auditLog({
+    userId: user.id,
+    action: "REOPEN_CREDIT_CARD_STATEMENT",
+    entity: "CreditCardStatement",
+    entityId: statement.id,
+    previousValue: statement,
+    newValue: {
+      status: "OPEN",
+      previousStatus: statement.status,
+      installmentsCancelled
+    },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+
+  response.json(updated);
+});
+
 cardsRouter.patch("/statements/:id/pay", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
