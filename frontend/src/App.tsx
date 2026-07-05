@@ -24,7 +24,6 @@ import {
   X
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import type { PanInfo } from "framer-motion";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, matchPath, useLocation, useNavigate, useParams } from "react-router-dom";
 import { AppUser, addMenuFavorite, getMe, getMenuFavorites, getStockCountSessions, logout, removeMenuFavorite, type PermissionAction } from "./api/client";
@@ -276,6 +275,12 @@ export function App() {
     };
   }, [mobileMenuOpen]);
 
+  // Rede de seguranca: qualquer troca de rota fecha o drawer, independentemente
+  // do caminho de navegacao que disparou.
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
+
   function scrollToPageTop() {
     requestAnimationFrame(() => {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -304,10 +309,6 @@ export function App() {
     setMobileMenuOpen(false);
     navigate(section.path);
     scrollToPageTop();
-  }
-
-  function handleMobileDrawerDragEnd(_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) {
-    if (info.offset.x < -80 || info.velocity.x < -450) setMobileMenuOpen(false);
   }
 
   // Props reutilizadas pela <Sidebar /> desktop e pelo <SidebarNav /> do mobile drawer.
@@ -408,10 +409,6 @@ export function App() {
             animate={{ x: 0 }}
             exit={{ x: "-104%" }}
             transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.8 }}
-            drag="x"
-            dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={{ left: 0.24, right: 0 }}
-            onDragEnd={handleMobileDrawerDragEnd}
           >
             <div className="mobile-drawer-header">
               <div className="ds-sidebar-brand">
