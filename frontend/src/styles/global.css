@@ -5895,7 +5895,8 @@ details[open] .modal-section-summary::before {
     background: none;    /* remove gradiente desktop — mobile não tem coluna fixa */
   }
 
-  .sidebar {
+  .sidebar,
+  .ds-sidebar {
     display: none;
   }
 
