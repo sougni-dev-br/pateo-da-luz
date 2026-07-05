@@ -12,7 +12,6 @@ import {
   getCardStatement,
   getCardStatements,
   getCards,
-  payCardStatement,
   reallocateCardStatementItem,
   reopenCardStatement,
   saveCard,
@@ -249,20 +248,6 @@ export function Cards({ user }: CardsProps) {
       await load();
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao reabrir fatura." });
-    }
-  }
-
-  async function payStatement(statement: CreditCardStatement) {
-    try {
-      await payCardStatement(statement.id, {
-        paidDate: todayDate(),
-        paidAmount: Number(statement.totalAmount ?? 0),
-        paymentMethodName: "Cartão de crédito/fatura"
-      });
-      setNotice({ tone: "success", message: "Fatura marcada como paga." });
-      await load();
-    } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao pagar fatura." });
     }
   }
 
@@ -538,7 +523,6 @@ export function Cards({ user }: CardsProps) {
                       <button type="button" onClick={() => openStatement(statement)}><Eye size={15} /> Ver</button>
                       {canManage && (statement.status === "CLOSED" || statement.status === "PAID") && <button type="button" onClick={() => reopenStatement(statement)}>Reabrir</button>}
                       {canManage && statement.status !== "CLOSED" && <button type="button" onClick={() => closeStatement(statement)}>Fechar</button>}
-                      {canManage && statement.status === "CLOSED" && <button type="button" onClick={() => payStatement(statement)}>Pagar</button>}
                       <button type="button" onClick={() => pdf(statement)}><FileText size={15} /> PDF</button>
                       {canManage && ["OPEN", "CHECKED"].includes(statement.status) && (
                         <button type="button" onClick={() => void openStatement(statement, { mode: "review" })}>
