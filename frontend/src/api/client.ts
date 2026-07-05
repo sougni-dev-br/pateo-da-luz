@@ -2237,6 +2237,12 @@ export function closeCardStatement(id: string) {
   });
 }
 
+export function reopenCardStatement(id: string) {
+  return request<CreditCardStatementDetail>(`/cards/statements/${id}/reopen`, {
+    method: "POST"
+  });
+}
+
 export function payCardStatement(id: string, payload?: { paidDate?: string; paidAmount?: number; paymentMethodName?: string }) {
   return request<{ id: string; status: string }>(`/cards/statements/${id}/pay`, {
     method: "PATCH",
