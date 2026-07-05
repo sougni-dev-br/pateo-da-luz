@@ -4,6 +4,7 @@
 
 .ds-sidebar {
   height: 100vh;
+  height: 100dvh;
   align-self: start;
   display: flex;
   flex-direction: column;
