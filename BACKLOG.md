@@ -52,6 +52,26 @@ a uma revisão consciente.
 
 ## Observações vigiadas (não são débitos a executar)
 
+### OBS-017 — Botão "Pagar" na tabela de faturas de cartão gera clicks errados quando adjacente ao "Reabrir"
+
+- **Origem:** sessão pós-deploy do PR #17 (OBS-012, SHA `2faac5b`). Teste E2E em produção revelou que o usuário clicou em Pagar quando pretendia clicar em Reabrir para reverter fechamento por engano da fatura 07/2026. Audit log confirmou `PAY_CREDIT_CARD_STATEMENT` em `2026-07-05 03:03:13` sem `REOPEN_CREDIT_CARD_STATEMENT` precedente do mesmo `userId`/IP.
+- **O que é:**
+  - Actions-cell da tabela em `/financeiro/cartoes` para statement `CLOSED` exibe: **Ver / Reabrir / Pagar / PDF**.
+  - Reabrir e Pagar são semanticamente opostos — Reabrir volta atrás, Pagar finaliza — mas visualmente adjacentes.
+  - Pagar é ação contábil crítica (baixa parcela em Contas a Pagar) — merece contexto e não deveria ser executável em 1 click da tabela de faturas.
+  - Fluxo alternativo já existe: `/financeiro/contas-a-pagar` permite pagamento direto da parcela, com mais contexto (valor, vencimento, categoria, forma de pagamento).
+- **Decisão do usuário:** remover botão Pagar da actions-cell. Manter Pagar apenas em Contas a Pagar (fluxo mais direto, já funcional). Reabrir fica na tabela (o par Reabrir/Pagar era o vetor da fricção; remover Pagar deixa Reabrir isolado sem click adjacente perigoso).
+- **Impacto:** nenhuma perda de funcionalidade. Usuário que queria pagar via tabela de faturas passa a navegar para Contas a Pagar (1 click adicional, mas com contexto contábil apropriado). Modal de detalhe da fatura (`openStatement`) fica intacto — Pagar continua acessível dentro dele para operadores que precisam de detalhe antes de pagar.
+- **Escopo técnico:**
+  - Frontend puro. Sem backend, sem schema, sem migration.
+  - Remover linha condicional do botão Pagar na actions-cell de `Cards.tsx` (linha ~525 antes do PR do OBS-012, número atualizado após merge do PR #17).
+  - Deploy frontend via SCP (backend não muda).
+  - Estimativa: 1 arquivo, 1-3 linhas de diff.
+- **Vigiar:**
+  - Se aparecer relato de usuário não achar onde pagar fatura, adicionar link explícito em `/financeiro/cartoes` para `/financeiro/contas-a-pagar` (fluxo b — atalho de navegação).
+  - Combinar com [[OBS-012]] (reabrir): o par Reabrir/Pagar era o vetor da fricção. Sem Pagar, Reabrir fica isolado.
+  - Se algum usuário legítimo dependia do atalho de Pagar via tabela para fluxo rápido de fechamento diário, avaliar restaurar com confirmação obrigatória em vez de remover.
+
 ### OBS-016 — Escalonamento de fatura de cartão pós-PR #16 é silencioso; sem feedback visual da competência real
 
 - **Origem:** validação empírica do PR #16 em produção (SHA `aa454a1`). Compra parcelada de R$ 30,00 em 04/07/2026 (Sicredi Marcos C M., `closingDay=5`) escalou globalmente `shift=1` para 08/2026 (parcela 1) e 09/2026 (parcela 2). Compra e itens vinculados corretamente no banco, mas operador que tentou conferir em `/financeiro/cartoes` com filtro em Julho/2026 (competência natural do dashboard) não viu a compra — teve que trocar o filtro para Agosto para encontrá-la.
