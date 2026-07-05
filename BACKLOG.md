@@ -52,6 +52,57 @@ a uma revisão consciente.
 
 ## Observações vigiadas (não são débitos a executar)
 
+### OBS-019 — Design system não possui componente `Autocomplete`; `Purchases.tsx` (e possivelmente outras telas) reimplementam padrão custom local
+
+- **Origem:** auditoria OBS-008/009/010 (2026-07-05). Grep em `Purchases.tsx:1592-1662` revelou implementação completa de autocomplete via CSS classes (`autocomplete-shell`, `autocomplete-dropdown`, `autocomplete-option`, `autocomplete-clear`, `autocomplete-chevron`) + estado (`supplierFilterQuery`, `supplierFilterOpen`, `supplierFilterRef`) + lógica de handlers.
+- **O que é:**
+  - Design system em `frontend/src/design-system/components/` tem 24 componentes primitivos (`Alert`, `Button`, `Card`, `EmptyState`, `FormField`, `FormGrid`, `FormSection`, `IconButton`, `KpiCard`, `ListDetailLayout`, `Money`, `PageHeader`, `PanelEyebrow`, `Percent`, `RowMenu`, `Select`, `Sparkline`, `StatusBadge`, `SummaryCard`, `Switch`, `Table`, `Tabs`, `TextField`, `Textarea`).
+  - **Nenhum deles cobre o padrão Autocomplete** (input com dropdown filtrável).
+  - `Purchases.tsx` implementa Autocomplete de Fornecedor localmente.
+  - Suspeita: `Suppliers.tsx`, `Companies.tsx`, `PurchasePlanning.tsx` e potencialmente outras telas usam padrão similar (não verificado via grep sistemático).
+- **Impacto:** nenhum bug funcional. Dívida técnica de padronização. **Bloqueia decisão arquitetural sobre [[OBS-010]]** (filtros de Compras) — não dá para migrar o bloco de filtros para DS enquanto o autocomplete de fornecedor não tiver destino claro.
+- **Ideias de melhoria:**
+  1. Grep de varredura pelo padrão `autocomplete-shell` no repo. Se encontrar 3+ ocorrências em telas diferentes, criar componente `Autocomplete` no DS.
+  2. Se só `Purchases.tsx` usa, manter custom local até 2a tela precisar.
+  3. Se decisão for criar no DS, especificar API (props, comportamento de dropdown, keyboard nav, aria attributes, empty state, loading state, `renderOption` opcional).
+- **Escopo técnico:**
+  - **Investigação:** grep de varredura, ~15 min.
+  - **Criação no DS** (se decidir): componente novo + testes vitest + migração das telas usuárias em PRs próprios.
+  - **Bloqueio direto de OBS-010:** precisa decidir antes do PR-C do plano de padronização visual (Opção C da auditoria OBS-008/009/010).
+- **Vigiar:**
+  - Se OBS-010 (filtros de Compras) for atacado, precisa resolver OBS-019 primeiro.
+  - Se [[OBS-005]] (filtro global de competência) trouxer autocomplete de qualquer tipo, cross-ref para evitar dois padrões novos ao mesmo tempo.
+
+### OBS-018 — `Purchases.tsx` importa 2 componentes `StatusBadge` (legado + DS) simultaneamente; resíduo de migração parcial
+
+- **Origem:** auditoria OBS-008/009/010 (2026-07-05). Grep em `Purchases.tsx:42-52` revelou:
+  ```tsx
+  import { StatusBadge } from "../components/ui/StatusBadge";           // legado
+  import {
+    EmptyState as DsEmptyState,
+    IconButton,
+    Money as DsMoney,
+    RowMenu,
+    StatusBadge as DsStatusBadge,                                       // DS
+    Table,
+    useFormatCurrency
+  } from "../design-system";
+  ```
+- **O que é:**
+  - 2 componentes `StatusBadge` no mesmo arquivo.
+  - Um do path legado `../components/ui/StatusBadge`.
+  - Um do design system, aliased como `DsStatusBadge`.
+  - Sinal de migração parcial abandonada — alguém começou a migrar `Purchases.tsx` para DS mas não terminou.
+- **Impacto:** nenhum bug funcional. Dívida de código (2 implementações de mesma coisa carregadas no bundle) + confusão para próximo dev tocar no arquivo.
+- **Escopo técnico:**
+  - **Investigação:** grep por usos de cada `StatusBadge` no arquivo. Ver quais linhas usam qual (`StatusBadge` sem prefixo vs. `DsStatusBadge`).
+  - **Escolha:** consolidar tudo para `DsStatusBadge` (renomear import), remover import legado.
+  - **Validação:** `tsc` + `npm run build` + preview visual das linhas afetadas.
+  - **Custo:** pequeno-médio, contido em 1 arquivo. Estimativa: 30 min–1 h.
+- **Vigiar:**
+  - Combinar com PR-C do OBS-010 (filtros de Compras): se já vai mexer em `Purchases.tsx`, consolidar `StatusBadge` no mesmo PR reduz churn de commits.
+  - Verificar se `../components/ui/StatusBadge` também é usado em outras telas (grep). Se sim, remover só o import de `Purchases`; se não, considerar deletar arquivo legado inteiro para fechar migração.
+
 ### OBS-017 — Botão "Pagar" na tabela de faturas de cartão gera clicks errados quando adjacente ao "Reabrir"
 
 - **Origem:** sessão pós-deploy do PR #17 (OBS-012, SHA `2faac5b`). Teste E2E em produção revelou que o usuário clicou em Pagar quando pretendia clicar em Reabrir para reverter fechamento por engano da fatura 07/2026. Audit log confirmou `PAY_CREDIT_CARD_STATEMENT` em `2026-07-05 03:03:13` sem `REOPEN_CREDIT_CARD_STATEMENT` precedente do mesmo `userId`/IP.
