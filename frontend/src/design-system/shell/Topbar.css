@@ -160,3 +160,13 @@
 .ds-topbar-period-icon-tail {
   color: var(--muted);
 }
+
+/* ── Mobile ── */
+/* Search e period do Topbar sao decorativos (sem handlers no App.tsx) e o
+   toggle de olho ja esta duplicado no drawer mobile. Esconde a barra inteira
+   em <=900px para evitar quebra visual e recuperar altura de viewport. */
+@media (max-width: 900px) {
+  .ds-topbar {
+    display: none;
+  }
+}
