@@ -10464,6 +10464,18 @@ tr.dre-row-selected td {
   }
 }
 
+/* Users.tsx duplica <h2>Usuários</h2> com o PageHeader do DS no
+   mobile. Analog dos padroes .req-page-heading,
+   .inv-overview-heading e .prod-page-heading. Variante: classe
+   aplicada direto no <h2> (nao no wrapper), pois o titulo e
+   sibling direto dos botoes refresh + "Novo usuario" que ficam
+   preservados no mobile. */
+@media (max-width: 640px) {
+  .users-page-heading {
+    display: none;
+  }
+}
+
 /* ── Generic modal overlay + card (TaxPayments e outros) ─────────────── */
 .modal-overlay {
   position: fixed;
