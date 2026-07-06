@@ -237,6 +237,7 @@ importRouter.post("/purchases/confirm", async (request, response) => {
       await confirmPurchaseImport(importFileId, originalFileName, {
         historicalMode: isTruthyOption(request.body.historicalMode),
         ignoreRowsWithoutProduct: isTruthyOption(request.body.ignoreRowsWithoutProduct),
+        companyId: request.body.companyId ? String(request.body.companyId) : null,
         authorizedByUserId: user.id,
         ipAddress: requestIp(request),
         userAgent: String(request.headers["user-agent"] ?? "")
