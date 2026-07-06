@@ -398,7 +398,7 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
                 </label>
                 <label className="pnova-field">
                   <span>Valor *</span>
-                  <input type="number" step="0.01" min="0" value={form.amount} onChange={f("amount")} required disabled={!canEdit} />
+                  <input type="number" step="0.01" min="0" inputMode="decimal" value={form.amount} onChange={f("amount")} required disabled={!canEdit} />
                 </label>
               </div>
               <div className="pnova-field-row">
@@ -408,7 +408,7 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
                 </label>
                 <label className="pnova-field">
                   <span>Valor pago</span>
-                  <input type="number" step="0.01" min="0" value={form.paidAmount} onChange={f("paidAmount")} disabled={!canEdit} />
+                  <input type="number" step="0.01" min="0" inputMode="decimal" value={form.paidAmount} onChange={f("paidAmount")} disabled={!canEdit} />
                 </label>
               </div>
             </fieldset>
