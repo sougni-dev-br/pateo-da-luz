@@ -503,11 +503,11 @@ function DishFormPanel({
         </div>
         <div className="form-group">
           <label>Preço de venda (R$)</label>
-          <input type="number" step="0.01" min="0" value={form.salePriceDefault} onChange={(e) => setField("salePriceDefault", e.target.value)} placeholder="0,00" />
+          <input type="number" step="0.01" min="0" inputMode="decimal" value={form.salePriceDefault} onChange={(e) => setField("salePriceDefault", e.target.value)} placeholder="0,00" />
         </div>
         <div className="form-group">
           <label>Rendimento</label>
-          <input type="number" step="0.001" min="0.001" value={form.yieldQty} onChange={(e) => setField("yieldQty", e.target.value)} />
+          <input type="number" step="0.001" min="0.001" inputMode="decimal" value={form.yieldQty} onChange={(e) => setField("yieldQty", e.target.value)} />
         </div>
         <div className="form-group">
           <label>Unidade de rendimento</label>
@@ -585,6 +585,7 @@ function DishFormPanel({
                       type="number"
                       step="0.001"
                       min="0"
+                      inputMode="decimal"
                       value={item.quantity}
                       onChange={(e) => updateItem(item.tempId, "quantity", e.target.value)}
                       style={{ width: 70 }}
@@ -603,6 +604,7 @@ function DishFormPanel({
                       step="0.1"
                       min="0"
                       max="100"
+                      inputMode="decimal"
                       value={item.wasteFactor}
                       onChange={(e) => updateItem(item.tempId, "wasteFactor", e.target.value)}
                       style={{ width: 60 }}
@@ -674,7 +676,7 @@ function CategoriesPanel({
           </div>
           <div className="form-group">
             <label>Ordem</label>
-            <input type="number" value={form.sortOrder} onChange={(e) => setField("sortOrder", Number(e.target.value))} />
+            <input type="number" inputMode="numeric" value={form.sortOrder} onChange={(e) => setField("sortOrder", Number(e.target.value))} />
           </div>
           <div className="form-group">
             <label>Observações</label>

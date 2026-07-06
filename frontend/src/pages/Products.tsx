@@ -702,7 +702,7 @@ export function Products() {
               <div className="form-grid">
                 <label>Estoque minimo<input inputMode="decimal" value={form.estoqueMinimo} onChange={(event) => setForm({ ...form, estoqueMinimo: event.target.value })} /></label>
                 <label>Estoque ideal<input inputMode="decimal" value={form.estoqueIdeal} onChange={(event) => setForm({ ...form, estoqueIdeal: event.target.value })} /></label>
-                <label>Lead time compra (dias)<input type="number" min="0" value={form.leadTimeCompraDias} onChange={(event) => setForm({ ...form, leadTimeCompraDias: event.target.value })} /></label>
+                <label>Lead time compra (dias)<input type="number" min="0" inputMode="numeric" value={form.leadTimeCompraDias} onChange={(event) => setForm({ ...form, leadTimeCompraDias: event.target.value })} /></label>
                 <label>
                   Fornecedor principal
                   <select value={form.fornecedorPrincipalId} onChange={(event) => setForm({ ...form, fornecedorPrincipalId: event.target.value })}>
@@ -741,7 +741,7 @@ export function Products() {
 
       <section className="panel">
         <div className="section-heading">
-          <div>
+          <div className="prod-page-heading">
             <PanelEyebrow>Normalização inicial</PanelEyebrow>
             <h2>Produtos</h2>
           </div>

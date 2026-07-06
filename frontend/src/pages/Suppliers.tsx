@@ -307,13 +307,13 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
                   />
                 </FormField>
                 <FormField label="Parcelas">
-                  <TextField type="number" min="1" step="1" placeholder="Ex: 2" value={form.defaultInstallmentCount} onChange={(event) => setForm({ ...form, defaultInstallmentCount: event.target.value })} />
+                  <TextField type="number" min="1" step="1" inputMode="numeric" placeholder="Ex: 2" value={form.defaultInstallmentCount} onChange={(event) => setForm({ ...form, defaultInstallmentCount: event.target.value })} />
                 </FormField>
                 <FormField label="Dias de vencimento" hint="Separados por vírgula">
                   <TextField placeholder="Ex: 15, 30" value={form.defaultInstallmentDays} onChange={(event) => setForm({ ...form, defaultInstallmentDays: event.target.value })} />
                 </FormField>
                 <FormField label="Prazo em dias">
-                  <TextField type="number" min="0" placeholder="Ex: 30" value={form.defaultPaymentTermDays} onChange={(event) => setForm({ ...form, defaultPaymentTermDays: event.target.value })} />
+                  <TextField type="number" min="0" inputMode="numeric" placeholder="Ex: 30" value={form.defaultPaymentTermDays} onChange={(event) => setForm({ ...form, defaultPaymentTermDays: event.target.value })} />
                 </FormField>
                 <div className="ds-form-grid-span-all">
                   <FormField label="Observação financeira">
@@ -363,10 +363,10 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
                       />
                     </FormField>
                     <FormField label="1º vencimento (dias)">
-                      <TextField type="number" min="1" step="1" placeholder="Ex: 15" value={form.cycleFirstDueDays} onChange={(event) => setForm({ ...form, cycleFirstDueDays: event.target.value })} />
+                      <TextField type="number" min="1" step="1" inputMode="numeric" placeholder="Ex: 15" value={form.cycleFirstDueDays} onChange={(event) => setForm({ ...form, cycleFirstDueDays: event.target.value })} />
                     </FormField>
                     <FormField label="2º vencimento (opcional)">
-                      <TextField type="number" min="1" step="1" placeholder="Ex: 30" value={form.cycleSecondDueDays} onChange={(event) => setForm({ ...form, cycleSecondDueDays: event.target.value })} />
+                      <TextField type="number" min="1" step="1" inputMode="numeric" placeholder="Ex: 30" value={form.cycleSecondDueDays} onChange={(event) => setForm({ ...form, cycleSecondDueDays: event.target.value })} />
                     </FormField>
                   </>
                 )}
