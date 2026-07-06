@@ -2659,6 +2659,27 @@ export function cancelStockCountSession(id: string, reason: string) {
   });
 }
 
+export function reshapeStockCountSessionScope(payload: {
+  id: string;
+  type: "GERAL" | "SETORIAL" | "CATEGORIA" | "SUBCATEGORIA";
+  sectorId?: string | null;
+  categoryId?: string | null;
+  subcategoryId?: string | null;
+  reason?: string | null;
+}) {
+  return request<StockCountSession>(`/inventory/count-sessions/${payload.id}/reshape-scope`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: payload.type,
+      sectorId: payload.sectorId ?? null,
+      categoryId: payload.categoryId ?? null,
+      subcategoryId: payload.subcategoryId ?? null,
+      reason: payload.reason ?? null
+    })
+  });
+}
+
 export function generateInventoryFromStockCountSession(id: string, notes?: string | null) {
   return request<OperationalInventory>(`/inventory/count-sessions/${id}/generate-inventory`, {
     method: "POST",
