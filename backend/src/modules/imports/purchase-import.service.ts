@@ -27,6 +27,7 @@ import {
 } from "../purchases/purchase-duplicate-utils.js";
 import { recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { auditLog } from "../security/security-utils.js";
+import { addPurchaseToCycle, findOrCreateOpenCycle } from "../suppliers/supplier-billing-cycle.service.js";
 
 const requiredPurchaseFields = [
   "purchaseDate",
@@ -1012,14 +1013,7 @@ export async function confirmPurchaseImport(
     for (const group of groups) {
       const supplier = await findOrCreateSupplier(tx, group.header, counters);
 
-      if (supplier.billingMode === "CYCLE") {
-        warnings.push({
-          rowNumber: group.firstRowNumber,
-          message: `Fornecedor "${supplier.name}" usa faturamento por ciclo — importacao nao suportada para este tipo de fornecedor ainda.`
-        });
-        counters.ignoredRows += group.rows.length;
-        continue;
-      }
+      const isCycleSupplier = supplier.billingMode === "CYCLE";
 
       const totalAmount = group.rows.reduce((sum, entry) => sum + entry.row.totalPrice, 0);
       const purchaseDate = group.header.purchaseDate as Date;
@@ -1187,20 +1181,42 @@ export async function confirmPurchaseImport(
         });
       }
 
-      await tx.paymentInstallment.createMany({
-        data: installments.map((installment) => ({
-          purchaseId: purchase.id,
-          dueDate: installment.dueDate,
-          amount: installment.amount,
-          installment: installment.installment,
-          paymentMethodId: paymentMethod?.id ?? null,
-          paymentMethodName: paymentMethodBaseName,
-          status: "OPEN",
-          rawValue: installment.rawValue
-        }))
-      });
+      if (!isCycleSupplier) {
+        await tx.paymentInstallment.createMany({
+          data: installments.map((installment) => ({
+            purchaseId: purchase.id,
+            dueDate: installment.dueDate,
+            amount: installment.amount,
+            installment: installment.installment,
+            paymentMethodId: paymentMethod?.id ?? null,
+            paymentMethodName: paymentMethodBaseName,
+            status: "OPEN",
+            rawValue: installment.rawValue
+          }))
+        });
 
-      installmentsCreated += installments.length;
+        installmentsCreated += installments.length;
+      }
+
+      if (isCycleSupplier) {
+        const cycleId = await findOrCreateOpenCycle(tx, supplier.id, options.authorizedByUserId ?? null, purchaseDate);
+        await addPurchaseToCycle(tx, {
+          cycleId,
+          purchaseId: purchase.id,
+          amount: totalAmount,
+          purchaseDate,
+          invoiceNumber
+        });
+        await auditLog({
+          userId: options.authorizedByUserId ?? null,
+          action: "IMPORT_ADD_TO_SUPPLIER_CYCLE",
+          entity: "SupplierBillingCycle",
+          entityId: cycleId,
+          newValue: { purchaseId: purchase.id, amount: totalAmount, invoiceNumber },
+          ipAddress: options.ipAddress,
+          userAgent: options.userAgent
+        });
+      }
     }
 
     await tx.importBatch.update({
