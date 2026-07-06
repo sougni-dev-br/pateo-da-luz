@@ -120,7 +120,7 @@ function SectorsPanel({ notify }: { notify: Notify }) {
         <div className="form-grid">
           <Text label="Nome" value={form.name} onChange={(name) => setForm({ ...form, name })} />
           <Text label="Descricao" value={form.description} onChange={(description) => setForm({ ...form, description })} />
-          <label>Ordem de contagem<input type="number" value={form.countOrder} onChange={(event) => setForm({ ...form, countOrder: Number(event.target.value) })} /></label>
+          <label>Ordem de contagem<input type="number" inputMode="numeric" value={form.countOrder} onChange={(event) => setForm({ ...form, countOrder: Number(event.target.value) })} /></label>
           <Text label="Observacoes" value={form.notes} onChange={(notes) => setForm({ ...form, notes })} />
           <Active checked={form.isActive} onChange={(isActive) => setForm({ ...form, isActive })} />
           <button className="primary-button" type="button" onClick={submit}>{form.id ? "Salvar" : "Cadastrar"}</button>
