@@ -63,6 +63,10 @@ function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
+function endOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}
+
 const accentChars = "áàãâäéèêëíìîïóòõôöúùûüç";
 const plainChars = "aaaaaeeeeiiiiooooouuuuc";
 
@@ -803,6 +807,66 @@ async function getStockCountSessionOrThrow(id: string) {
   const session = await getStockCountSessionSummary(id);
   if (!session) throw new Error("Contagem de estoque nao encontrada.");
   return session;
+}
+
+type StockCountScopeTarget = {
+  type: "GERAL" | "SETORIAL" | "CATEGORIA" | "SUBCATEGORIA";
+  sectorId: string | null;
+  sectorName: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  subcategoryId: string | null;
+  subcategoryName: string | null;
+};
+
+async function resolveStockCountScopeTarget(input: {
+  type: string;
+  sectorId: string | null;
+  categoryId: string | null;
+  subcategoryId: string | null;
+}) {
+  const type = String(input.type ?? "").toUpperCase();
+  if (!["GERAL", "SETORIAL", "CATEGORIA", "SUBCATEGORIA"].includes(type)) {
+    throw new Error("Ajuste de escopo permite apenas GERAL, SETORIAL, CATEGORIA ou SUBCATEGORIA.");
+  }
+  if (type === "SETORIAL" && !input.sectorId) {
+    throw new Error("Selecione um setor para converter a contagem em SETORIAL.");
+  }
+  if (type === "CATEGORIA" && !input.categoryId) {
+    throw new Error("Selecione uma categoria para converter a contagem em CATEGORIA.");
+  }
+  if (type === "SUBCATEGORIA" && !input.subcategoryId) {
+    throw new Error("Selecione uma subcategoria para converter a contagem em SUBCATEGORIA.");
+  }
+
+  const sectorId = type === "SETORIAL" ? input.sectorId : null;
+  const categoryId = type === "SETORIAL" || type === "CATEGORIA" ? input.categoryId : null;
+  const subcategoryId = type === "SETORIAL" || type === "SUBCATEGORIA" ? input.subcategoryId : null;
+
+  const [names] = await prisma.$queryRaw<Array<{
+    sectorName: string | null;
+    categoryName: string | null;
+    subcategoryName: string | null;
+  }>>`
+    SELECT
+      (SELECT "name" FROM "InventorySector" WHERE "id" = ${sectorId} LIMIT 1) AS "sectorName",
+      (SELECT "name" FROM "Category" WHERE "id" = ${categoryId} LIMIT 1) AS "categoryName",
+      (SELECT "name" FROM "Subcategory" WHERE "id" = ${subcategoryId} LIMIT 1) AS "subcategoryName"
+  `;
+
+  if (sectorId && !names?.sectorName) throw new Error("Setor informado nao existe.");
+  if (categoryId && !names?.categoryName) throw new Error("Categoria informada nao existe.");
+  if (subcategoryId && !names?.subcategoryName) throw new Error("Subcategoria informada nao existe.");
+
+  return {
+    type: type as StockCountScopeTarget["type"],
+    sectorId,
+    sectorName: names?.sectorName ?? null,
+    categoryId,
+    categoryName: names?.categoryName ?? null,
+    subcategoryId,
+    subcategoryName: names?.subcategoryName ?? null
+  } satisfies StockCountScopeTarget;
 }
 
 async function assertCanEditStockCountSession(id: string, user: SessionUser) {
@@ -1786,8 +1850,16 @@ inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) 
   // Para contagens SETORIAIS: verificar se há produtos ativos controlados do setor
   // que foram adicionados após a criação da sessão e não estão presentes nela.
   // Se a sessao tiver categoryId/categoryName, restringir a busca ao escopo (setor E categoria).
-  const [sessionMeta] = await prisma.$queryRaw<Array<{ type: string; sectorId: string | null; sectorName: string | null; categoryId: string | null; categoryName: string | null }>>`
-    SELECT "type"::text, "sectorId", "sectorName", "categoryId", "categoryName"
+  const [sessionMeta] = await prisma.$queryRaw<Array<{
+    type: string;
+    sectorId: string | null;
+    sectorName: string | null;
+    categoryId: string | null;
+    categoryName: string | null;
+    referenceDate: Date;
+    createdAt: Date;
+  }>>`
+    SELECT "type"::text, "sectorId", "sectorName", "categoryId", "categoryName", "referenceDate", "createdAt"
     FROM "StockCountSession" WHERE "id" = ${request.params.id}
   `;
   if (sessionMeta?.type === "SETORIAL") {
@@ -1795,6 +1867,7 @@ inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) 
     const sectorName = sessionMeta.sectorName;
     const categoryId = sessionMeta.categoryId;
     const categoryName = sessionMeta.categoryName;
+    const scopeCutoff = endOfLocalDay(dateOnly(sessionMeta.referenceDate ?? sessionMeta.createdAt));
     const sectorFilter = sectorId
       ? Prisma.sql`AND p."inventorySectorId" = ${sectorId}`
       : sectorName
@@ -1813,6 +1886,7 @@ inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) 
       LEFT JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
       LEFT JOIN "Category" cat ON cat."id" = p."categoryId"
       WHERE p."isActive" = true AND p."controlsStock" = true
+        AND p."createdAt" <= ${scopeCutoff}
         ${sectorFilter}
         ${categoryFilter}
         AND p."id" NOT IN (
@@ -1846,6 +1920,138 @@ inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) 
   `;
   await auditLog({ userId: user.id, action: "CONCLUDE_STOCK_COUNT_SESSION", entity: "StockCountSession", entityId: request.params.id, newValue: { pendingItems: 0 } });
   response.json(await getStockCountSessionSummary(request.params.id));
+});
+
+inventoryRouter.patch("/count-sessions/:id/reshape-scope", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const session = await getStockCountSessionOrThrow(request.params.id);
+  if (session.status === "CANCELADA") {
+    response.status(400).json({ message: "Contagem cancelada nao pode ter o escopo ajustado." });
+    return;
+  }
+  if (session.generatedInventoryId || session.linkedSnapshotId) {
+    response.status(400).json({ message: "Esta contagem ja foi usada como base de inventario/CMV e nao pode ter o escopo alterado." });
+    return;
+  }
+  if (["FINAL_MES", "COMPLEMENTAR_CMV", "IMPORTACAO_PLANILHA"].includes(session.type)) {
+    response.status(400).json({ message: `Contagem do tipo ${session.type} nao permite ajuste de escopo.` });
+    return;
+  }
+  if (!["GERAL", "SETORIAL"].includes(session.type)) {
+    response.status(400).json({ message: `Ajuste de escopo esta disponivel apenas para contagens GERAL ou SETORIAL.` });
+    return;
+  }
+
+  try {
+    const target = await resolveStockCountScopeTarget({
+      type: asText(request.body.type) ?? session.type,
+      sectorId: asText(request.body.sectorId),
+      categoryId: asText(request.body.categoryId),
+      subcategoryId: asText(request.body.subcategoryId)
+    });
+    const reason = asText(request.body.reason) ?? "Ajuste de escopo da contagem.";
+    const scopeCutoff = endOfLocalDay(dateOnly(new Date(session.referenceDate)));
+
+    if (session.type === "GERAL" && target.type === "GERAL") {
+      response.status(400).json({ message: "Selecione ao menos um filtro para recortar a contagem geral." });
+      return;
+    }
+    if (session.type === "SETORIAL") {
+      if (target.type !== "SETORIAL") {
+        response.status(400).json({ message: "Contagem setorial so pode ser ajustada para outro escopo setorial mais especifico." });
+        return;
+      }
+      if (target.sectorId !== session.sectorId) {
+        response.status(400).json({ message: "Nao e possivel trocar o setor de uma contagem setorial existente. Reabra ou crie uma nova." });
+        return;
+      }
+    }
+
+    const keptItems = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT item."id"
+      FROM "StockCountSessionItem" item
+      LEFT JOIN "Product" p ON p."id" = item."productId"
+      WHERE item."stockCountSessionId" = ${session.id}
+        AND (
+          ${target.type} = 'GERAL'
+          OR (
+            ${target.type} = 'SETORIAL'
+            AND (
+              (p."inventorySectorId" = ${target.sectorId} OR item."sectorSnapshot" = ${target.sectorName})
+              AND (${target.categoryId}::text IS NULL OR p."categoryId" = ${target.categoryId} OR item."categorySnapshot" = ${target.categoryName})
+              AND (${target.subcategoryId}::text IS NULL OR p."subcategoryId" = ${target.subcategoryId} OR item."subcategorySnapshot" = ${target.subcategoryName})
+            )
+          )
+          OR (
+            ${target.type} = 'CATEGORIA'
+            AND (p."categoryId" = ${target.categoryId} OR item."categorySnapshot" = ${target.categoryName})
+          )
+          OR (
+            ${target.type} = 'SUBCATEGORIA'
+            AND (p."subcategoryId" = ${target.subcategoryId} OR item."subcategorySnapshot" = ${target.subcategoryName})
+          )
+        )
+        AND (p."id" IS NULL OR p."createdAt" <= ${scopeCutoff})
+    `;
+
+    if (keptItems.length === 0) {
+      response.status(400).json({ message: "Nenhum item da contagem pertence ao escopo informado." });
+      return;
+    }
+
+    const keptIds = keptItems.map((item) => item.id);
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        DELETE FROM "StockCountSessionItem"
+        WHERE "stockCountSessionId" = ${session.id}
+          AND "id" NOT IN (${Prisma.join(keptIds)})
+      `;
+      await tx.$executeRaw`
+        UPDATE "StockCountSession"
+        SET "type" = ${target.type},
+            "sectorId" = ${target.sectorId},
+            "sectorName" = ${target.sectorName},
+            "categoryId" = ${target.categoryId},
+            "categoryName" = ${target.categoryName},
+            "subcategoryId" = ${target.subcategoryId},
+            "subcategoryName" = ${target.subcategoryName},
+            "notes" = CASE
+              WHEN COALESCE("notes", '') = '' THEN ${reason}
+              ELSE "notes" || E'\n' || ${reason}
+            END,
+            "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "id" = ${session.id}
+      `;
+    });
+
+    await auditLog({
+      userId: user.id,
+      action: "RESHAPE_STOCK_COUNT_SESSION_SCOPE",
+      entity: "StockCountSession",
+      entityId: session.id,
+      previousValue: {
+        type: session.type,
+        sectorId: session.sectorId,
+        categoryId: session.categoryId,
+        subcategoryId: session.subcategoryId,
+        totalItems: session.totalItems
+      },
+      newValue: {
+        type: target.type,
+        sectorId: target.sectorId,
+        categoryId: target.categoryId,
+        subcategoryId: target.subcategoryId,
+        keptItems: keptIds.length,
+        removedItems: Math.max(0, session.totalItems - keptIds.length),
+        reason
+      }
+    });
+    response.json(await getStockCountSessionSummary(session.id));
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Nao foi possivel ajustar o escopo da contagem." });
+  }
 });
 
 inventoryRouter.patch("/count-sessions/:id/reopen", async (request, response) => {
