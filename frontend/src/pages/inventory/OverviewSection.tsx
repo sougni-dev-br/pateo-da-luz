@@ -53,7 +53,7 @@ export function OverviewSection({
   return (
     <section className={className}>
       <div className="section-heading">
-        <div>
+        <div className="inv-overview-heading">
           <PanelEyebrow>Estoque</PanelEyebrow>
           <h2>Visão Geral</h2>
         </div>
