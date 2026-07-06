@@ -2507,6 +2507,21 @@ select:disabled {
   }
 }
 
+/* Swap desktop/mobile de SupplierCycles. Reusa as classes
+   .purch-mobile-* (mesmo padrao de PurchaseOrders). */
+.sc-mobile-cards {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .sc-desktop-list {
+    display: none;
+  }
+  .sc-mobile-cards {
+    display: block;
+  }
+}
+
 .purchase-main-cell strong,
 .purchase-supplier-cell strong,
 .purchase-items-summary strong,

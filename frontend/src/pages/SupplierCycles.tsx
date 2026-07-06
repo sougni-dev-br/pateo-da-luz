@@ -585,6 +585,8 @@ export function SupplierCycles() {
             : undefined}
         />
       ) : (
+        <>
+        <div className="sc-desktop-list">
         <Table>
           <Table.Head>
             <Table.Row>
@@ -626,6 +628,42 @@ export function SupplierCycles() {
             ))}
           </Table.Body>
         </Table>
+        </div>
+
+        <div className="sc-mobile-cards">
+          {filteredCycles.map((cycle) => (
+            <article className={`purch-mobile-card${cycle.status === "CANCELLED" ? " purch-card-cancelled" : ""}`} key={`${cycle.id}-mobile`}>
+              <div className="purch-mobile-card-header">
+                <div className="purch-mobile-card-title">
+                  <strong className="purch-mobile-supplier">{cycle.supplierName}</strong>
+                  <div className="purch-mobile-meta-row">
+                    <span className="purch-mobile-date">
+                      {formatDate(cycle.periodStart)}
+                      {cycle.periodEnd ? ` – ${formatDate(cycle.periodEnd)}` : " – aberto"}
+                    </span>
+                  </div>
+                </div>
+                <div className="purch-mobile-card-right">
+                  <strong className="purch-mobile-amount"><Money value={Number(cycle.totalAmount ?? 0)} /></strong>
+                  <DsStatusBadge className="purch-mobile-status" tone={STATUS_TONES[cycle.status] ?? "neutral"}>
+                    {STATUS_LABELS[cycle.status] ?? cycle.status}
+                  </DsStatusBadge>
+                </div>
+              </div>
+              <div className="purch-mobile-card-body">
+                <div className="purch-mobile-row"><span>Compras</span><span>{cycle.itemCount}</span></div>
+                <div className="purch-mobile-row"><span>Conferidas</span><span>{cycle.checkedCount}/{cycle.itemCount}</span></div>
+                <div className="purch-mobile-row"><span>Divergência</span><span>{cycle.hasDivergence ? "Sim" : "—"}</span></div>
+              </div>
+              <div className="purch-mobile-card-footer">
+                <div className="purch-mobile-actions">
+                  <button className="purch-mobile-btn" type="button" onClick={() => openDetail(cycle.id)}><Eye size={15} /> Abrir</button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+        </>
       )}
 
       {/* ── Modal novo ciclo ── */}
