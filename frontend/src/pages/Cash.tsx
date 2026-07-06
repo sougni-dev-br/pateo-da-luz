@@ -98,12 +98,12 @@ function ShiftCard({
         <StatusBadge tone="info">Total <Money value={total} /></StatusBadge>
       </div>
       <div className="form-grid cash-shift-grid">
-        <label>Dinheiro<input type="number" min="0" step="0.01" value={shift.cash} onChange={set("cash")} disabled={disabled} /></label>
-        <label>Pix<input type="number" min="0" step="0.01" value={shift.pix} onChange={set("pix")} disabled={disabled} /></label>
-        <label>Cartão<input type="number" min="0" step="0.01" value={shift.card} onChange={set("card")} disabled={disabled} /></label>
-        <label>Ticket<input type="number" min="0" step="0.01" value={shift.ticket} onChange={set("ticket")} disabled={disabled} /></label>
-        <label>Serviço<input type="number" min="0" step="0.01" value={shift.service} onChange={set("service")} disabled={disabled} /></label>
-        <label>TC's<input type="number" min="0" step="0.01" value={shift.tcs} onChange={set("tcs")} disabled={disabled} /></label>
+        <label>Dinheiro<input type="number" min="0" step="0.01" inputMode="decimal" value={shift.cash} onChange={set("cash")} disabled={disabled} /></label>
+        <label>Pix<input type="number" min="0" step="0.01" inputMode="decimal" value={shift.pix} onChange={set("pix")} disabled={disabled} /></label>
+        <label>Cartão<input type="number" min="0" step="0.01" inputMode="decimal" value={shift.card} onChange={set("card")} disabled={disabled} /></label>
+        <label>Ticket<input type="number" min="0" step="0.01" inputMode="decimal" value={shift.ticket} onChange={set("ticket")} disabled={disabled} /></label>
+        <label>Serviço<input type="number" min="0" step="0.01" inputMode="decimal" value={shift.service} onChange={set("service")} disabled={disabled} /></label>
+        <label>TC's<input type="number" min="0" step="0.01" inputMode="decimal" value={shift.tcs} onChange={set("tcs")} disabled={disabled} /></label>
       </div>
     </div>
   );
@@ -471,15 +471,15 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
         <div className="form-grid cash-meta-grid">
           <label>
             Repique
-            <input type="number" min="0" step="0.01" value={meta.repiqueAmount} onChange={(e) => setMeta({ ...meta, repiqueAmount: e.target.value })} disabled={disabled} />
+            <input type="number" min="0" step="0.01" inputMode="decimal" value={meta.repiqueAmount} onChange={(e) => setMeta({ ...meta, repiqueAmount: e.target.value })} disabled={disabled} />
           </label>
           <label>
             Descontos
-            <input type="number" min="0" step="0.01" value={meta.discounts} onChange={(e) => setMeta({ ...meta, discounts: e.target.value })} disabled={disabled} />
+            <input type="number" min="0" step="0.01" inputMode="decimal" value={meta.discounts} onChange={(e) => setMeta({ ...meta, discounts: e.target.value })} disabled={disabled} />
           </label>
           <label>
             Taxas
-            <input type="number" min="0" step="0.01" value={meta.platformFees} onChange={(e) => setMeta({ ...meta, platformFees: e.target.value })} disabled={disabled} />
+            <input type="number" min="0" step="0.01" inputMode="decimal" value={meta.platformFees} onChange={(e) => setMeta({ ...meta, platformFees: e.target.value })} disabled={disabled} />
           </label>
           <label>
             Descrição
@@ -524,6 +524,7 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
                       type="number"
                       min="0"
                       step="1"
+                      inputMode="numeric"
                       value={delivery[platform.key].orders}
                       onChange={(e) => setDelivery({ ...delivery, [platform.key]: { ...delivery[platform.key], orders: e.target.value } })}
                       disabled={disabled}
@@ -535,6 +536,7 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
                       type="number"
                       min="0"
                       step="0.01"
+                      inputMode="decimal"
                       value={delivery[platform.key].earnings}
                       onChange={(e) => setDelivery({ ...delivery, [platform.key]: { ...delivery[platform.key], earnings: e.target.value } })}
                       disabled={disabled}
