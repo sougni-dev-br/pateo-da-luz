@@ -912,7 +912,7 @@ export function SupplierCycles() {
                               {checkForms[item.id]?.hasDivergence && (
                                 <div className="form-group" style={{ margin: 0, minWidth: 140 }}>
                                   <label className="form-label">Valor divergente (R$)</label>
-                                  <input className="form-input" type="number" min="0" step="0.01" placeholder="0,00"
+                                  <input className="form-input" type="number" min="0" step="0.01" inputMode="decimal" placeholder="0,00"
                                     value={checkForms[item.id]?.divergenceAmount ?? ""}
                                     onChange={(e) => setCheckForms((prev) => ({ ...prev, [item.id]: { ...prev[item.id], divergenceAmount: e.target.value } }))} />
                                 </div>
