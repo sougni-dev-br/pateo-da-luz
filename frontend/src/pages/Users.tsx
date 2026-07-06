@@ -470,7 +470,7 @@ export function Users() {
         {/* ── LEFT: user list ── */}
         <aside className="users-sidebar panel">
           <div className="users-sidebar-header">
-            <h2>Usuários</h2>
+            <h2 className="users-page-heading">Usuários</h2>
             <div className="users-sidebar-btns">
               <IconButton icon={<RefreshCw size={16} />} label="Atualizar lista" size="sm" onClick={load} />
               {canAdminUsers && (
