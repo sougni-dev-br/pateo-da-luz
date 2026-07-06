@@ -4,6 +4,10 @@ const FALLBACK_BACKEND_URL = BACKEND_TARGET_URL;
 const REQUEST_TIMEOUT_MS = 10000;
 const IMPORT_REQUEST_TIMEOUT_MS = 120000;
 const SESSION_TOKEN_KEY = "pateo_session_token";
+const NETWORK_ERROR_MESSAGE = "Nao foi possivel conectar ao servidor. Tente novamente em instantes.";
+const NETWORK_IMPORT_ERROR_MESSAGE = "Nao foi possivel gerar o preview porque o backend nao respondeu. Verifique a conexao com a API e tente novamente.";
+const TIMEOUT_ERROR_MESSAGE = "A requisicao demorou demais para responder. Tente novamente.";
+const TIMEOUT_IMPORT_ERROR_MESSAGE = "A geracao do preview demorou demais para responder. Tente novamente.";
 
 export class ApiError extends Error {
   constructor(
@@ -20,6 +24,44 @@ function sessionToken() {
   const legacyToken = localStorage.getItem(SESSION_TOKEN_KEY);
   if (legacyToken) localStorage.removeItem(SESSION_TOKEN_KEY);
   return sessionStorage.getItem(SESSION_TOKEN_KEY);
+}
+
+function isNetworkFailureMessage(message: string) {
+  const normalized = message.trim().toLowerCase();
+  return normalized === "failed to fetch"
+    || normalized.includes("networkerror")
+    || normalized.includes("load failed")
+    || normalized.includes("fetch failed")
+    || normalized.includes("backend nao encontrado");
+}
+
+function isTimeoutError(error: unknown) {
+  return error instanceof DOMException
+    ? error.name === "AbortError"
+    : error instanceof Error && error.name === "AbortError";
+}
+
+function normalizeRequestError(error: unknown, path: string) {
+  if (isTimeoutError(error)) {
+    return new Error(path.startsWith("/imports/")
+      ? TIMEOUT_IMPORT_ERROR_MESSAGE
+      : TIMEOUT_ERROR_MESSAGE);
+  }
+
+  if (error instanceof Error && isNetworkFailureMessage(error.message)) {
+    return new Error(path.startsWith("/imports/")
+      ? NETWORK_IMPORT_ERROR_MESSAGE
+      : NETWORK_ERROR_MESSAGE);
+  }
+
+  return error instanceof Error ? error : new Error(NETWORK_ERROR_MESSAGE);
+}
+
+function shouldKeepPreviousError(previous: Error | null, next: Error) {
+  if (!previous) return false;
+  if (isTimeoutError(next)) return !isTimeoutError(previous);
+  if (!isNetworkFailureMessage(next.message)) return false;
+  return !isNetworkFailureMessage(previous.message);
 }
 
 async function fetchWithTimeout(url: string, options?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS) {
@@ -81,14 +123,17 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUE
       throw new ApiError(errorBody?.message as string ?? `Erro HTTP ${response.status}`, response.status, errorBody ?? undefined);
     } catch (error) {
       if (error instanceof ApiError) throw error;
-      lastError = error instanceof Error ? error : new Error("Backend nao encontrado.");
+      const normalizedError = normalizeRequestError(error, path);
+      if (!shouldKeepPreviousError(lastError, normalizedError)) {
+        lastError = normalizedError;
+      }
       const shouldFallback = index === 0 && API_BASE_URL.startsWith("/") && candidates.length > 1;
       if (shouldFallback) continue;
       break;
     }
   }
 
-  throw lastError ?? new Error("Backend nao encontrado.");
+  throw lastError ?? new Error(NETWORK_ERROR_MESSAGE);
 }
 
 async function download(path: string, filename: string, timeoutMs = REQUEST_TIMEOUT_MS) {

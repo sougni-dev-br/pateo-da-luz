@@ -1,5 +1,10 @@
+import type { Request, Response } from "express";
 import { Router } from "express";
 import multer from "multer";
+import {
+  readFirstWorksheetRows,
+  readWorkbookSheetNames
+} from "./excel-reader.service.js";
 import {
   confirmProductCatalogImport,
   confirmSupplierCatalogImport,
@@ -13,6 +18,11 @@ import { requestIp, requireAdmin, requireRole } from "../security/security-utils
 import { prisma } from "../../config/database.js";
 
 const upload = multer({ dest: "uploads/" });
+const PURCHASE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
+const purchasePreviewUpload = multer({
+  dest: "uploads/",
+  limits: { fileSize: PURCHASE_UPLOAD_MAX_BYTES }
+}).single("file");
 
 export const importRouter = Router();
 
@@ -31,6 +41,81 @@ function importErrorMessage(error: unknown, fallback: string) {
     return "Este arquivo ja possui uma previa/importacao registrada. Gere uma nova previa ou desfaça o lote anterior antes de importar novamente.";
   }
   return message || fallback;
+}
+
+type UploadHandler = (request: Request, response: Response, callback: (error?: unknown) => void) => void;
+
+function runUpload(
+  handler: UploadHandler,
+  request: Request,
+  response: Response
+) {
+  return new Promise<void>((resolve, reject) => {
+    handler(request, response, (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+async function collectPurchasePreviewDiagnostics(filePath: string) {
+  try {
+    const [sheetNames, preview] = await Promise.all([
+      readWorkbookSheetNames(filePath).catch(() => []),
+      readFirstWorksheetRows(filePath).catch(() => ({ sheetName: null, rows: [] as Record<string, unknown>[] }))
+    ]);
+    const headerSample = preview.rows[0]
+      ? Object.keys(preview.rows[0]).filter((header) => header !== "__rowNumber").slice(0, 20)
+      : [];
+
+    return {
+      sheetName: preview.sheetName ?? null,
+      sheetNames,
+      headerSample
+    };
+  } catch {
+    return null;
+  }
+}
+
+function classifyPurchasePreviewError(error: unknown) {
+  if (error instanceof multer.MulterError) {
+    if (error.code === "LIMIT_FILE_SIZE") {
+      return {
+        status: 400,
+        message: `Arquivo muito grande para preview. Limite: ${Math.round(PURCHASE_UPLOAD_MAX_BYTES / (1024 * 1024))} MB.`
+      };
+    }
+    return {
+      status: 400,
+      message: "Falha ao receber o arquivo enviado para preview."
+    };
+  }
+
+  const message = error instanceof Error ? error.message : "";
+  const normalized = message.toLowerCase();
+  const knownInputError =
+    normalized.includes("zip file")
+    || normalized.includes("worksheet")
+    || normalized.includes("workbook")
+    || normalized.includes("sheet")
+    || normalized.includes("planilha")
+    || normalized.includes("coluna")
+    || normalized.includes("arquivo");
+
+  if (knownInputError) {
+    return {
+      status: 400,
+      message: normalized.includes("zip file")
+        ? "Arquivo Excel invalido ou formato nao suportado. Se a planilha estiver em .xls, salve como .xlsx e tente novamente."
+        : message || "Nao foi possivel interpretar a planilha enviada."
+    };
+  }
+
+  return {
+    status: 500,
+    message: "Erro interno ao gerar preview da planilha."
+  };
 }
 
 importRouter.get("/history", async (request, response) => {
@@ -80,25 +165,55 @@ importRouter.get("/history", async (request, response) => {
   response.json(rows);
 });
 
-importRouter.post("/purchases/preview", upload.single("file"), async (request, response) => {
+importRouter.post("/purchases/preview", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
-  if (!request.file) {
-    response.status(400).json({ message: "Arquivo nao enviado." });
-    return;
-  }
-
   try {
-    response.json(
-      await previewPurchaseSpreadsheet(request.file.path, request.file.originalname, {
-        historicalMode: isTruthyOption(request.body.historicalMode),
-        ignoreRowsWithoutProduct: isTruthyOption(request.body.ignoreRowsWithoutProduct)
-      })
-    );
+    await runUpload(purchasePreviewUpload, request, response);
+
+    if (!request.file) {
+      response.status(400).json({ message: "Arquivo nao enviado." });
+      return;
+    }
+
+    console.info("[imports:purchases:preview:start]", {
+      fileName: request.file.originalname,
+      sizeBytes: request.file.size,
+      historicalMode: isTruthyOption(request.body.historicalMode),
+      ignoreRowsWithoutProduct: isTruthyOption(request.body.ignoreRowsWithoutProduct)
+    });
+
+    const preview = await previewPurchaseSpreadsheet(request.file.path, request.file.originalname, {
+      historicalMode: isTruthyOption(request.body.historicalMode),
+      ignoreRowsWithoutProduct: isTruthyOption(request.body.ignoreRowsWithoutProduct)
+    });
+
+    console.info("[imports:purchases:preview:success]", {
+      fileName: request.file.originalname,
+      sizeBytes: request.file.size,
+      sheetName: preview.sheetName,
+      totalRows: preview.totalRows,
+      detectedColumns: Object.keys(preview.detectedColumns),
+      previewWarnings: preview.warnings.length,
+      conflictsFound: preview.conflictSummary.conflictsFound
+    });
+
+    response.json(preview);
   } catch (error) {
-    response.status(400).json({
-      message: error instanceof Error ? error.message : "Erro ao processar planilha."
+    const diagnostics = request.file?.path
+      ? await collectPurchasePreviewDiagnostics(request.file.path)
+      : null;
+    const classified = classifyPurchasePreviewError(error);
+    console.error("[imports:purchases:preview:error]", {
+      fileName: request.file?.originalname ?? null,
+      sizeBytes: request.file?.size ?? null,
+      previewStage: error instanceof Error ? (error as Error & { previewStage?: string }).previewStage ?? null : null,
+      diagnostics,
+      error: error instanceof Error ? error.message : error
+    });
+    response.status(classified.status).json({
+      message: classified.message
     });
   }
 });

@@ -34,6 +34,9 @@ type PreviewWarning = {
   message: string;
 };
 
+const DUPLICATE_LOOKUP_BATCH_SIZE = 20;
+const DUPLICATE_LOOKUP_MAX_GROUPS = 400;
+
 function sourceRowNumber(row: ReturnType<typeof mapPurchaseSpreadsheetRow>, fallback: number) {
   return row.sourceRowNumber ?? fallback;
 }
@@ -326,8 +329,9 @@ async function getPurchaseDuplicateWarnings(
     groups.set(key, current);
   }
 
+  const groupedEntries = [...groups.values()];
   const duplicateSheetKeys = new Map<string, number[]>();
-  for (const entries of groups.values()) {
+  for (const entries of groupedEntries) {
     const first = entries[0];
     const totalAmount = entries.reduce((sum, entry) => sum + entry.row.totalPrice, 0);
     const duplicateKey = [
@@ -344,35 +348,45 @@ async function getPurchaseDuplicateWarnings(
     if (!first.row.supplierName || first.row.supplierName === "Fornecedor nao informado") warnings.push({ rowNumber: first.rowNumber, message: "Compra sem fornecedor." });
     if (!first.row.purchaseDate) warnings.push({ rowNumber: first.rowNumber, message: "Compra sem data." });
     if (totalAmount <= 0) warnings.push({ rowNumber: first.rowNumber, message: "Compra sem total." });
+  }
 
-    const supplier = await prisma.supplier.findFirst({
-      where: {
-        OR: [
-          ...(first.row.supplierCode ? [{ externalCode: first.row.supplierCode }] : []),
-          ...(first.row.supplierDocument ? [{ document: first.row.supplierDocument }] : []),
-          { normalizedName: normalizeText(first.row.supplierName) },
-          { name: { equals: first.row.supplierName, mode: "insensitive" } }
-        ]
-      }
-    });
-    if (supplier) {
+  const groupsForDatabaseLookup = groupedEntries.slice(0, DUPLICATE_LOOKUP_MAX_GROUPS);
+  for (let index = 0; index < groupsForDatabaseLookup.length; index += DUPLICATE_LOOKUP_BATCH_SIZE) {
+    const batch = groupsForDatabaseLookup.slice(index, index + DUPLICATE_LOOKUP_BATCH_SIZE);
+    const batchWarnings = await Promise.all(batch.map(async (entries) => {
+      const first = entries[0];
+      const supplier = await prisma.supplier.findFirst({
+        where: {
+          OR: [
+            ...(first.row.supplierCode ? [{ externalCode: first.row.supplierCode }] : []),
+            ...(first.row.supplierDocument ? [{ document: first.row.supplierDocument }] : []),
+            { normalizedName: normalizeText(first.row.supplierName) },
+            { name: { equals: first.row.supplierName, mode: "insensitive" } }
+          ]
+        }
+      });
+      if (!supplier) return [] as PreviewWarning[];
+
       const matches = await findPurchaseReferenceMatches(prisma, {
         supplierId: supplier.id,
         invoiceNumber: first.row.invoiceNumber,
         purchaseOrderNumber: first.row.purchaseOrderNumber
       });
       if (matches.activeDuplicate) {
-        warnings.push({
+        return [{
           rowNumber: first.rowNumber,
           message: `Bloqueio por duplicidade: ja existe compra ativa para ${supplier.name} com ${buildReferenceLabel({ invoiceNumber: first.row.invoiceNumber, purchaseOrderNumber: first.row.purchaseOrderNumber })}.`
-        });
-      } else if (matches.cancelledDuplicate) {
-        warnings.push({
+        }];
+      }
+      if (matches.cancelledDuplicate) {
+        return [{
           rowNumber: first.rowNumber,
           message: `Aviso: existe compra cancelada para ${supplier.name} com ${buildReferenceLabel({ invoiceNumber: first.row.invoiceNumber, purchaseOrderNumber: first.row.purchaseOrderNumber })}.`
-        });
+        }];
       }
-    }
+      return [] as PreviewWarning[];
+    }));
+    batchWarnings.forEach((items) => warnings.push(...items));
   }
 
   duplicateSheetKeys.forEach((groupRows, key) => {
@@ -380,6 +394,13 @@ async function getPurchaseDuplicateWarnings(
       warnings.push({ rowNumber: 0, message: `Possivel NF/compra duplicada dentro da planilha nas linhas ${groupRows.join(", ")} (${key}).` });
     }
   });
+
+  if (groupedEntries.length > DUPLICATE_LOOKUP_MAX_GROUPS) {
+    warnings.push({
+      rowNumber: 0,
+      message: `Verificacao de duplicidade no banco limitada às primeiras ${DUPLICATE_LOOKUP_MAX_GROUPS} compras agrupadas no preview para evitar timeout. A confirmacao continua validando todas as compras.`
+    });
+  }
 
   return warnings;
 }
@@ -389,67 +410,86 @@ export async function previewPurchaseSpreadsheet(
   originalFileName?: string,
   options: PurchaseImportOptions = {}
 ) {
-  const { sheetName, rows, debugRows: rawDebugRows = [], emptyRowsIgnored = 0 } = await readFirstWorksheetRows(filePath);
-  const headers = rows[0] ? Object.keys(rows[0]) : [];
-  const columns = resolveColumns(headers, currentSpreadsheetMapping, rows);
-  const recognizedHeaders = getRecognizedColumns(headers, currentSpreadsheetMapping, columns);
-  const mappedRows = rows.map((row) => mapPurchaseSpreadsheetRow(row, columns));
-  const mappedDebugRows = rawDebugRows.map((row) => mapPurchaseSpreadsheetRow(row, columns));
-  const rowsWithRowNumbers = mappedRows.map((row, index) => ({ rowNumber: sourceRowNumber(row, index + 2), row }));
-  const debugRowsWithRowNumbers = mappedDebugRows.map((row, index) => ({ rowNumber: sourceRowNumber(row, index + 2), row }));
-  const emptyRows = rowsWithRowNumbers.filter((entry) => !hasAnyOperationalContent(entry.row));
-  const operationalRows = rowsWithRowNumbers.filter((entry) => hasAnyOperationalContent(entry.row));
-  const missingProductRows = operationalRows.filter((entry) => !hasProductIdentity(entry.row));
-  const rowsForWarnings = operationalRows.map((entry) => entry.row);
-  const rowsWithNumbers = rowsWithRowNumbers.filter((entry) => hasAnyOperationalContent(entry.row));
-  const previewRows = rowsForWarnings.slice(0, 20);
-  const warnings = await getCodeWarnings(rowsForWarnings);
-  warnings.push(...(await getPurchaseDuplicateWarnings(rowsWithNumbers)));
-  missingProductRows.slice(0, 10).forEach((entry) => {
-    warnings.push({
-      rowNumber: entry.rowNumber,
-      message: "Linha com conteudo operacional, mas sem codigo/descricao de produto. Corrija o produto antes de confirmar."
-    });
-  });
-  const totalEmptyRowsIgnored = emptyRowsIgnored + emptyRows.length;
-  if (totalEmptyRowsIgnored > 0) {
-    warnings.push({
-      rowNumber: 0,
-      message: `Total de linhas vazias ignoradas: ${totalEmptyRowsIgnored}. A linha 191 esta preenchida e sera importada quando estiver sem alerta.`
-    });
-  }
-  const rowsWithoutUnit = operationalRows.filter((entry) => hasProductIdentity(entry.row) && !entry.row.unit);
-  if (rowsWithoutUnit.length > 0) {
-    warnings.push({
-      rowNumber: 0,
-      message: `${rowsWithoutUnit.length} itens sem unidade de medida. Amostra: linhas ${rowsWithoutUnit.slice(0, 10).map((entry) => entry.rowNumber).join(", ")}.`
-    });
-  }
-  const conflicts = await detectPurchaseImportConflicts(rowsWithNumbers);
-  const conflictSummary = summarizeConflictDecisions(conflicts);
-  if (missingProductRows.length > 0) {
-    warnings.push({
-      rowNumber: 0,
-      message: `${missingProductRows.length} linhas com conteudo estao sem codigo/descricao de produto. Amostra: linhas ${missingProductRows.slice(0, 10).map((entry) => entry.rowNumber).join(", ")}.`
-    });
-  }
+  let stage = "read-workbook";
 
-  return {
-    sheetName,
-    totalRows: rows.length,
-    importFileId: filePath.split(/[\\/]/).at(-1),
-    originalFileName: originalFileName ?? null,
-    detectedColumns: columns,
-    unrecognizedColumns: headers.filter((header) => header !== "__rowNumber" && !recognizedHeaders.has(header) && !isRepeatedDueDateColumn(header)),
-    missingRequiredFields: getMissingRequiredFields(columns, [...requiredPurchaseFields]),
-    missingFields: Object.keys(currentSpreadsheetMapping).filter(
-      (field) => !columns[field as keyof typeof currentSpreadsheetMapping]
-    ),
-    validation: { ...summarizeRows(operationalRows.map((entry) => entry.row)), emptyRowsIgnored: totalEmptyRowsIgnored },
-    debugRows: previewDebugRows([...rowsWithRowNumbers, ...debugRowsWithRowNumbers], columns, warnings),
-    conflicts,
-    conflictSummary,
-    warnings,
-    previewRows
-  };
+  try {
+    const { sheetName, rows, debugRows: rawDebugRows = [], emptyRowsIgnored = 0 } = await readFirstWorksheetRows(filePath);
+    stage = "resolve-columns";
+    const headers = rows[0] ? Object.keys(rows[0]) : [];
+    const columns = resolveColumns(headers, currentSpreadsheetMapping, rows);
+    const recognizedHeaders = getRecognizedColumns(headers, currentSpreadsheetMapping, columns);
+
+    stage = "map-rows";
+    const mappedRows = rows.map((row) => mapPurchaseSpreadsheetRow(row, columns));
+    const mappedDebugRows = rawDebugRows.map((row) => mapPurchaseSpreadsheetRow(row, columns));
+    const rowsWithRowNumbers = mappedRows.map((row, index) => ({ rowNumber: sourceRowNumber(row, index + 2), row }));
+    const debugRowsWithRowNumbers = mappedDebugRows.map((row, index) => ({ rowNumber: sourceRowNumber(row, index + 2), row }));
+    const emptyRows = rowsWithRowNumbers.filter((entry) => !hasAnyOperationalContent(entry.row));
+    const operationalRows = rowsWithRowNumbers.filter((entry) => hasAnyOperationalContent(entry.row));
+    const missingProductRows = operationalRows.filter((entry) => !hasProductIdentity(entry.row));
+    const rowsForWarnings = operationalRows.map((entry) => entry.row);
+    const rowsWithNumbers = rowsWithRowNumbers.filter((entry) => hasAnyOperationalContent(entry.row));
+    const previewRows = rowsForWarnings.slice(0, 20);
+
+    stage = "code-warnings";
+    const warnings = await getCodeWarnings(rowsForWarnings);
+
+    stage = "duplicate-warnings";
+    warnings.push(...(await getPurchaseDuplicateWarnings(rowsWithNumbers)));
+    missingProductRows.slice(0, 10).forEach((entry) => {
+      warnings.push({
+        rowNumber: entry.rowNumber,
+        message: "Linha com conteudo operacional, mas sem codigo/descricao de produto. Corrija o produto antes de confirmar."
+      });
+    });
+    const totalEmptyRowsIgnored = emptyRowsIgnored + emptyRows.length;
+    if (totalEmptyRowsIgnored > 0) {
+      warnings.push({
+        rowNumber: 0,
+        message: `Total de linhas vazias ignoradas: ${totalEmptyRowsIgnored}. A linha 191 esta preenchida e sera importada quando estiver sem alerta.`
+      });
+    }
+    const rowsWithoutUnit = operationalRows.filter((entry) => hasProductIdentity(entry.row) && !entry.row.unit);
+    if (rowsWithoutUnit.length > 0) {
+      warnings.push({
+        rowNumber: 0,
+        message: `${rowsWithoutUnit.length} itens sem unidade de medida. Amostra: linhas ${rowsWithoutUnit.slice(0, 10).map((entry) => entry.rowNumber).join(", ")}.`
+      });
+    }
+
+    stage = "conflict-detection";
+    const conflicts = await detectPurchaseImportConflicts(rowsWithNumbers);
+    const conflictSummary = summarizeConflictDecisions(conflicts);
+    if (missingProductRows.length > 0) {
+      warnings.push({
+        rowNumber: 0,
+        message: `${missingProductRows.length} linhas com conteudo estao sem codigo/descricao de produto. Amostra: linhas ${missingProductRows.slice(0, 10).map((entry) => entry.rowNumber).join(", ")}.`
+      });
+    }
+
+    stage = "finalize-response";
+    return {
+      sheetName,
+      totalRows: rows.length,
+      importFileId: filePath.split(/[\\/]/).at(-1),
+      originalFileName: originalFileName ?? null,
+      detectedColumns: columns,
+      unrecognizedColumns: headers.filter((header) => header !== "__rowNumber" && !recognizedHeaders.has(header) && !isRepeatedDueDateColumn(header)),
+      missingRequiredFields: getMissingRequiredFields(columns, [...requiredPurchaseFields]),
+      missingFields: Object.keys(currentSpreadsheetMapping).filter(
+        (field) => !columns[field as keyof typeof currentSpreadsheetMapping]
+      ),
+      validation: { ...summarizeRows(operationalRows.map((entry) => entry.row)), emptyRowsIgnored: totalEmptyRowsIgnored },
+      debugRows: previewDebugRows([...rowsWithRowNumbers, ...debugRowsWithRowNumbers], columns, warnings),
+      conflicts,
+      conflictSummary,
+      warnings,
+      previewRows
+    };
+  } catch (error) {
+    if (error && typeof error === "object") {
+      (error as Error & { previewStage?: string }).previewStage = stage;
+    }
+    throw error;
+  }
 }
