@@ -10445,6 +10445,15 @@ tr.dre-row-selected td {
   }
 }
 
+/* OverviewSection duplica <h2>Visao Geral</h2> com o PageHeader
+   do DS no mobile. Analog do padrao aplicado a Requisicoes
+   (.req-page-heading). Preserva desktop com eyebrow "Estoque". */
+@media (max-width: 640px) {
+  .inv-overview-heading {
+    display: none;
+  }
+}
+
 /* ── Generic modal overlay + card (TaxPayments e outros) ─────────────── */
 .modal-overlay {
   position: fixed;
