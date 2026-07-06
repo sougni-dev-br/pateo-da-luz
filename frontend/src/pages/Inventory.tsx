@@ -30,6 +30,7 @@ import {
   getCategories,
   getProducts,
   getSectors,
+  getSubcategories,
   getStockCounts,
   InventoryAgenda,
   InventoryAgendaItem,
@@ -50,6 +51,7 @@ import {
   appendMissingCount,
   getFinalCmvCoverage,
   rejectOperationalInventory,
+  reshapeStockCountSessionScope,
   reopenStockCountSession,
   reopenOperationalInventory,
   saveStockCountSessionItems,
@@ -359,6 +361,9 @@ export function Inventory({
     });
     return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [products]);
+  const sectorByName = useMemo(() => new Map(sectors.map((sector) => [sector.name, sector])), [sectors]);
+  const categoryByName = useMemo(() => new Map(productCategories.map((category) => [category.name, category])), [productCategories]);
+  const subcategoryByName = useMemo(() => new Map(productSubcategories.map((subcategory) => [subcategory.name, subcategory])), [productSubcategories]);
   const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
   const buyerSupportByProductId = useMemo(() => new Map((buyerSupport?.items ?? []).map((item) => [item.productId, item])), [buyerSupport]);
   const stockRows = useMemo(() => stocks.map((stock) => {
@@ -803,6 +808,80 @@ export function Inventory({
       await refreshCountSessions(countSessionDetail.id);
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel reabrir a contagem." });
+    }
+  }
+
+  async function reshapeCountSessionToCurrentFilters() {
+    if (!countSessionDetail) return;
+    if (!["GERAL", "SETORIAL"].includes(countSessionDetail.type)) {
+      setNotice({ tone: "warning", message: "Este ajuste esta disponivel apenas para contagens gerais ou setoriais." });
+      return;
+    }
+    const sector = countSessionSectorFilter ? sectorByName.get(countSessionSectorFilter) : undefined;
+    let category = countSessionCategoryFilter ? categoryByName.get(countSessionCategoryFilter) : undefined;
+    let subcategory = countSessionSubcategoryFilter ? subcategoryByName.get(countSessionSubcategoryFilter) : undefined;
+
+    let nextType: "GERAL" | "SETORIAL" | "CATEGORIA" | "SUBCATEGORIA" = countSessionDetail.type === "SETORIAL" ? "SETORIAL" : "GERAL";
+    if (countSessionDetail.type !== "SETORIAL") {
+      if (countSessionSectorFilter) nextType = "SETORIAL";
+      else if (countSessionSubcategoryFilter) nextType = "SUBCATEGORIA";
+      else if (countSessionCategoryFilter) nextType = "CATEGORIA";
+    }
+
+    if (countSessionDetail.type === "GERAL" && nextType === "GERAL") {
+      setNotice({ tone: "warning", message: "Selecione ao menos um filtro para recortar a contagem geral." });
+      return;
+    }
+    if (countSessionDetail.type === "SETORIAL" && nextType !== "SETORIAL") {
+      setNotice({ tone: "warning", message: "Em contagens setoriais, ajuste apenas a categoria dentro do mesmo setor." });
+      return;
+    }
+    if (countSessionDetail.type === "SETORIAL" && sector?.id && sector.id !== countSessionDetail.sectorId) {
+      setNotice({ tone: "warning", message: "Nao e possivel trocar o setor de uma contagem setorial existente." });
+      return;
+    }
+    if (countSessionSectorFilter && !sector) {
+      setNotice({ tone: "warning", message: "Nao encontrei o setor selecionado no cadastro atual." });
+      return;
+    }
+    if (countSessionCategoryFilter && !category) {
+      const categories = await getCategories();
+      category = categories.find((item) => item.name === countSessionCategoryFilter);
+      if (!category) {
+        setNotice({ tone: "warning", message: "Nao encontrei a categoria selecionada no cadastro atual." });
+        return;
+      }
+    }
+    if (countSessionSubcategoryFilter && !subcategory) {
+      const subcategories = await getSubcategories();
+      subcategory = subcategories.find((item) => item.name === countSessionSubcategoryFilter);
+      if (!subcategory) {
+        setNotice({ tone: "warning", message: "Nao encontrei a subcategoria selecionada no cadastro atual." });
+        return;
+      }
+    }
+
+    const scopeLabel = [
+      countSessionDetail.type === "SETORIAL" ? (countSessionSectorFilter || countSessionDetail.sectorName || "") : countSessionSectorFilter,
+      countSessionCategoryFilter,
+      countSessionSubcategoryFilter
+    ].filter(Boolean).join(" - ");
+    if (!window.confirm(`Recortar ${countSessionDetail.code} para o escopo filtrado${scopeLabel ? ` (${scopeLabel})` : ""}? Os demais itens sairao desta contagem.`)) return;
+    try {
+      await reshapeStockCountSessionScope({
+        id: countSessionDetail.id,
+        type: nextType,
+        sectorId: nextType === "SETORIAL" ? (sector?.id ?? countSessionDetail.sectorId ?? null) : null,
+        categoryId: nextType === "SETORIAL" || nextType === "CATEGORIA" ? (category?.id ?? null) : null,
+        subcategoryId: nextType === "SETORIAL" || nextType === "SUBCATEGORIA" ? (subcategory?.id ?? null) : null,
+        reason: scopeLabel
+          ? `Escopo ajustado para ${scopeLabel}.`
+          : "Escopo ajustado a partir dos filtros da tela."
+      });
+      setNotice({ tone: "success", message: `Contagem ${countSessionDetail.code} ajustada para ${scopeLabel || "o novo escopo"}.` });
+      await refreshCountSessions(countSessionDetail.id);
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel ajustar o escopo da contagem." });
     }
   }
 
@@ -1428,6 +1507,11 @@ export function Inventory({
               <button className="secondary-button" type="button" onClick={() => { setCountSessionDetail(null); onCloseCountSessionRoute?.(); }}><X size={16} />Voltar</button>
               <button className="secondary-button large-action" type="button" disabled={locked} onClick={saveCountSessionDraft}><Save size={17} />Salvar Contagem</button>
               <button className="primary-button large-action" type="button" disabled={locked} onClick={concludeCountSession}><CheckCircle2 size={17} />Concluir Contagem</button>
+              {canManageOperationalInventory && !countSessionDetail.generatedInventoryId && ["ABERTA", "EM_ANDAMENTO", "CONCLUIDA"].includes(countSessionDetail.status) && ["GERAL", "SETORIAL"].includes(countSessionDetail.type) && (
+                <button className="secondary-button" type="button" onClick={reshapeCountSessionToCurrentFilters}>
+                  <FilterX size={16} />Recortar para filtros
+                </button>
+              )}
               {countSessionDetail.status === "CONCLUIDA" && (
                 <button className="secondary-button" type="button" onClick={() => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${countSessionDetail.id}`)}><ShoppingCart size={16} />Planejar compra</button>
               )}
