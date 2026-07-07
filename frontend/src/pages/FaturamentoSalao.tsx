@@ -111,7 +111,10 @@ export function FaturamentoSalao({ user: _user }: Props) {
   const pgtoTotal = totals.pix + totals.credit + totals.debit + totals.cash + totals.voucher;
   const monthLabel = `${MONTHS_PT[Number(monthPart) - 1]} ${yearPart}`;
 
-  const syncBanner = renderSyncBanner(status, now);
+  // Se conseguimos carregar dados mas o /status falhou, é um problema pontual
+  // do endpoint — não faz sentido gritar "nenhuma sync" com dados na tela.
+  const hasAnyData = agileEntries.length > 0;
+  const syncBanner = renderSyncBanner(status, now, hasAnyData);
 
   return (
     <div className="stack">
@@ -329,8 +332,18 @@ function toNumber(value: string | number | null | undefined): number {
 
 // Escolhe o tom do banner baseado no gap entre a última sync e "agora".
 // Verde: sync feita hoje ou ontem. Amarelo: 2 dias. Vermelho: 3+ dias ou nunca.
-function renderSyncBanner(status: AgileSyncStatus | null, now: Date) {
+// Quando o status endpoint falha mas existem dados, mostramos um aviso
+// discreto em vez do erro forte "nunca sincronizou" (que seria enganoso).
+function renderSyncBanner(status: AgileSyncStatus | null, now: Date, hasAnyData: boolean) {
   if (!status || !status.ultimaSyncEm) {
+    if (hasAnyData) {
+      return (
+        <Alert tone="info" style={{ marginTop: 16 }}>
+          <AlertTriangle size={16} style={{ marginRight: 8 }} />
+          Status da sincronização indisponível no momento. Os dados exibidos foram carregados diretamente do faturamento — a barra de status volta ao normal na próxima atualização.
+        </Alert>
+      );
+    }
     return (
       <Alert tone="error" style={{ marginTop: 16 }}>
         <AlertTriangle size={16} style={{ marginRight: 8 }} />

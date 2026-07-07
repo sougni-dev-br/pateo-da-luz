@@ -401,6 +401,10 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
 }
 
 export async function getAgileSyncStatus(): Promise<AgileSyncStatus> {
+  // Fonte primária: RevenueImportBatch com importFileId prefixado 'agile-sync-'.
+  // Fonte de fallback: se o batch nao for encontrado (dados legados,
+  // discrepancia de prefix), usa o updatedAt do RevenueEntry mais recente
+  // com sourcePlatform='AGILE_PDV' como aproximacao de "ultima sync".
   const ultimoBatch = await prisma.$queryRaw<Array<{
     id: string;
     createdAt: Date;
@@ -427,8 +431,23 @@ export async function getAgileSyncStatus(): Promise<AgileSyncStatus> {
     if (match) ultimoPeriodoFim = match[1];
   }
 
+  const primaryUltimaSync = ultimoBatch[0]?.createdAt ?? null;
+
+  // Fallback: se nao achamos batch mas existem entries AGILE_PDV, usa
+  // o updatedAt mais recente como referencia de ultima sync.
+  let fallbackUltimaSync: Date | null = null;
+  if (!primaryUltimaSync && Number(total[0]?.count ?? 0) > 0) {
+    const ultimoEntry = await prisma.$queryRaw<Array<{ updatedAt: Date }>>`
+      SELECT MAX("updatedAt") AS "updatedAt" FROM "RevenueEntry"
+      WHERE "channel" = ${CHANNEL} AND "sourcePlatform" = ${SOURCE_PLATFORM}
+    `;
+    fallbackUltimaSync = ultimoEntry[0]?.updatedAt ?? null;
+  }
+
+  const ultimaSyncDate = primaryUltimaSync ?? fallbackUltimaSync;
+
   return {
-    ultimaSyncEm: ultimoBatch[0]?.createdAt ? ultimoBatch[0].createdAt.toISOString() : null,
+    ultimaSyncEm: ultimaSyncDate ? ultimaSyncDate.toISOString() : null,
     ultimoBatchId: ultimoBatch[0]?.id ?? null,
     ultimoPeriodoFim,
     diasImportadosUltimoBatch: ultimoBatch[0]?.importedRows ?? 0,
