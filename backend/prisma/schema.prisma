@@ -1278,6 +1278,7 @@ model RevenueEntry {
   serviceAmount      Decimal  @default(0) @db.Decimal(14, 2)
   tickets            Int      @default(0)
   ticketAverage      Decimal? @db.Decimal(14, 4)
+  peopleServed       Int?
   salesFirstShift    Decimal  @default(0) @db.Decimal(14, 2)
   ticketsFirstShift  Int      @default(0)
   salesSecondShift   Decimal  @default(0) @db.Decimal(14, 2)

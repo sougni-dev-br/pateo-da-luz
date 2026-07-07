@@ -525,6 +525,7 @@ export type RevenueEntry = {
   serviceAmount?: string | number;
   tickets?: number;
   ticketAverage?: string | number | null;
+  peopleServed?: number | null;
   repiqueAmount?: string | number;
   salesFirstShift?: string | number;
   ticketsFirstShift?: number;
