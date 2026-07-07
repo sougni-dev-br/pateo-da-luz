@@ -30,7 +30,10 @@ export function ForcedPasswordChange({ user, onChanged }: { user: AppUser; onCha
   }
 
   return (
-    <LoginShell brandTitle="Alteração obrigatória de senha" brandSubtitle="Você precisa alterar sua senha antes de continuar.">
+    <LoginShell
+      formTitle="Alteração obrigatória de senha"
+      formSubtitle="Você precisa alterar sua senha antes de continuar."
+    >
       <Notice notice={notice} />
       <PasswordField label="Senha temporária/atual" value={currentPassword} onChange={setCurrentPassword} />
       <div>

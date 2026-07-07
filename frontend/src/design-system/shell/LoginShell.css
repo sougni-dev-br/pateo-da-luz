@@ -1,78 +1,279 @@
-/* Shell da tela de login. Portado do kit.css linhas 281-301.
-   Gradient carvao 3-stop + 2 radials ouro suave para dar profundidade
-   (canto sup dir e inf esq). */
+/* Shell da tela de login — layout split (aside marca + main formulario).
+   Desktop: duas colunas 1.05fr / 0.95fr.
+   Mobile (<=860px): aside vira header compacto acima do card. */
 
 .ds-login-shell {
   min-height: 100vh;
   min-height: 100dvh;
   display: grid;
-  place-items: center;
-  padding: 24px;
-  overflow-x: hidden;
+  grid-template-columns: 1.05fr 0.95fr;
+  overflow: hidden;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+/* ── Aside: painel carvao + dourado (desktop) ── */
+.ds-login-aside {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 52px 56px;
+  color: var(--paper);
   background:
-    radial-gradient(1100px 620px at 78% -8%, rgba(185, 154, 88, 0.2), transparent 62%),
-    radial-gradient(760px 520px at 8% 108%, rgba(185, 154, 88, 0.09), transparent 60%),
+    radial-gradient(900px 560px at 82% -6%, rgba(185, 154, 88, 0.3), transparent 60%),
+    radial-gradient(620px 480px at -6% 110%, rgba(185, 154, 88, 0.12), transparent 58%),
     linear-gradient(
-      150deg,
+      154deg,
       var(--login-gradient-start) 0%,
-      var(--login-gradient-mid) 52%,
+      var(--login-gradient-mid) 54%,
       var(--login-gradient-end) 100%
     );
-  color: var(--paper);
-  font-family: var(--font-sans);
+}
+.ds-login-aside::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image:
+    linear-gradient(rgba(216, 195, 145, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(216, 195, 145, 0.05) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(circle at 70% 20%, #000, transparent 75%);
+}
+.ds-login-aside > * {
+  position: relative;
+  z-index: 1;
+}
+
+.ds-login-aside-top {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.ds-login-logo {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(216, 195, 145, 0.36);
+  border-radius: 12px;
+  background: rgba(251, 250, 247, 0.05);
+  overflow: hidden;
+}
+.ds-login-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 6px;
+}
+
+.ds-login-brand-text strong {
+  display: block;
+  font-size: 17px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.01em;
+}
+.ds-login-brand-text small {
+  display: block;
+  margin-top: 3px;
+  color: var(--gold-soft);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.ds-login-aside-body {
+  margin-top: auto;
+  margin-bottom: auto;
+  max-width: 420px;
+}
+
+.ds-login-eyebrow {
+  color: var(--gold-soft);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.ds-login-aside-body h2 {
+  margin: 16px 0 0;
+  font-size: 38px;
+  line-height: 1.12;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.ds-login-aside-body h2 em {
+  font-style: normal;
+  color: var(--gold-soft);
+}
+.ds-login-aside-body p {
+  margin: 18px 0 0;
+  color: #cfc7b8;
+  font-size: 15px;
+  line-height: 1.6;
+  max-width: 380px;
+}
+
+.ds-login-feats {
+  list-style: none;
+  margin: 32px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+.ds-login-feats li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #ded6c6;
+  font-size: 15px;
+  font-weight: var(--fw-medium);
+}
+.ds-login-feats li svg {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border-radius: 999px;
+  color: var(--gold-soft);
+  background: rgba(216, 195, 145, 0.14);
+}
+
+.ds-login-aside-foot {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #a89f8d;
+  font-size: 12.5px;
+}
+.ds-login-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--success);
+  box-shadow: 0 0 0 4px rgba(63, 143, 99, 0.18);
+}
+
+/* ── Main: formulario ── */
+.ds-login-main {
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  overflow-y: auto;
+  background: var(--paper);
 }
 
 .ds-login-card {
   width: min(408px, 100%);
   display: grid;
   gap: 15px;
-  padding: 32px 30px;
-  border: 1px solid rgba(216, 195, 145, 0.24);
-  border-radius: 16px;
-  /* Papel quase branco com micro-warmth (kit.css: rgba(252,251,248,.98)). */
-  background: rgba(252, 251, 248, 0.98);
-  box-shadow: var(--shadow-login);
   color: var(--ink);
 }
 
-.ds-login-brand {
-  display: grid;
-  place-items: center;
-  gap: 12px;
+.ds-login-head {
+  margin-bottom: 6px;
+}
+.ds-login-head h1 {
+  margin: 0;
+  font-size: 25px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.ds-login-head p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.ds-login-legal {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
   text-align: center;
 }
 
-.ds-login-brand img {
-  width: 76px;
-  height: 76px;
-  object-fit: contain;
-  border-radius: 14px;
-  background: var(--coal);
-  padding: 8px;
+/* Mobile brand header (escondido no desktop) */
+.ds-login-mobile-brand {
+  display: none;
 }
 
-.ds-login-brand h1 {
-  margin: 0;
-  font-size: 21px;
-  font-weight: var(--fw-semibold);
-  color: var(--ink);
-}
-
-.ds-login-brand-subtitle {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13.5px;
-}
-
-.ds-login-desde {
-  justify-self: center;
-  margin-top: 2px;
-  padding: 3px 11px;
-  border-radius: var(--radius-pill);
-  background: var(--gold-tint);
-  color: var(--gold-dark);
-  font-size: 10px;
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+@media (max-width: 860px) {
+  .ds-login-shell {
+    grid-template-columns: 1fr;
+  }
+  .ds-login-aside {
+    display: none;
+  }
+  .ds-login-main {
+    align-content: start;
+    padding: 0 22px 28px;
+  }
+  .ds-login-mobile-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+    width: calc(100% + 44px);
+    margin: 0 -22px 26px;
+    padding: 34px 22px 26px;
+    color: var(--paper);
+    background:
+      radial-gradient(520px 300px at 80% -20%, rgba(185, 154, 88, 0.28), transparent 62%),
+      linear-gradient(
+        160deg,
+        var(--login-gradient-start) 0%,
+        var(--login-gradient-mid) 60%,
+        var(--login-gradient-end) 100%
+      );
+  }
+  .ds-login-mobile-brand .ds-login-logo {
+    width: 58px;
+    height: 58px;
+    flex: 0 0 58px;
+  }
+  .ds-login-mobile-brand .ds-login-brand-text {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .ds-login-mobile-brand .ds-login-brand-text strong {
+    font-size: 18px;
+  }
+  .ds-login-mfeats {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .ds-login-mfeats span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #ded6c6;
+    font-size: 12px;
+    font-weight: var(--fw-medium);
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: rgba(216, 195, 145, 0.12);
+  }
+  .ds-login-mfeats span svg {
+    color: var(--gold-soft);
+  }
+  .ds-login-card {
+    padding-top: 4px;
+  }
+  .ds-login-head {
+    text-align: center;
+  }
 }

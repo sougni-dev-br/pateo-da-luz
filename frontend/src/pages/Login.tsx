@@ -83,9 +83,8 @@ export function Login({ onLogin }: { onLogin: (user: AppUser) => void }) {
   return (
     <LoginShell
       onSubmit={handleSubmit}
-      brandTitle="Gestão Pateo da Luz"
-      brandSubtitle="Controle financeiro, compras e estoque"
-      desdeYear="2003"
+      brandName="Pateo da Luz"
+      brandTagline="Desde 2003"
     >
       {isStaging && (
         <Alert tone="warning" icon={null}>
