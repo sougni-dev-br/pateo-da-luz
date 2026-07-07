@@ -150,16 +150,26 @@
   .fatsalao-section {
     margin-top: 24px;
   }
+  /* Em mobile a toolbar continua em row — refresh ao lado do pill.
+     Escondemos o badge "Em andamento" (informacao ja implicita: o mes
+     mostrado no pill sempre eh o alvo do sync), reduzimos padding e
+     largura do pill pra caber sem truncar "Julho 2026". */
   .fatsalao-toolbar {
-    flex-direction: column;
-    align-items: stretch;
+    flex-wrap: nowrap;
   }
   .fatsalao-period {
-    justify-content: space-between;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
+    gap: 4px;
   }
   .fatsalao-period-pill {
     flex: 1;
     justify-content: center;
+    min-width: 0;
+    padding: 0 8px;
+    gap: 6px;
+  }
+  .fatsalao-live-badge {
+    display: none;
   }
 }

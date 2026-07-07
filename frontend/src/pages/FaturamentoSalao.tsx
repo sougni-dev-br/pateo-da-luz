@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Calendar, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { Calendar, ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { AppUser, getAgileSyncStatus, getRevenue, type AgileSyncStatus, type RevenueEntry, type RevenueSummary } from "../api/client";
 import { Alert, Money, PanelEyebrow, SummaryCard, Table, useFormatCurrency } from "../design-system";
 import { formatDate, formatNumber } from "../utils/format";
@@ -361,18 +361,19 @@ function toNumber(value: string | number | null | undefined): number {
 // Quando o status endpoint falha mas existem dados, mostramos um aviso
 // discreto em vez do erro forte "nunca sincronizou" (que seria enganoso).
 function renderSyncBanner(status: AgileSyncStatus | null, now: Date, hasAnyData: boolean) {
+  // O Alert do design system ja coloca o icone padrao do tom (Info/CheckCircle2/
+  // AlertTriangle). NAO adicionar icone manual aqui — evita a duplicidade que
+  // aparecia como "dois checks verdes" no banner de sucesso.
   if (!status || !status.ultimaSyncEm) {
     if (hasAnyData) {
       return (
         <Alert tone="info" style={{ marginTop: 16 }}>
-          <AlertTriangle size={16} style={{ marginRight: 8 }} />
           Status da sincronização indisponível no momento. Os dados exibidos foram carregados diretamente do faturamento — a barra de status volta ao normal na próxima atualização.
         </Alert>
       );
     }
     return (
       <Alert tone="error" style={{ marginTop: 16 }}>
-        <AlertTriangle size={16} style={{ marginRight: 8 }} />
         Nenhuma sincronização registrada ainda. O agente precisa rodar pelo menos uma vez no PDVTOUCH.
       </Alert>
     );
@@ -384,7 +385,6 @@ function renderSyncBanner(status: AgileSyncStatus | null, now: Date, hasAnyData:
   if (diffDays <= 1) {
     return (
       <Alert tone="success" style={{ marginTop: 16 }}>
-        <CheckCircle2 size={16} style={{ marginRight: 8 }} />
         Última sync: {label} · {status.diasImportadosUltimoBatch} dia(s) no último lote · {status.totalRegistrosSalaoAgile} dias no total.
       </Alert>
     );
@@ -392,14 +392,12 @@ function renderSyncBanner(status: AgileSyncStatus | null, now: Date, hasAnyData:
   if (diffDays === 2) {
     return (
       <Alert tone="warning" style={{ marginTop: 16 }}>
-        <AlertTriangle size={16} style={{ marginRight: 8 }} />
         Última sync há {diffDays} dias ({label}). Verifique se o PDVTOUCH está ligando normalmente.
       </Alert>
     );
   }
   return (
     <Alert tone="error" style={{ marginTop: 16 }}>
-      <AlertTriangle size={16} style={{ marginRight: 8 }} />
       Última sync há {diffDays} dias ({label}). O agente pode estar com problema — verificar máquina PDVTOUCH.
     </Alert>
   );
