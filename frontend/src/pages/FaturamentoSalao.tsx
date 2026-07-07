@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Calendar, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { AppUser, getAgileSyncStatus, getRevenue, type AgileSyncStatus, type RevenueEntry, type RevenueSummary } from "../api/client";
 import { Alert, Money, PanelEyebrow, SummaryCard, Table, useFormatCurrency } from "../design-system";
 import { formatDate, formatNumber } from "../utils/format";
@@ -41,6 +41,7 @@ export function FaturamentoSalao({ user: _user }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const formatCurrency = useFormatCurrency();
+  const monthInputRef = useRef<HTMLInputElement>(null);
 
   const [yearPart, monthPart] = competence.split("-");
   const yearParam = yearPart;
@@ -129,18 +130,43 @@ export function FaturamentoSalao({ user: _user }: Props) {
           >
             <ChevronLeft size={18} />
           </button>
+          {/*
+            Pill de periodo — reusa o design do antigo topbar (Calendar + label +
+            ChevronDown). O <input type="month"> real fica escondido atras dele
+            e recebe foco quando o usuario clica no pill; assim aproveitamos o
+            date picker nativo do navegador sem expor o input sem estilo.
+          */}
+          <button
+            type="button"
+            className="fatsalao-period-pill"
+            aria-label={`Período atual: ${monthLabel}. Clique para trocar.`}
+            onClick={() => {
+              const el = monthInputRef.current;
+              if (!el) return;
+              // showPicker existe em Chrome/Edge/Safari recentes; fallback e focus.
+              if (typeof (el as HTMLInputElement & { showPicker?: () => void }).showPicker === "function") {
+                (el as HTMLInputElement & { showPicker: () => void }).showPicker();
+              } else {
+                el.focus();
+                el.click();
+              }
+            }}
+          >
+            <Calendar size={14} strokeWidth={2} aria-hidden />
+            <span className="fatsalao-period-pill-text">{monthLabel}</span>
+            {isCurrentMonth && <span className="fatsalao-live-badge">Em andamento</span>}
+            <ChevronDown size={12} strokeWidth={2} aria-hidden />
+          </button>
           <input
+            ref={monthInputRef}
             type="month"
-            className="fatsalao-period-input"
+            className="fatsalao-period-input-hidden"
             value={competence}
             max={currentCompetence}
             onChange={(e) => e.target.value && setCompetence(e.target.value)}
             aria-label="Selecionar competência"
+            tabIndex={-1}
           />
-          <span className="fatsalao-period-label">
-            {monthLabel}
-            {isCurrentMonth && <span className="fatsalao-live-badge">Em andamento</span>}
-          </span>
           <button
             type="button"
             className="icon-button"
