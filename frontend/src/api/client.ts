@@ -4112,3 +4112,15 @@ export function confirmTaxImport(filePath: string, skipDuplicates = true) {
   );
 }
 
+export type AgileSyncStatus = {
+  ultimaSyncEm: string | null;
+  ultimoBatchId: string | null;
+  ultimoPeriodoFim: string | null;
+  diasImportadosUltimoBatch: number;
+  totalRegistrosSalaoAgile: number;
+};
+
+export function getAgileSyncStatus(signal?: AbortSignal) {
+  return request<AgileSyncStatus>("/integrations/agile/status", { signal });
+}
+

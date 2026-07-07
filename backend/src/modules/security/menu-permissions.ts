@@ -16,6 +16,7 @@ export const menuCatalog = [
   { id: "purchase-orders", label: "Pedidos de compra", group: "Operacao" },
   { id: "payables", label: "Financeiro / Contas a pagar", group: "Financeiro" },
   { id: "revenue", label: "Faturamento diario", group: "Financeiro" },
+  { id: "faturamento-salao", label: "Faturamento Salao (Agile PDV)", group: "Financeiro" },
   { id: "cards", label: "Cartoes", group: "Financeiro" },
   { id: "cash", label: "Caixa", group: "Financeiro" },
   { id: "cmv-real", label: "CMV Real", group: "CMV" },
@@ -370,6 +371,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/inventory")) return "inventory";
   if (path.startsWith("/monthly/cmv-real")) return "cmv-real";
   if (path.startsWith("/monthly/revenue")) return "revenue";
+  if (path.startsWith("/integrations/agile/status")) return "faturamento-salao";
   if (path.startsWith("/monthly/daily-revenue")) return "cash";
   if (path.startsWith("/monthly")) return "monthly-closing";
   if (path.startsWith("/master-data/sectors") && method === "GET" && String(request.query?.forStockCounting ?? "").toLowerCase() === "true") {

@@ -1,0 +1,14 @@
+{
+  "name": "pateo-agent-pdv",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agente que roda na máquina PDVTOUCH: baixa CSVs do AgileReport e envia ao ERP Pateo da Luz.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "sync": "node src/sync.js",
+    "backfill": "node src/backfill.js"
+  }
+}

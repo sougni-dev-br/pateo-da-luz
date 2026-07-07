@@ -1,0 +1,15 @@
+{
+  "agileReport": {
+    "baseUrl": "http://localhost:8091",
+    "usuario": "SISTEMA",
+    "senha": "TROCAR"
+  },
+  "backend": {
+    "baseUrl": "https://pateo-backend.onrender.com",
+    "ingestToken": "TROCAR"
+  },
+  "sync": {
+    "retryMaxAttempts": 4,
+    "retryDelayMs": 900000
+  }
+}

@@ -65,6 +65,7 @@ const PurchaseOrders = lazy(() => import("./pages/PurchaseOrders").then((module)
 const PurchasePlanning = lazy(() => import("./pages/PurchasePlanning").then((module) => ({ default: module.PurchasePlanning })));
 const Purchases = lazy(() => import("./pages/Purchases").then((module) => ({ default: module.Purchases })));
 const Revenue = lazy(() => import("./pages/Revenue").then((module) => ({ default: module.Revenue })));
+const FaturamentoSalao = lazy(() => import("./pages/FaturamentoSalao").then((module) => ({ default: module.FaturamentoSalao })));
 const Suppliers = lazy(() => import("./pages/Suppliers").then((module) => ({ default: module.Suppliers })));
 const Companies = lazy(() => import("./pages/Companies").then((module) => ({ default: module.Companies })));
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
@@ -99,6 +100,7 @@ const sections = [
   { id: "purchase-orders", label: "Pedidos de compra", icon: ClipboardList, showInSidebar: true, group: "Operação", path: "/compras/pedidos", matchers: ["/compras/pedidos"], description: "Pedidos operacionais gerados a partir da pré-lista do comprador. Ainda não integram contas a pagar." },
   { id: "payables", label: "Contas a pagar", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-pagar", matchers: ["/financeiro/contas-a-pagar"] },
   { id: "revenue", label: "Faturamento", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento", matchers: ["/financeiro/faturamento"] },
+  { id: "faturamento-salao", label: "Salão (Agile PDV)", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento-salao", matchers: ["/financeiro/faturamento-salao"], description: "Faturamento do salão sincronizado automaticamente pelo agente do PDV" },
   { id: "cards", label: "Cartões", icon: CreditCard, showInSidebar: true, group: "Financeiro", path: "/financeiro/cartoes", matchers: ["/financeiro/cartoes"] },
   { id: "cash", label: "Caixa", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/caixa", matchers: ["/financeiro/caixa"] },
   { id: "cmv-real", label: "CMV Real", icon: Calculator, showInSidebar: true, group: "CMV", path: "/cmv/real", matchers: ["/cmv/real"] },
@@ -352,7 +354,7 @@ export function App() {
     return (
       <SessionContext.Provider value={sessionContextValue}>
         <HideValuesProvider>
-          <LoginShell brandTitle="Gestão Pateo da Luz">
+          <LoginShell formTitle="Carregando sessão" formSubtitle={null} legal={null}>
             <p style={{ textAlign: "center", color: "var(--muted)", margin: 0 }}>Carregando sessão...</p>
           </LoginShell>
         </HideValuesProvider>
@@ -544,6 +546,7 @@ export function App() {
                   />
                 )}
               />
+              <Route path="/financeiro/faturamento-salao" element={<FaturamentoSalao user={user} />} />
               <Route
                 path="/financeiro/caixa"
                 element={(
