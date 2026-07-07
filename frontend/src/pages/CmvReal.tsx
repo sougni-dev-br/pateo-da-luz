@@ -25,6 +25,7 @@ import { Button, IconButton, Money, StatusBadge as DsStatusBadge } from "../desi
 import type { StatusTone } from "../design-system";
 import { useSearchParams } from "react-router-dom";
 import { hasPermission } from "../lib/permissions";
+import { useRevealScroll } from "../lib/useRevealScroll";
 import { formatDate } from "../utils/format";
 
 function todayInput() {
@@ -276,6 +277,7 @@ export function CmvReal({ user }: { user: AppUser }) {
   );
 
   const cmvHealth = useMemo(() => classifyCmv(selectedPeriod?.cmvPercentual), [selectedPeriod?.cmvPercentual]);
+  const detailRef = useRevealScroll<HTMLElement>({ when: selectedPeriod?.id });
 
   const initialDropdownValue = form.estoqueInicialSnapshotId ? `SNAPSHOT:${form.estoqueInicialSnapshotId}` : form.estoqueInicialSessionId;
   const finalDropdownValue = form.estoqueFinalSnapshotId ? `SNAPSHOT:${form.estoqueFinalSnapshotId}` : form.estoqueFinalSessionId;
@@ -895,7 +897,7 @@ export function CmvReal({ user }: { user: AppUser }) {
         </section>
 
         {selectedPeriod && (
-          <section className="panel">
+          <section className="panel scroll-target" ref={detailRef}>
             <SectionHeader eyebrow="Detalhe" title={selectedPeriod.name} />
             <div className="summary-grid dashboard-compact-grid cmv-detail-grid">
               <MetricCard label="Código" value={selectedPeriod.code ?? "-"} />

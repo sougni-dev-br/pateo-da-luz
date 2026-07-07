@@ -1,6 +1,7 @@
 ﻿import { BadgeDollarSign, CheckCircle2, Download, Eye, FileText, PackageCheck, RefreshCw, Send, XCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useRevealScroll } from "../lib/useRevealScroll";
 import {
   AppUser,
   cancelPurchaseOrder,
@@ -73,7 +74,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
   });
   const canOperate = hasPermission(user, "purchase-orders", "edit");
   const canApprove = hasPermission(user, "purchase-orders", "approve");
-  const detailRef = useRef<HTMLElement | null>(null);
+  const detailRef = useRevealScroll<HTMLElement>({ when: selected?.id });
 
   async function load() {
     setLoading(true);
@@ -101,7 +102,6 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
           notes: item.notes ?? ""
         }]))
       });
-      setTimeout(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel abrir o pedido." });
     }
@@ -301,11 +301,11 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
       </section>
 
       {selected && (
-        <section className="panel" ref={detailRef}>
+        <section className="panel scroll-target" ref={detailRef}>
           <div className="section-header">
             <div>
               <span className="eyebrow">Pedido</span>
-              <h2>{selected.code}</h2>
+              <h2 tabIndex={-1} data-autofocus>{selected.code}</h2>
               <p className="muted" title={selected.supplierNameSnapshot}>{selected.supplierNameSnapshot}</p>
             </div>
             <div className="action-row">

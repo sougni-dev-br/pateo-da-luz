@@ -1,5 +1,6 @@
 import { ChefHat, Copy, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useRevealScroll } from "../lib/useRevealScroll";
 import {
   deactivateDish,
   getDishCategories,
@@ -69,6 +70,8 @@ export function Dishes() {
   const [selected, setSelected] = useState<DishDetail | null>(null);
   const [editing, setEditing] = useState(false);
   const { notice, setNotice } = useNotice();
+  const detailWrapRef = useRevealScroll<HTMLDivElement>({ when: !editing ? selected?.id : null });
+  const formWrapRef = useRevealScroll<HTMLDivElement>({ when: editing ? (selected?.id ?? "new") : null });
 
   async function load() {
     setLoading(true);
@@ -217,28 +220,32 @@ export function Dishes() {
           )}
 
           {selected && !editing && (
-            <DishDetailPanel
-              dish={selected}
-              canEdit={canEdit}
-              onEdit={() => setEditing(true)}
-              onClose={() => setSelected(null)}
-              onDeactivate={handleDeactivate}
-            />
+            <div ref={detailWrapRef} className="scroll-target">
+              <DishDetailPanel
+                dish={selected}
+                canEdit={canEdit}
+                onEdit={() => setEditing(true)}
+                onClose={() => setSelected(null)}
+                onDeactivate={handleDeactivate}
+              />
+            </div>
           )}
 
           {editing && (
-            <DishFormPanel
-              initial={selected}
-              categories={categories}
-              onClose={() => { setEditing(false); }}
-              onSaved={async (id) => {
-                setEditing(false);
-                await load();
-                await openDetail(id);
-                setNotice({ tone: "success", message: selected ? "Prato atualizado." : "Prato criado." });
-              }}
-              notify={(t, m) => setNotice({ tone: t, message: m })}
-            />
+            <div ref={formWrapRef} className="scroll-target">
+              <DishFormPanel
+                initial={selected}
+                categories={categories}
+                onClose={() => { setEditing(false); }}
+                onSaved={async (id) => {
+                  setEditing(false);
+                  await load();
+                  await openDetail(id);
+                  setNotice({ tone: "success", message: selected ? "Prato atualizado." : "Prato criado." });
+                }}
+                notify={(t, m) => setNotice({ tone: t, message: m })}
+              />
+            </div>
           )}
         </>
       )}

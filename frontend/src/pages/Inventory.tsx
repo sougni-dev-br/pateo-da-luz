@@ -1,5 +1,6 @@
 ﻿import { AlertTriangle, Archive, ArrowDown, CalendarDays, CheckCircle2, ClipboardCheck, Download, FileText, FilterX, Layers, Loader2, MessageSquare, Play, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { Fragment, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useRevealScroll } from "../lib/useRevealScroll";
 import {
   ApiError,
   AppUser,
@@ -160,7 +161,7 @@ export function Inventory({
   const [operationalInventories, setOperationalInventories] = useState<OperationalInventory[]>([]);
   const [operationalDetail, setOperationalDetail] = useState<OperationalInventoryDetail | null>(null);
   const [openingInventoryId, setOpeningInventoryId] = useState<string | null>(null);
-  const operationalDetailRef = useRef<HTMLDivElement>(null);
+  const operationalDetailRef = useRevealScroll<HTMLDivElement>({ when: operationalDetail?.id });
   const [showCanceledStockData, setShowCanceledStockData] = useState(false);
   const [minQtyEdit, setMinQtyEdit] = useState<Record<string, string>>({});
   const [savingMinQty, setSavingMinQty] = useState<Record<string, boolean>>({});
@@ -1158,9 +1159,6 @@ export function Inventory({
       if (detail.type === "FINAL_CMV" && detail.status === "RASCUNHO") {
         void loadFinalCmvCoverage(id);
       }
-      setTimeout(() => {
-        operationalDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 80);
     } finally {
       setOpeningInventoryId(null);
     }
@@ -2717,11 +2715,11 @@ export function Inventory({
         </>}
 
         {activeView !== "counting" && inventoryDeskTab === "official" && operationalDetail && (
-          <div ref={operationalDetailRef} className="subsection operational-count-panel">
+          <div ref={operationalDetailRef} className="subsection operational-count-panel scroll-target">
             <div className="section-heading">
               <div>
                 <p>{operationalDetail.code} • {formatDate(operationalDetail.date)} • {operationalTypeLabels[operationalDetail.type]}</p>
-                <h3 title={operationalDetail.name}>{operationalDetail.name}</h3>
+                <h3 tabIndex={-1} data-autofocus title={operationalDetail.name}>{operationalDetail.name}</h3>
               </div>
               <div className="op-detail-head-actions">
                 <StatusBadge tone={operationalTone(operationalDetail.status)}>{operationalStatusLabels[operationalDetail.status] ?? operationalDetail.status}</StatusBadge>
