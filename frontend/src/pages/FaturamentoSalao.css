@@ -1,0 +1,85 @@
+/* Faturamento Salão — layout responsivo.
+   Mobile-first: uma coluna full-width em telas estreitas; grid adaptativo
+   a partir de 640px. Todos os cards têm min-width previsível para nao
+   truncar valores monetarios grandes (ex.: "R$ 27.325,43"). */
+
+/* Toolbar minima com o botao Atualizar alinhado a direita.
+   O titulo e a descricao da tela vem do app shell (registrados em App.tsx),
+   entao NAO duplicamos <h1> aqui — evita cabecalho repetido. */
+.fatsalao-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.fatsalao-section {
+  margin-top: 32px;
+}
+
+.fatsalao-section-title {
+  margin-bottom: 12px;
+}
+
+/* Grid de cards — usa auto-fit com minmax que garante que o valor
+   monetario nao trunque em telas de ~380px de largura util. */
+.fatsalao-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
+}
+
+.fatsalao-grid-turnos {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+}
+
+.fatsalao-grid-pgto {
+  /* 5 formas de pgto — em telas medias/grandes vira 5 colunas.
+     Em mobile (<560px) empilha 2x. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+}
+
+/* Barra de proporcao abaixo do valor da forma de pagamento */
+.fatsalao-pgto-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-border-muted, rgba(0,0,0,0.08));
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.fatsalao-pgto-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-accent, #2b6cb0);
+  transition: width 250ms ease-out;
+}
+
+/* A Table do design system ja envolve o <table> em um <div class="ds-table-scroll">
+   com overflow horizontal. Nao criamos wrapper extra — apenas garantimos
+   que celulas e cabecalhos nao quebrem em varias linhas (em mobile o
+   scroll horizontal e MAIS legivel que uma quebra de valor monetario). */
+.fatsalao-table th,
+.fatsalao-table td {
+  white-space: nowrap;
+}
+
+/* Forca uma largura minima na tabela em mobile para que os R$ com milhares
+   nao truncar; abaixo desta largura o scroll horizontal ativa (o design
+   system ja tem overflow-x auto no .ds-table-scroll interno). */
+.fatsalao-table table {
+  min-width: 720px;
+}
+
+/* Detail pequeno com hint contextual (ex.: "vale-refeicao") */
+.fatsalao-hint {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  margin-top: 2px;
+}
+
+@media (max-width: 560px) {
+  .fatsalao-section {
+    margin-top: 24px;
+  }
+}
