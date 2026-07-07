@@ -4,6 +4,7 @@ import { auditRouter } from "./modules/audit/audit.routes.js";
 import { dashboardRouter } from "./modules/dashboard/dashboard.routes.js";
 import { importConflictRouter } from "./modules/import-conflicts/import-conflict.routes.js";
 import { importRouter } from "./modules/imports/import.routes.js";
+import { agileIntegrationRouter } from "./modules/integrations/agile/agile-sync.routes.js";
 import { inventoryRouter } from "./modules/inventory/inventory.routes.js";
 import { cmvRealRouter } from "./modules/cmv-real/cmv-real.routes.js";
 import { cardsRouter } from "./modules/cards/cards.routes.js";
@@ -31,15 +32,23 @@ const ALLOWED_ORIGINS = [
   "http://localhost:5174",
   "http://localhost:3000",
 ];
+// Em dev (NODE_ENV != production) qualquer origem localhost/127.0.0.1 é aceita
+// para acomodar portas dinâmicas do preview MCP e outras ferramentas locais.
+// Em produção, apenas o whitelist explícito.
+const LOCALHOST_PATTERN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 app.use(cors({
   origin: (origin, callback) => {
-    // permitir chamadas sem origin (ex: Render health checks, curl)
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    if (!IS_PRODUCTION && LOCALHOST_PATTERN.test(origin)) return callback(null, true);
     callback(new Error(`CORS: origin não permitida: ${origin}`));
   },
   credentials: true,
 }));
-app.use(express.json());
+// Limite generoso para acomodar o payload do agente Agile PDV
+// (backfill de 6 meses pode ficar em ~10 MB de JSON com vendas + pagamentos + itens).
+app.use(express.json({ limit: "25mb" }));
 app.use((_request, response, next) => {
   const originalJson = response.json.bind(response);
   response.json = ((body: unknown) => originalJson(jsonSafe(body))) as typeof response.json;
@@ -72,6 +81,7 @@ app.use("/master-data", masterDataRouter);
 app.use("/dishes", dishesRouter);
 app.use("/dre", dreRouter);
 app.use("/tax-payments", taxPaymentRouter);
+app.use("/integrations/agile", agileIntegrationRouter);
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   console.error("Unhandled API error", error);
