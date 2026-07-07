@@ -10780,18 +10780,20 @@ tr.dre-row-selected td {
 .inv-mobile-form-toggle {
   display: none;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   width: 100%;
-  padding: 12px 16px;
-  border: 1px dashed var(--line);
+  padding: 14px 16px;
+  border: 1px solid var(--ink);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.7);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--ink-soft);
+  background: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
   cursor: pointer;
-  text-align: left;
-  margin-bottom: 4px;
+  text-align: center;
+  margin-bottom: 8px;
+  box-shadow: 0 2px 6px rgba(22, 21, 18, 0.15);
 }
 
 /* Collapsible form — always visible on desktop */
@@ -10944,10 +10946,13 @@ tr.dre-row-selected td {
 }
 
 .inv-mc-actions .secondary-button,
-.inv-mc-actions .primary-button {
-  flex: 1;
+.inv-mc-actions .primary-button,
+.inv-mc-actions .danger-button {
+  flex: 1 1 calc(50% - 4px);
   min-width: 0;
   justify-content: center;
+  white-space: nowrap;
+  padding-inline: 10px;
 }
 
 /* More actions dropdown */
