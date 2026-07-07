@@ -542,7 +542,7 @@ select {
   font-size: 13px;
 }
 
-.filters-row input,
+.filters-row input:not([type="checkbox"]):not([type="radio"]),
 .filters-row select {
   min-height: 38px;
   min-width: 130px;
@@ -8088,7 +8088,37 @@ details[open] .modal-section-summary::before {
   }
 
   .summary-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .summary-grid article,
+  .summary-grid .summary-card {
+    min-height: auto;
+    padding: 10px 12px;
+  }
+
+  .summary-grid span {
+    margin-bottom: 4px;
+    font-size: 11px;
+  }
+
+  .summary-grid strong {
+    font-size: 18px;
+  }
+
+  .summary-card-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .page-header {
+    margin-bottom: 12px;
+  }
+
+  .page-header h1,
+  .content h1 {
+    font-size: 20px;
   }
 
   .filters-row {
@@ -8098,7 +8128,7 @@ details[open] .modal-section-summary::before {
     width: 100%;
   }
 
-  .filters-row input,
+  .filters-row input:not([type="checkbox"]):not([type="radio"]),
   .filters-row select,
   .filters-row button,
   .filters-row details {
@@ -11010,6 +11040,9 @@ tr.dre-row-selected td {
   /* Show form toggle, hide form by default */
   .inv-mobile-form-toggle {
     display: flex;
+    padding: 10px 14px;
+    font-size: 14px;
+    margin-bottom: 6px;
   }
   .inv-collapsible-form {
     display: none;

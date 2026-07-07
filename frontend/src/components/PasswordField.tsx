@@ -17,8 +17,8 @@ export function PasswordField({
   const [visible, setVisible] = useState(false);
 
   return (
-    <label>
-      {label}
+    <label className="ds-text-field">
+      <span className="ds-text-field-label">{label}</span>
       <span className="password-field">
         <input
           type={visible ? "text" : "password"}
