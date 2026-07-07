@@ -5,12 +5,19 @@ import "./Topbar.css";
 export type TopbarProps = {
   /** Partes do breadcrumb. Ultimo item recebe destaque (ink + semibold). */
   breadcrumb: string[];
-  /** Texto do seletor de periodo (ex.: "Julho 2026"). */
-  period: string;
+  /**
+   * Texto do seletor de periodo (ex.: "Julho 2026").
+   * Se ausente, o pill de periodo nao e renderizado. Se presente sem
+   * onPeriodClick, o botao fica desabilitado.
+   */
+  period?: string;
   /** Estado atual do toggle de valores. */
   hideValues: boolean;
   onToggleValues: () => void;
-  /** Valor controlado da busca. Se undefined, o input e uncontrolled. */
+  /**
+   * Valor controlado da busca. Se ausente E onSearchChange tambem, o
+   * campo de busca nao e renderizado (evita input decorativo que confunde).
+   */
   searchValue?: string;
   onSearchChange?: (value: string) => void;
   searchPlaceholder?: string;
@@ -37,6 +44,10 @@ export function Topbar({
   const searchInputProps = isSearchControlled
     ? { value: searchValue, onChange: handleSearchChange }
     : { defaultValue: "", onChange: handleSearchChange };
+  // Regra: so mostra search se o consumidor esta realmente controlando/observando.
+  const showSearch = isSearchControlled || Boolean(onSearchChange);
+  // Regra: so mostra pill de periodo se um label foi fornecido.
+  const showPeriod = Boolean(period);
 
   return (
     <div className="ds-topbar" role="banner">
@@ -58,31 +69,36 @@ export function Topbar({
         })}
       </nav>
 
-      <label className="ds-topbar-search">
-        <Search size={15} strokeWidth={2} aria-hidden />
-        <input
-          type="search"
-          placeholder={searchPlaceholder}
-          aria-label="Buscar"
-          {...searchInputProps}
-        />
-      </label>
+      {showSearch && (
+        <label className="ds-topbar-search">
+          <Search size={15} strokeWidth={2} aria-hidden />
+          <input
+            type="search"
+            placeholder={searchPlaceholder}
+            aria-label="Buscar"
+            {...searchInputProps}
+          />
+        </label>
+      )}
 
       <span className="ds-topbar-spacer" />
 
       {extras}
 
       <div className="ds-topbar-tools">
-        <button
-          type="button"
-          className="ds-topbar-period"
-          onClick={onPeriodClick}
-          aria-label={`Período atual: ${period}`}
-        >
-          <Calendar size={14} strokeWidth={2} className="ds-topbar-period-icon-lead" aria-hidden />
-          {period}
-          <ChevronDown size={12} strokeWidth={2} className="ds-topbar-period-icon-tail" aria-hidden />
-        </button>
+        {showPeriod && (
+          <button
+            type="button"
+            className="ds-topbar-period"
+            onClick={onPeriodClick}
+            disabled={!onPeriodClick}
+            aria-label={`Período atual: ${period}`}
+          >
+            <Calendar size={14} strokeWidth={2} className="ds-topbar-period-icon-lead" aria-hidden />
+            {period}
+            <ChevronDown size={12} strokeWidth={2} className="ds-topbar-period-icon-tail" aria-hidden />
+          </button>
+        )}
 
         <button
           type="button"
