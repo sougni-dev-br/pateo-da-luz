@@ -3,14 +3,62 @@
    a partir de 640px. Todos os cards têm min-width previsível para nao
    truncar valores monetarios grandes (ex.: "R$ 27.325,43"). */
 
-/* Toolbar minima com o botao Atualizar alinhado a direita.
+/* Toolbar com seletor de competencia (mes/ano) a esquerda e refresh a direita.
    O titulo e a descricao da tela vem do app shell (registrados em App.tsx),
    entao NAO duplicamos <h1> aqui — evita cabecalho repetido. */
 .fatsalao-toolbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 8px;
+}
+
+.fatsalao-period {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Input nativo YYYY-MM: escondemos em telas normais e usamos o label
+   "Julho 2026" para leitura. O input continua acessivel via TAB — os
+   navegadores mostrarao o picker ao focar. Em mobile o input eh
+   totalmente visivel para toque direto. */
+.fatsalao-period-input {
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  min-width: 140px;
+  cursor: pointer;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, inherit);
+}
+
+.fatsalao-period-input:focus {
+  outline: 2px solid var(--color-accent, #2b6cb0);
+  outline-offset: 1px;
+}
+
+.fatsalao-period-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--color-text, inherit);
+  padding: 0 4px;
+}
+
+.fatsalao-live-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-success-soft, #dcfce7);
+  color: var(--color-success-strong, #166534);
+  letter-spacing: 0.02em;
 }
 
 .fatsalao-section {
@@ -66,9 +114,10 @@
 
 /* Forca uma largura minima na tabela em mobile para que os R$ com milhares
    nao truncar; abaixo desta largura o scroll horizontal ativa (o design
-   system ja tem overflow-x auto no .ds-table-scroll interno). */
+   system ja tem overflow-x auto no .ds-table-scroll interno). Aumentamos
+   para 900px porque agora temos 9 colunas (mesas, pessoas, 2 TMs). */
 .fatsalao-table table {
-  min-width: 720px;
+  min-width: 900px;
 }
 
 /* Detail pequeno com hint contextual (ex.: "vale-refeicao") */
@@ -81,5 +130,25 @@
 @media (max-width: 560px) {
   .fatsalao-section {
     margin-top: 24px;
+  }
+  /* Em mobile, o filtro de periodo ganha linha propria e ocupa full width,
+     com o refresh na mesma linha do input. */
+  .fatsalao-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .fatsalao-period {
+    justify-content: space-between;
+    width: 100%;
+  }
+  .fatsalao-period-input {
+    flex: 1;
+    min-width: 0;
+  }
+  .fatsalao-period-label {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+    padding: 4px 0 0;
   }
 }

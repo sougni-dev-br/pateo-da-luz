@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { AppUser, getAgileSyncStatus, getRevenue, type AgileSyncStatus, type RevenueEntry, type RevenueSummary } from "../api/client";
 import { Alert, Money, PanelEyebrow, SummaryCard, Table, useFormatCurrency } from "../design-system";
-
 import { formatDate, formatNumber } from "../utils/format";
 import "./FaturamentoSalao.css";
 
@@ -17,16 +16,35 @@ type Props = {
 
 const AGILE_PLATFORM = "AGILE_PDV";
 
+const MONTHS_PT = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+];
+
+// Formato do <input type="month">: "YYYY-MM".
+function todayCompetence(now: Date): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function shiftCompetence(competence: string, deltaMonths: number): string {
+  const [y, m] = competence.split("-").map(Number);
+  const d = new Date(y, m - 1 + deltaMonths, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export function FaturamentoSalao({ user: _user }: Props) {
   const now = useMemo(() => new Date(), []);
-  const yearParam = String(now.getFullYear());
-  const monthParam = String(now.getMonth() + 1);
+  const [competence, setCompetence] = useState<string>(() => todayCompetence(now));
 
   const [status, setStatus] = useState<AgileSyncStatus | null>(null);
   const [summary, setSummary] = useState<RevenueSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const formatCurrency = useFormatCurrency();
+
+  const [yearPart, monthPart] = competence.split("-");
+  const yearParam = yearPart;
+  const monthParam = String(Number(monthPart));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -59,11 +77,13 @@ export function FaturamentoSalao({ user: _user }: Props) {
         acc.gross += toNumber(e.grossAmount);
         acc.net += toNumber(e.netAmount);
         acc.service += toNumber(e.serviceAmount);
-        acc.tickets += Number(e.tickets ?? 0);
+        acc.tables += Number(e.tickets ?? 0); // 1 venda no CSV = 1 mesa atendida
+        acc.people += Number(e.peopleServed ?? 0);
+        acc.peopleReported += e.peopleServed != null ? 1 : 0;
         acc.shift1 += toNumber(e.salesFirstShift);
         acc.shift2 += toNumber(e.salesSecondShift);
-        acc.tickets1 += Number(e.ticketsFirstShift ?? 0);
-        acc.tickets2 += Number(e.ticketsSecondShift ?? 0);
+        acc.tables1 += Number(e.ticketsFirstShift ?? 0);
+        acc.tables2 += Number(e.ticketsSecondShift ?? 0);
         acc.pix += toNumber(e.pixAmount);
         acc.credit += toNumber(e.creditAmount);
         acc.debit += toNumber(e.debitAmount);
@@ -71,29 +91,64 @@ export function FaturamentoSalao({ user: _user }: Props) {
         acc.voucher += toNumber(e.voucherAmount);
         return acc;
       },
-      { gross: 0, net: 0, service: 0, tickets: 0, shift1: 0, shift2: 0, tickets1: 0, tickets2: 0, pix: 0, credit: 0, debit: 0, cash: 0, voucher: 0 }
+      { gross: 0, net: 0, service: 0, tables: 0, people: 0, peopleReported: 0, shift1: 0, shift2: 0, tables1: 0, tables2: 0, pix: 0, credit: 0, debit: 0, cash: 0, voucher: 0 }
     );
   }, [agileEntries]);
 
-  const ticketAverage = totals.tickets > 0 ? totals.gross / totals.tickets : 0;
+  const tmPorMesa = totals.tables > 0 ? totals.gross / totals.tables : 0;
+  const tmPorPessoa = totals.people > 0 ? totals.gross / totals.people : 0;
+  // Nem todo dia importado tem peopleServed (dados anteriores à migração
+  // ficam null). Sinalizamos isso pra evitar TM/pessoa enganoso.
+  const peopleDataComplete = totals.peopleReported === agileEntries.length;
   const yesterday = agileEntries[agileEntries.length - 1] ?? null;
 
-  // Detecta se o mes filtrado eh o mes corrente para exibir contexto
-  // "em andamento". Para meses passados, o breakdown por dia jah eh completo.
-  const isCurrentMonth = Number(yearParam) === now.getFullYear()
-    && Number(monthParam) === now.getMonth() + 1;
+  const currentCompetence = todayCompetence(now);
+  const isCurrentMonth = competence === currentCompetence;
   const daysInMonth = new Date(Number(yearParam), Number(monthParam), 0).getDate();
   const daysConsidered = isCurrentMonth ? now.getDate() : daysInMonth;
   const dailyAverage = daysConsidered > 0 ? totals.gross / daysConsidered : 0;
 
-  // Total base para calcular % de cada forma de pagamento no mes.
   const pgtoTotal = totals.pix + totals.credit + totals.debit + totals.cash + totals.voucher;
+  const monthLabel = `${MONTHS_PT[Number(monthPart) - 1]} ${yearPart}`;
 
   const syncBanner = renderSyncBanner(status, now);
 
   return (
     <div className="stack">
       <div className="fatsalao-toolbar">
+        <div className="fatsalao-period">
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Mês anterior"
+            title="Mês anterior"
+            onClick={() => setCompetence((c) => shiftCompetence(c, -1))}
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <input
+            type="month"
+            className="fatsalao-period-input"
+            value={competence}
+            max={currentCompetence}
+            onChange={(e) => e.target.value && setCompetence(e.target.value)}
+            aria-label="Selecionar competência"
+          />
+          <span className="fatsalao-period-label">
+            {monthLabel}
+            {isCurrentMonth && <span className="fatsalao-live-badge">Em andamento</span>}
+          </span>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Próximo mês"
+            title="Próximo mês"
+            disabled={isCurrentMonth}
+            onClick={() => setCompetence((c) => shiftCompetence(c, 1))}
+          >
+            <ChevronRight size={18} />
+          </button>
+        </div>
         <button
           type="button"
           className="icon-button"
@@ -113,20 +168,29 @@ export function FaturamentoSalao({ user: _user }: Props) {
             label={yesterday ? `Último dia (${formatDate(yesterday.date)})` : "Último dia"}
             value={formatCurrency(yesterday ? toNumber(yesterday.grossAmount) : 0)}
             detail={yesterday
-              ? `${yesterday.tickets ?? 0} comandas · TM ${formatCurrency(toNumber(yesterday.ticketAverage ?? 0))}`
+              ? `${formatNumber(yesterday.tickets ?? 0)} mesas${yesterday.peopleServed ? ` · ${formatNumber(yesterday.peopleServed)} pessoas` : ""}`
               : "Sem dados"}
           />
           <SummaryCard
-            label={`Faturamento (${monthParam.padStart(2, "0")}/${yearParam})`}
+            label={`Faturamento (${monthLabel})`}
             value={formatCurrency(totals.gross)}
             detail={isCurrentMonth
               ? `${agileEntries.length}/${daysInMonth} dias · média ${formatCurrency(dailyAverage)}/dia`
-              : `${agileEntries.length} dias · média ${formatCurrency(dailyAverage)}/dia`}
+              : `${agileEntries.length} dia${agileEntries.length === 1 ? "" : "s"} · média ${formatCurrency(dailyAverage)}/dia`}
           />
           <SummaryCard
-            label="Ticket médio do mês"
-            value={formatCurrency(ticketAverage)}
-            detail={`${formatNumber(totals.tickets)} comandas`}
+            label="Mesas atendidas"
+            value={formatNumber(totals.tables)}
+            detail={`TM por mesa ${formatCurrency(tmPorMesa)}`}
+          />
+          <SummaryCard
+            label="Pessoas atendidas"
+            value={peopleDataComplete && totals.people > 0 ? formatNumber(totals.people) : "—"}
+            detail={
+              peopleDataComplete && totals.people > 0
+                ? `TM por pessoa ${formatCurrency(tmPorPessoa)}`
+                : "Dado disponível após próximo sync"
+            }
           />
           <SummaryCard
             label="Serviço (10%) acumulado"
@@ -137,23 +201,23 @@ export function FaturamentoSalao({ user: _user }: Props) {
       </section>
 
       <section className="fatsalao-section">
-        <PanelEyebrow className="fatsalao-section-title">Por turno ({monthParam.padStart(2, "0")}/{yearParam})</PanelEyebrow>
+        <PanelEyebrow className="fatsalao-section-title">Por turno ({monthLabel})</PanelEyebrow>
         <div className="fatsalao-grid fatsalao-grid-turnos">
           <SummaryCard
             label="Almoço"
             value={formatCurrency(totals.shift1)}
-            detail={`${formatNumber(totals.tickets1)} comandas · ${pctText(totals.shift1, totals.gross)}`}
+            detail={`${formatNumber(totals.tables1)} mesas · ${pctText(totals.shift1, totals.gross)}`}
           />
           <SummaryCard
             label="Jantar"
             value={formatCurrency(totals.shift2)}
-            detail={`${formatNumber(totals.tickets2)} comandas · ${pctText(totals.shift2, totals.gross)}`}
+            detail={`${formatNumber(totals.tables2)} mesas · ${pctText(totals.shift2, totals.gross)}`}
           />
         </div>
       </section>
 
       <section className="fatsalao-section">
-        <PanelEyebrow className="fatsalao-section-title">Formas de pagamento ({monthParam.padStart(2, "0")}/{yearParam})</PanelEyebrow>
+        <PanelEyebrow className="fatsalao-section-title">Formas de pagamento ({monthLabel})</PanelEyebrow>
         <div className="fatsalao-grid fatsalao-grid-pgto">
           <PaymentCard label="Pix" value={totals.pix} total={pgtoTotal} formatCurrency={formatCurrency} />
           <PaymentCard label="Crédito" value={totals.credit} total={pgtoTotal} formatCurrency={formatCurrency} />
@@ -170,39 +234,52 @@ export function FaturamentoSalao({ user: _user }: Props) {
       </section>
 
       <section className="fatsalao-section">
-        <PanelEyebrow className="fatsalao-section-title">Dias importados ({monthParam.padStart(2, "0")}/{yearParam})</PanelEyebrow>
+        <PanelEyebrow className="fatsalao-section-title">Dias importados ({monthLabel})</PanelEyebrow>
         <div className="fatsalao-table">
           <Table>
             <thead>
               <tr>
                 <th>Data</th>
                 <th>Dia</th>
-                <th style={{ textAlign: "right" }}>Comandas</th>
+                <th style={{ textAlign: "right" }}>Mesas</th>
+                <th style={{ textAlign: "right" }}>Pessoas</th>
                 <th style={{ textAlign: "right" }}>Bruto</th>
                 <th style={{ textAlign: "right" }}>Serviço</th>
                 <th style={{ textAlign: "right" }}>Líquido</th>
-                <th style={{ textAlign: "right" }}>Ticket médio</th>
+                <th style={{ textAlign: "right" }}>TM/mesa</th>
+                <th style={{ textAlign: "right" }}>TM/pessoa</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} style={{ textAlign: "center", padding: 24 }}>Carregando...</td></tr>
+                <tr><td colSpan={9} style={{ textAlign: "center", padding: 24 }}>Carregando...</td></tr>
               ) : agileEntries.length === 0 ? (
-                <tr><td colSpan={7} style={{ textAlign: "center", padding: 24 }}>
-                  Nenhum dia importado do Agile ainda. Configure o agente na máquina PDVTOUCH.
+                <tr><td colSpan={9} style={{ textAlign: "center", padding: 24 }}>
+                  Nenhum dia importado no mês selecionado.
                 </td></tr>
               ) : (
-                agileEntries.map((e) => (
-                  <tr key={e.id}>
-                    <td>{formatDate(e.date)}</td>
-                    <td>{e.weekdayName ?? "—"}</td>
-                    <td style={{ textAlign: "right" }}>{formatNumber(e.tickets ?? 0)}</td>
-                    <td style={{ textAlign: "right" }}><Money value={toNumber(e.grossAmount)} /></td>
-                    <td style={{ textAlign: "right" }}><Money value={toNumber(e.serviceAmount)} /></td>
-                    <td style={{ textAlign: "right" }}><Money value={toNumber(e.netAmount)} /></td>
-                    <td style={{ textAlign: "right" }}><Money value={toNumber(e.ticketAverage ?? 0)} /></td>
-                  </tr>
-                ))
+                agileEntries.map((e) => {
+                  const gross = toNumber(e.grossAmount);
+                  const tables = Number(e.tickets ?? 0);
+                  const people = e.peopleServed;
+                  const tmMesa = tables > 0 ? gross / tables : 0;
+                  const tmPessoa = people && people > 0 ? gross / people : null;
+                  return (
+                    <tr key={e.id}>
+                      <td>{formatDate(e.date)}</td>
+                      <td>{e.weekdayName ?? "—"}</td>
+                      <td style={{ textAlign: "right" }}>{formatNumber(tables)}</td>
+                      <td style={{ textAlign: "right" }}>{people != null ? formatNumber(people) : "—"}</td>
+                      <td style={{ textAlign: "right" }}><Money value={gross} /></td>
+                      <td style={{ textAlign: "right" }}><Money value={toNumber(e.serviceAmount)} /></td>
+                      <td style={{ textAlign: "right" }}><Money value={toNumber(e.netAmount)} /></td>
+                      <td style={{ textAlign: "right" }}><Money value={tmMesa} /></td>
+                      <td style={{ textAlign: "right" }}>
+                        {tmPessoa != null ? <Money value={tmPessoa} /> : "—"}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </Table>
@@ -211,8 +288,6 @@ export function FaturamentoSalao({ user: _user }: Props) {
     </div>
   );
 }
-
-
 
 type PaymentCardProps = {
   label: string;
