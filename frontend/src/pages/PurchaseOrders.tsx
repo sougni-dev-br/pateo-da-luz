@@ -1,11 +1,12 @@
-﻿import { BadgeDollarSign, CheckCircle2, Download, Eye, PackageCheck, RefreshCw, Send, XCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+﻿import { BadgeDollarSign, CheckCircle2, Download, Eye, FileText, PackageCheck, RefreshCw, Send, XCircle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   AppUser,
   cancelPurchaseOrder,
   changePurchaseOrderStatus,
   downloadPurchaseOrderCsv,
+  downloadPurchaseOrderPdf,
   getPurchaseOrder,
   getPurchaseOrders,
   PurchaseOrder,
@@ -72,6 +73,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
   });
   const canOperate = hasPermission(user, "purchase-orders", "edit");
   const canApprove = hasPermission(user, "purchase-orders", "approve");
+  const detailRef = useRef<HTMLElement | null>(null);
 
   async function load() {
     setLoading(true);
@@ -99,6 +101,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
           notes: item.notes ?? ""
         }]))
       });
+      setTimeout(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel abrir o pedido." });
     }
@@ -244,6 +247,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
                 <Table.Td truncate style={{ maxWidth: 140 }} title={order.createdByUserName ?? "-"}>{order.createdByUserName ?? "-"}</Table.Td>
                 <Table.Td actions>
                   <IconButton icon={<Eye size={16} />} label="Abrir pedido" onClick={() => openOrder(order.id)} />
+                  <IconButton icon={<FileText size={16} />} label="Baixar PDF" onClick={() => downloadPurchaseOrderPdf(order.id, order.code)} />
                 </Table.Td>
               </Table.Row>
             ))}
@@ -285,6 +289,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
               <div className="purch-mobile-card-footer">
                 <div className="purch-mobile-actions">
                   <button className="purch-mobile-btn" type="button" onClick={() => openOrder(order.id)}><Eye size={15} /> Abrir</button>
+                  <button className="purch-mobile-btn" type="button" onClick={() => downloadPurchaseOrderPdf(order.id, order.code)}><FileText size={15} /> PDF</button>
                 </div>
               </div>
             </article>
@@ -296,7 +301,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
       </section>
 
       {selected && (
-        <section className="panel">
+        <section className="panel" ref={detailRef}>
           <div className="section-header">
             <div>
               <span className="eyebrow">Pedido</span>
@@ -305,7 +310,8 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
             </div>
             <div className="action-row">
               <StatusBadge tone={statusTone(selected.status)}>{statusLabels[selected.status] ?? selected.status}</StatusBadge>
-              <Button variant="secondary" leadingIcon={<Download size={16} />} onClick={() => downloadPurchaseOrderCsv(selected.id, selected.code)}>Exportar</Button>
+              <Button variant="secondary" leadingIcon={<FileText size={16} />} onClick={() => downloadPurchaseOrderPdf(selected.id, selected.code)}>PDF</Button>
+              <Button variant="secondary" leadingIcon={<Download size={16} />} onClick={() => downloadPurchaseOrderCsv(selected.id, selected.code)}>Exportar CSV</Button>
             </div>
           </div>
 
