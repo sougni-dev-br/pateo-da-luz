@@ -16,6 +16,31 @@
   --radius: var(--radius-md);
   --brand: var(--gold);
   --bg: var(--paper-soft);
+  --scroll-anchor-offset: 24px;
+}
+
+@media (max-width: 900px) {
+  :root {
+    --scroll-anchor-offset: 76px;
+  }
+}
+
+.scroll-target,
+[data-scroll-target] {
+  scroll-margin-top: var(--scroll-anchor-offset);
+  scroll-margin-bottom: 24px;
+}
+
+[data-autofocus]:focus-visible,
+.scroll-target > h1[tabindex="-1"]:focus-visible,
+.scroll-target > h2[tabindex="-1"]:focus-visible,
+.scroll-target > h3[tabindex="-1"]:focus-visible,
+.scroll-target h1[tabindex="-1"]:focus-visible,
+.scroll-target h2[tabindex="-1"]:focus-visible,
+.scroll-target h3[tabindex="-1"]:focus-visible {
+  outline: 2px solid var(--gold, currentColor);
+  outline-offset: 4px;
+  border-radius: 6px;
 }
 
 html,
