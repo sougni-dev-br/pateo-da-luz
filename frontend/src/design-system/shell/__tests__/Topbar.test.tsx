@@ -4,7 +4,6 @@ import { Topbar } from "../Topbar";
 
 const baseProps = {
   breadcrumb: ["Pateo da Luz", "Financeiro", "Contas a pagar"],
-  period: "Julho 2026",
   hideValues: false,
   onToggleValues: () => undefined
 };
@@ -24,14 +23,22 @@ describe("Topbar", () => {
     expect(nav).toBeInTheDocument();
   });
 
-  test("busca renderiza input com placeholder e aria-label", () => {
+  test("sem props de busca nem period, so aparece breadcrumb e toggle de valores", () => {
     render(<Topbar {...baseProps} />);
+    expect(screen.queryByLabelText("Buscar")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Período atual/ })).toBeNull();
+  });
+
+  test("busca renderiza quando onSearchChange e fornecido", () => {
+    const onSearchChange = vi.fn();
+    render(<Topbar {...baseProps} onSearchChange={onSearchChange} />);
     const input = screen.getByLabelText("Buscar") as HTMLInputElement;
     expect(input.placeholder).toBe("Buscar fornecedor, NF, produto…");
   });
 
-  test("busca aceita placeholder customizado", () => {
-    render(<Topbar {...baseProps} searchPlaceholder="Digite CNPJ" />);
+  test("busca aceita placeholder customizado quando visivel", () => {
+    const onSearchChange = vi.fn();
+    render(<Topbar {...baseProps} onSearchChange={onSearchChange} searchPlaceholder="Digite CNPJ" />);
     const input = screen.getByLabelText("Buscar") as HTMLInputElement;
     expect(input.placeholder).toBe("Digite CNPJ");
   });
@@ -64,12 +71,17 @@ describe("Topbar", () => {
     expect(onToggleValues).toHaveBeenCalledTimes(1);
   });
 
-  test("period pill mostra texto e dispara onPeriodClick", () => {
+  test("period pill mostra texto e dispara onPeriodClick quando ambos fornecidos", () => {
     const onPeriodClick = vi.fn();
-    render(<Topbar {...baseProps} onPeriodClick={onPeriodClick} />);
+    render(<Topbar {...baseProps} period="Julho 2026" onPeriodClick={onPeriodClick} />);
     const btn = screen.getByRole("button", { name: /Julho 2026/ });
     fireEvent.click(btn);
     expect(onPeriodClick).toHaveBeenCalledTimes(1);
   });
 
+  test("period pill fica disabled quando onPeriodClick esta ausente", () => {
+    render(<Topbar {...baseProps} period="Julho 2026" />);
+    const btn = screen.getByRole("button", { name: /Julho 2026/ }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
 });

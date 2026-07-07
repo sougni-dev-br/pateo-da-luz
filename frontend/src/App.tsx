@@ -92,6 +92,11 @@ type SectionDefinition = {
   matchers: string[];
   /** Contexto do módulo exibido como description do PageHeader (regra Fase 5). */
   description?: string;
+  /**
+   * Se true, o AppShell nao renderiza o <PageHeader> global — a propria
+   * tela cuida do cabeçalho (evita duplicacao com a topbar mobile).
+   */
+  hidePageHeader?: boolean;
 };
 
 const sections = [
@@ -100,7 +105,7 @@ const sections = [
   { id: "purchase-orders", label: "Pedidos de compra", icon: ClipboardList, showInSidebar: true, group: "Operação", path: "/compras/pedidos", matchers: ["/compras/pedidos"], description: "Pedidos operacionais gerados a partir da pré-lista do comprador. Ainda não integram contas a pagar." },
   { id: "payables", label: "Contas a pagar", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-pagar", matchers: ["/financeiro/contas-a-pagar"] },
   { id: "revenue", label: "Faturamento", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento", matchers: ["/financeiro/faturamento"] },
-  { id: "faturamento-salao", label: "Salão (Agile PDV)", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento-salao", matchers: ["/financeiro/faturamento-salao"], description: "Faturamento do salão sincronizado automaticamente pelo agente do PDV" },
+  { id: "faturamento-salao", label: "Salão (Agile PDV)", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento-salao", matchers: ["/financeiro/faturamento-salao"], description: "Faturamento do salão sincronizado automaticamente pelo agente do PDV", hidePageHeader: true },
   { id: "cards", label: "Cartões", icon: CreditCard, showInSidebar: true, group: "Financeiro", path: "/financeiro/cartoes", matchers: ["/financeiro/cartoes"] },
   { id: "cash", label: "Caixa", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/caixa", matchers: ["/financeiro/caixa"] },
   { id: "cmv-real", label: "CMV Real", icon: Calculator, showInSidebar: true, group: "CMV", path: "/cmv/real", matchers: ["/cmv/real"] },
@@ -326,14 +331,9 @@ export function App() {
     pendingCountSessionCount > 0 ? { "purchase-orders": pendingCountSessionCount } : {};
   const mobileDrawerGroups = withFavoritesGroup(sidebarGroups, favorites);
 
-  // Topbar: breadcrumb "Pateo da Luz / <grupo atual>" + periodo em pt-BR
-  // corrente. Search e sino sao stubs por enquanto — apenas visuais.
-  const MONTH_NAMES_PT = [
-    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-  ];
-  const _now = new Date();
-  const topbarPeriod = `${MONTH_NAMES_PT[_now.getMonth()]} ${_now.getFullYear()}`;
+  // Topbar: breadcrumb "Pateo da Luz / <grupo atual>". Sem search nem
+  // seletor de periodo aqui — quando alguma tela precisar de periodo,
+  // ela renderiza o pill dentro da propria toolbar (ex.: FaturamentoSalao).
   const topbarBreadcrumb = ["Pateo da Luz", activeGroup];
 
   // /design-system e dev-only e nao depende de auth. Renderiza antes das checagens
@@ -509,13 +509,14 @@ export function App() {
           topbar={(
             <Topbar
               breadcrumb={topbarBreadcrumb}
-              period={topbarPeriod}
               hideValues={hideSensitiveValues}
               onToggleValues={toggleSensitiveValues}
             />
           )}
         >
-          <PageHeader title={activeLabel} description={(effectiveSection as SectionDefinition).description} />
+          {!(effectiveSection as SectionDefinition).hidePageHeader && (
+            <PageHeader title={activeLabel} description={(effectiveSection as SectionDefinition).description} />
+          )}
 
           <Suspense fallback={<div className="page-loading">Carregando módulo...</div>}>
             <ContentErrorBoundary>
