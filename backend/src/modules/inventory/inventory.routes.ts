@@ -1118,8 +1118,8 @@ inventoryRouter.post("/count-sessions", async (request, response) => {
         throw { status: 400, body: { message: "Subcategoria informada nao existe." } } satisfies TxError;
       }
 
-      // Bloquear duplicata: chave (periodYear, periodMonth, type, sectorId, categoryId).
-      // IS NOT DISTINCT FROM trata NULL como igual — preserva o caso "so setor" (categoryId=null).
+      // Bloquear apenas contagens em andamento (evita duas ativas simultaneas para o mesmo escopo).
+      // CONCLUIDA nao bloqueia: estoquista pode recontar livremente no mesmo periodo.
       const [existingSession] = await tx.$queryRaw<Array<{ id: string; code: string }>>`
         SELECT "id", "code"
         FROM "StockCountSession"
@@ -1128,14 +1128,14 @@ inventoryRouter.post("/count-sessions", async (request, response) => {
           AND "type" = ${type}
           AND ("sectorId" IS NOT DISTINCT FROM ${sectorId}::text)
           AND ("categoryId" IS NOT DISTINCT FROM ${setorialCategoryId}::text)
-          AND "status" IN ('ABERTA', 'EM_ANDAMENTO', 'CONCLUIDA')
+          AND "status" IN ('ABERTA', 'EM_ANDAMENTO')
         LIMIT 1
       `;
       if (existingSession) {
         throw {
           status: 409,
           body: {
-            message: `Ja existe uma contagem ${type} para este periodo (${existingSession.code}). Abra a contagem existente ou solicite ao gestor que a cancele antes de iniciar uma nova.`,
+            message: `Ja existe uma contagem ${type} em andamento para este periodo (${existingSession.code}). Abra a contagem existente ou solicite ao gestor que a cancele antes de iniciar uma nova.`,
             existingId: existingSession.id,
             existingCode: existingSession.code
           }
