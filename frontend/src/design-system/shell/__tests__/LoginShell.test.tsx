@@ -3,19 +3,24 @@ import { describe, expect, test, vi } from "vitest";
 import { LoginShell } from "../LoginShell";
 
 describe("LoginShell", () => {
-  test("renderiza <main.ds-login-shell> como wrapper", () => {
+  test("renderiza o container split .ds-login-shell", () => {
     const { container } = render(<LoginShell>x</LoginShell>);
-    const main = container.querySelector("main.ds-login-shell");
-    expect(main).not.toBeNull();
+    expect(container.querySelector(".ds-login-shell")).not.toBeNull();
   });
 
-  test("renderiza como <div> quando onSubmit ausente", () => {
+  test("renderiza aside e main lado a lado", () => {
+    const { container } = render(<LoginShell>x</LoginShell>);
+    expect(container.querySelector("aside.ds-login-aside")).not.toBeNull();
+    expect(container.querySelector("main.ds-login-main")).not.toBeNull();
+  });
+
+  test("renderiza card como <div> quando onSubmit ausente", () => {
     const { container } = render(<LoginShell>x</LoginShell>);
     expect(container.querySelector("form.ds-login-card")).toBeNull();
     expect(container.querySelector("div.ds-login-card")).not.toBeNull();
   });
 
-  test("renderiza como <form> quando onSubmit fornecido e dispara callback", () => {
+  test("renderiza card como <form> quando onSubmit fornecido e dispara callback", () => {
     const onSubmit = vi.fn((e) => e.preventDefault());
     const { container } = render(
       <LoginShell onSubmit={onSubmit}>
@@ -28,34 +33,28 @@ describe("LoginShell", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  test("brandTitle + brandSubtitle geram brand default com h1 e p", () => {
+  test("formTitle vira h1 e formSubtitle vira paragrafo", () => {
     render(
-      <LoginShell brandTitle="Gestão Pateo da Luz" brandSubtitle="ERP">
+      <LoginShell formTitle="Bem-vindo" formSubtitle="Entre para continuar">
         x
       </LoginShell>
     );
-    expect(screen.getByRole("heading", { level: 1, name: "Gestão Pateo da Luz" })).toBeInTheDocument();
-    expect(screen.getByText("ERP")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Bem-vindo" })).toBeInTheDocument();
+    expect(screen.getByText("Entre para continuar")).toBeInTheDocument();
   });
 
-  test("brand override substitui o brand default", () => {
+  test("brandName aparece no aside (e no header mobile)", () => {
+    render(<LoginShell brandName="Pateo da Luz">x</LoginShell>);
+    // aparece duas vezes: uma no aside desktop, outra no mobile brand
+    expect(screen.getAllByText("Pateo da Luz").length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("showcaseFeatures renderiza itens na lista", () => {
     render(
-      <LoginShell brandTitle="ignorado" brand={<div data-testid="custom">C</div>}>
-        x
-      </LoginShell>
+      <LoginShell showcaseFeatures={["Alpha", "Beta"]}>x</LoginShell>
     );
-    expect(screen.getByTestId("custom")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
-  });
-
-  test("desdeYear renderiza chip com texto \"Desde XXXX\"", () => {
-    render(<LoginShell desdeYear="2003">x</LoginShell>);
-    expect(screen.getByText(/Desde 2003/)).toBeInTheDocument();
-  });
-
-  test("desdeYear ausente nao renderiza chip", () => {
-    const { container } = render(<LoginShell>x</LoginShell>);
-    expect(container.querySelector(".ds-login-desde")).toBeNull();
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByText("Beta")).toBeInTheDocument();
   });
 
   test("children sao renderizados dentro do card", () => {
@@ -70,7 +69,11 @@ describe("LoginShell", () => {
 
   test("cardClassName adiciona classe ao card", () => {
     const { container } = render(<LoginShell cardClassName="foo">x</LoginShell>);
-    const card = container.querySelector(".ds-login-card.foo");
-    expect(card).not.toBeNull();
+    expect(container.querySelector(".ds-login-card.foo")).not.toBeNull();
+  });
+
+  test("legal padrao aparece no card", () => {
+    render(<LoginShell>x</LoginShell>);
+    expect(screen.getByText(/Acesso restrito/)).toBeInTheDocument();
   });
 });
