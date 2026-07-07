@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 import { AppUser, getAgileSyncStatus, getRevenue, type AgileSyncStatus, type RevenueEntry, type RevenueSummary } from "../api/client";
 import { Alert, Money, PanelEyebrow, SummaryCard, Table, useFormatCurrency } from "../design-system";
+
 import { formatDate, formatNumber } from "../utils/format";
+import "./FaturamentoSalao.css";
 
 // Nova tela dedicada ao faturamento do salão vindo do Agile PDV via agente local.
 // A tela existente /financeiro/faturamento continua sendo a fonte principal de
@@ -76,119 +78,172 @@ export function FaturamentoSalao({ user: _user }: Props) {
   const ticketAverage = totals.tickets > 0 ? totals.gross / totals.tickets : 0;
   const yesterday = agileEntries[agileEntries.length - 1] ?? null;
 
+  // Detecta se o mes filtrado eh o mes corrente para exibir contexto
+  // "em andamento". Para meses passados, o breakdown por dia jah eh completo.
+  const isCurrentMonth = Number(yearParam) === now.getFullYear()
+    && Number(monthParam) === now.getMonth() + 1;
+  const daysInMonth = new Date(Number(yearParam), Number(monthParam), 0).getDate();
+  const daysConsidered = isCurrentMonth ? now.getDate() : daysInMonth;
+  const dailyAverage = daysConsidered > 0 ? totals.gross / daysConsidered : 0;
+
+  // Total base para calcular % de cada forma de pagamento no mes.
+  const pgtoTotal = totals.pix + totals.credit + totals.debit + totals.cash + totals.voucher;
+
   const syncBanner = renderSyncBanner(status, now);
 
   return (
-    <div className="page-shell">
-      <div className="page-header">
-        <div>
-          <PanelEyebrow>Faturamento Salão</PanelEyebrow>
-          <h1 style={{ margin: 0 }}>Salão — Agile PDV</h1>
-          <p style={{ margin: "4px 0 0", color: "var(--color-text-muted)" }}>
-            Dados sincronizados automaticamente do PDV. Somente leitura — para
-            editar, use a tela de Faturamento principal.
-          </p>
-        </div>
+    <div className="stack">
+      <div className="fatsalao-toolbar">
         <button
           type="button"
-          className="ds-button ds-button-secondary"
+          className="icon-button"
           onClick={() => setRefreshKey((k) => k + 1)}
+          aria-label="Atualizar dados da tela"
+          title="Atualizar"
         >
-          <RefreshCw size={16} /> Atualizar
+          <RefreshCw size={18} className={loading ? "spin" : ""} />
         </button>
       </div>
 
       {syncBanner}
 
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginTop: 24 }}>
-        <SummaryCard
-          label={yesterday ? `Último dia (${formatDate(yesterday.date)})` : "Último dia"}
-          value={formatCurrency(yesterday ? toNumber(yesterday.grossAmount) : 0)}
-          detail={yesterday ? `${yesterday.tickets ?? 0} comandas · ticket médio ${formatCurrency(toNumber(yesterday.ticketAverage ?? 0))}` : "Sem dados"}
-        />
-        <SummaryCard
-          label={`Faturamento do mês (${monthParam.padStart(2, "0")}/${yearParam})`}
-          value={formatCurrency(totals.gross)}
-          detail={`${formatNumber(agileEntries.length)} dias importados`}
-        />
-        <SummaryCard
-          label="Ticket médio do mês"
-          value={formatCurrency(ticketAverage)}
-          detail={`${formatNumber(totals.tickets)} comandas`}
-        />
-        <SummaryCard
-          label="Serviço acumulado"
-          value={formatCurrency(totals.service)}
-          detail="10% cobrado"
-        />
+      <section className="fatsalao-section">
+        <div className="fatsalao-grid">
+          <SummaryCard
+            label={yesterday ? `Último dia (${formatDate(yesterday.date)})` : "Último dia"}
+            value={formatCurrency(yesterday ? toNumber(yesterday.grossAmount) : 0)}
+            detail={yesterday
+              ? `${yesterday.tickets ?? 0} comandas · TM ${formatCurrency(toNumber(yesterday.ticketAverage ?? 0))}`
+              : "Sem dados"}
+          />
+          <SummaryCard
+            label={`Faturamento (${monthParam.padStart(2, "0")}/${yearParam})`}
+            value={formatCurrency(totals.gross)}
+            detail={isCurrentMonth
+              ? `${agileEntries.length}/${daysInMonth} dias · média ${formatCurrency(dailyAverage)}/dia`
+              : `${agileEntries.length} dias · média ${formatCurrency(dailyAverage)}/dia`}
+          />
+          <SummaryCard
+            label="Ticket médio do mês"
+            value={formatCurrency(ticketAverage)}
+            detail={`${formatNumber(totals.tickets)} comandas`}
+          />
+          <SummaryCard
+            label="Serviço (10%) acumulado"
+            value={formatCurrency(totals.service)}
+            detail="Gorjeta sugerida do mês"
+          />
+        </div>
       </section>
 
-      <section style={{ marginTop: 32 }}>
-        <PanelEyebrow>Por turno (mês)</PanelEyebrow>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginTop: 8 }}>
+      <section className="fatsalao-section">
+        <PanelEyebrow className="fatsalao-section-title">Por turno ({monthParam.padStart(2, "0")}/{yearParam})</PanelEyebrow>
+        <div className="fatsalao-grid fatsalao-grid-turnos">
           <SummaryCard
             label="Almoço"
             value={formatCurrency(totals.shift1)}
-            detail={`${formatNumber(totals.tickets1)} comandas`}
+            detail={`${formatNumber(totals.tickets1)} comandas · ${pctText(totals.shift1, totals.gross)}`}
           />
           <SummaryCard
             label="Jantar"
             value={formatCurrency(totals.shift2)}
-            detail={`${formatNumber(totals.tickets2)} comandas`}
+            detail={`${formatNumber(totals.tickets2)} comandas · ${pctText(totals.shift2, totals.gross)}`}
           />
         </div>
       </section>
 
-      <section style={{ marginTop: 32 }}>
-        <PanelEyebrow>Formas de pagamento (mês)</PanelEyebrow>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginTop: 8 }}>
-          <SummaryCard label="Pix" value={formatCurrency(totals.pix)} />
-          <SummaryCard label="Crédito" value={formatCurrency(totals.credit)} />
-          <SummaryCard label="Débito" value={formatCurrency(totals.debit)} />
-          <SummaryCard label="Dinheiro" value={formatCurrency(totals.cash)} />
-          <SummaryCard label="Outros" value={formatCurrency(totals.voucher)} />
+      <section className="fatsalao-section">
+        <PanelEyebrow className="fatsalao-section-title">Formas de pagamento ({monthParam.padStart(2, "0")}/{yearParam})</PanelEyebrow>
+        <div className="fatsalao-grid fatsalao-grid-pgto">
+          <PaymentCard label="Pix" value={totals.pix} total={pgtoTotal} formatCurrency={formatCurrency} />
+          <PaymentCard label="Crédito" value={totals.credit} total={pgtoTotal} formatCurrency={formatCurrency} />
+          <PaymentCard label="Débito" value={totals.debit} total={pgtoTotal} formatCurrency={formatCurrency} />
+          <PaymentCard label="Dinheiro" value={totals.cash} total={pgtoTotal} formatCurrency={formatCurrency} />
+          <PaymentCard
+            label="Voucher"
+            value={totals.voucher}
+            total={pgtoTotal}
+            formatCurrency={formatCurrency}
+            hint="Vale-refeição/alimentação"
+          />
         </div>
       </section>
 
-      <section style={{ marginTop: 32 }}>
-        <PanelEyebrow>Dias importados ({monthParam.padStart(2, "0")}/{yearParam})</PanelEyebrow>
-        <Table>
-          <thead>
-            <tr>
-              <th>Data</th>
-              <th>Dia</th>
-              <th style={{ textAlign: "right" }}>Comandas</th>
-              <th style={{ textAlign: "right" }}>Bruto</th>
-              <th style={{ textAlign: "right" }}>Serviço</th>
-              <th style={{ textAlign: "right" }}>Líquido</th>
-              <th style={{ textAlign: "right" }}>Ticket médio</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={7} style={{ textAlign: "center", padding: 24 }}>Carregando...</td></tr>
-            ) : agileEntries.length === 0 ? (
-              <tr><td colSpan={7} style={{ textAlign: "center", padding: 24 }}>
-                Nenhum dia importado do Agile ainda. Configure o agente na máquina PDVTOUCH.
-              </td></tr>
-            ) : (
-              agileEntries.map((e) => (
-                <tr key={e.id}>
-                  <td>{formatDate(e.date)}</td>
-                  <td>{e.weekdayName ?? "—"}</td>
-                  <td style={{ textAlign: "right" }}>{formatNumber(e.tickets ?? 0)}</td>
-                  <td style={{ textAlign: "right" }}><Money value={toNumber(e.grossAmount)} /></td>
-                  <td style={{ textAlign: "right" }}><Money value={toNumber(e.serviceAmount)} /></td>
-                  <td style={{ textAlign: "right" }}><Money value={toNumber(e.netAmount)} /></td>
-                  <td style={{ textAlign: "right" }}><Money value={toNumber(e.ticketAverage ?? 0)} /></td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </Table>
+      <section className="fatsalao-section">
+        <PanelEyebrow className="fatsalao-section-title">Dias importados ({monthParam.padStart(2, "0")}/{yearParam})</PanelEyebrow>
+        <div className="fatsalao-table">
+          <Table>
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Dia</th>
+                <th style={{ textAlign: "right" }}>Comandas</th>
+                <th style={{ textAlign: "right" }}>Bruto</th>
+                <th style={{ textAlign: "right" }}>Serviço</th>
+                <th style={{ textAlign: "right" }}>Líquido</th>
+                <th style={{ textAlign: "right" }}>Ticket médio</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={7} style={{ textAlign: "center", padding: 24 }}>Carregando...</td></tr>
+              ) : agileEntries.length === 0 ? (
+                <tr><td colSpan={7} style={{ textAlign: "center", padding: 24 }}>
+                  Nenhum dia importado do Agile ainda. Configure o agente na máquina PDVTOUCH.
+                </td></tr>
+              ) : (
+                agileEntries.map((e) => (
+                  <tr key={e.id}>
+                    <td>{formatDate(e.date)}</td>
+                    <td>{e.weekdayName ?? "—"}</td>
+                    <td style={{ textAlign: "right" }}>{formatNumber(e.tickets ?? 0)}</td>
+                    <td style={{ textAlign: "right" }}><Money value={toNumber(e.grossAmount)} /></td>
+                    <td style={{ textAlign: "right" }}><Money value={toNumber(e.serviceAmount)} /></td>
+                    <td style={{ textAlign: "right" }}><Money value={toNumber(e.netAmount)} /></td>
+                    <td style={{ textAlign: "right" }}><Money value={toNumber(e.ticketAverage ?? 0)} /></td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </Table>
+        </div>
       </section>
     </div>
   );
+}
+
+
+
+type PaymentCardProps = {
+  label: string;
+  value: number;
+  total: number;
+  formatCurrency: (value: number) => string;
+  hint?: string;
+};
+
+function PaymentCard({ label, value, total, formatCurrency, hint }: PaymentCardProps) {
+  const pct = total > 0 ? (value / total) * 100 : 0;
+  return (
+    <SummaryCard
+      label={label}
+      value={formatCurrency(value)}
+      detail={
+        <>
+          {`${pct.toFixed(1)}% do recebido`}
+          {hint ? <div className="fatsalao-hint">{hint}</div> : null}
+          <div className="fatsalao-pgto-bar" aria-hidden>
+            <div className="fatsalao-pgto-bar-fill" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
+          </div>
+        </>
+      }
+    />
+  );
+}
+
+function pctText(part: number, total: number): string {
+  if (total <= 0) return "0% do bruto";
+  return `${((part / total) * 100).toFixed(1)}% do bruto`;
 }
 
 function toNumber(value: string | number | null | undefined): number {

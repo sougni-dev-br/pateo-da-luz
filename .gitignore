@@ -28,3 +28,5 @@ Thumbs.db
 
 # Scripts de diagnóstico/manutenção com dados de produção
 backend/prisma/scripts/
+
+agent-pdv.zip
