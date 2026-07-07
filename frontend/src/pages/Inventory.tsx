@@ -232,6 +232,7 @@ export function Inventory({
     [agenda]
   );
   const canManageOperationalInventory = user.role === "ADMIN" || user.role === "GESTAO_COMPLETA";
+  const canReshapeCountSession = canManageOperationalInventory || user.role === "ESTOQUISTA";
   const canEditStockMinimum = user.role === "ADMIN" || user.role === "GESTAO_COMPLETA" || user.role === "ESTOQUISTA";
 
   const saveMinQty = async (productId: string) => {
@@ -1505,7 +1506,7 @@ export function Inventory({
               <button className="secondary-button" type="button" onClick={() => { setCountSessionDetail(null); onCloseCountSessionRoute?.(); }}><X size={16} />Voltar</button>
               <button className="secondary-button large-action" type="button" disabled={locked} onClick={saveCountSessionDraft}><Save size={17} />Salvar Contagem</button>
               <button className="primary-button large-action" type="button" disabled={locked} onClick={concludeCountSession}><CheckCircle2 size={17} />Concluir Contagem</button>
-              {canManageOperationalInventory && !countSessionDetail.generatedInventoryId && ["ABERTA", "EM_ANDAMENTO", "CONCLUIDA"].includes(countSessionDetail.status) && ["GERAL", "SETORIAL"].includes(countSessionDetail.type) && (
+              {canReshapeCountSession && !countSessionDetail.generatedInventoryId && ["ABERTA", "EM_ANDAMENTO", "CONCLUIDA"].includes(countSessionDetail.status) && ["GERAL", "SETORIAL"].includes(countSessionDetail.type) && (
                 <button className="secondary-button" type="button" onClick={reshapeCountSessionToCurrentFilters}>
                   <FilterX size={16} />Recortar para filtros
                 </button>
@@ -1841,6 +1842,9 @@ export function Inventory({
                   markFilteredCountSessionItemsAsZero();
                   setMobileCountMoreActionsOpen(false);
                 }}>Marcar filtrados como zero</button>
+                {canReshapeCountSession && !countSessionDetail.generatedInventoryId && ["ABERTA", "EM_ANDAMENTO", "CONCLUIDA"].includes(countSessionDetail.status) && ["GERAL", "SETORIAL"].includes(countSessionDetail.type) && (
+                  <button className="secondary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); reshapeCountSessionToCurrentFilters(); }}>Recortar para filtros</button>
+                )}
                 {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && countSessionDetail.source !== "IMPORTACAO_PLANILHA" && (
                   <button className="primary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); generateInventoryFromCountSession(); }}>Gerar inventario</button>
                 )}

@@ -1923,7 +1923,7 @@ inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) 
 });
 
 inventoryRouter.patch("/count-sessions/:id/reshape-scope", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
   if (!user) return;
 
   const session = await getStockCountSessionOrThrow(request.params.id);
