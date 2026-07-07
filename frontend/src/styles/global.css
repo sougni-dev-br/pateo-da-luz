@@ -13189,7 +13189,11 @@ body:has(.pplan-sticky-actions) .pplan {
 }
 
 .pplan-rec-chip.is-top {
-  border-color: #cde6cf;
+  border-color: #2c6b31;
+  border-width: 1.5px;
+  background: #fff;
+  box-shadow: inset 3px 0 0 #2c6b31;
+  padding-left: 12px;
 }
 
 .pplan-rec-rank {
@@ -13212,11 +13216,22 @@ body:has(.pplan-sticky-actions) .pplan {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--ink);
+}
+
+.pplan-rec-chip.is-top .pplan-rec-name {
+  color: var(--ink);
+  font-weight: 700;
 }
 
 .pplan-rec-price {
   font-size: 11px;
   color: var(--muted);
+}
+
+.pplan-rec-chip.is-top .pplan-rec-price {
+  color: #2c6b31;
+  font-weight: 600;
 }
 
 /* Combobox local (input + lista filtrada) */
