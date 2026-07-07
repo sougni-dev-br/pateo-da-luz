@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp, History, Pencil, PowerOff, RefreshCw, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { getPaymentMethods, getSupplierHistory, getSuppliers, PaymentMethod, saveSupplier, setSupplierStatus, Supplier, SupplierHistory } from "../api/client";
+import { useRevealScroll } from "../lib/useRevealScroll";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
 import {
@@ -85,7 +86,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
   const [editingName, setEditingName] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const { notice, setNotice } = useNotice();
-  const formRef = useRef<HTMLElement | null>(null);
+  const formRef = useRevealScroll<HTMLElement>({ when: formOpen ? (editingId ?? "new") : null });
 
   async function loadSuppliers() {
     setLoading(true);
@@ -170,7 +171,6 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
     setEditingId(supplier.id);
     setEditingName(supplier.name);
     setFormOpen(true);
-    window.setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
 
   function cancelEdit() {
@@ -185,7 +185,6 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
     setEditingId(null);
     setEditingName("");
     setFormOpen(true);
-    window.setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
 
   const filteredSuppliers = suppliers.filter((s) => {
@@ -227,7 +226,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
       {/* ── Formulário colapsável ── */}
       <section
         ref={formRef}
-        className={`panel supp-form-panel${formOpen ? " supp-form-open" : ""}`}
+        className={`panel supp-form-panel scroll-target${formOpen ? " supp-form-open" : ""}`}
         aria-expanded={formOpen}
       >
         <button
