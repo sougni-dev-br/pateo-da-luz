@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { createOperationalInventoryPdf } from "./operational-inventory-pdf.js";
+import { assertNoClosedCmvPeriodForDate } from "../cmv-real/cmv-real.service.js";
 import { auditLog, requestIp, requireRole, type SessionUser } from "../security/security-utils.js";
 
 export const inventoryRouter = Router();
@@ -308,6 +309,9 @@ type OperationalInventoryRow = {
   id: string;
   code: string;
   date: Date;
+  effectiveCountDate: Date | null;
+  startedAt: Date | null;
+  finishedAt: Date | null;
   name: string;
   type: string;
   status: string;
@@ -929,6 +933,8 @@ async function createInventorySnapshotFromOperationalInventory(id: string, user:
   const inventory = await getOperationalInventoryOrThrow(id);
   if (inventory.type !== "FINAL_CMV" || !finalOperationalInventoryStatuses.has(inventory.status)) return inventory.inventorySnapshotId;
   if (inventory.inventorySnapshotId) return inventory.inventorySnapshotId;
+  const effectiveCountDate = inventory.effectiveCountDate ?? inventory.date;
+  await assertNoClosedCmvPeriodForDate(effectiveCountDate, "Geracao de base oficial de estoque");
 
   const items = await prisma.$queryRaw<Array<OperationalInventoryItemRow & { averageCost: Prisma.Decimal | null }>>`
     SELECT item.*, stock."averageCost"
@@ -942,8 +948,8 @@ async function createInventorySnapshotFromOperationalInventory(id: string, user:
   }
 
   const snapshotId = crypto.randomUUID();
-  const year = inventory.date.getFullYear();
-  const month = inventory.date.getMonth() + 1;
+  const year = effectiveCountDate.getFullYear();
+  const month = effectiveCountDate.getMonth() + 1;
   const totalItems = items.length;
   const totalValue = items.reduce((sum, item) => {
     const quantity = item.countedQuantity == null ? 0 : Number(item.countedQuantity);
@@ -973,7 +979,7 @@ async function createInventorySnapshotFromOperationalInventory(id: string, user:
       "originalFileName", "source", "createdByUserId", "notes", "createdAt", "updatedAt"
     )
     VALUES (
-      ${snapshotId}, ${year}, ${month}, CAST('INVENTARIO_FINAL' AS "InventorySnapshotType"), ${inventory.date},
+      ${snapshotId}, ${year}, ${month}, CAST('INVENTARIO_FINAL' AS "InventorySnapshotType"), ${effectiveCountDate},
       'APPROVED', ${totalItems}, ${totalValue}, ${`${inventory.code} - ${inventory.name}`}, 'SISTEMA', ${user.id},
       ${inventory.notes ?? "Gerado pelo inventario operacional."}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
     )
@@ -2277,6 +2283,21 @@ inventoryRouter.post("/operational", async (request, response) => {
   }
   const sectorId = asText(request.body.sectorId);
   const sectorName = asText(request.body.sectorName);
+  const effectiveCountDate = request.body.effectiveCountDate ? parseLocalDate(request.body.effectiveCountDate) : date;
+  if (Number.isNaN(effectiveCountDate.getTime())) {
+    response.status(400).json({ message: "Data efetiva da contagem invalida." });
+    return;
+  }
+  const startedAt = request.body.startedAt ? new Date(String(request.body.startedAt)) : null;
+  const finishedAt = request.body.finishedAt ? new Date(String(request.body.finishedAt)) : null;
+  if (startedAt && Number.isNaN(startedAt.getTime())) {
+    response.status(400).json({ message: "Inicio da contagem invalido." });
+    return;
+  }
+  if (finishedAt && Number.isNaN(finishedAt.getTime())) {
+    response.status(400).json({ message: "Fim da contagem invalido." });
+    return;
+  }
   if (type === "SETORIAL" && !sectorId && !sectorName) {
     response.status(400).json({ message: "Inventario setorial precisa de um setor." });
     return;
@@ -2288,9 +2309,9 @@ inventoryRouter.post("/operational", async (request, response) => {
   const notes = asText(request.body.notes);
   await prisma.$executeRaw`
     INSERT INTO "OperationalInventory" (
-      "id", "code", "date", "name", "type", "status", "sectorId", "sectorName", "responsibleUserId", "notes", "createdAt", "updatedAt"
+      "id", "code", "date", "effectiveCountDate", "startedAt", "finishedAt", "name", "type", "status", "sectorId", "sectorName", "responsibleUserId", "notes", "createdAt", "updatedAt"
     )
-    VALUES (${id}, ${code}, ${date}, ${name}, ${type}, 'RASCUNHO', ${sectorId}, ${sectorName}, ${user.id}, ${notes}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    VALUES (${id}, ${code}, ${date}, ${effectiveCountDate}, ${startedAt}, ${finishedAt}, ${name}, ${type}, 'RASCUNHO', ${sectorId}, ${sectorName}, ${user.id}, ${notes}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `;
 
   const sectorFilter = type === "SETORIAL"
@@ -2341,7 +2362,7 @@ inventoryRouter.post("/operational", async (request, response) => {
       )
     `;
   }
-  await auditLog({ userId: user.id, action: "CREATE_OPERATIONAL_INVENTORY", entity: "OperationalInventory", entityId: id, newValue: { code, type, totalItems: products.length } });
+  await auditLog({ userId: user.id, action: "CREATE_OPERATIONAL_INVENTORY", entity: "OperationalInventory", entityId: id, newValue: { code, type, totalItems: products.length, effectiveCountDate, startedAt, finishedAt } });
   await auditLog({ userId: user.id, action: "GENERATE_OPERATIONAL_INVENTORY_ITEMS", entity: "OperationalInventory", entityId: id, newValue: { totalItems: products.length } });
   response.status(201).json(await getOperationalInventorySummary(id));
 });

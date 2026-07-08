@@ -12,6 +12,7 @@ import {
 } from "../../shared/utils/payment-methods.js";
 import { createPayablesFinancialPdf, type PayablesFinancialPdfRow } from "./payables-financial-pdf.js";
 import { auditLog, requestIp, requireAdmin, requireRole } from "../security/security-utils.js";
+import { assertNoClosedCmvPeriodForDate } from "../cmv-real/cmv-real.service.js";
 import { recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle, updatePurchaseInCycle } from "../suppliers/supplier-billing-cycle.service.js";
@@ -1061,6 +1062,7 @@ purchaseRouter.post("/", async (request, response) => {
   const purchaseDate = parseLocalDateInput(request.body.purchaseDate);
   const receivedAt = request.body.receivedAt ? parseLocalDateInput(request.body.receivedAt) : null;
   const competenceDate = (receivedAt && !isNaN(receivedAt.getTime())) ? receivedAt : purchaseDate;
+  await assertNoClosedCmvPeriodForDate(competenceDate, "Cadastro de compra");
   invoiceNumber = cleanPurchaseReference(request.body.invoiceNumber);
   purchaseOrderNumber = cleanPurchaseReference(request.body.purchaseOrderNumber);
   const normalizedInvoiceNumber = normalizePurchaseReference(invoiceNumber) || null;
@@ -1549,6 +1551,13 @@ purchaseRouter.put("/:id", async (request, response) => {
   const purchaseDate = parseLocalDateInput(request.body.purchaseDate);
   const receivedAtEdit = request.body.receivedAt ? parseLocalDateInput(request.body.receivedAt) : null;
   const competenceDateEdit = (receivedAtEdit && !isNaN(receivedAtEdit.getTime())) ? receivedAtEdit : purchaseDate;
+  const previousCompetenceDate = previousRecord.receivedAt
+    ? parseDate(previousRecord.receivedAt)
+    : parseDate(previousRecord.purchaseDate);
+  if (previousCompetenceDate) {
+    await assertNoClosedCmvPeriodForDate(previousCompetenceDate, "Edicao de compra");
+  }
+  await assertNoClosedCmvPeriodForDate(competenceDateEdit, "Edicao de compra");
   invoiceNumber = cleanPurchaseReference(request.body.invoiceNumber);
   purchaseOrderNumber = cleanPurchaseReference(request.body.purchaseOrderNumber);
   const normalizedInvoiceNumber = normalizePurchaseReference(invoiceNumber) || null;
@@ -2035,6 +2044,12 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
     response.status(404).json({ message: "Compra nao encontrada." });
     return;
   }
+  const cancellationCompetenceDate = previous.receivedAt
+    ? parseDate(previous.receivedAt)
+    : parseDate(previous.purchaseDate);
+  if (cancellationCompetenceDate) {
+    await assertNoClosedCmvPeriodForDate(cancellationCompetenceDate, "Cancelamento de compra");
+  }
 
   class CycleBlockedError extends Error {
     constructor(public readonly reason: "PAID" | "CLOSED_WITH_PAID_TITLE") { super("CYCLE_BLOCKED"); }
@@ -2150,6 +2165,12 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
   if (!previous) {
     response.status(404).json({ message: "Compra nao encontrada." });
     return;
+  }
+  const restoreCompetenceDate = previous.receivedAt
+    ? parseDate(previous.receivedAt)
+    : parseDate(previous.purchaseDate);
+  if (restoreCompetenceDate) {
+    await assertNoClosedCmvPeriodForDate(restoreCompetenceDate, "Restauracao de compra");
   }
 
   await prisma.$executeRaw`
