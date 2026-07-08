@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { requireRole } from "../security/security-utils.js";
+import { getMonthlyCmv } from "../monthly/monthly.service.js";
 
 export const dashboardRouter = Router();
 
@@ -194,6 +195,7 @@ dashboardRouter.get("/summary", async (request, response) => {
     smallExpRow,
     prevSmallExpRow,
     monthlyCmv,
+    monthlyCmvViews,
   ] = await Promise.all([
     // Faturamento período atual (por competência)
     prisma.$queryRaw<Array<{ grossAmount: unknown; netAmount: unknown; serviceAmount: unknown; tickets: unknown; count: unknown }>>`
@@ -266,6 +268,7 @@ dashboardRouter.get("/summary", async (request, response) => {
         purchasesValue: true,
       }
     }),
+    getMonthlyCmv(year, month),
   ]);
 
   // ── Extrair valores ──
@@ -328,6 +331,10 @@ dashboardRouter.get("/summary", async (request, response) => {
       status: cmvStatus,
       value: cmvRealValue,
       percent: cmvPercent,
+      views: {
+        accounting: monthlyCmvViews.views.accounting,
+        managerial: monthlyCmvViews.views.managerial,
+      },
     },
     estimatedResult: {
       value: estimatedResult,
