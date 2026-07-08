@@ -550,7 +550,7 @@ export function DRE() {
 
                     {(cur.expenseGroups ?? []).length === 0 && (
                       <tr className="dre-row">
-                        <td colSpan={5} className="text-muted" style={{ fontStyle: "italic", paddingLeft: 24 }}>
+                        <td colSpan={5} className="text-muted dre-empty-row" style={{ fontStyle: "italic", paddingLeft: 24 }}>
                           Nenhuma despesa categorizada no período.
                         </td>
                       </tr>
@@ -574,17 +574,17 @@ export function DRE() {
                             }}
                             style={{ cursor: "pointer" }}
                           >
-                            <td>
+                            <td data-cell-label="Grupo">
                               <span className="dre-chevron">
                                 {isGroupOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                               </span>
                               <strong>{grp.label}</strong>
                               <span className="dre-group-count"> ({grp.lines.length})</span>
                             </td>
-                            <td className="text-right"><strong><Money value={grp.total} /></strong></td>
+                            <td className="text-right" data-cell-label="Atual"><strong><Money value={grp.total} /></strong></td>
                             <td className="text-right dre-pct-col text-muted">{pct(grpPct)}</td>
-                            {pm && <td className="text-right text-muted">{pmGrp ? <Money value={pmGrp.total} /> : "—"}</td>}
-                            {py && <td className="text-right text-muted">{pyGrp ? <Money value={pyGrp.total} /> : "—"}</td>}
+                            {pm && <td className="text-right text-muted" data-cell-label="Anterior">{pmGrp ? <Money value={pmGrp.total} /> : "—"}</td>}
+                            {py && <td className="text-right text-muted" data-cell-label="Ano ant.">{pyGrp ? <Money value={pyGrp.total} /> : "—"}</td>}
                           </tr>
 
                           {/* Category lines within group */}
@@ -603,16 +603,16 @@ export function DRE() {
                                   onClick={() => toggleDrill(exp.dreCategoryId)}
                                   style={{ cursor: "pointer" }}
                                 >
-                                  <td style={{ paddingLeft: 32 }}>
+                                  <td style={{ paddingLeft: 32 }} data-cell-label="Categoria">
                                     <span className="dre-chevron">
                                       {isExpOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
                                     </span>
                                     {exp.dreCategoryName}
                                   </td>
-                                  <td className="text-right"><Money value={exp.total} /></td>
+                                  <td className="text-right" data-cell-label="Atual"><Money value={exp.total} /></td>
                                   <td className="text-right dre-pct-col text-muted">{pct(expPct)}</td>
-                                  {pm && <td className="text-right text-muted">{pmExp ? <Money value={pmExp.total} /> : "—"}</td>}
-                                  {py && <td className="text-right text-muted">{pyExp ? <Money value={pyExp.total} /> : "—"}</td>}
+                                  {pm && <td className="text-right text-muted" data-cell-label="Anterior">{pmExp ? <Money value={pmExp.total} /> : "—"}</td>}
+                                  {py && <td className="text-right text-muted" data-cell-label="Ano ant.">{pyExp ? <Money value={pyExp.total} /> : "—"}</td>}
                                 </tr>
 
                                 {isExpOpen && (
@@ -651,14 +651,14 @@ export function DRE() {
                             onClick={() => toggleDrill(null)}
                             style={{ cursor: "pointer" }}
                           >
-                            <td style={{ paddingLeft: 16, fontStyle: "italic" }}>
+                            <td style={{ paddingLeft: 16, fontStyle: "italic" }} data-cell-label="Categoria">
                               <span className="dre-chevron">{isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}</span>
                               Não categorizadas
                             </td>
-                            <td className="text-right"><Money value={uncatTotal} /></td>
+                            <td className="text-right" data-cell-label="Atual"><Money value={uncatTotal} /></td>
                             <td className="text-right dre-pct-col text-muted">{pct(safePct(uncatTotal, cur.revenue.grossAmount))}</td>
-                            {pm && <td className="text-right text-muted">—</td>}
-                            {py && <td className="text-right text-muted">—</td>}
+                            {pm && <td className="text-right text-muted" data-cell-label="Anterior">—</td>}
+                            {py && <td className="text-right text-muted" data-cell-label="Ano ant.">—</td>}
                           </tr>
                           {isOpen && (
                             <tr key="uncat-drill" className="dre-drill-row">
@@ -753,42 +753,48 @@ function DREGroup({ label }: { label: string }) {
 }
 
 function DRERow({
-  label, cur, base, pm, py, hasPm, hasPy, negative,
+  label, cur, base, pm, py, hasPm, hasPy, negative, currentLabel = "Atual", prevMonthLabel = "Anterior", prevYearLabel = "Ano ant.",
 }: {
   label: string; cur: number; base: number;
   pm?: number; py?: number;
   hasPm: boolean; hasPy: boolean;
   negative?: boolean;
+  currentLabel?: string;
+  prevMonthLabel?: string;
+  prevYearLabel?: string;
 }) {
   const pctVal = safePct(Math.abs(cur), base);
   return (
     <tr className="dre-row">
-      <td>{label}</td>
-      <td className={`text-right${negative && cur < 0 ? " text-danger" : ""}`}><Money value={Math.abs(cur)} /></td>
+      <td data-cell-label="Linha">{label}</td>
+      <td data-cell-label={currentLabel} className={`text-right${negative && cur < 0 ? " text-danger" : ""}`}><Money value={Math.abs(cur)} /></td>
       <td className="text-right dre-pct-col text-muted">{pct(pctVal)}</td>
-      {hasPm && <td className="text-right text-muted"><Money value={pm != null ? Math.abs(pm) : null} /></td>}
-      {hasPy && <td className="text-right text-muted"><Money value={py != null ? Math.abs(py) : null} /></td>}
+      {hasPm && <td data-cell-label={prevMonthLabel} className="text-right text-muted"><Money value={pm != null ? Math.abs(pm) : null} /></td>}
+      {hasPy && <td data-cell-label={prevYearLabel} className="text-right text-muted"><Money value={py != null ? Math.abs(py) : null} /></td>}
     </tr>
   );
 }
 
 function DRETotal({
-  label, cur, base, pm, py, hasPm, hasPy, highlight, warning, strong,
+  label, cur, base, pm, py, hasPm, hasPy, highlight, warning, strong, currentLabel = "Atual", prevMonthLabel = "Anterior", prevYearLabel = "Ano ant.",
 }: {
   label: string; cur: number; base: number;
   pm?: number; py?: number;
   hasPm?: boolean; hasPy?: boolean;
   highlight?: boolean; warning?: boolean; strong?: boolean;
+  currentLabel?: string;
+  prevMonthLabel?: string;
+  prevYearLabel?: string;
 }) {
   const cls = highlight ? "dre-total-highlight" : warning ? "dre-total-warning" : "dre-total";
   const pctVal = safePct(Math.abs(cur), base);
   return (
     <tr className={cls}>
-      <td><strong>{label}</strong></td>
-      <td className={`text-right ${colorClass(cur)}`}><strong><Money value={cur} /></strong></td>
+      <td data-cell-label="Linha"><strong>{label}</strong></td>
+      <td data-cell-label={currentLabel} className={`text-right ${colorClass(cur)}`}><strong><Money value={cur} /></strong></td>
       <td className="text-right dre-pct-col"><span className={`dre-pct${strong ? " dre-pct-strong" : ""}`}>{pct(pctVal)}</span></td>
-      {hasPm && <td className="text-right text-muted"><Money value={pm} /></td>}
-      {hasPy && <td className="text-right text-muted"><Money value={py} /></td>}
+      {hasPm && <td data-cell-label={prevMonthLabel} className="text-right text-muted"><Money value={pm} /></td>}
+      {hasPy && <td data-cell-label={prevYearLabel} className="text-right text-muted"><Money value={py} /></td>}
     </tr>
   );
 }
