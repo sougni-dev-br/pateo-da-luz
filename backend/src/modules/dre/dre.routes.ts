@@ -149,7 +149,7 @@ const MANAGERIAL_CMV_CATEGORY_NAMES = ["Material de Limpeza", "Descartáveis", "
 
 function expensePredicateByMode(mode: CmvVisionKey) {
   return mode === "managerial"
-    ? Prisma.sql`COALESCE(dc.name, '') NOT IN (${Prisma.join(MANAGERIAL_CMV_CATEGORY_NAMES)})`
+    ? Prisma.sql`COALESCE(dc."dreGroup", '') <> 'CMV_COMPRAS' AND COALESCE(dc.name, '') NOT IN (${Prisma.join(MANAGERIAL_CMV_CATEGORY_NAMES)})`
     : Prisma.sql`COALESCE(dc."dreGroup", '') <> 'CMV_COMPRAS'`;
 }
 
