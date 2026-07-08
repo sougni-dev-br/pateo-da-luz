@@ -324,6 +324,7 @@ export function CmvReal({ user }: { user: AppUser }) {
     () => detail ?? periods.find((period) => period.id === selectedId) ?? null,
     [detail, periods, selectedId]
   );
+  const isClosedSelected = Boolean(selectedId && selectedPeriod?.status === "CLOSED");
 
   const cmvHealth = useMemo(() => classifyCmv(selectedPeriod?.cmvPercentual), [selectedPeriod?.cmvPercentual]);
   const detailRef = useRevealScroll<HTMLElement>({ when: selectedPeriod?.id });
@@ -644,6 +645,17 @@ export function CmvReal({ user }: { user: AppUser }) {
     }
   }
 
+  function applySuggestedContinuity() {
+    if (!suggestions) return;
+    setForm((current) => ({
+      ...current,
+      dataInicial: suggestions.suggestedStartDate,
+      estoqueInicialSessionId: suggestions.suggestedInitialSessionId ?? "",
+      estoqueInicialSnapshotId: suggestions.suggestedInitialSnapshotId ?? "",
+      name: defaultPeriodName(suggestions.suggestedStartDate, current.dataFinal)
+    }));
+  }
+
   return (
     <div className="stack">
       <Notice notice={notice} />
@@ -747,20 +759,20 @@ export function CmvReal({ user }: { user: AppUser }) {
             Nome da apuracao
             <input
               value={form.name || defaultPeriodName(form.dataInicial, form.dataFinal)}
-              readOnly={Boolean(selectedId && selectedPeriod?.status === "CLOSED")}
-              className={Boolean(selectedId && selectedPeriod?.status === "CLOSED") ? "locked-field" : undefined}
-              title={Boolean(selectedId && selectedPeriod?.status === "CLOSED") ? "Nome bloqueado em apuracoes fechadas" : "Nome da apuracao"}
+              readOnly={isClosedSelected}
+              className={isClosedSelected ? "locked-field" : undefined}
+              title={isClosedSelected ? "Nome bloqueado em apuracoes fechadas" : "Nome da apuracao"}
               onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
             />
           </label>
           <label>
             Data inicial
             <input
-              className={!selectedId && continuityLocked && !isAdmin ? "locked-field" : undefined}
+              className={isClosedSelected ? "locked-field" : undefined}
               type="date"
               value={form.dataInicial}
-              disabled={!selectedId && continuityLocked && !isAdmin}
-              title={!selectedId && continuityLocked ? "Data herdada da ultima apuracao fechada/cadastrada" : form.dataInicial}
+              disabled={isClosedSelected}
+              title={isClosedSelected ? "Data bloqueada em apuracoes fechadas" : form.dataInicial}
               onChange={(event) => setForm((current) => {
                 const newStart = event.target.value;
                 const autoName = defaultPeriodName(current.dataInicial, current.dataFinal);
@@ -772,8 +784,10 @@ export function CmvReal({ user }: { user: AppUser }) {
           <label>
             Data final
             <input
+              className={isClosedSelected ? "locked-field" : undefined}
               type="date"
               value={form.dataFinal}
+              disabled={isClosedSelected}
               onChange={(event) => setForm((current) => {
                 const newEnd = event.target.value;
                 const autoName = defaultPeriodName(current.dataInicial, current.dataFinal);
@@ -785,9 +799,9 @@ export function CmvReal({ user }: { user: AppUser }) {
           <label>
             Estoque inicial
             <select
-              className={!selectedId && continuityLocked && !isAdmin ? "locked-field" : undefined}
+              className={isClosedSelected ? "locked-field" : undefined}
               value={initialDropdownValue}
-              disabled={!selectedId && continuityLocked && !isAdmin}
+              disabled={isClosedSelected}
               title={selectedInitialBase ? selectedInitialBase.displayLabel : "Selecionar"}
               onChange={(event) => {
                 const val = event.target.value;
@@ -878,9 +892,18 @@ export function CmvReal({ user }: { user: AppUser }) {
         </div>
 
         {!selectedId && continuityLocked && suggestions?.latestPeriod && (
-          <p className="muted-inline subsection compact-note">
-            Proxima apuracao sugerida: {formatDate(suggestions.suggestedStartDate)}. O inventario final do periodo anterior sera usado como inventario inicial na mesma data da nova abertura.
-          </p>
+          <div className="alert info compact-alert subsection">
+            <FileText className="alert-icon" size={18} />
+            <div>
+              <strong>Continuidade sugerida preenchida automaticamente.</strong>
+              <span>
+                A sugestao usa a data e o inventario final do ultimo periodo como ponto de partida, mas voce pode ajustar os campos desta nova apuracao conforme a operacao real.
+              </span>
+            </div>
+            <button className="secondary-button" type="button" onClick={applySuggestedContinuity}>
+              Reaplicar sugestao
+            </button>
+          </div>
         )}
 
         {canEdit && (
