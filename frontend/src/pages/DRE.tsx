@@ -295,17 +295,19 @@ export function DRE() {
           {/* ── Period filter ── */}
           <div className="dre-filter-bar">
             <div className="dre-filter-left">
-              <select
+              <div className="dre-filter-mode">
+                <select
                 value={filterMode}
                 onChange={(e) => setFilterMode(e.target.value as FilterMode)}
                 style={{ minWidth: 130 }}
               >
                 <option value="month">Mês / Ano</option>
                 <option value="range">Período livre</option>
-              </select>
+                </select>
+              </div>
 
               {filterMode === "month" && (
-                <>
+                <div className="dre-filter-period dre-filter-period-month">
                   <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
                     {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
                   </select>
@@ -314,16 +316,16 @@ export function DRE() {
                       <option key={y} value={y}>{y}</option>
                     ))}
                   </select>
-                </>
+                </div>
               )}
 
               {filterMode === "range" && (
-                <>
+                <div className="dre-filter-period dre-filter-period-range">
                   <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
                   <span className="text-muted" style={{ alignSelf: "center", whiteSpace: "nowrap" }}>até</span>
                   <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
                   <button type="button" className="btn-secondary" onClick={handleFromToLoad}>Atualizar</button>
-                </>
+                </div>
               )}
 
               <label className="dre-comparatives-label">
