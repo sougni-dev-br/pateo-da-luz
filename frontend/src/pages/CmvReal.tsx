@@ -325,6 +325,7 @@ export function CmvReal({ user }: { user: AppUser }) {
     [detail, periods, selectedId]
   );
   const isClosedSelected = Boolean(selectedId && selectedPeriod?.status === "CLOSED");
+  const isOpenSelected = Boolean(selectedId && selectedPeriod?.status === "OPEN");
 
   const cmvHealth = useMemo(() => classifyCmv(selectedPeriod?.cmvPercentual), [selectedPeriod?.cmvPercentual]);
   const detailRef = useRevealScroll<HTMLElement>({ when: selectedPeriod?.id });
@@ -829,7 +830,9 @@ export function CmvReal({ user }: { user: AppUser }) {
           <label>
             Estoque final
             <select
+              className={isClosedSelected ? "locked-field" : undefined}
               value={finalDropdownValue}
+              disabled={isClosedSelected}
               title={selectedFinalBase ? selectedFinalBase.displayLabel : "Selecionar"}
               onChange={(event) => {
                 const val = event.target.value;
@@ -887,7 +890,13 @@ export function CmvReal({ user }: { user: AppUser }) {
           </label>
           <label className="full-width">
             Observacoes
-            <input title={form.observacoes} value={form.observacoes} onChange={(event) => setForm({ ...form, observacoes: event.target.value })} />
+            <input
+              className={isClosedSelected ? "locked-field" : undefined}
+              title={form.observacoes}
+              value={form.observacoes}
+              readOnly={isClosedSelected}
+              onChange={(event) => setForm({ ...form, observacoes: event.target.value })}
+            />
           </label>
         </div>
 
@@ -906,24 +915,36 @@ export function CmvReal({ user }: { user: AppUser }) {
           </div>
         )}
 
+        {isClosedSelected && (
+          <div className="alert info compact-alert subsection">
+            <FileText className="alert-icon" size={18} />
+            <div>
+              <strong>Apuracao fechada em modo de consulta.</strong>
+              <span>
+                Para alterar dados desta apuracao, primeiro reabra o periodo. Enquanto estiver fechada, os campos ficam somente para leitura.
+              </span>
+            </div>
+          </div>
+        )}
+
         {canEdit && (
           <div className="actions-cell subsection wrap">
             <button
               className="primary-button"
               type="button"
               onClick={handleSave}
-              disabled={saving || checkingCoverage || (finalSessionCoverage != null && !finalSessionCoverage.isComplete)}
+              disabled={isClosedSelected || saving || checkingCoverage || (finalSessionCoverage != null && !finalSessionCoverage.isComplete)}
             >
               <Save size={16} /> {selectedId ? "Atualizar apuracao" : "Criar apuracao"}
             </button>
-            <button className="secondary-button" type="button" onClick={handleCalculate} disabled={!selectedId}>
+            <button className="secondary-button" type="button" onClick={handleCalculate} disabled={!selectedId || isClosedSelected}>
               <FileText size={16} /> Calcular
             </button>
-            <button className="secondary-button" type="button" onClick={handleClose} disabled={!selectedId}>
+            <button className="secondary-button" type="button" onClick={handleClose} disabled={!isOpenSelected}>
               <CheckCircle2 size={16} /> Fechar
             </button>
             {isAdmin && (
-              <button className="secondary-button" type="button" onClick={handleReopen} disabled={!selectedId}>
+              <button className="secondary-button" type="button" onClick={handleReopen} disabled={!isClosedSelected}>
                 <RotateCcw size={16} /> Reabrir
               </button>
             )}
