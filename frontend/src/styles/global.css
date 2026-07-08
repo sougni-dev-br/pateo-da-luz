@@ -9399,6 +9399,44 @@ details[open] .modal-section-summary::before {
   border-bottom: 1px solid var(--border);
 }
 
+.dre-drill-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(183, 188, 196, 0.68);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(250, 251, 252, 0.98) 0%, rgba(244, 246, 248, 0.98) 100%);
+}
+
+.dre-drill-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dre-drill-panel__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.dre-drill-panel__count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dre-drill-state {
+  padding: 10px 2px;
+}
+
+.dre-drill-table {
+  margin: 0 !important;
+}
+
 /* ── Totals ── */
 .dre-total td,
 .dre-total-warning td,
@@ -9820,6 +9858,87 @@ tr.dre-row-selected td {
     padding: 4px 0 14px;
     border: 0;
     background: transparent;
+  }
+
+  .dre-drill-panel {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .dre-drill-panel__header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .dre-drill-table {
+    display: block;
+  }
+
+  .dre-drill-table thead {
+    display: none;
+  }
+
+  .dre-drill-table tbody,
+  .dre-drill-table tfoot {
+    display: block;
+  }
+
+  .dre-drill-table tr {
+    display: grid;
+    gap: 8px;
+    padding: 12px 0;
+    border-top: 1px dashed rgba(183, 188, 196, 0.72);
+  }
+
+  .dre-drill-table tbody tr:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .dre-drill-table td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    text-align: left !important;
+  }
+
+  .dre-drill-table td:first-child {
+    display: block;
+  }
+
+  .dre-drill-table td:first-child::after {
+    content: "";
+    display: block;
+    margin-top: 8px;
+    border-bottom: 1px dashed rgba(183, 188, 196, 0.72);
+  }
+
+  .dre-drill-table td[data-label]::before {
+    content: attr(data-label);
+    display: inline-block;
+    margin-right: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .dre-drill-table td:first-child::before {
+    content: none;
+  }
+
+  .dre-drill-table td select {
+    width: min(100%, 220px);
+  }
+
+  .dre-drill-table tfoot tr {
+    padding-bottom: 0;
   }
 
   .dre-empty-row {
