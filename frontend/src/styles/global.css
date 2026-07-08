@@ -9807,6 +9807,15 @@ tr.dre-row-selected td {
     font-weight: 600;
   }
 
+  .dre-row .dre-pct-col,
+  .dre-expense-group .dre-pct-col,
+  .dre-expense-row .dre-pct-col,
+  .dre-total .dre-pct-col,
+  .dre-total-warning .dre-pct-col,
+  .dre-total-highlight .dre-pct-col {
+    display: none !important;
+  }
+
   .dre-drill-row td {
     padding: 4px 0 14px;
     border: 0;
