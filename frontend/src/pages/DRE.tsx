@@ -419,33 +419,39 @@ export function DRE() {
                 />
               </div>
 
-              <div className="dre-cards">
-                <DRECard
-                  label={cur.cmv.views.accounting.label}
-                  value={cur.cmv.views.accounting.cmvReal}
-                  sub={cur.cmv.views.accounting.cmvPercent != null ? `${pct(cur.cmv.views.accounting.cmvPercent)} da receita` : "sem inventário"}
-                  warn={!cur.cmv.hasInventoryData}
-                />
-                <DRECard
-                  label={cur.cmv.views.managerial.label}
-                  value={cur.cmv.views.managerial.cmvReal}
-                  sub={cur.cmv.views.managerial.cmvPercent != null ? `${pct(cur.cmv.views.managerial.cmvPercent)} da receita` : "sem inventário"}
-                  warn={!cur.cmv.hasInventoryData}
-                />
-                <DRECard
-                  label="Lucro Bruto Gerencial"
-                  value={cur.cmv.views.managerial.lucroBruto}
-                  sub={pct(cur.cmv.views.managerial.margemBruta) + " de margem"}
-                  signed
-                />
-                <DRECard
-                  label="Lucro Oper. Gerencial"
-                  value={cur.cmv.views.managerial.ebitda}
-                  sub={pct(cur.cmv.views.managerial.ebitdaPercent) + " da receita"}
-                  signed
-                  highlight
-                />
-              </div>
+              <section className="dre-vision-block">
+                <div className="dre-vision-block__header">
+                  <span className="dre-vision-block__eyebrow">Comparativo CMV</span>
+                  <strong className="dre-vision-block__title">Visao atual x visao gerencial</strong>
+                </div>
+                <div className="dre-cards dre-cards-secondary">
+                  <DRECard
+                    label={cur.cmv.views.accounting.label}
+                    value={cur.cmv.views.accounting.cmvReal}
+                    sub={cur.cmv.views.accounting.cmvPercent != null ? `${pct(cur.cmv.views.accounting.cmvPercent)} da receita` : "sem inventario"}
+                    warn={!cur.cmv.hasInventoryData}
+                  />
+                  <DRECard
+                    label={cur.cmv.views.managerial.label}
+                    value={cur.cmv.views.managerial.cmvReal}
+                    sub={cur.cmv.views.managerial.cmvPercent != null ? `${pct(cur.cmv.views.managerial.cmvPercent)} da receita` : "sem inventario"}
+                    warn={!cur.cmv.hasInventoryData}
+                  />
+                  <DRECard
+                    label="Lucro Bruto Gerencial"
+                    value={cur.cmv.views.managerial.lucroBruto}
+                    sub={pct(cur.cmv.views.managerial.margemBruta) + " de margem"}
+                    signed
+                  />
+                  <DRECard
+                    label="Lucro Oper. Gerencial"
+                    value={cur.cmv.views.managerial.ebitda}
+                    sub={pct(cur.cmv.views.managerial.ebitdaPercent) + " da receita"}
+                    signed
+                    highlight
+                  />
+                </div>
+              </section>
 
               {/* ── CMV warning ── */}
               {cur.cmv.warning && (
@@ -1492,3 +1498,4 @@ function CategoriesPanel({
     </div>
   );
 }
+
