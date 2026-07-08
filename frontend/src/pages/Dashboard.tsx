@@ -404,16 +404,16 @@ export function Dashboard() {
                 value={
                   summary?.cmvReal.status === "closed" && summary.cmvReal.value !== null
                     ? fmt(summary.cmvReal.value)
-                    : "—"
+                    : "-"
                 }
                 sub={
                   summary?.cmvReal.status === "closed"
                     ? summary.cmvReal.percent !== null
                       ? `${formatPercent(summary.cmvReal.percent)} do faturamento`
-                      : "Período fechado"
+                      : "Periodo fechado"
                     : summary?.cmvReal.status === "pending"
-                    ? "Inventário aberto — fechamento pendente"
-                    : "Sem inventário final neste período"
+                    ? "Inventario aberto - fechamento pendente"
+                    : "Sem inventario final neste periodo"
                 }
                 tone={
                   summary?.cmvReal.status === "closed" ? "info"
@@ -422,7 +422,7 @@ export function Dashboard() {
                 icon={<TrendingUp size={18} />}
                 actionLabel={
                   summary && summary.cmvReal.status !== "closed" && canAccessSection("monthly-closing")
-                    ? "Fechar período"
+                    ? "Fechar periodo"
                     : undefined
                 }
                 onAction={
@@ -436,16 +436,16 @@ export function Dashboard() {
                 value={
                   summary?.cmvReal.status === "closed"
                     ? fmt(summary.cmvReal.views.managerial.realCmvValue)
-                    : "â€”"
+                    : "-"
                 }
                 sub={
                   summary?.cmvReal.status === "closed"
                     ? summary.cmvReal.views.managerial.cmvPercent !== null
                       ? `${formatPercent(summary.cmvReal.views.managerial.cmvPercent)} do faturamento`
-                      : "PerÃ­odo fechado"
+                      : "Periodo fechado"
                     : summary?.cmvReal.status === "pending"
                     ? "Aguardando fechamento para comparar"
-                    : "Sem inventÃ¡rio final neste perÃ­odo"
+                    : "Sem inventario final neste periodo"
                 }
                 tone={
                   summary?.cmvReal.status === "closed" ? "success"
@@ -454,7 +454,7 @@ export function Dashboard() {
                 icon={<TrendingUp size={18} />}
                 actionLabel={
                   summary && summary.cmvReal.status !== "closed" && canAccessSection("monthly-closing")
-                    ? "Fechar perÃ­odo"
+                    ? "Fechar periodo"
                     : undefined
                 }
                 onAction={
