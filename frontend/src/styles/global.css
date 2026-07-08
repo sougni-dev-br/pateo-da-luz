@@ -9683,6 +9683,143 @@ tr.dre-row-selected td {
     display: none;
   }
 
+  .dre-table-wrap {
+    overflow: visible;
+  }
+
+  .dre-table,
+  .dre-table tbody {
+    display: block;
+  }
+
+  .dre-table thead {
+    display: none;
+  }
+
+  .dre-table tr {
+    display: block;
+  }
+
+  .dre-group-row td {
+    display: block;
+    padding: 16px 2px 6px;
+    border-top: 0;
+    border-bottom: 0;
+  }
+
+  .dre-row td,
+  .dre-expense-group td,
+  .dre-expense-row td,
+  .dre-total td,
+  .dre-total-warning td,
+  .dre-total-highlight td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    text-align: left !important;
+  }
+
+  .dre-row,
+  .dre-expense-group,
+  .dre-expense-row,
+  .dre-total,
+  .dre-total-warning,
+  .dre-total-highlight {
+    display: grid !important;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    border: 1px solid rgba(183, 188, 196, 0.68);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 6px 16px rgba(27, 31, 36, 0.04);
+  }
+
+  .dre-total,
+  .dre-total-warning,
+  .dre-total-highlight {
+    border-width: 1.5px;
+  }
+
+  .dre-total-highlight {
+    background: linear-gradient(180deg, rgba(255, 250, 240, 0.98) 0%, rgba(255, 245, 226, 0.98) 100%);
+    border-color: rgba(191, 157, 86, 0.78);
+  }
+
+  .dre-total-warning {
+    background: linear-gradient(180deg, rgba(255, 249, 241, 0.98) 0%, rgba(255, 244, 231, 0.98) 100%);
+    border-color: rgba(199, 134, 10, 0.48);
+  }
+
+  .dre-expense-group {
+    background: linear-gradient(180deg, rgba(250, 251, 252, 0.98) 0%, rgba(244, 246, 248, 0.98) 100%);
+  }
+
+  .dre-row td:first-child,
+  .dre-expense-group td:first-child,
+  .dre-expense-row td:first-child,
+  .dre-total td:first-child,
+  .dre-total-warning td:first-child,
+  .dre-total-highlight td:first-child {
+    display: block;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .dre-row td:first-child::after,
+  .dre-expense-group td:first-child::after,
+  .dre-expense-row td:first-child::after,
+  .dre-total td:first-child::after,
+  .dre-total-warning td:first-child::after,
+  .dre-total-highlight td:first-child::after {
+    content: "";
+    display: block;
+    margin-top: 8px;
+    border-bottom: 1px dashed rgba(183, 188, 196, 0.72);
+  }
+
+  .dre-row td:not(:first-child)::before,
+  .dre-expense-group td:not(:first-child)::before,
+  .dre-expense-row td:not(:first-child)::before,
+  .dre-total td:not(:first-child)::before,
+  .dre-total-warning td:not(:first-child)::before,
+  .dre-total-highlight td:not(:first-child)::before {
+    content: attr(data-cell-label);
+    display: inline-block;
+    margin-right: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .dre-row td:not(:first-child),
+  .dre-expense-group td:not(:first-child),
+  .dre-expense-row td:not(:first-child),
+  .dre-total td:not(:first-child),
+  .dre-total-warning td:not(:first-child),
+  .dre-total-highlight td:not(:first-child) {
+    font-weight: 600;
+  }
+
+  .dre-drill-row td {
+    padding: 4px 0 14px;
+    border: 0;
+    background: transparent;
+  }
+
+  .dre-empty-row {
+    display: block !important;
+    padding: 2px 2px 8px !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+
   .dre-vision-block {
     padding: 12px;
   }
