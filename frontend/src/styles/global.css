@@ -9484,6 +9484,36 @@ tr.dre-row-selected td {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  flex: 1 1 540px;
+}
+
+.dre-filter-mode {
+  flex: 0 0 auto;
+}
+
+.dre-filter-period {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dre-filter-period-month {
+  flex: 1 1 260px;
+}
+
+.dre-filter-period-month select {
+  flex: 1 1 0;
+  min-width: 120px;
+}
+
+.dre-filter-period-range {
+  flex: 1 1 420px;
+}
+
+.dre-filter-period-range input {
+  flex: 1 1 160px;
+  min-width: 0;
 }
 
 .dre-filter-right {
@@ -9491,6 +9521,7 @@ tr.dre-row-selected td {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .dre-comparatives-label {
@@ -9546,6 +9577,64 @@ tr.dre-row-selected td {
 }
 
 @media (max-width: 700px) {
+  .dre-filter-bar {
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .dre-filter-left {
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .dre-filter-mode {
+    flex: 1 1 100%;
+  }
+
+  .dre-filter-mode select {
+    width: 100%;
+  }
+
+  .dre-filter-period {
+    width: 100%;
+  }
+
+  .dre-filter-period-month {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(104px, 120px);
+  }
+
+  .dre-filter-period-range {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dre-filter-period-range input,
+  .dre-filter-period-range button {
+    width: 100%;
+  }
+
+  .dre-filter-period-range .text-muted {
+    display: none;
+  }
+
+  .dre-comparatives-label {
+    min-height: 40px;
+    width: 100%;
+    justify-content: flex-start;
+    padding: 0 2px;
+  }
+
+  .dre-filter-right {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+
+  .dre-filter-right > * {
+    flex: 1 1 0;
+  }
+
   .dre-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -9572,6 +9661,17 @@ tr.dre-row-selected td {
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
+  }
+}
+
+@media (max-width: 480px) {
+  .dre-filter-period-month {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dre-filter-right {
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr);
   }
 }
 
