@@ -401,6 +401,8 @@ export function CmvReal({ user }: { user: AppUser }) {
   const suggestionsRef = useRef(suggestions);
   suggestionsRef.current = suggestions;
   const pendingSnapshotRef = useRef<string | null>(null);
+  const selectedIdRef = useRef<string | null>(selectedId);
+  selectedIdRef.current = selectedId;
 
   const startNewPeriod = useCallback((nextSuggestions: CmvRealSuggestions | null = suggestionsRef.current, options?: { estoqueFinalSnapshotId?: string }) => {
     const startDate = nextSuggestions?.suggestedStartDate ?? todayInput();
@@ -420,7 +422,7 @@ export function CmvReal({ user }: { user: AppUser }) {
     });
   }, []);
 
-  const load = useCallback(async (nextSelectedId: string | null = selectedId) => {
+  const load = useCallback(async (nextSelectedId: string | null = selectedIdRef.current) => {
     setLoading(true);
     try {
       const [periodList, bases, nextSuggestions] = await Promise.all([
@@ -457,7 +459,7 @@ export function CmvReal({ user }: { user: AppUser }) {
     } finally {
       setLoading(false);
     }
-  }, [applyPeriodToForm, selectedId, setNotice, startNewPeriod]);
+  }, [applyPeriodToForm, setNotice, startNewPeriod]);
 
   useEffect(() => {
     void load();
