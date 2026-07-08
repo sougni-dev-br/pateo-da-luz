@@ -4,6 +4,10 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { auditLog, requireRole } from "../security/security-utils.js";
 import { createDrePdf } from "./dre-pdf.js";
+import {
+  getCmvPurchaseTotalByPurchaseDateRange,
+  type CmvVisionKey,
+} from "../cmv-real/cmv-purchase-base.service.js";
 
 export const dreRouter = Router();
 
@@ -141,9 +145,36 @@ function prevYear(from: Date, to: Date): { from: Date; to: Date } {
   return { from: d, to: dTo };
 }
 
+const MANAGERIAL_CMV_CATEGORY_NAMES = ["Material de Limpeza", "Descartáveis", "Descartáveis / Delivery"];
+
+function expensePredicateByMode(mode: CmvVisionKey) {
+  return mode === "managerial"
+    ? Prisma.sql`COALESCE(dc.name, '') NOT IN (${Prisma.join(MANAGERIAL_CMV_CATEGORY_NAMES)})`
+    : Prisma.sql`COALESCE(dc."dreGroup", '') <> 'CMV_COMPRAS'`;
+}
+
+function buildExpenseGroups(expenses: Array<{ dreGroup: string; total: number } & Record<string, unknown>>) {
+  const groupMap: Record<string, { total: number; lines: typeof expenses }> = {};
+  for (const exp of expenses) {
+    const groupKey = exp.dreGroup;
+    if (!groupMap[groupKey]) groupMap[groupKey] = { total: 0, lines: [] };
+    groupMap[groupKey].total += exp.total;
+    groupMap[groupKey].lines.push(exp);
+  }
+  return GROUP_META
+    .map((group) => ({
+      key: group.key,
+      label: group.label,
+      sortOrder: group.sortOrder,
+      total: groupMap[group.key]?.total ?? 0,
+      lines: groupMap[group.key]?.lines ?? []
+    }))
+    .filter((group) => group.lines.length > 0);
+}
+
 async function calcDRE(from: Date, to: Date) {
   // Todas as queries são independentes entre si — rodam em paralelo
-  const [revenueRows, snapInitialValue, snapFinalValue, cmvComprasRows, expenseRows, taxExpenseRows] = await Promise.all([
+  const [revenueRows, snapInitialValue, snapFinalValue, comprasCmv, comprasGerenciais, expenseRows, managerialExpenseRows, taxExpenseRows] = await Promise.all([
     // ── Receita por canal ──
     prisma.$queryRaw<Array<{
       channel: string;
@@ -196,33 +227,13 @@ async function calcDRE(from: Date, to: Date) {
         LIMIT 1
       )
     `,
-    // ── CMV Compras: apenas itens de produtos que controlam estoque (controlsStock=true).
-    // Compatibilidade retroativa: compras sem itens com expenseType alimentar também entram.
-    // Isso evita que insumos de não-estoque (limpeza, utensílios, etc.) inflacionem o CMV.
-    prisma.$queryRaw<Array<{ total: string | null }>>`
-      SELECT COALESCE(SUM(sub.total), 0) AS total FROM (
-        SELECT pitem."totalPrice" AS total
-        FROM "PurchaseItem" pitem
-        JOIN "Purchase" p   ON p.id   = pitem."purchaseId"
-        JOIN "Product"  prod ON prod.id = pitem."productId"
-        WHERE p.status = 'ACTIVE'
-          AND prod."controlsStock" = true
-          AND p."purchaseDate" >= ${from}
-          AND p."purchaseDate" <= ${to}
-        UNION ALL
-        SELECT p."totalAmount" AS total
-        FROM "Purchase" p
-        WHERE p.status = 'ACTIVE'
-          AND p."purchaseDate" >= ${from}
-          AND p."purchaseDate" <= ${to}
-          AND p."expenseType" IN ('FOOD', 'BEVERAGE', 'PACKAGING')
-          AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" px WHERE px."purchaseId" = p.id)
-      ) sub
-    `,
+    // ── CMV Compras: entra apenas item de produto classificado em CMV_COMPRAS.
+    getCmvPurchaseTotalByPurchaseDateRange(from, to, "accounting"),
+    getCmvPurchaseTotalByPurchaseDateRange(from, to, "managerial"),
     // ── Despesas por categoria DRE — nova lógica em duas partes (UNION):
     // Parte A: parcelas de compras SEM itens de produto → usa pi.dreCategory (manual).
-    // Parte B: itens de produto com controlsStock=false → usa Product.dreCategoryId.
-    // Compras de estoque (controlsStock=true) são excluídas das despesas: já estão no CMV.
+    // Parte B: itens de produto fora de CMV_COMPRAS → usa Product.dreCategoryId.
+    // Itens em CMV_COMPRAS são excluídos das despesas e entram no CMV.
     prisma.$queryRaw<Array<{
       dreCategory: string | null;
       dreCategoryName: string | null;
@@ -261,7 +272,7 @@ async function calcDRE(from: Date, to: Date) {
 
         UNION ALL
 
-        -- Parte B: itens de produto sem controle de estoque → categoria DRE do produto
+        -- Parte B: itens de produto fora de CMV_COMPRAS → categoria DRE do produto
         SELECT
           prod."dreCategoryId" AS "dreCategory",
           dc.name              AS "dreCategoryName",
@@ -274,7 +285,64 @@ async function calcDRE(from: Date, to: Date) {
         JOIN "Product"  prod ON prod.id = pitem."productId"
         LEFT JOIN "DRECategory" dc ON dc.id = prod."dreCategoryId"
         WHERE p.status = 'ACTIVE'
-          AND prod."controlsStock" = false
+          AND ${expensePredicateByMode("accounting")}
+          AND p."purchaseDate" >= ${from}
+          AND p."purchaseDate" <= ${to}
+        GROUP BY prod."dreCategoryId", dc.name, dc."sortOrder", dc."dreGroup"
+      ) sub
+      GROUP BY sub."dreCategory", sub."dreCategoryName", sub."dreSortOrder", sub."dreGroup"
+      ORDER BY COALESCE(sub."dreSortOrder", 999), COALESCE(sub."dreCategoryName", 'ZZZ')
+    `,
+    prisma.$queryRaw<Array<{
+      dreCategory: string | null;
+      dreCategoryName: string | null;
+      dreSortOrder: number | null;
+      dreGroup: string | null;
+      total: string;
+      count: number;
+    }>>`
+      SELECT
+        sub."dreCategory",
+        sub."dreCategoryName",
+        sub."dreSortOrder",
+        sub."dreGroup",
+        SUM(sub.total)::text      AS total,
+        SUM(sub.cnt)::int         AS count
+      FROM (
+        SELECT
+          pi."dreCategory",
+          dc.name        AS "dreCategoryName",
+          dc."sortOrder" AS "dreSortOrder",
+          dc."dreGroup"  AS "dreGroup",
+          SUM(COALESCE(pi."paidAmount", pi.amount, 0)) AS total,
+          COUNT(*)::bigint AS cnt
+        FROM "PaymentInstallment" pi
+        JOIN "Purchase" p ON p.id = pi."purchaseId"
+        LEFT JOIN "DRECategory" dc ON dc.id = pi."dreCategory"
+        WHERE p.status = 'ACTIVE'
+          AND pi.status NOT IN ('CANCELLED')
+          AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" px WHERE px."purchaseId" = p.id)
+          AND (
+            (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${from} AND pi."paidDate" <= ${to})
+            OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${from} AND pi."dueDate" <= ${to})
+          )
+        GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
+
+        UNION ALL
+
+        SELECT
+          prod."dreCategoryId" AS "dreCategory",
+          dc.name              AS "dreCategoryName",
+          dc."sortOrder"       AS "dreSortOrder",
+          dc."dreGroup"        AS "dreGroup",
+          SUM(pitem."totalPrice")      AS total,
+          COUNT(DISTINCT p.id)::bigint AS cnt
+        FROM "PurchaseItem" pitem
+        JOIN "Purchase" p   ON p.id   = pitem."purchaseId"
+        JOIN "Product"  prod ON prod.id = pitem."productId"
+        LEFT JOIN "DRECategory" dc ON dc.id = prod."dreCategoryId"
+        WHERE p.status = 'ACTIVE'
+          AND ${expensePredicateByMode("managerial")}
           AND p."purchaseDate" >= ${from}
           AND p."purchaseDate" <= ${to}
         GROUP BY prod."dreCategoryId", dc.name, dc."sortOrder", dc."dreGroup"
@@ -327,10 +395,58 @@ async function calcDRE(from: Date, to: Date) {
 
   const estoqueInicial = Number(snapInitialValue[0]?.totalValue ?? 0);
   const estoqueFinal = Number(snapFinalValue[0]?.totalValue ?? 0);
-  const compras = Number(cmvComprasRows[0]?.total ?? 0);
-  const cmvReal = estoqueInicial + compras - estoqueFinal;
-  const cmvPercent = totalGross > 0 ? (cmvReal / totalGross) * 100 : null;
-  const lucroBruto = totalNet - cmvReal;
+  const compras = comprasCmv;
+  const buildExpenseSummary = (rows: typeof expenseRows) => {
+    const allExpenseRows = [...rows, ...taxExpenseRows];
+    const expenseByCategory = new Map<string, { dreCategoryId: string | null; dreCategoryName: string; dreGroup: string; sortOrder: number; total: number; count: number }>();
+    for (const r of allExpenseRows) {
+      const key = r.dreCategory ?? "__none__";
+      const existing = expenseByCategory.get(key);
+      if (existing) {
+        existing.total += Number(r.total);
+        existing.count += Number(r.count);
+      } else {
+        expenseByCategory.set(key, {
+          dreCategoryId: r.dreCategory ?? null,
+          dreCategoryName: r.dreCategoryName ?? "NÃ£o categorizadas",
+          dreGroup: r.dreGroup ?? "DESPESAS_OPERACIONAIS",
+          sortOrder: r.dreSortOrder ?? 999,
+          total: Number(r.total),
+          count: Number(r.count),
+        });
+      }
+    }
+    const expenses = Array.from(expenseByCategory.values()).sort((a, b) => a.sortOrder - b.sortOrder || a.dreCategoryName.localeCompare(b.dreCategoryName));
+    const expenseGroups = buildExpenseGroups(expenses);
+    const totalExpenses = expenses.reduce((s, e) => s + e.total, 0);
+    return { expenses, expenseGroups, totalExpenses };
+  };
+  const buildCmvView = (key: CmvVisionKey, purchaseTotal: number, totalExpenses: number) => {
+    const cmvReal = estoqueInicial + purchaseTotal - estoqueFinal;
+    const cmvPercent = totalGross > 0 ? (cmvReal / totalGross) * 100 : null;
+    const lucroBruto = totalNet - cmvReal;
+    const margemBruta = totalGross > 0 ? (lucroBruto / totalGross) * 100 : null;
+    const ebitda = lucroBruto - totalExpenses;
+    const ebitdaPercent = totalGross > 0 ? (ebitda / totalGross) * 100 : null;
+    return {
+      key,
+      label: key === "accounting" ? "Visao atual" : "Visao gerencial",
+      compras: purchaseTotal,
+      cmvReal,
+      cmvPercent,
+      lucroBruto,
+      margemBruta,
+      ebitda,
+      ebitdaPercent,
+    };
+  };
+  const accountingExpenseSummary = buildExpenseSummary(expenseRows);
+  const managerialExpenseSummary = buildExpenseSummary(managerialExpenseRows);
+  const accountingView = buildCmvView("accounting", compras, accountingExpenseSummary.totalExpenses);
+  const managerialView = buildCmvView("managerial", comprasGerenciais, managerialExpenseSummary.totalExpenses);
+  const cmvReal = accountingView.cmvReal;
+  const cmvPercent = accountingView.cmvPercent;
+  const lucroBruto = accountingView.lucroBruto;
 
   // Mesclar despesas de compras com impostos por categoria
   const allExpenseRows = [...expenseRows, ...taxExpenseRows];
@@ -402,7 +518,11 @@ async function calcDRE(from: Date, to: Date) {
       cmvReal,
       cmvPercent,
       hasInventoryData,
-      warning: cmvWarning
+      warning: cmvWarning,
+      views: {
+        accounting: accountingView,
+        managerial: managerialView
+      }
     },
     lucroBruto,
     margemBruta,
@@ -653,13 +773,15 @@ dreRouter.get("/pending", async (request, response) => {
     ? Prisma.sql`AND NOT EXISTS (
         SELECT 1 FROM "PurchaseItem" pi2
         JOIN "Product" prod ON prod.id = pi2."productId"
-        WHERE pi2."purchaseId" = p.id AND prod."controlsStock" = true
+        JOIN "DRECategory" dc ON dc.id = prod."dreCategoryId"
+        WHERE pi2."purchaseId" = p.id AND dc."dreGroup" = 'CMV_COMPRAS'
       )`
     : type === "cmv"
     ? Prisma.sql`AND EXISTS (
         SELECT 1 FROM "PurchaseItem" pi2
         JOIN "Product" prod ON prod.id = pi2."productId"
-        WHERE pi2."purchaseId" = p.id AND prod."controlsStock" = true
+        JOIN "DRECategory" dc ON dc.id = prod."dreCategoryId"
+        WHERE pi2."purchaseId" = p.id AND dc."dreGroup" = 'CMV_COMPRAS'
       )`
     : Prisma.empty;
 
@@ -682,7 +804,8 @@ dreRouter.get("/pending", async (request, response) => {
         EXISTS (
           SELECT 1 FROM "PurchaseItem" pi2
           JOIN "Product" prod ON prod.id = pi2."productId"
-          WHERE pi2."purchaseId" = p.id AND prod."controlsStock" = true
+          JOIN "DRECategory" dc ON dc.id = prod."dreCategoryId"
+          WHERE pi2."purchaseId" = p.id AND dc."dreGroup" = 'CMV_COMPRAS'
         ) AS "includedInCmv"
       FROM "PaymentInstallment" pi
       JOIN "Purchase" p ON p.id = pi."purchaseId"
@@ -787,7 +910,8 @@ dreRouter.patch("/installments/bulk-category", async (request, response) => {
         AND EXISTS (
           SELECT 1 FROM "PurchaseItem" pi2
           JOIN "Product" prod ON prod.id = pi2."productId"
-          WHERE pi2."purchaseId" = p.id AND prod."controlsStock" = true
+          JOIN "DRECategory" dc ON dc.id = prod."dreCategoryId"
+          WHERE pi2."purchaseId" = p.id AND dc."dreGroup" = 'CMV_COMPRAS'
         )
     `;
     const cmvCount = Number(cmvCheck?.cmvCount ?? 0);

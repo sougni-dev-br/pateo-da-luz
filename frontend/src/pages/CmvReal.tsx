@@ -913,7 +913,19 @@ export function CmvReal({ user }: { user: AppUser }) {
             </div>
 
             <div className="subsection">
-              <h3>Memória de cálculo</h3>
+              <h3>Visões do cálculo</h3>
+              <div className="summary-grid dashboard-compact-grid financial-summary cmv-detail-grid">
+                <MetricCard label="CMV atual" value={<Money value={selectedPeriod.views.accounting.cmvReal} />} detail={selectedPeriod.views.accounting.label} className="cmv-highlight-card tone-info" />
+                <MetricCard label="Compras atuais" value={<Money value={selectedPeriod.views.accounting.comprasTotal} />} />
+                <MetricCard label="CMV % atual" value={formatPercent(selectedPeriod.views.accounting.cmvPercentual)} />
+                <MetricCard label="CMV gerencial" value={<Money value={selectedPeriod.views.managerial.cmvReal} />} detail={selectedPeriod.views.managerial.label} className="cmv-highlight-card tone-success" />
+                <MetricCard label="Compras gerenciais" value={<Money value={selectedPeriod.views.managerial.comprasTotal} />} />
+                <MetricCard label="CMV % gerencial" value={formatPercent(selectedPeriod.views.managerial.cmvPercentual)} />
+              </div>
+            </div>
+
+            <div className="subsection">
+              <h3>Memória de cálculo (visão atual)</h3>
               <div className="summary-grid dashboard-compact-grid financial-summary cmv-detail-grid">
                 <MetricCard label="Fórmula" value="Estoque inicial + Compras - Estoque final" />
                 <MetricCard
@@ -934,6 +946,21 @@ export function CmvReal({ user }: { user: AppUser }) {
             </div>
 
             <div className="subsection">
+              <h3>Memória de cálculo (visão gerencial)</h3>
+              <div className="summary-grid dashboard-compact-grid financial-summary cmv-detail-grid">
+                <MetricCard label="Fórmula" value="Estoque inicial + Compras - Estoque final" />
+                <MetricCard
+                  label="Aplicação"
+                  value={<><Money value={selectedPeriod.views.managerial.estoqueInicialTotal} /> + <Money value={selectedPeriod.views.managerial.comprasTotal} /> - <Money value={selectedPeriod.views.managerial.estoqueFinalTotal} /></>}
+                />
+                <MetricCard label="Resultado" value={<Money value={selectedPeriod.views.managerial.cmvReal} />} />
+                <MetricCard label="CMV %" value={formatPercent(selectedPeriod.views.managerial.cmvPercentual)} />
+                <MetricCard label="Faturamento líquido" value={<Money value={selectedPeriod.views.managerial.faturamentoTotal} />} />
+                <MetricCard label="Compras consideradas" value={<Money value={detail?.viewDetails.managerial.purchasesGrossTotal ?? selectedPeriod.views.managerial.comprasTotal} />} detail={`${detail?.viewDetails.managerial.purchasesCount ?? 0} compras`} />
+              </div>
+            </div>
+
+            <div className="subsection">
               <h3>Compras por categoria</h3>
               <div className="table-wrap operational-table cmv-analysis-table">
                 <table>
@@ -949,6 +976,27 @@ export function CmvReal({ user }: { user: AppUser }) {
                       </tr>
                     )) ?? null}
                     {detail?.purchaseByCategory.length === 0 && <EmptyTableRow colSpan={5} message="Sem dados." />}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="subsection">
+              <h3>Compras por categoria (visão gerencial)</h3>
+              <div className="table-wrap operational-table cmv-analysis-table">
+                <table>
+                  <thead><tr><th>Rank</th><th>Categoria</th><th className="numeric-cell">Itens</th><th className="numeric-cell">Participação</th><th className="numeric-cell">Total</th></tr></thead>
+                  <tbody>
+                    {detail?.viewDetails.managerial.purchaseByCategory.map((row, index) => (
+                      <tr key={`${row.categoryName}-managerial`} className={index < 3 ? "ranking-row" : ""}>
+                        <td>{index + 1}</td>
+                        <td title={row.categoryName}>{row.categoryName}</td>
+                        <td className="numeric-cell">{row.itemsCount}</td>
+                        <td className="numeric-cell nowrap-cell">{percentageOf(detail?.viewDetails.managerial.purchasesGrossTotal ?? 0, row.totalAmount)}</td>
+                        <td className="numeric-cell nowrap-cell"><Money value={row.totalAmount} /></td>
+                      </tr>
+                    )) ?? null}
+                    {(detail?.viewDetails.managerial.purchaseByCategory.length ?? 0) === 0 && <EmptyTableRow colSpan={5} message="Sem dados." />}
                   </tbody>
                 </table>
               </div>

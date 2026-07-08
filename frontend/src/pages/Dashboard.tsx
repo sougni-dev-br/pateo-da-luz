@@ -400,7 +400,7 @@ export function Dashboard() {
                 onAction={!hasPurchases && !summary?.purchases.total && canCreatePurchases ? () => navigate("/compras") : undefined}
               />
               <KpiCard
-                label="CMV Real"
+                label="CMV Atual"
                 value={
                   summary?.cmvReal.status === "closed" && summary.cmvReal.value !== null
                     ? fmt(summary.cmvReal.value)
@@ -423,6 +423,38 @@ export function Dashboard() {
                 actionLabel={
                   summary && summary.cmvReal.status !== "closed" && canAccessSection("monthly-closing")
                     ? "Fechar período"
+                    : undefined
+                }
+                onAction={
+                  summary && summary.cmvReal.status !== "closed" && canAccessSection("monthly-closing")
+                    ? () => navigate("/cmv/fechamento-mensal")
+                    : undefined
+                }
+              />
+              <KpiCard
+                label="CMV Gerencial"
+                value={
+                  summary?.cmvReal.status === "closed"
+                    ? fmt(summary.cmvReal.views.managerial.realCmvValue)
+                    : "â€”"
+                }
+                sub={
+                  summary?.cmvReal.status === "closed"
+                    ? summary.cmvReal.views.managerial.cmvPercent !== null
+                      ? `${formatPercent(summary.cmvReal.views.managerial.cmvPercent)} do faturamento`
+                      : "PerÃ­odo fechado"
+                    : summary?.cmvReal.status === "pending"
+                    ? "Aguardando fechamento para comparar"
+                    : "Sem inventÃ¡rio final neste perÃ­odo"
+                }
+                tone={
+                  summary?.cmvReal.status === "closed" ? "success"
+                  : "neutral"
+                }
+                icon={<TrendingUp size={18} />}
+                actionLabel={
+                  summary && summary.cmvReal.status !== "closed" && canAccessSection("monthly-closing")
+                    ? "Fechar perÃ­odo"
                     : undefined
                 }
                 onAction={
