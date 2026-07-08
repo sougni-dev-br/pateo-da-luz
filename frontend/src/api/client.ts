@@ -1661,6 +1661,9 @@ export type OperationalInventory = {
   id: string;
   code: string;
   date: string;
+  effectiveCountDate: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
   name: string;
   type: OperationalInventoryType;
   status: OperationalInventoryStatus;
@@ -2866,6 +2869,9 @@ export function getOperationalInventories(includeCanceled = false) {
 
 export function createOperationalInventory(payload: {
   date: string;
+  effectiveCountDate?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
   type: OperationalInventoryType;
   sectorId?: string | null;
   sectorName?: string | null;

@@ -307,6 +307,40 @@ function periodRange(startDate: Date, endDate: Date) {
   };
 }
 
+type ClosedPeriodConflict = {
+  id: string;
+  code: string | null;
+  name: string;
+  dataInicial: Date;
+  dataFinal: Date;
+};
+
+async function findClosedCmvPeriodByDateRange(startDate: Date, endDate: Date) {
+  const [period] = await prisma.$queryRaw<Array<ClosedPeriodConflict>>`
+    SELECT "id", "code", "name", "dataInicial", "dataFinal"
+    FROM "CmvPeriod"
+    WHERE "status" = CAST('CLOSED' AS "CmvPeriodStatus")
+      AND "dataInicial" <= ${endDate}
+      AND "dataFinal" >= ${startDate}
+    ORDER BY "dataInicial" DESC
+    LIMIT 1
+  `;
+  return period ?? null;
+}
+
+export async function assertNoClosedCmvPeriodForDate(date: Date, context: string) {
+  return assertNoClosedCmvPeriodForRange(date, date, context);
+}
+
+export async function assertNoClosedCmvPeriodForRange(startDate: Date, endDate: Date, context: string) {
+  const period = await findClosedCmvPeriodByDateRange(startDate, endDate);
+  if (!period) return;
+  const code = period.code?.trim() || period.name;
+  throw new Error(
+    `${context} bloqueado: existe apuracao de CMV fechada (${code}) cobrindo ${toDateKey(period.dataInicial)} a ${toDateKey(period.dataFinal)}. Reabra o periodo antes de alterar dados.`
+  );
+}
+
 async function getSnapshotOrThrow(id: string) {
   const [snapshot] = await prisma.$queryRaw<Array<SnapshotRow>>`
     SELECT "id", "type"::text AS "type", "countDate", "totalValue", "originalFileName", "status"
@@ -330,12 +364,25 @@ async function ensureSnapshotMatchesDate(snapshotId: string, expectedDate: Date,
   return snapshot;
 }
 
+async function assertSnapshotChronology(initialSnapshotId: string, finalSnapshotId: string) {
+  const [initialSnapshot, finalSnapshot] = await Promise.all([
+    getSnapshotOrThrow(initialSnapshotId),
+    getSnapshotOrThrow(finalSnapshotId)
+  ]);
+  if (initialSnapshot.countDate.getTime() > finalSnapshot.countDate.getTime()) {
+    throw new Error(
+      `Periodo inconsistente: a data do inventario inicial (${toDateKey(initialSnapshot.countDate)}) ` +
+      `esta posterior a data do inventario final (${toDateKey(finalSnapshot.countDate)}). Revise as bases antes de fechar o CMV.`
+    );
+  }
+}
+
 async function purchaseTotals(startDate: Date, endDate: Date, mode: CmvVisionKey) {
-  return getCmvPurchaseTotalsByCompetenceRange(startDate, endDate, mode);
+  return getCmvPurchaseTotalsByCompetenceRange(addDays(startDate, 1), endDate, mode);
 }
 
 async function revenueTotals(startDate: Date, endDate: Date) {
-  const { start, end } = periodRange(startDate, endDate);
+  const { start, end } = periodRange(addDays(startDate, 1), endDate);
   const [row] = await prisma.$queryRaw<Array<RevenueRow>>`
     SELECT COALESCE(SUM("grossAmount"), 0) AS "grossAmount",
            COALESCE(SUM("serviceAmount"), 0) AS "serviceAmount",
@@ -363,15 +410,15 @@ async function inventoryTotal(snapshotId: string) {
 }
 
 async function purchaseByCategory(startDate: Date, endDate: Date, mode: CmvVisionKey) {
-  return getCmvPurchaseByCategoryByCompetenceRange(startDate, endDate, mode);
+  return getCmvPurchaseByCategoryByCompetenceRange(addDays(startDate, 1), endDate, mode);
 }
 
 async function purchaseBySupplier(startDate: Date, endDate: Date, mode: CmvVisionKey) {
-  return getCmvPurchaseBySupplierByCompetenceRange(startDate, endDate, mode);
+  return getCmvPurchaseBySupplierByCompetenceRange(addDays(startDate, 1), endDate, mode);
 }
 
 async function revenueByChannel(startDate: Date, endDate: Date) {
-  const { start, end } = periodRange(startDate, endDate);
+  const { start, end } = periodRange(addDays(startDate, 1), endDate);
   const rows = await prisma.$queryRaw<Array<ChannelBreakdownRow>>`
     SELECT
       "channel",
@@ -579,7 +626,7 @@ async function latestPreviousPeriod(startDate: Date, excludeId?: string | null) 
   }>>`
     SELECT "id", "dataFinal", "estoqueFinalSnapshotId", "estoqueFinalSessionId"
     FROM "CmvPeriod"
-    WHERE DATE("dataFinal") < CAST(${startKey} AS date)
+    WHERE DATE("dataFinal") <= CAST(${startKey} AS date)
       ${excludeId ? Prisma.sql`AND "id" <> ${excludeId}` : Prisma.empty}
     ORDER BY "dataFinal" DESC, "createdAt" DESC
     LIMIT 1
@@ -603,7 +650,7 @@ async function validatePeriodContinuity(input: CmvPeriodInput) {
   const previous = await latestPreviousPeriod(input.dataInicial, input.id);
   if (!previous) return;
 
-  const expectedStart = toDateKey(addDays(previous.dataFinal, 1));
+  const expectedStart = toDateKey(previous.dataFinal);
   const actualStart = toDateKey(input.dataInicial);
 
   // Session-aware continuity: prefer session comparison when both sides have sessions.
@@ -635,7 +682,7 @@ async function validatePeriodContinuity(input: CmvPeriodInput) {
     return;
   }
 
-  throw new Error(`A proxima apuracao deve iniciar em ${expectedStart}, pois a ultima apuracao terminou em ${toDateKey(previous.dataFinal)}. O inventario inicial sera herdado automaticamente do inventario final da apuracao anterior.`);
+  throw new Error(`A proxima apuracao deve iniciar em ${expectedStart}, mesma data do inventario final da apuracao anterior. Os movimentos considerados ficam entre as contagens, com o inventario inicial herdado automaticamente do fechamento anterior.`);
 }
 
 async function persistPeriod(input: CmvPeriodInput, status: CmvPeriodStatus, closedFields?: { fechadoPor?: string | null; fechadoEm?: Date | null }) {
@@ -1074,7 +1121,7 @@ export async function getCmvRealSuggestions() {
   const latestPeriod = latestPeriodRows[0] ?? null;
 
   const suggestedStartDate = lastPeriod?.dataFinal
-    ? toDateKey(addDays(lastPeriod.dataFinal, 1))
+    ? toDateKey(lastPeriod.dataFinal)
     : toDateKey(new Date());
 
   // Find the session that was the final of the last period (for suggestions)
@@ -1129,15 +1176,48 @@ export async function listCmvPeriods() {
     LEFT JOIN "StockCountSession" sf ON sf."id" = p."estoqueFinalSessionId"
     ORDER BY p."dataFinal" DESC, p."createdAt" DESC
   `;
-  return Promise.all(rows.map(async (row) => applyComputation(
-    mapRow(row),
-    await computePeriod(row.dataInicial, row.dataFinal, row.estoqueInicialSnapshotId ?? "", row.estoqueFinalSnapshotId ?? "")
-  )));
+  return Promise.all(rows.map(async (row) => {
+    const period = mapRow(row);
+    if (row.status === "CLOSED") return period;
+    return applyComputation(
+      period,
+      await computePeriod(row.dataInicial, row.dataFinal, row.estoqueInicialSnapshotId ?? "", row.estoqueFinalSnapshotId ?? "")
+    );
+  }));
 }
 
 export async function getCmvPeriod(id: string) {
   const row = await loadPeriodRow(id);
-  const [period, computation] = await Promise.all([Promise.resolve(mapRow(row)), computePeriod(row.dataInicial, row.dataFinal, row.estoqueInicialSnapshotId ?? "", row.estoqueFinalSnapshotId ?? "")]);
+  const period = mapRow(row);
+  if (row.status === "CLOSED") {
+    return {
+      ...period,
+      purchasesGrossTotal: period.comprasTotal,
+      purchasesCount: 0,
+      revenueGrossTotal: period.faturamentoTotal,
+      revenueServiceTotal: 0,
+      revenueNetTotal: period.faturamentoTotal,
+      revenueDaysCount: 0,
+      purchaseByCategory: [],
+      purchaseBySupplier: [],
+      revenueByChannel: [],
+      viewDetails: {
+        accounting: {
+          purchasesGrossTotal: period.comprasTotal,
+          purchasesCount: 0,
+          purchaseByCategory: [],
+          purchaseBySupplier: [],
+        },
+        managerial: {
+          purchasesGrossTotal: period.comprasTotal,
+          purchasesCount: 0,
+          purchaseByCategory: [],
+          purchaseBySupplier: [],
+        },
+      }
+    } satisfies CmvPeriodDetail;
+  }
+  const computation = await computePeriod(row.dataInicial, row.dataFinal, row.estoqueInicialSnapshotId ?? "", row.estoqueFinalSnapshotId ?? "");
   return {
     ...applyComputation(period, computation),
     purchasesGrossTotal: computation.accounting.comprasTotal,
@@ -1243,6 +1323,7 @@ export async function recalculateCmvPeriod(id: string, input: { userId: string; 
 
 export async function closeCmvPeriod(id: string, input: { userId: string; ipAddress?: string | null; userAgent?: string | null }) {
   const current = await loadPeriodRow(id);
+  await assertSnapshotChronology(current.estoqueInicialSnapshotId ?? "", current.estoqueFinalSnapshotId ?? "");
   const updated = await persistPeriod({
     id,
     name: current.name,
