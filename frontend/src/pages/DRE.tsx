@@ -826,11 +826,16 @@ function DrillPanel({
     }
   }
 
-  if (loading) return <p className="text-muted" style={{ padding: "10px 0" }}>Carregando...</p>;
+  if (loading) return <p className="text-muted dre-drill-state">Carregando...</p>;
   if (rows.length === 0) return <p className="text-muted" style={{ padding: "10px 0" }}>Nenhum lançamento encontrado.</p>;
 
   return (
-    <table className="data-table" style={{ margin: "4px 0" }}>
+    <div className="dre-drill-panel">
+      <div className="dre-drill-panel__header">
+        <span className="dre-drill-panel__title">Detalhes da categoria</span>
+        <span className="dre-drill-panel__count">{rows.length} lancamento(s)</span>
+      </div>
+      <table className="data-table dre-drill-table" style={{ margin: "4px 0" }}>
       <thead>
         <tr>
           <th>Fornecedor</th>
@@ -845,7 +850,7 @@ function DrillPanel({
       <tbody>
         {rows.map((r) => (
           <tr key={r.installmentId}>
-            <td>
+            <td data-label="Fornecedor">
               <div>{r.supplierName}</div>
               {r.purchaseNumber && <div className="text-muted" style={{ fontSize: "0.8em" }}>Pedido: {r.purchaseNumber}</div>}
             </td>
@@ -881,7 +886,8 @@ function DrillPanel({
           <td colSpan={canEdit ? 2 : 1}></td>
         </tr>
       </tfoot>
-    </table>
+      </table>
+    </div>
   );
 }
 
