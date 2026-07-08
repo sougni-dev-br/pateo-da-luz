@@ -6,6 +6,7 @@ import { normalizeHeader, normalizeText } from "../../shared/utils/normalize-tex
 import { parseDate } from "../../shared/utils/parse-date.js";
 import { parseMoney } from "../../shared/utils/parse-money.js";
 import { readWorksheetRows } from "../imports/excel-reader.service.js";
+import { getCmvPurchaseTotalByCompetenceMonth, type CmvVisionKey } from "../cmv-real/cmv-purchase-base.service.js";
 
 type InventorySnapshotType = "INVENTARIO_INICIAL" | "INVENTARIO_FINAL" | "CONTAGEM_PARCIAL" | "AJUSTE";
 type MonthlyRole = "ADMIN" | "GESTAO_COMPLETA" | "ESTOQUISTA" | "VISUALIZACAO";
@@ -677,15 +678,19 @@ export async function undoInventorySnapshot(id: string, input: { reason: string;
 }
 
 export async function getMonthlyCmv(year: number, month: number) {
-  const [initialInventory, finalInventory, purchases, revenue] = await Promise.all([
+  const [initialInventory, finalInventory, purchases, managerialPurchases, revenue] = await Promise.all([
     snapshotValue(year, month, "INVENTARIO_INICIAL"),
     snapshotValue(year, month, "INVENTARIO_FINAL"),
-    purchaseValue(year, month),
+    purchaseValueByVision(year, month, "accounting"),
+    purchaseValueByVision(year, month, "managerial"),
     revenueValue(year, month)
   ]);
   const realCmv = initialInventory + purchases - finalInventory;
   const cmvPercent = revenue.net > 0 ? realCmv / revenue.net : null;
   const estimatedGrossMargin = revenue.net - realCmv;
+  const managerialRealCmv = initialInventory + managerialPurchases - finalInventory;
+  const managerialCmvPercent = revenue.net > 0 ? managerialRealCmv / revenue.net : null;
+  const managerialEstimatedGrossMargin = revenue.net - managerialRealCmv;
   const [saved] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
     SELECT * FROM "MonthlyCmv"
     WHERE "competenceYear" = ${year}
@@ -704,7 +709,25 @@ export async function getMonthlyCmv(year: number, month: number) {
     cmvPercent,
     estimatedGrossMargin,
     status: saved?.status ?? "OPEN",
-    saved
+    saved,
+    views: {
+      accounting: {
+        key: "accounting",
+        label: "Visao atual",
+        purchasesValue: purchases,
+        realCmvValue: realCmv,
+        cmvPercent,
+        estimatedGrossMargin,
+      },
+      managerial: {
+        key: "managerial",
+        label: "Visao gerencial",
+        purchasesValue: managerialPurchases,
+        realCmvValue: managerialRealCmv,
+        cmvPercent: managerialCmvPercent,
+        estimatedGrossMargin: managerialEstimatedGrossMargin,
+      },
+    }
   };
 }
 
@@ -723,14 +746,11 @@ async function snapshotValue(year: number, month: number, type: InventorySnapsho
 }
 
 async function purchaseValue(year: number, month: number) {
-  const [row] = await prisma.$queryRaw<Array<{ total: Prisma.Decimal | null }>>`
-    SELECT COALESCE(SUM("totalAmount"), 0) AS "total"
-    FROM "Purchase"
-    WHERE "competenceYear" = ${year}
-      AND "competenceMonth" = ${month}
-      AND "status" <> 'CANCELLED'
-  `;
-  return Number(row?.total ?? 0);
+  return getCmvPurchaseTotalByCompetenceMonth(year, month);
+}
+
+async function purchaseValueByVision(year: number, month: number, mode: CmvVisionKey) {
+  return getCmvPurchaseTotalByCompetenceMonth(year, month, mode);
 }
 
 async function revenueValue(year: number, month: number) {

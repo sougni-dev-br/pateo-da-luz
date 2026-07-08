@@ -3,6 +3,12 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { createCmvRealPdf } from "./cmv-real-pdf.js";
 import { auditLog } from "../security/security-utils.js";
+import {
+  type CmvVisionKey,
+  getCmvPurchaseByCategoryByCompetenceRange,
+  getCmvPurchaseBySupplierByCompetenceRange,
+  getCmvPurchaseTotalsByCompetenceRange,
+} from "./cmv-purchase-base.service.js";
 
 type CmvPeriodStatus = "OPEN" | "CLOSED";
 
@@ -187,6 +193,25 @@ export type CmvPeriodSummary = {
   observacoes: string | null;
   createdAt: string;
   updatedAt: string;
+  views: CmvVisionMap;
+};
+
+export type CmvCalculationView = {
+  key: CmvVisionKey;
+  label: string;
+  comprasTotal: number;
+  purchasesCount: number;
+  faturamentoTotal: number;
+  estoqueInicialTotal: number;
+  estoqueFinalTotal: number;
+  cmvReal: number;
+  cmvPercentual: number | null;
+  margemBruta: number | null;
+};
+
+export type CmvVisionMap = {
+  accounting: CmvCalculationView;
+  managerial: CmvCalculationView;
 };
 
 export type CmvPeriodDetail = CmvPeriodSummary & {
@@ -199,24 +224,43 @@ export type CmvPeriodDetail = CmvPeriodSummary & {
   purchaseByCategory: Array<{ categoryName: string; totalAmount: number; itemsCount: number }>;
   purchaseBySupplier: Array<{ supplierId: string; supplierName: string; supplierDocument: string | null; totalAmount: number; purchasesCount: number }>;
   revenueByChannel: Array<{ channel: string; grossAmount: number; netAmount: number; count: number }>;
+  viewDetails: Record<CmvVisionKey, {
+    purchasesGrossTotal: number;
+    purchasesCount: number;
+    purchaseByCategory: Array<{ categoryName: string; totalAmount: number; itemsCount: number }>;
+    purchaseBySupplier: Array<{ supplierId: string; supplierName: string; supplierDocument: string | null; totalAmount: number; purchasesCount: number }>;
+  }>;
 };
 
-type CmvComputation = {
+type CmvVisionComputation = {
+  key: CmvVisionKey;
+  label: string;
   comprasTotal: number;
   purchasesCount: number;
-  faturamentoTotal: number;
-  revenueGrossTotal: number;
-  revenueServiceTotal: number;
-  revenueNetTotal: number;
-  revenueDaysCount: number;
   estoqueInicialTotal: number;
   estoqueFinalTotal: number;
+  faturamentoTotal: number;
   cmvReal: number;
   cmvPercentual: number | null;
   margemBruta: number | null;
   purchaseByCategory: CmvPeriodDetail["purchaseByCategory"];
   purchaseBySupplier: CmvPeriodDetail["purchaseBySupplier"];
+};
+
+type CmvComputation = {
+  accounting: CmvVisionComputation;
+  managerial: CmvVisionComputation;
+  faturamentoTotal: number;
+  revenueGrossTotal: number;
+  revenueServiceTotal: number;
+  revenueNetTotal: number;
+  revenueDaysCount: number;
   revenueByChannel: CmvPeriodDetail["revenueByChannel"];
+};
+
+const CMV_VIEW_LABELS: Record<CmvVisionKey, string> = {
+  accounting: "Visao atual",
+  managerial: "Visao gerencial",
 };
 
 function toDateKey(value: Date) {
@@ -286,25 +330,8 @@ async function ensureSnapshotMatchesDate(snapshotId: string, expectedDate: Date,
   return snapshot;
 }
 
-async function purchaseTotals(startDate: Date, endDate: Date) {
-  const startYear = startDate.getFullYear();
-  const startMonth = startDate.getMonth() + 1;
-  const endYear = endDate.getFullYear();
-  const endMonth = endDate.getMonth() + 1;
-  const [row] = await prisma.$queryRaw<Array<PurchaseTotalRow>>`
-    SELECT COALESCE(SUM("totalAmount"), 0) AS "totalAmount",
-           COUNT(*) AS "purchasesCount"
-    FROM "Purchase"
-    WHERE "status" <> 'CANCELLED'
-      AND MAKE_DATE("competenceYear", "competenceMonth", 1)
-          >= MAKE_DATE(${startYear}::int, ${startMonth}::int, 1)
-      AND MAKE_DATE("competenceYear", "competenceMonth", 1)
-          <= MAKE_DATE(${endYear}::int, ${endMonth}::int, 1)
-  `;
-  return {
-    total: toNumber(row?.totalAmount),
-    count: toNumber(row?.purchasesCount)
-  };
+async function purchaseTotals(startDate: Date, endDate: Date, mode: CmvVisionKey) {
+  return getCmvPurchaseTotalsByCompetenceRange(startDate, endDate, mode);
 }
 
 async function revenueTotals(startDate: Date, endDate: Date) {
@@ -335,66 +362,12 @@ async function inventoryTotal(snapshotId: string) {
   };
 }
 
-async function purchaseByCategory(startDate: Date, endDate: Date) {
-  const startYear = startDate.getFullYear();
-  const startMonth = startDate.getMonth() + 1;
-  const endYear = endDate.getFullYear();
-  const endMonth = endDate.getMonth() + 1;
-  const rows = await prisma.$queryRaw<Array<CategoryBreakdownRow>>`
-    SELECT
-      COALESCE(c."name", pi."rawCategory", 'Sem categoria') AS "categoryName",
-      COALESCE(SUM(pi."totalPrice"), 0) AS "totalAmount",
-      COUNT(*) AS "itemsCount"
-    FROM "Purchase" p
-    JOIN "PurchaseItem" pi ON pi."purchaseId" = p."id"
-    LEFT JOIN "Product" pr ON pr."id" = pi."productId"
-    LEFT JOIN "Category" c ON c."id" = pr."categoryId"
-    WHERE p."status" <> 'CANCELLED'
-      AND MAKE_DATE(p."competenceYear", p."competenceMonth", 1)
-          >= MAKE_DATE(${startYear}::int, ${startMonth}::int, 1)
-      AND MAKE_DATE(p."competenceYear", p."competenceMonth", 1)
-          <= MAKE_DATE(${endYear}::int, ${endMonth}::int, 1)
-    GROUP BY COALESCE(c."name", pi."rawCategory", 'Sem categoria')
-    ORDER BY COALESCE(SUM(pi."totalPrice"), 0) DESC
-    LIMIT 20
-  `;
-  return rows.map((row) => ({
-    categoryName: String(row.categoryName ?? "Sem categoria"),
-    totalAmount: toNumber(row.totalAmount),
-    itemsCount: toNumber(row.itemsCount)
-  }));
+async function purchaseByCategory(startDate: Date, endDate: Date, mode: CmvVisionKey) {
+  return getCmvPurchaseByCategoryByCompetenceRange(startDate, endDate, mode);
 }
 
-async function purchaseBySupplier(startDate: Date, endDate: Date) {
-  const startYear = startDate.getFullYear();
-  const startMonth = startDate.getMonth() + 1;
-  const endYear = endDate.getFullYear();
-  const endMonth = endDate.getMonth() + 1;
-  const rows = await prisma.$queryRaw<Array<SupplierBreakdownRow>>`
-    SELECT
-      s."id" AS "supplierId",
-      s."name" AS "supplierName",
-      s."document" AS "supplierDocument",
-      COALESCE(SUM(p."totalAmount"), 0) AS "totalAmount",
-      COUNT(*) AS "purchasesCount"
-    FROM "Purchase" p
-    JOIN "Supplier" s ON s."id" = p."supplierId"
-    WHERE p."status" <> 'CANCELLED'
-      AND MAKE_DATE(p."competenceYear", p."competenceMonth", 1)
-          >= MAKE_DATE(${startYear}::int, ${startMonth}::int, 1)
-      AND MAKE_DATE(p."competenceYear", p."competenceMonth", 1)
-          <= MAKE_DATE(${endYear}::int, ${endMonth}::int, 1)
-    GROUP BY s."id", s."name", s."document"
-    ORDER BY COALESCE(SUM(p."totalAmount"), 0) DESC
-    LIMIT 20
-  `;
-  return rows.map((row) => ({
-    supplierId: row.supplierId,
-    supplierName: row.supplierName,
-    supplierDocument: row.supplierDocument,
-    totalAmount: toNumber(row.totalAmount),
-    purchasesCount: toNumber(row.purchasesCount)
-  }));
+async function purchaseBySupplier(startDate: Date, endDate: Date, mode: CmvVisionKey) {
+  return getCmvPurchaseBySupplierByCompetenceRange(startDate, endDate, mode);
 }
 
 async function revenueByChannel(startDate: Date, endDate: Date) {
@@ -422,35 +395,50 @@ async function revenueByChannel(startDate: Date, endDate: Date) {
 }
 
 async function computePeriod(startDate: Date, endDate: Date, initialSnapshotId: string, finalSnapshotId: string): Promise<CmvComputation> {
-  const [initialSnapshot, finalSnapshot, purchasesTotal, revenue, categories, suppliers, channels] = await Promise.all([
+  const [initialSnapshot, finalSnapshot, revenue, channels, accountingTotals, accountingCategories, accountingSuppliers, managerialTotals, managerialCategories, managerialSuppliers] = await Promise.all([
     inventoryTotal(initialSnapshotId),
     inventoryTotal(finalSnapshotId),
-    purchaseTotals(startDate, endDate),
     revenueTotals(startDate, endDate),
-    purchaseByCategory(startDate, endDate),
-    purchaseBySupplier(startDate, endDate),
-    revenueByChannel(startDate, endDate)
+    revenueByChannel(startDate, endDate),
+    purchaseTotals(startDate, endDate, "accounting"),
+    purchaseByCategory(startDate, endDate, "accounting"),
+    purchaseBySupplier(startDate, endDate, "accounting"),
+    purchaseTotals(startDate, endDate, "managerial"),
+    purchaseByCategory(startDate, endDate, "managerial"),
+    purchaseBySupplier(startDate, endDate, "managerial"),
   ]);
 
-  const cmvReal = initialSnapshot.value + purchasesTotal.total - finalSnapshot.value;
-  const cmvPercentual = revenue.net > 0 ? cmvReal / revenue.net : null;
-  const margemBruta = revenue.net - cmvReal;
+  function buildVision(mode: CmvVisionKey, purchasesTotal: Awaited<ReturnType<typeof purchaseTotals>>, categories: Awaited<ReturnType<typeof purchaseByCategory>>, suppliers: Awaited<ReturnType<typeof purchaseBySupplier>>): CmvVisionComputation {
+    const cmvReal = initialSnapshot.value + purchasesTotal.total - finalSnapshot.value;
+    const cmvPercentual = revenue.net > 0 ? cmvReal / revenue.net : null;
+    const margemBruta = revenue.net - cmvReal;
+    return {
+      key: mode,
+      label: CMV_VIEW_LABELS[mode],
+      comprasTotal: purchasesTotal.total,
+      purchasesCount: purchasesTotal.count,
+      faturamentoTotal: revenue.net,
+      estoqueInicialTotal: initialSnapshot.value,
+      estoqueFinalTotal: finalSnapshot.value,
+      cmvReal,
+      cmvPercentual,
+      margemBruta,
+      purchaseByCategory: categories,
+      purchaseBySupplier: suppliers,
+    };
+  }
+
+  const accounting = buildVision("accounting", accountingTotals, accountingCategories, accountingSuppliers);
+  const managerial = buildVision("managerial", managerialTotals, managerialCategories, managerialSuppliers);
 
   return {
-    comprasTotal: purchasesTotal.total,
-    purchasesCount: purchasesTotal.count,
+    accounting,
+    managerial,
     faturamentoTotal: revenue.net,
     revenueGrossTotal: revenue.gross,
     revenueServiceTotal: revenue.service,
     revenueNetTotal: revenue.net,
     revenueDaysCount: revenue.daysCount,
-    estoqueInicialTotal: initialSnapshot.value,
-    estoqueFinalTotal: finalSnapshot.value,
-    cmvReal,
-    cmvPercentual,
-    margemBruta,
-    purchaseByCategory: categories,
-    purchaseBySupplier: suppliers,
     revenueByChannel: channels
   };
 }
@@ -487,20 +475,50 @@ function mapRow(row: CmvPeriodRow): CmvPeriodSummary {
     motivoReabertura: row.motivoReabertura,
     observacoes: row.observacoes,
     createdAt: toLocalDate(row.createdAt).toISOString(),
-    updatedAt: toLocalDate(row.updatedAt).toISOString()
+    updatedAt: toLocalDate(row.updatedAt).toISOString(),
+    views: {
+      accounting: {
+        key: "accounting",
+        label: CMV_VIEW_LABELS.accounting,
+        comprasTotal: 0,
+        purchasesCount: 0,
+        faturamentoTotal: 0,
+        estoqueInicialTotal: 0,
+        estoqueFinalTotal: 0,
+        cmvReal: 0,
+        cmvPercentual: null,
+        margemBruta: null,
+      },
+      managerial: {
+        key: "managerial",
+        label: CMV_VIEW_LABELS.managerial,
+        comprasTotal: 0,
+        purchasesCount: 0,
+        faturamentoTotal: 0,
+        estoqueInicialTotal: 0,
+        estoqueFinalTotal: 0,
+        cmvReal: 0,
+        cmvPercentual: null,
+        margemBruta: null,
+      },
+    }
   };
 }
 
 function applyComputation(period: CmvPeriodSummary, computation: CmvComputation): CmvPeriodSummary {
   return {
     ...period,
-    comprasTotal: computation.comprasTotal,
+    comprasTotal: computation.accounting.comprasTotal,
     faturamentoTotal: computation.faturamentoTotal,
-    estoqueInicialTotal: computation.estoqueInicialTotal,
-    estoqueFinalTotal: computation.estoqueFinalTotal,
-    cmvReal: computation.cmvReal,
-    cmvPercentual: computation.cmvPercentual,
-    margemBruta: computation.margemBruta
+    estoqueInicialTotal: computation.accounting.estoqueInicialTotal,
+    estoqueFinalTotal: computation.accounting.estoqueFinalTotal,
+    cmvReal: computation.accounting.cmvReal,
+    cmvPercentual: computation.accounting.cmvPercentual,
+    margemBruta: computation.accounting.margemBruta,
+    views: {
+      accounting: computation.accounting,
+      managerial: computation.managerial,
+    }
   };
 }
 
@@ -622,6 +640,7 @@ async function validatePeriodContinuity(input: CmvPeriodInput) {
 
 async function persistPeriod(input: CmvPeriodInput, status: CmvPeriodStatus, closedFields?: { fechadoPor?: string | null; fechadoEm?: Date | null }) {
   const computation = await computePeriod(input.dataInicial, input.dataFinal, input.estoqueInicialSnapshotId, input.estoqueFinalSnapshotId);
+  const accounting = computation.accounting;
   const id = input.id ?? crypto.randomUUID();
   const current = input.id ? await loadPeriodRow(input.id).catch(() => null) : null;
   const code = current?.code ?? await nextCmvPeriodCode(input.dataInicial);
@@ -641,9 +660,9 @@ async function persistPeriod(input: CmvPeriodInput, status: CmvPeriodStatus, clo
       ${id}, ${code}, ${name}, ${input.dataInicial}, ${input.dataFinal},
       ${input.estoqueInicialSnapshotId}, ${input.estoqueFinalSnapshotId},
       ${inicialSessionId}, ${finalSessionId},
-      ${computation.comprasTotal},
-      ${computation.faturamentoTotal}, ${computation.estoqueInicialTotal}, ${computation.estoqueFinalTotal},
-      ${computation.cmvReal}, ${computation.cmvPercentual}, ${computation.margemBruta}, CAST(${status} AS "CmvPeriodStatus"),
+      ${accounting.comprasTotal},
+      ${computation.faturamentoTotal}, ${accounting.estoqueInicialTotal}, ${accounting.estoqueFinalTotal},
+      ${accounting.cmvReal}, ${accounting.cmvPercentual}, ${accounting.margemBruta}, CAST(${status} AS "CmvPeriodStatus"),
       ${closedFields?.fechadoPor ?? null}, ${closedFields?.fechadoEm ?? null}, ${input.observacoes ?? null}, CURRENT_TIMESTAMP
     )
     ON CONFLICT ("id") DO UPDATE SET
@@ -1121,15 +1140,29 @@ export async function getCmvPeriod(id: string) {
   const [period, computation] = await Promise.all([Promise.resolve(mapRow(row)), computePeriod(row.dataInicial, row.dataFinal, row.estoqueInicialSnapshotId ?? "", row.estoqueFinalSnapshotId ?? "")]);
   return {
     ...applyComputation(period, computation),
-    purchasesGrossTotal: computation.comprasTotal,
-    purchasesCount: computation.purchasesCount,
+    purchasesGrossTotal: computation.accounting.comprasTotal,
+    purchasesCount: computation.accounting.purchasesCount,
     revenueGrossTotal: computation.revenueGrossTotal,
     revenueServiceTotal: computation.revenueServiceTotal,
     revenueNetTotal: computation.revenueNetTotal,
     revenueDaysCount: computation.revenueDaysCount,
-    purchaseByCategory: computation.purchaseByCategory,
-    purchaseBySupplier: computation.purchaseBySupplier,
-    revenueByChannel: computation.revenueByChannel
+    purchaseByCategory: computation.accounting.purchaseByCategory,
+    purchaseBySupplier: computation.accounting.purchaseBySupplier,
+    revenueByChannel: computation.revenueByChannel,
+    viewDetails: {
+      accounting: {
+        purchasesGrossTotal: computation.accounting.comprasTotal,
+        purchasesCount: computation.accounting.purchasesCount,
+        purchaseByCategory: computation.accounting.purchaseByCategory,
+        purchaseBySupplier: computation.accounting.purchaseBySupplier,
+      },
+      managerial: {
+        purchasesGrossTotal: computation.managerial.comprasTotal,
+        purchasesCount: computation.managerial.purchasesCount,
+        purchaseByCategory: computation.managerial.purchaseByCategory,
+        purchaseBySupplier: computation.managerial.purchaseBySupplier,
+      },
+    }
   } satisfies CmvPeriodDetail;
 }
 

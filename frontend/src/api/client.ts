@@ -594,6 +594,24 @@ export type MonthlyCmv = {
   cmvPercent: number | null;
   estimatedGrossMargin: number | null;
   status: string;
+  views: {
+    accounting: {
+      key: "accounting";
+      label: string;
+      purchasesValue: number;
+      realCmvValue: number;
+      cmvPercent: number | null;
+      estimatedGrossMargin: number | null;
+    };
+    managerial: {
+      key: "managerial";
+      label: string;
+      purchasesValue: number;
+      realCmvValue: number;
+      cmvPercent: number | null;
+      estimatedGrossMargin: number | null;
+    };
+  };
 };
 
 export type RevenueImportPreview = {
@@ -761,6 +779,32 @@ export type CmvPeriod = {
   observacoes: string | null;
   createdAt: string;
   updatedAt: string;
+  views: {
+    accounting: {
+      key: "accounting";
+      label: string;
+      comprasTotal: number;
+      purchasesCount: number;
+      faturamentoTotal: number;
+      estoqueInicialTotal: number;
+      estoqueFinalTotal: number;
+      cmvReal: number;
+      cmvPercentual: number | null;
+      margemBruta: number | null;
+    };
+    managerial: {
+      key: "managerial";
+      label: string;
+      comprasTotal: number;
+      purchasesCount: number;
+      faturamentoTotal: number;
+      estoqueInicialTotal: number;
+      estoqueFinalTotal: number;
+      cmvReal: number;
+      cmvPercentual: number | null;
+      margemBruta: number | null;
+    };
+  };
 };
 
 export type CmvPeriodDetail = CmvPeriod & {
@@ -773,6 +817,20 @@ export type CmvPeriodDetail = CmvPeriod & {
   purchaseByCategory: Array<{ categoryName: string; totalAmount: number; itemsCount: number }>;
   purchaseBySupplier: Array<{ supplierId: string; supplierName: string; supplierDocument: string | null; totalAmount: number; purchasesCount: number }>;
   revenueByChannel: Array<{ channel: string; grossAmount: number; netAmount: number; count: number }>;
+  viewDetails: {
+    accounting: {
+      purchasesGrossTotal: number;
+      purchasesCount: number;
+      purchaseByCategory: Array<{ categoryName: string; totalAmount: number; itemsCount: number }>;
+      purchaseBySupplier: Array<{ supplierId: string; supplierName: string; supplierDocument: string | null; totalAmount: number; purchasesCount: number }>;
+    };
+    managerial: {
+      purchasesGrossTotal: number;
+      purchasesCount: number;
+      purchaseByCategory: Array<{ categoryName: string; totalAmount: number; itemsCount: number }>;
+      purchaseBySupplier: Array<{ supplierId: string; supplierName: string; supplierDocument: string | null; totalAmount: number; purchasesCount: number }>;
+    };
+  };
 };
 
 export type CmvRealSuggestions = {
@@ -2416,6 +2474,10 @@ export type DashboardSummaryData = {
     status: "closed" | "pending" | "missing";
     value: number | null;
     percent: number | null;
+    views: {
+      accounting: MonthlyCmv["views"]["accounting"];
+      managerial: MonthlyCmv["views"]["managerial"];
+    };
   };
   estimatedResult: {
     value: number;
@@ -3790,6 +3852,30 @@ export type DRESummary = {
     cmvPercent: number | null;
     hasInventoryData: boolean;
     warning: string | null;
+    views: {
+      accounting: {
+        key: "accounting";
+        label: string;
+        compras: number;
+        cmvReal: number;
+        cmvPercent: number | null;
+        lucroBruto: number;
+        margemBruta: number | null;
+        ebitda: number;
+        ebitdaPercent: number | null;
+      };
+      managerial: {
+        key: "managerial";
+        label: string;
+        compras: number;
+        cmvReal: number;
+        cmvPercent: number | null;
+        lucroBruto: number;
+        margemBruta: number | null;
+        ebitda: number;
+        ebitdaPercent: number | null;
+      };
+    };
   };
   lucroBruto: number;
   margemBruta: number | null;

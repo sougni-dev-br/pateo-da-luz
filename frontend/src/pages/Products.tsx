@@ -470,7 +470,7 @@ export function Products() {
                 <article className={`stock-control-card ${form.controlsStock ? "is-enabled" : "is-disabled"}`}>
                   <div>
                     <strong>Controla estoque</strong>
-                    <p>{form.controlsStock ? "Participa de contagem, inventario e CMV." : "Fica fora da contagem operacional e nao alimenta CMV."}</p>
+                    <p>{form.controlsStock ? "Participa de contagem e inventario. A entrada no CMV depende da categoria DRE/CMV." : "Fica fora da contagem operacional. A entrada no CMV depende da categoria DRE/CMV."}</p>
                   </div>
                   <label className="switch-label">
                     <input
@@ -496,10 +496,10 @@ export function Products() {
             <section className="form-section">
               <div className="form-section-header">
                 <h3>Classificacao</h3>
-                <span>Setor, categoria e subcategoria definem contagem, inventario e CMV.</span>
+                <span>Setor, categoria e subcategoria definem contagem, inventario e a leitura contábil do CMV.</span>
               </div>
               <div className="alert info">
-                Setor, categoria e subcategoria impactam a contagem setorial, os inventarios oficiais e a leitura do CMV. "Sem setor" deve ser tratado como pendencia.
+                Setor, categoria e subcategoria impactam a contagem setorial, os inventarios oficiais e a leitura do CMV. A categoria DRE define se o item entra em CMV. "Sem setor" deve ser tratado como pendencia.
               </div>
               {classificationPending && (
                 <div className="alert warning">
