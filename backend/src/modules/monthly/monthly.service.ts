@@ -6,6 +6,7 @@ import { normalizeHeader, normalizeText } from "../../shared/utils/normalize-tex
 import { parseDate } from "../../shared/utils/parse-date.js";
 import { parseMoney } from "../../shared/utils/parse-money.js";
 import { readWorksheetRows } from "../imports/excel-reader.service.js";
+import { assertNoClosedCmvPeriodForDate } from "../cmv-real/cmv-real.service.js";
 import { getCmvPurchaseTotalByCompetenceMonth, type CmvVisionKey } from "../cmv-real/cmv-purchase-base.service.js";
 
 type InventorySnapshotType = "INVENTARIO_INICIAL" | "INVENTARIO_FINAL" | "CONTAGEM_PARCIAL" | "AJUSTE";
@@ -407,6 +408,7 @@ export async function confirmInventorySnapshot(input: {
   userAgent?: string | null;
 }) {
   await ensureCompetenceOpen(input.competenceYear, input.competenceMonth);
+  await assertNoClosedCmvPeriodForDate(input.countDate, "Confirmacao de inventario oficial");
   if (input.allowOverwrite && input.userRole !== "ADMIN") {
     throw new Error("Apenas ADMIN pode substituir inventarios existentes.");
   }
@@ -640,11 +642,12 @@ export async function getInventorySnapshot(id: string) {
 }
 
 export async function undoInventorySnapshot(id: string, input: { reason: string; userId: string; ipAddress?: string | null; userAgent?: string | null }) {
-  const [snapshot] = await prisma.$queryRaw<Array<{ competenceYear: number; competenceMonth: number; status: string; type: string }>>`
-    SELECT "competenceYear", "competenceMonth", "status", "type"::text AS "type" FROM "InventorySnapshot" WHERE "id" = ${id}
+  const [snapshot] = await prisma.$queryRaw<Array<{ competenceYear: number; competenceMonth: number; status: string; type: string; countDate: Date }>>`
+    SELECT "competenceYear", "competenceMonth", "status", "type"::text AS "type", "countDate" FROM "InventorySnapshot" WHERE "id" = ${id}
   `;
   if (!snapshot) throw new Error("Inventario nao encontrado.");
   await ensureCompetenceOpen(snapshot.competenceYear, snapshot.competenceMonth);
+  await assertNoClosedCmvPeriodForDate(snapshot.countDate, "Desfazer inventario oficial");
   if (!input.reason.trim()) throw new Error("Motivo obrigatorio.");
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`

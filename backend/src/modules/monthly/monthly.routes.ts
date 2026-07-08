@@ -9,6 +9,7 @@ import { prisma } from "../../config/database.js";
 import { createCalendarDate, normalizeToCalendarDate } from "../../shared/utils/calendar-date.js";
 import { parseDate } from "../../shared/utils/parse-date.js";
 import { auditLog, requestIp, requireAdmin, requireRole } from "../security/security-utils.js";
+import { assertNoClosedCmvPeriodForDate } from "../cmv-real/cmv-real.service.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import {
   closeMonthlyCmv,
@@ -172,6 +173,10 @@ monthlyRouter.post("/revenue/import/confirm", async (request, response) => {
 
   const allowOverwrite = Boolean(request.body.allowOverwrite);
   const overwriteReason = text(request.body.overwriteReason);
+  await ensureCompetenceOpen(
+    numberParam(request.body.competenceYear, new Date().getFullYear()),
+    numberParam(request.body.competenceMonth, new Date().getMonth() + 1)
+  );
   if (allowOverwrite && !(user.role === "ADMIN" || await userHasPermission(user, "revenue", "admin"))) {
     response.status(403).json({ message: "Usuario sem permissao para sobrescrever faturamento existente." });
     return;
@@ -209,6 +214,14 @@ monthlyRouter.delete("/revenue/import/:importBatchId", async (request, response)
   const admin = await requireAdmin(request, response);
   if (!admin) return;
   try {
+    const [batch] = await prisma.$queryRaw<Array<{ competenceYear: number; competenceMonth: number }>>`
+      SELECT "competenceYear", "competenceMonth"
+      FROM "RevenueImportBatch"
+      WHERE "id" = ${request.params.importBatchId}
+      LIMIT 1
+    `;
+    if (!batch) throw new Error("Lote de importacao nao encontrado.");
+    await ensureCompetenceOpen(batch.competenceYear, batch.competenceMonth);
     response.json(await undoRevenueImportBatch(request.params.importBatchId, {
       userId: admin.id,
       ipAddress: requestIp(request),
@@ -383,6 +396,7 @@ monthlyRouter.post("/revenue", async (request, response) => {
     const competenceYear = numberParam(request.body.competenceYear, year);
     const competenceMonth = numberParam(request.body.competenceMonth, month);
     await ensureCompetenceOpen(competenceYear, competenceMonth);
+    await assertNoClosedCmvPeriodForDate(calendarDate, "Cadastro de faturamento");
     const grossAmount = numberParam(request.body.grossAmount, 0);
     const discounts = numberParam(request.body.discounts, 0);
     const platformFees = numberParam(request.body.platformFees, 0);
@@ -554,6 +568,7 @@ monthlyRouter.put("/revenue/:id", async (request, response) => {
       : numberParam(request.body.accumulatedAmount, 0);
     const date = parseDate(request.body.date) ?? parseDate(previous.date) ?? new Date();
     const calendarDate = createCalendarDate(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
+    await assertNoClosedCmvPeriodForDate(calendarDate, "Edicao de faturamento");
     await prisma.$executeRaw`
       UPDATE "RevenueEntry"
       SET "date" = ${calendarDate},
@@ -613,6 +628,10 @@ monthlyRouter.delete("/revenue/:id", async (request, response) => {
     const [previous] = await prisma.$queryRaw<Array<Record<string, unknown>>>`SELECT * FROM "RevenueEntry" WHERE "id" = ${request.params.id}`;
     if (!previous) throw new Error("Faturamento nao encontrado.");
     await ensureCompetenceOpen(Number(previous.competenceYear), Number(previous.competenceMonth));
+    const previousDate = parseDate(previous.date);
+    if (previousDate) {
+      await assertNoClosedCmvPeriodForDate(previousDate, "Cancelamento de faturamento");
+    }
     const reason = String(request.body.reason ?? "").trim();
     if (!reason) throw new Error("Motivo obrigatorio.");
     await prisma.$executeRaw`

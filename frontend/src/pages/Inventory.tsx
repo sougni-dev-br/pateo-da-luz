@@ -170,6 +170,9 @@ export function Inventory({
   const [editingOperationalNoteId, setEditingOperationalNoteId] = useState<string | null>(null);
   const [operationalForm, setOperationalForm] = useState({
     date: new Date().toISOString().slice(0, 10),
+    effectiveCountDate: new Date().toISOString().slice(0, 10),
+    startedAt: "",
+    finishedAt: "",
     type: "GERAL" as OperationalInventoryType,
     sectorId: "",
     notes: ""
@@ -222,6 +225,13 @@ export function Inventory({
   const [approvingFinalCmv, setApprovingFinalCmv] = useState(false);
   const { notice, setNotice } = useNotice();
   const navigate = useNavigate();
+
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return "-";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString("pt-BR");
+  };
 
   const selectedAgenda = useMemo(
     () => agenda?.items.find((item) => item.id === selectedAgendaId) ?? null,
@@ -1133,6 +1143,9 @@ export function Inventory({
       const sector = sectors.find((item) => item.id === operationalForm.sectorId);
       const created = await createOperationalInventory({
         date: operationalForm.date,
+        effectiveCountDate: operationalForm.effectiveCountDate || operationalForm.date,
+        startedAt: operationalForm.startedAt ? new Date(operationalForm.startedAt).toISOString() : null,
+        finishedAt: operationalForm.finishedAt ? new Date(operationalForm.finishedAt).toISOString() : null,
         type: operationalForm.type,
         sectorId: operationalForm.type === "SETORIAL" ? operationalForm.sectorId || null : null,
         sectorName: operationalForm.type === "SETORIAL" ? sector?.name ?? null : null,
@@ -2494,12 +2507,15 @@ export function Inventory({
               </div>
               <div className="filters-row">
                 <label>Data<input type="date" value={operationalForm.date} onChange={(event) => setOperationalForm({ ...operationalForm, date: event.target.value })} /></label>
+                <label>Data efetiva<input type="date" value={operationalForm.effectiveCountDate} onChange={(event) => setOperationalForm({ ...operationalForm, effectiveCountDate: event.target.value })} /></label>
                 <label>Tipo<select value={operationalForm.type} onChange={(event) => setOperationalForm({ ...operationalForm, type: event.target.value as OperationalInventoryType })}>
                   <option value="GERAL">Geral</option>
                   <option value="SETORIAL">Setorial</option>
                   <option value="FINAL_CMV">Final CMV</option>
                   <option value="CONFERENCIA">Conferencia</option>
                 </select></label>
+                <label>Início real<input type="datetime-local" value={operationalForm.startedAt} onChange={(event) => setOperationalForm({ ...operationalForm, startedAt: event.target.value })} /></label>
+                <label>Fim real<input type="datetime-local" value={operationalForm.finishedAt} onChange={(event) => setOperationalForm({ ...operationalForm, finishedAt: event.target.value })} /></label>
                 {operationalForm.type === "SETORIAL" && (
                   <label>Setor<select value={operationalForm.sectorId} onChange={(event) => setOperationalForm({ ...operationalForm, sectorId: event.target.value })}>
                     <option value="">Selecione</option>
@@ -2722,7 +2738,7 @@ export function Inventory({
           <div ref={operationalDetailRef} className="subsection operational-count-panel scroll-target">
             <div className="section-heading">
               <div>
-                <p>{operationalDetail.code} • {formatDate(operationalDetail.date)} • {operationalTypeLabels[operationalDetail.type]}</p>
+                <p>{operationalDetail.code} • Referência {formatDate(operationalDetail.date)} • Efetiva {formatDate(operationalDetail.effectiveCountDate ?? operationalDetail.date)} • {operationalTypeLabels[operationalDetail.type]}</p>
                 <h3 tabIndex={-1} data-autofocus title={operationalDetail.name}>{operationalDetail.name}</h3>
               </div>
               <div className="op-detail-head-actions">
@@ -2744,6 +2760,9 @@ export function Inventory({
               <article><span>Contados</span><strong>{formatNumber(operationalDetail.countedItems)}</strong></article>
               <article><span>Pendentes</span><strong>{formatNumber(operationalDetail.pendingItems)}</strong></article>
               <article><span>Divergentes</span><strong>{formatNumber(operationalDetail.divergentItems)}</strong></article>
+              <article><span>Data efetiva</span><strong>{formatDate(operationalDetail.effectiveCountDate ?? operationalDetail.date)}</strong></article>
+              <article><span>Início real</span><strong>{formatDateTime(operationalDetail.startedAt)}</strong></article>
+              <article><span>Fim real</span><strong>{formatDateTime(operationalDetail.finishedAt)}</strong></article>
             </div>
 
             {operationalDetail.type === "FINAL_CMV" && operationalDetail.status === "RASCUNHO" && (() => {
@@ -2864,7 +2883,7 @@ export function Inventory({
                   <div><span>Tipo</span><strong>Inventário Final CMV</strong></div>
                   <div><span>Origem</span><strong>Sistema</strong></div>
                   <div><span>Itens</span><strong>{formatNumber(operationalDetail.totalItems)}</strong></div>
-                  <div><span>Status</span><strong>Aprovado</strong></div>
+                  <div><span>Data efetiva</span><strong>{formatDate(operationalDetail.effectiveCountDate ?? operationalDetail.date)}</strong></div>
                 </div>
                 <div className="cmv-snapshot-panel__actions">
                   {operationalDetail.status === "APROVADO" && (

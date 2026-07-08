@@ -32,6 +32,28 @@ function todayInput() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function nextDateKey(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return value;
+  const next = new Date(year, month - 1, day);
+  next.setDate(next.getDate() + 1);
+  return next.toISOString().slice(0, 10);
+}
+
+function parseCalendarDate(value: string | null | undefined) {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day);
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleString("pt-BR");
+}
+
 const PT_MONTHS_SHORT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
 function shortMonthPt(month: number, year: number) {
@@ -49,8 +71,8 @@ function stockBaseTypeLabel(base: StockBase): string {
     }
   }
   switch (base.inventoryType) {
-    case "INVENTARIO_FINAL": return "Inventário final";
-    case "INVENTARIO_INICIAL": return "Inventário inicial";
+    case "INVENTARIO_FINAL": return "Inventario final";
+    case "INVENTARIO_INICIAL": return "Inventario inicial";
     default: return base.inventoryType;
   }
 }
@@ -64,9 +86,9 @@ function StockBaseCard({ base }: { base: StockBase }) {
     <div className="stock-base-card">
       <div className="stock-base-card__row">
         {base.sourceType === "SESSION" && (
-          <span><span className="stock-base-card__label">Código:</span> {base.code}</span>
+          <span><span className="stock-base-card__label">Codigo:</span> {base.code}</span>
         )}
-        {month && <span><span className="stock-base-card__label">Competência:</span> {month}</span>}
+        {month && <span><span className="stock-base-card__label">Competencia:</span> {month}</span>}
         <span><span className="stock-base-card__label">Tipo:</span> {typeLabel}</span>
         <span><span className="stock-base-card__label">Itens:</span> {base.totalItems}</span>
         <span><span className="stock-base-card__label">Origem:</span> {originLabel}</span>
@@ -114,10 +136,10 @@ function statusToneClass(status: string): StatusTone {
 }
 
 function classifyCmv(percentual: number | null | undefined) {
-  if (percentual == null) return { label: "Sem cálculo", tone: "tone-neutral" };
+  if (percentual == null) return { label: "Sem calculo", tone: "tone-neutral" };
   if (percentual <= 0.3) return { label: "Bom", tone: "tone-success" };
-  if (percentual <= 0.35) return { label: "Atenção", tone: "tone-warning" };
-  return { label: "Crítico", tone: "tone-danger" };
+  if (percentual <= 0.35) return { label: "Atencao", tone: "tone-warning" };
+  return { label: "Critico", tone: "tone-danger" };
 }
 
 // pt-BR: virgula decimal. Aceita fracao (0-1) e multiplica por 100 internamente.
@@ -165,10 +187,30 @@ function EmptyTableRow({ colSpan, message }: { colSpan: number; message: string 
   );
 }
 
+function hasInconsistentBases(period: Pick<CmvPeriod, "dataInicial" | "dataFinal" | "estoqueInicialSnapshotData" | "estoqueFinalSnapshotData">) {
+  const initialCountDate = parseCalendarDate(period.estoqueInicialSnapshotData);
+  const finalCountDate = parseCalendarDate(period.estoqueFinalSnapshotData);
+  const periodStart = parseCalendarDate(period.dataInicial);
+  const periodEnd = parseCalendarDate(period.dataFinal);
+
+  const initialAfterFinal = Boolean(
+    initialCountDate && finalCountDate && initialCountDate.getTime() > finalCountDate.getTime()
+  );
+  const initialOutsidePeriod = Boolean(
+    initialCountDate && periodEnd && initialCountDate.getTime() > periodEnd.getTime()
+  );
+  const finalOutsidePeriod = Boolean(
+    finalCountDate && periodStart && finalCountDate.getTime() < periodStart.getTime()
+  );
+
+  return initialAfterFinal || initialOutsidePeriod || finalOutsidePeriod;
+}
+
 function CmvPeriodMobileCard({
   period,
   isSelected,
   isDuplicate,
+  isInconsistent,
   isAdmin,
   onOpen,
   onPdf,
@@ -177,6 +219,7 @@ function CmvPeriodMobileCard({
   period: CmvPeriod;
   isSelected: boolean;
   isDuplicate: boolean;
+  isInconsistent: boolean;
   isAdmin: boolean;
   onOpen: (period: CmvPeriod) => void;
   onPdf: (period: CmvPeriod) => void;
@@ -185,11 +228,11 @@ function CmvPeriodMobileCard({
   return (
     <article className={`cmv-mobile-card${isSelected ? " selected-row" : ""}`}>
       <div className="cmv-mobile-row">
-        <span>Período</span>
+        <span>Periodo</span>
         <strong>{formatDate(period.dataInicial)} - {formatDate(period.dataFinal)}</strong>
       </div>
       <div className="cmv-mobile-row">
-        <span>Código</span>
+        <span>Codigo</span>
         <span>{period.code ?? "-"}</span>
       </div>
       <div className="cmv-mobile-row">
@@ -224,6 +267,12 @@ function CmvPeriodMobileCard({
         <div className="cmv-mobile-row">
           <span>Alerta</span>
           <span className="status-pill warning">Duplicada</span>
+        </div>
+      ) : null}
+      {isInconsistent ? (
+        <div className="cmv-mobile-row">
+          <span>Alerta</span>
+          <span className="status-pill warning">Bases inconsistentes</span>
         </div>
       ) : null}
       <div className="cmv-mobile-actions">
@@ -290,6 +339,30 @@ export function CmvReal({ user }: { user: AppUser }) {
     () => cmvBases.find((b) => (b.sourceType === "SNAPSHOT" ? `SNAPSHOT:${b.id}` : b.id) === finalDropdownValue) ?? null,
     [cmvBases, finalDropdownValue]
   );
+  const periodConsistency = useMemo(() => {
+    if (!selectedPeriod) return null;
+    const initialCountDate = parseCalendarDate(selectedPeriod.estoqueInicialSnapshotData);
+    const finalCountDate = parseCalendarDate(selectedPeriod.estoqueFinalSnapshotData);
+    const periodStart = parseCalendarDate(selectedPeriod.dataInicial);
+    const periodEnd = parseCalendarDate(selectedPeriod.dataFinal);
+
+    const initialAfterFinal = Boolean(
+      initialCountDate && finalCountDate && initialCountDate.getTime() > finalCountDate.getTime()
+    );
+    const initialOutsidePeriod = Boolean(
+      initialCountDate && periodEnd && initialCountDate.getTime() > periodEnd.getTime()
+    );
+    const finalOutsidePeriod = Boolean(
+      finalCountDate && periodStart && finalCountDate.getTime() < periodStart.getTime()
+    );
+
+    return {
+      initialAfterFinal,
+      initialOutsidePeriod,
+      finalOutsidePeriod,
+      hasIssue: initialAfterFinal || initialOutsidePeriod || finalOutsidePeriod
+    };
+  }, [selectedPeriod]);
 
   const duplicatePeriodKeys = useMemo(() => {
     const counts = new Map<string, number>();
@@ -338,7 +411,7 @@ export function CmvReal({ user }: { user: AppUser }) {
       dataInicial: startDate,
       dataFinal: startDate,
       estoqueInicialSessionId: nextSuggestions?.suggestedInitialSessionId ?? "",
-      estoqueInicialSnapshotId: "",
+      estoqueInicialSnapshotId: nextSuggestions?.suggestedInitialSnapshotId ?? "",
       estoqueFinalSessionId: "",
       estoqueFinalSnapshotId: options?.estoqueFinalSnapshotId ?? "",
       observacoes: ""
@@ -405,7 +478,7 @@ export function CmvReal({ user }: { user: AppUser }) {
       setContinuityLocked(false);
       applyPeriodToForm(data);
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao abrir apuração." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao abrir apuracao." });
     }
   }, [applyPeriodToForm, setNotice]);
 
@@ -442,13 +515,19 @@ export function CmvReal({ user }: { user: AppUser }) {
     setSaving(true);
     try {
       let continuityOverrideReason: string | null = null;
+      const suggestedInitialSessionId = suggestions?.suggestedInitialSessionId ?? "";
+      const suggestedInitialSnapshotId = suggestions?.suggestedInitialSnapshotId ?? "";
       const changingSuggestedContinuity = !selectedId
         && suggestions?.continuityLocked
-        && (form.dataInicial !== suggestions.suggestedStartDate || form.estoqueInicialSessionId !== (suggestions.suggestedInitialSessionId ?? "") || !!form.estoqueInicialSnapshotId);
+        && (
+          form.dataInicial !== suggestions.suggestedStartDate
+          || form.estoqueInicialSessionId !== suggestedInitialSessionId
+          || form.estoqueInicialSnapshotId !== suggestedInitialSnapshotId
+        );
       if (isAdmin && changingSuggestedContinuity) {
-        const reason = window.prompt("Informe o motivo para alterar a continuidade da apuração:");
+        const reason = window.prompt("Informe o motivo para alterar a continuidade da apuracao:");
         if (!reason?.trim()) {
-          setNotice({ tone: "warning", message: "Motivo obrigatório para alterar a continuidade." });
+          setNotice({ tone: "warning", message: "Motivo obrigatorio para alterar a continuidade." });
           return;
         }
         continuityOverrideReason = reason.trim();
@@ -465,13 +544,13 @@ export function CmvReal({ user }: { user: AppUser }) {
         observacoes: form.observacoes,
         continuityOverrideReason
       });
-      setNotice({ tone: "success", message: selectedId ? "Apuração atualizada com sucesso." : "Apuração criada com sucesso." });
+      setNotice({ tone: "success", message: selectedId ? "Apuracao atualizada com sucesso." : "Apuracao criada com sucesso." });
       setSelectedId(saved.id);
       rememberCmvPeriod(saved);
       setDetail(saved);
       await load(saved.id);
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao salvar apuração." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao salvar apuracao." });
     } finally {
       setSaving(false);
     }
@@ -494,10 +573,10 @@ export function CmvReal({ user }: { user: AppUser }) {
     try {
       const updated = await closeCmvPeriod(selectedId);
       setDetail(updated);
-      setNotice({ tone: "success", message: "Apuração fechada com sucesso." });
+      setNotice({ tone: "success", message: "Apuracao fechada com sucesso." });
       await load(selectedId);
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao fechar apuração." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao fechar apuracao." });
     }
   }
 
@@ -508,10 +587,10 @@ export function CmvReal({ user }: { user: AppUser }) {
     try {
       const updated = await reopenCmvPeriod(selectedId, reason);
       setDetail(updated);
-      setNotice({ tone: "success", message: "Apuração reaberta com sucesso." });
+      setNotice({ tone: "success", message: "Apuracao reaberta com sucesso." });
       await load(selectedId);
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao reabrir apuração." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao reabrir apuracao." });
     }
   }
 
@@ -519,13 +598,13 @@ export function CmvReal({ user }: { user: AppUser }) {
     if (!isAdmin) return;
     const isDuplicate = duplicatePeriodKeys.has(periodKey(period));
     const warning = period.status === "CLOSED"
-      ? "Esta apuração está fechada. A exclusão exige motivo e pode afetar o encadeamento com o próximo período."
-      : "A exclusão pode afetar o encadeamento com o próximo período se houver apuração vinculada.";
-    let reason: string | null = isDuplicate ? "Exclusão de apuração duplicada" : null;
+      ? "Esta apuracao esta fechada. A exclusao exige motivo e pode afetar o encadeamento com o proximo periodo."
+      : "A exclusao pode afetar o encadeamento com o proximo periodo se houver apuracao vinculada.";
+    let reason: string | null = isDuplicate ? "Exclusao de apuracao duplicada" : null;
     if (period.status === "CLOSED") {
-      const typedReason = window.prompt(`${warning}\n\nDigite o motivo da exclusão:`);
+      const typedReason = window.prompt(`${warning}\n\nDigite o motivo da exclusao:`);
       if (!typedReason?.trim()) {
-        setNotice({ tone: "warning", message: "Motivo obrigatório para excluir apuração fechada." });
+        setNotice({ tone: "warning", message: "Motivo obrigatorio para excluir apuracao fechada." });
         return;
       }
       reason = typedReason.trim();
@@ -545,13 +624,13 @@ export function CmvReal({ user }: { user: AppUser }) {
       setNotice({
         tone: "success",
         message: result.linkedNextPeriods > 0
-          ? "Apuração excluída. Havia período seguinte vinculado, revise a continuidade."
-          : "Apuração excluída com AuditLog registrado."
+          ? "Apuracao excluida. Havia periodo seguinte vinculado, revise a continuidade."
+          : "Apuracao excluida com AuditLog registrado."
       });
       setDeleteDialog(null);
       await load(null);
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao excluir apuração." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao excluir apuracao." });
     }
   }
 
@@ -570,16 +649,16 @@ export function CmvReal({ user }: { user: AppUser }) {
       <Notice notice={notice} />
       <ConfirmDialog
         open={Boolean(deleteDialog)}
-        title="Excluir apuração de CMV?"
+        title="Excluir apuracao de CMV?"
         tone="danger"
-        confirmLabel="Excluir apuração"
+        confirmLabel="Excluir apuracao"
         description={deleteDialog ? (
           <div className="stack compact-stack">
             <p>
-              Período: <strong>{formatDate(deleteDialog.period.dataInicial)} a {formatDate(deleteDialog.period.dataFinal)}</strong>
+              Periodo: <strong>{formatDate(deleteDialog.period.dataInicial)} a {formatDate(deleteDialog.period.dataFinal)}</strong>
             </p>
             <p>Status: <strong>{formatStatusLabel(deleteDialog.period.status)}</strong></p>
-            <p>Esta ação registra auditoria e pode afetar a continuidade se houver período seguinte vinculado.</p>
+            <p>Esta acao registra auditoria e pode afetar a continuidade se houver periodo seguinte vinculado.</p>
           </div>
         ) : null}
         onCancel={() => setDeleteDialog(null)}
@@ -589,11 +668,11 @@ export function CmvReal({ user }: { user: AppUser }) {
       <section className="panel">
         <SectionHeader
           eyebrow="Lista"
-          title="Períodos apurados"
+          title="Periodos apurados"
           actions={(
             <>
               {canEdit && (
-                <Button leadingIcon={<Plus size={16} />} onClick={() => startNewPeriod()}>Nova apuração</Button>
+                <Button leadingIcon={<Plus size={16} />} onClick={() => startNewPeriod()}>Nova apuracao</Button>
               )}
               <IconButton icon={<RefreshCw size={16} className={loading ? "spin" : ""} />} label="Atualizar CMV Real" onClick={() => load()} />
             </>
@@ -603,9 +682,9 @@ export function CmvReal({ user }: { user: AppUser }) {
         <div className="summary-grid dashboard-compact-grid">
           <article className="summary-card compact-summary-card">
             <div>
-              <span>Apurações cadastradas</span>
+              <span>Apuracoes cadastradas</span>
               <strong>{periodStats.total}</strong>
-              <small>Lista operacional do histórico de CMV.</small>
+              <small>Lista operacional do historico de CMV.</small>
             </div>
             <FileText className="summary-card-icon" size={20} />
           </article>
@@ -613,7 +692,7 @@ export function CmvReal({ user }: { user: AppUser }) {
             <div>
               <span>Abertas</span>
               <strong>{periodStats.open}</strong>
-              <small>Períodos ainda passíveis de cálculo e fechamento.</small>
+              <small>Periodos ainda passiveis de calculo e fechamento.</small>
             </div>
             <AlertTriangle className="summary-card-icon" size={20} />
           </article>
@@ -621,7 +700,7 @@ export function CmvReal({ user }: { user: AppUser }) {
             <div>
               <span>Fechadas</span>
               <strong>{periodStats.closed}</strong>
-              <small>Períodos concluídos e prontos para consulta.</small>
+              <small>Periodos concluidos e prontos para consulta.</small>
             </div>
             <CheckCircle2 className="summary-card-icon" size={20} />
           </article>
@@ -629,7 +708,7 @@ export function CmvReal({ user }: { user: AppUser }) {
             <div>
               <span>Duplicidades</span>
               <strong>{periodStats.duplicates}</strong>
-              <small>Exigem revisão antes de consolidar a análise.</small>
+              <small>Exigem revisao antes de consolidar a analise.</small>
             </div>
             <RefreshCw className="summary-card-icon" size={20} />
           </article>
@@ -640,21 +719,32 @@ export function CmvReal({ user }: { user: AppUser }) {
           <div className="alert warning compact-alert">
             <AlertTriangle className="alert-icon" size={18} />
             <div>
-              <strong>Apuração duplicada encontrada.</strong>
+              <strong>Apuracao duplicada encontrada.</strong>
               <span>
-                {duplicatePeriods.length} registros compartilham o mesmo período. Exclua a duplicada somente após conferir a continuidade.
+                {duplicatePeriods.length} registros compartilham o mesmo periodo. Exclua a duplicada somente apos conferir a continuidade.
               </span>
             </div>
           </div>
         )}
 
+        <div className="alert info compact-alert">
+          <FileText className="alert-icon" size={18} />
+          <div>
+            <strong>Regra operacional do periodo.</strong>
+            <span>
+              O inventario final de uma apuracao vira o inventario inicial da proxima na mesma data de contagem.
+              Compras e faturamento entram apenas entre as contagens: depois da data inicial e ate a data final.
+            </span>
+          </div>
+        </div>
+
         <div className="form-grid subsection">
           <label>
-            Código
-            <input className="locked-field" title="Código gerado automaticamente pelo sistema" value={form.code || "Gerado ao salvar"} readOnly />
+            Codigo
+            <input className="locked-field" title="Codigo gerado automaticamente pelo sistema" value={form.code || "Gerado ao salvar"} readOnly />
           </label>
           <label>
-            Nome da apuração
+            Nome da apuracao
             <input
               value={form.name || defaultPeriodName(form.dataInicial, form.dataFinal)}
               readOnly={Boolean(selectedId && selectedPeriod?.status === "CLOSED")}
@@ -670,7 +760,7 @@ export function CmvReal({ user }: { user: AppUser }) {
               type="date"
               value={form.dataInicial}
               disabled={!selectedId && continuityLocked && !isAdmin}
-              title={!selectedId && continuityLocked ? "Data herdada da última apuração fechada/cadastrada" : form.dataInicial}
+              title={!selectedId && continuityLocked ? "Data herdada da ultima apuracao fechada/cadastrada" : form.dataInicial}
               onChange={(event) => setForm((current) => {
                 const newStart = event.target.value;
                 const autoName = defaultPeriodName(current.dataInicial, current.dataFinal);
@@ -771,7 +861,7 @@ export function CmvReal({ user }: { user: AppUser }) {
                 ) : (
                   <>
                     <span style={{ color: "var(--error, #c62828)", fontWeight: 600 }}>
-                      Base incompleta: {finalSessionCoverage.coveredTotal}/{finalSessionCoverage.expectedTotal} produtos cobertos. {finalSessionCoverage.missingTotal} sem contagem — salvar bloqueado.
+                      Base incompleta: {finalSessionCoverage.coveredTotal}/{finalSessionCoverage.expectedTotal} produtos cobertos. {finalSessionCoverage.missingTotal} sem contagem - salvar bloqueado.
                     </span>
                     {finalSessionCoverage.missingSectors.length > 0 && (
                       <div style={{ marginTop: 4 }}>Setores ausentes: <strong>{finalSessionCoverage.missingSectors.join(", ")}</strong></div>
@@ -782,14 +872,14 @@ export function CmvReal({ user }: { user: AppUser }) {
             )}
           </label>
           <label className="full-width">
-            Observações
+            Observacoes
             <input title={form.observacoes} value={form.observacoes} onChange={(event) => setForm({ ...form, observacoes: event.target.value })} />
           </label>
         </div>
 
         {!selectedId && continuityLocked && suggestions?.latestPeriod && (
           <p className="muted-inline subsection compact-note">
-            Próxima apuração sugerida: {formatDate(suggestions.suggestedStartDate)}. O inventário final do período anterior será usado como inventário inicial quando aplicável.
+            Proxima apuracao sugerida: {formatDate(suggestions.suggestedStartDate)}. O inventario final do periodo anterior sera usado como inventario inicial na mesma data da nova abertura.
           </p>
         )}
 
@@ -801,7 +891,7 @@ export function CmvReal({ user }: { user: AppUser }) {
               onClick={handleSave}
               disabled={saving || checkingCoverage || (finalSessionCoverage != null && !finalSessionCoverage.isComplete)}
             >
-              <Save size={16} /> {selectedId ? "Atualizar apuração" : "Criar apuração"}
+              <Save size={16} /> {selectedId ? "Atualizar apuracao" : "Criar apuracao"}
             </button>
             <button className="secondary-button" type="button" onClick={handleCalculate} disabled={!selectedId}>
               <FileText size={16} /> Calcular
@@ -823,14 +913,14 @@ export function CmvReal({ user }: { user: AppUser }) {
 
       <div className="cmv-workspace-grid">
         <section className="panel">
-          <SectionHeader eyebrow="Resumo" title="Apurações cadastradas" />
+          <SectionHeader eyebrow="Resumo" title="Apuracoes cadastradas" />
 
           <div className="table-wrap subsection cmv-desktop-table operational-table">
             <table>
               <thead>
                 <tr>
-                  <th>Período</th>
-                  <th>Código</th>
+                  <th>Periodo</th>
+                  <th>Codigo</th>
                   <th className="numeric-cell">Estoque inicial</th>
                   <th className="numeric-cell">Compras</th>
                   <th className="numeric-cell">Estoque final</th>
@@ -838,7 +928,7 @@ export function CmvReal({ user }: { user: AppUser }) {
                   <th className="numeric-cell">Faturamento</th>
                   <th className="numeric-cell">CMV %</th>
                   <th>Status</th>
-                  <th>Ações</th>
+                  <th>Acoes</th>
                 </tr>
               </thead>
               <tbody>
@@ -848,6 +938,7 @@ export function CmvReal({ user }: { user: AppUser }) {
                       <strong>{formatDate(period.dataInicial)} - {formatDate(period.dataFinal)}</strong>
                       <small>{period.name}</small>
                       {duplicatePeriodKeys.has(periodKey(period)) && <span className="status-pill warning">Duplicada</span>}
+                      {hasInconsistentBases(period) && <span className="status-pill warning">Bases inconsistentes</span>}
                     </td>
                     <td className="nowrap-cell">{period.code ?? "-"}</td>
                     <td className="numeric-cell nowrap-cell"><Money value={period.estoqueInicialTotal} /></td>
@@ -866,7 +957,7 @@ export function CmvReal({ user }: { user: AppUser }) {
                           <Download size={14} /> PDF
                         </button>
                         {isAdmin && (
-                          <button className="danger-icon-button" type="button" title="Excluir apuração" onClick={() => handleDelete(period)}>
+                          <button className="danger-icon-button" type="button" title="Excluir apuracao" onClick={() => handleDelete(period)}>
                             <Trash2 size={14} />
                           </button>
                         )}
@@ -874,7 +965,7 @@ export function CmvReal({ user }: { user: AppUser }) {
                     </td>
                   </tr>
                 ))}
-                {periods.length === 0 && <EmptyTableRow colSpan={10} message="Nenhuma apuração cadastrada." />}
+                {periods.length === 0 && <EmptyTableRow colSpan={10} message="Nenhuma apuracao cadastrada." />}
               </tbody>
             </table>
           </div>
@@ -886,22 +977,41 @@ export function CmvReal({ user }: { user: AppUser }) {
                 period={period}
                 isSelected={period.id === selectedId}
                 isDuplicate={duplicatePeriodKeys.has(periodKey(period))}
+                isInconsistent={hasInconsistentBases(period)}
                 isAdmin={isAdmin}
                 onOpen={openPeriod}
                 onPdf={(row) => handlePdf(row.id)}
                 onDelete={handleDelete}
               />
             ))}
-            {periods.length === 0 && <div className="alert warning">Nenhuma apuração cadastrada.</div>}
+            {periods.length === 0 && <div className="alert warning">Nenhuma apuracao cadastrada.</div>}
           </div>
         </section>
 
         {selectedPeriod && (
           <section className="panel scroll-target" ref={detailRef}>
             <SectionHeader eyebrow="Detalhe" title={selectedPeriod.name} />
+            {periodConsistency?.hasIssue ? (
+              <div className="alert warning compact-alert subsection">
+                <AlertTriangle className="alert-icon" size={18} />
+                <div>
+                  <strong>Periodo com continuidade inconsistente.</strong>
+                  <span>
+                    {periodConsistency.initialAfterFinal
+                      ? "A base inicial esta com data posterior a base final."
+                      : "As datas das bases de estoque nao batem com a janela do periodo."} Revise este CMV antes do fechamento.
+                  </span>
+                </div>
+              </div>
+            ) : null}
             <div className="summary-grid dashboard-compact-grid cmv-detail-grid">
-              <MetricCard label="Código" value={selectedPeriod.code ?? "-"} />
-              <MetricCard label="Período" value={`${formatDate(selectedPeriod.dataInicial)} a ${formatDate(selectedPeriod.dataFinal)}`} />
+              <MetricCard label="Codigo" value={selectedPeriod.code ?? "-"} />
+              <MetricCard label="Periodo" value={`${formatDate(selectedPeriod.dataInicial)} a ${formatDate(selectedPeriod.dataFinal)}`} />
+              <MetricCard
+                label="Movimentos considerados"
+                value={`${formatDate(nextDateKey(selectedPeriod.dataInicial))} a ${formatDate(selectedPeriod.dataFinal)}`}
+                detail="Compras e faturamento entre as contagens"
+              />
               <MetricCard label="Status" value={<StatusBadge status={selectedPeriod.status} />} />
               <MetricCard label="CMV %" value={formatPercent(selectedPeriod.cmvPercentual)} className={`cmv-highlight-card ${cmvHealth.tone}`} detail={cmvHealth.label} />
               <MetricCard label="Margem bruta" value={<Money value={selectedPeriod.margemBruta} />} className="cmv-highlight-card tone-info" />
@@ -913,7 +1023,34 @@ export function CmvReal({ user }: { user: AppUser }) {
             </div>
 
             <div className="subsection">
-              <h3>Visões do cálculo</h3>
+              <h3>Rastreabilidade</h3>
+              <div className="summary-grid dashboard-compact-grid financial-summary cmv-detail-grid">
+                <MetricCard
+                  label="Base inicial"
+                  value={selectedPeriod.estoqueInicialSessionCode ?? "Inventario oficial"}
+                  detail={selectedPeriod.estoqueInicialSnapshotData ? `Data da contagem: ${formatDate(selectedPeriod.estoqueInicialSnapshotData)}` : undefined}
+                />
+                <MetricCard
+                  label="Base final"
+                  value={selectedPeriod.estoqueFinalSessionCode ?? "Inventario oficial"}
+                  detail={selectedPeriod.estoqueFinalSnapshotData ? `Data da contagem: ${formatDate(selectedPeriod.estoqueFinalSnapshotData)}` : undefined}
+                />
+                <MetricCard
+                  label="Fechado por"
+                  value={selectedPeriod.fechadoPorNome ?? "-"}
+                  detail={formatDateTime(selectedPeriod.fechadoEm)}
+                />
+                <MetricCard
+                  label="Reaberto por"
+                  value={selectedPeriod.reabertoPorNome ?? "-"}
+                  detail={formatDateTime(selectedPeriod.reabertoEm)}
+                />
+                <MetricCard label="Motivo da reabertura" value={selectedPeriod.motivoReabertura ?? "-"} />
+              </div>
+            </div>
+
+            <div className="subsection">
+              <h3>Visoes do calculo</h3>
               <div className="summary-grid dashboard-compact-grid financial-summary cmv-detail-grid">
                 <MetricCard label="CMV atual" value={<Money value={selectedPeriod.views.accounting.cmvReal} />} detail={selectedPeriod.views.accounting.label} className="cmv-highlight-card tone-info" />
                 <MetricCard label="Compras atuais" value={<Money value={selectedPeriod.views.accounting.comprasTotal} />} />
@@ -925,37 +1062,37 @@ export function CmvReal({ user }: { user: AppUser }) {
             </div>
 
             <div className="subsection">
-              <h3>Memória de cálculo (visão atual)</h3>
+              <h3>Memoria de calculo (visao atual)</h3>
               <div className="summary-grid dashboard-compact-grid financial-summary cmv-detail-grid">
-                <MetricCard label="Fórmula" value="Estoque inicial + Compras - Estoque final" />
+                <MetricCard label="Formula" value="Estoque inicial + Compras - Estoque final" />
                 <MetricCard
-                  label="Aplicação"
+                  label="Aplicacao"
                   value={<><Money value={selectedPeriod.estoqueInicialTotal} /> + <Money value={selectedPeriod.comprasTotal} /> - <Money value={selectedPeriod.estoqueFinalTotal} /></>}
                 />
                 <MetricCard label="Resultado" value={<Money value={selectedPeriod.cmvReal} />} />
                 <MetricCard label="CMV %" value={formatPercent(selectedPeriod.cmvPercentual)} detail={cmvHealth.label} />
-                <MetricCard label="Faturamento líquido" value={<Money value={selectedPeriod.faturamentoTotal} />} />
+                <MetricCard label="Faturamento liquido" value={<Money value={selectedPeriod.faturamentoTotal} />} />
                 <MetricCard label="Compras consideradas" value={<Money value={detail?.purchasesGrossTotal ?? selectedPeriod.comprasTotal} />} detail={`${detail?.purchasesCount ?? 0} compras`} />
                 <MetricCard label="Dias com faturamento" value={detail?.revenueDaysCount ?? 0} />
                 <MetricCard label="Receita bruta" value={<Money value={detail?.revenueGrossTotal ?? 0} />} />
-                <MetricCard label="Serviço" value={<Money value={detail?.revenueServiceTotal ?? 0} />} />
-                <MetricCard label="Receita líquida" value={<Money value={detail?.revenueNetTotal ?? selectedPeriod.faturamentoTotal} />} />
-                <MetricCard label="Inventário inicial" value={selectedPeriod.estoqueInicialSnapshotData ? formatDate(selectedPeriod.estoqueInicialSnapshotData) : "-"} />
-                <MetricCard label="Inventário final" value={selectedPeriod.estoqueFinalSnapshotData ? formatDate(selectedPeriod.estoqueFinalSnapshotData) : "-"} />
+                <MetricCard label="Servico" value={<Money value={detail?.revenueServiceTotal ?? 0} />} />
+                <MetricCard label="Receita liquida" value={<Money value={detail?.revenueNetTotal ?? selectedPeriod.faturamentoTotal} />} />
+                <MetricCard label="Inventario inicial" value={selectedPeriod.estoqueInicialSnapshotData ? formatDate(selectedPeriod.estoqueInicialSnapshotData) : "-"} />
+                <MetricCard label="Inventario final" value={selectedPeriod.estoqueFinalSnapshotData ? formatDate(selectedPeriod.estoqueFinalSnapshotData) : "-"} />
               </div>
             </div>
 
             <div className="subsection">
-              <h3>Memória de cálculo (visão gerencial)</h3>
+              <h3>Memoria de calculo (visao gerencial)</h3>
               <div className="summary-grid dashboard-compact-grid financial-summary cmv-detail-grid">
-                <MetricCard label="Fórmula" value="Estoque inicial + Compras - Estoque final" />
+                <MetricCard label="Formula" value="Estoque inicial + Compras - Estoque final" />
                 <MetricCard
-                  label="Aplicação"
+                  label="Aplicacao"
                   value={<><Money value={selectedPeriod.views.managerial.estoqueInicialTotal} /> + <Money value={selectedPeriod.views.managerial.comprasTotal} /> - <Money value={selectedPeriod.views.managerial.estoqueFinalTotal} /></>}
                 />
                 <MetricCard label="Resultado" value={<Money value={selectedPeriod.views.managerial.cmvReal} />} />
                 <MetricCard label="CMV %" value={formatPercent(selectedPeriod.views.managerial.cmvPercentual)} />
-                <MetricCard label="Faturamento líquido" value={<Money value={selectedPeriod.views.managerial.faturamentoTotal} />} />
+                <MetricCard label="Faturamento liquido" value={<Money value={selectedPeriod.views.managerial.faturamentoTotal} />} />
                 <MetricCard label="Compras consideradas" value={<Money value={detail?.viewDetails.managerial.purchasesGrossTotal ?? selectedPeriod.views.managerial.comprasTotal} />} detail={`${detail?.viewDetails.managerial.purchasesCount ?? 0} compras`} />
               </div>
             </div>
@@ -964,7 +1101,7 @@ export function CmvReal({ user }: { user: AppUser }) {
               <h3>Compras por categoria</h3>
               <div className="table-wrap operational-table cmv-analysis-table">
                 <table>
-                  <thead><tr><th>Rank</th><th>Categoria</th><th className="numeric-cell">Itens</th><th className="numeric-cell">Participação</th><th className="numeric-cell">Total</th></tr></thead>
+                  <thead><tr><th>Rank</th><th>Categoria</th><th className="numeric-cell">Itens</th><th className="numeric-cell">Participacao</th><th className="numeric-cell">Total</th></tr></thead>
                   <tbody>
                     {detail?.purchaseByCategory.map((row, index) => (
                       <tr key={row.categoryName} className={index < 3 ? "ranking-row" : ""}>
@@ -982,10 +1119,10 @@ export function CmvReal({ user }: { user: AppUser }) {
             </div>
 
             <div className="subsection">
-              <h3>Compras por categoria (visão gerencial)</h3>
+              <h3>Compras por categoria (visao gerencial)</h3>
               <div className="table-wrap operational-table cmv-analysis-table">
                 <table>
-                  <thead><tr><th>Rank</th><th>Categoria</th><th className="numeric-cell">Itens</th><th className="numeric-cell">Participação</th><th className="numeric-cell">Total</th></tr></thead>
+                  <thead><tr><th>Rank</th><th>Categoria</th><th className="numeric-cell">Itens</th><th className="numeric-cell">Participacao</th><th className="numeric-cell">Total</th></tr></thead>
                   <tbody>
                     {detail?.viewDetails.managerial.purchaseByCategory.map((row, index) => (
                       <tr key={`${row.categoryName}-managerial`} className={index < 3 ? "ranking-row" : ""}>
@@ -1006,7 +1143,7 @@ export function CmvReal({ user }: { user: AppUser }) {
               <h3>Compras por fornecedor</h3>
               <div className="table-wrap operational-table cmv-analysis-table">
                 <table>
-                  <thead><tr><th>Rank</th><th>Fornecedor</th><th>Documento</th><th className="numeric-cell">Pedidos</th><th className="numeric-cell">Participação</th><th className="numeric-cell">Total</th></tr></thead>
+                  <thead><tr><th>Rank</th><th>Fornecedor</th><th>Documento</th><th className="numeric-cell">Pedidos</th><th className="numeric-cell">Participacao</th><th className="numeric-cell">Total</th></tr></thead>
                   <tbody>
                     {detail?.purchaseBySupplier.map((row, index) => (
                       <tr key={row.supplierId} className={index < 3 ? "ranking-row" : ""}>
@@ -1028,7 +1165,7 @@ export function CmvReal({ user }: { user: AppUser }) {
               <h3>Faturamento por canal</h3>
               <div className="table-wrap operational-table cmv-analysis-table">
                 <table>
-                  <thead><tr><th>Canal</th><th className="numeric-cell">Qtd.</th><th className="numeric-cell">Participação</th><th className="numeric-cell">Bruto</th><th className="numeric-cell">Líquido</th></tr></thead>
+                  <thead><tr><th>Canal</th><th className="numeric-cell">Qtd.</th><th className="numeric-cell">Participacao</th><th className="numeric-cell">Bruto</th><th className="numeric-cell">Liquido</th></tr></thead>
                   <tbody>
                     {detail?.revenueByChannel.map((row, index) => (
                       <tr key={row.channel} className={index === 0 ? "ranking-row" : ""}>
