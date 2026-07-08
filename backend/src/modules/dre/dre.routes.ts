@@ -3,7 +3,7 @@ import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { auditLog, requireRole } from "../security/security-utils.js";
-import { createDrePdf } from "./dre-pdf.js";
+import { createDrePdf, type DreSummary } from "./dre-pdf.js";
 import {
   getCmvPurchaseTotalByPurchaseDateRange,
   type CmvVisionKey,
@@ -153,8 +153,11 @@ function expensePredicateByMode(mode: CmvVisionKey) {
     : Prisma.sql`COALESCE(dc."dreGroup", '') <> 'CMV_COMPRAS'`;
 }
 
-function buildExpenseGroups(expenses: Array<{ dreGroup: string; total: number } & Record<string, unknown>>) {
-  const groupMap: Record<string, { total: number; lines: typeof expenses }> = {};
+type ExpenseItem = DreSummary["expenses"][number];
+type ExpenseGroup = NonNullable<DreSummary["expenseGroups"]>[number];
+
+function buildExpenseGroups(expenses: ExpenseItem[]): ExpenseGroup[] {
+  const groupMap: Record<string, { total: number; lines: ExpenseItem[] }> = {};
   for (const exp of expenses) {
     const groupKey = exp.dreGroup;
     if (!groupMap[groupKey]) groupMap[groupKey] = { total: 0, lines: [] };
@@ -447,57 +450,11 @@ async function calcDRE(from: Date, to: Date) {
   const cmvReal = accountingView.cmvReal;
   const cmvPercent = accountingView.cmvPercent;
   const lucroBruto = accountingView.lucroBruto;
-
-  // Mesclar despesas de compras com impostos por categoria
-  const allExpenseRows = [...expenseRows, ...taxExpenseRows];
-  const expenseByCategory = new Map<string, { dreCategoryId: string | null; dreCategoryName: string; dreGroup: string; sortOrder: number; total: number; count: number }>();
-  for (const r of allExpenseRows) {
-    const key = r.dreCategory ?? "__none__";
-    const existing = expenseByCategory.get(key);
-    if (existing) {
-      existing.total += Number(r.total);
-      existing.count += Number(r.count);
-    } else {
-      expenseByCategory.set(key, {
-        dreCategoryId: r.dreCategory ?? null,
-        dreCategoryName: r.dreCategoryName ?? "Não categorizadas",
-        dreGroup: r.dreGroup ?? "DESPESAS_OPERACIONAIS",
-        sortOrder: r.dreSortOrder ?? 999,
-        total: Number(r.total),
-        count: Number(r.count),
-      });
-    }
-  }
-  const expenses = Array.from(expenseByCategory.values()).sort((a, b) => a.sortOrder - b.sortOrder || a.dreCategoryName.localeCompare(b.dreCategoryName));
-
-  // Agrupa despesas por dreGroup preservando a ordem da planilha
-  const groupMap: Record<string, { total: number; lines: typeof expenses }> = {};
-  for (const exp of expenses) {
-    const g = exp.dreGroup;
-    if (!groupMap[g]) groupMap[g] = { total: 0, lines: [] };
-    groupMap[g].total += exp.total;
-    groupMap[g].lines.push(exp);
-  }
-  const expenseGroups = GROUP_META
-    .map((gm) => ({
-      key: gm.key,
-      label: gm.label,
-      sortOrder: gm.sortOrder,
-      total: groupMap[gm.key]?.total ?? 0,
-      lines: groupMap[gm.key]?.lines ?? []
-    }))
-    .filter((g) => g.lines.length > 0);
-
-  const totalExpenses = expenses.reduce((s, e) => s + e.total, 0);
-  const ebitda = lucroBruto - totalExpenses;
-  const ebitdaPercent = totalGross > 0 ? (ebitda / totalGross) * 100 : null;
-  const margemBruta = totalGross > 0 ? (lucroBruto / totalGross) * 100 : null;
-
-  // CMV: indica se há dados de inventário para cálculo real
+  // CMV: indica se ha dados de inventario para calculo real
   const hasInventoryData = estoqueInicial > 0 && estoqueFinal > 0;
   const cmvWarning = hasInventoryData
     ? null
-    : "CMV estimado: não há inventário inicial e final fechado para este período. O valor exibido considera compras do período, não consumo real.";
+    : "CMV estimado: nao ha inventario inicial e final fechado para este periodo. O valor exibido considera compras do periodo, nao consumo real.";
 
   return {
     period: { from: from.toISOString(), to: to.toISOString() },
@@ -525,12 +482,12 @@ async function calcDRE(from: Date, to: Date) {
       }
     },
     lucroBruto,
-    margemBruta,
-    expenses,
-    expenseGroups,
-    totalExpenses,
-    ebitda,
-    ebitdaPercent
+    margemBruta: accountingView.margemBruta,
+    expenses: accountingExpenseSummary.expenses,
+    expenseGroups: accountingExpenseSummary.expenseGroups,
+    totalExpenses: accountingExpenseSummary.totalExpenses,
+    ebitda: accountingView.ebitda,
+    ebitdaPercent: accountingView.ebitdaPercent
   };
 }
 
