@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Calendar, ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronUp, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { AppUser, getAgileSyncStatus, getRevenue, type AgileSyncStatus, type RevenueEntry, type RevenueSummary } from "../api/client";
 import { Alert, Money, PanelEyebrow, SummaryCard, Table, useFormatCurrency } from "../design-system";
 import { formatDate, formatNumber } from "../utils/format";
 import "./FaturamentoSalao.css";
 
-// Nova tela dedicada ao faturamento do salão vindo do Agile PDV via agente local.
-// A tela existente /financeiro/faturamento continua sendo a fonte principal de
-// edição manual — esta aqui é APENAS leitura, mostra o resultado da sincronização
-// automatizada e o status da última execução do agente.
+// Tela dedicada ao faturamento do salão vindo do Agile PDV via agente local.
+// Fluxo de filtro pensado para tomada de decisão do dono:
+//   1) Presets rápidos (chips): Este mês, Mês passado, Últimos 7, Últimos 30, Ontem, Hoje, Personalizado
+//   2) Range custom com 2 datepickers (só quando preset=custom)
+//   3) Dias da semana (multi-select): responde "como está o fim de semana?"
+//   4) Turno (Todos/Almoço/Jantar): responde "qual turno performa melhor?"
+//   5) Comparativo com mesmo período do mês anterior: mostra delta % em cada card
 
 type Props = {
   user: AppUser;
@@ -16,177 +19,482 @@ type Props = {
 
 const AGILE_PLATFORM = "AGILE_PDV";
 
-const MONTHS_PT = [
-  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+// Ordem BR: comeca na segunda, termina no domingo. Cada entrada guarda o
+// indice do JS (0=Dom, 1=Seg, ..., 6=Sab) para casar com getDay(). Manter
+// o valor JS torna o filtro consistente com o Date sem precisar de mapeamentos
+// espalhados pelo componente.
+const WEEKDAYS_BR: Array<{ label: string; jsDay: number }> = [
+  { label: "Seg", jsDay: 1 },
+  { label: "Ter", jsDay: 2 },
+  { label: "Qua", jsDay: 3 },
+  { label: "Qui", jsDay: 4 },
+  { label: "Sex", jsDay: 5 },
+  { label: "Sáb", jsDay: 6 },
+  { label: "Dom", jsDay: 0 }
+];
+const WEEKEND_DAYS = [5, 6, 0]; // sex+sáb+dom = "fim de semana" para restaurante
+const WEEKDAYS_DAYS = [1, 2, 3, 4]; // seg-qui = dias úteis
+
+type PresetKind =
+  | "monthCurrent"
+  | "monthPrevious"
+  | "last7"
+  | "last30"
+  | "yesterday"
+  | "today"
+  | "custom";
+
+const PRESETS: Array<{ id: PresetKind; label: string }> = [
+  { id: "monthCurrent", label: "Este mês" },
+  { id: "monthPrevious", label: "Mês passado" },
+  { id: "last30", label: "Últimos 30 dias" },
+  { id: "last7", label: "Últimos 7 dias" },
+  { id: "yesterday", label: "Ontem" },
+  { id: "today", label: "Hoje" },
+  { id: "custom", label: "Personalizado" }
 ];
 
-// Formato do <input type="month">: "YYYY-MM".
-function todayCompetence(now: Date): string {
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+type ShiftFilter = "all" | "PRIMEIRO" | "SEGUNDO";
+
+type FilterState = {
+  preset: PresetKind;
+  dateStart: string; // ISO YYYY-MM-DD
+  dateEnd: string;   // ISO YYYY-MM-DD
+  weekdays: number[]; // vazio = todos
+  shift: ShiftFilter;
+  compareToPrevious: boolean;
+};
+
+function isoDay(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function shiftCompetence(competence: string, deltaMonths: number): string {
-  const [y, m] = competence.split("-").map(Number);
-  const d = new Date(y, m - 1 + deltaMonths, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function firstOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function lastOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+// Traduz um preset em [dateStart, dateEnd]. Para "monthCurrent" o fim é
+// o dia atual (não o último dia do mês) porque o dono normalmente quer
+// "como estou indo até hoje neste mês".
+function presetRange(preset: PresetKind, now: Date, previous?: { dateStart: string; dateEnd: string }): { dateStart: string; dateEnd: string } {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = addDays(today, -1);
+  switch (preset) {
+    case "monthCurrent":
+      return { dateStart: isoDay(firstOfMonth(today)), dateEnd: isoDay(today) };
+    case "monthPrevious": {
+      const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      return { dateStart: isoDay(firstOfMonth(prev)), dateEnd: isoDay(lastOfMonth(prev)) };
+    }
+    case "last7":
+      return { dateStart: isoDay(addDays(today, -6)), dateEnd: isoDay(today) };
+    case "last30":
+      return { dateStart: isoDay(addDays(today, -29)), dateEnd: isoDay(today) };
+    case "yesterday":
+      return { dateStart: isoDay(yesterday), dateEnd: isoDay(yesterday) };
+    case "today":
+      return { dateStart: isoDay(today), dateEnd: isoDay(today) };
+    case "custom":
+      // Custom mantém o range atual — só entra em edição via datepickers.
+      return previous ?? { dateStart: isoDay(firstOfMonth(today)), dateEnd: isoDay(today) };
+  }
+}
+
+// Range de comparação: mesmo período do mês anterior. Ex.: [2026-07-01, 2026-07-08]
+// vira [2026-06-01, 2026-06-08]. Usa new Date(y, m-1, d) que normaliza
+// automaticamente meses com menos dias (ex.: 31/mar → 03/mar do "31/fev").
+function previousMonthRange(dateStart: string, dateEnd: string): { dateStart: string; dateEnd: string } {
+  const parse = (iso: string) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y, m - 2, d); // -2 porque m é 1-based e queremos -1 mês
+  };
+  const s = parse(dateStart);
+  const e = parse(dateEnd);
+  return { dateStart: isoDay(s), dateEnd: isoDay(e) };
+}
+
+// Rótulo humano do intervalo — "01/07/2026 → 08/07/2026" ou compacto quando
+// mesmo dia ("06/07/2026").
+function humanRangeLabel(dateStart: string, dateEnd: string): string {
+  if (dateStart === dateEnd) return formatDate(dateStart);
+  return `${formatDate(dateStart)} → ${formatDate(dateEnd)}`;
+}
+
+type Totals = {
+  gross: number;
+  net: number;
+  service: number;
+  tables: number;
+  people: number;
+  peopleReported: number;
+  entriesCount: number;
+  shift1: number;
+  shift2: number;
+  tables1: number;
+  tables2: number;
+  shift1Service: number;
+  shift2Service: number;
+  pix: number;
+  credit: number;
+  debit: number;
+  cash: number;
+  voucher: number;
+};
+
+function emptyTotals(): Totals {
+  return {
+    gross: 0, net: 0, service: 0, tables: 0, people: 0, peopleReported: 0, entriesCount: 0,
+    shift1: 0, shift2: 0, tables1: 0, tables2: 0, shift1Service: 0, shift2Service: 0,
+    pix: 0, credit: 0, debit: 0, cash: 0, voucher: 0
+  };
+}
+
+function computeTotals(entries: RevenueEntry[]): Totals {
+  return entries.reduce<Totals>((acc, e) => {
+    acc.gross += toNumber(e.grossAmount);
+    acc.net += toNumber(e.netAmount);
+    acc.service += toNumber(e.serviceAmount);
+    acc.tables += Number(e.tickets ?? 0);
+    acc.people += Number(e.peopleServed ?? 0);
+    acc.peopleReported += e.peopleServed != null ? 1 : 0;
+    acc.entriesCount += 1;
+    acc.shift1 += toNumber(e.salesFirstShift);
+    acc.shift2 += toNumber(e.salesSecondShift);
+    acc.tables1 += Number(e.ticketsFirstShift ?? 0);
+    acc.tables2 += Number(e.ticketsSecondShift ?? 0);
+    acc.shift1Service += toNumber(e.shift1Service);
+    acc.shift2Service += toNumber(e.shift2Service);
+    acc.pix += toNumber(e.pixAmount);
+    acc.credit += toNumber(e.creditAmount);
+    acc.debit += toNumber(e.debitAmount);
+    acc.cash += toNumber(e.cashAmount);
+    acc.voucher += toNumber(e.voucherAmount);
+    return acc;
+  }, emptyTotals());
+}
+
+// Retorna gross, tables e service ajustados pelo filtro de turno.
+// Se turno=all, usa totais do dia; se PRIMEIRO/SEGUNDO usa split.
+function withShiftView(t: Totals, shift: ShiftFilter): {
+  gross: number;
+  service: number;
+  tables: number;
+  netApprox: number;
+} {
+  if (shift === "PRIMEIRO") {
+    return { gross: t.shift1, service: t.shift1Service, tables: t.tables1, netApprox: t.shift1 - t.shift1Service };
+  }
+  if (shift === "SEGUNDO") {
+    return { gross: t.shift2, service: t.shift2Service, tables: t.tables2, netApprox: t.shift2 - t.shift2Service };
+  }
+  return { gross: t.gross, service: t.service, tables: t.tables, netApprox: t.net };
+}
+
+// Aplica filtro de dias da semana. Vazio = todos. O RevenueEntry.date vem
+// como ISO "YYYY-MM-DD" — usamos UTC pra não perder o dia por fuso horário.
+function filterByWeekdays(entries: RevenueEntry[], weekdays: number[]): RevenueEntry[] {
+  if (weekdays.length === 0) return entries;
+  const set = new Set(weekdays);
+  return entries.filter((e) => {
+    // e.date vem como ISO datetime "YYYY-MM-DDTHH:MM:SSZ" do backend — precisamos
+    // pegar apenas os 10 primeiros chars (a parte YYYY-MM-DD) para nao contaminar
+    // o parse com o "T12:00:00Z" que sobra.
+    const dateOnly = String(e.date).slice(0, 10);
+    const [y, m, d] = dateOnly.split("-").map(Number);
+    if (!y || !m || !d) return false;
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    return set.has(dow);
+  });
 }
 
 export function FaturamentoSalao({ user: _user }: Props) {
   const now = useMemo(() => new Date(), []);
-  const [competence, setCompetence] = useState<string>(() => todayCompetence(now));
+
+  // Default: mês corrente. Comparativo desligado.
+  const [filter, setFilter] = useState<FilterState>(() => {
+    const range = presetRange("monthCurrent", now);
+    return {
+      preset: "monthCurrent",
+      dateStart: range.dateStart,
+      dateEnd: range.dateEnd,
+      weekdays: [],
+      shift: "all",
+      compareToPrevious: false
+    };
+  });
 
   const [status, setStatus] = useState<AgileSyncStatus | null>(null);
   const [summary, setSummary] = useState<RevenueSummary | null>(null);
+  const [previousSummary, setPreviousSummary] = useState<RevenueSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Filtros avancados escondidos por padrao — o botao "Filtros" abre.
+  // Se o usuario ja modificou algum, comeca aberto para nao "sumir" o
+  // estado com que ele configurou anteriormente.
+  const [refineOpen, setRefineOpen] = useState(false);
   const formatCurrency = useFormatCurrency();
-  const monthInputRef = useRef<HTMLInputElement>(null);
-
-  const [yearPart, monthPart] = competence.split("-");
-  const yearParam = yearPart;
-  const monthParam = String(Number(monthPart));
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    Promise.all([
+    const promises: Array<Promise<unknown>> = [
       getAgileSyncStatus(controller.signal).catch(() => null),
-      getRevenue({ year: yearParam, month: monthParam, channel: "Salão" }, controller.signal).catch(() => null)
-    ])
-      .then(([statusResult, revenueResult]) => {
+      getRevenue({ year: "", month: "", startDate: filter.dateStart, endDate: filter.dateEnd, channel: "Salão" }, controller.signal).catch(() => null)
+    ];
+    if (filter.compareToPrevious) {
+      const prev = previousMonthRange(filter.dateStart, filter.dateEnd);
+      promises.push(
+        getRevenue({ year: "", month: "", startDate: prev.dateStart, endDate: prev.dateEnd, channel: "Salão" }, controller.signal).catch(() => null)
+      );
+    } else {
+      promises.push(Promise.resolve(null));
+    }
+    Promise.all(promises)
+      .then(([statusResult, revenueResult, prevResult]) => {
         if (controller.signal.aborted) return;
-        setStatus(statusResult);
-        setSummary(revenueResult);
+        setStatus(statusResult as AgileSyncStatus | null);
+        setSummary(revenueResult as RevenueSummary | null);
+        setPreviousSummary(prevResult as RevenueSummary | null);
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [yearParam, monthParam, refreshKey]);
+  }, [filter.dateStart, filter.dateEnd, filter.compareToPrevious, refreshKey]);
 
-  const agileEntries = useMemo(() => {
+  // Entries do PDV, filtradas por sourcePlatform e ordenadas por data.
+  const rawEntries = useMemo(() => {
     if (!summary) return [] as RevenueEntry[];
     return summary.entries
       .filter((e) => e.sourcePlatform === AGILE_PLATFORM && e.status === "ACTIVE")
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [summary]);
 
-  const totals = useMemo(() => {
-    return agileEntries.reduce(
-      (acc, e) => {
-        acc.gross += toNumber(e.grossAmount);
-        acc.net += toNumber(e.netAmount);
-        acc.service += toNumber(e.serviceAmount);
-        acc.tables += Number(e.tickets ?? 0); // 1 venda no CSV = 1 mesa atendida
-        acc.people += Number(e.peopleServed ?? 0);
-        acc.peopleReported += e.peopleServed != null ? 1 : 0;
-        acc.shift1 += toNumber(e.salesFirstShift);
-        acc.shift2 += toNumber(e.salesSecondShift);
-        acc.tables1 += Number(e.ticketsFirstShift ?? 0);
-        acc.tables2 += Number(e.ticketsSecondShift ?? 0);
-        acc.pix += toNumber(e.pixAmount);
-        acc.credit += toNumber(e.creditAmount);
-        acc.debit += toNumber(e.debitAmount);
-        acc.cash += toNumber(e.cashAmount);
-        acc.voucher += toNumber(e.voucherAmount);
-        return acc;
-      },
-      { gross: 0, net: 0, service: 0, tables: 0, people: 0, peopleReported: 0, shift1: 0, shift2: 0, tables1: 0, tables2: 0, pix: 0, credit: 0, debit: 0, cash: 0, voucher: 0 }
-    );
-  }, [agileEntries]);
+  const rawPreviousEntries = useMemo(() => {
+    if (!previousSummary) return [] as RevenueEntry[];
+    return previousSummary.entries
+      .filter((e) => e.sourcePlatform === AGILE_PLATFORM && e.status === "ACTIVE");
+  }, [previousSummary]);
 
-  const tmPorMesa = totals.tables > 0 ? totals.gross / totals.tables : 0;
-  const tmPorPessoa = totals.people > 0 ? totals.gross / totals.people : 0;
-  // Nem todo dia importado tem peopleServed (dados anteriores à migração
-  // ficam null). Sinalizamos isso pra evitar TM/pessoa enganoso.
-  const peopleDataComplete = totals.peopleReported === agileEntries.length;
-  const yesterday = agileEntries[agileEntries.length - 1] ?? null;
+  // Aplica filtro de dias da semana (mesmo pro comparativo).
+  const filteredEntries = useMemo(() => filterByWeekdays(rawEntries, filter.weekdays), [rawEntries, filter.weekdays]);
+  const filteredPreviousEntries = useMemo(() => filterByWeekdays(rawPreviousEntries, filter.weekdays), [rawPreviousEntries, filter.weekdays]);
 
-  const currentCompetence = todayCompetence(now);
-  const isCurrentMonth = competence === currentCompetence;
-  const daysInMonth = new Date(Number(yearParam), Number(monthParam), 0).getDate();
-  const daysConsidered = isCurrentMonth ? now.getDate() : daysInMonth;
-  const dailyAverage = daysConsidered > 0 ? totals.gross / daysConsidered : 0;
+  const totals = useMemo(() => computeTotals(filteredEntries), [filteredEntries]);
+  const previousTotals = useMemo(() => computeTotals(filteredPreviousEntries), [filteredPreviousEntries]);
+  const shiftView = withShiftView(totals, filter.shift);
+  const previousShiftView = withShiftView(previousTotals, filter.shift);
+
+  const tmPorMesa = shiftView.tables > 0 ? shiftView.gross / shiftView.tables : 0;
+  const tmPorPessoa = totals.people > 0 && filter.shift === "all" ? totals.gross / totals.people : 0;
+  const peopleDataComplete = totals.peopleReported === filteredEntries.length && filteredEntries.length > 0;
+  const yesterday = filteredEntries[filteredEntries.length - 1] ?? null;
 
   const pgtoTotal = totals.pix + totals.credit + totals.debit + totals.cash + totals.voucher;
-  const monthLabel = `${MONTHS_PT[Number(monthPart) - 1]} ${yearPart}`;
 
-  // Se conseguimos carregar dados mas o /status falhou, é um problema pontual
-  // do endpoint — não faz sentido gritar "nenhuma sync" com dados na tela.
-  const hasAnyData = agileEntries.length > 0;
+  const dailyAverage = filteredEntries.length > 0 ? shiftView.gross / filteredEntries.length : 0;
+  const rangeLabel = humanRangeLabel(filter.dateStart, filter.dateEnd);
+
+  const hasAnyData = filteredEntries.length > 0;
   const syncBanner = renderSyncBanner(status, now, hasAnyData);
+
+  // Helper de delta % — só renderiza quando compareToPrevious está ligado
+  // e o valor anterior é diferente de zero (evita divisão por zero).
+  function deltaDetail(current: number, previous: number, higherIsBetter = true): string | null {
+    if (!filter.compareToPrevious) return null;
+    if (previous === 0) return "sem base de comparação";
+    const pct = ((current - previous) / previous) * 100;
+    const sign = pct > 0 ? "+" : "";
+    const label = higherIsBetter
+      ? (pct >= 0 ? " ▲" : " ▼")
+      : (pct >= 0 ? " ▼" : " ▲");
+    return `${sign}${pct.toFixed(1)}%${label} vs mês anterior`;
+  }
+
+  function applyPreset(preset: PresetKind) {
+    const range = presetRange(preset, now, filter);
+    setFilter((f) => ({
+      ...f,
+      preset,
+      dateStart: range.dateStart,
+      dateEnd: range.dateEnd
+    }));
+  }
+
+  // Conta quantos refinamentos NÃO-default estão ativos (para mostrar badge no botão).
+  const activeRefineCount =
+    (filter.weekdays.length > 0 ? 1 : 0) +
+    (filter.shift !== "all" ? 1 : 0) +
+    (filter.compareToPrevious ? 1 : 0);
+
+  function toggleWeekday(day: number) {
+    setFilter((f) => {
+      const has = f.weekdays.includes(day);
+      const next = has ? f.weekdays.filter((d) => d !== day) : [...f.weekdays, day];
+      return { ...f, weekdays: next };
+    });
+  }
 
   return (
     <div className="stack">
-      <div className="fatsalao-toolbar">
-        <div className="fatsalao-period">
+      <div className="fatsalao-filter">
+        <div className="fatsalao-filter-row fatsalao-filter-presets">
+          {PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              className={`fatsalao-chip${filter.preset === preset.id ? " fatsalao-chip-active" : ""}`}
+              onClick={() => applyPreset(preset.id)}
+            >
+              {preset.label}
+            </button>
+          ))}
+          <span className="fatsalao-filter-spacer" />
           <button
             type="button"
             className="icon-button"
-            aria-label="Mês anterior"
-            title="Mês anterior"
-            onClick={() => setCompetence((c) => shiftCompetence(c, -1))}
+            onClick={() => setRefreshKey((k) => k + 1)}
+            aria-label="Atualizar dados da tela"
+            title="Atualizar"
           >
-            <ChevronLeft size={18} />
-          </button>
-          {/*
-            Pill de periodo — reusa o design do antigo topbar (Calendar + label +
-            ChevronDown). O <input type="month"> real fica escondido atras dele
-            e recebe foco quando o usuario clica no pill; assim aproveitamos o
-            date picker nativo do navegador sem expor o input sem estilo.
-          */}
-          <button
-            type="button"
-            className="fatsalao-period-pill"
-            aria-label={`Período atual: ${monthLabel}. Clique para trocar.`}
-            onClick={() => {
-              const el = monthInputRef.current;
-              if (!el) return;
-              // showPicker existe em Chrome/Edge/Safari recentes; fallback e focus.
-              if (typeof (el as HTMLInputElement & { showPicker?: () => void }).showPicker === "function") {
-                (el as HTMLInputElement & { showPicker: () => void }).showPicker();
-              } else {
-                el.focus();
-                el.click();
-              }
-            }}
-          >
-            <Calendar size={14} strokeWidth={2} aria-hidden />
-            <span className="fatsalao-period-pill-text">{monthLabel}</span>
-            {isCurrentMonth && <span className="fatsalao-live-badge">Em andamento</span>}
-            <ChevronDown size={12} strokeWidth={2} aria-hidden />
-          </button>
-          <input
-            ref={monthInputRef}
-            type="month"
-            className="fatsalao-period-input-hidden"
-            value={competence}
-            max={currentCompetence}
-            onChange={(e) => e.target.value && setCompetence(e.target.value)}
-            aria-label="Selecionar competência"
-            tabIndex={-1}
-          />
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Próximo mês"
-            title="Próximo mês"
-            disabled={isCurrentMonth}
-            onClick={() => setCompetence((c) => shiftCompetence(c, 1))}
-          >
-            <ChevronRight size={18} />
+            <RefreshCw size={18} className={loading ? "spin" : ""} />
           </button>
         </div>
-        <button
-          type="button"
-          className="icon-button"
-          onClick={() => setRefreshKey((k) => k + 1)}
-          aria-label="Atualizar dados da tela"
-          title="Atualizar"
-        >
-          <RefreshCw size={18} className={loading ? "spin" : ""} />
-        </button>
+
+        {filter.preset === "custom" && (
+          <div className="fatsalao-filter-row fatsalao-filter-custom">
+            <label className="fatsalao-field">
+              De
+              <input
+                type="date"
+                value={filter.dateStart}
+                max={filter.dateEnd}
+                onChange={(e) => e.target.value && setFilter((f) => ({ ...f, dateStart: e.target.value }))}
+              />
+            </label>
+            <label className="fatsalao-field">
+              Até
+              <input
+                type="date"
+                value={filter.dateEnd}
+                min={filter.dateStart}
+                max={isoDay(now)}
+                onChange={(e) => e.target.value && setFilter((f) => ({ ...f, dateEnd: e.target.value }))}
+              />
+            </label>
+          </div>
+        )}
+
+        <div className="fatsalao-filter-row fatsalao-refine-toggle-row">
+          <button
+            type="button"
+            className={`fatsalao-refine-toggle${activeRefineCount > 0 ? " fatsalao-refine-toggle-active" : ""}`}
+            onClick={() => setRefineOpen((v) => !v)}
+            aria-expanded={refineOpen}
+          >
+            <SlidersHorizontal size={14} strokeWidth={2} aria-hidden />
+            Filtros avançados
+            {activeRefineCount > 0 && (
+              <span className="fatsalao-refine-badge" aria-label={`${activeRefineCount} filtro(s) ativo(s)`}>
+                {activeRefineCount}
+              </span>
+            )}
+            {refineOpen
+              ? <ChevronUp size={14} strokeWidth={2} aria-hidden />
+              : <ChevronDown size={14} strokeWidth={2} aria-hidden />}
+          </button>
+        </div>
+
+        {refineOpen && (
+        <div className="fatsalao-filter-refine">
+          <div className="fatsalao-refine-block">
+            <span className="fatsalao-filter-label">Dias</span>
+            <div className="fatsalao-refine-row">
+              {WEEKDAYS_BR.map(({ label, jsDay }) => (
+                <button
+                  key={label}
+                  type="button"
+                  className={`fatsalao-chip fatsalao-chip-sm${filter.weekdays.includes(jsDay) ? " fatsalao-chip-active" : ""}`}
+                  onClick={() => toggleWeekday(jsDay)}
+                  aria-pressed={filter.weekdays.includes(jsDay)}
+                >
+                  {label}
+                </button>
+              ))}
+              <span className="fatsalao-refine-divider" aria-hidden />
+              <button
+                type="button"
+                className="fatsalao-chip fatsalao-chip-sm fatsalao-chip-ghost"
+                onClick={() => setFilter((f) => ({ ...f, weekdays: WEEKEND_DAYS }))}
+                title="Sex, Sáb, Dom"
+              >
+                Fim de semana
+              </button>
+              <button
+                type="button"
+                className="fatsalao-chip fatsalao-chip-sm fatsalao-chip-ghost"
+                onClick={() => setFilter((f) => ({ ...f, weekdays: WEEKDAYS_DAYS }))}
+                title="Seg, Ter, Qua, Qui"
+              >
+                Dias úteis
+              </button>
+              {filter.weekdays.length > 0 && (
+                <button
+                  type="button"
+                  className="fatsalao-link-btn"
+                  onClick={() => setFilter((f) => ({ ...f, weekdays: [] }))}
+                >
+                  limpar
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="fatsalao-refine-block">
+            <span className="fatsalao-filter-label">Turno</span>
+            <div className="fatsalao-refine-row">
+              {(
+                [
+                  { id: "all", label: "Todos" },
+                  { id: "PRIMEIRO", label: "Almoço" },
+                  { id: "SEGUNDO", label: "Jantar" }
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`fatsalao-chip fatsalao-chip-sm${filter.shift === opt.id ? " fatsalao-chip-active" : ""}`}
+                  onClick={() => setFilter((f) => ({ ...f, shift: opt.id as ShiftFilter }))}
+                  aria-pressed={filter.shift === opt.id}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="fatsalao-refine-block">
+            <button
+              type="button"
+              className={`fatsalao-chip fatsalao-chip-sm${filter.compareToPrevious ? " fatsalao-chip-active" : ""}`}
+              onClick={() => setFilter((f) => ({ ...f, compareToPrevious: !f.compareToPrevious }))}
+              aria-pressed={filter.compareToPrevious}
+            >
+              {filter.compareToPrevious ? "✓ " : ""}Comparar com mês anterior
+            </button>
+          </div>
+        </div>
+        )}
       </div>
 
       {syncBanner}
@@ -201,52 +509,83 @@ export function FaturamentoSalao({ user: _user }: Props) {
               : "Sem dados"}
           />
           <SummaryCard
-            label={`Faturamento (${monthLabel})`}
-            value={formatCurrency(totals.gross)}
-            detail={isCurrentMonth
-              ? `${agileEntries.length}/${daysInMonth} dias · média ${formatCurrency(dailyAverage)}/dia`
-              : `${agileEntries.length} dia${agileEntries.length === 1 ? "" : "s"} · média ${formatCurrency(dailyAverage)}/dia`}
+            label={`Faturamento (${rangeLabel})`}
+            value={formatCurrency(shiftView.gross)}
+            detail={
+              <>
+                {`${filteredEntries.length} dia${filteredEntries.length === 1 ? "" : "s"} · média ${formatCurrency(dailyAverage)}/dia`}
+                {renderDeltaLine(deltaDetail(shiftView.gross, previousShiftView.gross))}
+              </>
+            }
           />
           <SummaryCard
-            label="Mesas atendidas"
-            value={formatNumber(totals.tables)}
-            detail={`TM por mesa ${formatCurrency(tmPorMesa)}`}
+            label={filter.shift === "all" ? "Mesas atendidas" : `Mesas (${filter.shift === "PRIMEIRO" ? "Almoço" : "Jantar"})`}
+            value={formatNumber(shiftView.tables)}
+            detail={
+              <>
+                {`TM por mesa ${formatCurrency(tmPorMesa)}`}
+                {renderDeltaLine(deltaDetail(shiftView.tables, previousShiftView.tables))}
+              </>
+            }
           />
           <SummaryCard
             label="Pessoas atendidas"
-            value={peopleDataComplete && totals.people > 0 ? formatNumber(totals.people) : "—"}
+            value={
+              filter.shift !== "all"
+                ? "—"
+                : peopleDataComplete && totals.people > 0 ? formatNumber(totals.people) : "—"
+            }
             detail={
-              peopleDataComplete && totals.people > 0
-                ? `TM por pessoa ${formatCurrency(tmPorPessoa)}`
-                : "Dado disponível após próximo sync"
+              filter.shift !== "all"
+                ? "Não disponível por turno"
+                : peopleDataComplete && totals.people > 0
+                  ? (
+                    <>
+                      {`TM por pessoa ${formatCurrency(tmPorPessoa)}`}
+                      {renderDeltaLine(deltaDetail(totals.people, previousTotals.people))}
+                    </>
+                  )
+                  : "Dado disponível após próximo sync"
             }
           />
           <SummaryCard
             label="Serviço (10%) acumulado"
-            value={formatCurrency(totals.service)}
-            detail="Gorjeta sugerida do mês"
+            value={formatCurrency(shiftView.service)}
+            detail="Gorjeta sugerida do período"
           />
         </div>
       </section>
 
-      <section className="fatsalao-section">
-        <PanelEyebrow className="fatsalao-section-title">Por turno ({monthLabel})</PanelEyebrow>
-        <div className="fatsalao-grid fatsalao-grid-turnos">
-          <SummaryCard
-            label="Almoço"
-            value={formatCurrency(totals.shift1)}
-            detail={`${formatNumber(totals.tables1)} mesas · ${pctText(totals.shift1, totals.gross)}`}
-          />
-          <SummaryCard
-            label="Jantar"
-            value={formatCurrency(totals.shift2)}
-            detail={`${formatNumber(totals.tables2)} mesas · ${pctText(totals.shift2, totals.gross)}`}
-          />
-        </div>
-      </section>
+      {filter.shift === "all" && (
+        <section className="fatsalao-section">
+          <PanelEyebrow className="fatsalao-section-title">Por turno ({rangeLabel})</PanelEyebrow>
+          <div className="fatsalao-grid fatsalao-grid-turnos">
+            <SummaryCard
+              label="Almoço"
+              value={formatCurrency(totals.shift1)}
+              detail={
+                <>
+                  {`${formatNumber(totals.tables1)} mesas · ${pctText(totals.shift1, totals.gross)}`}
+                  {renderDeltaLine(deltaDetail(totals.shift1, previousTotals.shift1))}
+                </>
+              }
+            />
+            <SummaryCard
+              label="Jantar"
+              value={formatCurrency(totals.shift2)}
+              detail={
+                <>
+                  {`${formatNumber(totals.tables2)} mesas · ${pctText(totals.shift2, totals.gross)}`}
+                  {renderDeltaLine(deltaDetail(totals.shift2, previousTotals.shift2))}
+                </>
+              }
+            />
+          </div>
+        </section>
+      )}
 
       <section className="fatsalao-section">
-        <PanelEyebrow className="fatsalao-section-title">Formas de pagamento ({monthLabel})</PanelEyebrow>
+        <PanelEyebrow className="fatsalao-section-title">Formas de pagamento ({rangeLabel})</PanelEyebrow>
         <div className="fatsalao-grid fatsalao-grid-pgto">
           <PaymentCard label="Pix" value={totals.pix} total={pgtoTotal} formatCurrency={formatCurrency} />
           <PaymentCard label="Crédito" value={totals.credit} total={pgtoTotal} formatCurrency={formatCurrency} />
@@ -263,7 +602,7 @@ export function FaturamentoSalao({ user: _user }: Props) {
       </section>
 
       <section className="fatsalao-section">
-        <PanelEyebrow className="fatsalao-section-title">Dias importados ({monthLabel})</PanelEyebrow>
+        <PanelEyebrow className="fatsalao-section-title">Dias importados ({rangeLabel})</PanelEyebrow>
         <div className="fatsalao-table">
           <Table>
             <thead>
@@ -282,12 +621,12 @@ export function FaturamentoSalao({ user: _user }: Props) {
             <tbody>
               {loading ? (
                 <tr><td colSpan={9} style={{ textAlign: "center", padding: 24 }}>Carregando...</td></tr>
-              ) : agileEntries.length === 0 ? (
+              ) : filteredEntries.length === 0 ? (
                 <tr><td colSpan={9} style={{ textAlign: "center", padding: 24 }}>
-                  Nenhum dia importado no mês selecionado.
+                  Nenhum dia encontrado com os filtros atuais.
                 </td></tr>
               ) : (
-                agileEntries.map((e) => {
+                filteredEntries.map((e) => {
                   const gross = toNumber(e.grossAmount);
                   const tables = Number(e.tickets ?? 0);
                   const people = e.peopleServed;
@@ -345,6 +684,12 @@ function PaymentCard({ label, value, total, formatCurrency, hint }: PaymentCardP
   );
 }
 
+function renderDeltaLine(text: string | null) {
+  if (!text) return null;
+  const tone = text.startsWith("+") ? "up" : text.startsWith("-") ? "down" : "neutral";
+  return <div className={`fatsalao-delta fatsalao-delta-${tone}`}>{text}</div>;
+}
+
 function pctText(part: number, total: number): string {
   if (total <= 0) return "0% do bruto";
   return `${((part / total) * 100).toFixed(1)}% do bruto`;
@@ -356,14 +701,9 @@ function toNumber(value: string | number | null | undefined): number {
   return Number(value) || 0;
 }
 
-// Escolhe o tom do banner baseado no gap entre a última sync e "agora".
-// Verde: sync feita hoje ou ontem. Amarelo: 2 dias. Vermelho: 3+ dias ou nunca.
-// Quando o status endpoint falha mas existem dados, mostramos um aviso
-// discreto em vez do erro forte "nunca sincronizou" (que seria enganoso).
 function renderSyncBanner(status: AgileSyncStatus | null, now: Date, hasAnyData: boolean) {
   // O Alert do design system ja coloca o icone padrao do tom (Info/CheckCircle2/
-  // AlertTriangle). NAO adicionar icone manual aqui — evita a duplicidade que
-  // aparecia como "dois checks verdes" no banner de sucesso.
+  // AlertTriangle). NAO adicionar icone manual aqui — evita duplicidade.
   if (!status || !status.ultimaSyncEm) {
     if (hasAnyData) {
       return (
