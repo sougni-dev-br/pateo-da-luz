@@ -3,9 +3,258 @@
    a partir de 640px. Todos os cards têm min-width previsível para nao
    truncar valores monetarios grandes (ex.: "R$ 27.325,43"). */
 
-/* Toolbar com seletor de competencia (mes/ano) a esquerda e refresh a direita.
-   O titulo e a descricao da tela vem do app shell (registrados em App.tsx),
+/* Bloco de filtro — presets no topo, custom range (condicional), refinamentos
+   (dias/turno/comparativo). O titulo e a descricao da tela vem do app shell,
    entao NAO duplicamos <h1> aqui — evita cabecalho repetido. */
+.fatsalao-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 12px;
+  background: var(--paper, #fff);
+  margin-bottom: 4px;
+}
+
+.fatsalao-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Botao toggle "Filtros avancados" — abre/fecha o bloco de refinamento.
+   Aparece entre os presets e o refine quando o refine esta escondido. */
+.fatsalao-refine-toggle-row {
+  border-top: 1px dashed var(--line, #e2e8f0);
+  padding-top: 8px;
+  margin-top: -4px;
+}
+
+.fatsalao-refine-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted, #64748b);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: border-color var(--dur, 150ms) var(--ease, ease-out),
+              color var(--dur, 150ms) var(--ease, ease-out);
+}
+.fatsalao-refine-toggle:hover {
+  border-color: var(--color-accent, #2b6cb0);
+  color: var(--ink, inherit);
+}
+.fatsalao-refine-toggle-active {
+  border-color: var(--color-accent, #2b6cb0);
+  color: var(--color-accent, #2b6cb0);
+  font-weight: 600;
+}
+
+.fatsalao-refine-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-accent, #2b6cb0);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.fatsalao-filter-presets {
+  row-gap: 6px;
+}
+
+.fatsalao-filter-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.fatsalao-filter-custom {
+  gap: 12px;
+}
+
+/* Bloco de refinamento — cada linha tem label a esquerda e chips a direita.
+   Em desktop as 3 linhas ficam empilhadas mas alinhadas (grid); em mobile
+   viram simples column. */
+.fatsalao-filter-refine {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 16px;
+  row-gap: 10px;
+  align-items: center;
+  border-top: 1px dashed var(--line, #e2e8f0);
+  padding-top: 12px;
+}
+
+.fatsalao-refine-block {
+  display: contents;
+}
+
+.fatsalao-refine-block > .fatsalao-filter-label {
+  align-self: center;
+}
+
+/* Quando o bloco de refinamento eh "comparativo" (unico botao sem label),
+   ele ocupa a linha inteira. Uso :nth-of-type pra pegar o 3o bloco de forma
+   robusta sem precisar de className adicional. */
+.fatsalao-refine-block:nth-of-type(3) {
+  grid-column: 1 / -1;
+  display: block;
+  padding-top: 4px;
+}
+
+.fatsalao-refine-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.fatsalao-refine-divider {
+  display: inline-block;
+  width: 1px;
+  height: 20px;
+  background: var(--line, #e2e8f0);
+  margin: 0 6px;
+}
+
+.fatsalao-filter-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Chip: botao "pill" clicavel. Ativo ganha destaque com accent color. */
+.fatsalao-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink, inherit);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: border-color var(--dur, 150ms) var(--ease, ease-out),
+              background var(--dur, 150ms) var(--ease, ease-out),
+              color var(--dur, 150ms) var(--ease, ease-out);
+}
+
+.fatsalao-chip:hover {
+  border-color: var(--color-accent, #2b6cb0);
+}
+
+.fatsalao-chip-active {
+  background: var(--color-accent, #2b6cb0);
+  border-color: var(--color-accent, #2b6cb0);
+  color: #fff;
+}
+
+.fatsalao-chip-sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  min-width: 40px;
+  justify-content: center;
+}
+
+/* Variante "ghost" pros atalhos (Fim de semana, Dias úteis) — visualmente
+   distinta dos chips de dia individual pra deixar claro que sao presets. */
+.fatsalao-chip-ghost {
+  background: var(--color-surface-muted, rgba(0,0,0,0.03));
+  border-style: dashed;
+}
+.fatsalao-chip-ghost:hover {
+  background: var(--color-surface-muted, rgba(0,0,0,0.06));
+}
+
+.fatsalao-link-btn {
+  background: none;
+  border: none;
+  color: var(--color-accent, #2b6cb0);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 6px;
+  text-decoration: underline;
+}
+
+.fatsalao-select {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 8px;
+  background: var(--paper, #fff);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fatsalao-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--muted, #64748b);
+}
+
+.fatsalao-field input[type="date"] {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 8px;
+  font: inherit;
+  color: var(--ink, inherit);
+  background: var(--paper, #fff);
+}
+
+.fatsalao-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fatsalao-checkbox input {
+  cursor: pointer;
+}
+
+/* Delta % renderizado no detail de cards quando o comparativo esta ligado. */
+.fatsalao-delta {
+  margin-top: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.fatsalao-delta-up {
+  color: var(--color-success-strong, #166534);
+}
+.fatsalao-delta-down {
+  color: var(--color-danger-strong, #b91c1c);
+}
+.fatsalao-delta-neutral {
+  color: var(--muted, #64748b);
+}
+
 .fatsalao-toolbar {
   display: flex;
   justify-content: space-between;
@@ -150,26 +399,40 @@
   .fatsalao-section {
     margin-top: 24px;
   }
-  /* Em mobile a toolbar continua em row — refresh ao lado do pill.
-     Escondemos o badge "Em andamento" (informacao ja implicita: o mes
-     mostrado no pill sempre eh o alvo do sync), reduzimos padding e
-     largura do pill pra caber sem truncar "Julho 2026". */
-  .fatsalao-toolbar {
-    flex-wrap: nowrap;
+  .fatsalao-filter {
+    padding: 10px 12px;
+    gap: 10px;
   }
-  .fatsalao-period {
-    flex: 1;
-    min-width: 0;
-    gap: 4px;
+  /* Em mobile, cada bloco do refinamento (label+row) empilha em coluna
+     e ocupa a linha inteira; nao adianta 2-col grid porque nao cabe. */
+  .fatsalao-filter-refine {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
   }
-  .fatsalao-period-pill {
-    flex: 1;
-    justify-content: center;
-    min-width: 0;
-    padding: 0 8px;
+  .fatsalao-refine-block {
+    display: flex;
+    flex-direction: column;
     gap: 6px;
   }
-  .fatsalao-live-badge {
+  .fatsalao-refine-block:nth-of-type(3) {
+    display: block;
+    padding-top: 4px;
+  }
+  /* Presets viram scroll horizontal em mobile — evita quebrar em 3 linhas. */
+  .fatsalao-filter-presets {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    margin-bottom: -4px;
+  }
+  .fatsalao-filter-presets .fatsalao-chip {
+    flex-shrink: 0;
+  }
+  /* Refresh escondido em mobile — Ctrl+F5 supre e economiza espaco na 1a linha. */
+  .fatsalao-filter-presets .icon-button {
     display: none;
   }
 }
