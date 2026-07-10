@@ -55,8 +55,14 @@ if ($existing) {
 
 $action = New-ScheduledTaskAction -Execute $NodeExe -Argument "`"$SyncScript`"" -WorkingDirectory $AgentRoot
 
-# Gatilho: ao fazer logon de qualquer usuário
-$trigger = New-ScheduledTaskTrigger -AtLogOn
+# Dois gatilhos:
+#   1. Ao fazer logon — pega dias perdidos se a maquina ficou desligada.
+#   2. Diario as 22:00 — sincroniza o dia corrente ao fim do 2o turno,
+#      garantindo que os dados do dia estejam no ERP na mesma noite.
+$triggers = @(
+    (New-ScheduledTaskTrigger -AtLogOn),
+    (New-ScheduledTaskTrigger -Daily -At "22:00")
+)
 
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
@@ -69,7 +75,7 @@ $settings = New-ScheduledTaskSettingsSet `
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $action `
-    -Trigger $trigger `
+    -Trigger $triggers `
     -Settings $settings `
     -Description "Sincroniza faturamento do Agile PDV com o ERP Pateo da Luz" `
     -RunLevel Highest | Out-Null

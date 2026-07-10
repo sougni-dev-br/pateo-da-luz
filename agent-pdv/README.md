@@ -4,16 +4,19 @@ Agente local que roda na máquina **PDVTOUCH** (onde está instalado o Agile PDV
 
 ## Como funciona
 
-1. Ao fazer logon na máquina PDVTOUCH pela manhã, a Tarefa Agendada `PateoAgentSync` dispara `sync.js`.
-2. O agente loga no **AgileReport** local (`http://localhost:8091`), baixa os 3 CSVs do dia anterior:
-   - Faturamento (vendas)
-   - Meios de pagamento
-   - Venda de produtos
-3. Parseia (UTF-16 LE → JSON), envia para o backend em `POST /integrations/agile/sync` autenticado por `X-Agile-Token`.
-4. Backend agrega por dia + turno e faz upsert em `RevenueEntry` (`channel="Salão"`, `sourcePlatform="AGILE_PDV"`).
-5. Log local em `C:\PateoAgent\logs\sync-YYYY-MM-DD.log`.
+A Tarefa Agendada `PateoAgentSync` dispara em **dois momentos**:
 
-Se houver falha (rede, backend offline), o agente tenta novamente até 4x com 15 min de intervalo. Se a máquina estiver desligada, o próximo logon pega os dias faltantes.
+1. **Diariamente às 22:00** — sincroniza o dia corrente ao fim do 2º turno, garantindo que o faturamento do dia esteja no ERP na mesma noite.
+2. **Ao fazer logon** — pega dias que ficaram para trás quando a máquina esteve desligada.
+
+Em ambos os casos o agente:
+
+- Loga no **AgileReport** local (`http://localhost:8091`), baixa os 3 CSVs (Faturamento, Meios de pagamento, Venda de produtos).
+- Parseia (UTF-16 LE → JSON), envia para o backend em `POST /integrations/agile/sync` autenticado por `X-Agile-Token`.
+- Backend agrega por dia + turno e faz upsert em `RevenueEntry` (`channel="Salão"`, `sourcePlatform="AGILE_PDV"`).
+- Log local em `C:\PateoAgent\logs\sync-YYYY-MM-DD.log`.
+
+Se houver falha (rede, backend offline), o agente tenta novamente até 4x com 15 min de intervalo. Se a máquina estiver desligada às 22:00 e no dia seguinte, o próximo logon pega os dias faltantes.
 
 ## Requisitos na PDVTOUCH
 
@@ -90,6 +93,6 @@ agent-pdv/
     ├── csv-parser.js   # UTF-16 → objetos JSON
     ├── backend-client.js # POST /integrations/agile/sync com retry
     ├── sync-core.js    # orquestrador reutilizado por sync/backfill
-    ├── sync.js         # entry: D-1 (ao logon)
+    ├── sync.js         # entry: D-1 (ao logon) ou D corrente (22:00)
     └── backfill.js     # entry: N meses (one-off)
 ```
