@@ -1989,6 +1989,18 @@ select:disabled {
   transform: translateY(-1px);
 }
 
+.payables-kpi-grid .ds-summary-card-value {
+  font-size: clamp(12px, 1.05vw, 18px);
+  letter-spacing: -0.01em;
+}
+.payables-kpi-grid .ds-summary-card {
+  min-height: 108px;
+  padding: 14px;
+}
+.payables-kpi-grid .ds-summary-card-body {
+  gap: 6px;
+}
+
 /* ── Ciclos de fornecedor ── */
 .cycles-filter-search {
   flex: 1 1 200px;
@@ -8817,6 +8829,35 @@ details[open] .modal-section-summary::before {
   gap: 16px;
 }
 
+/* Layout dual dentro de um KpiCard — duas linhas com label pequena a esquerda
+   e valor a direita. Usado no card "Ticket medio" para mostrar por mesa e
+   por pessoa juntos. */
+.dash-kpi-dual {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.dash-kpi-dual-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dash-kpi-dual-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted, #64748b);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.dash-kpi-dual-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink, inherit);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Quick actions panel (mês sem dados) */
 .dash-quick-actions {
   display: grid;
@@ -13136,6 +13177,39 @@ tr.dre-row-selected td {
   gap: 6px;
 }
 
+.pplan-draft-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #f4f6f9;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.pplan-draft-discard {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pplan-draft-discard:hover {
+  color: #b42318;
+  border-color: #f2c9c9;
+  background: #fdf3f3;
+}
+
 /* ── Item já gerado: chip verde + card bloqueado ─────────────────── */
 .pplan-decision-card.is-generated {
   background: #f7fbf7;
@@ -14125,14 +14199,26 @@ body:has(.pplan-sticky-actions) .pplan {
 }
 
 @media (max-width: 768px) {
-  /* Header: acoes descem para baixo do titulo */
+  /* Header: acoes descem para baixo do titulo. Em telas estreitas os textos
+     dos botoes ("Aceitar todas as sugestoes", "Gerar pedidos por fornecedor")
+     nao cabem lado a lado com "Voltar" — quebravam feio em multiplas linhas.
+     Solucao: primeiro botao ("Voltar") e "Aceitar todas" dividem a primeira
+     linha; "Gerar" ocupa a segunda linha inteira, mantendo hierarquia. */
   .pplan-header-actions {
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .pplan-header-actions button {
-    flex: 1;
+    flex: 1 1 calc(50% - 5px);
+    min-width: 0;
     justify-content: center;
+    white-space: normal;
+    line-height: 1.2;
+  }
+
+  .pplan-header-actions .primary-button {
+    flex: 1 1 100%;
   }
 
   /* KPIs em 2 colunas; custo estimado ocupa a linha inteira */
