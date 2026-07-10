@@ -1,7 +1,7 @@
 export const API_BASE_URL = import.meta.env.VITE_API_URL ?? "/api";
 export const BACKEND_TARGET_URL = import.meta.env.VITE_BACKEND_TARGET_URL ?? "http://127.0.0.1:3334";
 const FALLBACK_BACKEND_URL = BACKEND_TARGET_URL;
-const REQUEST_TIMEOUT_MS = 10000;
+const REQUEST_TIMEOUT_MS = 60000;
 const IMPORT_REQUEST_TIMEOUT_MS = 120000;
 const SESSION_TOKEN_KEY = "pateo_session_token";
 const NETWORK_ERROR_MESSAGE = "Nao foi possivel conectar ao servidor. Tente novamente em instantes.";
@@ -2456,10 +2456,25 @@ export type DashboardSummaryData = {
     netAmount: number;
     serviceAmount: number;
     tickets: number;
+    peopleServed: number;
     count: number;
     ticketAverage: number;
-    prev: { grossAmount: number; netAmount: number };
+    ticketAveragePerTable: number;
+    ticketAveragePerPerson: number;
+    prev: {
+      grossAmount: number;
+      netAmount: number;
+      serviceAmount: number;
+      tickets: number;
+      peopleServed: number;
+      ticketAveragePerTable: number;
+      ticketAveragePerPerson: number;
+    };
     deltaPercent: number | null;
+    deltaGrossPercent: number | null;
+    deltaServicePercent: number | null;
+    deltaTicketAvgPerTablePercent: number | null;
+    deltaTicketAvgPerPersonPercent: number | null;
   };
   purchases: {
     total: number;
@@ -4215,5 +4230,393 @@ export type AgileSyncStatus = {
 
 export function getAgileSyncStatus(signal?: AbortSignal) {
   return request<AgileSyncStatus>("/integrations/agile/status", { signal });
+}
+
+// ============================================================================
+// Delivery iFood (Fase 1: dados mockados no backend enquanto credencial não sai)
+// ============================================================================
+
+export type IfoodStoreView = {
+  id: string;
+  externalId: string;
+  nickname: string;
+  active: boolean;
+  companyId: string | null;
+  companyName: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IfoodCredentialStatusView = {
+  configured: boolean;
+  environment: "PRODUCTION" | "SANDBOX" | null;
+  clientIdMasked: string | null;
+  lastTokenAt: string | null;
+};
+
+export type IfoodDailySalesRow = {
+  date: string;
+  orders: number;
+  grossAmount: number;
+  ifoodFeeAmount: number;
+  promotionAmount: number;
+  deliveryFeeAmount: number;
+  netAmount: number;
+};
+
+export type IfoodFeeBreakdownRow = {
+  feeType: string;
+  description: string | null;
+  amount: number;
+};
+
+export type IfoodSettlementRow = {
+  id: string;
+  externalId: string;
+  periodStart: string;
+  periodEnd: string;
+  grossAmount: number;
+  totalFees: number;
+  netAmount: number;
+  paidAt: string | null;
+  status: string;
+};
+
+export type IfoodPeriodSummary = {
+  period: { year: number; month: number };
+  storeId: string | null;
+  storeLabel: string;
+  totals: {
+    orders: number;
+    grossAmount: number;
+    ifoodFeeAmount: number;
+    promotionAmount: number;
+    deliveryFeeAmount: number;
+    netAmount: number;
+    otherFees: number;
+  };
+  daily: IfoodDailySalesRow[];
+  fees: IfoodFeeBreakdownRow[];
+  settlements: IfoodSettlementRow[];
+  isMock: boolean;
+};
+
+export type IfoodStatusView = {
+  credential: IfoodCredentialStatusView;
+  stores: IfoodStoreView[];
+  lastSync: {
+    status: string;
+    startedAt: string;
+    finishedAt: string | null;
+    itemsProcessed: number;
+    errorMessage: string | null;
+  } | null;
+  mockMode: boolean;
+};
+
+export function getIfoodStatus() {
+  return request<IfoodStatusView>("/integrations/delivery/ifood/status");
+}
+
+export function getIfoodStores() {
+  return request<IfoodStoreView[]>("/integrations/delivery/ifood/stores");
+}
+
+export function updateIfoodStore(id: string, payload: { externalId: string; nickname: string; active: boolean; companyId: string | null }) {
+  return request<IfoodStoreView>(`/integrations/delivery/ifood/stores/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function saveIfoodCredential(payload: { clientId: string; clientSecret: string; environment: "PRODUCTION" | "SANDBOX" }) {
+  return request<IfoodCredentialStatusView>("/integrations/delivery/ifood/credential", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function getIfoodSummary(params: { year: number; month: number; storeId?: string }) {
+  const query = new URLSearchParams({
+    year: String(params.year),
+    month: String(params.month)
+  });
+  if (params.storeId) query.set("storeId", params.storeId);
+  return request<IfoodPeriodSummary>(`/integrations/delivery/ifood/summary?${query.toString()}`);
+}
+
+export type IfoodSmartSyncResult = {
+  mode: "REAL" | "MOCK";
+  real?: {
+    ranAt: string;
+    hasCredential: boolean;
+    totalPersisted: number;
+    perStore: Array<{
+      storeId: string;
+      storeLabel: string;
+      externalId: string;
+      status: "SUCCESS" | "SKIPPED" | "ERROR";
+      itemsPersisted: { sales: number; settlements: number; fees: number };
+      message: string;
+    }>;
+  };
+  log: IfoodStatusView["lastSync"];
+};
+
+export function runIfoodMockSync(params?: { year?: number; month?: number }) {
+  return request<IfoodSmartSyncResult>("/integrations/delivery/ifood/sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params ?? {})
+  }, 60_000);
+}
+
+export type PainelDonoInsights = {
+  period: { year: number; month: number; todayDay: number; daysInMonth: number };
+  current: {
+    orders: number;
+    grossAmount: number;
+    netAmount: number;
+    ticketAverage: number;
+  };
+  previousMonth: {
+    orders: number;
+    grossAmount: number;
+    netAmount: number;
+    ticketAverage: number;
+    deltaGrossPercent: number;
+    deltaNetPercent: number;
+  };
+  lastYear: {
+    orders: number;
+    grossAmount: number;
+    netAmount: number;
+    ticketAverage: number;
+    deltaGrossPercent: number;
+    deltaNetPercent: number;
+  };
+  projection: {
+    grossAmount: number;
+    netAmount: number;
+    daysElapsed: number;
+    daysRemaining: number;
+    note: string;
+  };
+  ranking: Array<{
+    storeId: string;
+    storeLabel: string;
+    netAmount: number;
+    grossAmount: number;
+    sharePercent: number;
+    deltaVsPreviousMonthPercent: number;
+  }>;
+  breakdown: {
+    ifoodFeePercent: number;
+    promotionPercent: number;
+    deliveryFeePercent: number;
+    otherFeesPercent: number;
+    netPercent: number;
+  };
+  weekday: Array<{
+    dow: number;
+    label: string;
+    avgNet: number;
+    avgOrders: number;
+  }>;
+  ticketByStore: Array<{
+    storeId: string;
+    storeLabel: string;
+    ticket: number;
+    deltaPercent: number;
+  }>;
+  alerts: Array<{
+    severity: "info" | "warn" | "danger";
+    title: string;
+    message: string;
+    storeId: string | null;
+  }>;
+  isMock: boolean;
+};
+
+export function getIfoodInsights(params: { year: number; month: number }) {
+  const query = new URLSearchParams({ year: String(params.year), month: String(params.month) });
+  return request<PainelDonoInsights>(`/integrations/delivery/ifood/insights?${query.toString()}`);
+}
+
+export type IfoodConnectionTest = {
+  ok: boolean;
+  message: string;
+  tokenPreview: string | null;
+  expiresInSeconds: number | null;
+  errorDetail: string | null;
+  environment: "PRODUCTION" | "SANDBOX" | null;
+};
+
+export function testIfoodConnection() {
+  return request<IfoodConnectionTest>("/integrations/delivery/ifood/test-connection", { method: "POST" });
+}
+
+// ============================================================================
+// Contas a receber (Receivable) — cobre iFood, futuros 99/Keeta, eventos, etc.
+// ============================================================================
+
+export type ReceivableSourceType = "IFOOD_SETTLEMENT" | "NOVENTA_NOVE_SETTLEMENT" | "KEETA_SETTLEMENT" | "EVENT" | "DIRECT" | "OTHER";
+export type ReceivableStatus = "OPEN" | "PARTIALLY_RECEIVED" | "RECEIVED" | "LATE" | "CANCELLED";
+
+export type ReceivableView = {
+  id: string;
+  companyId: string | null;
+  companyName: string | null;
+  sourceType: ReceivableSourceType;
+  sourceRef: string | null;
+  ifoodSettlementId: string | null;
+  customerName: string | null;
+  customerDocument: string | null;
+  description: string;
+  competenceYear: number;
+  competenceMonth: number;
+  expectedDate: string;
+  receivedDate: string | null;
+  grossAmount: number;
+  fees: number;
+  netAmount: number;
+  paidAmount: number | null;
+  paymentMethod: string | null;
+  bankAccountId: string | null;
+  installmentNumber: number | null;
+  totalInstallments: number | null;
+  parentReceivableId: string | null;
+  status: ReceivableStatus;
+  notes: string | null;
+  daysUntilExpected: number;
+  isLate: boolean;
+  createdAt: string;
+};
+
+export function getReceivables(filters: {
+  status?: ReceivableStatus;
+  sourceType?: ReceivableSourceType;
+  companyId?: string;
+  startDate?: string;
+  endDate?: string;
+} = {}) {
+  return request<ReceivableView[]>(`/receivables${toQueryString(filters)}`);
+}
+
+export function createReceivable(payload: {
+  companyId?: string | null;
+  sourceType: ReceivableSourceType;
+  sourceRef?: string | null;
+  customerName?: string | null;
+  customerDocument?: string | null;
+  description: string;
+  expectedDate: string;
+  grossAmount: number;
+  fees?: number;
+  netAmount: number;
+  paymentMethod?: string | null;
+  bankAccountId?: string | null;
+  installmentNumber?: number | null;
+  totalInstallments?: number | null;
+  parentReceivableId?: string | null;
+  notes?: string | null;
+}) {
+  return request<ReceivableView>("/receivables", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function markReceivableReceived(id: string, payload: {
+  receivedDate: string;
+  paidAmount: number;
+  paymentMethod?: string | null;
+  bankAccountId?: string | null;
+  notes?: string | null;
+}) {
+  return request<ReceivableView>(`/receivables/${id}/receive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function cancelReceivable(id: string, reason?: string) {
+  return request<ReceivableView>(`/receivables/${id}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason })
+  });
+}
+
+// ============================================================================
+// Despesas iFood mensais — vão pra Contas a Pagar (Fase D)
+// ============================================================================
+
+export type IfoodMonthlyExpenseStatus = "OPEN" | "PARTIALLY_PAID" | "PAID" | "CANCELLED";
+
+export type IfoodMonthlyExpenseView = {
+  id: string;
+  deliveryStoreId: string;
+  storeNickname: string;
+  companyId: string | null;
+  companyName: string | null;
+  competenceYear: number;
+  competenceMonth: number;
+  dueDate: string;
+  commissionAmount: number;
+  deliveryFeeAmount: number;
+  marketingAmount: number;
+  maintenanceAmount: number;
+  anticipationAmount: number;
+  otherAmount: number;
+  totalAmount: number;
+  paidAmount: number | null;
+  status: IfoodMonthlyExpenseStatus;
+  paidAt: string | null;
+  paymentMethod: string | null;
+  notes: string | null;
+  autoGenerated: boolean;
+  daysUntilDue: number;
+  isLate: boolean;
+  createdAt: string;
+};
+
+export function getIfoodExpenses(filters: {
+  status?: IfoodMonthlyExpenseStatus;
+  companyId?: string;
+  competenceYear?: number;
+  competenceMonth?: number;
+} = {}) {
+  const params: Record<string, string | boolean | undefined> = {};
+  if (filters.status) params.status = filters.status;
+  if (filters.companyId) params.companyId = filters.companyId;
+  if (filters.competenceYear) params.competenceYear = String(filters.competenceYear);
+  if (filters.competenceMonth) params.competenceMonth = String(filters.competenceMonth);
+  return request<IfoodMonthlyExpenseView[]>(`/ifood-expenses${toQueryString(params)}`);
+}
+
+export function payIfoodExpense(id: string, payload: {
+  paidAt: string;
+  paidAmount: number;
+  paymentMethod?: string | null;
+  notes?: string | null;
+}) {
+  return request<IfoodMonthlyExpenseView>(`/ifood-expenses/${id}/pay`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function cancelIfoodExpense(id: string, reason?: string) {
+  return request<IfoodMonthlyExpenseView>(`/ifood-expenses/${id}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason })
+  });
 }
 
