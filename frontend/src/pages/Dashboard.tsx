@@ -359,25 +359,59 @@ export function Dashboard() {
                 value={hasRevenue ? fmt(rev!.grossAmount) : "—"}
                 sub={
                   hasRevenue
-                    ? `${formatNumber(rev!.count)} lançamento${rev!.count !== 1 ? "s" : ""}`
+                    ? `Cliente pagou · inclui 10% de serviço`
                     : "Sem lançamentos no período"
                 }
                 tone={hasRevenue ? "success" : "neutral"}
                 icon={<BadgeDollarSign size={18} />}
-                delta={summary && summary.revenue.deltaPercent !== null ? deltaInfo(summary.revenue.deltaPercent, true) : undefined}
+                delta={summary && summary.revenue.deltaGrossPercent !== null ? deltaInfo(summary.revenue.deltaGrossPercent, true) : undefined}
                 actionLabel={!hasRevenue && canCreateRevenue ? "Lançar faturamento" : undefined}
                 onAction={!hasRevenue && canCreateRevenue ? () => navigate("/financeiro/faturamento") : undefined}
               />
               <KpiCard
-                label="Ticket Médio"
-                value={hasRevenue && rev!.tickets > 0 ? fmt(rev!.ticketAverageGeneral) : "—"}
+                label="Serviço (10%)"
+                value={hasRevenue ? fmt(rev!.serviceAmount) : "—"}
+                sub={hasRevenue ? "Gorjeta (garçom)" : "Sem lançamentos no período"}
+                tone="neutral"
+                icon={<BadgeDollarSign size={18} />}
+                delta={summary && summary.revenue.deltaServicePercent !== null ? deltaInfo(summary.revenue.deltaServicePercent, true) : undefined}
+              />
+              <KpiCard
+                label="Faturamento Líquido"
+                value={hasRevenue ? fmt(rev!.netAmount) : "—"}
+                sub={hasRevenue ? "Fica para a casa (bruto − serviço)" : "Sem lançamentos no período"}
+                tone={hasRevenue ? "success" : "neutral"}
+                icon={<BadgeDollarSign size={18} />}
+                delta={summary && summary.revenue.deltaPercent !== null ? deltaInfo(summary.revenue.deltaPercent, true) : undefined}
+              />
+              <KpiCard
+                label="Ticket médio"
+                value={
+                  hasRevenue && summary && summary.revenue.ticketAveragePerTable > 0 ? (
+                    <div className="dash-kpi-dual">
+                      <div className="dash-kpi-dual-line">
+                        <span className="dash-kpi-dual-label">por mesa</span>
+                        <span className="dash-kpi-dual-value">{fmt(summary.revenue.ticketAveragePerTable)}</span>
+                      </div>
+                      <div className="dash-kpi-dual-line">
+                        <span className="dash-kpi-dual-label">por pessoa</span>
+                        <span className="dash-kpi-dual-value">
+                          {summary.revenue.ticketAveragePerPerson > 0
+                            ? fmt(summary.revenue.ticketAveragePerPerson)
+                            : "—"}
+                        </span>
+                      </div>
+                    </div>
+                  ) : "—"
+                }
                 sub={
                   hasRevenue
-                    ? `${formatNumber(rev!.tickets)} ticket${rev!.tickets !== 1 ? "s" : ""}`
+                    ? `${formatNumber(rev!.tickets)} mesa${rev!.tickets !== 1 ? "s" : ""}${summary && summary.revenue.peopleServed > 0 ? ` · ${formatNumber(summary.revenue.peopleServed)} pessoas` : ""}`
                     : "Aguardando faturamento"
                 }
                 tone="neutral"
                 icon={<TicketPercent size={18} />}
+                delta={summary && summary.revenue.deltaTicketAvgPerTablePercent !== null ? deltaInfo(summary.revenue.deltaTicketAvgPerTablePercent, true) : undefined}
               />
               <KpiCard
                 label="Compras do Período"
@@ -585,8 +619,8 @@ function KpiCard({
   label, value, sub, tone = "neutral", icon, delta, actionLabel, onAction,
 }: {
   label: string;
-  value: string;
-  sub?: string;
+  value: ReactNode;
+  sub?: ReactNode;
   tone?: "success" | "warning" | "danger" | "info" | "neutral";
   icon?: ReactNode;
   delta?: { text: string; tone: DeltaTone };

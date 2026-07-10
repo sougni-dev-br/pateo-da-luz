@@ -349,6 +349,14 @@
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
 }
 
+/* 3 cards de financeiro (Bruto/Serviço/Líquido) e de operação
+   (Mesas/Pessoas/Último dia). Em desktop grande viram 3 colunas, em
+   mobile 1 coluna. */
+.fatsalao-grid-financeiro,
+.fatsalao-grid-operacao {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+}
+
 .fatsalao-grid-pgto {
   /* 5 formas de pgto — em telas medias/grandes vira 5 colunas.
      Em mobile (<560px) empilha 2x. */
@@ -386,6 +394,30 @@
    para 900px porque agora temos 9 colunas (mesas, pessoas, 2 TMs). */
 .fatsalao-table table {
   min-width: 900px;
+}
+
+/* Legenda curta explicando bruto/liquido/servico — aparece logo abaixo do
+   titulo da secao "Dias importados" e antes da tabela. */
+.fatsalao-table-legend {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: var(--muted, #64748b);
+  line-height: 1.5;
+}
+.fatsalao-table-legend strong {
+  color: var(--ink, inherit);
+  font-weight: 600;
+}
+
+/* Sub-label pequeno dentro dos <th> — mostra "(c/ serviço)", "(casa)", "(10%)". */
+.fatsalao-th-hint {
+  display: inline-block;
+  margin-left: 3px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--muted, #64748b);
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 /* Detail pequeno com hint contextual (ex.: "vale-refeicao") */

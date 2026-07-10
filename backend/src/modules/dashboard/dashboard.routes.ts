@@ -198,12 +198,13 @@ dashboardRouter.get("/summary", async (request, response) => {
     monthlyCmvViews,
   ] = await Promise.all([
     // Faturamento período atual (por competência)
-    prisma.$queryRaw<Array<{ grossAmount: unknown; netAmount: unknown; serviceAmount: unknown; tickets: unknown; count: unknown }>>`
+    prisma.$queryRaw<Array<{ grossAmount: unknown; netAmount: unknown; serviceAmount: unknown; tickets: unknown; peopleServed: unknown; count: unknown }>>`
       SELECT
         COALESCE(SUM("grossAmount"), 0)   AS "grossAmount",
         COALESCE(SUM("netAmount"), 0)     AS "netAmount",
         COALESCE(SUM("serviceAmount"), 0) AS "serviceAmount",
         COALESCE(SUM("tickets"), 0)       AS "tickets",
+        COALESCE(SUM("peopleServed"), 0)  AS "peopleServed",
         COUNT(*)                          AS "count"
       FROM "RevenueEntry"
       WHERE "competenceYear" = ${year}
@@ -211,10 +212,13 @@ dashboardRouter.get("/summary", async (request, response) => {
         AND "status" <> 'CANCELLED'
     `,
     // Faturamento mês anterior
-    prisma.$queryRaw<Array<{ netAmount: unknown; grossAmount: unknown }>>`
+    prisma.$queryRaw<Array<{ netAmount: unknown; grossAmount: unknown; serviceAmount: unknown; tickets: unknown; peopleServed: unknown }>>`
       SELECT
-        COALESCE(SUM("netAmount"), 0)   AS "netAmount",
-        COALESCE(SUM("grossAmount"), 0) AS "grossAmount"
+        COALESCE(SUM("netAmount"), 0)      AS "netAmount",
+        COALESCE(SUM("grossAmount"), 0)    AS "grossAmount",
+        COALESCE(SUM("serviceAmount"), 0)  AS "serviceAmount",
+        COALESCE(SUM("tickets"), 0)        AS "tickets",
+        COALESCE(SUM("peopleServed"), 0)   AS "peopleServed"
       FROM "RevenueEntry"
       WHERE "competenceYear" = ${prevYear}
         AND "competenceMonth" = ${prevMonth}
@@ -277,8 +281,12 @@ dashboardRouter.get("/summary", async (request, response) => {
   const revService   = Number(revRow[0]?.serviceAmount ?? 0);
   const revTickets   = Number(revRow[0]?.tickets      ?? 0);
   const revCount     = Number(revRow[0]?.count        ?? 0);
-  const prevRevNet   = Number(prevRevRow[0]?.netAmount   ?? 0);
-  const prevRevGross = Number(prevRevRow[0]?.grossAmount ?? 0);
+  const prevRevNet     = Number(prevRevRow[0]?.netAmount     ?? 0);
+  const prevRevGross   = Number(prevRevRow[0]?.grossAmount   ?? 0);
+  const prevRevService = Number(prevRevRow[0]?.serviceAmount ?? 0);
+  const prevRevTickets = Number(prevRevRow[0]?.tickets       ?? 0);
+  const prevRevPeople  = Number(prevRevRow[0]?.peopleServed  ?? 0);
+  const revPeople      = Number(revRow[0]?.peopleServed ?? 0);
 
   const purchasesTotal     = Number(purchasesRow[0]?.total     ?? 0);
   const purchasesCount     = Number(purchasesRow[0]?.cnt       ?? 0);
@@ -312,8 +320,29 @@ dashboardRouter.get("/summary", async (request, response) => {
       tickets: revTickets,
       count: revCount,
       ticketAverage: revTickets > 0 ? revGross / revTickets : 0,
-      prev: { grossAmount: prevRevGross, netAmount: prevRevNet },
+      peopleServed: revPeople,
+      ticketAveragePerTable: revTickets > 0 ? revGross / revTickets : 0,
+      ticketAveragePerPerson: revPeople > 0 ? revGross / revPeople : 0,
+      prev: {
+        grossAmount: prevRevGross,
+        netAmount: prevRevNet,
+        serviceAmount: prevRevService,
+        tickets: prevRevTickets,
+        peopleServed: prevRevPeople,
+        ticketAveragePerTable: prevRevTickets > 0 ? prevRevGross / prevRevTickets : 0,
+        ticketAveragePerPerson: prevRevPeople > 0 ? prevRevGross / prevRevPeople : 0
+      },
       deltaPercent: delta(revNet, prevRevNet),
+      deltaGrossPercent: delta(revGross, prevRevGross),
+      deltaServicePercent: delta(revService, prevRevService),
+      deltaTicketAvgPerTablePercent: delta(
+        revTickets > 0 ? revGross / revTickets : 0,
+        prevRevTickets > 0 ? prevRevGross / prevRevTickets : 0
+      ),
+      deltaTicketAvgPerPersonPercent: delta(
+        revPeople > 0 ? revGross / revPeople : 0,
+        prevRevPeople > 0 ? prevRevGross / prevRevPeople : 0
+      ),
     },
     purchases: {
       total: purchasesTotal,

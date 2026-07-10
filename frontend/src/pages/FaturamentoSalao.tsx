@@ -304,6 +304,17 @@ export function FaturamentoSalao({ user: _user }: Props) {
 
   const dailyAverage = filteredEntries.length > 0 ? shiftView.gross / filteredEntries.length : 0;
   const rangeLabel = humanRangeLabel(filter.dateStart, filter.dateEnd);
+  // Range REAL dos dados presentes (primeiro e ultimo dia com registro).
+  // Quando o filtro pede 01→10/07 mas so ha dados ate 09/07, o titulo da
+  // tabela usa 01→09/07 — evita insinuar que o dia 10 existe.
+  const dataRangeLabel = useMemo(() => {
+    if (filteredEntries.length === 0) return null;
+    const dates = filteredEntries.map((e) => e.date.slice(0, 10)).sort();
+    const first = dates[0];
+    const last = dates[dates.length - 1];
+    if (first === filter.dateStart && last === filter.dateEnd) return null; // igual ao filtro, nao precisa duplicar
+    return humanRangeLabel(first, last);
+  }, [filteredEntries, filter.dateStart, filter.dateEnd]);
 
   const hasAnyData = filteredEntries.length > 0;
   const syncBanner = renderSyncBanner(status, now, hasAnyData);
@@ -499,25 +510,51 @@ export function FaturamentoSalao({ user: _user }: Props) {
 
       {syncBanner}
 
+      {/* Linha 1 — financeiro: Bruto, Serviço, Líquido em posicoes destacadas. */}
       <section className="fatsalao-section">
-        <div className="fatsalao-grid">
+        <PanelEyebrow className="fatsalao-section-title">Financeiro ({rangeLabel})</PanelEyebrow>
+        <div className="fatsalao-grid fatsalao-grid-financeiro">
           <SummaryCard
-            label={yesterday ? `Último dia (${formatDate(yesterday.date)})` : "Último dia"}
-            value={formatCurrency(yesterday ? toNumber(yesterday.grossAmount) : 0)}
-            detail={yesterday
-              ? `${formatNumber(yesterday.tickets ?? 0)} mesas${yesterday.peopleServed ? ` · ${formatNumber(yesterday.peopleServed)} pessoas` : ""}`
-              : "Sem dados"}
-          />
-          <SummaryCard
-            label={`Faturamento (${rangeLabel})`}
+            label="Faturamento bruto"
             value={formatCurrency(shiftView.gross)}
             detail={
               <>
                 {`${filteredEntries.length} dia${filteredEntries.length === 1 ? "" : "s"} · média ${formatCurrency(dailyAverage)}/dia`}
+                <div className="fatsalao-hint">Total pago pelo cliente (inclui 10% de serviço)</div>
                 {renderDeltaLine(deltaDetail(shiftView.gross, previousShiftView.gross))}
               </>
             }
           />
+          <SummaryCard
+            label="Serviço (10%)"
+            value={formatCurrency(shiftView.service)}
+            detail={
+              <>
+                {"Gorjeta acumulada (garçom)"}
+                {renderDeltaLine(deltaDetail(shiftView.service, previousShiftView.service))}
+              </>
+            }
+          />
+          <SummaryCard
+            label="Faturamento líquido"
+            value={formatCurrency(shiftView.gross - shiftView.service)}
+            detail={
+              <>
+                {"Fica para a casa (bruto − serviço)"}
+                {renderDeltaLine(deltaDetail(
+                  shiftView.gross - shiftView.service,
+                  previousShiftView.gross - previousShiftView.service
+                ))}
+              </>
+            }
+          />
+        </div>
+      </section>
+
+      {/* Linha 2 — operacao: Mesas, Pessoas, Ultimo dia como snapshot. */}
+      <section className="fatsalao-section">
+        <PanelEyebrow className="fatsalao-section-title">Operação ({rangeLabel})</PanelEyebrow>
+        <div className="fatsalao-grid fatsalao-grid-operacao">
           <SummaryCard
             label={filter.shift === "all" ? "Mesas atendidas" : `Mesas (${filter.shift === "PRIMEIRO" ? "Almoço" : "Jantar"})`}
             value={formatNumber(shiftView.tables)}
@@ -549,9 +586,11 @@ export function FaturamentoSalao({ user: _user }: Props) {
             }
           />
           <SummaryCard
-            label="Serviço (10%) acumulado"
-            value={formatCurrency(shiftView.service)}
-            detail="Gorjeta sugerida do período"
+            label={yesterday ? `Último dia (${formatDate(yesterday.date)})` : "Último dia"}
+            value={formatCurrency(yesterday ? toNumber(yesterday.grossAmount) : 0)}
+            detail={yesterday
+              ? `${formatNumber(yesterday.tickets ?? 0)} mesas${yesterday.peopleServed ? ` · ${formatNumber(yesterday.peopleServed)} pessoas` : ""}`
+              : "Sem dados"}
           />
         </div>
       </section>
@@ -602,7 +641,13 @@ export function FaturamentoSalao({ user: _user }: Props) {
       </section>
 
       <section className="fatsalao-section">
-        <PanelEyebrow className="fatsalao-section-title">Dias importados ({rangeLabel})</PanelEyebrow>
+        <PanelEyebrow className="fatsalao-section-title">
+          Dias importados ({dataRangeLabel ?? rangeLabel})
+        </PanelEyebrow>
+        <p className="fatsalao-table-legend">
+          <strong>Bruto</strong> = valor total pago pelo cliente (inclui 10% de taxa de serviço).{" "}
+          <strong>Líquido</strong> = fica para a casa (bruto menos serviço). <strong>Serviço</strong> = 10% do garçom.
+        </p>
         <div className="fatsalao-table">
           <Table>
             <thead>
@@ -611,9 +656,15 @@ export function FaturamentoSalao({ user: _user }: Props) {
                 <th>Dia</th>
                 <th style={{ textAlign: "right" }}>Mesas</th>
                 <th style={{ textAlign: "right" }}>Pessoas</th>
-                <th style={{ textAlign: "right" }}>Bruto</th>
-                <th style={{ textAlign: "right" }}>Serviço</th>
-                <th style={{ textAlign: "right" }}>Líquido</th>
+                <th style={{ textAlign: "right" }} title="Total pago pelo cliente (com 10% de serviço)">
+                  Bruto <span className="fatsalao-th-hint">(c/ serviço)</span>
+                </th>
+                <th style={{ textAlign: "right" }} title="Taxa de serviço 10% — vai para os garçons">
+                  Serviço <span className="fatsalao-th-hint">(10%)</span>
+                </th>
+                <th style={{ textAlign: "right" }} title="Fica para a casa (bruto menos serviço)">
+                  Líquido <span className="fatsalao-th-hint">(casa)</span>
+                </th>
                 <th style={{ textAlign: "right" }}>TM/mesa</th>
                 <th style={{ textAlign: "right" }}>TM/pessoa</th>
               </tr>
