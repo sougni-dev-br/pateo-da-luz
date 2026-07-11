@@ -44,7 +44,7 @@ pateo.sougni.com  (SiteGround Apache, static)  ──HTTPS──►  pateo-backe
 ## Credenciais iniciais
 
 Email: `admin@pateodaluz.local`
-Senha: `admin123`
+Senha: **definida no seed** — ver `backend/prisma/seed.ts` no ambiente local ou perguntar ao Eli. Nunca versionar em texto claro aqui.
 
 **TROCAR IMEDIATAMENTE após primeiro login em produção.**
 

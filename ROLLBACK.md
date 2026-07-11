@@ -44,9 +44,11 @@ export MSYS_NO_PATHCONV=1
 docker run --rm -v "//c/Projeto_pateo_Claude/backups:/backups" postgres:18-alpine \
   pg_restore \
     --clean --if-exists --no-owner --no-privileges \
-    -d "postgresql://pateo:C6KlzjAN77Zhteww1hckC8c7mb4KsObm@dpg-d8o1gvb6sc1c738vp070-a.oregon-postgres.render.com/pateo" \
+    -d "$DATABASE_URL" \
     /backups/pateo-prod-20260702-003559.dump
 ```
+
+> Exporte `DATABASE_URL` a partir do painel Render (aba **Environment** do serviço `pateo-backend`) antes de rodar. Nunca commite a URL literal.
 
 Restore cirúrgico de tabelas específicas (ex: só `StockCountSession` + itens):
 
@@ -56,7 +58,7 @@ docker run --rm -v "//c/Projeto_pateo_Claude/backups:/backups" postgres:18-alpin
   pg_restore \
     -t StockCountSession -t StockCountSessionItem \
     --no-owner --no-privileges --data-only \
-    -d "postgresql://pateo:C6KlzjAN77Zhteww1hckC8c7mb4KsObm@dpg-d8o1gvb6sc1c738vp070-a.oregon-postgres.render.com/pateo" \
+    -d "$DATABASE_URL" \
     /backups/pateo-prod-20260702-003559.dump
 ```
 
