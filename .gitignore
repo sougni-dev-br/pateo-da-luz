@@ -4,8 +4,14 @@ build/
 pateo-dist.zip
 frontend/dist-deploy.zip
 HANDOFF.md
+
+# Environment files — nunca commitar segredos reais
 .env
 .env.local
+.env.*
+!.env.example
+!frontend/.env.production
+
 *.log
 *.err
 tmp-*
@@ -28,5 +34,9 @@ Thumbs.db
 
 # Scripts de diagnóstico/manutenção com dados de produção
 backend/prisma/scripts/
+
+# Dumps de banco e exports com dados sensíveis
+exports/database/
+*.dump
 
 agent-pdv.zip
