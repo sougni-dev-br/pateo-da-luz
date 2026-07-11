@@ -31,7 +31,7 @@ Usuario local inicial:
 
 ```txt
 email: admin@pateodaluz.local
-senha: <senha-do-seed>
+senha: <definida no seed local — nao versionar>
 perfil: ADMIN
 ```
 
