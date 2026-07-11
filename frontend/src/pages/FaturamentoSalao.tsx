@@ -242,6 +242,9 @@ export function FaturamentoSalao({ user: _user }: Props) {
   // Se o usuario ja modificou algum, comeca aberto para nao "sumir" o
   // estado com que ele configurou anteriormente.
   const [refineOpen, setRefineOpen] = useState(false);
+  // Paginacao da tabela — comeca com 10 dias, botao "Ver mais" cresce +10.
+  const TABLE_PAGE_SIZE = 10;
+  const [visibleTableRows, setVisibleTableRows] = useState(TABLE_PAGE_SIZE);
   const formatCurrency = useFormatCurrency();
 
   useEffect(() => {
@@ -288,6 +291,22 @@ export function FaturamentoSalao({ user: _user }: Props) {
 
   // Aplica filtro de dias da semana (mesmo pro comparativo).
   const filteredEntries = useMemo(() => filterByWeekdays(rawEntries, filter.weekdays), [rawEntries, filter.weekdays]);
+  // Reseta paginacao da tabela quando o filtro muda para nao acontecer de
+  // ver "mais 10 dias" de um conjunto anterior maior.
+  useEffect(() => {
+    setVisibleTableRows(TABLE_PAGE_SIZE);
+  }, [filter.dateStart, filter.dateEnd, filter.weekdays, filter.shift]);
+  // Copia ordenada em ordem descendente para exibicao na tabela — os cards
+  // de totais e comparativos continuam usando `filteredEntries` (ascendente).
+  const filteredEntriesDesc = useMemo(
+    () => [...filteredEntries].sort((a, b) => b.date.localeCompare(a.date)),
+    [filteredEntries]
+  );
+  const visibleTableEntries = useMemo(
+    () => filteredEntriesDesc.slice(0, visibleTableRows),
+    [filteredEntriesDesc, visibleTableRows]
+  );
+  const hasMoreTableRows = visibleTableRows < filteredEntriesDesc.length;
   const filteredPreviousEntries = useMemo(() => filterByWeekdays(rawPreviousEntries, filter.weekdays), [rawPreviousEntries, filter.weekdays]);
 
   const totals = useMemo(() => computeTotals(filteredEntries), [filteredEntries]);
@@ -659,6 +678,14 @@ export function FaturamentoSalao({ user: _user }: Props) {
                 <th style={{ textAlign: "right" }} title="Total pago pelo cliente (com 10% de serviço)">
                   Bruto <span className="fatsalao-th-hint">(c/ serviço)</span>
                 </th>
+                <th style={{ textAlign: "right" }} title="Faturamento bruto e nº de mesas do 1º turno (Almoço)"
+                    className="fatsalao-col-shift1">
+                  Almoço <span className="fatsalao-th-hint">(1º turno)</span>
+                </th>
+                <th style={{ textAlign: "right" }} title="Faturamento bruto e nº de mesas do 2º turno (Jantar)"
+                    className="fatsalao-col-shift2">
+                  Jantar <span className="fatsalao-th-hint">(2º turno)</span>
+                </th>
                 <th style={{ textAlign: "right" }} title="Taxa de serviço 10% — vai para os garçons">
                   Serviço <span className="fatsalao-th-hint">(10%)</span>
                 </th>
@@ -671,16 +698,20 @@ export function FaturamentoSalao({ user: _user }: Props) {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} style={{ textAlign: "center", padding: 24 }}>Carregando...</td></tr>
-              ) : filteredEntries.length === 0 ? (
-                <tr><td colSpan={9} style={{ textAlign: "center", padding: 24 }}>
+                <tr><td colSpan={11} style={{ textAlign: "center", padding: 24 }}>Carregando...</td></tr>
+              ) : filteredEntriesDesc.length === 0 ? (
+                <tr><td colSpan={11} style={{ textAlign: "center", padding: 24 }}>
                   Nenhum dia encontrado com os filtros atuais.
                 </td></tr>
               ) : (
-                filteredEntries.map((e) => {
+                visibleTableEntries.map((e) => {
                   const gross = toNumber(e.grossAmount);
                   const tables = Number(e.tickets ?? 0);
                   const people = e.peopleServed;
+                  const shift1Gross = toNumber(e.salesFirstShift);
+                  const shift1Tables = Number(e.ticketsFirstShift ?? 0);
+                  const shift2Gross = toNumber(e.salesSecondShift);
+                  const shift2Tables = Number(e.ticketsSecondShift ?? 0);
                   const tmMesa = tables > 0 ? gross / tables : 0;
                   const tmPessoa = people && people > 0 ? gross / people : null;
                   return (
@@ -690,6 +721,18 @@ export function FaturamentoSalao({ user: _user }: Props) {
                       <td style={{ textAlign: "right" }}>{formatNumber(tables)}</td>
                       <td style={{ textAlign: "right" }}>{people != null ? formatNumber(people) : "—"}</td>
                       <td style={{ textAlign: "right" }}><Money value={gross} /></td>
+                      <td style={{ textAlign: "right" }} className="fatsalao-col-shift1">
+                        <div className="fatsalao-cell-shift">
+                          <Money value={shift1Gross} />
+                          <span className="fatsalao-cell-shift-sub">{formatNumber(shift1Tables)} mesa{shift1Tables === 1 ? "" : "s"}</span>
+                        </div>
+                      </td>
+                      <td style={{ textAlign: "right" }} className="fatsalao-col-shift2">
+                        <div className="fatsalao-cell-shift">
+                          <Money value={shift2Gross} />
+                          <span className="fatsalao-cell-shift-sub">{formatNumber(shift2Tables)} mesa{shift2Tables === 1 ? "" : "s"}</span>
+                        </div>
+                      </td>
                       <td style={{ textAlign: "right" }}><Money value={toNumber(e.serviceAmount)} /></td>
                       <td style={{ textAlign: "right" }}><Money value={toNumber(e.netAmount)} /></td>
                       <td style={{ textAlign: "right" }}><Money value={tmMesa} /></td>
@@ -703,6 +746,31 @@ export function FaturamentoSalao({ user: _user }: Props) {
             </tbody>
           </Table>
         </div>
+        {filteredEntriesDesc.length > 0 && (
+          <div className="fatsalao-table-more">
+            <span className="fatsalao-table-more-count">
+              Mostrando {visibleTableEntries.length} de {filteredEntriesDesc.length} dia{filteredEntriesDesc.length === 1 ? "" : "s"}
+            </span>
+            {hasMoreTableRows && (
+              <button
+                type="button"
+                className="fatsalao-chip fatsalao-chip-sm"
+                onClick={() => setVisibleTableRows((v) => v + TABLE_PAGE_SIZE)}
+              >
+                Ver mais {Math.min(TABLE_PAGE_SIZE, filteredEntriesDesc.length - visibleTableRows)} dias
+              </button>
+            )}
+            {!hasMoreTableRows && filteredEntriesDesc.length > TABLE_PAGE_SIZE && (
+              <button
+                type="button"
+                className="fatsalao-chip fatsalao-chip-sm fatsalao-chip-ghost"
+                onClick={() => setVisibleTableRows(TABLE_PAGE_SIZE)}
+              >
+                Ver menos
+              </button>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );
