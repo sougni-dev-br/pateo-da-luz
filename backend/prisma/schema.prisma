@@ -1860,14 +1860,19 @@ model IfoodMonthlyExpense {
 // Na terminologia da 99: app_id (clientId) + app_secret (clientSecret).
 // clientId aqui é o long bigint da 99 armazenado como string.
 model NoventaNoveCredential {
-  id           String    @id @default(cuid())
-  clientId     String
-  clientSecret String
-  environment  String    @default("PRODUCTION")
-  active       Boolean   @default(true)
-  lastTokenAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id                String   @id @default(cuid())
+  clientId          String
+  clientSecret      String
+  environment       String   @default("PRODUCTION")
+  active            Boolean  @default(true)
+  lastTokenAt       DateTime?
+  // Percentual de comissão contratual (ex: 18.00 = 18%). A DiDi não expõe
+  // a comissão real via callback, então usamos este % pra estimar
+  // noventaNoveFeeAmount de cada pedido. Reconciliar depois com invoice
+  // mensal se a 99 mandar valor real por outro canal.
+  commissionPercent Decimal  @default(0) @db.Decimal(5, 2)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 // Auth token por loja — a 99 gera um token distinto por (app_id, secret,

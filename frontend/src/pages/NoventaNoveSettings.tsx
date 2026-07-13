@@ -38,6 +38,7 @@ export function NoventaNoveSettings() {
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [environment, setEnvironment] = useState<"PRODUCTION" | "SANDBOX">("PRODUCTION");
+  const [commissionPercent, setCommissionPercent] = useState<string>("0");
 
   useEffect(() => {
     void reload();
@@ -56,6 +57,7 @@ export function NoventaNoveSettings() {
       setStores(storesData);
       setCompanies(companiesData);
       if (statusData.credential.environment) setEnvironment(statusData.credential.environment);
+      setCommissionPercent(String(statusData.credential.commissionPercent ?? 0));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao carregar dados da integração 99 Food.");
     } finally {
@@ -69,10 +71,16 @@ export function NoventaNoveSettings() {
     setError(null);
     setFeedback(null);
     try {
-      await saveNoventaNoveCredential({ clientId: clientId.trim(), clientSecret: clientSecret.trim(), environment });
+      const commissionNumber = Math.max(0, Math.min(100, Number(commissionPercent) || 0));
+      await saveNoventaNoveCredential({
+        clientId: clientId.trim(),
+        clientSecret: clientSecret.trim(),
+        environment,
+        commissionPercent: commissionNumber
+      });
       setClientId("");
       setClientSecret("");
-      setFeedback("Credencial 99 Food salva. clientId e ambiente ficam registrados; o secret é gravado apenas no backend.");
+      setFeedback(`Credencial 99 Food salva. Comissão contratual: ${commissionNumber}%. clientId e ambiente ficam registrados; o secret é gravado apenas no backend.`);
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível salvar a credencial.");
@@ -211,6 +219,14 @@ export function NoventaNoveSettings() {
               { value: "PRODUCTION", label: "Produção" },
               { value: "SANDBOX", label: "Sandbox" }
             ]}
+          />
+          <TextField
+            label="Comissão contratual (%)"
+            type="number"
+            value={commissionPercent}
+            onChange={(e) => setCommissionPercent(e.target.value)}
+            placeholder="Ex: 18"
+            hint="DiDi não expõe comissão no callback. Este % vira estimativa por pedido."
           />
           <div style={{ display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
             <Button type="submit" disabled={savingCredential || !clientId || !clientSecret} leadingIcon={<Save size={16} />}>

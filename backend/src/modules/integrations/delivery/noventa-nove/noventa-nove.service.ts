@@ -110,7 +110,8 @@ export async function saveCredential(input: NoventaNoveCredentialInput): Promise
       data: {
         clientId: input.clientId,
         clientSecret: input.clientSecret,
-        environment: input.environment
+        environment: input.environment,
+        commissionPercent: input.commissionPercent
       }
     });
   } else {
@@ -119,6 +120,7 @@ export async function saveCredential(input: NoventaNoveCredentialInput): Promise
         clientId: input.clientId,
         clientSecret: input.clientSecret,
         environment: input.environment,
+        commissionPercent: input.commissionPercent,
         active: true
       }
     });
@@ -129,13 +131,14 @@ export async function saveCredential(input: NoventaNoveCredentialInput): Promise
 export async function getCredentialStatus(): Promise<NoventaNoveCredentialStatusView> {
   const cred = await prisma.noventaNoveCredential.findFirst({ where: { active: true } });
   if (!cred) {
-    return { configured: false, environment: null, clientIdMasked: null, lastTokenAt: null };
+    return { configured: false, environment: null, clientIdMasked: null, lastTokenAt: null, commissionPercent: 0 };
   }
   return {
     configured: true,
     environment: cred.environment as "PRODUCTION" | "SANDBOX",
     clientIdMasked: maskClientId(cred.clientId),
-    lastTokenAt: cred.lastTokenAt ? cred.lastTokenAt.toISOString() : null
+    lastTokenAt: cred.lastTokenAt ? cred.lastTokenAt.toISOString() : null,
+    commissionPercent: Number(cred.commissionPercent)
   };
 }
 

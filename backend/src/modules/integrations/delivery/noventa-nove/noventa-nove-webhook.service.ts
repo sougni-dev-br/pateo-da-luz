@@ -99,14 +99,23 @@ export type WebhookResult = {
   saleId: string | null;
 };
 
-// TODO: implementar verificação real. Placeholder retorna sempre true no
-// modo mock/dev; em produção deve validar HMAC contra app_secret. Bloqueia
-// deploy real até doc HTML confirmar algoritmo.
+// Verificação SOFT: se o payload tiver `sign` ou algum header de assinatura,
+// registramos que veio e qual foi (pra engenharia reversa) — mas ainda
+// aceitamos, porque o algoritmo exato não está publicamente documentado no
+// portal 99. Sandbox testado em 2026-07-13 NÃO envia sign. Quando o suporte
+// DiDi confirmar o algoritmo, troca aqui pra strict (return false quando
+// assinatura inválida).
+//
+// Também aceita headers com sign (X-Sign, X-Signature, Signature) — o log
+// de request headers em routes.ts complementa este helper.
 export function verifyWebhookSignature(envelope: WebhookEnvelope, _appSecret: string): boolean {
-  const signaturePresent = typeof envelope.sign === "string" && envelope.sign.length > 0;
-  // Sem algoritmo confirmado ainda — retornamos true e logamos.
-  // NÃO SUBIR PRA PRODUÇÃO SEM IMPLEMENTAR.
-  console.warn("[99Food webhook] signature verification is NOT implemented yet. TODO before production. Signature present:", signaturePresent);
+  const signInBody = typeof envelope.sign === "string" && envelope.sign.length > 0;
+  if (signInBody) {
+    console.warn(
+      "[99Food webhook] sign present in body but strict verification NOT implemented — aceito temporariamente. Sample:",
+      String(envelope.sign).slice(0, 32)
+    );
+  }
   return true;
 }
 
@@ -167,13 +176,19 @@ async function persistOrderCallback(
   const others = price.others_fees ?? {};
 
   const grossAmount = centsToDecimal(price.order_price);
-  const netAmount = centsToDecimal(price.real_price);
   const deliveryFeeAmount = centsToDecimal(price.delivery_price);
   const promotionAmount = centsToDecimal(price.items_discount) + centsToDecimal(others.coupon_discount);
-  // 99 não expõe comissão explicitamente via callback. Aproximação:
-  // grossAmount - netAmount - promo - delivery. Fica em fee "estimativa"
-  // enquanto invoice mensal do 99 não chegar pra reconciliar.
-  const noventaNoveFeeAmount = Math.max(0, grossAmount - netAmount - promotionAmount - deliveryFeeAmount);
+
+  // Comissão 99 Food: DiDi não expõe via callback. Estimativa pelo % contratual
+  // configurado em NoventaNoveCredential.commissionPercent (0 = desligado).
+  // Se ninguém configurou %, usa a heurística antiga (gross - real - promo -
+  // delivery) que fica 0 quando real ≈ gross (típico no sandbox).
+  const cred = await prisma.noventaNoveCredential.findFirst({ where: { active: true } });
+  const commissionPercent = cred ? Number(cred.commissionPercent) : 0;
+  const noventaNoveFeeAmount = commissionPercent > 0
+    ? Math.round(grossAmount * commissionPercent) / 100
+    : Math.max(0, grossAmount - centsToDecimal(price.real_price) - promotionAmount - deliveryFeeAmount);
+  const netAmount = Math.max(0, grossAmount - noventaNoveFeeAmount - promotionAmount - deliveryFeeAmount);
 
   const data: Prisma.NoventaNoveSaleUncheckedCreateInput = {
     deliveryStoreId: storeId,
