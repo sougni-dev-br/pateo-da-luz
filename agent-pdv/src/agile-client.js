@@ -8,6 +8,10 @@
 
 import { logger } from "./logger.js";
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // Regex simples para extrair o token AntiForgery do HTML da página de login.
 // ASP.NET MVC renderiza como:
 //   <input name="__RequestVerificationToken" type="hidden" value="XYZ..." />
@@ -78,19 +82,28 @@ export class AgileClient {
     this.loggedIn = false;
   }
 
-  async #request(pathOrUrl, init = {}) {
+  async #request(pathOrUrl, init = {}, timeoutMs = 30_000) {
     const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${this.baseUrl}${pathOrUrl}`;
     const headers = new Headers(init.headers ?? {});
     const cookieHeader = this.jar.header();
     if (cookieHeader) headers.set("Cookie", cookieHeader);
-    // Segue redirects manualmente pra preservar cookies em cada hop.
-    const response = await fetch(url, { ...init, headers, redirect: "manual" });
+    // Timeout explicito — o AgileReport as vezes pendura conexao TCP quando
+    // esta subindo (IIS/Kestrel warm-up), o padrao do fetch e infinito.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error("Timeout")), timeoutMs);
+    let response;
+    try {
+      // Segue redirects manualmente pra preservar cookies em cada hop.
+      response = await fetch(url, { ...init, headers, redirect: "manual", signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
     this.jar.ingest(response.headers.get("set-cookie"));
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
       if (location) {
         const next = location.startsWith("http") ? location : `${this.baseUrl}${location}`;
-        return this.#request(next, { method: "GET" });
+        return this.#request(next, { method: "GET" }, timeoutMs);
       }
     }
     return response;
@@ -98,6 +111,31 @@ export class AgileClient {
 
   async login() {
     if (this.loggedIn) return;
+    // Retry generoso: quando a maquina PDVTOUCH acabou de ligar, o AgileReport
+    // pode demorar ate 3-4 minutos para o IIS/Kestrel subir e responder. Antes
+    // desistíamos rapido; agora esperamos entre tentativas (30s, 60s, 120s,
+    // 240s = ate 7min50s de espera cumulativa alem dos 30s de timeout por req).
+    const delays = [0, 30_000, 60_000, 120_000, 240_000];
+    let lastError = null;
+    for (let attempt = 0; attempt < delays.length; attempt += 1) {
+      if (delays[attempt] > 0) {
+        logger.warn(`Agile: aguardando ${Math.round(delays[attempt] / 1000)}s antes de nova tentativa de login (tentativa ${attempt + 1}/${delays.length})`);
+        await sleep(delays[attempt]);
+      }
+      try {
+        await this.#doLogin();
+        this.loggedIn = true;
+        logger.info("Agile: sessão autenticada");
+        return;
+      } catch (err) {
+        lastError = err;
+        logger.warn(`Agile: falha no login (tentativa ${attempt + 1}/${delays.length})`, { message: err.message });
+      }
+    }
+    throw new Error(`Login no AgileReport falhou apos ${delays.length} tentativas. Ultimo erro: ${lastError?.message ?? "desconhecido"}`);
+  }
+
+  async #doLogin() {
     logger.info("Agile: obtendo página de login para AntiForgery token");
     const loginPageRes = await this.#request("/Conta/Login", { method: "GET" });
     if (loginPageRes.status !== 200) {
@@ -134,8 +172,6 @@ export class AgileClient {
       const text = await loginRes.text().catch(() => "");
       throw new Error(`Login no AgileReport falhou (HTTP ${loginRes.status}). ${text.slice(0, 200)}`);
     }
-    this.loggedIn = true;
-    logger.info("Agile: sessão autenticada");
   }
 
   async downloadCsv(kind, isoStart, isoEnd) {
