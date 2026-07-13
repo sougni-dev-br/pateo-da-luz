@@ -4480,6 +4480,7 @@ export type NoventaNoveCredentialStatusView = {
   environment: "PRODUCTION" | "SANDBOX" | null;
   clientIdMasked: string | null;
   lastTokenAt: string | null;
+  commissionPercent: number;
 };
 
 export type NoventaNoveDailySalesRow = {
@@ -4559,7 +4560,7 @@ export function updateNoventaNoveStore(id: string, payload: { externalId: string
   });
 }
 
-export function saveNoventaNoveCredential(payload: { clientId: string; clientSecret: string; environment: "PRODUCTION" | "SANDBOX" }) {
+export function saveNoventaNoveCredential(payload: { clientId: string; clientSecret: string; environment: "PRODUCTION" | "SANDBOX"; commissionPercent: number }) {
   return request<NoventaNoveCredentialStatusView>("/integrations/delivery/noventa-nove/credential", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
