@@ -194,6 +194,16 @@ noventaNoveDeliveryRouter.post("/stores/:id/authorization-url", async (request, 
 // implementada, pode ser preciso body-parser custom com verify().
 noventaNovePublicRouter.post("/webhook", async (request, response) => {
   try {
+    // Log inicial: cabeçalhos + primeiros bytes do body pra ajudar
+    // engenharia reversa da assinatura. Se DiDi mandar sign em header
+    // (X-Sign, X-Signature, Signature, etc.) fica visível aqui.
+    // Removido depois que a assinatura for reconhecida.
+    const auditHeaders: Record<string, string> = {};
+    for (const [k, v] of Object.entries(request.headers)) {
+      if (typeof v === "string") auditHeaders[k] = v;
+      else if (Array.isArray(v)) auditHeaders[k] = v.join(", ");
+    }
+    console.log("[99Food webhook headers]", JSON.stringify(auditHeaders));
     const envelope = request.body as WebhookEnvelope;
     const rawBody = typeof request.body === "string" ? request.body : JSON.stringify(request.body ?? {});
     const result = await handleWebhook(envelope, rawBody);
