@@ -24,6 +24,12 @@ export async function syncPeriod(config, isoStart, isoEnd) {
     retryDelayMs: config.sync?.retryDelayMs ?? 15 * 60 * 1000
   });
 
+  // Login uma vez antes dos 3 downloads paralelos. Se disparasse os 3
+  // simultaneamente, cada um tentava logar em paralelo — o retry do login
+  // multiplicava por 3, e um problema no AgileReport gerava 3 falhas
+  // registradas ao mesmo tempo dificultando o diagnostico.
+  await agile.login();
+
   const [txtFaturamento, txtMeios, txtProdutos] = await Promise.all([
     agile.downloadCsv("faturamento", isoStart, isoEnd),
     agile.downloadCsv("meios", isoStart, isoEnd),

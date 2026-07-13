@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { AppUser, getAgileSyncStatus, getRevenue, type AgileSyncStatus, type RevenueEntry, type RevenueSummary } from "../api/client";
 import { Alert, Money, PanelEyebrow, SummaryCard, Table, useFormatCurrency } from "../design-system";
 import { formatDate, formatNumber } from "../utils/format";
@@ -337,6 +337,34 @@ export function FaturamentoSalao({ user: _user }: Props) {
 
   const hasAnyData = filteredEntries.length > 0;
   const syncBanner = renderSyncBanner(status, now, hasAnyData);
+  // Detecta dias esperados no range filtrado que nao tem RevenueEntry —
+  // provavelmente sync falhou naquele dia. Ignora dias >= hoje (nao rodou
+  // ainda) e o filtro por dia da semana e turno (ai ha razoes legitimas
+  // para nao ter entrada). Se algum dia sumir sem justificativa, mostramos
+  // um alerta amarelo com a lista.
+  const missingDays = useMemo(() => {
+    if (filter.weekdays.length > 0 || filter.shift !== "all") return [] as string[];
+    if (filteredEntries.length === 0) return [] as string[];
+    const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const startIso = filter.dateStart;
+    const dates = filteredEntries.map((e) => e.date.slice(0, 10));
+    const rangeEndIso = filter.dateEnd < todayIso ? filter.dateEnd : todayIso;
+    if (startIso > rangeEndIso) return [];
+    const existing = new Set(dates);
+    const missing: string[] = [];
+    const cursor = new Date(`${startIso}T00:00:00`);
+    const end = new Date(`${rangeEndIso}T00:00:00`);
+    // Sanity cap para nao loopar 100 anos se o filtro estiver estranho.
+    let iterations = 0;
+    while (cursor.getTime() <= end.getTime() && iterations < 400) {
+      const iso = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+      // Nao alertar sobre HOJE nao ter dado ainda (sync do dia so roda 22h).
+      if (iso !== todayIso && !existing.has(iso)) missing.push(iso);
+      cursor.setDate(cursor.getDate() + 1);
+      iterations += 1;
+    }
+    return missing;
+  }, [filteredEntries, filter.dateStart, filter.dateEnd, filter.weekdays.length, filter.shift, now]);
 
   // Helper de delta % — só renderiza quando compareToPrevious está ligado
   // e o valor anterior é diferente de zero (evita divisão por zero).
@@ -528,6 +556,34 @@ export function FaturamentoSalao({ user: _user }: Props) {
       </div>
 
       {syncBanner}
+
+      {missingDays.length > 0 && (
+        <Alert tone="warning" style={{ marginTop: 12 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <AlertTriangle size={16} style={{ marginTop: 2, flexShrink: 0 }} />
+            <div>
+              <strong>
+                {missingDays.length === 1 ? "1 dia sem dado" : `${missingDays.length} dias sem dado`}
+              </strong>
+              {" no período filtrado: "}
+              {missingDays.slice(0, 8).map((iso, idx) => (
+                <span key={iso}>
+                  {formatDate(iso)}
+                  {idx < Math.min(missingDays.length, 8) - 1 ? ", " : ""}
+                </span>
+              ))}
+              {missingDays.length > 8 && ` e mais ${missingDays.length - 8}`}.
+              <div style={{ fontSize: 12, marginTop: 4, opacity: 0.85 }}>
+                Provavelmente o agente não conseguiu sincronizar esses dias. Rode manualmente na
+                PDVTOUCH:{" "}
+                <code style={{ fontFamily: "monospace" }}>
+                  node C:\PateoAgent\src\sync.js --data={missingDays[0]}
+                </code>
+              </div>
+            </div>
+          </div>
+        </Alert>
+      )}
 
       {/* Linha 1 — financeiro: Bruto, Serviço, Líquido em posicoes destacadas. */}
       <section className="fatsalao-section">
