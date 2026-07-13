@@ -171,6 +171,10 @@ model Company {
   purchases             Purchase[]
   payingInstallments    PaymentInstallment[] @relation("PayingCompany")
   taxPayments           TaxPayment[]
+  deliveryStores        DeliveryStore[]
+  receivables           Receivable[]
+  ifoodMonthlyExpenses  IfoodMonthlyExpense[]
+  noventaNoveMonthlyExpenses NoventaNoveMonthlyExpense[]
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
 
@@ -1647,4 +1651,417 @@ model TaxPaymentAttachment {
 enum StorageProvider {
   LOCAL
   R2
+}
+
+// =====================================================================
+// Integrações de Delivery (iFood, 99 Food, Keeta)
+// Fase 1: estrutura + credenciais + lojas persistidas. Dados de vendas /
+// repasses / taxas ficam GERADOS via mock service enquanto o iFood não
+// libera credenciais reais. Na Fase 2 o mock é substituído por chamada
+// à Financial API do iFood e os registros passam a ser persistidos.
+// =====================================================================
+
+enum DeliveryPlatform {
+  IFOOD
+  NOVENTA_NOVE
+  KEETA
+}
+
+model DeliveryStore {
+  id         String           @id @default(cuid())
+  platform   DeliveryPlatform
+  externalId String
+  // shopIdRemote é o ID que a plataforma (99/Keeta) atribui à loja no
+  // sistema deles depois do bind. iFood: reutiliza externalId (merchantId).
+  // 99: externalId = app_shop_id (nosso), shopIdRemote = shop_id (deles),
+  // recebido no callback de autorização/pedido. Bigint como string pra
+  // não perder precisão em JSON.
+  shopIdRemote String?
+  nickname   String
+  active     Boolean          @default(true)
+  // Loja iFood aponta pra uma Company do ERP — usada pra rotear
+  // faturamento (RevenueEntry), despesas (Purchase) e recebíveis
+  // (Receivable) pro CNPJ correto no DRE. Opcional só pra permitir
+  // cadastro incremental; sync que exige companyId só roda quando setado.
+  companyId  String?
+  company    Company?         @relation(fields: [companyId], references: [id])
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  ifoodSales             IfoodSale[]
+  ifoodSettlements       IfoodSettlement[]
+  ifoodFees              IfoodFee[]
+  ifoodSyncLogs          IfoodSyncLog[]
+  ifoodMonthlyExpenses   IfoodMonthlyExpense[]
+
+  noventaNoveSales           NoventaNoveSale[]
+  noventaNoveSettlements     NoventaNoveSettlement[]
+  noventaNoveFees            NoventaNoveFee[]
+  noventaNoveSyncLogs        NoventaNoveSyncLog[]
+  noventaNoveMonthlyExpenses NoventaNoveMonthlyExpense[]
+  noventaNoveAuthToken       NoventaNoveShopAuthToken?
+
+  @@unique([platform, externalId])
+  @@index([platform, active])
+  @@index([companyId])
+}
+
+model IfoodCredential {
+  id           String    @id @default(cuid())
+  clientId     String
+  clientSecret String
+  environment  String    @default("PRODUCTION")
+  active       Boolean   @default(true)
+  lastTokenAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model IfoodSale {
+  id                String        @id @default(cuid())
+  deliveryStoreId   String
+  deliveryStore     DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  externalOrderId   String
+  orderDate         DateTime
+  competenceYear    Int
+  competenceMonth   Int
+  grossAmount       Decimal       @db.Decimal(14, 2)
+  ifoodFeeAmount    Decimal       @db.Decimal(14, 2)
+  promotionAmount   Decimal       @db.Decimal(14, 2)
+  deliveryFeeAmount Decimal       @db.Decimal(14, 2)
+  netAmount         Decimal       @db.Decimal(14, 2)
+  paymentMethod     String?
+  channel           String?
+  rawPayload        Json?
+  createdAt         DateTime      @default(now())
+
+  @@unique([deliveryStoreId, externalOrderId])
+  @@index([deliveryStoreId, competenceYear, competenceMonth])
+  @@index([deliveryStoreId, orderDate])
+}
+
+model IfoodSettlement {
+  id              String        @id @default(cuid())
+  deliveryStoreId String
+  deliveryStore   DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  externalId      String
+  periodStart     DateTime
+  periodEnd       DateTime
+  grossAmount     Decimal       @db.Decimal(14, 2)
+  totalFees       Decimal       @db.Decimal(14, 2)
+  netAmount       Decimal       @db.Decimal(14, 2)
+  paidAt          DateTime?
+  status          String
+  rawPayload      Json?
+  createdAt       DateTime      @default(now())
+
+  receivable      Receivable?
+
+  @@unique([deliveryStoreId, externalId])
+  @@index([deliveryStoreId, periodStart])
+}
+
+model IfoodFee {
+  id              String        @id @default(cuid())
+  deliveryStoreId String
+  deliveryStore   DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  competenceYear  Int
+  competenceMonth Int
+  feeType         String
+  description     String?
+  amount          Decimal       @db.Decimal(14, 2)
+  rawPayload      Json?
+  createdAt       DateTime      @default(now())
+
+  @@index([deliveryStoreId, competenceYear, competenceMonth])
+  @@index([deliveryStoreId, feeType])
+}
+
+model IfoodSyncLog {
+  id                String         @id @default(cuid())
+  deliveryStoreId   String?
+  deliveryStore     DeliveryStore? @relation(fields: [deliveryStoreId], references: [id], onDelete: SetNull)
+  syncType          String
+  startedAt         DateTime
+  finishedAt        DateTime?
+  status            String
+  itemsProcessed    Int            @default(0)
+  errorMessage      String?
+  triggeredByUserId String?
+
+  @@index([deliveryStoreId, startedAt])
+}
+
+// =====================================================================
+// Contas a Receber — modelo genérico, cobre iFood settlements,
+// futuros 99 Food/Keeta, eventos/empreitadas e outras fontes.
+// =====================================================================
+
+// =====================================================================
+// Despesas mensais iFood — modelo dedicado (não pollui Product/Purchase).
+// Uma linha por (loja, competência). Gerado automaticamente pelo sync,
+// aparece em Contas a Pagar consolidando taxas do mês.
+// =====================================================================
+
+enum IfoodMonthlyExpenseStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+model IfoodMonthlyExpense {
+  id                 String                    @id @default(cuid())
+  deliveryStoreId    String
+  deliveryStore      DeliveryStore             @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  companyId          String?
+  company            Company?                  @relation(fields: [companyId], references: [id])
+  competenceYear     Int
+  competenceMonth    Int
+  dueDate            DateTime
+
+  // Breakdown por tipo — soma bate com totalAmount.
+  commissionAmount   Decimal                   @default(0) @db.Decimal(14, 2)
+  deliveryFeeAmount  Decimal                   @default(0) @db.Decimal(14, 2)
+  marketingAmount    Decimal                   @default(0) @db.Decimal(14, 2)
+  maintenanceAmount  Decimal                   @default(0) @db.Decimal(14, 2)
+  anticipationAmount Decimal                   @default(0) @db.Decimal(14, 2)
+  otherAmount        Decimal                   @default(0) @db.Decimal(14, 2)
+  totalAmount        Decimal                   @db.Decimal(14, 2)
+  paidAmount         Decimal?                  @db.Decimal(14, 2)
+
+  status             IfoodMonthlyExpenseStatus @default(OPEN)
+  paidAt             DateTime?
+  paymentMethod      String?
+  notes              String?
+  // Sync sempre reescreve se autoGenerated=true e status=OPEN. Se operador
+  // marcar como PAID ou editar manualmente, sync respeita (não sobrescreve).
+  autoGenerated      Boolean                   @default(true)
+
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  @@unique([deliveryStoreId, competenceYear, competenceMonth], map: "ifme_store_competence_uniq")
+  @@index([status, dueDate], map: "ifme_status_due_idx")
+  @@index([companyId, competenceYear, competenceMonth], map: "ifme_company_competence_idx")
+}
+
+// =====================================================================
+// 99 Food — espelha o padrão iFood.
+// Cadastro do lojista em https://developer-food.99app.com. Credencial
+// segue o mesmo shape (clientId + clientSecret + environment). Enquanto
+// a plataforma não aprovar o aplicativo do Pateo, o módulo opera com
+// mocks (isMock=true nos summaries) e o sync real fica gated.
+// =====================================================================
+
+// Credencial global do app cadastrado em developer-food.99app.com.
+// Na terminologia da 99: app_id (clientId) + app_secret (clientSecret).
+// clientId aqui é o long bigint da 99 armazenado como string.
+model NoventaNoveCredential {
+  id           String    @id @default(cuid())
+  clientId     String
+  clientSecret String
+  environment  String    @default("PRODUCTION")
+  active       Boolean   @default(true)
+  lastTokenAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// Auth token por loja — a 99 gera um token distinto por (app_id, secret,
+// app_shop_id). Cada token tem validade e precisa refresh. Guardamos em
+// tabela dedicada 1:1 com DeliveryStore pra não pollur o cadastro da loja
+// com detalhes de auth.
+model NoventaNoveShopAuthToken {
+  deliveryStoreId String        @id
+  deliveryStore   DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  authToken       String
+  expiresAt       DateTime
+  refreshedAt     DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([expiresAt], map: "nnsat_expires_idx")
+}
+
+model NoventaNoveSale {
+  id                     String        @id @default(cuid())
+  deliveryStoreId        String
+  deliveryStore          DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  externalOrderId        String
+  orderDate              DateTime
+  competenceYear         Int
+  competenceMonth        Int
+  grossAmount            Decimal       @db.Decimal(14, 2)
+  noventaNoveFeeAmount   Decimal       @db.Decimal(14, 2)
+  promotionAmount        Decimal       @db.Decimal(14, 2)
+  deliveryFeeAmount      Decimal       @db.Decimal(14, 2)
+  netAmount              Decimal       @db.Decimal(14, 2)
+  paymentMethod          String?
+  channel                String?
+  rawPayload             Json?
+  createdAt              DateTime      @default(now())
+
+  @@unique([deliveryStoreId, externalOrderId], map: "nnsale_store_order_uniq")
+  @@index([deliveryStoreId, competenceYear, competenceMonth], map: "nnsale_store_competence_idx")
+  @@index([deliveryStoreId, orderDate], map: "nnsale_store_orderdate_idx")
+}
+
+model NoventaNoveSettlement {
+  id              String        @id @default(cuid())
+  deliveryStoreId String
+  deliveryStore   DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  externalId      String
+  periodStart     DateTime
+  periodEnd       DateTime
+  grossAmount     Decimal       @db.Decimal(14, 2)
+  totalFees       Decimal       @db.Decimal(14, 2)
+  netAmount       Decimal       @db.Decimal(14, 2)
+  paidAt          DateTime?
+  status          String
+  rawPayload      Json?
+  createdAt       DateTime      @default(now())
+
+  receivable      Receivable?
+
+  @@unique([deliveryStoreId, externalId], map: "nnstl_store_external_uniq")
+  @@index([deliveryStoreId, periodStart], map: "nnstl_store_period_idx")
+}
+
+model NoventaNoveFee {
+  id              String        @id @default(cuid())
+  deliveryStoreId String
+  deliveryStore   DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  competenceYear  Int
+  competenceMonth Int
+  feeType         String
+  description     String?
+  amount          Decimal       @db.Decimal(14, 2)
+  rawPayload      Json?
+  createdAt       DateTime      @default(now())
+
+  @@index([deliveryStoreId, competenceYear, competenceMonth], map: "nnfee_store_competence_idx")
+  @@index([deliveryStoreId, feeType], map: "nnfee_store_type_idx")
+}
+
+model NoventaNoveSyncLog {
+  id                String         @id @default(cuid())
+  deliveryStoreId   String?
+  deliveryStore     DeliveryStore? @relation(fields: [deliveryStoreId], references: [id], onDelete: SetNull)
+  syncType          String
+  startedAt         DateTime
+  finishedAt        DateTime?
+  status            String
+  itemsProcessed    Int            @default(0)
+  errorMessage      String?
+  triggeredByUserId String?
+
+  @@index([deliveryStoreId, startedAt], map: "nnlog_store_started_idx")
+}
+
+enum NoventaNoveMonthlyExpenseStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+model NoventaNoveMonthlyExpense {
+  id                 String                          @id @default(cuid())
+  deliveryStoreId    String
+  deliveryStore      DeliveryStore                   @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  companyId          String?
+  company            Company?                        @relation(fields: [companyId], references: [id])
+  competenceYear     Int
+  competenceMonth    Int
+  dueDate            DateTime
+
+  commissionAmount   Decimal                         @default(0) @db.Decimal(14, 2)
+  deliveryFeeAmount  Decimal                         @default(0) @db.Decimal(14, 2)
+  marketingAmount    Decimal                         @default(0) @db.Decimal(14, 2)
+  maintenanceAmount  Decimal                         @default(0) @db.Decimal(14, 2)
+  anticipationAmount Decimal                         @default(0) @db.Decimal(14, 2)
+  otherAmount        Decimal                         @default(0) @db.Decimal(14, 2)
+  totalAmount        Decimal                         @db.Decimal(14, 2)
+  paidAmount         Decimal?                        @db.Decimal(14, 2)
+
+  status             NoventaNoveMonthlyExpenseStatus @default(OPEN)
+  paidAt             DateTime?
+  paymentMethod      String?
+  notes              String?
+  autoGenerated      Boolean                         @default(true)
+
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  @@unique([deliveryStoreId, competenceYear, competenceMonth], map: "nnme_store_competence_uniq")
+  @@index([status, dueDate], map: "nnme_status_due_idx")
+  @@index([companyId, competenceYear, competenceMonth], map: "nnme_company_competence_idx")
+}
+
+enum ReceivableSourceType {
+  IFOOD_SETTLEMENT
+  NOVENTA_NOVE_SETTLEMENT
+  KEETA_SETTLEMENT
+  EVENT
+  DIRECT
+  OTHER
+}
+
+enum ReceivableStatus {
+  OPEN
+  PARTIALLY_RECEIVED
+  RECEIVED
+  LATE
+  CANCELLED
+}
+
+model Receivable {
+  id                 String              @id @default(cuid())
+  companyId          String?
+  company            Company?            @relation(fields: [companyId], references: [id])
+  sourceType         ReceivableSourceType
+  sourceRef          String?
+  ifoodSettlementId  String?             @unique
+  ifoodSettlement    IfoodSettlement?    @relation(fields: [ifoodSettlementId], references: [id], onDelete: SetNull)
+  noventaNoveSettlementId String?        @unique
+  noventaNoveSettlement   NoventaNoveSettlement? @relation(fields: [noventaNoveSettlementId], references: [id], onDelete: SetNull)
+  eventId            String?
+  customerName       String?
+  customerDocument   String?
+  description        String
+  competenceYear     Int
+  competenceMonth    Int
+  expectedDate       DateTime
+  receivedDate       DateTime?
+  grossAmount        Decimal             @db.Decimal(14, 2)
+  fees               Decimal             @default(0) @db.Decimal(14, 2)
+  netAmount          Decimal             @db.Decimal(14, 2)
+  paidAmount         Decimal?            @db.Decimal(14, 2)
+  paymentMethod      String?
+  bankAccountId      String?
+  installmentNumber  Int?
+  totalInstallments  Int?
+  // Auto-relação usada por eventos parcelados: a parcela mãe é o próprio
+  // contrato; parcelas filhas apontam pra ela via parentReceivableId.
+  parentReceivableId String?
+  parent             Receivable?         @relation("ReceivableInstallments", fields: [parentReceivableId], references: [id], onDelete: SetNull)
+  installments       Receivable[]        @relation("ReceivableInstallments")
+  status             ReceivableStatus    @default(OPEN)
+  notes              String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  cancelledAt        DateTime?
+  cancelledByUserId  String?
+  cancellationReason String?
+
+  @@index([status, expectedDate])
+  @@index([sourceType, companyId])
+  @@index([competenceYear, competenceMonth])
+  @@index([companyId, expectedDate])
+  @@index([parentReceivableId])
 }
