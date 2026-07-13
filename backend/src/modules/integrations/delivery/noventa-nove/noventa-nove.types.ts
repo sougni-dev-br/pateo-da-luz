@@ -7,7 +7,10 @@ import { z } from "zod";
 export const noventaNoveCredentialInputSchema = z.object({
   clientId: z.string().trim().min(8, "clientId inválido"),
   clientSecret: z.string().trim().min(8, "clientSecret inválido"),
-  environment: z.enum(["PRODUCTION", "SANDBOX"]).default("PRODUCTION")
+  environment: z.enum(["PRODUCTION", "SANDBOX"]).default("PRODUCTION"),
+  // Percentual de comissão contratual (0-100). Usado pra estimar
+  // noventaNoveFeeAmount, já que a DiDi não expõe comissão via callback.
+  commissionPercent: z.coerce.number().min(0).max(100).default(0)
 });
 
 export type NoventaNoveCredentialInput = z.infer<typeof noventaNoveCredentialInputSchema>;
@@ -47,6 +50,7 @@ export type NoventaNoveCredentialStatusView = {
   environment: "PRODUCTION" | "SANDBOX" | null;
   clientIdMasked: string | null;
   lastTokenAt: string | null;
+  commissionPercent: number;
 };
 
 export type NoventaNoveDailySalesRow = {
