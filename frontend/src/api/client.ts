@@ -4459,6 +4459,150 @@ export function testIfoodConnection() {
 }
 
 // ============================================================================
+// 99 Food — espelha os endpoints iFood. Enquanto o app do Pateo estiver em
+// análise em developer-food.99app.com, o backend responde com mock e sinaliza
+// awaitingApproval=true. A UI usa isso pra mostrar aviso apropriado.
+// ============================================================================
+
+export type NoventaNoveStoreView = {
+  id: string;
+  externalId: string;
+  nickname: string;
+  active: boolean;
+  companyId: string | null;
+  companyName: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NoventaNoveCredentialStatusView = {
+  configured: boolean;
+  environment: "PRODUCTION" | "SANDBOX" | null;
+  clientIdMasked: string | null;
+  lastTokenAt: string | null;
+};
+
+export type NoventaNoveDailySalesRow = {
+  date: string;
+  orders: number;
+  grossAmount: number;
+  noventaNoveFeeAmount: number;
+  promotionAmount: number;
+  deliveryFeeAmount: number;
+  netAmount: number;
+};
+
+export type NoventaNoveFeeBreakdownRow = {
+  feeType: string;
+  description: string | null;
+  amount: number;
+};
+
+export type NoventaNoveSettlementRow = {
+  id: string;
+  externalId: string;
+  periodStart: string;
+  periodEnd: string;
+  grossAmount: number;
+  totalFees: number;
+  netAmount: number;
+  paidAt: string | null;
+  status: string;
+};
+
+export type NoventaNovePeriodSummary = {
+  period: { year: number; month: number };
+  storeId: string | null;
+  storeLabel: string;
+  totals: {
+    orders: number;
+    grossAmount: number;
+    noventaNoveFeeAmount: number;
+    promotionAmount: number;
+    deliveryFeeAmount: number;
+    netAmount: number;
+    otherFees: number;
+  };
+  daily: NoventaNoveDailySalesRow[];
+  fees: NoventaNoveFeeBreakdownRow[];
+  settlements: NoventaNoveSettlementRow[];
+  isMock: boolean;
+};
+
+export type NoventaNoveStatusView = {
+  credential: NoventaNoveCredentialStatusView;
+  stores: NoventaNoveStoreView[];
+  lastSync: {
+    status: string;
+    startedAt: string;
+    finishedAt: string | null;
+    itemsProcessed: number;
+    errorMessage: string | null;
+  } | null;
+  mockMode: boolean;
+  awaitingApproval: boolean;
+};
+
+export function getNoventaNoveStatus() {
+  return request<NoventaNoveStatusView>("/integrations/delivery/noventa-nove/status");
+}
+
+export function getNoventaNoveStores() {
+  return request<NoventaNoveStoreView[]>("/integrations/delivery/noventa-nove/stores");
+}
+
+export function updateNoventaNoveStore(id: string, payload: { externalId: string; nickname: string; active: boolean; companyId: string | null }) {
+  return request<NoventaNoveStoreView>(`/integrations/delivery/noventa-nove/stores/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function saveNoventaNoveCredential(payload: { clientId: string; clientSecret: string; environment: "PRODUCTION" | "SANDBOX" }) {
+  return request<NoventaNoveCredentialStatusView>("/integrations/delivery/noventa-nove/credential", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function getNoventaNoveSummary(params: { year: number; month: number; storeId?: string }) {
+  const query = new URLSearchParams({
+    year: String(params.year),
+    month: String(params.month)
+  });
+  if (params.storeId) query.set("storeId", params.storeId);
+  return request<NoventaNovePeriodSummary>(`/integrations/delivery/noventa-nove/summary?${query.toString()}`);
+}
+
+export type NoventaNoveSmartSyncResult = {
+  mode: "REAL" | "MOCK";
+  log: NoventaNoveStatusView["lastSync"];
+};
+
+export function runNoventaNoveMockSync(params?: { year?: number; month?: number }) {
+  return request<NoventaNoveSmartSyncResult>("/integrations/delivery/noventa-nove/sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params ?? {})
+  }, 60_000);
+}
+
+export type NoventaNoveConnectionTest = {
+  ok: boolean;
+  message: string;
+  tokenPreview: string | null;
+  expiresInSeconds: number | null;
+  errorDetail: string | null;
+  environment: "PRODUCTION" | "SANDBOX" | null;
+};
+
+export function testNoventaNoveConnection() {
+  return request<NoventaNoveConnectionTest>("/integrations/delivery/noventa-nove/test-connection", { method: "POST" });
+}
+
+// ============================================================================
 // Contas a receber (Receivable) — cobre iFood, futuros 99/Keeta, eventos, etc.
 // ============================================================================
 

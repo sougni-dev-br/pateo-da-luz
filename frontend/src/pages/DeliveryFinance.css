@@ -1,0 +1,275 @@
+/* Compartilhado entre Contas a Receber, Despesas iFood e Integração iFood.
+   Filosofia: tabela no desktop, cards empilhados no mobile.
+   Breakpoint ≤900px vira card-list. */
+
+.df-page {
+  display: grid;
+  gap: 20px;
+  padding: 16px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.df-kpi-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+/* Em mobile, força 2×N compacto pra não empilhar 4 cards enormes. */
+@media (max-width: 640px) {
+  .df-kpi-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .df-kpi-grid .ds-summary-card {
+    padding: 10px 12px;
+  }
+  .df-kpi-grid .ds-summary-card-value {
+    font-size: 18px;
+  }
+  .df-kpi-grid .ds-summary-card-label {
+    font-size: 11px;
+  }
+}
+
+.df-filter-bar {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  align-items: end;
+}
+
+.df-filter-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 640px) {
+  .df-filter-actions {
+    justify-content: stretch;
+  }
+  .df-filter-actions > * {
+    flex: 1;
+  }
+}
+
+.df-table-wrap {
+  overflow-x: auto;
+  margin: 0 -4px;
+}
+
+/* Mobile card-list — some pages usam .df-card-list em vez da tabela.
+   No mobile mostramos os cards e escondemos a tabela; no desktop, o inverso. */
+.df-card-list {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .df-table-wrap {
+    display: none;
+  }
+  .df-card-list {
+    display: flex;
+  }
+}
+
+.df-card {
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 10px;
+  padding: 14px;
+  background: var(--color-surface, #fff);
+  display: grid;
+  gap: 10px;
+}
+
+.df-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.df-card-title {
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--color-text, #111);
+}
+
+.df-card-subtitle {
+  font-size: 12px;
+  color: var(--color-text-muted, #6b7280);
+  margin-top: 2px;
+}
+
+.df-card-value {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--color-text, #111);
+  white-space: nowrap;
+}
+
+.df-card-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  font-size: 12px;
+}
+
+.df-card-meta > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.df-card-meta .label {
+  color: var(--color-text-muted, #6b7280);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.df-card-meta .value {
+  font-weight: 600;
+  color: var(--color-text, #111);
+}
+
+.df-card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.df-card-actions > * {
+  flex: 1;
+  min-width: 100px;
+}
+
+/* Status pills */
+.df-status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.df-status-open      { background: rgba(59, 130, 246, 0.15); color: #1e40af; }
+.df-status-partial   { background: rgba(234, 179, 8, 0.15);  color: #a16207; }
+.df-status-received,
+.df-status-paid      { background: rgba(22, 163, 74, 0.15);  color: #166534; }
+.df-status-late      { background: rgba(220, 38, 38, 0.15);  color: #991b1b; }
+.df-status-cancelled { background: rgba(107, 114, 128, 0.15); color: #374151; }
+
+/* Modal */
+.df-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.df-modal {
+  background: var(--color-surface, #fff);
+  border-radius: 12px;
+  padding: 22px 22px 18px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+  color: var(--color-text, #111);
+}
+
+.df-modal h3 {
+  margin: 0 0 4px 0;
+  font-size: 18px;
+}
+
+.df-modal-subtitle {
+  margin: 0 0 16px 0;
+  font-size: 13px;
+  color: var(--color-text-muted, #6b7280);
+}
+
+.df-modal-fields {
+  display: grid;
+  gap: 12px;
+}
+
+.df-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+/* iFood StoreRow — responsive */
+.ifood-store-row {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 10px;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(180px, 1.4fr) minmax(200px, 1.6fr) auto;
+  align-items: end;
+}
+
+.ifood-store-row.is-missing-company {
+  border-color: #fecaca;
+  background: rgba(254, 226, 226, 0.25);
+}
+
+.ifood-store-row.is-inactive {
+  background: rgba(0, 0, 0, 0.03);
+  opacity: 0.85;
+}
+
+.ifood-store-row-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding-bottom: 10px;
+  white-space: nowrap;
+}
+
+.ifood-store-row-save {
+  align-self: end;
+}
+
+@media (max-width: 900px) {
+  .ifood-store-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .ifood-store-row-toggle,
+  .ifood-store-row-save {
+    justify-self: start;
+    padding-bottom: 0;
+  }
+  .ifood-store-row-save > * {
+    width: 100%;
+  }
+}
+
+/* Delta up/down inline */
+.df-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.df-delta.up   { color: #16a34a; }
+.df-delta.down { color: #dc2626; }
+.df-delta.zero { color: var(--color-text-muted, #6b7280); }
