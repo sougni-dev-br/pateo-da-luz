@@ -66,6 +66,12 @@ const PurchasePlanning = lazy(() => import("./pages/PurchasePlanning").then((mod
 const Purchases = lazy(() => import("./pages/Purchases").then((module) => ({ default: module.Purchases })));
 const Revenue = lazy(() => import("./pages/Revenue").then((module) => ({ default: module.Revenue })));
 const FaturamentoSalao = lazy(() => import("./pages/FaturamentoSalao").then((module) => ({ default: module.FaturamentoSalao })));
+const DeliveryIfood = lazy(() => import("./pages/DeliveryIfood").then((module) => ({ default: module.DeliveryIfood })));
+const IfoodSettings = lazy(() => import("./pages/IfoodSettings").then((module) => ({ default: module.IfoodSettings })));
+const Delivery = lazy(() => import("./pages/Delivery").then((module) => ({ default: module.Delivery })));
+const DeliverySettings = lazy(() => import("./pages/DeliverySettings").then((module) => ({ default: module.DeliverySettings })));
+const Receivables = lazy(() => import("./pages/Receivables").then((module) => ({ default: module.Receivables })));
+const IfoodExpenses = lazy(() => import("./pages/IfoodExpenses").then((module) => ({ default: module.IfoodExpenses })));
 const Suppliers = lazy(() => import("./pages/Suppliers").then((module) => ({ default: module.Suppliers })));
 const Companies = lazy(() => import("./pages/Companies").then((module) => ({ default: module.Companies })));
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
@@ -104,8 +110,11 @@ const sections = [
   { id: "purchases", label: "Compras", icon: ReceiptText, showInSidebar: true, group: "Operação", path: "/compras", matchers: ["/compras", "/compras/nova", "/compras/:id/editar"], description: "Registro e controle de compras do período" },
   { id: "purchase-orders", label: "Pedidos de compra", icon: ClipboardList, showInSidebar: true, group: "Operação", path: "/compras/pedidos", matchers: ["/compras/pedidos"], description: "Pedidos operacionais gerados a partir da pré-lista do comprador. Ainda não integram contas a pagar." },
   { id: "payables", label: "Contas a pagar", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-pagar", matchers: ["/financeiro/contas-a-pagar"] },
+  { id: "receivables", label: "Contas a receber", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-receber", matchers: ["/financeiro/contas-a-receber"], description: "Repasses iFood, eventos e outros recebíveis" },
+  { id: "ifood-expenses", label: "Despesas iFood", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/despesas-ifood", matchers: ["/financeiro/despesas-ifood"], description: "Comissão, entrega, marketing e taxas mensais iFood" },
   { id: "revenue", label: "Faturamento", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento", matchers: ["/financeiro/faturamento"] },
   { id: "faturamento-salao", label: "Salão (Agile PDV)", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento-salao", matchers: ["/financeiro/faturamento-salao"], description: "Faturamento do salão sincronizado automaticamente pelo agente do PDV", hidePageHeader: true },
+  { id: "delivery", label: "Delivery", icon: Truck, showInSidebar: true, group: "Financeiro", path: "/financeiro/delivery", matchers: ["/financeiro/delivery", "/financeiro/delivery-ifood"], description: "Faturamento delivery iFood + 99 Food — 4 lojas cada, taxas, promoções e repasses" },
   { id: "cards", label: "Cartões", icon: CreditCard, showInSidebar: true, group: "Financeiro", path: "/financeiro/cartoes", matchers: ["/financeiro/cartoes"] },
   { id: "cash", label: "Caixa", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/caixa", matchers: ["/financeiro/caixa"] },
   { id: "cmv-real", label: "CMV Real", icon: Calculator, showInSidebar: true, group: "CMV", path: "/cmv/real", matchers: ["/cmv/real"] },
@@ -128,7 +137,8 @@ const sections = [
   { id: "payment-methods", label: "Pagamentos", icon: CreditCard, showInSidebar: true, group: "Configurações", path: "/configuracoes/pagamentos", matchers: ["/configuracoes/pagamentos"] },
   { id: "master-data", label: "Cadastros base", icon: Layers, showInSidebar: true, group: "Configurações", path: "/configuracoes/cadastros-base", matchers: ["/configuracoes/cadastros-base"] },
   { id: "users", label: "Usuários", icon: Shield, showInSidebar: true, group: "Configurações", path: "/configuracoes/usuarios", matchers: ["/configuracoes/usuarios"] },
-  { id: "audit", label: "Auditoria", icon: ScrollText, showInSidebar: true, group: "Configurações", path: "/configuracoes/auditoria", matchers: ["/configuracoes/auditoria"] }
+  { id: "audit", label: "Auditoria", icon: ScrollText, showInSidebar: true, group: "Configurações", path: "/configuracoes/auditoria", matchers: ["/configuracoes/auditoria"] },
+  { id: "integracao-delivery", label: "Integrações Delivery", icon: FileCog, showInSidebar: true, group: "Integrações", path: "/configuracoes/integracoes/delivery", matchers: ["/configuracoes/integracoes/delivery", "/configuracoes/integracoes/ifood"], description: "Credenciais e cadastro de lojas iFood e 99 Food" }
 ] as const satisfies readonly SectionDefinition[];
 
 type SectionId = (typeof sections)[number]["id"];
@@ -530,6 +540,8 @@ export function App() {
               <Route path="/compras/:id/editar" element={<Purchases user={user} />} />
               <Route path="/compras/pedidos" element={<PurchaseOrders user={user} />} />
               <Route path="/financeiro/contas-a-pagar" element={<Payables user={user} />} />
+              <Route path="/financeiro/contas-a-receber" element={<Receivables />} />
+              <Route path="/financeiro/despesas-ifood" element={<IfoodExpenses />} />
               <Route path="/financeiro/cartoes" element={<Cards user={user} />} />
               <Route
                 path="/financeiro/faturamento"
@@ -548,6 +560,10 @@ export function App() {
                 )}
               />
               <Route path="/financeiro/faturamento-salao" element={<FaturamentoSalao user={user} />} />
+              <Route path="/financeiro/delivery" element={<Delivery />} />
+              <Route path="/financeiro/delivery-ifood" element={<Navigate to="/financeiro/delivery?platform=ifood" replace />} />
+              <Route path="/configuracoes/integracoes/delivery" element={<DeliverySettings />} />
+              <Route path="/configuracoes/integracoes/ifood" element={<Navigate to="/configuracoes/integracoes/delivery?platform=ifood" replace />} />
               <Route
                 path="/financeiro/caixa"
                 element={(

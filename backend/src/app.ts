@@ -5,6 +5,10 @@ import { dashboardRouter } from "./modules/dashboard/dashboard.routes.js";
 import { importConflictRouter } from "./modules/import-conflicts/import-conflict.routes.js";
 import { importRouter } from "./modules/imports/import.routes.js";
 import { agileIntegrationRouter } from "./modules/integrations/agile/agile-sync.routes.js";
+import { ifoodDeliveryRouter } from "./modules/integrations/delivery/ifood/ifood.routes.js";
+import { noventaNoveDeliveryRouter, noventaNovePublicRouter } from "./modules/integrations/delivery/noventa-nove/noventa-nove.routes.js";
+import { receivableRouter } from "./modules/receivables/receivable.routes.js";
+import { ifoodExpenseRouter } from "./modules/ifood-expenses/ifood-expense.routes.js";
 import { inventoryRouter } from "./modules/inventory/inventory.routes.js";
 import { cmvRealRouter } from "./modules/cmv-real/cmv-real.routes.js";
 import { cardsRouter } from "./modules/cards/cards.routes.js";
@@ -60,6 +64,9 @@ app.get("/health", (_request, response) => {
 });
 
 app.use("/auth", authRouter);
+// Rotas PÚBLICAS (chamadas por terceiros/webhooks) ficam ANTES do
+// requireMenuAccess pra bypassar o middleware de sessão.
+app.use("/public/delivery/noventa-nove", noventaNovePublicRouter);
 app.use(requireMenuAccess);
 app.use("/suppliers", supplierRouter);
 app.use("/supplier-cycles", supplierCyclesRouter);
@@ -82,6 +89,10 @@ app.use("/dishes", dishesRouter);
 app.use("/dre", dreRouter);
 app.use("/tax-payments", taxPaymentRouter);
 app.use("/integrations/agile", agileIntegrationRouter);
+app.use("/integrations/delivery/ifood", ifoodDeliveryRouter);
+app.use("/integrations/delivery/noventa-nove", noventaNoveDeliveryRouter);
+app.use("/receivables", receivableRouter);
+app.use("/ifood-expenses", ifoodExpenseRouter);
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   console.error("Unhandled API error", error);

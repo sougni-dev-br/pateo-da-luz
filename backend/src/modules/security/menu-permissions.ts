@@ -15,8 +15,14 @@ export const menuCatalog = [
   { id: "purchases", label: "Compras", group: "Operacao" },
   { id: "purchase-orders", label: "Pedidos de compra", group: "Operacao" },
   { id: "payables", label: "Financeiro / Contas a pagar", group: "Financeiro" },
+  { id: "receivables", label: "Financeiro / Contas a receber", group: "Financeiro" },
+  { id: "ifood-expenses", label: "Financeiro / Despesas iFood", group: "Financeiro" },
   { id: "revenue", label: "Faturamento diario", group: "Financeiro" },
   { id: "faturamento-salao", label: "Faturamento Salao (Agile PDV)", group: "Financeiro" },
+  { id: "delivery-ifood", label: "Delivery iFood", group: "Financeiro" },
+  { id: "delivery-noventa-nove", label: "Delivery 99 Food", group: "Financeiro" },
+  { id: "integracao-ifood", label: "Integração iFood", group: "Integrações" },
+  { id: "integracao-noventa-nove", label: "Integração 99 Food", group: "Integrações" },
   { id: "cards", label: "Cartoes", group: "Financeiro" },
   { id: "cash", label: "Caixa", group: "Financeiro" },
   { id: "cmv-real", label: "CMV Real", group: "CMV" },
@@ -353,6 +359,8 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/payment-methods")) return "payment-methods";
   if (path.startsWith("/purchase-orders")) return "purchase-orders";
   if (path.startsWith("/purchases/payables")) return "payables";
+  if (path.startsWith("/receivables")) return "receivables";
+  if (path.startsWith("/ifood-expenses")) return "ifood-expenses";
   if (path.startsWith("/purchases")) return "purchases";
   if (path.startsWith("/cards")) return "cards";
   if (path.startsWith("/imports/suppliers") || path.startsWith("/imports/products") || path.startsWith("/imports/payment-methods") || path.startsWith("/imports/small-expense-types") || path.startsWith("/imports/catalog")) return "catalog-imports";
@@ -372,6 +380,8 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/monthly/cmv-real")) return "cmv-real";
   if (path.startsWith("/monthly/revenue")) return "revenue";
   if (path.startsWith("/integrations/agile/status")) return "faturamento-salao";
+  if (path.startsWith("/integrations/delivery/ifood")) return "delivery-ifood";
+  if (path.startsWith("/integrations/delivery/noventa-nove")) return "delivery-noventa-nove";
   if (path.startsWith("/monthly/daily-revenue")) return "cash";
   if (path.startsWith("/monthly")) return "monthly-closing";
   if (path.startsWith("/master-data/sectors") && method === "GET" && String(request.query?.forStockCounting ?? "").toLowerCase() === "true") {
