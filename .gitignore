@@ -40,3 +40,14 @@ exports/database/
 *.dump
 
 agent-pdv.zip
+agent-pdv (*).zip
+
+# Reports gerados pelos scripts CMV — não versionar (contém snapshots de dados)
+exports/
+
+# Documentação NDA do 99 Food (Sob acordo de confidencialidade da 99/DiDi).
+# Ficam disponíveis localmente pra referência de desenvolvimento, mas
+# NUNCA vão pro repositório.
+docs/99food/swagger.yaml
+docs/99food/*.pdf
+docs/99food/private/
