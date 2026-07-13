@@ -5118,7 +5118,8 @@ td {
   padding: 9px 8px;
   text-align: left;
   vertical-align: top;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
   max-width: 280px;
 }
 
