@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, FileText, Loader2, PackageSearch, RotateCcw, Search, ShoppingCart, Tag, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, FileText, Loader2, PackageSearch, RotateCcw, Save, Search, ShoppingCart, Tag, Trash2, X } from "lucide-react";
 import { Dialog } from "../components/ui";
 import { Button, EmptyState, Money, StatusBadge, Tabs, useFormatCurrency } from "../design-system";
 import {
@@ -32,6 +32,64 @@ type LineEdit = {
 };
 
 type ViewMode = "product" | "supplier";
+
+// Persistencia local do rascunho de planejamento. Chave inclui origem para nao
+// misturar rascunhos de contagens diferentes. Payload versionado para permitir
+// migracoes futuras sem quebrar rascunhos antigos.
+const DRAFT_STORAGE_VERSION = 1;
+const DRAFT_STORAGE_PREFIX = "pplan-draft";
+
+function draftStorageKey(sourceType: string | undefined, sourceId: string | undefined): string {
+  return `${DRAFT_STORAGE_PREFIX}:${sourceType ?? "default"}:${sourceId ?? "default"}`;
+}
+
+type DraftPayload = {
+  v: number;
+  savedAt: string;
+  edits: Record<string, LineEdit>;
+  removedIds: string[];
+  generatedByProduct: Record<string, string>;
+};
+
+function loadDraft(key: string): DraftPayload | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DraftPayload;
+    if (!parsed || parsed.v !== DRAFT_STORAGE_VERSION) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(key: string, payload: Omit<DraftPayload, "v" | "savedAt">): string | null {
+  try {
+    const savedAt = new Date().toISOString();
+    window.localStorage.setItem(key, JSON.stringify({ v: DRAFT_STORAGE_VERSION, savedAt, ...payload }));
+    return savedAt;
+  } catch {
+    return null;
+  }
+}
+
+function clearDraft(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    /* silencioso */
+  }
+}
+
+function formatSavedAt(iso: string | null): string {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
 
 function sourceTitle(source: BuyerSupportReport["summary"]["source"]): string {
   const byType: Record<string, string> = {
@@ -128,8 +186,17 @@ export function PurchasePlanning() {
   const [onlyWithoutSupplier, setOnlyWithoutSupplier] = useState(false);
   const [onlyCheaper, setOnlyCheaper] = useState(false);
   const [onlyBelowMin, setOnlyBelowMin] = useState(false);
+  const [qtyFilter, setQtyFilter] = useState<"all" | "filled" | "empty">("all");
+  const [statusFilter, setStatusFilter] = useState<PlanningStatus | "">("");
+  const [onlyReviewUnit, setOnlyReviewUnit] = useState(false);
   const [view, setView] = useState<ViewMode>("product");
   const [activeSuppliers, setActiveSuppliers] = useState<Supplier[]>([]);
+
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const [draftHydrated, setDraftHydrated] = useState(false);
+  // Bloqueia auto-save durante o carregamento inicial: sem isso, o primeiro seed
+  // gravaria por cima de um rascunho legitimo antes de hidratar.
+  const draftReadyRef = useRef(false);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -197,6 +264,9 @@ export function PurchasePlanning() {
     let active = true;
     setLoading(true);
     setError(null);
+    draftReadyRef.current = false;
+    setDraftHydrated(false);
+    setDraftSavedAt(null);
     getBuyerSupportReport(sourceType ? { sourceType, sourceId } : undefined)
       .then((data) => {
         if (!active) return;
@@ -214,9 +284,33 @@ export function PurchasePlanning() {
             acceptedSuggestion: false
           };
         }
-        setEdits(seed);
-        setRemovedIds(new Set());
-        setGeneratedByProduct({});
+
+        // Hidrata do rascunho local, se existir. So aplica campos de produtos
+        // que ainda existem no report atual — protege contra produtos removidos
+        // no cadastro entre o salvamento e a retomada.
+        const key = draftStorageKey(sourceType, sourceId);
+        const draft = loadDraft(key);
+        let restoredEdits = seed;
+        let restoredRemoved = new Set<string>();
+        let restoredGenerated: Record<string, string> = {};
+        if (draft) {
+          const validIds = new Set(data.items.map((i) => i.productId));
+          restoredEdits = { ...seed };
+          for (const [pid, edit] of Object.entries(draft.edits ?? {})) {
+            if (validIds.has(pid)) restoredEdits[pid] = { ...seed[pid], ...edit };
+          }
+          restoredRemoved = new Set((draft.removedIds ?? []).filter((id) => validIds.has(id)));
+          restoredGenerated = Object.fromEntries(
+            Object.entries(draft.generatedByProduct ?? {}).filter(([pid]) => validIds.has(pid))
+          );
+          setDraftSavedAt(draft.savedAt ?? null);
+          setDraftHydrated(true);
+        }
+        setEdits(restoredEdits);
+        setRemovedIds(restoredRemoved);
+        setGeneratedByProduct(restoredGenerated);
+        // So libera auto-save depois do estado inicial estar consolidado.
+        setTimeout(() => { draftReadyRef.current = true; }, 0);
       })
       .catch((err: unknown) => {
         if (!active) return;
@@ -229,6 +323,51 @@ export function PurchasePlanning() {
       active = false;
     };
   }, [sourceType, sourceId]);
+
+  // Auto-save do rascunho: debounce 600ms depois da ultima mudanca em edits/
+  // removedIds/generatedByProduct. Nao salva antes da hidratacao inicial pra
+  // nao sobrescrever um rascunho legitimo com o seed vazio. Tambem nao salva
+  // enquanto o comprador nao produziu nenhuma mudanca real (evita mostrar
+  // "Rascunho salvo" ao abrir a tela sem ter editado nada).
+  useEffect(() => {
+    if (!draftReadyRef.current || !report) return;
+    const hasRealChange =
+      removedIds.size > 0 ||
+      Object.keys(generatedByProduct).length > 0 ||
+      Object.values(edits).some((e) => (e?.qty ?? "") !== "" || (e?.note ?? "") !== "" || e?.acceptedSuggestion === true);
+    if (!hasRealChange) return;
+    const key = draftStorageKey(sourceType, sourceId);
+    const handle = setTimeout(() => {
+      const savedAt = saveDraft(key, {
+        edits,
+        removedIds: Array.from(removedIds),
+        generatedByProduct
+      });
+      if (savedAt) setDraftSavedAt(savedAt);
+    }, 600);
+    return () => clearTimeout(handle);
+  }, [edits, removedIds, generatedByProduct, sourceType, sourceId, report]);
+
+  const discardDraft = () => {
+    if (!report) return;
+    const key = draftStorageKey(sourceType, sourceId);
+    clearDraft(key);
+    const seed: Record<string, LineEdit> = {};
+    for (const item of report.items) {
+      seed[item.productId] = {
+        qty: "",
+        model: defaultModel(item),
+        supplierId: item.supplierId ?? item.preferredSupplierId ?? item.bestPriceSupplierId ?? null,
+        note: "",
+        acceptedSuggestion: false
+      };
+    }
+    setEdits(seed);
+    setRemovedIds(new Set());
+    setGeneratedByProduct({});
+    setDraftSavedAt(null);
+    setDraftHydrated(false);
+  };
 
   const updateEdit = (productId: string, patch: Partial<LineEdit>) => {
     setEdits((prev) => ({ ...prev, [productId]: { ...prev[productId], ...patch } }));
@@ -287,14 +426,36 @@ export function PurchasePlanning() {
       if (removedIds.has(item.productId)) return false;
       if (term && !`${item.productName} ${item.productCode ?? ""}`.toLowerCase().includes(term)) return false;
       if (sectorFilter && item.sectorName !== sectorFilter) return false;
-      if (supplierFilter && item.supplierName !== supplierFilter) return false;
+      const edit = edits[item.productId];
+      const chosen = chosenSupplierOf(item, edit);
+      // supplierFilter compara ao fornecedor escolhido pelo comprador (com fallback
+      // ao sugerido do payload) — nao ao supplierName original, que ficava
+      // desatualizado depois da troca via chip.
+      if (supplierFilter) {
+        const chosenName = chosen
+          ? item.supplierPriceOptions.find((opt) => opt.supplierId === chosen)?.supplierName ?? item.supplierName
+          : null;
+        if (chosenName !== supplierFilter && item.supplierName !== supplierFilter) return false;
+      }
       if (onlySuggested && !(item.suggestedQuantity && item.suggestedQuantity > 0)) return false;
-      if (onlyWithoutSupplier && item.supplierId) return false;
+      // onlyWithoutSupplier: usa fornecedor escolhido (nao o do payload). Antes,
+      // trocar fornecedor via chip nao removia o item deste filtro.
+      if (onlyWithoutSupplier && chosen) return false;
       if (onlyCheaper && !item.hasCheaperAlternative) return false;
       if (onlyBelowMin && !item.alerts.includes("ABAIXO DO MINIMO")) return false;
+      if (onlyReviewUnit && !item.conversionMissing) return false;
+      const qtyStr = edit?.qty ?? "";
+      const qtyNum = Number(qtyStr);
+      const hasQty = qtyStr !== "" && qtyNum > 0;
+      if (qtyFilter === "filled" && !hasQty) return false;
+      if (qtyFilter === "empty" && hasQty) return false;
+      if (statusFilter) {
+        const s = lineStatus(qtyNum, chosen, item);
+        if (s !== statusFilter) return false;
+      }
       return true;
     });
-  }, [report, search, sectorFilter, supplierFilter, onlySuggested, onlyWithoutSupplier, onlyCheaper, onlyBelowMin, removedIds]);
+  }, [report, search, sectorFilter, supplierFilter, onlySuggested, onlyWithoutSupplier, onlyCheaper, onlyBelowMin, onlyReviewUnit, qtyFilter, statusFilter, removedIds, edits]);
 
   // Rascunho local pronto para a Etapa 4 (nao envia nada agora). Um item entra no pedido
   // quando tem quantidade > 0 e fornecedor escolhido. Itens sem fornecedor ficam de fora.
@@ -440,7 +601,9 @@ export function PurchasePlanning() {
       analyzed: items.length,
       withSuggestion: items.filter((item) => item.suggestedQuantity && item.suggestedQuantity > 0).length,
       belowMin: items.filter((item) => item.alerts.includes("ABAIXO DO MINIMO")).length,
-      withoutSupplier: items.filter((item) => !item.supplierId).length,
+      // "Sem fornecedor" reflete a decisao efetiva: item sem candidato (nem escolhido,
+      // nem preferido, nem melhor preco) — mesmo criterio do draft e do filtro.
+      withoutSupplier: items.filter((item) => !chosenSupplierOf(item, edits[item.productId])).length,
       cheaper: items.filter((item) => item.hasCheaperAlternative).length,
       reviewUnit: items.filter((item) => item.conversionMissing).length,
       estimated: hasEstimate ? estimated : null
@@ -537,6 +700,31 @@ export function PurchasePlanning() {
             </button>
           </div>
         </div>
+        {report && (
+          <div className="pplan-draft-status" role="status" aria-live="polite">
+            <Save size={13} />
+            {draftHydrated && draftSavedAt && (
+              <span>Rascunho recuperado — última alteração {formatSavedAt(draftSavedAt)}.</span>
+            )}
+            {!draftHydrated && draftSavedAt && (
+              <span>Rascunho salvo automaticamente às {formatSavedAt(draftSavedAt)}.</span>
+            )}
+            {!draftSavedAt && (
+              <span>As alterações são salvas automaticamente neste navegador.</span>
+            )}
+            {draftSavedAt && (
+              <button
+                type="button"
+                className="pplan-draft-discard"
+                onClick={() => {
+                  if (window.confirm("Descartar o rascunho salvo e começar do zero?")) discardDraft();
+                }}
+              >
+                <Trash2 size={12} /> Descartar rascunho
+              </button>
+            )}
+          </div>
+        )}
         {report?.summary.source.partial && (
           <div className="pplan-origin-alert">
             <AlertTriangle size={15} />
@@ -621,11 +809,33 @@ export function PurchasePlanning() {
                 <option key={sector} value={sector}>{sector}</option>
               ))}
             </select>
-            <select value={supplierFilter} onChange={(event) => setSupplierFilter(event.target.value)} aria-label="Fornecedor sugerido">
+            <select value={supplierFilter} onChange={(event) => setSupplierFilter(event.target.value)} aria-label="Fornecedor">
               <option value="">Todos os fornecedores</option>
               {suppliers.map((supplier) => (
                 <option key={supplier} value={supplier}>{supplier}</option>
               ))}
+            </select>
+            <select
+              value={qtyFilter}
+              onChange={(event) => setQtyFilter(event.target.value as typeof qtyFilter)}
+              aria-label="Quantidade preenchida"
+              title="Filtrar por quantidade preenchida"
+            >
+              <option value="all">Qualquer quantidade</option>
+              <option value="empty">Sem quantidade preenchida</option>
+              <option value="filled">Com quantidade preenchida</option>
+            </select>
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as PlanningStatus | "")}
+              aria-label="Status de decisão"
+              title="Filtrar por status de decisão"
+            >
+              <option value="">Todos os status</option>
+              <option value="PEDIR">Pedir</option>
+              <option value="REVISAR">Revisar</option>
+              <option value="SEM_FORNECEDOR">Sem fornecedor</option>
+              <option value="NAO_PEDIR">Não pedir</option>
             </select>
             <Tabs
               value={view}
@@ -642,6 +852,7 @@ export function PurchasePlanning() {
             <label className={onlyWithoutSupplier ? "active" : ""}><input type="checkbox" checked={onlyWithoutSupplier} onChange={(event) => setOnlyWithoutSupplier(event.target.checked)} /> Sem fornecedor</label>
             <label className={onlyCheaper ? "active" : ""}><input type="checkbox" checked={onlyCheaper} onChange={(event) => setOnlyCheaper(event.target.checked)} /> Menor preço alternativo</label>
             <label className={onlyBelowMin ? "active" : ""}><input type="checkbox" checked={onlyBelowMin} onChange={(event) => setOnlyBelowMin(event.target.checked)} /> Abaixo do mínimo</label>
+            <label className={onlyReviewUnit ? "active" : ""}><input type="checkbox" checked={onlyReviewUnit} onChange={(event) => setOnlyReviewUnit(event.target.checked)} /> Revisar unidade</label>
           </section>
 
           {removedIds.size > 0 && (
