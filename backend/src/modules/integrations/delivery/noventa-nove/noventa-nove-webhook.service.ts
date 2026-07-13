@@ -17,25 +17,38 @@ import type { Prisma } from "@prisma/client";
 // (OrderModel) e ignora eventos desconhecidos com log — melhor perder
 // evento do que persistir garbage.
 
-// Envelope hipotético do webhook (a confirmar com sandbox):
+// Envelope REAL do webhook (validado via sandbox 2026-07-13):
 //   {
-//     event: "orderCreated" | "orderStatusChanged" | ...,
-//     app_id: string (long),
-//     shop_id: string (long),        // ID da 99
-//     app_shop_id: string,           // nosso ID
+//     type: "orderNew" | "orderStatusChanged" | ...,   // NÃO é "event"
+//     app_id: number (long),
+//     app_shop_id: string,
 //     timestamp: number,             // unix seconds
-//     sign: string,                  // HMAC — TODO: verificar
-//     data: OrderModel | ...         // payload
+//     data: {
+//       order_id: number,
+//       order_info: OrderModel,       // pedido fica DENTRO de data.order_info
+//       ...
+//     }
 //   }
+// Assinatura (sign) não observada no sandbox — pode vir em header ou
+// só em prod. TODO: confirmar em prod real com pedido de cliente.
+// shop_id: vem dentro de data.order_info.shop.shop_id.
 
 export type WebhookEnvelope = {
-  event?: string;
+  // Campos observados no sandbox 2026-07-13
+  type?: string;
   app_id?: string | number;
-  shop_id?: string | number;
   app_shop_id?: string;
   timestamp?: number;
+  data?: {
+    order_id?: string | number;
+    order_info?: OrderCallbackPayload;
+    // Fallback pra outros tipos de callback
+    [key: string]: unknown;
+  };
+  // Fallbacks pra variações do contrato (documentação antiga usava event)
+  event?: string;
+  shop_id?: string | number;
   sign?: string;
-  data?: unknown;
 };
 
 export type OrderCallbackPayload = {
@@ -69,7 +82,12 @@ export type OrderCallbackPayload = {
       coupon_discount?: number;
     };
   };
-  shop?: unknown;
+  shop?: {
+    shop_id?: string | number;
+    app_shop_id?: string;
+    shop_name?: string;
+    shop_addr?: string;
+  };
   order_items?: unknown[];
   promotions?: unknown[];
 };
@@ -105,11 +123,14 @@ function unixToDate(unixSeconds: number | undefined): Date | null {
 }
 
 // Localiza a DeliveryStore correspondente ao evento. Preferência:
-//   1. match por shopIdRemote (ID do 99)
-//   2. match por externalId (nosso app_shop_id)
-async function findStoreForCallback(envelope: WebhookEnvelope) {
-  const remoteId = envelope.shop_id !== undefined ? String(envelope.shop_id) : null;
-  const appShopId = envelope.app_shop_id ?? null;
+//   1. match por shopIdRemote (data.order_info.shop.shop_id ou envelope.shop_id fallback)
+//   2. match por externalId (envelope.app_shop_id ou data.order_info.shop.app_shop_id)
+async function findStoreForCallback(envelope: WebhookEnvelope, orderInfo: OrderCallbackPayload | null) {
+  const remoteFromShop = orderInfo?.shop?.shop_id !== undefined ? String(orderInfo.shop.shop_id) : null;
+  const remoteFromEnvelope = envelope.shop_id !== undefined ? String(envelope.shop_id) : null;
+  const remoteId = remoteFromShop ?? remoteFromEnvelope;
+  const appShopId = envelope.app_shop_id ?? orderInfo?.shop?.app_shop_id ?? null;
+
   if (remoteId) {
     const byRemote = await prisma.deliveryStore.findFirst({
       where: { platform: "NOVENTA_NOVE", shopIdRemote: remoteId }
@@ -121,7 +142,6 @@ async function findStoreForCallback(envelope: WebhookEnvelope) {
       where: { platform: "NOVENTA_NOVE", externalId: appShopId }
     });
     if (byApp) {
-      // Se veio shop_id no callback e ainda não temos no DB, backfill agora.
       if (remoteId && !byApp.shopIdRemote) {
         await prisma.deliveryStore.update({
           where: { id: byApp.id },
@@ -199,10 +219,14 @@ async function persistOrderCallback(
 }
 
 // Handler principal — chamado direto do route handler.
+// Contrato real DiDi:
+//   - Nome do tipo em `type` (com fallback pra `event` da doc antiga)
+//   - Payload do pedido em `data.order_info` (com fallback pra `data`)
 export async function handleWebhook(envelope: WebhookEnvelope, rawBody: string): Promise<WebhookResult> {
-  const event = typeof envelope.event === "string" ? envelope.event : "unknown";
+  const event = typeof envelope.type === "string"
+    ? envelope.type
+    : typeof envelope.event === "string" ? envelope.event : "unknown";
 
-  // Log estruturado — mesmo se não handlear, temos rastro
   await prisma.noventaNoveSyncLog.create({
     data: {
       syncType: `WEBHOOK:${event}`,
@@ -214,17 +238,22 @@ export async function handleWebhook(envelope: WebhookEnvelope, rawBody: string):
     }
   });
 
-  const store = await findStoreForCallback(envelope);
+  // Extrai pedido: real está em data.order_info, mas aceita data direto
+  // como fallback pra webhooks de outros tipos.
+  const orderInfo: OrderCallbackPayload | null = envelope.data?.order_info
+    ?? (envelope.data as OrderCallbackPayload | undefined)
+    ?? null;
+
+  const store = await findStoreForCallback(envelope, orderInfo);
   if (!store) {
     return {
       event,
       handled: false,
-      reason: `Nenhuma loja NOVENTA_NOVE encontrada pra shop_id=${envelope.shop_id} / app_shop_id=${envelope.app_shop_id}. Evento ignorado.`,
+      reason: `Nenhuma loja NOVENTA_NOVE encontrada pra shop_id=${orderInfo?.shop?.shop_id ?? envelope.shop_id} / app_shop_id=${envelope.app_shop_id ?? orderInfo?.shop?.app_shop_id}. Evento ignorado.`,
       saleId: null
     };
   }
 
-  // Verifica assinatura (placeholder)
   const cred = await prisma.noventaNoveCredential.findFirst({ where: { active: true } });
   if (cred) {
     const valid = verifyWebhookSignature(envelope, cred.clientSecret);
@@ -233,14 +262,15 @@ export async function handleWebhook(envelope: WebhookEnvelope, rawBody: string):
     }
   }
 
-  // Roteamento por tipo
-  if (event.startsWith("order") || event === "" || event === "unknown") {
-    const orderPayload = envelope.data as OrderCallbackPayload | undefined;
-    if (!orderPayload) {
-      return { event, handled: false, reason: "Payload sem campo data — nada a persistir", saleId: null };
+  // orderNew / orderCreated / order_new / orderStatusChanged etc — todos
+  // trazem OrderModel; persistimos como venda (upsert por order_id).
+  const isOrderEvent = event.toLowerCase().startsWith("order") || event === "unknown";
+  if (isOrderEvent) {
+    if (!orderInfo) {
+      return { event, handled: false, reason: "Payload sem order_info — nada a persistir", saleId: null };
     }
     try {
-      const saleId = await persistOrderCallback(store.id, orderPayload, rawBody);
+      const saleId = await persistOrderCallback(store.id, orderInfo, rawBody);
       return {
         event,
         handled: Boolean(saleId),
@@ -253,7 +283,6 @@ export async function handleWebhook(envelope: WebhookEnvelope, rawBody: string):
     }
   }
 
-  // Evento não roteado — só loga
   return {
     event,
     handled: false,
