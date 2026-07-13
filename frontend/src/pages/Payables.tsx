@@ -108,6 +108,7 @@ export function Payables({ user }: PayablesProps) {
     paymentNotes: "", differenceReason: "", payingCompanyId: "", companyBankAccountId: ""
   });
   const [filters, setFilters] = useState({ filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", origin: "all", noDueDate: false });
+  const [viewMode, setViewMode] = useState<"open" | "paid" | "all">("open");
   const [activeChip, setActiveChip] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [period, setPeriod] = useState(currentMonthPeriod());
@@ -165,6 +166,8 @@ export function Payables({ user }: PayablesProps) {
 
   const displayedPayables = useMemo(() => {
     let result = payables;
+    if (viewMode === "open") result = result.filter((p) => p.status === "OPEN" || p.status === "OVERDUE");
+    else if (viewMode === "paid") result = result.filter((p) => p.status === "PAID" || p.status === "PAID_LATE");
     if (activeChip === "noduedate") result = result.filter((p) => !p.dueDate);
     if (filters.sourceType) result = result.filter((p) => p.sourceType === filters.sourceType);
     if (!searchQuery.trim()) return result;
@@ -179,7 +182,7 @@ export function Payables({ user }: PayablesProps) {
       (p.taxDescription ?? "").toLowerCase().includes(q) ||
       (p.taxCnpj ?? "").includes(q)
     );
-  }, [payables, searchQuery, filters.sourceType, activeChip]);
+  }, [payables, searchQuery, filters.sourceType, activeChip, viewMode]);
 
   const activeFilterCount = [filters.supplierId, filters.paymentMethodId, filters.status, filters.sourceType, filters.origin !== "all" ? filters.origin : ""].filter(Boolean).length + (activeChip === "noduedate" ? 1 : 0);
 
@@ -200,6 +203,7 @@ export function Payables({ user }: PayablesProps) {
     setFilters(cleared);
     setSearchQuery("");
     setActiveChip(null);
+    setViewMode("open");
     setPeriod(currentMonthPeriod());
     void load(cleared, currentMonthPeriod());
   }
@@ -210,6 +214,7 @@ export function Payables({ user }: PayablesProps) {
       const p = periodForPreset("currentMonth");
       const newPeriod: PeriodState = { ...p, preset: "paidMonth" as PeriodPreset };
       const u = { ...filters, status: "PAID" };
+      setViewMode("paid");
       setPeriod(newPeriod);
       setFilters(u);
       void load(u, newPeriod);
@@ -263,6 +268,8 @@ export function Payables({ user }: PayablesProps) {
 
   function applyCardFilter(type: "open" | "overdue" | "paidMonth" | "paidToday" | "next7" | "next30") {
     setActiveChip(null);
+    // Sincroniza viewMode com o card clicado para não ocultar resultados
+    setViewMode(type === "paidMonth" || type === "paidToday" ? "paid" : "open");
     if (type === "open") {
       const u = { ...filters, status: "OPEN", sourceType: "" };
       setFilters(u);
@@ -340,18 +347,25 @@ export function Payables({ user }: PayablesProps) {
 
   function startPayment(payable: Payable) {
     let paidPaymentMethod = "";
+    // 1) Match pelo paymentMethodId da origem
     if (payable.paymentMethodId) {
       const orig = paymentMethods.find((m) => m.id === payable.paymentMethodId);
       if (orig) {
         const base = basePaymentName(orig.name);
         const eff = effectivePaymentOptions.find((o) => o.label === base);
-        paidPaymentMethod = eff ? `id:${eff.id}` : `name:${base}`;
+        if (eff) paidPaymentMethod = `id:${eff.id}`;
       }
+    }
+    // 2) Fallback pelo nome do método (caso o id não bata)
+    if (!paidPaymentMethod && payable.paymentMethodName) {
+      const base = basePaymentName(payable.paymentMethodName);
+      const eff = effectivePaymentOptions.find((o) => o.label === base);
+      if (eff) paidPaymentMethod = `id:${eff.id}`;
     }
     setPaying(payable);
     setBankAccounts([]);
     setPaymentForm({
-      paidDate: todayKey(),
+      paidDate: dateKey(payable.dueDate) || todayKey(),
       paidAmount: String(payable.amount ?? ""),
       paidPaymentMethod,
       paymentNotes: "",
@@ -365,7 +379,11 @@ export function Payables({ user }: PayablesProps) {
     setPaymentForm((prev) => ({ ...prev, payingCompanyId: companyId, companyBankAccountId: "" }));
     if (companyId) {
       try {
-        setBankAccounts(await getAllBankAccounts(companyId));
+        const accounts = await getAllBankAccounts(companyId);
+        setBankAccounts(accounts);
+        if (accounts.length > 0) {
+          setPaymentForm((prev) => ({ ...prev, companyBankAccountId: accounts[0].id }));
+        }
       } catch {
         setBankAccounts([]);
       }
@@ -564,7 +582,15 @@ export function Payables({ user }: PayablesProps) {
           <Select
             label="Status"
             value={filters.status}
-            onChange={(e) => { const u = { ...filters, status: e.target.value }; setFilters(u); void load(u); }}
+            onChange={(e) => {
+              const v = e.target.value;
+              const u = { ...filters, status: v };
+              if (v === "PAID" || v === "PAID_LATE") setViewMode("paid");
+              else if (v === "OPEN" || v === "OVERDUE") setViewMode("open");
+              else if (v === "") setViewMode("all");
+              setFilters(u);
+              void load(u);
+            }}
             placeholder="Todos"
             options={[
               { value: "OPEN", label: "Em aberto" },
@@ -606,6 +632,24 @@ export function Payables({ user }: PayablesProps) {
             {searchQuery && <span>busca: "{searchQuery}"</span>}
           </p>
         )}
+      </div>
+
+      {/* ── Toggle Em aberto / Baixados / Todos ─────────────────── */}
+      <div className="payables-chips" style={{ marginBottom: 6 }}>
+        {([
+          { key: "open", label: "Em aberto" },
+          { key: "paid", label: "Baixados" },
+          { key: "all", label: "Todos" },
+        ] as const).map((mode) => (
+          <button
+            key={mode.key}
+            type="button"
+            className={`payables-chip${viewMode === mode.key ? " payables-chip-active" : ""}`}
+            onClick={() => setViewMode(mode.key)}
+          >
+            {mode.label}
+          </button>
+        ))}
       </div>
 
       {/* ── Chips de atalho ──────────────────────────────────────── */}
