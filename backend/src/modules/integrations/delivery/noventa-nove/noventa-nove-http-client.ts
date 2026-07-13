@@ -214,7 +214,10 @@ export async function fetchAuthorizationPageUrl(appShopId: string): Promise<stri
 // ---------------------------------------------------------------------------
 
 // Retorna authtoken válido pra loja. Se estiver expirado (ou por expirar
-// em <5min), chama /refresh + /get e reserializa no DB.
+// em <5min), tenta /get primeiro (caso token já exista no servidor). Só
+// chama /refresh se o /get falhar por token inexistente ou expirado —
+// evita "The store authorization information does not exist" em lojas
+// recém-criadas onde /refresh não tem authorization pra refreshar.
 export async function getShopAuthToken(deliveryStoreId: string, appShopId: string): Promise<string> {
   const cached = await prisma.noventaNoveShopAuthToken.findUnique({
     where: { deliveryStoreId }
@@ -223,9 +226,18 @@ export async function getShopAuthToken(deliveryStoreId: string, appShopId: strin
   if (cached && cached.expiresAt.getTime() - now > TOKEN_REFRESH_MARGIN_MS) {
     return cached.authToken;
   }
-  // Precisa novo token — refresh + get
-  await refreshAuthToken(appShopId);
-  const { authToken, expirationTime } = await fetchAuthToken(appShopId);
+  // Precisa novo token — tenta /get direto; se falhar, refresh + get
+  let authToken: string;
+  let expirationTime: Date;
+  try {
+    ({ authToken, expirationTime } = await fetchAuthToken(appShopId));
+  } catch (getError: unknown) {
+    if (getError instanceof NoventaNoveApiException && !getError.info.isAuthError) {
+      throw getError;
+    }
+    await refreshAuthToken(appShopId);
+    ({ authToken, expirationTime } = await fetchAuthToken(appShopId));
+  }
   await prisma.noventaNoveShopAuthToken.upsert({
     where: { deliveryStoreId },
     create: {
@@ -258,6 +270,14 @@ export type NoventaNoveRequestOptions = {
 // Rotas que usam sign+timestamp+app_id (list all stores, etc.) NÃO passam
 // por aqui — precisam do algoritmo de assinatura que ainda está pendente
 // de doc HTML.
+// Alguns endpoints da DiDi (ex: /v1/item/item/upload) exigem auth_token
+// no BODY, não na query. Se o body for objeto, injetamos automaticamente.
+function bodyWithAuthToken(body: unknown, token: string): unknown {
+  if (body === null || body === undefined) return undefined;
+  if (typeof body !== "object") return body;
+  return { auth_token: token, ...(body as Record<string, unknown>) };
+}
+
 export async function callNoventaNoveShop<T>(
   deliveryStoreId: string,
   appShopId: string,
@@ -271,13 +291,14 @@ export async function callNoventaNoveShop<T>(
       if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
     }
   }
+  const requestBody = bodyWithAuthToken(options.body, token);
   const response = await fetchWithTimeout(url.toString(), {
     method: options.method ?? "GET",
     headers: {
       "Accept": "application/json",
-      ...(options.body ? { "Content-Type": "application/json" } : {})
+      ...(requestBody ? { "Content-Type": "application/json" } : {})
     },
-    body: options.body ? JSON.stringify(options.body) : undefined
+    body: requestBody ? JSON.stringify(requestBody) : undefined
   });
   // Se 401, invalida cache e tenta 1x mais
   if (response.status === 401) {
@@ -290,13 +311,14 @@ export async function callNoventaNoveShop<T>(
         if (value !== undefined && value !== null) retryUrl.searchParams.set(key, String(value));
       }
     }
+    const retryBody = bodyWithAuthToken(options.body, freshToken);
     const retry = await fetchWithTimeout(retryUrl.toString(), {
       method: options.method ?? "GET",
       headers: {
         "Accept": "application/json",
-        ...(options.body ? { "Content-Type": "application/json" } : {})
+        ...(retryBody ? { "Content-Type": "application/json" } : {})
       },
-      body: options.body ? JSON.stringify(options.body) : undefined
+      body: retryBody ? JSON.stringify(retryBody) : undefined
     });
     return parseResponse<T>(retry);
   }
@@ -353,9 +375,32 @@ export async function testNoventaNoveConnection(): Promise<ConnectionTestResult>
     };
   }
   try {
-    // Força refresh pra invalidar cache antigo e testar credenciais atuais
-    await refreshAuthToken(testStore.externalId);
-    const { authToken, expirationTime } = await fetchAuthToken(testStore.externalId);
+    // Ordem correta:
+    //   1. Tenta /authtoken/get — se a loja já tem token válido (caso de
+    //      estabelecimento de teste criado pelo portal, ou loja em prod
+    //      já bindada), retorna direto.
+    //   2. Se /get falhar por token expirado/inexistente, tenta /refresh
+    //      + /get. Se /refresh falhar com "The store authorization
+    //      information does not exist", significa que a loja não está
+    //      bindada — precisa passar por /authorizationpage/getUrl.
+    let authToken: string;
+    let expirationTime: Date;
+    try {
+      ({ authToken, expirationTime } = await fetchAuthToken(testStore.externalId));
+    } catch (getError: unknown) {
+      // /get pode falhar por várias razões:
+      //   - token expirado ("The store authorization information has expired")
+      //   - token nunca gerado
+      //   - loja recém-bindada sem token corrente
+      // Em qualquer caso o /refresh cria/renova o token, e /get retorna.
+      // Se /refresh também falhar (ex: loja não bindada), propaga.
+      await refreshAuthToken(testStore.externalId);
+      ({ authToken, expirationTime } = await fetchAuthToken(testStore.externalId));
+      // Se getError era irrecuperável (loja não bindada), /refresh já
+      // teria falhado com "authorization does not exist" e essa linha
+      // nunca é alcançada.
+      void getError;
+    }
     await prisma.noventaNoveShopAuthToken.upsert({
       where: { deliveryStoreId: testStore.id },
       create: {
