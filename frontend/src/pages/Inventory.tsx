@@ -1005,7 +1005,7 @@ export function Inventory({
     }
   }
 
-  async function consolidateMonthEnd() {
+  async function consolidateMonthEnd(allowIncomplete = false) {
     if (consolidationSelected.size === 0 || isConsolidating) return;
     const ids = [...consolidationSelected];
 
@@ -1021,8 +1021,7 @@ export function Inventory({
       setIsFetchingCoverage(false);
     }
 
-    if (cov && !cov.isComplete) {
-      // Alerta já exibido no painel — não prosseguir
+    if (cov && !cov.isComplete && !allowIncomplete) {
       setNotice({
         tone: "error",
         message: `Cobertura incompleta: ${cov.coveredTotal}/${cov.expectedTotal} produtos cobertos. Inclua todos os produtos controlados antes de consolidar.`
@@ -1030,10 +1029,13 @@ export function Inventory({
       return;
     }
 
-    if (!window.confirm(`Consolidar ${ids.length} contagem(ns) setorial(is) em um unico inventario Final CMV?`)) return;
+    const confirmMsg = cov && !cov.isComplete
+      ? `Consolidar ${ids.length} contagem(ns) com ${cov.missingTotal} produto(s) pendente(s)? O inventario sera criado em RASCUNHO — voce podera fechar o gap via contagem complementar antes de aprovar.`
+      : `Consolidar ${ids.length} contagem(ns) setorial(is) em um unico inventario Final CMV?`;
+    if (!window.confirm(confirmMsg)) return;
     setIsConsolidating(true);
     try {
-      const inventory = await consolidateMonthEndSessions(ids);
+      const inventory = await consolidateMonthEndSessions(ids, null, allowIncomplete);
       setNotice({ tone: "success", message: `${inventory.code} gerado — ${ids.length} setor(es) consolidados.` });
       setConsolidationSelected(new Set());
       setConsolidationCoverage(null);
@@ -2260,15 +2262,27 @@ export function Inventory({
                   )}
                 </div>
               )}
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
                 <button
                   className="primary-button"
                   type="button"
                   disabled={consolidationSelected.size === 0 || isConsolidating || isFetchingCoverage || (consolidationCoverage != null && !consolidationCoverage.isComplete)}
-                  onClick={consolidateMonthEnd}
+                  onClick={() => consolidateMonthEnd(false)}
                 >
                   <Layers size={15} />{isConsolidating ? "Gerando inventario..." : `Gerar inventario final unificado (${consolidationSelected.size} setor${consolidationSelected.size !== 1 ? "es" : ""})`}
                 </button>
+                {consolidationCoverage != null && !consolidationCoverage.isComplete && consolidationSelected.size > 0 && (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={isConsolidating || isFetchingCoverage}
+                    style={{ borderColor: "var(--error, #c62828)", color: "var(--error, #c62828)" }}
+                    onClick={() => consolidateMonthEnd(true)}
+                    title="Cria o inventario em RASCUNHO com os produtos pendentes; feche o gap via contagem complementar antes de aprovar."
+                  >
+                    <Layers size={15} />Consolidar mesmo assim ({consolidationCoverage.missingTotal} pendente{consolidationCoverage.missingTotal !== 1 ? "s" : ""})
+                  </button>
+                )}
                 {consolidationSelected.size > 0 && (
                   <button className="secondary-button" type="button" onClick={() => { setConsolidationSelected(new Set()); setConsolidationCoverage(null); }}>Limpar selecao</button>
                 )}

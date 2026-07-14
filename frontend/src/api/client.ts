@@ -2815,11 +2815,11 @@ export function generateInventoryFromStockCountSession(id: string, notes?: strin
   });
 }
 
-export function consolidateMonthEndSessions(sessionIds: string[], notes?: string | null) {
+export function consolidateMonthEndSessions(sessionIds: string[], notes?: string | null, allowIncomplete?: boolean) {
   return request<OperationalInventory>("/inventory/count-sessions/consolidate-month-end", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionIds, notes })
+    body: JSON.stringify({ sessionIds, notes, allowIncomplete: allowIncomplete === true })
   }, 120_000);
 }
 
