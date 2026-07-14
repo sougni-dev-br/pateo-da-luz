@@ -562,10 +562,20 @@ export type StockCoverageAudit = {
 };
 
 async function auditStockCoverageForSessions(sessionIds: string[]): Promise<StockCoverageAudit> {
+  // Data de referência: última contagem do conjunto. Produtos cadastrados APÓS essa data
+  // não existiam quando a contagem foi feita e não devem ser exigidos como "esperados".
+  const [{ referenceDate }] = await prisma.$queryRaw<Array<{ referenceDate: Date | null }>>`
+    SELECT MAX("referenceDate") AS "referenceDate"
+    FROM "StockCountSession"
+    WHERE "id" = ANY(${sessionIds})
+  `;
+  const coverageCutoff = referenceDate ?? new Date();
+
   const [{ expected }] = await prisma.$queryRaw<Array<{ expected: number }>>`
     SELECT COUNT(*)::int AS "expected"
     FROM "Product"
     WHERE "isActive" = true AND "controlsStock" = true
+      AND "createdAt" <= ${coverageCutoff}
   `;
 
   const items = await prisma.$queryRaw<Array<{
@@ -614,6 +624,7 @@ async function auditStockCoverageForSessions(sessionIds: string[]): Promise<Stoc
     LEFT JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
     LEFT JOIN "Category" cat ON cat."id" = p."categoryId"
     WHERE p."isActive" = true AND p."controlsStock" = true
+      AND p."createdAt" <= ${coverageCutoff}
       AND p."id" NOT IN (
         SELECT DISTINCT "productId" FROM "StockCountSessionItem"
         WHERE "stockCountSessionId" = ANY(${sessionIds}) AND "productId" IS NOT NULL
@@ -665,10 +676,18 @@ async function auditStockCoverageForSessions(sessionIds: string[]): Promise<Stoc
 }
 
 async function auditStockCoverageForOperationalInventory(inventoryId: string): Promise<StockCoverageAudit> {
+  const [{ referenceDate }] = await prisma.$queryRaw<Array<{ referenceDate: Date | null }>>`
+    SELECT COALESCE("effectiveCountDate", "date") AS "referenceDate"
+    FROM "OperationalInventory"
+    WHERE "id" = ${inventoryId}
+  `;
+  const coverageCutoff = referenceDate ?? new Date();
+
   const [{ expected }] = await prisma.$queryRaw<Array<{ expected: number }>>`
     SELECT COUNT(*)::int AS "expected"
     FROM "Product"
     WHERE "isActive" = true AND "controlsStock" = true
+      AND "createdAt" <= ${coverageCutoff}
   `;
 
   const itemRows = await prisma.$queryRaw<Array<{
@@ -705,6 +724,7 @@ async function auditStockCoverageForOperationalInventory(inventoryId: string): P
     LEFT JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
     LEFT JOIN "Category" cat ON cat."id" = p."categoryId"
     WHERE p."isActive" = true AND p."controlsStock" = true
+      AND p."createdAt" <= ${coverageCutoff}
       AND p."id" NOT IN (
         SELECT "productId" FROM "OperationalInventoryItem"
         WHERE "inventoryId" = ${inventoryId} AND "productId" IS NOT NULL
