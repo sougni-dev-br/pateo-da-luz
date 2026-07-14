@@ -292,11 +292,22 @@ function CmvPeriodMobileCard({
   );
 }
 
+function warningTitle(code: string): string {
+  switch (code) {
+    case "PERIOD_CROSSES_MONTHS": return "Periodo cruza dois meses";
+    case "SNAPSHOT_DATE_MISMATCH": return "Data do inventario nao bate com o periodo";
+    case "IFOOD_ZERO_WITH_ACTIVE_CREDENTIAL": return "iFood: nenhuma venda registrada";
+    case "NOVENTA_NOVE_ZERO_WITH_ACTIVE_CREDENTIAL": return "99 Food: nenhuma venda registrada";
+    default: return "Alerta";
+  }
+}
+
 export function CmvReal({ user }: { user: AppUser }) {
   const canEdit = hasPermission(user, "cmv-real", "edit");
   const isAdmin = hasPermission(user, "cmv-real", "admin");
   const [periods, setPeriods] = useState<CmvPeriod[]>([]);
   const [cmvBases, setCmvBases] = useState<StockBase[]>([]);
+  const [showAdvancedBases, setShowAdvancedBases] = useState(false);
   const [suggestions, setSuggestions] = useState<CmvRealSuggestions | null>(null);
   const [continuityLocked, setContinuityLocked] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -341,6 +352,22 @@ export function CmvReal({ user }: { user: AppUser }) {
     () => cmvBases.find((b) => (b.sourceType === "SNAPSHOT" ? `SNAPSHOT:${b.id}` : b.id) === finalDropdownValue) ?? null,
     [cmvBases, finalDropdownValue]
   );
+
+  // Filtro de opcoes do dropdown Estoque Inicial/Final (CMV v2 — task #14):
+  // Modo padrao mostra apenas snapshots INVENTARIO_INICIAL/FINAL (bases oficiais).
+  // "Mostrar avancado" libera todas as contagens individuais e planilhas.
+  // Sempre mantem a opcao atualmente selecionada visivel para nao perder contexto ao trocar o filtro.
+  const visibleBases = useMemo(() => {
+    if (showAdvancedBases) return cmvBases;
+    const selectedInitialKey = initialDropdownValue;
+    const selectedFinalKey = finalDropdownValue;
+    return cmvBases.filter((b) => {
+      const key = b.sourceType === "SNAPSHOT" ? `SNAPSHOT:${b.id}` : b.id;
+      if (key === selectedInitialKey || key === selectedFinalKey) return true;
+      if (b.sourceType !== "SNAPSHOT") return false;
+      return b.inventoryType === "INVENTARIO_INICIAL" || b.inventoryType === "INVENTARIO_FINAL";
+    });
+  }, [cmvBases, showAdvancedBases, initialDropdownValue, finalDropdownValue]);
   const periodConsistency = useMemo(() => {
     if (!selectedPeriod) return null;
     const initialCountDate = parseCalendarDate(selectedPeriod.estoqueInicialSnapshotData);
@@ -811,14 +838,28 @@ export function CmvReal({ user }: { user: AppUser }) {
                 if (!val) {
                   setForm((f) => ({ ...f, estoqueInicialSessionId: "", estoqueInicialSnapshotId: "" }));
                 } else if (val.startsWith("SNAPSHOT:")) {
-                  setForm((f) => ({ ...f, estoqueInicialSnapshotId: val.slice(9), estoqueInicialSessionId: "" }));
+                  const snapshotId = val.slice(9);
+                  const picked = cmvBases.find((b) => b.sourceType === "SNAPSHOT" && b.id === snapshotId);
+                  // CMV v2 — task #20: ao escolher snapshot inicial, auto-preenche dataInicial com a data efetiva da contagem.
+                  setForm((f) => ({
+                    ...f,
+                    estoqueInicialSnapshotId: snapshotId,
+                    estoqueInicialSessionId: "",
+                    dataInicial: picked?.date ?? f.dataInicial
+                  }));
                 } else {
-                  setForm((f) => ({ ...f, estoqueInicialSessionId: val, estoqueInicialSnapshotId: "" }));
+                  const picked = cmvBases.find((b) => b.sourceType === "SESSION" && b.id === val);
+                  setForm((f) => ({
+                    ...f,
+                    estoqueInicialSessionId: val,
+                    estoqueInicialSnapshotId: "",
+                    dataInicial: picked?.date ?? f.dataInicial
+                  }));
                 }
               }}
             >
               <option value="">Selecionar estoque</option>
-              {cmvBases.map((base) => {
+              {visibleBases.map((base) => {
                 const optionValue = base.sourceType === "SNAPSHOT" ? `SNAPSHOT:${base.id}` : base.id;
                 return (
                   <option key={optionValue} value={optionValue}>
@@ -842,16 +883,30 @@ export function CmvReal({ user }: { user: AppUser }) {
                   setForm((f) => ({ ...f, estoqueFinalSessionId: "", estoqueFinalSnapshotId: "" }));
                   setFinalSessionCoverage(null);
                 } else if (val.startsWith("SNAPSHOT:")) {
-                  setForm((f) => ({ ...f, estoqueFinalSnapshotId: val.slice(9), estoqueFinalSessionId: "" }));
+                  const snapshotId = val.slice(9);
+                  const picked = cmvBases.find((b) => b.sourceType === "SNAPSHOT" && b.id === snapshotId);
+                  // CMV v2 — task #20: auto-preenche dataFinal com a data da contagem final.
+                  setForm((f) => ({
+                    ...f,
+                    estoqueFinalSnapshotId: snapshotId,
+                    estoqueFinalSessionId: "",
+                    dataFinal: picked?.date ?? f.dataFinal
+                  }));
                   setFinalSessionCoverage(null);
                 } else {
-                  setForm((f) => ({ ...f, estoqueFinalSessionId: val, estoqueFinalSnapshotId: "" }));
+                  const picked = cmvBases.find((b) => b.sourceType === "SESSION" && b.id === val);
+                  setForm((f) => ({
+                    ...f,
+                    estoqueFinalSessionId: val,
+                    estoqueFinalSnapshotId: "",
+                    dataFinal: picked?.date ?? f.dataFinal
+                  }));
                   checkFinalSessionCoverage(val);
                 }
               }}
             >
               <option value="">Selecionar estoque</option>
-              {cmvBases.map((base) => {
+              {visibleBases.map((base) => {
                 const optionValue = base.sourceType === "SNAPSHOT" ? `SNAPSHOT:${base.id}` : base.id;
                 return (
                   <option key={optionValue} value={optionValue}>
@@ -889,6 +944,16 @@ export function CmvReal({ user }: { user: AppUser }) {
                 )}
               </div>
             )}
+          </label>
+          <label className="full-width">
+            <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
+              <input
+                type="checkbox"
+                checked={showAdvancedBases}
+                onChange={(event) => setShowAdvancedBases(event.target.checked)}
+              />
+              Mostrar opcoes avancadas nos dropdowns (contagens individuais, planilhas). Padrao: apenas inventarios oficiais (INICIAL / FINAL).
+            </span>
           </label>
           <label className="full-width">
             Observacoes
@@ -1050,6 +1115,23 @@ export function CmvReal({ user }: { user: AppUser }) {
                 </div>
               </div>
             ) : null}
+            {detail?.warnings && detail.warnings.length > 0 && (
+              <div className="subsection">
+                {detail.warnings.map((w) => (
+                  <div
+                    key={w.code}
+                    className={`alert compact-alert ${w.severity === "warning" ? "warning" : "info"}`}
+                    style={{ marginBottom: 8 }}
+                  >
+                    <AlertTriangle className="alert-icon" size={18} />
+                    <div>
+                      <strong>{warningTitle(w.code)}</strong>
+                      <span>{w.message}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="summary-grid dashboard-compact-grid cmv-detail-grid">
               <MetricCard label="Codigo" value={selectedPeriod.code ?? "-"} />
               <MetricCard label="Periodo" value={`${formatDate(selectedPeriod.dataInicial)} a ${formatDate(selectedPeriod.dataFinal)}`} />
