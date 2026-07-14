@@ -807,6 +807,19 @@ export type CmvPeriod = {
   };
 };
 
+export type CmvWarningCode =
+  | "PERIOD_CROSSES_MONTHS"
+  | "SNAPSHOT_DATE_MISMATCH"
+  | "IFOOD_ZERO_WITH_ACTIVE_CREDENTIAL"
+  | "NOVENTA_NOVE_ZERO_WITH_ACTIVE_CREDENTIAL";
+
+export type CmvWarning = {
+  code: CmvWarningCode;
+  severity: "info" | "warning";
+  message: string;
+  detail?: Record<string, unknown>;
+};
+
 export type CmvPeriodDetail = CmvPeriod & {
   purchasesGrossTotal: number;
   purchasesCount: number;
@@ -831,6 +844,7 @@ export type CmvPeriodDetail = CmvPeriod & {
       purchaseBySupplier: Array<{ supplierId: string; supplierName: string; supplierDocument: string | null; totalAmount: number; purchasesCount: number }>;
     };
   };
+  warnings: CmvWarning[];
 };
 
 export type CmvRealSuggestions = {
