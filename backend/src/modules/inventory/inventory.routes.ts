@@ -389,6 +389,7 @@ type StockCountSessionRow = {
   cancelReason: string | null;
   generatedInventoryId: string | null;
   generatedInventoryCode?: string | null;
+  generatedInventoryStatus?: string | null;
   source: string | null;
   linkedSnapshotId: string | null;
   createdAt: Date;
@@ -433,7 +434,7 @@ function isInventoryManager(user: SessionUser) {
 
 function canCancelStockCountSession(session: StockCountSessionRow, user: SessionUser) {
   if (!cancelableStockCountSessionStatuses.has(session.status)) return false;
-  if (session.generatedInventoryId) return false;
+  if (session.generatedInventoryId && session.generatedInventoryStatus !== "CANCELADO") return false;
   return isInventoryManager(user);
 }
 
@@ -791,6 +792,7 @@ async function getStockCountSessionSummary(id: string) {
       s.*,
       u."name" AS "responsibleName",
       oi."code" AS "generatedInventoryCode",
+      oi."status" AS "generatedInventoryStatus",
       COUNT(item."id") AS "totalItems",
       COUNT(item."id") FILTER (WHERE item."status" IN ('CONTADO', 'ZERO', 'DIVERGENTE')) AS "countedItems",
       COUNT(item."id") FILTER (WHERE item."status" = 'PENDENTE') AS "pendingItems",
@@ -801,7 +803,7 @@ async function getStockCountSessionSummary(id: string) {
     LEFT JOIN "OperationalInventory" oi ON oi."id" = s."generatedInventoryId"
     LEFT JOIN "StockCountSessionItem" item ON item."stockCountSessionId" = s."id"
     WHERE s."id" = ${id}
-    GROUP BY s."id", u."name", oi."code"
+    GROUP BY s."id", u."name", oi."code", oi."status"
     LIMIT 1
   `;
   return session ? normalizeStockCountSession(session) : null;
@@ -1027,6 +1029,7 @@ inventoryRouter.get("/count-sessions", async (request, response) => {
       s.*,
       u."name" AS "responsibleName",
       oi."code" AS "generatedInventoryCode",
+      oi."status" AS "generatedInventoryStatus",
       COUNT(item."id") AS "totalItems",
       COUNT(item."id") FILTER (WHERE item."status" IN ('CONTADO', 'ZERO', 'DIVERGENTE')) AS "countedItems",
       COUNT(item."id") FILTER (WHERE item."status" = 'PENDENTE') AS "pendingItems",
@@ -1037,7 +1040,7 @@ inventoryRouter.get("/count-sessions", async (request, response) => {
     LEFT JOIN "OperationalInventory" oi ON oi."id" = s."generatedInventoryId"
     LEFT JOIN "StockCountSessionItem" item ON item."stockCountSessionId" = s."id"
     WHERE (${includeCanceled} = true OR s."status" <> 'CANCELADA')
-    GROUP BY s."id", u."name", oi."code"
+    GROUP BY s."id", u."name", oi."code", oi."status"
     ORDER BY s."referenceDate" DESC, s."createdAt" DESC
     LIMIT 120
   `;
@@ -1264,7 +1267,7 @@ inventoryRouter.get("/count-sessions/month-end", async (request, response) => {
   const year = Number(request.query.year ?? new Date().getFullYear());
   const month = Number(request.query.month ?? new Date().getMonth() + 1);
   const [session] = await prisma.$queryRaw<Array<StockCountSessionRow>>`
-    SELECT s.*, u."name" AS "responsibleName", oi."code" AS "generatedInventoryCode"
+    SELECT s.*, u."name" AS "responsibleName", oi."code" AS "generatedInventoryCode", oi."status" AS "generatedInventoryStatus"
     FROM "StockCountSession" s
     LEFT JOIN "User" u ON u."id" = s."responsibleUserId"
     LEFT JOIN "OperationalInventory" oi ON oi."id" = s."generatedInventoryId"
@@ -1286,7 +1289,7 @@ inventoryRouter.get("/count-sessions/opening-basis", async (request, response) =
   const month = Number(request.query.month ?? new Date().getMonth() + 1);
   const previous = new Date(year, month - 2, 1);
   const [session] = await prisma.$queryRaw<Array<StockCountSessionRow>>`
-    SELECT s.*, u."name" AS "responsibleName", oi."code" AS "generatedInventoryCode"
+    SELECT s.*, u."name" AS "responsibleName", oi."code" AS "generatedInventoryCode", oi."status" AS "generatedInventoryStatus"
     FROM "StockCountSession" s
     LEFT JOIN "User" u ON u."id" = s."responsibleUserId"
     LEFT JOIN "OperationalInventory" oi ON oi."id" = s."generatedInventoryId"
@@ -1311,7 +1314,7 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
   }
 
   const sessions = await prisma.$queryRaw<Array<StockCountSessionRow>>`
-    SELECT s.*, u."name" AS "responsibleName", oi."code" AS "generatedInventoryCode"
+    SELECT s.*, u."name" AS "responsibleName", oi."code" AS "generatedInventoryCode", oi."status" AS "generatedInventoryStatus"
     FROM "StockCountSession" s
     LEFT JOIN "User" u ON u."id" = s."responsibleUserId"
     LEFT JOIN "OperationalInventory" oi ON oi."id" = s."generatedInventoryId"
@@ -2098,7 +2101,7 @@ inventoryRouter.patch("/count-sessions/:id/cancel", async (request, response) =>
     response.status(400).json({ message: "Esta contagem ja esta cancelada." });
     return;
   }
-  if (session.generatedInventoryId) {
+  if (session.generatedInventoryId && session.generatedInventoryStatus !== "CANCELADO") {
     response.status(400).json({ message: "Esta contagem ja gerou inventario e nao pode ser cancelada." });
     return;
   }
@@ -3293,19 +3296,28 @@ inventoryRouter.patch("/operational/:id/cancel", async (request, response) => {
   try {
     const inventory = await getOperationalInventoryOrThrow(request.params.id);
     if (inventory.status === "FECHADO") throw new Error("Inventario fechado nao pode ser cancelado por esta acao.");
-    await prisma.$executeRaw`
-      UPDATE "OperationalInventory"
-      SET "status" = 'CANCELADO', "canceledByUserId" = ${user.id}, "canceledAt" = CURRENT_TIMESTAMP,
-          "cancelReason" = ${reason}, "updatedAt" = CURRENT_TIMESTAMP
-      WHERE "id" = ${request.params.id}
-    `;
+    const unlinkedSessions = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        UPDATE "OperationalInventory"
+        SET "status" = 'CANCELADO', "canceledByUserId" = ${user.id}, "canceledAt" = CURRENT_TIMESTAMP,
+            "cancelReason" = ${reason}, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "id" = ${request.params.id}
+      `;
+      const affected = await tx.$queryRaw<Array<{ id: string; code: string }>>`
+        UPDATE "StockCountSession"
+        SET "generatedInventoryId" = NULL, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "generatedInventoryId" = ${request.params.id}
+        RETURNING "id", "code"
+      `;
+      return affected;
+    });
     await auditLog({
       userId: user.id,
       action: "CANCEL_OPERATIONAL_INVENTORY",
       entity: "OperationalInventory",
       entityId: request.params.id,
       previousValue: { status: inventory.status },
-      newValue: { status: "CANCELADO", reason }
+      newValue: { status: "CANCELADO", reason, unlinkedSessions: unlinkedSessions.map((s) => s.code) }
     });
     response.json(await getOperationalInventorySummary(request.params.id));
   } catch (error) {
