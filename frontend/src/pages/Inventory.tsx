@@ -973,8 +973,10 @@ export function Inventory({
     setIsCreatingComplement(true);
     try {
       const session = await createMissingCount(inventoryId);
-      setNotice({ tone: "success", message: `Contagem complementar ${session.code} criada com ${session.totalItems} produto(s) pendente(s).` });
+      setNotice({ tone: "success", message: `Contagem complementar ${session.code} criada com ${session.totalItems} produto(s) pendente(s). Preencha as quantidades abaixo.` });
       await Promise.all([refreshCountSessions(), refreshOperational()]);
+      setActiveView("counting");
+      await openCountSession(session.id, false);
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao criar contagem complementar." });
     } finally {
