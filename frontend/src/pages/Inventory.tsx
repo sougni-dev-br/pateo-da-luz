@@ -262,7 +262,8 @@ export function Inventory({
     }
   };
   const canCancelCountSession = (session: StockCountSession | StockCountSessionDetail) => {
-    if (session.status === "CANCELADA" || session.generatedInventoryId) return false;
+    if (session.status === "CANCELADA") return false;
+    if (session.generatedInventoryId && session.generatedInventoryStatus !== "CANCELADO") return false;
     if (!["ABERTA", "EM_ANDAMENTO", "CONCLUIDA"].includes(session.status)) return false;
     if (canManageOperationalInventory) return true;
     return user.role === "ESTOQUISTA" && session.responsibleUserId === user.id && ["ABERTA", "EM_ANDAMENTO"].includes(session.status);
@@ -2185,7 +2186,7 @@ export function Inventory({
         )}
 
         {activeView === "counting" && (() => {
-          const consolidatable = countSessions.filter((s) => s.type === "SETORIAL" && s.status === "CONCLUIDA" && !s.generatedInventoryId);
+          const consolidatable = countSessions.filter((s) => s.type === "SETORIAL" && s.status === "CONCLUIDA" && (!s.generatedInventoryId || s.generatedInventoryStatus === "CANCELADO"));
           return consolidatable.length > 0 && canManageOperationalInventory ? (
             <div className="form-section" style={{ borderColor: "var(--gold)", background: "var(--surface)" }}>
               <div className="section-heading compact-heading">

@@ -1540,6 +1540,7 @@ export type StockCountSession = {
   cancelReason: string | null;
   generatedInventoryId: string | null;
   generatedInventoryCode?: string | null;
+  generatedInventoryStatus?: string | null;
   source: string | null;
   linkedSnapshotId: string | null;
   totalItems: number;
