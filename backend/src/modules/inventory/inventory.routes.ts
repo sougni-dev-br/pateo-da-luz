@@ -1360,9 +1360,12 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
     }
   }
 
-  // Bloquear consolidação com cobertura incompleta
+  // Verifica cobertura. Se incompleta, o usuário pode escolher consolidar mesmo assim
+  // (allowIncomplete=true) — o inventário sai em RASCUNHO e os gaps podem ser fechados
+  // via contagem complementar antes de aprovar/fechar.
   const coverage = await auditStockCoverageForSessions(sessionIds);
-  if (!coverage.isComplete) {
+  const allowIncomplete = Boolean(request.body.allowIncomplete);
+  if (!coverage.isComplete && !allowIncomplete) {
     response.status(422).json({
       message: `Cobertura incompleta: ${coverage.coveredTotal}/${coverage.expectedTotal} produtos controlados cobertos. ${coverage.missingTotal === 1 ? "Existe 1 produto" : `Existem ${coverage.missingTotal} produtos`} sem informacao de contagem.`,
       coverage
