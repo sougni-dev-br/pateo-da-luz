@@ -5,9 +5,9 @@ import { createCmvRealPdf } from "./cmv-real-pdf.js";
 import { auditLog } from "../security/security-utils.js";
 import {
   type CmvVisionKey,
-  getCmvPurchaseByCategoryByCompetenceRange,
-  getCmvPurchaseBySupplierByCompetenceRange,
-  getCmvPurchaseTotalsByCompetenceRange,
+  getCmvPurchaseByCategoryByPurchaseDateRange,
+  getCmvPurchaseBySupplierByPurchaseDateRange,
+  getCmvPurchaseTotalsByPurchaseDateRange,
 } from "./cmv-purchase-base.service.js";
 
 type CmvPeriodStatus = "OPEN" | "CLOSED";
@@ -230,6 +230,7 @@ export type CmvPeriodDetail = CmvPeriodSummary & {
     purchaseByCategory: Array<{ categoryName: string; totalAmount: number; itemsCount: number }>;
     purchaseBySupplier: Array<{ supplierId: string; supplierName: string; supplierDocument: string | null; totalAmount: number; purchasesCount: number }>;
   }>;
+  warnings: CmvWarning[];
 };
 
 type CmvVisionComputation = {
@@ -247,6 +248,19 @@ type CmvVisionComputation = {
   purchaseBySupplier: CmvPeriodDetail["purchaseBySupplier"];
 };
 
+export type CmvWarningCode =
+  | "PERIOD_CROSSES_MONTHS"
+  | "SNAPSHOT_DATE_MISMATCH"
+  | "IFOOD_ZERO_WITH_ACTIVE_CREDENTIAL"
+  | "NOVENTA_NOVE_ZERO_WITH_ACTIVE_CREDENTIAL";
+
+export type CmvWarning = {
+  code: CmvWarningCode;
+  severity: "info" | "warning";
+  message: string;
+  detail?: Record<string, unknown>;
+};
+
 type CmvComputation = {
   accounting: CmvVisionComputation;
   managerial: CmvVisionComputation;
@@ -256,6 +270,7 @@ type CmvComputation = {
   revenueNetTotal: number;
   revenueDaysCount: number;
   revenueByChannel: CmvPeriodDetail["revenueByChannel"];
+  warnings: CmvWarning[];
 };
 
 const CMV_VIEW_LABELS: Record<CmvVisionKey, string> = {
@@ -378,7 +393,9 @@ async function assertSnapshotChronology(initialSnapshotId: string, finalSnapshot
 }
 
 async function purchaseTotals(startDate: Date, endDate: Date, mode: CmvVisionKey) {
-  return getCmvPurchaseTotalsByCompetenceRange(addDays(startDate, 1), endDate, mode);
+  // CMV v2: filtra por purchaseDate (data real da compra), não por competência do mês.
+  // Ver docs/arquitetura-cmv-dre-v2.md.
+  return getCmvPurchaseTotalsByPurchaseDateRange(addDays(startDate, 1), endDate, mode);
 }
 
 async function revenueTotals(startDate: Date, endDate: Date) {
@@ -410,11 +427,11 @@ async function inventoryTotal(snapshotId: string) {
 }
 
 async function purchaseByCategory(startDate: Date, endDate: Date, mode: CmvVisionKey) {
-  return getCmvPurchaseByCategoryByCompetenceRange(addDays(startDate, 1), endDate, mode);
+  return getCmvPurchaseByCategoryByPurchaseDateRange(addDays(startDate, 1), endDate, mode);
 }
 
 async function purchaseBySupplier(startDate: Date, endDate: Date, mode: CmvVisionKey) {
-  return getCmvPurchaseBySupplierByCompetenceRange(addDays(startDate, 1), endDate, mode);
+  return getCmvPurchaseBySupplierByPurchaseDateRange(addDays(startDate, 1), endDate, mode);
 }
 
 async function revenueByChannel(startDate: Date, endDate: Date) {
@@ -478,6 +495,14 @@ async function computePeriod(startDate: Date, endDate: Date, initialSnapshotId: 
   const accounting = buildVision("accounting", accountingTotals, accountingCategories, accountingSuppliers);
   const managerial = buildVision("managerial", managerialTotals, managerialCategories, managerialSuppliers);
 
+  const warnings = await buildWarnings({
+    startDate,
+    endDate,
+    initialSnapshot: initialSnapshot.snapshot,
+    finalSnapshot: finalSnapshot.snapshot,
+    channels,
+  });
+
   return {
     accounting,
     managerial,
@@ -486,8 +511,74 @@ async function computePeriod(startDate: Date, endDate: Date, initialSnapshotId: 
     revenueServiceTotal: revenue.service,
     revenueNetTotal: revenue.net,
     revenueDaysCount: revenue.daysCount,
-    revenueByChannel: channels
+    revenueByChannel: channels,
+    warnings
   };
+}
+
+async function buildWarnings(input: {
+  startDate: Date;
+  endDate: Date;
+  initialSnapshot: { countDate: Date | string };
+  finalSnapshot: { countDate: Date | string };
+  channels: CmvPeriodDetail["revenueByChannel"];
+}): Promise<CmvWarning[]> {
+  const warnings: CmvWarning[] = [];
+  const { startDate, endDate, initialSnapshot, finalSnapshot, channels } = input;
+
+  // 1. Cruzamento de fronteira de mês
+  if (startDate.getFullYear() !== endDate.getFullYear() || startDate.getMonth() !== endDate.getMonth()) {
+    const monthLabel = (d: Date) => `${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+    warnings.push({
+      code: "PERIOD_CROSSES_MONTHS",
+      severity: "info",
+      message: `Este ciclo atravessa dois meses (${monthLabel(startDate)} e ${monthLabel(endDate)}). Para o DRE, o CMV sera rateado por dias corridos.`,
+      detail: { startMonth: monthLabel(startDate), endMonth: monthLabel(endDate) }
+    });
+  }
+
+  // 2. Snapshot inicial com data anterior ao início declarado do período
+  const initialCountDate = initialSnapshot.countDate instanceof Date ? initialSnapshot.countDate : new Date(initialSnapshot.countDate);
+  const diffDaysInitial = Math.floor((startDate.getTime() - initialCountDate.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDaysInitial >= 2) {
+    warnings.push({
+      code: "SNAPSHOT_DATE_MISMATCH",
+      severity: "warning",
+      message: `O inventario inicial foi contado em ${toDateKey(initialCountDate)}, ${diffDaysInitial} dias antes da data inicial declarada do periodo (${toDateKey(startDate)}). Compras e faturamento entre essas datas nao entram no CMV — pode gerar distorcao.`,
+      detail: { snapshotDate: toDateKey(initialCountDate), startDate: toDateKey(startDate), gapDays: diffDaysInitial }
+    });
+  }
+
+  // 3. Canais de delivery zerados com credencial ativa em PRODUCTION
+  const [ifoodCred] = await prisma.$queryRaw<Array<{ active: boolean; environment: string }>>`
+    SELECT active, environment FROM "IfoodCredential" WHERE active = true LIMIT 1
+  `;
+  if (ifoodCred && String(ifoodCred.environment).toUpperCase() === "PRODUCTION") {
+    const ifoodChannel = channels.find((c) => /ifood/i.test(c.channel));
+    if (!ifoodChannel || ifoodChannel.count === 0) {
+      warnings.push({
+        code: "IFOOD_ZERO_WITH_ACTIVE_CREDENTIAL",
+        severity: "warning",
+        message: `Credencial iFood ativa em producao mas nenhuma venda foi registrada neste periodo. Verifique se a sincronizacao esta funcionando antes de fechar.`,
+      });
+    }
+  }
+
+  const [nnCred] = await prisma.$queryRaw<Array<{ active: boolean; environment: string }>>`
+    SELECT active, environment FROM "NoventaNoveCredential" WHERE active = true LIMIT 1
+  `;
+  if (nnCred && String(nnCred.environment).toUpperCase() === "PRODUCTION") {
+    const nnChannel = channels.find((c) => /99|noventa/i.test(c.channel));
+    if (!nnChannel || nnChannel.count === 0) {
+      warnings.push({
+        code: "NOVENTA_NOVE_ZERO_WITH_ACTIVE_CREDENTIAL",
+        severity: "warning",
+        message: `Credencial 99 Food ativa em producao mas nenhuma venda foi registrada neste periodo. Verifique se a sincronizacao esta funcionando antes de fechar.`,
+      });
+    }
+  }
+
+  return warnings;
 }
 
 function mapRow(row: CmvPeriodRow): CmvPeriodSummary {
@@ -1214,7 +1305,8 @@ export async function getCmvPeriod(id: string) {
           purchaseByCategory: [],
           purchaseBySupplier: [],
         },
-      }
+      },
+      warnings: []
     } satisfies CmvPeriodDetail;
   }
   const computation = await computePeriod(row.dataInicial, row.dataFinal, row.estoqueInicialSnapshotId ?? "", row.estoqueFinalSnapshotId ?? "");
@@ -1242,7 +1334,8 @@ export async function getCmvPeriod(id: string) {
         purchaseByCategory: computation.managerial.purchaseByCategory,
         purchaseBySupplier: computation.managerial.purchaseBySupplier,
       },
-    }
+    },
+    warnings: computation.warnings
   } satisfies CmvPeriodDetail;
 }
 
