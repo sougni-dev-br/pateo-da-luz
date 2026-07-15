@@ -226,6 +226,15 @@ model Supplier {
   registrationDate DateTime?
   isActive     Boolean    @default(true)
   notes        String?
+
+  // Fechamento mensal (CMV v2 — 2026-07-14):
+  // Fornecedores marcados aqui aparecem na checklist do Painel de Fechamento
+  // Mensal. Ausencia de Purchase da competencia esperada gera pendencia que
+  // exige justificativa registrada antes de travar o mes (soft-block).
+  requiredInMonthlyClosing Boolean          @default(false)
+  expectedClosingFrequency ClosingFrequency @default(MONTHLY)
+  closingChecklistGroup    String?
+
   purchases    Purchase[]
   billingCycles SupplierBillingCycle[]
   createdAt    DateTime   @default(now())
@@ -235,6 +244,13 @@ model Supplier {
   @@index([normalizedName])
   @@index([document])
   @@index([billingMode])
+  @@index([requiredInMonthlyClosing])
+}
+
+enum ClosingFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
 }
 
 model PurchaseSequence {

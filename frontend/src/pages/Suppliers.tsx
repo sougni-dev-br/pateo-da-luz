@@ -45,7 +45,10 @@ const emptySupplier = {
   billingMode: "DIRECT",
   cycleFrequency: "",
   cycleFirstDueDays: "",
-  cycleSecondDueDays: ""
+  cycleSecondDueDays: "",
+  requiredInMonthlyClosing: false,
+  expectedClosingFrequency: "MONTHLY" as "MONTHLY" | "QUARTERLY" | "ANNUAL",
+  closingChecklistGroup: ""
 };
 
 function toInputDate(value: string | null | undefined) {
@@ -117,7 +120,10 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
         billingMode: form.billingMode || "DIRECT",
         cycleFrequency: form.cycleFrequency || null,
         cycleFirstDueDays: form.cycleFirstDueDays === "" ? null : Number(form.cycleFirstDueDays),
-        cycleSecondDueDays: form.cycleSecondDueDays === "" ? null : Number(form.cycleSecondDueDays)
+        cycleSecondDueDays: form.cycleSecondDueDays === "" ? null : Number(form.cycleSecondDueDays),
+        requiredInMonthlyClosing: form.requiredInMonthlyClosing,
+        expectedClosingFrequency: form.expectedClosingFrequency,
+        closingChecklistGroup: form.closingChecklistGroup || null
       });
       cancelEdit();
       await loadSuppliers();
@@ -166,7 +172,10 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
       billingMode: supplier.billingMode ?? "DIRECT",
       cycleFrequency: supplier.cycleFrequency ?? "",
       cycleFirstDueDays: supplier.cycleFirstDueDays == null ? "" : String(supplier.cycleFirstDueDays),
-      cycleSecondDueDays: supplier.cycleSecondDueDays == null ? "" : String(supplier.cycleSecondDueDays)
+      cycleSecondDueDays: supplier.cycleSecondDueDays == null ? "" : String(supplier.cycleSecondDueDays),
+      requiredInMonthlyClosing: supplier.requiredInMonthlyClosing ?? false,
+      expectedClosingFrequency: (supplier.expectedClosingFrequency ?? "MONTHLY") as "MONTHLY" | "QUARTERLY" | "ANNUAL",
+      closingChecklistGroup: supplier.closingChecklistGroup ?? ""
     });
     setEditingId(supplier.id);
     setEditingName(supplier.name);
@@ -366,6 +375,55 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
                     </FormField>
                     <FormField label="2º vencimento (opcional)">
                       <TextField type="number" min="1" step="1" inputMode="numeric" placeholder="Ex: 30" value={form.cycleSecondDueDays} onChange={(event) => setForm({ ...form, cycleSecondDueDays: event.target.value })} />
+                    </FormField>
+                  </>
+                )}
+              </FormGrid>
+            </FormSection>
+
+            <FormSection
+              eyebrow="Fechamento mensal"
+              title="Regra de fechamento"
+            >
+              <FormGrid cols={4}>
+                <FormField
+                  label="Obrigatório no fechamento"
+                  hint="Se marcado, este fornecedor aparece na checklist do Fechamento Mensal. Ausência de lançamento gera pendência a justificar."
+                >
+                  <label className="checkbox-label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={form.requiredInMonthlyClosing}
+                      onChange={(event) => setForm({ ...form, requiredInMonthlyClosing: event.target.checked })}
+                    />
+                    <span>Aparecer na checklist do mês</span>
+                  </label>
+                </FormField>
+                {form.requiredInMonthlyClosing && (
+                  <>
+                    <FormField
+                      label="Frequência esperada"
+                      hint="Mensal cobra todo mês; trimestral cobra a cada 3; anual cobra 1x no ano."
+                    >
+                      <Select
+                        value={form.expectedClosingFrequency}
+                        onChange={(event) => setForm({ ...form, expectedClosingFrequency: event.target.value as "MONTHLY" | "QUARTERLY" | "ANNUAL" })}
+                        options={[
+                          { value: "MONTHLY", label: "Mensal" },
+                          { value: "QUARTERLY", label: "Trimestral" },
+                          { value: "ANNUAL", label: "Anual" }
+                        ]}
+                      />
+                    </FormField>
+                    <FormField
+                      label="Grupo no checklist"
+                      hint="Agrupamento visual no painel de Fechamento. Ex.: Aluguel/Shopping, Serviços recorrentes, Impostos."
+                    >
+                      <TextField
+                        placeholder="Ex.: Aluguel/Shopping"
+                        value={form.closingChecklistGroup}
+                        onChange={(event) => setForm({ ...form, closingChecklistGroup: event.target.value })}
+                      />
                     </FormField>
                   </>
                 )}
