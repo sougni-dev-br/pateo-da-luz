@@ -122,6 +122,77 @@ function sanitizeSectorOptions(sectors: InventorySector[]) {
   return [...unique.values()];
 }
 
+// Ciclo 2: snapshot canônico para dirty-check.
+// Campos transitórios (newCategoryName, newSubcategoryName, id) ficam de fora.
+// null/undefined/"" colapsam para ""; booleanos são coeridos; strings são trim.
+function normalizeForm(f: typeof emptyProduct): string {
+  const s = (v: string | null | undefined) => (v == null ? "" : String(v).trim());
+  const b = (v: boolean | null | undefined) => v === true;
+  return JSON.stringify({
+    externalCode: s(f.externalCode),
+    name: s(f.name),
+    unit: s(f.unit),
+    unitMeasureId: s(f.unitMeasureId),
+    stockUnit: s(f.stockUnit),
+    purchaseUnit: s(f.purchaseUnit),
+    baseUnit: s(f.baseUnit),
+    conversionFactor: s(f.conversionFactor),
+    packageWeight: s(f.packageWeight),
+    conversionNotes: s(f.conversionNotes),
+    logisticsNotes: s(f.logisticsNotes),
+    storageLocation: s(f.storageLocation),
+    storageCorridor: s(f.storageCorridor),
+    storageShelf: s(f.storageShelf),
+    storagePosition: s(f.storagePosition),
+    storageNotes: s(f.storageNotes),
+    unitConversions: (f.unitConversions ?? []).map((c) => ({
+      fromUnit: s(c.fromUnit),
+      toUnit: s(c.toUnit),
+      factor: s(c.factor),
+      averagePackageWeight: s(c.averagePackageWeight),
+      notes: s(c.notes),
+      isActive: b(c.isActive)
+    })),
+    categoryId: s(f.categoryId),
+    subcategoryId: s(f.subcategoryId),
+    inventorySectorId: s(f.inventorySectorId),
+    dreCategoryId: s(f.dreCategoryId),
+    accountType: s(f.accountType),
+    controlsStock: b(f.controlsStock),
+    estoqueMinimo: s(f.estoqueMinimo),
+    estoqueIdeal: s(f.estoqueIdeal),
+    leadTimeCompraDias: s(f.leadTimeCompraDias),
+    fornecedorPrincipalId: s(f.fornecedorPrincipalId),
+    notes: s(f.notes),
+    isActive: b(f.isActive)
+  });
+}
+
+// Ciclo 2: rascunho de conversão de unidade (seção "Conversões futuras")
+// também conta como dirty — usuário não pode perder digitação silenciosamente.
+function normalizeConversion(c: typeof emptyConversion): string {
+  const s = (v: string | null | undefined) => (v == null ? "" : String(v).trim());
+  return JSON.stringify({
+    fromUnit: s(c.fromUnit),
+    toUnit: s(c.toUnit),
+    factor: s(c.factor),
+    averagePackageWeight: s(c.averagePackageWeight),
+    notes: s(c.notes),
+    isActive: c.isActive === true
+  });
+}
+
+const EMPTY_CONVERSION_KEY = normalizeConversion({
+  fromUnit: "",
+  toUnit: "",
+  factor: "",
+  averagePackageWeight: "",
+  notes: "",
+  isActive: true
+});
+
+const DIRTY_CONFIRM_MESSAGE = "Existem alterações não salvas. Deseja descartá-las?";
+
 const productFormTabs = [
   { id: "identification", label: "Identificação" },
   { id: "classification", label: "Classificação" },
@@ -160,6 +231,9 @@ export function Products() {
   const [activeFormTab, setActiveFormTab] = useState<ProductFormTab>("identification");
   const [formOpenKey, setFormOpenKey] = useState(0);
   const [tabRevealKey, setTabRevealKey] = useState(0);
+  const [snapshot, setSnapshot] = useState<string | null>(null);
+  const [aliasSnapshot, setAliasSnapshot] = useState("");
+  const initialSnapshotSet = useRef(false);
   // Altura estimada da barra sticky superior (.product-form-toolbar).
   // Usada só para o cálculo de "já está visível" — o posicionamento fino fica com scroll-margin-top.
   const STICKY_TOP_INSET = 72;
@@ -185,6 +259,12 @@ export function Products() {
   const productsByStockControl = useMemo(() => countProductsBy(products, (product) => product.controlsStock ? "Controla estoque" : "Nao controla"), [products]);
   const selectedSector = sectors.find((sector) => sector.id === form.inventorySectorId) ?? null;
   const classificationPending = !form.inventorySectorId;
+  const isDirty = useMemo(() => {
+    if (snapshot === null) return false;
+    return normalizeForm(form) !== snapshot
+      || alias !== aliasSnapshot
+      || normalizeConversion(conversionForm) !== EMPTY_CONVERSION_KEY;
+  }, [form, alias, snapshot, aliasSnapshot, conversionForm]);
 
   async function loadProducts() {
     setLoading(true);
@@ -240,6 +320,22 @@ export function Products() {
           ?.id ||
         ""
     }));
+    // Ciclo 2: inicializa snapshot uma única vez (mount inicial em novo cadastro).
+    // Rechamadas de loadBaseData (após criar categoria/subcategoria) não alteram o baseline.
+    if (!initialSnapshotSet.current) {
+      const baseline: typeof emptyProduct = {
+        ...emptyProduct,
+        externalCode: nextCode.code || "",
+        unitMeasureId: unitRows[0]?.id ?? "",
+        unit: unitRows[0]?.code ?? "",
+        categoryId: categoryRows[0]?.id ?? "",
+        subcategoryId:
+          subcategoryRows.find((subcategory) => subcategory.categoryId === categoryRows[0]?.id)?.id ?? ""
+      };
+      setSnapshot(normalizeForm(baseline));
+      setAliasSnapshot("");
+      initialSnapshotSet.current = true;
+    }
   }
 
   // Mapa de sugestão: nome da categoria do produto → nome da categoria DRE
@@ -295,14 +391,35 @@ export function Products() {
     }
   }
 
-  async function resetProductForm() {
+  // Ciclo 2: separa "reset de dados" de "intenção de revelar/focar".
+  // withReveal=true incrementa formOpenKey (reveal + autofocus na Descrição).
+  // withReveal=false só reseta os dados — usado por Cancelar.
+  async function loadFreshProduct(withReveal: boolean) {
     const nextCode = await getNextProductCode().catch(() => ({ code: "" }));
     const defaultUnit = units[0];
-    setForm({ ...emptyProduct, externalCode: nextCode.code, unitMeasureId: defaultUnit?.id ?? "", unit: defaultUnit?.code ?? "" });
+    const fresh = {
+      ...emptyProduct,
+      externalCode: nextCode.code,
+      unitMeasureId: defaultUnit?.id ?? "",
+      unit: defaultUnit?.code ?? ""
+    };
+    setForm(fresh);
     setConversionForm(emptyConversion);
     setAlias("");
     setActiveFormTab("identification");
-    setFormOpenKey((n) => n + 1);
+    setSnapshot(normalizeForm(fresh));
+    setAliasSnapshot("");
+    if (withReveal) setFormOpenKey((n) => n + 1);
+  }
+
+  async function handleCancel() {
+    if (isDirty && !window.confirm(DIRTY_CONFIRM_MESSAGE)) return;
+    await loadFreshProduct(false);
+  }
+
+  async function handleNewDuringEdit() {
+    if (isDirty && !window.confirm(DIRTY_CONFIRM_MESSAGE)) return;
+    await loadFreshProduct(true);
   }
 
   async function handleSubmit() {
@@ -321,9 +438,7 @@ export function Products() {
       if (alias.trim()) {
         await addProductAlias(saved.id, alias);
       }
-      await resetProductForm();
-      setConversionForm(emptyConversion);
-      setAlias("");
+      await loadFreshProduct(true);
       await loadProducts();
       setNotice({
         tone: "success",
@@ -444,14 +559,24 @@ export function Products() {
 
         <div className="product-form-toolbar">
           <div>
-            <strong>{form.id ? "Edicao de produto" : "Novo produto"}</strong>
-            <span>{form.id ? `${form.externalCode || "-"} - ${form.name || "Sem descricao"}` : "Preencha os blocos abaixo para concluir o cadastro."}</span>
+            <strong>
+              {form.id
+                ? `Editando: ${form.externalCode || "-"} — ${form.name || "Sem descrição"}`
+                : "Novo produto"}
+            </strong>
+            <span>
+              {isDirty
+                ? "Alterações não salvas"
+                : form.id
+                  ? "Edite os campos e salve as alterações."
+                  : "Preencha os blocos abaixo para concluir o cadastro."}
+            </span>
           </div>
-          <div className="actions-cell wrap">
-            <button className="secondary-button" type="button" onClick={resetProductForm}>Cancelar</button>
-            <button className="secondary-button" type="button" onClick={resetProductForm}>Novo produto</button>
-            <button className="primary-button" type="button" disabled={!canEdit} onClick={handleSubmit}>{form.id ? "Salvar alteracoes" : "Salvar produto"}</button>
-          </div>
+          {form.id && (
+            <div className="actions-cell wrap">
+              <button className="secondary-button" type="button" onClick={handleNewDuringEdit}>Novo produto</button>
+            </div>
+          )}
         </div>
 
         <div className="product-form-tabs" role="tablist" aria-label="Blocos do cadastro de produto">
@@ -751,9 +876,10 @@ export function Products() {
         </div>
 
         <div className="form-actions sticky-form-actions">
-          <button className="secondary-button" type="button" onClick={resetProductForm}>Cancelar</button>
-          <button className="secondary-button" type="button" onClick={resetProductForm}>Novo produto</button>
-          <button className="primary-button" type="button" disabled={!canEdit} onClick={handleSubmit}>{form.id ? "Salvar alteracoes" : "Salvar produto"}</button>
+          <button className="secondary-button" type="button" onClick={handleCancel}>Cancelar</button>
+          <button className="primary-button" type="button" disabled={!canEdit} onClick={handleSubmit}>
+            {form.id ? "Salvar alterações" : "Salvar produto"}
+          </button>
         </div>
       </section>
 
@@ -998,9 +1124,8 @@ export function Products() {
                     <Table.Td align="right">{product.aliases?.length ?? 0}</Table.Td>
                     <Table.Td actions>
                       <IconButton icon={<Pencil size={16} />} label="Editar" disabled={!canEdit} onClick={() => {
-                        setActiveFormTab("identification");
-                        setFormOpenKey((n) => n + 1);
-                        setForm({
+                        if (isDirty && !window.confirm(DIRTY_CONFIRM_MESSAGE)) return;
+                        const hydrated: typeof emptyProduct & { id: string } = {
                           id: product.id,
                           externalCode: product.externalCode ?? "",
                           name: product.name,
@@ -1040,7 +1165,13 @@ export function Products() {
                           newSubcategoryName: "",
                           notes: product.notes ?? "",
                           isActive: product.isActive
-                        });
+                        };
+                        setActiveFormTab("identification");
+                        setFormOpenKey((n) => n + 1);
+                        setForm(hydrated);
+                        setAlias("");
+                        setSnapshot(normalizeForm(hydrated));
+                        setAliasSnapshot("");
                       }} />
                       <RowMenu
                         label={`Mais ações — ${product.name}`}
