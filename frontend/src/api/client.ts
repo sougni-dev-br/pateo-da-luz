@@ -3331,6 +3331,118 @@ export function downloadCmvPeriodPdf(id: string) {
   return download(`/monthly/cmv-real/${id}/pdf`, "cmv-real.pdf");
 }
 
+// ============================================================================
+// Painel de Fechamento Mensal (CMV v2 — 2026-07-15)
+// ============================================================================
+
+export type MonthlyClosureJustification = {
+  blockKey: string;
+  reason: string;
+  justifiedByUserId: string;
+  justifiedAt: string;
+};
+
+export type MonthlyClosureRequiredSupplier = {
+  id: string;
+  name: string;
+  group: string;
+  frequency: "MONTHLY" | "QUARTERLY" | "ANNUAL";
+  appliesThisMonth: boolean;
+  present: boolean;
+  total: number;
+  purchaseCount: number;
+};
+
+export type MonthlyClosureTax = {
+  id: string;
+  documentType: string;
+  description: string | null;
+  amount: number;
+  dueDate: string;
+  paymentDate: string | null;
+  status: string;
+};
+
+export type MonthlyClosureFinalInventory =
+  | { hasSnapshot: false }
+  | { hasSnapshot: true; snapshotId: string; countDate: string; totalValue: number; totalItems: number };
+
+export type MonthlyClosureCmvContribution = {
+  cmvPeriodId: string;
+  code: string | null;
+  cycleStart: string;
+  cycleEnd: string;
+  cmvReal: number;
+  daysInMonth: number;
+  totalDays: number;
+  contribution: number;
+};
+
+export type MonthlyClosureState = {
+  competenceYear: number;
+  competenceMonth: number;
+  monthStart: string;
+  monthEnd: string;
+  status: "OPEN" | "CLOSED";
+  closedAt: string | null;
+  closedByUserId: string | null;
+  reopenReason: string | null;
+  revenue: {
+    salon: { grossAmount: number; netAmount: number; daysCount: number; entryCount: number };
+    ifood: { grossAmount: number; count: number };
+    noventaNove: { grossAmount: number; count: number };
+  };
+  purchases: {
+    total: number;
+    count: number;
+    byCategory: Array<{ categoryName: string; total: number; count: number }>;
+  };
+  requiredSuppliers: MonthlyClosureRequiredSupplier[];
+  taxes: MonthlyClosureTax[];
+  finalInventory: MonthlyClosureFinalInventory;
+  cmvAttribution: { total: number; breakdown: MonthlyClosureCmvContribution[] };
+  justifications: MonthlyClosureJustification[];
+  summary: {
+    pendingCount: number;
+    pending: Array<{ key: string; label: string }>;
+    canLock: boolean;
+  };
+};
+
+export function getMonthlyClosure(year: number, month: number) {
+  return request<MonthlyClosureState>(`/monthly-closure/${year}/${month}`);
+}
+
+export function justifyMonthlyClosureBlock(year: number, month: number, blockKey: string, reason: string) {
+  return request<MonthlyClosureState>(`/monthly-closure/${year}/${month}/justify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ blockKey, reason }),
+  });
+}
+
+export function removeMonthlyClosureJustification(year: number, month: number, blockKey: string) {
+  return request<MonthlyClosureState>(`/monthly-closure/${year}/${month}/justify/${encodeURIComponent(blockKey)}`, {
+    method: "DELETE",
+  });
+}
+
+export function lockMonthlyClosure(year: number, month: number) {
+  return request<MonthlyClosureState>(`/monthly-closure/${year}/${month}/lock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+}
+
+export function unlockMonthlyClosure(year: number, month: number, reason: string) {
+  return request<MonthlyClosureState>(`/monthly-closure/${year}/${month}/unlock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+}
+
 export function startInventoryAgendaItem(id: string) {
   return request<{ id: string; status: string }>(`/inventory/agenda/${id}/start`, { method: "PATCH" });
 }
