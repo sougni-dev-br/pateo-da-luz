@@ -7,6 +7,12 @@ type RevealScrollOptions = {
   behavior?: ScrollBehavior;
   skipIfVisible?: boolean;
   visibleThreshold?: number;
+  /** Novo (opcional, default true). Se false, apenas rola; não move o foco. */
+  focus?: boolean;
+  /** Novo (opcional, default 0). Altura sticky no topo do scroll container. */
+  topInset?: number;
+  /** Novo (opcional, default 0). Altura sticky no rodapé do scroll container. */
+  bottomInset?: number;
 };
 
 function prefersReducedMotion(): boolean {
@@ -14,11 +20,35 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-function isElementMostlyVisible(el: Element, threshold: number): boolean {
+function findScrollContainer(el: Element): Element | null {
+  let node: Element | null = el.parentElement;
+  while (node && node !== document.body) {
+    const style = window.getComputedStyle(node);
+    if (/(auto|scroll|overlay)/.test(style.overflowY)) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function isElementMostlyVisible(
+  el: Element,
+  threshold: number,
+  topInset: number,
+  bottomInset: number
+): boolean {
   const rect = el.getBoundingClientRect();
   if (rect.height === 0) return false;
-  const viewportH = window.innerHeight || document.documentElement.clientHeight;
-  const visible = Math.max(0, Math.min(rect.bottom, viewportH) - Math.max(rect.top, 0));
+  const container = findScrollContainer(el);
+  const bounds = container
+    ? container.getBoundingClientRect()
+    : { top: 0, bottom: window.innerHeight || document.documentElement.clientHeight };
+  const topLimit = bounds.top + topInset;
+  const bottomLimit = bounds.bottom - bottomInset;
+  // Se o topo do elemento está encoberto pela sticky-toolbar, não considera visível
+  // mesmo que a maior parte da área esteja no viewport útil.
+  const TOP_TOLERANCE = 4;
+  if (rect.top < topLimit - TOP_TOLERANCE) return false;
+  const visible = Math.max(0, Math.min(rect.bottom, bottomLimit) - Math.max(rect.top, topLimit));
   return visible / rect.height >= threshold;
 }
 
@@ -47,7 +77,10 @@ export function useRevealScroll<T extends HTMLElement = HTMLElement>(
     block = "start",
     behavior,
     skipIfVisible = true,
-    visibleThreshold = 0.6
+    visibleThreshold = 0.6,
+    focus = true,
+    topInset = 0,
+    bottomInset = 0
   } = options;
 
   useLayoutEffect(() => {
@@ -61,13 +94,15 @@ export function useRevealScroll<T extends HTMLElement = HTMLElement>(
 
       const effectiveBehavior: ScrollBehavior = behavior ?? (prefersReducedMotion() ? "auto" : "smooth");
 
-      if (!skipIfVisible || !isElementMostlyVisible(node, visibleThreshold)) {
+      if (!skipIfVisible || !isElementMostlyVisible(node, visibleThreshold, topInset, bottomInset)) {
         try {
           node.scrollIntoView({ behavior: effectiveBehavior, block });
         } catch {
           node.scrollIntoView();
         }
       }
+
+      if (!focus) return;
 
       const focusTarget = findFocusTarget(node, focusSelector);
       if (focusTarget) {
@@ -80,7 +115,7 @@ export function useRevealScroll<T extends HTMLElement = HTMLElement>(
     });
 
     return () => window.cancelAnimationFrame(raf);
-  }, [when, focusSelector, block, behavior, skipIfVisible, visibleThreshold]);
+  }, [when, focusSelector, block, behavior, skipIfVisible, visibleThreshold, focus, topInset, bottomInset]);
 
   return ref;
 }

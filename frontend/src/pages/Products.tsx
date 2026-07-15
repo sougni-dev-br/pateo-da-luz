@@ -29,6 +29,7 @@ import { DRECategoryOptions, DRE_GROUPS } from "../components/DRECategoryOptions
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
 import { hasPermission } from "../lib/permissions";
+import { useRevealScroll } from "../lib/useRevealScroll";
 import { SimpleBarChart } from "../components/SimpleBarChart";
 import {
   EmptyState,
@@ -157,6 +158,22 @@ export function Products() {
   const [history, setHistory] = useState<ProductHistory | null>(null);
   const [conversionForm, setConversionForm] = useState(emptyConversion);
   const [activeFormTab, setActiveFormTab] = useState<ProductFormTab>("identification");
+  const [formOpenKey, setFormOpenKey] = useState(0);
+  const [tabRevealKey, setTabRevealKey] = useState(0);
+  // Altura estimada da barra sticky superior (.product-form-toolbar).
+  // Usada só para o cálculo de "já está visível" — o posicionamento fino fica com scroll-margin-top.
+  const STICKY_TOP_INSET = 72;
+  const formHeaderRef = useRevealScroll<HTMLElement>({
+    when: formOpenKey,
+    focus: true,
+    focusSelector: "[data-autofocus]",
+    topInset: STICKY_TOP_INSET
+  });
+  const activeTabPanelRef = useRevealScroll<HTMLDivElement>({
+    when: tabRevealKey,
+    focus: false,
+    topInset: STICKY_TOP_INSET
+  });
   const [alias, setAlias] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -285,6 +302,7 @@ export function Products() {
     setConversionForm(emptyConversion);
     setAlias("");
     setActiveFormTab("identification");
+    setFormOpenKey((n) => n + 1);
   }
 
   async function handleSubmit() {
@@ -416,7 +434,7 @@ export function Products() {
         </div>
       </section>
 
-      <section className="panel">
+      <section className="panel scroll-target" ref={formHeaderRef}>
         <div className="section-heading">
           <div>
             <p>Tabela mestre</p>
@@ -444,14 +462,14 @@ export function Products() {
               type="button"
               role="tab"
               aria-selected={activeFormTab === tab.id}
-              onClick={() => setActiveFormTab(tab.id)}
+              onClick={() => { setActiveFormTab(tab.id); setTabRevealKey((n) => n + 1); }}
             >
               {tab.label}
             </button>
           ))}
         </div>
 
-        <div className="form-section-grid">
+        <div className="form-section-grid scroll-target" ref={activeTabPanelRef}>
           {activeFormTab === "identification" && (
             <section className="form-section">
               <div className="form-section-header">
@@ -465,7 +483,7 @@ export function Products() {
                 </label>
                 <label className="span-2">
                   Descrição do produto
-                  <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+                  <input data-autofocus value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
                 </label>
                 <article className={`stock-control-card ${form.controlsStock ? "is-enabled" : "is-disabled"}`}>
                   <div>
@@ -981,6 +999,7 @@ export function Products() {
                     <Table.Td actions>
                       <IconButton icon={<Pencil size={16} />} label="Editar" disabled={!canEdit} onClick={() => {
                         setActiveFormTab("identification");
+                        setFormOpenKey((n) => n + 1);
                         setForm({
                           id: product.id,
                           externalCode: product.externalCode ?? "",
