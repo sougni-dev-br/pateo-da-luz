@@ -193,7 +193,7 @@ supplierRouter.post("/", async (request, response) => {
       ${request.body.defaultPaymentTermDays === "" || request.body.defaultPaymentTermDays == null ? null : Number(request.body.defaultPaymentTermDays)},
       ${request.body.defaultPaymentMethodId || null},
       ${request.body.defaultInstallmentCount == null || request.body.defaultInstallmentCount === "" ? null : Number(request.body.defaultInstallmentCount)},
-      ${defaultInstallmentDays},
+      ${defaultInstallmentDays}::jsonb,
       ${request.body.defaultFinancialNotes || null},
       ${request.body.notes || null}, ${request.body.isActive ?? true},
       ${billingMode}, ${cycleFrequency}, ${cycleFirstDueDays}, ${cycleSecondDueDays}, CURRENT_TIMESTAMP
@@ -269,7 +269,7 @@ supplierRouter.put("/:id", async (request, response) => {
       "defaultPaymentTermDays" = ${request.body.defaultPaymentTermDays === "" || request.body.defaultPaymentTermDays == null ? null : Number(request.body.defaultPaymentTermDays)},
       "defaultPaymentMethodId" = ${request.body.defaultPaymentMethodId || null},
       "defaultInstallmentCount" = ${request.body.defaultInstallmentCount == null || request.body.defaultInstallmentCount === "" ? null : Number(request.body.defaultInstallmentCount)},
-      "defaultInstallmentDays" = ${defaultInstallmentDaysPut},
+      "defaultInstallmentDays" = ${defaultInstallmentDaysPut}::jsonb,
       "defaultFinancialNotes" = ${request.body.defaultFinancialNotes || null},
       "notes" = ${request.body.notes || null},
       "isActive" = ${request.body.isActive ?? true},
