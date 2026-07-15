@@ -1407,6 +1407,15 @@ model MonthlyCmv {
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
 
+  // Fechamento Mensal (CMV v2 — 2026-07-15):
+  // cmvAttributedValue = soma rateada dos CmvPeriods que interceptam o mes,
+  // proporcional aos dias corridos que o ciclo passou dentro do mes.
+  // attributionBreakdown = Array<{cmvPeriodId, code, daysInMonth, totalDays, cycleCmv, contribution}>
+  // justifications = Array<{blockKey, reason, justifiedByUserId, justifiedAt}>
+  cmvAttributedValue    Decimal?           @db.Decimal(14, 2)
+  attributionBreakdown  Json?
+  justifications        Json?
+
   @@unique([competenceYear, competenceMonth])
   @@index([status])
 }

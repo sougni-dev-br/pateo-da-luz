@@ -58,6 +58,7 @@ const ImportsHub = lazy(() => import("./pages/ImportsHub").then((module) => ({ d
 const Inventory = lazy(() => import("./pages/Inventory").then((module) => ({ default: module.Inventory })));
 const MasterData = lazy(() => import("./pages/MasterData").then((module) => ({ default: module.MasterData })));
 const MonthlyClosing = lazy(() => import("./pages/MonthlyClosing").then((module) => ({ default: module.MonthlyClosing })));
+const MonthlyClosurePanel = lazy(() => import("./pages/MonthlyClosurePanel").then((module) => ({ default: module.MonthlyClosurePanel })));
 const Payables = lazy(() => import("./pages/Payables").then((module) => ({ default: module.Payables })));
 const PaymentMethods = lazy(() => import("./pages/PaymentMethods").then((module) => ({ default: module.PaymentMethods })));
 const Products = lazy(() => import("./pages/Products").then((module) => ({ default: module.Products })));
@@ -578,7 +579,9 @@ export function App() {
                 )}
               />
               <Route path="/cmv/real" element={<CmvReal user={user} />} />
-              <Route path="/cmv/fechamento-mensal" element={<MonthlyClosing user={user} />} />
+              <Route path="/cmv/fechamento-mensal" element={<MonthlyClosurePanel user={user} />} />
+              <Route path="/cmv/fechamento-mensal/:yearMonth" element={<MonthlyClosurePanel user={user} />} />
+              <Route path="/cmv/fechamento-mensal-legado" element={<MonthlyClosing user={user} />} />
               <Route path="/estoque/visao-geral" element={<InventoryRouteView user={user} initialView="overview" onOpenProducts={() => handleNavigate("products")} onOpenPurchaseOrders={() => handleNavigate("purchase-orders")} />} />
               <Route path="/estoque/movimentacoes" element={<InventoryRouteView user={user} initialView="movements" onOpenProducts={() => handleNavigate("products")} onOpenPurchaseOrders={() => handleNavigate("purchase-orders")} />} />
               <Route path="/estoque/contagens" element={<InventoryRouteView user={user} initialView="counting" onOpenProducts={() => handleNavigate("products")} onOpenPurchaseOrders={() => handleNavigate("purchase-orders")} />} />
