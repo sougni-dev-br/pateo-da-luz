@@ -884,6 +884,9 @@ export type Supplier = {
   cycleFrequency?: string | null;
   cycleFirstDueDays?: number | null;
   cycleSecondDueDays?: number | null;
+  requiredInMonthlyClosing?: boolean;
+  expectedClosingFrequency?: "MONTHLY" | "QUARTERLY" | "ANNUAL";
+  closingChecklistGroup?: string | null;
 };
 
 export type SupplierHistory = {

@@ -34,6 +34,18 @@ function parseCycleDays(value: unknown): number | null {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+function parseClosingFrequency(value: unknown): "MONTHLY" | "QUARTERLY" | "ANNUAL" {
+  const v = String(value ?? "").trim().toUpperCase();
+  if (v === "QUARTERLY" || v === "ANNUAL") return v;
+  return "MONTHLY";
+}
+
+function parseRequiredInMonthlyClosing(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value === "true" || value === "1";
+  return false;
+}
+
 type SupplierRow = {
   id: string;
   externalCode: string | null;
@@ -56,6 +68,9 @@ type SupplierRow = {
   cycleFrequency: string | null;
   cycleFirstDueDays: number | null;
   cycleSecondDueDays: number | null;
+  requiredInMonthlyClosing: boolean;
+  expectedClosingFrequency: "MONTHLY" | "QUARTERLY" | "ANNUAL";
+  closingChecklistGroup: string | null;
 };
 
 async function findSupplierRow(id: string) {
@@ -66,7 +81,8 @@ async function findSupplierRow(id: string) {
       "defaultPaymentTermDays", "defaultPaymentMethodId",
       "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
       "registrationDate", "isActive", "notes",
-      "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
+      "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays",
+      "requiredInMonthlyClosing", "expectedClosingFrequency", "closingChecklistGroup"
     FROM "Supplier"
     WHERE "id" = ${id}
   `;
@@ -106,7 +122,8 @@ supplierRouter.get("/", async (request, response) => {
           "defaultPaymentTermDays", "defaultPaymentMethodId",
           "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
           "registrationDate", "isActive", "notes",
-          "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"`;
+          "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays",
+      "requiredInMonthlyClosing", "expectedClosingFrequency", "closingChecklistGroup"`;
   void COLS; // used only as documentation; queries below are explicit
 
   let suppliers: SupplierRow[];
@@ -117,7 +134,8 @@ supplierRouter.get("/", async (request, response) => {
              "defaultPaymentTermDays", "defaultPaymentMethodId",
              "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
              "registrationDate", "isActive", "notes",
-             "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
+             "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays",
+      "requiredInMonthlyClosing", "expectedClosingFrequency", "closingChecklistGroup"
       FROM "Supplier"
       WHERE ("name" ILIKE ${term} OR "document" ILIKE ${term} OR "externalCode" ILIKE ${term} OR "normalizedName" ILIKE ${term}
              OR (${digitTerm}::text IS NOT NULL AND regexp_replace(COALESCE("document", ''), '[^0-9]', '', 'g') ILIKE ${digitTerm}))
@@ -130,7 +148,8 @@ supplierRouter.get("/", async (request, response) => {
              "defaultPaymentTermDays", "defaultPaymentMethodId",
              "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
              "registrationDate", "isActive", "notes",
-             "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
+             "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays",
+      "requiredInMonthlyClosing", "expectedClosingFrequency", "closingChecklistGroup"
       FROM "Supplier"
       WHERE "name" ILIKE ${term} OR "document" ILIKE ${term} OR "externalCode" ILIKE ${term} OR "normalizedName" ILIKE ${term}
              OR (${digitTerm}::text IS NOT NULL AND regexp_replace(COALESCE("document", ''), '[^0-9]', '', 'g') ILIKE ${digitTerm})
@@ -142,7 +161,8 @@ supplierRouter.get("/", async (request, response) => {
              "defaultPaymentTermDays", "defaultPaymentMethodId",
              "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
              "registrationDate", "isActive", "notes",
-             "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
+             "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays",
+      "requiredInMonthlyClosing", "expectedClosingFrequency", "closingChecklistGroup"
       FROM "Supplier"
       WHERE "isActive" = true
       ORDER BY "name" ASC`;
@@ -153,7 +173,8 @@ supplierRouter.get("/", async (request, response) => {
              "defaultPaymentTermDays", "defaultPaymentMethodId",
              "defaultInstallmentCount", "defaultInstallmentDays", "defaultFinancialNotes",
              "registrationDate", "isActive", "notes",
-             "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays"
+             "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays",
+      "requiredInMonthlyClosing", "expectedClosingFrequency", "closingChecklistGroup"
       FROM "Supplier"
       ORDER BY "name" ASC`;
   }
@@ -184,7 +205,8 @@ supplierRouter.post("/", async (request, response) => {
       "id", "externalCode", "document", "name", "normalizedName", "phone", "email", "contactName",
       "mainCategory", "defaultPaymentTermDays", "defaultPaymentMethodId", "defaultInstallmentCount",
       "defaultInstallmentDays", "defaultFinancialNotes", "notes", "isActive",
-      "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays", "updatedAt"
+      "billingMode", "cycleFrequency", "cycleFirstDueDays", "cycleSecondDueDays",
+      "requiredInMonthlyClosing", "expectedClosingFrequency", "closingChecklistGroup", "updatedAt"
     )
     VALUES (
       ${crypto.randomUUID()}, ${externalCode}, ${request.body.document || null}, ${name}, ${normalizeText(name)},
@@ -196,7 +218,11 @@ supplierRouter.post("/", async (request, response) => {
       ${defaultInstallmentDays}::jsonb,
       ${request.body.defaultFinancialNotes || null},
       ${request.body.notes || null}, ${request.body.isActive ?? true},
-      ${billingMode}, ${cycleFrequency}, ${cycleFirstDueDays}, ${cycleSecondDueDays}, CURRENT_TIMESTAMP
+      ${billingMode}, ${cycleFrequency}, ${cycleFirstDueDays}, ${cycleSecondDueDays},
+      ${parseRequiredInMonthlyClosing(request.body.requiredInMonthlyClosing)},
+      CAST(${parseClosingFrequency(request.body.expectedClosingFrequency)} AS "ClosingFrequency"),
+      ${request.body.closingChecklistGroup || null},
+      CURRENT_TIMESTAMP
     )
     RETURNING "id"
   `;
@@ -277,6 +303,9 @@ supplierRouter.put("/:id", async (request, response) => {
       "cycleFrequency" = ${cycleFrequencyPut},
       "cycleFirstDueDays" = ${cycleFirstDueDaysPut},
       "cycleSecondDueDays" = ${cycleSecondDueDaysPut},
+      "requiredInMonthlyClosing" = ${parseRequiredInMonthlyClosing(request.body.requiredInMonthlyClosing)},
+      "expectedClosingFrequency" = CAST(${parseClosingFrequency(request.body.expectedClosingFrequency)} AS "ClosingFrequency"),
+      "closingChecklistGroup" = ${request.body.closingChecklistGroup || null},
       "updatedAt" = CURRENT_TIMESTAMP
     WHERE "id" = ${request.params.id}
     RETURNING "id"
