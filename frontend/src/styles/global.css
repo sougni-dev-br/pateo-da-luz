@@ -703,6 +703,7 @@ select:focus {
   min-height: auto;
   flex-shrink: 0;
   margin-top: 3px;
+  width: auto;
 }
 
 /* Texto de dica/instrução — usado em Suppliers, Companies, Audit */
