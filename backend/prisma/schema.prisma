@@ -2095,3 +2095,65 @@ model Receivable {
   @@index([companyId, expectedDate])
   @@index([parentReceivableId])
 }
+
+// ─── WhatsApp (Baileys) ───────────────────────────────────────────────────
+// Baileys mantém dois tipos de estado que precisam sobreviver a restart do
+// backend (senão exige QR novo a cada deploy):
+//   1. `creds` — 1 blob JSON. Identidade do dispositivo linkado.
+//   2. `keys`  — dezenas de blobs JSON, keyed por (tipo, id). Cifra E2E.
+// O adapter de auth em `baileys.service.ts` grava tudo aqui.
+//
+// `sessionName` = identificador lógico da sessão (ex.: "pateo"). Permite
+// eventualmente rodar >1 sessão simultânea sem colisão de chaves.
+model WhatsAppAuthState {
+  id          String   @id @default(cuid())
+  sessionName String
+  // "creds" para o blob principal; "keys" para cada key de assinatura.
+  category    String
+  // Para creds: sempre "main". Para keys: "<type>-<id>" (ex.: "pre-key-42").
+  key         String
+  // JSON serializado (Buffer é convertido para base64 antes de gravar).
+  value       String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([sessionName, category, key])
+  @@index([sessionName])
+}
+
+// Destinatários do resumo diário WhatsApp. Gerenciados via UI em
+// /configuracoes/notificacoes. isActive permite pausar sem apagar
+// (mantém histórico e ordem original).
+model WhatsAppRecipient {
+  id        String   @id @default(cuid())
+  name      String
+  // Só dígitos, incluindo DDI (ex.: "5511961894636"). Validação de formato
+  // no backend antes de gravar.
+  phone     String
+  notes     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+// Registro de envio bem-sucedido do resumo diário. Chave (date, recipientId)
+// é única — se o cron chamar /trigger 2x no mesmo dia, o segundo pula os
+// destinatários já enviados. Garante zero duplicação mesmo com retry.
+model DailySummarySent {
+  id            String   @id @default(cuid())
+  // YYYY-MM-DD no fuso America/Sao_Paulo (mesma convenção do resumo).
+  date          String
+  // Ou o id do WhatsAppRecipient ("cmxxx...") ou "env" quando origem é
+  // WHATSAPP_TO fallback. Não é FK — recipient pode ser deletado
+  // depois e o histórico deve continuar consultável.
+  recipientId   String
+  recipientName String?
+  phone         String
+  messageId     String?
+  sentAt        DateTime @default(now())
+
+  @@unique([date, recipientId])
+  @@index([date])
+}

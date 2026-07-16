@@ -1,6 +1,8 @@
 databases:
   - name: pateo-postgres
-    plan: free
+    # Basic-256mb desde 2026-07 (backup diário + retention 7 dias).
+    # NÃO usar 'free' — o Postgres free expira após 90 dias e não tem backup.
+    plan: basic_256mb
     databaseName: pateo
     user: pateo
 
@@ -9,7 +11,10 @@ services:
     name: pateo-backend
     runtime: node
     rootDir: backend
-    plan: free
+    # Starter desde 2026-07 (sem sleep, memória 512MB). Não voltar para free —
+    # o restaurante opera em produção; free dorme após 15min e mata sessões
+    # de longa duração (ex.: WhatsApp/Baileys).
+    plan: starter
     region: oregon
     buildCommand: npm install --include=dev && npm run build
     startCommand: npm run prisma:deploy && npm run start

@@ -8,6 +8,7 @@ import { importRouter } from "./modules/imports/import.routes.js";
 import { agileIntegrationRouter } from "./modules/integrations/agile/agile-sync.routes.js";
 import { ifoodDeliveryRouter } from "./modules/integrations/delivery/ifood/ifood.routes.js";
 import { noventaNoveDeliveryRouter, noventaNovePublicRouter } from "./modules/integrations/delivery/noventa-nove/noventa-nove.routes.js";
+import { notificationsAdminRouter, notificationsPublicRouter } from "./modules/notifications/notifications.routes.js";
 import { receivableRouter } from "./modules/receivables/receivable.routes.js";
 import { ifoodExpenseRouter } from "./modules/ifood-expenses/ifood-expense.routes.js";
 import { inventoryRouter } from "./modules/inventory/inventory.routes.js";
@@ -69,7 +70,13 @@ app.use("/auth", authRouter);
 // Rotas PÚBLICAS (chamadas por terceiros/webhooks) ficam ANTES do
 // requireMenuAccess pra bypassar o middleware de sessão.
 app.use("/public/delivery/noventa-nove", noventaNovePublicRouter);
+// Notifications público (trigger via cron): autenticado por token próprio
+// (X-Daily-Summary-Token). Precisa ficar ANTES do requireMenuAccess.
+app.use("/notifications", notificationsPublicRouter);
 app.use(requireMenuAccess);
+// Notifications admin (CRUD destinatários, status/QR/restart): autenticado
+// por sessão via menu id "notifications" — configurado abaixo.
+app.use("/notifications", notificationsAdminRouter);
 app.use("/suppliers", supplierRouter);
 app.use("/supplier-cycles", supplierCyclesRouter);
 app.use("/companies", companyRouter);

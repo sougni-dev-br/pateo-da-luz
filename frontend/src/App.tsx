@@ -12,6 +12,7 @@ import {
   FileSpreadsheet,
   Layers,
   LogOut,
+  MessageCircle,
   Menu,
   Package,
   ReceiptText,
@@ -81,6 +82,7 @@ const Dishes = lazy(() => import("./pages/Dishes").then((module) => ({ default: 
 const DRE = lazy(() => import("./pages/DRE").then((module) => ({ default: module.DRE })));
 const SupplierCycles = lazy(() => import("./pages/SupplierCycles").then((module) => ({ default: module.SupplierCycles })));
 const TaxPayments = lazy(() => import("./pages/TaxPayments").then((module) => ({ default: module.TaxPayments })));
+const Notifications = lazy(() => import("./pages/Notifications").then((module) => ({ default: module.Notifications })));
 // Rota /design-system: dev-only (isLocal). Em prod, o ternario resolve para null
 // no build e Vite tree-shake o chunk. Nao aparece na sidebar (nao esta em sections).
 const DesignSystem = isLocal
@@ -139,6 +141,7 @@ const sections = [
   { id: "master-data", label: "Cadastros base", icon: Layers, showInSidebar: true, group: "Configurações", path: "/configuracoes/cadastros-base", matchers: ["/configuracoes/cadastros-base"] },
   { id: "users", label: "Usuários", icon: Shield, showInSidebar: true, group: "Configurações", path: "/configuracoes/usuarios", matchers: ["/configuracoes/usuarios"] },
   { id: "audit", label: "Auditoria", icon: ScrollText, showInSidebar: true, group: "Configurações", path: "/configuracoes/auditoria", matchers: ["/configuracoes/auditoria"] },
+  { id: "notifications", label: "Notificações WhatsApp", icon: MessageCircle, showInSidebar: true, group: "Configurações", path: "/configuracoes/notificacoes", matchers: ["/configuracoes/notificacoes"], description: "Destinatários e status do resumo diário via WhatsApp" },
   { id: "integracao-delivery", label: "Integrações Delivery", icon: FileCog, showInSidebar: true, group: "Integrações", path: "/configuracoes/integracoes/delivery", matchers: ["/configuracoes/integracoes/delivery", "/configuracoes/integracoes/ifood"], description: "Credenciais e cadastro de lojas iFood e 99 Food" }
 ] as const satisfies readonly SectionDefinition[];
 
@@ -602,6 +605,7 @@ export function App() {
               <Route path="/configuracoes/cadastros-base" element={<MasterData />} />
               <Route path="/configuracoes/usuarios" element={<Users />} />
               <Route path="/configuracoes/auditoria" element={<Audit />} />
+              <Route path="/configuracoes/notificacoes" element={<Notifications />} />
               <Route path="*" element={<Navigate to={fallbackSection.path} replace />} />
             </Routes>
             </ContentErrorBoundary>
