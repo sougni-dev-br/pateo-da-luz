@@ -41,7 +41,8 @@ export const menuCatalog = [
   { id: "master-data", label: "Pequenos gastos e cadastros base", group: "Configuracoes" },
   { id: "users", label: "Usuarios", group: "Configuracoes" },
   { id: "audit", label: "Auditoria", group: "Configuracoes" },
-  { id: "tax-payments", label: "Impostos e Guias", group: "Financeiro" }
+  { id: "tax-payments", label: "Impostos e Guias", group: "Financeiro" },
+  { id: "notifications", label: "Notificações WhatsApp", group: "Configuracoes" }
 ] as const;
 
 export type MenuId = (typeof menuCatalog)[number]["id"];
@@ -389,6 +390,7 @@ function menuFromRequest(request: Request): MenuId | null {
   }
   if (path.startsWith("/master-data")) return "master-data";
   if (path.startsWith("/tax-payments")) return "tax-payments";
+  if (path.startsWith("/notifications/whatsapp") || path.startsWith("/whatsapp")) return "notifications";
   return null;
 }
 

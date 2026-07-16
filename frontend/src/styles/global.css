@@ -14293,3 +14293,713 @@ body:has(.pplan-sticky-actions) .pplan {
   }
 }
 
+
+
+/* ═════════════════════════════════════════════════════════════════════════
+   Notificações WhatsApp — /configuracoes/notificacoes
+   Verde WhatsApp reservado para hero+ícone; texto/botões seguem tokens do DS.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --wa-green: #25d366;
+  --wa-green-soft: rgba(37, 211, 102, 0.12);
+  --wa-green-border: rgba(37, 211, 102, 0.32);
+  --wa-hero-bg: linear-gradient(140deg, rgba(37, 211, 102, 0.10) 0%, rgba(37, 211, 102, 0) 55%);
+}
+
+/* ── Hero: status card ────────────────────────────────────────────────── */
+
+.wa-hero-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.wa-hero-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--wa-hero-bg);
+  opacity: 0;
+  transition: opacity 240ms var(--ease, ease);
+  pointer-events: none;
+}
+
+.wa-hero-panel.wa-hero-open::before {
+  opacity: 1;
+}
+
+.wa-hero-left {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wa-hero-icon {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--surface-2, #f3f4f6);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 200ms var(--ease, ease), color 200ms var(--ease, ease);
+}
+
+.wa-hero-icon.wa-hero-icon-live {
+  background: var(--wa-green);
+  color: #fff;
+  box-shadow: 0 6px 20px -6px rgba(37, 211, 102, 0.55);
+}
+
+.wa-hero-pulse {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid var(--wa-green);
+  opacity: 0.7;
+  animation: wa-pulse 1.8s ease-out infinite;
+}
+
+@keyframes wa-pulse {
+  0% { transform: scale(1); opacity: 0.7; }
+  70% { transform: scale(1.4); opacity: 0; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+.wa-hero-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wa-hero-headline {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+
+.wa-hero-badge-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wa-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--wa-green);
+  box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.18);
+  animation: wa-dot 1.6s ease-in-out infinite;
+  display: inline-block;
+}
+
+@keyframes wa-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.85); }
+}
+
+.wa-hero-badge-wrap .ds-status-badge {
+  font-size: 0.92em;
+  padding: 4px 12px;
+}
+
+.wa-hero-helper {
+  color: var(--muted);
+  font-size: 0.92em;
+  line-height: 1.4;
+}
+
+.wa-hero-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--muted);
+  font-size: 0.88em;
+}
+
+.wa-hero-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.wa-hero-meta-item strong {
+  color: var(--ink);
+  font-weight: var(--fw-semibold);
+}
+
+.wa-hero-meta-icon {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.wa-hero-meta-sep {
+  color: var(--border);
+  font-weight: 600;
+}
+
+.wa-hero-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--surface-2, #f3f4f6);
+  font-size: 0.85em;
+  color: var(--muted);
+  align-self: flex-start;
+}
+
+.wa-hero-next strong {
+  color: var(--ink);
+  font-weight: var(--fw-semibold);
+}
+
+.wa-hero-next-label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.82em;
+  color: var(--muted);
+}
+
+.wa-hero-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.wa-hero-actions .ds-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.wa-hero-error {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}
+
+/* ── Formulário ───────────────────────────────────────────────────────── */
+
+.wa-form-panel {
+  scroll-margin-top: 24px;
+}
+
+.wa-form-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.wa-form-title {
+  margin: 0 0 4px;
+  font-size: 1.05em;
+  font-weight: var(--fw-semibold);
+  color: var(--ink);
+}
+
+.wa-form-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.wa-form-mode {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78em;
+  color: var(--muted);
+  background: var(--surface-2, #f3f4f6);
+  border: 1px dashed var(--border);
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wa-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  gap: 14px 16px;
+  align-items: end;
+}
+
+.wa-form-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wa-form-submit .ds-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.wa-ghost-button {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.9em;
+  padding: 8px 4px;
+  cursor: pointer;
+  font-weight: var(--fw-medium);
+  transition: color 150ms var(--ease, ease);
+}
+
+.wa-ghost-button:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.wa-ghost-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Lista ────────────────────────────────────────────────────────────── */
+
+.wa-list-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.wa-list-title {
+  margin: 0 0 2px;
+  font-size: 1.05em;
+  font-weight: var(--fw-semibold);
+  color: var(--ink);
+}
+
+.wa-list-count {
+  color: var(--muted);
+  font-weight: var(--fw-medium);
+  font-size: 0.9em;
+  margin-left: 4px;
+}
+
+.wa-list-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.wa-name {
+  font-weight: var(--fw-semibold);
+  color: var(--ink);
+}
+
+.wa-phone {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+.wa-muted {
+  color: var(--muted);
+}
+
+.wa-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wa-list-footer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  font-size: 0.88em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wa-list-footer-ok {
+  color: var(--success, #16a34a);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wa-list-footer-warn {
+  color: var(--warning, #d97706);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Mobile cards ─────────────────────────────────────────────────────── */
+
+.wa-mobile-list {
+  display: none;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wa-mobile-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: opacity 150ms var(--ease, ease);
+}
+
+.wa-mobile-card-paused {
+  opacity: 0.72;
+}
+
+.wa-mobile-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.wa-mobile-card-name {
+  font-size: 1.02em;
+  font-weight: var(--fw-semibold);
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wa-mobile-card-phone {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  color: var(--muted);
+  font-size: 0.92em;
+}
+
+.wa-mobile-card-notes {
+  color: var(--muted);
+  font-size: 0.86em;
+  font-style: italic;
+}
+
+.wa-mobile-card-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+
+.wa-mobile-card-actions .ds-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+}
+
+/* ── Responsivo ───────────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .wa-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .wa-form-submit {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 900px) {
+  .wa-hero-panel {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "icon body"
+      "actions actions";
+    row-gap: 14px;
+  }
+  .wa-hero-left { grid-area: icon; }
+  .wa-hero-body { grid-area: body; }
+  .wa-hero-actions {
+    grid-area: actions;
+    width: 100%;
+    justify-content: flex-end;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+  }
+}
+
+@media (max-width: 700px) {
+  .wa-hero-panel {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "icon"
+      "body"
+      "actions";
+    text-align: left;
+  }
+  .wa-hero-left {
+    justify-content: flex-start;
+  }
+  .wa-hero-icon {
+    width: 52px;
+    height: 52px;
+  }
+  .wa-hero-headline {
+    gap: 6px 12px;
+  }
+  .wa-hero-meta {
+    font-size: 0.85em;
+  }
+  .wa-hero-actions .ds-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .wa-form-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .wa-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wa-form-submit {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .wa-desktop-list { display: none; }
+  .wa-mobile-list { display: flex; }
+}
+
+/* Só cai para coluna única em telas realmente estreitas (Galaxy S8 e afins).
+   Em iPhone SE / 375px o grid 2x2 ainda cabe confortável. */
+@media (max-width: 340px) {
+  .wa-mobile-card-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── Painel QR (Notificações WhatsApp) ─────────────────────────────────── */
+
+.wa-qr-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: center;
+  border: 1px solid var(--wa-green-border);
+  background:
+    linear-gradient(135deg, rgba(37, 211, 102, 0.06) 0%, rgba(37, 211, 102, 0) 45%),
+    var(--surface);
+}
+
+.wa-qr-side {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wa-qr-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--wa-green-soft);
+  color: var(--wa-green);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2px;
+}
+
+.wa-qr-title {
+  margin: 0;
+  font-size: 1.15em;
+  font-weight: var(--fw-semibold);
+  color: var(--ink);
+}
+
+.wa-qr-hint {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 0.9em;
+  line-height: 1.5;
+  max-width: 460px;
+}
+
+.wa-qr-hint em {
+  color: var(--warning, #d97706);
+  font-style: normal;
+  font-weight: var(--fw-medium);
+}
+
+.wa-qr-steps {
+  margin: 4px 0 0;
+  padding-left: 22px;
+  color: var(--ink);
+  font-size: 0.9em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 420px;
+}
+
+.wa-qr-steps li {
+  line-height: 1.4;
+}
+
+.wa-qr-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: center;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.82em;
+}
+
+.wa-qr-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--wa-green);
+  font-weight: var(--fw-medium);
+}
+
+.wa-qr-refresh-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.wa-spin {
+  animation: wa-spin 1.1s linear infinite;
+}
+
+@keyframes wa-spin {
+  to { transform: rotate(360deg); }
+}
+
+.wa-qr-visual {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wa-qr-image {
+  width: 240px;
+  height: 240px;
+  padding: 12px;
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 20px -8px rgba(0, 0, 0, 0.15);
+  display: block;
+}
+
+.wa-qr-placeholder {
+  width: 240px;
+  height: 240px;
+  border-radius: 14px;
+  border: 1px dashed var(--border);
+  background: var(--surface-2, #f3f4f6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.88em;
+}
+
+.wa-danger-action {
+  color: var(--danger, #dc2626) !important;
+}
+
+.wa-danger-action:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.06) !important;
+  border-color: rgba(220, 38, 38, 0.35) !important;
+}
+
+@media (max-width: 700px) {
+  .wa-qr-panel {
+    grid-template-columns: minmax(0, 1fr);
+    text-align: left;
+  }
+  .wa-qr-visual {
+    order: -1;
+    align-self: center;
+  }
+  .wa-qr-image,
+  .wa-qr-placeholder {
+    width: 220px;
+    height: 220px;
+  }
+}
+
+/* ── A11y: respeita reduced motion do usuário ─────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-hero-pulse,
+  .wa-live-dot,
+  .wa-spin {
+    animation: none !important;
+  }
+  .wa-hero-icon {
+    transition: none;
+  }
+}
+
+/* Focus visible para o ghost button (não é um Button do DS, então precisa
+   do próprio ring). Usa outline em vez de box-shadow pra não brigar com
+   layout. */
+.wa-ghost-button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 4px;
+  color: var(--ink);
+}
+
+.wa-empty-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0 12px;
+}
+
+.wa-empty-wrap .ds-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

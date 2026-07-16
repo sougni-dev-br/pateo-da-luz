@@ -4895,3 +4895,100 @@ export function cancelIfoodExpense(id: string, reason?: string) {
   });
 }
 
+
+// ─── Notificações WhatsApp ────────────────────────────────────────────────
+// CRUD de destinatários + status/QR/restart/test-send da conexão Baileys.
+// Backend: /notifications/whatsapp/*  (rota admin, autenticada por sessão).
+
+export type WhatsAppRecipient = {
+  id: string;
+  name: string;
+  phone: string;
+  notes: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WhatsAppStatus = {
+  status: "starting" | "waiting_qr" | "connecting" | "open" | "closed" | "logged_out";
+  sessionName: string;
+  hasQr: boolean;
+  lastError: string | null;
+  startedAt: string | null;
+};
+
+export type WhatsAppTestSendResult =
+  | { ok: true; name: string; messageId: string | null }
+  | { ok: false; name: string; error: string };
+
+export async function getWhatsAppRecipients() {
+  const res = await request<{ recipients: WhatsAppRecipient[] } | undefined>(
+    "/notifications/whatsapp/recipients"
+  );
+  // Defensivo: mock user mode ou 204 podem retornar undefined; tratar como lista vazia.
+  return res?.recipients ?? [];
+}
+
+export async function createWhatsAppRecipient(input: {
+  name: string;
+  phone: string;
+  notes?: string | null;
+  isActive?: boolean;
+}) {
+  const res = await request<{ recipient: WhatsAppRecipient }>("/notifications/whatsapp/recipients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  return res.recipient;
+}
+
+export async function updateWhatsAppRecipient(id: string, input: {
+  name?: string;
+  phone?: string;
+  notes?: string | null;
+  isActive?: boolean;
+}) {
+  const res = await request<{ recipient: WhatsAppRecipient }>(`/notifications/whatsapp/recipients/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  return res.recipient;
+}
+
+export async function deleteWhatsAppRecipient(id: string) {
+  await request<void>(`/notifications/whatsapp/recipients/${id}`, { method: "DELETE" });
+}
+
+export function getWhatsAppStatus() {
+  return request<WhatsAppStatus>("/notifications/whatsapp/status");
+}
+
+export function testWhatsAppSend(recipientId: string) {
+  return request<WhatsAppTestSendResult>("/notifications/whatsapp/test-send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recipientId })
+  });
+}
+
+// Retorna dataUrl PNG do QR se houver, null se sessão já pareada.
+// Backend retorna 404 quando não há QR ativo — convertemos em null.
+export async function getWhatsAppQr(): Promise<{ dataUrl: string; status: WhatsAppStatus } | null> {
+  try {
+    return await request<{ dataUrl: string; status: WhatsAppStatus }>("/notifications/whatsapp/qr");
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+// Desconecta a sessão WhatsApp atual e força novo QR.
+// AÇÃO DESTRUTIVA: até o próximo scan, o resumo diário falha.
+export function logoutWhatsApp() {
+  return request<{ ok: boolean; status: WhatsAppStatus }>("/notifications/whatsapp/logout", {
+    method: "POST"
+  });
+}
