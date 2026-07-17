@@ -55,12 +55,16 @@ if ($existing) {
 
 $action = New-ScheduledTaskAction -Execute $NodeExe -Argument "`"$SyncScript`"" -WorkingDirectory $AgentRoot
 
-# Dois gatilhos:
-#   1. Ao fazer logon — pega dias perdidos se a maquina ficou desligada.
-#   2. Diario as 22:00 — sincroniza o dia corrente ao fim do 2o turno,
-#      garantindo que os dados do dia estejam no ERP na mesma noite.
+# Tres gatilhos + sync.js puxa os ultimos 5 dias em cada execucao:
+#   1. Ao fazer logon — recupera dias perdidos se a maquina ficou off.
+#   2. Diario as 16:00 — meio da tarde, garante que o dia do almoco esta
+#      no ERP mesmo se algo travar depois.
+#   3. Diario as 22:00 — fim do jantar, garante o dia corrente completo.
+# Como cada execucao puxa os ultimos 5 dias e o backend deduplica, essa
+# redundancia converge o estado mesmo com falhas intermitentes.
 $triggers = @(
     (New-ScheduledTaskTrigger -AtLogOn),
+    (New-ScheduledTaskTrigger -Daily -At "16:00"),
     (New-ScheduledTaskTrigger -Daily -At "22:00")
 )
 
