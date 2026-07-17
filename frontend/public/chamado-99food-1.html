@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Chamado 99 Food — Assinatura</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 32px; color: #222; background: #fff; line-height: 1.5; font-size: 14px; }
+  h1 { text-align: center; font-size: 22px; margin-bottom: 24px; color: #111; }
+  h2 { font-size: 15px; margin: 24px 0 10px; color: #111; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+  .kv { margin: 6px 0; }
+  .kv b { display: inline-block; min-width: 220px; }
+  ul { padding-left: 24px; margin: 8px 0; }
+  li { margin: 4px 0; }
+  p { margin: 8px 0; }
+  code { background: #f2f2f2; padding: 1px 5px; border-radius: 3px; font-family: Consolas, monospace; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Dúvida — Algoritmo de assinatura (sign)</h1>
+
+<div class="kv"><b>Parceiro:</b> Pateo Frei Caneca Bar e Forneria Ltda — CNPJ 46.878.233/0001-92</div>
+<div class="kv"><b>Company/Developer ID:</b> 5764656111423719781</div>
+<div class="kv"><b>APP ID (Ambiente de teste):</b> 5764607767279568791</div>
+<div class="kv"><b>AppShopID de teste:</b> TESTE-PATEO-01 &nbsp;|&nbsp; Shop ID: 5764616440738483369</div>
+<div class="kv"><b>Contato:</b> elioenaifsilva@gmail.com &nbsp;|&nbsp; +55 11 95820-7632</div>
+
+<h2>Contexto — o que já está funcionando</h2>
+<p>Somos parceiros integrando via OpenAPI (POS). Já concluímos com sucesso, em Ambiente de teste:</p>
+<ul>
+  <li>Criação do aplicativo em developer-food.99app.com (aprovado).</li>
+  <li>Bind de estabelecimento de teste (AppShopID TESTE-PATEO-01).</li>
+  <li>Obtenção de <code>auth_token</code> via <code>GET /v1/auth/authtoken/get</code> e <code>/refresh</code>.</li>
+  <li>Upload de menu via <code>POST /v1/item/item/upload</code> (item aceito).</li>
+  <li>Simulação de pedido em Ambiente sandbox — callback POST recebido corretamente no nosso Endereço do webhook (envelope <code>type="orderNew"</code> com <code>data.order_info</code>).</li>
+</ul>
+
+<h2>1) Assinatura dos callbacks (webhook em Produção)</h2>
+<p>Nos testes de sandbox, os callbacks POST que chegam ao nosso Endereço do webhook <b>NÃO trazem nenhum campo <code>sign</code></b> — nem no envelope JSON nem em cabeçalhos HTTP. Antes de subirmos para Produção precisamos implementar a validação. Perguntas:</p>
+<ul>
+  <li>Em Produção, os callbacks são assinados?</li>
+  <li>Se sim, em que lugar a assinatura viaja? (cabeçalho HTTP tipo <code>X-Sign</code>/<code>X-Signature</code>/<code>Signature</code>/<code>Authorization</code>, ou dentro do corpo JSON?)</li>
+  <li>Qual algoritmo é usado? (MD5, HMAC-SHA256, outro?)</li>
+  <li>Quais campos entram no cálculo, em que ordem, e como são concatenados? (ex: <code>app_id + timestamp + body + app_secret</code>?)</li>
+  <li>Como o <code>timestamp</code> é serializado? (segundos unix, milissegundos, ISO 8601?)</li>
+  <li>Existe tolerância de expiração entre o timestamp e a chegada da requisição para rejeitar callbacks antigos (proteção contra replay)?</li>
+</ul>
+
+<h2>2) Parâmetro <code>sign</code> em requests POST para a API da 99</h2>
+<p>Na documentação (YAML OpenAPI), alguns endpoints exigem <code>sign</code> + <code>timestamp</code> + <code>app_id</code> no corpo da requisição. Exemplo: <code>POST /v1/shop/shop/list</code>. A descrição do campo apenas diz <i>"Signature generated as explained above"</i>, mas não encontramos a explicação nas seções do portal: Introduction / Tools Introduction / Basic Process Overview / Testing The Integration / Before Coding / FAQ.</p>
+<p>Poderiam nos indicar onde consultar a especificação exata do cálculo do <code>sign</code>? Ou, de preferência, enviar diretamente um trecho de código de exemplo (em qualquer linguagem: PHP, Python, JavaScript, Java, curl) mostrando como calcular a assinatura?</p>
+
+<h2>Encerramento</h2>
+<p>Muito obrigado pela atenção. Ficamos no aguardo. Caso seja mais prático, podemos entrar no grupo de WhatsApp / Slack de suporte técnico — basta indicarem o canal.</p>
+<p><b>Elioenai Ferreira da Silva</b> — Responsável técnico, Integração 99 Food<br>
+Pateo Frei Caneca Bar e Forneria Ltda</p>
+</body>
+</html>

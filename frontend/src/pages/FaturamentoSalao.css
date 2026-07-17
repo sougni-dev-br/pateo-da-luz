@@ -255,6 +255,14 @@
   color: var(--muted, #64748b);
 }
 
+/* Ticket medio dentro dos cards de turno: informacao de apoio, um degrau
+   abaixo do volume (mesas/pessoas) e acima do delta em neutralidade. */
+.fatsalao-card-subline {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--muted, #64748b);
+}
+
 .fatsalao-toolbar {
   display: flex;
   justify-content: space-between;

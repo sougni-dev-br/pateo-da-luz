@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Chamado 99 Food — Comissão</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 32px; color: #222; background: #fff; line-height: 1.5; font-size: 14px; }
+  h1 { text-align: center; font-size: 22px; margin-bottom: 24px; color: #111; }
+  h2 { font-size: 15px; margin: 24px 0 10px; color: #111; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+  .kv { margin: 6px 0; }
+  .kv b { display: inline-block; min-width: 240px; }
+  ul { padding-left: 24px; margin: 8px 0; }
+  li { margin: 4px 0; }
+  p { margin: 8px 0; }
+  code { background: #f2f2f2; padding: 1px 5px; border-radius: 3px; font-family: Consolas, monospace; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Dúvida — Comissão 99 Food por pedido</h1>
+
+<div class="kv"><b>Parceiro:</b> Pateo Frei Caneca Bar e Forneria Ltda — CNPJ 46.878.233/0001-92</div>
+<div class="kv"><b>Company/Developer ID:</b> 5764656111423719781</div>
+<div class="kv"><b>APP ID (Ambiente de teste):</b> 5764607767279568791</div>
+<div class="kv"><b>AppShopID de teste:</b> TESTE-PATEO-01 &nbsp;|&nbsp; Shop ID: 5764616440738483369</div>
+<div class="kv"><b>ID de pedido de referência (sandbox):</b> 5764607585197099000</div>
+<div class="kv"><b>Contato:</b> elioenaifsilva@gmail.com &nbsp;|&nbsp; +55 11 95820-7632</div>
+
+<h2>Contexto</h2>
+<p>Somos parceiros integrando via OpenAPI (POS). Recebemos os callbacks <code>orderNew</code> do sandbox com o <code>PriceModel</code> completo:</p>
+<ul>
+  <li><code>order_price</code> — preço original dos itens</li>
+  <li><code>real_price</code> — depois dos descontos do lojista</li>
+  <li><code>real_pay_price</code> — depois do cupom (o que o cliente paga)</li>
+  <li><code>delivery_price</code> — custo da entrega</li>
+  <li><code>items_discount</code>, <code>delivery_discount</code></li>
+  <li><code>others_fees</code>: <code>small_order_price</code>, <code>total_tip_money</code>, <code>service_price</code>, <code>coupon_discount</code></li>
+</ul>
+<p>Entretanto, <b>NÃO encontramos um campo que exponha explicitamente o VALOR DA COMISSÃO</b> que a 99 Food cobra sobre o pedido.</p>
+
+<h2>Dúvidas</h2>
+<ul>
+  <li>A comissão é cobrada por invoice mensal separada (fora da API), ou existe algum callback / endpoint / campo que exponha o valor real da comissão por pedido?</li>
+  <li>Existe uma <b>"API Financeira"</b> (opção que aparece no Tipo de API deste chamado) com endpoints de comissão / repasse / faturamento? Qual a documentação?</li>
+  <li>Como recomendam que o parceiro concilie o valor bruto dos pedidos com o repasse financeiro efetivo?</li>
+</ul>
+
+<h2>Como estamos calculando hoje (para referência)</h2>
+<p>No nosso ERP configuramos um percentual contratual (ex: 18%) e aplicamos sobre o <code>gross_price</code> para gerar uma <b>estimativa</b> de comissão no DRE. Gostaríamos de reconciliar com o valor real cobrado, seja por endpoint, callback ou pela invoice mensal.</p>
+
+<h2>Encerramento</h2>
+<p>Muito obrigado pela atenção.</p>
+<p><b>Elioenai Ferreira da Silva</b> — Responsável técnico, Integração 99 Food<br>
+Pateo Frei Caneca Bar e Forneria Ltda</p>
+</body>
+</html>
