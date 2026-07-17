@@ -130,6 +130,38 @@ function humanRangeLabel(dateStart: string, dateEnd: string): string {
   return `${formatDate(dateStart)} → ${formatDate(dateEnd)}`;
 }
 
+// Dias importados antes de peopleFirstShift/peopleSecondShift existirem trazem
+// null. Omitir pessoas é honesto; exibir "0 pessoas" afirmaria que o turno não
+// atendeu ninguém — resolvido para o dia ao reimportar (o agente já manda o dado).
+function formatShiftVolume(tables: number, people: number | null | undefined): string {
+  const tablesLabel = `${formatNumber(tables)} mesa${tables === 1 ? "" : "s"}`;
+  if (people == null) return tablesLabel;
+  return `${tablesLabel} · ${formatNumber(people)} pessoa${people === 1 ? "" : "s"}`;
+}
+
+// Num agregado de vários dias, basta um dia sem o dado para a soma ficar menor
+// que a realidade. Só devolve o número quando todos os dias reportaram.
+function shiftPeopleOrNull(people: number, reported: number, totalDays: number): number | null {
+  return totalDays > 0 && reported === totalDays ? people : null;
+}
+
+function renderShiftTicketLine(
+  gross: number,
+  tables: number,
+  people: number,
+  reported: number,
+  totalDays: number,
+  formatCurrency: (value: number) => string
+) {
+  if (tables <= 0) return null;
+  const perTable = `TM/mesa ${formatCurrency(gross / tables)}`;
+  const completePeople = shiftPeopleOrNull(people, reported, totalDays);
+  const perPerson = completePeople && completePeople > 0
+    ? ` · TM/pessoa ${formatCurrency(gross / completePeople)}`
+    : "";
+  return <div className="fatsalao-card-subline">{perTable}{perPerson}</div>;
+}
+
 type Totals = {
   gross: number;
   net: number;
@@ -142,6 +174,10 @@ type Totals = {
   shift2: number;
   tables1: number;
   tables2: number;
+  people1: number;
+  people2: number;
+  people1Reported: number;
+  people2Reported: number;
   shift1Service: number;
   shift2Service: number;
   pix: number;
@@ -154,7 +190,9 @@ type Totals = {
 function emptyTotals(): Totals {
   return {
     gross: 0, net: 0, service: 0, tables: 0, people: 0, peopleReported: 0, entriesCount: 0,
-    shift1: 0, shift2: 0, tables1: 0, tables2: 0, shift1Service: 0, shift2Service: 0,
+    shift1: 0, shift2: 0, tables1: 0, tables2: 0,
+    people1: 0, people2: 0, people1Reported: 0, people2Reported: 0,
+    shift1Service: 0, shift2Service: 0,
     pix: 0, credit: 0, debit: 0, cash: 0, voucher: 0
   };
 }
@@ -172,6 +210,10 @@ function computeTotals(entries: RevenueEntry[]): Totals {
     acc.shift2 += toNumber(e.salesSecondShift);
     acc.tables1 += Number(e.ticketsFirstShift ?? 0);
     acc.tables2 += Number(e.ticketsSecondShift ?? 0);
+    acc.people1 += Number(e.peopleFirstShift ?? 0);
+    acc.people2 += Number(e.peopleSecondShift ?? 0);
+    acc.people1Reported += e.peopleFirstShift != null ? 1 : 0;
+    acc.people2Reported += e.peopleSecondShift != null ? 1 : 0;
     acc.shift1Service += toNumber(e.shift1Service);
     acc.shift2Service += toNumber(e.shift2Service);
     acc.pix += toNumber(e.pixAmount);
@@ -183,21 +225,38 @@ function computeTotals(entries: RevenueEntry[]): Totals {
   }, emptyTotals());
 }
 
-// Retorna gross, tables e service ajustados pelo filtro de turno.
+// Retorna gross, tables, people e service ajustados pelo filtro de turno.
 // Se turno=all, usa totais do dia; se PRIMEIRO/SEGUNDO usa split.
+// peopleReported conta os dias que trouxeram o dado — se algum dia do range
+// for anterior à coluna peopleFirstShift/peopleSecondShift, a soma seria
+// silenciosamente menor que a realidade, então a UI omite em vez de mentir.
 function withShiftView(t: Totals, shift: ShiftFilter): {
   gross: number;
   service: number;
   tables: number;
+  people: number;
+  peopleReported: number;
   netApprox: number;
 } {
   if (shift === "PRIMEIRO") {
-    return { gross: t.shift1, service: t.shift1Service, tables: t.tables1, netApprox: t.shift1 - t.shift1Service };
+    return {
+      gross: t.shift1, service: t.shift1Service, tables: t.tables1,
+      people: t.people1, peopleReported: t.people1Reported,
+      netApprox: t.shift1 - t.shift1Service
+    };
   }
   if (shift === "SEGUNDO") {
-    return { gross: t.shift2, service: t.shift2Service, tables: t.tables2, netApprox: t.shift2 - t.shift2Service };
+    return {
+      gross: t.shift2, service: t.shift2Service, tables: t.tables2,
+      people: t.people2, peopleReported: t.people2Reported,
+      netApprox: t.shift2 - t.shift2Service
+    };
   }
-  return { gross: t.gross, service: t.service, tables: t.tables, netApprox: t.net };
+  return {
+    gross: t.gross, service: t.service, tables: t.tables,
+    people: t.people, peopleReported: t.peopleReported,
+    netApprox: t.net
+  };
 }
 
 // Aplica filtro de dias da semana. Vazio = todos. O RevenueEntry.date vem
@@ -315,8 +374,8 @@ export function FaturamentoSalao({ user: _user }: Props) {
   const previousShiftView = withShiftView(previousTotals, filter.shift);
 
   const tmPorMesa = shiftView.tables > 0 ? shiftView.gross / shiftView.tables : 0;
-  const tmPorPessoa = totals.people > 0 && filter.shift === "all" ? totals.gross / totals.people : 0;
-  const peopleDataComplete = totals.peopleReported === filteredEntries.length && filteredEntries.length > 0;
+  const peopleDataComplete = shiftView.peopleReported === filteredEntries.length && filteredEntries.length > 0;
+  const tmPorPessoa = peopleDataComplete && shiftView.people > 0 ? shiftView.gross / shiftView.people : 0;
   const yesterday = filteredEntries[filteredEntries.length - 1] ?? null;
 
   const pgtoTotal = totals.pix + totals.credit + totals.debit + totals.cash + totals.voucher;
@@ -641,23 +700,17 @@ export function FaturamentoSalao({ user: _user }: Props) {
             }
           />
           <SummaryCard
-            label="Pessoas atendidas"
-            value={
-              filter.shift !== "all"
-                ? "—"
-                : peopleDataComplete && totals.people > 0 ? formatNumber(totals.people) : "—"
-            }
+            label={filter.shift === "all" ? "Pessoas atendidas" : `Pessoas (${filter.shift === "PRIMEIRO" ? "Almoço" : "Jantar"})`}
+            value={peopleDataComplete && shiftView.people > 0 ? formatNumber(shiftView.people) : "—"}
             detail={
-              filter.shift !== "all"
-                ? "Não disponível por turno"
-                : peopleDataComplete && totals.people > 0
-                  ? (
-                    <>
-                      {`TM por pessoa ${formatCurrency(tmPorPessoa)}`}
-                      {renderDeltaLine(deltaDetail(totals.people, previousTotals.people))}
-                    </>
-                  )
-                  : "Dado disponível após próximo sync"
+              peopleDataComplete && shiftView.people > 0
+                ? (
+                  <>
+                    {`TM por pessoa ${formatCurrency(tmPorPessoa)}`}
+                    {renderDeltaLine(deltaDetail(shiftView.people, previousShiftView.people))}
+                  </>
+                )
+                : "Dado disponível após próximo sync"
             }
           />
           <SummaryCard
@@ -679,7 +732,8 @@ export function FaturamentoSalao({ user: _user }: Props) {
               value={formatCurrency(totals.shift1)}
               detail={
                 <>
-                  {`${formatNumber(totals.tables1)} mesas · ${pctText(totals.shift1, totals.gross)}`}
+                  {`${formatShiftVolume(totals.tables1, shiftPeopleOrNull(totals.people1, totals.people1Reported, filteredEntries.length))} · ${pctText(totals.shift1, totals.gross)}`}
+                  {renderShiftTicketLine(totals.shift1, totals.tables1, totals.people1, totals.people1Reported, filteredEntries.length, formatCurrency)}
                   {renderDeltaLine(deltaDetail(totals.shift1, previousTotals.shift1))}
                 </>
               }
@@ -689,7 +743,8 @@ export function FaturamentoSalao({ user: _user }: Props) {
               value={formatCurrency(totals.shift2)}
               detail={
                 <>
-                  {`${formatNumber(totals.tables2)} mesas · ${pctText(totals.shift2, totals.gross)}`}
+                  {`${formatShiftVolume(totals.tables2, shiftPeopleOrNull(totals.people2, totals.people2Reported, filteredEntries.length))} · ${pctText(totals.shift2, totals.gross)}`}
+                  {renderShiftTicketLine(totals.shift2, totals.tables2, totals.people2, totals.people2Reported, filteredEntries.length, formatCurrency)}
                   {renderDeltaLine(deltaDetail(totals.shift2, previousTotals.shift2))}
                 </>
               }
@@ -734,11 +789,11 @@ export function FaturamentoSalao({ user: _user }: Props) {
                 <th style={{ textAlign: "right" }} title="Total pago pelo cliente (com 10% de serviço)">
                   Bruto <span className="fatsalao-th-hint">(c/ serviço)</span>
                 </th>
-                <th style={{ textAlign: "right" }} title="Faturamento bruto e nº de mesas do 1º turno (Almoço)"
+                <th style={{ textAlign: "right" }} title="Faturamento bruto, nº de mesas e pessoas do 1º turno (Almoço)"
                     className="fatsalao-col-shift1">
                   Almoço <span className="fatsalao-th-hint">(1º turno)</span>
                 </th>
-                <th style={{ textAlign: "right" }} title="Faturamento bruto e nº de mesas do 2º turno (Jantar)"
+                <th style={{ textAlign: "right" }} title="Faturamento bruto, nº de mesas e pessoas do 2º turno (Jantar)"
                     className="fatsalao-col-shift2">
                   Jantar <span className="fatsalao-th-hint">(2º turno)</span>
                 </th>
@@ -766,8 +821,10 @@ export function FaturamentoSalao({ user: _user }: Props) {
                   const people = e.peopleServed;
                   const shift1Gross = toNumber(e.salesFirstShift);
                   const shift1Tables = Number(e.ticketsFirstShift ?? 0);
+                  const shift1People = e.peopleFirstShift;
                   const shift2Gross = toNumber(e.salesSecondShift);
                   const shift2Tables = Number(e.ticketsSecondShift ?? 0);
+                  const shift2People = e.peopleSecondShift;
                   const tmMesa = tables > 0 ? gross / tables : 0;
                   const tmPessoa = people && people > 0 ? gross / people : null;
                   return (
@@ -780,13 +837,13 @@ export function FaturamentoSalao({ user: _user }: Props) {
                       <td style={{ textAlign: "right" }} className="fatsalao-col-shift1">
                         <div className="fatsalao-cell-shift">
                           <Money value={shift1Gross} />
-                          <span className="fatsalao-cell-shift-sub">{formatNumber(shift1Tables)} mesa{shift1Tables === 1 ? "" : "s"}</span>
+                          <span className="fatsalao-cell-shift-sub">{formatShiftVolume(shift1Tables, shift1People)}</span>
                         </div>
                       </td>
                       <td style={{ textAlign: "right" }} className="fatsalao-col-shift2">
                         <div className="fatsalao-cell-shift">
                           <Money value={shift2Gross} />
-                          <span className="fatsalao-cell-shift-sub">{formatNumber(shift2Tables)} mesa{shift2Tables === 1 ? "" : "s"}</span>
+                          <span className="fatsalao-cell-shift-sub">{formatShiftVolume(shift2Tables, shift2People)}</span>
                         </div>
                       </td>
                       <td style={{ textAlign: "right" }}><Money value={toNumber(e.serviceAmount)} /></td>
