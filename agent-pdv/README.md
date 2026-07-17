@@ -4,10 +4,13 @@ Agente local que roda na máquina **PDVTOUCH** (onde está instalado o Agile PDV
 
 ## Como funciona
 
-A Tarefa Agendada `PateoAgentSync` dispara em **dois momentos**:
+A Tarefa Agendada `PateoAgentSync` dispara em **três momentos**:
 
-1. **Diariamente às 22:00** — sincroniza o dia corrente ao fim do 2º turno, garantindo que o faturamento do dia esteja no ERP na mesma noite.
-2. **Ao fazer logon** — pega dias que ficaram para trás quando a máquina esteve desligada.
+1. **Ao fazer logon** — recupera dias que ficaram para trás quando a máquina esteve desligada.
+2. **Diariamente às 16:00** — meio da tarde, garante que o dia do almoço já esteja no ERP.
+3. **Diariamente às 22:00** — fim do jantar, garante o dia corrente completo.
+
+Cada execução sincroniza os **últimos 5 dias** (não só D-1). O backend é idempotente (deduplica automaticamente), então rodar múltiplas vezes é seguro e faz o sistema convergir mesmo com falhas intermitentes.
 
 Em ambos os casos o agente:
 
