@@ -19,9 +19,12 @@ import { sendWhatsAppText } from "./whatsapp.service.js";
 // (2) IDEMPOTÊNCIA: cada (date, recipientId) só recebe UM envio bem-sucedido
 //     por dia. Registro em DailySummarySent. Se o cron dispara 2x no mesmo
 //     dia, o 2º pula quem já foi enviado.
-// (3) O 3º disparo redundante do cron externo (23:00 + 23:15) mora fora
+// (3) O 3º disparo redundante do cron externo (22:00 + 22:15) mora fora
 //     do código — é configuração do cron-job.org.
-const MAX_WAIT_MS = 60_000;
+//
+// MAX_WAIT_MS calibrado para caber no timeout do cron-job.org tier free
+// (30s). Deixa ~5-8s de folga para build de summary + envio + rede.
+const MAX_WAIT_MS = 20_000;
 const POLL_INTERVAL_MS = 3_000;
 
 async function waitForBaileysOpen(): Promise<{ ok: true } | { ok: false; status: string; waitedMs: number }> {
