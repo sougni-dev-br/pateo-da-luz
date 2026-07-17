@@ -115,8 +115,10 @@ type DayEntryPayload = {
   peopleServed: number;
   salesFirstShift: number;
   ticketsFirstShift: number;
+  peopleFirstShift: number;
   salesSecondShift: number;
   ticketsSecondShift: number;
+  peopleSecondShift: number;
   cashAmount: number;
   pixAmount: number;
   debitAmount: number;
@@ -139,8 +141,10 @@ function calcularDia(agg: DayAggregate): DayEntryPayload {
   let peopleServed = 0;
   let salesFirstShift = 0;
   let ticketsFirstShift = 0;
+  let peopleFirstShift = 0;
   let salesSecondShift = 0;
   let ticketsSecondShift = 0;
+  let peopleSecondShift = 0;
   let shift1Service = 0;
   let shift2Service = 0;
 
@@ -148,15 +152,18 @@ function calcularDia(agg: DayAggregate): DayEntryPayload {
     grossAmount += venda.vl_total;
     serviceAmount += venda.vl_servico_inf;
     discounts += venda.vl_desconto;
-    peopleServed += Number(venda.qtd_pessoas ?? 0);
+    const pessoas = Number(venda.qtd_pessoas ?? 0);
+    peopleServed += pessoas;
     const turno = normalizarTurno(venda.turno);
     if (turno === "PRIMEIRO") {
       salesFirstShift += venda.vl_total;
       ticketsFirstShift += 1;
+      peopleFirstShift += pessoas;
       shift1Service += venda.vl_servico_inf;
     } else if (turno === "SEGUNDO") {
       salesSecondShift += venda.vl_total;
       ticketsSecondShift += 1;
+      peopleSecondShift += pessoas;
       shift2Service += venda.vl_servico_inf;
     }
   }
@@ -217,8 +224,10 @@ function calcularDia(agg: DayAggregate): DayEntryPayload {
     peopleServed,
     salesFirstShift: round2(salesFirstShift),
     ticketsFirstShift,
+    peopleFirstShift,
     salesSecondShift: round2(salesSecondShift),
     ticketsSecondShift,
+    peopleSecondShift,
     cashAmount: round2(cashAmount),
     pixAmount: round2(pixAmount),
     debitAmount: round2(debitAmount),
@@ -311,8 +320,10 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
             "peopleServed" = ${dia.peopleServed},
             "salesFirstShift" = ${dia.salesFirstShift},
             "ticketsFirstShift" = ${dia.ticketsFirstShift},
+            "peopleFirstShift" = ${dia.peopleFirstShift},
             "salesSecondShift" = ${dia.salesSecondShift},
             "ticketsSecondShift" = ${dia.ticketsSecondShift},
+            "peopleSecondShift" = ${dia.peopleSecondShift},
             "cashAmount" = ${dia.cashAmount},
             "pixAmount" = ${dia.pixAmount},
             "debitAmount" = ${dia.debitAmount},
@@ -339,7 +350,8 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
             "channel", "sourcePlatform", "description",
             "grossAmount", "discounts", "platformFees", "netAmount", "serviceAmount",
             "tickets", "ticketAverage", "peopleServed",
-            "salesFirstShift", "ticketsFirstShift", "salesSecondShift", "ticketsSecondShift",
+            "salesFirstShift", "ticketsFirstShift", "peopleFirstShift",
+            "salesSecondShift", "ticketsSecondShift", "peopleSecondShift",
             "repiqueAmount", "salesTables", "ticketsTables",
             "weekdayName", "paymentMethod",
             "cashAmount", "pixAmount", "debitAmount", "creditAmount", "voucherAmount",
@@ -351,7 +363,8 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
             ${CHANNEL}, ${SOURCE_PLATFORM}, ${`Agile PDV - ${dia.weekdayName ?? ""}`.trim()},
             ${dia.grossAmount}, ${dia.discounts}, 0, ${dia.netAmount}, ${dia.serviceAmount},
             ${dia.tickets}, ${dia.ticketAverage}, ${dia.peopleServed},
-            ${dia.salesFirstShift}, ${dia.ticketsFirstShift}, ${dia.salesSecondShift}, ${dia.ticketsSecondShift},
+            ${dia.salesFirstShift}, ${dia.ticketsFirstShift}, ${dia.peopleFirstShift},
+            ${dia.salesSecondShift}, ${dia.ticketsSecondShift}, ${dia.peopleSecondShift},
             0, 0, 0,
             ${dia.weekdayName}, NULL,
             ${dia.cashAmount}, ${dia.pixAmount}, ${dia.debitAmount}, ${dia.creditAmount}, ${dia.voucherAmount},

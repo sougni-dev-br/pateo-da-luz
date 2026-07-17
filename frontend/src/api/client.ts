@@ -529,8 +529,10 @@ export type RevenueEntry = {
   repiqueAmount?: string | number;
   salesFirstShift?: string | number;
   ticketsFirstShift?: number;
+  peopleFirstShift?: number | null;
   salesSecondShift?: string | number;
   ticketsSecondShift?: number;
+  peopleSecondShift?: number | null;
   salesTables?: string | number;
   ticketsTables?: number;
   accumulatedAmount?: string | number | null;
