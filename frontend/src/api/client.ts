@@ -1293,7 +1293,7 @@ export type Payable = {
   paidPaymentMethodId?: string | null;
   paidPaymentMethodName?: string | null;
   paymentNotes?: string | null;
-  sourceType?: "DIRECT" | "CARD_STATEMENT" | "LEGACY_CREDIT_CARD" | "SUPPLIER_CYCLE" | "TAX_PAYMENT" | string | null;
+  sourceType?: "DIRECT" | "CARD_STATEMENT" | "LEGACY_CREDIT_CARD" | "SUPPLIER_CYCLE" | "TAX_PAYMENT" | "PAYROLL" | string | null;
   status: "OPEN" | "PAID" | "PAID_LATE" | "OVERDUE" | "CANCELLED" | string;
   rawValue: string | null;
   supplierId: string | null;
@@ -4992,5 +4992,391 @@ export async function getWhatsAppQr(): Promise<{ dataUrl: string; status: WhatsA
 export function logoutWhatsApp() {
   return request<{ ok: boolean; status: WhatsAppStatus }>("/notifications/whatsapp/logout", {
     method: "POST"
+  });
+}
+
+// ─── Folha de Pagamento — Funcionários ─────────────────────────────────────────
+export type EmployeeModality = "CLT" | "NAO_CLT";
+export type WorkScheduleRegime = "SEIS_POR_UM" | "CINCO_POR_DOIS";
+export type VtType = "NENHUM" | "TRANSPORTE_PUBLICO" | "AUXILIO_COMBUSTIVEL";
+export type VtPeriodicity = "QUINZENAL" | "MENSAL";
+export type VtCommute = "ONIBUS" | "METRO" | "INTEGRADO" | "ONIBUS_METRO_SEPARADO" | "BILHETE_MENSAL_ONIBUS" | "BILHETE_MENSAL_INTEGRADO";
+export type EmployeeBankAccountType = "CONTA_CORRENTE" | "POUPANCA" | "CAIXA" | "CARTEIRA" | "CARTAO" | "OUTROS";
+
+export type Employee = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  cpf: string;
+  rg: string | null;
+  pis: string | null;
+  birthDate: string | null;
+  phone: string | null;
+  email: string | null;
+  zipCode: string | null;
+  address: string | null;
+  addressNumber: string | null;
+  addressComplement: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+  bankName: string | null;
+  bankAgency: string | null;
+  bankAccount: string | null;
+  bankAccountDigit: string | null;
+  bankAccountType: EmployeeBankAccountType;
+  pixKeyType: string | null;
+  pixKey: string | null;
+  sector: string | null;
+  position: string | null;
+  baseSalary: string | null;
+  shiftStart: string | null;
+  shiftEnd: string | null;
+  modality: EmployeeModality;
+  scheduleRegime: WorkScheduleRegime;
+  includeInSchedule: boolean;
+  admissionDate: string | null;
+  vtType: VtType;
+  vtPeriodicity: VtPeriodicity;
+  vtCommute: VtCommute | null;
+  vtTripsPerDay: number | null;
+  vtFixedAmount: string | null;
+  terminationDate: string | null;
+  terminationReason: string | null;
+  isActive: boolean;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EmployeeBirthday = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  birthDate: string;
+  sector: string | null;
+  position: string | null;
+};
+
+export type EmployeePayload = {
+  id?: string;
+  firstName: string;
+  lastName: string;
+  cpf: string;
+  rg?: string;
+  pis?: string;
+  birthDate?: string;
+  phone?: string;
+  email?: string;
+  zipCode?: string;
+  address?: string;
+  addressNumber?: string;
+  addressComplement?: string;
+  neighborhood?: string;
+  city?: string;
+  state?: string;
+  bankName?: string;
+  bankAgency?: string;
+  bankAccount?: string;
+  bankAccountDigit?: string;
+  bankAccountType?: EmployeeBankAccountType;
+  pixKeyType?: string;
+  pixKey?: string;
+  sector?: string;
+  position?: string;
+  baseSalary?: string | number;
+  shiftStart?: string;
+  shiftEnd?: string;
+  modality?: EmployeeModality;
+  scheduleRegime?: WorkScheduleRegime;
+  includeInSchedule?: boolean;
+  admissionDate?: string;
+  vtType?: VtType;
+  vtPeriodicity?: VtPeriodicity;
+  vtCommute?: VtCommute | "";
+  vtTripsPerDay?: string | number;
+  vtFixedAmount?: string | number;
+  notes?: string;
+};
+
+export function getEmployees(params: { search?: string; sector?: string; includeInactive?: boolean } = {}) {
+  return request<Employee[]>(`/employees${toQueryString(params)}`);
+}
+
+export function getEmployee(id: string) {
+  return request<Employee>(`/employees/${id}`);
+}
+
+export function getEmployeeBirthdays(month?: number) {
+  return request<EmployeeBirthday[]>(`/employees/birthdays${month ? `?month=${month}` : ""}`);
+}
+
+export function getEmployeeOptions() {
+  return request<{ sectors: string[]; positions: string[] }>("/employees/options");
+}
+
+// ─── Escala mensal ──────────────────────────────────────────────────────────────
+export type ScheduleDayType = "FOLGA" | "TURNO" | "FERIAS" | "FALTA" | "ATESTADO";
+export type ScheduleDayMeta = { day: number; dow: number; isSunday: boolean; isHoliday: boolean; holidayName: string | null };
+export type ScheduleEmployee = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  sector: string | null;
+  position: string | null;
+  shiftStart: string | null;
+  shiftEnd: string | null;
+  scheduleRegime: WorkScheduleRegime;
+  admissionDate: string | null;
+  terminationDate: string | null;
+  holidayCompBalance: number;
+};
+export type ScheduleEntry = { employeeId: string; day: number; type: ScheduleDayType };
+export type ScheduleVacationDay = { employeeId: string; day: number };
+export type ScheduleData = {
+  year: number;
+  month: number;
+  daysInMonth: number;
+  days: ScheduleDayMeta[];
+  employees: ScheduleEmployee[];
+  entries: ScheduleEntry[];
+  vacationDays: ScheduleVacationDay[];
+};
+
+export function getSchedule(year: number, month: number) {
+  return request<ScheduleData>(`/schedule?year=${year}&month=${month}`);
+}
+
+export function saveScheduleBulk(year: number, month: number, entries: ScheduleEntry[]) {
+  return request<{ ok: boolean; year: number; month: number; count: number }>("/schedule/bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ year, month, entries })
+  });
+}
+
+// ─── Folha de Pagamento ─────────────────────────────────────────────────────────
+export type PayrollItemType = "ADIANTAMENTO" | "SALARIO" | "VALE_TRANSPORTE" | "RESCISAO" | "FERIAS";
+export type PayrollItemStatus = "PENDING" | "PAID" | "OVERDUE" | "CANCELED";
+
+export type PayrollSettings = {
+  id: string;
+  busFare: string;
+  metroFare: string;
+  integratedFare: string;
+  monthlyPassBus: string;
+  monthlyPassIntegrated: string;
+  advancePercent: string;
+  advanceDueDay: number;
+  salaryDueDay: number;
+  bufferDays: number;
+};
+
+export type PayrollComputedItem = {
+  employeeId: string;
+  employeeName: string;
+  sector: string | null;
+  type: PayrollItemType;
+  periodLabel: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  dueDate: string;
+  amount: number;
+  workedDays: number | null;
+  freeDays: number | null;
+  bufferAmount: number | null;
+  creditApplied: number | null;
+  dreCategoryName: string | null;
+  details: Record<string, unknown> | null;
+  exists: boolean;
+};
+
+export type PayrollPreview = {
+  year: number;
+  month: number;
+  settings: PayrollSettings;
+  items: PayrollComputedItem[];
+  warnings?: string[];
+};
+
+export type PayrollListItem = {
+  id: string;
+  employeeName: string;
+  sector: string | null;
+  type: PayrollItemType;
+  periodLabel: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  dueDate: string;
+  amount: string;
+  workedDays: number | null;
+  freeDays: number | null;
+  bufferAmount: string | null;
+  creditApplied: string | null;
+  paymentDate: string | null;
+  paidAmount: string | null;
+  status: PayrollItemStatus;
+  dreCategoryId: string | null;
+};
+
+export type PayrollList = {
+  year: number;
+  month: number;
+  items: PayrollListItem[];
+  summary: {
+    total: number; vt: number; advance: number; salary: number; ferias: number;
+    paid: number; pending: number; overdue: number; count: number;
+  };
+};
+
+export function getPayrollSettings() {
+  return request<PayrollSettings>("/payroll/settings");
+}
+
+export function savePayrollSettings(payload: Partial<PayrollSettings>) {
+  return request<PayrollSettings>("/payroll/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function getPayroll(year: number, month: number) {
+  return request<PayrollList>(`/payroll?year=${year}&month=${month}`);
+}
+
+export function previewPayroll(year: number, month: number) {
+  return request<PayrollPreview>("/payroll/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ year, month })
+  });
+}
+
+export function generatePayroll(year: number, month: number) {
+  return request<{ year: number; month: number; created: number; skipped: number }>("/payroll/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ year, month })
+  });
+}
+
+export function payPayrollItem(id: string, payload: {
+  paymentDate: string;
+  paidAmount: number;
+  paidPaymentMethodId?: string | null;
+  paidPaymentMethodName?: string | null;
+  paymentNotes?: string | null;
+  differenceReason?: string | null;
+  payingCompanyId?: string | null;
+  companyBankAccountId?: string | null;
+}) {
+  return request<{ id: string; status: string }>(`/payroll/${id}/pay`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function reversePayrollItem(id: string) {
+  return request<{ id: string; status: string }>(`/payroll/${id}/reverse`, { method: "PATCH" });
+}
+
+export function deletePayrollItem(id: string, reason: string) {
+  return request<{ ok: boolean }>(`/payroll/${id}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason })
+  });
+}
+
+export function editPayrollItem(id: string, payload: { amount: number; dueDate: string; startDate?: string; endDate?: string; notes?: string }) {
+  return request<{ id: string; status: string }>(`/payroll/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function restorePayrollItem(id: string) {
+  return request<{ id: string; status: string }>(`/payroll/${id}/restore`, { method: "PATCH" });
+}
+
+export type TerminationInfo = {
+  employee: { id: string; name: string; terminationDate: string | null; terminationReason: string | null };
+  vtCreditBalance: number;
+  vtItems: Array<{ id: string; periodLabel: string; competenceYear: number; competenceMonth: number; amount: string; status: string; dueDate: string }>;
+  alreadyReleased: boolean;
+  rescisaoId: string | null;
+};
+
+export function getTerminationInfo(employeeId: string) {
+  return request<TerminationInfo>(`/payroll/termination/${employeeId}`);
+}
+
+export function releaseTermination(employeeId: string, payload: { grossAmount: number; vtDiscount: number; otherDiscount?: number; otherDiscountLabel?: string; dueDate?: string; installments?: number; notes?: string }) {
+  return request<{ id: string; amount: number; installments: number; items: Array<{ id: string; amount: number; dueDate: string; installmentNumber: number }> }>(`/payroll/termination/${employeeId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function releaseVacation(payload: { employeeId: string; startDate: string; endDate: string; amount: number; dueDate?: string; notes?: string }) {
+  return request<{ id: string; amount: number }>("/payroll/vacation", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function saveEmployee(payload: EmployeePayload) {
+  if (payload.id) {
+    return request<Employee>(`/employees/${payload.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  }
+  return request<Employee>("/employees", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function setEmployeeStatus(id: string, isActive: boolean) {
+  return request<Employee>(`/employees/${id}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isActive })
+  });
+}
+
+export function terminateEmployee(id: string, terminationDate: string, terminationReason?: string) {
+  return request<Employee>(`/employees/${id}/terminate`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ terminationDate, terminationReason })
+  });
+}
+
+export function deleteEmployee(id: string, reason: string) {
+  return request<{ ok: boolean }>(`/employees/${id}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason })
+  });
+}
+
+export function restoreEmployee(id: string) {
+  return request<{ id: string; isActive: boolean }>(`/employees/${id}/restore`, { method: "PATCH" });
+}
+
+export function adjustHolidayComp(id: string, delta: number) {
+  return request<{ id: string; holidayCompBalance: number }>(`/employees/${id}/holiday-comp`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ delta })
   });
 }

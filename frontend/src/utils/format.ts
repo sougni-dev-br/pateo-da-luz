@@ -23,6 +23,23 @@ export function formatCurrencyString(value: string | number | null | undefined) 
   }).format(Number.isFinite(amount) ? amount : 0);
 }
 
+/**
+ * Máscara de moeda para inputs: os dígitos preenchem os centavos da direita.
+ * @example maskMoney("150000") → "1.500,00"
+ */
+export function maskMoney(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+  return (parseInt(digits, 10) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Número/string numérica → string mascarada "5.000,00" (para pré-preencher). */
+export function moneyToMasked(v: string | number | null | undefined): string {
+  if (v == null || v === "") return "";
+  const n = Number(v);
+  return isNaN(n) ? "" : n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export function formatDate(value: string | null | undefined) {
   if (!value) return "-";
 
