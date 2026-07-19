@@ -3,6 +3,7 @@ import {
   BarChart3,
   Building2,
   Calculator,
+  CalendarDays,
   ChefHat,
   ClipboardCheck,
   ClipboardList,
@@ -20,6 +21,7 @@ import {
   ScrollText,
   Shield,
   Truck,
+  Users as UsersIcon,
   WalletCards,
   Warehouse,
   X
@@ -43,6 +45,7 @@ import {
 } from "./design-system";
 import type { SidebarSectionGroup } from "./design-system";
 import { isMockUserMode, MOCK_USER } from "./lib/mockUser";
+import { NavigationGuardContext, type NavGuardFn } from "./lib/navigationGuard";
 import { canAccessModule, hasPermission as userHasPermission } from "./lib/permissions";
 import { ForcedPasswordChange } from "./pages/ForcedPasswordChange";
 import type { ImportTab } from "./pages/ImportsHub";
@@ -76,6 +79,9 @@ const Receivables = lazy(() => import("./pages/Receivables").then((module) => ({
 const IfoodExpenses = lazy(() => import("./pages/IfoodExpenses").then((module) => ({ default: module.IfoodExpenses })));
 const Suppliers = lazy(() => import("./pages/Suppliers").then((module) => ({ default: module.Suppliers })));
 const Companies = lazy(() => import("./pages/Companies").then((module) => ({ default: module.Companies })));
+const Funcionarios = lazy(() => import("./pages/Funcionarios").then((module) => ({ default: module.Funcionarios })));
+const Escala = lazy(() => import("./pages/Escala").then((module) => ({ default: module.Escala })));
+const Folha = lazy(() => import("./pages/Folha").then((module) => ({ default: module.Folha })));
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
 const Users = lazy(() => import("./pages/Users").then((module) => ({ default: module.Users })));
 const Dishes = lazy(() => import("./pages/Dishes").then((module) => ({ default: module.Dishes })));
@@ -135,6 +141,9 @@ const sections = [
   { id: "supplier-cycles", label: "Ciclos de fornecedor", icon: RefreshCw, showInSidebar: true, group: "Financeiro", path: "/financeiro/ciclos-fornecedor", matchers: ["/financeiro/ciclos-fornecedor"], description: "Agrupa compras por fornecedor para pagamento consolidado" },
   { id: "suppliers", label: "Fornecedores", icon: Truck, showInSidebar: true, group: "Cadastros", path: "/cadastros/fornecedores", matchers: ["/cadastros/fornecedores"], description: "Cadastro utilizado em compras, pagamentos e relatórios financeiros" },
   { id: "companies", label: "Empresas", icon: Building2, showInSidebar: true, group: "Cadastros", path: "/cadastros/empresas", matchers: ["/cadastros/empresas"] },
+  { id: "employees", label: "Funcionários", icon: UsersIcon, showInSidebar: true, group: "Pessoal", path: "/pessoal/funcionarios", matchers: ["/pessoal/funcionarios"], description: "Cadastro de funcionários — base para escala, VT e folha de pagamento" },
+  { id: "schedule", label: "Escala", icon: CalendarDays, showInSidebar: true, group: "Pessoal", path: "/pessoal/escala", matchers: ["/pessoal/escala"], description: "Escala mensal de folgas (6×1 / 5×2) — domingos e feriados destacados; base para o cálculo do VT" },
+  { id: "payroll", label: "Folha de Pagamento", icon: WalletCards, showInSidebar: true, group: "Pessoal", path: "/pessoal/folha", matchers: ["/pessoal/folha"], description: "Geração e controle de VT (por tarifa e escala), adiantamento e salário" },
   { id: "import", label: "Importações", icon: FileSpreadsheet, showInSidebar: true, group: "Dados", path: "/dados/importacoes", matchers: ["/dados/importacoes"] },
   { id: "catalog-imports", label: "Importar cadastros", icon: Database, showInSidebar: false, group: "Dados", path: "/dados/importacoes/cadastros", matchers: ["/dados/importacoes/cadastros"] },
   { id: "payment-methods", label: "Pagamentos", icon: CreditCard, showInSidebar: true, group: "Configurações", path: "/configuracoes/pagamentos", matchers: ["/configuracoes/pagamentos"] },
@@ -229,6 +238,10 @@ export function App() {
     canAccessSection: (sectionId: string) => user ? sectionAllowedForUser(sectionId as SectionId, user) : false,
     hasPermission: (moduleId: string, action: PermissionAction) => userHasPermission(user, moduleId, action)
   }), [hideSensitiveValues, user]);
+
+  // Guard global de navegação: páginas com edições não salvas (ex.: Escala)
+  // registram um confirm aqui, e handleNavigate o consulta antes de sair.
+  const navGuardRef = useRef<NavGuardFn | null>(null);
 
   const visibleSections = user
     ? sections.filter((section) => section.showInSidebar && sectionAllowedForUser(section.id, user))
@@ -327,6 +340,8 @@ export function App() {
   function handleNavigate(sectionId: SectionId) {
     const section = sections.find((entry) => entry.id === sectionId);
     if (!section) return;
+    // Blindagem: se a página atual tem edições não salvas, confirma antes de sair.
+    if (sectionId !== effectiveSection.id && navGuardRef.current && !navGuardRef.current()) return;
     setMobileMenuOpen(false);
     navigate(section.path);
     scrollToPageTop();
@@ -512,6 +527,7 @@ export function App() {
   );
 
   return (
+    <NavigationGuardContext.Provider value={navGuardRef}>
     <SessionContext.Provider value={sessionContextValue}>
       <HideValuesProvider>
         <MockUserBadge />
@@ -601,6 +617,9 @@ export function App() {
               <Route path="/estoque/produtos" element={<Products />} />
               <Route path="/cadastros/fornecedores" element={<Suppliers onOpenPurchases={() => handleNavigate("purchases")} />} />
               <Route path="/cadastros/empresas" element={<Companies />} />
+              <Route path="/pessoal/funcionarios" element={<Funcionarios />} />
+              <Route path="/pessoal/escala" element={<Escala />} />
+              <Route path="/pessoal/folha" element={<Folha />} />
               <Route path="/configuracoes/pagamentos" element={<PaymentMethods />} />
               <Route path="/configuracoes/cadastros-base" element={<MasterData />} />
               <Route path="/configuracoes/usuarios" element={<Users />} />
@@ -613,5 +632,6 @@ export function App() {
         </AppShell>
       </HideValuesProvider>
     </SessionContext.Provider>
+    </NavigationGuardContext.Provider>
   );
 }

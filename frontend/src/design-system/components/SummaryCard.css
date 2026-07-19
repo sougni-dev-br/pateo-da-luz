@@ -41,6 +41,21 @@
   line-height: var(--lh-snug);
 }
 
+/* ── Variante compacta ── */
+.ds-summary-card-compact {
+  min-height: 0;
+  padding: var(--space-4);
+  gap: 10px;
+}
+.ds-summary-card-compact .ds-summary-card-value {
+  font-size: var(--fs-lg);
+}
+.ds-summary-card-compact .ds-summary-card-chip {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+}
+
 .ds-summary-card-chip {
   flex: 0 0 38px;
   width: 38px;

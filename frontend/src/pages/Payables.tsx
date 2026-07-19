@@ -4,8 +4,8 @@ import {
   AppUser, AuditLog, Company, CompanyBankAccount,
   downloadPayablesFinancialPdf, getAllBankAccounts, getCompanies,
   getPayableHistory, getPayables, getPaymentMethods, getPurchase,
-  getTaxPaymentHistory, getSuppliers, payInstallment, payTaxPayment,
-  Payable, PaymentMethod, PurchaseDetail, reverseInstallment, reverseTaxPayment, Supplier
+  getTaxPaymentHistory, getSuppliers, payInstallment, payPayrollItem, payTaxPayment,
+  Payable, PaymentMethod, PurchaseDetail, reverseInstallment, reversePayrollItem, reverseTaxPayment, Supplier
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import {
@@ -41,6 +41,17 @@ const statusTones: Record<string, StatusTone> = {
 
 function isTaxPayment(p: Payable) {
   return p.sourceType === "TAX_PAYMENT";
+}
+
+function isPayroll(p: Payable) {
+  return p.sourceType === "PAYROLL";
+}
+
+// Títulos "simples" (imposto e folha): baixa com data + valor, sem forma de
+// pagamento / empresa / diferença. A query de payables preenche os campos tax*
+// para folha (tipo, funcionário, competência), então a UI é reaproveitada.
+function isSimpleLedger(p: Payable) {
+  return isTaxPayment(p) || isPayroll(p);
 }
 
 function dateKey(value?: string | null) {
@@ -322,6 +333,11 @@ export function Payables({ user }: PayablesProps) {
         setSelectedPayable(payable);
         setDetail(null);
         setHistoryRows(audits);
+      } else if (isPayroll(payable)) {
+        const audits = await getPayableHistory(payable.id);
+        setSelectedPayable(payable);
+        setDetail(null);
+        setHistoryRows(audits);
       } else {
         const [purchase, audits] = await Promise.all([getPurchase(payable.purchaseId!), getPayableHistory(payable.id)]);
         setSelectedPayable(payable);
@@ -412,6 +428,7 @@ export function Payables({ user }: PayablesProps) {
           comments: paymentForm.paymentNotes || null
         });
       } else {
+        // Folha e compras compartilham o mesmo fluxo: forma obrigatória + justificativa de diferença.
         if (!paymentForm.paidPaymentMethod) {
           setNotice({ tone: "error", message: "Forma de pagamento é obrigatória." });
           return;
@@ -422,15 +439,18 @@ export function Payables({ user }: PayablesProps) {
           setNotice({ tone: "error", message: "Informe a justificativa para desconto ou juros/acréscimo." });
           return;
         }
-        await payInstallment(paying.id, {
-          paidDate: paymentForm.paidDate,
-          paidAmount,
+        const commonPayload = {
           ...selectedPaymentPayload(),
           paymentNotes: paymentForm.paymentNotes || null,
           differenceReason: paymentForm.differenceReason || null,
           payingCompanyId: paymentForm.payingCompanyId || null,
           companyBankAccountId: paymentForm.companyBankAccountId || null
-        });
+        };
+        if (isPayroll(paying)) {
+          await payPayrollItem(paying.id, { paymentDate: paymentForm.paidDate, paidAmount, ...commonPayload });
+        } else {
+          await payInstallment(paying.id, { paidDate: paymentForm.paidDate, paidAmount, ...commonPayload });
+        }
       }
       setNotice({ tone: "success", message: "Baixa registrada com sucesso." });
       setPaying(null);
@@ -452,6 +472,8 @@ export function Payables({ user }: PayablesProps) {
     try {
       if (isTaxPayment(reversing)) {
         await reverseTaxPayment(reversing.id, reason);
+      } else if (isPayroll(reversing)) {
+        await reversePayrollItem(reversing.id);
       } else {
         await reverseInstallment(reversing.id, reason);
       }
@@ -620,7 +642,8 @@ export function Payables({ user }: PayablesProps) {
                 { value: "DIRECT", label: "Título normal" },
                 { value: "CARD_STATEMENT", label: "Fatura cartão" },
                 { value: "LEGACY_CREDIT_CARD", label: "Cartão legado" },
-                { value: "SUPPLIER_CYCLE", label: "Ciclo fornecedor" }
+                { value: "SUPPLIER_CYCLE", label: "Ciclo fornecedor" },
+                { value: "PAYROLL", label: "Folha de pagamento" }
               ]}
             />
           )}
@@ -733,6 +756,9 @@ export function Payables({ user }: PayablesProps) {
                       {payable.sourceType === "SUPPLIER_CYCLE" && (
                         <span className="source-badge source-supplier-cycle">Ciclo fornecedor</span>
                       )}
+                      {payable.sourceType === "PAYROLL" && (
+                        <span className="source-badge source-payroll">Folha</span>
+                      )}
                     </>
                   )}
                   {(payable.paymentNotes ?? payable.notes) && (
@@ -789,10 +815,10 @@ export function Payables({ user }: PayablesProps) {
             {/* Contexto do título */}
             <div className="pay-ctx">
               <div className="pay-ctx-row">
-                {isTaxPayment(paying) ? (
+                {isSimpleLedger(paying) ? (
                   <>
                     <div><span>Tipo</span><strong>{paying.taxDocumentType ?? paying.supplierName}</strong></div>
-                    {paying.taxCompanyName && <div><span>Empresa</span><strong>{paying.taxCompanyName}</strong></div>}
+                    {paying.taxCompanyName && <div><span>{isPayroll(paying) ? "Funcionário" : "Empresa"}</span><strong>{paying.taxCompanyName}</strong></div>}
                     {paying.taxDescription && <div><span>Descrição</span><strong>{paying.taxDescription}</strong></div>}
                     {paying.taxCompetenceDate && <div><span>Competência</span><strong>{formatDate(paying.taxCompetenceDate)}</strong></div>}
                   </>
@@ -860,7 +886,7 @@ export function Payables({ user }: PayablesProps) {
               )}
             </div>
 
-            {/* Resumo de diferença — apenas para compras */}
+            {/* Resumo de diferença — compras e folha */}
             {!isTaxPayment(paying) && paymentPaidAmount > 0 && (
               <div className="pay-diff">
                 {Math.abs(paymentDifference) <= 0.009 ? (
@@ -873,7 +899,7 @@ export function Payables({ user }: PayablesProps) {
               </div>
             )}
 
-            {/* Justificativa da diferença — apenas para compras */}
+            {/* Justificativa da diferença — compras e folha */}
             {!isTaxPayment(paying) && Math.abs(paymentDifference) > 0.009 && (
               <label className="pay-diff-reason">
                 Justificativa da diferença *
@@ -887,7 +913,7 @@ export function Payables({ user }: PayablesProps) {
 
             {/* Frase de confirmação */}
             <p className="pay-confirm-phrase">
-              {isTaxPayment(paying) ? (
+              {isSimpleLedger(paying) ? (
                 <>Você está baixando <strong>{paying.taxDocumentType ?? paying.supplierName}</strong> no valor de{" "}<strong><Money value={paymentPaidAmount > 0 ? paymentPaidAmount : paymentOriginalAmount} /></strong>.</>
               ) : (
                 <>
@@ -913,13 +939,13 @@ export function Payables({ user }: PayablesProps) {
         </div>
       )}
 
-      {/* ── Modal: Ver imposto ───────────────────────────────────── */}
-      {!detail && selectedPayable && isTaxPayment(selectedPayable) && (
+      {/* ── Modal: Ver imposto / folha ───────────────────────────── */}
+      {!detail && selectedPayable && isSimpleLedger(selectedPayable) && (
         <div className="modal-backdrop">
           <section className="panel modal-panel wide-modal">
             <div className="section-heading">
               <div>
-                <p>Imposto / Guia</p>
+                <p>{isPayroll(selectedPayable) ? "Folha de pagamento" : "Imposto / Guia"}</p>
                 <h2>{selectedPayable.taxDocumentType ?? selectedPayable.supplierName}</h2>
               </div>
               <button className="secondary-button" type="button"
@@ -943,7 +969,7 @@ export function Payables({ user }: PayablesProps) {
                   </p>
                 </div>
                 <div>
-                  <h3>Empresa</h3>
+                  <h3>{isPayroll(selectedPayable) ? "Funcionário" : "Empresa"}</h3>
                   {selectedPayable.taxCompanyName && <p>Nome: <strong>{selectedPayable.taxCompanyName}</strong></p>}
                   {selectedPayable.taxCnpj && <p>CNPJ: <strong>{selectedPayable.taxCnpj}</strong></p>}
                 </div>

@@ -1,6 +1,7 @@
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { AuditLog, AuditLogsResponse, getAuditLogs } from "../api/client";
+import { AuditLog, AuditLogsResponse, getAuditLogs, restoreEmployee, restorePayrollItem } from "../api/client";
+import { Notice, useNotice } from "../components/Notice";
 import { PeriodFilter } from "../components/PeriodFilter";
 import {
   Button,
@@ -11,8 +12,15 @@ import {
   Table,
   TextField
 } from "../design-system";
+import { labelAction, extractReason } from "../utils/auditLabels";
 import { formatDate } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
+
+// Ações de exclusão que podem ser desfeitas (soft delete) e para qual endpoint.
+const RESTORABLE: Record<string, "payroll" | "employee"> = {
+  DELETE_PAYROLL_ITEM: "payroll",
+  DELETE_EMPLOYEE: "employee",
+};
 
 export function Audit() {
   const [response, setResponse] = useState<AuditLogsResponse | null>(null);
@@ -20,6 +28,8 @@ export function Audit() {
   const [period, setPeriod] = useState(currentMonthPeriod());
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<AuditLog | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const { notice, setNotice } = useNotice();
 
   const rows = response?.data ?? [];
   const pagination = response?.pagination;
@@ -34,12 +44,31 @@ export function Audit() {
     load(1);
   }
 
+  async function handleRestore(row: AuditLog) {
+    const kind = RESTORABLE[row.action];
+    if (!kind || !row.entityId) return;
+    const label = kind === "payroll" ? "este lançamento" : "este funcionário";
+    if (!window.confirm(`Restaurar ${label}? Ele volta a aparecer no sistema.`)) return;
+    setRestoringId(row.id);
+    try {
+      if (kind === "payroll") await restorePayrollItem(row.entityId);
+      else await restoreEmployee(row.entityId);
+      setNotice({ tone: "success", message: kind === "employee" ? "Funcionário restaurado — volta como inativo; reative em Funcionários se precisar." : "Lançamento restaurado." });
+      await load(page);
+    } catch (err) {
+      setNotice({ tone: "error", message: err instanceof Error ? err.message : "Erro ao restaurar." });
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
   useEffect(() => {
     load(1);
   }, []);
 
   return (
     <div className="stack">
+      <Notice notice={notice} />
       <section className="panel">
         <div className="section-heading">
           <PanelEyebrow>Registro de ações por usuário e entidade</PanelEyebrow>
@@ -63,6 +92,7 @@ export function Audit() {
               <Table.Th>Ação</Table.Th>
               <Table.Th>Entidade</Table.Th>
               <Table.Th>ID</Table.Th>
+              <Table.Th>Motivo</Table.Th>
               <Table.Th>IP</Table.Th>
               <Table.Th actions>Detalhes</Table.Th>
             </Table.Row>
@@ -72,18 +102,31 @@ export function Audit() {
               <Table.Row key={row.id}>
                 <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(row.createdAt)}</Table.Td>
                 <Table.Td truncate style={{ maxWidth: 180 }} title={row.userName ?? row.userEmail ?? undefined}>{row.userName ?? row.userEmail ?? row.userId ?? "-"}</Table.Td>
-                <Table.Td>{row.action}</Table.Td>
+                <Table.Td truncate style={{ maxWidth: 220 }} title={row.action}>{labelAction(row.action)}</Table.Td>
                 <Table.Td>{row.entity}</Table.Td>
                 <Table.Td truncate style={{ maxWidth: 140 }} title={row.entityId ?? undefined}>{row.entityId ?? "-"}</Table.Td>
+                {(() => {
+                  const reason = extractReason([row.newValue, row.previousValue]);
+                  return (
+                    <Table.Td truncate style={{ maxWidth: 220 }} title={reason || undefined}>
+                      {reason || "—"}
+                    </Table.Td>
+                  );
+                })()}
                 <Table.Td>{row.ipAddress ?? "-"}</Table.Td>
                 <Table.Td actions>
+                  {RESTORABLE[row.action] && row.entityId && (
+                    <Button variant="secondary" size="sm" leadingIcon={<RotateCcw size={14} />} onClick={() => handleRestore(row)} disabled={restoringId === row.id}>
+                      {restoringId === row.id ? "..." : "Restaurar"}
+                    </Button>
+                  )}
                   <Button variant="secondary" size="sm" onClick={() => setSelected(row)}>Ver</Button>
                 </Table.Td>
               </Table.Row>
             ))}
             {rows.length === 0 && (
               <Table.Row>
-                <Table.Td colSpan={7}>
+                <Table.Td colSpan={8}>
                   <EmptyState title="Nenhum registro no período" />
                 </Table.Td>
               </Table.Row>

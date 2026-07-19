@@ -1565,6 +1565,7 @@ model DRECategory {
   smallExpenseTypes SmallExpenseType[]
   products          Product[]
   taxPayments       TaxPayment[]
+  payrollItems      PayrollItem[]
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
@@ -2158,4 +2159,226 @@ model DailySummarySent {
 
   @@unique([date, recipientId])
   @@index([date])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Folha de Pagamento — Funcionários (Fase 1)
+// Cadastro de funcionários do restaurante. NÃO confundir com User (login do
+// sistema). Base para escala mensal, cálculo de VT e folha (fases seguintes).
+// Reusa o enum BankAccountType. Padrão de auditoria/soft-delete igual ao
+// módulo tax-payments.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum EmployeeModality {
+  CLT
+  NAO_CLT
+}
+
+enum WorkScheduleRegime {
+  SEIS_POR_UM
+  CINCO_POR_DOIS
+}
+
+enum VtType {
+  NENHUM
+  TRANSPORTE_PUBLICO
+  AUXILIO_COMBUSTIVEL
+}
+
+enum VtPeriodicity {
+  QUINZENAL
+  MENSAL
+}
+
+enum VtCommute {
+  ONIBUS
+  METRO
+  INTEGRADO
+  ONIBUS_METRO_SEPARADO
+  BILHETE_MENSAL_ONIBUS
+  BILHETE_MENSAL_INTEGRADO
+}
+
+model Employee {
+  id                String             @id @default(cuid())
+  // Pessoal
+  firstName         String
+  lastName          String
+  cpf               String             @unique
+  rg                String?
+  pis               String?
+  birthDate         DateTime?
+  phone             String?
+  email             String?
+  // Endereço
+  zipCode           String?
+  address           String?
+  addressNumber     String?
+  addressComplement String?
+  neighborhood      String?
+  city              String?
+  state             String?
+  // Bancário
+  bankName          String?
+  bankAgency        String?
+  bankAccount       String?
+  bankAccountDigit  String?
+  bankAccountType   BankAccountType    @default(CONTA_CORRENTE)
+  pixKeyType        String?
+  pixKey            String?
+  // Trabalho
+  sector            String?
+  position          String?
+  baseSalary        Decimal?           @db.Decimal(12, 2)
+  shiftStart        String?
+  shiftEnd          String?
+  modality          EmployeeModality   @default(CLT)
+  scheduleRegime    WorkScheduleRegime @default(SEIS_POR_UM)
+  includeInSchedule Boolean            @default(true)
+  admissionDate     DateTime?
+  // Vale-transporte (config usada pelo cálculo nas fases seguintes)
+  vtType            VtType             @default(TRANSPORTE_PUBLICO)
+  vtPeriodicity     VtPeriodicity      @default(QUINZENAL)
+  vtCommute         VtCommute?
+  vtTripsPerDay     Int?               @default(2)
+  vtFixedAmount     Decimal?           @db.Decimal(12, 2)
+  // Desligamento
+  terminationDate   DateTime?
+  terminationReason String?
+  isActive          Boolean            @default(true)
+  notes             String?
+  vtCreditBalance   Decimal            @default(0) @db.Decimal(12, 2)
+  holidayCompBalance Int               @default(0)
+  scheduleDays      EmployeeScheduleDay[]
+  payrollItems      PayrollItem[]
+  // Auditoria / soft delete
+  createdById       String
+  updatedById       String?
+  deletedAt         DateTime?
+  deletedById       String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([cpf])
+  @@index([isActive])
+  @@index([sector])
+  @@index([lastName, firstName])
+  @@index([terminationDate])
+  @@index([deletedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Escala mensal (Fase 2) — marca as FOLGAS por funcionário por dia (o "x" da
+// planilha). Ausência de registro = dia trabalhado. Domingos e feriados são
+// derivados no backend (não persistidos). Base para a contagem de dias do VT.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum ScheduleDayType {
+  FOLGA
+  TURNO
+  FERIAS
+  FALTA
+  ATESTADO
+}
+
+model EmployeeScheduleDay {
+  id          String          @id @default(cuid())
+  employeeId  String
+  employee    Employee        @relation(fields: [employeeId], references: [id])
+  date        DateTime        @db.Date
+  type        ScheduleDayType @default(FOLGA)
+  notes       String?
+  createdById String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@index([employeeId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Folha de Pagamento — Fase 3
+// PayrollSettings: tarifas de transporte (configuráveis) + % de adiantamento
+// e dias de vencimento. Linha única (id = "singleton").
+// PayrollItem: ledger de VT / adiantamento / salário por funcionário/mês
+// (mesmo padrão do TaxPayment: dueDate/status/pay/reverse/soft-delete +
+// dreCategoryId). Alimenta DRE + Contas a Pagar na Fase 4.
+// ─────────────────────────────────────────────────────────────────────────
+
+model PayrollSettings {
+  id             String   @id @default("singleton")
+  busFare        Decimal  @default(5.30) @db.Decimal(8, 2)
+  metroFare      Decimal  @default(5.40) @db.Decimal(8, 2)
+  integratedFare Decimal  @default(9.38) @db.Decimal(8, 2)
+  monthlyPassBus        Decimal @default(257.53) @db.Decimal(8, 2)
+  monthlyPassIntegrated Decimal @default(411.13) @db.Decimal(8, 2)
+  advancePercent Decimal  @default(40) @db.Decimal(5, 2)
+  advanceDueDay  Int      @default(20)
+  salaryDueDay   Int      @default(5)
+  bufferDays     Int      @default(1)
+  updatedById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+enum PayrollItemType {
+  ADIANTAMENTO
+  SALARIO
+  VALE_TRANSPORTE
+  RESCISAO
+  FERIAS
+}
+
+enum PayrollItemStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELED
+}
+
+model PayrollItem {
+  id              String            @id @default(cuid())
+  employeeId      String
+  employee        Employee          @relation(fields: [employeeId], references: [id])
+  type            PayrollItemType
+  competenceYear  Int
+  competenceMonth Int
+  periodLabel     String
+  periodStart     DateTime?         @db.Date
+  periodEnd       DateTime?         @db.Date
+  dueDate         DateTime
+  amount          Decimal           @db.Decimal(12, 2)
+  workedDays      Int?
+  freeDays        Int?
+  bufferAmount    Decimal?          @db.Decimal(12, 2)
+  creditApplied   Decimal?          @db.Decimal(12, 2)
+  details         Json?
+  paymentDate     DateTime?
+  paidAmount      Decimal?          @db.Decimal(12, 2)
+  paidPaymentMethodId   String?
+  paidPaymentMethodName String?
+  paidByCompanyId       String?
+  companyBankAccountId  String?
+  differenceReason      String?
+  paymentNotes          String?
+  status          PayrollItemStatus @default(PENDING)
+  dreCategoryId   String?
+  dreCategory     DRECategory?      @relation(fields: [dreCategoryId], references: [id])
+  notes           String?
+  source          String            @default("GENERATED")
+  createdById     String
+  updatedById     String?
+  deletedAt       DateTime?
+  deletedById     String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([employeeId, type, competenceYear, competenceMonth, periodLabel])
+  @@index([competenceYear, competenceMonth])
+  @@index([employeeId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([dreCategoryId])
+  @@index([deletedAt])
 }
