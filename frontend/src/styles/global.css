@@ -5631,6 +5631,11 @@ td:nth-child(n+3):not(:last-child) {
   gap: 3px;
 }
 
+.source-badge.source-payroll {
+  background: #ffe4e6;
+  color: #be123c;
+}
+
 /* Chips de atalho rápido */
 .payables-chips {
   display: flex;
@@ -5967,6 +5972,12 @@ details[open] .modal-section-summary::before {
 
   .sidebar,
   .ds-sidebar {
+    display: none;
+  }
+
+  /* No mobile a barra superior do app já mostra o nome da tela — esconder o
+     PageHeader evita título duplicado no cabeçalho. */
+  .page-header {
     display: none;
   }
 

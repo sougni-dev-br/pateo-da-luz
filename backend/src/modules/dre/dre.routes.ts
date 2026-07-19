@@ -177,7 +177,7 @@ function buildExpenseGroups(expenses: ExpenseItem[]): ExpenseGroup[] {
 
 async function calcDRE(from: Date, to: Date) {
   // Todas as queries são independentes entre si — rodam em paralelo
-  const [revenueRows, snapInitialValue, snapFinalValue, comprasCmv, comprasGerenciais, expenseRows, managerialExpenseRows, taxExpenseRows] = await Promise.all([
+  const [revenueRows, snapInitialValue, snapFinalValue, comprasCmv, comprasGerenciais, expenseRows, managerialExpenseRows, taxExpenseRows, payrollExpenseRows] = await Promise.all([
     // ── Receita por canal ──
     prisma.$queryRaw<Array<{
       channel: string;
@@ -380,6 +380,33 @@ async function calcDRE(from: Date, to: Date) {
         AND tp."competenceDate" <= ${to}
       GROUP BY tp."dreCategoryId", dc.name, dc."sortOrder", dc."dreGroup"
     `,
+    // ── Folha de Pagamento por competência ──
+    // PayrollItems (VT, adiantamento, salário) entram no DRE pela competência
+    // (competenceYear/Month), somados por categoria DRE. Adiantamento + salário
+    // somam a base (2 parcelas de 1 competência), então não dobram a folha.
+    prisma.$queryRaw<Array<{
+      dreCategory: string | null;
+      dreCategoryName: string | null;
+      dreSortOrder: number | null;
+      dreGroup: string | null;
+      total: string;
+      count: number;
+    }>>`
+      SELECT
+        pit."dreCategoryId"   AS "dreCategory",
+        dc.name               AS "dreCategoryName",
+        dc."sortOrder"        AS "dreSortOrder",
+        dc."dreGroup"         AS "dreGroup",
+        SUM(pit.amount)::text AS total,
+        COUNT(*)::int         AS count
+      FROM "PayrollItem" pit
+      LEFT JOIN "DRECategory" dc ON dc.id = pit."dreCategoryId"
+      WHERE pit."deletedAt" IS NULL
+        AND pit.status NOT IN ('CANCELED')
+        AND MAKE_DATE(pit."competenceYear", pit."competenceMonth", 1) >= DATE_TRUNC('month', ${from}::timestamp)
+        AND MAKE_DATE(pit."competenceYear", pit."competenceMonth", 1) <= ${to}
+      GROUP BY pit."dreCategoryId", dc.name, dc."sortOrder", dc."dreGroup"
+    `,
   ]);
 
   // ── Agregar receita ──
@@ -400,7 +427,7 @@ async function calcDRE(from: Date, to: Date) {
   const estoqueFinal = Number(snapFinalValue[0]?.totalValue ?? 0);
   const compras = comprasCmv;
   const buildExpenseSummary = (rows: typeof expenseRows) => {
-    const allExpenseRows = [...rows, ...taxExpenseRows];
+    const allExpenseRows = [...rows, ...taxExpenseRows, ...payrollExpenseRows];
     const expenseByCategory = new Map<string, { dreCategoryId: string | null; dreCategoryName: string; dreGroup: string; sortOrder: number; total: number; count: number }>();
     for (const r of allExpenseRows) {
       const key = r.dreCategory ?? "__none__";

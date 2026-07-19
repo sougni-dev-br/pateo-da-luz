@@ -612,6 +612,74 @@ purchaseRouter.get("/payables", async (request, response) => {
       `
     : ([] as Array<Record<string, unknown>>);
 
+  // ── Folha de pagamento ──────────────────────────────────────────────────────
+  const payrollStatusExpr = Prisma.sql`
+    CASE
+      WHEN pit."paymentDate" IS NOT NULL THEN 'PAID'
+      WHEN pit."dueDate" IS NOT NULL AND pit."dueDate" < ${startToday} THEN 'OVERDUE'
+      ELSE 'OPEN'
+    END
+  `;
+  const payrollStatusFilter = !status
+    ? Prisma.sql`true`
+    : status === "OPEN"
+      ? Prisma.sql`pit."paymentDate" IS NULL AND (pit."dueDate" IS NULL OR pit."dueDate" >= ${startToday})`
+      : status === "PAID" || status === "PAID_LATE"
+        ? Prisma.sql`pit."paymentDate" IS NOT NULL`
+        : status === "OVERDUE"
+          ? Prisma.sql`pit."paymentDate" IS NULL AND pit."dueDate" IS NOT NULL AND pit."dueDate" < ${startToday}`
+          : status === "CANCELLED"
+            ? Prisma.sql`pit."status" = 'CANCELED'`
+            : Prisma.sql`false`;
+  const payrollTypeLabel = Prisma.sql`CASE pit."type" WHEN 'VALE_TRANSPORTE' THEN 'Vale-transporte' WHEN 'ADIANTAMENTO' THEN 'Adiantamento' WHEN 'SALARIO' THEN 'Salário' WHEN 'RESCISAO' THEN 'Rescisão' WHEN 'FERIAS' THEN 'Férias' ELSE pit."type"::text END`;
+  // Folha não tem fornecedor/método — pula quando esses filtros estão ativos.
+  const includePayroll = origin !== "purchases" && origin !== "taxes" && !supplierId && !paymentMethodId;
+  const payrollRows = includePayroll
+    ? await prisma.$queryRaw<Array<Record<string, unknown>>>`
+        SELECT
+          pit."id",
+          NULL::text AS "purchaseId",
+          pit."dueDate",
+          pit."paymentDate" AS "paidDate",
+          pit."amount"::text AS "amount",
+          pit."paidAmount"::text AS "paidAmount",
+          NULL::int AS "installment",
+          NULL::int AS "totalInstallments",
+          NULL::text AS "paymentMethodId",
+          NULL::text AS "paymentMethodName",
+          pit."paidPaymentMethodId",
+          COALESCE(pit."paidPaymentMethodName", ppm."name") AS "paidPaymentMethodName",
+          COALESCE(pit."paymentNotes", pit."notes") AS "paymentNotes",
+          'PAYROLL' AS "sourceType",
+          ${payrollStatusExpr} AS "status",
+          NULL::text AS "rawValue",
+          NULL::text AS "supplierId",
+          CONCAT(e."firstName", ' ', e."lastName") AS "supplierName",
+          NULL::text AS "purchaseNumber",
+          NULL::text AS "invoiceNumber",
+          NULL::timestamp AS "purchaseDate",
+          CONCAT(${payrollTypeLabel}, ' · ', pit."periodLabel") AS "notes",
+          ${payrollTypeLabel} AS "taxDocumentType",
+          pit."periodLabel" AS "taxDescription",
+          CONCAT(e."firstName", ' ', e."lastName") AS "taxCompanyName",
+          NULL::text AS "taxCnpj",
+          MAKE_DATE(pit."competenceYear", pit."competenceMonth", 1) AS "taxCompetenceDate",
+          dc."name" AS "taxDreCategoryName"
+        FROM "PayrollItem" pit
+        JOIN "Employee" e ON e."id" = pit."employeeId"
+        LEFT JOIN "DRECategory" dc ON dc."id" = pit."dreCategoryId"
+        LEFT JOIN "PaymentMethod" ppm ON ppm."id" = pit."paidPaymentMethodId"
+        WHERE pit."deletedAt" IS NULL
+          AND pit."status" != 'CANCELED'
+          AND ${noDueDate ? Prisma.sql`pit."dueDate" IS NULL` : Prisma.sql`true`}
+          AND ${!noDueDate && startDate ? Prisma.sql`pit."dueDate" >= ${startDate}` : Prisma.sql`true`}
+          AND ${!noDueDate && endDate ? Prisma.sql`pit."dueDate" < ${endDate}` : Prisma.sql`true`}
+          AND ${payrollStatusFilter}
+        ORDER BY pit."dueDate" NULLS LAST
+        LIMIT 400
+      `
+    : ([] as Array<Record<string, unknown>>);
+
   // ── Merge & sort ───────────────────────────────────────────────────────────
   const purchaseMapped = purchaseRows.map((row) => ({
     ...row,
@@ -621,7 +689,7 @@ purchaseRouter.get("/payables", async (request, response) => {
     )
   }));
 
-  const allRows: Array<Record<string, unknown>> = [...purchaseMapped, ...taxRows];
+  const allRows: Array<Record<string, unknown>> = [...purchaseMapped, ...taxRows, ...payrollRows];
   allRows.sort((a, b) => {
     const da = a["dueDate"] ? new Date(String(a["dueDate"])).getTime() : Number.MAX_SAFE_INTEGER;
     const db = b["dueDate"] ? new Date(String(b["dueDate"])).getTime() : Number.MAX_SAFE_INTEGER;
@@ -829,6 +897,7 @@ purchaseRouter.get("/payables/:id/history", async (request, response) => {
     LEFT JOIN "User" u ON u."id" = a."userId"
     WHERE (a."entity" = 'PaymentInstallment' AND a."entityId" = ${request.params.id})
        OR (a."entity" = 'PaymentInstallment' AND a."newValue"::text ILIKE ${`%${request.params.id}%`})
+       OR (a."entity" = 'PayrollItem' AND a."entityId" = ${request.params.id})
     ORDER BY a."createdAt" DESC
     LIMIT 80
   `;

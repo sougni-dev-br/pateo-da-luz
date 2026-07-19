@@ -22,6 +22,8 @@ export type SummaryCardProps = Omit<HTMLAttributes<HTMLElement>, "title"> & {
   tone?: SummaryTone;
   /** Ícone Lucide renderizado no chip 38x38 tonalizado. */
   icon?: ReactNode;
+  /** Variante enxuta: valor menor, card mais baixo, chip menor. */
+  compact?: boolean;
 };
 
 function renderValue(value: ReactNode, moneyValue: SummaryCardProps["moneyValue"]): ReactNode {
@@ -44,10 +46,11 @@ export function SummaryCard({
   detail,
   tone = "neutral",
   icon,
+  compact = false,
   className,
   ...rest
 }: SummaryCardProps) {
-  const classes = ["ds-summary-card", `ds-summary-card-${tone}`, className].filter(Boolean).join(" ");
+  const classes = ["ds-summary-card", `ds-summary-card-${tone}`, compact && "ds-summary-card-compact", className].filter(Boolean).join(" ");
   return (
     <article className={classes} {...rest}>
       <div className="ds-summary-card-body">

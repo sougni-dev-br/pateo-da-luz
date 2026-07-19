@@ -318,7 +318,15 @@ function mockResponseFor(url: string): unknown {
 
   // Auditoria: shape { data, pagination }.
   if (path.includes("/audit")) {
-    return { data: [], pagination: { page: 1, totalPages: 0, total: 0, limit: 50 } };
+    const now = new Date().toISOString();
+    return {
+      data: [
+        { id: "aud-1", createdAt: now, userName: "Mock Admin", userEmail: "mock@pateodaluz.local", userId: "mock-user", action: "DELETE_PAYROLL_ITEM", entity: "PayrollItem", entityId: "pi-fer", ipAddress: "127.0.0.1", previousValue: { type: "FERIAS", amount: "1500.00" }, newValue: { reason: "lançado errado" }, userAgent: "mock" },
+        { id: "aud-2", createdAt: now, userName: "Mock Admin", userEmail: "mock@pateodaluz.local", userId: "mock-user", action: "DELETE_EMPLOYEE", entity: "Employee", entityId: "emp-3", ipAddress: "127.0.0.1", previousValue: { firstName: "Ana", lastName: "Souza" }, newValue: { reason: "cadastro duplicado" }, userAgent: "mock" },
+        { id: "aud-3", createdAt: now, userName: "Mock Admin", userEmail: null, userId: "mock-user", action: "UPDATE_PAYROLL_SETTINGS", entity: "PayrollSettings", entityId: "singleton", ipAddress: "127.0.0.1", previousValue: null, newValue: null, userAgent: "mock" }
+      ],
+      pagination: { page: 1, totalPages: 1, total: 3, limit: 50 }
+    };
   }
 
   // Estoque: endpoints com shape estruturado que o fallback {} quebraria
@@ -417,7 +425,9 @@ function mockResponseFor(url: string): unknown {
       { ...base, id: "pay-1", supplierName: "Distribuidora Hortifruti Central do Vale Ltda ME", invoiceNumber: "48213", purchaseNumber: "C-0101", amount: 920.25, dueDate: plusDays(3), status: "OPEN", installment: 1, totalInstallments: 2, paymentMethodName: "BOLETO / 2x" },
       { ...base, id: "pay-2", supplierName: "Casa de Carnes Bom Corte", amount: 1840.5, dueDate: plusDays(-4), status: "OVERDUE", paymentMethodName: "PIX", notes: "Renegociar com o vendedor" },
       { ...base, id: "pay-3", supplierName: "Bebidas Serra Azul", amount: 640, dueDate: plusDays(-10), status: "PAID", paidDate: iso(today), paidAmount: 640, paymentMethodName: "PIX" },
-      { ...base, id: "pay-4", supplierName: "DAS — Simples Nacional", amount: 2312.4, dueDate: plusDays(12), status: "OPEN", sourceType: "TAX_PAYMENT", taxDocumentType: "DAS", taxCompanyName: "Pateo da Luz", taxDescription: "Competência anterior", taxCompetenceDate: plusDays(-30), taxDreCategoryName: "Impostos" }
+      { ...base, id: "pay-4", supplierName: "DAS — Simples Nacional", amount: 2312.4, dueDate: plusDays(12), status: "OPEN", sourceType: "TAX_PAYMENT", taxDocumentType: "DAS", taxCompanyName: "Pateo da Luz", taxDescription: "Competência anterior", taxCompetenceDate: plusDays(-30), taxDreCategoryName: "Impostos" },
+      { ...base, id: "pay-5", supplierName: "Maria Silva", amount: 227.96, dueDate: plusDays(2), status: "OPEN", sourceType: "PAYROLL", notes: "Vale-transporte · VT 1ª quinzena", taxDocumentType: "Vale-transporte", taxDescription: "VT 1ª quinzena", taxCompanyName: "Maria Silva", taxCompetenceDate: plusDays(-5), taxDreCategoryName: "Vale-Transporte" },
+      { ...base, id: "pay-6", supplierName: "Edson Carvalho", amount: 1500, dueDate: plusDays(6), status: "OPEN", sourceType: "PAYROLL", notes: "Férias", taxDocumentType: "Férias", taxDescription: "Férias", taxCompanyName: "Edson Carvalho", taxCompetenceDate: plusDays(-2), taxDreCategoryName: "Férias" }
     ];
   }
 
@@ -577,6 +587,129 @@ function mockResponseFor(url: string): unknown {
     return [
       { id: "pm-1", name: "PIX", isActive: true },
       { id: "pm-2", name: "Boleto", isActive: true }
+    ];
+  }
+
+  // Folha de pagamento (/pessoal/folha — página Folha).
+  if (path.endsWith("/payroll/settings")) return { id: "singleton", busFare: "5.30", metroFare: "5.40", integratedFare: "9.38", monthlyPassBus: "257.53", monthlyPassIntegrated: "411.13", advancePercent: "40", advanceDueDay: 20, salaryDueDay: 5, bufferDays: 1 };
+  if (path.includes("/payroll/preview")) {
+    const p = currentPeriod();
+    const iso = (d: number) => new Date(Date.UTC(p.year, p.month - 1, d)).toISOString();
+    return {
+      year: p.year, month: p.month,
+      settings: { id: "singleton", busFare: "5.30", metroFare: "5.40", integratedFare: "9.38", monthlyPassBus: "257.53", monthlyPassIntegrated: "411.13", advancePercent: "40", advanceDueDay: 20, salaryDueDay: 5, bufferDays: 1 },
+      items: [
+        { employeeId: "emp-1", employeeName: "Maria Silva", sector: "Cozinha", type: "VALE_TRANSPORTE", periodLabel: "VT 1ª quinzena", periodStart: iso(1), periodEnd: iso(15), dueDate: iso(1), amount: 227.96, workedDays: 13, freeDays: 2, bufferAmount: 18.76, creditApplied: 18.76, dreCategoryName: "Vale-Transporte", details: null, exists: false },
+        { employeeId: "emp-1", employeeName: "Maria Silva", sector: "Cozinha", type: "ADIANTAMENTO", periodLabel: "Adiantamento", periodStart: null, periodEnd: null, dueDate: iso(20), amount: 880, workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, dreCategoryName: "Folha de Pagamento", details: null, exists: false },
+        { employeeId: "emp-1", employeeName: "Maria Silva", sector: "Cozinha", type: "SALARIO", periodLabel: "Salário", periodStart: null, periodEnd: null, dueDate: iso(28), amount: 1320, workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, dreCategoryName: "Folha de Pagamento", details: null, exists: false },
+        { employeeId: "emp-2", employeeName: "Edson Carvalho", sector: "Salão/Bar", type: "VALE_TRANSPORTE", periodLabel: "Ajuda de custo mensal", periodStart: null, periodEnd: null, dueDate: iso(1), amount: 300, workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, dreCategoryName: "Vale-Transporte", details: null, exists: false }
+      ],
+      warnings: ["Edson Carvalho tem férias e salário na mesma competência (07/2026) — confira os valores para não pagar em dobro."]
+    };
+  }
+  if (path.includes("/payroll/generate")) { const p = currentPeriod(); return { year: p.year, month: p.month, created: 4, skipped: 0 }; }
+  if (path.match(/\/payroll\/termination\/[^/]+$/)) {
+    const p = currentPeriod();
+    return {
+      employee: { id: "emp-3", name: "Ana Souza", terminationDate: new Date(Date.UTC(p.year, p.month - 1, 10)).toISOString(), terminationReason: "pediu demissão" },
+      vtCreditBalance: 18.76,
+      vtItems: [{ id: "pi-vt", periodLabel: "VT 1ª quinzena", competenceYear: p.year, competenceMonth: p.month, amount: "227.96", status: "PAID", dueDate: new Date(Date.UTC(p.year, p.month - 1, 1)).toISOString() }],
+      alreadyReleased: false, rescisaoId: null
+    };
+  }
+  if (path.includes("/payroll/vacation")) return { id: "vac-mock", amount: 1500 };
+  if (path.match(/\/payroll\/[^/]+\/(pay|reverse|restore)$/)) return { id: "pi-mock", status: "PENDING" };
+  if (path.match(/\/payroll\/[^/]+$/)) return { id: "pi-mock", status: "PENDING", ok: true };
+  if (path.startsWith("/payroll")) {
+    const p = currentPeriod();
+    const iso = (d: number) => new Date(Date.UTC(p.year, p.month - 1, d)).toISOString();
+    const items = [
+      { id: "pi-1", employeeName: "Maria Silva", sector: "Cozinha", type: "VALE_TRANSPORTE", periodLabel: "VT 1ª quinzena", periodStart: iso(1), periodEnd: iso(15), dueDate: iso(1), amount: "227.96", workedDays: 13, freeDays: 2, bufferAmount: "18.76", creditApplied: "18.76", paymentDate: null, paidAmount: null, status: "PENDING", dreCategoryId: null },
+      { id: "pi-2", employeeName: "Maria Silva", sector: "Cozinha", type: "ADIANTAMENTO", periodLabel: "Adiantamento", periodStart: null, periodEnd: null, dueDate: iso(20), amount: "880.00", workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, paymentDate: null, paidAmount: null, status: "PENDING", dreCategoryId: null },
+      { id: "pi-3", employeeName: "Maria Silva", sector: "Cozinha", type: "SALARIO", periodLabel: "Salário", periodStart: null, periodEnd: null, dueDate: iso(28), amount: "1320.00", workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, paymentDate: null, paidAmount: null, status: "PENDING", dreCategoryId: null },
+      { id: "pi-fer", employeeName: "Edson Carvalho", sector: "Salão/Bar", type: "FERIAS", periodLabel: "Férias", periodStart: iso(16), periodEnd: iso(20), dueDate: iso(14), amount: "1500.00", workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, paymentDate: null, paidAmount: null, status: "PENDING", dreCategoryId: null }
+    ];
+    const sum = (f: (i: (typeof items)[number]) => boolean) => items.filter(f).reduce((a, i) => a + Number(i.amount), 0);
+    return { year: p.year, month: p.month, items, summary: { total: sum(() => true), vt: sum((i) => i.type === "VALE_TRANSPORTE"), advance: sum((i) => i.type === "ADIANTAMENTO"), salary: sum((i) => i.type === "SALARIO"), ferias: sum((i) => i.type === "FERIAS"), paid: 0, pending: sum(() => true), overdue: 0, count: items.length } };
+  }
+
+  // Escala mensal (/pessoal/escala — página Escala).
+  if (path.includes("/schedule/bulk")) return { ok: true, year: new Date().getFullYear(), month: new Date().getMonth() + 1, count: 0 };
+  if (path.startsWith("/schedule")) {
+    const now = new Date();
+    const y = now.getFullYear();
+    const mo = now.getMonth() + 1;
+    const daysInMonth = new Date(y, mo, 0).getDate();
+    const days = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dow = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
+      days.push({ day: d, dow, isSunday: dow === 0, isHoliday: false, holidayName: null });
+    }
+    return {
+      year: y, month: mo, daysInMonth, days,
+      employees: [
+        { id: "emp-1", firstName: "Maria", lastName: "Silva", sector: "Cozinha", position: "Cozinheira", shiftStart: "08:00", shiftEnd: "16:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 1 },
+        { id: "emp-2", firstName: "Edson", lastName: "Carvalho", sector: "Salão/Bar", position: "Garçom", shiftStart: "12:00", shiftEnd: "22:20", scheduleRegime: "CINCO_POR_DOIS", admissionDate: null, terminationDate: null, holidayCompBalance: 0 }
+      ],
+      entries: [
+        { employeeId: "emp-1", day: 7, type: "FOLGA" },
+        { employeeId: "emp-1", day: 3, type: "TURNO" },
+        { employeeId: "emp-2", day: 3, type: "FOLGA" },
+        { employeeId: "emp-2", day: 4, type: "FOLGA" }
+      ],
+      vacationDays: [16, 17, 18, 19, 20].map((day) => ({ employeeId: "emp-2", day }))
+    };
+  }
+
+  // Funcionários (/pessoal/funcionarios — página Funcionarios): lista + aniversariantes.
+  if (path.match(/\/employees\/[^/]+\/holiday-comp$/)) return { id: "emp-x", holidayCompBalance: 1 };
+  if (path.match(/\/employees\/[^/]+\/restore$/)) return { id: "emp-mock", isActive: false };
+  if (path.endsWith("/employees/options")) return { sectors: ["Cozinha", "Salão/Bar", "Pizzaria"], positions: ["Cozinheiro", "Garçom", "Gerente de salão"] };
+  if (path.endsWith("/employees/birthdays")) return [];
+  if (path.endsWith("/employees")) {
+    return [
+      {
+        id: "emp-1", firstName: "Maria", lastName: "Silva", cpf: "12345678909",
+        rg: null, pis: null, birthDate: "1992-08-14T00:00:00.000Z", phone: null, email: null,
+        zipCode: null, address: null, addressNumber: null, addressComplement: null,
+        neighborhood: null, city: "São Paulo", state: "SP",
+        bankName: "Bradesco", bankAgency: "1234", bankAccount: "56789", bankAccountDigit: "0",
+        bankAccountType: "CONTA_CORRENTE", pixKeyType: "CPF", pixKey: "123.456.789-09",
+        sector: "Cozinha", position: "Cozinheira", baseSalary: "2200.00",
+        shiftStart: "08:00", shiftEnd: "16:20", modality: "CLT", scheduleRegime: "SEIS_POR_UM",
+        admissionDate: "2024-03-01T00:00:00.000Z",
+        vtType: "TRANSPORTE_PUBLICO", vtPeriodicity: "QUINZENAL", vtCommute: "INTEGRADO",
+        vtTripsPerDay: 2, vtFixedAmount: null, terminationDate: null, terminationReason: null,
+        isActive: true, notes: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      },
+      {
+        id: "emp-2", firstName: "Edson", lastName: "Carvalho", cpf: "98765432100",
+        rg: null, pis: null, birthDate: "1988-02-09T00:00:00.000Z", phone: null, email: null,
+        zipCode: null, address: null, addressNumber: null, addressComplement: null,
+        neighborhood: null, city: "São Paulo", state: "SP",
+        bankName: null, bankAgency: null, bankAccount: null, bankAccountDigit: null,
+        bankAccountType: "CONTA_CORRENTE", pixKeyType: "TELEFONE", pixKey: "(11) 99999-0000",
+        sector: "Salão/Bar", position: "Garçom", baseSalary: "1800.00",
+        shiftStart: "12:00", shiftEnd: "22:20", modality: "NAO_CLT", scheduleRegime: "CINCO_POR_DOIS",
+        admissionDate: "2025-06-15T00:00:00.000Z",
+        vtType: "AUXILIO_COMBUSTIVEL", vtPeriodicity: "MENSAL", vtCommute: null,
+        vtTripsPerDay: null, vtFixedAmount: "300.00", terminationDate: null, terminationReason: null,
+        isActive: true, notes: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      },
+      {
+        id: "emp-3", firstName: "Ana", lastName: "Souza", cpf: "11122233396",
+        rg: null, pis: null, birthDate: "1995-05-20T00:00:00.000Z", phone: null, email: null,
+        zipCode: null, address: null, addressNumber: null, addressComplement: null,
+        neighborhood: null, city: "São Paulo", state: "SP",
+        bankName: null, bankAgency: null, bankAccount: null, bankAccountDigit: null,
+        bankAccountType: "CONTA_CORRENTE", pixKeyType: null, pixKey: null,
+        sector: "Salão/Bar", position: "Garçom", baseSalary: "1800.00",
+        shiftStart: "12:00", shiftEnd: "22:20", modality: "CLT", scheduleRegime: "SEIS_POR_UM",
+        admissionDate: "2024-01-10T00:00:00.000Z",
+        vtType: "TRANSPORTE_PUBLICO", vtPeriodicity: "QUINZENAL", vtCommute: "INTEGRADO",
+        vtTripsPerDay: 2, vtFixedAmount: null, terminationDate: new Date().toISOString(), terminationReason: "pediu demissão",
+        isActive: false, notes: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      }
     ];
   }
 
