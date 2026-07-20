@@ -6,7 +6,7 @@ import { holidaysForYear } from "./holidays.js";
 
 export const scheduleRouter = Router();
 
-const SCHEDULE_TYPES = ["FOLGA", "TURNO", "FERIAS", "FALTA", "ATESTADO"] as const;
+const SCHEDULE_TYPES = ["FOLGA", "TURNO", "EVENTO", "FERIAS", "FALTA", "ATESTADO"] as const;
 type ScheduleType = (typeof SCHEDULE_TYPES)[number];
 
 function parseYearMonth(q: { year?: unknown; month?: unknown }) {
@@ -36,7 +36,7 @@ scheduleRouter.get("/", async (request, response) => {
   const employees = await prisma.employee.findMany({
     where: { deletedAt: null, isActive: true, includeInSchedule: true },
     select: {
-      id: true, firstName: true, lastName: true, sector: true, position: true,
+      id: true, firstName: true, lastName: true, displayName: true, sector: true, subgroup: true, position: true,
       shiftStart: true, shiftEnd: true, scheduleRegime: true, admissionDate: true, terminationDate: true,
       holidayCompBalance: true,
     },

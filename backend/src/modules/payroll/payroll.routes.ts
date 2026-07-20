@@ -64,13 +64,14 @@ payrollRouter.get("/", async (request, response) => {
   const { year, month } = parseYearMonth(request.query as { year?: unknown; month?: unknown });
   const rows = await prisma.payrollItem.findMany({
     where: { competenceYear: year, competenceMonth: month, deletedAt: null },
-    include: { employee: { select: { firstName: true, lastName: true, sector: true } } },
+    include: { employee: { select: { firstName: true, lastName: true, displayName: true, sector: true } } },
     orderBy: [{ employee: { sector: "asc" } }, { employee: { firstName: "asc" } }, { type: "asc" }, { periodLabel: "asc" }],
   });
 
   const items = rows.map((r) => ({
     ...r,
     employeeName: `${r.employee.firstName} ${r.employee.lastName}`.trim(),
+    employeeDisplayName: r.employee.displayName,
     sector: r.employee.sector,
     status: r.paymentDate ? "PAID" : (r.dueDate < new Date() ? "OVERDUE" : "PENDING"),
   }));

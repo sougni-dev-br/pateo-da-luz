@@ -599,10 +599,10 @@ function mockResponseFor(url: string): unknown {
       year: p.year, month: p.month,
       settings: { id: "singleton", busFare: "5.30", metroFare: "5.40", integratedFare: "9.38", monthlyPassBus: "257.53", monthlyPassIntegrated: "411.13", advancePercent: "40", advanceDueDay: 20, salaryDueDay: 5, bufferDays: 1 },
       items: [
-        { employeeId: "emp-1", employeeName: "Maria Silva", sector: "Cozinha", type: "VALE_TRANSPORTE", periodLabel: "VT 1ª quinzena", periodStart: iso(1), periodEnd: iso(15), dueDate: iso(1), amount: 227.96, workedDays: 13, freeDays: 2, bufferAmount: 18.76, creditApplied: 18.76, dreCategoryName: "Vale-Transporte", details: null, exists: false },
-        { employeeId: "emp-1", employeeName: "Maria Silva", sector: "Cozinha", type: "ADIANTAMENTO", periodLabel: "Adiantamento", periodStart: null, periodEnd: null, dueDate: iso(20), amount: 880, workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, dreCategoryName: "Folha de Pagamento", details: null, exists: false },
-        { employeeId: "emp-1", employeeName: "Maria Silva", sector: "Cozinha", type: "SALARIO", periodLabel: "Salário", periodStart: null, periodEnd: null, dueDate: iso(28), amount: 1320, workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, dreCategoryName: "Folha de Pagamento", details: null, exists: false },
-        { employeeId: "emp-2", employeeName: "Edson Carvalho", sector: "Salão/Bar", type: "VALE_TRANSPORTE", periodLabel: "Ajuda de custo mensal", periodStart: null, periodEnd: null, dueDate: iso(1), amount: 300, workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, dreCategoryName: "Vale-Transporte", details: null, exists: false }
+        { employeeId: "emp-1", employeeName: "Maria Silva", employeeDisplayName: null, sector: "Cozinha", type: "VALE_TRANSPORTE", periodLabel: "VT 1ª quinzena", periodStart: iso(1), periodEnd: iso(15), dueDate: iso(1), amount: 227.96, workedDays: 13, freeDays: 2, bufferAmount: 18.76, creditApplied: 18.76, dreCategoryName: "Vale-Transporte", details: null, exists: false },
+        { employeeId: "emp-1", employeeName: "Maria Silva", employeeDisplayName: null, sector: "Cozinha", type: "ADIANTAMENTO", periodLabel: "Adiantamento", periodStart: null, periodEnd: null, dueDate: iso(20), amount: 880, workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, dreCategoryName: "Folha de Pagamento", details: null, exists: false },
+        { employeeId: "emp-1", employeeName: "Maria Silva", employeeDisplayName: null, sector: "Cozinha", type: "SALARIO", periodLabel: "Salário", periodStart: null, periodEnd: null, dueDate: iso(28), amount: 1320, workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, dreCategoryName: "Folha de Pagamento", details: null, exists: false },
+        { employeeId: "emp-2", employeeName: "Edson Carvalho", employeeDisplayName: "Dão", sector: "Salão/Bar", type: "VALE_TRANSPORTE", periodLabel: "Ajuda de custo mensal", periodStart: null, periodEnd: null, dueDate: iso(1), amount: 300, workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, dreCategoryName: "Vale-Transporte", details: null, exists: false }
       ],
       warnings: ["Edson Carvalho tem férias e salário na mesma competência (07/2026) — confira os valores para não pagar em dobro."]
     };
@@ -624,10 +624,10 @@ function mockResponseFor(url: string): unknown {
     const p = currentPeriod();
     const iso = (d: number) => new Date(Date.UTC(p.year, p.month - 1, d)).toISOString();
     const items = [
-      { id: "pi-1", employeeName: "Maria Silva", sector: "Cozinha", type: "VALE_TRANSPORTE", periodLabel: "VT 1ª quinzena", periodStart: iso(1), periodEnd: iso(15), dueDate: iso(1), amount: "227.96", workedDays: 13, freeDays: 2, bufferAmount: "18.76", creditApplied: "18.76", paymentDate: null, paidAmount: null, status: "PENDING", dreCategoryId: null },
-      { id: "pi-2", employeeName: "Maria Silva", sector: "Cozinha", type: "ADIANTAMENTO", periodLabel: "Adiantamento", periodStart: null, periodEnd: null, dueDate: iso(20), amount: "880.00", workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, paymentDate: null, paidAmount: null, status: "PENDING", dreCategoryId: null },
-      { id: "pi-3", employeeName: "Maria Silva", sector: "Cozinha", type: "SALARIO", periodLabel: "Salário", periodStart: null, periodEnd: null, dueDate: iso(28), amount: "1320.00", workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, paymentDate: null, paidAmount: null, status: "PENDING", dreCategoryId: null },
-      { id: "pi-fer", employeeName: "Edson Carvalho", sector: "Salão/Bar", type: "FERIAS", periodLabel: "Férias", periodStart: iso(16), periodEnd: iso(20), dueDate: iso(14), amount: "1500.00", workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, paymentDate: null, paidAmount: null, status: "PENDING", dreCategoryId: null }
+      { id: "pi-1", employeeName: "Maria Silva", employeeDisplayName: null, sector: "Cozinha", type: "VALE_TRANSPORTE", periodLabel: "VT 1ª quinzena", periodStart: iso(1), periodEnd: iso(15), dueDate: iso(1), amount: "227.96", workedDays: 13, freeDays: 2, bufferAmount: "18.76", creditApplied: "18.76", paymentDate: null, paidAmount: null, status: "PENDING", dreCategoryId: null },
+      { id: "pi-2", employeeName: "Maria Silva", employeeDisplayName: null, sector: "Cozinha", type: "ADIANTAMENTO", periodLabel: "Adiantamento", periodStart: null, periodEnd: null, dueDate: iso(20), amount: "880.00", workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, paymentDate: null, paidAmount: null, status: "PENDING", dreCategoryId: null },
+      { id: "pi-3", employeeName: "Maria Silva", employeeDisplayName: null, sector: "Cozinha", type: "SALARIO", periodLabel: "Salário", periodStart: null, periodEnd: null, dueDate: iso(28), amount: "1320.00", workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, paymentDate: null, paidAmount: null, status: "PENDING", dreCategoryId: null },
+      { id: "pi-fer", employeeName: "Edson Carvalho", employeeDisplayName: "Dão", sector: "Salão/Bar", type: "FERIAS", periodLabel: "Férias", periodStart: iso(16), periodEnd: iso(20), dueDate: iso(14), amount: "1500.00", workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null, paymentDate: null, paidAmount: null, status: "PENDING", dreCategoryId: null }
     ];
     const sum = (f: (i: (typeof items)[number]) => boolean) => items.filter(f).reduce((a, i) => a + Number(i.amount), 0);
     return { year: p.year, month: p.month, items, summary: { total: sum(() => true), vt: sum((i) => i.type === "VALE_TRANSPORTE"), advance: sum((i) => i.type === "ADIANTAMENTO"), salary: sum((i) => i.type === "SALARIO"), ferias: sum((i) => i.type === "FERIAS"), paid: 0, pending: sum(() => true), overdue: 0, count: items.length } };
@@ -648,8 +648,11 @@ function mockResponseFor(url: string): unknown {
     return {
       year: y, month: mo, daysInMonth, days,
       employees: [
-        { id: "emp-1", firstName: "Maria", lastName: "Silva", sector: "Cozinha", position: "Cozinheira", shiftStart: "08:00", shiftEnd: "16:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 1 },
-        { id: "emp-2", firstName: "Edson", lastName: "Carvalho", sector: "Salão/Bar", position: "Garçom", shiftStart: "12:00", shiftEnd: "22:20", scheduleRegime: "CINCO_POR_DOIS", admissionDate: null, terminationDate: null, holidayCompBalance: 0 }
+        { id: "emp-lid", firstName: "Rafael", lastName: "Gerente", displayName: "Rafa", sector: "Liderança", subgroup: null, position: "Gerente geral", shiftStart: "10:00", shiftEnd: "20:00", scheduleRegime: "CINCO_POR_DOIS", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "emp-1", firstName: "Maria", lastName: "Silva", displayName: null, sector: "Cozinha", subgroup: "Quente", position: "Cozinheira", shiftStart: "08:00", shiftEnd: "16:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 1 },
+        { id: "emp-fria", firstName: "Lidiane", lastName: "Rocha", displayName: "Lidi", sector: "Cozinha", subgroup: "Fria", position: "Auxiliar", shiftStart: "08:00", shiftEnd: "16:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "emp-2", firstName: "Edson", lastName: "Carvalho", displayName: "Dão", sector: "Salão", subgroup: "Bar", position: "Barman", shiftStart: "12:00", shiftEnd: "22:20", scheduleRegime: "CINCO_POR_DOIS", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "emp-pia", firstName: "Ordonio", lastName: "Alves", displayName: null, sector: "Pia", subgroup: "Manhã", position: "Copeiro", shiftStart: "07:00", shiftEnd: "15:00", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 }
       ],
       entries: [
         { employeeId: "emp-1", day: 7, type: "FOLGA" },
@@ -669,7 +672,7 @@ function mockResponseFor(url: string): unknown {
   if (path.endsWith("/employees")) {
     return [
       {
-        id: "emp-1", firstName: "Maria", lastName: "Silva", cpf: "12345678909",
+        id: "emp-1", firstName: "Maria", lastName: "Silva", displayName: null, cpf: "12345678909",
         rg: null, pis: null, birthDate: "1992-08-14T00:00:00.000Z", phone: null, email: null,
         zipCode: null, address: null, addressNumber: null, addressComplement: null,
         neighborhood: null, city: "São Paulo", state: "SP",
@@ -683,7 +686,7 @@ function mockResponseFor(url: string): unknown {
         isActive: true, notes: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
       },
       {
-        id: "emp-2", firstName: "Edson", lastName: "Carvalho", cpf: "98765432100",
+        id: "emp-2", firstName: "Edson", lastName: "Carvalho", displayName: "Dão", cpf: "98765432100",
         rg: null, pis: null, birthDate: "1988-02-09T00:00:00.000Z", phone: null, email: null,
         zipCode: null, address: null, addressNumber: null, addressComplement: null,
         neighborhood: null, city: "São Paulo", state: "SP",
@@ -697,7 +700,7 @@ function mockResponseFor(url: string): unknown {
         isActive: true, notes: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
       },
       {
-        id: "emp-3", firstName: "Ana", lastName: "Souza", cpf: "11122233396",
+        id: "emp-3", firstName: "Ana", lastName: "Souza", displayName: null, cpf: "11122233396",
         rg: null, pis: null, birthDate: "1995-05-20T00:00:00.000Z", phone: null, email: null,
         zipCode: null, address: null, addressNumber: null, addressComplement: null,
         neighborhood: null, city: "São Paulo", state: "SP",

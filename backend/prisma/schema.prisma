@@ -2204,6 +2204,7 @@ model Employee {
   // Pessoal
   firstName         String
   lastName          String
+  displayName       String?            // "Como quero ser chamado" — nome exibido na escala
   cpf               String             @unique
   rg                String?
   pis               String?
@@ -2228,6 +2229,7 @@ model Employee {
   pixKey            String?
   // Trabalho
   sector            String?
+  subgroup          String?
   position          String?
   baseSalary        Decimal?           @db.Decimal(12, 2)
   shiftStart        String?
@@ -2276,6 +2278,7 @@ model Employee {
 enum ScheduleDayType {
   FOLGA
   TURNO
+  EVENTO
   FERIAS
   FALTA
   ATESTADO

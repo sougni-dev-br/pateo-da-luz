@@ -103,11 +103,14 @@ function fullName(e: { firstName: string; lastName: string }) {
 }
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
+const CANON_SECTORS = ["Liderança", "Cozinha", "Salão", "Pia", "Pizzaria"];
+const CANON_SUBGROUPS = ["Quente", "Fria", "Buffet", "Bar", "Atendente", "Manhã", "Tarde"];
+
 const emptyEmployee = {
-  id: "", firstName: "", lastName: "", cpf: "", rg: "", pis: "", birthDate: "", phone: "", email: "",
+  id: "", firstName: "", lastName: "", displayName: "", cpf: "", rg: "", pis: "", birthDate: "", phone: "", email: "",
   zipCode: "", address: "", addressNumber: "", addressComplement: "", neighborhood: "", city: "", state: "",
   bankName: "", bankAgency: "", bankAccount: "", bankAccountDigit: "", bankAccountType: "CONTA_CORRENTE" as EmployeeBankAccountType,
-  pixKeyType: "", pixKey: "", sector: "", position: "", baseSalary: "", shiftStart: "", shiftEnd: "",
+  pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", shiftStart: "", shiftEnd: "",
   modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, admissionDate: "",
   vtType: "TRANSPORTE_PUBLICO" as VtType, vtPeriodicity: "QUINZENAL" as VtPeriodicity,
   vtCommute: "" as VtCommute | "", vtTripsPerDay: "2", vtFixedAmount: "", notes: ""
@@ -180,7 +183,7 @@ export function Funcionarios() {
 
   function openEdit(e: Employee) {
     setForm({
-      id: e.id, firstName: e.firstName, lastName: e.lastName, cpf: applyCpfMask(e.cpf),
+      id: e.id, firstName: e.firstName, lastName: e.lastName, displayName: e.displayName ?? "", cpf: applyCpfMask(e.cpf),
       rg: e.rg ?? "", pis: e.pis ?? "", birthDate: toDateInput(e.birthDate),
       phone: e.phone ?? "", email: e.email ?? "",
       zipCode: e.zipCode ?? "", address: e.address ?? "", addressNumber: e.addressNumber ?? "",
@@ -189,7 +192,7 @@ export function Funcionarios() {
       bankName: e.bankName ?? "", bankAgency: e.bankAgency ?? "", bankAccount: e.bankAccount ?? "",
       bankAccountDigit: e.bankAccountDigit ?? "", bankAccountType: e.bankAccountType,
       pixKeyType: e.pixKeyType ?? "", pixKey: e.pixKey ?? "",
-      sector: e.sector ?? "", position: e.position ?? "", baseSalary: moneyToMasked(e.baseSalary),
+      sector: e.sector ?? "", subgroup: e.subgroup ?? "", position: e.position ?? "", baseSalary: moneyToMasked(e.baseSalary),
       shiftStart: e.shiftStart ?? "", shiftEnd: e.shiftEnd ?? "",
       modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, admissionDate: toDateInput(e.admissionDate),
       vtType: e.vtType, vtPeriodicity: e.vtPeriodicity, vtCommute: e.vtCommute ?? "",
@@ -211,6 +214,7 @@ export function Funcionarios() {
         id: form.id || undefined,
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
+        displayName: form.displayName.trim() || undefined,
         cpf: form.cpf,
         rg: form.rg || undefined,
         pis: form.pis || undefined,
@@ -232,6 +236,7 @@ export function Funcionarios() {
         pixKeyType: form.pixKeyType || undefined,
         pixKey: form.pixKey || undefined,
         sector: form.sector || undefined,
+        subgroup: form.subgroup || undefined,
         position: form.position || undefined,
         baseSalary: form.baseSalary ? moneyToNumberString(form.baseSalary) : undefined,
         shiftStart: form.shiftStart || undefined,
@@ -444,7 +449,8 @@ export function Funcionarios() {
           </div>
           {error && <Alert tone="error">{error}</Alert>}
           <div className="stack">
-            <datalist id="employee-sectors">{sectorSuggestions.map((s) => <option key={s} value={s} />)}</datalist>
+            <datalist id="employee-sectors">{Array.from(new Set([...CANON_SECTORS, ...sectorSuggestions])).map((s) => <option key={s} value={s} />)}</datalist>
+            <datalist id="employee-subgroups">{CANON_SUBGROUPS.map((s) => <option key={s} value={s} />)}</datalist>
             <datalist id="employee-positions">{positionSuggestions.map((p) => <option key={p} value={p} />)}</datalist>
             <FormSection title="Dados pessoais">
               <FormGrid cols={4}>
@@ -453,6 +459,9 @@ export function Funcionarios() {
                 </FormField>
                 <FormField label="Sobrenome" required>
                   <TextField value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
+                </FormField>
+                <FormField label="Como quero ser chamado" hint="Nome que aparece na escala">
+                  <TextField value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} placeholder={form.firstName || "Ex.: Maria"} />
                 </FormField>
                 <FormField label="CPF" required>
                   <TextField value={form.cpf} onChange={(e) => setForm({ ...form, cpf: applyCpfMask(e.target.value) })} placeholder="000.000.000-00" maxLength={14} />
@@ -534,7 +543,10 @@ export function Funcionarios() {
             <FormSection title="Trabalho">
               <FormGrid cols={4}>
                 <FormField label="Setor" hint="Escolha ou digite um novo">
-                  <TextField value={form.sector} onChange={(e) => setForm({ ...form, sector: e.target.value })} list="employee-sectors" placeholder="Ex.: Salão/Bar" />
+                  <TextField value={form.sector} onChange={(e) => setForm({ ...form, sector: e.target.value })} list="employee-sectors" placeholder="Ex.: Cozinha, Salão, Pia…" />
+                </FormField>
+                <FormField label="Praça / subgrupo" hint="Ex.: Quente, Fria, Buffet, Bar…">
+                  <TextField value={form.subgroup} onChange={(e) => setForm({ ...form, subgroup: e.target.value })} list="employee-subgroups" placeholder="Ex.: Praça Quente" />
                 </FormField>
                 <FormField label="Cargo" hint="Escolha ou digite um novo">
                   <TextField value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} list="employee-positions" placeholder="Ex.: Líder de salão" />
@@ -816,6 +828,14 @@ export function Funcionarios() {
                   <Table.Row key={e.id} style={!e.isActive ? { opacity: 0.55 } : undefined}>
                     <Table.Td>
                       <strong>{fullName(e)}</strong>
+                      {e.displayName && (
+                        <span
+                          title="Como quero ser chamado — nome que aparece na escala"
+                          style={{ marginLeft: 6, fontSize: "0.72em", fontWeight: 600, color: "var(--muted)", border: "1px solid var(--border)", padding: "0 6px", borderRadius: 999, verticalAlign: "middle", whiteSpace: "nowrap" }}
+                        >
+                          {e.displayName}
+                        </span>
+                      )}
                       <div style={{ fontSize: "0.82em", color: "var(--muted)" }}>
                         {e.cpf}{age != null ? ` · ${age} anos` : ""}
                       </div>
