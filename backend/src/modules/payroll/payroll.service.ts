@@ -12,6 +12,7 @@ export type PayrollItemType = "ADIANTAMENTO" | "SALARIO" | "VALE_TRANSPORTE";
 export type ComputedItem = {
   employeeId: string;
   employeeName: string;
+  employeeDisplayName: string | null;
   sector: string | null;
   type: PayrollItemType;
   periodLabel: string;
@@ -128,7 +129,7 @@ export async function computePayroll(year: number, month: number) {
       if (passValue != null) {
         // Bilhete Único Mensal: valor fixo mensal (ilimitado). Sem dias/buffer/crédito.
         items.push({
-          employeeId: emp.id, employeeName: name, sector: emp.sector, type: "VALE_TRANSPORTE",
+          employeeId: emp.id, employeeName: name, employeeDisplayName: emp.displayName, sector: emp.sector, type: "VALE_TRANSPORTE",
           periodLabel: "VT Bilhete Único Mensal",
           periodStart: isoDate(year, month, 1), periodEnd: isoDate(year, month, daysInMonth),
           dueDate: isoDate(year, month, 1), amount: passValue,
@@ -153,7 +154,7 @@ export async function computePayroll(year: number, month: number) {
           const net = round2(Math.max(0, r.gross + buffer - creditApplied));
           creditBalance = round2(buffer + (creditBalance - creditApplied));
           items.push({
-            employeeId: emp.id, employeeName: name, sector: emp.sector, type: "VALE_TRANSPORTE",
+            employeeId: emp.id, employeeName: name, employeeDisplayName: emp.displayName, sector: emp.sector, type: "VALE_TRANSPORTE",
             periodLabel: p.label, periodStart: isoDate(year, month, p.start), periodEnd: isoDate(year, month, p.end),
             dueDate: isoDate(year, month, p.start), amount: net, workedDays: r.workedDays, freeDays: r.freeDays,
             bufferAmount: buffer, creditApplied,
@@ -172,7 +173,7 @@ export async function computePayroll(year: number, month: number) {
           : [{ label: "Ajuda de custo mensal", start: 1 }];
         for (const p of periods) {
           items.push({
-            employeeId: emp.id, employeeName: name, sector: emp.sector, type: "VALE_TRANSPORTE",
+            employeeId: emp.id, employeeName: name, employeeDisplayName: emp.displayName, sector: emp.sector, type: "VALE_TRANSPORTE",
             periodLabel: p.label, periodStart: null, periodEnd: null, dueDate: isoDate(year, month, p.start),
             amount: val, workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null,
             dreCategoryId: dreVt?.id ?? null, dreCategoryName: dreVt?.name ?? null,
@@ -191,7 +192,7 @@ export async function computePayroll(year: number, month: number) {
       const advance = round2((base * Number(settings.advancePercent)) / 100);
       const salary = round2(base - advance);
       items.push({
-        employeeId: emp.id, employeeName: name, sector: emp.sector, type: "ADIANTAMENTO",
+        employeeId: emp.id, employeeName: name, employeeDisplayName: emp.displayName, sector: emp.sector, type: "ADIANTAMENTO",
         periodLabel: "Adiantamento", periodStart: null, periodEnd: null,
         dueDate: isoDate(year, month, Math.min(settings.advanceDueDay, daysInMonth)),
         amount: advance, workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null,
@@ -203,7 +204,7 @@ export async function computePayroll(year: number, month: number) {
       const nm = month === 12 ? 1 : month + 1;
       const nmDays = new Date(ny, nm, 0).getDate();
       items.push({
-        employeeId: emp.id, employeeName: name, sector: emp.sector, type: "SALARIO",
+        employeeId: emp.id, employeeName: name, employeeDisplayName: emp.displayName, sector: emp.sector, type: "SALARIO",
         periodLabel: "Salário", periodStart: null, periodEnd: null,
         dueDate: isoDate(ny, nm, Math.min(settings.salaryDueDay, nmDays)),
         amount: salary, workedDays: null, freeDays: null, bufferAmount: null, creditApplied: null,
