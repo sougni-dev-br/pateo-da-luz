@@ -660,7 +660,12 @@ function mockResponseFor(url: string): unknown {
         { employeeId: "emp-2", day: 3, type: "FOLGA" },
         { employeeId: "emp-2", day: 4, type: "FOLGA" }
       ],
-      vacationDays: [16, 17, 18, 19, 20].map((day) => ({ employeeId: "emp-2", day }))
+      vacationDays: [16, 17, 18, 19, 20].map((day) => ({ employeeId: "emp-2", day })),
+      dateEvents: [
+        { day: 11, size: "PEQUENO" },
+        { day: 14, size: "MEDIO" },
+        { day: 21, size: "GRANDE" }
+      ]
     };
   }
 

@@ -5139,6 +5139,8 @@ export type ScheduleEmployee = {
 };
 export type ScheduleEntry = { employeeId: string; day: number; type: ScheduleDayType };
 export type ScheduleVacationDay = { employeeId: string; day: number };
+export type EventSize = "PEQUENO" | "MEDIO" | "GRANDE";
+export type ScheduleDateEvent = { day: number; size: EventSize };
 export type ScheduleData = {
   year: number;
   month: number;
@@ -5147,17 +5149,18 @@ export type ScheduleData = {
   employees: ScheduleEmployee[];
   entries: ScheduleEntry[];
   vacationDays: ScheduleVacationDay[];
+  dateEvents: ScheduleDateEvent[];
 };
 
 export function getSchedule(year: number, month: number) {
   return request<ScheduleData>(`/schedule?year=${year}&month=${month}`);
 }
 
-export function saveScheduleBulk(year: number, month: number, entries: ScheduleEntry[]) {
-  return request<{ ok: boolean; year: number; month: number; count: number }>("/schedule/bulk", {
+export function saveScheduleBulk(year: number, month: number, entries: ScheduleEntry[], dateEvents: ScheduleDateEvent[]) {
+  return request<{ ok: boolean; year: number; month: number; count: number; events: number }>("/schedule/bulk", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ year, month, entries })
+    body: JSON.stringify({ year, month, entries, dateEvents })
   });
 }
 
