@@ -2300,6 +2300,22 @@ model EmployeeScheduleDay {
   @@index([employeeId])
 }
 
+// Evento por data (do dia inteiro, como domingo/feriado) — Pequeno/Médio/Grande.
+// Marcado clicando no cabeçalho da data na escala.
+enum EventSize {
+  PEQUENO
+  MEDIO
+  GRANDE
+}
+
+model ScheduleDayEvent {
+  id        String    @id @default(cuid())
+  date      DateTime  @unique @db.Date
+  size      EventSize
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Folha de Pagamento — Fase 3
 // PayrollSettings: tarifas de transporte (configuráveis) + % de adiantamento

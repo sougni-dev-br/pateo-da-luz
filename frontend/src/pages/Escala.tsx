@@ -2,7 +2,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Minus, Plus, Printer, RefreshC
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import {
-  ScheduleData, ScheduleDayType, ScheduleEmployee, ScheduleEntry,
+  EventSize, ScheduleData, ScheduleDateEvent, ScheduleDayType, ScheduleEmployee, ScheduleEntry,
   adjustHolidayComp, getSchedule, saveScheduleBulk
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
@@ -20,11 +20,23 @@ const REGIME_SHORT: Record<string, string> = { SEIS_POR_UM: "6×1", CINCO_POR_DO
 const COLORS = {
   folga: "#1f2937",     // escuro
   turno: "#ea580c",     // laranja vibrante (distinto da folga)
-  evento: "#7c3aed",    // roxo vibrante
+  eventoPequeno: "#0d9488", // teal vibrante (Evento pequeno)
+  eventoMedio: "#7c3aed",   // violeta vibrante (Evento médio)
+  eventoGrande: "#db2777",  // fúcsia/rosa vibrante (Evento grande)
   ferias: "#2563eb",    // azul
   domingo: "#ff8a8a",   // vermelho/rosa
   feriado: "#8fd14f",   // verde
 };
+
+// Evento por data (do dia inteiro) — 3 tamanhos, marcados no cabeçalho.
+const EVENT_COLOR: Record<EventSize, string> = {
+  PEQUENO: COLORS.eventoPequeno, MEDIO: COLORS.eventoMedio, GRANDE: COLORS.eventoGrande,
+};
+const EVENT_LABEL: Record<EventSize, string> = {
+  PEQUENO: "Evento pequeno", MEDIO: "Evento médio", GRANDE: "Evento grande",
+};
+// Ciclo do clique no cabeçalho: — → Pequeno → Médio → Grande → —
+const EVENT_NEXT: Record<EventSize, EventSize | null> = { PEQUENO: "MEDIO", MEDIO: "GRANDE", GRANDE: null };
 
 // Ordem fixa dos setores e das praças/subgrupos na escala (pedido do Eli).
 const SECTOR_ORDER = ["Liderança", "Cozinha", "Salão", "Pia", "Pizzaria"];
@@ -68,6 +80,7 @@ export function Escala() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [data, setData] = useState<ScheduleData | null>(null);
   const [marks, setMarks] = useState<Map<string, ScheduleDayType>>(new Map());
+  const [dateEvents, setDateEvents] = useState<Map<number, EventSize>>(new Map());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -83,6 +96,9 @@ export function Escala() {
       const m = new Map<string, ScheduleDayType>();
       d.entries.forEach((e) => m.set(keyOf(e.employeeId, e.day), e.type));
       setMarks(m);
+      const de = new Map<number, EventSize>();
+      d.dateEvents.forEach((e) => de.set(e.day, e.size));
+      setDateEvents(de);
       const cm = new Map<string, number>();
       d.employees.forEach((e) => cm.set(e.id, e.holidayCompBalance));
       setComp(cm);
@@ -157,7 +173,7 @@ export function Escala() {
     return feriasSet.has(keyOf(employeeId, day));
   }
 
-  // Ciclo da célula: vazio → F (folga) → T (turno/cobertura) → vazio.
+  // Ciclo da célula do funcionário: vazio → F (folga) → T (turno/cobertura) → vazio.
   function toggle(employeeId: string, day: number) {
     if (!canEdit) return;
     setMarks((prev) => {
@@ -166,8 +182,24 @@ export function Escala() {
       const cur = next.get(k);
       if (!cur) next.set(k, "FOLGA");
       else if (cur === "FOLGA") next.set(k, "TURNO");
-      else if (cur === "TURNO") next.set(k, "EVENTO");
       else next.delete(k);
+      return next;
+    });
+    setDirty(true);
+  }
+
+  // Evento da DATA inteira (cabeçalho). Ciclo: — → Pequeno → Médio → Grande → —.
+  function toggleDateEvent(day: number) {
+    if (!canEdit) return;
+    setDateEvents((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(day);
+      if (!cur) next.set(day, "PEQUENO");
+      else {
+        const nx = EVENT_NEXT[cur];
+        if (nx) next.set(day, nx);
+        else next.delete(day);
+      }
       return next;
     });
     setDirty(true);
@@ -192,8 +224,9 @@ export function Escala() {
         const sep = k.lastIndexOf("|");
         return { employeeId: k.slice(0, sep), day: Number(k.slice(sep + 1)), type };
       });
-      const res = await saveScheduleBulk(year, month, entries);
-      setNotice({ tone: "success", message: `Escala salva — ${res.count} folga(s) em ${MONTHS[month - 1]}.` });
+      const events: ScheduleDateEvent[] = Array.from(dateEvents.entries()).map(([day, size]) => ({ day, size }));
+      const res = await saveScheduleBulk(year, month, entries, events);
+      setNotice({ tone: "success", message: `Escala salva — ${res.count} folga(s) e ${res.events} evento(s) em ${MONTHS[month - 1]}.` });
       setDirty(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar escala.");
@@ -235,7 +268,8 @@ export function Escala() {
   function handlePrint() {
     if (!data) return;
     const dayHead = data.days.map((d) => {
-      const cls = d.isHoliday ? "hol" : d.isSunday ? "sun" : "";
+      const ev = dateEvents.get(d.day);
+      const cls = ev ? `ev-${ev.toLowerCase()}` : d.isHoliday ? "hol" : d.isSunday ? "sun" : "";
       return `<th class="${cls}">${d.day}<br><span>${PRINT_DOW[d.dow]}</span></th>`;
     }).join("");
     const holidayList = data.days.filter((d) => d.isHoliday && d.holidayName).map((d) => `${d.day} — ${d.holidayName}`).join(" · ");
@@ -250,9 +284,8 @@ export function Escala() {
             const mark = marks.get(keyOf(emp.id, d.day));
             const isFolgaDay = !isFeriasDay && mark === "FOLGA";
             const isTurnoDay = !isFeriasDay && mark === "TURNO";
-            const isEventoDay = !isFeriasDay && mark === "EVENTO";
-            const cls = !within ? "out" : isFeriasDay ? "ferias" : isFolgaDay ? "folga" : isTurnoDay ? "turno" : isEventoDay ? "evento" : d.isHoliday ? "hol" : d.isSunday ? "sun" : "";
-            const label = within ? (isFeriasDay ? "Fér" : isFolgaDay ? "F" : isTurnoDay ? "T" : isEventoDay ? "E" : "") : "";
+            const cls = !within ? "out" : isFeriasDay ? "ferias" : isFolgaDay ? "folga" : isTurnoDay ? "turno" : d.isHoliday ? "hol" : d.isSunday ? "sun" : "";
+            const label = within ? (isFeriasDay ? "Fér" : isFolgaDay ? "F" : isTurnoDay ? "T" : "") : "";
             return `<td class="${cls}">${label}</td>`;
           }).join("");
           return `<tr><td class="name"><b>${fullName(emp)}</b></td>${cells}</tr>`;
@@ -276,9 +309,10 @@ tr.sector td{background:#eee;text-align:left;font-weight:bold;text-transform:upp
 tr.subsector td{background:#f6f6f6;text-align:left;font-weight:600;font-size:9px;padding-left:18px;color:#555}
 td.folga{background:${COLORS.folga};color:#fff;font-weight:bold}
 td.turno{background:${COLORS.turno};color:#fff;font-weight:bold}
-td.evento{background:${COLORS.evento};color:#fff;font-weight:bold}
 td.ferias{background:${COLORS.ferias};color:#fff;font-weight:bold;font-size:8px}
 td.sun,th.sun{background:${COLORS.domingo}}td.hol,th.hol{background:${COLORS.feriado}}
+th.ev-pequeno{background:${COLORS.eventoPequeno};color:#fff}th.ev-medio{background:${COLORS.eventoMedio};color:#fff}th.ev-grande{background:${COLORS.eventoGrande};color:#fff}
+th.ev-pequeno span,th.ev-medio span,th.ev-grande span{color:#eee}
 td.out{background:repeating-linear-gradient(45deg,#fff,#fff 3px,#eee 3px,#eee 6px)}
 .legend{margin-top:10px;font-size:11px}.legend span{margin-right:16px;display:inline-block;margin-bottom:3px}
 .box{display:inline-block;width:12px;height:12px;border:1px solid #999;vertical-align:-2px;margin-right:4px;text-align:center;line-height:11px;font-size:8px;font-weight:bold}
@@ -287,7 +321,7 @@ td.out{background:repeating-linear-gradient(45deg,#fff,#fff 3px,#eee 3px,#eee 6p
 <h1>Escala de trabalho — ${MONTHS[month - 1]} ${year}</h1>
 <div class="sub">Pateo da Luz</div>
 <table><thead><tr><th class="name">Funcionário</th>${dayHead}</tr></thead><tbody>${rows}</tbody></table>
-<div class="legend"><span><span class="box" style="background:${COLORS.folga};color:#fff">F</span>Folga</span><span><span class="box" style="background:${COLORS.turno};color:#fff">T</span>Turno (cobertura)</span><span><span class="box" style="background:${COLORS.evento};color:#fff">E</span>Evento</span><span><span class="box" style="background:${COLORS.ferias}"></span>Férias</span><span><span class="box" style="background:${COLORS.domingo}"></span>Domingo</span><span><span class="box" style="background:${COLORS.feriado}"></span>Feriado</span></div>
+<div class="legend"><span><span class="box" style="background:${COLORS.folga};color:#fff">F</span>Folga</span><span><span class="box" style="background:${COLORS.turno};color:#fff">T</span>Turno (cobertura)</span><span><span class="box" style="background:${COLORS.ferias}"></span>Férias</span><span><span class="box" style="background:${COLORS.domingo}"></span>Domingo</span><span><span class="box" style="background:${COLORS.feriado}"></span>Feriado</span><span><span class="box" style="background:${COLORS.eventoPequeno}"></span>Evento pequeno</span><span><span class="box" style="background:${COLORS.eventoMedio}"></span>Evento médio</span><span><span class="box" style="background:${COLORS.eventoGrande}"></span>Evento grande</span></div>
 ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${holidayList}</div>` : ""}
 </body></html>`;
     const iframe = document.createElement("iframe");
@@ -317,11 +351,16 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
     cursor: "pointer", padding: 0, color: "var(--ink, inherit)"
   };
 
-  function headStyle(m: { isSunday: boolean; isHoliday: boolean }): CSSProperties {
+  function headStyle(m: { isSunday: boolean; isHoliday: boolean }, event?: EventSize): CSSProperties {
+    const eventBg = event ? EVENT_COLOR[event] : null;
+    const bg = eventBg ?? (m.isHoliday ? COLORS.feriado : m.isSunday ? COLORS.domingo : "var(--surface)");
     return {
+      position: "sticky", top: 0, zIndex: 4,
       minWidth: CELL, width: CELL, textAlign: "center", padding: "4px 0", fontSize: 11,
-      background: m.isHoliday ? COLORS.feriado : m.isSunday ? COLORS.domingo : "transparent",
-      color: m.isSunday || m.isHoliday ? "#1f2937" : "var(--muted)", borderBottom: "1px solid var(--border)"
+      background: bg,
+      color: eventBg ? "#fff" : (m.isSunday || m.isHoliday ? "#1f2937" : "var(--muted)"),
+      boxShadow: "inset 0 -1px 0 var(--border)",
+      cursor: canEdit ? "pointer" : "default"
     };
   }
 
@@ -350,11 +389,15 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
         <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 12, color: "var(--muted)", margin: "0 0 10px", alignItems: "center" }}>
           <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.folga, verticalAlign: "-2px", marginRight: 5 }} />Folga (F)</span>
           <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.turno, verticalAlign: "-2px", marginRight: 5 }} />Turno / cobertura (T)</span>
-          <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.evento, verticalAlign: "-2px", marginRight: 5 }} />Evento (E)</span>
           <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.ferias, verticalAlign: "-2px", marginRight: 5 }} />Férias</span>
           <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.domingo, verticalAlign: "-2px", marginRight: 5 }} />Domingo</span>
           <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.feriado, verticalAlign: "-2px", marginRight: 5 }} />Feriado</span>
-          {canEdit && <span style={{ fontSize: 11, opacity: 0.85 }}>Clique cicla: vazio → F → T → E → vazio</span>}
+          <span style={{ width: "100%", height: 0 }} />
+          <strong style={{ fontSize: 11, color: "var(--ink, inherit)" }}>Eventos (na data):</strong>
+          <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.eventoPequeno, verticalAlign: "-2px", marginRight: 5 }} />Evento pequeno</span>
+          <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.eventoMedio, verticalAlign: "-2px", marginRight: 5 }} />Evento médio</span>
+          <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.eventoGrande, verticalAlign: "-2px", marginRight: 5 }} />Evento grande</span>
+          {canEdit && <span style={{ fontSize: 11, opacity: 0.85 }}>Célula do funcionário: clique cicla — → F → T → —. Cabeçalho da data: clique cicla o evento — → Pequeno → Médio → Grande → —</span>}
         </div>
 
         {error && <Alert tone="error">{error}</Alert>}
@@ -367,18 +410,22 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
         )}
 
         {!loading && data && data.employees.length > 0 && (
-          <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 10 }}>
+          <div style={{ overflow: "auto", maxHeight: "70vh", border: "1px solid var(--border)", borderRadius: 10 }}>
             <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr>
-                  <th style={{ ...stickyNameStyle, zIndex: 3, borderBottom: "1px solid var(--border)", fontSize: 11, color: "var(--muted)" }}>Funcionário</th>
-                  <th style={{ minWidth: 52, maxWidth: 52, textAlign: "center", padding: "4px 2px", fontSize: 10, fontWeight: 500, color: "var(--muted)", borderBottom: "1px solid var(--border)", borderLeft: "1px solid var(--border)" }} title="Total de dias trabalhados no mês (só na tela)">Trab.</th>
-                  {data.days.map((d) => (
-                    <th key={d.day} style={headStyle(d)} title={d.holidayName ?? undefined}>
-                      <div style={{ fontWeight: 500, color: "var(--ink, inherit)" }}>{d.day}</div>
-                      <div>{DOW_LETTERS[d.dow]}</div>
-                    </th>
-                  ))}
+                  <th style={{ ...stickyNameStyle, top: 0, zIndex: 6, boxShadow: "inset 0 -1px 0 var(--border)", fontSize: 11, color: "var(--muted)" }}>Funcionário</th>
+                  <th style={{ position: "sticky", top: 0, zIndex: 5, background: "var(--surface)", minWidth: 52, maxWidth: 52, textAlign: "center", padding: "4px 2px", fontSize: 10, fontWeight: 500, color: "var(--muted)", boxShadow: "inset 0 -1px 0 var(--border)", borderLeft: "1px solid var(--border)" }} title="Total de dias trabalhados no mês (só na tela)">Trab.</th>
+                  {data.days.map((d) => {
+                    const ev = dateEvents.get(d.day);
+                    const evTitle = ev ? `${EVENT_LABEL[ev]}${canEdit ? " — clique para trocar" : ""}` : (canEdit ? "Clique para marcar evento" : undefined);
+                    return (
+                      <th key={d.day} style={headStyle(d, ev)} title={evTitle ?? d.holidayName ?? undefined} onClick={canEdit ? () => toggleDateEvent(d.day) : undefined}>
+                        <div style={{ fontWeight: 500, color: ev ? "#fff" : "var(--ink, inherit)" }}>{d.day}</div>
+                        <div>{DOW_LETTERS[d.dow]}</div>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -420,7 +467,6 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                           const mark = marks.get(keyOf(emp.id, d.day));
                           const isFolgaDay = !isFeriasDay && mark === "FOLGA";
                           const isTurnoDay = !isFeriasDay && mark === "TURNO";
-                          const isEventoDay = !isFeriasDay && mark === "EVENTO";
                           const bg = !within
                             ? "repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(128,128,128,0.12) 3px, rgba(128,128,128,0.12) 6px)"
                             : isFeriasDay
@@ -429,8 +475,6 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                                 ? COLORS.folga
                                 : isTurnoDay
                                   ? COLORS.turno
-                                  : isEventoDay
-                                    ? COLORS.evento
                                   : d.isHoliday
                                     ? COLORS.feriado
                                     : d.isSunday
@@ -457,7 +501,7 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                                 fontSize: isFeriasDay ? 9 : undefined
                               }}
                             >
-                              {within ? (isFeriasDay ? "Fér" : isFolgaDay ? "F" : isTurnoDay ? "T" : isEventoDay ? "E" : "") : ""}
+                              {within ? (isFeriasDay ? "Fér" : isFolgaDay ? "F" : isTurnoDay ? "T" : "") : ""}
                             </td>
                           );
                         })}
