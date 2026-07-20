@@ -32,6 +32,19 @@ function toNumStr(s: string) {
   return t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t;
 }
 
+// Apelido ("Como quero ser chamado") — pílula sutil ao lado do nome completo.
+function NickTag({ nick }: { nick: string | null | undefined }) {
+  if (!nick) return null;
+  return (
+    <span
+      title="Como quero ser chamado — nome que aparece na escala"
+      style={{ marginLeft: 6, fontSize: "0.72em", fontWeight: 600, color: "var(--muted)", border: "1px solid var(--border)", padding: "0 6px", borderRadius: 999, verticalAlign: "middle", whiteSpace: "nowrap" }}
+    >
+      {nick}
+    </span>
+  );
+}
+
 const emptySettingsForm = {
   busFare: "", metroFare: "", integratedFare: "", monthlyPassBus: "", monthlyPassIntegrated: "",
   advancePercent: "", advanceDueDay: "", salaryDueDay: "", bufferDays: ""
@@ -363,7 +376,7 @@ export function Folha() {
                 <Table.Body>
                   {preview.items.map((i: PayrollComputedItem, idx) => (
                     <Table.Row key={idx} style={i.exists ? { opacity: 0.5 } : undefined}>
-                      <Table.Td><strong>{i.employeeName}</strong>{i.sector ? <div style={{ fontSize: "0.8em", color: "var(--muted)" }}>{i.sector}</div> : null}</Table.Td>
+                      <Table.Td><strong>{i.employeeName}</strong><NickTag nick={i.employeeDisplayName} />{i.sector ? <div style={{ fontSize: "0.8em", color: "var(--muted)" }}>{i.sector}</div> : null}</Table.Td>
                       <Table.Td><StatusBadge tone={TYPE_TONE[i.type]}>{TYPE_LABELS[i.type]}</StatusBadge></Table.Td>
                       <Table.Td>{periodCell(i)}{i.creditApplied ? <div style={{ fontSize: "0.78em", color: "var(--muted)" }}>+{money(i.bufferAmount)} sobra − {money(i.creditApplied)} crédito</div> : null}</Table.Td>
                       <Table.Td style={{ whiteSpace: "nowrap" }}>{fmtDate(i.dueDate)}</Table.Td>
@@ -401,7 +414,7 @@ export function Folha() {
               <Table.Body>
                 {list.items.map((i) => (
                   <Table.Row key={i.id}>
-                    <Table.Td><strong>{i.employeeName}</strong>{i.sector ? <div style={{ fontSize: "0.8em", color: "var(--muted)" }}>{i.sector}</div> : null}</Table.Td>
+                    <Table.Td><strong>{i.employeeName}</strong><NickTag nick={i.employeeDisplayName} />{i.sector ? <div style={{ fontSize: "0.8em", color: "var(--muted)" }}>{i.sector}</div> : null}</Table.Td>
                     <Table.Td><StatusBadge tone={TYPE_TONE[i.type]}>{TYPE_LABELS[i.type]}</StatusBadge></Table.Td>
                     <Table.Td>{periodCell(i)}</Table.Td>
                     <Table.Td style={{ whiteSpace: "nowrap" }}>{fmtDate(i.dueDate)}</Table.Td>

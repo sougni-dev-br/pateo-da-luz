@@ -72,6 +72,7 @@ function buildEmployeeData(b: Record<string, unknown>) {
   return {
     firstName: str(b.firstName)!,
     lastName: str(b.lastName)!,
+    displayName: str(b.displayName),
     rg: str(b.rg),
     pis: digits(b.pis),
     birthDate: dateOrNull(b.birthDate),
@@ -92,6 +93,7 @@ function buildEmployeeData(b: Record<string, unknown>) {
     pixKeyType: str(b.pixKeyType),
     pixKey: str(b.pixKey),
     sector: str(b.sector),
+    subgroup: str(b.subgroup),
     position: str(b.position),
     baseSalary: numOrNull(b.baseSalary),
     shiftStart: str(b.shiftStart),

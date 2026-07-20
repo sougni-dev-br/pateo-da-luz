@@ -5007,6 +5007,7 @@ export type Employee = {
   id: string;
   firstName: string;
   lastName: string;
+  displayName: string | null;
   cpf: string;
   rg: string | null;
   pis: string | null;
@@ -5028,6 +5029,7 @@ export type Employee = {
   pixKeyType: string | null;
   pixKey: string | null;
   sector: string | null;
+  subgroup: string | null;
   position: string | null;
   baseSalary: string | null;
   shiftStart: string | null;
@@ -5062,6 +5064,7 @@ export type EmployeePayload = {
   id?: string;
   firstName: string;
   lastName: string;
+  displayName?: string;
   cpf: string;
   rg?: string;
   pis?: string;
@@ -5083,6 +5086,7 @@ export type EmployeePayload = {
   pixKeyType?: string;
   pixKey?: string;
   sector?: string;
+  subgroup?: string;
   position?: string;
   baseSalary?: string | number;
   shiftStart?: string;
@@ -5116,13 +5120,15 @@ export function getEmployeeOptions() {
 }
 
 // ─── Escala mensal ──────────────────────────────────────────────────────────────
-export type ScheduleDayType = "FOLGA" | "TURNO" | "FERIAS" | "FALTA" | "ATESTADO";
+export type ScheduleDayType = "FOLGA" | "TURNO" | "EVENTO" | "FERIAS" | "FALTA" | "ATESTADO";
 export type ScheduleDayMeta = { day: number; dow: number; isSunday: boolean; isHoliday: boolean; holidayName: string | null };
 export type ScheduleEmployee = {
   id: string;
   firstName: string;
   lastName: string;
+  displayName: string | null;
   sector: string | null;
+  subgroup: string | null;
   position: string | null;
   shiftStart: string | null;
   shiftEnd: string | null;
@@ -5175,6 +5181,7 @@ export type PayrollSettings = {
 export type PayrollComputedItem = {
   employeeId: string;
   employeeName: string;
+  employeeDisplayName: string | null;
   sector: string | null;
   type: PayrollItemType;
   periodLabel: string;
@@ -5202,6 +5209,7 @@ export type PayrollPreview = {
 export type PayrollListItem = {
   id: string;
   employeeName: string;
+  employeeDisplayName: string | null;
   sector: string | null;
   type: PayrollItemType;
   periodLabel: string;

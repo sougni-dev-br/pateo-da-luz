@@ -20,9 +20,18 @@ const REGIME_SHORT: Record<string, string> = { SEIS_POR_UM: "6×1", CINCO_POR_DO
 const COLORS = {
   folga: "#1f2937",     // escuro
   turno: "#ea580c",     // laranja vibrante (distinto da folga)
+  evento: "#7c3aed",    // roxo vibrante
   ferias: "#2563eb",    // azul
   domingo: "#ff8a8a",   // vermelho/rosa
   feriado: "#8fd14f",   // verde
+};
+
+// Ordem fixa dos setores e das praças/subgrupos na escala (pedido do Eli).
+const SECTOR_ORDER = ["Liderança", "Cozinha", "Salão", "Pia", "Pizzaria"];
+const SUBGROUP_ORDER: Record<string, string[]> = {
+  "Cozinha": ["Quente", "Fria"],
+  "Salão": ["Buffet", "Bar", "Atendente"],
+  "Pia": ["Manhã", "Tarde"],
 };
 
 const UNSAVED_CONFIRM = "Você tem alterações não salvas na escala. Sair sem salvar vai descartá-las. Deseja continuar?";
@@ -30,8 +39,8 @@ const UNSAVED_CONFIRM = "Você tem alterações não salvas na escala. Sair sem 
 function keyOf(employeeId: string, day: number) {
   return `${employeeId}|${day}`;
 }
-function fullName(e: { firstName: string; lastName: string }) {
-  return `${e.firstName} ${e.lastName}`.trim();
+function fullName(e: { firstName: string; lastName: string; displayName?: string | null }) {
+  return e.displayName?.trim() || `${e.firstName} ${e.lastName}`.trim();
 }
 function dateMs(year: number, month: number, day: number) {
   return Date.UTC(year, month - 1, day);
@@ -104,16 +113,38 @@ export function Escala() {
   // Blindagem: confirma antes de sair da tela pelo menu com edições não salvas.
   useNavigationGuard(dirty, UNSAVED_CONFIRM);
 
+  // Agrupamento em 2 níveis: setor (ordem canônica) → praça/subgrupo (ordem
+  // canônica) → funcionários. Setores/subgrupos fora da lista canônica vão ao
+  // fim, na ordem de aparição. Sem subgrupo = funcionários direto sob o setor.
   const sectorGroups = useMemo(() => {
     if (!data) return [];
-    const groups: Array<{ sector: string; employees: ScheduleEmployee[] }> = [];
+    const bySector = new Map<string, Map<string, ScheduleEmployee[]>>();
+    const seen: string[] = [];
     for (const emp of data.employees) {
       const sector = emp.sector || "Sem setor";
-      const g = groups.find((x) => x.sector === sector);
-      if (g) g.employees.push(emp);
-      else groups.push({ sector, employees: [emp] });
+      const sub = emp.subgroup || "";
+      if (!bySector.has(sector)) { bySector.set(sector, new Map()); seen.push(sector); }
+      const subs = bySector.get(sector)!;
+      if (!subs.has(sub)) subs.set(sub, []);
+      subs.get(sub)!.push(emp);
     }
-    return groups;
+    const orderedSectors = [
+      ...SECTOR_ORDER.filter((s) => bySector.has(s)),
+      ...seen.filter((s) => !SECTOR_ORDER.includes(s)),
+    ];
+    return orderedSectors.map((sector) => {
+      const subsMap = bySector.get(sector)!;
+      const canon = SUBGROUP_ORDER[sector] ?? [];
+      const orderedKeys = [
+        ...canon.filter((k) => subsMap.has(k)),
+        ...Array.from(subsMap.keys()).filter((k) => k !== "" && !canon.includes(k)),
+        ...(subsMap.has("") ? [""] : []),
+      ];
+      return {
+        sector,
+        subs: orderedKeys.map((k) => ({ subgroup: k || null, employees: subsMap.get(k)! })),
+      };
+    });
   }, [data]);
 
   // Dias de férias (vindos do backend como PayrollItem FERIAS) — sombreados, read-only.
@@ -135,6 +166,7 @@ export function Escala() {
       const cur = next.get(k);
       if (!cur) next.set(k, "FOLGA");
       else if (cur === "FOLGA") next.set(k, "TURNO");
+      else if (cur === "TURNO") next.set(k, "EVENTO");
       else next.delete(k);
       return next;
     });
@@ -209,20 +241,25 @@ export function Escala() {
     const holidayList = data.days.filter((d) => d.isHoliday && d.holidayName).map((d) => `${d.day} — ${d.holidayName}`).join(" · ");
     const rows = sectorGroups.map((g) => {
       const sec = `<tr class="sector"><td colspan="${data.days.length + 1}">${g.sector}</td></tr>`;
-      const emps = g.employees.map((emp) => {
-        const cells = data.days.map((d) => {
-          const within = withinEmployment(emp, year, month, d.day);
-          const isFeriasDay = isFerias(emp.id, d.day);
-          const mark = marks.get(keyOf(emp.id, d.day));
-          const isFolgaDay = !isFeriasDay && mark === "FOLGA";
-          const isTurnoDay = !isFeriasDay && mark === "TURNO";
-          const cls = !within ? "out" : isFeriasDay ? "ferias" : isFolgaDay ? "folga" : isTurnoDay ? "turno" : d.isHoliday ? "hol" : d.isSunday ? "sun" : "";
-          const label = within ? (isFeriasDay ? "Fér" : isFolgaDay ? "F" : isTurnoDay ? "T" : "") : "";
-          return `<td class="${cls}">${label}</td>`;
+      const subsHtml = g.subs.map((sub) => {
+        const subHead = sub.subgroup ? `<tr class="subsector"><td colspan="${data.days.length + 1}">${sub.subgroup}</td></tr>` : "";
+        const emps = sub.employees.map((emp) => {
+          const cells = data.days.map((d) => {
+            const within = withinEmployment(emp, year, month, d.day);
+            const isFeriasDay = isFerias(emp.id, d.day);
+            const mark = marks.get(keyOf(emp.id, d.day));
+            const isFolgaDay = !isFeriasDay && mark === "FOLGA";
+            const isTurnoDay = !isFeriasDay && mark === "TURNO";
+            const isEventoDay = !isFeriasDay && mark === "EVENTO";
+            const cls = !within ? "out" : isFeriasDay ? "ferias" : isFolgaDay ? "folga" : isTurnoDay ? "turno" : isEventoDay ? "evento" : d.isHoliday ? "hol" : d.isSunday ? "sun" : "";
+            const label = within ? (isFeriasDay ? "Fér" : isFolgaDay ? "F" : isTurnoDay ? "T" : isEventoDay ? "E" : "") : "";
+            return `<td class="${cls}">${label}</td>`;
+          }).join("");
+          return `<tr><td class="name"><b>${fullName(emp)}</b></td>${cells}</tr>`;
         }).join("");
-        return `<tr><td class="name"><b>${fullName(emp)}</b></td>${cells}</tr>`;
+        return subHead + emps;
       }).join("");
-      return sec + emps;
+      return sec + subsHtml;
     }).join("");
     const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="color-scheme" content="light"><title>Escala ${MONTHS[month - 1]} ${year}</title>
 <style>
@@ -236,8 +273,10 @@ th,td{border:1px solid #999;text-align:center;font-size:10px;padding:2px 1px}
 td.name,th.name{text-align:left;white-space:nowrap;padding:3px 6px;min-width:150px}
 th span{font-size:8px;color:#666;font-weight:normal}
 tr.sector td{background:#eee;text-align:left;font-weight:bold;text-transform:uppercase;font-size:10px}
+tr.subsector td{background:#f6f6f6;text-align:left;font-weight:600;font-size:9px;padding-left:18px;color:#555}
 td.folga{background:${COLORS.folga};color:#fff;font-weight:bold}
 td.turno{background:${COLORS.turno};color:#fff;font-weight:bold}
+td.evento{background:${COLORS.evento};color:#fff;font-weight:bold}
 td.ferias{background:${COLORS.ferias};color:#fff;font-weight:bold;font-size:8px}
 td.sun,th.sun{background:${COLORS.domingo}}td.hol,th.hol{background:${COLORS.feriado}}
 td.out{background:repeating-linear-gradient(45deg,#fff,#fff 3px,#eee 3px,#eee 6px)}
@@ -248,7 +287,7 @@ td.out{background:repeating-linear-gradient(45deg,#fff,#fff 3px,#eee 3px,#eee 6p
 <h1>Escala de trabalho — ${MONTHS[month - 1]} ${year}</h1>
 <div class="sub">Pateo da Luz</div>
 <table><thead><tr><th class="name">Funcionário</th>${dayHead}</tr></thead><tbody>${rows}</tbody></table>
-<div class="legend"><span><span class="box" style="background:${COLORS.folga};color:#fff">F</span>Folga</span><span><span class="box" style="background:${COLORS.turno};color:#fff">T</span>Turno (cobertura)</span><span><span class="box" style="background:${COLORS.ferias}"></span>Férias</span><span><span class="box" style="background:${COLORS.domingo}"></span>Domingo</span><span><span class="box" style="background:${COLORS.feriado}"></span>Feriado</span></div>
+<div class="legend"><span><span class="box" style="background:${COLORS.folga};color:#fff">F</span>Folga</span><span><span class="box" style="background:${COLORS.turno};color:#fff">T</span>Turno (cobertura)</span><span><span class="box" style="background:${COLORS.evento};color:#fff">E</span>Evento</span><span><span class="box" style="background:${COLORS.ferias}"></span>Férias</span><span><span class="box" style="background:${COLORS.domingo}"></span>Domingo</span><span><span class="box" style="background:${COLORS.feriado}"></span>Feriado</span></div>
 ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${holidayList}</div>` : ""}
 </body></html>`;
     const iframe = document.createElement("iframe");
@@ -311,10 +350,11 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
         <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 12, color: "var(--muted)", margin: "0 0 10px", alignItems: "center" }}>
           <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.folga, verticalAlign: "-2px", marginRight: 5 }} />Folga (F)</span>
           <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.turno, verticalAlign: "-2px", marginRight: 5 }} />Turno / cobertura (T)</span>
+          <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.evento, verticalAlign: "-2px", marginRight: 5 }} />Evento (E)</span>
           <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.ferias, verticalAlign: "-2px", marginRight: 5 }} />Férias</span>
           <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.domingo, verticalAlign: "-2px", marginRight: 5 }} />Domingo</span>
           <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.feriado, verticalAlign: "-2px", marginRight: 5 }} />Feriado</span>
-          {canEdit && <span style={{ fontSize: 11, opacity: 0.85 }}>Clique cicla: vazio → F → T → vazio</span>}
+          {canEdit && <span style={{ fontSize: 11, opacity: 0.85 }}>Clique cicla: vazio → F → T → E → vazio</span>}
         </div>
 
         {error && <Alert tone="error">{error}</Alert>}
@@ -349,7 +389,16 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                         {group.sector}
                       </td>
                     </tr>
-                    {group.employees.map((emp) => (
+                    {group.subs.map((sub) => (
+                      <Fragment key={group.sector + "|" + (sub.subgroup ?? "_")}>
+                        {sub.subgroup && (
+                          <tr>
+                            <td colSpan={data.days.length + 2} style={{ padding: "3px 10px 3px 22px", fontSize: 10.5, fontWeight: 600, color: "var(--muted)", position: "sticky", left: 0, background: "var(--surface)" }}>
+                              {sub.subgroup}
+                            </td>
+                          </tr>
+                        )}
+                    {sub.employees.map((emp) => (
                       <tr key={emp.id}>
                         <td style={stickyNameStyle}>
                           <div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: NAME_COL - 20 }} title={fullName(emp)}>{fullName(emp)}</div>
@@ -371,6 +420,7 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                           const mark = marks.get(keyOf(emp.id, d.day));
                           const isFolgaDay = !isFeriasDay && mark === "FOLGA";
                           const isTurnoDay = !isFeriasDay && mark === "TURNO";
+                          const isEventoDay = !isFeriasDay && mark === "EVENTO";
                           const bg = !within
                             ? "repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(128,128,128,0.12) 3px, rgba(128,128,128,0.12) 6px)"
                             : isFeriasDay
@@ -379,6 +429,8 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                                 ? COLORS.folga
                                 : isTurnoDay
                                   ? COLORS.turno
+                                  : isEventoDay
+                                    ? COLORS.evento
                                   : d.isHoliday
                                     ? COLORS.feriado
                                     : d.isSunday
@@ -405,11 +457,13 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                                 fontSize: isFeriasDay ? 9 : undefined
                               }}
                             >
-                              {within ? (isFeriasDay ? "Fér" : isFolgaDay ? "F" : isTurnoDay ? "T" : "") : ""}
+                              {within ? (isFeriasDay ? "Fér" : isFolgaDay ? "F" : isTurnoDay ? "T" : isEventoDay ? "E" : "") : ""}
                             </td>
                           );
                         })}
                       </tr>
+                        ))}
+                      </Fragment>
                     ))}
                   </Fragment>
                 ))}
