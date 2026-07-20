@@ -9,6 +9,9 @@ export const scheduleRouter = Router();
 const SCHEDULE_TYPES = ["FOLGA", "TURNO", "EVENTO", "FERIAS", "FALTA", "ATESTADO"] as const;
 type ScheduleType = (typeof SCHEDULE_TYPES)[number];
 
+const EVENT_SIZES = ["PEQUENO", "MEDIO", "GRANDE"] as const;
+type EventSize = (typeof EVENT_SIZES)[number];
+
 function parseYearMonth(q: { year?: unknown; month?: unknown }) {
   const now = new Date();
   const year = parseInt(String(q.year ?? ""), 10) || now.getFullYear();
@@ -69,7 +72,14 @@ scheduleRouter.get("/", async (request, response) => {
     for (let d = from.getUTCDate(); d <= to.getUTCDate(); d++) vacationDays.push({ employeeId: f.employeeId, day: d });
   }
 
-  response.json({ year, month, daysInMonth, days, employees, entries, vacationDays });
+  // Eventos por data (do dia inteiro) — Pequeno/Médio/Grande, marcados no cabeçalho.
+  const eventRows = await prisma.scheduleDayEvent.findMany({
+    where: { date: { gte: monthStart, lt: nextMonthStart } },
+    select: { date: true, size: true },
+  });
+  const dateEvents = eventRows.map((e) => ({ day: e.date.getUTCDate(), size: e.size }));
+
+  response.json({ year, month, daysInMonth, days, employees, entries, vacationDays, dateEvents });
 });
 
 // ─── POST /schedule/bulk ─────────────────────────────────────────────────────────
@@ -79,10 +89,23 @@ scheduleRouter.post("/bulk", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
 
-  const b = request.body as { year?: unknown; month?: unknown; entries?: unknown };
+  const b = request.body as { year?: unknown; month?: unknown; entries?: unknown; dateEvents?: unknown };
   const { year, month } = parseYearMonth(b);
   const daysInMonth = new Date(year, month, 0).getDate();
   const rawEntries = Array.isArray(b.entries) ? b.entries : [];
+  const rawEvents = Array.isArray(b.dateEvents) ? b.dateEvents : [];
+
+  const seenDays = new Set<number>();
+  const dateEvents = rawEvents
+    .map((raw) => raw as { day?: unknown; size?: unknown })
+    .map((e) => ({ day: parseInt(String(e.day), 10), size: String(e.size) as EventSize }))
+    .filter((e) => {
+      if (!(e.day >= 1 && e.day <= daysInMonth)) return false;
+      if (!(EVENT_SIZES as readonly string[]).includes(e.size)) return false;
+      if (seenDays.has(e.day)) return false;
+      seenDays.add(e.day);
+      return true;
+    });
 
   const activeEmployees = await prisma.employee.findMany({
     where: { deletedAt: null, isActive: true },
@@ -126,16 +149,30 @@ scheduleRouter.post("/bulk", async (request, response) => {
         skipDuplicates: true,
       });
     }
+    // Eventos por data do mês: replace completo (delete + insert).
+    await tx.scheduleDayEvent.deleteMany({
+      where: { date: { gte: monthStart, lt: nextMonthStart } },
+    });
+    if (dateEvents.length > 0) {
+      await tx.scheduleDayEvent.createMany({
+        data: dateEvents.map((e) => ({
+          id: crypto.randomUUID(),
+          date: new Date(Date.UTC(year, month - 1, e.day)),
+          size: e.size,
+        })),
+        skipDuplicates: true,
+      });
+    }
   });
 
   await auditLog({
     userId: user.id,
     action: "SAVE_SCHEDULE",
     entity: "EmployeeScheduleDay",
-    newValue: { year, month, count: entries.length },
+    newValue: { year, month, count: entries.length, events: dateEvents.length },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? ""),
   });
 
-  response.json({ ok: true, year, month, count: entries.length });
+  response.json({ ok: true, year, month, count: entries.length, events: dateEvents.length });
 });
