@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
-import { PAYROLL_KINDS, computePayroll, computeStatus, generatePayroll, getOrDefaultSettings, type PayrollKind } from "./payroll.service.js";
+import { PAYROLL_KINDS, computePayroll, computeStatus, generatePayroll, getOrDefaultSettings, type PayrollKind, type PayrollOverride } from "./payroll.service.js";
 import { round2 } from "./vt-calc.js";
 
 export const payrollRouter = Router();
@@ -107,10 +107,22 @@ payrollRouter.post("/generate", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
 
-  const body = request.body as { year?: unknown; month?: unknown; kind?: unknown };
+  const body = request.body as { year?: unknown; month?: unknown; kind?: unknown; overrides?: unknown };
   const { year, month } = parseYearMonth(body);
   const kind = PAYROLL_KINDS.includes(String(body.kind) as PayrollKind) ? (String(body.kind) as PayrollKind) : "ALL";
-  const result = await generatePayroll(year, month, user.id, kind);
+
+  // Ajustes manuais feitos na prévia (valor diferente do calculado).
+  const overrides: PayrollOverride[] = (Array.isArray(body.overrides) ? body.overrides : [])
+    .map((raw) => raw as Record<string, unknown>)
+    .map((o) => ({
+      employeeId: String(o.employeeId ?? ""),
+      type: String(o.type ?? ""),
+      periodLabel: String(o.periodLabel ?? ""),
+      amount: Number(o.amount),
+    }))
+    .filter((o) => o.employeeId && o.type && o.periodLabel && Number.isFinite(o.amount) && o.amount > 0);
+
+  const result = await generatePayroll(year, month, user.id, kind, overrides);
 
   await auditLog({
     userId: user.id, action: "GENERATE_PAYROLL", entity: "PayrollItem",
