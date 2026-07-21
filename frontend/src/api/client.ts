@@ -5268,11 +5268,14 @@ export function previewPayroll(year: number, month: number) {
 // gerar cada um isoladamente.
 export type PayrollKind = "ALL" | "VT" | "VT_Q1" | "VT_Q2" | "FOLHA";
 
-export function generatePayroll(year: number, month: number, kind: PayrollKind = "ALL") {
-  return request<{ year: number; month: number; kind: PayrollKind; created: number; skipped: number }>("/payroll/generate", {
+// Valor ajustado à mão na prévia, quando o cálculo não bate com a realidade.
+export type PayrollOverride = { employeeId: string; type: PayrollItemType; periodLabel: string; amount: number };
+
+export function generatePayroll(year: number, month: number, kind: PayrollKind = "ALL", overrides: PayrollOverride[] = []) {
+  return request<{ year: number; month: number; kind: PayrollKind; created: number; skipped: number; ajustados: number }>("/payroll/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ year, month, kind })
+    body: JSON.stringify({ year, month, kind, overrides })
   });
 }
 
