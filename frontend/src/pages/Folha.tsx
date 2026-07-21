@@ -1,7 +1,7 @@
-import { Banknote, Bus, Check, ChevronLeft, ChevronRight, Clock, Coins, Palmtree, Pencil, RefreshCw, Settings, Trash2, Wallet, Wand2 } from "lucide-react";
+import { Banknote, Bus, Check, ChevronLeft, ChevronRight, Clock, Coins, Palmtree, Pencil, Printer, RefreshCw, Settings, Trash2, Wallet, Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
-  Employee, PayrollComputedItem, PayrollItemType, PayrollList, PayrollListItem, PayrollPreview, PayrollSettings,
+  Employee, PayrollComputedItem, PayrollItemType, PayrollKind, PayrollList, PayrollListItem, PayrollPreview, PayrollSettings,
   deletePayrollItem, editPayrollItem, generatePayroll, getEmployees, getPayroll, getPayrollSettings,
   previewPayroll, releaseVacation, savePayrollSettings
 } from "../api/client";
@@ -63,6 +63,9 @@ export function Folha() {
   const [settings, setSettings] = useState<PayrollSettings | null>(null);
   const [settingsForm, setSettingsForm] = useState(emptySettingsForm);
   const [showSettings, setShowSettings] = useState(false);
+  // Conferência do VT antes de mandar pagar: lista por quinzena, com total.
+  const [showVtConf, setShowVtConf] = useState(false);
+  const [vtQuinzena, setVtQuinzena] = useState<1 | 2>(1);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -170,12 +173,59 @@ export function Folha() {
     }
   }
 
-  async function handleGenerate() {
+  // Folha de conferência do VT para levar ao pagamento — autocontida, via iframe.
+  function handlePrintVt() {
+    const linhas = vtDaQuinzena.map((i) => `<tr>
+      <td class="l">${i.employeeDisplayName?.trim() || i.employeeName}</td>
+      <td class="l">${i.sector ?? "—"}</td>
+      <td>${i.workedDays ?? "—"}</td>
+      <td>${i.freeDays ?? "—"}</td>
+      <td>${i.creditApplied ? money(i.creditApplied) : "—"}</td>
+      <td class="v">${money(i.amount)}</td>
+      <td>${i.status === "PAID" ? "Pago" : "Em aberto"}</td>
+    </tr>`).join("");
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="color-scheme" content="light">
+<title>VT ${vtQuinzena}a quinzena ${MONTHS[month - 1]} ${year}</title><style>
+:root{color-scheme:light}*{font-family:Arial,Helvetica,sans-serif;box-sizing:border-box}
+body{background:#fff;color:#000;margin:16px}@page{margin:10mm}
+h1{font-size:19px;margin:0 0 2px}.sub{font-size:12px;color:#555;margin:0 0 12px}
+table{border-collapse:collapse;width:100%}th,td{border:1px solid #777;font-size:12px;padding:5px 6px;text-align:center}
+th{background:#eee}td.l,th.l{text-align:left}td.v{text-align:right;font-weight:bold}
+tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
+.ass{margin-top:34px;font-size:12px;color:#333}
+</style></head><body>
+<h1>Vale-transporte — ${vtQuinzena}ª quinzena · ${MONTHS[month - 1]} ${year}</h1>
+<div class="sub">Pateo da Luz · ${vtDaQuinzena.length} funcionário(s)</div>
+<table>
+<thead><tr><th class="l">Funcionário</th><th class="l">Setor</th><th>Dias</th><th>Grátis</th><th>Crédito</th><th>Valor</th><th>Situação</th></tr></thead>
+<tbody>${linhas}</tbody>
+<tfoot><tr><td class="l" colspan="5">Total da quinzena</td><td class="v">${money(vtTotal)}</td><td></td></tr></tfoot>
+</table>
+<div class="ass">Conferido por: ____________________________&nbsp;&nbsp;&nbsp;&nbsp;Data: ____/____/______</div>
+</body></html>`;
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;left:-10000px;top:0;width:210mm;height:290mm;border:0";
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (!doc) { document.body.removeChild(iframe); return; }
+    doc.open(); doc.write(html); doc.close();
+    iframe.contentWindow?.focus();
+    setTimeout(() => {
+      iframe.contentWindow?.print();
+      setTimeout(() => { if (iframe.parentNode) document.body.removeChild(iframe); }, 1500);
+    }, 300);
+  }
+
+  async function handleGenerate(kind: PayrollKind = "ALL") {
     setBusy(true);
     setError(null);
     try {
-      const res = await generatePayroll(year, month);
-      setNotice({ tone: "success", message: `Folha gerada — ${res.created} lançamento(s) criado(s), ${res.skipped} já existiam.` });
+      const res = await generatePayroll(year, month, kind);
+      const oque = kind === "VT_Q1" ? "VT da 1ª quinzena gerado"
+        : kind === "VT_Q2" ? "VT da 2ª quinzena gerado"
+        : kind === "VT" ? "Vale-transporte gerado"
+        : kind === "FOLHA" ? "Folha gerada" : "VT + folha gerados";
+      setNotice({ tone: "success", message: `${oque} — ${res.created} lançamento(s) criado(s), ${res.skipped} já existiam.` });
       setPreview(null);
       await load();
     } catch (err) {
@@ -272,6 +322,23 @@ export function Folha() {
   const s = list?.summary;
   const previewTotal = preview ? preview.items.filter((i) => !i.exists).reduce((a, i) => a + i.amount, 0) : 0;
   const previewNew = preview ? preview.items.filter((i) => !i.exists).length : 0;
+  // VT e folha são fechamentos independentes, e o VT ainda fecha por quinzena
+  // (a 2ª só depois que a escala da segunda metade do mês está pronta).
+  const novosVtDe = (q: 1 | 2) => preview
+    ? preview.items.filter((i) => !i.exists && i.type === "VALE_TRANSPORTE" && (new Date(i.dueDate).getUTCDate() <= 15 ? 1 : 2) === q).length
+    : 0;
+  const novosVtQ1 = novosVtDe(1);
+  const novosVtQ2 = novosVtDe(2);
+  const novosFolha = preview ? preview.items.filter((i) => !i.exists && (i.type === "ADIANTAMENTO" || i.type === "SALARIO")).length : 0;
+
+  // Conferência: VT já lançado da quinzena escolhida, ordenado por funcionário.
+  const quinzenaDe = (iso: string) => (new Date(iso).getUTCDate() <= 15 ? 1 : 2);
+  const vtDaQuinzena = (list?.items ?? [])
+    .filter((i) => i.type === "VALE_TRANSPORTE" && quinzenaDe(i.dueDate) === vtQuinzena)
+    .sort((a, b) => (a.employeeName || "").localeCompare(b.employeeName || "", "pt-BR"));
+  const vtTotal = vtDaQuinzena.reduce((s, i) => s + Number(i.amount), 0);
+  const vtPago = vtDaQuinzena.filter((i) => i.status === "PAID").reduce((s, i) => s + Number(i.paidAmount ?? i.amount), 0);
+  const vtAberto = vtTotal - vtDaQuinzena.filter((i) => i.status === "PAID").reduce((s, i) => s + Number(i.amount), 0);
 
   function periodCell(item: { periodLabel: string; workedDays: number | null; freeDays: number | null }) {
     return (
@@ -302,6 +369,7 @@ export function Folha() {
             <Button variant="secondary" onClick={() => goMonth(1)} aria-label="Próximo mês"><ChevronRight size={16} /></Button>
             <Button variant="secondary" onClick={load} aria-label="Recarregar"><RefreshCw size={15} /></Button>
             <Button variant="secondary" leadingIcon={<Settings size={14} />} onClick={() => setShowSettings((v) => !v)}>Configurações</Button>
+            <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => setShowVtConf(true)}>Conferir VT</Button>
             {canEdit && <Button variant="secondary" leadingIcon={<Palmtree size={14} />} onClick={openVacation}>Lançar férias</Button>}
             {canEdit && <Button leadingIcon={<Wand2 size={14} />} onClick={handlePreview} disabled={busy}>Prever folha</Button>}
           </div>
@@ -350,11 +418,32 @@ export function Folha() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
               <div>
                 <PanelEyebrow>Prévia da folha — {MONTHS[month - 1]} {year}</PanelEyebrow>
-                <div style={{ fontSize: 13, color: "var(--muted)" }}>{previewNew} lançamento(s) novo(s) · total {money(previewTotal)} <span style={{ marginLeft: 6 }}>(o que já existe não é recriado)</span></div>
+                <div style={{ fontSize: 13, color: "var(--muted)" }}>
+                  {previewNew} lançamento(s) novo(s) · total {money(previewTotal)}
+                  <span style={{ marginLeft: 6 }}>(o que já existe não é recriado)</span>
+                  <div style={{ marginTop: 2 }}>
+                    VT 1ª quinzena: <strong>{novosVtQ1}</strong> · VT 2ª quinzena: <strong>{novosVtQ2}</strong> · Folha (adiantamento + salário): <strong>{novosFolha}</strong>
+                  </div>
+                </div>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <Button variant="secondary" onClick={() => setPreview(null)}>Cancelar</Button>
-                {canEdit && <Button leadingIcon={<Check size={14} />} onClick={handleGenerate} disabled={busy || previewNew === 0}>Gerar folha do mês</Button>}
+                {canEdit && (
+                  <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => handleGenerate("VT_Q1")} disabled={busy || novosVtQ1 === 0} title="Fecha só o VT da 1ª quinzena (dias 1 a 15)">
+                    VT 1ª quinz. ({novosVtQ1})
+                  </Button>
+                )}
+                {canEdit && (
+                  <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => handleGenerate("VT_Q2")} disabled={busy || novosVtQ2 === 0} title="Fecha só o VT da 2ª quinzena (dia 16 em diante) — use quando a escala da segunda metade já estiver pronta">
+                    VT 2ª quinz. ({novosVtQ2})
+                  </Button>
+                )}
+                {canEdit && (
+                  <Button variant="secondary" leadingIcon={<Banknote size={14} />} onClick={() => handleGenerate("FOLHA")} disabled={busy || novosFolha === 0} title="Fecha só adiantamento + salário">
+                    Gerar folha ({novosFolha})
+                  </Button>
+                )}
+                {canEdit && <Button leadingIcon={<Check size={14} />} onClick={() => handleGenerate("ALL")} disabled={busy || previewNew === 0}>Gerar tudo</Button>}
               </div>
             </div>
             {preview.warnings && preview.warnings.length > 0 && (
@@ -442,6 +531,76 @@ export function Folha() {
           </div>
         )}
       </section>
+
+      {showVtConf && (
+        <div className="modal-backdrop">
+          <section className="panel modal-panel">
+            <div className="section-heading">
+              <div>
+                <PanelEyebrow>Conferência antes do pagamento</PanelEyebrow>
+                <h2>Vale-transporte · {MONTHS[month - 1]} {year}</h2>
+              </div>
+              <Button variant="secondary" onClick={() => setShowVtConf(false)}>Fechar</Button>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", margin: "0 0 12px" }}>
+              <Button variant={vtQuinzena === 1 ? undefined : "secondary"} onClick={() => setVtQuinzena(1)}>1ª quinzena</Button>
+              <Button variant={vtQuinzena === 2 ? undefined : "secondary"} onClick={() => setVtQuinzena(2)}>2ª quinzena</Button>
+              <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                <Button variant="secondary" leadingIcon={<Printer size={14} />} onClick={handlePrintVt} disabled={vtDaQuinzena.length === 0}>Imprimir</Button>
+              </span>
+            </div>
+
+            {vtDaQuinzena.length === 0 ? (
+              <EmptyState
+                title={`Nenhum VT lançado na ${vtQuinzena}ª quinzena`}
+                description="Use 'Prever folha' e depois o botão da quinzena para gerar o vale-transporte deste período."
+              />
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "0 0 10px", fontSize: 13 }}>
+                  <span><strong>{vtDaQuinzena.length}</strong> funcionário(s)</span>
+                  <span>Total: <strong>{money(vtTotal)}</strong></span>
+                  <span style={{ color: "var(--muted)" }}>Pago: {money(vtPago)} · Em aberto: {money(vtAberto)}</span>
+                </div>
+                <Table>
+                  <Table.Head>
+                    <Table.Row>
+                      <Table.Th>Funcionário</Table.Th>
+                      <Table.Th>Setor</Table.Th>
+                      <Table.Th>Dias</Table.Th>
+                      <Table.Th>Grátis</Table.Th>
+                      <Table.Th>Crédito</Table.Th>
+                      <Table.Th>Valor</Table.Th>
+                      <Table.Th>Situação</Table.Th>
+                    </Table.Row>
+                  </Table.Head>
+                  <Table.Body>
+                    {vtDaQuinzena.map((i) => (
+                      <Table.Row key={i.id}>
+                        <Table.Td><strong>{i.employeeDisplayName?.trim() || i.employeeName}</strong></Table.Td>
+                        <Table.Td>{i.sector ?? "—"}</Table.Td>
+                        <Table.Td>{i.workedDays ?? "—"}</Table.Td>
+                        <Table.Td>{i.freeDays ?? "—"}</Table.Td>
+                        <Table.Td>{i.creditApplied ? money(i.creditApplied) : "—"}</Table.Td>
+                        <Table.Td style={{ whiteSpace: "nowrap", fontWeight: 600 }}><Money value={i.amount} /></Table.Td>
+                        <Table.Td>
+                          <StatusBadge tone={i.status === "PAID" ? "success" : i.status === "OVERDUE" ? "danger" : "warning"}>
+                            {i.status === "PAID" ? "Pago" : i.status === "OVERDUE" ? "Vencido" : "Em aberto"}
+                          </StatusBadge>
+                        </Table.Td>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+                <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
+                  A baixa do pagamento é feita em <strong>Contas a pagar</strong> — lá dá para selecionar vários e baixar de uma vez.
+                </p>
+              </>
+            )}
+          </section>
+        </div>
+      )}
 
       {/* Modal de férias — contabilidade envia o valor */}
       {showVacation && (

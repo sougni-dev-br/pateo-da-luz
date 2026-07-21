@@ -14,6 +14,7 @@ import {
   IconButton,
   Money,
   PanelEyebrow,
+  Alert,
   Select,
   StatusBadge as DsStatusBadge,
   SummaryCard
@@ -112,6 +113,12 @@ export function Payables({ user }: PayablesProps) {
   const [historyRows, setHistoryRows] = useState<AuditLog[]>([]);
   const [historyOnly, setHistoryOnly] = useState<Payable | null>(null);
   const [paying, setPaying] = useState<Payable | null>(null);
+  // Baixa em lote: um pagamento cobrindo vários títulos (ex.: o VT de toda a
+  // equipe numa quinzena). Cada título continua recebendo a sua própria baixa.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchResult, setBatchResult] = useState<{ ok: number; erros: Array<{ nome: string; motivo: string }> } | null>(null);
   const [reversing, setReversing] = useState<Payable | null>(null);
   const [reverseReason, setReverseReason] = useState("");
   const [paymentForm, setPaymentForm] = useState({
@@ -408,6 +415,72 @@ export function Payables({ user }: PayablesProps) {
     }
   }
 
+  // ── Baixa em lote ────────────────────────────────────────────────────────
+  const podeSelecionar = (p: Payable) => canManage && ["OPEN", "OVERDUE"].includes(p.status);
+  const selecionaveis = displayedPayables.filter(podeSelecionar);
+  const selecionados = displayedPayables.filter((p) => selectedIds.has(p.id));
+  const totalSelecionado = selecionados.reduce((s, p) => s + Number(p.amount ?? 0), 0);
+
+  function toggleSelecionado(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleTodos() {
+    setSelectedIds((prev) => (prev.size === selecionaveis.length ? new Set() : new Set(selecionaveis.map((p) => p.id))));
+  }
+
+  async function submitBatch() {
+    if (selecionados.length === 0) return;
+    if (!paymentForm.paidDate) { setNotice({ tone: "error", message: "Data do pagamento é obrigatória." }); return; }
+    // Impostos usam fluxo simples; os demais exigem forma de pagamento.
+    if (selecionados.some((p) => !isTaxPayment(p)) && !paymentForm.paidPaymentMethod) {
+      setNotice({ tone: "error", message: "Forma de pagamento é obrigatória." });
+      return;
+    }
+
+    setBatchBusy(true);
+    const erros: Array<{ nome: string; motivo: string }> = [];
+    let ok = 0;
+    const comum = {
+      ...selectedPaymentPayload(),
+      paymentNotes: paymentForm.paymentNotes || null,
+      differenceReason: null,
+      payingCompanyId: paymentForm.payingCompanyId || null,
+      companyBankAccountId: paymentForm.companyBankAccountId || null
+    };
+
+    // Sequencial de propósito: cada título gera a sua baixa e o seu registro de
+    // auditoria; em paralelo, uma falha no meio deixaria o lote ambíguo.
+    for (const p of selecionados) {
+      const valor = Number(p.amount ?? 0);
+      const nome = p.supplierName ?? p.taxDocumentType ?? p.id;
+      try {
+        if (isTaxPayment(p)) {
+          await payTaxPayment(p.id, { paymentDate: paymentForm.paidDate, paidAmount: valor, comments: paymentForm.paymentNotes || null });
+        } else if (isPayroll(p)) {
+          await payPayrollItem(p.id, { paymentDate: paymentForm.paidDate, paidAmount: valor, ...comum });
+        } else {
+          await payInstallment(p.id, { paidDate: paymentForm.paidDate, paidAmount: valor, ...comum });
+        }
+        ok += 1;
+      } catch (error) {
+        erros.push({ nome, motivo: error instanceof Error ? error.message : "erro desconhecido" });
+      }
+    }
+
+    setBatchBusy(false);
+    setBatchResult({ ok, erros });
+    setSelectedIds(new Set());
+    await load();
+    if (erros.length === 0) {
+      setBatchOpen(false);
+      setNotice({ tone: "success", message: `${ok} título(s) baixado(s) em lote.` });
+    }
+  }
+
   async function submitPayment() {
     if (!paying) return;
     if (!paymentForm.paidDate) {
@@ -701,10 +774,53 @@ export function Payables({ user }: PayablesProps) {
         <div className="empty-state">Carregando contas…</div>
       ) : (
         <div className="payables-list">
+          {canManage && selecionaveis.length > 0 && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+              padding: "8px 12px", marginBottom: 8, borderRadius: 8,
+              border: "1px solid var(--border)",
+              background: selecionados.length > 0 ? "var(--gold-tint, #fdf1d6)" : "var(--surface-2)"
+            }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size > 0 && selectedIds.size === selecionaveis.length}
+                  ref={(el) => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < selecionaveis.length; }}
+                  onChange={toggleTodos}
+                  style={{ width: 16, height: 16, cursor: "pointer" }}
+                />
+                Selecionar todos em aberto ({selecionaveis.length})
+              </label>
+              {selecionados.length > 0 && (
+                <>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>
+                    {selecionados.length} selecionado(s) · <Money value={totalSelecionado} />
+                  </span>
+                  <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                    <Button variant="secondary" size="sm" onClick={() => setSelectedIds(new Set())}>Limpar</Button>
+                    <Button size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={() => { setBatchResult(null); setBatchOpen(true); }}>
+                      Baixar selecionados
+                    </Button>
+                  </span>
+                </>
+              )}
+            </div>
+          )}
           {displayedPayables.map((payable) => {
             const alert = payableAlertStatus(payable);
             return (
               <div className={`payable-row-item${alert ? ` ${alert}` : ""}`} key={payable.id}>
+                {podeSelecionar(payable) ? (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(payable.id)}
+                    onChange={() => toggleSelecionado(payable.id)}
+                    aria-label={`Selecionar ${payable.supplierName ?? payable.taxDocumentType ?? "título"} para baixa em lote`}
+                    style={{ alignSelf: "center", width: 16, height: 16, cursor: "pointer", flex: "0 0 auto" }}
+                  />
+                ) : (
+                  <span style={{ width: 16, flex: "0 0 auto" }} />
+                )}
                 <DsStatusBadge className="pr-status" tone={statusTones[payable.status] ?? "neutral"}>
                   {statusLabels[payable.status] ?? payable.status}
                 </DsStatusBadge>
@@ -793,6 +909,109 @@ export function Payables({ user }: PayablesProps) {
               description="Ajuste o período ou os filtros acima."
             />
           )}
+        </div>
+      )}
+
+      {/* ── Modal: Baixa em lote ─────────────────────────────────── */}
+      {batchOpen && (
+        <div className="modal-backdrop">
+          <section className="panel modal-panel payment-modal">
+            <div className="section-heading">
+              <div>
+                <p>Baixa financeira</p>
+                <h2>Baixar {selecionados.length} título(s) em lote</h2>
+              </div>
+              <button className="secondary-button" type="button" onClick={() => setBatchOpen(false)} disabled={batchBusy}>
+                <X size={16} /> Fechar
+              </button>
+            </div>
+
+            <Notice notice={notice} />
+
+            {batchResult && batchResult.erros.length > 0 ? (
+              <>
+                <Alert tone="warning">
+                  {batchResult.ok} baixado(s) com sucesso, {batchResult.erros.length} falhou(ram). Os que falharam continuam em aberto.
+                </Alert>
+                <ul style={{ fontSize: 13, margin: "10px 0 0", paddingLeft: 18 }}>
+                  {batchResult.erros.map((e, idx) => (
+                    <li key={idx} style={{ marginBottom: 4 }}><strong>{e.nome}</strong> — {e.motivo}</li>
+                  ))}
+                </ul>
+                <div className="modal-actions" style={{ marginTop: 14 }}>
+                  <Button onClick={() => { setBatchOpen(false); setBatchResult(null); }}>Fechar</Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="pay-ctx">
+                  <div className="pay-ctx-row">
+                    <div><span>Títulos</span><strong>{selecionados.length}</strong></div>
+                    <div><span>Total</span><strong className="pay-ctx-amount"><Money value={totalSelecionado} /></strong></div>
+                  </div>
+                </div>
+
+                <p style={{ fontSize: 13, color: "var(--muted)", margin: "10px 0" }}>
+                  Cada título recebe a baixa pelo <strong>seu próprio valor</strong>, com os mesmos dados abaixo.
+                  Para pagar valor diferente do original (desconto ou juros), baixe aquele título individualmente.
+                </p>
+
+                <div className="form-grid">
+                  <label>
+                    Data do pagamento *
+                    <input type="date" value={paymentForm.paidDate}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, paidDate: e.target.value })} />
+                  </label>
+                  {selecionados.some((p) => !isTaxPayment(p)) && (
+                    <label>
+                      Forma de pagamento *
+                      <select value={paymentForm.paidPaymentMethod}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, paidPaymentMethod: e.target.value })}>
+                        <option value="">Selecione</option>
+                        {effectivePaymentOptions.map((opt) => (
+                          <option key={opt.id} value={`id:${opt.id}`}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <label>
+                    Observação
+                    <input value={paymentForm.paymentNotes}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, paymentNotes: e.target.value })} />
+                  </label>
+                  {selecionados.some((p) => !isTaxPayment(p)) && companies.length > 0 && (
+                    <label>
+                      Empresa pagadora
+                      <select value={paymentForm.payingCompanyId}
+                        onChange={(e) => void handleCompanyChange(e.target.value)}>
+                        <option value="">Selecione…</option>
+                        {companies.map((c) => <option key={c.id} value={c.id}>{c.tradeName}</option>)}
+                      </select>
+                    </label>
+                  )}
+                </div>
+
+                <div style={{ maxHeight: 180, overflow: "auto", border: "1px solid var(--border)", borderRadius: 8, padding: 8, marginTop: 12, fontSize: 13 }}>
+                  {selecionados.map((p) => (
+                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0" }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {p.supplierName ?? p.taxDocumentType}
+                        {p.taxDescription ? ` · ${p.taxDescription}` : ""}
+                      </span>
+                      <strong style={{ whiteSpace: "nowrap" }}><Money value={Number(p.amount ?? 0)} /></strong>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="modal-actions" style={{ marginTop: 14 }}>
+                  <Button variant="secondary" onClick={() => setBatchOpen(false)} disabled={batchBusy}>Cancelar</Button>
+                  <Button onClick={submitBatch} disabled={batchBusy}>
+                    {batchBusy ? "Baixando..." : `Confirmar baixa de ${selecionados.length}`}
+                  </Button>
+                </div>
+              </>
+            )}
+          </section>
         </div>
       )}
 

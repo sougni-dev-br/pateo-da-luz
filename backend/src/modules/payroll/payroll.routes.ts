@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
-import { computePayroll, computeStatus, generatePayroll, getOrDefaultSettings } from "./payroll.service.js";
+import { PAYROLL_KINDS, computePayroll, computeStatus, generatePayroll, getOrDefaultSettings, type PayrollKind } from "./payroll.service.js";
 import { round2 } from "./vt-calc.js";
 
 export const payrollRouter = Router();
@@ -107,8 +107,10 @@ payrollRouter.post("/generate", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
 
-  const { year, month } = parseYearMonth(request.body as { year?: unknown; month?: unknown });
-  const result = await generatePayroll(year, month, user.id);
+  const body = request.body as { year?: unknown; month?: unknown; kind?: unknown };
+  const { year, month } = parseYearMonth(body);
+  const kind = PAYROLL_KINDS.includes(String(body.kind) as PayrollKind) ? (String(body.kind) as PayrollKind) : "ALL";
+  const result = await generatePayroll(year, month, user.id, kind);
 
   await auditLog({
     userId: user.id, action: "GENERATE_PAYROLL", entity: "PayrollItem",
