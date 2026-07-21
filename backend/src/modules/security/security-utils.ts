@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -197,7 +198,10 @@ export async function getSessionUser(request: { headers: Record<string, unknown>
     WHERE s."tokenHash" = ${tokenHash}
       AND s."expiresAt" > CURRENT_TIMESTAMP
       AND u."isActive" = true
-      AND (${userId} IS NULL OR u."id" = ${userId})
+      -- Token opaco (nao-JWT) nao tem userId. Interpolar NULL direto quebrava o
+      -- Postgres ("could not determine data type of parameter"), derrubando a
+      -- rota inteira com 500 — por isso o filtro so entra quando ha userId.
+      AND ${userId ? Prisma.sql`u."id" = ${userId}` : Prisma.sql`true`}
     LIMIT 1
   `;
 
