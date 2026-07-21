@@ -266,7 +266,15 @@ export async function computePayroll(year: number, month: number) {
 }
 
 // Persiste os itens ainda não existentes e atualiza o crédito de VT.
-export async function generatePayroll(year: number, month: number, userId: string, kind: PayrollKind = "ALL") {
+// `overrides` = valor ajustado à mão na prévia. O cálculo é uma base, não uma
+// prisão: se não bater com a realidade, corrige aqui em vez de ir pra planilha.
+export type PayrollOverride = { employeeId: string; type: string; periodLabel: string; amount: number };
+const overrideKey = (o: { employeeId: string; type: string; periodLabel: string }) =>
+  `${o.employeeId}|${o.type}|${o.periodLabel}`;
+
+export async function generatePayroll(
+  year: number, month: number, userId: string, kind: PayrollKind = "ALL", overrides: PayrollOverride[] = []
+) {
   const { items } = await computePayroll(year, month);
 
   // VT e folha (adiantamento + salário) são coisas distintas: periodicidade,
@@ -285,9 +293,15 @@ export async function generatePayroll(year: number, month: number, userId: strin
     if (i.type === "VALE_TRANSPORTE" && i.creditAfter != null) creditFinal.set(i.employeeId, i.creditAfter);
   }
 
+  const ajustes = new Map(overrides.map((o) => [overrideKey(o), round2(Number(o.amount))]));
+  let ajustados = 0;
+
   await prisma.$transaction(async (tx) => {
     for (const item of toCreate) {
       const due = new Date(item.dueDate);
+      const ajustado = ajustes.get(overrideKey(item));
+      const usaAjuste = ajustado != null && ajustado > 0 && ajustado !== item.amount;
+      if (usaAjuste) ajustados += 1;
       await tx.payrollItem.create({
         data: {
           id: crypto.randomUUID(),
@@ -299,14 +313,21 @@ export async function generatePayroll(year: number, month: number, userId: strin
           periodStart: item.periodStart ? new Date(item.periodStart) : null,
           periodEnd: item.periodEnd ? new Date(item.periodEnd) : null,
           dueDate: due,
-          amount: item.amount,
+          amount: usaAjuste ? ajustado : item.amount,
           workedDays: item.workedDays,
           freeDays: item.freeDays,
           bufferAmount: item.bufferAmount,
           creditApplied: item.creditApplied,
-          details: (item.details ?? undefined) as Prisma.InputJsonValue | undefined,
+          // Guarda o valor calculado quando houve ajuste manual — sem isso não
+          // dá para auditar depois por que o lançamento saiu diferente da regra.
+          details: ({
+            ...(item.details ?? {}),
+            ...(usaAjuste ? { ajusteManual: true, valorCalculado: item.amount } : {}),
+          }) as Prisma.InputJsonValue,
           status: computeStatus(due, null),
           dreCategoryId: item.dreCategoryId,
+          // Continua "GENERATED": foi o gerador que criou, só com valor ajustado.
+          // "MANUAL" já identifica rescisão/férias lançadas à mão.
           source: "GENERATED",
           createdById: userId,
         },
@@ -319,5 +340,5 @@ export async function generatePayroll(year: number, month: number, userId: strin
     }
   });
 
-  return { year, month, kind, created: toCreate.length, skipped: escopo.length - toCreate.length };
+  return { year, month, kind, created: toCreate.length, skipped: escopo.length - toCreate.length, ajustados };
 }

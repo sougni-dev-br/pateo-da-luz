@@ -1,7 +1,7 @@
 import { Banknote, Bus, Check, ChevronLeft, ChevronRight, Clock, Coins, Palmtree, Pencil, Printer, RefreshCw, Settings, Trash2, Wallet, Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
-  Employee, PayrollComputedItem, PayrollItemType, PayrollKind, PayrollList, PayrollListItem, PayrollPreview, PayrollSettings,
+  Employee, PayrollComputedItem, PayrollItemType, PayrollKind, PayrollList, PayrollListItem, PayrollOverride, PayrollPreview, PayrollSettings,
   deletePayrollItem, editPayrollItem, generatePayroll, getEmployees, getPayroll, getPayrollSettings,
   previewPayroll, releaseVacation, savePayrollSettings
 } from "../api/client";
@@ -60,6 +60,9 @@ export function Folha() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [list, setList] = useState<PayrollList | null>(null);
   const [preview, setPreview] = useState<PayrollPreview | null>(null);
+  // Escopo da prévia (VT ou folha) e valores ajustados à mão antes de gerar.
+  const [previewScope, setPreviewScope] = useState<"VT" | "FOLHA">("VT");
+  const [ajustes, setAjustes] = useState<Record<string, string>>({});
   const [settings, setSettings] = useState<PayrollSettings | null>(null);
   const [settingsForm, setSettingsForm] = useState(emptySettingsForm);
   const [showSettings, setShowSettings] = useState(false);
@@ -161,16 +164,35 @@ export function Folha() {
     setYear(y);
   }
 
-  async function handlePreview() {
+  // A prévia é sempre calculada inteira (é read-only e barata), mas mostrada
+  // por escopo: VT é VT, folha é folha — não misturar as duas coisas na tela.
+  async function handlePreview(scope: "VT" | "FOLHA") {
     setBusy(true);
     setError(null);
+    setAjustes({});
+    setPreviewScope(scope);
     try {
       setPreview(await previewPayroll(year, month));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao prever folha.");
+      setError(err instanceof Error ? err.message : "Erro ao calcular a prévia.");
     } finally {
       setBusy(false);
     }
+  }
+
+  const chaveAjuste = (i: PayrollComputedItem) => `${i.employeeId}|${i.type}|${i.periodLabel}`;
+  function setAjuste(i: PayrollComputedItem, valor: string) {
+    setAjustes((prev) => ({ ...prev, [chaveAjuste(i)]: valor }));
+  }
+  // Ajustes válidos e realmente diferentes do calculado.
+  function ajustesParaEnviar(itens: PayrollComputedItem[]): PayrollOverride[] {
+    return itens.flatMap((i) => {
+      const bruto = ajustes[chaveAjuste(i)];
+      if (bruto == null || bruto.trim() === "") return [];
+      const valor = Number(toNumStr(bruto));
+      if (!Number.isFinite(valor) || valor <= 0 || valor === i.amount) return [];
+      return [{ employeeId: i.employeeId, type: i.type, periodLabel: i.periodLabel, amount: valor }];
+    });
   }
 
   // Folha de conferência do VT para levar ao pagamento — autocontida, via iframe.
@@ -220,12 +242,13 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
     setBusy(true);
     setError(null);
     try {
-      const res = await generatePayroll(year, month, kind);
+      const res = await generatePayroll(year, month, kind, ajustesParaEnviar(itensDoEscopo));
       const oque = kind === "VT_Q1" ? "VT da 1ª quinzena gerado"
         : kind === "VT_Q2" ? "VT da 2ª quinzena gerado"
         : kind === "VT" ? "Vale-transporte gerado"
         : kind === "FOLHA" ? "Folha gerada" : "VT + folha gerados";
-      setNotice({ tone: "success", message: `${oque} — ${res.created} lançamento(s) criado(s), ${res.skipped} já existiam.` });
+      const comAjuste = res.ajustados > 0 ? ` · ${res.ajustados} com valor ajustado` : "";
+      setNotice({ tone: "success", message: `${oque} — ${res.created} lançamento(s) criado(s), ${res.skipped} já existiam${comAjuste}.` });
       setPreview(null);
       await load();
     } catch (err) {
@@ -320,16 +343,24 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
   }
 
   const s = list?.summary;
-  const previewTotal = preview ? preview.items.filter((i) => !i.exists).reduce((a, i) => a + i.amount, 0) : 0;
-  const previewNew = preview ? preview.items.filter((i) => !i.exists).length : 0;
+  // Só os itens do escopo escolhido aparecem e são gerados.
+  const itensDoEscopo: PayrollComputedItem[] = preview
+    ? preview.items.filter((i) => (previewScope === "VT" ? i.type === "VALE_TRANSPORTE" : i.type === "ADIANTAMENTO" || i.type === "SALARIO"))
+    : [];
+  const previewNew = itensDoEscopo.filter((i) => !i.exists).length;
+  // Total do escopo já refletindo os ajustes manuais — é o que vai ser gerado.
+  const previewTotal = itensDoEscopo.filter((i) => !i.exists).reduce((a, i) => {
+    const bruto = ajustes[`${i.employeeId}|${i.type}|${i.periodLabel}`];
+    const v = bruto == null || bruto.trim() === "" ? NaN : Number(toNumStr(bruto));
+    return a + (Number.isFinite(v) && v > 0 ? v : i.amount);
+  }, 0);
   // VT e folha são fechamentos independentes, e o VT ainda fecha por quinzena
   // (a 2ª só depois que a escala da segunda metade do mês está pronta).
-  const novosVtDe = (q: 1 | 2) => preview
-    ? preview.items.filter((i) => !i.exists && i.type === "VALE_TRANSPORTE" && (new Date(i.dueDate).getUTCDate() <= 15 ? 1 : 2) === q).length
-    : 0;
+  const novosVtDe = (q: 1 | 2) =>
+    itensDoEscopo.filter((i) => !i.exists && i.type === "VALE_TRANSPORTE" && (new Date(i.dueDate).getUTCDate() <= 15 ? 1 : 2) === q).length;
   const novosVtQ1 = novosVtDe(1);
   const novosVtQ2 = novosVtDe(2);
-  const novosFolha = preview ? preview.items.filter((i) => !i.exists && (i.type === "ADIANTAMENTO" || i.type === "SALARIO")).length : 0;
+  const novosFolha = itensDoEscopo.filter((i) => !i.exists && (i.type === "ADIANTAMENTO" || i.type === "SALARIO")).length;
 
   // Conferência: VT já lançado da quinzena escolhida, ordenado por funcionário.
   const quinzenaDe = (iso: string) => (new Date(iso).getUTCDate() <= 15 ? 1 : 2);
@@ -371,7 +402,8 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
             <Button variant="secondary" leadingIcon={<Settings size={14} />} onClick={() => setShowSettings((v) => !v)}>Configurações</Button>
             <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => setShowVtConf(true)}>Conferir VT</Button>
             {canEdit && <Button variant="secondary" leadingIcon={<Palmtree size={14} />} onClick={openVacation}>Lançar férias</Button>}
-            {canEdit && <Button leadingIcon={<Wand2 size={14} />} onClick={handlePreview} disabled={busy}>Prever folha</Button>}
+            {canEdit && <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => handlePreview("VT")} disabled={busy}>Prever VT</Button>}
+            {canEdit && <Button leadingIcon={<Wand2 size={14} />} onClick={() => handlePreview("FOLHA")} disabled={busy}>Prever folha</Button>}
           </div>
         </div>
 
@@ -417,33 +449,40 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
           <div style={{ border: "2px solid var(--border-accent, var(--border-strong, var(--border)))", borderRadius: 10, padding: 14, margin: "0 0 14px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
               <div>
-                <PanelEyebrow>Prévia da folha — {MONTHS[month - 1]} {year}</PanelEyebrow>
+                <PanelEyebrow>
+                  Prévia · {previewScope === "VT" ? "Vale-transporte" : "Folha (adiantamento + salário)"} — {MONTHS[month - 1]} {year}
+                </PanelEyebrow>
                 <div style={{ fontSize: 13, color: "var(--muted)" }}>
                   {previewNew} lançamento(s) novo(s) · total {money(previewTotal)}
                   <span style={{ marginLeft: 6 }}>(o que já existe não é recriado)</span>
-                  <div style={{ marginTop: 2 }}>
-                    VT 1ª quinzena: <strong>{novosVtQ1}</strong> · VT 2ª quinzena: <strong>{novosVtQ2}</strong> · Folha (adiantamento + salário): <strong>{novosFolha}</strong>
+                  {previewScope === "VT" && (
+                    <div style={{ marginTop: 2 }}>1ª quinzena: <strong>{novosVtQ1}</strong> · 2ª quinzena: <strong>{novosVtQ2}</strong></div>
+                  )}
+                  <div style={{ marginTop: 2, color: "var(--ink, inherit)" }}>
+                    O valor é editável — se o cálculo não bater, ajuste antes de gerar.
                   </div>
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <Button variant="secondary" onClick={() => setPreview(null)}>Cancelar</Button>
-                {canEdit && (
-                  <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => handleGenerate("VT_Q1")} disabled={busy || novosVtQ1 === 0} title="Fecha só o VT da 1ª quinzena (dias 1 a 15)">
-                    VT 1ª quinz. ({novosVtQ1})
-                  </Button>
+                {canEdit && previewScope === "VT" && (
+                  <>
+                    <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => handleGenerate("VT_Q1")} disabled={busy || novosVtQ1 === 0} title="Fecha só o VT da 1ª quinzena (dias 1 a 15)">
+                      Gerar 1ª quinz. ({novosVtQ1})
+                    </Button>
+                    <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => handleGenerate("VT_Q2")} disabled={busy || novosVtQ2 === 0} title="Fecha só o VT da 2ª quinzena (dia 16 em diante) — use quando a escala da segunda metade já estiver pronta">
+                      Gerar 2ª quinz. ({novosVtQ2})
+                    </Button>
+                    <Button leadingIcon={<Check size={14} />} onClick={() => handleGenerate("VT")} disabled={busy || previewNew === 0}>
+                      Gerar VT ({previewNew})
+                    </Button>
+                  </>
                 )}
-                {canEdit && (
-                  <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => handleGenerate("VT_Q2")} disabled={busy || novosVtQ2 === 0} title="Fecha só o VT da 2ª quinzena (dia 16 em diante) — use quando a escala da segunda metade já estiver pronta">
-                    VT 2ª quinz. ({novosVtQ2})
-                  </Button>
-                )}
-                {canEdit && (
-                  <Button variant="secondary" leadingIcon={<Banknote size={14} />} onClick={() => handleGenerate("FOLHA")} disabled={busy || novosFolha === 0} title="Fecha só adiantamento + salário">
+                {canEdit && previewScope === "FOLHA" && (
+                  <Button leadingIcon={<Banknote size={14} />} onClick={() => handleGenerate("FOLHA")} disabled={busy || novosFolha === 0} title="Fecha adiantamento + salário">
                     Gerar folha ({novosFolha})
                   </Button>
                 )}
-                {canEdit && <Button leadingIcon={<Check size={14} />} onClick={() => handleGenerate("ALL")} disabled={busy || previewNew === 0}>Gerar tudo</Button>}
               </div>
             </div>
             {preview.warnings && preview.warnings.length > 0 && (
@@ -463,15 +502,42 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                   </Table.Row>
                 </Table.Head>
                 <Table.Body>
-                  {preview.items.map((i: PayrollComputedItem, idx) => (
-                    <Table.Row key={idx} style={i.exists ? { opacity: 0.5 } : undefined}>
-                      <Table.Td><strong>{i.employeeName}</strong><NickTag nick={i.employeeDisplayName} />{i.sector ? <div style={{ fontSize: "0.8em", color: "var(--muted)" }}>{i.sector}</div> : null}</Table.Td>
-                      <Table.Td><StatusBadge tone={TYPE_TONE[i.type]}>{TYPE_LABELS[i.type]}</StatusBadge></Table.Td>
-                      <Table.Td>{periodCell(i)}{i.creditApplied ? <div style={{ fontSize: "0.78em", color: "var(--muted)" }}>+{money(i.bufferAmount)} sobra − {money(i.creditApplied)} crédito</div> : null}</Table.Td>
-                      <Table.Td style={{ whiteSpace: "nowrap" }}>{fmtDate(i.dueDate)}</Table.Td>
-                      <Table.Td style={{ whiteSpace: "nowrap", fontWeight: 500 }}><Money value={i.amount} />{i.exists ? <span style={{ fontSize: "0.78em", color: "var(--muted)", fontWeight: 400 }}> (já existe)</span> : null}</Table.Td>
-                    </Table.Row>
-                  ))}
+                  {itensDoEscopo.map((i: PayrollComputedItem, idx) => {
+                    const bruto = ajustes[chaveAjuste(i)] ?? "";
+                    const valorAjustado = bruto.trim() === "" ? null : Number(toNumStr(bruto));
+                    const mudou = valorAjustado != null && Number.isFinite(valorAjustado) && valorAjustado > 0 && valorAjustado !== i.amount;
+                    const invalido = bruto.trim() !== "" && (!Number.isFinite(valorAjustado) || (valorAjustado ?? 0) <= 0);
+                    return (
+                      <Table.Row key={idx} style={i.exists ? { opacity: 0.5 } : undefined}>
+                        <Table.Td><strong>{i.employeeName}</strong><NickTag nick={i.employeeDisplayName} />{i.sector ? <div style={{ fontSize: "0.8em", color: "var(--muted)" }}>{i.sector}</div> : null}</Table.Td>
+                        <Table.Td><StatusBadge tone={TYPE_TONE[i.type]}>{TYPE_LABELS[i.type]}</StatusBadge></Table.Td>
+                        <Table.Td>{periodCell(i)}{i.creditApplied ? <div style={{ fontSize: "0.78em", color: "var(--muted)" }}>+{money(i.bufferAmount)} sobra − {money(i.creditApplied)} crédito</div> : null}</Table.Td>
+                        <Table.Td style={{ whiteSpace: "nowrap" }}>{fmtDate(i.dueDate)}</Table.Td>
+                        <Table.Td style={{ whiteSpace: "nowrap", fontWeight: 500 }}>
+                          {i.exists ? (
+                            <><Money value={i.amount} /><span style={{ fontSize: "0.78em", color: "var(--muted)", fontWeight: 400 }}> (já existe)</span></>
+                          ) : canEdit ? (
+                            <>
+                              <TextField
+                                value={bruto === "" ? moneyToMasked(String(i.amount)) : bruto}
+                                onChange={(e) => setAjuste(i, maskMoney(e.target.value))}
+                                aria-label={`Valor de ${i.employeeName} — ${TYPE_LABELS[i.type]}`}
+                                style={{ width: 120, textAlign: "right", ...(invalido ? { borderColor: "var(--danger)" } : {}) }}
+                              />
+                              {mudou && (
+                                <div style={{ fontSize: "0.75em", color: "var(--gold-dark, #9a6410)", fontWeight: 600 }}>
+                                  ajustado · calculado {money(i.amount)}
+                                </div>
+                              )}
+                              {invalido && <div style={{ fontSize: "0.75em", color: "var(--danger)" }}>valor inválido</div>}
+                            </>
+                          ) : (
+                            <Money value={i.amount} />
+                          )}
+                        </Table.Td>
+                      </Table.Row>
+                    );
+                  })}
                 </Table.Body>
               </Table>
             </div>
@@ -482,7 +548,7 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
         {!loading && list && list.items.length === 0 && !preview && (
           <EmptyState
             title={`Nenhum lançamento em ${MONTHS[month - 1]} ${year}.`}
-            action={canEdit ? <Button leadingIcon={<Wand2 size={14} />} onClick={handlePreview}>Prever folha</Button> : undefined}
+            action={canEdit ? <Button leadingIcon={<Bus size={14} />} onClick={() => handlePreview("VT")}>Prever VT</Button> : undefined}
           />
         )}
 
