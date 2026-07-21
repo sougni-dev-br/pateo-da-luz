@@ -9,6 +9,24 @@ const VT_CATEGORY = "Vale-Transporte";
 
 export type PayrollItemType = "ADIANTAMENTO" | "SALARIO" | "VALE_TRANSPORTE";
 
+// O que gerar: VT (inteiro ou por quinzena), só a folha, ou tudo.
+export type PayrollKind = "ALL" | "VT" | "VT_Q1" | "VT_Q2" | "FOLHA";
+export const PAYROLL_KINDS: PayrollKind[] = ["ALL", "VT", "VT_Q1", "VT_Q2", "FOLHA"];
+const VT_TYPES: PayrollItemType[] = ["VALE_TRANSPORTE"];
+const KIND_TYPES: Record<PayrollKind, PayrollItemType[]> = {
+  ALL: ["VALE_TRANSPORTE", "ADIANTAMENTO", "SALARIO"],
+  VT: VT_TYPES, VT_Q1: VT_TYPES, VT_Q2: VT_TYPES,
+  FOLHA: ["ADIANTAMENTO", "SALARIO"],
+};
+const KIND_QUINZENA: Record<PayrollKind, 1 | 2 | null> = {
+  ALL: null, VT: null, VT_Q1: 1, VT_Q2: 2, FOLHA: null,
+};
+// A quinzena vem do vencimento: VT vence no 1º dia do período (1 ou 16). VT/ajuda
+// mensal e bilhete único vencem dia 1 → fecham junto com a 1ª quinzena.
+function quinzenaOf(item: { dueDate: string }): 1 | 2 {
+  return new Date(item.dueDate).getUTCDate() <= 15 ? 1 : 2;
+}
+
 export type ComputedItem = {
   employeeId: string;
   employeeName: string;
@@ -24,6 +42,10 @@ export type ComputedItem = {
   freeDays: number | null;
   bufferAmount: number | null;
   creditApplied: number | null;
+  // Saldo de crédito de VT DEPOIS deste período. É por-período (e não por
+  // funcionário) porque as quinzenas podem ser fechadas em momentos diferentes:
+  // ao gerar só a 1ª, o saldo tem que parar no valor dela, não no da 2ª.
+  creditAfter?: number | null;
   dreCategoryId: string | null;
   dreCategoryName: string | null;
   details: Record<string, unknown> | null;
@@ -104,12 +126,15 @@ export async function computePayroll(year: number, month: number) {
 
   const existingRows = await prisma.payrollItem.findMany({
     where: { competenceYear: year, competenceMonth: month, deletedAt: null },
-    select: { employeeId: true, type: true, periodLabel: true },
+    select: {
+      employeeId: true, type: true, periodLabel: true,
+      amount: true, workedDays: true, freeDays: true, bufferAmount: true, creditApplied: true,
+    },
   });
-  const existsKey = new Set(existingRows.map((e) => `${e.employeeId}|${e.type}|${e.periodLabel}`));
+  const existingByKey = new Map(existingRows.map((e) => [`${e.employeeId}|${e.type}|${e.periodLabel}`, e]));
+  const existsKey = new Set(existingByKey.keys());
 
   const items: ComputedItem[] = [];
-  const creditUpdates: Array<{ employeeId: string; newBalance: number }> = [];
   const warnings: string[] = [];
 
   for (const emp of employees) {
@@ -145,6 +170,32 @@ export async function computePayroll(year: number, month: number) {
           : [{ label: "VT mensal", start: 1, end: daysInMonth }];
         for (const p of periods) {
           if (p.start > daysInMonth) continue;
+          const base = {
+            employeeId: emp.id, employeeName: name, employeeDisplayName: emp.displayName, sector: emp.sector,
+            type: "VALE_TRANSPORTE" as const,
+            periodLabel: p.label, periodStart: isoDate(year, month, p.start), periodEnd: isoDate(year, month, p.end),
+            dueDate: isoDate(year, month, p.start),
+            dreCategoryId: dreVt?.id ?? null, dreCategoryName: dreVt?.name ?? null,
+          };
+
+          // Período JÁ gerado: o saldo guardado no funcionário já embute o
+          // crédito dele. Reprocessar aqui faria a quinzena seguinte nascer
+          // errada quando as duas são fechadas em datas diferentes. Mostramos
+          // os valores gravados (a verdade), sem mexer na cadeia.
+          const prev = existingByKey.get(`${emp.id}|VALE_TRANSPORTE|${p.label}`);
+          if (prev) {
+            items.push({
+              ...base,
+              amount: Number(prev.amount), workedDays: prev.workedDays, freeDays: prev.freeDays,
+              bufferAmount: prev.bufferAmount == null ? null : Number(prev.bufferAmount),
+              creditApplied: prev.creditApplied == null ? null : Number(prev.creditApplied),
+              creditAfter: creditBalance,
+              details: { commute: emp.vtCommute, trips: emp.vtTripsPerDay ?? 2 },
+              exists: true,
+            });
+            continue;
+          }
+
           const r = computeVtForPeriod({
             commute: emp.vtCommute, trips: emp.vtTripsPerDay ?? 2, tariffs,
             year, month, startDay: p.start, endDay: p.end, folgaDays, feriasDays: feriaDays, admissionMs, terminationMs, holidays,
@@ -154,16 +205,13 @@ export async function computePayroll(year: number, month: number) {
           const net = round2(Math.max(0, r.gross + buffer - creditApplied));
           creditBalance = round2(buffer + (creditBalance - creditApplied));
           items.push({
-            employeeId: emp.id, employeeName: name, employeeDisplayName: emp.displayName, sector: emp.sector, type: "VALE_TRANSPORTE",
-            periodLabel: p.label, periodStart: isoDate(year, month, p.start), periodEnd: isoDate(year, month, p.end),
-            dueDate: isoDate(year, month, p.start), amount: net, workedDays: r.workedDays, freeDays: r.freeDays,
-            bufferAmount: buffer, creditApplied,
-            dreCategoryId: dreVt?.id ?? null, dreCategoryName: dreVt?.name ?? null,
+            ...base,
+            amount: net, workedDays: r.workedDays, freeDays: r.freeDays,
+            bufferAmount: buffer, creditApplied, creditAfter: creditBalance,
             details: { commute: emp.vtCommute, trips: emp.vtTripsPerDay ?? 2, gross: r.gross, normalDayCost: r.normalDayCost },
-            exists: existsKey.has(`${emp.id}|VALE_TRANSPORTE|${p.label}`),
+            exists: false,
           });
         }
-        creditUpdates.push({ employeeId: emp.id, newBalance: creditBalance });
       }
     } else if (emp.vtType === "AUXILIO_COMBUSTIVEL") {
       const val = round2(Number(emp.vtFixedAmount ?? 0));
@@ -214,16 +262,28 @@ export async function computePayroll(year: number, month: number) {
     }
   }
 
-  return { year, month, settings, items, creditUpdates, warnings };
+  return { year, month, settings, items, warnings };
 }
 
 // Persiste os itens ainda não existentes e atualiza o crédito de VT.
-export async function generatePayroll(year: number, month: number, userId: string) {
-  const { items, creditUpdates } = await computePayroll(year, month);
-  const toCreate = items.filter((i) => !i.exists);
+export async function generatePayroll(year: number, month: number, userId: string, kind: PayrollKind = "ALL") {
+  const { items } = await computePayroll(year, month);
 
-  // Funcionários cujo VT já existia neste mês: não reaplicar o crédito.
-  const empsWithExistingVt = new Set(items.filter((i) => i.type === "VALE_TRANSPORTE" && i.exists).map((i) => i.employeeId));
+  // VT e folha (adiantamento + salário) são coisas distintas: periodicidade,
+  // categoria no DRE e momento de fechamento diferentes. Por isso dá para
+  // gerar cada uma isoladamente — e o VT ainda por quinzena, já que a 2ª só
+  // fecha quando a escala da segunda metade do mês está pronta.
+  const allowed = KIND_TYPES[kind];
+  const quinzena = KIND_QUINZENA[kind];
+  const escopo = items.filter((i) => allowed.includes(i.type) && (quinzena == null || quinzenaOf(i) === quinzena));
+  const toCreate = escopo.filter((i) => !i.exists);
+
+  // Saldo de crédito = o do ÚLTIMO período de VT realmente criado agora. Usar o
+  // saldo final do mês quebraria o fechamento de uma quinzena só.
+  const creditFinal = new Map<string, number>();
+  for (const i of toCreate) {
+    if (i.type === "VALE_TRANSPORTE" && i.creditAfter != null) creditFinal.set(i.employeeId, i.creditAfter);
+  }
 
   await prisma.$transaction(async (tx) => {
     for (const item of toCreate) {
@@ -252,11 +312,12 @@ export async function generatePayroll(year: number, month: number, userId: strin
         },
       });
     }
-    for (const upd of creditUpdates) {
-      if (empsWithExistingVt.has(upd.employeeId)) continue;
-      await tx.employee.update({ where: { id: upd.employeeId }, data: { vtCreditBalance: upd.newBalance } });
+    // Só mexe no crédito de quem teve VT criado agora — gerar só a folha (ou
+    // só uma quinzena) não pode alterar o saldo dos demais.
+    for (const [employeeId, newBalance] of creditFinal) {
+      await tx.employee.update({ where: { id: employeeId }, data: { vtCreditBalance: newBalance } });
     }
   });
 
-  return { year, month, created: toCreate.length, skipped: items.length - toCreate.length };
+  return { year, month, kind, created: toCreate.length, skipped: escopo.length - toCreate.length };
 }
