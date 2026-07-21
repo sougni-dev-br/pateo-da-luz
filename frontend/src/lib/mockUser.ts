@@ -643,24 +643,56 @@ function mockResponseFor(url: string): unknown {
     const days = [];
     for (let d = 1; d <= daysInMonth; d++) {
       const dow = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
-      days.push({ day: d, dow, isSunday: dow === 0, isHoliday: false, holidayName: null });
+      // Feriado de exemplo (9/7 em SP) — o rodapé de feriados da impressão só
+      // aparece com holidayName, e ele conta na altura da página impressa.
+      const holidayName = mo === 7 && d === 9 ? "Revolução Constitucionalista" : null;
+      days.push({ day: d, dow, isSunday: dow === 0, isHoliday: holidayName != null, holidayName });
     }
     return {
       year: y, month: mo, daysInMonth, days,
+      // Roster com a densidade real do restaurante (18 funcionários, 4 setores,
+      // 8 praças = 30 linhas impressas) — é nessa densidade que a impressão do
+      // mural precisa ser validada.
       employees: [
-        { id: "emp-lid", firstName: "Rafael", lastName: "Gerente", displayName: "Rafa", sector: "Liderança", subgroup: null, position: "Gerente geral", shiftStart: "10:00", shiftEnd: "20:00", scheduleRegime: "CINCO_POR_DOIS", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
-        { id: "emp-1", firstName: "Maria", lastName: "Silva", displayName: null, sector: "Cozinha", subgroup: "Quente", position: "Cozinheira", shiftStart: "08:00", shiftEnd: "16:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 1 },
-        { id: "emp-fria", firstName: "Lidiane", lastName: "Rocha", displayName: "Lidi", sector: "Cozinha", subgroup: "Fria", position: "Auxiliar", shiftStart: "08:00", shiftEnd: "16:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
-        { id: "emp-2", firstName: "Edson", lastName: "Carvalho", displayName: "Dão", sector: "Salão", subgroup: "Bar", position: "Barman", shiftStart: "12:00", shiftEnd: "22:20", scheduleRegime: "CINCO_POR_DOIS", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
-        { id: "emp-pia", firstName: "Ordonio", lastName: "Alves", displayName: null, sector: "Pia", subgroup: "Manhã", position: "Copeiro", shiftStart: "07:00", shiftEnd: "15:00", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 }
+        { id: "e01", firstName: "Joana", lastName: "Dias", displayName: "Jodeni", sector: "Cozinha", subgroup: "Quente", position: "Cozinheira", shiftStart: "08:00", shiftEnd: "16:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 1 },
+        { id: "e02", firstName: "Lidiane", lastName: "Rocha", displayName: "Lidiane", sector: "Cozinha", subgroup: "Quente", position: "Auxiliar", shiftStart: "08:00", shiftEnd: "16:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e03", firstName: "Maria", lastName: "Silva", displayName: "Maria", sector: "Cozinha", subgroup: "Quente", position: "Auxiliar", shiftStart: "08:00", shiftEnd: "16:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e04", firstName: "Janete", lastName: "Souza", displayName: "Janete", sector: "Cozinha", subgroup: "Fria", position: "Saladeira", shiftStart: "08:00", shiftEnd: "16:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e05", firstName: "Rosana", lastName: "Lima", displayName: "Rosana", sector: "Cozinha", subgroup: "Fria", position: "Auxiliar", shiftStart: "08:00", shiftEnd: "16:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e06", firstName: "Juliana", lastName: "Alves", displayName: "Juliana", sector: "Cozinha", subgroup: "Tarde", position: "Cozinheira", shiftStart: "14:00", shiftEnd: "22:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e07", firstName: "Rafael", lastName: "Pinto", displayName: "Rafa", sector: "Cozinha", subgroup: "Tarde", position: "Auxiliar", shiftStart: "14:00", shiftEnd: "22:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e08", firstName: "Vagner", lastName: "Costa", displayName: "Vagner", sector: "Cozinha", subgroup: "Tarde", position: "Auxiliar", shiftStart: "14:00", shiftEnd: "22:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e09", firstName: "Analia", lastName: "Reis", displayName: "Analia", sector: "Salão", subgroup: "Buffet", position: "Atendente", shiftStart: "10:00", shiftEnd: "18:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e10", firstName: "Aparecida", lastName: "Nunes", displayName: "Cida", sector: "Salão", subgroup: "Buffet", position: "Atendente", shiftStart: "10:00", shiftEnd: "18:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e11", firstName: "Michele", lastName: "Barros", displayName: "Michele", sector: "Salão", subgroup: "Bar", position: "Barman", shiftStart: "12:00", shiftEnd: "22:20", scheduleRegime: "CINCO_POR_DOIS", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e12", firstName: "Taissa", lastName: "Moraes", displayName: "Taissa", sector: "Salão", subgroup: "Atendente", position: "Garçonete", shiftStart: "12:00", shiftEnd: "22:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e13", firstName: "Victoria", lastName: "Ramos", displayName: "Victoria", sector: "Salão", subgroup: "Atendente", position: "Garçonete", shiftStart: "12:00", shiftEnd: "22:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e14", firstName: "Viviane", lastName: "Cardoso", displayName: "Viviane", sector: "Salão", subgroup: "Atendente", position: "Garçonete", shiftStart: "12:00", shiftEnd: "22:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e15", firstName: "Hector", lastName: "Pereira", displayName: "Hector", sector: "Pia", subgroup: "Manhã", position: "Copeiro", shiftStart: "07:00", shiftEnd: "15:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e16", firstName: "Antonio", lastName: "Gomes", displayName: "Antonio", sector: "Pia", subgroup: "Tarde", position: "Copeiro", shiftStart: "15:00", shiftEnd: "23:20", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e17", firstName: "Luiz", lastName: "Ferreira", displayName: "Luiz", sector: "Pizzaria", subgroup: null, position: "Pizzaiolo", shiftStart: "17:00", shiftEnd: "23:40", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 },
+        { id: "e18", firstName: "Ordonio", lastName: "Melo", displayName: "Ordonio", sector: "Pizzaria", subgroup: null, position: "Auxiliar", shiftStart: "17:00", shiftEnd: "23:40", scheduleRegime: "SEIS_POR_UM", admissionDate: null, terminationDate: null, holidayCompBalance: 0 }
       ],
       entries: [
-        { employeeId: "emp-1", day: 7, type: "FOLGA" },
-        { employeeId: "emp-1", day: 3, type: "TURNO" },
-        { employeeId: "emp-2", day: 3, type: "FOLGA" },
-        { employeeId: "emp-2", day: 4, type: "FOLGA" }
+        { employeeId: "e01", day: 5, type: "FOLGA" }, { employeeId: "e01", day: 14, type: "FOLGA" }, { employeeId: "e01", day: 26, type: "FOLGA" },
+        { employeeId: "e02", day: 1, type: "FOLGA" }, { employeeId: "e02", day: 8, type: "FOLGA" }, { employeeId: "e02", day: 20, type: "FOLGA" },
+        { employeeId: "e03", day: 4, type: "FOLGA" }, { employeeId: "e03", day: 12, type: "FOLGA" }, { employeeId: "e03", day: 27, type: "FOLGA" },
+        { employeeId: "e05", day: 2, type: "FOLGA" }, { employeeId: "e05", day: 13, type: "FOLGA" }, { employeeId: "e05", day: 25, type: "FOLGA" },
+        { employeeId: "e06", day: 9, type: "FOLGA" }, { employeeId: "e06", day: 13, type: "FOLGA" }, { employeeId: "e06", day: 28, type: "FOLGA" },
+        { employeeId: "e07", day: 5, type: "FOLGA" }, { employeeId: "e07", day: 19, type: "FOLGA" },
+        { employeeId: "e08", day: 21, type: "FOLGA" },
+        { employeeId: "e09", day: 2, type: "FOLGA" }, { employeeId: "e09", day: 6, type: "FOLGA" }, { employeeId: "e09", day: 22, type: "FOLGA" },
+        { employeeId: "e10", day: 7, type: "FOLGA" }, { employeeId: "e10", day: 13, type: "FOLGA" },
+        { employeeId: "e11", day: 6, type: "FOLGA" },
+        { employeeId: "e12", day: 2, type: "FOLGA" }, { employeeId: "e12", day: 6, type: "FOLGA" }, { employeeId: "e12", day: 20, type: "FOLGA" },
+        { employeeId: "e13", day: 6, type: "FOLGA" }, { employeeId: "e13", day: 13, type: "FOLGA" },
+        { employeeId: "e14", day: 14, type: "FOLGA" }, { employeeId: "e14", day: 28, type: "FOLGA" },
+        { employeeId: "e15", day: 7, type: "FOLGA" }, { employeeId: "e15", day: 20, type: "TURNO" }, { employeeId: "e15", day: 26, type: "TURNO" },
+        { employeeId: "e16", day: 6, type: "FOLGA" }, { employeeId: "e16", day: 21, type: "TURNO" }, { employeeId: "e16", day: 27, type: "TURNO" },
+        { employeeId: "e17", day: 5, type: "FOLGA" }, { employeeId: "e17", day: 14, type: "FOLGA" },
+        { employeeId: "e18", day: 4, type: "FOLGA" }, { employeeId: "e18", day: 26, type: "FOLGA" }
       ],
-      vacationDays: [16, 17, 18, 19, 20].map((day) => ({ employeeId: "emp-2", day })),
+      vacationDays: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].map((day) => ({ employeeId: "e04", day })),
       dateEvents: [
         { day: 11, size: "PEQUENO" },
         { day: 14, size: "MEDIO" },

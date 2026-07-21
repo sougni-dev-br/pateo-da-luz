@@ -1,4 +1,4 @@
-import { CalendarDays, ChevronLeft, ChevronRight, Minus, Plus, Printer, RefreshCw, Save } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Eye, EyeOff, Maximize2, Minimize2, Minus, Palette, Plus, Printer, RefreshCw, Save } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import {
@@ -20,9 +20,12 @@ const REGIME_SHORT: Record<string, string> = { SEIS_POR_UM: "6×1", CINCO_POR_DO
 const COLORS = {
   folga: "#1f2937",     // escuro
   turno: "#ea580c",     // laranja vibrante (distinto da folga)
-  eventoPequeno: "#0d9488", // teal vibrante (Evento pequeno)
-  eventoMedio: "#7c3aed",   // violeta vibrante (Evento médio)
-  eventoGrande: "#db2777",  // fúcsia/rosa vibrante (Evento grande)
+  // UMA cor por evento — a MESMA no cabeçalho da data e na coluna inteira,
+  // igual domingo/feriado. Dois tons para o mesmo evento gerava dupla leitura.
+  // Intensidade média/clara: pinta a coluna sem sufocar as marcas F/T.
+  eventoPequeno: "#2dd4bf", // teal
+  eventoMedio: "#fbbf24",   // âmbar
+  eventoGrande: "#e879f9",  // magenta (longe do salmão do domingo)
   ferias: "#2563eb",    // azul
   domingo: "#ff8a8a",   // vermelho/rosa
   feriado: "#8fd14f",   // verde
@@ -41,7 +44,7 @@ const EVENT_NEXT: Record<EventSize, EventSize | null> = { PEQUENO: "MEDIO", MEDI
 // Ordem fixa dos setores e das praças/subgrupos na escala (pedido do Eli).
 const SECTOR_ORDER = ["Liderança", "Cozinha", "Salão", "Pia", "Pizzaria"];
 const SUBGROUP_ORDER: Record<string, string[]> = {
-  "Cozinha": ["Quente", "Fria"],
+  "Cozinha": ["Quente", "Fria", "Tarde"],
   "Salão": ["Buffet", "Bar", "Atendente"],
   "Pia": ["Manhã", "Tarde"],
 };
@@ -86,6 +89,21 @@ export function Escala() {
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [comp, setComp] = useState<Map<string, number>>(new Map());
+  // Modo "montar escala": o painel vira overlay de tela cheia (some o menu),
+  // dando o máximo de área para enxergar o mês inteiro de uma vez.
+  const [fullscreen, setFullscreen] = useState(false);
+  // Densidade: em tela cheia o que importa é caber gente na tela, então legenda
+  // e os detalhes sob o nome (turno, folga-feriado) começam recolhidos.
+  const [showLegend, setShowLegend] = useState(true);
+  const [showDetails, setShowDetails] = useState(true);
+
+  // Entrar em tela cheia recolhe legenda e detalhes (densidade máxima para
+  // montar a escala); sair devolve os dois. Usado pelo botão E pelo Esc.
+  function setFullscreenMode(next: boolean) {
+    setFullscreen(next);
+    setShowLegend(!next);
+    setShowDetails(!next);
+  }
 
   async function load() {
     setLoading(true);
@@ -120,6 +138,19 @@ export function Escala() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirty]);
+
+  // Tela cheia: ESC sai e o fundo não rola junto.
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreenMode(false); };
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [fullscreen]);
 
   function handleReload() {
     if (dirty && !window.confirm(UNSAVED_CONFIRM)) return;
@@ -284,7 +315,8 @@ export function Escala() {
             const mark = marks.get(keyOf(emp.id, d.day));
             const isFolgaDay = !isFeriasDay && mark === "FOLGA";
             const isTurnoDay = !isFeriasDay && mark === "TURNO";
-            const cls = !within ? "out" : isFeriasDay ? "ferias" : isFolgaDay ? "folga" : isTurnoDay ? "turno" : d.isHoliday ? "hol" : d.isSunday ? "sun" : "";
+            const evd = dateEvents.get(d.day);
+            const cls = !within ? "out" : isFeriasDay ? "ferias" : isFolgaDay ? "folga" : isTurnoDay ? "turno" : evd ? `evd-${evd.toLowerCase()}` : d.isHoliday ? "hol" : d.isSunday ? "sun" : "";
             const label = within ? (isFeriasDay ? "Fér" : isFolgaDay ? "F" : isTurnoDay ? "T" : "") : "";
             return `<td class="${cls}">${label}</td>`;
           }).join("");
@@ -294,29 +326,48 @@ export function Escala() {
       }).join("");
       return sec + subsHtml;
     }).join("");
+    // Mural precisa ser legível de longe: usa a maior fonte que ainda cabe em UMA
+    // página paisagem. Quanto mais linhas (setores + praças + funcionários), menor.
+    const printRows = sectorGroups.reduce(
+      (n, g) => n + 1 + g.subs.reduce((m, s) => m + (s.subgroup ? 1 : 0) + s.employees.length, 0),
+      0
+    );
+    // Limites calibrados medindo o layout real. Linhas de setor/praça são
+    // compactas (só rótulo), então sobra altura para as linhas de funcionário.
+    const S = printRows <= 16
+      ? { cell: 18, pad: 9, name: 17, dow: 12, sector: 14, sub: 12, title: 26, legend: 14, box: 16, nameW: 130 }
+      : printRows <= 24
+        ? { cell: 16, pad: 5, name: 15, dow: 11, sector: 13, sub: 11, title: 23, legend: 13, box: 15, nameW: 122 }
+        : printRows <= 32
+          ? { cell: 14, pad: 2, name: 13, dow: 10, sector: 11, sub: 10, title: 19, legend: 11, box: 12, nameW: 110 }
+          : { cell: 12, pad: 1, name: 12, dow: 9, sector: 10, sub: 9, title: 18, legend: 11, box: 12, nameW: 104 };
+
     const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="color-scheme" content="light"><title>Escala ${MONTHS[month - 1]} ${year}</title>
 <style>
 :root{color-scheme:light}
 *{font-family:Arial,Helvetica,sans-serif;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 html,body{background:#fff;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-@page{size:landscape;margin:9mm}
-h1{font-size:17px;margin:0 0 2px}.sub{font-size:11px;color:#555;margin:0 0 8px}
+@page{size:landscape;margin:6mm}
+h1{font-size:${S.title}px;margin:0 0 2px}.sub{font-size:${S.legend}px;color:#444;margin:0 0 6px}
 table{border-collapse:collapse;width:100%}
-th,td{border:1px solid #999;text-align:center;font-size:10px;padding:2px 1px}
-td.name,th.name{text-align:left;white-space:nowrap;padding:3px 6px;min-width:150px}
-th span{font-size:8px;color:#666;font-weight:normal}
-tr.sector td{background:#eee;text-align:left;font-weight:bold;text-transform:uppercase;font-size:10px}
-tr.subsector td{background:#f6f6f6;text-align:left;font-weight:600;font-size:9px;padding-left:18px;color:#555}
-td.folga{background:${COLORS.folga};color:#fff;font-weight:bold}
-td.turno{background:${COLORS.turno};color:#fff;font-weight:bold}
-td.ferias{background:${COLORS.ferias};color:#fff;font-weight:bold;font-size:8px}
+tr{page-break-inside:avoid}
+th,td{border:1px solid #777;text-align:center;font-size:${S.cell}px;padding:${S.pad}px 1px;font-weight:bold}
+td.name,th.name{text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:${S.pad}px 6px;width:${S.nameW}px;max-width:${S.nameW}px;font-size:${S.name}px}
+th span{font-size:${S.dow}px;color:#555;font-weight:normal}
+tr.sector td{background:#e2e2e2;text-align:left;font-weight:bold;text-transform:uppercase;font-size:${S.sector}px;letter-spacing:.04em;padding:2px 6px}
+tr.subsector td{background:#f1f1f1;text-align:left;font-weight:600;font-size:${S.sub}px;padding:1px 6px 1px 20px;color:#444}
+td.folga{background:${COLORS.folga};color:#fff}
+td.turno{background:${COLORS.turno};color:#fff}
+td.ferias{background:${COLORS.ferias};color:#fff;font-size:${Math.round(S.cell * 0.72)}px}
 td.sun,th.sun{background:${COLORS.domingo}}td.hol,th.hol{background:${COLORS.feriado}}
-th.ev-pequeno{background:${COLORS.eventoPequeno};color:#fff}th.ev-medio{background:${COLORS.eventoMedio};color:#fff}th.ev-grande{background:${COLORS.eventoGrande};color:#fff}
-th.ev-pequeno span,th.ev-medio span,th.ev-grande span{color:#eee}
-td.out{background:repeating-linear-gradient(45deg,#fff,#fff 3px,#eee 3px,#eee 6px)}
-.legend{margin-top:10px;font-size:11px}.legend span{margin-right:16px;display:inline-block;margin-bottom:3px}
-.box{display:inline-block;width:12px;height:12px;border:1px solid #999;vertical-align:-2px;margin-right:4px;text-align:center;line-height:11px;font-size:8px;font-weight:bold}
-.foot{margin-top:7px;font-size:10px;color:#555}
+th.ev-pequeno,td.evd-pequeno{background:${COLORS.eventoPequeno}}
+th.ev-medio,td.evd-medio{background:${COLORS.eventoMedio}}
+th.ev-grande,td.evd-grande{background:${COLORS.eventoGrande}}
+th.ev-pequeno span,th.ev-medio span,th.ev-grande span{color:#333}
+td.out{background:repeating-linear-gradient(45deg,#fff,#fff 3px,#e6e6e6 3px,#e6e6e6 6px)}
+.legend{margin-top:8px;font-size:${S.legend}px;font-weight:600}.legend span{margin-right:18px;display:inline-block;margin-bottom:3px}
+.box{display:inline-block;width:${S.box}px;height:${S.box}px;border:1px solid #777;vertical-align:-3px;margin-right:5px;text-align:center;line-height:${S.box - 2}px;font-size:${Math.round(S.box * 0.66)}px;font-weight:bold}
+.foot{margin-top:6px;font-size:${S.legend - 1}px;color:#444}
 </style></head><body>
 <h1>Escala de trabalho — ${MONTHS[month - 1]} ${year}</h1>
 <div class="sub">Pateo da Luz</div>
@@ -325,25 +376,42 @@ td.out{background:repeating-linear-gradient(45deg,#fff,#fff 3px,#eee 3px,#eee 6p
 ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${holidayList}</div>` : ""}
 </body></html>`;
     const iframe = document.createElement("iframe");
-    iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+    // Tem que ter o tamanho da ÁREA IMPRIMÍVEL (A4 paisagem menos as margens do
+    // @page). Com 0x0 o layout mede errado e o auto-ajuste abaixo não funciona.
+    iframe.style.cssText = "position:fixed;left:-10000px;top:0;width:285mm;height:198mm;border:0";
     document.body.appendChild(iframe);
     const doc = iframe.contentWindow?.document;
     if (!doc) { document.body.removeChild(iframe); return; }
     doc.open(); doc.write(html); doc.close();
     iframe.contentWindow?.focus();
     setTimeout(() => {
+      // Rede de segurança: se mesmo no menor tamanho passar da página, encolhe
+      // proporcionalmente para caber em UMA folha (mural é sempre 1 página).
+      const avail = iframe.clientHeight;
+      const kids = Array.from(doc.body.children) as HTMLElement[];
+      const content = kids.length ? Math.max(...kids.map((el) => el.getBoundingClientRect().bottom)) : 0;
+      if (content > avail && avail > 0) {
+        doc.body.style.setProperty("zoom", String(Math.max(0.45, (avail / content) * 0.99)));
+      }
       iframe.contentWindow?.print();
       setTimeout(() => { if (iframe.parentNode) document.body.removeChild(iframe); }, 1500);
     }, 350);
   }
 
-  const NAME_COL = 172;
+  // Em tela cheia a coluna de nome encolhe: sem o menu lateral, o que importa é
+  // caber o mês inteiro sem rolar pro lado (os nomes exibidos são curtos).
+  const NAME_COL = fullscreen ? 130 : 172;
+  const TRAB_COL = fullscreen ? 44 : 52;
   const CELL = 34;
 
   const stickyNameStyle: CSSProperties = {
     position: "sticky", left: 0, zIndex: 2, background: "var(--surface)",
     minWidth: NAME_COL, maxWidth: NAME_COL, borderRight: "1px solid var(--border-strong, var(--border))",
-    padding: "6px 10px", textAlign: "left"
+    padding: showDetails ? "6px 10px" : "2px 10px", textAlign: "left"
+  };
+  const swatch: CSSProperties = {
+    display: "inline-block", width: 12, height: 12, borderRadius: 3,
+    verticalAlign: "-2px", marginRight: 5
   };
   const compBtn: CSSProperties = {
     width: 18, height: 18, display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -358,7 +426,7 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
       position: "sticky", top: 0, zIndex: 4,
       minWidth: CELL, width: CELL, textAlign: "center", padding: "4px 0", fontSize: 11,
       background: bg,
-      color: eventBg ? "#fff" : (m.isSunday || m.isHoliday ? "#1f2937" : "var(--muted)"),
+      color: eventBg || m.isSunday || m.isHoliday ? "#1f2937" : "var(--muted)",
       boxShadow: "inset 0 -1px 0 var(--border)",
       cursor: canEdit ? "pointer" : "default"
     };
@@ -368,37 +436,72 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
     <div className="stack">
       <Notice notice={notice} />
 
-      <section className="panel">
-        <div className="section-heading">
+      <section
+        className="panel"
+        style={fullscreen ? {
+          position: "fixed", inset: 0, zIndex: 60, margin: 0, borderRadius: 0,
+          maxWidth: "none", overflow: "auto", background: "var(--surface)", padding: 16
+        } : undefined}
+      >
+        <div className="section-heading" style={fullscreen ? { marginBottom: 8 } : undefined}>
           <div>
-            <PanelEyebrow>Pessoal</PanelEyebrow>
-            <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <CalendarDays size={18} /> Escala mensal
+            {!fullscreen && <PanelEyebrow>Pessoal</PanelEyebrow>}
+            <h2 style={{ display: "flex", alignItems: "center", gap: 8, ...(fullscreen ? { fontSize: 15, margin: 0 } : null) }}>
+              <CalendarDays size={fullscreen ? 15 : 18} /> Escala mensal
             </h2>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end", whiteSpace: "nowrap" }}>
             <Button variant="secondary" onClick={() => goMonth(-1)} aria-label="Mês anterior"><ChevronLeft size={16} /></Button>
             <strong style={{ minWidth: 118, textAlign: "center" }}>{MONTHS[month - 1]} {year}</strong>
             <Button variant="secondary" onClick={() => goMonth(1)} aria-label="Próximo mês"><ChevronRight size={16} /></Button>
+            <Button
+              variant="secondary"
+              onClick={() => setShowDetails((v) => !v)}
+              aria-label={showDetails ? "Ocultar detalhes sob o nome" : "Mostrar detalhes sob o nome"}
+              title={showDetails ? "Ocultar turno e folga-feriado (linhas mais baixas)" : "Mostrar turno e folga-feriado sob o nome"}
+            >
+              {showDetails ? <EyeOff size={15} /> : <Eye size={15} />}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setShowLegend((v) => !v)}
+              aria-label={showLegend ? "Ocultar legenda" : "Mostrar legenda"}
+              title={showLegend ? "Ocultar a legenda de cores" : "Mostrar a legenda de cores"}
+            >
+              <Palette size={15} />
+            </Button>
             <Button variant="secondary" onClick={handleReload} aria-label="Recarregar"><RefreshCw size={15} /></Button>
             <Button variant="secondary" leadingIcon={<Printer size={14} />} onClick={handlePrint}>Imprimir</Button>
+            <Button
+              variant="secondary"
+              leadingIcon={fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              onClick={() => setFullscreenMode(!fullscreen)}
+              title={fullscreen ? "Sair da tela cheia (Esc)" : "Montar a escala em tela cheia"}
+            >
+              {fullscreen ? "Sair" : "Tela cheia"}
+            </Button>
             {canEdit && <Button leadingIcon={<Save size={14} />} onClick={handleSave} disabled={!dirty || saving}>{saving ? "Salvando..." : "Salvar escala"}</Button>}
           </div>
         </div>
 
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 12, color: "var(--muted)", margin: "0 0 10px", alignItems: "center" }}>
-          <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.folga, verticalAlign: "-2px", marginRight: 5 }} />Folga (F)</span>
-          <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.turno, verticalAlign: "-2px", marginRight: 5 }} />Turno / cobertura (T)</span>
-          <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.ferias, verticalAlign: "-2px", marginRight: 5 }} />Férias</span>
-          <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.domingo, verticalAlign: "-2px", marginRight: 5 }} />Domingo</span>
-          <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.feriado, verticalAlign: "-2px", marginRight: 5 }} />Feriado</span>
-          <span style={{ width: "100%", height: 0 }} />
-          <strong style={{ fontSize: 11, color: "var(--ink, inherit)" }}>Eventos (na data):</strong>
-          <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.eventoPequeno, verticalAlign: "-2px", marginRight: 5 }} />Evento pequeno</span>
-          <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.eventoMedio, verticalAlign: "-2px", marginRight: 5 }} />Evento médio</span>
-          <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: COLORS.eventoGrande, verticalAlign: "-2px", marginRight: 5 }} />Evento grande</span>
-          {canEdit && <span style={{ fontSize: 11, opacity: 0.85 }}>Célula do funcionário: clique cicla — → F → T → —. Cabeçalho da data: clique cicla o evento — → Pequeno → Médio → Grande → —</span>}
-        </div>
+        {showLegend && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 12, color: "var(--muted)", margin: "0 0 10px", alignItems: "center" }}>
+            <span><span style={{ ...swatch, background: COLORS.folga }} />Folga (F)</span>
+            <span><span style={{ ...swatch, background: COLORS.turno }} />Turno / cobertura (T)</span>
+            <span><span style={{ ...swatch, background: COLORS.ferias }} />Férias</span>
+            <span><span style={{ ...swatch, background: COLORS.domingo }} />Domingo</span>
+            <span><span style={{ ...swatch, background: COLORS.feriado }} />Feriado</span>
+            <span style={{ width: "100%", height: 0 }} />
+            <strong style={{ fontSize: 11, color: "var(--ink, inherit)" }}>Eventos (na data):</strong>
+            {(["PEQUENO", "MEDIO", "GRANDE"] as EventSize[]).map((sz) => (
+              <span key={sz}>
+                <span style={{ ...swatch, background: EVENT_COLOR[sz] }} />
+                {EVENT_LABEL[sz]}
+              </span>
+            ))}
+            {canEdit && <span style={{ fontSize: 11, opacity: 0.85 }}>Célula do funcionário: clique cicla — → F → T → —. Cabeçalho da data: clique cicla o evento — → Pequeno → Médio → Grande → —</span>}
+          </div>
+        )}
 
         {error && <Alert tone="error">{error}</Alert>}
         {loading && <EmptyState title="Carregando escala..." />}
@@ -410,18 +513,24 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
         )}
 
         {!loading && data && data.employees.length > 0 && (
-          <div style={{ overflow: "auto", maxHeight: "70vh", border: "1px solid var(--border)", borderRadius: 10 }}>
+          <div style={{
+            overflow: "auto",
+            // Em tela cheia o topo da grade muda conforme a legenda esteja
+            // aberta ou recolhida — reservar fixo desperdiçaria ~100px.
+            maxHeight: fullscreen ? `calc(100vh - ${showLegend ? 185 : 105}px)` : "70vh",
+            border: "1px solid var(--border)", borderRadius: 10
+          }}>
             <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr>
                   <th style={{ ...stickyNameStyle, top: 0, zIndex: 6, boxShadow: "inset 0 -1px 0 var(--border)", fontSize: 11, color: "var(--muted)" }}>Funcionário</th>
-                  <th style={{ position: "sticky", top: 0, zIndex: 5, background: "var(--surface)", minWidth: 52, maxWidth: 52, textAlign: "center", padding: "4px 2px", fontSize: 10, fontWeight: 500, color: "var(--muted)", boxShadow: "inset 0 -1px 0 var(--border)", borderLeft: "1px solid var(--border)" }} title="Total de dias trabalhados no mês (só na tela)">Trab.</th>
+                  <th style={{ position: "sticky", top: 0, zIndex: 5, background: "var(--surface)", minWidth: TRAB_COL, maxWidth: TRAB_COL, textAlign: "center", padding: "4px 2px", fontSize: 10, fontWeight: 500, color: "var(--muted)", boxShadow: "inset 0 -1px 0 var(--border)", borderLeft: "1px solid var(--border)" }} title="Total de dias trabalhados no mês (só na tela)">Trab.</th>
                   {data.days.map((d) => {
                     const ev = dateEvents.get(d.day);
                     const evTitle = ev ? `${EVENT_LABEL[ev]}${canEdit ? " — clique para trocar" : ""}` : (canEdit ? "Clique para marcar evento" : undefined);
                     return (
                       <th key={d.day} style={headStyle(d, ev)} title={evTitle ?? d.holidayName ?? undefined} onClick={canEdit ? () => toggleDateEvent(d.day) : undefined}>
-                        <div style={{ fontWeight: 500, color: ev ? "#fff" : "var(--ink, inherit)" }}>{d.day}</div>
+                        <div style={{ fontWeight: 500, color: ev ? "#1f2937" : "var(--ink, inherit)" }}>{d.day}</div>
                         <div>{DOW_LETTERS[d.dow]}</div>
                       </th>
                     );
@@ -432,7 +541,7 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                 {sectorGroups.map((group) => (
                   <Fragment key={group.sector}>
                     <tr>
-                      <td colSpan={data.days.length + 2} style={{ background: "var(--paper-soft, var(--surface-2))", padding: "5px 10px", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--muted)", position: "sticky", left: 0 }}>
+                      <td colSpan={data.days.length + 2} style={{ background: "var(--paper-soft, var(--surface-2))", padding: showDetails ? "5px 10px" : "2px 10px", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--muted)", position: "sticky", left: 0 }}>
                         {group.sector}
                       </td>
                     </tr>
@@ -440,7 +549,7 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                       <Fragment key={group.sector + "|" + (sub.subgroup ?? "_")}>
                         {sub.subgroup && (
                           <tr>
-                            <td colSpan={data.days.length + 2} style={{ padding: "3px 10px 3px 22px", fontSize: 10.5, fontWeight: 600, color: "var(--muted)", position: "sticky", left: 0, background: "var(--surface)" }}>
+                            <td colSpan={data.days.length + 2} style={{ padding: showDetails ? "3px 10px 3px 22px" : "1px 10px 1px 22px", fontSize: 10.5, fontWeight: 600, color: "var(--muted)", position: "sticky", left: 0, background: "var(--surface)" }}>
                               {sub.subgroup}
                             </td>
                           </tr>
@@ -448,25 +557,40 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                     {sub.employees.map((emp) => (
                       <tr key={emp.id}>
                         <td style={stickyNameStyle}>
-                          <div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: NAME_COL - 20 }} title={fullName(emp)}>{fullName(emp)}</div>
-                          <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
-                            {REGIME_SHORT[emp.scheduleRegime] ?? ""}{emp.shiftStart ? ` · ${emp.shiftStart}${emp.shiftEnd ? `–${emp.shiftEnd}` : ""}` : ""}
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3, fontSize: 10.5, color: "var(--muted)" }} title="Folgas a mais por feriado trabalhado">
-                            <span>Folga feriado:</span>
-                            {canEdit && <button type="button" aria-label="Menos uma folga" onClick={() => handleComp(emp.id, -1)} style={compBtn}><Minus size={11} /></button>}
-                            <strong style={{ color: "var(--ink, inherit)", minWidth: 10, textAlign: "center" }}>{comp.get(emp.id) ?? 0}</strong>
-                            {canEdit && <button type="button" aria-label="Mais uma folga" onClick={() => handleComp(emp.id, 1)} style={compBtn}><Plus size={11} /></button>}
-                            {holidaysWorked(emp) > 0 && <span style={{ color: "#9a6410" }} title="Feriados trabalhados neste mês">· {holidaysWorked(emp)} trab.</span>}
-                          </div>
+                          {(() => {
+                            const turno = `${REGIME_SHORT[emp.scheduleRegime] ?? ""}${emp.shiftStart ? ` · ${emp.shiftStart}${emp.shiftEnd ? `–${emp.shiftEnd}` : ""}` : ""}`;
+                            // Recolhido: a info vai para o tooltip do nome, para continuar
+                            // acessível sem custar altura de linha.
+                            const nomeTitle = showDetails
+                              ? fullName(emp)
+                              : `${fullName(emp)}${turno ? ` — ${turno}` : ""} — Folga feriado: ${comp.get(emp.id) ?? 0}${holidaysWorked(emp) > 0 ? ` · ${holidaysWorked(emp)} feriado(s) trabalhado(s)` : ""}`;
+                            return (
+                              <div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: NAME_COL - 20 }} title={nomeTitle}>{fullName(emp)}</div>
+                            );
+                          })()}
+                          {showDetails && (
+                            <>
+                              <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
+                                {REGIME_SHORT[emp.scheduleRegime] ?? ""}{emp.shiftStart ? ` · ${emp.shiftStart}${emp.shiftEnd ? `–${emp.shiftEnd}` : ""}` : ""}
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3, fontSize: 10.5, color: "var(--muted)" }} title="Folgas a mais por feriado trabalhado">
+                                <span>Folga feriado:</span>
+                                {canEdit && <button type="button" aria-label="Menos uma folga" onClick={() => handleComp(emp.id, -1)} style={compBtn}><Minus size={11} /></button>}
+                                <strong style={{ color: "var(--ink, inherit)", minWidth: 10, textAlign: "center" }}>{comp.get(emp.id) ?? 0}</strong>
+                                {canEdit && <button type="button" aria-label="Mais uma folga" onClick={() => handleComp(emp.id, 1)} style={compBtn}><Plus size={11} /></button>}
+                                {holidaysWorked(emp) > 0 && <span style={{ color: "#9a6410" }} title="Feriados trabalhados neste mês">· {holidaysWorked(emp)} trab.</span>}
+                              </div>
+                            </>
+                          )}
                         </td>
-                        <td style={{ minWidth: 52, maxWidth: 52, textAlign: "center", fontWeight: 600, borderLeft: "1px solid var(--border)", borderTop: "1px solid var(--border)" }} title="Dias trabalhados no mês">{workedDays(emp)}</td>
+                        <td style={{ minWidth: TRAB_COL, maxWidth: TRAB_COL, textAlign: "center", fontWeight: 600, borderLeft: "1px solid var(--border)", borderTop: "1px solid var(--border)" }} title="Dias trabalhados no mês">{workedDays(emp)}</td>
                         {data.days.map((d) => {
                           const within = withinEmployment(emp, year, month, d.day);
                           const isFeriasDay = isFerias(emp.id, d.day);
                           const mark = marks.get(keyOf(emp.id, d.day));
                           const isFolgaDay = !isFeriasDay && mark === "FOLGA";
                           const isTurnoDay = !isFeriasDay && mark === "TURNO";
+                          const dayEvent = dateEvents.get(d.day);
                           const bg = !within
                             ? "repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(128,128,128,0.12) 3px, rgba(128,128,128,0.12) 6px)"
                             : isFeriasDay
@@ -475,11 +599,13 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                                 ? COLORS.folga
                                 : isTurnoDay
                                   ? COLORS.turno
-                                  : d.isHoliday
-                                    ? COLORS.feriado
-                                    : d.isSunday
-                                      ? COLORS.domingo
-                                      : "transparent";
+                                  : dayEvent
+                                    ? EVENT_COLOR[dayEvent]
+                                    : d.isHoliday
+                                      ? COLORS.feriado
+                                      : d.isSunday
+                                        ? COLORS.domingo
+                                        : "transparent";
                           const clickable = within && !isFeriasDay;
                           const title = !within
                             ? "Fora do vínculo"
@@ -487,14 +613,16 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                               ? "Férias (gerenciado na Folha)"
                               : isTurnoDay
                                 ? "Turno estendido (cobertura)"
-                                : d.holidayName ?? (d.isSunday ? "Domingo" : undefined);
+                                : dayEvent
+                                  ? EVENT_LABEL[dayEvent]
+                                  : d.holidayName ?? (d.isSunday ? "Domingo" : undefined);
                           return (
                             <td
                               key={d.day}
                               onClick={clickable ? () => toggle(emp.id, d.day) : undefined}
                               title={title}
                               style={{
-                                minWidth: CELL, width: CELL, height: 34, textAlign: "center",
+                                minWidth: CELL, width: CELL, height: showDetails ? 34 : 26, textAlign: "center",
                                 borderLeft: "1px solid var(--border)", borderTop: "1px solid var(--border)",
                                 background: bg, cursor: clickable && canEdit ? "pointer" : "default",
                                 color: "#fff", fontWeight: 600, userSelect: "none",
