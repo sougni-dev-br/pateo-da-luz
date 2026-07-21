@@ -6,6 +6,9 @@
      radix layer. E na body via portal, entao nao ha stacking context pai
      que consiga sombrear. */
   z-index: 2147483647;
+  /* Fica por cima de tudo (proposital), mas nao pode roubar o clique de botoes
+     que caem embaixo dele — ex.: a barra de acoes da escala em tela cheia. */
+  pointer-events: none;
   display: inline-flex;
   align-items: center;
   gap: 7px;
