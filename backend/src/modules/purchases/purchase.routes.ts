@@ -2124,6 +2124,8 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
     constructor(public readonly reason: "PAID" | "CLOSED_WITH_PAID_TITLE") { super("CYCLE_BLOCKED"); }
   }
 
+  let installmentsCancelled = 0;
+
   try {
     await prisma.$transaction(async (tx) => {
       const [cycleItem] = await tx.$queryRaw<Array<{ id: string; cycleId: string; amount: string }>>`
@@ -2188,6 +2190,17 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
           await tx.$executeRaw`DELETE FROM "SupplierBillingCycleItem" WHERE "id" = ${cycleItem.id}`;
         }
       }
+      // Compra cancelada não pode seguir cobrável: os títulos dela saem junto.
+      // Sem isto as parcelas ficavam OPEN para sempre, aparecendo em Contas a
+      // Pagar e no alerta de vencidas sem compra viva por trás.
+      // Parcelas já pagas ficam intactas — representam dinheiro que de fato saiu
+      // e exigem estorno explícito via /payables/:id/reverse.
+      installmentsCancelled = await tx.$executeRaw`
+        UPDATE "PaymentInstallment"
+        SET "status" = 'CANCELLED'
+        WHERE "purchaseId" = ${request.params.id}
+          AND "status" NOT IN ('PAID', 'PAID_LATE', 'CANCELLED')
+      `;
       await tx.$executeRaw`
         UPDATE "Purchase"
         SET "status" = 'CANCELLED',
@@ -2217,11 +2230,11 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
     entity: "Purchase",
     entityId: request.params.id,
     previousValue: previous,
-    newValue: { status: "CANCELLED", reason },
+    newValue: { status: "CANCELLED", reason, installmentsCancelled },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? "")
   });
-  response.json({ id: request.params.id, status: "CANCELLED" });
+  response.json({ id: request.params.id, status: "CANCELLED", installmentsCancelled });
 });
 
 purchaseRouter.patch("/:id/restore", async (request, response) => {
@@ -2242,14 +2255,27 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
     await assertNoClosedCmvPeriodForDate(restoreCompetenceDate, "Restauracao de compra");
   }
 
-  await prisma.$executeRaw`
-    UPDATE "Purchase"
-    SET "status" = 'ACTIVE',
-        "restoredAt" = CURRENT_TIMESTAMP,
-        "restoredByUserId" = ${admin.id},
-        "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ${request.params.id}
-  `;
+  // Contrapartida do cancelamento: se os títulos saem junto com a compra, eles
+  // precisam voltar junto também. Sem isto a compra reviveria sem nada a pagar.
+  // Numa transação para não deixar compra ativa com título cancelado se falhar.
+  let installmentsReopened = 0;
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`
+      UPDATE "Purchase"
+      SET "status" = 'ACTIVE',
+          "restoredAt" = CURRENT_TIMESTAMP,
+          "restoredByUserId" = ${admin.id},
+          "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${request.params.id}
+    `;
+    installmentsReopened = await tx.$executeRaw`
+      UPDATE "PaymentInstallment"
+      SET "status" = 'OPEN'
+      WHERE "purchaseId" = ${request.params.id}
+        AND "status" = 'CANCELLED'
+        AND "paidDate" IS NULL
+    `;
+  });
   await adjustStockForPurchase(request.params.id, 1);
   const [restored] = await prisma.$queryRaw<Array<{
     id: string;
@@ -2292,9 +2318,9 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
     entity: "Purchase",
     entityId: request.params.id,
     previousValue: previous,
-    newValue: { status: "ACTIVE" },
+    newValue: { status: "ACTIVE", installmentsReopened },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? "")
   });
-  response.json({ id: request.params.id, status: "ACTIVE" });
+  response.json({ id: request.params.id, status: "ACTIVE", installmentsReopened });
 });
