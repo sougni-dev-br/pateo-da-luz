@@ -418,15 +418,29 @@ dashboardRouter.get("/alerts", async (request, response) => {
   const dueSoonAmount = Number(dueSoonRows[0]?.total ?? 0);
 
   // ── 3. Compras a prazo sem parcelas vinculadas (competência) ──
+  // Três fluxos não geram título na própria compra — o título nasce depois, numa
+  // compra virtual criada no fechamento. Acusá-los seria falso positivo permanente,
+  // já que a compra-membro nunca ganha parcela:
+  //   - pequeno gasto: quitado no ato;
+  //   - cartão de crédito: título nasce no fechamento da fatura (cards.service.ts);
+  //   - fornecedor de ciclo: título nasce no fechamento do ciclo (supplier-cycles.routes.ts).
+  // Mesma isenção aplicada na validação da criação de compras (purchase.routes.ts).
   const unpaidRows = await prisma.$queryRaw<Array<{ cnt: unknown; total: unknown }>>`
     SELECT COUNT(*) AS cnt, COALESCE(SUM(p."totalAmount"), 0) AS total
     FROM "Purchase" p
+    JOIN "Supplier" s ON s."id" = p."supplierId"
     WHERE p."competenceYear" = ${year}
       AND p."competenceMonth" = ${month}
       AND p."status" = 'ACTIVE'
       AND p."paymentRegime" = 'ACCRUAL'
       AND NOT EXISTS (
         SELECT 1 FROM "PaymentInstallment" pi WHERE pi."purchaseId" = p.id
+      )
+      AND p."isSmallExpense" = false
+      AND p."creditCardId" IS NULL
+      AND s."billingMode" IS DISTINCT FROM 'CYCLE'
+      AND NOT EXISTS (
+        SELECT 1 FROM "SupplierBillingCycleItem" bci WHERE bci."purchaseId" = p.id
       )
   `;
   const unpaidCount = Number(unpaidRows[0]?.cnt ?? 0);
