@@ -144,8 +144,17 @@ function fmtDate(iso: string | null | undefined): string {
 
 class Canvas {
   pages: { cmds: string[] }[] = [{ cmds: [] }];
-  get page() { return this.pages[this.pages.length - 1]; }
+  private target: number | null = null;
+  get page() { return this.pages[this.target ?? this.pages.length - 1]; }
   newPage() { this.pages.push({ cmds: [] }); }
+
+  // Redireciona o desenho pra uma pagina ja fechada. Usado pra carimbar o rodape
+  // com a numeracao so no final, quando o total de paginas e' conhecido.
+  onPage(idx: number, draw: () => void) {
+    const prev = this.target;
+    this.target = idx;
+    try { draw(); } finally { this.target = prev; }
+  }
 
   txt(text: string, x: number, y: number, size = 9, font: Font = F_REG, color: [number, number, number] = C_INK) {
     this.page.cmds.push(
@@ -177,15 +186,25 @@ class Canvas {
 
 // ─── Drawing helpers ──────────────────────────────────────────────────────────
 
-function drawHeader(cv: Canvas, code: string, subtitle: string, pageNum: number, totalPages: number) {
+function drawHeader(cv: Canvas, code: string, subtitle: string) {
   const topY = PAGE_H - MT;
   cv.txt("Pateo da Luz",    MX, topY,      16,  F_BOLD, C_INK);
   cv.txt(subtitle,          MX, topY - 17, 8.5, F_ITAL, C_MUTED);
   cv.rtxt(code, PAGE_W - MX, topY, 14, F_BOLD, C_GOLD);
   cv.line(MX, topY - 28, PAGE_W - MX, topY - 28, 0.8, C_LINE);
-  const pg = `Pagina ${pageNum} de ${totalPages}`;
-  cv.txt(pg, PAGE_W - MX - estW(pg, 8), MB - 4, 8, F_REG, C_MUTED);
-  cv.line(MX, MB + 8, PAGE_W - MX, MB + 8, 0.5, C_LINE);
+}
+
+// Rodape de todas as paginas. So pode rodar depois do conteudo pronto — antes disso
+// o total de paginas e' desconhecido e qualquer estimativa sai errada no impresso.
+function drawFooters(cv: Canvas) {
+  const total = cv.pages.length;
+  cv.pages.forEach((_pg, idx) => {
+    cv.onPage(idx, () => {
+      const pg = `Pagina ${idx + 1} de ${total}`;
+      cv.txt(pg, PAGE_W - MX - estW(pg, 8), MB - 4, 8, F_REG, C_MUTED);
+      cv.line(MX, MB + 8, PAGE_W - MX, MB + 8, 0.5, C_LINE);
+    });
+  });
 }
 
 function card(cv: Canvas, x: number, y: number, w: number, h: number, label: string, value: string, tone: Tone = "neutral") {
@@ -220,12 +239,14 @@ function tableRow(
   cols: ColDef[],
   cells: string[],
   bg: [number, number, number],
-  ensureSpace: (n: number) => void
+  ensureSpace: (n: number) => number
 ): number {
   const cellLines = cols.map((col, i) => wrapText(cells[i] ?? "-", col.width - 8, 7.5, col.bold));
   const lineCount = Math.max(...cellLines.map((l) => l.length));
   const rowH = Math.max(16, lineCount * 9 + 7);
-  ensureSpace(rowH + 4);
+  // ensureSpace pode abrir pagina nova e reposicionar o cursor: desenhar a partir do y
+  // devolvido, nunca do parametro — o valor antigo jogaria a linha pra fora da pagina.
+  y = ensureSpace(rowH + 4);
 
   cv.rect(MX, y - rowH, CW, rowH, bg, C_LINE, 0.3);
   let x = MX;
@@ -242,8 +263,8 @@ function tableRow(
   return y - rowH;
 }
 
-function groupHeader(cv: Canvas, y: number, label: string, ensureSpace: (n: number) => void): number {
-  ensureSpace(20);
+function groupHeader(cv: Canvas, y: number, label: string, ensureSpace: (n: number) => number): number {
+  y = ensureSpace(20);
   cv.rect(MX, y - 18, CW, 18, [0.22, 0.25, 0.32]);
   cv.txt(cleanText(label), MX + 8, y - 11, 8, F_BOLD, C_WHITE);
   return y - 18;
@@ -313,24 +334,20 @@ export function createSupplierPositionPdf(data: SupplierPositionData): Buffer {
   const refDate = data.period.from ? new Date(data.period.from) : new Date();
   const code    = `FOR-${refDate.getFullYear()}-${String(refDate.getMonth() + 1).padStart(2, "0")}`;
 
-  // Estimate total pages (used in headers; updated once content is done)
-  const rowEstimate = data.purchases.length * 2 +
-    data.purchases.reduce((s, p) => s + p.items.length + p.installments.length, 0);
-  let totalPages = Math.max(1, 1 + Math.ceil((rowEstimate - 30) / 40));
-
   const MIN_Y   = MB + 28;
-  let pageIdx   = 1;
   let y         = PAGE_H - MT - 46;
 
-  const ensureSpace = (need: number) => {
-    if (y - need >= MIN_Y) return;
+  // Devolve o cursor vertical valido — igual ao atual se o bloco coube, ou o topo da
+  // pagina recem-criada. Quem chama DEVE reatribuir seu y com o retorno.
+  const ensureSpace = (need: number): number => {
+    if (y - need >= MIN_Y) return y;
     cv.newPage();
-    pageIdx++;
-    drawHeader(cv, code, subtitle, pageIdx, totalPages);
+    drawHeader(cv, code, subtitle);
     y = PAGE_H - MT - 46;
+    return y;
   };
 
-  drawHeader(cv, code, subtitle, 1, totalPages);
+  drawHeader(cv, code, subtitle);
 
   // ── Title block ─────────────────────────────────────────────────────────────
   cv.txt(subtitle, MX, y, 13, F_BOLD, C_INK);
@@ -407,7 +424,7 @@ export function createSupplierPositionPdf(data: SupplierPositionData): Buffer {
   }
 
   // ── Section 1: Notas Fiscais ─────────────────────────────────────────────────
-  ensureSpace(60);
+  y = ensureSpace(60);
   y = sectionHeading(cv, y, "Notas Fiscais e Pedidos Internos");
   y = tableHeader(cv, y, nfCols);
 
@@ -438,7 +455,7 @@ export function createSupplierPositionPdf(data: SupplierPositionData): Buffer {
   y -= 16;
 
   // ── Section 2: Itens Comprados ───────────────────────────────────────────────
-  ensureSpace(60);
+  y = ensureSpace(60);
   y = sectionHeading(cv, y, "Itens Comprados");
   y = tableHeader(cv, y, itemCols);
 
@@ -475,7 +492,7 @@ export function createSupplierPositionPdf(data: SupplierPositionData): Buffer {
   // ── Section 3: Parcelas e Vencimentos ────────────────────────────────────────
   const hasInstallments = data.purchases.some((p) => p.installments.length > 0);
   if (hasInstallments) {
-    ensureSpace(60);
+    y = ensureSpace(60);
     y = sectionHeading(cv, y, "Parcelas e Vencimentos");
     y = tableHeader(cv, y, instCols);
 
@@ -503,7 +520,7 @@ export function createSupplierPositionPdf(data: SupplierPositionData): Buffer {
     }
 
     // Installment summary bar
-    ensureSpace(22);
+    y = ensureSpace(22);
     cv.rect(MX, y - 20, CW, 20, [0.92, 0.94, 0.92], C_LINE, 0.4);
     const openOnly = Math.max(0, data.summary.openAmount - data.summary.overdueAmount);
     cv.txt(
@@ -513,8 +530,7 @@ export function createSupplierPositionPdf(data: SupplierPositionData): Buffer {
     y -= 20;
   }
 
-  // Update total page count now that we know it
-  totalPages = cv.pages.length;
+  drawFooters(cv);
 
   return encodePdf(cv);
 }

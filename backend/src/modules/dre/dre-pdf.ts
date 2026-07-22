@@ -152,8 +152,17 @@ function fmtDate(iso: string): string {
 
 class Canvas {
   pages: { cmds: string[] }[] = [{ cmds: [] }];
-  get page() { return this.pages[this.pages.length - 1]; }
+  private target: number | null = null;
+  get page() { return this.pages[this.target ?? this.pages.length - 1]; }
   newPage() { this.pages.push({ cmds: [] }); }
+
+  // Redireciona o desenho pra uma pagina ja fechada. Usado pra carimbar o rodape
+  // com a numeracao so no final, quando o total de paginas e' conhecido.
+  onPage(idx: number, draw: () => void) {
+    const prev = this.target;
+    this.target = idx;
+    try { draw(); } finally { this.target = prev; }
+  }
 
   txt(text: string, x: number, y: number, size = 9, font: Font = F_REG, color: [number, number, number] = C_INK) {
     this.page.cmds.push(
@@ -183,15 +192,25 @@ class Canvas {
 
 // ─── Drawing helpers ───────────────────────────────────────────────────────────
 
-function drawHeader(cv: Canvas, code: string, pageNum: number, totalPages: number) {
+function drawHeader(cv: Canvas, code: string) {
   const topY = PAGE_H - MT;
   cv.txt("Pateo da Luz", MX, topY, 16, F_BOLD, C_INK);
   cv.txt("DRE Gerencial", MX, topY - 17, 8.5, F_ITAL, C_MUTED);
   cv.rtxt(code, PAGE_W - MX, topY, 14, F_BOLD, C_GOLD);
   cv.line(MX, topY - 28, PAGE_W - MX, topY - 28, 0.8, C_LINE);
-  const pg = `Pagina ${pageNum} de ${totalPages}`;
-  cv.txt(pg, PAGE_W - MX - estW(pg, 8), MB - 4, 8, F_REG, C_MUTED);
-  cv.line(MX, MB + 8, PAGE_W - MX, MB + 8, 0.5, C_LINE);
+}
+
+// Rodape de todas as paginas. So pode rodar depois do conteudo pronto — antes disso
+// o total de paginas e' desconhecido e qualquer estimativa sai errada no impresso.
+function drawFooters(cv: Canvas) {
+  const total = cv.pages.length;
+  cv.pages.forEach((_pg, idx) => {
+    cv.onPage(idx, () => {
+      const pg = `Pagina ${idx + 1} de ${total}`;
+      cv.txt(pg, PAGE_W - MX - estW(pg, 8), MB - 4, 8, F_REG, C_MUTED);
+      cv.line(MX, MB + 8, PAGE_W - MX, MB + 8, 0.5, C_LINE);
+    });
+  });
 }
 
 function card(cv: Canvas, x: number, y: number, w: number, h: number, label: string, value: string, tone: Tone = "neutral") {
@@ -228,14 +247,16 @@ function tableRow(
   cols: ColDef[],
   cells: string[],
   bg: [number, number, number],
-  ensureSpace: (n: number) => void
+  ensureSpace: (n: number) => number
 ): number {
   const cellLines: string[][] = cols.map((col, i) =>
     wrapText(cells[i] ?? "-", col.width - 8, 7.5, col.bold)
   );
   const lineCount = Math.max(...cellLines.map((l) => l.length));
   const rowH = Math.max(16, lineCount * 9 + 7);
-  ensureSpace(rowH + 4);
+  // ensureSpace pode abrir pagina nova e reposicionar o cursor: desenhar a partir do y
+  // devolvido, nunca do parametro — o valor antigo jogaria a linha pra fora da pagina.
+  y = ensureSpace(rowH + 4);
 
   cv.rect(MX, y - rowH, CW, rowH, bg, C_LINE, 0.3);
   let x = MX;
@@ -276,24 +297,19 @@ export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?
     ESTIMADO: [1.00, 0.95, 0.85],
   };
 
-  // Rough page count estimate
-  const groupCount   = (data.expenseGroups ?? []).length;
-  const catCount     = data.expenses.length;
-  const chanCount    = Object.keys(data.revenue.byChannel).length;
-  const totalPages = 1 + Math.ceil((groupCount + catCount + chanCount - 15) / 30);
-
   const MIN_Y = MB + 28;
-  let pageIdx = 1;
 
-  const ensureSpace = (need: number) => {
-    if (y - need >= MIN_Y) return;
+  // Devolve o cursor vertical valido — igual ao atual se o bloco coube, ou o topo da
+  // pagina recem-criada. Quem chama DEVE reatribuir seu y com o retorno.
+  const ensureSpace = (need: number): number => {
+    if (y - need >= MIN_Y) return y;
     cv.newPage();
-    pageIdx++;
-    drawHeader(cv, code, pageIdx, totalPages);
+    drawHeader(cv, code);
     y = PAGE_H - MT - 46;
+    return y;
   };
 
-  drawHeader(cv, code, 1, totalPages);
+  drawHeader(cv, code);
   let y = PAGE_H - MT - 46;
 
   // ── Title block ──────────────────────────────────────────────────────────────
@@ -369,7 +385,7 @@ export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?
   // ── Receitas por canal ────────────────────────────────────────────────────────
   const channels = Object.entries(data.revenue.byChannel).sort((a, b) => b[1] - a[1]);
   if (channels.length > 0) {
-    ensureSpace(60 + channels.length * 18);
+    y = ensureSpace(60 + channels.length * 18);
     y = sectionHeading(cv, y, "Receitas por Canal");
 
     const chanCols: ColDef[] = [
@@ -401,7 +417,7 @@ export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?
   // ── Despesas por grupo DRE ────────────────────────────────────────────────────
   const groups = data.expenseGroups ?? [];
   if (groups.length > 0) {
-    ensureSpace(60 + groups.length * 20);
+    y = ensureSpace(60 + groups.length * 20);
     y = sectionHeading(cv, y, "Despesas por Grupo DRE");
 
     // grpCols soma exata: 262+65+72+132 = 531 = CW
@@ -443,7 +459,7 @@ export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?
     : data.expenses.map((e) => ({ ...e, groupLabel: e.dreGroup }));
 
   if (allCats.length > 0) {
-    ensureSpace(60);
+    y = ensureSpace(60);
     y = sectionHeading(cv, y, "Despesas por Categoria");
 
     // catCols soma exata: 185+165+72+109 = 531 = CW
@@ -471,7 +487,7 @@ export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?
   }
 
   // ── Lucro Operacional destaque ────────────────────────────────────────────────
-  ensureSpace(44);
+  y = ensureSpace(44);
   const ebitdaTone: [number, number, number] = data.ebitda >= 0 ? C_DARK : [0.45, 0.10, 0.09];
   cv.rect(MX, y - 36, CW, 36, ebitdaTone);
   cv.txt(
@@ -484,7 +500,7 @@ export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?
   y -= 44;
 
   // ── Observacoes gerenciais ────────────────────────────────────────────────────
-  ensureSpace(60);
+  y = ensureSpace(60);
   y = sectionHeading(cv, y, "Observacoes Gerenciais");
 
   const obs: string[] = [];
@@ -511,13 +527,15 @@ export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?
   obs.forEach((ob) => {
     const obLines = wrapText(ob, CW - 24, 7.5);
     const obH = Math.max(24, obLines.length * 10 + 8);
-    ensureSpace(obH + 4);
+    y = ensureSpace(obH + 4);
     cv.rect(MX, y - obH, CW, obH, obsBg, C_LINE, 0.4);
     obLines.forEach((ln, i) => cv.txt(ln, MX + 12, y - 12 - i * 10, 7.5, F_ITAL, C_MUTED));
     y -= obH + 6;
   });
 
   // ── Build PDF ─────────────────────────────────────────────────────────────────
+
+  drawFooters(cv);
 
   const objs: string[] = [];
   const push = (o: string) => { objs.push(o); return objs.length; };
