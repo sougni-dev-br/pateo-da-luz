@@ -65,8 +65,16 @@ app.use((_request, response, next) => {
   next();
 });
 
+// Carimbo de identidade da instância. Permite confirmar de fora qual commit
+// está no ar e desde quando, sem precisar de sessão — antes disso o /health
+// devolvia um literal estático e respondia igual na versão velha e na nova,
+// então não havia como verificar um deploy sem testar o comportamento na mão.
+// RENDER_GIT_COMMIT é injetado pelo Render; em dev fica null.
+const BUILD_COMMIT = process.env.RENDER_GIT_COMMIT ?? null;
+const BOOTED_AT = new Date().toISOString();
+
 app.get("/health", (_request, response) => {
-  response.json({ status: "ok" });
+  response.json({ status: "ok", commit: BUILD_COMMIT, bootedAt: BOOTED_AT });
 });
 
 app.use("/auth", authRouter);
