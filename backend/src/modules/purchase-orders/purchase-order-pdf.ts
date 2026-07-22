@@ -120,8 +120,17 @@ function fmtQty(n: number): string {
 
 class Canvas {
   pages: { cmds: string[] }[] = [{ cmds: [] }];
-  get page() { return this.pages[this.pages.length - 1]; }
+  private target: number | null = null;
+  get page() { return this.pages[this.target ?? this.pages.length - 1]; }
   newPage() { this.pages.push({ cmds: [] }); }
+
+  // Redireciona o desenho pra uma pagina ja fechada. Usado pra carimbar o rodape
+  // com a numeracao so no final, quando o total de paginas e' conhecido.
+  onPage(idx: number, draw: () => void) {
+    const prev = this.target;
+    this.target = idx;
+    try { draw(); } finally { this.target = prev; }
+  }
 
   txt(text: string, x: number, y: number, size = 9, font: Font = F_REG, color: [number, number, number] = C_INK) {
     this.page.cmds.push(
@@ -153,16 +162,26 @@ class Canvas {
 
 // ─── Drawing helpers ──────────────────────────────────────────────────────────
 
-function drawHeader(cv: Canvas, code: string, pageNum: number, totalPages: number) {
+function drawHeader(cv: Canvas, code: string) {
   const topY = PAGE_H - MT;
   // Comprador — hard-code "Pateo da Luz" ate feature de Empresas/filiais entregar CNPJ/endereco.
   cv.txt("Pateo da Luz",    MX, topY,      16,  F_BOLD, C_INK);
   cv.txt("Pedido de compra", MX, topY - 17, 8.5, F_ITAL, C_MUTED);
   cv.rtxt(code, PAGE_W - MX, topY, 14, F_BOLD, C_GOLD);
   cv.line(MX, topY - 28, PAGE_W - MX, topY - 28, 0.8, C_LINE);
-  const pg = `Pagina ${pageNum} de ${totalPages}`;
-  cv.txt(pg, PAGE_W - MX - estW(pg, 8), MB - 4, 8, F_REG, C_MUTED);
-  cv.line(MX, MB + 8, PAGE_W - MX, MB + 8, 0.5, C_LINE);
+}
+
+// Rodape de todas as paginas. So pode rodar depois do conteudo pronto — antes disso
+// o total de paginas e' desconhecido e qualquer estimativa sai errada no impresso.
+function drawFooters(cv: Canvas) {
+  const total = cv.pages.length;
+  cv.pages.forEach((_pg, idx) => {
+    cv.onPage(idx, () => {
+      const pg = `Pagina ${idx + 1} de ${total}`;
+      cv.txt(pg, PAGE_W - MX - estW(pg, 8), MB - 4, 8, F_REG, C_MUTED);
+      cv.line(MX, MB + 8, PAGE_W - MX, MB + 8, 0.5, C_LINE);
+    });
+  });
 }
 
 type ColDef = { label: string; width: number; align?: "left" | "right"; bold?: boolean };
@@ -184,12 +203,14 @@ function tableRow(
   cols: ColDef[],
   cells: string[],
   bg: [number, number, number],
-  ensureSpace: (n: number) => void
+  ensureSpace: (n: number) => number
 ): number {
   const cellLines = cols.map((col, i) => wrapText(cells[i] ?? "-", col.width - 8, 7.5, col.bold));
   const lineCount = Math.max(...cellLines.map((l) => l.length));
   const rowH = Math.max(16, lineCount * 9 + 7);
-  ensureSpace(rowH + 4);
+  // ensureSpace pode abrir pagina nova e reposicionar o cursor: desenhar a partir do y
+  // devolvido, nunca do parametro — o valor antigo jogaria a linha pra fora da pagina.
+  y = ensureSpace(rowH + 4);
 
   cv.rect(MX, y - rowH, CW, rowH, bg, C_LINE, 0.3);
   let x = MX;
@@ -266,22 +287,23 @@ export function createPurchaseOrderPdf(data: PurchaseOrderPdfData): Buffer {
   const cv = new Canvas();
   const MIN_Y = MB + 28;
 
-  // Estimativa de paginas (usada nos headers; refinada ao final se necessario).
-  const rowEstimate = Math.max(1, data.items.length);
-  let totalPages = Math.max(1, 1 + Math.ceil((rowEstimate - 25) / 32));
+  let y = PAGE_H - MT - 46;
 
-  let pageIdx = 1;
-  let y       = PAGE_H - MT - 46;
+  // Redesenho no topo da pagina nova (cabecalho da tabela corrente, quando ha uma).
+  let onNewPage: (() => void) | null = null;
 
-  const ensureSpace = (need: number) => {
-    if (y - need >= MIN_Y) return;
+  // Devolve o cursor vertical valido — igual ao atual se a linha coube, ou o topo da
+  // pagina recem-criada. Quem chama DEVE reatribuir seu y com o retorno.
+  const ensureSpace = (need: number): number => {
+    if (y - need >= MIN_Y) return y;
     cv.newPage();
-    pageIdx++;
-    drawHeader(cv, data.code, pageIdx, totalPages);
+    drawHeader(cv, data.code);
     y = PAGE_H - MT - 46;
+    onNewPage?.();
+    return y;
   };
 
-  drawHeader(cv, data.code, 1, totalPages);
+  drawHeader(cv, data.code);
 
   // ── Bloco de metadados ────────────────────────────────────────────────────
   cv.txt("Pedido " + data.code, MX, y, 13, F_BOLD, C_INK);
@@ -321,6 +343,10 @@ export function createPurchaseOrderPdf(data: PurchaseOrderPdfData): Buffer {
   y -= 10;
 
   y = tableHeader(cv, y, cols);
+  // Pedido longo quebra em varias paginas — repetir o cabecalho da tabela em cada uma,
+  // senao a continuacao vira uma lista de colunas sem rotulo pro fornecedor.
+  onNewPage = () => { y = tableHeader(cv, y, cols); };
+
   const rowBg: [number, number, number] = [0.99, 0.99, 0.99];
   for (const item of data.items) {
     const cells = [
@@ -331,29 +357,24 @@ export function createPurchaseOrderPdf(data: PurchaseOrderPdfData): Buffer {
     ];
     y = tableRow(cv, y, cols, cells, rowBg, ensureSpace);
   }
+  onNewPage = null;
 
   // ── Rodape: observacoes (sem total — preco entra na cotacao) ────────────
   y -= 10;
 
   if (data.notes) {
-    ensureSpace(30);
+    y = ensureSpace(30);
     cv.txt("Observacoes", MX, y, 8, F_BOLD, C_MUTED);
     y -= 12;
     const lines = wrapText(data.notes, CW, 8.5, false);
     for (const ln of lines) {
-      ensureSpace(11);
+      y = ensureSpace(11);
       cv.txt(ln, MX, y, 8.5, F_REG, C_INK);
       y -= 11;
     }
   }
 
-  // Se estimativa inicial de paginas subestimou, refaz os headers com o total real.
-  if (cv.pages.length !== totalPages) {
-    totalPages = cv.pages.length;
-    // Reheader: nao ha caminho simples pra reescrever comandos ja emitidos;
-    // aceitar leve inconsistencia no "Pagina X de Y" e' o tradeoff (mesmo comportamento
-    // dos outros PDFs do projeto). Header ja usa numero correto de pageIdx corrente.
-  }
+  drawFooters(cv);
 
   return encodePdf(cv);
 }

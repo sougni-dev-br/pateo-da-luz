@@ -120,8 +120,17 @@ function fmtDate(d: Date) {
 
 class Canvas {
   pages: { cmds: string[] }[] = [{ cmds: [] }];
-  get page() { return this.pages[this.pages.length - 1]; }
+  private target: number | null = null;
+  get page() { return this.pages[this.target ?? this.pages.length - 1]; }
   newPage() { this.pages.push({ cmds: [] }); }
+
+  // Redireciona o desenho pra uma pagina ja fechada. Usado pra carimbar o rodape
+  // com a numeracao so no final, quando o total de paginas e' conhecido.
+  onPage(idx: number, draw: () => void) {
+    const prev = this.target;
+    this.target = idx;
+    try { draw(); } finally { this.target = prev; }
+  }
 
   txt(text: string, x: number, y: number, size = 9, font: Font = F_REG, color: [number, number, number] = C_INK) {
     this.page.cmds.push(
@@ -147,16 +156,26 @@ class Canvas {
 
 // ─── Drawing helpers ───────────────────────────────────────────────────────────
 
-function drawHeader(cv: Canvas, params: CmvPdfParams, pageNum: number, totalPages: number) {
+function drawHeader(cv: Canvas, params: CmvPdfParams) {
   const topY = PAGE_H - MT;
   cv.txt("Pateo da Luz", MX, topY, 16, F_BOLD, C_INK);
   cv.txt("Apuracao de CMV Real", MX, topY - 17, 8.5, F_ITAL, C_MUTED);
   const codeW = estW(params.code, 14, true);
   cv.txt(params.code, PAGE_W - MX - codeW, topY, 14, F_BOLD, C_GOLD);
   cv.line(MX, topY - 28, PAGE_W - MX, topY - 28, 0.8, C_LINE);
-  const pg = `Pagina ${pageNum} de ${totalPages}`;
-  cv.txt(pg, PAGE_W - MX - estW(pg, 8), MB - 4, 8, F_REG, C_MUTED);
-  cv.line(MX, MB + 8, PAGE_W - MX, MB + 8, 0.5, C_LINE);
+}
+
+// Rodape de todas as paginas. So pode rodar depois do conteudo pronto — antes disso
+// o total de paginas e' desconhecido e qualquer estimativa sai errada no impresso.
+function drawFooters(cv: Canvas) {
+  const total = cv.pages.length;
+  cv.pages.forEach((_pg, idx) => {
+    cv.onPage(idx, () => {
+      const pg = `Pagina ${idx + 1} de ${total}`;
+      cv.txt(pg, PAGE_W - MX - estW(pg, 8), MB - 4, 8, F_REG, C_MUTED);
+      cv.line(MX, MB + 8, PAGE_W - MX, MB + 8, 0.5, C_LINE);
+    });
+  });
 }
 
 function card(cv: Canvas, x: number, y: number, w: number, h: number, label: string, value: string, tone: Tone = "neutral") {
@@ -195,15 +214,16 @@ function tableRow(
   cols: ColDef[],
   cells: string[],
   bg: [number, number, number],
-  minY: number,
-  ensureSpace: (n: number) => void
+  ensureSpace: (n: number) => number
 ): number {
   const cellLines: string[][] = cols.map((col, i) =>
     wrapText(cells[i] ?? "-", col.width - 8, 7.5, col.bold)
   );
   const lineCount = Math.max(...cellLines.map((l) => l.length));
   const rowH = Math.max(16, lineCount * 9 + 7);
-  ensureSpace(rowH + 4);
+  // ensureSpace pode abrir pagina nova e reposicionar o cursor: desenhar a partir do y
+  // devolvido, nunca do parametro — o valor antigo jogaria a linha pra fora da pagina.
+  y = ensureSpace(rowH + 4);
 
   cv.rect(MX, y - rowH, CW, rowH, bg, C_LINE, 0.3);
   let x = MX;
@@ -223,21 +243,20 @@ function tableRow(
 
 export function createCmvRealPdf(params: CmvPdfParams): Buffer {
   const cv = new Canvas();
-  // rough page count estimate
-  const totalPages = 1 + Math.ceil((params.purchaseByCategory.length + params.purchaseBySupplier.length + params.revenueByChannel.length) / 30);
 
   const MIN_Y = MB + 28;
-  let pageIdx = 1;
 
-  const ensureSpace = (need: number) => {
-    if (y - need >= MIN_Y) return;
+  // Devolve o cursor vertical valido — igual ao atual se o bloco coube, ou o topo da
+  // pagina recem-criada. Quem chama DEVE reatribuir seu y com o retorno.
+  const ensureSpace = (need: number): number => {
+    if (y - need >= MIN_Y) return y;
     cv.newPage();
-    pageIdx++;
-    drawHeader(cv, params, pageIdx, totalPages);
+    drawHeader(cv, params);
     y = PAGE_H - MT - 46;
+    return y;
   };
 
-  drawHeader(cv, params, 1, totalPages);
+  drawHeader(cv, params);
   let y = PAGE_H - MT - 46;
 
   // ── Title ──
@@ -299,13 +318,13 @@ export function createCmvRealPdf(params: CmvPdfParams): Buffer {
       row.categoryName,
       String(row.itemsCount),
       brl(row.totalAmount),
-    ], bg, MIN_Y, ensureSpace);
+    ], bg, ensureSpace);
   });
 
   y -= 18;
 
   // ── Compras por fornecedor ──
-  ensureSpace(80);
+  y = ensureSpace(80);
   y = sectionHeading(cv, y, "Compras por fornecedor");
 
   const supCols: ColDef[] = [
@@ -323,13 +342,13 @@ export function createCmvRealPdf(params: CmvPdfParams): Buffer {
       row.supplierDocument ?? "-",
       String(row.purchasesCount),
       brl(row.totalAmount),
-    ], bg, MIN_Y, ensureSpace);
+    ], bg, ensureSpace);
   });
 
   y -= 18;
 
   // ── Faturamento por canal ──
-  ensureSpace(80);
+  y = ensureSpace(80);
   y = sectionHeading(cv, y, "Faturamento por canal");
 
   const chanCols: ColDef[] = [
@@ -347,10 +366,12 @@ export function createCmvRealPdf(params: CmvPdfParams): Buffer {
       String(row.count),
       brl(row.grossAmount),
       brl(row.netAmount),
-    ], bg, MIN_Y, ensureSpace);
+    ], bg, ensureSpace);
   });
 
   // ── Build PDF ─────────────────────────────────────────────────────────────────
+
+  drawFooters(cv);
 
   const objs: string[] = [];
   const push = (o: string) => { objs.push(o); return objs.length; };
