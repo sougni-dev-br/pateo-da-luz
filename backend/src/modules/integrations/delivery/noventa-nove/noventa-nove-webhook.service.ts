@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { prisma } from "../../../../config/database.js";
 import type { Prisma } from "@prisma/client";
 
@@ -99,24 +100,48 @@ export type WebhookResult = {
   saleId: string | null;
 };
 
-// Verificação SOFT: se o payload tiver `sign` ou algum header de assinatura,
-// registramos que veio e qual foi (pra engenharia reversa) — mas ainda
-// aceitamos, porque o algoritmo exato não está publicamente documentado no
-// portal 99. Sandbox testado em 2026-07-13 NÃO envia sign. Quando o suporte
-// DiDi confirmar o algoritmo, troca aqui pra strict (return false quando
-// assinatura inválida).
+// Verificação da assinatura do callback DiDi.
 //
-// Também aceita headers com sign (X-Sign, X-Signature, Signature) — o log
-// de request headers em routes.ts complementa este helper.
-export function verifyWebhookSignature(envelope: WebhookEnvelope, _appSecret: string): boolean {
-  const signInBody = typeof envelope.sign === "string" && envelope.sign.length > 0;
-  if (signInBody) {
-    console.warn(
-      "[99Food webhook] sign present in body but strict verification NOT implemented — aceito temporariamente. Sample:",
-      String(envelope.sign).slice(0, 32)
-    );
+// Algoritmo confirmado em developer-food.99app.com > Food > Authentication
+// & Signature Mechanism (2026-07-13):
+//
+//   signStr    = {POST BODY Raw} + {APP SECRET}   // concatenação simples
+//   checkSign  = MD5(signStr)                     // hex, lowercase
+//   sinal chega no header HTTP `didi-header-sign`
+//
+// Regras que aplicamos:
+//   - Se veio header `didi-header-sign`: valida contra MD5(rawBody + secret).
+//     Se não bater → rejeita (retorna false).
+//   - Se NÃO veio header: aceita com warning. Isso cobre o sandbox
+//     (confirmado em 2026-07-13: sandbox não assina). Em produção real,
+//     se algum callback vier sem header, log ajuda a diagnosticar.
+//
+// rawBody é o corpo textual original — NÃO o objeto reserializado. O
+// route que chama este helper precisa capturar o Buffer bruto via
+// express.raw() antes de fazer o JSON.parse, caso contrário a ordem de
+// chaves e whitespace vão diferir e o MD5 nunca vai bater.
+export function verifyWebhookSignature(
+  headerSign: string | null,
+  rawBody: string,
+  appSecret: string
+): { valid: boolean; reason: string } {
+  if (!headerSign) {
+    return {
+      valid: true,
+      reason: "sem didi-header-sign — aceito (esperado em sandbox; em produção real, logar caso frequente)"
+    };
   }
-  return true;
+  if (!appSecret) {
+    return { valid: false, reason: "credencial 99 sem app_secret — impossível validar" };
+  }
+  const expected = crypto.createHash("md5").update(rawBody + appSecret, "utf8").digest("hex");
+  if (expected.toLowerCase() === headerSign.toLowerCase()) {
+    return { valid: true, reason: "assinatura MD5(rawBody+appSecret) confere" };
+  }
+  return {
+    valid: false,
+    reason: `assinatura invalida — esperado ${expected.slice(0, 12)}… recebido ${headerSign.slice(0, 12)}…`
+  };
 }
 
 // PriceModel vem em cents (menor denominação). Convertemos pra BRL
@@ -237,7 +262,12 @@ async function persistOrderCallback(
 // Contrato real DiDi:
 //   - Nome do tipo em `type` (com fallback pra `event` da doc antiga)
 //   - Payload do pedido em `data.order_info` (com fallback pra `data`)
-export async function handleWebhook(envelope: WebhookEnvelope, rawBody: string): Promise<WebhookResult> {
+//   - Assinatura no header `didi-header-sign` = MD5(rawBody + app_secret)
+export async function handleWebhook(
+  envelope: WebhookEnvelope,
+  rawBody: string,
+  headerSign: string | null
+): Promise<WebhookResult> {
   const event = typeof envelope.type === "string"
     ? envelope.type
     : typeof envelope.event === "string" ? envelope.event : "unknown";
@@ -271,9 +301,16 @@ export async function handleWebhook(envelope: WebhookEnvelope, rawBody: string):
 
   const cred = await prisma.noventaNoveCredential.findFirst({ where: { active: true } });
   if (cred) {
-    const valid = verifyWebhookSignature(envelope, cred.clientSecret);
-    if (!valid) {
-      return { event, handled: false, reason: "Assinatura inválida", saleId: null };
+    const check = verifyWebhookSignature(headerSign, rawBody, cred.clientSecret);
+    if (!check.valid) {
+      // Log completo pra investigação, mas responde 200 pra 99 não reentregar
+      // em loop se for erro de config nossa; retorna handled=false pra rastro.
+      console.warn("[99Food webhook] assinatura rejeitada:", check.reason);
+      return { event, handled: false, reason: `Assinatura inválida: ${check.reason}`, saleId: null };
+    }
+    if (headerSign && check.valid) {
+      // Log só quando validou de fato (não quando aceitou sem sign)
+      console.log("[99Food webhook] assinatura OK");
     }
   }
 

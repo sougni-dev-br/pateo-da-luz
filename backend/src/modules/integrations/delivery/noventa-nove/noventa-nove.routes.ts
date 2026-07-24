@@ -192,23 +192,20 @@ noventaNoveDeliveryRouter.post("/stores/:id/authorization-url", async (request, 
 // objeto parseado). Assume que o app.use(express.json()) já rodou — usamos
 // stringify do body parseado como proxy. Quando a assinatura real for
 // implementada, pode ser preciso body-parser custom com verify().
+// rawBody é capturado no app.ts via express.json({verify}) — necessário
+// pra validar MD5(rawBody + app_secret) do header didi-header-sign contra
+// o corpo EXATO que a 99 mandou (JSON.stringify(body) reserializado teria
+// ordem de chaves e whitespace diferentes).
 noventaNovePublicRouter.post("/webhook", async (request, response) => {
   try {
-    // Log inicial: cabeçalhos + primeiros bytes do body pra ajudar
-    // engenharia reversa da assinatura. Se DiDi mandar sign em header
-    // (X-Sign, X-Signature, Signature, etc.) fica visível aqui.
-    // Removido depois que a assinatura for reconhecida.
-    const auditHeaders: Record<string, string> = {};
-    for (const [k, v] of Object.entries(request.headers)) {
-      if (typeof v === "string") auditHeaders[k] = v;
-      else if (Array.isArray(v)) auditHeaders[k] = v.join(", ");
-    }
-    console.log("[99Food webhook headers]", JSON.stringify(auditHeaders));
-    const envelope = request.body as WebhookEnvelope;
-    const rawBody = typeof request.body === "string" ? request.body : JSON.stringify(request.body ?? {});
-    const result = await handleWebhook(envelope, rawBody);
-    // Sempre 200 pra 99 não reentregar em loop — logamos internamente
-    // se algo deu errado.
+    const envelope = (request.body ?? {}) as WebhookEnvelope;
+    const rawBody = (request as import("express").Request & { rawBody?: string }).rawBody
+      ?? JSON.stringify(request.body ?? {});
+    const rawHeader = request.headers["didi-header-sign"];
+    const headerSign = Array.isArray(rawHeader) ? rawHeader[0] : (rawHeader ?? null);
+    const result = await handleWebhook(envelope, rawBody, headerSign ?? null);
+    // Sempre 200 pra 99 não reentregar em loop; handled=false quando algo
+    // interno falhou, mas registramos no log e no NoventaNoveSyncLog.
     response.status(200).json({ status: "ok", ...result });
   } catch (error: unknown) {
     console.error("[99Food webhook] unhandled error", error);

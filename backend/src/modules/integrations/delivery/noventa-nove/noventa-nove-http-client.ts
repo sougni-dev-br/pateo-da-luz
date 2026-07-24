@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { prisma } from "../../../../config/database.js";
 
 // Cliente HTTP para a DiDi Food Open Platform (99 Food no Brasil).
@@ -276,6 +277,44 @@ function bodyWithAuthToken(body: unknown, token: string): unknown {
   if (body === null || body === undefined) return undefined;
   if (typeof body !== "object") return body;
   return { auth_token: token, ...(body as Record<string, unknown>) };
+}
+
+// Gera assinatura para endpoints que exigem sign+timestamp+app_id (ex:
+// POST /v1/shop/shop/list). Algoritmo confirmado em Food > Authentication
+// & Signature Mechanism (2026-07-13):
+//   1. Ordena params por chave (ASCII a→z)
+//   2. Formata cada par como "key=value" — dict/list vira "key=Array" literal
+//   3. Concatena com "&"
+//   4. Anexa app_secret no fim SEM separador
+//   5. MD5(utf-8) hex lowercase
+export function signRequestParams(
+  params: Record<string, unknown>,
+  appSecret: string
+): string {
+  const sortedKeys = Object.keys(params).sort();
+  const chunks: string[] = [];
+  for (const key of sortedKeys) {
+    const value = params[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value === "object") {
+      // PHP quirk: dict/list vira "Array" literal
+      chunks.push(`${key}=Array`);
+    } else {
+      chunks.push(`${key}=${String(value)}`);
+    }
+  }
+  const toSign = chunks.join("&") + appSecret;
+  return crypto.createHash("md5").update(toSign, "utf8").digest("hex");
+}
+
+// Envelopa params com timestamp + sign, pronto pra POST body em endpoints
+// que exigem esse esquema (não usam auth_token per-loja).
+export async function buildSignedBody(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const cred = await loadCredential();
+  const timestamp = Math.floor(Date.now() / 1000);
+  const withMeta = { ...params, app_id: cred.clientId, timestamp };
+  const sign = signRequestParams(withMeta, cred.clientSecret);
+  return { ...withMeta, sign };
 }
 
 export async function callNoventaNoveShop<T>(

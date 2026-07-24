@@ -58,7 +58,18 @@ app.use(cors({
 }));
 // Limite generoso para acomodar o payload do agente Agile PDV
 // (backfill de 6 meses pode ficar em ~10 MB de JSON com vendas + pagamentos + itens).
-app.use(express.json({ limit: "25mb" }));
+// verify() salva o rawBody UTF-8 apenas em rotas que precisam validar
+// assinatura HMAC contra o corpo original (99 Food webhook). O rawBody
+// fica em req.rawBody para os handlers consumirem sem re-serialização.
+app.use(express.json({
+  limit: "25mb",
+  verify: (req, _res, buf) => {
+    const url = req.url ?? "";
+    if (url.includes("/public/delivery/noventa-nove/webhook")) {
+      (req as express.Request & { rawBody?: string }).rawBody = buf.toString("utf8");
+    }
+  }
+}));
 app.use((_request, response, next) => {
   const originalJson = response.json.bind(response);
   response.json = ((body: unknown) => originalJson(jsonSafe(body))) as typeof response.json;
