@@ -7,7 +7,7 @@ import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import {
   closeTipPeriod, computeTipCommission, ensureTipPeriod, findOverlappingPeriod,
-  getServicePool, getServicePoolByRange, syncParticipantsFromCadastro, tipPeriodBounds,
+  getServicePool, getServicePoolByRange, reopenTipPeriod, syncParticipantsFromCadastro, tipPeriodBounds,
 } from "./tip-commission.service.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -312,6 +312,28 @@ tipCommissionRouter.post("/periods/:year/:month/close", async (request, response
     await auditLog({
       userId: user.id, action: "CLOSE_TIP_PERIOD", entity: "TipPeriod", entityId: `${year}-${month}`,
       newValue: result.totals, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+    });
+    response.json(result);
+  } catch (err) {
+    response.status(422).json({ message: (err as Error).message });
+  }
+});
+
+// ─── Reabrir um período fechado (correções de RH/rateio; exige novo fechamento) ──
+tipCommissionRouter.post("/periods/:year/:month/reopen", async (request, response) => {
+  // Reabrir é ação sensível (destrava um período selado) → EXCLUSIVA de ADMIN.
+  // Checagem estrita de role: requireAdmin() aceitaria também quem tem a permissão
+  // de menu para a ação, então aqui usamos role diretamente.
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  if (user.role !== "ADMIN") return response.status(403).json({ message: "Apenas ADMIN pode reabrir um período fechado." });
+  const year = parseInt(request.params.year, 10);
+  const month = parseInt(request.params.month, 10);
+  try {
+    const result = await reopenTipPeriod(year, month, user.id);
+    await auditLog({
+      userId: user.id, action: "REOPEN_TIP_PERIOD", entity: "TipPeriod", entityId: `${year}-${month}`,
+      newValue: { competenceYear: year, competenceMonth: month }, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
     });
     response.json(result);
   } catch (err) {
