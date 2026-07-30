@@ -324,3 +324,21 @@ export async function closeTipPeriod(year: number, month: number, userId: string
 
   return comp;
 }
+
+// ─── Reabrir: destrava um período fechado para correções (RH/rateio) ────────
+// Só volta o status para OPEN; os valores gravados nos participantes permanecem
+// até um novo fechamento. Não altera o rateio — apenas permite editar de novo.
+export async function reopenTipPeriod(year: number, month: number, userId: string) {
+  const period = await prisma.tipPeriod.findUnique({
+    where: { competenceYear_competenceMonth: { competenceYear: year, competenceMonth: month } },
+  });
+  if (!period) throw new Error("Período não encontrado.");
+  if (period.status !== "CLOSED") throw new Error("O período não está fechado.");
+
+  await prisma.tipPeriod.update({
+    where: { competenceYear_competenceMonth: { competenceYear: year, competenceMonth: month } },
+    data: { status: "OPEN", closedAt: null, updatedById: userId },
+  });
+
+  return computeTipCommission(year, month);
+}
