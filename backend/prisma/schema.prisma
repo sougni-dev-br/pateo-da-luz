@@ -175,6 +175,7 @@ model Company {
   receivables           Receivable[]
   ifoodMonthlyExpenses  IfoodMonthlyExpense[]
   noventaNoveMonthlyExpenses NoventaNoveMonthlyExpense[]
+  employees             Employee[]
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
 
@@ -2253,6 +2254,14 @@ model Employee {
   holidayCompBalance Int               @default(0)
   scheduleDays      EmployeeScheduleDay[]
   payrollItems      PayrollItem[]
+  // Gorjeta (comissão) — Fase A. companyId serve ao agrupamento da exportação.
+  companyId         String?
+  company           Company?           @relation(fields: [companyId], references: [id])
+  participaGorjeta  Boolean            @default(false)
+  tipoGorjeta       TipParticipantKind @default(PONTOS)
+  cotaFixaGorjeta   Decimal?           @db.Decimal(14, 2)
+  pontosPadrao      Int?
+  tipParticipations TipParticipant[]
   // Auditoria / soft delete
   createdById       String
   updatedById       String?
@@ -2267,6 +2276,7 @@ model Employee {
   @@index([lastName, firstName])
   @@index([terminationDate])
   @@index([deletedAt])
+  @@index([companyId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -2341,6 +2351,27 @@ model PayrollSettings {
   updatedAt      DateTime @updatedAt
 }
 
+// Rastreabilidade do retorno do RH: cada Extrato Mensal importado (arquivo + dados lidos).
+model RhExtract {
+  id              String   @id @default(cuid())
+  competenceYear  Int
+  competenceMonth Int
+  empresa         String
+  cnpj            String?
+  companyId       String?
+  totalLiquido    Decimal  @db.Decimal(14, 2)
+  headcount       Int
+  fileName        String
+  storagePath     String?
+  sha256          String?
+  data            Json     // funcionários lidos (nome, cpf, líquido, gorjeta)
+  importedById    String
+  createdAt       DateTime @default(now())
+
+  @@index([competenceYear, competenceMonth])
+  @@index([companyId])
+}
+
 enum PayrollItemType {
   ADIANTAMENTO
   SALARIO
@@ -2400,4 +2431,93 @@ model PayrollItem {
   @@index([dueDate])
   @@index([dreCategoryId])
   @@index([deletedAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FASE A — Folha da Gorjeta (Comissão)
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum TipPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+enum TipParticipantKind {
+  FIXO   // recebe cota fixa da gorjeta (sai do pool antes do rateio)
+  PONTOS // recebe pela pontuação
+}
+
+enum TipValeType {
+  REFEICAO
+  VALE_CONSUMO
+  RETIRADA_CAIXA
+  ADIANTAMENTO
+  OUTRO
+}
+
+// Competência da gorjeta: 26 do mês anterior a 25 do mês da competência.
+// Pool único (não separa por empresa); a empresa importa só na exportação.
+model TipPeriod {
+  id               String           @id @default(cuid())
+  competenceYear   Int
+  competenceMonth  Int
+  periodStart      DateTime         @db.Date
+  periodEnd        DateTime         @db.Date
+  label            String
+  grossPool        Decimal          @default(0) @db.Decimal(14, 2)
+  poolSource       String           @default("REVENUE") // REVENUE (puxado) | MANUAL (editado)
+  deductionPercent Decimal          @default(20) @db.Decimal(5, 2)
+  netPool          Decimal          @default(0) @db.Decimal(14, 2)
+  pointsTotal      Int              @default(100) // total de pontos do rateio (denominador). Editável por competência.
+  pointValue       Decimal          @default(0) @db.Decimal(14, 6)
+  status           TipPeriodStatus  @default(OPEN)
+  closedAt         DateTime?
+  participants     TipParticipant[]
+  createdById      String
+  updatedById      String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([competenceYear, competenceMonth])
+  @@index([status])
+}
+
+model TipParticipant {
+  id            String             @id @default(cuid())
+  periodId      String
+  period        TipPeriod          @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employeeId    String
+  employee      Employee           @relation(fields: [employeeId], references: [id])
+  kind          TipParticipantKind @default(PONTOS)
+  points        Int?
+  fixedAmount   Decimal?           @db.Decimal(14, 2)
+  rateioAmount  Decimal            @default(0) @db.Decimal(14, 2)
+  valesTotal    Decimal            @default(0) @db.Decimal(14, 2)
+  netCommission Decimal            @default(0) @db.Decimal(14, 2)
+  // Dados informados para o RH/contabilidade (por competência) — vão no PDF de envio.
+  horaExtra        String?         // texto livre (ex.: "1,05")
+  adicionalNoturno String?         // texto livre (ex.: "2,10")
+  faltas           Int?            // número de faltas no período
+  justificada      Boolean         @default(false)
+  vales         TipVale[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@unique([periodId, employeeId])
+  @@index([employeeId])
+}
+
+// Vale descontado por dentro da comissão, antes do RH. Não vai ao holerite.
+model TipVale {
+  id            String         @id @default(cuid())
+  participantId String
+  participant   TipParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  type          TipValeType    @default(OUTRO)
+  amount        Decimal        @db.Decimal(14, 2)
+  date          DateTime?      @db.Date
+  notes         String?
+  createdById   String
+  createdAt     DateTime       @default(now())
+
+  @@index([participantId])
 }

@@ -20,6 +20,8 @@
     "@radix-ui/react-visually-hidden": "^1.2.6",
     "@vitejs/plugin-react": "^6.0.2",
     "framer-motion": "^12.40.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
