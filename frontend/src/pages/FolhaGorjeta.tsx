@@ -1,9 +1,9 @@
-import { Check, ChevronLeft, ChevronRight, Coins, FileText, Lock, Plus, RefreshCw, Save, Trash2, UserPlus } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Coins, FileText, Lock, Plus, RefreshCw, Save, Trash2, Unlock, UserPlus } from "lucide-react";
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import {
   Employee, TipComputation, TipParticipantInput, TipParticipantKind, TipValeType,
   addTipVale, closeTipPeriodApi, getEmployees, getTipCommission, openTipPeriod,
-  removeTipParticipant, removeTipVale, saveTipParticipants, syncTipParticipants, updateTipPeriod,
+  removeTipParticipant, removeTipVale, reopenTipPeriodApi, saveTipParticipants, syncTipParticipants, updateTipPeriod,
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
@@ -68,6 +68,7 @@ export function FolhaGorjeta() {
   const { user } = useSession();
   const canEdit = hasPermission(user, "payroll-tips", "edit");
   const canApprove = hasPermission(user, "payroll-tips", "approve");
+  const isAdmin = user?.role === "ADMIN";
   const { notice, setNotice } = useNotice();
 
   const now = new Date();
@@ -260,6 +261,20 @@ export function FolhaGorjeta() {
       setComp(c);
       setRows(toRows(c));
       setNotice({ tone: "success", message: "Período fechado. Comissão líquida disponível para a folha." });
+    } catch (e) {
+      setNotice({ tone: "error", message: (e as Error).message });
+    } finally { setBusy(false); }
+  }
+
+  // Reabre um período fechado para correções (rateio ou dados do RH). Exige novo fechamento depois.
+  async function reopenPeriod() {
+    if (!window.confirm("Reabrir este período fechado? Ele volta a ficar editável (rateio e dados do RH) e precisará ser fechado novamente.")) return;
+    setBusy(true);
+    try {
+      const c = await reopenTipPeriodApi(year, month);
+      setComp(c);
+      setRows(toRows(c));
+      setNotice({ tone: "success", message: "Período reaberto. Faça as correções e feche novamente." });
     } catch (e) {
       setNotice({ tone: "error", message: (e as Error).message });
     } finally { setBusy(false); }
@@ -590,7 +605,10 @@ export function FolhaGorjeta() {
 
       <div style={{ display: "flex", gap: 8 }}>
         {closed
-          ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--muted)" }}><Lock size={14} /> Período fechado.</span>
+          ? <>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--muted)" }}><Lock size={14} /> Período fechado.</span>
+              {isAdmin && <Button variant="secondary" onClick={() => void reopenPeriod()} disabled={busy} leadingIcon={<Unlock size={14} />}>Reabrir período</Button>}
+            </>
           : <Button onClick={() => void closePeriod()} disabled={!canApprove || busy || !check?.ok || !comp?.periodId} leadingIcon={<Check size={14} />}>Fechar período</Button>}
         {comp?.periodId && <Button variant="secondary" onClick={() => void exportRhPdf()} leadingIcon={<FileText size={14} />}>Exportar PDF (RH)</Button>}
       </div>

@@ -5384,6 +5384,10 @@ export function closeTipPeriodApi(year: number, month: number) {
   return request<TipComputation>(`/payroll/tip/periods/${year}/${month}/close`, { method: "POST" });
 }
 
+export function reopenTipPeriodApi(year: number, month: number) {
+  return request<TipComputation>(`/payroll/tip/periods/${year}/${month}/reopen`, { method: "POST" });
+}
+
 export function syncTipParticipants(periodId: string) {
   return request<{ added: number; computation: TipComputation }>(`/payroll/tip/periods/${periodId}/sync`, { method: "POST" });
 }
