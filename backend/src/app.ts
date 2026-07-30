@@ -30,6 +30,7 @@ import { companyRouter } from "./modules/companies/company.routes.js";
 import { employeeRouter } from "./modules/payroll/employee.routes.js";
 import { scheduleRouter } from "./modules/payroll/schedule.routes.js";
 import { payrollRouter } from "./modules/payroll/payroll.routes.js";
+import { tipCommissionRouter } from "./modules/payroll/tip-commission.routes.js";
 import { authRouter, userRouter } from "./modules/security/auth.routes.js";
 import { requireMenuAccess } from "./modules/security/menu-permissions.js";
 import { jsonSafe } from "./shared/utils/json-safe.js";
@@ -104,6 +105,8 @@ app.use("/supplier-cycles", supplierCyclesRouter);
 app.use("/companies", companyRouter);
 app.use("/employees", employeeRouter);
 app.use("/schedule", scheduleRouter);
+// Montada ANTES de "/payroll" para o prefixo mais específico ser resolvido primeiro.
+app.use("/payroll/tip", tipCommissionRouter);
 app.use("/payroll", payrollRouter);
 app.use("/users", userRouter);
 app.use("/products", productRouter);
