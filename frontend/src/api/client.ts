@@ -5252,6 +5252,173 @@ export function savePayrollSettings(payload: Partial<PayrollSettings>) {
   });
 }
 
+// ─── Folha da Gorjeta (Comissão) — Fase A ────────────────────────────────────
+export type TipParticipantKind = "FIXO" | "PONTOS";
+export type TipValeType = "REFEICAO" | "VALE_CONSUMO" | "RETIRADA_CAIXA" | "ADIANTAMENTO" | "OUTRO";
+
+export type TipComputedVale = { id: string; type: TipValeType; amount: number; date: string | null; notes: string | null };
+
+export type TipComputedParticipant = {
+  participantId: string | null;
+  employeeId: string;
+  employeeName: string;
+  companyId: string | null;
+  companyName: string | null;
+  kind: TipParticipantKind;
+  points: number | null;
+  fixedAmount: number | null;
+  rateioAmount: number;
+  valesTotal: number;
+  netCommission: number;
+  horaExtra: string | null;
+  adicionalNoturno: string | null;
+  faltas: number | null;
+  justificada: boolean;
+  vales: TipComputedVale[];
+};
+
+export type TipComputation = {
+  year: number;
+  month: number;
+  label: string;
+  periodId: string | null;
+  status: "OPEN" | "CLOSED" | null;
+  periodStart: string;
+  periodEnd: string;
+  grossPool: number;
+  deductionPercent: number;
+  netPool: number;
+  fixedTotal: number;
+  pointsPool: number;
+  pointsBudget: number;
+  totalPoints: number;
+  pointsRemaining: number;
+  undistributedAmount: number;
+  overAllocated: boolean;
+  pointValue: number;
+  participants: TipComputedParticipant[];
+  totals: { rateio: number; vales: number; netCommission: number };
+  check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
+  warnings: string[];
+};
+
+export type TipPeriod = {
+  id: string;
+  competenceYear: number;
+  competenceMonth: number;
+  periodStart: string;
+  periodEnd: string;
+  label: string;
+  grossPool: string | number;
+  poolSource: string;
+  deductionPercent: string | number;
+  netPool: string | number;
+  pointsTotal: number;
+  pointValue: string | number;
+  status: "OPEN" | "CLOSED";
+  closedAt: string | null;
+};
+
+export type TipParticipantInput = {
+  employeeId: string;
+  kind: TipParticipantKind;
+  points?: number | null;
+  fixedAmount?: number | null;
+  horaExtra?: string | null;
+  adicionalNoturno?: string | null;
+  faltas?: number | null;
+  justificada?: boolean;
+};
+
+export function getTipCommission(year: number, month: number) {
+  return request<TipComputation>(`/payroll/tip?year=${year}&month=${month}`);
+}
+
+export function getTipPool(year: number, month: number) {
+  return request<{ year: number; month: number; label: string; periodStart: string; periodEnd: string; grossPool: number }>(
+    `/payroll/tip/pool?year=${year}&month=${month}`
+  );
+}
+
+export function openTipPeriod(year: number, month: number) {
+  return request<TipPeriod>("/payroll/tip/periods", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ year, month })
+  });
+}
+
+export function updateTipPeriod(id: string, payload: { grossPool?: number; deductionPercent?: number; pointsTotal?: number; periodStart?: string; periodEnd?: string }) {
+  return request<TipPeriod>(`/payroll/tip/periods/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function saveTipParticipants(periodId: string, participants: TipParticipantInput[]) {
+  return request<TipComputation>(`/payroll/tip/periods/${periodId}/participants`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ participants })
+  });
+}
+
+export function removeTipParticipant(id: string) {
+  return request<{ ok: boolean }>(`/payroll/tip/participants/${id}`, { method: "DELETE" });
+}
+
+export function addTipVale(participantId: string, payload: { type: TipValeType; amount: number; date?: string; notes?: string }) {
+  return request<{ id: string }>(`/payroll/tip/participants/${participantId}/vales`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function removeTipVale(id: string) {
+  return request<{ ok: boolean }>(`/payroll/tip/vales/${id}`, { method: "DELETE" });
+}
+
+export function closeTipPeriodApi(year: number, month: number) {
+  return request<TipComputation>(`/payroll/tip/periods/${year}/${month}/close`, { method: "POST" });
+}
+
+export function syncTipParticipants(periodId: string) {
+  return request<{ added: number; computation: TipComputation }>(`/payroll/tip/periods/${periodId}/sync`, { method: "POST" });
+}
+
+export type ExtratoPreviewItem = {
+  nome: string; cpf: string; liquido: number; gorjeta: number | null;
+  matched: boolean; employeeId: string | null; employeeName: string | null; isActive: boolean | null;
+};
+export type ExtratoPreview = {
+  empresa: string; cnpj: string | null;
+  competenceYear: number; competenceMonth: number;
+  totalLiquido: number; matchedCount: number;
+  items: ExtratoPreviewItem[];
+};
+export function previewExtratoRh(fileBase64: string) {
+  return request<ExtratoPreview>("/payroll/tip/extrato/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fileBase64 }),
+  });
+}
+
+export type ImportExtratoResult = {
+  empresa: string; companyId: string;
+  competenceYear: number; competenceMonth: number;
+  totalLiquido: number; funcionariosCadastrados: number; titulosGerados: number; rhExtractId: string;
+};
+export function importExtratoRh(fileBase64: string, fileName: string) {
+  return request<ImportExtratoResult>("/payroll/tip/extrato/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fileBase64, fileName }),
+  });
+}
+
 export function getPayroll(year: number, month: number) {
   return request<PayrollList>(`/payroll?year=${year}&month=${month}`);
 }

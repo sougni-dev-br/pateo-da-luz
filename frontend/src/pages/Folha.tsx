@@ -1,5 +1,5 @@
 import { Banknote, Bus, Check, ChevronLeft, ChevronRight, Clock, Coins, Palmtree, Pencil, Printer, RefreshCw, Settings, Trash2, Wallet, Wand2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import {
   Employee, PayrollComputedItem, PayrollItemType, PayrollKind, PayrollList, PayrollListItem, PayrollOverride, PayrollPreview, PayrollSettings,
   deletePayrollItem, editPayrollItem, generatePayroll, getEmployees, getPayroll, getPayrollSettings,
@@ -12,8 +12,21 @@ import {
 } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { maskMoney, moneyToMasked } from "../utils/format";
+import { FolhaGorjeta } from "./FolhaGorjeta";
+import { ExtratoRh } from "./ExtratoRh";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+
+// Estilo das abas (Folha de Pagamento / Fechamento de Gorjetas).
+function tabButtonStyle(active: boolean): CSSProperties {
+  return {
+    padding: "8px 16px", border: "none", background: "transparent", cursor: "pointer",
+    font: "inherit", fontWeight: active ? 700 : 500,
+    color: active ? "var(--text, #111)" : "var(--muted)",
+    borderBottom: active ? "2px solid var(--brand, #6b4f2a)" : "2px solid transparent",
+    marginBottom: -1,
+  };
+}
 const TYPE_LABELS: Record<PayrollItemType, string> = { ADIANTAMENTO: "Adiantamento", SALARIO: "Salário", VALE_TRANSPORTE: "Vale-transporte", RESCISAO: "Rescisão", FERIAS: "Férias" };
 const TYPE_TONE: Record<PayrollItemType, "info" | "warning" | "neutral" | "danger"> = { VALE_TRANSPORTE: "info", ADIANTAMENTO: "warning", SALARIO: "neutral", RESCISAO: "danger", FERIAS: "info" };
 
@@ -58,6 +71,7 @@ export function Folha() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
+  const [tab, setTab] = useState<"folha" | "gorjeta" | "extrato">("folha");
   const [list, setList] = useState<PayrollList | null>(null);
   const [preview, setPreview] = useState<PayrollPreview | null>(null);
   // Escopo da prévia (VT ou folha) e valores ajustados à mão antes de gerar.
@@ -388,6 +402,16 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
     <div className="stack">
       <Notice notice={notice} />
 
+      <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--border)" }}>
+        <button type="button" onClick={() => setTab("folha")} style={tabButtonStyle(tab === "folha")}>Folha de Pagamento</button>
+        <button type="button" onClick={() => setTab("gorjeta")} style={tabButtonStyle(tab === "gorjeta")}>Fechamento de Gorjetas</button>
+        <button type="button" onClick={() => setTab("extrato")} style={tabButtonStyle(tab === "extrato")}>Retorno do RH</button>
+      </div>
+
+      {tab === "gorjeta" && <FolhaGorjeta />}
+      {tab === "extrato" && <ExtratoRh />}
+
+      {tab === "folha" && (<>
       <section className="panel">
         <div className="section-heading">
           <div>
@@ -396,11 +420,16 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <Button variant="secondary" onClick={() => goMonth(-1)} aria-label="Mês anterior"><ChevronLeft size={16} /></Button>
-            <strong style={{ minWidth: 130, textAlign: "center" }}>{MONTHS[month - 1]} {year}</strong>
+            <input
+              type="month"
+              value={`${year}-${String(month).padStart(2, "0")}`}
+              onChange={(e) => { const [y, m] = e.target.value.split("-").map(Number); if (y && m) { setYear(y); setMonth(m); } }}
+              aria-label="Mês e ano"
+              style={{ padding: "6px 8px", border: "1px solid var(--border)", borderRadius: 8, font: "inherit", background: "var(--surface, #fff)", color: "inherit" }}
+            />
             <Button variant="secondary" onClick={() => goMonth(1)} aria-label="Próximo mês"><ChevronRight size={16} /></Button>
             <Button variant="secondary" onClick={load} aria-label="Recarregar"><RefreshCw size={15} /></Button>
             <Button variant="secondary" leadingIcon={<Settings size={14} />} onClick={() => setShowSettings((v) => !v)}>Configurações</Button>
-            <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => setShowVtConf(true)}>Conferir VT</Button>
             {canEdit && <Button variant="secondary" leadingIcon={<Palmtree size={14} />} onClick={openVacation}>Lançar férias</Button>}
             {canEdit && <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => handlePreview("VT")} disabled={busy}>Prever VT</Button>}
             {canEdit && <Button leadingIcon={<Wand2 size={14} />} onClick={() => handlePreview("FOLHA")} disabled={busy}>Prever folha</Button>}
@@ -443,6 +472,65 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
             <SummaryCard compact label="Pendente" moneyValue={s.pending} tone={s.overdue > 0 ? "danger" : "warning"} detail={s.overdue > 0 ? `${money(s.overdue)} vencido` : undefined} icon={<Clock size={16} />} />
           </div>
         )}
+
+        {/* Vale-transporte — por quinzena (direto na tela) */}
+        <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14, margin: "0 0 14px" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+            <PanelEyebrow>Vale-transporte · {MONTHS[month - 1]} {year}</PanelEyebrow>
+            <div style={{ display: "flex", gap: 6, marginLeft: 8 }}>
+              <Button variant={vtQuinzena === 1 ? undefined : "secondary"} onClick={() => setVtQuinzena(1)}>1ª quinzena</Button>
+              <Button variant={vtQuinzena === 2 ? undefined : "secondary"} onClick={() => setVtQuinzena(2)}>2ª quinzena</Button>
+            </div>
+            <span style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Button variant="secondary" leadingIcon={<Printer size={14} />} onClick={handlePrintVt} disabled={vtDaQuinzena.length === 0}>Imprimir</Button>
+              {canEdit && <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => handlePreview("VT")} disabled={busy}>Prever / gerar</Button>}
+            </span>
+          </div>
+          {vtDaQuinzena.length === 0 ? (
+            <EmptyState
+              title={`Nenhum VT lançado na ${vtQuinzena}ª quinzena`}
+              description="Use 'Prever / gerar' e o botão da quinzena para gerar o vale-transporte deste período."
+            />
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "0 0 10px", fontSize: 13 }}>
+                <span><strong>{vtDaQuinzena.length}</strong> funcionário(s)</span>
+                <span>Total: <strong>{money(vtTotal)}</strong></span>
+                <span style={{ color: "var(--muted)" }}>Pago: {money(vtPago)} · Em aberto: {money(vtAberto)}</span>
+              </div>
+              <Table>
+                <Table.Head>
+                  <Table.Row>
+                    <Table.Th>Funcionário</Table.Th>
+                    <Table.Th>Setor</Table.Th>
+                    <Table.Th>Dias</Table.Th>
+                    <Table.Th>Grátis</Table.Th>
+                    <Table.Th>Crédito</Table.Th>
+                    <Table.Th>Valor</Table.Th>
+                    <Table.Th>Situação</Table.Th>
+                  </Table.Row>
+                </Table.Head>
+                <Table.Body>
+                  {vtDaQuinzena.map((i) => (
+                    <Table.Row key={i.id}>
+                      <Table.Td><strong>{i.employeeDisplayName?.trim() || i.employeeName}</strong></Table.Td>
+                      <Table.Td>{i.sector ?? "—"}</Table.Td>
+                      <Table.Td>{i.workedDays ?? "—"}</Table.Td>
+                      <Table.Td>{i.freeDays ?? "—"}</Table.Td>
+                      <Table.Td>{i.creditApplied ? money(i.creditApplied) : "—"}</Table.Td>
+                      <Table.Td style={{ whiteSpace: "nowrap", fontWeight: 600 }}><Money value={i.amount} /></Table.Td>
+                      <Table.Td>
+                        <StatusBadge tone={i.status === "PAID" ? "success" : i.status === "OVERDUE" ? "danger" : "warning"}>
+                          {i.status === "PAID" ? "Pago" : i.status === "OVERDUE" ? "Vencido" : "Em aberto"}
+                        </StatusBadge>
+                      </Table.Td>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
+            </>
+          )}
+        </div>
 
         {/* Preview */}
         {preview && (
@@ -798,6 +886,7 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
           </section>
         </div>
       )}
+      </>)}
     </div>
   );
 }
