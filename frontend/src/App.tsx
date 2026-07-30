@@ -82,6 +82,7 @@ const Companies = lazy(() => import("./pages/Companies").then((module) => ({ def
 const Funcionarios = lazy(() => import("./pages/Funcionarios").then((module) => ({ default: module.Funcionarios })));
 const Escala = lazy(() => import("./pages/Escala").then((module) => ({ default: module.Escala })));
 const Folha = lazy(() => import("./pages/Folha").then((module) => ({ default: module.Folha })));
+const FolhaGorjeta = lazy(() => import("./pages/FolhaGorjeta").then((module) => ({ default: module.FolhaGorjeta })));
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
 const Users = lazy(() => import("./pages/Users").then((module) => ({ default: module.Users })));
 const Dishes = lazy(() => import("./pages/Dishes").then((module) => ({ default: module.Dishes })));
@@ -144,6 +145,7 @@ const sections = [
   { id: "employees", label: "Funcionários", icon: UsersIcon, showInSidebar: true, group: "Pessoal", path: "/pessoal/funcionarios", matchers: ["/pessoal/funcionarios"], description: "Cadastro de funcionários — base para escala, VT e folha de pagamento" },
   { id: "schedule", label: "Escala", icon: CalendarDays, showInSidebar: true, group: "Pessoal", path: "/pessoal/escala", matchers: ["/pessoal/escala"], description: "Escala mensal de folgas (6×1 / 5×2) — domingos e feriados destacados; base para o cálculo do VT" },
   { id: "payroll", label: "Folha de Pagamento", icon: WalletCards, showInSidebar: true, group: "Pessoal", path: "/pessoal/folha", matchers: ["/pessoal/folha"], description: "Geração e controle de VT (por tarifa e escala), adiantamento e salário" },
+  { id: "payroll-tips", label: "Fechamento de Gorjetas", icon: WalletCards, showInSidebar: false, group: "Pessoal", path: "/pessoal/gorjeta", matchers: ["/pessoal/gorjeta"], description: "Rateio da gorjeta por pontos: total líquido − cotas fixas, menos vales — etapa do fechamento salarial" },
   { id: "import", label: "Importações", icon: FileSpreadsheet, showInSidebar: true, group: "Dados", path: "/dados/importacoes", matchers: ["/dados/importacoes"] },
   { id: "catalog-imports", label: "Importar cadastros", icon: Database, showInSidebar: false, group: "Dados", path: "/dados/importacoes/cadastros", matchers: ["/dados/importacoes/cadastros"] },
   { id: "payment-methods", label: "Pagamentos", icon: CreditCard, showInSidebar: true, group: "Configurações", path: "/configuracoes/pagamentos", matchers: ["/configuracoes/pagamentos"] },
@@ -620,6 +622,7 @@ export function App() {
               <Route path="/pessoal/funcionarios" element={<Funcionarios />} />
               <Route path="/pessoal/escala" element={<Escala />} />
               <Route path="/pessoal/folha" element={<Folha />} />
+              <Route path="/pessoal/gorjeta" element={<FolhaGorjeta />} />
               <Route path="/configuracoes/pagamentos" element={<PaymentMethods />} />
               <Route path="/configuracoes/cadastros-base" element={<MasterData />} />
               <Route path="/configuracoes/usuarios" element={<Users />} />
