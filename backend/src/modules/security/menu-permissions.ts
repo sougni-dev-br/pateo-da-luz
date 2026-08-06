@@ -33,6 +33,7 @@ export const menuCatalog = [
   { id: "inventory-counting", label: "Contagem", group: "Estoque" },
   { id: "inventory-official", label: "Inventario", group: "Estoque" },
   { id: "inventory-reports", label: "Relatorios", group: "Estoque" },
+  { id: "requisitions", label: "Requisições", group: "Estoque" },
   { id: "suppliers", label: "Fornecedores", group: "Cadastros" },
   { id: "companies", label: "Empresas", group: "Cadastros" },
   { id: "employees", label: "Funcionarios", group: "Pessoal" },
@@ -45,6 +46,9 @@ export const menuCatalog = [
   { id: "users", label: "Usuarios", group: "Configuracoes" },
   { id: "audit", label: "Auditoria", group: "Configuracoes" },
   { id: "tax-payments", label: "Impostos e Guias", group: "Financeiro" },
+  { id: "supplier-cycles", label: "Ciclos de fornecedor", group: "Financeiro" },
+  { id: "dre", label: "DRE Gerencial", group: "Financeiro" },
+  { id: "dishes", label: "Fichas Técnicas", group: "Cardápio" },
   { id: "notifications", label: "Notificações WhatsApp", group: "Configuracoes" }
 ] as const;
 
@@ -357,6 +361,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/users")) return "users";
   if (path.startsWith("/audit")) return "audit";
   if (path.startsWith("/dashboard")) return "dashboard";
+  if (path.startsWith("/supplier-cycles")) return "supplier-cycles";
   if (path.startsWith("/suppliers")) return "suppliers";
   if (path.startsWith("/companies")) return "companies";
   if (path.startsWith("/employees")) return "employees";
@@ -372,6 +377,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/cards")) return "cards";
   if (path.startsWith("/imports/suppliers") || path.startsWith("/imports/products") || path.startsWith("/imports/payment-methods") || path.startsWith("/imports/small-expense-types") || path.startsWith("/imports/catalog")) return "catalog-imports";
   if (path.startsWith("/imports") || path.startsWith("/import-conflicts")) return "import";
+  if (path.startsWith("/inventory/requisitions")) return "requisitions";
   if (path.startsWith("/inventory/stocks")) return "inventory";
   if (path.startsWith("/inventory/movements")) return "inventory-movements";
   if (
@@ -391,6 +397,8 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/integrations/delivery/noventa-nove")) return "delivery-noventa-nove";
   if (path.startsWith("/monthly/daily-revenue")) return "cash";
   if (path.startsWith("/monthly")) return "monthly-closing";
+  if (path.startsWith("/dre")) return "dre";
+  if (path.startsWith("/dishes")) return "dishes";
   if (path.startsWith("/master-data/sectors") && method === "GET" && String(request.query?.forStockCounting ?? "").toLowerCase() === "true") {
     return "inventory-counting";
   }
