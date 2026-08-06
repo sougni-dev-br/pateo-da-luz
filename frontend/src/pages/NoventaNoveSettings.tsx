@@ -139,7 +139,7 @@ export function NoventaNoveSettings() {
       const result = await runNoventaNoveMockSync({ year: now.getFullYear(), month: now.getMonth() + 1 });
       setSyncResult(result);
       if (result.mode === "REAL") {
-        setFeedback("Sync REAL executada. Registros persistidos do 99 Food.");
+        setFeedback(`Sync REAL executada. ${result.real?.totalPersisted ?? 0} registros persistidos do 99 Food.`);
       } else {
         setFeedback("Sync em MODO MOCK: sem credencial válida ou sem lojas com AppShopID real. Aguarde aprovação do app em developer-food.99app.com.");
       }
@@ -290,9 +290,55 @@ export function NoventaNoveSettings() {
         {syncResult && (
           <div style={{ marginTop: "16px" }}>
             <Alert tone={syncResult.mode === "REAL" ? "success" : "info"} title={`Resultado da sincronização — modo ${syncResult.mode}`}>
-              {syncResult.mode === "REAL"
-                ? "Sync real executada — veja registros persistidos no relatório de sync log."
-                : "Modo mock ativado — nenhuma chamada real ao 99 Food."}
+              {syncResult.real ? (
+                <div style={{ display: "grid", gap: "8px", marginTop: "6px" }}>
+                  {syncResult.real.perStore.map((row) => {
+                    const bg = row.status === "SUCCESS" ? "rgba(22,163,74,0.08)"
+                      : row.status === "PARTIAL" ? "rgba(217,119,6,0.08)"
+                      : row.status === "ERROR" ? "rgba(220,38,38,0.08)"
+                      : "rgba(107,114,128,0.08)";
+                    const badge = row.status === "SUCCESS" ? "#16a34a"
+                      : row.status === "PARTIAL" ? "#d97706"
+                      : row.status === "ERROR" ? "#dc2626"
+                      : "#6b7280";
+                    const showCounts = row.status === "SUCCESS" || row.status === "PARTIAL";
+                    return (
+                      <div key={row.storeId} style={{
+                        display: "grid",
+                        gridTemplateColumns: "auto 1fr auto",
+                        gap: "10px",
+                        alignItems: "center",
+                        fontSize: "13px",
+                        padding: "8px",
+                        borderRadius: "6px",
+                        background: bg
+                      }}>
+                        <span style={{
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          background: badge,
+                          color: "white"
+                        }}>{row.status}</span>
+                        <div>
+                          <b>{row.storeLabel}</b> · <code style={{ fontSize: "11px" }}>{row.externalId}</code>
+                          <div style={{ opacity: 0.75, fontSize: "12px", marginTop: "2px" }}>{row.message}</div>
+                        </div>
+                        {showCounts && (
+                          <div style={{ fontSize: "11px", opacity: 0.75, textAlign: "right" }}>
+                            {row.itemsPersisted.sales} pedidos<br />
+                            {row.itemsPersisted.settlements} repasses<br />
+                            {row.itemsPersisted.fees} taxas
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div>Modo mock ativado — nenhuma chamada real ao 99 Food.</div>
+              )}
             </Alert>
           </div>
         )}
