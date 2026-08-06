@@ -345,3 +345,38 @@ export async function runSmartSync(triggeredByUserId: string | null, year: numbe
   const mock = await runMockSync(triggeredByUserId);
   return { mode: "MOCK", log: mock.log };
 }
+
+// ---------------------------------------------------------------------------
+// Serialização das execuções do sync (manual + cron).
+// O sync é idempotente, mas duas rodadas simultâneas competiriam no upsert do
+// Receivable (findUnique + create) e desperdiçariam trabalho. Encadeamos via
+// promise — nunca há duas rodadas ao mesmo tempo. 1 instância no Render
+// Starter, então um lock em memória basta.
+// ---------------------------------------------------------------------------
+let syncTail: Promise<unknown> = Promise.resolve();
+let syncInFlightCount = 0;
+
+export function isSyncInFlight(): boolean {
+  return syncInFlightCount > 0;
+}
+
+// runSmartSync serializado: se outra rodada estiver em curso, espera terminar
+// antes de iniciar (nunca concorrente). Usado pela rota manual e pelo cron.
+export async function runSmartSyncGuarded(
+  triggeredByUserId: string | null,
+  year: number,
+  month: number
+): Promise<SmartSyncResult> {
+  syncInFlightCount += 1;
+  const run = syncTail.then(
+    () => runSmartSync(triggeredByUserId, year, month),
+    () => runSmartSync(triggeredByUserId, year, month)
+  );
+  // Mantém a cadeia viva mesmo se esta rodada rejeitar.
+  syncTail = run.catch(() => undefined);
+  try {
+    return await run;
+  } finally {
+    syncInFlightCount -= 1;
+  }
+}

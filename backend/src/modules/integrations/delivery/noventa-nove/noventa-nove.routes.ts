@@ -7,7 +7,7 @@ import {
   getStatus,
   listStores,
   runMockSync,
-  runSmartSync,
+  runSmartSyncGuarded,
   saveCredential,
   updateStore
 } from "./noventa-nove.service.js";
@@ -111,7 +111,7 @@ noventaNoveDeliveryRouter.post("/sync", async (request, response) => {
   const now = new Date();
   const year = Number(request.body?.year) || now.getFullYear();
   const month = Number(request.body?.month) || (now.getMonth() + 1);
-  const result = await runSmartSync(user.id ?? null, year, month);
+  const result = await runSmartSyncGuarded(user.id ?? null, year, month);
   response.json(result);
 });
 

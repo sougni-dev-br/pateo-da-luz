@@ -242,3 +242,72 @@ export async function upsertReceivableFromIfoodSettlement(settlement: {
     }
   });
 }
+
+// Espelha um repasse (settlement) do 99 Food em Contas a Receber. Mesma
+// lógica do iFood, trocando a fonte (noventaNoveSettlementId /
+// NOVENTA_NOVE_SETTLEMENT). Idempotente por noventaNoveSettlementId; não
+// sobrescreve recebível já baixado ou cancelado manualmente.
+export async function upsertReceivableFromNoventaNoveSettlement(settlement: {
+  id: string;
+  externalId: string;
+  deliveryStoreId: string;
+  periodStart: Date;
+  periodEnd: Date;
+  netAmount: unknown;
+  grossAmount: unknown;
+  totalFees: unknown;
+  paidAt: Date | null;
+  status: string;
+}, storeContext: { companyId: string | null; nickname: string }): Promise<void> {
+  const expectedDate = settlement.paidAt ?? settlement.periodEnd;
+  const competence = { year: expectedDate.getFullYear(), month: expectedDate.getMonth() + 1 };
+  const isPaidByPlatform = settlement.status.toUpperCase() === "PAID";
+  const targetStatus: ReceivableStatus = isPaidByPlatform && expectedDate <= new Date() ? "RECEIVED" : "OPEN";
+
+  const description = `Repasse 99 Food ${settlement.periodStart.toISOString().slice(0, 10)} → ${settlement.periodEnd.toISOString().slice(0, 10)} · ${storeContext.nickname}`;
+  const netAmount = toNumber(settlement.netAmount);
+  const grossAmount = toNumber(settlement.grossAmount);
+  const fees = toNumber(settlement.totalFees);
+
+  const existing = await prisma.receivable.findUnique({ where: { noventaNoveSettlementId: settlement.id } });
+  if (existing) {
+    if (existing.status === "RECEIVED" || existing.status === "CANCELLED") return;
+    await prisma.receivable.update({
+      where: { id: existing.id },
+      data: {
+        companyId: storeContext.companyId ?? existing.companyId,
+        description,
+        expectedDate,
+        grossAmount,
+        fees,
+        netAmount,
+        status: targetStatus,
+        receivedDate: targetStatus === "RECEIVED" ? expectedDate : null,
+        paidAmount: targetStatus === "RECEIVED" ? netAmount : null,
+        competenceYear: competence.year,
+        competenceMonth: competence.month
+      }
+    });
+    return;
+  }
+  await prisma.receivable.create({
+    data: {
+      companyId: storeContext.companyId,
+      sourceType: "NOVENTA_NOVE_SETTLEMENT",
+      sourceRef: settlement.externalId,
+      noventaNoveSettlementId: settlement.id,
+      customerName: "99 Food",
+      description,
+      competenceYear: competence.year,
+      competenceMonth: competence.month,
+      expectedDate,
+      receivedDate: targetStatus === "RECEIVED" ? expectedDate : null,
+      grossAmount,
+      fees,
+      netAmount,
+      paidAmount: targetStatus === "RECEIVED" ? netAmount : null,
+      paymentMethod: "NOVENTA_NOVE_REPASSE",
+      status: targetStatus
+    }
+  });
+}
