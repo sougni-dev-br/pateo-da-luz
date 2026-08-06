@@ -4711,6 +4711,19 @@ export function getNoventaNoveSummary(params: { year: number; month: number; sto
 
 export type NoventaNoveSmartSyncResult = {
   mode: "REAL" | "MOCK";
+  real?: {
+    ranAt: string;
+    hasCredential: boolean;
+    totalPersisted: number;
+    perStore: Array<{
+      storeId: string;
+      storeLabel: string;
+      externalId: string;
+      status: "SUCCESS" | "PARTIAL" | "SKIPPED" | "ERROR";
+      itemsPersisted: { sales: number; settlements: number; fees: number };
+      message: string;
+    }>;
+  };
   log: NoventaNoveStatusView["lastSync"];
 };
 
