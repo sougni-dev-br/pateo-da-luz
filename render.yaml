@@ -1,11 +1,3 @@
-databases:
-  - name: pateo-postgres
-    # Basic-256mb desde 2026-07 (backup diário + retention 7 dias).
-    # NÃO usar 'free' — o Postgres free expira após 90 dias e não tem backup.
-    plan: basic_256mb
-    databaseName: pateo
-    user: pateo
-
 services:
   - type: web
     name: pateo-backend
@@ -21,9 +13,12 @@ services:
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: pateo-postgres
-          property: connectionString
+        # O banco pateo-postgres foi deletado (08/2026) e restaurado pelo suporte
+        # como recurso novo FORA do blueprint (pateo-postgres-copy). Por isso o
+        # DATABASE_URL é gerenciado manualmente no dashboard — o blueprint não deve
+        # sobrescrevê-lo. NÃO reintroduzir uma seção `databases:` aqui sem migrar
+        # o banco restaurado para o blueprint, ou um sync recria um banco vazio.
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGIN
