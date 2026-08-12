@@ -59,6 +59,7 @@ import {
   saveInventoryAgendaRule,
   saveOperationalInventoryItems,
   downloadOperationalInventoryPdf,
+  downloadStockCountSessionPdf,
   startInventoryAgendaItem,
   StockCount,
   StockCountSession,
@@ -684,6 +685,15 @@ export function Inventory({
       setNotice({ tone: "success", message: "Relatorio do inventario gerado." });
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao gerar PDF." });
+    }
+  }
+
+  async function downloadCountSessionPdf(session: StockCountSessionDetail) {
+    try {
+      await downloadStockCountSessionPdf(session.id, session.code);
+      setNotice({ tone: "success", message: "PDF da contagem gerado." });
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao gerar PDF da contagem." });
     }
   }
 
@@ -1522,6 +1532,7 @@ export function Inventory({
             </div>
             <div className="actions-cell">
               <button className="secondary-button" type="button" onClick={() => { setCountSessionDetail(null); onCloseCountSessionRoute?.(); }}><X size={16} />Voltar</button>
+              <button className="secondary-button" type="button" onClick={() => downloadCountSessionPdf(countSessionDetail)}><Download size={16} />Gerar PDF</button>
               <button className="secondary-button large-action" type="button" disabled={locked} onClick={saveCountSessionDraft}><Save size={17} />Salvar Contagem</button>
               <button className="primary-button large-action" type="button" disabled={locked} onClick={concludeCountSession}><CheckCircle2 size={17} />Concluir Contagem</button>
               {canReshapeCountSession && !countSessionDetail.generatedInventoryId && ["ABERTA", "EM_ANDAMENTO", "CONCLUIDA"].includes(countSessionDetail.status) && ["GERAL", "SETORIAL"].includes(countSessionDetail.type) && (
@@ -1856,6 +1867,7 @@ export function Inventory({
             <button className="secondary-button" type="button" aria-expanded={mobileCountMoreActionsOpen} onClick={() => setMobileCountMoreActionsOpen((current) => !current)}>Mais</button>
             {mobileCountMoreActionsOpen && (
               <div className="mobile-more-actions-panel">
+                <button className="secondary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); downloadCountSessionPdf(countSessionDetail); }}><Download size={15} />Gerar PDF</button>
                 <button className="secondary-button" type="button" disabled={locked} onClick={() => {
                   markFilteredCountSessionItemsAsZero();
                   setMobileCountMoreActionsOpen(false);
