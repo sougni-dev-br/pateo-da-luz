@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { createOperationalInventoryPdf } from "./operational-inventory-pdf.js";
+import { createStockCountSessionPdf } from "./stock-count-session-pdf.js";
 import { assertNoClosedCmvPeriodForDate } from "../cmv-real/cmv-real.service.js";
 import { auditLog, requestIp, requireRole, type SessionUser } from "../security/security-utils.js";
 
@@ -453,6 +454,21 @@ function operationalInventoryStatusLabel(status: string) {
   if (status === "FECHADO") return "Fechado";
   if (status === "CANCELADO") return "Cancelado";
   return status;
+}
+
+function stockCountSessionTypeLabel(type: string, sectorName?: string | null) {
+  const labels: Record<string, string> = {
+    GERAL: "Geral",
+    SETORIAL: sectorName ? `Setorial ${sectorName}` : "Setorial",
+    CATEGORIA: "Categoria",
+    SUBCATEGORIA: "Subcategoria",
+    FINAL_MES: "Final do mes",
+    ALEATORIA: "Aleatoria",
+    TAREFA: "Tarefa",
+    IMPORTACAO_PLANILHA: "Importacao via planilha",
+    COMPLEMENTAR_CMV: "Complementar CMV"
+  };
+  return labels[type] ?? type;
 }
 
 function brDate(date: Date) {
@@ -1776,6 +1792,85 @@ inventoryRouter.get("/count-sessions/:id", async (request, response) => {
       item."productCodeSnapshot" NULLS LAST
   `;
   response.json({ ...session, items: items.map(normalizeStockCountSessionItem) });
+});
+
+inventoryRouter.get("/count-sessions/:id/pdf", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const session = await getStockCountSessionSummary(request.params.id);
+  if (!session || (user.role === "ESTOQUISTA" && session.responsibleUserId !== user.id)) {
+    response.status(404).json({ message: "Contagem de estoque nao encontrada." });
+    return;
+  }
+
+  const items = await prisma.$queryRaw<Array<StockCountSessionItemRow>>`
+    SELECT
+      item."id",
+      item."stockCountSessionId",
+      item."productId",
+      item."productCodeSnapshot",
+      item."productNameSnapshot",
+      COALESCE(NULLIF(item."sectorSnapshot", '[object Object]'), NULLIF(sec."name", '[object Object]')) AS "sectorSnapshot",
+      COALESCE(NULLIF(item."categorySnapshot", '[object Object]'), NULLIF(cat."name", '[object Object]')) AS "categorySnapshot",
+      COALESCE(NULLIF(item."subcategorySnapshot", '[object Object]'), NULLIF(sub."name", '[object Object]')) AS "subcategorySnapshot",
+      item."locationSnapshot",
+      COALESCE(NULLIF(item."unitSnapshot", '[object Object]'), p."stockUnit", p."unit", u."code") AS "unitSnapshot",
+      item."expectedQuantity",
+      item."countedQuantity",
+      item."differenceQuantity",
+      item."status",
+      item."notes",
+      item."countedByUserId",
+      item."countedAt",
+      item."createdAt",
+      item."updatedAt"
+    FROM "StockCountSessionItem" item
+    LEFT JOIN "Product" p ON p."id" = item."productId"
+    LEFT JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
+    LEFT JOIN "Category" cat ON cat."id" = p."categoryId"
+    LEFT JOIN "Subcategory" sub ON sub."id" = p."subcategoryId"
+    LEFT JOIN "UnitMeasure" u ON u."id" = p."unitMeasureId"
+    WHERE item."stockCountSessionId" = ${request.params.id}
+    ORDER BY
+      translate(LOWER(COALESCE(NULLIF(item."sectorSnapshot", '[object Object]'), NULLIF(sec."name", '[object Object]'), 'zzzz_sem_setor')), ${accentChars}, ${plainChars}),
+      translate(LOWER(COALESCE(NULLIF(item."categorySnapshot", '[object Object]'), NULLIF(cat."name", '[object Object]'), 'zzzz_sem_categoria')), ${accentChars}, ${plainChars}),
+      translate(LOWER(COALESCE(NULLIF(item."subcategorySnapshot", '[object Object]'), NULLIF(sub."name", '[object Object]'), 'zzzz_sem_subcategoria')), ${accentChars}, ${plainChars}),
+      translate(LOWER(item."productNameSnapshot"), ${accentChars}, ${plainChars}),
+      item."productCodeSnapshot" NULLS LAST
+  `;
+
+  const normalizedItems = items.map(normalizeStockCountSessionItem);
+
+  const pdf = createStockCountSessionPdf({
+    systemName: "Pateo da Luz - Gestão de Estoque",
+    sessionCode: session.code,
+    sessionTypeLabel: stockCountSessionTypeLabel(session.type, session.sectorName),
+    referenceDateLabel: brDate(new Date(session.referenceDate)),
+    generatedAtLabel: brDateTime(new Date()),
+    totalItems: Number(session.totalItems ?? 0),
+    items: normalizedItems.map((item) => ({
+      productCode: item.productCodeSnapshot,
+      productName: item.productNameSnapshot,
+      sectorName: item.sectorSnapshot,
+      unit: item.unitSnapshot,
+      countedQuantity: item.countedQuantity == null ? null : Number(item.countedQuantity)
+    }))
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "GENERATE_STOCK_COUNT_SESSION_PDF",
+    entity: "StockCountSession",
+    entityId: session.id,
+    newValue: { code: session.code, status: session.status },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+
+  response.setHeader("Content-Type", "application/pdf");
+  response.setHeader("Content-Disposition", `attachment; filename=${session.code}.pdf`);
+  response.send(pdf);
 });
 
 inventoryRouter.patch("/count-sessions/:id/items", async (request, response) => {

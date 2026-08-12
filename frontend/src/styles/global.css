@@ -6778,6 +6778,21 @@ details[open] .modal-section-summary::before {
   z-index: 18;
 }
 
+/* Ações do cabeçalho da ficha de contagem: compactas no desktop.
+   O modo estoquista amplia botões para toque; aqui (desktop) fica exagerado.
+   No mobile este actions-cell é display:none, então não afeta o alvo de toque. */
+.count-session-launch .section-heading .actions-cell button,
+.count-session-launch .section-heading .actions-cell .large-action {
+  min-height: 32px;
+  padding: 0 11px;
+  font-size: 0.82rem;
+}
+
+.count-session-launch .section-heading .actions-cell button svg {
+  width: 15px;
+  height: 15px;
+}
+
 .count-session-launch .summary-grid {
   gap: 10px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
