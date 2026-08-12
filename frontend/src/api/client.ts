@@ -2987,6 +2987,10 @@ export function downloadOperationalInventoryPdf(id: string, code?: string) {
   return download(`/inventory/operational/${id}/pdf`, `${code ?? "inventario"}.pdf`);
 }
 
+export function downloadStockCountSessionPdf(id: string, code?: string) {
+  return download(`/inventory/count-sessions/${id}/pdf`, `${code ?? "contagem"}.pdf`);
+}
+
 export function downloadBuyerPrelistCsv(filters?: { search?: string; supplier?: string; sector?: string; category?: string; subcategory?: string; status?: string }) {
   return download(`/inventory/operational/buyer-support/prelist.csv${toQueryString(filters)}`, "pre-lista-compras.csv");
 }
