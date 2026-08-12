@@ -688,7 +688,7 @@ export function Inventory({
     }
   }
 
-  async function downloadCountSessionPdf(session: StockCountSessionDetail) {
+  async function downloadCountSessionPdf(session: StockCountSession | StockCountSessionDetail) {
     try {
       await downloadStockCountSessionPdf(session.id, session.code);
       setNotice({ tone: "success", message: "PDF da contagem gerado." });
@@ -2430,22 +2430,21 @@ export function Inventory({
                       <Table.Td align="right">{formatNumber(session.divergentItems)}</Table.Td>
                       <Table.Td actions>
                         <Button variant="secondary" size="sm" onClick={() => openCountSession(session.id)}>{editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}</Button>
-                        {(session.status === "CONCLUIDA" || canCancelCountSession(session)) && (
-                          <RowMenu
-                            label={`Mais ações — ${session.code}`}
-                            items={[
-                              ...(session.status === "CONCLUIDA"
-                                ? [{ label: "Gerar pedido de compra", icon: <ShoppingCart size={15} />, onClick: () => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`) }]
-                                : []),
-                              ...(canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA"
-                                ? [{ label: "Gerar inventário", icon: <ClipboardCheck size={15} />, onClick: async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventário gerado a partir da contagem." }); } }]
-                                : []),
-                              ...(canCancelCountSession(session)
-                                ? [{ separator: true as const }, { label: "Cancelar contagem", icon: <Trash2 size={15} />, tone: "danger" as const, onClick: () => cancelCountSessionAction(session) }]
-                                : [])
-                            ]}
-                          />
-                        )}
+                        <RowMenu
+                          label={`Mais ações — ${session.code}`}
+                          items={[
+                            { label: "Gerar PDF", icon: <Download size={15} />, onClick: () => downloadCountSessionPdf(session) },
+                            ...(session.status === "CONCLUIDA"
+                              ? [{ label: "Gerar pedido de compra", icon: <ShoppingCart size={15} />, onClick: () => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`) }]
+                              : []),
+                            ...(canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA"
+                              ? [{ label: "Gerar inventário", icon: <ClipboardCheck size={15} />, onClick: async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventário gerado a partir da contagem." }); } }]
+                              : []),
+                            ...(canCancelCountSession(session)
+                              ? [{ separator: true as const }, { label: "Cancelar contagem", icon: <Trash2 size={15} />, tone: "danger" as const, onClick: () => cancelCountSessionAction(session) }]
+                              : [])
+                          ]}
+                        />
                       </Table.Td>
                     </Table.Row>
                   ))}
@@ -2490,6 +2489,7 @@ export function Inventory({
                     <button className="secondary-button" type="button" onClick={() => openCountSession(session.id)}>
                       {editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}
                     </button>
+                    <button className="secondary-button" type="button" onClick={() => downloadCountSessionPdf(session)}><Download size={16} />Gerar PDF</button>
                     {session.status === "CONCLUIDA" && (
                       <button className="secondary-button" type="button" onClick={() => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`)}><ShoppingCart size={16} />Gerar pedido</button>
                     )}
