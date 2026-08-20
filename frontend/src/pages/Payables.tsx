@@ -65,6 +65,13 @@ function todayKey() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
+// Data de baixa sugerida: o vencimento quando ja passou, hoje quando ainda esta por vir.
+// Chaves no formato YYYY-MM-DD comparam corretamente como string.
+function minDateKey(dueKey: string, todayK: string) {
+  if (!dueKey) return todayK;
+  return dueKey < todayK ? dueKey : todayK;
+}
+
 function addDaysKey(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
@@ -388,7 +395,10 @@ export function Payables({ user }: PayablesProps) {
     setPaying(payable);
     setBankAccounts([]);
     setPaymentForm({
-      paidDate: dateKey(payable.dueDate) || todayKey(),
+      // Vencido: usa o vencimento (nao movimenta o mes da despesa no DRE).
+      // A vencer: usa hoje — pagar adiantado e rotina, e o pagamento ocorreu hoje,
+      // nao na data futura do vencimento (que o backend recusa, com razao).
+      paidDate: minDateKey(dateKey(payable.dueDate), todayKey()),
       paidAmount: String(payable.amount ?? ""),
       paidPaymentMethod,
       paymentNotes: "",

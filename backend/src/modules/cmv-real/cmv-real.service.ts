@@ -343,11 +343,36 @@ async function findClosedCmvPeriodByDateRange(startDate: Date, endDate: Date) {
   return period ?? null;
 }
 
-export async function assertNoClosedCmvPeriodForDate(date: Date, context: string) {
-  return assertNoClosedCmvPeriodForRange(date, date, context);
+// "Travar mes" (MonthlyCmv.status = CLOSED) passa a bloquear escrita de verdade. Antes era
+// selo apenas visual: o painel mostrava o mes travado, mas nenhum modulo consultava esse
+// status antes de gravar. Consultado aqui para valer nos mesmos pontos em que o periodo de
+// CMV fechado ja vale — as operacoes que mudam os numeros de um mes.
+async function findLockedMonthByDateRange(startDate: Date, endDate: Date) {
+  const [row] = await prisma.$queryRaw<Array<{ competenceYear: number; competenceMonth: number }>>`
+    SELECT "competenceYear", "competenceMonth"
+    FROM "MonthlyCmv"
+    WHERE "status" = CAST('CLOSED' AS "MonthlyCloseStatus")
+      AND make_date("competenceYear", "competenceMonth", 1) <= ${endDate}
+      AND (make_date("competenceYear", "competenceMonth", 1) + INTERVAL '1 month') > ${startDate}
+    ORDER BY "competenceYear" DESC, "competenceMonth" DESC
+    LIMIT 1
+  `;
+  return row ?? null;
 }
 
-export async function assertNoClosedCmvPeriodForRange(startDate: Date, endDate: Date, context: string) {
+export async function assertPeriodWritableForDate(date: Date, context: string) {
+  return assertPeriodWritableForRange(date, date, context);
+}
+
+export async function assertPeriodWritableForRange(startDate: Date, endDate: Date, context: string) {
+  const lockedMonth = await findLockedMonthByDateRange(startDate, endDate);
+  if (lockedMonth) {
+    const mes = `${String(lockedMonth.competenceMonth).padStart(2, "0")}/${lockedMonth.competenceYear}`;
+    throw new Error(
+      `${context} bloqueado: o fechamento mensal de ${mes} esta travado. Reabra o mes antes de alterar dados.`
+    );
+  }
+
   const period = await findClosedCmvPeriodByDateRange(startDate, endDate);
   if (!period) return;
   const code = period.code?.trim() || period.name;

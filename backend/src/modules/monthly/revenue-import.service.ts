@@ -8,7 +8,7 @@ import { createCalendarDate, normalizeToCalendarDate, toCalendarDateKey } from "
 import { parseDate } from "../../shared/utils/parse-date.js";
 import { parseMoney } from "../../shared/utils/parse-money.js";
 import { createSimplePdf } from "../../shared/utils/simple-pdf.js";
-import { assertNoClosedCmvPeriodForDate } from "../cmv-real/cmv-real.service.js";
+import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { auditLog } from "../security/security-utils.js";
 
 type RevenuePreviewRow = {
@@ -849,7 +849,7 @@ export async function confirmRevenueImport(input: RevenueImportInput): Promise<R
     for (const row of previewRows) {
       const payloads = rowToPayloads(row, effectiveInput);
       for (const payload of payloads) {
-      await assertNoClosedCmvPeriodForDate(payload.date, "Importacao de faturamento");
+      await assertPeriodWritableForDate(payload.date, "Importacao de faturamento");
       const existingId = existingEntries.get(`${row.date}|${payload.sourcePlatform ?? ""}`) ?? (!row.delivery ? row.existingRevenueEntryId : null);
       if (existingId) {
         const previous = await tx.$queryRaw<Array<Record<string, unknown>>>`
@@ -1036,14 +1036,14 @@ export async function undoRevenueImportBatch(importBatchId: string, input: { use
     if (change.action === "CREATED" && change.newData) {
       const createdDate = parseDate((change.newData as { date?: unknown }).date);
       if (createdDate) {
-        await assertNoClosedCmvPeriodForDate(createdDate, "Desfazer importacao de faturamento");
+        await assertPeriodWritableForDate(createdDate, "Desfazer importacao de faturamento");
       }
       continue;
     }
     if (change.action === "UPDATED" && change.previousData) {
       const previousDate = parseDate((change.previousData as { date?: unknown }).date);
       if (previousDate) {
-        await assertNoClosedCmvPeriodForDate(previousDate, "Desfazer importacao de faturamento");
+        await assertPeriodWritableForDate(previousDate, "Desfazer importacao de faturamento");
       }
     }
   }
