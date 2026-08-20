@@ -97,6 +97,8 @@ export function Cards({ user }: CardsProps) {
   const [openStatementMode, setOpenStatementMode] = useState<"review" | null>(null);
   const itemsSectionRef = useRef<HTMLDivElement | null>(null);
   const canManage = hasPermission(user, "cards", "edit");
+  // Reabrir fatura fechada/paga e o inverso de fechar: o backend pede "Aprovar".
+  const canReopenStatement = hasPermission(user, "cards", "approve");
 
   async function load() {
     try {
@@ -521,7 +523,7 @@ export function Cards({ user }: CardsProps) {
                   <td>
                     <div className="actions-cell">
                       <button type="button" onClick={() => openStatement(statement)}><Eye size={15} /> Ver</button>
-                      {canManage && (statement.status === "CLOSED" || statement.status === "PAID") && <button type="button" onClick={() => reopenStatement(statement)}>Reabrir</button>}
+                      {canReopenStatement && (statement.status === "CLOSED" || statement.status === "PAID") && <button type="button" onClick={() => reopenStatement(statement)}>Reabrir</button>}
                       {canManage && statement.status !== "CLOSED" && <button type="button" onClick={() => closeStatement(statement)}>Fechar</button>}
                       <button type="button" onClick={() => pdf(statement)}><FileText size={15} /> PDF</button>
                       {canManage && ["OPEN", "CHECKED"].includes(statement.status) && (
