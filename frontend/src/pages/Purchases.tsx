@@ -361,7 +361,12 @@ export function Purchases({ user }: { user: AppUser }) {
 
   const isAdmin = hasPermission(user, "purchases", "admin");
   const canEditPurchase = hasPermission(user, "purchases", "edit");
-  const canManageSupplier = hasPermission(user, "suppliers", "edit");
+  // Cada gate espelha a acao que o backend exige na rota correspondente:
+  // POST /purchases -> create | PUT /purchases/:id -> edit | cancel e restore -> delete.
+  const canCreatePurchase = hasPermission(user, "purchases", "create");
+  const canCancelPurchase = hasPermission(user, "purchases", "delete");
+  // A tela abre ciclo de fornecedor (POST /supplier-cycles) — gate no modulo certo.
+  const canCreateSupplierCycle = hasPermission(user, "supplier-cycles", "create");
   const isCreateRoute = location.pathname === "/compras/nova";
   const isEditRoute = /\/compras\/[^/]+\/editar$/.test(location.pathname);
   const isFormRoute = isCreateRoute || isEditRoute;
@@ -1325,6 +1330,13 @@ export function Purchases({ user }: { user: AppUser }) {
 
   const validationMessages = useMemo(() => {
     const messages: string[] = [];
+    // A tela e alcancavel por URL direta (/compras/nova). Sem a permissao que o backend
+    // exige, avisar aqui evita o usuario digitar a compra inteira e so levar 403 no salvar.
+    if (editingId ? !canEditPurchase : !canCreatePurchase) {
+      messages.push(editingId
+        ? "Voce nao tem permissao para editar compras. Peca a acao \"Editar\" em Compras ao administrador."
+        : "Voce nao tem permissao para lancar compras. Peca a acao \"Criar\" em Compras ao administrador.");
+    }
     const validItems = items.filter((item) => item.productId || item.quantity || item.unitPrice || item.totalPrice);
     if (!form.supplierId) messages.push("Selecione o fornecedor da compra.");
     if (!form.companyId) messages.push("Informe a empresa em que a nota foi faturada.");
@@ -1349,7 +1361,10 @@ export function Purchases({ user }: { user: AppUser }) {
     return [...new Set(messages)];
   }, [
     amountDifference,
+    canCreatePurchase,
+    canEditPurchase,
     duplicateCheck?.hasActiveDuplicate,
+    editingId,
     form.companyId,
     form.creditCardId,
     form.invoiceNumber,
@@ -1567,9 +1582,11 @@ export function Purchases({ user }: { user: AppUser }) {
           <button className="secondary-button" type="button" onClick={handleSupplierPositionPdf}>
             <FileText size={16} /> PDF
           </button>
-          <button className="primary-button" type="button" onClick={openNewPurchase}>
-            <Plus size={16} /> Nova compra
-          </button>
+          {canCreatePurchase && (
+            <button className="primary-button" type="button" onClick={openNewPurchase}>
+              <Plus size={16} /> Nova compra
+            </button>
+          )}
         </div>
       </div>
 
@@ -1743,10 +1760,10 @@ export function Purchases({ user }: { user: AppUser }) {
                       <RowMenu
                         label={`Mais ações — ${purchase.supplier.name}`}
                         items={[
-                          ...(canEditPurchase
+                          ...(canCreatePurchase
                             ? [{ label: "Copiar para nova compra", icon: <Copy size={15} />, onClick: () => void openCopyPurchase(purchase.id) }]
                             : []),
-                          ...(isAdmin
+                          ...(canCancelPurchase
                             ? [
                                 { separator: true as const },
                                 purchase.status === "CANCELLED"
@@ -1815,8 +1832,8 @@ export function Purchases({ user }: { user: AppUser }) {
                   <div className="purch-mobile-actions">
                     <button className="purch-mobile-btn" type="button" onClick={() => openDetail(purchase)}><Eye size={15} /> Ver</button>
                     {canEditPurchase && purchase.status !== "CANCELLED" && <button className="purch-mobile-btn" type="button" onClick={() => openEdit(purchase)}><Pencil size={15} /> Editar</button>}
-                    {canEditPurchase && <button className="purch-mobile-btn purch-mobile-btn-ghost" type="button" title="Copiar" onClick={() => void openCopyPurchase(purchase.id)}><Copy size={14} /></button>}
-                    {isAdmin && (
+                    {canCreatePurchase && <button className="purch-mobile-btn purch-mobile-btn-ghost" type="button" title="Copiar" onClick={() => void openCopyPurchase(purchase.id)}><Copy size={14} /></button>}
+                    {canCancelPurchase && (
                       purchase.status === "CANCELLED"
                         ? <button className="purch-mobile-btn purch-mobile-btn-ghost" type="button" onClick={() => handleRestore(purchase)}>Restaurar</button>
                         : <button className="purch-mobile-btn purch-mobile-btn-danger" type="button" title="Cancelar" onClick={() => handleCancel(purchase)}><Trash2 size={14} /></button>
@@ -1830,9 +1847,11 @@ export function Purchases({ user }: { user: AppUser }) {
                 <Package size={36} className="purch-empty-icon" />
                 <p className="purch-empty-title">Nenhuma compra encontrada</p>
                 <p className="purch-empty-desc">Ajuste os filtros ou cadastre uma nova compra.</p>
-                <button className="primary-button" type="button" onClick={openNewPurchase}>
-                  <Plus size={15} /> Nova compra
-                </button>
+                {canCreatePurchase && (
+                  <button className="primary-button" type="button" onClick={openNewPurchase}>
+                    <Plus size={15} /> Nova compra
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -2703,15 +2722,17 @@ export function Purchases({ user }: { user: AppUser }) {
                         <p className="pnova-cycle-info-hint" style={{ color: "var(--warning)", marginBottom: 6 }}>
                           Nenhum ciclo aberto para este fornecedor. Um ciclo será criado automaticamente ao salvar, ou crie agora:
                         </p>
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          style={{ fontSize: 12, padding: "4px 10px" }}
-                          disabled={cycleCreating}
-                          onClick={handleCreateCycleFromPurchase}
-                        >
-                          {cycleCreating ? "Criando ciclo…" : "Criar ciclo agora"}
-                        </button>
+                        {canCreateSupplierCycle && (
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            style={{ fontSize: 12, padding: "4px 10px" }}
+                            disabled={cycleCreating}
+                            onClick={handleCreateCycleFromPurchase}
+                          >
+                            {cycleCreating ? "Criando ciclo…" : "Criar ciclo agora"}
+                          </button>
+                        )}
                       </div>
                     )}
 

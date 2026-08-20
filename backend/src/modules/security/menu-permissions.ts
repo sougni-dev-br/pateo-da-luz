@@ -438,7 +438,26 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
     return "admin";
   }
 
-  if (path.endsWith("/close") || path.endsWith("/approve") || path.endsWith("/confirm")) return "approve";
+  // Pareamento e controle do servico de WhatsApp nao sao CRUD: o QR vincula a conta do
+  // restaurante a quem escanear, e logout/restart derrubam o canal de mensagens.
+  if (path.endsWith("/qr") || path.endsWith("/logout") || path.endsWith("/restart")) return "admin";
+
+  // Semear estrutura (categorias do DRE) ou injetar dados de teste/mock em producao
+  // reescreve base de configuracao — administrativo, nao "criar um registro".
+  if (path.endsWith("/seed") || path.endsWith("/seed-test-menu") || path.endsWith("/sync-mock-only")) return "admin";
+
+  // Travar/fechar um periodo e aprova-lo. "/lock" acompanha "/close" porque o
+  // fechamento mensal usa esse verbo para a mesma operacao.
+  if (path.endsWith("/close") || path.endsWith("/approve") || path.endsWith("/confirm") || path.endsWith("/lock")) return "approve";
+
+  // Reabrir/destravar um documento fechado e o inverso de fecha-lo: pede a mesma acao,
+  // senao desfazer o fechamento sai mais barato que faze-lo. Contagem de estoque fica de
+  // fora — e trabalho colaborativo de turno, nao documento contabil.
+  if ((path.endsWith("/reopen") || path.endsWith("/unlock")) && menuId !== "inventory-counting") return "approve";
+
+  // Restaurar um registro cancelado desfaz uma exclusao: pede a acao de excluir.
+  if (path.endsWith("/restore")) return "delete";
+
   if (path.endsWith("/cancel") || method === "DELETE") return "delete";
   if (method === "GET" || method === "HEAD") return "view";
   if (method === "POST") return "create";
