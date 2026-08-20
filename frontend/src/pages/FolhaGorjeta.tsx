@@ -68,7 +68,8 @@ export function FolhaGorjeta() {
   const { user } = useSession();
   const canEdit = hasPermission(user, "payroll-tips", "edit");
   const canApprove = hasPermission(user, "payroll-tips", "approve");
-  const isAdmin = user?.role === "ADMIN";
+  // Reabrir periodo fechado: acao "Administrar" do modulo, nao o cargo ADMIN.
+  const isAdmin = hasPermission(user, "payroll-tips", "admin");
   const { notice, setNotice } = useNotice();
 
   const now = new Date();

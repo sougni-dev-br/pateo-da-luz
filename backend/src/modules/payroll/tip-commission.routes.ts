@@ -4,7 +4,8 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
-import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
+import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
+import { userHasPermission } from "../security/menu-permissions.js";
 import {
   closeTipPeriod, computeTipCommission, ensureTipPeriod, findOverlappingPeriod,
   getServicePool, getServicePoolByRange, reopenTipPeriod, syncParticipantsFromCadastro, tipPeriodBounds,
@@ -321,12 +322,14 @@ tipCommissionRouter.post("/periods/:year/:month/close", async (request, response
 
 // ─── Reabrir um período fechado (correções de RH/rateio; exige novo fechamento) ──
 tipCommissionRouter.post("/periods/:year/:month/reopen", async (request, response) => {
-  // Reabrir é ação sensível (destrava um período selado) → EXCLUSIVA de ADMIN.
-  // Checagem estrita de role: requireAdmin() aceitaria também quem tem a permissão
-  // de menu para a ação, então aqui usamos role diretamente.
+  // Reabrir é ação sensível (destrava um período selado) → continua restrita, mas por
+  // PERMISSÃO e não por cargo: exige a ação "Administrar" em Fechamento de Gorjetas.
+  // O ADMIN sempre a possui; assim o dono delega sem precisar promover ninguém a ADMIN.
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
-  if (user.role !== "ADMIN") return response.status(403).json({ message: "Apenas ADMIN pode reabrir um período fechado." });
+  if (!(await userHasPermission(user as SessionUser, "payroll-tips", "admin"))) {
+    return response.status(403).json({ message: "Usuário sem permissão para reabrir um período fechado." });
+  }
   const year = parseInt(request.params.year, 10);
   const month = parseInt(request.params.month, 10);
   try {

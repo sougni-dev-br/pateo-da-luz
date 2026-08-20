@@ -33,12 +33,18 @@ export const menuCatalog = [
   { id: "inventory-counting", label: "Contagem", group: "Estoque" },
   { id: "inventory-official", label: "Inventario", group: "Estoque" },
   { id: "inventory-reports", label: "Relatorios", group: "Estoque" },
+  // Visibilidade de custo dentro do Estoque (custo medio, KG/CX/UN, custo das
+  // movimentacoes). Modulo proprio para que o admin libere pessoa a pessoa, em vez de
+  // a regra ficar presa ao cargo. Nao tem rota propria: e aplicado no payload de
+  // /inventory/stocks e /inventory/movements via userHasPermission.
+  { id: "inventory-costs", label: "Custos do estoque", group: "Estoque" },
   { id: "requisitions", label: "Requisições", group: "Estoque" },
   { id: "suppliers", label: "Fornecedores", group: "Cadastros" },
   { id: "companies", label: "Empresas", group: "Cadastros" },
   { id: "employees", label: "Funcionarios", group: "Pessoal" },
   { id: "schedule", label: "Escala", group: "Pessoal" },
   { id: "payroll", label: "Folha de Pagamento", group: "Pessoal" },
+  { id: "payroll-tips", label: "Fechamento de Gorjetas", group: "Pessoal" },
   { id: "import", label: "Importacoes", group: "Dados" },
   { id: "catalog-imports", label: "Importar cadastros", group: "Dados" },
   { id: "payment-methods", label: "Metodos de pagamento", group: "Configuracoes" },
@@ -366,6 +372,8 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/companies")) return "companies";
   if (path.startsWith("/employees")) return "employees";
   if (path.startsWith("/schedule")) return "schedule";
+  // Antes de /payroll: a gorjeta tem modulo proprio no controle de acesso.
+  if (path.startsWith("/payroll/tip")) return "payroll-tips";
   if (path.startsWith("/payroll")) return "payroll";
   if (path.startsWith("/products")) return "products";
   if (path.startsWith("/payment-methods")) return "payment-methods";
@@ -387,6 +395,11 @@ function menuFromRequest(request: Request): MenuId | null {
     || path.startsWith("/inventory/agenda")
     || path.startsWith("/inventory/stock-counts")
   ) return "inventory-counting";
+  // Apoio ao comprador (relatorio que alimenta a tela de Planejamento de compra).
+  // Fica sob "purchase-orders" e nao sob "inventario": quem planeja a compra a partir de
+  // uma contagem e o comprador/estoquista, que nao precisa ter acesso ao Inventario
+  // (modulo de fechamento contabil). Precede a regra generica de /inventory/operational.
+  if (path.startsWith("/inventory/operational/buyer-support")) return "purchase-orders";
   if (path.startsWith("/inventory/operational") || path.startsWith("/inventory/monthly")) return "inventory-official";
   if (path.startsWith("/inventory/reports")) return "inventory-reports";
   if (path.startsWith("/inventory")) return "inventory";
