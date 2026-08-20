@@ -221,7 +221,9 @@ type RevenueProps = {
 export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
   const fmt = useFormatCurrency();
   const canEdit = hasPermission(user, "revenue", "edit");
-  const canLaunchEvent = hasPermission(user, "revenue", "approve");
+  // Lancar evento cria um RevenueEntry: alem da regra de negocio ("Aprovar"), precisa da
+  // acao que o POST /monthly/revenue exige, senao o botao aparece e falha ao salvar.
+  const canLaunchEvent = hasPermission(user, "revenue", "approve") && hasPermission(user, "revenue", "create");
   const [month, setMonth] = useState(currentMonth());
   const [period, setPeriod] = useState(currentMonthPeriod());
   const [channelFilter, setChannelFilter] = useState("");

@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { REVENUE_CHANNEL_DELIVERY, REVENUE_CHANNEL_SALON } from "./revenue-channels.js";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -140,7 +141,10 @@ monthlyRouter.post("/revenue/import/preview", uploadMemory.single("file"), async
   const competenceYear = numberParam(request.body.competenceYear, new Date().getFullYear());
   const competenceMonth = numberParam(request.body.competenceMonth, new Date().getMonth() + 1);
   const requestedSheetName = text(request.body.sheetName);
-  const defaultChannel = String(request.body.defaultChannel ?? "Salão").trim() || "Salão";
+  const defaultChannel = String(request.body.defaultChannel ?? REVENUE_CHANNEL_SALON).trim() || REVENUE_CHANNEL_SALON;
+  // Salao vem exclusivamente do Agile PDV; importar planilha criaria uma segunda
+  // origem para o mesmo dia, com sourcePlatform diferente, somando em dobro.
+  if (rejectManualSalonWrite(defaultChannel, response)) return;
   const sheetName = defaultChannel === "Delivery" && (!requestedSheetName || requestedSheetName === "Planilha1")
     ? null
     : requestedSheetName ?? "Planilha1";
@@ -171,6 +175,7 @@ monthlyRouter.post("/revenue/import/confirm", async (request, response) => {
     return;
   }
 
+  if (rejectManualSalonWrite(String(request.body.defaultChannel ?? REVENUE_CHANNEL_SALON), response)) return;
   const allowOverwrite = Boolean(request.body.allowOverwrite);
   const overwriteReason = text(request.body.overwriteReason);
   await ensureCompetenceOpen(
@@ -194,7 +199,7 @@ monthlyRouter.post("/revenue/import/confirm", async (request, response) => {
         sheetName: text(request.body.sheetName) ?? "Planilha1",
         competenceYear: numberParam(request.body.competenceYear, new Date().getFullYear()),
         competenceMonth: numberParam(request.body.competenceMonth, new Date().getMonth() + 1),
-        defaultChannel: String(request.body.defaultChannel ?? "Salão").trim() || "Salão",
+        defaultChannel: String(request.body.defaultChannel ?? REVENUE_CHANNEL_SALON).trim() || REVENUE_CHANNEL_SALON,
         notes: text(request.body.notes),
         allowOverwrite,
         overwriteReason,
@@ -386,6 +391,18 @@ monthlyRouter.get("/revenue/:id", async (request, response) => {
   response.json(entry);
 });
 
+// O faturamento do Salao tem uma unica origem: o sync do Agile PDV, que grava direto no
+// banco (agile-sync.service). Qualquer escrita de Salao chegando por esta rota e, por
+// definicao, lancamento manual — e criaria uma segunda linha do mesmo dia com
+// sourcePlatform diferente, que soma em dobro em qualquer relatorio por canal.
+function rejectManualSalonWrite(channel: string, response: { status: (c: number) => { json: (b: unknown) => void } }) {
+  if (channel.trim() !== REVENUE_CHANNEL_SALON) return false;
+  response.status(400).json({
+    message: "Faturamento do Salao vem do Agile PDV e nao pode ser lancado ou editado manualmente."
+  });
+  return true;
+}
+
 monthlyRouter.post("/revenue", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -395,6 +412,7 @@ monthlyRouter.post("/revenue", async (request, response) => {
     const { year, month } = competenceFromDate(date);
     const competenceYear = numberParam(request.body.competenceYear, year);
     const competenceMonth = numberParam(request.body.competenceMonth, month);
+    if (rejectManualSalonWrite(String(request.body.channel ?? ""), response)) return;
     await ensureCompetenceOpen(competenceYear, competenceMonth);
     await assertPeriodWritableForDate(calendarDate, "Cadastro de faturamento");
     const grossAmount = numberParam(request.body.grossAmount, 0);
@@ -488,11 +506,11 @@ monthlyRouter.post("/revenue/daily-close", async (request, response) => {
     FROM "RevenueEntry"
     WHERE DATE("date") = DATE(${calendarDate})
       AND "status" <> 'CANCELLED'
-      AND "channel" IN ('Salao', 'Delivery')
+      AND "channel" IN (${REVENUE_CHANNEL_SALON}, ${REVENUE_CHANNEL_DELIVERY})
     GROUP BY "channel"
   `;
-  const hasSalon = rows.some((row) => row.channel === "Salao");
-  const hasDelivery = rows.some((row) => row.channel === "Delivery");
+  const hasSalon = rows.some((row) => row.channel === REVENUE_CHANNEL_SALON);
+  const hasDelivery = rows.some((row) => row.channel === REVENUE_CHANNEL_DELIVERY);
   if (!hasSalon || !hasDelivery) {
     await auditLog({
       userId: user.id,
@@ -526,6 +544,10 @@ monthlyRouter.put("/revenue/:id", async (request, response) => {
   try {
     const [previous] = await prisma.$queryRaw<Array<Record<string, unknown>>>`SELECT * FROM "RevenueEntry" WHERE "id" = ${request.params.id}`;
     if (!previous) throw new Error("Faturamento nao encontrado.");
+    // Vale para o canal atual e para o pretendido: nem editar um lancamento de Salao, nem
+    // converter outro canal em Salao por esta rota.
+    if (rejectManualSalonWrite(String(previous.channel ?? ""), response)) return;
+    if (rejectManualSalonWrite(String(request.body.channel ?? ""), response)) return;
     await ensureCompetenceOpen(Number(previous.competenceYear), Number(previous.competenceMonth));
     const grossAmount = numberParam(request.body.grossAmount, 0);
     const discounts = numberParam(request.body.discounts, 0);
