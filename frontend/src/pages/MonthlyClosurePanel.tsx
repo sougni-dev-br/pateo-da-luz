@@ -131,7 +131,9 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
     if (!state) return;
     const confirmMsg = state.summary.pendingCount > 0
       ? `Existem ${state.summary.pendingCount} pendência(s) sem justificativa. Trava bloqueada — justifique antes.`
-      : `Travar fechamento de ${monthLabel(year, month)}? Após travar, novos lançamentos com competência ${String(month).padStart(2, "0")}/${year} podem gerar reabertura.`;
+      : `Travar fechamento de ${monthLabel(year, month)}?
+
+Compras, baixas de contas a pagar, faturamento e inventário com data em ${String(month).padStart(2, "0")}/${year} passam a ser recusados até o mês ser reaberto.`;
     if (state.summary.pendingCount > 0) { window.alert(confirmMsg); return; }
     if (!window.confirm(confirmMsg)) return;
     setBusy(true);

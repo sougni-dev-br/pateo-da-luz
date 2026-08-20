@@ -12,7 +12,7 @@ import {
 } from "../../shared/utils/payment-methods.js";
 import { createPayablesFinancialPdf, type PayablesFinancialPdfRow } from "./payables-financial-pdf.js";
 import { auditLog, requestIp, requireAdmin, requireRole } from "../security/security-utils.js";
-import { assertNoClosedCmvPeriodForDate } from "../cmv-real/cmv-real.service.js";
+import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle, updatePurchaseInCycle } from "../suppliers/supplier-billing-cycle.service.js";
@@ -937,12 +937,48 @@ purchaseRouter.patch("/payables/:id/pay", async (request, response) => {
     response.status(400).json({ message: "Conta cancelada nao pode ser paga." });
     return;
   }
+  // Rebaixar um titulo ja pago sobrescreveria paidDate/paidAmount e limparia a trilha de
+  // estorno. Como o DRE posiciona a despesa pelo paidDate, isso moveria a despesa de mes
+  // sem exigir motivo. O caminho correto e estornar (que pede justificativa) e rebaixar.
+  if (previous.paidDate || previous.status === "PAID" || previous.status === "PAID_LATE") {
+    response.status(400).json({ message: "Titulo ja baixado. Estorne o pagamento antes de lancar uma nova baixa." });
+    return;
+  }
+
+  // Baixa registra pagamento ocorrido: data futura e erro de digitacao e ainda tiraria o
+  // titulo da lista de aberto, escondendo uma conta que continua por pagar.
+  if (localDateOnly(paidDate).getTime() > localDateOnly(new Date()).getTime()) {
+    response.status(400).json({ message: "Data do pagamento nao pode ser futura." });
+    return;
+  }
   const originalAmount = Number(previous.amount ?? 0);
   const difference = Number((paidAmount - originalAmount).toFixed(2));
   const discountAmount = difference < 0 ? Math.abs(difference) : 0;
   const surchargeAmount = difference > 0 ? difference : 0;
   if (Math.abs(difference) > 0.009 && !differenceReason) {
     response.status(400).json({ message: "Justificativa obrigatoria quando o valor pago difere do valor original da parcela." });
+    return;
+  }
+
+  // Guarda de sanidade contra erro de digitacao (casa decimal, tecla repetida). Nao limita
+  // juros/multa reais: so dispara acima de 10x a parcela E de R$ 10.000 de diferenca, faixa
+  // em que nenhum acrescimo legitimo do restaurante cai.
+  const MAX_PAYMENT_MULTIPLIER = 10;
+  const MIN_ABSURD_SURCHARGE = 10_000;
+  if (originalAmount > 0 && paidAmount > originalAmount * MAX_PAYMENT_MULTIPLIER && surchargeAmount > MIN_ABSURD_SURCHARGE) {
+    response.status(400).json({
+      message: `Valor pago (${paidAmount.toFixed(2)}) e mais de ${MAX_PAYMENT_MULTIPLIER}x a parcela (${originalAmount.toFixed(2)}). Confira antes de baixar.`
+    });
+    return;
+  }
+
+  // O DRE posiciona a despesa pelo paidDate. Toda outra mutacao de compra ja checa periodo
+  // de CMV fechado (cadastro, edicao, cancelamento, restauracao) — a baixa faltava, e era a
+  // unica que muda o mes do lancamento diretamente.
+  try {
+    await assertPeriodWritableForDate(paidDate, "Baixa de conta a pagar");
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
     return;
   }
 
@@ -1030,6 +1066,17 @@ purchaseRouter.patch("/payables/:id/reverse", async (request, response) => {
   if (!previous.paidDate && previous.status !== "PAID" && previous.status !== "PAID_LATE") {
     response.status(400).json({ message: "Conta a pagar ainda nao possui pagamento para estornar." });
     return;
+  }
+
+  // Estornar retira a despesa do mes em que o paidDate a colocou. Se esse mes ja teve o CMV
+  // fechado, o estorno alteraria um periodo encerrado — mesma regra da baixa.
+  if (previous.paidDate) {
+    try {
+      await assertPeriodWritableForDate(new Date(String(previous.paidDate)), "Estorno de conta a pagar");
+    } catch (error) {
+      response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
+      return;
+    }
   }
 
   await prisma.$executeRaw`
@@ -1131,7 +1178,7 @@ purchaseRouter.post("/", async (request, response) => {
   const purchaseDate = parseLocalDateInput(request.body.purchaseDate);
   const receivedAt = request.body.receivedAt ? parseLocalDateInput(request.body.receivedAt) : null;
   const competenceDate = (receivedAt && !isNaN(receivedAt.getTime())) ? receivedAt : purchaseDate;
-  await assertNoClosedCmvPeriodForDate(competenceDate, "Cadastro de compra");
+  await assertPeriodWritableForDate(competenceDate, "Cadastro de compra");
   invoiceNumber = cleanPurchaseReference(request.body.invoiceNumber);
   purchaseOrderNumber = cleanPurchaseReference(request.body.purchaseOrderNumber);
   const normalizedInvoiceNumber = normalizePurchaseReference(invoiceNumber) || null;
@@ -1624,9 +1671,9 @@ purchaseRouter.put("/:id", async (request, response) => {
     ? parseDate(previousRecord.receivedAt)
     : parseDate(previousRecord.purchaseDate);
   if (previousCompetenceDate) {
-    await assertNoClosedCmvPeriodForDate(previousCompetenceDate, "Edicao de compra");
+    await assertPeriodWritableForDate(previousCompetenceDate, "Edicao de compra");
   }
-  await assertNoClosedCmvPeriodForDate(competenceDateEdit, "Edicao de compra");
+  await assertPeriodWritableForDate(competenceDateEdit, "Edicao de compra");
   invoiceNumber = cleanPurchaseReference(request.body.invoiceNumber);
   purchaseOrderNumber = cleanPurchaseReference(request.body.purchaseOrderNumber);
   const normalizedInvoiceNumber = normalizePurchaseReference(invoiceNumber) || null;
@@ -2117,7 +2164,7 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
     ? parseDate(previous.receivedAt)
     : parseDate(previous.purchaseDate);
   if (cancellationCompetenceDate) {
-    await assertNoClosedCmvPeriodForDate(cancellationCompetenceDate, "Cancelamento de compra");
+    await assertPeriodWritableForDate(cancellationCompetenceDate, "Cancelamento de compra");
   }
 
   class CycleBlockedError extends Error {
@@ -2252,7 +2299,7 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
     ? parseDate(previous.receivedAt)
     : parseDate(previous.purchaseDate);
   if (restoreCompetenceDate) {
-    await assertNoClosedCmvPeriodForDate(restoreCompetenceDate, "Restauracao de compra");
+    await assertPeriodWritableForDate(restoreCompetenceDate, "Restauracao de compra");
   }
 
   // Contrapartida do cancelamento: se os títulos saem junto com a compra, eles

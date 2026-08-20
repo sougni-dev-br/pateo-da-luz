@@ -6,7 +6,7 @@ import { normalizeHeader, normalizeText } from "../../shared/utils/normalize-tex
 import { parseDate } from "../../shared/utils/parse-date.js";
 import { parseMoney } from "../../shared/utils/parse-money.js";
 import { readWorksheetRows } from "../imports/excel-reader.service.js";
-import { assertNoClosedCmvPeriodForDate } from "../cmv-real/cmv-real.service.js";
+import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { getCmvPurchaseTotalByCompetenceMonth, type CmvVisionKey } from "../cmv-real/cmv-purchase-base.service.js";
 
 type InventorySnapshotType = "INVENTARIO_INICIAL" | "INVENTARIO_FINAL" | "CONTAGEM_PARCIAL" | "AJUSTE";
@@ -408,7 +408,7 @@ export async function confirmInventorySnapshot(input: {
   userAgent?: string | null;
 }) {
   await ensureCompetenceOpen(input.competenceYear, input.competenceMonth);
-  await assertNoClosedCmvPeriodForDate(input.countDate, "Confirmacao de inventario oficial");
+  await assertPeriodWritableForDate(input.countDate, "Confirmacao de inventario oficial");
   if (input.allowOverwrite && input.userRole !== "ADMIN") {
     throw new Error("Apenas ADMIN pode substituir inventarios existentes.");
   }
@@ -647,7 +647,7 @@ export async function undoInventorySnapshot(id: string, input: { reason: string;
   `;
   if (!snapshot) throw new Error("Inventario nao encontrado.");
   await ensureCompetenceOpen(snapshot.competenceYear, snapshot.competenceMonth);
-  await assertNoClosedCmvPeriodForDate(snapshot.countDate, "Desfazer inventario oficial");
+  await assertPeriodWritableForDate(snapshot.countDate, "Desfazer inventario oficial");
   if (!input.reason.trim()) throw new Error("Motivo obrigatorio.");
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`
