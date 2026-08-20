@@ -17,6 +17,7 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
+import { hasPermission } from "../lib/permissions";
 import {
   Button,
   EmptyState,
@@ -58,7 +59,7 @@ function cmvBadge(cmv: number | null) {
 
 export function Dishes() {
   const { user } = useSession();
-  const canEdit = user?.role === "ADMIN" || user?.role === "GESTAO_COMPLETA";
+  const canEdit = hasPermission(user, "dishes", "edit");
 
   const [mode, setMode] = useState<Mode>("list");
   const [dishes, setDishes] = useState<DishListItem[]>([]);

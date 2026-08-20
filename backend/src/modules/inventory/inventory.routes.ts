@@ -6,6 +6,7 @@ import { createOperationalInventoryPdf } from "./operational-inventory-pdf.js";
 import { createStockCountSessionPdf } from "./stock-count-session-pdf.js";
 import { assertNoClosedCmvPeriodForDate } from "../cmv-real/cmv-real.service.js";
 import { auditLog, requestIp, requireRole, type SessionUser } from "../security/security-utils.js";
+import { userHasPermission } from "../security/menu-permissions.js";
 
 export const inventoryRouter = Router();
 
@@ -36,8 +37,11 @@ function queryDateRange(query: { startDate?: unknown; endDate?: unknown }) {
   return { startDate, endDate };
 }
 
-function isCostAllowed(user: SessionUser) {
-  return user.role === "ADMIN" || user.role === "GESTAO_COMPLETA";
+// Visibilidade de custo e permissao (modulo "inventory-costs"), nao cargo: o admin
+// libera pessoa a pessoa em Usuarios -> Permissoes. Os campos de custo sao removidos
+// do payload quando negada — esconder so no frontend nao protege o dado.
+async function isCostAllowed(user: SessionUser) {
+  return userHasPermission(user, "inventory-costs", "view");
 }
 
 function movementQuantitySign(type: string, quantity: number) {
@@ -429,14 +433,21 @@ const editableOperationalInventoryStatuses = new Set(["RASCUNHO", "REJEITADO"]);
 const editableStockCountSessionStatuses = new Set(["ABERTA", "EM_ANDAMENTO"]);
 const cancelableStockCountSessionStatuses = new Set(["ABERTA", "EM_ANDAMENTO", "CONCLUIDA"]);
 
-function isInventoryManager(user: SessionUser) {
-  return user.role === "ADMIN" || user.role === "GESTAO_COMPLETA";
+// "Gerente do inventario" e quem tem a acao Aprovar no modulo Inventario, nao um cargo.
+async function isInventoryManager(user: SessionUser) {
+  return userHasPermission(user, "inventory-official", "approve");
 }
 
-function canCancelStockCountSession(session: StockCountSessionRow, user: SessionUser) {
+// Movimentacoes de estoque seguem escopo por responsavel, salvo a acao "Administrar"
+// do modulo. Contagem NAO tem escopo: e colaborativa (um comeca, outro conclui).
+async function canSeeAllMovements(user: SessionUser) {
+  return userHasPermission(user, "inventory-movements", "admin");
+}
+
+async function canCancelStockCountSession(session: StockCountSessionRow, user: SessionUser) {
   if (!cancelableStockCountSessionStatuses.has(session.status)) return false;
   if (session.generatedInventoryId && session.generatedInventoryStatus !== "CANCELADO") return false;
-  return isInventoryManager(user);
+  return userHasPermission(user, "inventory-counting", "delete");
 }
 
 function inventoryTypeLabel(type: string, sectorName?: string | null) {
@@ -1343,6 +1354,13 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
+  // Cria um Inventario oficial: a autorizacao e do modulo Inventario, nao da Contagem.
+  // (A rota vive sob /count-sessions, entao o middleware resolve para inventory-counting.)
+  if (!(await userHasPermission(user, "inventory-official", "create"))) {
+    response.status(403).json({ message: "Usuario sem permissao para gerar inventario." });
+    return;
+  }
+
   const sessionIds = request.body.sessionIds;
   if (!Array.isArray(sessionIds) || sessionIds.length === 0) {
     response.status(400).json({ message: "Informe ao menos uma contagem para consolidar." });
@@ -1750,8 +1768,10 @@ inventoryRouter.get("/count-sessions/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
   if (!user) return;
 
+  // Contagem e colaborativa por natureza: um usuario comeca, outro continua e um terceiro
+  // conclui. Nao ha filtro por responsavel — quem tem acesso ao modulo abre qualquer sessao.
   const session = await getStockCountSessionSummary(request.params.id);
-  if (!session || (user.role === "ESTOQUISTA" && session.responsibleUserId !== user.id)) {
+  if (!session) {
     response.status(404).json({ message: "Contagem de estoque nao encontrada." });
     return;
   }
@@ -2223,7 +2243,7 @@ inventoryRouter.patch("/count-sessions/:id/cancel", async (request, response) =>
     response.status(400).json({ message: "Esta contagem ja gerou inventario e nao pode ser cancelada." });
     return;
   }
-  if (!canCancelStockCountSession(session, user)) {
+  if (!(await canCancelStockCountSession(session, user))) {
     await auditLog({
       userId: user.id,
       action: "BLOCK_CANCEL_STOCK_COUNT_SESSION",
@@ -2258,6 +2278,13 @@ inventoryRouter.patch("/count-sessions/:id/cancel", async (request, response) =>
 inventoryRouter.post("/count-sessions/:id/generate-inventory", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
+
+  // Cria um Inventario oficial: a autorizacao e do modulo Inventario, nao da Contagem.
+  // (A rota vive sob /count-sessions, entao o middleware resolve para inventory-counting.)
+  if (!(await userHasPermission(user, "inventory-official", "create"))) {
+    response.status(403).json({ message: "Usuario sem permissao para gerar inventario." });
+    return;
+  }
 
   const session = await getStockCountSessionOrThrow(request.params.id);
   if (session.status === "CANCELADA") {
@@ -3323,7 +3350,7 @@ inventoryRouter.patch("/operational/:id/approve", async (request, response) => {
   if (!user) return;
   try {
     const inventory = await getOperationalInventoryOrThrow(request.params.id);
-    if (!isInventoryManager(user)) throw new Error("Apenas ADMIN ou Gestao completa pode aprovar inventario.");
+    if (!(await isInventoryManager(user))) throw new Error("Usuario sem permissao para aprovar inventario.");
     if (!["EM_REVISAO", "APROVADO"].includes(inventory.status)) throw new Error("Inventario precisa estar em revisao para ser aprovado.");
     if (inventory.type === "FINAL_CMV" && Number(inventory.pendingItems ?? 0) > 0) throw new Error("Inventario FINAL_CMV precisa estar totalmente contado ou zerado.");
     await prisma.$executeRaw`
@@ -3492,8 +3519,9 @@ inventoryRouter.get("/stocks", async (request, response) => {
     WHERE ${search ? Prisma.sql`(p."name" ILIKE ${`%${search}%`} OR p."externalCode" ILIKE ${`%${search}%`})` : Prisma.sql`true`}
     ORDER BY p."name"
   `;
+  const costAllowed = await isCostAllowed(user);
   response.json(
-    isCostAllowed(user)
+    costAllowed
       ? stocks
       : stocks.map(({ averageCost, costPerKg, costPerBox, costPerUnit, ...stock }) => stock)
   );
@@ -3532,12 +3560,13 @@ inventoryRouter.get("/movements", async (request, response) => {
       AND ${search ? Prisma.sql`(p."name" ILIKE ${`%${search}%`} OR p."externalCode" ILIKE ${`%${search}%`})` : Prisma.sql`true`}
       AND ${startDate ? Prisma.sql`m."createdAt" >= ${startDate}` : Prisma.sql`true`}
       AND ${endDate ? Prisma.sql`m."createdAt" <= ${endDate}` : Prisma.sql`true`}
-      AND ${user.role === "ESTOQUISTA" ? Prisma.sql`m."responsibleUserId" = ${user.id}` : Prisma.sql`true`}
+      AND ${(await canSeeAllMovements(user)) ? Prisma.sql`true` : Prisma.sql`m."responsibleUserId" = ${user.id}`}
     ORDER BY m."createdAt" DESC
     LIMIT 300
   `;
+  const costAllowed = await isCostAllowed(user);
   response.json(
-    isCostAllowed(user)
+    costAllowed
       ? movements
       : movements.map(({ unitCost, totalCost, ...movement }) => movement)
   );
@@ -3553,8 +3582,9 @@ inventoryRouter.post("/movements", async (request, response) => {
   const unit = asText(request.body.unit);
   const unitMeasureId = asText(request.body.unitMeasureId);
   const notes = asText(request.body.notes);
-  const unitCost = isCostAllowed(user) && request.body.unitCost != null ? asNumber(request.body.unitCost) : null;
-  const totalCost = isCostAllowed(user) && request.body.totalCost != null ? asNumber(request.body.totalCost) : unitCost == null ? null : unitCost * Math.abs(quantity);
+  const costAllowed = await isCostAllowed(user);
+  const unitCost = costAllowed && request.body.unitCost != null ? asNumber(request.body.unitCost) : null;
+  const totalCost = costAllowed && request.body.totalCost != null ? asNumber(request.body.totalCost) : unitCost == null ? null : unitCost * Math.abs(quantity);
 
   if (!productId || quantity <= 0) {
     response.status(400).json({ message: "Produto e quantidade sao obrigatorios." });
@@ -3600,7 +3630,6 @@ inventoryRouter.get("/counts", async (request, response) => {
     SELECT c.*, p."name" AS "productName", p."externalCode" AS "productCode"
     FROM "StockCount" c
     JOIN "Product" p ON p."id" = c."productId"
-    WHERE ${user.role === "ESTOQUISTA" ? Prisma.sql`c."responsibleUserId" = ${user.id}` : Prisma.sql`true`}
     ORDER BY c."countedAt" DESC
     LIMIT 300
   `;
@@ -3739,7 +3768,6 @@ inventoryRouter.get("/agenda", async (request, response) => {
       LEFT JOIN "Category" c ON c."id" = i."categoryId"
       WHERE i."scheduledDate" >= ${start}
         AND i."scheduledDate" < ${end}
-        AND ${user.role === "ESTOQUISTA" ? Prisma.sql`(i."responsibleUserId" IS NULL OR i."responsibleUserId" = ${user.id})` : Prisma.sql`true`}
       ORDER BY i."scheduledDate", i."categoryName"
     `,
     prisma.$queryRaw<Array<Record<string, unknown>>>`
@@ -3855,7 +3883,6 @@ inventoryRouter.get("/agenda/:id/detail", async (request, response) => {
     FROM "InventoryAgendaItem" i
     LEFT JOIN "User" u ON u."id" = i."responsibleUserId"
     WHERE i."id" = ${request.params.id}
-      AND ${user.role === "ESTOQUISTA" ? Prisma.sql`(i."responsibleUserId" IS NULL OR i."responsibleUserId" = ${user.id})` : Prisma.sql`true`}
   `;
   if (!item) {
     response.status(404).json({ message: "Contagem nao encontrada." });

@@ -20,6 +20,7 @@ import {
   RefreshCw,
   ScrollText,
   Shield,
+  ShoppingCart,
   Truck,
   Users as UsersIcon,
   WalletCards,
@@ -34,6 +35,7 @@ import { PageHeader } from "./components/ui";
 import { SessionContext } from "./context/SessionContext";
 import { MockUserBadge } from "./components/MockUserBadge";
 import {
+  Alert,
   AppShell,
   ContentErrorBoundary,
   HideValuesProvider,
@@ -109,6 +111,18 @@ type SectionDefinition = {
   /** Contexto do módulo exibido como description do PageHeader (regra Fase 5). */
   description?: string;
   /**
+   * Menu do catalogo de permissoes usado para autorizar a secao, quando difere do `id`.
+   * Serve para telas auxiliares que nao sao um modulo proprio no catalogo — a permissao
+   * e herdada do modulo que a tela realmente opera (ex.: Planejamento de compra gera
+   * pedidos de compra, entao herda "purchase-orders").
+   */
+  permissionId?: string;
+  /**
+   * Secoes que agregam varios modulos do catalogo (o backend cataloga por plataforma).
+   * Liberada quando o usuario tem "view" em pelo menos um deles.
+   */
+  permissionAnyOf?: readonly string[];
+  /**
    * Se true, o AppShell nao renderiza o <PageHeader> global — a propria
    * tela cuida do cabeçalho (evita duplicacao com a topbar mobile).
    */
@@ -124,7 +138,7 @@ const sections = [
   { id: "ifood-expenses", label: "Despesas iFood", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/despesas-ifood", matchers: ["/financeiro/despesas-ifood"], description: "Comissão, entrega, marketing e taxas mensais iFood" },
   { id: "revenue", label: "Faturamento", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento", matchers: ["/financeiro/faturamento"] },
   { id: "faturamento-salao", label: "Salão (Agile PDV)", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento-salao", matchers: ["/financeiro/faturamento-salao"], description: "Faturamento do salão sincronizado automaticamente pelo agente do PDV", hidePageHeader: true },
-  { id: "delivery", label: "Delivery", icon: Truck, showInSidebar: true, group: "Financeiro", path: "/financeiro/delivery", matchers: ["/financeiro/delivery", "/financeiro/delivery-ifood"], description: "Faturamento delivery iFood + 99 Food — 4 lojas cada, taxas, promoções e repasses" },
+  { id: "delivery", label: "Delivery", icon: Truck, showInSidebar: true, group: "Financeiro", path: "/financeiro/delivery", matchers: ["/financeiro/delivery", "/financeiro/delivery-ifood"], permissionAnyOf: ["delivery-ifood", "delivery-noventa-nove"], description: "Faturamento delivery iFood + 99 Food — 4 lojas cada, taxas, promoções e repasses" },
   { id: "cards", label: "Cartões", icon: CreditCard, showInSidebar: true, group: "Financeiro", path: "/financeiro/cartoes", matchers: ["/financeiro/cartoes"] },
   { id: "cash", label: "Caixa", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/caixa", matchers: ["/financeiro/caixa"] },
   { id: "cmv-real", label: "CMV Real", icon: Calculator, showInSidebar: true, group: "CMV", path: "/cmv/real", matchers: ["/cmv/real"] },
@@ -133,7 +147,10 @@ const sections = [
   { id: "products", label: "Produtos", icon: Package, showInSidebar: true, group: "Estoque", path: "/estoque/produtos", matchers: ["/estoque/produtos"] },
   { id: "inventory-movements", label: "Movimentações", icon: Truck, showInSidebar: true, group: "Estoque", path: "/estoque/movimentacoes", matchers: ["/estoque/movimentacoes"] },
   { id: "inventory-counting", label: "Contagem de Estoque", icon: ClipboardList, showInSidebar: true, group: "Estoque", path: "/estoque/contagens", matchers: ["/estoque/contagens", "/estoque/contagens/:sessionId/lancar"] },
-  { id: "inventory-official", label: "Inventário", icon: FileSpreadsheet, showInSidebar: true, group: "Estoque", path: "/estoque/inventario", matchers: ["/estoque/inventario", "/estoque/planejamento-compra"] },
+  { id: "inventory-official", label: "Inventário", icon: FileSpreadsheet, showInSidebar: true, group: "Estoque", path: "/estoque/inventario", matchers: ["/estoque/inventario"] },
+  // Tela auxiliar do fluxo Contagem -> Pedido de compra. Nao aparece no menu e a permissao
+  // e herdada de "purchase-orders" (ver permissionId): quem pode gerar pedido pode planejar.
+  { id: "purchase-planning", label: "Planejamento de compra", icon: ShoppingCart, showInSidebar: false, group: "Operação", path: "/estoque/planejamento-compra", matchers: ["/estoque/planejamento-compra"], permissionId: "purchase-orders", hidePageHeader: true },
   { id: "inventory-reports", label: "Relatórios", icon: BarChart3, showInSidebar: true, group: "Estoque", path: "/estoque/relatorios", matchers: ["/estoque/relatorios"] },
   { id: "requisitions", label: "Requisições", icon: ClipboardCheck, showInSidebar: true, group: "Estoque", path: "/estoque/requisicoes", matchers: ["/estoque/requisicoes"] },
   { id: "dishes", label: "Fichas Técnicas", icon: ChefHat, showInSidebar: true, group: "Cardápio", path: "/cardapio/fichas-tecnicas", matchers: ["/cardapio/fichas-tecnicas"] },
@@ -153,29 +170,47 @@ const sections = [
   { id: "users", label: "Usuários", icon: Shield, showInSidebar: true, group: "Configurações", path: "/configuracoes/usuarios", matchers: ["/configuracoes/usuarios"] },
   { id: "audit", label: "Auditoria", icon: ScrollText, showInSidebar: true, group: "Configurações", path: "/configuracoes/auditoria", matchers: ["/configuracoes/auditoria"] },
   { id: "notifications", label: "Notificações WhatsApp", icon: MessageCircle, showInSidebar: true, group: "Configurações", path: "/configuracoes/notificacoes", matchers: ["/configuracoes/notificacoes"], description: "Destinatários e status do resumo diário via WhatsApp" },
-  { id: "integracao-delivery", label: "Integrações Delivery", icon: FileCog, showInSidebar: true, group: "Integrações", path: "/configuracoes/integracoes/delivery", matchers: ["/configuracoes/integracoes/delivery", "/configuracoes/integracoes/ifood"], description: "Credenciais e cadastro de lojas iFood e 99 Food" }
+  { id: "integracao-delivery", label: "Integrações Delivery", icon: FileCog, showInSidebar: true, group: "Integrações", path: "/configuracoes/integracoes/delivery", matchers: ["/configuracoes/integracoes/delivery", "/configuracoes/integracoes/ifood"], permissionAnyOf: ["integracao-ifood", "integracao-noventa-nove"], description: "Credenciais e cadastro de lojas iFood e 99 Food" }
 ] as const satisfies readonly SectionDefinition[];
 
 type SectionId = (typeof sections)[number]["id"];
 const logoPath = "/logo-pateo-luz.png";
 
-function fallbackSectionAllowedForUser(sectionId: SectionId, user: AppUser) {
+function fallbackSectionAllowedForUser(permissionId: string, user: AppUser) {
   if (user.role === "ESTOQUISTA") {
-    return ["inventory", "inventory-counting", "requisitions"].includes(sectionId);
+    return ["inventory", "inventory-counting", "requisitions", "purchase-orders"].includes(permissionId);
   }
 
   if (user.role === "VISUALIZACAO") {
-    return !["import", "catalog-imports", "cash", "users", "audit"].includes(sectionId);
+    return !["import", "catalog-imports", "cash", "users", "audit"].includes(permissionId);
   }
 
   return true;
 }
 
+/**
+ * Menu do catalogo que autoriza a secao. Telas auxiliares declaram `permissionId`
+ * para herdar a permissao do modulo que operam em vez de exigir um menu proprio.
+ */
+function permissionIdForSection(sectionId: SectionId): string {
+  const section = sections.find((item) => item.id === sectionId) as SectionDefinition | undefined;
+  return section?.permissionId ?? sectionId;
+}
+
 function sectionAllowedForUser(sectionId: SectionId, user: AppUser) {
-  if (user.modulePermissions?.[sectionId]) return canAccessModule(user, sectionId);
-  const level = user.menuPermissions?.[sectionId];
+  const section = sections.find((item) => item.id === sectionId) as SectionDefinition | undefined;
+
+  // Secao agregadora: basta ter acesso a uma das plataformas que ela reune.
+  if (section?.permissionAnyOf?.length) {
+    return section.permissionAnyOf.some((moduleId) => canAccessModule(user, moduleId));
+  }
+
+  const permissionId = permissionIdForSection(sectionId);
+  if (user.modulePermissions?.[permissionId]) return canAccessModule(user, permissionId);
+  const level = user.menuPermissions?.[permissionId];
   if (level) return level === "VIEW" || level === "FULL";
-  return fallbackSectionAllowedForUser(sectionId, user);
+  // Ultimo recurso — so alcancavel por usuario sem mapa de permissoes (mock dev).
+  return fallbackSectionAllowedForUser(permissionId, user);
 }
 
 function findSectionByPath(pathname: string) {
@@ -221,6 +256,8 @@ export function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hideSensitiveValues, setHideSensitiveValues] = useState(() => window.localStorage.getItem("hideSensitiveValues") === "true");
   const [favorites, setFavorites] = useState<string[]>([]);
+  // Modulo que o usuario tentou abrir sem permissao — usado para explicar o redirecionamento.
+  const [deniedSectionLabel, setDeniedSectionLabel] = useState<string | null>(null);
   // Contagens CONCLUIDAS ainda nao convertidas em pedido/inventario — usado no badge
   // do item "Pedidos de compra" no sidebar. Derivado do endpoint que a Inventory ja consome.
   const [pendingCountSessionCount, setPendingCountSessionCount] = useState(0);
@@ -277,8 +314,18 @@ export function App() {
   useEffect(() => {
     if (!user || checkingSession) return;
     if (matchedSection && sectionAllowedForUser(matchedSection.id, user)) return;
+    // Redirecionar em silencio faz o usuario acreditar que a tela quebrou (ele clica em
+    // "Planejar compra" e cai em Compras sem explicacao). Sempre avisar qual modulo foi
+    // negado, para que o pedido de acesso ao administrador seja objetivo.
+    if (matchedSection) setDeniedSectionLabel(matchedSection.label);
     navigate(fallbackSection.path, { replace: true });
   }, [checkingSession, fallbackSection.path, matchedSection, navigate, user]);
+
+  useEffect(() => {
+    if (!deniedSectionLabel) return;
+    const timer = window.setTimeout(() => setDeniedSectionLabel(null), 12000);
+    return () => window.clearTimeout(timer);
+  }, [deniedSectionLabel]);
 
   // Badge de contagens prontas para virar pedido: refetch em mudanca de rota (natural,
   // sem polling). Falhas silenciosas: badge simplesmente nao renderiza se usuario nao
@@ -548,6 +595,16 @@ export function App() {
         >
           {!(effectiveSection as SectionDefinition).hidePageHeader && (
             <PageHeader title={activeLabel} description={(effectiveSection as SectionDefinition).description} />
+          )}
+
+          {deniedSectionLabel && (
+            <Alert tone="warning" className="app-access-denied">
+              Você não tem permissão para acessar <strong>{deniedSectionLabel}</strong>, por isso foi redirecionado
+              para {activeLabel}. Peça liberação desse módulo ao administrador em Configurações → Usuários.
+              <button type="button" className="app-access-denied-close" onClick={() => setDeniedSectionLabel(null)} aria-label="Fechar aviso">
+                <X size={15} />
+              </button>
+            </Alert>
           )}
 
           <Suspense fallback={<div className="page-loading">Carregando módulo...</div>}>

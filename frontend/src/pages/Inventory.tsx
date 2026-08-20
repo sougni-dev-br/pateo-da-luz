@@ -1,6 +1,7 @@
 ﻿import { AlertTriangle, Archive, ArrowDown, CalendarDays, CheckCircle2, ClipboardCheck, Download, FileText, FilterX, Layers, Loader2, MessageSquare, Play, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { Fragment, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRevealScroll } from "../lib/useRevealScroll";
+import { hasPermission } from "../lib/permissions";
 import {
   ApiError,
   AppUser,
@@ -136,9 +137,25 @@ export function Inventory({
   onOpenCountSessionRoute,
   onCloseCountSessionRoute
 }: InventoryProps) {
-  const canViewCosts = user.role === "ADMIN" || user.role === "GESTAO_COMPLETA";
-  const canConfigureAgenda = canViewCosts;
-  const [activeView, setActiveView] = useState<InventoryView>(user.role === "ESTOQUISTA" ? "counting" : initialView);
+  // Gates derivados de permissao (Usuarios -> Permissoes), nunca do papel: o mesmo
+  // funcionario acumula funcoes ao longo do tempo e o admin precisa conseguir liberar
+  // modulo a modulo sem depender de trocar o cargo dele.
+  const canViewStock = hasPermission(user, "inventory", "view");
+  const canViewMovements = hasPermission(user, "inventory-movements", "view");
+  const canViewCountSessions = hasPermission(user, "inventory-counting", "view");
+  const canEditCountSession = hasPermission(user, "inventory-counting", "edit");
+  const canDeleteCountSession = hasPermission(user, "inventory-counting", "delete");
+  const canConfigureAgenda = hasPermission(user, "inventory-counting", "admin");
+  const canViewOperational = hasPermission(user, "inventory-official", "view");
+  const canCreateOperational = hasPermission(user, "inventory-official", "create");
+  const canApproveOperational = hasPermission(user, "inventory-official", "approve");
+  const canCancelOperational = hasPermission(user, "inventory-official", "delete");
+  const canViewInventoryReports = hasPermission(user, "inventory-reports", "view");
+  const canViewCosts = hasPermission(user, "inventory-costs", "view");
+  // Modo simplificado do estoquista: vale quando o acesso ao estoque se limita a contar.
+  // Quem acumulou movimentacoes/inventario/relatorios ve a tela completa, seja qual for o cargo.
+  const stockkeeperMode = !canViewMovements && !canViewOperational && !canViewInventoryReports;
+  const [activeView, setActiveView] = useState<InventoryView>(initialView);
   const [stocks, setStocks] = useState<InventoryStock[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [counts, setCounts] = useState<StockCount[]>([]);
@@ -242,9 +259,11 @@ export function Inventory({
     () => agenda?.items.filter((item) => sameDay(item.scheduledDate, new Date())) ?? [],
     [agenda]
   );
-  const canManageOperationalInventory = user.role === "ADMIN" || user.role === "GESTAO_COMPLETA";
-  const canReshapeCountSession = canManageOperationalInventory || user.role === "ESTOQUISTA";
-  const canEditStockMinimum = user.role === "ADMIN" || user.role === "GESTAO_COMPLETA" || user.role === "ESTOQUISTA";
+  // Planejamento de compra gera Pedidos de compra: sem essa permissao o usuario seria
+  // redirecionado ao abrir a tela. Esconder o botao evita o beco sem saida.
+  const canPlanPurchase = hasPermission(user, "purchase-orders", "create");
+  const canReshapeCountSession = canEditCountSession;
+  const canEditStockMinimum = hasPermission(user, "products", "edit");
 
   const saveMinQty = async (productId: string) => {
     const raw = minQtyEdit[productId];
@@ -266,9 +285,16 @@ export function Inventory({
     if (session.status === "CANCELADA") return false;
     if (session.generatedInventoryId && session.generatedInventoryStatus !== "CANCELADO") return false;
     if (!["ABERTA", "EM_ANDAMENTO", "CONCLUIDA"].includes(session.status)) return false;
-    if (canManageOperationalInventory) return true;
-    return user.role === "ESTOQUISTA" && session.responsibleUserId === user.id && ["ABERTA", "EM_ANDAMENTO"].includes(session.status);
+    // Espelha exatamente canCancelStockCountSession do backend. Nao ha regra de posse:
+    // a contagem e colaborativa, entao quem pode excluir cancela qualquer sessao.
+    // (Antes o botao aparecia para o responsavel sem permissao de excluir e o POST dava 403.)
+    return canDeleteCountSession;
   };
+  const canGenerateInventoryFromCount = (session: StockCountSession | StockCountSessionDetail) =>
+    canCreateOperational
+    && session.status === "CONCLUIDA"
+    && !session.generatedInventoryId
+    && session.source !== "IMPORTACAO_PLANILHA";
   const operationalSummary = useMemo(() => {
     const activeFinalCmv = operationalInventories.find(
       (item) => item.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(item.status)
@@ -556,27 +582,30 @@ export function Inventory({
         return sum + (total > 0 ? (Number(session.countedItems ?? 0) / total) * 100 : 0);
       }, 0) / openCounts.length)
     : 0;
+  // Cada aba do Estoque espelha o modulo correspondente do catalogo de permissoes —
+  // liberar "Movimentacoes" para um usuario passa a revelar a aba, sem mexer no cargo.
   const viewItems = [
-    { id: "overview" as const, label: "Visão Geral" },
-    { id: "movements" as const, label: "Movimentações" },
-    { id: "counting" as const, label: "Contagem de Estoque" },
-    { id: "inventory" as const, label: "Inventário" },
-    { id: "reports" as const, label: "Relatórios" }
-  ].filter((item) => user.role !== "ESTOQUISTA" || item.id === "counting" || item.id === "overview");
+    { id: "overview" as const, label: "Visão Geral", allowed: canViewStock },
+    { id: "movements" as const, label: "Movimentações", allowed: canViewMovements },
+    { id: "counting" as const, label: "Contagem de Estoque", allowed: canViewCountSessions },
+    { id: "inventory" as const, label: "Inventário", allowed: canViewOperational },
+    { id: "reports" as const, label: "Relatórios", allowed: canViewInventoryReports }
+  ].filter((item) => item.allowed).map(({ id, label }) => ({ id, label }));
   const panelClass = (views: InventoryView[]) => views.includes(activeView) ? "panel" : "panel inventory-section-hidden";
 
   async function load() {
     setLoading(true);
     try {
       const monthParts = parseMonth(month);
-      const shouldLoadCountingOnly = user.role === "ESTOQUISTA";
+      // Nao buscar o que o usuario nao tem permissao de ver: evita 403 silencioso e
+      // payload inutil. Cada recurso segue o modulo correspondente.
       const [stockResult, movementResult, countResult, countSessionResult, agendaResult, operationalResult, sectorResult] = await Promise.allSettled([
         getInventoryStocks(search),
-        shouldLoadCountingOnly ? Promise.resolve([] as InventoryMovement[]) : getInventoryMovements({ startDate: movementPeriod.startDate, endDate: movementPeriod.endDate }),
+        canViewMovements ? getInventoryMovements({ startDate: movementPeriod.startDate, endDate: movementPeriod.endDate }) : Promise.resolve([] as InventoryMovement[]),
         getStockCounts(),
         getStockCountSessions(showCanceledStockData),
         getInventoryAgenda(monthParts),
-        shouldLoadCountingOnly ? Promise.resolve([] as OperationalInventory[]) : getOperationalInventories(showCanceledStockData),
+        canViewOperational ? getOperationalInventories(showCanceledStockData) : Promise.resolve([] as OperationalInventory[]),
         getSectors(undefined, { forStockCounting: true })
       ]);
       const stockRows = settledValue(stockResult, [] as InventoryStock[]);
@@ -597,7 +626,7 @@ export function Inventory({
       const firstAgenda = agendaRows?.items.find((item) => sameDay(item.scheduledDate, new Date())) ?? agendaRows?.items[0];
       setSelectedAgendaId((current) => current || firstAgenda?.id || "");
       await loadProducts(firstAgenda);
-      if (shouldLoadCountingOnly) {
+      if (!canViewOperational) {
         setPurchasingReport(null);
         setBuyerSupport(null);
       } else {
@@ -1439,9 +1468,15 @@ export function Inventory({
     window.localStorage.setItem("stockCountLaunchColumns", JSON.stringify(countSessionVisibleColumns));
   }, [countSessionVisibleColumns]);
 
+  // Respeita a aba pedida pela rota (o item clicado no menu). So desvia quando o usuario
+  // nao tem permissao naquela aba — e ai cai na primeira permitida, nunca num destino fixo.
   useEffect(() => {
-    setActiveView(user.role === "ESTOQUISTA" ? "counting" : initialView);
-  }, [initialView, user.role]);
+    const allowedIds = viewItems.map((item) => item.id);
+    if (allowedIds.length === 0) return;
+    setActiveView(allowedIds.includes(initialView) ? initialView : allowedIds[0]);
+    // viewItems e derivado das permissoes do usuario, estaveis dentro da sessao.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialView, viewItems.map((item) => item.id).join(",")]);
 
   useEffect(() => {
     const drafts = operationalInventories.filter(
@@ -1476,7 +1511,7 @@ export function Inventory({
   }, [activeView, countSessionId]);
 
   if (countSessionDetail && activeView === "counting") {
-    const locked = !editableCountSessionStatuses.has(countSessionDetail.status) || user.role === "VISUALIZACAO";
+    const locked = !editableCountSessionStatuses.has(countSessionDetail.status) || !canEditCountSession;
     const mobileFilterSummary = [
       countSessionSectorFilter ? `Setor: ${countSessionSectorFilter}` : "",
       countSessionCategoryFilter ? `Categoria: ${countSessionCategoryFilter}` : "",
@@ -1540,13 +1575,13 @@ export function Inventory({
                   <FilterX size={16} />Recortar para filtros
                 </button>
               )}
-              {countSessionDetail.status === "CONCLUIDA" && (
+              {canPlanPurchase && countSessionDetail.status === "CONCLUIDA" && (
                 <button className="secondary-button" type="button" onClick={() => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${countSessionDetail.id}`)}><ShoppingCart size={16} />Planejar compra</button>
               )}
-              {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && countSessionDetail.source !== "IMPORTACAO_PLANILHA" && (
+              {canGenerateInventoryFromCount(countSessionDetail) && (
                 <button className="primary-button large-action" type="button" onClick={generateInventoryFromCountSession}>Gerar inventario</button>
               )}
-              {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && countSessionDetail.source !== "IMPORTACAO_PLANILHA" && (
+              {canGenerateInventoryFromCount(countSessionDetail) && (
                 <button className="secondary-button" type="button" onClick={reopenCountSessionAction}>Reabrir</button>
               )}
               {canCancelCountSession(countSessionDetail) && (
@@ -1875,16 +1910,16 @@ export function Inventory({
                 {canReshapeCountSession && !countSessionDetail.generatedInventoryId && ["ABERTA", "EM_ANDAMENTO", "CONCLUIDA"].includes(countSessionDetail.status) && ["GERAL", "SETORIAL"].includes(countSessionDetail.type) && (
                   <button className="secondary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); reshapeCountSessionToCurrentFilters(); }}>Recortar para filtros</button>
                 )}
-                {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && countSessionDetail.source !== "IMPORTACAO_PLANILHA" && (
+                {canGenerateInventoryFromCount(countSessionDetail) && (
                   <button className="primary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); generateInventoryFromCountSession(); }}>Gerar inventario</button>
                 )}
-                {canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && countSessionDetail.source !== "IMPORTACAO_PLANILHA" && (
+                {canGenerateInventoryFromCount(countSessionDetail) && (
                   <button className="secondary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); reopenCountSessionAction(); }}>Reabrir contagem</button>
                 )}
                 {canCancelCountSession(countSessionDetail) && (
                   <button className="danger-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); cancelCountSessionAction(countSessionDetail); }}>Cancelar contagem</button>
                 )}
-                {locked && !(canManageOperationalInventory && countSessionDetail.status === "CONCLUIDA" && !countSessionDetail.generatedInventoryId && countSessionDetail.source !== "IMPORTACAO_PLANILHA") && !canCancelCountSession(countSessionDetail) && (
+                {locked && !(canGenerateInventoryFromCount(countSessionDetail)) && !canCancelCountSession(countSessionDetail) && (
                   <span>Nenhuma acao adicional disponivel para este status.</span>
                 )}
               </div>
@@ -1998,7 +2033,7 @@ export function Inventory({
   }
 
   return (
-    <div className={`stack ${user.role === "ESTOQUISTA" ? "stockkeeper-mode" : ""}`}>
+    <div className={`stack ${stockkeeperMode ? "stockkeeper-mode" : ""}`}>
       <Notice notice={notice} />
 
       <div className="module-tabs stock-module-tabs">
@@ -2203,7 +2238,7 @@ export function Inventory({
 
         {activeView === "counting" && (() => {
           const consolidatable = countSessions.filter((s) => s.type === "SETORIAL" && s.status === "CONCLUIDA" && (!s.generatedInventoryId || s.generatedInventoryStatus === "CANCELADO"));
-          return consolidatable.length > 0 && canManageOperationalInventory ? (
+          return consolidatable.length > 0 && canCreateOperational ? (
             <div className="form-section" style={{ borderColor: "var(--gold)", background: "var(--surface)" }}>
               <div className="section-heading compact-heading">
                 <div>
@@ -2305,7 +2340,7 @@ export function Inventory({
           ) : null;
         })()}
 
-        {activeView === "counting" && canManageOperationalInventory && (() => {
+        {activeView === "counting" && canCreateOperational && (() => {
           const finalCmvDrafts = operationalInventories.filter(
             (inv) => inv.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inv.status)
           );
@@ -2434,10 +2469,10 @@ export function Inventory({
                           label={`Mais ações — ${session.code}`}
                           items={[
                             { label: "Gerar PDF", icon: <Download size={15} />, onClick: () => downloadCountSessionPdf(session) },
-                            ...(session.status === "CONCLUIDA"
+                            ...(canPlanPurchase && session.status === "CONCLUIDA"
                               ? [{ label: "Gerar pedido de compra", icon: <ShoppingCart size={15} />, onClick: () => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`) }]
                               : []),
-                            ...(canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA"
+                            ...(canGenerateInventoryFromCount(session)
                               ? [{ label: "Gerar inventário", icon: <ClipboardCheck size={15} />, onClick: async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventário gerado a partir da contagem." }); } }]
                               : []),
                             ...(canCancelCountSession(session)
@@ -2490,10 +2525,10 @@ export function Inventory({
                       {editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}
                     </button>
                     <button className="secondary-button" type="button" onClick={() => downloadCountSessionPdf(session)}><Download size={16} />Gerar PDF</button>
-                    {session.status === "CONCLUIDA" && (
+                    {canPlanPurchase && session.status === "CONCLUIDA" && (
                       <button className="secondary-button" type="button" onClick={() => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`)}><ShoppingCart size={16} />Gerar pedido</button>
                     )}
-                    {canManageOperationalInventory && session.status === "CONCLUIDA" && !session.generatedInventoryId && session.source !== "IMPORTACAO_PLANILHA" && (
+                    {canGenerateInventoryFromCount(session) && (
                       <button className="primary-button" type="button" onClick={async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventario gerado a partir da contagem." }); }}>Gerar inv.</button>
                     )}
                     {canCancelCountSession(session) && (
@@ -2772,7 +2807,7 @@ export function Inventory({
               </div>
               <div className="op-detail-head-actions">
                 <StatusBadge tone={operationalTone(operationalDetail.status)}>{operationalStatusLabels[operationalDetail.status] ?? operationalDetail.status}</StatusBadge>
-                {operationalDetail.status !== "CANCELADO" && operationalDetail.pendingItems === 0 && (
+                {canPlanPurchase && operationalDetail.status !== "CANCELADO" && operationalDetail.pendingItems === 0 && (
                   <button
                     type="button"
                     className="secondary-button"
@@ -2939,10 +2974,12 @@ export function Inventory({
                 <button className="secondary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={markOperationalFilteredZero}>Marcar filtrados como zero</button>
                 <button className="secondary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={saveOperationalDraft}><Save size={16} />Salvar rascunho</button>
                 <button className="primary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={() => operationalAction("submit")}><Send size={16} />Enviar para revisao</button>
-                {canManageOperationalInventory && (<>
+                {canApproveOperational && (<>
                   {operationalDetail.type !== "FINAL_CMV" && <button className="secondary-button" type="button" disabled={operationalDetail.status !== "EM_REVISAO"} onClick={() => operationalAction("approve")}>Aprovar</button>}
                   <button className="secondary-button" type="button" disabled={operationalDetail.status !== "EM_REVISAO"} onClick={() => operationalAction("reject")}>Rejeitar</button>
                   {operationalDetail.type !== "FINAL_CMV" && <button className="primary-button" type="button" disabled={operationalDetail.status !== "APROVADO"} onClick={() => operationalAction("close")}>Fechar</button>}
+                </>)}
+                {canCancelOperational && (<>
                   <span className="op-filters-bar__danger-sep" aria-hidden="true" />
                   <button className="danger-button" type="button" disabled={["FECHADO", "CANCELADO"].includes(operationalDetail.status)} onClick={() => operationalAction("cancel")}>Cancelar</button>
                 </>)}
@@ -3505,7 +3542,7 @@ export function Inventory({
       />
 
       <section className={panelClass(["movements", "reports"])}>
-        <div className="section-heading"><div><PanelEyebrow>Histórico</PanelEyebrow><h2>{user.role === "ESTOQUISTA" ? "Minhas contagens e movimentações" : "Movimentações recentes"}</h2></div></div>
+        <div className="section-heading"><div><PanelEyebrow>Histórico</PanelEyebrow><h2>{stockkeeperMode ? "Contagens e movimentações" : "Movimentações recentes"}</h2></div></div>
         <div className="filters-row">
           <PeriodFilter value={movementPeriod} onChange={setMovementPeriod} />
           <Button onClick={load}>Filtrar</Button>
