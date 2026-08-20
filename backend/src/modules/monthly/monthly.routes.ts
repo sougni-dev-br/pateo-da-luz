@@ -9,7 +9,7 @@ import { prisma } from "../../config/database.js";
 import { createCalendarDate, normalizeToCalendarDate } from "../../shared/utils/calendar-date.js";
 import { parseDate } from "../../shared/utils/parse-date.js";
 import { auditLog, requestIp, requireAdmin, requireRole } from "../security/security-utils.js";
-import { assertNoClosedCmvPeriodForDate } from "../cmv-real/cmv-real.service.js";
+import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import {
   closeMonthlyCmv,
@@ -396,7 +396,7 @@ monthlyRouter.post("/revenue", async (request, response) => {
     const competenceYear = numberParam(request.body.competenceYear, year);
     const competenceMonth = numberParam(request.body.competenceMonth, month);
     await ensureCompetenceOpen(competenceYear, competenceMonth);
-    await assertNoClosedCmvPeriodForDate(calendarDate, "Cadastro de faturamento");
+    await assertPeriodWritableForDate(calendarDate, "Cadastro de faturamento");
     const grossAmount = numberParam(request.body.grossAmount, 0);
     const discounts = numberParam(request.body.discounts, 0);
     const platformFees = numberParam(request.body.platformFees, 0);
@@ -568,7 +568,7 @@ monthlyRouter.put("/revenue/:id", async (request, response) => {
       : numberParam(request.body.accumulatedAmount, 0);
     const date = parseDate(request.body.date) ?? parseDate(previous.date) ?? new Date();
     const calendarDate = createCalendarDate(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
-    await assertNoClosedCmvPeriodForDate(calendarDate, "Edicao de faturamento");
+    await assertPeriodWritableForDate(calendarDate, "Edicao de faturamento");
     await prisma.$executeRaw`
       UPDATE "RevenueEntry"
       SET "date" = ${calendarDate},
@@ -630,7 +630,7 @@ monthlyRouter.delete("/revenue/:id", async (request, response) => {
     await ensureCompetenceOpen(Number(previous.competenceYear), Number(previous.competenceMonth));
     const previousDate = parseDate(previous.date);
     if (previousDate) {
-      await assertNoClosedCmvPeriodForDate(previousDate, "Cancelamento de faturamento");
+      await assertPeriodWritableForDate(previousDate, "Cancelamento de faturamento");
     }
     const reason = String(request.body.reason ?? "").trim();
     if (!reason) throw new Error("Motivo obrigatorio.");

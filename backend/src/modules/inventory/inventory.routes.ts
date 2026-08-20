@@ -4,7 +4,7 @@ import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { createOperationalInventoryPdf } from "./operational-inventory-pdf.js";
 import { createStockCountSessionPdf } from "./stock-count-session-pdf.js";
-import { assertNoClosedCmvPeriodForDate } from "../cmv-real/cmv-real.service.js";
+import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { auditLog, requestIp, requireRole, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 
@@ -983,7 +983,7 @@ async function createInventorySnapshotFromOperationalInventory(id: string, user:
   if (inventory.type !== "FINAL_CMV" || !finalOperationalInventoryStatuses.has(inventory.status)) return inventory.inventorySnapshotId;
   if (inventory.inventorySnapshotId) return inventory.inventorySnapshotId;
   const effectiveCountDate = inventory.effectiveCountDate ?? inventory.date;
-  await assertNoClosedCmvPeriodForDate(effectiveCountDate, "Geracao de base oficial de estoque");
+  await assertPeriodWritableForDate(effectiveCountDate, "Geracao de base oficial de estoque");
 
   const items = await prisma.$queryRaw<Array<OperationalInventoryItemRow & { averageCost: Prisma.Decimal | null }>>`
     SELECT item.*, stock."averageCost"
