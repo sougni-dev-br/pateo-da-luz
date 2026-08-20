@@ -29,6 +29,7 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
+import { hasPermission } from "../lib/permissions";
 import { Alert, Button, IconButton, Money, Select, Tabs, useFormatCurrency } from "../design-system";
 import { formatDate } from "../utils/format";
 
@@ -108,8 +109,9 @@ function toDateInput(d: Date): string {
 export function DRE() {
   const fmt = useFormatCurrency();
   const { user } = useSession();
-  const canEdit = user?.role === "ADMIN" || user?.role === "GESTAO_COMPLETA";
-  const isAdmin = user?.role === "ADMIN";
+  const canEdit = hasPermission(user, "dre", "edit");
+  // Semear categorias gerenciais reescreve a estrutura do DRE: exige a acao "Administrar".
+  const isAdmin = hasPermission(user, "dre", "admin");
   const [mode, setMode] = useState<Mode>("dre");
   const now = new Date();
 
