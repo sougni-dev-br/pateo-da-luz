@@ -167,6 +167,9 @@ export function Notifications() {
   const canEdit = hasPermission(user, "notifications", "edit");
   const canCreate = hasPermission(user, "notifications", "create");
   const canDelete = hasPermission(user, "notifications", "delete");
+  // Parear/derrubar a sessao do WhatsApp exige "Administrar" no backend: sem isso o
+  // polling do QR entraria em loop de 403 e os botoes seriam becos sem saida.
+  const canAdminWhatsApp = hasPermission(user, "notifications", "admin");
 
   const [recipients, setRecipients] = useState<WhatsAppRecipient[]>([]);
   const [status, setStatus] = useState<WhatsAppStatus | null>(null);
@@ -414,7 +417,7 @@ export function Notifications() {
   // o QR mais recente. Baileys rotaciona a cada ~20s, então esse intervalo
   // garante que a UI nunca fica com um QR expirado.
   useEffect(() => {
-    const needsQr = status?.status === "waiting_qr" || status?.status === "logged_out";
+    const needsQr = canAdminWhatsApp && (status?.status === "waiting_qr" || status?.status === "logged_out");
     if (!needsQr) {
       setQrDataUrl(null);
       if (qrIntervalRef.current !== null) {
@@ -433,7 +436,7 @@ export function Notifications() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.status]);
+  }, [status?.status, canAdminWhatsApp]);
 
   const nextRun = useMemo(() => nextRunLabel(new Date(nowMs)), [nowMs]);
 
@@ -497,7 +500,7 @@ export function Notifications() {
             <Send size={14} aria-hidden />{" "}
             {broadcasting ? "Enviando…" : "Testar todos"}
           </Button>
-          {status?.status === "open" && (
+          {canAdminWhatsApp && status?.status === "open" && (
             <Button
               variant="secondary"
               size="sm"

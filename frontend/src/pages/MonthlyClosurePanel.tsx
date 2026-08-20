@@ -61,6 +61,8 @@ function StatusPill({ ok, warning, na, label }: { ok?: boolean; warning?: boolea
 
 export function MonthlyClosurePanel({ user }: { user: AppUser }) {
   const canEdit = hasPermission(user, "monthly-closing", "edit");
+  // Travar e reabrir o mes sao fechamento contabil: o backend pede "Aprovar".
+  const canLockMonth = hasPermission(user, "monthly-closing", "approve");
   const params = useParams<{ yearMonth?: string }>();
   const navigate = useNavigate();
   const { year, month } = useMemo(() => parseYearMonthParam(params.yearMonth), [params.yearMonth]);
@@ -207,7 +209,7 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
             <Button variant="secondary" onClick={prevMonth}>← Mês anterior</Button>
             <Button variant="secondary" onClick={nextMonth}>Próximo mês →</Button>
             <Button variant="secondary" onClick={load}>Recarregar</Button>
-            {canEdit && !isClosed && (
+            {canLockMonth && !isClosed && (
               <Button
                 onClick={lockMonth}
                 disabled={busy || !state.summary.canLock}
@@ -216,7 +218,7 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
                 <Lock size={15} /> Travar mês
               </Button>
             )}
-            {canEdit && isClosed && (
+            {canLockMonth && isClosed && (
               <Button variant="secondary" onClick={unlockMonth} disabled={busy}>
                 <Unlock size={15} /> Reabrir mês
               </Button>

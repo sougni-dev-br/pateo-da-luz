@@ -2,6 +2,8 @@ import { ChevronLeft, ChevronRight, RefreshCw, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AuditLog, AuditLogsResponse, getAuditLogs, restoreEmployee, restorePayrollItem } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
+import { useSession } from "../context/SessionContext";
+import { hasPermission } from "../lib/permissions";
 import { PeriodFilter } from "../components/PeriodFilter";
 import {
   Button,
@@ -29,6 +31,11 @@ export function Audit() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<AuditLog | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  // Restaurar desfaz uma exclusao no modulo de origem — o backend pede a acao
+  // "Excluir" la, nao apenas acesso a Auditoria. Sem esse gate o botao daria 403.
+  const { user } = useSession();
+  const canRestore = (kind: "payroll" | "employee") =>
+    hasPermission(user, kind === "payroll" ? "payroll" : "employees", "delete");
   const { notice, setNotice } = useNotice();
 
   const rows = response?.data ?? [];
@@ -115,7 +122,7 @@ export function Audit() {
                 })()}
                 <Table.Td>{row.ipAddress ?? "-"}</Table.Td>
                 <Table.Td actions>
-                  {RESTORABLE[row.action] && row.entityId && (
+                  {RESTORABLE[row.action] && row.entityId && canRestore(RESTORABLE[row.action]) && (
                     <Button variant="secondary" size="sm" leadingIcon={<RotateCcw size={14} />} onClick={() => handleRestore(row)} disabled={restoringId === row.id}>
                       {restoringId === row.id ? "..." : "Restaurar"}
                     </Button>
