@@ -110,7 +110,11 @@ function ShiftCard({
 }
 
 export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
-  const canEdit = hasPermission(user, "cash", "edit");
+  // A tela do Caixa grava RevenueEntry (Delivery), entao depende do modulo Faturamento
+  // alem do proprio Caixa. Sem os dois, os botoes apareceriam e dariam 403.
+  const canEdit = hasPermission(user, "cash", "edit")
+    && hasPermission(user, "revenue", "create")
+    && hasPermission(user, "revenue", "edit");
   const { notice, setNotice } = useNotice();
   const [loading, setLoading] = useState(false);
   const [loadingEntry, setLoadingEntry] = useState(false);
@@ -225,64 +229,6 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
 
     return () => { active = false; };
   }, [entryId, setNotice]);
-
-  async function handleSaveSalon() {
-    try {
-      setLoading(true);
-      const { year, month } = splitDate(date);
-      const salonId = currentEntry?.channel === "Delivery" ? undefined : editingId ?? undefined;
-      const totalTickets = 0; // ticket count not tracked in new model
-      await saveRevenueEntry({
-        id: salonId,
-        date,
-        competenceYear: year,
-        competenceMonth: month,
-        channel: "Salao",
-        sourcePlatform: null,
-        description: meta.description || "Faturamento Salão",
-        grossAmount: totalMesas,
-        discounts: nv(meta.discounts),
-        platformFees: nv(meta.platformFees),
-        netAmount: salonNet,
-        serviceAmount: totalService,
-        tickets: totalTickets,
-        ticketAverage: null,
-        salesFirstShift: shift1Total,
-        ticketsFirstShift: 0,
-        salesSecondShift: shift2Total,
-        ticketsSecondShift: 0,
-        repiqueAmount: nv(meta.repiqueAmount),
-        paymentMethod: "Recebimentos detalhados",
-        // legacy combined fields (backward compat)
-        cashAmount: nv(shift1.cash) + nv(shift2.cash),
-        pixAmount: nv(shift1.pix) + nv(shift2.pix),
-        debitAmount: nv(shift1.card) + nv(shift2.card),
-        creditAmount: 0,
-        voucherAmount: nv(shift1.ticket) + nv(shift2.ticket),
-        // new per-shift fields
-        shift1Cash: nv(shift1.cash),
-        shift1Pix: nv(shift1.pix),
-        shift1Card: nv(shift1.card),
-        shift1Ticket: nv(shift1.ticket),
-        shift1Service: nv(shift1.service),
-        shift1Tcs: nv(shift1.tcs),
-        shift2Cash: nv(shift2.cash),
-        shift2Pix: nv(shift2.pix),
-        shift2Card: nv(shift2.card),
-        shift2Ticket: nv(shift2.ticket),
-        shift2Service: nv(shift2.service),
-        shift2Tcs: nv(shift2.tcs),
-        tcsAmount: totalTcs,
-        notes: meta.notes
-      });
-      setDailyStatus((c) => ({ ...c, salon: true }));
-      setNotice({ tone: "success", message: salonId ? "Faturamento das mesas atualizado." : "Faturamento das mesas lançado." });
-    } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao salvar faturamento das mesas." });
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function handleSaveDelivery() {
     try {
@@ -435,9 +381,10 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
             <h2>Mesas</h2>
           </div>
           <div className="actions-cell">
-            <button className="primary-button" type="button" onClick={handleSaveSalon} disabled={disabled}>
-              <BadgeDollarSign size={16} /> {loading ? "Salvando..." : "Lançar mesas"}
-            </button>
+            <span className="muted-inline">
+              O faturamento do Salão é lançado automaticamente pelo agente do Agile PDV;
+              os valores abaixo servem para conferência.
+            </span>
           </div>
         </div>
 

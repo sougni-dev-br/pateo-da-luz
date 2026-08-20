@@ -1,4 +1,5 @@
 import { prisma } from "../../config/database.js";
+import { REVENUE_CHANNEL_SALON } from "../monthly/revenue-channels.js";
 
 // Constrói o texto do resumo diário do Pateo da Luz para envio via WhatsApp.
 //
@@ -11,7 +12,7 @@ import { prisma } from "../../config/database.js";
 // - Delivery 99Food: agregado direto de NoventaNoveSale por orderDate (⚠️ homologação).
 // - Keeta: sem integração diária — linha estática (⚠️ homologação).
 
-const SALON_CHANNEL = "Salão";
+const SALON_CHANNEL = REVENUE_CHANNEL_SALON;
 const AGILE_SOURCE = "AGILE_PDV";
 const EVENT_CHANNEL = "Eventos / Empreitada";
 

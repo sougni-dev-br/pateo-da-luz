@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { assertPeriodWritableForDate } from "../../cmv-real/cmv-real.service.js";
+import { REVENUE_CHANNEL_SALON } from "../../monthly/revenue-channels.js";
 import { prisma } from "../../../config/database.js";
 import { createCalendarDate } from "../../../shared/utils/calendar-date.js";
 import type {
@@ -15,7 +17,7 @@ import type {
 // "Salão" com acento é o mesmo channel usado por RevenueEntry manuais.
 // Isso permite que a tela existente de Faturamento também exiba as entradas
 // do Agile, filtradas pelo sourcePlatform quando necessário.
-const CHANNEL = "Salão";
+const CHANNEL = REVENUE_CHANNEL_SALON;
 const SOURCE_PLATFORM = "AGILE_PDV";
 
 // O CSV usa "RECEBIDA" para venda válida e "CANCELADA" para cancelada.
@@ -264,6 +266,25 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
     avisos.push(`${duplicatasNrseqvenda} linha(s) duplicada(s) por nrseqvenda foram deduplicadas.`);
   }
 
+  // O sync grava faturamento; um mes travado ou periodo de CMV fechado nao pode ser
+  // reescrito pelo agente. Dias bloqueados sao pulados e reportados, para nao derrubar
+  // o sync dos dias abertos nem manter o agente em erro permanente.
+  const diasBloqueados: string[] = [];
+  const diasGravaveis: typeof dias = [];
+  for (const dia of dias) {
+    try {
+      await assertPeriodWritableForDate(dia.date, "Sincronizacao do Agile PDV");
+      diasGravaveis.push(dia);
+    } catch {
+      diasBloqueados.push(dia.date.toISOString().slice(0, 10));
+    }
+  }
+  if (diasBloqueados.length > 0) {
+    avisos.push(
+      `${diasBloqueados.length} dia(s) nao gravado(s) por periodo fechado/mes travado: ${diasBloqueados.join(", ")}.`
+    );
+  }
+
   let diasCriados = 0;
   let diasAtualizados = 0;
   let vendasProcessadas = 0;
@@ -295,7 +316,7 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
       )
     `;
 
-    for (const dia of dias) {
+    for (const dia of diasGravaveis) {
       const existente = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT "id" FROM "RevenueEntry"
         WHERE "date" = ${dia.date}
