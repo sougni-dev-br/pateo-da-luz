@@ -3642,8 +3642,14 @@ export type DishIngredient = {
   quantity: number;
   unit: string;
   wasteFactor: number;
-  unitCost: number;
-  itemCost: number;
+  /** null quando o produto nao tem custo medio no estoque. */
+  unitCost: number | null;
+  /** Quantos "productUnit" cabem em 1 unidade do item. */
+  unitFactor: number | null;
+  /** null quando falta conversao ou custo — o motivo vem em `issue`. */
+  itemCost: number | null;
+  issue: string | null;
+  conversions: DishUnitConversion[];
   notes: string | null;
   sortOrder: number;
 };
@@ -3658,9 +3664,14 @@ export type DishListItem = {
   yieldUnit: string;
   isActive: boolean;
   itemsCount: number;
+  /** Custo do rendimento inteiro. */
   calculatedCost: number;
+  /** Custo de uma porcao — e este que se compara com o preco de venda. */
+  custoPorcao: number;
   margemBruta: number | null;
   cmvPercentual: number | null;
+  /** true quando algum ingrediente ficou de fora por falta de conversao ou custo. */
+  custoIncompleto: boolean;
 };
 
 export type DishDetail = DishListItem & {
@@ -3702,12 +3713,20 @@ export function deactivateDish(id: string) {
   return request<{ ok: boolean }>(`/dishes/${id}`, { method: "DELETE" });
 }
 
+export type DishUnitConversion = {
+  fromUnit: string;
+  toUnit: string;
+  factor: number;
+};
+
 export type DishProductSearchResult = {
   id: string;
   externalCode: string | null;
   name: string;
+  /** Unidade em que o custo medio esta expresso. */
   unit: string | null;
   averageCost: number;
+  conversions: DishUnitConversion[];
 };
 
 export function searchDishProducts(search: string) {
