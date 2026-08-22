@@ -5,15 +5,10 @@ import {
   bulkPatchProductDreCategory,
   Category,
   DRECategory,
-  getCategories,
-  getDRECategories,
   getNextProductCode,
+  getProductFormOptions,
   getProductHistory,
   getProducts,
-  getSectors,
-  getSuppliers,
-  getSubcategories,
-  getUnits,
   InventorySector,
   Product,
   ProductHistory,
@@ -208,6 +203,7 @@ export function Products() {
   const { user } = useSession();
   const canEdit = hasPermission(user, "products", "edit");
   const canDelete = hasPermission(user, "products", "delete");
+  const canCreateMasterData = hasPermission(user, "master-data", "create");
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
@@ -284,23 +280,20 @@ export function Products() {
   }
 
   async function loadBaseData() {
-    const [rawCategoryRows, rawSubcategoryRows, rawSectorRows, rawUnitRows, rawSupplierRows, nextCode, rawDreCategoryRows] = await Promise.all([
-      getCategories(),
-      getSubcategories(),
-      getSectors(),
-      getUnits(),
-      getSuppliers(),
-      getNextProductCode().catch(() => ({ code: "" })),
-      getDRECategories(true)
-    ]);
-    // Guards defensivos: se um endpoint retornar payload parcial (mock, backend
+    // Uma chamada so, sob a permissao de products. Antes eram cinco, cada uma
+    // num modulo de permissao diferente, num Promise.all sem catch: o primeiro
+    // 403 rejeitava tudo e a tela abria com os seletores vazios e nenhum aviso.
+    const options = await getProductFormOptions();
+    const nextCode = { code: options.nextCode ?? "" };
+
+    // Guards defensivos: se o endpoint retornar payload parcial (mock, backend
     // com bug, resposta antes de terminar), Array.isArray filtra em silencio.
-    const categoryRows = Array.isArray(rawCategoryRows) ? rawCategoryRows : [];
-    const subcategoryRows = Array.isArray(rawSubcategoryRows) ? rawSubcategoryRows : [];
-    const sectorRows = Array.isArray(rawSectorRows) ? rawSectorRows : [];
-    const unitRows = Array.isArray(rawUnitRows) ? rawUnitRows : [];
-    const supplierRows = Array.isArray(rawSupplierRows) ? rawSupplierRows : [];
-    const dreCategoryRows = Array.isArray(rawDreCategoryRows) ? rawDreCategoryRows : [];
+    const categoryRows = Array.isArray(options.categories) ? options.categories : [];
+    const subcategoryRows = Array.isArray(options.subcategories) ? options.subcategories : [];
+    const sectorRows = Array.isArray(options.sectors) ? options.sectors : [];
+    const unitRows = Array.isArray(options.units) ? options.units : [];
+    const supplierRows = Array.isArray(options.suppliers) ? options.suppliers : [];
+    const dreCategoryRows = Array.isArray(options.dreCategories) ? options.dreCategories : [];
 
     setCategories(categoryRows);
     setSubcategories(subcategoryRows);
@@ -539,7 +532,15 @@ export function Products() {
 
   useEffect(() => {
     loadProducts();
-    loadBaseData();
+    // Sem o catch, uma falha aqui virava promessa rejeitada solta: os seletores
+    // ficavam vazios e a tela nao dizia nada.
+    loadBaseData().catch((loadError) => {
+      setError(
+        loadError instanceof Error
+          ? `Nao foi possivel carregar categorias, setores, unidades e fornecedores: ${loadError.message}`
+          : "Nao foi possivel carregar os dados de apoio do cadastro."
+      );
+    });
   }, []);
 
   // Guard defensivo: mesmo com o setter garantindo array acima, protege
@@ -719,6 +720,9 @@ export function Products() {
                   <strong>{selectedSector?.name ?? "Sem setor"}</strong>
                   <small>{classificationPending ? "Corrija antes da proxima contagem." : "Produto pronto para ser agrupado nas rotinas operacionais."}</small>
                 </article>
+                {/* Criar cadastro base e acao de master-data: quem so tem
+                    Produtos le as listas, mas nao cria categoria nova. */}
+                {canCreateMasterData && (
                 <div className="inline-create-field">
                   <label>
                     Nova categoria
@@ -726,6 +730,8 @@ export function Products() {
                   </label>
                   <button className="secondary-button" type="button" onClick={handleCreateCategory}>Criar categoria</button>
                 </div>
+                )}
+                {canCreateMasterData && (
                 <div className="inline-create-field">
                   <label>
                     Nova subcategoria
@@ -733,6 +739,7 @@ export function Products() {
                   </label>
                   <button className="secondary-button" type="button" onClick={handleCreateSubcategory} disabled={!form.categoryId}>Criar subcategoria</button>
                 </div>
+                )}
               </div>
             </section>
           )}
