@@ -14,6 +14,7 @@ import {
   type DishIngredient,
   type DishListItem,
   type DishProductSearchResult,
+  type DishUnitConversion,
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
@@ -38,8 +39,44 @@ type FormItem = {
   unit: string;
   wasteFactor: string;
   unitCost: number;
+  conversions: DishUnitConversion[];
   notes: string;
 };
+
+// Conversoes que valem para qualquer produto — massa e volume sao fisica.
+const FATORES_UNIVERSAIS: Record<string, number> = {
+  "G>KG": 0.001, "KG>G": 1000, "ML>L": 0.001, "L>ML": 1000
+};
+
+/**
+ * Previsao do fator de conversao, para o custo aparecer enquanto se monta a
+ * ficha. A fonte da verdade e o backend (dish-cost.ts) — aqui e so previa, e
+ * quando nao da para converter mostra "—" em vez de um numero errado.
+ */
+function fatorConversao(de: string, para: string | null, conversoes: DishUnitConversion[]): number | null {
+  const from = String(de ?? "").trim().toUpperCase();
+  const to = String(para ?? "").trim().toUpperCase();
+  if (!from || !to) return null;
+  if (from === to) return 1;
+
+  const direta = conversoes.find((c) => c.fromUnit.toUpperCase() === from && c.toUnit.toUpperCase() === to);
+  if (direta && direta.factor > 0) return direta.factor;
+
+  const inversa = conversoes.find((c) => c.fromUnit.toUpperCase() === to && c.toUnit.toUpperCase() === from);
+  if (inversa && inversa.factor > 0) return 1 / inversa.factor;
+
+  return FATORES_UNIVERSAIS[`${from}>${to}`] ?? null;
+}
+
+/** Custo previsto do ingrediente, ou null quando falta conversao ou custo. */
+function custoPrevisto(item: FormItem): number | null {
+  if (!item.unitCost) return null;
+  const fator = fatorConversao(item.unit, item.productUnit, item.conversions);
+  if (fator == null) return null;
+  const qty = Number(item.quantity) || 0;
+  const perda = (Number(item.wasteFactor) || 0) / 100;
+  return qty * fator * (1 + perda) * item.unitCost;
+}
 
 type Mode = "list" | "categories";
 
@@ -287,10 +324,23 @@ function DishDetailPanel({
         </div>
       </div>
 
+      {dish.custoIncompleto && (
+        <Notice
+          notice={{
+            tone: "warning",
+            message: "Custo parcial: algum ingrediente ficou de fora por falta de conversao de unidade ou de custo medio no estoque. Veja a coluna Custo do item."
+          }}
+        />
+      )}
+
       <div className="kpi-row" style={{ marginBottom: 16 }}>
         <div className="kpi-card">
-          <span>Custo calculado</span>
+          <span>Custo da receita</span>
           <strong><Money value={dish.calculatedCost} /></strong>
+        </div>
+        <div className="kpi-card">
+          <span>Custo por porção</span>
+          <strong><Money value={dish.custoPorcao} /></strong>
         </div>
         <div className="kpi-card">
           <span>Preço de venda</span>
@@ -330,10 +380,14 @@ function DishDetailPanel({
               <td className="text-right">{item.quantity}</td>
               <td>{item.unit}</td>
               <td className="text-right">{item.wasteFactor > 0 ? formatPercent(item.wasteFactor * 100) : "—"}</td>
-              <td className="text-right"><Money value={item.unitCost} /></td>
-              <td className="text-right"><Money value={item.itemCost} /></td>
+              <td className="text-right">{item.unitCost != null ? <Money value={item.unitCost} /> : "—"}</td>
+              <td className="text-right" title={item.issue ?? undefined}>
+                {item.itemCost != null ? <Money value={item.itemCost} /> : <span className="muted">—</span>}
+              </td>
               <td className="text-right">
-                {dish.calculatedCost > 0 ? formatPercent((item.itemCost / dish.calculatedCost) * 100) : "—"}
+                {item.itemCost != null && dish.calculatedCost > 0
+                  ? formatPercent((item.itemCost / dish.calculatedCost) * 100)
+                  : "—"}
               </td>
             </tr>
           ))}
@@ -397,7 +451,8 @@ function DishFormPanel({
       quantity: String(i.quantity),
       unit: i.unit,
       wasteFactor: String(i.wasteFactor * 100),
-      unitCost: i.unitCost,
+      unitCost: i.unitCost ?? 0,
+      conversions: i.conversions ?? [],
       notes: i.notes ?? ""
     })) ?? []
   );
@@ -431,6 +486,7 @@ function DishFormPanel({
       productId: product.id,
       productName: product.name,
       productUnit: product.unit,
+      conversions: product.conversions ?? [],
       quantity: "1",
       unit: product.unit ?? "UN",
       wasteFactor: "0",
@@ -449,15 +505,16 @@ function DishFormPanel({
     setItems((prev) => prev.map((i) => i.tempId === tempId ? { ...i, [key]: value } : i));
   }
 
-  const previewCost = items.reduce((sum, item) => {
-    const qty = Number(item.quantity) || 0;
-    const waste = (Number(item.wasteFactor) || 0) / 100;
-    return sum + qty * (1 + waste) * item.unitCost;
-  }, 0);
+  const previewCost = items.reduce((sum, item) => sum + (custoPrevisto(item) ?? 0), 0);
+  const previewIncompleto = items.some((item) => custoPrevisto(item) == null);
 
+  // O preco de venda e por porcao: comparar com o custo do rendimento inteiro
+  // dava margem negativa falsa em qualquer receita que rende mais de um.
+  const rendimento = Number(form.yieldQty) || 1;
+  const previewCustoPorcao = previewCost / (rendimento > 0 ? rendimento : 1);
   const salePrice = Number(form.salePriceDefault) || null;
-  const previewMargem = salePrice != null ? salePrice - previewCost : null;
-  const previewCmv = salePrice != null && salePrice > 0 ? (previewCost / salePrice) * 100 : null;
+  const previewMargem = salePrice != null ? salePrice - previewCustoPorcao : null;
+  const previewCmv = salePrice != null && salePrice > 0 ? (previewCustoPorcao / salePrice) * 100 : null;
 
   async function handleSubmit() {
     if (!form.name.trim()) { notify("error", "Nome do prato é obrigatório."); return; }
@@ -528,10 +585,21 @@ function DishFormPanel({
       </div>
 
       {/* Preview */}
+      {previewIncompleto && (
+        <p className="muted" style={{ margin: "12px 0 0" }}>
+          Algum ingrediente esta sem custo previsto: falta conversao entre a unidade usada aqui e a
+          unidade de estoque do produto, ou o produto ainda nao tem custo medio. Os valores abaixo
+          somam apenas o que da para calcular.
+        </p>
+      )}
       <div className="kpi-row" style={{ margin: "12px 0" }}>
         <div className="kpi-card">
-          <span>Custo calculado</span>
+          <span>Custo da receita</span>
           <strong><Money value={previewCost} /></strong>
+        </div>
+        <div className="kpi-card">
+          <span>Custo por porção</span>
+          <strong><Money value={previewCustoPorcao} /></strong>
         </div>
         <div className="kpi-card">
           <span>Margem bruta</span>
@@ -582,9 +650,7 @@ function DishFormPanel({
           </thead>
           <tbody>
             {items.map((item) => {
-              const qty = Number(item.quantity) || 0;
-              const waste = (Number(item.wasteFactor) || 0) / 100;
-              const itemCost = qty * (1 + waste) * item.unitCost;
+              const itemCost = custoPrevisto(item);
               return (
                 <tr key={item.tempId}>
                   <td>{item.productName}</td>
@@ -619,7 +685,9 @@ function DishFormPanel({
                     />
                   </td>
                   <td className="text-right"><Money value={item.unitCost} /></td>
-                  <td className="text-right"><Money value={itemCost} /></td>
+                  <td className="text-right">
+                    {itemCost != null ? <Money value={itemCost} /> : <span className="muted">—</span>}
+                  </td>
                   <td>
                     <button type="button" className="btn-icon-sm btn-danger" onClick={() => removeItem(item.tempId)}>
                       <Trash2 size={12} />
