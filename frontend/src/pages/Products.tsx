@@ -7,11 +7,13 @@ import {
   DRECategory,
   getNextProductCode,
   getProductFormOptions,
+  getProductsSummary,
   getProductHistory,
   getProducts,
   InventorySector,
   Product,
   ProductHistory,
+  ProductSummary,
   saveCategory,
   saveProduct,
   saveSubcategory,
@@ -186,6 +188,8 @@ const EMPTY_CONVERSION_KEY = normalizeConversion({
   isActive: true
 });
 
+const PAGE_SIZE = 50;
+
 const DIRTY_CONFIRM_MESSAGE = "Existem alterações não salvas. Deseja descartá-las?";
 
 const productFormTabs = [
@@ -212,6 +216,10 @@ export function Products() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [dreCategories, setDreCategories] = useState<DRECategory[]>([]);
   const [filters, setFilters] = useState({ search: "", category: "", semDreCategoria: false });
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [summary, setSummary] = useState<ProductSummary | null>(null);
+  const [semDreProducts, setSemDreProducts] = useState<Product[]>([]);
 
   // bulk DRE
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -248,11 +256,23 @@ export function Products() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { notice, setNotice } = useNotice();
-  const activeProducts = useMemo(() => products.filter((product) => product.isActive !== false), [products]);
-  const inactiveProducts = useMemo(() => products.filter((product) => product.isActive === false), [products]);
-  const productsByCategory = useMemo(() => countProductsBy(products, (product) => product.category?.name), [products]);
-  const productsBySector = useMemo(() => countProductsBy(products, (product) => product.inventorySector?.name), [products]);
-  const productsByStockControl = useMemo(() => countProductsBy(products, (product) => product.controlsStock ? "Controla estoque" : "Nao controla"), [products]);
+  // Os totais vem do servidor: somar `products` daria o total da pagina, nao o
+  // do filtro. Enquanto o resumo nao chega, cai para a pagina atual.
+  const totalProdutos = summary?.total ?? products.length;
+  const totalAtivos = summary?.ativos ?? products.filter((product) => product.isActive !== false).length;
+  const totalInativos = summary?.inativos ?? products.filter((product) => product.isActive === false).length;
+  const totalControlamEstoque = summary?.controlamEstoque ?? products.filter((product) => product.controlsStock).length;
+  const productsByCategory = summary?.porCategoria ?? countProductsBy(products, (product) => product.category?.name);
+  const productsBySector = summary?.porSetor ?? countProductsBy(products, (product) => product.inventorySector?.name);
+  const productsByStockControl = useMemo(
+    () => summary
+      ? [
+          { label: "Controla estoque", value: summary.controlamEstoque },
+          { label: "Nao controla", value: summary.total - summary.controlamEstoque }
+        ]
+      : countProductsBy(products, (product) => product.controlsStock ? "Controla estoque" : "Nao controla"),
+    [summary, products]
+  );
   const selectedSector = sectors.find((sector) => sector.id === form.inventorySectorId) ?? null;
   const classificationPending = !form.inventorySectorId;
   const isDirty = useMemo(() => {
@@ -262,16 +282,32 @@ export function Products() {
       || normalizeConversion(conversionForm) !== EMPTY_CONVERSION_KEY;
   }, [form, alias, snapshot, aliasSnapshot, conversionForm]);
 
-  async function loadProducts() {
+  const filtrosAtivos = {
+    search: filters.search || undefined,
+    category: filters.category || undefined,
+    semDreCategoria: filters.semDreCategoria ? "true" : undefined
+  };
+
+  async function loadProducts(paginaDesejada = page) {
     setLoading(true);
     setError(null);
 
     try {
-      setProducts(await getProducts({
-        search: filters.search || undefined,
-        category: filters.category || undefined,
-        semDreCategoria: filters.semDreCategoria ? "true" : undefined,
-      }));
+      // Lista e totais em paralelo: os cartoes e graficos precisam valer para
+      // todo o filtro, nao so para a pagina que esta na tela.
+      const [pagina, resumo] = await Promise.all([
+        getProducts({ ...filtrosAtivos, page: paginaDesejada, pageSize: PAGE_SIZE }),
+        getProductsSummary(filtrosAtivos)
+      ]);
+      setProducts(pagina.items);
+      setTotalPages(pagina.totalPages);
+      setSummary(resumo);
+      // Filtro que encurta a lista pode deixar a pagina atual alem do fim.
+      if (paginaDesejada > pagina.totalPages) {
+        setPage(pagina.totalPages);
+        return;
+      }
+      setPage(paginaDesejada);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Erro ao carregar produtos.");
     } finally {
@@ -349,8 +385,11 @@ export function Products() {
   };
 
   // Agrupa produtos sem DRE por categoria e computa sugestão
+  // As sugestoes agrupam TODOS os produtos sem categoria DRE, nao os da pagina.
+  // Carregados a parte, e so quando o painel abre — a contagem do botao ja vem
+  // pronta no resumo.
   const suggestionGroups = useMemo(() => {
-    const withoutDre = products.filter((p) => !p.dreCategoryId);
+    const withoutDre = semDreProducts;
     const byCategory = new Map<string, { products: Product[]; dreCatName: string | null; dreCatId: string | null }>();
     for (const p of withoutDre) {
       const catName = p.category?.name ?? "(sem categoria)";
@@ -365,7 +404,7 @@ export function Products() {
       .map(([catName, data]) => ({ catName, count: data.products.length, ids: data.products.map((p) => p.id), dreCatName: data.dreCatName, dreCatId: data.dreCatId, controlsStock: data.products.filter((p) => p.controlsStock !== false).length }))
       .sort((a, b) => b.count - a.count);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, dreCategories]);
+  }, [semDreProducts, dreCategories]);
 
   const [pendingSuggestion, setPendingSuggestion] = useState<{ catName: string; ids: string[]; dreCatId: string; dreCatName: string } | null>(null);
 
@@ -378,6 +417,9 @@ export function Products() {
       setShowBulkConfirm(false);
       setPendingSuggestion(null);
       await loadProducts();
+      // O painel de sugestoes tem lista propria: sem recarregar, os produtos
+      // recem-classificados continuariam listados como pendentes.
+      if (showSuggestions) await loadSemDre();
       setNotice({ tone: "success", message: `${res.updated} produto(s) classificado(s).` });
     } catch {
       setNotice({ tone: "error", message: "Erro ao aplicar classificação em lote." });
@@ -530,6 +572,19 @@ export function Products() {
     }
   }
 
+  async function loadSemDre() {
+    try {
+      const pagina = await getProducts({ semDreCategoria: "true" });
+      setSemDreProducts(pagina.items);
+    } catch {
+      setSemDreProducts([]);
+    }
+  }
+
+  useEffect(() => {
+    if (showSuggestions) loadSemDre();
+  }, [showSuggestions]);
+
   useEffect(() => {
     loadProducts();
     // Sem o catch, uma falha aqui virava promessa rejeitada solta: os seletores
@@ -560,10 +615,10 @@ export function Products() {
           </div>
         </div>
         <div className="summary-grid dashboard-summary">
-          <SummaryCard label="Produtos cadastrados" value={products.length} />
-          <SummaryCard label="Ativos" value={activeProducts.length} tone="success" />
-          <SummaryCard label="Inativos" value={inactiveProducts.length} tone={inactiveProducts.length ? "warning" : "success"} />
-          <SummaryCard label="Controlam estoque" value={products.filter((product) => product.controlsStock).length} />
+          <SummaryCard label="Produtos cadastrados" value={totalProdutos} />
+          <SummaryCard label="Ativos" value={totalAtivos} tone="success" />
+          <SummaryCard label="Inativos" value={totalInativos} tone={totalInativos ? "warning" : "success"} />
+          <SummaryCard label="Controlam estoque" value={totalControlamEstoque} />
         </div>
         <div className="chart-grid">
           <SimpleBarChart title="Distribuição por categoria" items={productsByCategory} />
@@ -918,7 +973,7 @@ export function Products() {
             <PanelEyebrow>Normalização inicial</PanelEyebrow>
             <h2>Produtos</h2>
           </div>
-          <IconButton icon={<RefreshCw size={16} />} label="Atualizar produtos" onClick={loadProducts} />
+          <IconButton icon={<RefreshCw size={16} />} label="Atualizar produtos" onClick={() => loadProducts()} />
         </div>
 
         <div className="filters-row">
@@ -951,13 +1006,13 @@ export function Products() {
             />
             Sem Categoria DRE
           </label>
-          <button className="primary-button" type="button" onClick={loadProducts}>Filtrar</button>
+          <button className="primary-button" type="button" onClick={() => loadProducts(1)}>Filtrar</button>
           <button
             type="button"
             style={{ marginLeft: "auto" }}
             onClick={() => setShowSuggestions((v) => !v)}
           >
-            {showSuggestions ? "Ocultar sugestões" : `Sugestões por categoria (${suggestionGroups.reduce((s, g) => s + g.count, 0)} sem DRE)`}
+            {showSuggestions ? "Ocultar sugestões" : `Sugestões por categoria (${summary?.semDre ?? 0} sem DRE)`}
           </button>
         </div>
 
@@ -1228,6 +1283,31 @@ export function Products() {
                 )}
             </Table.Body>
           </Table>
+        )}
+
+        {totalPages > 1 && (
+          <nav className="pagination-row" aria-label="Paginação de produtos">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => loadProducts(page - 1)}
+              disabled={page <= 1 || loading}
+            >
+              Anterior
+            </button>
+            <span className="pagination-status">
+              Página {page} de {totalPages}
+              {summary ? ` · ${summary.total} produto${summary.total === 1 ? "" : "s"}` : ""}
+            </span>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => loadProducts(page + 1)}
+              disabled={page >= totalPages || loading}
+            >
+              Próxima
+            </button>
+          </nav>
         )}
       </section>
 
