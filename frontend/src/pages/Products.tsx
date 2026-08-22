@@ -1071,9 +1071,11 @@ export function Products() {
               Limpar filtros
             </button>
           )}
+          {/* Sem classe, este botao herdava 26px de altura — alvo pequeno
+              demais para o dedo. secondary-button ja tem area de toque. */}
           <button
             type="button"
-            style={{ marginLeft: "auto" }}
+            className="secondary-button suggestions-toggle"
             onClick={() => setShowSuggestions((v) => !v)}
           >
             {showSuggestions ? "Ocultar sugestões" : `Sugestões por categoria (${summary?.semDre ?? 0} sem DRE)`}
