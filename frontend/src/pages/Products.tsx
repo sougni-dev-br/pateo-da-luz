@@ -304,7 +304,9 @@ export function Products() {
 
     setCategories(categoryRows);
     setSubcategories(subcategoryRows);
-    setSectors(sanitizeSectorOptions(sectorRows));
+    // Setor desativado nao entra no seletor — mesma regra ja aplicada a
+    // unidades e fornecedores logo abaixo.
+    setSectors(sanitizeSectorOptions(sectorRows.filter((sector) => sector.isActive !== false)));
     setUnits(unitRows.filter((unit) => unit.isActive));
     setSuppliers(supplierRows.filter((supplier) => supplier.isActive));
     setDreCategories(dreCategoryRows);
