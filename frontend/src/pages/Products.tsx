@@ -1,4 +1,4 @@
-﻿import { History, Pencil, PowerOff, RefreshCw, X } from "lucide-react";
+﻿import { History, Pencil, PowerOff, RefreshCw, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addProductAlias,
@@ -196,9 +196,10 @@ const productFormTabs = [
   { id: "identification", label: "Identificação" },
   { id: "classification", label: "Classificação" },
   { id: "units", label: "Unidades" },
-  { id: "location", label: "Localização" },
   { id: "purchase", label: "Compra" },
-  { id: "notes", label: "Observações" }
+  // Localizacao tinha 4 campos e Observacoes 5: duas abas para pouco conteudo,
+  // com "Obs. da localizacao" separada dos campos que descreve.
+  { id: "location", label: "Local e notas" }
 ] as const;
 
 type ProductFormTab = (typeof productFormTabs)[number]["id"];
@@ -215,11 +216,12 @@ export function Products() {
   const [units, setUnits] = useState<UnitMeasure[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [dreCategories, setDreCategories] = useState<DRECategory[]>([]);
-  const [filters, setFilters] = useState({ search: "", category: "", semDreCategoria: false });
+  const [filters, setFilters] = useState({ search: "", category: "", semDreCategoria: false, status: "ativos" });
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [summary, setSummary] = useState<ProductSummary | null>(null);
   const [semDreProducts, setSemDreProducts] = useState<Product[]>([]);
+  const temFiltroAtivo = Boolean(filters.search || filters.category || filters.semDreCategoria || filters.status !== "ativos");
 
   // bulk DRE
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -275,6 +277,21 @@ export function Products() {
   );
   const selectedSector = sectors.find((sector) => sector.id === form.inventorySectorId) ?? null;
   const classificationPending = !form.inventorySectorId;
+
+  // Ponto na aba avisa onde falta preencher, para nao ter que abrir uma a uma
+  // ate descobrir. So o que o cadastro realmente precisa entra aqui.
+  const pendenciasPorAba: Record<ProductFormTab, string> = {
+    identification: form.name.trim() ? "" : "descrição do produto",
+    classification: [
+      form.categoryId ? "" : "categoria",
+      form.inventorySectorId ? "" : "setor",
+      form.dreCategoryId ? "" : "categoria DRE"
+    ].filter(Boolean).join(", "),
+    units: form.unitMeasureId ? "" : "unidade padrão",
+    purchase: "",
+    location: ""
+  };
+  const totalPendencias = Object.values(pendenciasPorAba).filter(Boolean).length;
   const isDirty = useMemo(() => {
     if (snapshot === null) return false;
     return normalizeForm(form) !== snapshot
@@ -283,9 +300,11 @@ export function Products() {
   }, [form, alias, snapshot, aliasSnapshot, conversionForm]);
 
   const filtrosAtivos = {
-    search: filters.search || undefined,
+    search: filters.search.trim() || undefined,
     category: filters.category || undefined,
-    semDreCategoria: filters.semDreCategoria ? "true" : undefined
+    semDreCategoria: filters.semDreCategoria ? "true" : undefined,
+    // A tela abre nos ativos: inativo e excecao e so atrapalhava a busca.
+    isActive: filters.status === "todos" ? undefined : filters.status === "ativos" ? "true" : "false"
   };
 
   async function loadProducts(paginaDesejada = page) {
@@ -342,29 +361,22 @@ export function Products() {
     setUnits(unitRows.filter((unit) => unit.isActive));
     setSuppliers(supplierRows.filter((supplier) => supplier.isActive));
     setDreCategories(dreCategoryRows);
+    // Categoria e unidade comecam vazias, pedindo escolha.
+    // Antes vinha o primeiro item da lista alfabetica: quem nao trocasse
+    // gravava classificacao errada sem perceber — e e a categoria que alimenta
+    // a sugestao de categoria DRE.
     setForm((current) => ({
       ...current,
       externalCode: current.id ? current.externalCode : current.externalCode || nextCode.code,
-      unitMeasureId: current.unitMeasureId || unitRows.find((unit) => unit.code === current.unit)?.id || unitRows[0]?.id || "",
-      unit: current.unit || unitRows[0]?.code || "",
-      categoryId: current.categoryId || categoryRows[0]?.id || "",
-      subcategoryId:
-        current.subcategoryId ||
-      subcategoryRows.find((subcategory) => subcategory.categoryId === (current.categoryId || categoryRows[0]?.id))
-          ?.id ||
-        ""
+      unitMeasureId: current.unitMeasureId || unitRows.find((unit) => unit.code === current.unit)?.id || "",
+      unit: current.unit || ""
     }));
     // Ciclo 2: inicializa snapshot uma única vez (mount inicial em novo cadastro).
     // Rechamadas de loadBaseData (após criar categoria/subcategoria) não alteram o baseline.
     if (!initialSnapshotSet.current) {
       const baseline: typeof emptyProduct = {
         ...emptyProduct,
-        externalCode: nextCode.code || "",
-        unitMeasureId: unitRows[0]?.id ?? "",
-        unit: unitRows[0]?.code ?? "",
-        categoryId: categoryRows[0]?.id ?? "",
-        subcategoryId:
-          subcategoryRows.find((subcategory) => subcategory.categoryId === categoryRows[0]?.id)?.id ?? ""
+        externalCode: nextCode.code || ""
       };
       setSnapshot(normalizeForm(baseline));
       setAliasSnapshot("");
@@ -436,12 +448,11 @@ export function Products() {
   // withReveal=false só reseta os dados — usado por Cancelar.
   async function loadFreshProduct(withReveal: boolean) {
     const nextCode = await getNextProductCode().catch(() => ({ code: "" }));
-    const defaultUnit = units[0];
+    // Sem unidade pre-escolhida: o primeiro da lista alfabetica nao tem relacao
+    // nenhuma com o produto que esta sendo cadastrado.
     const fresh = {
       ...emptyProduct,
-      externalCode: nextCode.code,
-      unitMeasureId: defaultUnit?.id ?? "",
-      unit: defaultUnit?.code ?? ""
+      externalCode: nextCode.code
     };
     setForm(fresh);
     setConversionForm(emptyConversion);
@@ -575,6 +586,18 @@ export function Products() {
     }
   }
 
+  // Busca enquanto digita: antes so acontecia no Enter ou no botao Filtrar, e
+  // quem digitava e esperava ficava olhando a lista sem mudar.
+  const buscaDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const primeiraCarga = useRef(true);
+  useEffect(() => {
+    if (primeiraCarga.current) { primeiraCarga.current = false; return; }
+    if (buscaDebounce.current) clearTimeout(buscaDebounce.current);
+    buscaDebounce.current = setTimeout(() => loadProducts(1), 350);
+    return () => { if (buscaDebounce.current) clearTimeout(buscaDebounce.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.search, filters.category, filters.semDreCategoria, filters.status]);
+
   async function loadSemDre() {
     try {
       const pagina = await getProducts({ semDreCategoria: "true" });
@@ -651,6 +674,11 @@ export function Products() {
                 : form.id
                   ? "Edite os campos e salve as alterações."
                   : "Preencha os blocos abaixo para concluir o cadastro."}
+              {totalPendencias > 0 && (
+                <em className="pendencia-resumo">
+                  {" · "}{totalPendencias} bloco{totalPendencias > 1 ? "s" : ""} com campo pendente
+                </em>
+              )}
             </span>
           </div>
           {form.id && (
@@ -664,13 +692,15 @@ export function Products() {
           {productFormTabs.map((tab) => (
             <button
               key={tab.id}
-              className={activeFormTab === tab.id ? "active" : ""}
+              className={`${activeFormTab === tab.id ? "active" : ""}${pendenciasPorAba[tab.id] ? " has-pending" : ""}`}
               type="button"
               role="tab"
               aria-selected={activeFormTab === tab.id}
+              title={pendenciasPorAba[tab.id] ? `Falta preencher: ${pendenciasPorAba[tab.id]}` : undefined}
               onClick={() => { setActiveFormTab(tab.id); setTabRevealKey((n) => n + 1); }}
             >
               {tab.label}
+              {pendenciasPorAba[tab.id] && <span className="tab-pending-dot" aria-label="tem campo pendente" />}
             </button>
           ))}
         </div>
@@ -909,18 +939,37 @@ export function Products() {
           )}
 
           {activeFormTab === "location" && (
-            <section className="form-section">
-              <div className="form-section-header">
-                <h3>Localizacao</h3>
-                <span>Ajuda a ordenar a contagem operacional dentro do setor.</span>
-              </div>
-              <div className="form-grid">
-                <label>Localizacao<input value={form.storageLocation} onChange={(event) => setForm({ ...form, storageLocation: event.target.value })} /></label>
-                <label>Corredor<input value={form.storageCorridor} onChange={(event) => setForm({ ...form, storageCorridor: event.target.value })} /></label>
-                <label>Prateleira<input value={form.storageShelf} onChange={(event) => setForm({ ...form, storageShelf: event.target.value })} /></label>
-                <label>Posicao<input value={form.storagePosition} onChange={(event) => setForm({ ...form, storagePosition: event.target.value })} /></label>
-              </div>
-            </section>
+            <>
+              <section className="form-section">
+                <div className="form-section-header">
+                  <h3>Localização no estoque</h3>
+                  <span>Ajuda a ordenar a contagem operacional dentro do setor.</span>
+                </div>
+                <div className="form-grid">
+                  <label>Localização<input value={form.storageLocation} onChange={(event) => setForm({ ...form, storageLocation: event.target.value })} /></label>
+                  <label>Corredor<input value={form.storageCorridor} onChange={(event) => setForm({ ...form, storageCorridor: event.target.value })} /></label>
+                  <label>Prateleira<input value={form.storageShelf} onChange={(event) => setForm({ ...form, storageShelf: event.target.value })} /></label>
+                  <label>Posição<input value={form.storagePosition} onChange={(event) => setForm({ ...form, storagePosition: event.target.value })} /></label>
+                  {/* Vinha da aba de observacoes: descreve a localizacao, entao
+                      fica junto dos campos que complementa. */}
+                  <label className="span-2">Obs. da localização<input value={form.storageNotes} onChange={(event) => setForm({ ...form, storageNotes: event.target.value })} /></label>
+                </div>
+              </section>
+
+              <section className="form-section">
+                <div className="form-section-header">
+                  <h3>Observações</h3>
+                  <span>Notas internas e campos complementares do cadastro.</span>
+                </div>
+                <div className="form-grid">
+                  <label className="span-2">Observações<input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
+                  <label>Observação logística<input value={form.logisticsNotes} onChange={(event) => setForm({ ...form, logisticsNotes: event.target.value })} /></label>
+                  <label>Obs. de conversão<input value={form.conversionNotes} onChange={(event) => setForm({ ...form, conversionNotes: event.target.value })} /></label>
+                  <label>Tipo de conta<input value={form.accountType} onChange={(event) => setForm({ ...form, accountType: event.target.value })} /></label>
+                  <label className="checkbox-label"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />Produto ativo</label>
+                </div>
+              </section>
+            </>
           )}
 
           {activeFormTab === "purchase" && (
@@ -944,22 +993,6 @@ export function Products() {
             </section>
           )}
 
-          {activeFormTab === "notes" && (
-            <section className="form-section">
-              <div className="form-section-header">
-                <h3>Observações e compatibilidade</h3>
-                <span>Notas internas e campos complementares do cadastro.</span>
-              </div>
-              <div className="form-grid">
-                <label>Observações<input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
-                <label>Observação logística<input value={form.logisticsNotes} onChange={(event) => setForm({ ...form, logisticsNotes: event.target.value })} /></label>
-                <label>Obs. localização<input value={form.storageNotes} onChange={(event) => setForm({ ...form, storageNotes: event.target.value })} /></label>
-                <label>Obs. conversão<input value={form.conversionNotes} onChange={(event) => setForm({ ...form, conversionNotes: event.target.value })} /></label>
-                <label>Tipo de conta<input value={form.accountType} onChange={(event) => setForm({ ...form, accountType: event.target.value })} /></label>
-                <label className="checkbox-label"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />Ativo</label>
-              </div>
-            </section>
-          )}
         </div>
 
         <div className="form-actions sticky-form-actions">
@@ -973,21 +1006,28 @@ export function Products() {
       <section className="panel">
         <div className="section-heading">
           <div className="prod-page-heading">
-            <PanelEyebrow>Normalização inicial</PanelEyebrow>
+            <PanelEyebrow>Tabela mestre</PanelEyebrow>
             <h2>Produtos</h2>
           </div>
           <IconButton icon={<RefreshCw size={16} />} label="Atualizar produtos" onClick={() => loadProducts()} />
         </div>
 
         <div className="filters-row">
-          <label>
+          <label className="search-field">
             Busca
-            <input
-              placeholder="Nome do produto"
-              value={filters.search}
-              onChange={(event) => setFilters({ ...filters, search: event.target.value })}
-              onKeyDown={(e) => e.key === "Enter" && loadProducts()}
-            />
+            <span className="search-input-wrap">
+              <Search size={15} aria-hidden="true" />
+              <input
+                placeholder="Nome, código ou apelido"
+                value={filters.search}
+                onChange={(event) => setFilters({ ...filters, search: event.target.value })}
+              />
+              {filters.search && (
+                <button type="button" className="search-clear" onClick={() => setFilters({ ...filters, search: "" })} aria-label="Limpar busca">
+                  <X size={14} />
+                </button>
+              )}
+            </span>
           </label>
           <label>
             Categoria
@@ -1001,6 +1041,14 @@ export function Products() {
               ))}
             </select>
           </label>
+          <label>
+            Situação
+            <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}>
+              <option value="ativos">Ativos</option>
+              <option value="inativos">Inativos</option>
+              <option value="todos">Todos</option>
+            </select>
+          </label>
           <label className="checkbox-label">
             <input
               type="checkbox"
@@ -1009,7 +1057,15 @@ export function Products() {
             />
             Sem Categoria DRE
           </label>
-          <button className="primary-button" type="button" onClick={() => loadProducts(1)}>Filtrar</button>
+          {temFiltroAtivo && (
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => setFilters({ search: "", category: "", semDreCategoria: false, status: "ativos" })}
+            >
+              Limpar filtros
+            </button>
+          )}
           <button
             type="button"
             style={{ marginLeft: "auto" }}
@@ -1164,13 +1220,12 @@ export function Products() {
                     }}
                   />
                 </Table.Th>
-                <Table.Th>Status</Table.Th>
                 <Table.Th>Código</Table.Th>
-                <Table.Th minWidth={180}>Produto</Table.Th>
+                <Table.Th minWidth={200}>Produto</Table.Th>
                 <Table.Th>Categoria</Table.Th>
+                <Table.Th>Setor</Table.Th>
                 <Table.Th align="center">Estoque</Table.Th>
                 <Table.Th>Categoria DRE</Table.Th>
-                <Table.Th align="right">Aliases</Table.Th>
                 <Table.Th actions>Ações</Table.Th>
               </Table.Row>
             </Table.Head>
@@ -1188,27 +1243,34 @@ export function Products() {
                         }}
                       />
                     </Table.Td>
-                    <Table.Td>
-                      <StatusBadge tone={product.isActive ? "success" : "danger"}>
-                        {product.isActive ? "Ativo" : "Inativo"}
-                      </StatusBadge>
-                    </Table.Td>
                     <Table.Td style={{ whiteSpace: "nowrap" }}>{product.externalCode ?? "-"}</Table.Td>
                     <Table.Td truncate title={product.name}>
+                      {/* Coluna Status virou selo ao lado do nome: com o filtro
+                          abrindo em Ativos, "Ativo" repetido em toda linha so
+                          gastava largura. Inativo continua visivel. */}
+                      {!product.isActive && <StatusBadge tone="danger">Inativo</StatusBadge>}{" "}
                       {product.name}
-                      <small>{product.normalizedName}</small>
+                      {/* Apelido extra e informacao util na busca. O
+                          normalizedName que ficava aqui era chave interna. */}
+                      {(product.aliases?.length ?? 0) > 1 && (
+                        <small title={product.aliases?.map((a) => a.alias).join(" · ")}>
+                          {(product.aliases?.length ?? 0) - 1} apelido{(product.aliases?.length ?? 0) - 1 > 1 ? "s" : ""}
+                        </small>
+                      )}
                     </Table.Td>
                     <Table.Td>
-                      {product.category?.name ?? "-"}
+                      {product.category?.name ?? <span className="cell-pendente">sem categoria</span>}
                       {product.subcategory && <small>{product.subcategory.name}</small>}
+                    </Table.Td>
+                    <Table.Td>
+                      {product.inventorySector?.name ?? <span className="cell-pendente">sem setor</span>}
                     </Table.Td>
                     <Table.Td align="center">{product.controlsStock === false ? "Não" : "Sim"}</Table.Td>
                     <Table.Td truncate style={{ maxWidth: 180 }}>
                       {product.dreCategory
                         ? <span title={product.dreCategory.name} style={{ fontSize: "0.82em" }}>{product.dreCategory.name}</span>
-                        : <span style={{ color: "var(--warning)", fontStyle: "italic", fontSize: "0.82em" }}>— pendente —</span>}
+                        : <span className="cell-pendente">pendente</span>}
                     </Table.Td>
-                    <Table.Td align="right">{product.aliases?.length ?? 0}</Table.Td>
                     <Table.Td actions>
                       <IconButton icon={<Pencil size={16} />} label="Editar" disabled={!canEdit} onClick={() => {
                         if (isDirty && !window.confirm(DIRTY_CONFIRM_MESSAGE)) return;
@@ -1279,8 +1341,25 @@ export function Products() {
                 ))}
                 {products.length === 0 && (
                   <Table.Row>
-                    <Table.Td colSpan={9}>
-                      <EmptyState title="Nenhum produto cadastrado." />
+                    <Table.Td colSpan={8}>
+                      {/* Lista vazia por filtro nao e o mesmo que base vazia:
+                          antes as duas diziam "nenhum produto cadastrado". */}
+                      {temFiltroAtivo ? (
+                        <EmptyState
+                          title="Nenhum produto encontrado com esses filtros."
+                          action={
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() => setFilters({ search: "", category: "", semDreCategoria: false, status: "ativos" })}
+                            >
+                              Limpar filtros
+                            </button>
+                          }
+                        />
+                      ) : (
+                        <EmptyState title="Nenhum produto cadastrado." />
+                      )}
                     </Table.Td>
                   </Table.Row>
                 )}
