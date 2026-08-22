@@ -15087,3 +15087,79 @@ body:has(.pplan-sticky-actions) .pplan {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Tela de produtos: busca, pendencias e leitura da tabela ───────────── */
+
+/* Busca com icone e botao de limpar dentro do campo */
+.filters-row .search-field { min-width: 240px; }
+
+.search-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-input-wrap > svg {
+  position: absolute;
+  left: 10px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.search-input-wrap input {
+  width: 100%;
+  padding-left: 32px;
+  padding-right: 30px;
+}
+
+.search-clear {
+  position: absolute;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 999px;
+  line-height: 0;
+}
+
+.search-clear:hover { color: var(--ink); background: var(--line); }
+
+.filters-row .link-button {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  align-self: end;
+  padding-bottom: 10px;
+}
+
+/* Campo que falta preencher, na listagem e no formulario */
+.cell-pendente {
+  color: var(--warning);
+  font-style: italic;
+  font-size: 0.82em;
+}
+
+/* Aba do cadastro com campo pendente */
+.product-form-tabs button.has-pending {
+  border-color: var(--warning);
+}
+
+.tab-pending-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--warning);
+  vertical-align: middle;
+}
+
+.pendencia-resumo {
+  color: var(--warning);
+  font-style: normal;
+}
