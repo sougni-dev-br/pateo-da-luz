@@ -19,10 +19,10 @@ export function SimpleBarChart({ title, items, maxItems = 8 }: { title: string; 
         <p className="muted">Sem dados suficientes.</p>
       ) : (
         <div className="simple-chart-bars">
+          {/* A linha usa display:contents para as colunas virem do grid de
+              fora, mantendo as barras alinhadas entre si. Sem caixa propria
+              ela nao exibe title, entao a dica fica nos filhos. */}
           {visibleItems.map((item) => (
-            {/* A linha usa display:contents para as colunas serem do grid de
-                fora, mantendo as barras alinhadas. Sem caixa propria ela nao
-                exibe title, entao a dica vai nos filhos. */}
             <div className="simple-chart-row" key={item.label}>
               <span title={`${item.label}: ${item.value}`}>{item.label}</span>
               <div className="simple-chart-track" title={`${item.label}: ${item.value}`}>
