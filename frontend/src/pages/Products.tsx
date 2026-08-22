@@ -765,21 +765,21 @@ export function Products() {
                   Unidade de estoque
                   <select value={form.stockUnit} onChange={(event) => setForm({ ...form, stockUnit: event.target.value })}>
                     <option value="">Usar unidade padrao</option>
-                    {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code}</option>)}
+                    {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code} - {unit.name}</option>)}
                   </select>
                 </label>
                 <label>
                   Unidade de compra
                   <select value={form.purchaseUnit} onChange={(event) => setForm({ ...form, purchaseUnit: event.target.value })}>
                     <option value="">Usar unidade padrao</option>
-                    {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code}</option>)}
+                    {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code} - {unit.name}</option>)}
                   </select>
                 </label>
                 <label>
                   Unidade base futura
                   <select value={form.baseUnit} onChange={(event) => setForm({ ...form, baseUnit: event.target.value })}>
                     <option value="">Selecione</option>
-                    {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code}</option>)}
+                    {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code} - {unit.name}</option>)}
                   </select>
                 </label>
                 <label>
