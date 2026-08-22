@@ -219,6 +219,7 @@ export function Products() {
   const [filters, setFilters] = useState({ search: "", category: "", semDreCategoria: false, status: "ativos" });
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalFiltrado, setTotalFiltrado] = useState(0);
   const [summary, setSummary] = useState<ProductSummary | null>(null);
   const [semDreProducts, setSemDreProducts] = useState<Product[]>([]);
   const temFiltroAtivo = Boolean(filters.search || filters.category || filters.semDreCategoria || filters.status !== "ativos");
@@ -312,17 +313,21 @@ export function Products() {
     setError(null);
 
     try {
-      // Lista e totais em paralelo: os cartoes e graficos precisam valer para
-      // todo o filtro, nao so para a pagina que esta na tela.
+      // Os indicadores sao da base inteira, sem filtro: sao um panorama do
+      // cadastro. Seguindo o filtro, buscar "alcool" fazia os cartoes dizerem
+      // "2 produtos, 0 sem DRE" — numeros verdadeiros que respondem a pergunta
+      // errada. Quem mostra o recorte filtrado e o rodape da paginacao.
+      //
       // O resumo pode nao existir ainda (backend anterior ao deploy deste
       // recurso). Falhando, os totais caem para a contagem da pagina, que era
       // o comportamento antigo — a tela nao quebra por causa disso.
       const [pagina, resumo] = await Promise.all([
         getProducts({ ...filtrosAtivos, page: paginaDesejada, pageSize: PAGE_SIZE }),
-        getProductsSummary(filtrosAtivos).catch(() => null)
+        getProductsSummary().catch(() => null)
       ]);
       setProducts(pagina.items);
       setTotalPages(pagina.totalPages);
+      setTotalFiltrado(pagina.total);
       setSummary(resumo);
       // Filtro que encurta a lista pode deixar a pagina atual alem do fim.
       if (paginaDesejada > pagina.totalPages) {
@@ -1367,28 +1372,35 @@ export function Products() {
           </Table>
         )}
 
-        {totalPages > 1 && (
+        {/* O rodape mostra o recorte filtrado. Aparece mesmo com uma pagina so,
+            senao uma busca com poucos resultados nao diz quantos encontrou. */}
+        {(totalPages > 1 || temFiltroAtivo) && products.length > 0 && (
           <nav className="pagination-row" aria-label="Paginação de produtos">
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => loadProducts(page - 1)}
-              disabled={page <= 1 || loading}
-            >
-              Anterior
-            </button>
+            {totalPages > 1 && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => loadProducts(page - 1)}
+                disabled={page <= 1 || loading}
+              >
+                Anterior
+              </button>
+            )}
             <span className="pagination-status">
-              Página {page} de {totalPages}
-              {summary ? ` · ${summary.total} produto${summary.total === 1 ? "" : "s"}` : ""}
+              {totalFiltrado} produto{totalFiltrado === 1 ? "" : "s"}
+              {temFiltroAtivo ? " no filtro" : ""}
+              {totalPages > 1 ? ` · página ${page} de ${totalPages}` : ""}
             </span>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => loadProducts(page + 1)}
-              disabled={page >= totalPages || loading}
-            >
-              Próxima
-            </button>
+            {totalPages > 1 && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => loadProducts(page + 1)}
+                disabled={page >= totalPages || loading}
+              >
+                Próxima
+              </button>
+            )}
           </nav>
         )}
       </section>
