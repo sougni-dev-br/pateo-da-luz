@@ -654,10 +654,10 @@ export function Inventory({
       controlsStock: "true",
       isActive: "true"
     });
-    setProducts(productRows);
-    if (productRows[0]) {
-      setMovementForm((current) => current.productId ? current : { ...current, productId: productRows[0].id, unit: productRows[0].unit ?? "" });
-      setCountForm((current) => current.productId ? current : { ...current, productId: productRows[0].id, unit: productRows[0].unit ?? "" });
+    setProducts(productRows.items);
+    if (productRows.items[0]) {
+      setMovementForm((current) => current.productId ? current : { ...current, productId: productRows.items[0].id, unit: productRows.items[0].unit ?? "" });
+      setCountForm((current) => current.productId ? current : { ...current, productId: productRows.items[0].id, unit: productRows.items[0].unit ?? "" });
     }
   }
 

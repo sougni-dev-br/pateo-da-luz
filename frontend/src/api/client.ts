@@ -2194,8 +2194,48 @@ export function getSupplierHistory(id: string, filters?: { year?: string; month?
   return request<SupplierHistory>(`/suppliers/${id}/history${toQueryString(filters)}`);
 }
 
-export function getProducts(filters?: { search?: string; category?: string; sector?: string; controlsStock?: string; isActive?: string; semDreCategoria?: string }) {
-  return request<Product[]>(`/products${toQueryString(filters)}`);
+export type ProductListFilters = {
+  search?: string;
+  category?: string;
+  sector?: string;
+  controlsStock?: string;
+  isActive?: string;
+  semDreCategoria?: string;
+  /** Sem page/pageSize a resposta vem completa — telas que montam autocomplete dependem disso. */
+  page?: number;
+  pageSize?: number;
+};
+
+export type ProductPage = {
+  items: Product[];
+  total: number;
+  page: number;
+  pageSize: number | null;
+  totalPages: number;
+};
+
+export function getProducts(filters?: ProductListFilters) {
+  const { page, pageSize, ...rest } = filters ?? {};
+  return request<ProductPage>(`/products${toQueryString({
+    ...rest,
+    page: page == null ? undefined : String(page),
+    pageSize: pageSize == null ? undefined : String(pageSize)
+  })}`);
+}
+
+export type ProductSummary = {
+  total: number;
+  ativos: number;
+  inativos: number;
+  controlamEstoque: number;
+  semDre: number;
+  porCategoria: Array<{ label: string; value: number }>;
+  porSetor: Array<{ label: string; value: number }>;
+};
+
+/** Totais calculados no banco: com pagina, somar o que esta na tela daria o total da pagina. */
+export function getProductsSummary(filters?: Omit<ProductListFilters, "page" | "pageSize">) {
+  return request<ProductSummary>(`/products/summary${toQueryString(filters)}`);
 }
 
 export function getProductHistory(id: string) {

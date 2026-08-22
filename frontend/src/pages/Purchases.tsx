@@ -438,7 +438,7 @@ export function Purchases({ user }: { user: AppUser }) {
       if (supplierRes.status === "fulfilled") setSuppliers(supplierRes.value);
       else handleLoadError("suppliers", supplierRes.reason);
 
-      if (productRes.status === "fulfilled") setProducts(productRes.value);
+      if (productRes.status === "fulfilled") setProducts(productRes.value.items);
       else handleLoadError("products", productRes.reason);
 
       if (methodRes.status === "fulfilled") setPaymentMethods(methodRes.value.filter((method) => method.isActive));

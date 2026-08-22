@@ -142,7 +142,7 @@ export function Requisitions({ user }: { user: AppUser }) {
     if (!value.trim()) { setSearchResults([]); return; }
     searchDebounce.current = setTimeout(() => {
       getProducts({ search: value.trim(), isActive: "true" }).then((results) => {
-        setSearchResults(results.filter((p) => p.controlsStock !== false));
+        setSearchResults(results.items.filter((p) => p.controlsStock !== false));
       }).catch(() => {});
     }, 200);
   }
