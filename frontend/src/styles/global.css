@@ -15183,3 +15183,25 @@ body:has(.pplan-sticky-actions) .pplan {
   color: var(--warning);
   font-style: normal;
 }
+
+/* O toggle de sugestoes fica ao fim da linha de filtros no desktop e ocupa a
+   largura toda no celular, onde os filtros ja empilham. */
+.suggestions-toggle {
+  margin-left: auto;
+}
+
+@media (max-width: 900px) {
+  .suggestions-toggle {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+/* Alvo de toque do checkbox de filtro: o rotulo tinha 19px de altura, pouco
+   para o dedo. Nao mexe no checkbox-label das outras telas. */
+@media (max-width: 900px) {
+  .filters-row .checkbox-label {
+    min-height: 40px;
+    align-items: center;
+  }
+}
