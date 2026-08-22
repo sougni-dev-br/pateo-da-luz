@@ -6,6 +6,8 @@ import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { formatProductCode, normalizeProductCode } from "../../shared/utils/product-code.js";
 import { resolveProductNameConflict } from "./product-name-conflict.js";
+import { parseBody } from "../../shared/validate-body.js";
+import { productSchema, productStatusSchema } from "./product.schemas.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { beverageSectorName, normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
 
@@ -681,11 +683,9 @@ productRouter.post("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
-  const name = String(request.body.name ?? "").trim();
-  if (!name) {
-    response.status(400).json({ message: "Descricao do produto obrigatoria." });
-    return;
-  }
+  const body = parseBody(productSchema, request.body, response);
+  if (!body) return;
+  const name = body.name;
 
   const conflict = await checkProductNameConflict(normalizeText(name), null);
   if (!conflict.ok) {
@@ -694,10 +694,10 @@ productRouter.post("/", async (request, response) => {
   }
 
   const externalCode = await ensureUniqueProductCode();
-  const unitMeasure = await unitCodeFromId(request.body.unitMeasureId);
-  const category = await findOrCreateCategory(request.body.categoryName);
-  const subcategory = await findOrCreateSubcategory(request.body.subcategoryName, category?.id);
-  const sector = request.body.inventorySectorId ? null : await findOrCreateSector(request.body.sectorName);
+  const unitMeasure = await unitCodeFromId(body.unitMeasureId);
+  const category = await findOrCreateCategory(body.categoryName);
+  const subcategory = await findOrCreateSubcategory(body.subcategoryName, category?.id);
+  const sector = body.inventorySectorId ? null : await findOrCreateSector(body.sectorName);
 
   const product = await prisma.product.create({
     data: {
@@ -706,14 +706,14 @@ productRouter.post("/", async (request, response) => {
       normalizedName: normalizeText(name),
       unit: unitMeasure?.code ?? null,
       unitMeasureId: unitMeasure?.id ?? null,
-      accountType: request.body.accountType || null,
-      controlsStock: request.body.controlsStock ?? true,
-      dreCategoryId: request.body.dreCategoryId || null,
-      notes: request.body.notes || null,
-      isActive: request.body.isActive ?? true,
+      accountType: body.accountType || null,
+      controlsStock: body.controlsStock ?? true,
+      dreCategoryId: body.dreCategoryId || null,
+      notes: body.notes || null,
+      isActive: body.isActive ?? true,
       categoryId: category?.id,
       subcategoryId: subcategory?.id,
-      inventorySectorId: request.body.inventorySectorId || sector?.id,
+      inventorySectorId: body.inventorySectorId || sector?.id,
       aliases: {
         create: {
           alias: name,
@@ -723,15 +723,15 @@ productRouter.post("/", async (request, response) => {
     },
     include: { category: true, subcategory: true, inventorySector: true, aliases: true, dreCategory: true }
   });
-  await updateProductConversionDefaults(product.id, request.body);
-  await syncProductPurchaseParameters(product.id, request.body);
-  await replaceProductUnitConversions(product.id, request.body.unitConversions);
+  await updateProductConversionDefaults(product.id, body);
+  await syncProductPurchaseParameters(product.id, body);
+  await replaceProductUnitConversions(product.id, body.unitConversions);
   await auditLog({
     userId: user.id,
     action: "CREATE_PRODUCT",
     entity: "Product",
     entityId: product.id,
-    newValue: { ...request.body, externalCode },
+    newValue: { ...body, externalCode },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? "")
   });
@@ -743,11 +743,9 @@ productRouter.put("/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
-  const name = String(request.body.name ?? "").trim();
-  if (!name) {
-    response.status(400).json({ message: "Descricao do produto obrigatoria." });
-    return;
-  }
+  const body = parseBody(productSchema, request.body, response);
+  if (!body) return;
+  const name = body.name;
 
   const conflict = await checkProductNameConflict(normalizeText(name), request.params.id);
   if (!conflict.ok) {
@@ -755,9 +753,9 @@ productRouter.put("/:id", async (request, response) => {
     return;
   }
 
-  const category = await findOrCreateCategory(request.body.categoryName);
-  const subcategory = await findOrCreateSubcategory(request.body.subcategoryName, category?.id);
-  const sector = request.body.inventorySectorId ? null : await findOrCreateSector(request.body.sectorName);
+  const category = await findOrCreateCategory(body.categoryName);
+  const subcategory = await findOrCreateSubcategory(body.subcategoryName, category?.id);
+  const sector = body.inventorySectorId ? null : await findOrCreateSector(body.sectorName);
 
   const [previous] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
     SELECT
@@ -774,7 +772,7 @@ productRouter.put("/:id", async (request, response) => {
   // Compara na forma canonica: uma tela aberta antes da renumeracao devolve
   // "001196" para um produto que agora e "1196" — mesmo codigo, nao uma
   // tentativa de troca.
-  const incomingCode = normalizeProductCode(request.body.externalCode);
+  const incomingCode = normalizeProductCode(body.externalCode);
   const currentCode = normalizeProductCode(previous.externalCode);
   if (incomingCode && currentCode && incomingCode !== currentCode) {
     await auditLog({
@@ -791,7 +789,7 @@ productRouter.put("/:id", async (request, response) => {
     return;
   }
   const persistedExternalCode = previous.externalCode ? String(previous.externalCode) : await ensureUniqueProductCode();
-  const unitMeasure = await unitCodeFromId(request.body.unitMeasureId);
+  const unitMeasure = await unitCodeFromId(body.unitMeasureId);
 
   const product = await prisma.product.update({
     where: { id: request.params.id },
@@ -801,24 +799,24 @@ productRouter.put("/:id", async (request, response) => {
       normalizedName: normalizeText(name),
       unit: unitMeasure?.code ?? null,
       unitMeasureId: unitMeasure?.id ?? null,
-      accountType: request.body.accountType || null,
-      controlsStock: request.body.controlsStock ?? true,
-      dreCategoryId: request.body.dreCategoryId || null,
-      notes: request.body.notes || null,
-      isActive: request.body.isActive ?? true,
+      accountType: body.accountType || null,
+      controlsStock: body.controlsStock ?? true,
+      dreCategoryId: body.dreCategoryId || null,
+      notes: body.notes || null,
+      isActive: body.isActive ?? true,
       categoryId: category?.id,
       subcategoryId: subcategory?.id,
-      inventorySectorId: request.body.inventorySectorId || sector?.id || null
+      inventorySectorId: body.inventorySectorId || sector?.id || null
     },
     include: { category: true, subcategory: true, inventorySector: true, aliases: true, dreCategory: true }
   });
 
   const locationChanged =
-    previous?.storageLocation !== asText(request.body.storageLocation) ||
-    previous?.storageCorridor !== asText(request.body.storageCorridor) ||
-    previous?.storageShelf !== asText(request.body.storageShelf) ||
-    previous?.storagePosition !== asText(request.body.storagePosition) ||
-    previous?.storageNotes !== asText(request.body.storageNotes);
+    previous?.storageLocation !== asText(body.storageLocation) ||
+    previous?.storageCorridor !== asText(body.storageCorridor) ||
+    previous?.storageShelf !== asText(body.storageShelf) ||
+    previous?.storagePosition !== asText(body.storagePosition) ||
+    previous?.storageNotes !== asText(body.storageNotes);
   const classificationChanged =
     previous?.inventorySectorId !== product.inventorySectorId ||
     previous?.categoryId !== product.categoryId ||
@@ -835,11 +833,11 @@ productRouter.put("/:id", async (request, response) => {
           inventorySectorId: product.inventorySectorId,
           categoryId: product.categoryId,
           subcategoryId: product.subcategoryId,
-          storageLocation: asText(request.body.storageLocation),
-          storageCorridor: asText(request.body.storageCorridor),
-          storageShelf: asText(request.body.storageShelf),
-          storagePosition: asText(request.body.storagePosition),
-          storageNotes: asText(request.body.storageNotes)
+          storageLocation: asText(body.storageLocation),
+          storageCorridor: asText(body.storageCorridor),
+          storageShelf: asText(body.storageShelf),
+          storagePosition: asText(body.storagePosition),
+          storageNotes: asText(body.storageNotes)
         })} AS jsonb)
       )
     `;
@@ -853,13 +851,13 @@ productRouter.put("/:id", async (request, response) => {
     create: { alias: name, normalizedAlias: normalizeText(name), productId: product.id },
     update: { alias: name, productId: product.id }
   });
-  await updateProductConversionDefaults(product.id, request.body);
+  await updateProductConversionDefaults(product.id, body);
   const purchaseParamsChanged =
-    String(previous?.estoqueMinimo ?? "") !== String(parseDecimalInput(request.body.estoqueMinimo) ?? "") ||
-    String(previous?.estoqueIdeal ?? "") !== String(parseDecimalInput(request.body.estoqueIdeal) ?? "") ||
-    String(previous?.leadTimeCompraDias ?? "") !== String(request.body.leadTimeCompraDias ?? "") ||
-    String(previous?.fornecedorPrincipalId ?? "") !== String(asText(request.body.fornecedorPrincipalId) ?? "");
-  await syncProductPurchaseParameters(product.id, request.body);
+    String(previous?.estoqueMinimo ?? "") !== String(parseDecimalInput(body.estoqueMinimo) ?? "") ||
+    String(previous?.estoqueIdeal ?? "") !== String(parseDecimalInput(body.estoqueIdeal) ?? "") ||
+    String(previous?.leadTimeCompraDias ?? "") !== String(body.leadTimeCompraDias ?? "") ||
+    String(previous?.fornecedorPrincipalId ?? "") !== String(asText(body.fornecedorPrincipalId) ?? "");
+  await syncProductPurchaseParameters(product.id, body);
   if (purchaseParamsChanged) {
     await auditLog({
       userId: user.id,
@@ -873,16 +871,16 @@ productRouter.put("/:id", async (request, response) => {
         fornecedorPrincipalId: previous?.fornecedorPrincipalId
       },
       newValue: {
-        estoqueMinimo: parseDecimalInput(request.body.estoqueMinimo),
-        estoqueIdeal: parseDecimalInput(request.body.estoqueIdeal),
-        leadTimeCompraDias: request.body.leadTimeCompraDias,
-        fornecedorPrincipalId: asText(request.body.fornecedorPrincipalId)
+        estoqueMinimo: parseDecimalInput(body.estoqueMinimo),
+        estoqueIdeal: parseDecimalInput(body.estoqueIdeal),
+        leadTimeCompraDias: body.leadTimeCompraDias,
+        fornecedorPrincipalId: asText(body.fornecedorPrincipalId)
       },
       ipAddress: requestIp(request),
       userAgent: String(request.headers["user-agent"] ?? "")
     });
   }
-  await replaceProductUnitConversions(product.id, request.body.unitConversions);
+  await replaceProductUnitConversions(product.id, body.unitConversions);
   await auditLog({
     userId: user.id,
     action: "UPDATE_PRODUCT",
@@ -890,7 +888,7 @@ productRouter.put("/:id", async (request, response) => {
     entityId: product.id,
     previousValue: previous,
     newValue: {
-      ...request.body,
+      ...body,
       externalCode: product.externalCode,
       unitMeasureId: product.unitMeasureId,
       controlsStock: product.controlsStock
@@ -1087,14 +1085,19 @@ productRouter.patch("/:id/status", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
+  // Boolean(request.body.isActive) tratava corpo ausente como false, entao um
+  // PATCH sem corpo inativava o produto em silencio.
+  const data = parseBody(productStatusSchema, request.body, response);
+  if (!data) return;
+
   const product = await prisma.product.update({
     where: { id: request.params.id },
-    data: { isActive: Boolean(request.body.isActive) },
+    data: { isActive: data.isActive },
     include: { category: true, subcategory: true, inventorySector: true, aliases: true, dreCategory: true }
   });
   await auditLog({
     userId: user.id,
-    action: Boolean(request.body.isActive) ? "REACTIVATE_PRODUCT" : "INACTIVATE_PRODUCT",
+    action: data.isActive ? "REACTIVATE_PRODUCT" : "INACTIVATE_PRODUCT",
     entity: "Product",
     entityId: product.id,
     newValue: { isActive: product.isActive },

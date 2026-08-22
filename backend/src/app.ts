@@ -33,6 +33,7 @@ import { payrollRouter } from "./modules/payroll/payroll.routes.js";
 import { tipCommissionRouter } from "./modules/payroll/tip-commission.routes.js";
 import { authRouter, userRouter } from "./modules/security/auth.routes.js";
 import { requireMenuAccess } from "./modules/security/menu-permissions.js";
+import { describeHttpError } from "./shared/http-error.js";
 import { jsonSafe } from "./shared/utils/json-safe.js";
 
 export const app = express();
@@ -132,11 +133,11 @@ app.use("/integrations/delivery/noventa-nove", noventaNoveDeliveryRouter);
 app.use("/receivables", receivableRouter);
 app.use("/ifood-expenses", ifoodExpenseRouter);
 
-app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-  console.error("Unhandled API error", error);
+app.use((error: unknown, request: express.Request, response: express.Response, _next: express.NextFunction) => {
+  const { status, message, detail } = describeHttpError(error);
+  console.error(`Unhandled API error ${request.method} ${request.path} -> ${status}`, detail ?? error);
   if (response.headersSent) return;
-  const message = error instanceof Error ? error.message : "Erro interno do servidor.";
-  response.status(500).json({ message });
+  response.status(status).json({ message });
 });
 
 process.on("unhandledRejection", (reason) => {
