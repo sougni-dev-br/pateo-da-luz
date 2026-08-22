@@ -6,6 +6,7 @@ import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { OFFICIAL_SMALL_EXPENSE_NORMALIZED_TYPES, isOfficialSmallExpenseType } from "./small-expense-type-options.js";
 import { normalizeInventorySectorInput } from "./inventory-sector-utils.js";
+import { normalizeUnitCode, unitMatchKey } from "./unit-measure-utils.js";
 
 export const masterDataRouter = Router();
 
@@ -338,6 +339,29 @@ masterDataRouter.patch("/subcategories/:id/status", async (request, response) =>
   );
 });
 
+/**
+ * Barra unidade repetida por grafia — sigla ou nome que so diferem por caixa,
+ * acento ou espaco. A lista chegou a ter 20 unidades para 14 reais, com
+ * BALD/BALDE/BDE e PCT/PCTE/PACTE convivendo, porque o @unique de "code" so
+ * pega grafia identica.
+ */
+async function findUnitConflict(code: string, name: string, unitId: string | null) {
+  const units = await prisma.unitMeasure.findMany({ select: { id: true, code: true, name: true } });
+  const codeKey = unitMatchKey(code);
+  const nameKey = unitMatchKey(name);
+
+  for (const unit of units) {
+    if (unit.id === unitId) continue;
+    if (codeKey && unitMatchKey(unit.code) === codeKey) {
+      return `A sigla "${code}" ja existe como "${unit.code} - ${unit.name}".`;
+    }
+    if (nameKey && unitMatchKey(unit.name) === nameKey) {
+      return `O nome "${name}" ja existe na unidade "${unit.code} - ${unit.name}".`;
+    }
+  }
+  return null;
+}
+
 masterDataRouter.get("/units", async (request, response) => {
   const search = request.query.search ? String(request.query.search) : undefined;
   const where: Prisma.UnitMeasureWhereInput = search
@@ -356,19 +380,31 @@ masterDataRouter.post("/units", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
-  const code = String(request.body.code ?? "").trim().toUpperCase();
+  const code = normalizeUnitCode(request.body.code);
+  const name = String(request.body.name ?? "").trim();
+  if (!code || !name) {
+    response.status(400).json({ message: "Informe sigla e nome da unidade." });
+    return;
+  }
+
+  const conflict = await findUnitConflict(code, name, null);
+  if (conflict) {
+    response.status(409).json({ message: conflict });
+    return;
+  }
+
   response.status(201).json(
     await prisma.unitMeasure.upsert({
       where: { code },
       create: {
         code,
-        name: String(request.body.name ?? "").trim(),
+        name,
         type: request.body.type || null,
         notes: request.body.notes || null,
         isActive: request.body.isActive ?? true
       },
       update: {
-        name: String(request.body.name ?? "").trim(),
+        name,
         type: request.body.type || null,
         notes: request.body.notes || null,
         isActive: request.body.isActive ?? true
@@ -381,12 +417,25 @@ masterDataRouter.put("/units/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
+  const code = normalizeUnitCode(request.body.code);
+  const name = String(request.body.name ?? "").trim();
+  if (!code || !name) {
+    response.status(400).json({ message: "Informe sigla e nome da unidade." });
+    return;
+  }
+
+  const conflict = await findUnitConflict(code, name, request.params.id);
+  if (conflict) {
+    response.status(409).json({ message: conflict });
+    return;
+  }
+
   response.json(
     await prisma.unitMeasure.update({
       where: { id: request.params.id },
       data: {
-        code: String(request.body.code ?? "").trim().toUpperCase(),
-        name: String(request.body.name ?? "").trim(),
+        code,
+        name,
         type: request.body.type || null,
         notes: request.body.notes || null,
         isActive: request.body.isActive ?? true
