@@ -2214,13 +2214,25 @@ export type ProductPage = {
   totalPages: number;
 };
 
-export function getProducts(filters?: ProductListFilters) {
+/**
+ * Aceita tambem a resposta em array da versao anterior da API.
+ *
+ * Backend e frontend sobem separados, com minutos de diferenca: sem essa
+ * tolerancia, a ordem do deploy quebraria as telas de Produtos, Estoque,
+ * Compras e Requisicoes durante a janela — em qualquer das duas ordens.
+ */
+export async function getProducts(filters?: ProductListFilters): Promise<ProductPage> {
   const { page, pageSize, ...rest } = filters ?? {};
-  return request<ProductPage>(`/products${toQueryString({
+  const resposta = await request<ProductPage | Product[]>(`/products${toQueryString({
     ...rest,
     page: page == null ? undefined : String(page),
     pageSize: pageSize == null ? undefined : String(pageSize)
   })}`);
+
+  if (Array.isArray(resposta)) {
+    return { items: resposta, total: resposta.length, page: 1, pageSize: null, totalPages: 1 };
+  }
+  return resposta;
 }
 
 export type ProductSummary = {
