@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
+import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { OFFICIAL_INVENTORY_SECTORS, officialInventorySectorName } from "../master-data/inventory-sector-utils.js";
 
@@ -21,13 +22,6 @@ type ProductConversionPayload = {
 function asText(value: unknown): string | null {
   const text = String(value ?? "").trim();
   return text || null;
-}
-
-function parseDecimalInput(value: unknown): number | null {
-  if (value === null || value === undefined || value === "") return null;
-  const normalized = String(value).replace(/\./g, "").replace(",", ".");
-  const amount = Number(normalized);
-  return Number.isFinite(amount) ? amount : null;
 }
 
 function normalizeUnit(value: unknown): string | null {
