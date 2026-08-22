@@ -20,7 +20,7 @@ import {
   supplierCatalogMapping
 } from "./column-mapping/supplier-catalog.mapping.js";
 import { readWorkbookSheetNames, readWorksheetRows } from "./excel-reader.service.js";
-import { officialInventorySectorName } from "../master-data/inventory-sector-utils.js";
+import { normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
 
 type CatalogKind = "suppliers" | "products";
 
@@ -199,7 +199,7 @@ function mapSupplierRows(rows: Record<string, unknown>[], columns: ResolvedColum
 function mapProductRows(rows: Record<string, unknown>[], columns: ResolvedColumnMap<ProductCatalogField>) {
   return rows.map<ProductCatalogRow>((row, index) => {
     const rawSectorName = asText(getCell(row, columns, "sectorName"));
-    const sectorName = officialInventorySectorName(rawSectorName);
+    const sectorName = normalizeInventorySectorInput(rawSectorName);
     return {
       rowNumber: Number(row.__rowNumber ?? index + 2),
       code: asText(getCell(row, columns, "productCode")),

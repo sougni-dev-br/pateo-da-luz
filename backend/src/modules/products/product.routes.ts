@@ -5,7 +5,7 @@ import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
-import { OFFICIAL_INVENTORY_SECTORS, officialInventorySectorName } from "../master-data/inventory-sector-utils.js";
+import { beverageSectorName, normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
 
 export const productRouter = Router();
 
@@ -217,13 +217,14 @@ async function findOrCreateSubcategory(name?: string | null, categoryId?: string
 }
 
 async function findOrCreateSector(name?: string | null) {
-  const cleanName = officialInventorySectorName(name);
+  const cleanName = normalizeInventorySectorInput(name);
   if (!cleanName) return null;
+  // DO UPDATE so no carimbo: a grafia cadastrada manda. Sobrescrever com
+  // EXCLUDED."name" fazia uma planilha em minusculas renomear o setor.
   const [sector] = await prisma.$queryRaw<Array<{ id: string; name: string; normalizedName: string }>>`
     INSERT INTO "InventorySector" ("id", "name", "normalizedName", "updatedAt")
     VALUES (${crypto.randomUUID()}, ${cleanName}, ${normalizeText(cleanName)}, CURRENT_TIMESTAMP)
     ON CONFLICT ("normalizedName") DO UPDATE SET
-      "name" = EXCLUDED."name",
       "updatedAt" = CURRENT_TIMESTAMP
     RETURNING "id", "name", "normalizedName"
   `;
@@ -351,16 +352,16 @@ productRouter.get("/audit/inventory-integrity", async (request, response) => {
     })
   ]);
 
-  const officialSectors = new Set(OFFICIAL_INVENTORY_SECTORS.map((sector) => normalizeText(sector)));
   const countedProductIds = new Set(countSessionItems.map((item) => item.productId).filter(Boolean));
   const activeProducts = products.filter((product) => product.isActive !== false);
   const controlledProducts = products.filter((product) => product.controlsStock === true);
   const activeControlledProducts = products.filter((product) => product.isActive !== false && product.controlsStock === true);
   const productsWithoutSector = products.filter((product) => !product.inventorySector?.name);
-  const productsInInvalidSectors = products.filter((product) => {
-    const sectorName = product.inventorySector?.name ? normalizeText(product.inventorySector.name) : "";
-    return sectorName && !officialSectors.has(sectorName);
-  });
+  // Setor "invalido" agora significa setor desativado, nao setor fora de uma
+  // lista fixa: o catalogo passou a ser o cadastro.
+  const productsInInvalidSectors = products.filter(
+    (product) => product.inventorySector != null && product.inventorySector.isActive === false
+  );
   const activeControlledWithoutCount = activeControlledProducts.filter((product) => !countedProductIds.has(product.id));
   const beverageLikeOutsideAdegaBar = products.filter((product) => {
     const suggestedSector = productAuditSectorSuggestion(product.name);
@@ -371,7 +372,7 @@ productRouter.get("/audit/inventory-integrity", async (request, response) => {
     .map((product) => {
       const targetSectorName = productAuditSectorSuggestion(product.name);
       if (!targetSectorName) return null;
-      const currentSectorName = officialInventorySectorName(product.inventorySector?.name);
+      const currentSectorName = beverageSectorName(product.inventorySector?.name);
       if (currentSectorName && ["ADEGA", "BAR"].includes(currentSectorName)) return null;
       if (currentSectorName === targetSectorName) return null;
       return {
@@ -462,7 +463,7 @@ productRouter.post("/audit/inventory-integrity/apply", async (request, response)
 
   const uniqueTargets = new Map<string, { targetSectorName: string }>();
   for (const suggestion of suggestions) {
-    const targetSectorName = officialInventorySectorName(suggestion?.targetSectorName);
+    const targetSectorName = beverageSectorName(suggestion?.targetSectorName);
     if (!suggestion?.productId || !targetSectorName) {
       response.status(400).json({ message: "Sugestao invalida. Revise productId e targetSectorName." });
       return;
@@ -474,7 +475,7 @@ productRouter.post("/audit/inventory-integrity/apply", async (request, response)
   for (const name of new Set([...uniqueTargets.values()].map((item) => item.targetSectorName))) {
     const sector = await findOrCreateSector(name);
     if (!sector) {
-      response.status(400).json({ message: `Setor oficial invalido: ${name}` });
+      response.status(400).json({ message: `Setor invalido: ${name}` });
       return;
     }
     sectorByName.set(name, sector);

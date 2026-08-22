@@ -1,58 +1,44 @@
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 
-export const OFFICIAL_INVENTORY_SECTORS = [
-  "ADEGA",
-  "BAR",
-  "CAMARA FRIA",
-  "CORREDORES",
-  "ESTOQUE",
-  "ESTOQUE SECO",
-  "FREEZER",
-  "GERENCIA"
-] as const;
+/**
+ * Setores esperados para bebida. Nao e catalogo: e a heuristica usada pela
+ * auditoria de integridade para sugerir reclassificacao de vinho/cerveja.
+ * O catalogo de setores vive no banco — quem manda e o cadastro.
+ */
+export const BEVERAGE_SECTORS = ["ADEGA", "BAR"] as const;
 
-export const LEGACY_INVENTORY_SECTORS = [
-  "INVENTARIO GERAL",
-  "NAO BATER EST",
-  "REVISAO/PENDENCIAS"
-] as const;
-
-const OFFICIAL_SECTOR_BY_NORMALIZED = new Map(
-  OFFICIAL_INVENTORY_SECTORS.map((name) => [normalizeText(name), name])
+const BEVERAGE_BY_NORMALIZED = new Map(
+  BEVERAGE_SECTORS.map((name) => [normalizeText(name), name as string])
 );
 
-const OFFICIAL_SECTOR_ORDER = new Map(
-  OFFICIAL_INVENTORY_SECTORS.map((name, index) => [normalizeText(name), index])
-);
+const REJECTED_SECTOR_NAMES = new Set([
+  "object object",
+  "sem setor",
+  "undefined",
+  "null"
+]);
 
-export function normalizeInventorySectorInput(value: unknown) {
-  const text = String(value ?? "").trim();
+/**
+ * Porteiro unico de escrita de setor: apara espacos, recusa vazio e o lixo que
+ * ja entrou na base por serializacao errada ("[object Object]") ou por texto
+ * de placeholder. Qualquer outro nome e aceito — cadastrar setor novo precisa
+ * funcionar sem deploy.
+ */
+export function normalizeInventorySectorInput(value: unknown): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+
+  const text = String(value).trim();
   if (!text) return null;
+
   const normalized = normalizeText(text);
-  if (!normalized) return null;
-  if (
-    normalized === "object object"
-    || normalized === "sem setor"
-    || normalized === "undefined"
-    || normalized === "null"
-  ) {
-    return null;
-  }
+  if (!normalized || REJECTED_SECTOR_NAMES.has(normalized)) return null;
+
   return text;
 }
 
-export function officialInventorySectorName(value: unknown) {
+/** Nome canonico do setor de bebida, ou null se nao for ADEGA/BAR. */
+export function beverageSectorName(value: unknown): string | null {
   const cleaned = normalizeInventorySectorInput(value);
   if (!cleaned) return null;
-  return OFFICIAL_SECTOR_BY_NORMALIZED.get(normalizeText(cleaned)) ?? null;
-}
-
-export function isOfficialInventorySectorName(value: unknown) {
-  return officialInventorySectorName(value) != null;
-}
-
-export function inventorySectorOrder(value: unknown) {
-  const official = officialInventorySectorName(value);
-  if (!official) return 999;
-  return OFFICIAL_SECTOR_ORDER.get(normalizeText(official)) ?? 999;
+  return BEVERAGE_BY_NORMALIZED.get(normalizeText(cleaned)) ?? null;
 }
