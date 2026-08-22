@@ -295,9 +295,12 @@ export function Products() {
     try {
       // Lista e totais em paralelo: os cartoes e graficos precisam valer para
       // todo o filtro, nao so para a pagina que esta na tela.
+      // O resumo pode nao existir ainda (backend anterior ao deploy deste
+      // recurso). Falhando, os totais caem para a contagem da pagina, que era
+      // o comportamento antigo — a tela nao quebra por causa disso.
       const [pagina, resumo] = await Promise.all([
         getProducts({ ...filtrosAtivos, page: paginaDesejada, pageSize: PAGE_SIZE }),
-        getProductsSummary(filtrosAtivos)
+        getProductsSummary(filtrosAtivos).catch(() => null)
       ]);
       setProducts(pagina.items);
       setTotalPages(pagina.totalPages);
