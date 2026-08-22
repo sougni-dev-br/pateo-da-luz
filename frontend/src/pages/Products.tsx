@@ -437,11 +437,31 @@ export function Products() {
         categoryName: category?.name,
         subcategoryName: subcategory?.name
       });
+
+      // O apelido e gravado depois do produto. Se ele conflitar com outro
+      // produto, o cadastro ja foi salvo — dizer "erro ao salvar" mandaria o
+      // usuario refazer um trabalho que deu certo.
+      let aliasError: string | null = null;
       if (alias.trim()) {
-        await addProductAlias(saved.id, alias);
+        try {
+          await addProductAlias(saved.id, alias);
+        } catch (error) {
+          aliasError = error instanceof Error ? error.message : "Nao foi possivel gravar o apelido.";
+        }
       }
+
       await loadFreshProduct(true);
       await loadProducts();
+
+      if (aliasError) {
+        setError(aliasError);
+        setNotice({
+          tone: "warning",
+          message: `${isUpdate ? "Cadastro atualizado" : "Cadastro criado"}, mas o apelido nao foi gravado.`
+        });
+        return;
+      }
+
       setNotice({
         tone: "success",
         message: isUpdate ? "Cadastro atualizado com sucesso." : "Cadastro criado com sucesso."

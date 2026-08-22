@@ -5,6 +5,7 @@ import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { formatProductCode, normalizeProductCode } from "../../shared/utils/product-code.js";
+import { resolveProductNameConflict } from "./product-name-conflict.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { beverageSectorName, normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
 
@@ -193,6 +194,40 @@ async function replaceProductUnitConversions(productId: string, conversions: Pro
          ${conversion.isActive ?? true}, CURRENT_TIMESTAMP)
     `;
   }
+}
+
+/**
+ * Busca os dois donos possiveis do nome — produto homonimo e produto que ja
+ * usa o nome como apelido — e devolve o veredito.
+ */
+async function checkProductNameConflict(normalizedName: string, productId: string | null) {
+  const [productWithSameName, alias] = await Promise.all([
+    prisma.product.findFirst({
+      where: { normalizedName },
+      select: { id: true, name: true, externalCode: true }
+    }),
+    prisma.productAlias.findUnique({
+      where: { normalizedAlias: normalizedName },
+      select: {
+        alias: true,
+        productId: true,
+        product: { select: { name: true, externalCode: true } }
+      }
+    })
+  ]);
+
+  return resolveProductNameConflict({
+    productId,
+    productWithSameName,
+    aliasOwner: alias
+      ? {
+          productId: alias.productId,
+          alias: alias.alias,
+          ownerName: alias.product.name,
+          ownerExternalCode: alias.product.externalCode
+        }
+      : null
+  });
 }
 
 async function findOrCreateCategory(name?: string | null) {
@@ -596,6 +631,13 @@ productRouter.post("/", async (request, response) => {
     response.status(400).json({ message: "Descricao do produto obrigatoria." });
     return;
   }
+
+  const conflict = await checkProductNameConflict(normalizeText(name), null);
+  if (!conflict.ok) {
+    response.status(409).json({ message: conflict.message });
+    return;
+  }
+
   const externalCode = await ensureUniqueProductCode();
   const unitMeasure = await unitCodeFromId(request.body.unitMeasureId);
   const category = await findOrCreateCategory(request.body.categoryName);
@@ -651,6 +693,13 @@ productRouter.put("/:id", async (request, response) => {
     response.status(400).json({ message: "Descricao do produto obrigatoria." });
     return;
   }
+
+  const conflict = await checkProductNameConflict(normalizeText(name), request.params.id);
+  if (!conflict.ok) {
+    response.status(409).json({ message: conflict.message });
+    return;
+  }
+
   const category = await findOrCreateCategory(request.body.categoryName);
   const subcategory = await findOrCreateSubcategory(request.body.subcategoryName, category?.id);
   const sector = request.body.inventorySectorId ? null : await findOrCreateSector(request.body.sectorName);
@@ -741,13 +790,14 @@ productRouter.put("/:id", async (request, response) => {
     `;
   }
 
-  await prisma.productAlias
-    .upsert({
-      where: { normalizedAlias: normalizeText(name) },
-      create: { alias: name, normalizedAlias: normalizeText(name), productId: product.id },
-      update: { alias: name, productId: product.id }
-    })
-    .catch(() => undefined);
+  // O conflito ja foi barrado no topo da rota, entao aqui o apelido ou nao
+  // existe ou ja e deste produto. Sem `.catch` mudo: se falhar, a rota falha —
+  // apelido errado desvia a importacao de compras para outro produto.
+  await prisma.productAlias.upsert({
+    where: { normalizedAlias: normalizeText(name) },
+    create: { alias: name, normalizedAlias: normalizeText(name), productId: product.id },
+    update: { alias: name, productId: product.id }
+  });
   await updateProductConversionDefaults(product.id, request.body);
   const purchaseParamsChanged =
     String(previous?.estoqueMinimo ?? "") !== String(parseDecimalInput(request.body.estoqueMinimo) ?? "") ||
@@ -933,10 +983,46 @@ productRouter.post("/:id/aliases", async (request, response) => {
   if (!user) return;
 
   const alias = String(request.body.alias ?? "").trim();
+  if (!alias) {
+    response.status(400).json({ message: "Informe o apelido do produto." });
+    return;
+  }
+
+  const normalizedAlias = normalizeText(alias);
+  if (!normalizedAlias) {
+    response.status(400).json({ message: "Apelido invalido." });
+    return;
+  }
+
+  const product = await prisma.product.findUnique({
+    where: { id: request.params.id },
+    select: { id: true, name: true }
+  });
+  if (!product) {
+    response.status(404).json({ message: "Produto nao encontrado." });
+    return;
+  }
+
+  const conflict = await checkProductNameConflict(normalizedAlias, product.id);
+  if (!conflict.ok) {
+    response.status(409).json({ message: conflict.message });
+    return;
+  }
+
   const productAlias = await prisma.productAlias.upsert({
-    where: { normalizedAlias: normalizeText(alias) },
-    create: { alias, normalizedAlias: normalizeText(alias), productId: request.params.id },
-    update: { alias, productId: request.params.id }
+    where: { normalizedAlias },
+    create: { alias, normalizedAlias, productId: product.id },
+    update: { alias, productId: product.id }
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "ADD_PRODUCT_ALIAS",
+    entity: "Product",
+    entityId: product.id,
+    newValue: { alias, normalizedAlias },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
   });
 
   response.status(201).json(productAlias);
