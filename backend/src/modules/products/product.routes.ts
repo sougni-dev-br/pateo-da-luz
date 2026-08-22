@@ -419,21 +419,38 @@ function productListWhere(query: Record<string, unknown>): Prisma.ProductWhereIn
   const isActive = query.isActive == null ? undefined : String(query.isActive) === "true";
   const semDreCategoria = query.semDreCategoria === "true";
 
+  const subcategory = query.subcategory ? String(query.subcategory) : undefined;
+  // Lista de trabalho: mostra o que falta preencher, em vez de caçar produto
+  // a produto. "sem-apelido" ficou de fora de proposito — 816 dos 831 produtos
+  // se encaixariam, entao nao ajuda a priorizar nada.
+  const pendencia = query.pendencia ? String(query.pendencia) : undefined;
+  const porPendencia: Record<string, Prisma.ProductWhereInput> = {
+    "sem-setor": { inventorySectorId: null },
+    "sem-categoria": { categoryId: null },
+    "sem-subcategoria": { subcategoryId: null },
+    "sem-dre": { dreCategoryId: null }
+  };
+
   return {
     ...(search && rawSearch
       ? {
           OR: [
             { externalCode: { contains: rawSearch, mode: "insensitive" } },
             { normalizedName: { contains: search, mode: "insensitive" } },
-            { name: { contains: rawSearch, mode: "insensitive" } }
+            { name: { contains: rawSearch, mode: "insensitive" } },
+            // O apelido e justamente o nome pelo qual o fornecedor chama o
+            // produto: quem procura por ele espera achar.
+            { aliases: { some: { normalizedAlias: { contains: search, mode: "insensitive" } } } }
           ]
         }
       : {}),
     ...(category ? { category: { name: category } } : {}),
+    ...(subcategory ? { subcategory: { name: subcategory } } : {}),
     ...(sector ? { inventorySector: { name: sector } } : {}),
     ...(controlsStock === undefined ? {} : { controlsStock }),
     ...(isActive === undefined ? {} : { isActive }),
-    ...(semDreCategoria ? { dreCategoryId: null } : {})
+    ...(semDreCategoria ? { dreCategoryId: null } : {}),
+    ...(pendencia && porPendencia[pendencia] ? porPendencia[pendencia] : {})
   };
 }
 
