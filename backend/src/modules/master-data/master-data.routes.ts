@@ -7,6 +7,8 @@ import { auditLog, requestIp, requireRole } from "../security/security-utils.js"
 import { OFFICIAL_SMALL_EXPENSE_NORMALIZED_TYPES, isOfficialSmallExpenseType } from "./small-expense-type-options.js";
 import { normalizeInventorySectorInput } from "./inventory-sector-utils.js";
 import { normalizeUnitCode, unitMatchKey } from "./unit-measure-utils.js";
+import { parseBody } from "../../shared/validate-body.js";
+import { categorySchema, expenseTypeSchema, subcategorySchema } from "./master-data.schemas.js";
 
 export const masterDataRouter = Router();
 
@@ -231,18 +233,21 @@ masterDataRouter.post("/categories", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
+  const data = parseBody(categorySchema, request.body, response);
+  if (!data) return;
+
   const item = await prisma.category.upsert({
-    where: { name: String(request.body.name ?? "").trim() },
+    where: { name: data.name },
     create: {
-      name: String(request.body.name ?? "").trim(),
-      mainGroup: request.body.mainGroup || null,
-      notes: request.body.notes || null,
-      isActive: request.body.isActive ?? true
+      name: data.name,
+      mainGroup: data.mainGroup || null,
+      notes: data.notes || null,
+      isActive: data.isActive ?? true
     },
     update: {
-      mainGroup: request.body.mainGroup || null,
-      notes: request.body.notes || null,
-      isActive: request.body.isActive ?? true
+      mainGroup: data.mainGroup || null,
+      notes: data.notes || null,
+      isActive: data.isActive ?? true
     }
   });
   response.status(201).json(item);
@@ -252,14 +257,17 @@ masterDataRouter.put("/categories/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
+  const data = parseBody(categorySchema, request.body, response);
+  if (!data) return;
+
   response.json(
     await prisma.category.update({
       where: { id: request.params.id },
       data: {
-        name: String(request.body.name ?? "").trim(),
-        mainGroup: request.body.mainGroup || null,
-        notes: request.body.notes || null,
-        isActive: request.body.isActive ?? true
+        name: data.name,
+        mainGroup: data.mainGroup || null,
+        notes: data.notes || null,
+        isActive: data.isActive ?? true
       }
     })
   );
@@ -296,13 +304,19 @@ masterDataRouter.post("/subcategories", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
-  const name = String(request.body.name ?? "").trim();
-  const categoryId = String(request.body.categoryId ?? "");
+  const data = parseBody(subcategorySchema, request.body, response);
+  if (!data) return;
+
   response.status(201).json(
     await prisma.subcategory.upsert({
-      where: { categoryId_name: { categoryId, name } },
-      create: { name, categoryId, notes: request.body.notes || null, isActive: request.body.isActive ?? true },
-      update: { notes: request.body.notes || null, isActive: request.body.isActive ?? true },
+      where: { categoryId_name: { categoryId: data.categoryId, name: data.name } },
+      create: {
+        name: data.name,
+        categoryId: data.categoryId,
+        notes: data.notes || null,
+        isActive: data.isActive ?? true
+      },
+      update: { notes: data.notes || null, isActive: data.isActive ?? true },
       include: { category: true }
     })
   );
@@ -312,14 +326,17 @@ masterDataRouter.put("/subcategories/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
+  const data = parseBody(subcategorySchema, request.body, response);
+  if (!data) return;
+
   response.json(
     await prisma.subcategory.update({
       where: { id: request.params.id },
       data: {
-        name: String(request.body.name ?? "").trim(),
-        categoryId: String(request.body.categoryId ?? ""),
-        notes: request.body.notes || null,
-        isActive: request.body.isActive ?? true
+        name: data.name,
+        categoryId: data.categoryId,
+        notes: data.notes || null,
+        isActive: data.isActive ?? true
       },
       include: { category: true }
     })
@@ -473,22 +490,24 @@ masterDataRouter.post("/expense-types", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
-  const name = String(request.body.name ?? "").trim();
+  const data = parseBody(expenseTypeSchema, request.body, response);
+  if (!data) return;
+
   response.status(201).json(
     await prisma.expenseTypeMaster.upsert({
-      where: { normalizedName: normalizeText(name) },
+      where: { normalizedName: normalizeText(data.name) },
       create: {
-        name,
-        normalizedName: normalizeText(name),
-        group: request.body.group || null,
-        notes: request.body.notes || null,
-        isActive: request.body.isActive ?? true
+        name: data.name,
+        normalizedName: normalizeText(data.name),
+        group: data.group || null,
+        notes: data.notes || null,
+        isActive: data.isActive ?? true
       },
       update: {
-        name,
-        group: request.body.group || null,
-        notes: request.body.notes || null,
-        isActive: request.body.isActive ?? true
+        name: data.name,
+        group: data.group || null,
+        notes: data.notes || null,
+        isActive: data.isActive ?? true
       }
     })
   );
@@ -498,16 +517,18 @@ masterDataRouter.put("/expense-types/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
-  const name = String(request.body.name ?? "").trim();
+  const data = parseBody(expenseTypeSchema, request.body, response);
+  if (!data) return;
+
   response.json(
     await prisma.expenseTypeMaster.update({
       where: { id: request.params.id },
       data: {
-        name,
-        normalizedName: normalizeText(name),
-        group: request.body.group || null,
-        notes: request.body.notes || null,
-        isActive: request.body.isActive ?? true
+        name: data.name,
+        normalizedName: normalizeText(data.name),
+        group: data.group || null,
+        notes: data.notes || null,
+        isActive: data.isActive ?? true
       }
     })
   );
