@@ -15066,3 +15066,24 @@ body:has(.pplan-sticky-actions) .pplan {
   outline-offset: 1px;
   opacity: 1;
 }
+
+/* Paginacao da listagem de produtos */
+.pagination-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 0 4px;
+}
+
+.pagination-status {
+  font-size: 0.9rem;
+  color: var(--text-muted, #666);
+  font-variant-numeric: tabular-nums;
+}
+
+.pagination-row button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

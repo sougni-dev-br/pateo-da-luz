@@ -7,6 +7,7 @@ import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { formatProductCode, normalizeProductCode } from "../../shared/utils/product-code.js";
 import { resolveProductNameConflict } from "./product-name-conflict.js";
 import { parseBody } from "../../shared/validate-body.js";
+import { resolvePagination } from "../../shared/pagination.js";
 import { productSchema, productStatusSchema } from "./product.schemas.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { beverageSectorName, normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
@@ -408,24 +409,23 @@ productRouter.get("/form-options", async (request, response) => {
   });
 });
 
-productRouter.get("/", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
-  if (!user) return;
+/** Filtro da listagem, compartilhado entre a lista e o resumo. */
+function productListWhere(query: Record<string, unknown>): Prisma.ProductWhereInput {
+  const rawSearch = query.search ? String(query.search) : undefined;
+  const search = rawSearch ? normalizeText(rawSearch) : undefined;
+  const category = query.category ? String(query.category) : undefined;
+  const sector = query.sector ? String(query.sector) : undefined;
+  const controlsStock = query.controlsStock ? String(query.controlsStock) === "true" : undefined;
+  const isActive = query.isActive == null ? undefined : String(query.isActive) === "true";
+  const semDreCategoria = query.semDreCategoria === "true";
 
-  const search = request.query.search ? normalizeText(String(request.query.search)) : undefined;
-  const category = request.query.category ? String(request.query.category) : undefined;
-  const sector = request.query.sector ? String(request.query.sector) : undefined;
-  const controlsStock = request.query.controlsStock ? String(request.query.controlsStock) === "true" : undefined;
-  const isActive = request.query.isActive == null ? undefined : String(request.query.isActive) === "true";
-  const semDreCategoria = request.query.semDreCategoria === "true";
-
-  const where: Prisma.ProductWhereInput = {
-    ...(search
+  return {
+    ...(search && rawSearch
       ? {
           OR: [
-            { externalCode: { contains: String(request.query.search), mode: "insensitive" } },
+            { externalCode: { contains: rawSearch, mode: "insensitive" } },
             { normalizedName: { contains: search, mode: "insensitive" } },
-            { name: { contains: String(request.query.search), mode: "insensitive" } }
+            { name: { contains: rawSearch, mode: "insensitive" } }
           ]
         }
       : {}),
@@ -435,13 +435,80 @@ productRouter.get("/", async (request, response) => {
     ...(isActive === undefined ? {} : { isActive }),
     ...(semDreCategoria ? { dreCategoryId: null } : {})
   };
+}
 
-  const products = await prisma.product.findMany({
-    where,
-    include: { category: true, subcategory: true, inventorySector: true, aliases: true, dreCategory: true },
-    orderBy: { name: "asc" }
+/**
+ * Totais da listagem, calculados no banco.
+ *
+ * Os cartoes e graficos da tela somavam a lista carregada. Com pagina, somar o
+ * que esta na tela mostraria o total da pagina — entao a conta sobe para o
+ * banco e passa a valer para todo o filtro, nao so para a pagina visivel.
+ */
+productRouter.get("/summary", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const where = productListWhere(request.query as Record<string, unknown>);
+  const [total, ativos, controlamEstoque, semDre, porCategoria, porSetor] = await Promise.all([
+    prisma.product.count({ where }),
+    prisma.product.count({ where: { ...where, isActive: true } }),
+    prisma.product.count({ where: { ...where, controlsStock: true } }),
+    prisma.product.count({ where: { ...where, dreCategoryId: null } }),
+    prisma.product.groupBy({ by: ["categoryId"], where, _count: { _all: true } }),
+    prisma.product.groupBy({ by: ["inventorySectorId"], where, _count: { _all: true } })
+  ]);
+
+  const [categorias, setores] = await Promise.all([
+    prisma.category.findMany({ select: { id: true, name: true } }),
+    prisma.inventorySector.findMany({ select: { id: true, name: true } })
+  ]);
+  const nomeCategoria = new Map(categorias.map((c) => [c.id, c.name]));
+  const nomeSetor = new Map(setores.map((s) => [s.id, s.name]));
+
+  const paraGrafico = (linhas: Array<{ _count: { _all: number } }>, chave: string, nomes: Map<string, string>) =>
+    linhas
+      .map((linha) => {
+        const id = (linha as Record<string, unknown>)[chave] as string | null;
+        return { label: (id && nomes.get(id)) || "Sem classificacao", value: linha._count._all };
+      })
+      .sort((a, b) => b.value - a.value);
+
+  response.json({
+    total,
+    ativos,
+    inativos: total - ativos,
+    controlamEstoque,
+    semDre,
+    porCategoria: paraGrafico(porCategoria, "categoryId", nomeCategoria),
+    porSetor: paraGrafico(porSetor, "inventorySectorId", nomeSetor)
   });
-  response.json(await hydrateProductConversionFields(products));
+});
+
+productRouter.get("/", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const where = productListWhere(request.query as Record<string, unknown>);
+  const { page, pageSize, skip, take } = resolvePagination(request.query);
+
+  const [products, total] = await Promise.all([
+    prisma.product.findMany({
+      where,
+      include: { category: true, subcategory: true, inventorySector: true, aliases: true, dreCategory: true },
+      orderBy: { name: "asc" },
+      skip,
+      take
+    }),
+    prisma.product.count({ where })
+  ]);
+
+  response.json({
+    items: await hydrateProductConversionFields(products),
+    total,
+    page,
+    pageSize,
+    totalPages: pageSize ? Math.max(1, Math.ceil(total / pageSize)) : 1
+  });
 });
 
 productRouter.get("/audit/inventory-integrity", async (request, response) => {
