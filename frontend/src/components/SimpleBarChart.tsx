@@ -20,9 +20,12 @@ export function SimpleBarChart({ title, items, maxItems = 8 }: { title: string; 
       ) : (
         <div className="simple-chart-bars">
           {visibleItems.map((item) => (
-            <div className="simple-chart-row" key={item.label} title={`${item.label}: ${item.value}`}>
-              <span>{item.label}</span>
-              <div className="simple-chart-track">
+            {/* A linha usa display:contents para as colunas serem do grid de
+                fora, mantendo as barras alinhadas. Sem caixa propria ela nao
+                exibe title, entao a dica vai nos filhos. */}
+            <div className="simple-chart-row" key={item.label}>
+              <span title={`${item.label}: ${item.value}`}>{item.label}</span>
+              <div className="simple-chart-track" title={`${item.label}: ${item.value}`}>
                 <div className="simple-chart-fill" style={{ width: `${Math.max((item.value / max) * 100, 4)}%` }} />
               </div>
               <strong>{item.value}</strong>
