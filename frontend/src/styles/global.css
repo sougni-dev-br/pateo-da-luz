@@ -15134,10 +15134,13 @@ body:has(.pplan-sticky-actions) .pplan {
   pointer-events: none;
 }
 
-.search-input-wrap input {
+/* Especificidade acima de
+   `.filters-row input:not([type=checkbox]):not([type=radio])`, que fixa
+   `padding: 0 10px` e fazia a lupa cair em cima da primeira letra. */
+.filters-row .search-input-wrap input:not([type="checkbox"]):not([type="radio"]) {
   width: 100%;
-  padding-left: 32px;
-  padding-right: 30px;
+  padding-left: 34px;
+  padding-right: 32px;
 }
 
 .search-clear {
@@ -15212,4 +15215,44 @@ body:has(.pplan-sticky-actions) .pplan {
     min-height: 40px;
     align-items: center;
   }
+}
+
+/* Bloco de filtros avancados: aparece abaixo dos basicos, com um traco
+   ligando visualmente ao botao que o abriu. */
+.filters-row-advanced {
+  border-top: 1px dashed var(--line);
+  padding-top: 12px;
+  margin-top: -4px;
+}
+
+.more-filters-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Quantos filtros escondidos estao ligados — sem isso o usuario nao sabe que
+   a lista esta filtrada por algo que nao esta vendo. */
+.filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-weight: 400;
+  line-height: 1.4;
 }
