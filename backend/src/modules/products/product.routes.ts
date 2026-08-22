@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
+import { formatProductCode, normalizeProductCode } from "../../shared/utils/product-code.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { beverageSectorName, normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
 
@@ -231,21 +232,38 @@ async function findOrCreateSector(name?: string | null) {
   return sector;
 }
 
+/**
+ * Proximo codigo previsto, sem consumir a sequencia. Serve a GET /next-code,
+ * que so preenche o formulario — quem reserva de fato e ensureUniqueProductCode.
+ */
 async function nextProductCode() {
-  const [row] = await prisma.$queryRaw<Array<{ nextSequence: bigint | number | null }>>`
-    SELECT COALESCE(MAX("externalCode"::int), 0) + 1 AS "nextSequence"
-    FROM "Product"
-    WHERE "externalCode" ~ '^[0-9]+$'
+  const [row] = await prisma.$queryRaw<Array<{ currentValue: number | null }>>`
+    SELECT "currentValue" FROM "ProductSequence" WHERE "id" = 1
   `;
-  return String(Number(row?.nextSequence ?? 1)).padStart(6, "0");
+  return formatProductCode(Number(row?.currentValue ?? 0) + 1);
 }
 
+/**
+ * Reserva o proximo codigo de forma atomica. O UPDATE ... RETURNING serializa
+ * os concorrentes na linha da sequencia — o MAX+1 anterior fazia dois cadastros
+ * simultaneos calcularem o mesmo numero. Mesmo padrao de nextSupplierCode().
+ *
+ * O laco cobre a base legada: a sequencia comeca no maior codigo existente, mas
+ * uma planilha pode ter introduzido um codigo acima dela.
+ */
 async function ensureUniqueProductCode() {
-  let code = await nextProductCode();
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const [row] = await prisma.$queryRaw<Array<{ currentValue: number }>>`
+      UPDATE "ProductSequence"
+      SET "currentValue" = "currentValue" + 1, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = 1
+      RETURNING "currentValue"
+    `;
+    if (!row) throw new Error("Sequencia de codigo de produto nao inicializada.");
+
+    const code = formatProductCode(row.currentValue);
     const existing = await prisma.product.findFirst({ where: { externalCode: code }, select: { id: true } });
     if (!existing) return code;
-    code = String(Number(code) + 1).padStart(6, "0");
   }
   throw new Error("Nao foi possivel gerar codigo automatico do produto.");
 }
@@ -649,8 +667,12 @@ productRouter.put("/:id", async (request, response) => {
     response.status(404).json({ message: "Produto nao encontrado." });
     return;
   }
-  const incomingCode = asText(request.body.externalCode);
-  if (incomingCode && previous.externalCode && incomingCode !== previous.externalCode) {
+  // Compara na forma canonica: uma tela aberta antes da renumeracao devolve
+  // "001196" para um produto que agora e "1196" — mesmo codigo, nao uma
+  // tentativa de troca.
+  const incomingCode = normalizeProductCode(request.body.externalCode);
+  const currentCode = normalizeProductCode(previous.externalCode);
+  if (incomingCode && currentCode && incomingCode !== currentCode) {
     await auditLog({
       userId: user.id,
       action: "BLOCK_PRODUCT_CODE_CHANGE",

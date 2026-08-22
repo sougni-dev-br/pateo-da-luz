@@ -21,6 +21,7 @@ import {
 } from "./column-mapping/supplier-catalog.mapping.js";
 import { readWorkbookSheetNames, readWorksheetRows } from "./excel-reader.service.js";
 import { normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
+import { normalizeProductCode } from "../../shared/utils/product-code.js";
 
 type CatalogKind = "suppliers" | "products";
 
@@ -202,7 +203,8 @@ function mapProductRows(rows: Record<string, unknown>[], columns: ResolvedColumn
     const sectorName = normalizeInventorySectorInput(rawSectorName);
     return {
       rowNumber: Number(row.__rowNumber ?? index + 2),
-      code: asText(getCell(row, columns, "productCode")),
+      // Canoniza o codigo da planilha: "001196" e "1196" sao o mesmo produto.
+      code: normalizeProductCode(getCell(row, columns, "productCode")),
       description: asText(getCell(row, columns, "productDescription")) ?? "",
       categoryName: asText(getCell(row, columns, "categoryName")),
       subcategoryName: asText(getCell(row, columns, "subcategoryName")),
