@@ -190,6 +190,16 @@ const EMPTY_CONVERSION_KEY = normalizeConversion({
 
 const PAGE_SIZE = 50;
 
+const FILTROS_VAZIOS = {
+  search: "",
+  category: "",
+  subcategory: "",
+  sector: "",
+  controlsStock: "",
+  pendencia: "",
+  status: "ativos"
+};
+
 const DIRTY_CONFIRM_MESSAGE = "Existem alterações não salvas. Deseja descartá-las?";
 
 const productFormTabs = [
@@ -216,13 +226,18 @@ export function Products() {
   const [units, setUnits] = useState<UnitMeasure[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [dreCategories, setDreCategories] = useState<DRECategory[]>([]);
-  const [filters, setFilters] = useState({ search: "", category: "", semDreCategoria: false, status: "ativos" });
+  const [filters, setFilters] = useState(FILTROS_VAZIOS);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalFiltrado, setTotalFiltrado] = useState(0);
   const [summary, setSummary] = useState<ProductSummary | null>(null);
   const [semDreProducts, setSemDreProducts] = useState<Product[]>([]);
-  const temFiltroAtivo = Boolean(filters.search || filters.category || filters.semDreCategoria || filters.status !== "ativos");
+  const temFiltroAtivo = (Object.keys(FILTROS_VAZIOS) as Array<keyof typeof FILTROS_VAZIOS>)
+    .some((k) => filters[k] !== FILTROS_VAZIOS[k]);
+  // Quantos dos filtros escondidos estao ligados, para o botao avisar.
+  const filtrosAvancadosAtivos = [filters.subcategory, filters.sector, filters.controlsStock, filters.pendencia]
+    .filter(Boolean).length;
 
   // bulk DRE
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -303,7 +318,10 @@ export function Products() {
   const filtrosAtivos = {
     search: filters.search.trim() || undefined,
     category: filters.category || undefined,
-    semDreCategoria: filters.semDreCategoria ? "true" : undefined,
+    subcategory: filters.subcategory || undefined,
+    sector: filters.sector || undefined,
+    controlsStock: filters.controlsStock || undefined,
+    pendencia: filters.pendencia || undefined,
     // A tela abre nos ativos: inativo e excecao e so atrapalhava a busca.
     isActive: filters.status === "todos" ? undefined : filters.status === "ativos" ? "true" : "false"
   };
@@ -601,7 +619,7 @@ export function Products() {
     buscaDebounce.current = setTimeout(() => loadProducts(1), 350);
     return () => { if (buscaDebounce.current) clearTimeout(buscaDebounce.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.category, filters.semDreCategoria, filters.status]);
+  }, [filters.search, filters.category, filters.subcategory, filters.sector, filters.controlsStock, filters.pendencia, filters.status]);
 
   async function loadSemDre() {
     try {
@@ -743,9 +761,21 @@ export function Products() {
                     </span>
                   </label>
                 </article>
-                <label>
-                  Alias
-                  <input value={alias} onChange={(event) => setAlias(event.target.value)} />
+                {/* "Alias" e o nome do campo no banco, nao um termo do
+                    restaurante. Na tela vale o que a coisa faz: e o nome
+                    alternativo que casa o item da nota com este produto na
+                    importacao de compras. */}
+                <label className="span-2">
+                  Apelido do produto
+                  <input
+                    value={alias}
+                    onChange={(event) => setAlias(event.target.value)}
+                    placeholder="Como o fornecedor chama este produto na nota"
+                  />
+                  <small className="field-hint">
+                    Usado para reconhecer o produto quando a nota vem com outro nome.
+                    Ex.: "BATATA LAVADA" na nota encontra o produto "BATATA".
+                  </small>
                 </label>
               </div>
             </section>
@@ -1054,19 +1084,22 @@ export function Products() {
               <option value="todos">Todos</option>
             </select>
           </label>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={filters.semDreCategoria}
-              onChange={(event) => setFilters({ ...filters, semDreCategoria: event.target.checked })}
-            />
-            Sem Categoria DRE
-          </label>
+          <button
+            type="button"
+            className="secondary-button more-filters-toggle"
+            aria-expanded={showMoreFilters}
+            onClick={() => setShowMoreFilters((v) => !v)}
+          >
+            {showMoreFilters ? "Menos filtros" : "Mais filtros"}
+            {!showMoreFilters && filtrosAvancadosAtivos > 0 && (
+              <span className="filter-count">{filtrosAvancadosAtivos}</span>
+            )}
+          </button>
           {temFiltroAtivo && (
             <button
               type="button"
               className="link-button"
-              onClick={() => setFilters({ search: "", category: "", semDreCategoria: false, status: "ativos" })}
+              onClick={() => setFilters(FILTROS_VAZIOS)}
             >
               Limpar filtros
             </button>
@@ -1081,6 +1114,55 @@ export function Products() {
             {showSuggestions ? "Ocultar sugestões" : `Sugestões por categoria (${summary?.semDre ?? 0} sem DRE)`}
           </button>
         </div>
+
+        {showMoreFilters && (
+          <div className="filters-row filters-row-advanced">
+            <label>
+              Setor
+              <select value={filters.sector} onChange={(e) => setFilters({ ...filters, sector: e.target.value })}>
+                <option value="">Todos</option>
+                {sectors.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </select>
+            </label>
+            <label>
+              Subcategoria
+              <select
+                value={filters.subcategory}
+                onChange={(e) => setFilters({ ...filters, subcategory: e.target.value })}
+                disabled={!filters.category}
+                title={filters.category ? undefined : "Escolha uma categoria primeiro"}
+              >
+                {/* Sem categoria escolhida a lista teria as 40 subcategorias
+                    soltas, sem indicar a qual categoria cada uma pertence. */}
+                <option value="">{filters.category ? "Todas" : "Escolha a categoria"}</option>
+                {subcategories
+                  .filter((sub) => {
+                    const cat = categories.find((c) => c.name === filters.category);
+                    return cat ? sub.categoryId === cat.id : false;
+                  })
+                  .map((sub) => <option key={sub.id} value={sub.name}>{sub.name}</option>)}
+              </select>
+            </label>
+            <label>
+              Controla estoque
+              <select value={filters.controlsStock} onChange={(e) => setFilters({ ...filters, controlsStock: e.target.value })}>
+                <option value="">Tanto faz</option>
+                <option value="true">Sim, entra na contagem</option>
+                <option value="false">Não, é despesa direta</option>
+              </select>
+            </label>
+            <label>
+              Pendência de cadastro
+              <select value={filters.pendencia} onChange={(e) => setFilters({ ...filters, pendencia: e.target.value })}>
+                <option value="">Nenhuma</option>
+                <option value="sem-setor">Sem setor</option>
+                <option value="sem-categoria">Sem categoria</option>
+                <option value="sem-subcategoria">Sem subcategoria</option>
+                <option value="sem-dre">Sem categoria DRE</option>
+              </select>
+            </label>
+          </div>
+        )}
 
         {/* Painel de sugestões por categoria */}
         {showSuggestions && (
@@ -1358,7 +1440,7 @@ export function Products() {
                             <button
                               type="button"
                               className="secondary-button"
-                              onClick={() => setFilters({ search: "", category: "", semDreCategoria: false, status: "ativos" })}
+                              onClick={() => setFilters(FILTROS_VAZIOS)}
                             >
                               Limpar filtros
                             </button>

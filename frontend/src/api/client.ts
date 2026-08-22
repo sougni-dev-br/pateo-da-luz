@@ -2197,10 +2197,13 @@ export function getSupplierHistory(id: string, filters?: { year?: string; month?
 export type ProductListFilters = {
   search?: string;
   category?: string;
+  subcategory?: string;
   sector?: string;
   controlsStock?: string;
   isActive?: string;
   semDreCategoria?: string;
+  /** "sem-setor" | "sem-categoria" | "sem-subcategoria" | "sem-dre" */
+  pendencia?: string;
   /** Sem page/pageSize a resposta vem completa — telas que montam autocomplete dependem disso. */
   page?: number;
   pageSize?: number;
