@@ -16,7 +16,7 @@ import {
 import { formatDate, formatNumber } from "../utils/format";
 
 // Modelos de compra oferecidos ao comprador. Sem conversao automatica nesta etapa.
-const PURCHASE_MODELS = ["unidade", "caixa", "saco", "kg", "bandeja", "pacote", "fardo", "outro"] as const;
+const PURCHASE_MODELS = ["unidade", "caixa", "saco", "kg", "bandeja", "balde", "pacote", "fardo", "outro"] as const;
 
 type PlanningStatus = "PEDIR" | "REVISAR" | "SEM_FORNECEDOR" | "NAO_PEDIR";
 
@@ -102,15 +102,20 @@ function sourceTitle(source: BuyerSupportReport["summary"]["source"]): string {
   return byType[source.type ?? ""] ?? (source.sourceType === "STOCK_COUNT_SESSION" ? "Contagem de estoque" : "Inventário");
 }
 
-// Mapa entre abreviacoes reais do banco (UNI, CX, PCTE...) e o vocabulario canonico do
-// dropdown (PURCHASE_MODELS). Cobre ~98% dos produtos ativos; residual cai em "outro"
-// via defaultModel. Vocabulario alinhado com Product.unit / Product.purchaseUnit em uso.
+// Mapa entre as siglas do cadastro de unidades e o vocabulario do dropdown
+// (PURCHASE_MODELS). As siglas antigas (uni, pcte, pacte, bald, balde, bde)
+// continuam aqui porque tela aberta antes da consolidacao ainda as envia.
+//
+// "bde" apontava para "bandeja": BDE era Balde, nao bandeja — quem planejava a
+// compra de balde via o modelo errado sugerido.
 const UNIT_ALIASES: Record<string, typeof PURCHASE_MODELS[number]> = {
-  uni: "unidade", un: "unidade",
+  un: "unidade", uni: "unidade",
   cx: "caixa",
   kg: "kg",
-  pcte: "pacote", pacte: "pacote", pct: "pacote",
-  bdj: "bandeja", bde: "bandeja"
+  pct: "pacote", pcte: "pacote", pacte: "pacote",
+  bdj: "bandeja",
+  bd: "balde", bald: "balde", balde: "balde", bde: "balde",
+  fd: "fardo"
 };
 
 function defaultModel(item: BuyerSupportItem): string {
