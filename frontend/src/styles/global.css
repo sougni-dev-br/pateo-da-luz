@@ -6719,17 +6719,25 @@ details[open] .modal-section-summary::before {
   margin: 0 0 12px;
 }
 
+/* Um grid unico para todas as linhas, em vez de um grid por linha.
+ *
+ * Com grids separados, a coluna do rotulo tinha largura fixa de 90px e nomes
+ * como "CAMARA FRIA" ou "Sem classificacao" saiam cortados. Dando largura ao
+ * conteudo em grids separados, cada barra comecava numa posicao diferente — o
+ * que atrapalha justamente a comparacao que o grafico existe para permitir.
+ *
+ * fit-content(150px): a coluna cresce ate caber o maior rotulo do grafico e
+ * para por ai. Rotulo maior que isso ainda recebe reticencias.
+ */
 .simple-chart-bars {
   display: grid;
-  gap: 10px;
+  grid-template-columns: fit-content(150px) minmax(70px, 1fr) auto;
+  align-items: center;
+  gap: 10px 8px;
 }
 
 .simple-chart-row {
-  align-items: center;
-  display: grid;
-  gap: 8px;
-  grid-template-columns: minmax(90px, 1fr) minmax(90px, 2fr) auto;
-  min-width: 0;
+  display: contents;
 }
 
 .simple-chart-row span {
