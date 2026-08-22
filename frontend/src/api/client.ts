@@ -2206,6 +2206,25 @@ export function getNextProductCode() {
   return request<{ code: string }>("/products/next-code");
 }
 
+export type ProductFormOptions = {
+  categories: Category[];
+  subcategories: Subcategory[];
+  sectors: InventorySector[];
+  units: UnitMeasure[];
+  suppliers: Supplier[];
+  dreCategories: DRECategory[];
+  nextCode: string;
+};
+
+/**
+ * Dados de apoio do formulario de produto numa chamada so, sob a permissao de
+ * products. Montar isso com chamadas a master-data, suppliers e dre exigia
+ * permissao nos quatro modulos para abrir uma tela de produto.
+ */
+export function getProductFormOptions() {
+  return request<ProductFormOptions>("/products/form-options");
+}
+
 export function saveProduct(
   payload: Partial<Product> & {
     name: string;

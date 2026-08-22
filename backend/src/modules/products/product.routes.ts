@@ -351,6 +351,61 @@ productRouter.get("/next-code", async (request, response) => {
   response.json({ code: await nextProductCode() });
 });
 
+/**
+ * Dados de apoio do formulario de produto numa unica chamada.
+ *
+ * A tela montava isso com cinco requisicoes que atravessavam quatro modulos de
+ * permissao (master-data, suppliers, dre, products). Quem tinha acesso so a
+ * Produtos levava 403 em quatro delas e a tela abria com os seletores vazios.
+ * Ler categoria e unidade para preencher um combo e parte de cadastrar
+ * produto, entao a leitura mora aqui, sob a permissao de products. Criar
+ * categoria continua sendo acao de master-data.
+ */
+productRouter.get("/form-options", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const [categories, subcategories, sectors, units, suppliers, dreCategories] = await Promise.all([
+    prisma.category.findMany({
+      select: { id: true, name: true, mainGroup: true, isActive: true, notes: true },
+      orderBy: { name: "asc" }
+    }),
+    prisma.subcategory.findMany({
+      select: { id: true, name: true, categoryId: true, isActive: true, notes: true },
+      orderBy: { name: "asc" }
+    }),
+    prisma.inventorySector.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, normalizedName: true, description: true, countOrder: true, isActive: true, notes: true },
+      orderBy: [{ countOrder: "asc" }, { name: "asc" }]
+    }),
+    prisma.unitMeasure.findMany({
+      where: { isActive: true },
+      select: { id: true, code: true, name: true, type: true, isActive: true, notes: true },
+      orderBy: { code: "asc" }
+    }),
+    prisma.supplier.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, externalCode: true, isActive: true },
+      orderBy: { name: "asc" }
+    }),
+    prisma.dRECategory.findMany({
+      select: { id: true, name: true, dreGroup: true, sortOrder: true, isActive: true, notes: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }]
+    })
+  ]);
+
+  response.json({
+    categories,
+    subcategories,
+    sectors,
+    units,
+    suppliers,
+    dreCategories,
+    nextCode: await nextProductCode()
+  });
+});
+
 productRouter.get("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
   if (!user) return;
