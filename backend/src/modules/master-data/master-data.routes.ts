@@ -5,7 +5,7 @@ import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { OFFICIAL_SMALL_EXPENSE_NORMALIZED_TYPES, isOfficialSmallExpenseType } from "./small-expense-type-options.js";
-import { inventorySectorOrder, isOfficialInventorySectorName, officialInventorySectorName } from "./inventory-sector-utils.js";
+import { normalizeInventorySectorInput } from "./inventory-sector-utils.js";
 
 export const masterDataRouter = Router();
 
@@ -48,32 +48,32 @@ masterDataRouter.get("/sectors", async (request, response) => {
     orderBy: [{ countOrder: "asc" }, { name: "asc" }]
   });
 
+  // Quem manda e o cadastro: todo setor gravado aparece. Antes esta lista era
+  // filtrada por um catalogo fixo de 8 nomes no codigo, entao setor criado pela
+  // tela era salvo e nunca mais reaparecia — e "NAO BATER EST", com mais de
+  // cem produtos, ficava invisivel no formulario de produto.
   const deduped = new Map<string, typeof rows[number]>();
   for (const row of rows) {
-    const officialName = officialInventorySectorName(row.name);
-    if (!officialName || !isOfficialInventorySectorName(row.normalizedName)) continue;
-    if (search && !officialName.toLowerCase().includes(search.toLowerCase())) continue;
-    const key = normalizeText(officialName);
+    const cleanName = normalizeInventorySectorInput(row.name);
+    if (!cleanName) continue;
+    if (search && !cleanName.toLowerCase().includes(search.toLowerCase())) continue;
+
+    const key = normalizeText(cleanName);
     const current = deduped.get(key);
     if (!current) {
-      deduped.set(key, {
-        ...row,
-        name: officialName,
-        normalizedName: key
-      });
+      deduped.set(key, { ...row, name: cleanName, normalizedName: key });
       continue;
     }
-    const currentIsCanonical = current.normalizedName === key;
-    const rowIsCanonical = normalizeText(row.normalizedName) === key;
-    if (!currentIsCanonical && rowIsCanonical) {
-      deduped.set(key, { ...row, name: officialName, normalizedName: key });
-    }
+    // Duplicata por grafia divergente: fica a linha ativa; entre duas ativas,
+    // a que ja tem ordem de contagem definida.
+    const better = (current.isActive ? 2 : 0) + (current.countOrder > 0 ? 1 : 0)
+      < (row.isActive ? 2 : 0) + (row.countOrder > 0 ? 1 : 0);
+    if (better) deduped.set(key, { ...row, name: cleanName, normalizedName: key });
   }
 
   response.json(
     [...deduped.values()].sort((a, b) =>
-      inventorySectorOrder(a.name) - inventorySectorOrder(b.name)
-      || a.name.localeCompare(b.name)
+      a.countOrder - b.countOrder || a.name.localeCompare(b.name, "pt-BR")
     )
   );
 });
@@ -82,9 +82,9 @@ masterDataRouter.post("/sectors", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
-  const name = String(request.body.name ?? "").trim();
+  const name = normalizeInventorySectorInput(request.body.name);
   if (!name) {
-    response.status(400).json({ message: "Nome do setor obrigatorio." });
+    response.status(400).json({ message: "Informe um nome valido para o setor." });
     return;
   }
 
@@ -121,10 +121,29 @@ masterDataRouter.put("/sectors/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
-  const name = String(request.body.name ?? "").trim();
+  const name = normalizeInventorySectorInput(request.body.name);
+  if (!name) {
+    response.status(400).json({ message: "Informe um nome valido para o setor." });
+    return;
+  }
+
   const [previous] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
     SELECT * FROM "InventorySector" WHERE "id" = ${request.params.id}
   `;
+  if (!previous) {
+    response.status(404).json({ message: "Setor nao encontrado." });
+    return;
+  }
+
+  const [conflict] = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "InventorySector"
+    WHERE "normalizedName" = ${normalizeText(name)} AND "id" <> ${request.params.id}
+  `;
+  if (conflict) {
+    response.status(409).json({ message: `Ja existe um setor chamado "${name}".` });
+    return;
+  }
+
   const [sector] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
     UPDATE "InventorySector"
     SET
