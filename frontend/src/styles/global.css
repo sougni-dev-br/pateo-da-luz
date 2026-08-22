@@ -622,6 +622,26 @@ select {
 
 .product-main-grid {
   grid-template-columns: minmax(150px, 0.8fr) repeat(2, minmax(0, 1.2fr)) minmax(180px, 1fr);
+  /* Os campos alinham no topo. Com o align-items: end herdado, o card de
+     estoque (291px contra 59px de um campo) esticava a primeira linha e
+     empurrava Codigo e Descricao para a base dela — abrindo um vazio de mais
+     de 200px logo abaixo do titulo da secao. */
+  align-items: start;
+}
+
+/* O card ocupa as duas linhas da coluna em vez de inflar so a primeira,
+   trazendo o campo Alias para perto dos demais. */
+.product-main-grid .stock-control-card {
+  grid-column: 4;
+  grid-row: span 2;
+}
+
+@media (max-width: 900px) {
+  /* Em coluna unica o card volta ao fluxo normal. */
+  .product-main-grid .stock-control-card {
+    grid-column: auto;
+    grid-row: auto;
+  }
 }
 
 .classification-grid {
