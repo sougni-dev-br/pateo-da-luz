@@ -1406,11 +1406,26 @@ export function Inventory({
     await refreshOperational(operationalDetail.id);
   }
 
+  // Saldo negativo depois do ajuste significa que sairam mais itens do que o
+  // contado entre a contagem e a aprovacao. Nao e travado, mas precisa aparecer.
+  function avisoSaldoNegativo(negativos: Array<{ produto: string; saldo: number }>) {
+    if (!negativos.length) return "";
+    const nomes = negativos.slice(0, 3).map((n) => n.produto).join(", ");
+    const resto = negativos.length > 3 ? ` e mais ${negativos.length - 3}` : "";
+    return `Atencao: ${negativos.length} produto(s) ficaram com saldo negativo (${nomes}${resto}) — houve saida nao registrada entre a contagem e a aprovacao.`;
+  }
+
   async function operationalAction(action: "submit" | "approve" | "reject" | "close" | "cancel" | "reopen") {
     if (!operationalDetail) return;
     try {
       if (action === "submit") await submitOperationalInventory(operationalDetail.id);
-      if (action === "approve") await approveOperationalInventory(operationalDetail.id);
+      let ajustados = 0;
+      let negativos: Array<{ produto: string; saldo: number }> = [];
+      if (action === "approve") {
+        const resultado = await approveOperationalInventory(operationalDetail.id);
+        ajustados = resultado.reconciliacao?.adjustedItems ?? 0;
+        negativos = resultado.reconciliacao?.negativeBalances ?? [];
+      }
       if (action === "close") await closeOperationalInventory(operationalDetail.id);
       if (action === "reject") {
         const reason = window.prompt("Motivo da rejeicao");
@@ -1427,7 +1442,14 @@ export function Inventory({
         if (!reason) return;
         await reopenOperationalInventory(operationalDetail.id, reason);
       }
-      setNotice({ tone: "success", message: "Status do inventario atualizado." });
+      setNotice({
+        tone: negativos.length > 0 ? "warning" : "success",
+        message: [
+          "Status do inventario atualizado.",
+          ajustados > 0 ? `${ajustados} produto(s) tiveram o saldo ajustado para a quantidade contada.` : "",
+          avisoSaldoNegativo(negativos)
+        ].filter(Boolean).join(" ")
+      });
       await refreshOperational(operationalDetail.id);
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel atualizar o inventario." });
@@ -1439,8 +1461,17 @@ export function Inventory({
     setShowCmvApproveModal(false);
     setApprovingFinalCmv(true);
     try {
-      await approveOperationalInventory(operationalDetail.id);
-      setNotice({ tone: "success", message: "Inventario aprovado. Base de estoque criada para o CMV Real." });
+      const resultado = await approveOperationalInventory(operationalDetail.id);
+      const ajustados = resultado.reconciliacao?.adjustedItems ?? 0;
+      const negativos = resultado.reconciliacao?.negativeBalances ?? [];
+      setNotice({
+        tone: negativos.length > 0 ? "warning" : "success",
+        message: [
+          "Inventario aprovado. Base de estoque criada para o CMV Real.",
+          ajustados > 0 ? `${ajustados} produto(s) tiveram o saldo ajustado para a quantidade contada.` : "",
+          avisoSaldoNegativo(negativos)
+        ].filter(Boolean).join(" ")
+      });
       await refreshOperational(operationalDetail.id);
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao aprovar inventario." });
