@@ -266,3 +266,101 @@ export function sumBy<T>(items: T[], getKey: (item: T) => string | null | undefi
 export function settledValue<T>(result: PromiseSettledResult<T>, fallback: T) {
   return result.status === "fulfilled" ? result.value : fallback;
 }
+
+// ─── Guarda de plausibilidade da contagem ─────────────────────────────────────
+// Nasceu de 16 produtos do catalogo contados acima de tudo que ja se comprou na
+// vida. Todos tem o tamanho do pacote no nome (PALITO C/2000, GUARDANAPO C/50) e
+// a pessoa conta a peca avulsa em vez do pacote. Avisa, nunca bloqueia: contagem
+// legitima as vezes e atipica (compra grande, produto novo, troca de embalagem).
+
+export type QuantityPlausibility = {
+  itemId: string;
+  median: number | null;
+  maxCount: number | null;
+  weakBaseline: boolean;
+  erraticHistory: boolean;
+  observations: number;
+  purchasedEver: number | null;
+};
+
+export type QuantityWarning = "ZERO_INESPERADO" | "FORA_DA_FAIXA" | "MAIOR_QUE_COMPRADO" | "CONFERIR_UNIDADE";
+
+// Teto ancorado na MAIOR contagem ja registrada, nao na compra: se o produto
+// ja foi contado em 6,5 alguma vez, 6,5 e quantidade comprovadamente possivel,
+// mesmo que a compra correspondente seja anterior ao sistema.
+export const ABOVE_MAX_FACTOR = 5;
+export const BELOW_MEDIAN_FACTOR = 20;
+// Com uma unica contagem anterior nao se sabe se ela estava certa. Margem larga
+// e so no lado alto: pega o desvio grosseiro (contou 90 onde havia 1) sem acusar
+// variacao normal nem o caso em que a unica contagem anterior era a errada.
+export const WEAK_ABOVE_MAX_FACTOR = 20;
+// So vale quando o historico de contagem e erratico e nao serve de base.
+export const PURCHASE_CEILING_FACTOR = 3;
+
+export function evaluateQuantity(
+  plausibility: QuantityPlausibility | undefined,
+  rawValue: string
+): QuantityWarning[] {
+  if (!plausibility) return [];
+  const warnings: QuantityWarning[] = [];
+  // Historico incoerente nao serve de referencia numerica — e o sintoma da
+  // confusao de unidade. Vira alerta de unidade e a faixa deixa de ser checada.
+  if (plausibility.erraticHistory) warnings.push("CONFERIR_UNIDADE");
+
+  const normalized = quantityToApi(rawValue);
+  if (normalized === undefined || normalized === "") return warnings;
+  const value = Number(normalized);
+  if (!Number.isFinite(value)) return warnings;
+
+  const { median, maxCount, weakBaseline, purchasedEver, erraticHistory } = plausibility;
+  if (median != null && median > 0) {
+    // Base forte: 2+ contagens coerentes.
+    if (value === 0) warnings.push("ZERO_INESPERADO");
+    else {
+      const acimaDoMaximo = maxCount != null && maxCount > 0 && value > maxCount * ABOVE_MAX_FACTOR;
+      const muitoAbaixo = value <= median / BELOW_MEDIAN_FACTOR;
+      if (acimaDoMaximo || muitoAbaixo) warnings.push("FORA_DA_FAIXA");
+    }
+  } else if (weakBaseline && !erraticHistory && maxCount != null && maxCount > 0) {
+    // Base fraca: uma contagem so. Nada de zero atipico nem de lado baixo.
+    if (value > 0 && value > maxCount * WEAK_ABOVE_MAX_FACTOR) warnings.push("FORA_DA_FAIXA");
+  }
+  // A compra so vira teto quando o historico de contagem nao serve de base.
+  // Fora disso ela produz falso positivo: a compra registrada comeca em jun/2026
+  // e ha produto comprado antes que segue em estoque.
+  if (
+    erraticHistory &&
+    purchasedEver != null && purchasedEver > 0 &&
+    value > purchasedEver * PURCHASE_CEILING_FACTOR
+  ) {
+    warnings.push("MAIOR_QUE_COMPRADO");
+  }
+  return warnings;
+}
+
+export function quantityWarningLabel(warning: QuantityWarning, plausibility: QuantityPlausibility): string {
+  switch (warning) {
+    case "ZERO_INESPERADO":
+      return `Zero num produto que costuma ter estoque (media de ${formatQuantityHint(plausibility.median)}). Confirme que acabou mesmo.`;
+    case "FORA_DA_FAIXA":
+      return `Bem fora do historico deste produto (maior contagem ja registrada: ${formatQuantityHint(plausibility.maxCount)}). Confira a unidade.`;
+    case "MAIOR_QUE_COMPRADO":
+      return `Maior que tudo que ja foi comprado deste produto (${formatQuantityHint(plausibility.purchasedEver)}). Provavelmente e a unidade errada.`;
+    case "CONFERIR_UNIDADE":
+      return "Este produto ja foi contado em unidades diferentes. Confirme se esta contando o pacote ou a peca avulsa.";
+  }
+}
+
+function formatQuantityHint(value: number | null) {
+  if (value == null) return "-";
+  return (Math.round(value * 1000) / 1000).toLocaleString("pt-BR");
+}
+
+// "SACHE DE PALITO DE DENTE BAMBU C/ 2000" -> 2000. O nome carrega o tamanho do
+// pacote, e e exatamente onde a confusao nasce.
+export function packSizeFromName(name: string | null | undefined): number | null {
+  const match = String(name ?? "").match(/\bC\/\s?(\d{2,})\b/i);
+  if (!match) return null;
+  const size = Number(match[1]);
+  return Number.isFinite(size) && size > 1 ? size : null;
+}
