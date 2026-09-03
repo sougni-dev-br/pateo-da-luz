@@ -1,7 +1,9 @@
 import { Router } from "express";
+import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
+import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { parseDate } from "../../shared/utils/parse-date.js";
 import { createSimplePdf } from "../../shared/utils/simple-pdf.js";
 import { auditLog, requestIp, requireAdmin, requireRole } from "../security/security-utils.js";
@@ -34,9 +36,12 @@ function asText(value: unknown) {
   return text || null;
 }
 
+// Mesmo defeito encontrado no modulo de Estoque: Number("1.234,56") e NaN e o
+// guarda devolvia 0. Aqui o zero cai na validacao de valor obrigatorio e vira o
+// erro "Descricao e valor sao obrigatorios" — falha alto, mas culpando o campo
+// errado: o valor foi informado, so nao foi lido.
 function asNumber(value: unknown) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
+  return parseDecimalInput(value) ?? 0;
 }
 
 function localDate(value: unknown) {
@@ -773,6 +778,27 @@ cardsRouter.patch("/statements/:id/pay", async (request, response) => {
     return;
   }
 
+  // Pagar a fatura grava paidDate na parcela — o mesmo campo que posiciona a despesa no
+  // mes do DRE. Sem estas guardas, este caminho contorna as regras da baixa de contas a
+  // pagar: dava para rebaixar, retroagir para um mes fechado ou datar no futuro por aqui.
+  if (installment.paidDate || installment.status === "PAID" || installment.status === "PAID_LATE") {
+    response.status(400).json({ message: "Fatura ja baixada. Estorne o pagamento em Contas a pagar antes de lancar uma nova baixa." });
+    return;
+  }
+
+  const hoje = new Date();
+  const soData = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  if (soData(paidDate).getTime() > soData(hoje).getTime()) {
+    response.status(400).json({ message: "Data do pagamento nao pode ser futura." });
+    return;
+  }
+
+  try {
+    await assertPeriodWritableForDate(paidDate, "Pagamento de fatura de cartao");
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
+    return;
+  }
   const status = paidDate.getTime() > new Date(String(installment.dueDate ?? paidDate)).getTime() ? "PAID_LATE" : "PAID";
   await prisma.paymentInstallment.update({
     where: { id: installment.id },
