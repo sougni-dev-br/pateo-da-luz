@@ -337,11 +337,53 @@ payrollRouter.patch("/:id/pay", async (request, response) => {
   if (isNaN(paymentDate.getTime()) || paidAmount <= 0) {
     return response.status(400).json({ message: "Data e valor pago (> 0) são obrigatórios." });
   }
+
+  // As quatro guardas abaixo existiam em contas a pagar e faltavam aqui, apesar
+  // de ser a mesma operação: gravar o pagamento de um título que entra no DRE.
+
+  // 1. Rebaixar sobrescreveria paymentDate/paidAmount e apagaria a trilha do
+  //    pagamento anterior. Estornar primeiro deixa o histórico intacto.
+  if (existing.paymentDate || existing.status === "PAID") {
+    return response.status(400).json({
+      message: "Lançamento já baixado. Estorne o pagamento antes de lançar uma nova baixa."
+    });
+  }
+
+  // 2. Data futura joga a despesa para um mês que ainda não aconteceu.
+  const soData = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  if (soData(paymentDate).getTime() > soData(new Date()).getTime()) {
+    return response.status(400).json({ message: "Data do pagamento não pode ser futura." });
+  }
+
+  // 3. O paymentDate posiciona a despesa no mês do DRE — o mesmo motivo pelo
+  //    qual a baixa de fatura de cartão já é travada. Sem isto dava para alterar
+  //    um mês com CMV fechado por aqui, contornando a trava.
+  try {
+    await assertPeriodWritableForDate(paymentDate, "Baixa de lançamento de folha");
+  } catch (error) {
+    return response.status(400).json({ message: error instanceof Error ? error.message : "Período fechado." });
+  }
   // Paridade com títulos normais: forma de pagamento obrigatória.
   if (!paidPaymentMethodId && !paidPaymentMethodNameInput) {
     return response.status(400).json({ message: "Forma de pagamento é obrigatória." });
   }
   // Diferença em relação ao valor do título exige justificativa.
+  // 4. Erro de digitação com ordem de grandeza a mais (R$ 1.200 virando 12.000).
+  //    Só barra o que é absurdo em proporção E em valor, para não atrapalhar
+  //    acerto legítimo em título pequeno.
+  const MAX_PAYMENT_MULTIPLIER = 10;
+  const MIN_ABSURD_SURCHARGE = 10_000;
+  const tituloOriginal = Number(existing.amount ?? 0);
+  if (
+    tituloOriginal > 0 &&
+    paidAmount > tituloOriginal * MAX_PAYMENT_MULTIPLIER &&
+    paidAmount - tituloOriginal > MIN_ABSURD_SURCHARGE
+  ) {
+    return response.status(400).json({
+      message: `Valor pago (${paidAmount.toFixed(2)}) é mais de ${MAX_PAYMENT_MULTIPLIER}x o título (${tituloOriginal.toFixed(2)}). Confira antes de baixar.`
+    });
+  }
+
   const difference = Number((paidAmount - Number(existing.amount)).toFixed(2));
   if (Math.abs(difference) > 0.009 && !differenceReason) {
     return response.status(400).json({ message: "Justificativa obrigatória quando o valor pago difere do valor do título." });
@@ -381,6 +423,15 @@ payrollRouter.patch("/:id/reverse", async (request, response) => {
   const existing = await prisma.payrollItem.findFirst({ where: { id: request.params.id, deletedAt: null } });
   if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
   if (!existing.paymentDate) return response.status(400).json({ message: "Este lançamento ainda não foi pago." });
+
+  // Estornar tira a despesa do mês em que ela foi paga. Trava na data do
+  // pagamento ORIGINAL, que é o mês que seria alterado — mesmo critério do
+  // estorno de conta a pagar.
+  try {
+    await assertPeriodWritableForDate(existing.paymentDate, "Estorno de lançamento de folha");
+  } catch (error) {
+    return response.status(400).json({ message: error instanceof Error ? error.message : "Período fechado." });
+  }
 
   const updated = await prisma.payrollItem.update({
     where: { id: request.params.id },

@@ -1015,7 +1015,10 @@ purchaseRouter.patch("/payables/:id/pay", async (request, response) => {
   const paidPaymentMethodName = method?.name ?? paidPaymentMethodNameInput;
   const nextStatus = installmentStatusForPayment(previous.dueDate, paidDate);
 
-  await prisma.$executeRaw`
+  // A parcela e a fatura de cartao mudam juntas ou nao mudam: sem isto, falhar
+  // entre as duas deixava o titulo baixado com a fatura ainda em aberto.
+  await prisma.$transaction(async (tx) => {
+  await tx.$executeRaw`
     UPDATE "PaymentInstallment"
     SET "paidDate" = ${paidDate},
         "paidAmount" = ${paidAmount},
@@ -1035,13 +1038,14 @@ purchaseRouter.patch("/payables/:id/pay", async (request, response) => {
   `;
 
   if (String(previous.sourceType ?? "DIRECT") === "CARD_STATEMENT") {
-    await prisma.$executeRaw`
+    await tx.$executeRaw`
       UPDATE "CreditCardStatement"
       SET "status" = 'PAID'
       WHERE "generatedPurchaseId" = ${previous.purchaseId}
         AND "status" IN ('CLOSED', 'PAID')
     `;
   }
+  }, { timeout: 60_000, maxWait: 15_000 });
 
   await auditLog({
     userId: user.id,
@@ -1094,7 +1098,9 @@ purchaseRouter.patch("/payables/:id/reverse", async (request, response) => {
     }
   }
 
-  await prisma.$executeRaw`
+  // Mesma regra da baixa: parcela e fatura voltam juntas.
+  await prisma.$transaction(async (tx) => {
+  await tx.$executeRaw`
     UPDATE "PaymentInstallment"
     SET "paidDate" = NULL,
         "paidAmount" = NULL,
@@ -1114,13 +1120,14 @@ purchaseRouter.patch("/payables/:id/reverse", async (request, response) => {
   `;
 
   if (String(previous.sourceType ?? "DIRECT") === "CARD_STATEMENT") {
-    await prisma.$executeRaw`
+    await tx.$executeRaw`
       UPDATE "CreditCardStatement"
       SET "status" = 'CLOSED'
       WHERE "generatedPurchaseId" = ${previous.purchaseId}
         AND "status" = 'PAID'
     `;
   }
+  }, { timeout: 60_000, maxWait: 15_000 });
 
   await auditLog({
     userId: user.id,
