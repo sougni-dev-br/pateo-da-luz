@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, FileText, Loader2, PackageSearch, RotateCcw, Save, Search, ShoppingCart, Tag, Trash2, X } from "lucide-react";
 import { Dialog } from "../components/ui";
+import { quantityToApi, sanitizeQuantityInput } from "./inventory/shared";
 import { Button, EmptyState, Money, StatusBadge, Tabs, useFormatCurrency } from "../design-system";
 import {
   createPurchaseOrdersFromPlanning,
@@ -151,8 +152,21 @@ function recommendedSuppliers(item: BuyerSupportItem) {
     .slice(0, 3);
 }
 
+// Le a quantidade digitada aceitando virgula decimal. Antes era Number() direto:
+// "16,5" virava NaN e o item era descartado do pedido em silencio, contado como
+// "quantidade zero" no resumo — indistinguivel de quem nao preencheu nada.
+function parseQty(raw: string | undefined): number {
+  const normalizado = quantityToApi(raw ?? "");
+  if (normalizado === undefined || normalizado === "") return NaN;
+  return Number(normalizado);
+}
+
+// Digitou algo que nao da para ler como numero (nao e o mesmo que deixar vazio).
+function qtyInvalida(raw: string | undefined): boolean {
+  return (raw ?? "").trim() !== "" && quantityToApi(raw ?? "") === undefined;
+}
+
 function lineStatus(qty: number, supplierId: string | null, item: BuyerSupportItem): PlanningStatus {
-  // !(qty > 0) tambem cobre NaN (input nao numerico) → tratado como "Nao pedir".
   if (!(qty > 0)) return "NAO_PEDIR";
   if (!supplierId) return "SEM_FORNECEDOR";
   if (item.conversionMissing || item.registrationAlerts.length > 0 || item.alerts.includes("DIVERGENTE")) return "REVISAR";
@@ -470,7 +484,7 @@ export function PurchasePlanning() {
       if (generatedByProduct[item.productId]) return [];
       const edit = edits[item.productId];
       const supplierId = chosenSupplierOf(item, edit);
-      const requestedQuantity = Number(edit?.qty ?? "");
+      const requestedQuantity = parseQty(edit?.qty);
       if (!(requestedQuantity > 0) || !supplierId) return [];
       return [{
         productId: item.productId,
@@ -512,16 +526,20 @@ export function PurchasePlanning() {
   const skippedBreakdown = useMemo(() => {
     let noSupplier = 0;
     let zeroQty = 0;
+    let invalidQty = 0;
     for (const item of report?.items ?? []) {
       if (removedIds.has(item.productId)) continue;
       if (generatedByProduct[item.productId]) continue;
       const edit = edits[item.productId];
       const supplierId = chosenSupplierOf(item, edit);
-      const qty = Number(edit?.qty ?? "");
+      const qty = parseQty(edit?.qty);
+      // Quem digitou algo ilegivel nao e o mesmo que quem deixou em branco:
+      // o primeiro queria pedir e vai perder o item sem perceber.
+      if (qtyInvalida(edit?.qty)) { invalidQty += 1; continue; }
       if (!(qty > 0)) { zeroQty += 1; continue; }
       if (!supplierId) { noSupplier += 1; continue; }
     }
-    return { noSupplier, zeroQty };
+    return { noSupplier, zeroQty, invalidQty };
   }, [report, edits, removedIds, generatedByProduct]);
 
   // Derivados do draft para os avisos B1/B3 no modal de confirmacao.
@@ -595,7 +613,7 @@ export function PurchasePlanning() {
     let hasEstimate = false;
     for (const item of items) {
       const edit = edits[item.productId];
-      const qty = Number(edit?.qty || 0);
+      const qty = parseQty(edit?.qty) || 0;
       const price = unitPriceForSupplier(item, chosenSupplierOf(item, edit));
       if (qty > 0 && price != null) {
         estimated += qty * price;
@@ -639,7 +657,7 @@ export function PurchasePlanning() {
         : "Sem fornecedor selecionado";
       const group = map.get(key) ?? { name, noSupplier: !supplierId, items: [], subtotal: 0, hasEstimate: false };
       group.items.push(item);
-      const qty = Number(edit?.qty || 0);
+      const qty = parseQty(edit?.qty) || 0;
       const price = unitPriceForSupplier(item, supplierId);
       if (qty > 0 && price != null) {
         group.subtotal += qty * price;
@@ -899,7 +917,7 @@ export function PurchasePlanning() {
                   <div className="pplan-supplier-items">
                     {group.items.map((item) => {
                       const edit = edits[item.productId];
-                      const qty = Number(edit?.qty || 0);
+                      const qty = parseQty(edit?.qty) || 0;
                       const price = unitPriceForSupplier(item, chosenSupplierOf(item, edit));
                       return (
                         <div key={item.productId} className="pplan-supplier-row">
@@ -981,6 +999,12 @@ export function PurchasePlanning() {
             <div><dt>Itens válidos</dt><dd>{formatNumber(draft.items.length)}</dd></div>
             <div><dt>Sem fornecedor</dt><dd>{formatNumber(skippedBreakdown.noSupplier)}</dd></div>
             <div><dt>Quantidade zero</dt><dd>{formatNumber(skippedBreakdown.zeroQty)}</dd></div>
+            {skippedBreakdown.invalidQty > 0 && (
+              <div className="pplan-confirm-invalid">
+                <dt>Quantidade ilegível</dt>
+                <dd>{formatNumber(skippedBreakdown.invalidQty)}</dd>
+              </div>
+            )}
             {draftMissingPriceCount > 0 && (
               <div><dt>Sem preço estimado</dt><dd>{formatNumber(draftMissingPriceCount)}</dd></div>
             )}
@@ -1083,7 +1107,7 @@ function QtyInput({ item, edit, onChange }: LineProps) {
       placeholder="0"
       aria-label={`Quantidade a pedir de ${item.productName}`}
       value={edit?.qty ?? ""}
-      onChange={(event) => onChange({ qty: event.target.value })}
+      onChange={(event) => onChange({ qty: sanitizeQuantityInput(event.target.value) })}
     />
   );
 }
@@ -1288,7 +1312,7 @@ function DecisionCard({
 }) {
   const supplierId = chosenSupplierOf(item, edit);
   // Nao usa suggestedQuantity como fallback — a decisao deve ser explicita do comprador.
-  const qty = Number(edit?.qty || 0);
+  const qty = parseQty(edit?.qty) || 0;
   const status = lineStatus(qty, supplierId, item);
   const meta = [item.sectorName, item.categoryName, item.productCode ? `cód. ${item.productCode}` : null]
     .filter(Boolean)

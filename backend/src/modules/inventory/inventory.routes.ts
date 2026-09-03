@@ -237,6 +237,9 @@ async function markLateAgendaItems(userId: string | null) {
   });
 }
 
+// Aceita o cliente da transacao para poder participar de uma escrita atomica.
+// Sem isso, quem chama dentro de $transaction gravaria o estoque por fora dela
+// e um rollback deixaria o saldo alterado sem o movimento correspondente.
 async function upsertStock(input: {
   productId: string;
   quantityDelta: number;
@@ -244,8 +247,8 @@ async function upsertStock(input: {
   unitMeasureId: string | null;
   unitCost: number | null;
   totalCost: number | null;
-}) {
-  const [current] = await prisma.$queryRaw<Array<{ currentQuantity: Prisma.Decimal; averageCost: Prisma.Decimal }>>`
+}, client: Prisma.TransactionClient | typeof prisma = prisma) {
+  const [current] = await client.$queryRaw<Array<{ currentQuantity: Prisma.Decimal; averageCost: Prisma.Decimal }>>`
     SELECT "currentQuantity", "averageCost"
     FROM "InventoryStock"
     WHERE "productId" = ${input.productId}
@@ -264,7 +267,7 @@ async function upsertStock(input: {
   const costPerBox = ["CX", "CAIXA"].includes(input.unit?.toUpperCase() ?? "") ? nextAverageCost : null;
   const costPerUnit = ["UN", "UNI", "UNIDADE"].includes(input.unit?.toUpperCase() ?? "") ? nextAverageCost : null;
 
-  await prisma.$executeRaw`
+  await client.$executeRaw`
     INSERT INTO "InventoryStock" (
       "id",
       "productId",
@@ -2689,18 +2692,6 @@ inventoryRouter.post("/count-sessions/:id/generate-inventory", async (request, r
   const inventoryType = session.type === "FINAL_MES" || session.isMonthEnd ? "FINAL_CMV" : session.type === "SETORIAL" ? "SETORIAL" : "GERAL";
   const code = await nextOperationalInventoryCode(date);
   const name = `Inventario ${brDate(date)} - gerado da contagem ${session.code}`;
-  await prisma.$executeRaw`
-    INSERT INTO "OperationalInventory" (
-      "id", "code", "date", "name", "type", "status", "sectorId", "sectorName", "responsibleUserId",
-      "notes", "sourceStockCountSessionId", "createdAt", "updatedAt"
-    )
-    VALUES (
-      ${inventoryId}, ${code}, ${date}, ${name}, ${inventoryType}, 'RASCUNHO', ${session.sectorId}, ${session.sectorName},
-      ${user.id}, ${asText(request.body.notes) ?? `Gerado a partir da contagem ${session.code}.`},
-      ${session.id}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-    )
-  `;
-
   const items = await prisma.$queryRaw<Array<StockCountSessionItemRow>>`
     SELECT *
     FROM "StockCountSessionItem"
@@ -2713,31 +2704,55 @@ inventoryRouter.post("/count-sessions/:id/generate-inventory", async (request, r
       translate(LOWER("productNameSnapshot"), ${accentChars}, ${plainChars}),
       "productCodeSnapshot" NULLS LAST
   `;
-  for (const item of items) {
-    const countedQuantity = item.countedQuantity == null ? 0 : Number(item.countedQuantity);
-    const expectedQuantity = Number(item.expectedQuantity ?? 0);
-    const result = countedStatus(countedQuantity, expectedQuantity);
-    await prisma.$executeRaw`
-      INSERT INTO "OperationalInventoryItem" (
-        "id", "inventoryId", "productId", "productCode", "productName", "sectorName", "categoryName", "subcategoryName",
-        "location", "unit", "expectedQuantity", "countedQuantity", "differenceQuantity", "status", "notes", "countedByUserId",
-        "countedAt", "createdAt", "updatedAt"
+  // Tudo ou nada. Antes eram INSERT do inventario, um INSERT por item e o vinculo
+  // da sessao soltos: falhar no meio deixava inventario sem item nenhum (ha dois
+  // assim em producao, de 04/06) ou itens sem a sessao vinculada. Mesmo defeito
+  // que ja havia sido corrigido na consolidacao de fim de mes; esta rota, que
+  // gera inventario de uma contagem so, tinha ficado de fora.
+  const BATCH_SIZE = 200;
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`
+      INSERT INTO "OperationalInventory" (
+        "id", "code", "date", "name", "type", "status", "sectorId", "sectorName", "responsibleUserId",
+        "notes", "sourceStockCountSessionId", "createdAt", "updatedAt"
       )
       VALUES (
-        ${crypto.randomUUID()}, ${inventoryId}, ${item.productId}, ${item.productCodeSnapshot}, ${item.productNameSnapshot},
-        ${item.sectorSnapshot}, ${item.categorySnapshot}, ${item.subcategorySnapshot}, ${item.locationSnapshot}, ${item.unitSnapshot},
-        ${expectedQuantity}, ${countedQuantity}, ${result.differenceQuantity}, ${result.status}, ${item.notes}, ${item.countedByUserId},
-        ${item.countedAt}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        ${inventoryId}, ${code}, ${date}, ${name}, ${inventoryType}, 'RASCUNHO', ${session.sectorId}, ${session.sectorName},
+        ${user.id}, ${asText(request.body.notes) ?? `Gerado a partir da contagem ${session.code}.`},
+        ${session.id}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
       )
     `;
-  }
 
-  await prisma.$executeRaw`
-    UPDATE "StockCountSession"
-    SET "generatedInventoryId" = ${inventoryId},
-        "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ${session.id}
-  `;
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+      const rows = items.slice(i, i + BATCH_SIZE).map((item) => {
+        const countedQuantity = item.countedQuantity == null ? 0 : Number(item.countedQuantity);
+        const expectedQuantity = Number(item.expectedQuantity ?? 0);
+        const result = countedStatus(countedQuantity, expectedQuantity);
+        return Prisma.sql`(
+          ${crypto.randomUUID()}, ${inventoryId}, ${item.productId}, ${item.productCodeSnapshot}, ${item.productNameSnapshot},
+          ${item.sectorSnapshot}, ${item.categorySnapshot}, ${item.subcategorySnapshot}, ${item.locationSnapshot}, ${item.unitSnapshot},
+          ${expectedQuantity}, ${countedQuantity}, ${result.differenceQuantity}, ${result.status}, ${item.notes}, ${item.countedByUserId},
+          ${item.countedAt}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )`;
+      });
+      if (!rows.length) continue;
+      await tx.$executeRaw`
+        INSERT INTO "OperationalInventoryItem" (
+          "id", "inventoryId", "productId", "productCode", "productName", "sectorName", "categoryName", "subcategoryName",
+          "location", "unit", "expectedQuantity", "countedQuantity", "differenceQuantity", "status", "notes", "countedByUserId",
+          "countedAt", "createdAt", "updatedAt"
+        )
+        VALUES ${Prisma.join(rows)}
+      `;
+    }
+
+    await tx.$executeRaw`
+      UPDATE "StockCountSession"
+      SET "generatedInventoryId" = ${inventoryId},
+          "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${session.id}
+    `;
+  }, { timeout: 120_000, maxWait: 15_000 });
   await auditLog({
     userId: user.id,
     action: "GENERATE_OPERATIONAL_INVENTORY_FROM_COUNT",
@@ -4094,31 +4109,37 @@ inventoryRouter.post("/counts", async (request, response) => {
     WHERE p."id" = ${productId}
   `;
 
-  await prisma.$executeRaw`
-    INSERT INTO "StockCount" (
-      "id", "productId", "inventoryAgendaItemId", "countedQuantity", "expectedQuantity", "divergenceQuantity",
-      "productCodeSnapshot", "productNameSnapshot", "sectorSnapshot", "categorySnapshot", "subcategorySnapshot", "unitSnapshot",
-      "unit", "unitMeasureId", "responsibleUserId", "status", "notes", "adjustmentGenerated", "submittedAt"
-    )
-    VALUES (
-      ${id}, ${productId}, ${inventoryAgendaItemId}, ${countedQuantity}, ${expectedQuantity}, ${divergenceQuantity},
-      ${snapshot?.productCode ?? null}, ${snapshot?.productName ?? null}, ${snapshot?.sectorName ?? null},
-      ${snapshot?.categoryName ?? null}, ${snapshot?.subcategoryName ?? null}, ${snapshot?.unit ?? unit},
-      ${unit}, ${unitMeasureId}, ${user.id}, ${status}, ${asText(request.body.notes)}, ${generateAdjustment},
-      ${status === "SUBMITTED" ? new Date() : null}
-    )
-  `;
-
+  // Contagem, movimento de ajuste e saldo do estoque sao uma coisa so. Antes
+  // eram quatro escritas soltas: uma falha no meio deixaria o saldo ajustado sem
+  // rastro, ou o movimento gravado sem o estoque acompanhar.
   let movementId: string | null = null;
-  if (generateAdjustment && divergenceQuantity !== 0) {
-    movementId = crypto.randomUUID();
-    await prisma.$executeRaw`
-      INSERT INTO "InventoryMovement" ("id", "productId", "type", "quantity", "unit", "unitMeasureId", "sourceStockCountId", "responsibleUserId", "notes")
-      VALUES (${movementId}, ${productId}, 'ADJUSTMENT', ${divergenceQuantity}, ${unit}, ${unitMeasureId}, ${id}, ${user.id}, 'Ajuste gerado por contagem de estoque.')
+  if (generateAdjustment && divergenceQuantity !== 0) movementId = crypto.randomUUID();
+
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`
+      INSERT INTO "StockCount" (
+        "id", "productId", "inventoryAgendaItemId", "countedQuantity", "expectedQuantity", "divergenceQuantity",
+        "productCodeSnapshot", "productNameSnapshot", "sectorSnapshot", "categorySnapshot", "subcategorySnapshot", "unitSnapshot",
+        "unit", "unitMeasureId", "responsibleUserId", "status", "notes", "adjustmentGenerated", "submittedAt",
+        "adjustmentMovementId"
+      )
+      VALUES (
+        ${id}, ${productId}, ${inventoryAgendaItemId}, ${countedQuantity}, ${expectedQuantity}, ${divergenceQuantity},
+        ${snapshot?.productCode ?? null}, ${snapshot?.productName ?? null}, ${snapshot?.sectorName ?? null},
+        ${snapshot?.categoryName ?? null}, ${snapshot?.subcategoryName ?? null}, ${snapshot?.unit ?? unit},
+        ${unit}, ${unitMeasureId}, ${user.id}, ${status}, ${asText(request.body.notes)}, ${generateAdjustment},
+        ${status === "SUBMITTED" ? new Date() : null}, ${movementId}
+      )
     `;
-    await upsertStock({ productId, quantityDelta: divergenceQuantity, unit, unitMeasureId, unitCost: null, totalCost: null });
-    await prisma.$executeRaw`UPDATE "StockCount" SET "adjustmentMovementId" = ${movementId} WHERE "id" = ${id}`;
-  }
+
+    if (movementId) {
+      await tx.$executeRaw`
+        INSERT INTO "InventoryMovement" ("id", "productId", "type", "quantity", "unit", "unitMeasureId", "sourceStockCountId", "responsibleUserId", "notes")
+        VALUES (${movementId}, ${productId}, 'ADJUSTMENT', ${divergenceQuantity}, ${unit}, ${unitMeasureId}, ${id}, ${user.id}, 'Ajuste gerado por contagem de estoque.')
+      `;
+      await upsertStock({ productId, quantityDelta: divergenceQuantity, unit, unitMeasureId, unitCost: null, totalCost: null }, tx);
+    }
+  }, { timeout: 60_000, maxWait: 15_000 });
 
   await auditLog({
     userId: user.id,
