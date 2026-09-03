@@ -1970,6 +1970,99 @@ inventoryRouter.get("/count-sessions/:id", async (request, response) => {
   response.json({ ...session, items: items.map(normalizeStockCountSessionItem) });
 });
 
+// Faixa esperada por item, para a guarda de plausibilidade da tela de contagem.
+// Nasce do incidente dos produtos "C/ N": o nome carrega o tamanho do pacote
+// (PALITO C/2000, GUARDANAPO C/50) e a pessoa conta a peca avulsa em vez do
+// pacote. Tudo aqui sai do historico que ja existe: nenhum cadastro novo.
+//
+// A referencia e o HISTORICO DE CONTAGEM, nao a compra. "purchasedEver" soma
+// apenas as compras registradas no sistema, que comeca em jun/2026 — produto
+// comprado antes disso aparece com compra irrisoria e estoque real, e usar isso
+// como teto acusaria estoque legitimo. A compra so entra como sinal quando o
+// historico de contagem e erratico e portanto nao serve de base.
+inventoryRouter.get("/count-sessions/:id/plausibility", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const rows = await prisma.$queryRaw<Array<{
+    itemId: string;
+    median: Prisma.Decimal | null;
+    menor: Prisma.Decimal | null;
+    maior: Prisma.Decimal | null;
+    observations: bigint;
+    purchasedEver: Prisma.Decimal | null;
+  }>>`
+    WITH alvo AS (
+      SELECT "id" AS "itemId", "productId"
+      FROM "StockCountSessionItem"
+      WHERE "stockCountSessionId" = ${request.params.id} AND "productId" IS NOT NULL
+    ),
+    hist AS (
+      SELECT i."productId",
+             PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY i."countedQuantity") AS median,
+             MIN(i."countedQuantity") AS menor,
+             MAX(i."countedQuantity") AS maior,
+             COUNT(*) AS observations
+      FROM "StockCountSessionItem" i
+      JOIN "StockCountSession" s ON s."id" = i."stockCountSessionId"
+      WHERE s."status" <> 'CANCELADA'
+        AND s."id" <> ${request.params.id}
+        AND i."countedQuantity" > 0
+        AND i."productId" IN (SELECT "productId" FROM alvo)
+      GROUP BY i."productId"
+    ),
+    compras AS (
+      SELECT pi."productId", SUM(pi."quantity") AS "purchasedEver"
+      FROM "PurchaseItem" pi
+      WHERE pi."productId" IN (SELECT "productId" FROM alvo)
+      GROUP BY pi."productId"
+    )
+    SELECT alvo."itemId", hist.median, hist.menor, hist.maior, COALESCE(hist.observations, 0) AS observations, compras."purchasedEver"
+    FROM alvo
+    LEFT JOIN hist ON hist."productId" = alvo."productId"
+    LEFT JOIN compras ON compras."productId" = alvo."productId"
+  `;
+
+  // Duas bases, com forca diferente:
+  //  - 2+ contagens: base forte. Da para falar de mediana, faixa e zero atipico,
+  //    e da para detectar historico erratico (a menor vs a maior).
+  //  - 1 contagem: base fraca. Nao da para saber se aquela unica contagem estava
+  //    certa, entao so serve para desvio grosseiro no lado alto. Testado contra
+  //    3.185 lancamentos reais: tratar 1 contagem como base forte levaria o ruido
+  //    de 16% para 26% dos itens e reintroduziria o falso positivo do PALITO,
+  //    onde a unica contagem anterior era justamente a errada (1800).
+  const MIN_OBSERVACOES = 2;
+  // Historico que varia 20x entre a menor e a maior contagem nao e referencia:
+  // e o proprio sintoma da confusao de unidade. No PALITO C/2000 as contagens
+  // vao de 0,7 (sache) a 1800 (palito avulso) — a mediana cai em 800 e acusaria
+  // de atipico justamente o valor certo. Nesses casos devolvemos median = null
+  // e marcamos erraticHistory: a tela para de checar faixa e passa a alertar
+  // sobre a unidade, que e o problema de verdade.
+  const FATOR_HISTORICO_ERRATICO = 20;
+  response.json(
+    rows
+      .filter((row) => Number(row.observations) >= 1 || row.purchasedEver != null)
+      .map((row) => {
+        const temBase = Number(row.observations) >= MIN_OBSERVACOES && row.median != null;
+        const menor = row.menor == null ? null : Number(row.menor);
+        const maior = row.maior == null ? null : Number(row.maior);
+        const erraticHistory = Boolean(
+          temBase && menor != null && maior != null && menor > 0 && maior / menor >= FATOR_HISTORICO_ERRATICO
+        );
+        const weakBaseline = Number(row.observations) === 1 && maior != null;
+        return {
+          itemId: row.itemId,
+          median: temBase && !erraticHistory ? Number(row.median) : null,
+          maxCount: (temBase && !erraticHistory) || weakBaseline ? maior : null,
+          weakBaseline,
+          erraticHistory,
+          observations: Number(row.observations),
+          purchasedEver: row.purchasedEver == null ? null : Number(row.purchasedEver)
+        };
+      })
+  );
+});
+
 inventoryRouter.get("/count-sessions/:id/pdf", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
   if (!user) return;

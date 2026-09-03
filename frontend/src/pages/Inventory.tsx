@@ -26,6 +26,7 @@ import {
   getOperationalInventory,
   getOperationalInventoryPurchasingReport,
   getStockCountSession,
+  getStockCountSessionPlausibility,
   getStockCountSessions,
   getBuyerSupportReport,
   downloadBuyerPrelistCsv,
@@ -117,8 +118,11 @@ import {
   operationalStatusLabels,
   operationalTone,
   operationalTypeLabels,
+  evaluateQuantity,
+  packSizeFromName,
   parseMonth,
   quantityToApi,
+  quantityWarningLabel,
   sameDay,
   sanitizeQuantityInput,
   sensitiveMovementTypes,
@@ -128,7 +132,50 @@ import {
   sumBy,
   weekdays
 } from "./inventory/shared";
-import type { CountSessionColumn } from "./inventory/shared";
+import type { CountSessionColumn, QuantityPlausibility } from "./inventory/shared";
+
+// Aviso de plausibilidade da contagem. Amarelo, inline, com um clique para
+// seguir: contagem legitima as vezes e atipica (compra grande, produto novo),
+// entao bloquear pararia o estoquista no corredor por falso positivo.
+function CountQuantityGuard({
+  itemId,
+  productName,
+  unit,
+  warnings,
+  plausibility,
+  onConfirm
+}: {
+  itemId: string;
+  productName: string;
+  unit?: string | null;
+  warnings: ReturnType<typeof evaluateQuantity>;
+  plausibility?: QuantityPlausibility;
+  onConfirm: () => void;
+}) {
+  const packSize = packSizeFromName(productName);
+  if (!warnings.length && packSize == null) return null;
+  return (
+    <div className="count-guard" role="status" aria-live="polite">
+      {packSize != null && (
+        <p className="count-guard-pack">
+          Embalagem com {packSize.toLocaleString("pt-BR")}. Conte <strong>{unit || "pacotes"}</strong>, nao a peca avulsa.
+        </p>
+      )}
+      {warnings.length > 0 && plausibility && (
+        <>
+          <ul className="count-guard-list">
+            {warnings.map((warning) => (
+              <li key={`${itemId}-${warning}`}>{quantityWarningLabel(warning, plausibility)}</li>
+            ))}
+          </ul>
+          <button type="button" className="count-guard-confirm" onClick={onConfirm}>
+            Conferi, esta certo
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
 
 export function Inventory({
   user,
@@ -221,6 +268,10 @@ export function Inventory({
   // por ultimo devolvia os itens do colega ao valor antigo — sem erro nem aviso.
   const [countSessionDirty, setCountSessionDirty] = useState<Record<string, true>>({});
   const [operationalDirty, setOperationalDirty] = useState<Record<string, true>>({});
+  // Faixa esperada por item + avisos ja reconhecidos pela pessoa. Guarda de
+  // plausibilidade: avisa, nunca bloqueia.
+  const [countSessionPlausibility, setCountSessionPlausibility] = useState<Record<string, QuantityPlausibility>>({});
+  const [countSessionWarningsSeen, setCountSessionWarningsSeen] = useState<Record<string, true>>({});
   const [mobileCountFiltersOpen, setMobileCountFiltersOpen] = useState(false);
   const [mobileCountMoreActionsOpen, setMobileCountMoreActionsOpen] = useState(false);
   const [mobileQuickCountMode, setMobileQuickCountMode] = useState(false);
@@ -798,6 +849,12 @@ export function Inventory({
     setCountSessionUnitFilter("");
     setCountSessionStatusFilter("TODOS");
     setCountSessionDirty({});
+    setCountSessionWarningsSeen({});
+    setCountSessionPlausibility({});
+    // Em paralelo e sem bloquear a abertura: se falhar, a contagem segue sem a guarda.
+    void getStockCountSessionPlausibility(id)
+      .then((rows) => setCountSessionPlausibility(Object.fromEntries(rows.map((row) => [row.itemId, row]))))
+      .catch(() => setCountSessionPlausibility({}));
     setCountSessionLines(Object.fromEntries(detail.items.map((item) => [
       item.id,
       { countedQuantity: item.countedQuantity == null ? "" : String(item.countedQuantity), notes: item.notes ?? "" }
@@ -806,7 +863,23 @@ export function Inventory({
     if (showMessage) setNotice({ tone: "success", message: `${detail.code} aberta para lancamento.` });
   }
 
+  // Avisos ativos de um item, ja descontando o que a pessoa confirmou.
+  function countSessionWarningsFor(itemId: string, value: string) {
+    if (countSessionWarningsSeen[itemId]) return [];
+    return evaluateQuantity(countSessionPlausibility[itemId], value);
+  }
+
   function updateCountSessionLine(itemId: string, patch: Partial<{ countedQuantity: string; notes: string }>) {
+    // Mexeu no valor: o aviso volta a valer, senao a confirmacao de um numero
+    // cobriria silenciosamente o proximo.
+    if (patch.countedQuantity !== undefined) {
+      setCountSessionWarningsSeen((prev) => {
+        if (!prev[itemId]) return prev;
+        const next = { ...prev };
+        delete next[itemId];
+        return next;
+      });
+    }
     setCountSessionLines((prev) => {
       const atual = prev[itemId] ?? { countedQuantity: "", notes: "" };
       return { ...prev, [itemId]: { ...atual, ...patch } };
@@ -861,6 +934,25 @@ export function Inventory({
     if (invalid.length) {
       setNotice({ tone: "error", message: `Quantidade invalida em: ${invalid.map((item) => item.productNameSnapshot).join(", ")}.` });
       return;
+    }
+    // Resumo antes de concluir: a pessoa pode ter clicado "conferi" no automatico.
+    const atipicos = countSessionDetail.items.filter(
+      (item) => evaluateQuantity(
+        countSessionPlausibility[item.id],
+        countSessionLines[item.id]?.countedQuantity ?? ""
+      ).some((warning) => warning !== "CONFERIR_UNIDADE")
+    );
+    if (atipicos.length) {
+      const nomes = atipicos.slice(0, 5).map((item) => item.productNameSnapshot).join(", ");
+      const resto = atipicos.length > 5 ? ` e mais ${atipicos.length - 5}` : "";
+      if (!window.confirm(
+        `${atipicos.length} item(ns) com quantidade fora do normal: ${nomes}${resto}.
+
+` +
+        "Concluir assim mesmo? Depois disso o estoquista nao edita sem reabertura."
+      )) {
+        return;
+      }
     }
     const pendingItems = countSessionDetail.items.filter((item) => {
       const value = countSessionLines[item.id]?.countedQuantity;
@@ -1842,6 +1934,14 @@ export function Inventory({
                           onChange={(event) => updateCountSessionLine(item.id, { countedQuantity: sanitizeQuantityInput(event.target.value) })}
                         />
                       </label>
+                      <CountQuantityGuard
+                        itemId={item.id}
+                        productName={item.productNameSnapshot}
+                        unit={item.unitLabel ?? item.unitSnapshot}
+                        warnings={countSessionWarningsFor(item.id, line.countedQuantity)}
+                        plausibility={countSessionPlausibility[item.id]}
+                        onConfirm={() => setCountSessionWarningsSeen((prev) => ({ ...prev, [item.id]: true }))}
+                      />
                       <button
                         className={`note-flag mobile-note-button ${hasNotes ? "has-note" : ""}`}
                         type="button"
@@ -1959,6 +2059,14 @@ export function Inventory({
                             onChange={(event) => updateCountSessionLine(item.id, { countedQuantity: sanitizeQuantityInput(event.target.value) })}
                           />
                         </label>
+                        <CountQuantityGuard
+                          itemId={item.id}
+                          productName={item.productNameSnapshot}
+                          unit={item.unitLabel ?? item.unitSnapshot}
+                          warnings={countSessionWarningsFor(item.id, line.countedQuantity)}
+                          plausibility={countSessionPlausibility[item.id]}
+                          onConfirm={() => setCountSessionWarningsSeen((prev) => ({ ...prev, [item.id]: true }))}
+                        />
                       </div>
                       {countSessionVisibleColumns.status && (
                         <div className="count-session-status-block">
