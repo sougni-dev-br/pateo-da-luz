@@ -58,3 +58,37 @@ describe("quantityToApi", () => {
     expect(quantityToApi("16,5kg")).toBeUndefined();
   });
 });
+
+describe("quantityToApi no planejamento de compra", () => {
+  // F-10: o campo de quantidade a pedir usava Number() direto. "16,5" virava NaN,
+  // caia em !(qty > 0) e o item era descartado do pedido em silencio — contado
+  // como "quantidade zero", indistinguivel de quem nao preencheu.
+  const parseQty = (raw: string | undefined): number => {
+    const normalizado = quantityToApi(raw ?? "");
+    if (normalizado === undefined || normalizado === "") return NaN;
+    return Number(normalizado);
+  };
+  const qtyInvalida = (raw: string | undefined): boolean =>
+    (raw ?? "").trim() !== "" && quantityToApi(raw ?? "") === undefined;
+
+  test("quantidade com virgula entra no pedido", () => {
+    expect(parseQty("16,5")).toBe(16.5);
+    expect(parseQty("16,5") > 0).toBe(true);
+  });
+
+  test("campo vazio nao vira pedido e nao e acusado de invalido", () => {
+    expect(Number.isNaN(parseQty(""))).toBe(true);
+    expect(qtyInvalida("")).toBe(false);
+    expect(qtyInvalida(undefined)).toBe(false);
+  });
+
+  test("texto ilegivel e sinalizado, nao descartado em silencio", () => {
+    expect(Number.isNaN(parseQty("abc"))).toBe(true);
+    expect(qtyInvalida("abc")).toBe(true);
+  });
+
+  test("zero digitado continua sendo 'nao pedir', nao invalido", () => {
+    expect(parseQty("0")).toBe(0);
+    expect(qtyInvalida("0")).toBe(false);
+  });
+});

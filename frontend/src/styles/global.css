@@ -15304,3 +15304,12 @@ body:has(.pplan-sticky-actions) .pplan {
 .count-guard-confirm:focus-visible {
   background: var(--tint-warning-border);
 }
+
+/* Quantidade ilegível no planejamento de compra: quem digitou "16,5" queria
+   pedir, e o item seria descartado junto com os genuinamente vazios. Destaque
+   para separar os dois casos no resumo de confirmação. */
+.pplan-confirm-invalid dt,
+.pplan-confirm-invalid dd {
+  color: var(--warning);
+  font-weight: 600;
+}
