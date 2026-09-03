@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
@@ -109,6 +110,14 @@ payrollRouter.post("/generate", async (request, response) => {
 
   const body = request.body as { year?: unknown; month?: unknown; kind?: unknown; overrides?: unknown };
   const { year, month } = parseYearMonth(body);
+  // O DRE posiciona a folha pela competencia (competenceYear/Month), entao gerar folha
+  // de um mes travado ou com CMV fechado alteraria um periodo ja encerrado.
+  try {
+    await assertPeriodWritableForDate(new Date(year, month - 1, 1), "Geracao de folha");
+  } catch (error) {
+    return response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
+  }
+
   const kind = PAYROLL_KINDS.includes(String(body.kind) as PayrollKind) ? (String(body.kind) as PayrollKind) : "ALL";
 
   // Ajustes manuais feitos na prévia (valor diferente do calculado).
@@ -420,6 +429,13 @@ payrollRouter.patch("/:id", async (request, response) => {
 
   const existing = await prisma.payrollItem.findFirst({ where: { id: request.params.id, deletedAt: null } });
   if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
+  // Alterar/excluir um lancamento muda o total da folha daquela competencia no DRE.
+  try {
+    await assertPeriodWritableForDate(new Date(existing.competenceYear, existing.competenceMonth - 1, 1), "Edicao de lancamento de folha");
+  } catch (error) {
+    return response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
+  }
+
   if (existing.paymentDate) return response.status(400).json({ message: "Lançamento já pago — estorne no Contas a Pagar antes de editar." });
 
   const b = request.body as Record<string, unknown>;
@@ -462,6 +478,13 @@ payrollRouter.delete("/:id", async (request, response) => {
 
   const existing = await prisma.payrollItem.findFirst({ where: { id: request.params.id, deletedAt: null } });
   if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
+  // Alterar/excluir um lancamento muda o total da folha daquela competencia no DRE.
+  try {
+    await assertPeriodWritableForDate(new Date(existing.competenceYear, existing.competenceMonth - 1, 1), "Exclusao de lancamento de folha");
+  } catch (error) {
+    return response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
+  }
+
 
   const reason = String((request.body as { reason?: unknown })?.reason ?? "").trim();
   if (reason.length < 3) return response.status(400).json({ message: "Informe a justificativa da exclusão (mín. 3 caracteres)." });

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { Router } from "express";
+import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import multer from "multer";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
@@ -171,6 +172,22 @@ taxPaymentRouter.get("/:id", async (request, response) => {
 });
 
 // ─── POST /tax-payments ───────────────────────────────────────────────────────
+// O DRE posiciona o imposto pela competenceDate (nao pela data de pagamento), entao e a
+// competencia que precisa respeitar mes travado / periodo de CMV fechado.
+async function competenciaBloqueada(
+  competence: Date | null,
+  contexto: string,
+  response: { status: (c: number) => { json: (b: unknown) => void } }
+) {
+  if (!competence || Number.isNaN(competence.getTime())) return false;
+  try {
+    await assertPeriodWritableForDate(competence, contexto);
+    return false;
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
+    return true;
+  }
+}
 taxPaymentRouter.post("/", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
@@ -189,6 +206,9 @@ taxPaymentRouter.post("/", async (request, response) => {
   const parsedDueDate = new Date(dueDate as string);
   const parsedPaymentDate = paymentDate ? new Date(paymentDate as string) : null;
   const status = computeStatus(parsedPaymentDate, parsedDueDate);
+
+  const parsedCompetence = competenceDate ? new Date(competenceDate as string) : null;
+  if (await competenciaBloqueada(parsedCompetence, "Cadastro de imposto", response)) return;
 
   const created = await prisma.taxPayment.create({
     data: {
@@ -246,6 +266,14 @@ taxPaymentRouter.put("/:id", async (request, response) => {
 
   const effectiveStatus = (status as string) || computeStatus(parsedPaymentDate, parsedDueDate);
 
+  // Vale para a competencia atual e para a pretendida: nem alterar imposto que ja esta
+  // num mes fechado, nem mover um aberto para dentro de um fechado.
+  const novaCompetencia = competenceDate !== undefined
+    ? (competenceDate ? new Date(competenceDate as string) : null)
+    : existing.competenceDate;
+  if (await competenciaBloqueada(existing.competenceDate, "Edicao de imposto", response)) return;
+  if (await competenciaBloqueada(novaCompetencia, "Edicao de imposto", response)) return;
+
   const updated = await prisma.taxPayment.update({
     where: { id },
     data: {
@@ -289,6 +317,9 @@ taxPaymentRouter.delete("/:id", async (request, response) => {
   const { id } = request.params;
   const existing = await prisma.taxPayment.findFirst({ where: { id, deletedAt: null } });
   if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
+
+  // Excluir um imposto tira o valor do mes da competencia no DRE.
+  if (await competenciaBloqueada(existing.competenceDate, "Exclusao de imposto", response)) return;
 
   await prisma.taxPayment.update({
     where: { id },
