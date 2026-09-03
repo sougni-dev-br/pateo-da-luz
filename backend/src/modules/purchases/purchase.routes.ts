@@ -258,6 +258,21 @@ async function getNextPurchaseNumber(tx: Prisma.TransactionClient, year: number)
   return `CMP-${year}-${String(row.currentValue).padStart(6, "0")}`;
 }
 
+// Divide um total em N parcelas sem perder centavo. A versao anterior fazia
+// Decimal.div e dava o MESMO valor a todas: R$ 100 em 3x virava 33,33 tres vezes
+// e a soma fechava em 99,99, porque a coluna e Decimal(12,2). O resto ficava sem
+// dono. Aqui o calculo e em centavos inteiros e o resto vai para a primeira
+// parcela — mesmo criterio que o modulo de Cartoes ja usava (cards.service.ts).
+function splitAmountInCents(totalAmount: number, count: number): Prisma.Decimal[] {
+  if (count <= 0) return [];
+  const totalCents = Math.round(totalAmount * 100);
+  const baseCents = Math.floor(totalCents / count);
+  const extraCents = totalCents - baseCents * count;
+  return Array.from({ length: count }, (_, index) =>
+    new Prisma.Decimal((baseCents + (index === 0 ? extraCents : 0)) / 100)
+  );
+}
+
 function parseManualInstallments(rawValue: unknown, totalAmount: number) {
   const parts = String(rawValue ?? "")
     .split(/[\n;,|]+/)
@@ -266,12 +281,12 @@ function parseManualInstallments(rawValue: unknown, totalAmount: number) {
 
   if (!parts.length) return [];
 
-  const amountPerInstallment = new Prisma.Decimal(totalAmount).div(parts.length);
+  const amounts = splitAmountInCents(totalAmount, parts.length);
   return parts.map((part, index) => ({
     dueDate: parseDate(part),
     rawValue: part,
     installment: index + 1,
-    amount: amountPerInstallment,
+    amount: amounts[index],
     status: "OPEN"
   }));
 }

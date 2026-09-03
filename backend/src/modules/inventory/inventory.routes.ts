@@ -927,6 +927,37 @@ async function applyStockCountSessionItems(
   `;
 }
 
+// Os codigos sequenciais sao gerados com "pega o ultimo e soma 1", fora de
+// transacao: dois usuarios criando ao mesmo tempo chegam ao mesmo numero. O
+// indice UNIQUE impede a duplicata, mas o segundo recebia erro 500 sem motivo
+// aparente. Aqui a violacao de unicidade vira nova tentativa com o proximo
+// numero, que e o que o usuario esperava desde o inicio.
+//
+// Nao virou tabela de sequencia (como ProductSequence) de proposito: exigiria
+// migration e backfill para sete geradores, e a corrida e rara o bastante para
+// o retry resolver.
+const CONFLITO_UNIQUE = "P2002";
+
+async function comCodigoUnico<T>(
+  gerarCodigo: () => Promise<string>,
+  usarCodigo: (code: string) => Promise<T>,
+  tentativas = 5
+): Promise<T> {
+  let ultimoErro: unknown;
+  for (let tentativa = 0; tentativa < tentativas; tentativa++) {
+    const code = await gerarCodigo();
+    try {
+      return await usarCodigo(code);
+    } catch (error) {
+      const conflito =
+        error instanceof Prisma.PrismaClientKnownRequestError && error.code === CONFLITO_UNIQUE;
+      if (!conflito) throw error;
+      ultimoErro = error;
+    }
+  }
+  throw ultimoErro;
+}
+
 async function nextStockCountSessionCode(date: Date) {
   const year = date.getFullYear();
   const [row] = await prisma.$queryRaw<Array<{ code: string | null }>>`
@@ -1685,7 +1716,6 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
   }, new Date(sessions[0].referenceDate));
   const date = dateOnly(latestDate);
   const inventoryId = crypto.randomUUID();
-  const code = await nextOperationalInventoryCode(date);
   const sessionCodes = sessions.map((s) => s.code).join(", ");
   const name = `Inventario Final CMV ${brDate(date)} - ${sessions.length} setor(es) consolidado(s)`;
 
@@ -1695,6 +1725,7 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
   // Tudo ou nada. Antes eram INSERT do inventario, N lotes de itens e o vinculo
   // das sessoes soltos: falhar entre dois lotes deixava um FINAL_CMV incompleto
   // com status legitimo, pronto para virar base de CMV do mes.
+  const code = await comCodigoUnico(() => nextOperationalInventoryCode(date), async (codigo) => {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`
       INSERT INTO "OperationalInventory" (
@@ -1702,7 +1733,7 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
         "notes", "sourceStockCountSessionId", "createdAt", "updatedAt"
       )
       VALUES (
-        ${inventoryId}, ${code}, ${date}, ${name}, 'FINAL_CMV', 'RASCUNHO', ${null}, ${null},
+        ${inventoryId}, ${codigo}, ${date}, ${name}, 'FINAL_CMV', 'RASCUNHO', ${null}, ${null},
         ${user.id}, ${asText(request.body.notes) ?? `Consolidado das contagens: ${sessionCodes}.`},
         ${null}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
       )
@@ -1738,6 +1769,8 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
       WHERE "id" = ANY(${sessionIds})
     `;
   }, { timeout: 120_000, maxWait: 15_000 });
+    return codigo;
+  });
 
   // Consolidar nunca deve descartar informacao em silencio. Sao duas perdas
   // possiveis e ambas ficam registradas e voltam na resposta:
@@ -2690,7 +2723,6 @@ inventoryRouter.post("/count-sessions/:id/generate-inventory", async (request, r
   const date = dateOnly(new Date(session.referenceDate));
   const inventoryId = crypto.randomUUID();
   const inventoryType = session.type === "FINAL_MES" || session.isMonthEnd ? "FINAL_CMV" : session.type === "SETORIAL" ? "SETORIAL" : "GERAL";
-  const code = await nextOperationalInventoryCode(date);
   const name = `Inventario ${brDate(date)} - gerado da contagem ${session.code}`;
   const items = await prisma.$queryRaw<Array<StockCountSessionItemRow>>`
     SELECT *
@@ -2710,6 +2742,7 @@ inventoryRouter.post("/count-sessions/:id/generate-inventory", async (request, r
   // que ja havia sido corrigido na consolidacao de fim de mes; esta rota, que
   // gera inventario de uma contagem so, tinha ficado de fora.
   const BATCH_SIZE = 200;
+  const code = await comCodigoUnico(() => nextOperationalInventoryCode(date), async (codigo) => {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`
       INSERT INTO "OperationalInventory" (
@@ -2717,7 +2750,7 @@ inventoryRouter.post("/count-sessions/:id/generate-inventory", async (request, r
         "notes", "sourceStockCountSessionId", "createdAt", "updatedAt"
       )
       VALUES (
-        ${inventoryId}, ${code}, ${date}, ${name}, ${inventoryType}, 'RASCUNHO', ${session.sectorId}, ${session.sectorName},
+        ${inventoryId}, ${codigo}, ${date}, ${name}, ${inventoryType}, 'RASCUNHO', ${session.sectorId}, ${session.sectorName},
         ${user.id}, ${asText(request.body.notes) ?? `Gerado a partir da contagem ${session.code}.`},
         ${session.id}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
       )
@@ -2753,6 +2786,8 @@ inventoryRouter.post("/count-sessions/:id/generate-inventory", async (request, r
       WHERE "id" = ${session.id}
     `;
   }, { timeout: 120_000, maxWait: 15_000 });
+    return codigo;
+  });
   await auditLog({
     userId: user.id,
     action: "GENERATE_OPERATIONAL_INVENTORY_FROM_COUNT",
@@ -2851,15 +2886,20 @@ inventoryRouter.post("/operational", async (request, response) => {
   }
 
   const id = crypto.randomUUID();
-  const code = await nextOperationalInventoryCode(date);
-  const name = `Inventario ${brDate(date)} - ${inventoryTypeLabel(type, sectorName)}`;
   const notes = asText(request.body.notes);
-  await prisma.$executeRaw`
-    INSERT INTO "OperationalInventory" (
-      "id", "code", "date", "effectiveCountDate", "startedAt", "finishedAt", "name", "type", "status", "sectorId", "sectorName", "responsibleUserId", "notes", "createdAt", "updatedAt"
-    )
-    VALUES (${id}, ${code}, ${date}, ${effectiveCountDate}, ${startedAt}, ${finishedAt}, ${name}, ${type}, 'RASCUNHO', ${sectorId}, ${sectorName}, ${user.id}, ${notes}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-  `;
+  const code = await comCodigoUnico(
+    () => nextOperationalInventoryCode(date),
+    async (codigo) => {
+      const name = `Inventario ${brDate(date)} - ${inventoryTypeLabel(type, sectorName)}`;
+      await prisma.$executeRaw`
+        INSERT INTO "OperationalInventory" (
+          "id", "code", "date", "effectiveCountDate", "startedAt", "finishedAt", "name", "type", "status", "sectorId", "sectorName", "responsibleUserId", "notes", "createdAt", "updatedAt"
+        )
+        VALUES (${id}, ${codigo}, ${date}, ${effectiveCountDate}, ${startedAt}, ${finishedAt}, ${name}, ${type}, 'RASCUNHO', ${sectorId}, ${sectorName}, ${user.id}, ${notes}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `;
+      return codigo;
+    }
+  );
 
   const sectorFilter = type === "SETORIAL"
     ? Prisma.sql`AND (${sectorId ? Prisma.sql`p."inventorySectorId" = ${sectorId}` : Prisma.sql`FALSE`} OR ${sectorName ? Prisma.sql`sec."name" = ${sectorName}` : Prisma.sql`FALSE`})`
