@@ -7,6 +7,7 @@ import { createStockCountSessionPdf } from "./stock-count-session-pdf.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { auditLog, requestIp, requireRole, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
+import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 
 export const inventoryRouter = Router();
 
@@ -25,9 +26,57 @@ function sanitizeDisplayText(value: unknown) {
   return text;
 }
 
+// A versao anterior fazia Number(value) direto: "16,5" virava NaN e o guarda
+// Number.isFinite devolvia 0 em silencio. Contagem digitada com virgula (padrao
+// pt-BR no teclado do estoquista) era gravada como zero, sem erro e com status
+// CONTADO — o item sumia do estoque sem nenhum sinal. Agora delegamos ao
+// parseDecimalInput, que entende virgula decimal e ponto de milhar.
 function asNumber(value: unknown) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
+  return parseDecimalInput(value) ?? 0;
+}
+
+// Quantidades digitadas nao podem cair no fallback 0: um valor invalido precisa
+// virar 400, nunca "zero contado". Retorna:
+//   { ok: true, value: null }   -> campo vazio (pendente, decisao do chamador)
+//   { ok: true, value: number } -> quantidade valida
+//   { ok: false }               -> texto presente porem nao numerico
+type ParsedQuantity = { ok: true; value: number | null } | { ok: false };
+
+function parseQuantityInput(value: unknown): ParsedQuantity {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return { ok: true, value: null };
+  }
+  const parsed = parseDecimalInput(value);
+  if (parsed === null) return { ok: false };
+  return { ok: true, value: parsed };
+}
+
+// Valida o lote inteiro ANTES de gravar qualquer linha: rejeitar no meio do
+// loop deixaria a contagem parcialmente salva. Retorna os ids recusados.
+function invalidQuantityItemIds(items: Array<Record<string, unknown>>) {
+  return items
+    .map((item) => ({ id: asText(item.id), raw: item.countedQuantity }))
+    .filter((item): item is { id: string; raw: unknown } => Boolean(item.id) && !parseQuantityInput(item.raw).ok)
+    .map((item) => item.id);
+}
+
+const INVALID_QUANTITY_MESSAGE = "Quantidade invalida. Use apenas numeros — a virgula decimal e aceita (ex.: 16,5).";
+
+// Guarda o texto EXATAMENTE como chegou, antes de qualquer conversao. No
+// incidente de 02/09/2026 o "16,5" virava 0 dentro do parse, entao o valor
+// digitado nunca existiu no banco em momento algum — nem backup nem PITR
+// recuperavam. Com isto, um formato inesperado no futuro (teclado diferente,
+// colar de planilha, cliente externo) fica reconstruivel a partir do AuditLog.
+const RAW_QUANTITY_LOG_LIMIT = 1000;
+
+function rawQuantitySnapshot(items: Array<Record<string, unknown>>) {
+  const preenchidos = items
+    .map((item) => ({ id: asText(item.id), q: item.countedQuantity }))
+    .filter((item) => item.id && item.q !== undefined && item.q !== null && String(item.q).trim() !== "");
+  return {
+    rawQuantities: preenchidos.slice(0, RAW_QUANTITY_LOG_LIMIT).map((item) => ({ id: item.id, q: String(item.q) })),
+    rawQuantitiesTruncated: preenchidos.length > RAW_QUANTITY_LOG_LIMIT ? preenchidos.length : undefined
+  };
 }
 
 function queryDateRange(query: { startDate?: unknown; endDate?: unknown }) {
@@ -549,6 +598,43 @@ function countedStatus(countedQuantity: number | null, expectedQuantity: number)
   return { status: "CONTADO", differenceQuantity };
 }
 
+// Equivalente de applyStockCountSessionItems para o inventario operacional:
+// lote inteiro numa instrucao, sem gravacao parcial. O CASE espelha exatamente
+// countedStatus acima (null=PENDENTE, 0=ZERO, |dif|>0.0001=DIVERGENTE, senao
+// CONTADO) — se aquela regra mudar, esta precisa mudar junto.
+async function applyOperationalInventoryItems(
+  inventoryId: string,
+  items: Array<Record<string, unknown>>,
+  userId: string
+) {
+  const rows: Prisma.Sql[] = [];
+  for (const item of items) {
+    const id = asText(item.id);
+    if (!id) continue;
+    const parsed = parseQuantityInput(item.countedQuantity);
+    if (!parsed.ok) continue; // ja barrado por invalidQuantityItemIds
+    rows.push(Prisma.sql`(${id}::text, ${parsed.value}::numeric, ${asText(item.notes)}::text)`);
+  }
+  if (!rows.length) return 0;
+  return prisma.$executeRaw`
+    UPDATE "OperationalInventoryItem" AS item
+    SET "countedQuantity" = v.q,
+        "differenceQuantity" = CASE WHEN v.q IS NULL THEN NULL ELSE v.q - item."expectedQuantity" END,
+        "status" = CASE
+          WHEN v.q IS NULL THEN 'PENDENTE'
+          WHEN v.q = 0 THEN 'ZERO'
+          WHEN ABS(v.q - item."expectedQuantity") > 0.0001 THEN 'DIVERGENTE'
+          ELSE 'CONTADO'
+        END,
+        "notes" = v.notes,
+        "countedByUserId" = CASE WHEN v.q IS NULL THEN NULL ELSE ${userId} END,
+        "countedAt" = CASE WHEN v.q IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END,
+        "updatedAt" = CURRENT_TIMESTAMP
+    FROM (VALUES ${Prisma.join(rows)}) AS v(id, q, notes)
+    WHERE item."id" = v.id AND item."inventoryId" = ${inventoryId}
+  `;
+}
+
 // ─── Auditoria de cobertura de estoque ────────────────────────────────────────
 
 type CoverageMissingProduct = {
@@ -802,9 +888,40 @@ async function auditStockCoverageForOperationalInventory(inventoryId: string): P
   };
 }
 
-function stockCountSessionItemStatus(countedQuantity: number | null, expectedQuantity: number) {
-  if (countedQuantity == null) return { status: "PENDENTE", differenceQuantity: null as number | null };
-  return { status: "CONTADO", differenceQuantity: countedQuantity - expectedQuantity };
+
+// Grava o lote inteiro numa UNICA instrucao. O laco anterior fazia SELECT+UPDATE
+// por item, sem transacao: uma queda de conexao ou timeout no meio deixava
+// metade da contagem salva e a outra metade nao, com o inventario resultante
+// parecendo integro. Como bonus, 222 itens deixam de ser 444 idas ao banco.
+//
+// Regra de status do item de contagem, agora expressa no CASE do SQL: sem
+// quantidade => PENDENTE, com quantidade (zero inclusive) => CONTADO.
+async function applyStockCountSessionItems(
+  sessionId: string,
+  items: Array<Record<string, unknown>>,
+  userId: string
+) {
+  const rows: Prisma.Sql[] = [];
+  for (const item of items) {
+    const id = asText(item.id);
+    if (!id) continue;
+    const parsed = parseQuantityInput(item.countedQuantity);
+    if (!parsed.ok) continue; // ja barrado por invalidQuantityItemIds antes de chegar aqui
+    rows.push(Prisma.sql`(${id}::text, ${parsed.value}::numeric, ${asText(item.notes)}::text)`);
+  }
+  if (!rows.length) return 0;
+  return prisma.$executeRaw`
+    UPDATE "StockCountSessionItem" AS item
+    SET "countedQuantity" = v.q,
+        "differenceQuantity" = CASE WHEN v.q IS NULL THEN NULL ELSE v.q - item."expectedQuantity" END,
+        "status" = CASE WHEN v.q IS NULL THEN 'PENDENTE' ELSE 'CONTADO' END,
+        "notes" = v.notes,
+        "countedByUserId" = CASE WHEN v.q IS NULL THEN NULL ELSE ${userId} END,
+        "countedAt" = CASE WHEN v.q IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END,
+        "updatedAt" = CURRENT_TIMESTAMP
+    FROM (VALUES ${Prisma.join(rows)}) AS v(id, q, notes)
+    WHERE item."id" = v.id AND item."stockCountSessionId" = ${sessionId}
+  `;
 }
 
 async function nextStockCountSessionCode(date: Date) {
@@ -1431,59 +1548,98 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
   const sessionCodes = sessions.map((s) => s.code).join(", ");
   const name = `Inventario Final CMV ${brDate(date)} - ${sessions.length} setor(es) consolidado(s)`;
 
-  await prisma.$executeRaw`
-    INSERT INTO "OperationalInventory" (
-      "id", "code", "date", "name", "type", "status", "sectorId", "sectorName", "responsibleUserId",
-      "notes", "sourceStockCountSessionId", "createdAt", "updatedAt"
-    )
-    VALUES (
-      ${inventoryId}, ${code}, ${date}, ${name}, 'FINAL_CMV', 'RASCUNHO', ${null}, ${null},
-      ${user.id}, ${asText(request.body.notes) ?? `Consolidado das contagens: ${sessionCodes}.`},
-      ${null}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-    )
-  `;
-
-  // Bulk INSERT em batches de 200 — evita timeout por round-trips individuais
   const itemsArray = [...itemsByProduct.values()];
   const BATCH_SIZE = 200;
-  for (let i = 0; i < itemsArray.length; i += BATCH_SIZE) {
-    const batch = itemsArray.slice(i, i + BATCH_SIZE);
-    const rows = batch.map((item) => {
-      const countedQuantity = item.countedQuantity == null ? 0 : Number(item.countedQuantity);
-      const expectedQuantity = Number(item.expectedQuantity ?? 0);
-      const result = countedStatus(countedQuantity, expectedQuantity);
-      return Prisma.sql`(
-        ${crypto.randomUUID()}, ${inventoryId}, ${item.productId}, ${item.productCodeSnapshot}, ${item.productNameSnapshot},
-        ${item.sectorSnapshot}, ${item.categorySnapshot}, ${item.subcategorySnapshot}, ${item.locationSnapshot}, ${item.unitSnapshot},
-        ${expectedQuantity}, ${countedQuantity}, ${result.differenceQuantity}, ${result.status}, ${item.notes}, ${item.countedByUserId},
-        ${item.countedAt}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-      )`;
-    });
-    await prisma.$executeRaw`
-      INSERT INTO "OperationalInventoryItem" (
-        "id", "inventoryId", "productId", "productCode", "productName", "sectorName", "categoryName", "subcategoryName",
-        "location", "unit", "expectedQuantity", "countedQuantity", "differenceQuantity", "status", "notes", "countedByUserId",
-        "countedAt", "createdAt", "updatedAt"
+
+  // Tudo ou nada. Antes eram INSERT do inventario, N lotes de itens e o vinculo
+  // das sessoes soltos: falhar entre dois lotes deixava um FINAL_CMV incompleto
+  // com status legitimo, pronto para virar base de CMV do mes.
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`
+      INSERT INTO "OperationalInventory" (
+        "id", "code", "date", "name", "type", "status", "sectorId", "sectorName", "responsibleUserId",
+        "notes", "sourceStockCountSessionId", "createdAt", "updatedAt"
       )
-      VALUES ${Prisma.join(rows)}
+      VALUES (
+        ${inventoryId}, ${code}, ${date}, ${name}, 'FINAL_CMV', 'RASCUNHO', ${null}, ${null},
+        ${user.id}, ${asText(request.body.notes) ?? `Consolidado das contagens: ${sessionCodes}.`},
+        ${null}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )
     `;
-  }
 
-  await prisma.$executeRaw`
-    UPDATE "StockCountSession"
-    SET "generatedInventoryId" = ${inventoryId},
-        "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ANY(${sessionIds})
-  `;
+    for (let i = 0; i < itemsArray.length; i += BATCH_SIZE) {
+      const batch = itemsArray.slice(i, i + BATCH_SIZE);
+      const rows = batch.map((item) => {
+        const countedQuantity = item.countedQuantity == null ? 0 : Number(item.countedQuantity);
+        const expectedQuantity = Number(item.expectedQuantity ?? 0);
+        const result = countedStatus(countedQuantity, expectedQuantity);
+        return Prisma.sql`(
+          ${crypto.randomUUID()}, ${inventoryId}, ${item.productId}, ${item.productCodeSnapshot}, ${item.productNameSnapshot},
+          ${item.sectorSnapshot}, ${item.categorySnapshot}, ${item.subcategorySnapshot}, ${item.locationSnapshot}, ${item.unitSnapshot},
+          ${expectedQuantity}, ${countedQuantity}, ${result.differenceQuantity}, ${result.status}, ${item.notes}, ${item.countedByUserId},
+          ${item.countedAt}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )`;
+      });
+      await tx.$executeRaw`
+        INSERT INTO "OperationalInventoryItem" (
+          "id", "inventoryId", "productId", "productCode", "productName", "sectorName", "categoryName", "subcategoryName",
+          "location", "unit", "expectedQuantity", "countedQuantity", "differenceQuantity", "status", "notes", "countedByUserId",
+          "countedAt", "createdAt", "updatedAt"
+        )
+        VALUES ${Prisma.join(rows)}
+      `;
+    }
 
+    await tx.$executeRaw`
+      UPDATE "StockCountSession"
+      SET "generatedInventoryId" = ${inventoryId},
+          "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ANY(${sessionIds})
+    `;
+  }, { timeout: 120_000, maxWait: 15_000 });
+
+  // Consolidar nunca deve descartar informacao em silencio. Sao duas perdas
+  // possiveis e ambas ficam registradas e voltam na resposta:
+  //  - produto sem contagem nenhuma NAO entra no inventario (nao vira zero, some),
+  //    subavaliando o estoque final e inflando o CMV do mes;
+  //  - produto contado em duas sessoes tem apenas a linha mais recente aproveitada,
+  //    a outra quantidade e descartada sem soma.
+  const descartados = {
+    produtosSemContagem: coverage.missingTotal,
+    produtosSemContagemAmostra: coverage.missingProducts.slice(0, 50),
+    produtosContadosEmDuplicidade: coverage.duplicateTotal,
+    produtosContadosEmDuplicidadeAmostra: coverage.duplicateProducts.slice(0, 50)
+  };
   await auditLog({
     userId: user.id,
     action: "CONSOLIDATE_MONTH_END_SESSIONS",
     entity: "OperationalInventory",
     entityId: inventoryId,
-    newValue: { code, sourceSessionIds: sessionIds, sourceCodes: sessionCodes, totalItems: itemsByProduct.size }
+    newValue: {
+      code,
+      sourceSessionIds: sessionIds,
+      sourceCodes: sessionCodes,
+      totalItems: itemsByProduct.size,
+      consolidadoComCoberturaIncompleta: !coverage.isComplete,
+      ...descartados
+    }
   });
-  response.status(201).json(await getOperationalInventorySummary(inventoryId));
+
+  const avisos: string[] = [];
+  if (coverage.missingTotal > 0) {
+    avisos.push(
+      `${coverage.missingTotal} produto(s) controlado(s) nao entraram no inventario por nao terem contagem em nenhuma sessao. ` +
+      `Eles nao foram zerados — ficaram de fora, entao o estoque final sai subavaliado e o CMV do mes, inflado.`
+    );
+  }
+  if (coverage.duplicateTotal > 0) {
+    avisos.push(
+      `${coverage.duplicateTotal} produto(s) foram contados em mais de uma sessao. Apenas a contagem mais recente ` +
+      `de cada um foi aproveitada — as demais quantidades nao foram somadas.`
+    );
+  }
+
+  response.status(201).json({ ...(await getOperationalInventorySummary(inventoryId)), avisos, coverage });
 });
 
 // Preview de cobertura antes de consolidar (não cria nada)
@@ -1900,32 +2056,12 @@ inventoryRouter.patch("/count-sessions/:id/items", async (request, response) => 
   await assertCanEditStockCountSession(request.params.id, user);
 
   const items = Array.isArray(request.body.items) ? request.body.items : [];
-  for (const item of items) {
-    const itemId = asText(item.id);
-    if (!itemId) continue;
-    const [existing] = await prisma.$queryRaw<Array<{ expectedQuantity: Prisma.Decimal }>>`
-      SELECT "expectedQuantity"
-      FROM "StockCountSessionItem"
-      WHERE "id" = ${itemId} AND "stockCountSessionId" = ${request.params.id}
-      LIMIT 1
-    `;
-    if (!existing) continue;
-    const rawQuantity = item.countedQuantity;
-    const hasQuantity = rawQuantity !== undefined && rawQuantity !== null && String(rawQuantity).trim() !== "";
-    const countedQuantity = hasQuantity ? asNumber(rawQuantity) : null;
-    const result = stockCountSessionItemStatus(countedQuantity, Number(existing.expectedQuantity ?? 0));
-    await prisma.$executeRaw`
-      UPDATE "StockCountSessionItem"
-      SET "countedQuantity" = ${countedQuantity},
-          "differenceQuantity" = ${result.differenceQuantity},
-          "status" = ${result.status},
-          "notes" = ${asText(item.notes)},
-          "countedByUserId" = ${countedQuantity == null ? null : user.id},
-          "countedAt" = ${countedQuantity == null ? null : new Date()},
-          "updatedAt" = CURRENT_TIMESTAMP
-      WHERE "id" = ${itemId} AND "stockCountSessionId" = ${request.params.id}
-    `;
+  const invalidItemIds = invalidQuantityItemIds(items);
+  if (invalidItemIds.length) {
+    response.status(400).json({ message: INVALID_QUANTITY_MESSAGE, invalidItemIds });
+    return;
   }
+  await applyStockCountSessionItems(request.params.id, items, user.id);
 
   await prisma.$executeRaw`
     UPDATE "StockCountSession"
@@ -1933,7 +2069,13 @@ inventoryRouter.patch("/count-sessions/:id/items", async (request, response) => 
         "updatedAt" = CURRENT_TIMESTAMP
     WHERE "id" = ${request.params.id}
   `;
-  await auditLog({ userId: user.id, action: "SAVE_STOCK_COUNT_SESSION_DRAFT", entity: "StockCountSession", entityId: request.params.id, newValue: { items: items.length } });
+  await auditLog({
+    userId: user.id,
+    action: "SAVE_STOCK_COUNT_SESSION_DRAFT",
+    entity: "StockCountSession",
+    entityId: request.params.id,
+    newValue: { items: items.length, ...rawQuantitySnapshot(items) }
+  });
   response.json(await getStockCountSessionSummary(request.params.id));
 });
 
@@ -1944,32 +2086,13 @@ inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) 
   await assertCanEditStockCountSession(request.params.id, user);
 
   const items = Array.isArray(request.body.items) ? request.body.items : [];
+  const invalidItemIds = invalidQuantityItemIds(items);
+  if (invalidItemIds.length) {
+    response.status(400).json({ message: INVALID_QUANTITY_MESSAGE, invalidItemIds });
+    return;
+  }
   if (items.length) {
-    for (const item of items) {
-      const itemId = asText(item.id);
-      if (!itemId) continue;
-      const [existing] = await prisma.$queryRaw<Array<{ expectedQuantity: Prisma.Decimal }>>`
-        SELECT "expectedQuantity"
-        FROM "StockCountSessionItem"
-        WHERE "id" = ${itemId} AND "stockCountSessionId" = ${request.params.id}
-        LIMIT 1
-      `;
-      if (!existing) continue;
-      const rawQuantity = item.countedQuantity;
-      const countedQuantity = rawQuantity === undefined || rawQuantity === null || String(rawQuantity).trim() === "" ? null : asNumber(rawQuantity);
-      const result = stockCountSessionItemStatus(countedQuantity, Number(existing.expectedQuantity ?? 0));
-      await prisma.$executeRaw`
-        UPDATE "StockCountSessionItem"
-        SET "countedQuantity" = ${countedQuantity},
-            "differenceQuantity" = ${result.differenceQuantity},
-            "status" = ${result.status},
-            "notes" = ${asText(item.notes)},
-            "countedByUserId" = ${countedQuantity == null ? null : user.id},
-            "countedAt" = ${countedQuantity == null ? null : new Date()},
-            "updatedAt" = CURRENT_TIMESTAMP
-        WHERE "id" = ${itemId} AND "stockCountSessionId" = ${request.params.id}
-      `;
-    }
+    await applyStockCountSessionItems(request.params.id, items, user.id);
   }
 
   const [pending] = await prisma.$queryRaw<Array<{ total: bigint }>>`
@@ -2065,7 +2188,13 @@ inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) 
         "updatedAt" = CURRENT_TIMESTAMP
     WHERE "id" = ${request.params.id}
   `;
-  await auditLog({ userId: user.id, action: "CONCLUDE_STOCK_COUNT_SESSION", entity: "StockCountSession", entityId: request.params.id, newValue: { pendingItems: 0 } });
+  await auditLog({
+    userId: user.id,
+    action: "CONCLUDE_STOCK_COUNT_SESSION",
+    entity: "StockCountSession",
+    entityId: request.params.id,
+    newValue: { pendingItems: 0, ...rawQuantitySnapshot(items) }
+  });
   response.json(await getStockCountSessionSummary(request.params.id));
 });
 
@@ -2149,6 +2278,23 @@ inventoryRouter.patch("/count-sessions/:id/reshape-scope", async (request, respo
     }
 
     const keptIds = keptItems.map((item) => item.id);
+
+    // Recorte apaga item do banco. Antes o AuditLog guardava so quantos sairam —
+    // as quantidades ja contadas iam junto e nao voltavam. Aqui capturamos o que
+    // sera removido, antes do DELETE, para que a contagem seja reconstituivel.
+    const removidos = await prisma.$queryRaw<Array<{
+      productCodeSnapshot: string | null;
+      productNameSnapshot: string;
+      unitSnapshot: string | null;
+      countedQuantity: Prisma.Decimal | null;
+    }>>`
+      SELECT "productCodeSnapshot", "productNameSnapshot", "unitSnapshot", "countedQuantity"
+      FROM "StockCountSessionItem"
+      WHERE "stockCountSessionId" = ${session.id}
+        AND "id" NOT IN (${Prisma.join(keptIds)})
+        AND "countedQuantity" IS NOT NULL
+    `;
+
     await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
         DELETE FROM "StockCountSessionItem"
@@ -2192,6 +2338,13 @@ inventoryRouter.patch("/count-sessions/:id/reshape-scope", async (request, respo
         subcategoryId: target.subcategoryId,
         keptItems: keptIds.length,
         removedItems: Math.max(0, session.totalItems - keptIds.length),
+        removedCountedItems: removidos.length,
+        removedCountedQuantities: removidos.slice(0, 500).map((item) => ({
+          code: item.productCodeSnapshot,
+          product: item.productNameSnapshot,
+          unit: item.unitSnapshot,
+          q: item.countedQuantity == null ? null : String(item.countedQuantity)
+        })),
         reason
       }
     });
@@ -3263,27 +3416,13 @@ inventoryRouter.patch("/operational/:id/items", async (request, response) => {
   try {
     await assertCanEditOperationalInventory(request.params.id, user);
     const items = Array.isArray(request.body.items) ? request.body.items : [];
-    for (const input of items) {
-      const itemId = asText(input.id);
-      if (!itemId) continue;
-      const [current] = await prisma.$queryRaw<Array<{ expectedQuantity: Prisma.Decimal }>>`
-        SELECT "expectedQuantity"
-        FROM "OperationalInventoryItem"
-        WHERE "id" = ${itemId} AND "inventoryId" = ${request.params.id}
-        LIMIT 1
-      `;
-      if (!current) continue;
-      const countedQuantity = input.countedQuantity === "" || input.countedQuantity == null ? null : asNumber(input.countedQuantity);
-      const result = countedStatus(countedQuantity, Number(current.expectedQuantity ?? 0));
-      await prisma.$executeRaw`
-        UPDATE "OperationalInventoryItem"
-        SET "countedQuantity" = ${countedQuantity}, "differenceQuantity" = ${result.differenceQuantity}, "status" = ${result.status},
-            "notes" = ${asText(input.notes)}, "countedByUserId" = ${countedQuantity == null ? null : user.id},
-            "countedAt" = ${countedQuantity == null ? null : new Date()}, "updatedAt" = CURRENT_TIMESTAMP
-        WHERE "id" = ${itemId} AND "inventoryId" = ${request.params.id}
-      `;
+    const invalidItemIds = invalidQuantityItemIds(items);
+    if (invalidItemIds.length) {
+      response.status(400).json({ message: INVALID_QUANTITY_MESSAGE, invalidItemIds });
+      return;
     }
-    await auditLog({ userId: user.id, action: "SAVE_OPERATIONAL_INVENTORY_DRAFT", entity: "OperationalInventory", entityId: request.params.id, newValue: { items: items.length } });
+    await applyOperationalInventoryItems(request.params.id, items, user.id);
+    await auditLog({ userId: user.id, action: "SAVE_OPERATIONAL_INVENTORY_DRAFT", entity: "OperationalInventory", entityId: request.params.id, newValue: { items: items.length, ...rawQuantitySnapshot(items) } });
     response.json(await getOperationalInventorySummary(request.params.id));
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao salvar inventario." });
@@ -3358,6 +3497,32 @@ inventoryRouter.patch("/operational/:id/approve", async (request, response) => {
       SET "status" = 'APROVADO', "approvedByUserId" = ${user.id}, "approvedAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
       WHERE "id" = ${request.params.id}
     `;
+    // A geracao do snapshot precisa do status ja em APROVADO (createInventorySnapshot...
+    // so age em inventario final), entao nao da para inverter a ordem. Se ela falhar
+    // — tipicamente por ja existir base final do mes — desfazemos a aprovacao: antes,
+    // a tela mostrava erro e o banco ficava APROVADO sem snapshot.
+    try {
+      await createInventorySnapshotFromOperationalInventory(request.params.id, user);
+    } catch (snapshotError) {
+      await prisma.$executeRaw`
+        UPDATE "OperationalInventory"
+        SET "status" = ${inventory.status}, "approvedByUserId" = ${inventory.approvedByUserId ?? null},
+            "approvedAt" = ${inventory.approvedAt ?? null}, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "id" = ${request.params.id}
+      `;
+      await auditLog({
+        userId: user.id,
+        action: "ROLLBACK_APPROVE_OPERATIONAL_INVENTORY",
+        entity: "OperationalInventory",
+        entityId: request.params.id,
+        previousValue: { status: "APROVADO" },
+        newValue: {
+          status: inventory.status,
+          reason: snapshotError instanceof Error ? snapshotError.message : "Falha ao gerar base de estoque."
+        }
+      });
+      throw snapshotError;
+    }
     await auditLog({
       userId: user.id,
       action: "APPROVE_OPERATIONAL_INVENTORY",
@@ -3366,7 +3531,6 @@ inventoryRouter.patch("/operational/:id/approve", async (request, response) => {
       previousValue: { status: inventory.status },
       newValue: { status: "APROVADO" }
     });
-    await createInventorySnapshotFromOperationalInventory(request.params.id, user);
     response.json(await getOperationalInventorySummary(request.params.id));
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao aprovar inventario." });
@@ -3578,7 +3742,12 @@ inventoryRouter.post("/movements", async (request, response) => {
 
   const productId = asText(request.body.productId);
   const type = asText(request.body.type) ?? "MANUAL_OUT";
-  const quantity = asNumber(request.body.quantity);
+  const parsedQuantity = parseQuantityInput(request.body.quantity);
+  if (!parsedQuantity.ok) {
+    response.status(400).json({ message: INVALID_QUANTITY_MESSAGE });
+    return;
+  }
+  const quantity = parsedQuantity.value ?? 0;
   const unit = asText(request.body.unit);
   const unitMeasureId = asText(request.body.unitMeasureId);
   const notes = asText(request.body.notes);
@@ -3641,7 +3810,14 @@ inventoryRouter.post("/counts", async (request, response) => {
   if (!user) return;
 
   const productId = asText(request.body.productId);
-  const countedQuantity = asNumber(request.body.countedQuantity);
+  // Contagem sem quantidade nao existe: zerar por omissao foi o que apagou
+  // estoque quando o frontend mandava NaN (virgula) e virava null no JSON.
+  const parsedQuantity = parseQuantityInput(request.body.countedQuantity);
+  if (!parsedQuantity.ok || parsedQuantity.value === null) {
+    response.status(400).json({ message: INVALID_QUANTITY_MESSAGE });
+    return;
+  }
+  const countedQuantity = parsedQuantity.value;
   const unit = asText(request.body.unit);
   const unitMeasureId = asText(request.body.unitMeasureId);
   const generateAdjustment = Boolean(request.body.generateAdjustment);
@@ -4131,6 +4307,15 @@ inventoryRouter.post("/requisitions", async (request, response) => {
   }
 
   type ParsedItem = { productId: string; quantity: number; unit: string | null };
+  // Quantidade ilegivel nao pode ser descartada em silencio pelo filter abaixo:
+  // a requisicao nasceria sem a linha e ninguem perceberia.
+  const invalidQuantityItems = rawItems.filter(
+    (item: Record<string, unknown>) => Boolean(asText(item.productId)) && !parseQuantityInput(item.quantity).ok
+  );
+  if (invalidQuantityItems.length) {
+    response.status(400).json({ message: INVALID_QUANTITY_MESSAGE });
+    return;
+  }
   const parsedItems: ParsedItem[] = rawItems
     .map((item: Record<string, unknown>) => ({
       productId: asText(item.productId),

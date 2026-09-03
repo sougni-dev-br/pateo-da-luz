@@ -118,7 +118,9 @@ import {
   operationalTone,
   operationalTypeLabels,
   parseMonth,
+  quantityToApi,
   sameDay,
+  sanitizeQuantityInput,
   sensitiveMovementTypes,
   settledValue,
   statusLabels,
@@ -214,6 +216,11 @@ export function Inventory({
   const [countSessionUnitFilter, setCountSessionUnitFilter] = useState("");
   const [countSessionStatusFilter, setCountSessionStatusFilter] = useState<"TODOS" | "PENDENTE" | "CONTADO">("TODOS");
   const [countSessionLines, setCountSessionLines] = useState<Record<string, { countedQuantity: string; notes: string }>>({});
+  // Guarda quais itens ESTA pessoa editou nesta sessao de tela. Sem isso o save
+  // enviava a sessao inteira com o estado carregado na abertura, e quem salvasse
+  // por ultimo devolvia os itens do colega ao valor antigo — sem erro nem aviso.
+  const [countSessionDirty, setCountSessionDirty] = useState<Record<string, true>>({});
+  const [operationalDirty, setOperationalDirty] = useState<Record<string, true>>({});
   const [mobileCountFiltersOpen, setMobileCountFiltersOpen] = useState(false);
   const [mobileCountMoreActionsOpen, setMobileCountMoreActionsOpen] = useState(false);
   const [mobileQuickCountMode, setMobileQuickCountMode] = useState(false);
@@ -790,6 +797,7 @@ export function Inventory({
     setCountSessionSubcategoryFilter("");
     setCountSessionUnitFilter("");
     setCountSessionStatusFilter("TODOS");
+    setCountSessionDirty({});
     setCountSessionLines(Object.fromEntries(detail.items.map((item) => [
       item.id,
       { countedQuantity: item.countedQuantity == null ? "" : String(item.countedQuantity), notes: item.notes ?? "" }
@@ -798,17 +806,42 @@ export function Inventory({
     if (showMessage) setNotice({ tone: "success", message: `${detail.code} aberta para lancamento.` });
   }
 
+  function updateCountSessionLine(itemId: string, patch: Partial<{ countedQuantity: string; notes: string }>) {
+    setCountSessionLines((prev) => {
+      const atual = prev[itemId] ?? { countedQuantity: "", notes: "" };
+      return { ...prev, [itemId]: { ...atual, ...patch } };
+    });
+    setCountSessionDirty((prev) => (prev[itemId] ? prev : { ...prev, [itemId]: true }));
+  }
+
   function countSessionPayload() {
     if (!countSessionDetail) return [];
-    return countSessionDetail.items.map((item) => ({
-      id: item.id,
-      countedQuantity: countSessionLines[item.id]?.countedQuantity ?? "",
-      notes: countSessionLines[item.id]?.notes ?? ""
-    }));
+    return countSessionDetail.items
+      .filter((item) => countSessionDirty[item.id])
+      .map((item) => ({
+        id: item.id,
+        countedQuantity: quantityToApi(countSessionLines[item.id]?.countedQuantity ?? "") ?? "",
+        notes: countSessionLines[item.id]?.notes ?? ""
+      }));
+  }
+
+  // Nao envia nada se alguma linha estiver ilegivel: o backend rejeitaria o lote
+  // inteiro e a mensagem generica nao diria qual produto revisar.
+  function invalidCountSessionItems() {
+    if (!countSessionDetail) return [];
+    return countSessionDetail.items.filter(
+      (item) => countSessionDirty[item.id]
+        && quantityToApi(countSessionLines[item.id]?.countedQuantity ?? "") === undefined
+    );
   }
 
   async function saveCountSessionDraft() {
     if (!countSessionDetail) return;
+    const invalid = invalidCountSessionItems();
+    if (invalid.length) {
+      setNotice({ tone: "error", message: `Quantidade invalida em: ${invalid.map((item) => item.productNameSnapshot).join(", ")}.` });
+      return;
+    }
     try {
       await saveStockCountSessionItems(countSessionDetail.id, countSessionPayload());
       setNotice({ tone: "success", message: "Contagem salva. Voce pode continuar depois." });
@@ -824,6 +857,11 @@ export function Inventory({
 
   async function concludeCountSession() {
     if (!countSessionDetail) return;
+    const invalid = invalidCountSessionItems();
+    if (invalid.length) {
+      setNotice({ tone: "error", message: `Quantidade invalida em: ${invalid.map((item) => item.productNameSnapshot).join(", ")}.` });
+      return;
+    }
     const pendingItems = countSessionDetail.items.filter((item) => {
       const value = countSessionLines[item.id]?.countedQuantity;
       return value === undefined || value === "";
@@ -832,7 +870,7 @@ export function Inventory({
       setCountSessionStatusFilter("PENDENTE");
       setNotice({
         tone: "warning",
-        message: `Existem ${pendingItems} produtos sem quantidade informada. Informe a quantidade contada ou digite 0 nos produtos sem estoque antes de concluir.`
+        message: `Existem ${pendingItems} produtos sem quantidade informada. Informe a quantidade contada ou digite 0 nos produtos sem estoque antes de concluir. Se outra pessoa ja contou esses itens, salve e reabra a contagem para carregar o que ela lancou.`
       });
       return;
     }
@@ -1174,12 +1212,29 @@ export function Inventory({
 
   function markFilteredCountSessionItemsAsZero() {
     if (!filteredCountSessionItems.length) return;
-    if (!window.confirm(`Marcar ${filteredCountSessionItems.length} item(ns) filtrado(s) como zero? Campos vazios serao preenchidos com 0.`)) return;
+    // Preenche SO os campos vazios. A versao anterior sobrescrevia todos os itens
+    // filtrados com "0" — inclusive os ja contados — apesar de a confirmacao
+    // prometer o contrario. Com o filtro em "TODOS", um clique zerava a contagem
+    // inteira.
+    const vazios = filteredCountSessionItems.filter((item) => {
+      const atual = countSessionLines[item.id]?.countedQuantity;
+      return atual === undefined || atual === "";
+    });
+    if (!vazios.length) {
+      setNotice({ tone: "info", message: "Todos os itens filtrados ja tem quantidade informada. Nada foi alterado." });
+      return;
+    }
+    const jaPreenchidos = filteredCountSessionItems.length - vazios.length;
+    const aviso = jaPreenchidos > 0 ? ` ${jaPreenchidos} item(ns) ja contado(s) serao mantidos.` : "";
+    if (!window.confirm(`Preencher com 0 os ${vazios.length} item(ns) filtrado(s) ainda sem quantidade?${aviso}`)) return;
     const next = { ...countSessionLines };
-    filteredCountSessionItems.forEach((item) => {
+    const tocados = { ...countSessionDirty };
+    vazios.forEach((item) => {
       next[item.id] = { countedQuantity: "0", notes: next[item.id]?.notes ?? "" };
+      tocados[item.id] = true;
     });
     setCountSessionLines(next);
+    setCountSessionDirty(tocados);
   }
 
   async function createOperational() {
@@ -1209,6 +1264,7 @@ export function Inventory({
       setOperationalDetail(detail);
       setFinalCmvCoverage(null);
       setOperationalSectorFilter("");
+      setOperationalDirty({});
       setOperationalLines(Object.fromEntries(detail.items.map((item) => [
         item.id,
         { countedQuantity: item.countedQuantity == null ? "" : String(item.countedQuantity), notes: item.notes ?? "" }
@@ -1224,11 +1280,22 @@ export function Inventory({
 
   async function saveOperationalDraft() {
     if (!operationalDetail) return;
-    const items = operationalDetail.items.map((item) => ({
-      id: item.id,
-      countedQuantity: operationalLines[item.id]?.countedQuantity ?? "",
-      notes: operationalLines[item.id]?.notes ?? ""
-    }));
+    const invalid = operationalDetail.items.filter(
+      (item) => operationalDirty[item.id]
+        && quantityToApi(operationalLines[item.id]?.countedQuantity ?? "") === undefined
+    );
+    if (invalid.length) {
+      setNotice({ tone: "error", message: `Quantidade invalida em: ${invalid.map((item) => item.productName).join(", ")}.` });
+      return;
+    }
+    // Envia apenas o que esta pessoa editou — ver countSessionDirty.
+    const items = operationalDetail.items
+      .filter((item) => operationalDirty[item.id])
+      .map((item) => ({
+        id: item.id,
+        countedQuantity: quantityToApi(operationalLines[item.id]?.countedQuantity ?? "") ?? "",
+        notes: operationalLines[item.id]?.notes ?? ""
+      }));
     try {
       await saveOperationalInventoryItems(operationalDetail.id, items);
       setNotice({ tone: "success", message: "Rascunho salvo." });
@@ -1334,8 +1401,13 @@ export function Inventory({
       setNotice({ tone: "error", message: "Observacao obrigatoria para este tipo de movimentacao." });
       return;
     }
+    const quantity = quantityToApi(movementForm.quantity);
+    if (quantity === undefined || quantity === "") {
+      setNotice({ tone: "error", message: "Quantidade invalida. Use apenas numeros (ex.: 16,5)." });
+      return;
+    }
     try {
-      await createInventoryMovement({ ...movementForm, quantity: Number(movementForm.quantity) });
+      await createInventoryMovement({ ...movementForm, quantity: Number(quantity) });
       setNotice({ tone: "success", message: "Movimentacao criada com sucesso." });
       setMovementForm({ ...movementForm, quantity: "", notes: "" });
       await load();
@@ -1366,9 +1438,14 @@ export function Inventory({
   async function saveCountLine(product: Product, status: "DRAFT" | "SUBMITTED") {
     const line = countLines[product.id];
     if (!line?.countedQuantity) return;
+    const quantity = quantityToApi(line.countedQuantity);
+    if (quantity === undefined || quantity === "") {
+      setNotice({ tone: "error", message: `Quantidade invalida em ${product.name}.` });
+      return;
+    }
     const result = await createStockCount({
       productId: product.id,
-      countedQuantity: Number(line.countedQuantity),
+      countedQuantity: Number(quantity),
       unit: product.stockUnit ?? product.unit ?? "",
       notes: line.notes,
       generateAdjustment: false,
@@ -1393,12 +1470,17 @@ export function Inventory({
 
   async function submitCount(status: "DRAFT" | "SUBMITTED") {
     if (!countForm.productId || !countForm.countedQuantity) return;
+    const quantity = quantityToApi(countForm.countedQuantity);
+    if (quantity === undefined || quantity === "") {
+      setNotice({ tone: "error", message: "Quantidade invalida. Use apenas numeros (ex.: 16,5)." });
+      return;
+    }
     try {
       const result = await createStockCount({
         ...countForm,
         status,
         inventoryAgendaItemId: selectedAgenda?.id ?? null,
-        countedQuantity: Number(countForm.countedQuantity)
+        countedQuantity: Number(quantity)
       });
       setNotice({
         tone: result.divergenceQuantity === 0 ? "success" : "warning",
@@ -1757,7 +1839,7 @@ export function Inventory({
                           onKeyDown={handleCountFieldKeyDown}
                           onFocus={() => setActiveCountSessionInputId(item.id)}
                           onBlur={() => handleCountInputBlur(item.id)}
-                          onChange={(event) => setCountSessionLines({ ...countSessionLines, [item.id]: { ...line, countedQuantity: event.target.value } })}
+                          onChange={(event) => updateCountSessionLine(item.id, { countedQuantity: sanitizeQuantityInput(event.target.value) })}
                         />
                       </label>
                       <button
@@ -1852,7 +1934,7 @@ export function Inventory({
                               disabled={locked}
                               value={line.notes}
                               placeholder="Observacao do produto"
-                              onChange={(event) => setCountSessionLines({ ...countSessionLines, [item.id]: { ...line, notes: event.target.value } })}
+                              onChange={(event) => updateCountSessionLine(item.id, { notes: event.target.value })}
                             />
                             <button className="secondary-button" type="button" onClick={() => setEditingCountSessionNoteId(null)}>OK</button>
                           </div>
@@ -1874,7 +1956,7 @@ export function Inventory({
                             onKeyDown={handleCountFieldKeyDown}
                             onFocus={() => setActiveCountSessionInputId(item.id)}
                             onBlur={() => handleCountInputBlur(item.id)}
-                            onChange={(event) => setCountSessionLines({ ...countSessionLines, [item.id]: { ...line, countedQuantity: event.target.value } })}
+                            onChange={(event) => updateCountSessionLine(item.id, { countedQuantity: sanitizeQuantityInput(event.target.value) })}
                           />
                         </label>
                       </div>
@@ -1939,10 +2021,7 @@ export function Inventory({
                 disabled={locked}
                 value={editingMobileNoteLine.notes}
                 placeholder="Anote uma divergencia, embalagem aberta ou detalhe importante."
-                onChange={(event) => setCountSessionLines({
-                  ...countSessionLines,
-                  [editingMobileNoteItem.id]: { ...editingMobileNoteLine, notes: event.target.value }
-                })}
+                onChange={(event) => updateCountSessionLine(editingMobileNoteItem.id, { notes: event.target.value })}
               />
               <div className="actions-cell">
                 <button className="secondary-button" type="button" onClick={() => setEditingCountSessionNoteId(null)}>Cancelar</button>
@@ -2019,7 +2098,7 @@ export function Inventory({
                     <td>{product.name}<small>{product.category?.name ?? "-"}</small></td>
                     <td>{[product.storageLocation, product.storageShelf, product.storagePosition].filter(Boolean).join(" - ") || "-"}</td>
                     <td>{product.stockUnit ?? product.unit ?? "-"}</td>
-                    <td><input data-count-quantity={product.id} inputMode="decimal" value={line.countedQuantity} onKeyDown={(event) => focusNextCountInput(event, product.id)} onChange={(event) => setCountLines({ ...countLines, [product.id]: { ...line, countedQuantity: event.target.value } })} /></td>
+                    <td><input data-count-quantity={product.id} inputMode="decimal" value={line.countedQuantity} onKeyDown={(event) => focusNextCountInput(event, product.id)} onChange={(event) => setCountLines({ ...countLines, [product.id]: { ...line, countedQuantity: sanitizeQuantityInput(event.target.value) } })} /></td>
                     <td><input value={line.notes} onChange={(event) => setCountLines({ ...countLines, [product.id]: { ...line, notes: event.target.value } })} /></td>
                     <td><StatusBadge tone={divergent ? "danger" : hasValue ? "success" : "warning"}>{divergent ? "divergente" : hasValue ? "contado" : "pendente"}</StatusBadge></td>
                   </tr>
@@ -3002,7 +3081,7 @@ export function Inventory({
                           <td title={item.productName}><span className="op-product-name">{item.productName}</span><small>{[item.categoryName, item.subcategoryName].filter(Boolean).join(" • ") || "-"}</small></td>
                           <td title={item.sectorName ?? "-"}>{item.sectorName ?? "-"}</td>
                           <td>{formatNumber(item.expectedQuantity)}{item.unit && <small className="op-unit-tag">{item.unit}</small>}</td>
-                          <td><input className="count-input" inputMode="decimal" disabled={locked} value={line.countedQuantity} onChange={(event) => setOperationalLines({ ...operationalLines, [item.id]: { ...line, countedQuantity: event.target.value } })} /></td>
+                          <td><input className="count-input" inputMode="decimal" disabled={locked} value={line.countedQuantity} onChange={(event) => { setOperationalLines({ ...operationalLines, [item.id]: { ...line, countedQuantity: sanitizeQuantityInput(event.target.value) } }); setOperationalDirty((prev) => (prev[item.id] ? prev : { ...prev, [item.id]: true })); }} /></td>
                           <td className={item.differenceQuantity != null && Math.abs(item.differenceQuantity) > DIFF_EPSILON ? (item.differenceQuantity > 0 ? "diff-above" : "diff-below") : "diff-neutral"}>{formatDiff(item.differenceQuantity)}</td>
                           <td><StatusBadge tone={itemTone(item.status)}>{itemStatusLabels[item.status] ?? item.status}</StatusBadge></td>
                           <td className="op-note-col">
@@ -3350,7 +3429,7 @@ export function Inventory({
             const product = products.find((item) => item.id === event.target.value);
             setCountForm({ ...countForm, productId: event.target.value, unit: product?.unit ?? countForm.unit });
           }}>{productsForCount.map((product) => <option key={product.id} value={product.id}>{product.externalCode ? `${product.externalCode} - ` : ""}{product.name}</option>)}</select></label>
-          <label>Quantidade<input inputMode="decimal" value={countForm.countedQuantity} onChange={(event) => setCountForm({ ...countForm, countedQuantity: event.target.value })} /></label>
+          <label>Quantidade<input inputMode="decimal" value={countForm.countedQuantity} onChange={(event) => setCountForm({ ...countForm, countedQuantity: sanitizeQuantityInput(event.target.value) })} /></label>
           <label>Unidade<input value={countForm.unit} onChange={(event) => setCountForm({ ...countForm, unit: event.target.value })} /></label>
           <label>Observacao<input value={countForm.notes} onChange={(event) => setCountForm({ ...countForm, notes: event.target.value })} /></label>
           <button className="secondary-button large-action" type="button" onClick={() => submitCount("DRAFT")}><Save size={17} />Salvar rascunho</button>
@@ -3503,7 +3582,7 @@ export function Inventory({
           <Button variant="secondary" leadingIcon={<Search size={16} />} onClick={findMovementProduct}>Buscar</Button>
           <label>Produto<select value={movementForm.productId} onChange={(event) => selectMovementProduct(event.target.value)}>{products.map((product) => <option key={product.id} value={product.id}>{product.externalCode ? `${product.externalCode} - ` : ""}{product.name}</option>)}</select></label>
           <label>Tipo<select value={movementForm.type} onChange={(event) => setMovementForm({ ...movementForm, type: event.target.value })}>{movementTypes.filter((type) => canViewCosts || type.value !== "PURCHASE_IN").map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
-          <label>Quantidade<input inputMode="decimal" value={movementForm.quantity} onChange={(event) => setMovementForm({ ...movementForm, quantity: event.target.value })} /></label>
+          <label>Quantidade<input inputMode="decimal" value={movementForm.quantity} onChange={(event) => setMovementForm({ ...movementForm, quantity: sanitizeQuantityInput(event.target.value) })} /></label>
           <label>Unidade<input value={movementForm.unit} onChange={(event) => setMovementForm({ ...movementForm, unit: event.target.value })} /></label>
           <label className={sensitiveMovementTypes.includes(movementForm.type) && !movementForm.notes.trim() ? "field-error" : ""}>Motivo/observação<input value={movementForm.notes} onChange={(event) => setMovementForm({ ...movementForm, notes: event.target.value })} /></label>
           <Button className="large-action" onClick={submitMovement}>Salvar movimentação</Button>
