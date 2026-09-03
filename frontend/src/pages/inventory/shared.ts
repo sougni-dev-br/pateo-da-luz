@@ -182,6 +182,44 @@ export function itemTone(status: string) {
   return "warning" as const;
 }
 
+// O teclado decimal do celular em pt-BR entrega virgula. Os campos de contagem
+// sao <input> de texto (inputMode="decimal"), entao a virgula chega crua ate a
+// API — e Number("16,5") e NaN. Normalizamos aqui, na borda de saida.
+
+// Remove o que nao e numero, preservando os separadores como digitados. Nao
+// colapsa "1.234,5" — normalizar cedo demais trocaria um erro silencioso por
+// outro; quem decide a leitura e o quantityToApi abaixo.
+export function sanitizeQuantityInput(value: string) {
+  const sign = value.trimStart().startsWith("-") ? "-" : "";
+  return sign + value.replace(/[^\d.,]/g, "");
+}
+
+const THOUSAND_GROUPED = /^\d{1,3}(\.\d{3})+$/;
+
+// Converte o texto do campo no formato que a API entende, com a MESMA regra do
+// backend (shared/utils/parse-decimal.ts): havendo virgula, ela e o separador
+// decimal e os pontos sao de milhar; "1.234" sem virgula continua sendo mil
+// duzentos e trinta e quatro. Retorna undefined quando o texto nao e numerico —
+// o chamador bloqueia o envio em vez de deixar virar zero no backend.
+export function quantityToApi(value: string): string | undefined {
+  const text = value.trim();
+  if (!text) return "";
+  const sign = text.startsWith("-") ? "-" : "";
+  const digits = text.replace(/^[+-]/, "");
+  if (!/^[\d.,]+$/.test(digits)) return undefined;
+
+  let normalized: string;
+  if (digits.includes(",")) {
+    normalized = digits.replace(/\./g, "").replace(",", ".");
+  } else if (digits.includes(".") && THOUSAND_GROUPED.test(digits)) {
+    normalized = digits.replace(/\./g, "");
+  } else {
+    normalized = digits;
+  }
+
+  return Number.isFinite(Number(normalized)) ? sign + normalized : undefined;
+}
+
 export const DIFF_EPSILON = 0.0001;
 
 export function formatDiff(diff: number | null): string {
