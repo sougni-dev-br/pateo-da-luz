@@ -3031,8 +3031,21 @@ export function submitOperationalInventory(id: string) {
   return request<OperationalInventory>(`/inventory/operational/${id}/submit`, { method: "PATCH" });
 }
 
+// A aprovacao agora tambem reconcilia o estoque com o que foi contado, e devolve
+// quantos itens foram ajustados para a tela poder dizer o que aconteceu.
+export type StockReconciliation = {
+  adjustedItems: number;
+  totalDelta: number;
+  // Saldo abaixo de zero apos o ajuste: sairam mais itens do que o contado
+  // entre a contagem e a aprovacao. Nao e limitado a zero para nao mascarar.
+  negativeBalances?: Array<{ produto: string; saldo: number }>;
+} | null;
+
 export function approveOperationalInventory(id: string) {
-  return request<OperationalInventory>(`/inventory/operational/${id}/approve`, { method: "PATCH" });
+  return request<OperationalInventory & { reconciliacao?: StockReconciliation }>(
+    `/inventory/operational/${id}/approve`,
+    { method: "PATCH" }
+  );
 }
 
 export function rejectOperationalInventory(id: string, reason: string) {

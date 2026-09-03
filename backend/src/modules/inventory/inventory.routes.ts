@@ -1095,6 +1095,144 @@ async function assertCanEditOperationalInventory(id: string, user: SessionUser) 
   return inventory;
 }
 
+// Reconcilia o estoque com o inventario aprovado (F-05).
+//
+// Ate aqui aprovar inventario nao mexia no estoque: o currentQuantity so crescia
+// por compra e so caia por movimentacao manual. O saldo esperado virava ficcao
+// (ALCATRA com 1.682 kg) e a divergencia deixava de servir de alarme.
+//
+// Aplica a DIVERGENCIA, nao o valor contado. Entre a contagem e a aprovacao
+// podem ter entrado compras; sobrescrever com o contado apagaria essas entradas.
+// A divergencia corrige o estado no momento da contagem e o que veio depois
+// permanece somado por cima.
+//
+// Nao usa upsertStock de proposito: aquele helper dilui o custo medio em ajuste
+// positivo (incomingCost = 0 divide o valor por uma quantidade maior) e zera
+// costPerKg/Box/Unit conforme a unidade. Aqui a quantidade estava fisicamente la
+// o tempo todo, so nao registrada — o custo unitario nao muda.
+// Acima disso a contagem nao representa mais o estoque de hoje. Um fechamento
+// normal e aprovado poucos dias depois da contagem; 30 dias ja e folga larga.
+const MAX_DIAS_PARA_RECONCILIAR = 30;
+
+async function reconcileStockFromOperationalInventory(id: string, user: SessionUser) {
+  const [inventory] = await prisma.$queryRaw<Array<{ code: string; stockReconciledAt: Date | null; effectiveCountDate: Date | null; date: Date }>>`
+    SELECT "code", "stockReconciledAt", "effectiveCountDate", "date"
+    FROM "OperationalInventory" WHERE "id" = ${id} LIMIT 1
+  `;
+  // A rota de aprovacao aceita reaprovar um inventario ja aprovado. Sem esta
+  // guarda o ajuste seria aplicado de novo, dobrando a correcao.
+  if (!inventory || inventory.stockReconciledAt) return null;
+
+  // Contagem velha nao pode reescrever o estoque de hoje. Ha rascunhos de junho
+  // parados no sistema (INV-2026-0011 tem 322 divergencias); aprovar um deles
+  // aplicaria uma divergencia de meses atras sobre o saldo atual. O inventario
+  // ainda e aprovado e ainda gera a base de CMV, que e datada e legitima — so
+  // nao mexe no estoque.
+  const dataContagem = inventory.effectiveCountDate ?? inventory.date;
+  const diasDesdeContagem = Math.floor((Date.now() - new Date(dataContagem).getTime()) / 86_400_000);
+  if (diasDesdeContagem > MAX_DIAS_PARA_RECONCILIAR) {
+    await auditLog({
+      userId: user.id,
+      action: "SKIP_RECONCILE_STOCK_STALE_INVENTORY",
+      entity: "OperationalInventory",
+      entityId: id,
+      newValue: { code: inventory.code, diasDesdeContagem, limite: MAX_DIAS_PARA_RECONCILIAR }
+    });
+    return { adjustedItems: 0, totalDelta: 0, skippedReason: "CONTAGEM_ANTIGA", diasDesdeContagem };
+  }
+
+  const itens = await prisma.$queryRaw<Array<{
+    productId: string;
+    productName: string;
+    unit: string | null;
+    differenceQuantity: Prisma.Decimal;
+  }>>`
+    SELECT "productId", "productName", "unit", "differenceQuantity"
+    FROM "OperationalInventoryItem"
+    WHERE "inventoryId" = ${id}
+      AND "productId" IS NOT NULL
+      AND "countedQuantity" IS NOT NULL
+      AND "differenceQuantity" IS NOT NULL
+      AND "differenceQuantity" <> 0
+  `;
+
+  if (!itens.length) {
+    await prisma.$executeRaw`
+      UPDATE "OperationalInventory" SET "stockReconciledAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${id}
+    `;
+    return { adjustedItems: 0, totalDelta: 0 };
+  }
+
+  const movimentos = itens.map((item) => {
+    const delta = Number(item.differenceQuantity);
+    return Prisma.sql`(
+      ${crypto.randomUUID()}, ${item.productId}, 'ADJUSTMENT', ${delta}, ${item.unit},
+      ${id}, ${user.id}, ${`Ajuste por inventario ${inventory.code}.`}, CURRENT_TIMESTAMP
+    )`;
+  });
+  const saldos = itens.map((item) => Prisma.sql`(${item.productId}::text, ${Number(item.differenceQuantity)}::numeric)`);
+
+  // Tudo ou nada: metade dos ajustes gravados deixaria o estoque pior do que antes.
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`
+      INSERT INTO "InventoryMovement" (
+        "id", "productId", "type", "quantity", "unit",
+        "sourceOperationalInventoryId", "responsibleUserId", "notes", "createdAt"
+      )
+      VALUES ${Prisma.join(movimentos)}
+    `;
+    // Mexe SO na quantidade. averageCost e costPerKg/Box/Unit ficam intactos.
+    await tx.$executeRaw`
+      UPDATE "InventoryStock" AS stock
+      SET "currentQuantity" = stock."currentQuantity" + v.delta,
+          "lastMovementAt" = CURRENT_TIMESTAMP,
+          "updatedAt" = CURRENT_TIMESTAMP
+      FROM (VALUES ${Prisma.join(saldos)}) AS v("productId", delta)
+      WHERE stock."productId" = v."productId"
+    `;
+    await tx.$executeRaw`
+      UPDATE "OperationalInventory" SET "stockReconciledAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${id}
+    `;
+  }, { timeout: 120_000, maxWait: 15_000 });
+
+  // Saldo pode ficar negativo: se entre a contagem e a aprovacao sairam mais
+  // itens do que o contado, a divergencia leva abaixo de zero. Nao limitamos a
+  // zero de proposito — isso mascararia a inconsistencia. Mas quem aprovou
+  // precisa saber, entao o negativo volta na resposta e vai para a auditoria.
+  const negativos = await prisma.$queryRaw<Array<{ productName: string; currentQuantity: Prisma.Decimal }>>`
+    SELECT item."productName", stock."currentQuantity"
+    FROM "OperationalInventoryItem" item
+    JOIN "InventoryStock" stock ON stock."productId" = item."productId"
+    WHERE item."inventoryId" = ${id} AND stock."currentQuantity" < 0
+  `;
+
+  const totalDelta = itens.reduce((soma, item) => soma + Number(item.differenceQuantity), 0);
+  await auditLog({
+    userId: user.id,
+    action: "RECONCILE_STOCK_FROM_INVENTORY",
+    entity: "OperationalInventory",
+    entityId: id,
+    newValue: {
+      code: inventory.code,
+      adjustedItems: itens.length,
+      totalDelta,
+      saldosNegativos: negativos.map((n) => ({ produto: n.productName, saldo: String(n.currentQuantity) })),
+      amostra: itens.slice(0, 50).map((item) => ({
+        produto: item.productName,
+        un: item.unit,
+        delta: String(item.differenceQuantity)
+      }))
+    }
+  });
+  return {
+    adjustedItems: itens.length,
+    totalDelta,
+    negativeBalances: negativos.map((n) => ({ produto: n.productName, saldo: Number(n.currentQuantity) }))
+  };
+}
+
 async function createInventorySnapshotFromOperationalInventory(id: string, user: SessionUser) {
   const inventory = await getOperationalInventoryOrThrow(id);
   if (inventory.type !== "FINAL_CMV" || !finalOperationalInventoryStatuses.has(inventory.status)) return inventory.inventorySnapshotId;
@@ -3624,7 +3762,12 @@ inventoryRouter.patch("/operational/:id/approve", async (request, response) => {
       previousValue: { status: inventory.status },
       newValue: { status: "APROVADO" }
     });
-    response.json(await getOperationalInventorySummary(request.params.id));
+    // Aprovar e o momento em que alguem assina embaixo de que a contagem esta
+    // certa. So aqui o estoque passa a valer o que foi contado. Roda depois do
+    // snapshot: se a base de CMV falhar, a aprovacao e desfeita e o estoque nao
+    // pode ter sido mexido.
+    const reconciliacao = await reconcileStockFromOperationalInventory(request.params.id, user);
+    response.json({ ...(await getOperationalInventorySummary(request.params.id)), reconciliacao });
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao aprovar inventario." });
   }

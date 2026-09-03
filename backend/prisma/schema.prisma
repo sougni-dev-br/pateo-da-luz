@@ -743,6 +743,7 @@ model InventoryMovement {
   sourcePurchaseItemId  String?
   sourceStockCountId    String?
   sourceRequisitionId   String?
+  sourceOperationalInventoryId String?
   responsibleUserId     String?
   notes                 String?
   isCancelled           Boolean               @default(false)
@@ -947,6 +948,7 @@ model OperationalInventory {
   cancelReason        String?
   inventorySnapshotId String?
   sourceStockCountSessionId String?
+  stockReconciledAt   DateTime?
   items               OperationalInventoryItem[]
   createdAt           DateTime                   @default(now())
   updatedAt           DateTime                   @updatedAt
