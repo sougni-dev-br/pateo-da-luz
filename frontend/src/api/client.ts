@@ -2843,6 +2843,20 @@ export function createStockCountSession(payload: {
   });
 }
 
+export type StockCountPlausibility = {
+  itemId: string;
+  median: number | null;
+  maxCount: number | null;
+  weakBaseline: boolean;
+  erraticHistory: boolean;
+  observations: number;
+  purchasedEver: number | null;
+};
+
+export function getStockCountSessionPlausibility(id: string) {
+  return request<StockCountPlausibility[]>(`/inventory/count-sessions/${id}/plausibility`);
+}
+
 export function getStockCountSession(id: string) {
   return request<StockCountSessionDetail>(`/inventory/count-sessions/${id}`).then(normalizeStockCountSessionDetail);
 }
