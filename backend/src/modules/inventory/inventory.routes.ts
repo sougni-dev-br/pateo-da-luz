@@ -4680,7 +4680,12 @@ inventoryRouter.post("/requisitions", async (request, response) => {
 
   console.log(`[requisition] creating ${code} items=${parsedItems.length} ms=${Date.now() - t0}`);
 
-  await prisma.$executeRaw`
+  // Requisicao, movimentos e baixa de saldo sao uma coisa so. Antes era um laco
+  // de escritas soltas: falhar no meio de uma requisicao de dez itens deixava os
+  // primeiros ja baixados do estoque e os demais nao, com a requisicao gravada
+  // pela metade — saida de estoque sem documento que a justifique.
+  await prisma.$transaction(async (tx) => {
+  await tx.$executeRaw`
     INSERT INTO "InventoryRequisition" (
       "id", "clientRequestId", "code", "date", "shift", "reason", "reasonNotes", "sectorId", "sectorName",
       "requestedByUserId", "status", "notes", "createdAt", "updatedAt"
@@ -4700,7 +4705,7 @@ inventoryRouter.post("/requisitions", async (request, response) => {
     const movementId = crypto.randomUUID();
     const requisitionItemId = crypto.randomUUID();
 
-    await prisma.$executeRaw`
+    await tx.$executeRaw`
       INSERT INTO "InventoryMovement" (
         "id", "productId", "type", "quantity", "unit", "responsibleUserId",
         "sourceRequisitionId", "notes"
@@ -4719,9 +4724,9 @@ inventoryRouter.post("/requisitions", async (request, response) => {
       unitMeasureId: null,
       unitCost: null,
       totalCost: null
-    });
+    }, tx);
 
-    await prisma.$executeRaw`
+    await tx.$executeRaw`
       INSERT INTO "InventoryRequisitionItem" (
         "id", "requisitionId", "productId", "productName", "productCode",
         "unit", "quantity", "movementId", "stockBefore", "stockAfter", "createdAt"
@@ -4734,6 +4739,7 @@ inventoryRouter.post("/requisitions", async (request, response) => {
       )
     `;
   }
+  }, { timeout: 120_000, maxWait: 15_000 });
 
   await auditLog({
     userId: user.id,
