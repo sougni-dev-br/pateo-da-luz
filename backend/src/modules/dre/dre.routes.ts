@@ -103,8 +103,14 @@ const SEED_CATEGORIES = [
 // ─────────────────────────────────────────────
 
 function parseLocalDate(s: string): Date | null {
-  // Parse YYYY-MM-DD as LOCAL midnight (not UTC) so date display matches input.
-  // new Date("2026-05-01") creates UTC midnight, which in UTC-3 is April 30 — wrong.
+  // Monta a meia-noite no fuso do PROCESSO, nao a partir da string ISO.
+  // new Date("2026-05-01") seria meia-noite UTC; em UTC-3 isso vira 30/04.
+  //
+  // O fuso do processo e travado em UTC (render.yaml e .env.example), entao o
+  // resultado e deterministico e bate com como as datas sao gravadas. Rodar
+  // com outro TZ desalinha leitura e escrita: ha 22 titulos que vencem no dia
+  // 1 gravados as 00:00Z (R$ 98 mil) que, lidos em UTC-3, cairiam no mes
+  // anterior. O server avisa no boot se o fuso nao for UTC.
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
   if (!m) return null;
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
