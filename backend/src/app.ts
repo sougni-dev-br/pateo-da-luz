@@ -86,8 +86,32 @@ app.use((_request, response, next) => {
 const BUILD_COMMIT = process.env.RENDER_GIT_COMMIT ?? null;
 const BOOTED_AT = new Date().toISOString();
 
+// Fuso do processo. As datas de competencia sao montadas com
+// new Date(ano, mes, dia), que resolve a meia-noite NO FUSO DE QUEM EXECUTA —
+// um fuso diferente do esperado joga o lancamento para outro mes sem erro
+// nenhum. Ja aconteceu: jun/2026 gravou 271 vencimentos as 03:00Z e o resto
+// as 00:00Z. Exposto aqui para dar para conferir de fora, sem abrir o painel
+// do Render e sem esperar o proximo fechamento denunciar.
+const TIMEZONE = {
+  tz: process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
+  offsetMinutes: new Date().getTimezoneOffset(),
+  isUtc: new Date().getTimezoneOffset() === 0
+};
+
 app.get("/health", (_request, response) => {
-  response.json({ status: "ok", commit: BUILD_COMMIT, bootedAt: BOOTED_AT });
+  // status continua sendo so a saude do servico: e o healthCheckPath do Render
+  // e o frontend testa status === "ok" para mostrar ONLINE no login. Fuso errado
+  // nao derruba o servico, entao vira campo proprio — misturar os dois faria a
+  // tela dizer OFFLINE por causa de uma variavel de ambiente.
+  response.json({
+    status: "ok",
+    commit: BUILD_COMMIT,
+    bootedAt: BOOTED_AT,
+    timezone: TIMEZONE,
+    ...(TIMEZONE.isUtc ? {} : {
+      timezoneWarning: "Processo fora de UTC: datas de competencia vao divergir de producao. Defina TZ=UTC."
+    })
+  });
 });
 
 app.use("/auth", authRouter);
