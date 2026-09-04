@@ -2241,8 +2241,16 @@ inventoryRouter.get("/count-sessions/:id/pdf", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
   if (!user) return;
 
+  // A rota de detalhe logo acima documenta a regra do módulo: a contagem é
+  // colaborativa, um começa e outro conclui, e quem tem acesso abre qualquer
+  // sessão. Listagem, detalhe, plausibilidade, edição de itens e conclusão
+  // seguem essa regra; só o PDF tinha um `user.role === "ESTOQUISTA"` preso ao
+  // responsável. Não protegia nada — o mesmo usuário lê e edita a sessão
+  // inteira pelas outras rotas — e ainda respondia 404 "não encontrada" para
+  // uma sessão que existe. Controle de acesso aqui é por permissão, nunca por
+  // cargo; o requireRole acima já delimita quem entra no módulo.
   const session = await getStockCountSessionSummary(request.params.id);
-  if (!session || (user.role === "ESTOQUISTA" && session.responsibleUserId !== user.id)) {
+  if (!session) {
     response.status(404).json({ message: "Contagem de estoque nao encontrada." });
     return;
   }
