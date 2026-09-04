@@ -51,3 +51,18 @@ exports/
 docs/99food/swagger.yaml
 docs/99food/*.pdf
 docs/99food/private/
+
+# Rascunhos de sessão — a convenção do projeto é prefixo "_" na raiz e no
+# backend (_audit.bat, _test_import.ts, _extrato_teste.pdf...). Entre eles
+# ficam PDFs do Extrato Mensal do RH, com nome, CPF e líquido de cada
+# funcionário: um "git add ." distraído levaria folha de pagamento pro
+# repositório. Nenhum arquivo rastreado casa com estas regras.
+/_*
+/backend/_*
+
+# CSVs operacionais gerados pelos scripts (recontagem, exports pontuais).
+# Carregam dados de estoque e custo; ficam locais.
+/*.csv
+
+# Pacotes de deploy do frontend gerados na raiz.
+/pateo-frontend-dist.zip
