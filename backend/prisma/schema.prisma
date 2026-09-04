@@ -1722,6 +1722,9 @@ model DeliveryStore {
   ifoodFees              IfoodFee[]
   ifoodSyncLogs          IfoodSyncLog[]
   ifoodMonthlyExpenses   IfoodMonthlyExpense[]
+  ifoodFinancialEvents   IfoodFinancialEvent[]
+  ifoodReconciliationItems IfoodReconciliationItem[]
+  ifoodAnticipations     IfoodAnticipation[]
 
   noventaNoveSales           NoventaNoveSale[]
   noventaNoveSettlements     NoventaNoveSettlement[]
@@ -1825,6 +1828,82 @@ model IfoodSyncLog {
 // Contas a Receber — modelo genérico, cobre iFood settlements,
 // futuros 99 Food/Keeta, eventos/empreitadas e outras fontes.
 // =====================================================================
+
+// =====================================================================
+// Financial Events — eventos de crédito/débito do iFood (ajustes, estornos,
+// cancelamentos etc). Exigido pra homologação da API v3.
+// =====================================================================
+
+model IfoodFinancialEvent {
+  id              String        @id @default(cuid())
+  deliveryStoreId String
+  deliveryStore   DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  externalId      String
+  eventType       String
+  eventDate       DateTime
+  competenceYear  Int
+  competenceMonth Int
+  amount          Decimal       @db.Decimal(14, 2)
+  description     String?
+  referenceOrderId String?
+  status          String?
+  rawPayload      Json?
+  createdAt       DateTime      @default(now())
+
+  @@unique([deliveryStoreId, externalId], map: "ifev_store_external_uniq")
+  @@index([deliveryStoreId, competenceYear, competenceMonth], map: "ifev_store_competence_idx")
+  @@index([deliveryStoreId, eventDate], map: "ifev_store_date_idx")
+}
+
+// =====================================================================
+// Reconciliation — conciliação item-a-item (venda x componente do repasse).
+// =====================================================================
+
+model IfoodReconciliationItem {
+  id              String        @id @default(cuid())
+  deliveryStoreId String
+  deliveryStore   DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  externalId      String
+  referenceDate   DateTime
+  competenceYear  Int
+  competenceMonth Int
+  itemType        String
+  orderId         String?
+  amount          Decimal       @db.Decimal(14, 2)
+  description     String?
+  settlementRef   String?
+  rawPayload      Json?
+  createdAt       DateTime      @default(now())
+
+  @@unique([deliveryStoreId, externalId], map: "ifrec_store_external_uniq")
+  @@index([deliveryStoreId, competenceYear, competenceMonth], map: "ifrec_store_competence_idx")
+  @@index([deliveryStoreId, referenceDate], map: "ifrec_store_date_idx")
+}
+
+// =====================================================================
+// Anticipations — antecipações de recebíveis (loja paga taxa pra receber antes).
+// =====================================================================
+
+model IfoodAnticipation {
+  id              String        @id @default(cuid())
+  deliveryStoreId String
+  deliveryStore   DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  externalId      String
+  requestedAt     DateTime
+  paidAt          DateTime?
+  competenceYear  Int
+  competenceMonth Int
+  requestedAmount Decimal       @db.Decimal(14, 2)
+  feeAmount       Decimal       @default(0) @db.Decimal(14, 2)
+  netAmount       Decimal       @db.Decimal(14, 2)
+  status          String
+  rawPayload      Json?
+  createdAt       DateTime      @default(now())
+
+  @@unique([deliveryStoreId, externalId], map: "ifant_store_external_uniq")
+  @@index([deliveryStoreId, competenceYear, competenceMonth], map: "ifant_store_competence_idx")
+  @@index([deliveryStoreId, requestedAt], map: "ifant_store_date_idx")
+}
 
 // =====================================================================
 // Despesas mensais iFood — modelo dedicado (não pollui Product/Purchase).

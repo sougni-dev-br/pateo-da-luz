@@ -115,4 +115,110 @@ export async function getMaintenanceFees(params: MaintenanceParams): Promise<Ifo
   return data.fees ?? data.content ?? [];
 }
 
+// ============================================================================
+// Financial Events, Reconciliation, Anticipations — exigidos pela homologação
+// ============================================================================
+
+export type IfoodFinancialEventResponse = {
+  id?: string;
+  eventId?: string;
+  externalId?: string;
+  type?: string;
+  eventType?: string;
+  category?: string;
+  createdAt?: string;
+  eventDate?: string;
+  competence?: string;
+  amount?: number;
+  value?: number;
+  description?: string;
+  reference?: string;
+  referenceOrderId?: string;
+  orderId?: string;
+  status?: string;
+};
+
+type EventsParams = {
+  merchantId: string;
+  beginDate: string;
+  endDate: string;
+};
+
+export async function getFinancialEvents(params: EventsParams): Promise<IfoodFinancialEventResponse[]> {
+  const data = await callIfood<{ events?: IfoodFinancialEventResponse[]; content?: IfoodFinancialEventResponse[] } | IfoodFinancialEventResponse[]>({
+    path: `/financial/v3.0/merchants/${encodeURIComponent(params.merchantId)}/financialEvents`,
+    query: {
+      beginDate: params.beginDate,
+      endDate: params.endDate
+    }
+  });
+  if (Array.isArray(data)) return data;
+  return data.events ?? data.content ?? [];
+}
+
+export type IfoodReconciliationItemResponse = {
+  id?: string;
+  externalId?: string;
+  type?: string;
+  itemType?: string;
+  category?: string;
+  referenceDate?: string;
+  date?: string;
+  createdAt?: string;
+  orderId?: string;
+  amount?: number;
+  value?: number;
+  description?: string;
+  settlementId?: string;
+  settlementRef?: string;
+};
+
+type ReconciliationParams = {
+  merchantId: string;
+  competence: string;
+};
+
+export async function getReconciliation(params: ReconciliationParams): Promise<IfoodReconciliationItemResponse[]> {
+  const data = await callIfood<{ items?: IfoodReconciliationItemResponse[]; content?: IfoodReconciliationItemResponse[] } | IfoodReconciliationItemResponse[]>({
+    path: `/financial/v3.0/merchants/${encodeURIComponent(params.merchantId)}/reconciliation`,
+    query: { competence: params.competence }
+  });
+  if (Array.isArray(data)) return data;
+  return data.items ?? data.content ?? [];
+}
+
+export type IfoodAnticipationResponse = {
+  id?: string;
+  externalId?: string;
+  status?: string;
+  requestedAt?: string;
+  createdAt?: string;
+  paidAt?: string;
+  paymentDate?: string;
+  requestedAmount?: number;
+  amount?: number;
+  fee?: number;
+  feeAmount?: number;
+  net?: number;
+  netAmount?: number;
+};
+
+type AnticipationsParams = {
+  merchantId: string;
+  beginDate: string;
+  endDate: string;
+};
+
+export async function getAnticipations(params: AnticipationsParams): Promise<IfoodAnticipationResponse[]> {
+  const data = await callIfood<{ anticipations?: IfoodAnticipationResponse[]; content?: IfoodAnticipationResponse[] } | IfoodAnticipationResponse[]>({
+    path: `/financial/v3.0/merchants/${encodeURIComponent(params.merchantId)}/anticipations`,
+    query: {
+      beginDate: params.beginDate,
+      endDate: params.endDate
+    }
+  });
+  if (Array.isArray(data)) return data;
+  return data.anticipations ?? data.content ?? [];
+}
+
 export { IfoodApiException };

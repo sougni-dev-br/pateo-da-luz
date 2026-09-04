@@ -76,7 +76,7 @@ const emptyForm: FormState = {
 };
 
 // Horário fixo do envio diário. Se mudar o cron externo, atualizar aqui.
-const CRON_HOUR_SP = 23;
+const CRON_HOUR_SP = 22;
 
 function prettyPhone(raw: string): string {
   const digits = raw.replace(/\D/g, "");

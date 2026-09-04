@@ -4577,6 +4577,48 @@ export function getIfoodInsights(params: { year: number; month: number }) {
   return request<PainelDonoInsights>(`/integrations/delivery/ifood/insights?${query.toString()}`);
 }
 
+export type IfoodFinancialEventRow = {
+  id: string;
+  externalId: string;
+  storeNickname: string;
+  eventType: string;
+  eventDate: string;
+  amount: number;
+  description: string | null;
+  referenceOrderId: string | null;
+  status: string | null;
+};
+
+export type IfoodReconciliationRow = {
+  id: string;
+  externalId: string;
+  storeNickname: string;
+  itemType: string;
+  referenceDate: string;
+  orderId: string | null;
+  amount: number;
+  description: string | null;
+  settlementRef: string | null;
+};
+
+export type IfoodAnticipationRow = {
+  id: string;
+  externalId: string;
+  storeNickname: string;
+  requestedAt: string;
+  paidAt: string | null;
+  requestedAmount: number;
+  feeAmount: number;
+  netAmount: number;
+  status: string;
+};
+
+export function getIfoodAudit<T>(kind: "events" | "reconciliation" | "anticipations", params: { year: number; month: number; storeId?: string }) {
+  const query = new URLSearchParams({ year: String(params.year), month: String(params.month) });
+  if (params.storeId) query.set("storeId", params.storeId);
+  return request<T[]>(`/integrations/delivery/ifood/audit/${kind}?${query.toString()}`);
+}
+
 export type IfoodConnectionTest = {
   ok: boolean;
   message: string;

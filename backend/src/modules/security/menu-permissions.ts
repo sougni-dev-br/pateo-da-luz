@@ -38,6 +38,7 @@ export const menuCatalog = [
   { id: "employees", label: "Funcionarios", group: "Pessoal" },
   { id: "schedule", label: "Escala", group: "Pessoal" },
   { id: "payroll", label: "Folha de Pagamento", group: "Pessoal" },
+  { id: "payroll-tips", label: "Folha da Gorjeta", group: "Pessoal" },
   { id: "import", label: "Importacoes", group: "Dados" },
   { id: "catalog-imports", label: "Importar cadastros", group: "Dados" },
   { id: "payment-methods", label: "Metodos de pagamento", group: "Configuracoes" },
@@ -361,6 +362,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/companies")) return "companies";
   if (path.startsWith("/employees")) return "employees";
   if (path.startsWith("/schedule")) return "schedule";
+  if (path.startsWith("/payroll/tip")) return "payroll-tips";
   if (path.startsWith("/payroll")) return "payroll";
   if (path.startsWith("/products")) return "products";
   if (path.startsWith("/payment-methods")) return "payment-methods";
