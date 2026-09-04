@@ -1,18 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { Store, TrendingDown, TrendingUp, ShoppingBag, Percent, Truck as TruckIcon } from "lucide-react";
 import {
+  getIfoodAudit,
   getIfoodStores,
   getIfoodSummary,
+  type IfoodAnticipationRow,
+  type IfoodFinancialEventRow,
   type IfoodPeriodSummary,
+  type IfoodReconciliationRow,
   type IfoodStoreView
 } from "../api/client";
 import { Alert, Card, Money, PanelEyebrow, Select, SummaryCard, Table, Tabs } from "../design-system";
 import { DeliveryIfoodPainel } from "./DeliveryIfoodPainel";
 
-type ViewMode = "painel" | "detalhado";
+type ViewMode = "painel" | "detalhado" | "auditoria";
 const TAB_ITEMS = [
   { value: "painel", label: "Painel do dono" },
-  { value: "detalhado", label: "Detalhado" }
+  { value: "detalhado", label: "Detalhado" },
+  { value: "auditoria", label: "Auditoria (homologação)" }
 ];
 
 // Tela de faturamento delivery iFood — Fase 1 com mock, mesma UI serve pra dados reais.
@@ -118,14 +123,199 @@ export function DeliveryIfood() {
         </div>
       </Card>
 
-      {view === "painel" ? (
-        <DeliveryIfoodPainel year={year} month={month} />
-      ) : (
+      {view === "painel" && <DeliveryIfoodPainel year={year} month={month} />}
+      {view === "detalhado" && (
         <DeliveryIfoodDetalhado
           summary={summary}
           loading={loading}
           error={error}
         />
+      )}
+      {view === "auditoria" && (
+        <DeliveryIfoodAuditoria
+          year={year}
+          month={month}
+          storeId={selectedStore === CONSOLIDATED_KEY ? undefined : selectedStore}
+        />
+      )}
+    </div>
+  );
+}
+
+type AuditProps = { year: number; month: number; storeId?: string };
+
+function DeliveryIfoodAuditoria({ year, month, storeId }: AuditProps) {
+  const [subTab, setSubTab] = useState<"events" | "reconciliation" | "anticipations">("events");
+  const [events, setEvents] = useState<IfoodFinancialEventRow[]>([]);
+  const [rec, setRec] = useState<IfoodReconciliationRow[]>([]);
+  const [ant, setAnt] = useState<IfoodAnticipationRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      getIfoodAudit<IfoodFinancialEventRow>("events", { year, month, storeId }).catch(() => []),
+      getIfoodAudit<IfoodReconciliationRow>("reconciliation", { year, month, storeId }).catch(() => []),
+      getIfoodAudit<IfoodAnticipationRow>("anticipations", { year, month, storeId }).catch(() => [])
+    ]).then(([e, r, a]) => {
+      if (!alive) return;
+      setEvents(Array.isArray(e) ? e : []);
+      setRec(Array.isArray(r) ? r : []);
+      setAnt(Array.isArray(a) ? a : []);
+    }).catch((err) => {
+      if (alive) setError(err instanceof Error ? err.message : "Falha ao carregar auditoria.");
+    }).finally(() => {
+      if (alive) setLoading(false);
+    });
+    return () => { alive = false; };
+  }, [year, month, storeId]);
+
+  return (
+    <div style={{ display: "grid", gap: "16px" }}>
+      <Alert tone="info" title="Dados para responder o formulário de homologação">
+        Estas três abas exibem o retorno cru dos endpoints Financial Events, Reconciliation e Anticipations —
+        exatamente os dados que o iFood pergunta no formulário de 20 questões.
+        Filtra por loja no seletor acima pra ver os dados de um merchant específico.
+      </Alert>
+
+      {error && <Alert tone="error">{error}</Alert>}
+
+      <Tabs
+        tabs={[
+          { value: "events", label: `Financial Events (${events.length})` },
+          { value: "reconciliation", label: `Reconciliation (${rec.length})` },
+          { value: "anticipations", label: `Anticipations (${ant.length})` }
+        ]}
+        value={subTab}
+        onChange={(v) => setSubTab(v as "events" | "reconciliation" | "anticipations")}
+      />
+
+      {loading && <p style={{ padding: "16px", textAlign: "center" }}>Carregando…</p>}
+
+      {subTab === "events" && (
+        <Card>
+          <PanelEyebrow>Financial Events</PanelEyebrow>
+          <p style={{ fontSize: "12px", color: "var(--color-text-muted, #6b7280)", margin: "4px 0 12px 0" }}>
+            Ajustes, estornos, créditos e débitos avulsos entre iFood e loja.
+          </p>
+          {events.length === 0 ? (
+            <p style={{ padding: "16px", color: "var(--color-text-muted, #6b7280)" }}>Sem eventos no período.</p>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <Table>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Loja</th>
+                    <th>Tipo</th>
+                    <th>Descrição</th>
+                    <th>Pedido ref.</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: "right" }}>Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {events.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.eventDate}</td>
+                      <td>{r.storeNickname}</td>
+                      <td><b>{r.eventType}</b></td>
+                      <td>{r.description ?? "—"}</td>
+                      <td>{r.referenceOrderId ?? "—"}</td>
+                      <td>{r.status ?? "—"}</td>
+                      <td style={{ textAlign: "right" }}><Money value={r.amount} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {subTab === "reconciliation" && (
+        <Card>
+          <PanelEyebrow>Reconciliation</PanelEyebrow>
+          <p style={{ fontSize: "12px", color: "var(--color-text-muted, #6b7280)", margin: "4px 0 12px 0" }}>
+            Conciliação item-a-item: cada componente do repasse vs a venda que o gerou.
+          </p>
+          {rec.length === 0 ? (
+            <p style={{ padding: "16px", color: "var(--color-text-muted, #6b7280)" }}>Sem itens no período.</p>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <Table>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Loja</th>
+                    <th>Tipo</th>
+                    <th>Pedido</th>
+                    <th>Descrição</th>
+                    <th>Repasse</th>
+                    <th style={{ textAlign: "right" }}>Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rec.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.referenceDate}</td>
+                      <td>{r.storeNickname}</td>
+                      <td><b>{r.itemType}</b></td>
+                      <td>{r.orderId ?? "—"}</td>
+                      <td>{r.description ?? "—"}</td>
+                      <td>{r.settlementRef ?? "—"}</td>
+                      <td style={{ textAlign: "right" }}><Money value={r.amount} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {subTab === "anticipations" && (
+        <Card>
+          <PanelEyebrow>Anticipations</PanelEyebrow>
+          <p style={{ fontSize: "12px", color: "var(--color-text-muted, #6b7280)", margin: "4px 0 12px 0" }}>
+            Antecipações de repasses. Loja paga taxa pra receber antes do prazo padrão.
+          </p>
+          {ant.length === 0 ? (
+            <p style={{ padding: "16px", color: "var(--color-text-muted, #6b7280)" }}>Sem antecipações no período.</p>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <Table>
+                <thead>
+                  <tr>
+                    <th>Solicitado em</th>
+                    <th>Pago em</th>
+                    <th>Loja</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: "right" }}>Solicitado</th>
+                    <th style={{ textAlign: "right" }}>Taxa</th>
+                    <th style={{ textAlign: "right" }}>Líquido</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ant.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.requestedAt}</td>
+                      <td>{r.paidAt ?? "—"}</td>
+                      <td>{r.storeNickname}</td>
+                      <td>{r.status}</td>
+                      <td style={{ textAlign: "right" }}><Money value={r.requestedAmount} /></td>
+                      <td style={{ textAlign: "right" }}><Money value={r.feeAmount} /></td>
+                      <td style={{ textAlign: "right" }}><b><Money value={r.netAmount} /></b></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+          )}
+        </Card>
       )}
     </div>
   );

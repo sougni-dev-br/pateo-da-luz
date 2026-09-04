@@ -155,6 +155,17 @@ export type IfoodRequestOptions = {
   body?: unknown;
 };
 
+// Enquanto a credencial estiver em SANDBOX o iFood exige o header
+// `x-request-homologation: true` — é como eles contabilizam as chamadas
+// da homologação e validam os cenários. Em PRODUCTION o header não vai.
+async function homologationHeaders(): Promise<Record<string, string>> {
+  const cred = await prisma.ifoodCredential.findFirst({ where: { active: true } });
+  if (cred?.environment === "SANDBOX") {
+    return { "x-request-homologation": "true" };
+  }
+  return {};
+}
+
 export async function callIfood<T>(options: IfoodRequestOptions): Promise<T> {
   const token = await getAccessToken();
   const url = new URL(`${IFOOD_BASE_URL}${options.path}`);
@@ -163,11 +174,13 @@ export async function callIfood<T>(options: IfoodRequestOptions): Promise<T> {
       if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
     }
   }
+  const homologHeaders = await homologationHeaders();
   const response = await fetchWithTimeout(url.toString(), {
     method: options.method ?? "GET",
     headers: {
       "Authorization": `Bearer ${token}`,
       "Accept": "application/json",
+      ...homologHeaders,
       ...(options.body ? { "Content-Type": "application/json" } : {})
     },
     body: options.body ? JSON.stringify(options.body) : undefined
@@ -181,6 +194,7 @@ export async function callIfood<T>(options: IfoodRequestOptions): Promise<T> {
       headers: {
         "Authorization": `Bearer ${retryToken}`,
         "Accept": "application/json",
+        ...homologHeaders,
         ...(options.body ? { "Content-Type": "application/json" } : {})
       },
       body: options.body ? JSON.stringify(options.body) : undefined
