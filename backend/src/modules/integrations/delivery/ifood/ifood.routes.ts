@@ -17,6 +17,7 @@ import {
 } from "./ifood.types.js";
 import { getPainelDonoInsights } from "./ifood-insights.service.js";
 import { testIfoodConnection } from "./ifood-http-client.js";
+import { prisma } from "../../../../config/database.js";
 
 export const ifoodDeliveryRouter = Router();
 
@@ -117,6 +118,85 @@ ifoodDeliveryRouter.post("/sync", async (request, response) => {
   const month = Number(request.body?.month) || (now.getMonth() + 1);
   const result = await runSmartSync(user.id ?? null, year, month);
   response.json(result);
+});
+
+// Auditoria financeira — endpoints exigidos na homologação, consultáveis
+// pra responder o formulário de perguntas do iFood.
+ifoodDeliveryRouter.get("/audit/:kind", async (request, response) => {
+  const user = await requireRole(request, response, [...READ_ROLES]);
+  if (!user) return;
+  const parsed = periodQuerySchema.safeParse(request.query);
+  if (!parsed.success) {
+    response.status(400).json({ message: "Parâmetros inválidos", errors: parsed.error.flatten() });
+    return;
+  }
+  const { year, month, storeId } = parsed.data;
+  const baseWhere: Record<string, unknown> = { competenceYear: year, competenceMonth: month };
+  if (storeId) baseWhere.deliveryStoreId = storeId;
+  const kind = request.params.kind;
+  try {
+    if (kind === "events") {
+      const rows = await prisma.ifoodFinancialEvent.findMany({
+        where: baseWhere,
+        orderBy: { eventDate: "asc" },
+        include: { deliveryStore: { select: { nickname: true } } }
+      });
+      response.json(rows.map((r) => ({
+        id: r.id,
+        externalId: r.externalId,
+        storeNickname: r.deliveryStore.nickname,
+        eventType: r.eventType,
+        eventDate: r.eventDate.toISOString().slice(0, 10),
+        amount: Number(r.amount),
+        description: r.description,
+        referenceOrderId: r.referenceOrderId,
+        status: r.status
+      })));
+      return;
+    }
+    if (kind === "reconciliation") {
+      const rows = await prisma.ifoodReconciliationItem.findMany({
+        where: baseWhere,
+        orderBy: { referenceDate: "asc" },
+        include: { deliveryStore: { select: { nickname: true } } }
+      });
+      response.json(rows.map((r) => ({
+        id: r.id,
+        externalId: r.externalId,
+        storeNickname: r.deliveryStore.nickname,
+        itemType: r.itemType,
+        referenceDate: r.referenceDate.toISOString().slice(0, 10),
+        orderId: r.orderId,
+        amount: Number(r.amount),
+        description: r.description,
+        settlementRef: r.settlementRef
+      })));
+      return;
+    }
+    if (kind === "anticipations") {
+      const rows = await prisma.ifoodAnticipation.findMany({
+        where: baseWhere,
+        orderBy: { requestedAt: "asc" },
+        include: { deliveryStore: { select: { nickname: true } } }
+      });
+      response.json(rows.map((r) => ({
+        id: r.id,
+        externalId: r.externalId,
+        storeNickname: r.deliveryStore.nickname,
+        requestedAt: r.requestedAt.toISOString().slice(0, 10),
+        paidAt: r.paidAt ? r.paidAt.toISOString().slice(0, 10) : null,
+        requestedAmount: Number(r.requestedAmount),
+        feeAmount: Number(r.feeAmount),
+        netAmount: Number(r.netAmount),
+        status: r.status
+      })));
+      return;
+    }
+    response.status(400).json({ message: "kind inválido. Use events, reconciliation ou anticipations." });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Erro ao carregar auditoria";
+    response.status(500).json({ message });
+  }
 });
 
 ifoodDeliveryRouter.post("/sync-mock-only", async (request, response) => {

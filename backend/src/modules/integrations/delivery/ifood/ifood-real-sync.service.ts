@@ -1,5 +1,5 @@
 import { prisma } from "../../../../config/database.js";
-import { getSales, getSettlements, getMaintenanceFees, IfoodApiException } from "./ifood-financial-api.js";
+import { getSales, getSettlements, getMaintenanceFees, getFinancialEvents, getReconciliation, getAnticipations, IfoodApiException } from "./ifood-financial-api.js";
 import { hasValidCredential } from "./ifood-http-client.js";
 import { upsertReceivableFromIfoodSettlement } from "../../../receivables/receivable.service.js";
 
@@ -335,6 +335,125 @@ async function reflectFeesIntoMonthlyExpense(store: { id: string; companyId: str
   return 1;
 }
 
+async function syncStoreFinancialEvents(store: { id: string; externalId: string }, year: number, month: number): Promise<number> {
+  const events = await getFinancialEvents({
+    merchantId: store.externalId,
+    beginDate: firstDayOfMonth(year, month),
+    endDate: endDateCapped(year, month)
+  });
+
+  await prisma.ifoodFinancialEvent.deleteMany({
+    where: { deliveryStoreId: store.id, competenceYear: year, competenceMonth: month }
+  });
+
+  let count = 0;
+  for (const ev of events) {
+    const externalId = ev.id ?? ev.eventId ?? ev.externalId;
+    if (!externalId) continue;
+    const eventDate = ev.eventDate ?? ev.createdAt ?? firstDayOfMonth(year, month);
+    const comp = parseCompetence(ev.competence ?? eventDate, { year, month });
+    await prisma.ifoodFinancialEvent.create({
+      data: {
+        deliveryStoreId: store.id,
+        externalId,
+        eventType: (ev.type ?? ev.eventType ?? ev.category ?? "UNKNOWN").toUpperCase(),
+        eventDate: new Date(eventDate),
+        competenceYear: comp.year,
+        competenceMonth: comp.month,
+        amount: toDecimal(ev.amount ?? ev.value),
+        description: ev.description ?? null,
+        referenceOrderId: ev.referenceOrderId ?? ev.orderId ?? ev.reference ?? null,
+        status: ev.status ?? null,
+        rawPayload: ev as object
+      }
+    });
+    count += 1;
+  }
+  return count;
+}
+
+async function syncStoreReconciliation(store: { id: string; externalId: string }, year: number, month: number): Promise<number> {
+  const competence = `${year}-${String(month).padStart(2, "0")}`;
+  const items = await getReconciliation({ merchantId: store.externalId, competence });
+
+  await prisma.ifoodReconciliationItem.deleteMany({
+    where: { deliveryStoreId: store.id, competenceYear: year, competenceMonth: month }
+  });
+
+  let count = 0;
+  for (const it of items) {
+    const externalId = it.id ?? it.externalId;
+    if (!externalId) continue;
+    const referenceDate = it.referenceDate ?? it.date ?? it.createdAt ?? firstDayOfMonth(year, month);
+    await prisma.ifoodReconciliationItem.create({
+      data: {
+        deliveryStoreId: store.id,
+        externalId,
+        referenceDate: new Date(referenceDate),
+        competenceYear: year,
+        competenceMonth: month,
+        itemType: (it.type ?? it.itemType ?? it.category ?? "UNKNOWN").toUpperCase(),
+        orderId: it.orderId ?? null,
+        amount: toDecimal(it.amount ?? it.value),
+        description: it.description ?? null,
+        settlementRef: it.settlementId ?? it.settlementRef ?? null,
+        rawPayload: it as object
+      }
+    });
+    count += 1;
+  }
+  return count;
+}
+
+async function syncStoreAnticipations(store: { id: string; externalId: string }, year: number, month: number): Promise<number> {
+  const rows = await getAnticipations({
+    merchantId: store.externalId,
+    beginDate: firstDayOfMonth(year, month),
+    endDate: endDateCapped(year, month)
+  });
+
+  let count = 0;
+  for (const row of rows) {
+    const externalId = row.id ?? row.externalId;
+    if (!externalId) continue;
+    const requestedAt = row.requestedAt ?? row.createdAt ?? firstDayOfMonth(year, month);
+    const requested = toDecimal(row.requestedAmount ?? row.amount);
+    const fee = toDecimal(row.fee ?? row.feeAmount);
+    const net = toDecimal(row.net ?? row.netAmount, requested - fee);
+    await prisma.ifoodAnticipation.upsert({
+      where: {
+        deliveryStoreId_externalId: {
+          deliveryStoreId: store.id,
+          externalId
+        }
+      },
+      create: {
+        deliveryStoreId: store.id,
+        externalId,
+        requestedAt: new Date(requestedAt),
+        paidAt: row.paidAt ? new Date(row.paidAt) : row.paymentDate ? new Date(row.paymentDate) : null,
+        competenceYear: year,
+        competenceMonth: month,
+        requestedAmount: requested,
+        feeAmount: fee,
+        netAmount: net,
+        status: row.status ?? "UNKNOWN",
+        rawPayload: row as object
+      },
+      update: {
+        paidAt: row.paidAt ? new Date(row.paidAt) : row.paymentDate ? new Date(row.paymentDate) : null,
+        requestedAmount: requested,
+        feeAmount: fee,
+        netAmount: net,
+        status: row.status ?? "UNKNOWN",
+        rawPayload: row as object
+      }
+    });
+    count += 1;
+  }
+  return count;
+}
+
 async function syncStoreFees(store: { id: string; externalId: string }, year: number, month: number): Promise<number> {
   const competence = `${year}-${String(month).padStart(2, "0")}`;
   const fees = await getMaintenanceFees({ merchantId: store.externalId, competence });
@@ -408,7 +527,7 @@ export async function runRealSync(params: {
     }
     // Executa os 3 fetches de forma independente. Um 404/erro num deles
     // não deve invalidar os outros — sandbox pode não expor todos os módulos.
-    const items = { sales: 0, settlements: 0, fees: 0, revenueEntries: 0, monthlyExpense: 0 };
+    const items = { sales: 0, settlements: 0, fees: 0, revenueEntries: 0, monthlyExpense: 0, events: 0, reconciliation: 0, anticipations: 0 };
     const errors: string[] = [];
 
     async function runStep(label: string, fn: () => Promise<number>) {
@@ -430,6 +549,9 @@ export async function runRealSync(params: {
     await runStep("sales", () => syncStoreSales(store, params.year, params.month));
     await runStep("settlements", () => syncStoreSettlements(store, params.year, params.month));
     await runStep("fees", () => syncStoreFees(store, params.year, params.month));
+    await runStep("events", () => syncStoreFinancialEvents(store, params.year, params.month));
+    await runStep("reconciliation", () => syncStoreReconciliation(store, params.year, params.month));
+    await runStep("anticipations", () => syncStoreAnticipations(store, params.year, params.month));
     // Após vendas persistidas, reflete no faturamento oficial do ERP.
     // Não conta como "erro" se não fizer nada — depende de companyId estar setado.
     await runStep("revenueEntries", () => reflectSalesIntoRevenueEntries(store, params.year, params.month));
