@@ -6,13 +6,38 @@ import { prisma } from "../../config/database.js";
 // lookup de ativos. UI vive em /configuracoes/notificacoes.
 
 // Schema Zod: aceita telefone com "-", "(", ")", "+", espaço. Normalizamos
-// para só dígitos antes de gravar. Exige entre 10 e 15 dígitos (DDI+DDD+
-// número), o intervalo E.164 razoável para Brasil e internacional.
+// para só dígitos antes de gravar.
+//
+// O DDI é obrigatório, e essa é a parte que importa. Um celular brasileiro
+// digitado sem ele tem 11 dígitos (11987654321) e passava na faixa antiga de
+// 10 a 15. O sendText concatena o número em "@s.whatsapp.net" sem mais nada,
+// e aí o WhatsApp o lê como internacional: 11987654321 vira +1 (198) 765-4321,
+// um número norte-americano. O resumo diário leva faturamento bruto, líquido,
+// gorjeta, quebra por canal e comparativo do mês — iria inteiro para um
+// desconhecido, e o envio ainda apareceria como bem-sucedido.
+//
+// Recusamos em vez de prefixar 55 por conta própria: converter entrada do
+// usuário em silêncio foi exatamente o que causou o incidente da contagem.
+// A mensagem já mostra o número corrigido, para o conserto ser óbvio.
 const phoneField = z
   .string()
   .transform((s) => s.replace(/\D/g, ""))
-  .refine((s) => s.length >= 10 && s.length <= 15, {
-    message: "Telefone deve ter entre 10 e 15 dígitos (incluindo DDI/DDD)."
+  .superRefine((s, ctx) => {
+    if (s.length < 10 || s.length > 15) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Telefone deve ter entre 10 e 15 dígitos (incluindo DDI/DDD)."
+      });
+      return;
+    }
+    if (s.length <= 11) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          `Faltou o DDI: um número brasileiro precisa começar com 55 (ex.: 55${s}). ` +
+          "Sem ele o WhatsApp entrega a mensagem em outro país."
+      });
+    }
   });
 
 export const createRecipientSchema = z.object({
