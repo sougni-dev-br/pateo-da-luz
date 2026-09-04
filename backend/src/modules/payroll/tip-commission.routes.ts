@@ -2,7 +2,7 @@
 // Registrada em app.ts como:  app.use("/payroll/tip", tipCommissionRouter);
 
 import crypto from "node:crypto";
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
@@ -29,6 +29,42 @@ function parseDateUTC(v: unknown): Date | null {
 }
 
 export const tipCommissionRouter = Router();
+
+// ─── Trava de período fechado ───────────────────────────────────
+// closeTipPeriod só sela o período depois de conferir que a soma dos rateios
+// bate com o pool líquido e que os pontos estão completos. Mas nenhuma rota de
+// escrita olhava esse selo: dava para apagar participante, lançar ou apagar
+// vale e re-sincronizar o cadastro de um período já CLOSED, refazendo por baixo
+// uma conferência que já tinha sido assinada — e sem deixar rastro, porque
+// nenhuma dessas rotas auditava. Quem quiser mexer reabre antes, pela rota
+// /periods/:year/:month/reopen, que registra a reabertura.
+async function periodoDeGorjetaFechado(periodId: string) {
+  const periodo = await prisma.tipPeriod.findUnique({
+    where: { id: periodId },
+    select: { status: true, competenceYear: true, competenceMonth: true },
+  });
+  if (!periodo || periodo.status !== "CLOSED") return null;
+  return `${String(periodo.competenceMonth).padStart(2, "0")}/${periodo.competenceYear}`;
+}
+
+// Responde 409 e devolve true quando a escrita foi barrada.
+async function barrouPorFechamento(periodId: string | null, response: Response, acao: string) {
+  if (!periodId) return false;
+  const mes = await periodoDeGorjetaFechado(periodId);
+  if (!mes) return false;
+  response.status(409).json({
+    message: `A gorjeta de ${mes} está fechada. ${acao} mudaria um rateio já conferido — reabra o período antes.`,
+  });
+  return true;
+}
+
+// Sobe do participante (ou do vale) até o período dono.
+async function periodIdDoParticipante(participantId: string) {
+  const p = await prisma.tipParticipant.findUnique({
+    where: { id: participantId }, select: { periodId: true },
+  });
+  return p?.periodId ?? null;
+}
 
 function parseYearMonth(q: { year?: unknown; month?: unknown }) {
   const now = new Date();
@@ -79,6 +115,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
   const b = request.body as Record<string, unknown>;
   const periodId = request.params.id;
+  if (await barrouPorFechamento(periodId, response, "Alterar o período")) return;
   const gross = numOrNull(b.grossPool);
   const pointsTotalRaw = numOrNull(b.pointsTotal);
   const pointsTotal = pointsTotalRaw == null ? undefined : Math.max(1, Math.round(pointsTotalRaw));
@@ -141,6 +178,7 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
 
   const periodBefore = await prisma.tipPeriod.findUnique({ where: { id: periodId } });
   if (!periodBefore) return response.status(404).json({ message: "Período não encontrado." });
+  if (await barrouPorFechamento(periodId, response, "Alterar os participantes")) return;
 
   // Bloqueio: a soma dos pontos distribuídos não pode ultrapassar o total definido no período.
   const budget = Number(periodBefore.pointsTotal);
@@ -260,6 +298,7 @@ tipCommissionRouter.post("/periods/:id/sync", async (request, response) => {
   const periodId = request.params.id;
   const period = await prisma.tipPeriod.findUnique({ where: { id: periodId } });
   if (!period) return response.status(404).json({ message: "Período não encontrado." });
+  if (await barrouPorFechamento(periodId, response, "Recarregar os participantes")) return;
   const added = await syncParticipantsFromCadastro(periodId);
   const computation = await computeTipCommission(period.competenceYear, period.competenceMonth);
   response.json({ added, computation });
@@ -269,7 +308,33 @@ tipCommissionRouter.post("/periods/:id/sync", async (request, response) => {
 tipCommissionRouter.delete("/participants/:id", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
-  await prisma.tipParticipant.delete({ where: { id: request.params.id } });
+  const participantId = request.params.id;
+  // Fotografa antes: sair do rateio muda o valor de todo mundo (o ponto do
+  // removido volta para o bolo), e até aqui isso não deixava nenhum registro.
+  const antes = await prisma.tipParticipant.findUnique({
+    where: { id: participantId },
+    select: {
+      id: true, periodId: true, employeeId: true, kind: true, points: true,
+      fixedAmount: true, netCommission: true,
+      employee: { select: { displayName: true, firstName: true, lastName: true } },
+    },
+  });
+  if (!antes) return response.status(404).json({ message: "Participante não encontrado." });
+  if (await barrouPorFechamento(antes.periodId, response, "Remover um participante")) return;
+  await prisma.tipParticipant.delete({ where: { id: participantId } });
+  await auditLog({
+    userId: user.id, action: "DELETE_TIP_PARTICIPANT", entity: "TipParticipant",
+    entityId: participantId,
+    previousValue: {
+      periodId: antes.periodId,
+      funcionario: antes.employee?.displayName || `${antes.employee?.firstName ?? ""} ${antes.employee?.lastName ?? ""}`.trim() || antes.employeeId,
+      kind: antes.kind, points: antes.points,
+      fixedAmount: antes.fixedAmount == null ? null : String(antes.fixedAmount),
+      netCommission: antes.netCommission == null ? null : String(antes.netCommission),
+    },
+    newValue: null,
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
   response.json({ ok: true });
 });
 
@@ -280,6 +345,7 @@ tipCommissionRouter.post("/participants/:id/vales", async (request, response) =>
   const b = request.body as Record<string, unknown>;
   const amount = numOrNull(b.amount);
   if (amount == null || amount <= 0) return response.status(400).json({ message: "amount inválido." });
+  if (await barrouPorFechamento(await periodIdDoParticipante(request.params.id), response, "Lançar um vale")) return;
   const type = ["REFEICAO", "VALE_CONSUMO", "RETIRADA_CAIXA", "ADIANTAMENTO", "OUTRO"].includes(String(b.type)) ? String(b.type) : "OUTRO";
   const vale = await prisma.tipVale.create({
     data: {
@@ -298,7 +364,31 @@ tipCommissionRouter.post("/participants/:id/vales", async (request, response) =>
 tipCommissionRouter.delete("/vales/:id", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
-  await prisma.tipVale.delete({ where: { id: request.params.id } });
+  const valeId = request.params.id;
+  // O vale é abatido do rateio (netCommission = rateio − vales). Apagar um
+  // devolve dinheiro ao participante, então precisa de trava e de rastro.
+  const antes = await prisma.tipVale.findUnique({
+    where: { id: valeId },
+    select: {
+      id: true, type: true, amount: true, date: true, notes: true,
+      participant: { select: { id: true, periodId: true, employeeId: true } },
+    },
+  });
+  if (!antes) return response.status(404).json({ message: "Vale não encontrado." });
+  if (await barrouPorFechamento(antes.participant?.periodId ?? null, response, "Apagar um vale")) return;
+  await prisma.tipVale.delete({ where: { id: valeId } });
+  await auditLog({
+    userId: user.id, action: "DELETE_TIP_VALE", entity: "TipVale", entityId: valeId,
+    previousValue: {
+      participantId: antes.participant?.id ?? null,
+      periodId: antes.participant?.periodId ?? null,
+      employeeId: antes.participant?.employeeId ?? null,
+      type: antes.type, amount: String(antes.amount),
+      date: antes.date, notes: antes.notes,
+    },
+    newValue: null,
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
   response.json({ ok: true });
 });
 
