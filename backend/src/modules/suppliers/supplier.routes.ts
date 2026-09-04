@@ -398,7 +398,7 @@ supplierRouter.get("/:id/history", async (request, response) => {
     prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT COALESCE("paymentMethod", 'Sem pagamento') AS "name", COUNT(*)::int AS "count"
       FROM "Purchase"
-      WHERE "supplierId" = ${request.params.id}
+      WHERE "supplierId" = ${request.params.id} AND "status" <> 'CANCELLED'
       GROUP BY COALESCE("paymentMethod", 'Sem pagamento')
       ORDER BY COUNT(*) DESC
     `,
@@ -407,6 +407,7 @@ supplierRouter.get("/:id/history", async (request, response) => {
       FROM "PaymentInstallment" pi
       JOIN "Purchase" pu ON pu."id" = pi."purchaseId"
       WHERE pu."supplierId" = ${request.params.id} AND pi."dueDate" IS NOT NULL
+        AND pu."status" <> 'CANCELLED' AND pi."status" <> 'CANCELLED'
     `
   ]);
 
