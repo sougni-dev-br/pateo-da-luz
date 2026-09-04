@@ -390,7 +390,14 @@ dashboardRouter.get("/alerts", async (request, response) => {
   // independente do timezone da máquina (local, Render, CI).
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-  const in7Days = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+  // Limite exclusivo, para cobrir o sétimo dia inteiro. Com "<= hoje+7" o corte
+  // caia na meia-noite do sétimo dia, e a parcela que vence nele com hora
+  // diferente de 00:00 sumia do painel — 271 dos 793 vencimentos em produção
+  // estão gravados às 03:00, resíduo das competências montadas antes do TZ=UTC.
+  // Um painel de contas a vencer que esconde conta é pior que um que mostra demais.
+  // Contas a Pagar já usava +8 dias no mesmo filtro "próximos 7 dias"; as duas
+  // telas respondiam a mesma pergunta com quase um dia de diferença.
+  const fimDos7Dias = new Date(today.getTime() + 8 * 24 * 60 * 60 * 1000);
 
   // ── 1. Parcelas vencidas (global, não filtrado por competência) ──
   const overdueRows = await prisma.$queryRaw<Array<{ cnt: unknown; total: unknown }>>`
@@ -411,7 +418,7 @@ dashboardRouter.get("/alerts", async (request, response) => {
     WHERE status = 'OPEN'
       AND "dueDate" IS NOT NULL
       AND "dueDate" >= ${today}
-      AND "dueDate" <= ${in7Days}
+      AND "dueDate" < ${fimDos7Dias}
       AND "paidDate" IS NULL
   `;
   const dueSoonCount = Number(dueSoonRows[0]?.cnt ?? 0);
