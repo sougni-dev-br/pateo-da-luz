@@ -66,3 +66,17 @@ docs/99food/private/
 
 # Pacotes de deploy do frontend gerados na raiz.
 /pateo-frontend-dist.zip
+
+# Migration parada, pareada com o stash "ifood-wip" (stash@{0}, 30/07/2026).
+# Cria IfoodFinancialEvent / IfoodReconciliationItem / IfoodAnticipation, que
+# NÃO estão no schema commitado nem em produção — os 79 modelos e as 643 linhas
+# que as usam estão no stash. Ela ficou de fora do stash porque git stash só
+# guarda arquivo rastreado, e a pasta era nova.
+#
+# Por que ignorar em vez de apagar: apagar decapita o lado de banco da feature;
+# commitar é pior — o Render roda "prisma migrate deploy" a cada boot e criaria
+# em produção 3 tabelas que nenhum schema commitado conhece.
+#
+# Entrada única e nomeada, de propósito: regra genérica escondendo migrations
+# seria péssima. Ao retomar o iFood, desempilhe o stash e REMOVA esta linha.
+/backend/prisma/migrations/20260716180000_add_ifood_events_reconciliation_anticipation/
