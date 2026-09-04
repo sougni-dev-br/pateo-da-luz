@@ -5,6 +5,7 @@ import type { ExpenseType, PaymentRegime } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDate } from "../../shared/utils/parse-date.js";
+import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import {
   getPaymentMethodBaseName,
   parseInstallmentCountFromPaymentMethodName,
@@ -1261,7 +1262,16 @@ export async function confirmPurchaseImport(
   };
 }
 
-export async function deleteImportBatch(importBatchId: string) {
+// Apagar um lote leva junto as compras, seus itens e TODAS as parcelas —
+// inclusive as ja pagas, cujo desembolso sumiria do DRE do mes em que foi feito.
+// Sao 7 lotes em producao com 366 parcelas pagas dentro; o maior tem 134 notas
+// e R$ 168 mil. A rota irma, que apaga lote de faturamento, ja chamava
+// ensureCompetenceOpen antes de apagar; aqui nao havia trava nenhuma.
+//
+// Duas travas, ambas intransponiveis por esta rota: titulo pago se estorna
+// primeiro, e mes fechado se reabre primeiro. O que passar e registrado com
+// detalhe suficiente para reconstituir o que foi apagado.
+export async function deleteImportBatch(importBatchId: string, options?: { userId?: string | null }) {
   const importBatch = await prisma.importBatch.findUnique({
     where: { id: importBatchId },
     include: { purchases: { select: { id: true } } }
@@ -1273,11 +1283,71 @@ export async function deleteImportBatch(importBatchId: string) {
 
   const purchaseIds = importBatch.purchases.map((purchase) => purchase.id);
 
+  if (purchaseIds.length > 0) {
+    // 1. Parcela paga: apagar faria o pagamento desaparecer do mes em que saiu.
+    const pagas = await prisma.paymentInstallment.findMany({
+      where: {
+        purchaseId: { in: purchaseIds },
+        OR: [{ paidDate: { not: null } }, { status: { in: ["PAID", "PAID_LATE"] } }]
+      },
+      select: { id: true, amount: true, paidDate: true, purchase: { select: { purchaseNumber: true } } }
+    });
+    if (pagas.length > 0) {
+      const exemplos = pagas.slice(0, 3).map((x) => x.purchase?.purchaseNumber ?? x.id).join(", ");
+      throw new Error(
+        `Este lote tem ${pagas.length} parcela(s) ja paga(s) (${exemplos}${pagas.length > 3 ? ", ..." : ""}). ` +
+        "Estorne os pagamentos antes de excluir a importacao — apagar agora faria o desembolso sumir do mes em que foi feito."
+      );
+    }
+
+    // 2. Mes fechado: apagar compra muda o CMV de um periodo ja apurado.
+    const compras = await prisma.purchase.findMany({
+      where: { id: { in: purchaseIds } },
+      select: { purchaseNumber: true, purchaseDate: true, competenceYear: true, competenceMonth: true }
+    });
+    // A competencia manda: e o mes em que a compra entra no CMV. Basta o primeiro
+    // dia dela para a trava saber em que periodo cai.
+    for (const compra of compras) {
+      const competencia = new Date(compra.competenceYear, compra.competenceMonth - 1, 1);
+      await assertPeriodWritableForDate(
+        competencia,
+        `Exclusao da importacao (nota ${compra.purchaseNumber ?? "sem numero"})`
+      );
+    }
+  }
+
+  // Fotografa o lote ANTES de apagar: sem isto o AuditLog registraria so a
+  // contagem, e nao daria para saber o que existia.
+  const retrato = await prisma.purchase.findMany({
+    where: { id: { in: purchaseIds } },
+    select: {
+      id: true, purchaseNumber: true, purchaseDate: true, totalAmount: true,
+      supplier: { select: { name: true } }
+    }
+  });
+
   await prisma.$transaction(async (tx) => {
     await tx.paymentInstallment.deleteMany({ where: { purchaseId: { in: purchaseIds } } });
     await tx.purchaseItem.deleteMany({ where: { purchaseId: { in: purchaseIds } } });
     await tx.purchase.deleteMany({ where: { id: { in: purchaseIds } } });
     await tx.importBatch.delete({ where: { id: importBatchId } });
+  });
+
+  await auditLog({
+    userId: options?.userId ?? null,
+    action: "DELETE_PURCHASE_IMPORT_BATCH",
+    entity: "ImportBatch",
+    entityId: importBatchId,
+    previousValue: {
+      purchasesDeleted: purchaseIds.length,
+      compras: retrato.slice(0, 200).map((c) => ({
+        nota: c.purchaseNumber,
+        data: c.purchaseDate,
+        fornecedor: c.supplier?.name ?? null,
+        total: String(c.totalAmount)
+      }))
+    },
+    newValue: null
   });
 
   return {

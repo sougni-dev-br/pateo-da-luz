@@ -254,7 +254,7 @@ importRouter.delete("/purchases/:importBatchId", async (request, response) => {
   try {
     const admin = await requireAdmin(request, response);
     if (!admin) return;
-    response.json(await deleteImportBatch(request.params.importBatchId));
+    response.json(await deleteImportBatch(request.params.importBatchId, { userId: admin.id }));
   } catch (error) {
     response.status(400).json({
       message: error instanceof Error ? error.message : "Erro ao excluir importacao."
