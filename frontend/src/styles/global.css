@@ -7587,7 +7587,10 @@ details[open] .modal-section-summary::before {
     margin: 8px 0 12px;
     padding: 10px;
     position: sticky;
-    top: calc(58px + env(safe-area-inset-top));
+    /* O container de rolagem ja comeca abaixo do cabecalho do app (que fica
+       fora dele), entao descontar 58px era compensacao dupla: sobrava uma
+       faixa de 68px onde itens apareciam ACIMA da barra fixa. */
+    top: 0;
     z-index: 20;
   }
 
@@ -15384,4 +15387,50 @@ body:has(.pplan-sticky-actions) .pplan {
 .pplan-confirm-invalid dd {
   color: var(--warning);
   font-weight: 600;
+}
+
+/* Regra de digitação da contagem. Nasceu como frase dentro do parágrafo de
+   instruções e o empurrava para 3 linhas — 414px de cabeçalho antes do
+   primeiro item, num visor de 648px. Como duas etiquetas cabe em uma linha e
+   se lê de relance, que é o que se quer de uma regra consultada de passagem. */
+.count-rule-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.count-rule-hints span {
+  background: #f6f1e7;
+  border: 1px solid #e0d5be;
+  border-radius: 999px;
+  color: #5b4a28;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+
+.count-rule-hints strong {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+/* Tem ícone e rótulo: não pode herdar a largura fixa de botão só-ícone, que
+   cortava a palavra "Filtros" dentro do próprio botão. */
+.count-filter-button {
+  gap: 6px;
+  min-width: max-content;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+/* A barra de progresso e busca da contagem ja nascia com position:sticky, mas
+   nunca grudava: o .panel que a envolve tem overflow:hidden, e overflow
+   diferente de visible em um ancestral anula o sticky dos descendentes. Ao
+   rolar os 99 itens, progresso e busca sumiam da tela.
+   O overflow do .panel existe para conter o arredondamento; aqui nao ha nada
+   a recortar, entao liberamos so neste painel. */
+.count-session-panel {
+  overflow: visible;
 }
