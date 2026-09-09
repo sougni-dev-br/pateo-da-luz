@@ -15482,3 +15482,45 @@ body:has(.pplan-sticky-actions) .pplan {
   display: inline-flex;
   gap: 7px;
 }
+
+/* Telas estreitas de verdade (iPhone 15 = 393px, Android comum = 360px).
+   Em uma linha só, "Pendentes" e "Filtros" comiam a largura e o campo de busca
+   ficava com 66px a 393px e ~40px a 360px — mostrava "Codig..." e depois "C...".
+   A busca passa a ocupar a linha inteira e os dois botões dividem a de baixo. */
+@media (max-width: 430px) {
+  .mobile-count-search-row {
+    grid-template-columns: 1fr 1fr;
+    row-gap: 6px;
+  }
+
+  .mobile-count-search-row > label {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Alvo de toque. O botão de observação media 38px de altura; o mínimo
+   confortável para dedo é 44px, e esta tela é usada em pé, no estoque. */
+.mobile-note-button {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Abaixo de 360px as três etiquetas do item não cabem e viram "5... K... F...".
+   A categoria é a que menos serve durante a contagem; código e unidade ficam,
+   e a unidade é load-bearing: é ela que diz se o valor vai com vírgula. */
+@media (max-width: 359px) {
+  /* A 3a etiqueta e a categoria. A 2a e a UNIDADE — escondê-la seria o oposto
+     do pretendido, e foi o que eu fiz na primeira tentativa. */
+  .mobile-count-card-meta span:nth-child(3) {
+    display: none;
+  }
+
+  /* Quatro botões com rótulo não cabem e "Concluir" quebrava em duas linhas.
+     Só reduzir o padding não bastou; nowrap impede a quebra e a fonte menor
+     devolve a largura que falta. */
+  .mobile-count-bottom-actions button {
+    font-size: 0.82rem;
+    padding: 0 7px;
+    white-space: nowrap;
+  }
+}
