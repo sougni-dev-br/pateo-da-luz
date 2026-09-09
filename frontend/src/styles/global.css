@@ -8101,11 +8101,15 @@ details[open] .modal-section-summary::before {
     padding: 0 8px;
   }
 
-  .mobile-count-bottom-actions button:first-child {
+  /* Filho DIRETO, nao descendente. O painel "Mais" vive dentro desta mesma
+     barra, entao "button:first-child" tambem casava com o primeiro botao do
+     menu e zerava a fonte dele: "Gerar PDF" aparecia como um icone solto,
+     sem rotulo, e ninguem sabia o que era. */
+  .mobile-count-bottom-actions > button:first-child {
     font-size: 0;
   }
 
-  .mobile-count-bottom-actions button:first-child svg {
+  .mobile-count-bottom-actions > button:first-child svg {
     margin: 0;
   }
 
@@ -15433,4 +15437,48 @@ body:has(.pplan-sticky-actions) .pplan {
    a recortar, entao liberamos so neste painel. */
 .count-session-panel {
   overflow: visible;
+}
+
+/* Descrição sob o rótulo no menu "Mais". Ações como "Zerar os itens filtrados"
+   e "Reduzir a contagem ao filtro" mudam dados em massa; o nome sozinho não
+   dizia o que ia acontecer, e todas tinham o mesmo peso visual de "Gerar PDF". */
+.mobile-more-actions-panel button {
+  display: grid;
+  gap: 1px;
+  justify-items: center;
+  line-height: 1.25;
+  padding: 9px 10px;
+  text-align: center;
+}
+
+.mobile-more-actions-panel button small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+.mobile-more-actions-panel button.danger-button small {
+  color: inherit;
+  opacity: 0.75;
+}
+
+/* Na barra fixa a regra é referência de canto de olho: menor e mais discreta
+   que no cabeçalho, para não competir com progresso e busca. */
+.mobile-count-sticky-bar .count-rule-hints,
+.compact-progress-block .count-rule-hints {
+  margin-top: 0;
+}
+
+.mobile-count-sticky-bar .count-rule-hints span,
+.compact-progress-block .count-rule-hints span {
+  font-size: 0.66rem;
+  padding: 2px 8px;
+}
+
+/* O rótulo de cada ação é uma linha da grade; o ícone precisa entrar DENTRO
+   dessa linha, senão fica empilhado sozinho acima do texto. */
+.mobile-more-actions-panel button > span {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
 }
