@@ -7007,7 +7007,7 @@ details[open] .modal-section-summary::before {
   border-left: 6px solid #d5a03f;
   border-radius: 14px;
   box-shadow: 0 10px 24px rgba(22, 21, 18, 0.05);
-  padding: 12px 14px;
+  padding: 9px 12px;
   transition: box-shadow 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
 }
 
@@ -7031,7 +7031,7 @@ details[open] .modal-section-summary::before {
 
 .count-session-product-stack {
   display: grid;
-  gap: 7px;
+  gap: 3px;
   min-width: 0;
 }
 
@@ -7073,17 +7073,26 @@ details[open] .modal-section-summary::before {
   gap: 6px;
 }
 
+/* As etiquetas descrevem o produto, não competem com ele: menores e mais
+   discretas que o nome. Antes tinham o mesmo peso e quebravam em duas linhas,
+   empurrando o cartão para 137px — 6 itens por tela num inventário de 198. */
+.count-session-product-tags {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
 .count-session-tag {
   background: #f6f1e7;
   border: 1px solid #e0d5be;
   border-radius: 999px;
   color: #5b4a28;
   display: inline-flex;
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: 0.66rem;
+  font-weight: 600;
   line-height: 1;
   max-width: 100%;
-  padding: 6px 8px;
+  padding: 2px 7px;
+  white-space: nowrap;
 }
 
 .count-session-tag.is-problem {
@@ -7123,6 +7132,39 @@ details[open] .modal-section-summary::before {
 
 .count-session-quantity-label span {
   letter-spacing: 0.04em;
+}
+
+/* Unidade em destaque e a regra de digitação logo abaixo. A unidade estava
+   perdida no meio das etiquetas, e ela é justamente o que diz como escrever:
+   KG pede vírgula, UNI pede inteiro. */
+.count-session-quantity-caption,
+.mobile-quantity-caption {
+  display: grid;
+  gap: 1px;
+  justify-items: end;
+  line-height: 1.15;
+}
+
+.count-session-quantity-caption strong,
+.mobile-quantity-caption strong {
+  color: var(--text, #2b2724);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.count-session-quantity-caption em,
+.mobile-quantity-caption em {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.mobile-quantity-caption {
+  justify-items: start;
 }
 
 .count-session-status-block {
@@ -7831,15 +7873,35 @@ details[open] .modal-section-summary::before {
     font-size: 0.72rem;
   }
 
+  /* Duas colunas: o produto ocupa a esquerda e o campo fica a direita, na mesma
+     altura do nome. Antes eram quatro faixas empilhadas (titulo, metadado,
+     classificacao, campo) e o cartao chegava a 137px — 6 itens por tela num
+     inventario de 198, ou 34 rolagens para percorrer a lista. */
   .mobile-count-card {
+    align-items: center;
     background: #fff;
     border: 1px solid var(--border);
     border-left: 4px solid var(--warning);
     border-radius: 8px;
     box-shadow: 0 8px 18px rgba(22, 21, 18, 0.05);
+    column-gap: 10px;
     display: grid;
-    gap: 5px;
-    padding: 8px 9px;
+    /* Coluna da direita FIXA. Com auto o bloco do campo negociava a largura pelo
+       conteudo e engolia a linha: o produto ficava com 60px e o nome sumia por
+       inteiro. 146px cabem o campo (92) mais o botao de observacao e a folga. */
+    grid-template-columns: minmax(0, 1fr) 146px;
+    padding: 7px 9px;
+    row-gap: 2px;
+  }
+
+  .mobile-count-card > .mobile-count-card-title,
+  .mobile-count-card > .mobile-count-card-meta {
+    grid-column: 1;
+  }
+
+  .mobile-count-card > .mobile-count-card-entry {
+    grid-column: 2;
+    grid-row: 1 / span 2;
   }
 
   .mobile-count-card.is-counted {
@@ -7875,9 +7937,10 @@ details[open] .modal-section-summary::before {
   .mobile-count-card-classification {
     color: var(--muted);
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 4px;
     min-width: 0;
+    overflow: hidden;
   }
 
   .mobile-count-card-meta span,
@@ -7897,12 +7960,11 @@ details[open] .modal-section-summary::before {
   }
 
   .mobile-count-card-entry {
-    align-items: end;
-    display: grid;
-    gap: 8px;
-    grid-template-columns: auto auto auto minmax(0, 1fr);
-    justify-content: start;
-    margin-top: 1px;
+    align-items: center;
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    margin-top: 0;
   }
 
   .mobile-count-card-entry label {
@@ -7913,6 +7975,16 @@ details[open] .modal-section-summary::before {
     grid-template-columns: auto auto;
     font-size: 0.78rem;
     font-weight: 700;
+  }
+
+  /* Rotulo ACIMA do campo, nao ao lado: lado a lado o bloco media 180px e
+     comia a coluna do produto, que ficava com 60px — o nome sumia por inteiro. */
+  .mobile-quantity-inline {
+    display: grid;
+    gap: 2px;
+    grid-auto-flow: row;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: end;
   }
 
   .mobile-quantity-inline span {
@@ -7929,9 +8001,9 @@ details[open] .modal-section-summary::before {
     font-weight: 800;
     height: 44px;
     min-height: 44px;
-    padding: 0 9px;
+    padding: 0 7px;
     text-align: center;
-    width: 116px;
+    width: 92px;
   }
 
   .mobile-touch-count-input:focus {
