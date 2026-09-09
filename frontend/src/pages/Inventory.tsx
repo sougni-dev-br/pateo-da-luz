@@ -1071,7 +1071,31 @@ export function Inventory({
       countSessionCategoryFilter,
       countSessionSubcategoryFilter
     ].filter(Boolean).join(" - ");
-    if (!window.confirm(`Recortar ${countSessionDetail.code} para o escopo filtrado${scopeLabel ? ` (${scopeLabel})` : ""}? Os demais itens sairao desta contagem.`)) return;
+    // A confirmacao ja existia, mas dizia "recortar para o escopo filtrado" —
+    // a mesma expressao opaca que o botao usava. Aqui a pergunta passa a dizer
+    // o que se perde: quantos itens saem, quantos JA FORAM CONTADOS entre eles
+    // (esse e o trabalho que evapora) e que nao ha como desfazer.
+    const ficam = filteredCountSessionItems.length;
+    const saemItens = countSessionDetail.items.filter((item) => !filteredCountSessionItems.some((f) => f.id === item.id));
+    // Conta os dois: o que ja esta gravado no servidor e o que foi digitado e
+    // ainda nao foi salvo. O segundo tambem evapora, e olhar so o primeiro dava
+    // "nenhum dos que saem foi contado" com valores na tela na frente do usuario.
+    const saemContados = saemItens.filter((item) => {
+      const gravado = item.countedQuantity != null && Number(item.countedQuantity) !== 0;
+      const digitado = (countSessionLines[item.id]?.countedQuantity ?? "").trim() !== "";
+      return gravado || digitado;
+    }).length;
+    const aviso = [
+      `Reduzir ${countSessionDetail.code}${scopeLabel ? ` a ${scopeLabel}` : ""}?`,
+      "",
+      `Ficam ${ficam} itens. Saem ${saemItens.length}.`,
+      saemContados > 0
+        ? `ATENCAO: ${saemContados} dos que saem ja tem contagem (gravada ou ainda nao salva). Ela sera perdida.`
+        : "Nenhum dos que saem foi contado ainda.",
+      "",
+      "Nao ha como desfazer."
+    ].join("\n");
+    if (!window.confirm(aviso)) return;
     try {
       await reshapeStockCountSessionScope({
         id: countSessionDetail.id,
