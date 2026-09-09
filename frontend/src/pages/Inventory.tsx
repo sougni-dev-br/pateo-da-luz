@@ -1783,7 +1783,7 @@ export function Inventory({
     return (
       <div className={`stack stockkeeper-mode count-session-launch ${mobileQuickCountMode ? "quick-count-mode" : ""}`}>
         <Notice notice={notice} />
-        <section className="panel">
+        <section className="panel count-session-panel">
           <div className="section-heading">
             <div>
               <p>
@@ -1791,10 +1791,15 @@ export function Inventory({
                 {countSessionDetail.sectorName ? ` - ${countSessionDetail.sectorName}` : ""}
               </p>
               <h2>Lançamento de contagem</h2>
-              {/* A regra de digitacao vive aqui, uma vez, e nao repetida em cada um
-                  dos 198 itens. "11.700" era gravado como 11700 porque o ponto era
-                  lido como milhar; agora e recusado, e a instrucao diz como escrever. */}
-              <span className="muted">Digite as quantidades fisicas. Quilo e litro com virgula (11,700); demais unidades em numero inteiro (1510). Para produto sem estoque, informe 0. Campo vazio fica pendente.</span>
+              <span className="muted">Digite as quantidades físicas. Sem estoque, informe 0. Campo vazio fica pendente.</span>
+              {/* A regra de digitação vive aqui, uma vez, e não repetida nos 198 itens.
+                  Como frase corrida ela virava um parágrafo de 3 linhas; como duas
+                  etiquetas se lê de relance. "11.700" era gravado como 11700 porque o
+                  ponto era lido como milhar — agora é recusado. */}
+              <div className="count-rule-hints">
+                <span><strong>kg &middot; L</strong> vírgula &mdash; 11,700</span>
+                <span><strong>demais</strong> inteiro &mdash; 1510</span>
+              </div>
             </div>
             <div className="actions-cell">
               <button className="secondary-button" type="button" onClick={() => { setCountSessionDetail(null); onCloseCountSessionRoute?.(); }}><X size={16} />Voltar</button>
@@ -1855,7 +1860,7 @@ export function Inventory({
                   <input value={countSessionSearch} onChange={(event) => setCountSessionSearch(event.target.value)} placeholder="Codigo ou produto" />
                 </label>
                 <button className={countSessionStatusFilter === "PENDENTE" ? "secondary-button active-filter" : "secondary-button"} type="button" onClick={() => setCountSessionStatusFilter(countSessionStatusFilter === "PENDENTE" ? "TODOS" : "PENDENTE")}>Pendentes</button>
-                <button className="secondary-button icon-button" type="button" aria-expanded={mobileCountFiltersOpen} onClick={() => setMobileCountFiltersOpen((current) => !current)}><SlidersHorizontal size={17} />Filtros</button>
+                <button className="secondary-button count-filter-button" type="button" aria-expanded={mobileCountFiltersOpen} onClick={() => setMobileCountFiltersOpen((current) => !current)}><SlidersHorizontal size={17} />Filtros</button>
               </div>
               {(mobileFilterSummary || countSessionSearch) && (
                 <div className="mobile-count-filter-summary">
