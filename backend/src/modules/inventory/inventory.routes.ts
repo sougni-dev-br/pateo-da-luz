@@ -42,7 +42,19 @@ function asNumber(value: unknown) {
 //   { ok: false }               -> texto presente porem nao numerico
 type ParsedQuantity = { ok: true; value: number | null } | { ok: false };
 
+// "11.700" é ambíguo em quantidade: onze mil e setecentos, ou 11 kg e 700 g?
+// O parseDecimalInput escolhe milhar, o que está certo para dinheiro e errado
+// para balança. Em 04/09 isso gravou 12 leituras mil vezes maiores na contagem
+// do freezer. Aqui a entrada ambígua é recusada em vez de adivinhada — a rota
+// devolve 400 com as duas leituras, e o usuário diz qual quis.
+const QUANTIDADE_AMBIGUA = /^[+-]?\d{1,3}(\.\d{3})+$/;
+
+function quantidadeAmbigua(value: unknown) {
+  return typeof value === "string" && QUANTIDADE_AMBIGUA.test(value.trim());
+}
+
 function parseQuantityInput(value: unknown): ParsedQuantity {
+  if (quantidadeAmbigua(value)) return { ok: false };
   if (value === undefined || value === null || String(value).trim() === "") {
     return { ok: true, value: null };
   }
