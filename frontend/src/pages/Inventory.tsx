@@ -1780,6 +1780,15 @@ export function Inventory({
       if (column === "product" || column === "quantity" || column === "status") return;
       setCountSessionVisibleColumns((current) => ({ ...current, [column]: !current[column] }));
     };
+    // A regra de digitacao mora na barra FIXA, nao no cabecalho. Estava no
+    // cabecalho, que rola embora — e some justamente enquanto se digita, que e
+    // quando ela serve. Aqui acompanha a rolagem dos 99 itens.
+    const regraDeDigitacao = (
+      <div className="count-rule-hints">
+        <span><strong>kg &middot; L</strong> vírgula &mdash; 11,700</span>
+        <span><strong>demais</strong> inteiro &mdash; 1510</span>
+      </div>
+    );
     return (
       <div className={`stack stockkeeper-mode count-session-launch ${mobileQuickCountMode ? "quick-count-mode" : ""}`}>
         <Notice notice={notice} />
@@ -1792,14 +1801,7 @@ export function Inventory({
               </p>
               <h2>Lançamento de contagem</h2>
               <span className="muted">Digite as quantidades físicas. Sem estoque, informe 0. Campo vazio fica pendente.</span>
-              {/* A regra de digitação vive aqui, uma vez, e não repetida nos 198 itens.
-                  Como frase corrida ela virava um parágrafo de 3 linhas; como duas
-                  etiquetas se lê de relance. "11.700" era gravado como 11700 porque o
-                  ponto era lido como milhar — agora é recusado. */}
-              <div className="count-rule-hints">
-                <span><strong>kg &middot; L</strong> vírgula &mdash; 11,700</span>
-                <span><strong>demais</strong> inteiro &mdash; 1510</span>
-              </div>
+
             </div>
             <div className="actions-cell">
               <button className="secondary-button" type="button" onClick={() => { setCountSessionDetail(null); onCloseCountSessionRoute?.(); }}><X size={16} />Voltar</button>
@@ -1840,6 +1842,7 @@ export function Inventory({
                 <strong>{countSessionProgress.percent}%</strong>
               </div>
               <div className="progress-track"><div className="progress-fill" style={{ width: `${countSessionProgress.percent}%` }} /></div>
+              {regraDeDigitacao}
             </div>
 
             <div className="mobile-count-sticky-bar">
@@ -1854,6 +1857,7 @@ export function Inventory({
                 </button>
                 <span>{[countSessionSectorFilter || "Todos setores", "Pendentes"].join(" - ")}</span>
               </div>
+              {regraDeDigitacao}
               <div className="mobile-count-search-row">
                 <label aria-label="Busca por codigo ou produto">
                   <Search size={16} />
@@ -2158,13 +2162,16 @@ export function Inventory({
             <button className="secondary-button" type="button" aria-expanded={mobileCountMoreActionsOpen} onClick={() => setMobileCountMoreActionsOpen((current) => !current)}>Mais</button>
             {mobileCountMoreActionsOpen && (
               <div className="mobile-more-actions-panel">
-                <button className="secondary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); downloadCountSessionPdf(countSessionDetail); }}><Download size={15} />Gerar PDF</button>
+                <button className="secondary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); downloadCountSessionPdf(countSessionDetail); }}><span><Download size={15} />Gerar PDF</span></button>
                 <button className="secondary-button" type="button" disabled={locked} onClick={() => {
                   markFilteredCountSessionItemsAsZero();
                   setMobileCountMoreActionsOpen(false);
-                }}>Marcar filtrados como zero</button>
+                }}><span>Zerar os itens filtrados</span><small>Preenche 0 em tudo que o filtro atual mostra</small></button>
                 {canReshapeCountSession && !countSessionDetail.generatedInventoryId && ["ABERTA", "EM_ANDAMENTO", "CONCLUIDA"].includes(countSessionDetail.status) && ["GERAL", "SETORIAL"].includes(countSessionDetail.type) && (
-                  <button className="secondary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); reshapeCountSessionToCurrentFilters(); }}>Recortar para filtros</button>
+                  <button className="secondary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); reshapeCountSessionToCurrentFilters(); }}>
+                    <span>Reduzir a contagem ao filtro</span>
+                    <small>A contagem passa a cobrir so os itens filtrados</small>
+                  </button>
                 )}
                 {canGenerateInventoryFromCount(countSessionDetail) && (
                   <button className="primary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); generateInventoryFromCountSession(); }}>Gerar inventario</button>
