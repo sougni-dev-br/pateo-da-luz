@@ -118,7 +118,10 @@ import {
   operationalStatusLabels,
   operationalTone,
   operationalTypeLabels,
+  ambiguousReadings,
   evaluateQuantity,
+  isAmbiguousQuantity,
+  quantityHint,
   packSizeFromName,
   parseMonth,
   quantityToApi,
@@ -887,6 +890,26 @@ export function Inventory({
     setCountSessionDirty((prev) => (prev[itemId] ? prev : { ...prev, [itemId]: true }));
   }
 
+  // "11.700" não é número inválido: é número de duas leituras. Dizer só
+  // "quantidade inválida" manda o usuário procurar erro de digitação onde não
+  // há. A mensagem mostra as duas opções e como escrever cada uma.
+  function mensagemDeQuantidade(rotulos: Array<{ nome: string; valor: string }>) {
+    const ambiguos = rotulos.filter((r) => isAmbiguousQuantity(r.valor));
+    const invalidos = rotulos.filter((r) => !isAmbiguousQuantity(r.valor));
+    const partes: string[] = [];
+    if (ambiguos.length) {
+      const exemplo = ambiguousReadings(ambiguos[0].valor);
+      partes.push(
+        `Quantidade com dois sentidos em: ${ambiguos.map((r) => `${r.nome} (${r.valor})`).join(", ")}. ` +
+        `Escreva ${exemplo.decimal} para o valor da balança, ou ${exemplo.milhar} para milhar.`
+      );
+    }
+    if (invalidos.length) {
+      partes.push(`Quantidade invalida em: ${invalidos.map((r) => r.nome).join(", ")}.`);
+    }
+    return partes.join(" ");
+  }
+
   function countSessionPayload() {
     if (!countSessionDetail) return [];
     return countSessionDetail.items
@@ -912,7 +935,7 @@ export function Inventory({
     if (!countSessionDetail) return;
     const invalid = invalidCountSessionItems();
     if (invalid.length) {
-      setNotice({ tone: "error", message: `Quantidade invalida em: ${invalid.map((item) => item.productNameSnapshot).join(", ")}.` });
+      setNotice({ tone: "error", message: mensagemDeQuantidade(invalid.map((item) => ({ nome: item.productNameSnapshot, valor: countSessionLines[item.id]?.countedQuantity ?? "" }))) });
       return;
     }
     try {
@@ -932,7 +955,7 @@ export function Inventory({
     if (!countSessionDetail) return;
     const invalid = invalidCountSessionItems();
     if (invalid.length) {
-      setNotice({ tone: "error", message: `Quantidade invalida em: ${invalid.map((item) => item.productNameSnapshot).join(", ")}.` });
+      setNotice({ tone: "error", message: mensagemDeQuantidade(invalid.map((item) => ({ nome: item.productNameSnapshot, valor: countSessionLines[item.id]?.countedQuantity ?? "" }))) });
       return;
     }
     // Resumo antes de concluir: a pessoa pode ter clicado "conferi" no automatico.
@@ -1377,7 +1400,7 @@ export function Inventory({
         && quantityToApi(operationalLines[item.id]?.countedQuantity ?? "") === undefined
     );
     if (invalid.length) {
-      setNotice({ tone: "error", message: `Quantidade invalida em: ${invalid.map((item) => item.productName).join(", ")}.` });
+      setNotice({ tone: "error", message: mensagemDeQuantidade(invalid.map((item) => ({ nome: item.productName, valor: operationalLines[item.id]?.countedQuantity ?? "" }))) });
       return;
     }
     // Envia apenas o que esta pessoa editou — ver countSessionDirty.
@@ -1768,7 +1791,10 @@ export function Inventory({
                 {countSessionDetail.sectorName ? ` - ${countSessionDetail.sectorName}` : ""}
               </p>
               <h2>Lançamento de contagem</h2>
-              <span className="muted">Digite as quantidades fisicas. Para produto sem estoque, informe 0. Campo vazio fica pendente.</span>
+              {/* A regra de digitacao vive aqui, uma vez, e nao repetida em cada um
+                  dos 198 itens. "11.700" era gravado como 11700 porque o ponto era
+                  lido como milhar; agora e recusado, e a instrucao diz como escrever. */}
+              <span className="muted">Digite as quantidades fisicas. Quilo e litro com virgula (11,700); demais unidades em numero inteiro (1510). Para produto sem estoque, informe 0. Campo vazio fica pendente.</span>
             </div>
             <div className="actions-cell">
               <button className="secondary-button" type="button" onClick={() => { setCountSessionDetail(null); onCloseCountSessionRoute?.(); }}><X size={16} />Voltar</button>
@@ -1936,20 +1962,20 @@ export function Inventory({
                   <article className={`mobile-count-card ${typed ? "is-counted" : "is-pending"} ${isActiveInput ? "is-active-input" : ""}`}>
                     <div className="mobile-count-card-title">
                       <strong title={displayLabel(item.productNameSnapshot, "Produto sem nome")}>{displayLabel(item.productNameSnapshot, "Produto sem nome")}</strong>
-                      <StatusBadge tone={status === "PENDENTE" ? "warning" : "success"}>{status === "PENDENTE" ? "pendente" : "contado"}</StatusBadge>
+                      {/* Sem selo aqui. Ele ocupava 70 dos 142px da coluna e o nome do
+                          produto ficava com 64px, ilegivel. O estado aparece em tres outros
+                          canais: a borda esquerda (ambar pendente / verde contado), o campo
+                          vazio ou preenchido, e o contador de pendentes no topo. */}
                     </div>
+                    {/* Uma faixa so. Eram duas empilhadas; a unidade saiu daqui porque
+                        agora aparece junto do campo, e o setor repetia o divisor acima. */}
                     <div className="mobile-count-card-meta">
                       <span>{item.productCodeSnapshot ?? "sem codigo"}</span>
                       <span>{item.unitLabel ?? displayLabel(item.unitSnapshot, "sem unidade")}</span>
-                      <span className={sector === "Sem setor" ? "missing-classification" : ""}>{sector}</span>
-                    </div>
-                    <div className="mobile-count-card-classification">
                       <span>{item.categoryLabel ?? displayLabel(item.categorySnapshot, "Sem categoria")}</span>
-                      <span>{item.subcategoryLabel ?? displayLabel(item.subcategorySnapshot, "Sem subcategoria")}</span>
                     </div>
                     <div className="mobile-count-card-entry">
                       <label className="mobile-quantity-inline">
-                        <span>Qtd.</span>
                         <input
                           className="count-input mobile-touch-count-input"
                           data-session-count-input="true"
@@ -1957,6 +1983,7 @@ export function Inventory({
                           enterKeyHint={index >= filteredCountSessionItems.length - 1 ? "done" : "next"}
                           inputMode="decimal"
                           placeholder="0"
+                          aria-label={`Quantidade contada de ${displayLabel(item.productNameSnapshot, "produto")} em ${item.unitLabel ?? displayLabel(item.unitSnapshot, "unidade")}`}
                           disabled={locked}
                           value={line.countedQuantity}
                           onKeyDown={handleCountFieldKeyDown}
@@ -2073,7 +2100,10 @@ export function Inventory({
                       </div>
                       <div className="count-session-quantity-block">
                         <label className="count-session-quantity-label" htmlFor={`count-session-input-${item.id}`}>
-                          <span>Qtd. contada</span>
+                          <span className="count-session-quantity-caption">
+                            <strong>{unit}</strong>
+                            <em>{quantityHint(item.unitSnapshot ?? unit)}</em>
+                          </span>
                           <input
                             id={`count-session-input-${item.id}`}
                             className="count-input touch-count-input desktop-count-input"
