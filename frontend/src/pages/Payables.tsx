@@ -132,7 +132,12 @@ export function Payables({ user }: PayablesProps) {
     paidDate: todayKey(), paidAmount: "", paidPaymentMethod: "",
     paymentNotes: "", differenceReason: "", payingCompanyId: "", companyBankAccountId: ""
   });
-  const [filters, setFilters] = useState({ filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", origin: "all", noDueDate: false });
+  // Le o filtro da URL na abertura. Sem isto o alerta do Dashboard levava para
+  // esta tela com os filtros padrao, e as parcelas sem vencimento continuavam
+  // enterradas — o link existia mas nao resolvia nada.
+  const filtroInicialSemVencimento = typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).get("noDueDate") === "1";
+  const [filters, setFilters] = useState({ filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", origin: "all", noDueDate: filtroInicialSemVencimento });
   const [viewMode, setViewMode] = useState<"open" | "paid" | "all">("open");
   const [activeChip, setActiveChip] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
