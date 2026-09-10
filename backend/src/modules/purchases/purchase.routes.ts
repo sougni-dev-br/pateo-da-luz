@@ -868,7 +868,119 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
     LIMIT 1000
   `;
 
-  const formattedRows = rows.map((row) => ({
+  // O PDF lia SO parcela de compra, enquanto a tela (/payables) une tres fontes.
+  // Mesmo relatorio, duas renderizacoes, totais diferentes: em 09/2026 faltavam
+  // 34 lancamentos de folha, R$ 20.866,10, no documento impresso — e qualquer
+  // imposto vencido tambem ficaria de fora.
+  //
+  // Mesma regra da tela: imposto e folha entram quando nao ha filtro de fornecedor
+  // nem de forma de pagamento, porque eles nao tem nenhum dos dois.
+  const incluirOutrasFontes = !supplierId && !paymentMethodId;
+
+  // Status calculado igual ao da tela (/payables), para o PDF nao classificar
+  // diferente do que a tela mostra.
+  const taxStatusExpr = Prisma.sql`
+    CASE
+      WHEN tp."paymentDate" IS NOT NULL THEN 'PAID'
+      WHEN tp."dueDate" IS NOT NULL AND tp."dueDate" < ${startToday} THEN 'OVERDUE'
+      ELSE 'OPEN'
+    END
+  `;
+  const taxStatusFilter = !status
+    ? Prisma.sql`true`
+    : status === "OPEN"
+      ? Prisma.sql`tp."paymentDate" IS NULL AND (tp."dueDate" IS NULL OR tp."dueDate" >= ${startToday})`
+      : status === "PAID" || status === "PAID_LATE"
+        ? Prisma.sql`tp."paymentDate" IS NOT NULL`
+        : status === "OVERDUE"
+          ? Prisma.sql`tp."paymentDate" IS NULL AND tp."dueDate" IS NOT NULL AND tp."dueDate" < ${startToday}`
+          : status === "CANCELLED"
+            ? Prisma.sql`tp."status" = 'CANCELED'`
+            : Prisma.sql`false`;
+
+  const payrollStatusExpr = Prisma.sql`
+    CASE
+      WHEN pit."paymentDate" IS NOT NULL THEN 'PAID'
+      WHEN pit."dueDate" IS NOT NULL AND pit."dueDate" < ${startToday} THEN 'OVERDUE'
+      ELSE 'OPEN'
+    END
+  `;
+  const payrollStatusFilter = !status
+    ? Prisma.sql`true`
+    : status === "OPEN"
+      ? Prisma.sql`pit."paymentDate" IS NULL AND (pit."dueDate" IS NULL OR pit."dueDate" >= ${startToday})`
+      : status === "PAID" || status === "PAID_LATE"
+        ? Prisma.sql`pit."paymentDate" IS NOT NULL`
+        : status === "OVERDUE"
+          ? Prisma.sql`pit."paymentDate" IS NULL AND pit."dueDate" IS NOT NULL AND pit."dueDate" < ${startToday}`
+          : status === "CANCELLED"
+            ? Prisma.sql`pit."status" = 'CANCELED'`
+            : Prisma.sql`false`;
+
+  const taxRowsPdf = incluirOutrasFontes
+    ? await prisma.$queryRaw<Array<Record<string, unknown>>>`
+        SELECT
+          tp."dueDate",
+          tp."paymentDate" AS "paidDate",
+          tp."amount"::text AS "amount",
+          tp."paidAmount"::text AS "paidAmount",
+          NULL::int AS "installment",
+          NULL::int AS "totalInstallments",
+          NULL::text AS "paymentMethodName",
+          tp."comments" AS "paymentNotes",
+          ${taxStatusExpr} AS "status",
+          COALESCE(tp."documentType", 'Imposto / Guia') AS "supplierName",
+          NULL::text AS "purchaseNumber",
+          NULL::text AS "invoiceNumber",
+          NULL::timestamp AS "purchaseDate",
+          tp."description" AS "notes"
+        FROM "TaxPayment" tp
+        WHERE tp."deletedAt" IS NULL
+          AND ${noDueDatePdf ? Prisma.sql`tp."dueDate" IS NULL` : Prisma.sql`true`}
+          AND ${!noDueDatePdf && startDate ? Prisma.sql`tp."dueDate" >= ${startDate}` : Prisma.sql`true`}
+          AND ${!noDueDatePdf && endDate ? Prisma.sql`tp."dueDate" <= ${endDate}` : Prisma.sql`true`}
+          AND ${taxStatusFilter}
+        LIMIT 1000
+      `
+    : ([] as Array<Record<string, unknown>>);
+
+  const payrollRowsPdf = incluirOutrasFontes
+    ? await prisma.$queryRaw<Array<Record<string, unknown>>>`
+        SELECT
+          pit."dueDate",
+          pit."paymentDate" AS "paidDate",
+          pit."amount"::text AS "amount",
+          pit."paidAmount"::text AS "paidAmount",
+          NULL::int AS "installment",
+          NULL::int AS "totalInstallments",
+          COALESCE(pit."paidPaymentMethodName", ppm."name") AS "paymentMethodName",
+          COALESCE(pit."paymentNotes", pit."notes") AS "paymentNotes",
+          ${payrollStatusExpr} AS "status",
+          CONCAT('Folha — ', e."firstName", ' ', e."lastName") AS "supplierName",
+          NULL::text AS "purchaseNumber",
+          NULL::text AS "invoiceNumber",
+          NULL::timestamp AS "purchaseDate",
+          pit."notes"
+        FROM "PayrollItem" pit
+        JOIN "Employee" e ON e."id" = pit."employeeId"
+        LEFT JOIN "PaymentMethod" ppm ON ppm."id" = pit."paidPaymentMethodId"
+        WHERE pit."deletedAt" IS NULL
+          AND ${noDueDatePdf ? Prisma.sql`pit."dueDate" IS NULL` : Prisma.sql`true`}
+          AND ${!noDueDatePdf && startDate ? Prisma.sql`pit."dueDate" >= ${startDate}` : Prisma.sql`true`}
+          AND ${!noDueDatePdf && endDate ? Prisma.sql`pit."dueDate" <= ${endDate}` : Prisma.sql`true`}
+          AND ${payrollStatusFilter}
+        LIMIT 1000
+      `
+    : ([] as Array<Record<string, unknown>>);
+
+  const rowsCompletas = [...rows, ...taxRowsPdf, ...payrollRowsPdf].sort((a, b) => {
+    const da = a.dueDate ? new Date(String(a.dueDate)).getTime() : Number.POSITIVE_INFINITY;
+    const db = b.dueDate ? new Date(String(b.dueDate)).getTime() : Number.POSITIVE_INFINITY;
+    if (da !== db) return da - db;
+    return String(a.supplierName ?? "").localeCompare(String(b.supplierName ?? ""), "pt-BR");
+  });
+
+  const formattedRows = rowsCompletas.map((row) => ({
     ...row,
     paymentMethodName: getManualPaymentMethodDisplayName(
       String(row.paymentMethodName ?? ""),
