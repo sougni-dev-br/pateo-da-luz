@@ -611,7 +611,21 @@ export async function runRealSync(params: {
       status: perStore.every((r) => r.status === "SUCCESS" || r.status === "SKIPPED") ? "SUCCESS" : "PARTIAL",
       itemsProcessed: totalPersisted,
       triggeredByUserId: params.triggeredByUserId,
-      errorMessage: perStore.filter((r) => r.status === "ERROR").map((r) => `${r.storeLabel}: ${r.message}`).join(" | ") || null
+      // Guarda tambem os AVISOS, nao so os erros. A sincronizacao diaria roda por
+      // cron as 04:00 e ninguem le a resposta HTTP dela — entao mensagens como
+      // "⚠️ N repasse(s) com bruto/taxas incompletos" ou "⚠️ Loja sem Empresa
+      // vinculada — dados nao entraram no DRE" eram produzidas com cuidado e
+      // descartadas. O log ficava com errorMessage nulo em 100% das execucoes, o que
+      // parece saude e e so cegueira: em 09/2026 os 4 repasses da 99 estavam
+      // incompletos (bruto - taxas != liquido, R$ 1.827,32 acumulados) e o aviso
+      // vinha sendo emitido todo dia sem deixar rastro.
+      //
+      // O status continua distinguindo o caso: SUCCESS com texto = aviso, PARTIAL ou
+      // ERROR com texto = falha.
+      errorMessage:
+        perStore.filter((r) => r.status === "ERROR").map((r) => `${r.storeLabel}: ${r.message}`).join(" | ")
+        || perStore.filter((r) => String(r.message ?? "").includes("⚠️")).map((r) => `${r.storeLabel}: ${r.message}`).join(" | ")
+        || null
     }
   });
 
