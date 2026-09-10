@@ -330,6 +330,16 @@ export function DRE() {
                 </div>
               )}
 
+              {/* No modo mês o DRE lê por competência e bate com o Fechamento Contabil.
+                  Intervalo livre não tem competência correspondente, então lê por data
+                  da compra — útil para explorar, mas não é o número do fechamento. */}
+              {filterMode === "range" && (
+                <p className="text-muted" style={{ margin: "4px 0 0", fontSize: 12, flexBasis: "100%" }}>
+                  Intervalo livre soma pela <strong>data da compra</strong>, não por competência — use o modo
+                  {" "}<strong>Mês</strong> para o número que fecha com o Fechamento Contábil.
+                </p>
+              )}
+
               <label className="dre-comparatives-label">
                 <input
                   type="checkbox"

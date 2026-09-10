@@ -5,6 +5,7 @@ import { prisma } from "../../config/database.js";
 import { auditLog, requireRole } from "../security/security-utils.js";
 import { createDrePdf, type DreSummary } from "./dre-pdf.js";
 import {
+  getCmvPurchaseTotalByCompetenceMonth,
   getCmvPurchaseTotalByPurchaseDateRange,
   type CmvVisionKey,
 } from "../cmv-real/cmv-purchase-base.service.js";
@@ -116,7 +117,29 @@ function parseLocalDate(s: string): Date | null {
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 }
 
-function parseRange(query: Record<string, unknown>): { from: Date; to: Date } | null {
+// A spec arquitetura-cmv-dre-v2 diz em tres lugares que DRE = mes calendario
+// (competencia), e nao a janela de datas do Ciclo Operacional. O passo 1 do
+// refactor foi aplicado — as funcoes de CMV passaram a filtrar por purchaseDate
+// — mas o DRE ficou apontando para elas. Media da divergencia contra o
+// Fechamento Contabil em 09/2026: R$ 27.002,27 no CMV compras (pior mes,
+// agosto, R$ 13.668,33) e R$ 53.305,59 na despesa de nota sem item, que ainda
+// era reconhecida por pagamento (caixa) em vez de competencia.
+//
+// Quando o pedido vem por year+month, competencia manda. No modo de intervalo
+// livre nao ha competencia que corresponda a um intervalo arbitrario, entao
+// continua por data — e a tela avisa que aquele modo nao bate com o fechamento.
+type Competencia = { year: number; month: number };
+
+function competenciaMesAnterior(c: Competencia | null): Competencia | null {
+  if (!c) return null;
+  return c.month === 1 ? { year: c.year - 1, month: 12 } : { year: c.year, month: c.month - 1 };
+}
+
+function competenciaAnoAnterior(c: Competencia | null): Competencia | null {
+  return c ? { year: c.year - 1, month: c.month } : null;
+}
+
+function parseRange(query: Record<string, unknown>): { from: Date; to: Date; competencia: Competencia | null } | null {
   const year = query.year ? Number(query.year) : null;
   const month = query.month ? Number(query.month) : null;
   const from = query.from ? parseLocalDate(String(query.from)) : null;
@@ -125,12 +148,13 @@ function parseRange(query: Record<string, unknown>): { from: Date; to: Date } | 
   if (year && month) {
     return {
       from: new Date(year, month - 1, 1),
-      to: new Date(year, month, 0, 23, 59, 59, 999)
+      to: new Date(year, month, 0, 23, 59, 59, 999),
+      competencia: { year, month }
     };
   }
   if (from && to) {
     to.setHours(23, 59, 59, 999);
-    return { from, to };
+    return { from, to, competencia: null };
   }
   return null;
 }
@@ -159,6 +183,26 @@ function expensePredicateByMode(mode: CmvVisionKey) {
     : Prisma.sql`COALESCE(dc."dreGroup", '') <> 'CMV_COMPRAS'`;
 }
 
+// Parte A da despesa = nota SEM itens (servico, despesa fixa, agregador de
+// ciclo). Era reconhecida por pagamento, com fallback no vencimento: regime de
+// caixa dentro de um relatorio de competencia. Em 06/2026 isso mostrava R$ 0,00
+// no DRE contra R$ 19.072,70 por competencia.
+function filtroDespesaSemItens(competencia: Competencia | null, from: Date, to: Date) {
+  return competencia
+    ? Prisma.sql`p."competenceYear" = ${competencia.year} AND p."competenceMonth" = ${competencia.month}`
+    : Prisma.sql`(
+            (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${from} AND pi."paidDate" <= ${to})
+            OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${from} AND pi."dueDate" <= ${to})
+          )`;
+}
+
+// Parte B = nota COM itens de produto, fora de CMV_COMPRAS.
+function filtroDespesaComItens(competencia: Competencia | null, from: Date, to: Date) {
+  return competencia
+    ? Prisma.sql`p."competenceYear" = ${competencia.year} AND p."competenceMonth" = ${competencia.month}`
+    : Prisma.sql`p."purchaseDate" >= ${from} AND p."purchaseDate" <= ${to}`;
+}
+
 type ExpenseItem = DreSummary["expenses"][number];
 type ExpenseGroup = NonNullable<DreSummary["expenseGroups"]>[number];
 
@@ -181,7 +225,7 @@ function buildExpenseGroups(expenses: ExpenseItem[]): ExpenseGroup[] {
     .filter((group) => group.lines.length > 0);
 }
 
-async function calcDRE(from: Date, to: Date) {
+async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
   // Todas as queries são independentes entre si — rodam em paralelo
   const [revenueRows, snapInitialValue, snapFinalValue, comprasCmv, comprasGerenciais, expenseRows, managerialExpenseRows, taxExpenseRows, payrollExpenseRows] = await Promise.all([
     // ── Receita por canal ──
@@ -242,8 +286,12 @@ async function calcDRE(from: Date, to: Date) {
       )
     `,
     // ── CMV Compras: entra apenas item de produto classificado em CMV_COMPRAS.
-    getCmvPurchaseTotalByPurchaseDateRange(from, to, "accounting"),
-    getCmvPurchaseTotalByPurchaseDateRange(from, to, "managerial"),
+    competencia
+      ? getCmvPurchaseTotalByCompetenceMonth(competencia.year, competencia.month, "accounting")
+      : getCmvPurchaseTotalByPurchaseDateRange(from, to, "accounting"),
+    competencia
+      ? getCmvPurchaseTotalByCompetenceMonth(competencia.year, competencia.month, "managerial")
+      : getCmvPurchaseTotalByPurchaseDateRange(from, to, "managerial"),
     // ── Despesas por categoria DRE — nova lógica em duas partes (UNION):
     // Parte A: parcelas de compras SEM itens de produto → usa pi.dreCategory (manual).
     // Parte B: itens de produto fora de CMV_COMPRAS → usa Product.dreCategoryId.
@@ -278,10 +326,7 @@ async function calcDRE(from: Date, to: Date) {
         WHERE p.status = 'ACTIVE'
           AND pi.status NOT IN ('CANCELLED')
           AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" px WHERE px."purchaseId" = p.id)
-          AND (
-            (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${from} AND pi."paidDate" <= ${to})
-            OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${from} AND pi."dueDate" <= ${to})
-          )
+          AND ${filtroDespesaSemItens(competencia, from, to)}
         GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
 
         UNION ALL
@@ -300,8 +345,7 @@ async function calcDRE(from: Date, to: Date) {
         LEFT JOIN "DRECategory" dc ON dc.id = prod."dreCategoryId"
         WHERE p.status = 'ACTIVE'
           AND ${expensePredicateByMode("accounting")}
-          AND p."purchaseDate" >= ${from}
-          AND p."purchaseDate" <= ${to}
+          AND ${filtroDespesaComItens(competencia, from, to)}
         GROUP BY prod."dreCategoryId", dc.name, dc."sortOrder", dc."dreGroup"
       ) sub
       GROUP BY sub."dreCategory", sub."dreCategoryName", sub."dreSortOrder", sub."dreGroup"
@@ -336,10 +380,7 @@ async function calcDRE(from: Date, to: Date) {
         WHERE p.status = 'ACTIVE'
           AND pi.status NOT IN ('CANCELLED')
           AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" px WHERE px."purchaseId" = p.id)
-          AND (
-            (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${from} AND pi."paidDate" <= ${to})
-            OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${from} AND pi."dueDate" <= ${to})
-          )
+          AND ${filtroDespesaSemItens(competencia, from, to)}
         GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
 
         UNION ALL
@@ -357,8 +398,7 @@ async function calcDRE(from: Date, to: Date) {
         LEFT JOIN "DRECategory" dc ON dc.id = prod."dreCategoryId"
         WHERE p.status = 'ACTIVE'
           AND ${expensePredicateByMode("managerial")}
-          AND p."purchaseDate" >= ${from}
-          AND p."purchaseDate" <= ${to}
+          AND ${filtroDespesaComItens(competencia, from, to)}
         GROUP BY prod."dreCategoryId", dc.name, dc."sortOrder", dc."dreGroup"
       ) sub
       GROUP BY sub."dreCategory", sub."dreCategoryName", sub."dreSortOrder", sub."dreGroup"
@@ -557,9 +597,9 @@ dreRouter.get("/summary", async (request, response) => {
   const withComparatives = String(request.query.comparatives ?? "true") !== "false";
 
   const [current, prevM, prevY] = await Promise.all([
-    calcDRE(range.from, range.to),
-    withComparatives ? calcDRE(prevMonth(range.from, range.to).from, prevMonth(range.from, range.to).to) : Promise.resolve(null),
-    withComparatives ? calcDRE(prevYear(range.from, range.to).from, prevYear(range.from, range.to).to) : Promise.resolve(null)
+    calcDRE(range.from, range.to, range.competencia),
+    withComparatives ? calcDRE(prevMonth(range.from, range.to).from, prevMonth(range.from, range.to).to, competenciaMesAnterior(range.competencia)) : Promise.resolve(null),
+    withComparatives ? calcDRE(prevYear(range.from, range.to).from, prevYear(range.from, range.to).to, competenciaAnoAnterior(range.competencia)) : Promise.resolve(null)
   ]);
 
   response.json({ current, prevMonth: prevM, prevYear: prevY });
@@ -1108,7 +1148,7 @@ dreRouter.get("/export/pdf", async (request, response) => {
     return;
   }
 
-  const data = await calcDRE(range.from, range.to);
+  const data = await calcDRE(range.from, range.to, range.competencia);
 
   // Uncategorized operacional: despesas sem dreCategoryId na nova lógica (Parte A + B sem categoria)
   const uncatLine = data.expenses.find((e) => e.dreCategoryId === null);
