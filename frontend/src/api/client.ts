@@ -5474,6 +5474,20 @@ export function getTipCommission(year: number, month: number) {
   return request<TipComputation>(`/payroll/tip?year=${year}&month=${month}`);
 }
 
+// Elenco enxuto para a tela da gorjeta. Nao usar getEmployees aqui: aquele traz
+// CPF, conta bancaria e salario, e exige permissao de Funcionarios.
+export type TipRosterEmployee = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  displayName: string | null;
+  isActive: boolean;
+};
+
+export function getTipRoster() {
+  return request<TipRosterEmployee[]>("/payroll/tip/roster");
+}
+
 export function getTipPool(year: number, month: number) {
   return request<{ year: number; month: number; label: string; periodStart: string; periodEnd: string; grossPool: number }>(
     `/payroll/tip/pool?year=${year}&month=${month}`
