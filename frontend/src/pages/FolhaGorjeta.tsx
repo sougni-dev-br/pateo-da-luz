@@ -1,8 +1,8 @@
 import { Check, ChevronLeft, ChevronRight, Coins, FileText, Lock, Plus, RefreshCw, Save, Trash2, Unlock, UserPlus } from "lucide-react";
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import {
-  Employee, TipComputation, TipParticipantInput, TipParticipantKind, TipValeType,
-  addTipVale, closeTipPeriodApi, getEmployees, getTipCommission, openTipPeriod,
+  TipComputation, TipParticipantInput, TipParticipantKind, TipRosterEmployee, TipValeType,
+  addTipVale, closeTipPeriodApi, getTipRoster, getTipCommission, openTipPeriod,
   removeTipParticipant, removeTipVale, reopenTipPeriodApi, saveTipParticipants, syncTipParticipants, updateTipPeriod,
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
@@ -77,7 +77,7 @@ export function FolhaGorjeta() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [comp, setComp] = useState<TipComputation | null>(null);
   const [rows, setRows] = useState<LocalRow[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [employees, setEmployees] = useState<TipRosterEmployee[]>([]);
   const [busy, setBusy] = useState(false);
   const [poolInput, setPoolInput] = useState("");
   const [deductionInput, setDeductionInput] = useState("");
@@ -110,7 +110,7 @@ export function FolhaGorjeta() {
   async function load() {
     setBusy(true);
     try {
-      const [c, emps] = await Promise.all([getTipCommission(year, month), getEmployees({ includeInactive: true })]);
+      const [c, emps] = await Promise.all([getTipCommission(year, month), getTipRoster()]);
       setComp(c);
       setEmployees(emps);
       setRows(toRows(c));
