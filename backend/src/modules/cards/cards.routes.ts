@@ -600,6 +600,17 @@ cardsRouter.post("/statements/:id/close", async (request, response) => {
     return;
   }
 
+  // Fechar a fatura escreve em dois meses: cria/atualiza uma Purchase na
+  // competencia do fechamento e um titulo a pagar no vencimento. Ate aqui so o
+  // /pay checava a trava, entao dava para mexer num mes com CMV fechado.
+  try {
+    await assertPeriodWritableForDate(statement.closingDate, "Fechamento de fatura de cartao");
+    await assertPeriodWritableForDate(statement.dueDate, "Fechamento de fatura de cartao (vencimento)");
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
+    return;
+  }
+
   const totalAmount = statement.items.reduce((sum, item) => sum + Number(item.value ?? 0), 0);
   const period = getCardStatementPeriod({
     id: statement.creditCard.id,
@@ -641,10 +652,22 @@ cardsRouter.post("/statements/:id/close", async (request, response) => {
           totalAmount: new Prisma.Decimal(totalAmount)
         }
       });
+      // Reabrir a fatura CANCELA a parcela (rota /reopen, abaixo). Ao refechar,
+      // so o valor era atualizado e o status continuava CANCELLED: a fatura
+      // ficava fechada, com o valor certo, e o titulo INVISIVEL em Contas a
+      // Pagar e nos paineis de caixa, que filtram status <> 'CANCELLED'.
+      // Reviver e seguro: /reopen recusa reabrir fatura com parcela paga, entao
+      // tudo que esta cancelado aqui foi cancelado por ela. O notIn protege o
+      // caso de alguem fechar de novo uma fatura ja quitada.
       await tx.paymentInstallment.updateMany({
-        where: { purchaseId: statement.generatedPurchaseId },
+        where: {
+          purchaseId: statement.generatedPurchaseId,
+          status: { notIn: ["PAID", "PAID_LATE"] }
+        },
         data: {
-          amount: new Prisma.Decimal(totalAmount)
+          amount: new Prisma.Decimal(totalAmount),
+          dueDate: statement.dueDate,
+          status: "OPEN"
         }
       });
     }
@@ -679,6 +702,16 @@ cardsRouter.post("/statements/:id/reopen", async (request, response) => {
     response.status(400).json({
       message: `Nao e possivel reabrir fatura em status ${statement.status}. Apenas CLOSED ou PAID.`
     });
+    return;
+  }
+
+  // Reabrir cancela o titulo a pagar da fatura, o que muda o mes tanto quanto
+  // fechar. Mesma trava, mesmas duas datas.
+  try {
+    await assertPeriodWritableForDate(statement.closingDate, "Reabertura de fatura de cartao");
+    await assertPeriodWritableForDate(statement.dueDate, "Reabertura de fatura de cartao (vencimento)");
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
     return;
   }
 
