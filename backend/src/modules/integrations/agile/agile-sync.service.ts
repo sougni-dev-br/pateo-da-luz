@@ -111,7 +111,7 @@ type DayEntryPayload = {
   grossAmount: number; // vl_total das vendas RECEBIDAS (com serviço)
   serviceAmount: number; // vl_servico_inf somado
   discounts: number; // vl_desconto somado
-  netAmount: number; // gross - service - discounts (base tributável / receita própria)
+  netAmount: number; // gross - service. O desconto NÃO entra: o vl_total do Agile já vem abatido dele.
   tickets: number;
   ticketAverage: number | null;
   peopleServed: number;
