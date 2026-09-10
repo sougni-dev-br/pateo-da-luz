@@ -100,12 +100,24 @@ type SalaoData = {
 };
 
 async function fetchSalao(date: string): Promise<SalaoData> {
+  // Intervalo do dia, nao igualdade. A sincronizacao do Agile grava o lancamento
+  // as 12:00 UTC (ancora de meio-dia, que cai no mesmo dia do calendario nos dois
+  // fusos), enquanto dayRangeSP().start e 03:00 UTC — meia-noite em Sao Paulo. A
+  // igualdade nunca casava: o resumo reportava salao ZERADO todo dia.
+  //
+  // Conferido em producao: buscando por igualdade, 0 linhas; pelo intervalo, 1.
+  // As outras tres buscas deste arquivo (eventos, iFood, 99Food) sempre usaram
+  // intervalo — o padrao certo existia ao lado e so esta falhava.
+  //
+  // Estava latente: DailySummarySent tem zero linhas, entao nenhum resumo chegou
+  // a ser enviado. O erro apareceria no primeiro envio.
+  const { start, endExclusive } = dayRangeSP(date);
   const row = await prisma.revenueEntry.findFirst({
     where: {
       channel: SALON_CHANNEL,
       sourcePlatform: AGILE_SOURCE,
       status: "ACTIVE",
-      date: dayRangeSP(date).start
+      date: { gte: start, lt: endExclusive }
     }
   });
 
