@@ -42,23 +42,37 @@ function asNumber(value: unknown) {
 //   { ok: false }               -> texto presente porem nao numerico
 type ParsedQuantity = { ok: true; value: number | null } | { ok: false };
 
-// "11.700" é ambíguo em quantidade: onze mil e setecentos, ou 11 kg e 700 g?
-// O parseDecimalInput escolhe milhar, o que está certo para dinheiro e errado
-// para balança. Em 04/09 isso gravou 12 leituras mil vezes maiores na contagem
-// do freezer. Aqui a entrada ambígua é recusada em vez de adivinhada — a rota
-// devolve 400 com as duas leituras, e o usuário diz qual quis.
-const QUANTIDADE_AMBIGUA = /^[+-]?\d{1,3}(\.\d{3})+$/;
-
-function quantidadeAmbigua(value: unknown) {
-  return typeof value === "string" && QUANTIDADE_AMBIGUA.test(value.trim());
+// Quantidade tem parser proprio, separado do parseDecimalInput que serve ao
+// dinheiro. A diferenca e uma so e vale a duplicacao: sem virgula, o PONTO E
+// DECIMAL. "11.700" e 11,7 (a leitura da balanca), nao onze mil e setecentos.
+//
+// Em dinheiro a regra oposta esta certa, porque valor em real tem 2 casas e
+// milhar tem 3, entao "1.234" so pode ser mil duzentos e trinta e quatro. Em
+// peso, 3 casas e o normal (11 kg 700 g) e a leitura de milhar erra por 1000.
+// Foi o que aconteceu em 04/09 com 12 itens do freezer.
+//
+// Esta e tambem a convencao do <input type="number">, que os demais campos
+// numericos do ERP ja usam: uma regra so no sistema inteiro.
+function parseQuantidade(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (value === null || value === undefined) return null;
+  const bruto = String(value).trim().replace(/\s/g, "");
+  if (!bruto) return null;
+  const sinal = bruto.startsWith("-") ? -1 : 1;
+  const digitos = bruto.replace(/^[+-]/, "");
+  if (!/^[\d.,]+$/.test(digitos)) return null;
+  const normalizado = digitos.includes(",")
+    ? digitos.replace(/\./g, "").replace(",", ".")   // virgula decimal, pontos de milhar
+    : digitos;                                        // ponto decimal
+  const n = Number(normalizado);
+  return Number.isFinite(n) ? sinal * n : null;
 }
 
 function parseQuantityInput(value: unknown): ParsedQuantity {
-  if (quantidadeAmbigua(value)) return { ok: false };
   if (value === undefined || value === null || String(value).trim() === "") {
     return { ok: true, value: null };
   }
-  const parsed = parseDecimalInput(value);
+  const parsed = parseQuantidade(value);
   if (parsed === null) return { ok: false };
   return { ok: true, value: parsed };
 }

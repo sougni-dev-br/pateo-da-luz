@@ -118,9 +118,7 @@ import {
   operationalStatusLabels,
   operationalTone,
   operationalTypeLabels,
-  ambiguousReadings,
   evaluateQuantity,
-  isAmbiguousQuantity,
   quantityHint,
   packSizeFromName,
   parseMonth,
@@ -890,24 +888,10 @@ export function Inventory({
     setCountSessionDirty((prev) => (prev[itemId] ? prev : { ...prev, [itemId]: true }));
   }
 
-  // "11.700" não é número inválido: é número de duas leituras. Dizer só
-  // "quantidade inválida" manda o usuário procurar erro de digitação onde não
-  // há. A mensagem mostra as duas opções e como escrever cada uma.
+  // Sobrou so o caso de texto que nao e numero. A leitura de dois sentidos
+  // deixou de existir: ponto sem virgula e decimal, como no resto do ERP.
   function mensagemDeQuantidade(rotulos: Array<{ nome: string; valor: string }>) {
-    const ambiguos = rotulos.filter((r) => isAmbiguousQuantity(r.valor));
-    const invalidos = rotulos.filter((r) => !isAmbiguousQuantity(r.valor));
-    const partes: string[] = [];
-    if (ambiguos.length) {
-      const exemplo = ambiguousReadings(ambiguos[0].valor);
-      partes.push(
-        `Quantidade com dois sentidos em: ${ambiguos.map((r) => `${r.nome} (${r.valor})`).join(", ")}. ` +
-        `Escreva ${exemplo.decimal} para o valor da balança, ou ${exemplo.milhar} para milhar.`
-      );
-    }
-    if (invalidos.length) {
-      partes.push(`Quantidade invalida em: ${invalidos.map((r) => r.nome).join(", ")}.`);
-    }
-    return partes.join(" ");
+    return `Quantidade invalida em: ${rotulos.map((r) => r.nome).join(", ")}.`;
   }
 
   function countSessionPayload() {
@@ -1809,7 +1793,7 @@ export function Inventory({
     // quando ela serve. Aqui acompanha a rolagem dos 99 itens.
     const regraDeDigitacao = (
       <div className="count-rule-hints">
-        <span><strong>kg &middot; L</strong> vírgula &mdash; 11,700</span>
+        <span><strong>kg &middot; L</strong> 11,700 ou 11.700 &mdash; dá 11,7</span>
         <span><strong>demais</strong> inteiro &mdash; 1510</span>
       </div>
     );
