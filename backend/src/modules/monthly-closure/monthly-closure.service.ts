@@ -158,6 +158,16 @@ export async function comprasSemItem(year: number, month: number) {
       AND p."status" = 'ACTIVE'
       AND p."totalAmount" > 0
       AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" pi WHERE pi."purchaseId" = p."id")
+      -- Agregador nao e nota sem itemizacao: e veiculo de pagamento. O ciclo de
+      -- fornecedor e a fatura de cartao geram uma Purchase sem item de proposito,
+      -- porque a despesa ja esta nas compras individuais que eles agrupam.
+      -- Conferido em producao: nos 7 ciclos fechados o total do ciclo bate
+      -- exatamente com a soma das compras ativas dele, e essas compras carregam
+      -- os itens de produto (316, 200, 154, 104, 84, 57 e 41 itens). Marcar o
+      -- agregador como pendencia mandava itemizar o que ja estava itemizado, e
+      -- itemiza-lo de fato DOBRARIA a despesa no CMV.
+      AND NOT EXISTS (SELECT 1 FROM "SupplierBillingCycle" cy WHERE cy."generatedPurchaseId" = p."id")
+      AND NOT EXISTS (SELECT 1 FROM "CreditCardStatement" cs WHERE cs."generatedPurchaseId" = p."id")
     ORDER BY p."totalAmount" DESC
   `;
 }
