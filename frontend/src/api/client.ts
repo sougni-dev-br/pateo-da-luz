@@ -5542,8 +5542,10 @@ export function reopenTipPeriodApi(year: number, month: number) {
   return request<TipComputation>(`/payroll/tip/periods/${year}/${month}/reopen`, { method: "POST" });
 }
 
+// elegiveis = quantos funcionarios tem participaGorjeta no cadastro. Serve para a
+// tela distinguir "ja estao todos" de "nao ha ninguem marcado".
 export function syncTipParticipants(periodId: string) {
-  return request<{ added: number; computation: TipComputation }>(`/payroll/tip/periods/${periodId}/sync`, { method: "POST" });
+  return request<{ added: number; elegiveis: number; computation: TipComputation }>(`/payroll/tip/periods/${periodId}/sync`, { method: "POST" });
 }
 
 export type ExtratoPreviewItem = {
