@@ -304,7 +304,13 @@ function nextCompetence(year: number, month: number) {
   return { year, month: month + 1 };
 }
 
-async function cloneFinalAsNextInitial(tx: Prisma.TransactionClient, snapshotId: string, input: {
+// Exportada porque ha DOIS caminhos que criam inventario final e os dois
+// precisam encadear o inicial do mes seguinte: a importacao por planilha
+// (confirmInventorySnapshot, aqui) e a contagem do sistema
+// (createInventorySnapshotFromOperationalInventory, no modulo de estoque).
+// So o primeiro encadeava, e quando a operacao migrou de planilha para
+// contagem a corrente arrebentou sem aviso.
+export async function cloneFinalAsNextInitial(tx: Prisma.TransactionClient, snapshotId: string, input: {
   competenceYear: number;
   competenceMonth: number;
   countDate: Date;
