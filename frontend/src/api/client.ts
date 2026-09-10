@@ -2737,7 +2737,9 @@ export function changeOwnPassword(payload: { currentPassword: string; newPasswor
 }
 
 export function cancelPurchase(id: string, reason: string) {
-  return request<{ id: string; status: string }>(`/purchases/${id}/cancel`, {
+  // warning vem preenchido quando sobrou titulo ja pago na compra cancelada:
+  // o dinheiro saiu e a despesa deixou o DRE, entao quem cancelou precisa ver.
+  return request<{ id: string; status: string; installmentsPaidKept?: number; paidAmountKept?: number; warning?: string }>(`/purchases/${id}/cancel`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reason })
