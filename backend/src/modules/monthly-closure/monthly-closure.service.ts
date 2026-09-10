@@ -147,6 +147,28 @@ async function getRevenueSummary(year: number, month: number) {
 //
 // Fatura de cartao entra aqui com total zero e sem item por desenho, entao o
 // filtro exige totalAmount > 0.
+// Imposto sem competenceDate nao pertence a mes nenhum: o DRE exige
+// competenceDate IS NOT NULL, entao ele some do relatorio, e como nao cai em
+// nenhum mes, nenhum checklist mensal o acusa. Fica invisivel nas duas pontas.
+//
+// Medido em producao 09/2026: 5 lancamentos vivos e PAGOS, somando R$ 17.350,31.
+// Os dois maiores sao DAS do Simples pagos em 19/05/2026 (R$ 9.150,15 e
+// R$ 6.666,35). Dinheiro que saiu do banco e nao aparece em DRE nenhum.
+//
+// Nao da para deduzir a competencia da data de pagamento: imposto costuma se
+// referir ao mes anterior ao vencimento, entao chutar erraria o mes. Por isso a
+// pendencia pede que alguem informe, em vez de o sistema inventar.
+export async function impostosSemCompetencia() {
+  return prisma.$queryRaw<Array<{ documentType: string | null; amount: any; dueDate: Date | null }>>`
+    SELECT "documentType" AS "documentType", "amount" AS "amount", "dueDate" AS "dueDate"
+    FROM "TaxPayment"
+    WHERE "deletedAt" IS NULL
+      AND "status" <> 'CANCELED'
+      AND "competenceDate" IS NULL
+    ORDER BY "dueDate" ASC
+  `;
+}
+
 // Item contado com custo zero nao soma nada no inventario, e o inventario e uma
 // das tres pernas do CMV (inicial + compras - final). O snapshot e gravado com
 // unitCost NULL quando o produto nao tem custo na contagem, o total e calculado
@@ -395,6 +417,19 @@ export async function getMonthlyClosure(year: number, month: number) {
     pending.push({
       key: "block:purchasesWithoutItems",
       label: `${semItem.length} compra(s) sem itens, somando ${valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} — nao entram no CMV (${exemplos}${semItem.length > 3 ? ", ..." : ""})`
+    });
+  }
+
+  // Diferente das outras pendencias, esta nao e do mes: e global. Aparece em
+  // qualquer mes que se tente fechar justamente porque o lancamento nao pertence
+  // a nenhum — e some de todos assim que a competencia for informada.
+  const semCompetencia = await impostosSemCompetencia();
+  if (semCompetencia.length > 0 && !justificationByKey.has("block:taxesWithoutCompetence")) {
+    const valor = semCompetencia.reduce((soma, t) => soma + Number(t.amount ?? 0), 0);
+    const exemplos = semCompetencia.slice(0, 2).map((t) => t.documentType ?? "?").join(", ");
+    pending.push({
+      key: "block:taxesWithoutCompetence",
+      label: `${semCompetencia.length} imposto(s) sem competencia informada, somando ${valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} — nao aparecem em DRE nenhum (${exemplos}${semCompetencia.length > 2 ? ", ..." : ""})`
     });
   }
 
