@@ -203,7 +203,12 @@ async function calcDRE(from: Date, to: Date) {
         SUM("serviceAmount") AS "serviceAmount",
         SUM(tickets)         AS tickets
       FROM "RevenueEntry"
-      WHERE status = 'ACTIVE'
+      -- <> 'CANCELLED', nao = 'ACTIVE'. O campo status e String livre (nao enum)
+      -- e a importacao de faturamento aceita o valor vindo da planilha, entao um
+      -- "Ativo" ou um espaco a mais criaria um lancamento que SOME daqui e
+      -- continua contando no CMV e nos outros 14 leitores, que usam <> 'CANCELLED'.
+      -- A mesma receita apareceria num relatorio e no outro nao.
+      WHERE status <> 'CANCELLED'
         AND date >= ${from} AND date <= ${to}
       GROUP BY channel
       ORDER BY channel
