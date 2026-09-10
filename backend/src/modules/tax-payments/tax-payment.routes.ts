@@ -349,12 +349,33 @@ taxPaymentRouter.patch("/:id/pay", async (request, response) => {
   const paidAmount = Number(request.body.paidAmount ?? 0);
   const comments = request.body.comments != null ? String(request.body.comments) : undefined;
 
-  if (!paymentDate || isNaN(paymentDate.getTime()) || paidAmount <= 0) {
+  // Number.isFinite, nao so "<= 0": Number("1.234,56") e NaN, e NaN <= 0 e FALSO,
+  // entao a guarda antiga deixava NaN passar direto para o banco.
+  if (!paymentDate || isNaN(paymentDate.getTime()) || !Number.isFinite(paidAmount) || paidAmount <= 0) {
     return response.status(400).json({ message: "Data do pagamento e valor pago (> 0) são obrigatórios." });
   }
 
   const existing = await prisma.taxPayment.findFirst({ where: { id, deletedAt: null } });
   if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
+
+  // Ja pago: sem esta guarda, repetir a chamada sobrescreve data e valor em
+  // silencio. Aconteceu em producao — um titulo de R$ 8.754,77 recebeu duas
+  // baixas de R$ 14,31 com 34 segundos de diferenca (cara de toque duplo), e o
+  // valor errado ficou de pe por um mes ate alguem pagar de novo para corrigir.
+  // As rotas irmas (contas a pagar, folha, cartoes) ja exigem estorno antes de
+  // repagar; aqui a correcao passa a deixar rastro em vez de apagar a anterior.
+  if (existing.status === "PAID" || existing.paymentDate) {
+    return response.status(409).json({
+      message: "Este imposto ja consta como pago. Estorne a baixa antes de lancar outra — assim a correcao fica registrada."
+    });
+  }
+
+  // A trava de competencia ja existe neste arquivo e protege cadastro, edicao e
+  // exclusao. Pagar ficara de fora, e pagar e justamente o que move o DRE: o
+  // desembolso entra no mes da data do pagamento. Em producao ha baixa lancada
+  // em competencia de 2022 com data de 2026.
+  if (await competenciaBloqueada(existing.competenceDate, "Baixa de imposto", response)) return;
+  if (await competenciaBloqueada(paymentDate, "Baixa de imposto (data do pagamento)", response)) return;
 
   const updated = await prisma.taxPayment.update({
     where: { id },
@@ -396,6 +417,11 @@ taxPaymentRouter.patch("/:id/reverse", async (request, response) => {
   if (!existing.paymentDate) {
     return response.status(400).json({ message: "Este lançamento ainda não possui pagamento para estornar." });
   }
+
+  // Estornar tira o desembolso do mes em que ele entrou; se aquele mes estiver
+  // fechado, o DRE dele muda depois de apurado. Mesma trava do cadastro.
+  if (await competenciaBloqueada(existing.competenceDate, "Estorno de imposto", response)) return;
+  if (await competenciaBloqueada(existing.paymentDate, "Estorno de imposto (data do pagamento)", response)) return;
 
   const now = new Date();
   const reversedStatus = existing.dueDate && existing.dueDate < now ? "OVERDUE" : "PENDING";
