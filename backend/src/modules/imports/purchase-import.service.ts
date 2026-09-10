@@ -945,12 +945,21 @@ export async function confirmPurchaseImport(
   const conflicts = await detectPurchaseImportConflicts(rowsForImport);
   const conflictSummary = summarizeConflictDecisions(conflicts);
 
+  // Linha recusada com o valor que ela carregava. spreadsheetTotal e somado ANTES
+  // desta validacao, entao tudo que cai aqui vira differenceTotal no lote — e ate
+  // 09/2026 sumia sem deixar rastro: a lista de erros so existia na resposta HTTP.
+  // Foi o que aconteceu com R$ 16.444,10 nas tres partes de 05/07/2026, que ficou
+  // impossivel de reconstruir depois. Agora vai para o AuditLog.
+  const recusadas: Array<{ linha: number; motivo: string; valor: number; dados: unknown }> = [];
+
   rowsForImport.forEach(({ rawRow, rowNumber, row: mappedRow }) => {
     const rowErrors = validateRow(mappedRow);
     warnings.push(...getInstallmentWarnings(rowNumber, mappedRow));
 
     if (rowErrors.length) {
-      errors.push({ rowNumber, message: rowErrors.join(" "), rawRow });
+      const motivo = rowErrors.join(" ");
+      errors.push({ rowNumber, message: motivo, rawRow });
+      recusadas.push({ linha: rowNumber, motivo, valor: Number(mappedRow.totalPrice ?? 0), dados: rawRow });
       return;
     }
 
@@ -1229,6 +1238,29 @@ export async function confirmPurchaseImport(
         differenceTotal: new Prisma.Decimal(summary.spreadsheetTotal - importedTotal)
       }
     });
+
+    // O lote diz QUANTO ficou de fora (differenceTotal); isto diz O QUE e POR QUE.
+    // Sem isso a unica forma de saber era a tela logo apos importar, e quem olhasse
+    // depois so via um numero sem explicacao. Guardado no AuditLog porque as colunas
+    // jsonb ja existem — nao precisa de migration para uma correcao de rastreabilidade.
+    // Cap de 300 linhas: o objetivo e reconstruir, e planilha que recusa mais que isso
+    // tem problema de formato, nao de conteudo.
+    if (recusadas.length > 0) {
+      const valorRecusado = recusadas.reduce((soma, r) => soma + r.valor, 0);
+      await auditLog({
+        userId: options.authorizedByUserId ?? null,
+        action: "IMPORT_PURCHASE_ROWS_REJECTED",
+        entity: "ImportBatch",
+        entityId: importBatch.id,
+        newValue: {
+          originalFileName,
+          linhasRecusadas: recusadas.length,
+          valorRecusado,
+          truncado: recusadas.length > 300,
+          linhas: recusadas.slice(0, 300)
+        }
+      });
+    }
   }, { maxWait: 10000, timeout: options.historicalMode ? 60000 : 30000 });
 
   for (const entry of inventoryEntries) {
