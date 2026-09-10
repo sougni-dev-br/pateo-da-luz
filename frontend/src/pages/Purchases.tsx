@@ -1522,8 +1522,10 @@ export function Purchases({ user }: { user: AppUser }) {
       : "Cancelar esta compra vai estornar a entrada de estoque vinculada. Confirmar?";
     const confirmed = window.confirm(confirmMessage);
     if (!confirmed) return;
-    await cancelPurchase(purchase.id, reason);
-    setNotice({ tone: "success", message: "Compra cancelada com sucesso." });
+    const resultado = await cancelPurchase(purchase.id, reason);
+    setNotice(resultado.warning
+      ? { tone: "warning", message: resultado.warning }
+      : { tone: "success", message: "Compra cancelada com sucesso." });
     await loadPurchases();
   }
 
