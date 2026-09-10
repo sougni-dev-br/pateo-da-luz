@@ -300,7 +300,17 @@ async function reflectSalesIntoRevenueEntries(
   const byDate = new Map<string, { gross: number; discounts: number; count: number; dateObj: Date }>();
   for (const sale of sales) {
     const dateKey = sale.orderDate.toISOString().slice(0, 10);
-    const prev = byDate.get(dateKey) ?? { gross: 0, discounts: 0, count: 0, dateObj: new Date(dateKey + "T00:00:00.000Z") };
+    // Meio-dia UTC, nao meia-noite. Todo o resto do sistema grava RevenueEntry as
+    // 12:00 — ancora que cai no mesmo dia do calendario em UTC e em Sao Paulo. A 99
+    // era a unica origem gravando 00:00, e isso produziu dois lancamentos exatamente
+    // na virada de mes (01/08 e 01/09 as 00:00Z = 21:00 do dia anterior em SP), que
+    // so caem no mes certo porque o servidor roda em UTC. Meio-dia remove a
+    // dependencia do fuso do processo.
+    //
+    // Seguro: o upsert e chaveado por id deterministico (nnfood-loja-YYYYMMDD), sem
+    // componente de hora, entao nao duplica — e as 40 linhas ja gravadas se alinham
+    // sozinhas no proximo sync do periodo.
+    const prev = byDate.get(dateKey) ?? { gross: 0, discounts: 0, count: 0, dateObj: new Date(dateKey + "T12:00:00.000Z") };
     prev.gross += Number(sale.grossAmount);
     prev.discounts += Number(sale.promotionAmount);
     // Estorno é linha de ajuste — reduz o gross do dia, mas não conta como
