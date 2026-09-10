@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { assertPeriodWritableForDate } from "../../cmv-real/cmv-real.service.js";
 import { REVENUE_CHANNEL_SALON } from "../../monthly/revenue-channels.js";
 import { prisma } from "../../../config/database.js";
+import { auditLog } from "../../security/security-utils.js";
 import { createCalendarDate } from "../../../shared/utils/calendar-date.js";
 import type {
   AgileSyncPayload,
@@ -453,6 +454,28 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
       `${adotados.length} dia(s) ja tinham lancamento de outra origem e foram assumidos pelo PDV ` +
       `em vez de duplicados (${exemplos}${adotados.length > 3 ? ", ..." : ""}).`
     );
+
+    // O aviso acima vai no retorno HTTP — que quem le e o AGENTE na maquina do PDV,
+    // nao uma pessoa. Adotar sobrescreve um lancamento de receita existente: troca a
+    // origem e os valores de um dia inteiro. Era a unica escrita destrutiva do
+    // sistema sem rastro nenhum (este arquivo nao tinha uma chamada de auditLog).
+    // O valor anterior ja era capturado em adotados e descartado; agora fica.
+    await auditLog({
+      userId: null,
+      action: "AGILE_ADOPTED_EXISTING_REVENUE",
+      entity: "RevenueEntry",
+      entityId: null,
+      newValue: {
+        batchId,
+        dias: adotados.length,
+        lancamentos: adotados.slice(0, 60).map((a) => ({
+          data: a.data.toISOString().slice(0, 10),
+          origemAnterior: a.origemAnterior,
+          valorAnterior: a.valorAnterior
+        })),
+        truncado: adotados.length > 60
+      }
+    });
   }
 
   return {
