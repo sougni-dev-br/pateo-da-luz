@@ -399,27 +399,44 @@ dashboardRouter.get("/alerts", async (request, response) => {
   // telas respondiam a mesma pergunta com quase um dia de diferença.
   const fimDos7Dias = new Date(today.getTime() + 8 * 24 * 60 * 60 * 1000);
 
-  // ── 1. Parcelas vencidas (global, não filtrado por competência) ──
+  // ── 1. Titulos vencidos (global, não filtrado por competência) ──
+  // As TRES fontes, como em Contas a Pagar. Ate 09/2026 este painel lia so
+  // PaymentInstallment, entao folha e imposto vencidos nao entravam: o Dashboard
+  // mostrava R$ 491.765,30 enquanto o total real era R$ 512.631,40 — 34
+  // lancamentos de folha, R$ 20.866,10, invisiveis. Duas telas sobre a mesma
+  // divida dando numeros diferentes.
   const overdueRows = await prisma.$queryRaw<Array<{ cnt: unknown; total: unknown }>>`
-    SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total
-    FROM "PaymentInstallment"
-    WHERE status = 'OPEN'
-      AND "dueDate" IS NOT NULL
-      AND "dueDate" < ${today}
-      AND "paidDate" IS NULL
+    SELECT COUNT(*) AS cnt, COALESCE(SUM(valor), 0) AS total FROM (
+      SELECT "amount" AS valor FROM "PaymentInstallment"
+       WHERE status = 'OPEN' AND "dueDate" IS NOT NULL AND "dueDate" < ${today} AND "paidDate" IS NULL
+      UNION ALL
+      SELECT "amount" FROM "TaxPayment"
+       WHERE "deletedAt" IS NULL AND status NOT IN ('PAID', 'CANCELED')
+         AND "dueDate" IS NOT NULL AND "dueDate" < ${today} AND "paymentDate" IS NULL
+      UNION ALL
+      SELECT "amount" FROM "PayrollItem"
+       WHERE "deletedAt" IS NULL AND status NOT IN ('PAID', 'CANCELED')
+         AND "dueDate" IS NOT NULL AND "dueDate" < ${today} AND "paymentDate" IS NULL
+    ) t
   `;
   const overdueCount = Number(overdueRows[0]?.cnt ?? 0);
   const overdueAmount = Number(overdueRows[0]?.total ?? 0);
 
-  // ── 2. Parcelas a vencer em 7 dias (global) ──
+  // ── 2. Titulos a vencer em 7 dias (global) ── mesmas tres fontes.
   const dueSoonRows = await prisma.$queryRaw<Array<{ cnt: unknown; total: unknown }>>`
-    SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total
-    FROM "PaymentInstallment"
-    WHERE status = 'OPEN'
-      AND "dueDate" IS NOT NULL
-      AND "dueDate" >= ${today}
-      AND "dueDate" < ${fimDos7Dias}
-      AND "paidDate" IS NULL
+    SELECT COUNT(*) AS cnt, COALESCE(SUM(valor), 0) AS total FROM (
+      SELECT "amount" AS valor FROM "PaymentInstallment"
+       WHERE status = 'OPEN' AND "dueDate" IS NOT NULL
+         AND "dueDate" >= ${today} AND "dueDate" < ${fimDos7Dias} AND "paidDate" IS NULL
+      UNION ALL
+      SELECT "amount" FROM "TaxPayment"
+       WHERE "deletedAt" IS NULL AND status NOT IN ('PAID', 'CANCELED') AND "dueDate" IS NOT NULL
+         AND "dueDate" >= ${today} AND "dueDate" < ${fimDos7Dias} AND "paymentDate" IS NULL
+      UNION ALL
+      SELECT "amount" FROM "PayrollItem"
+       WHERE "deletedAt" IS NULL AND status NOT IN ('PAID', 'CANCELED') AND "dueDate" IS NOT NULL
+         AND "dueDate" >= ${today} AND "dueDate" < ${fimDos7Dias} AND "paymentDate" IS NULL
+    ) t
   `;
   const dueSoonCount = Number(dueSoonRows[0]?.cnt ?? 0);
   const dueSoonAmount = Number(dueSoonRows[0]?.total ?? 0);
@@ -540,7 +557,7 @@ dashboardRouter.get("/alerts", async (request, response) => {
       type: "danger",
       code: "OVERDUE_PAYABLES",
       title: "Pendências financeiras — contas vencidas",
-      description: `${overdueCount} parcela${overdueCount !== 1 ? "s" : ""} vencida${overdueCount !== 1 ? "s" : ""} até hoje sem pagamento registrado.`,
+      description: `${overdueCount} título${overdueCount !== 1 ? "s" : ""} vencido${overdueCount !== 1 ? "s" : ""} até hoje sem pagamento registrado — compras, impostos e folha.`,
       count: overdueCount,
       amount: overdueAmount,
       actionLabel: "Ver contas a pagar",
@@ -553,7 +570,7 @@ dashboardRouter.get("/alerts", async (request, response) => {
       type: "warning",
       code: "DUE_SOON_PAYABLES",
       title: "Pendências financeiras — a vencer",
-      description: `${dueSoonCount} parcela${dueSoonCount !== 1 ? "s" : ""} vence${dueSoonCount !== 1 ? "m" : ""} nos próximos 7 dias.`,
+      description: `${dueSoonCount} título${dueSoonCount !== 1 ? "s" : ""} vence${dueSoonCount !== 1 ? "m" : ""} nos próximos 7 dias — compras, impostos e folha.`,
       count: dueSoonCount,
       amount: dueSoonAmount,
       actionLabel: "Ver contas a pagar",
