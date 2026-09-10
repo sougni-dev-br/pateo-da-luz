@@ -424,6 +424,22 @@ dashboardRouter.get("/alerts", async (request, response) => {
   const dueSoonCount = Number(dueSoonRows[0]?.cnt ?? 0);
   const dueSoonAmount = Number(dueSoonRows[0]?.total ?? 0);
 
+  // Titulo sem vencimento nao fica vencido nem entra no "a vencer": as duas
+  // consultas acima exigem dueDate IS NOT NULL. Ele some dos paineis e do fluxo
+  // de caixa. Em 09/2026 eram 26 parcelas, R$ 18.795,59 — a diferenca entre os
+  // R$ 630 mil que os paineis somavam e os R$ 649 mil realmente em aberto.
+  // Nao e erro de calculo: ninguem definiu o que fazer com esse caso, e o
+  // silencio virou omissao. Ganha faixa propria em vez de sumir.
+  const semVencimentoRows = await prisma.$queryRaw<Array<{ cnt: unknown; total: unknown }>>`
+    SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total
+    FROM "PaymentInstallment"
+    WHERE status = 'OPEN'
+      AND "dueDate" IS NULL
+      AND "paidDate" IS NULL
+  `;
+  const semVencimentoCount = Number(semVencimentoRows[0]?.cnt ?? 0);
+  const semVencimentoAmount = Number(semVencimentoRows[0]?.total ?? 0);
+
   // ── 3. Compras a prazo sem parcelas vinculadas (competência) ──
   // Três fluxos não geram título na própria compra — o título nasce depois, numa
   // compra virtual criada no fechamento. Acusá-los seria falso positivo permanente,
@@ -542,6 +558,19 @@ dashboardRouter.get("/alerts", async (request, response) => {
       amount: dueSoonAmount,
       actionLabel: "Ver contas a pagar",
       actionPath: "/financeiro/contas-a-pagar"
+    });
+  }
+
+  if (semVencimentoCount > 0) {
+    alerts.push({
+      type: "warning",
+      code: "NO_DUE_DATE_PAYABLES",
+      title: "Pendências financeiras — sem data de vencimento",
+      description: `${semVencimentoCount} parcela${semVencimentoCount !== 1 ? "s" : ""} em aberto sem vencimento definido — ${semVencimentoCount !== 1 ? "ficam" : "fica"} fora do vencido e do a vencer.`,
+      count: semVencimentoCount,
+      amount: semVencimentoAmount,
+      actionLabel: "Ver contas a pagar",
+      actionPath: "/financeiro/contas-a-pagar?noDueDate=1"
     });
   }
 
