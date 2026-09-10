@@ -147,6 +147,30 @@ async function getRevenueSummary(year: number, month: number) {
 //
 // Fatura de cartao entra aqui com total zero e sem item por desenho, entao o
 // filtro exige totalAmount > 0.
+// Item contado com custo zero nao soma nada no inventario, e o inventario e uma
+// das tres pernas do CMV (inicial + compras - final). O snapshot e gravado com
+// unitCost NULL quando o produto nao tem custo na contagem, o total e calculado
+// e o mes fecha sem ninguem ver — a contagem parece completa porque os itens
+// ESTAO la, so valem zero.
+//
+// Medido em producao 09/2026: o inventario final de junho tinha 62 itens assim,
+// valendo cerca de R$ 19 mil (20% do proprio inventario) quando valorados pelo
+// custo que o sistema atribui ao mesmo produto na mesma unidade em outra
+// contagem. Julho, 39 itens e ~18%. Quase todos bebida.
+export async function itensDeInventarioSemCusto(year: number, month: number) {
+  return prisma.$queryRaw<Array<{ productName: string | null; unit: string | null; quantity: any }>>`
+    SELECT i."productName" AS "productName", i."unit" AS "unit", i."quantity" AS "quantity"
+    FROM "InventorySnapshotItem" i
+    JOIN "InventorySnapshot" s ON s."id" = i."snapshotId"
+    WHERE s."competenceYear" = ${year} AND s."competenceMonth" = ${month}
+      AND s."type" = 'INVENTARIO_FINAL'
+      AND s."status" IN ('ACTIVE', 'APPROVED')
+      AND COALESCE(i."unitCost", 0) = 0
+      AND i."quantity" > 0
+    ORDER BY i."quantity" DESC
+  `;
+}
+
 export async function comprasSemItem(year: number, month: number) {
   return prisma.$queryRaw<Array<{ purchaseNumber: string | null; supplierName: string | null; totalAmount: any }>>`
     SELECT p."purchaseNumber" AS "purchaseNumber",
@@ -371,6 +395,19 @@ export async function getMonthlyClosure(year: number, month: number) {
     pending.push({
       key: "block:purchasesWithoutItems",
       label: `${semItem.length} compra(s) sem itens, somando ${valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} — nao entram no CMV (${exemplos}${semItem.length > 3 ? ", ..." : ""})`
+    });
+  }
+
+  // Mesma logica da nota sem item, do outro lado do CMV: la falta custo de
+  // compra, aqui falta custo de estoque. Subvalorizar o inventario final INFLA
+  // o CMV do mes (CMV = inicial + compras - final) e SUBTRAI do mes seguinte,
+  // que herda esse final como inicial. Erra dois meses de uma vez.
+  const semCusto = await itensDeInventarioSemCusto(year, month);
+  if (semCusto.length > 0 && !justificationByKey.has("block:inventoryItemsWithoutCost")) {
+    const exemplos = semCusto.slice(0, 3).map((i) => i.productName ?? "?").join(", ");
+    pending.push({
+      key: "block:inventoryItemsWithoutCost",
+      label: `${semCusto.length} item(ns) do inventario final contados com custo zero — nao somam no estoque e distorcem o CMV deste mes e do proximo (${exemplos}${semCusto.length > 3 ? ", ..." : ""})`
     });
   }
 
