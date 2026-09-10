@@ -27,6 +27,7 @@ export type DreSummary = {
     deductions: number;
     netAmount: number;
     serviceAmount: number;
+    platformCommission: number;
     tickets: number;
   };
   cmv: {
@@ -329,7 +330,12 @@ export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?
 
   // ── Formula block ─────────────────────────────────────────────────────────────
   cv.rect(MX, y - 28, CW, 28, [0.97, 0.97, 0.99], C_LINE, 0.6);
-  cv.txt("Formula: Receita Bruta - CMV - Despesas Operacionais = Lucro Operacional", MX + 12, y - 17, 8, F_ITAL, [0.30, 0.30, 0.38]);
+  // A conta real e sobre a receita LIQUIDA: lucroBruto = netAmount - cmvReal, e
+  // ebitda = lucroBruto - despesas (dre.routes.ts). O PDF dizia "Receita Bruta",
+  // entao quem aplicasse a formula impressa sobre o card de Receita Bruta do
+  // proprio PDF chegava a outro numero — a diferenca e a deducao, R$ 218 mil de
+  // taxa de servico em 2026 mais as comissoes de delivery.
+  cv.txt("Formula: Receita Liquida - CMV - Despesas Operacionais = Lucro Operacional", MX + 12, y - 17, 8, F_ITAL, [0.30, 0.30, 0.38]);
   y -= 40;
 
   // ── Aviso receita zero ────────────────────────────────────────────────────────
@@ -385,7 +391,9 @@ export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?
   // ── Receitas por canal ────────────────────────────────────────────────────────
   const channels = Object.entries(data.revenue.byChannel).sort((a, b) => b[1] - a[1]);
   if (channels.length > 0) {
-    y = ensureSpace(60 + channels.length * 18);
+    // +46 pelas tres linhas novas da cadeia (2 deducoes de 14pt + liquida de 16pt),
+    // senao elas estouram a pagina quando o canal cai perto da quebra.
+    y = ensureSpace(60 + channels.length * 18 + 46);
     y = sectionHeading(cv, y, "Receitas por Canal");
 
     const chanCols: ColDef[] = [
@@ -410,6 +418,25 @@ export function createDrePdf(data: DreSummary, extras?: { operationalUncatCount?
     cv.rect(MX, y - 16, CW, 16, totalBg, C_LINE, 0.4);
     cv.txt("TOTAL (receita bruta)", MX + 4, y - 10, 7.5, F_BOLD, C_DARK);
     cv.rtxt(brl(data.revenue.grossAmount), MX + CW - 4, y - 10, 7.5, F_BOLD, C_DARK);
+    y -= 16;
+
+    // A cadeia ate a receita liquida, igual a tela. Sem isso o PDF mostrava so o
+    // bruto e nao havia como reconstruir o lucro a partir do proprio documento.
+    const deducaoLinhas: Array<[string, number]> = [
+      ["(-) Taxa de servico (repassada a equipe)", data.revenue.serviceAmount],
+      ["(-) Comissao das plataformas de delivery", data.revenue.platformCommission],
+    ];
+    deducaoLinhas.forEach(([rotulo, valor]) => {
+      cv.rect(MX, y - 14, CW, 14, [1, 1, 1], C_LINE, 0.4);
+      cv.txt(rotulo, MX + 4, y - 9, 7, F_REG, C_MUTED);
+      cv.rtxt(brl(-valor), MX + CW - 4, y - 9, 7, F_REG, C_MUTED);
+      y -= 14;
+    });
+
+    const liquidaBg: [number, number, number] = [0.90, 0.93, 0.97];
+    cv.rect(MX, y - 16, CW, 16, liquidaBg, C_LINE, 0.4);
+    cv.txt("(=) RECEITA LIQUIDA (base do lucro)", MX + 4, y - 10, 7.5, F_BOLD, C_DARK);
+    cv.rtxt(brl(data.revenue.netAmount), MX + CW - 4, y - 10, 7.5, F_BOLD, C_DARK);
     y -= 16;
     y -= 16;
   }
