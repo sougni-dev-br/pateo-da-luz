@@ -185,7 +185,11 @@ async function reflectSalesIntoRevenueEntries(store: { id: string; companyId: st
   const byDate = new Map<string, { gross: number; discounts: number; count: number; dateObj: Date }>();
   for (const sale of sales) {
     const dateKey = sale.orderDate.toISOString().slice(0, 10);
-    const prev = byDate.get(dateKey) ?? { gross: 0, discounts: 0, count: 0, dateObj: new Date(dateKey + "T00:00:00.000Z") };
+    // Meio-dia UTC, como todas as outras origens de RevenueEntry: cai no mesmo dia
+    // do calendario em UTC e em Sao Paulo, entao a data nao escorrega com o fuso.
+    // A 99 gravava meia-noite e produziu dois lancamentos na virada de mes; o iFood
+    // tinha a mesma forma e ainda nao tem dado real para estragar.
+    const prev = byDate.get(dateKey) ?? { gross: 0, discounts: 0, count: 0, dateObj: new Date(dateKey + "T12:00:00.000Z") };
     prev.gross += Number(sale.grossAmount);
     prev.discounts += Number(sale.promotionAmount);
     prev.count += 1;
@@ -196,6 +200,23 @@ async function reflectSalesIntoRevenueEntries(store: { id: string; companyId: st
   for (const [dateKey, agg] of byDate.entries()) {
     const gross = Math.round(agg.gross * 100) / 100;
     const discounts = Math.round(agg.discounts * 100) / 100;
+    // ⚠️ DECISAO PENDENTE ANTES DE ATIVAR O IFOOD EM PRODUCAO.
+    //
+    // Esta linha repete a formula que estava ERRADA na 99 (ver F-59): la o liquido
+    // era calculado como bruto - promocao e acertava so 384 dos 1.374 pedidos (28%),
+    // subestimando a receita em R$ 13.197,77. A 99 passou a somar o netAmount que a
+    // plataforma informa por pedido.
+    //
+    // NAO copiei a correcao para ca porque o iFood tem um modelo diferente e
+    // deliberado: a taxa nao entra em platformFees, vira despesa separada em Purchase
+    // mensal (escolha 2B, ver comentario da Fase D acima). Se o liquido tambem
+    // descontasse a taxa, ela contaria DUAS vezes — como reducao de receita e como
+    // despesa.
+    //
+    // O que precisa ser respondido com dado real na mao: a promocao do iFood e
+    // bancada pela plataforma ou pelo restaurante? IfoodSale.netAmount ja e gravado
+    // e responde isso — comparar com gross - promotionAmount em alguns pedidos
+    // reais, como foi feito na 99, decide a formula.
     const net = Math.round((gross - discounts) * 100) / 100;
     // ID determinístico: mesma loja + mesmo dia = mesmo RevenueEntry.
     // Formato: ifood-<storeId>-<YYYYMMDD>. Idempotente entre syncs.
