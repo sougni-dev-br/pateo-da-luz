@@ -140,6 +140,28 @@ async function getRevenueSummary(year: number, month: number) {
   };
 }
 
+// Nota lancada pelo total, sem itemizar. O financeiro usa Purchase.totalAmount
+// e o CMV soma PurchaseItem.totalPrice — entao a nota sem item entra em contas
+// a pagar e no DRE, e vale ZERO no CMV. Em jun/jul/ago de 2026 isso escondeu
+// R$ 67.045,32 de hortifruti, entre 7,6% e 10,3% das compras do mes.
+//
+// Fatura de cartao entra aqui com total zero e sem item por desenho, entao o
+// filtro exige totalAmount > 0.
+export async function comprasSemItem(year: number, month: number) {
+  return prisma.$queryRaw<Array<{ purchaseNumber: string | null; supplierName: string | null; totalAmount: any }>>`
+    SELECT p."purchaseNumber" AS "purchaseNumber",
+           s."name" AS "supplierName",
+           p."totalAmount" AS "totalAmount"
+    FROM "Purchase" p
+    LEFT JOIN "Supplier" s ON s."id" = p."supplierId"
+    WHERE p."competenceYear" = ${year} AND p."competenceMonth" = ${month}
+      AND p."status" = 'ACTIVE'
+      AND p."totalAmount" > 0
+      AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" pi WHERE pi."purchaseId" = p."id")
+    ORDER BY p."totalAmount" DESC
+  `;
+}
+
 async function getPurchasesSummary(year: number, month: number) {
   const [total] = await prisma.$queryRaw<Array<{ total: any; count: any }>>`
     SELECT COALESCE(SUM("totalAmount"), 0) AS "total", COUNT(*) AS "count"
@@ -327,6 +349,19 @@ export async function getMonthlyClosure(year: number, month: number) {
   // Faturamento salao com <25 dias no mes → aviso soft
   if (revenue.salon.daysCount < 25 && !justificationByKey.has("block:revenue")) {
     pending.push({ key: "block:revenue", label: `Faturamento salao com apenas ${revenue.salon.daysCount} dias (esperado >= 25)` });
+  }
+
+  // Nota sem item nao chega ao CMV. E a divergencia mais silenciosa que existe
+  // aqui: o valor aparece em contas a pagar e no DRE, entao nada parece faltar,
+  // mas o custo da mercadoria fica de fora e o CMV sai menor do que e.
+  const semItem = await comprasSemItem(year, month);
+  if (semItem.length > 0 && !justificationByKey.has("block:purchasesWithoutItems")) {
+    const valor = semItem.reduce((soma, c) => soma + Number(c.totalAmount ?? 0), 0);
+    const exemplos = semItem.slice(0, 3).map((c) => c.supplierName ?? c.purchaseNumber ?? "?").join(", ");
+    pending.push({
+      key: "block:purchasesWithoutItems",
+      label: `${semItem.length} compra(s) sem itens, somando ${valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} — nao entram no CMV (${exemplos}${semItem.length > 3 ? ", ..." : ""})`
+    });
   }
 
   const canLock = pending.length === 0;
