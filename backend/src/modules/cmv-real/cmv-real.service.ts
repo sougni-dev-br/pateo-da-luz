@@ -954,9 +954,23 @@ export async function ensureSnapshotForSession(
   const competenceYear = session.periodYear ?? new Date(session.referenceDate).getFullYear();
   const competenceMonth = session.periodMonth ?? (new Date(session.referenceDate).getMonth() + 1);
 
-  // 7. Create InventorySnapshot
+  // 7-9 em UMA transacao. Antes eram tres escritas soltas com prisma.$executeRaw,
+  // e duas falhas parciais eram possiveis:
+  //
+  //   - o laco de itens morre no meio (651 INSERTs sequenciais contra Postgres
+  //     remoto): sobra um snapshot cujo cabecalho declara todos os itens e o valor
+  //     total, com so parte das linhas gravadas. Pareceria integro e subestimaria
+  //     o CMV;
+  //   - o passo 9 falha: a sessao nao fica ligada ao snapshot, e como esse link e
+  //     a chave de idempotencia, a proxima tentativa criaria um SEGUNDO inventario
+  //     para a mesma contagem.
+  //
+  // Conferido em 09/2026 que nenhuma das duas aconteceu ainda (os 8 snapshots tem
+  // totalValue igual a soma dos itens), mas a forma e a que uma hora estoura.
+  // timeout de 120s pelo volume: o maior inventario ate agora tem 794 itens.
   const snapshotId = crypto.randomUUID();
-  await prisma.$executeRaw`
+  await prisma.$transaction(async (tx) => {
+  await tx.$executeRaw`
     INSERT INTO "InventorySnapshot" (
       "id", "competenceYear", "competenceMonth", "type", "countDate",
       "status", "totalItems", "totalValue", "source", "updatedAt"
@@ -975,7 +989,7 @@ export async function ensureSnapshotForSession(
     const cost = toNumber(item.unitCost);
     const totalCost = Math.round(qty * cost * 100) / 100;
     const itemId = crypto.randomUUID();
-    await prisma.$executeRaw`
+    await tx.$executeRaw`
       INSERT INTO "InventorySnapshotItem" (
         "id", "snapshotId", "productId", "productCode", "productName",
         "sectorName", "categoryName", "subcategoryName", "unit",
@@ -999,12 +1013,13 @@ export async function ensureSnapshotForSession(
   }
 
   // 9. Link snapshot back to session (idempotency key for future calls)
-  await prisma.$executeRaw`
+  await tx.$executeRaw`
     UPDATE "StockCountSession"
     SET "linkedSnapshotId" = ${snapshotId}, "updatedAt" = CURRENT_TIMESTAMP
     WHERE "id" = ${sessionId}
       AND ("linkedSnapshotId" IS NULL OR "linkedSnapshotId" = '')
   `;
+  }, { maxWait: 15000, timeout: 120000 });
 
   return snapshotId;
 }
