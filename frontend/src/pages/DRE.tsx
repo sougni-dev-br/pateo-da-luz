@@ -492,12 +492,24 @@ export function DRE() {
                         />
                       ))}
 
+                    {/* Duas linhas, nao uma: a taxa de servico e a comissao saem do
+                        bruto por motivos diferentes e antes nenhuma das duas aparecia. */}
                     <DRERow
-                      label="(−) Descontos e taxas de plataforma"
-                      cur={-cur.revenue.deductions}
+                      label="(−) Taxa de serviço (repassada à equipe)"
+                      cur={-cur.revenue.serviceAmount}
                       base={cur.revenue.grossAmount}
-                      pm={pm ? -pm.revenue.deductions : undefined}
-                      py={py ? -py.revenue.deductions : undefined}
+                      pm={pm ? -pm.revenue.serviceAmount : undefined}
+                      py={py ? -py.revenue.serviceAmount : undefined}
+                      hasPm={!!pm} hasPy={!!py}
+                      negative
+                    />
+
+                    <DRERow
+                      label="(−) Comissão das plataformas de delivery"
+                      cur={-cur.revenue.platformCommission}
+                      base={cur.revenue.grossAmount}
+                      pm={pm ? -pm.revenue.platformCommission : undefined}
+                      py={py ? -py.revenue.platformCommission : undefined}
                       hasPm={!!pm} hasPy={!!py}
                       negative
                     />

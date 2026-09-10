@@ -80,3 +80,7 @@ docs/99food/private/
 # Entrada única e nomeada, de propósito: regra genérica escondendo migrations
 # seria péssima. Ao retomar o iFood, desempilhe o stash e REMOVA esta linha.
 /backend/prisma/migrations/20260716180000_add_ifood_events_reconciliation_anticipation/
+
+# resíduos locais que já entraram por engano num commit (09/09/2026)
+/ziXOb2jw
+frontend/public/chamado-*.html

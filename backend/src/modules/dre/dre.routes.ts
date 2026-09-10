@@ -494,16 +494,30 @@ async function calcDRE(from: Date, to: Date) {
     ? null
     : "CMV estimado: nao ha inventario inicial e final fechado para este periodo. O valor exibido considera compras do periodo, nao consumo real.";
 
+  // Bruto - servico - liquido = o que a plataforma reteve de fato. Sai dos tres
+  // valores gravados, nao da convencao de campo de cada integracao: o Agile poe
+  // desconto informativo em discounts, a 99 poe ali a comissao ja abatida do
+  // liquido. Somar discounts na deducao misturaria os dois significados.
+  const comissaoPlataforma = Math.max(0, Math.round((totalGross - totalService - totalNet) * 100) / 100);
+
   return {
     period: { from: from.toISOString(), to: to.toISOString() },
     revenue: {
       byChannel: grossByChannel,
       grossAmount: totalGross,
+      // Informativo, nao deduz. O desconto do salao JA vem abatido do vl_total
+      // que o Agile manda (conferido: em 243 de 251 dias a soma das formas de
+      // pagamento bate com o bruto), entao deduzi-lo aqui abateria duas vezes.
       discounts: totalDiscounts,
       platformFees: totalPlatformFees,
-      deductions: totalDiscounts + totalPlatformFees,
-      netAmount: totalNet,
       serviceAmount: totalService,
+      platformCommission: comissaoPlataforma,
+      // Com isto Bruta - deducoes = Liquida volta a fechar na tela. Antes a linha
+      // somava discounts + platformFees, que nao era o que saia do bruto: a taxa
+      // de servico, a deducao real, nao aparecia em lugar nenhum e o relatorio
+      // errava a propria subtracao em R$ 184 mil no acumulado de 2026.
+      deductions: totalService + comissaoPlataforma,
+      netAmount: totalNet,
       tickets: totalTickets
     },
     cmv: {

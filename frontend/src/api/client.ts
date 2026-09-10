@@ -4116,6 +4116,7 @@ export type DRESummary = {
     grossAmount: number;
     discounts: number;
     platformFees: number;
+    platformCommission: number;
     deductions: number;
     netAmount: number;
     serviceAmount: number;
