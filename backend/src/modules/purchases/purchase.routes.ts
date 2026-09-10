@@ -2302,17 +2302,35 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
 
   await adjustStockForPurchase(request.params.id, -1);
   await removeCardStatementItemsForPurchase(request.params.id);
+
+  // Parcela paga sobrevive ao cancelamento de proposito (ver comentario acima),
+  // mas isso deixa um buraco silencioso: o dinheiro saiu do banco e a despesa
+  // sumiu do DRE junto com a compra. Quem cancelou precisa saber para decidir
+  // se estorna. Ha um caso assim em producao desde 06/2026 (R$ 12,34) que
+  // ninguem viu justamente por nao existir este aviso.
+  const [pagas] = await prisma.$queryRaw<Array<{ n: number; total: string }>>`
+    SELECT COUNT(*)::int AS "n", COALESCE(SUM("amount"), 0)::text AS "total"
+    FROM "PaymentInstallment"
+    WHERE "purchaseId" = ${request.params.id}
+      AND "status" IN ('PAID', 'PAID_LATE')
+  `;
+  const installmentsPaidKept = Number(pagas?.n ?? 0);
+  const paidAmountKept = Number(pagas?.total ?? 0);
+
+  const warning = installmentsPaidKept > 0
+    ? `A compra foi cancelada, mas ${installmentsPaidKept} titulo(s) ja pago(s) somando R$ ${paidAmountKept.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} continuam lancados. O dinheiro saiu e a despesa nao esta mais no DRE — estorne a baixa em Contas a Pagar se for o caso.`
+    : undefined;
   await auditLog({
     userId: admin.id,
     action: Boolean((previous as Record<string, unknown>).isSmallExpense) ? "CANCEL_SMALL_EXPENSE" : "CANCEL_PURCHASE",
     entity: "Purchase",
     entityId: request.params.id,
     previousValue: previous,
-    newValue: { status: "CANCELLED", reason, installmentsCancelled },
+    newValue: { status: "CANCELLED", reason, installmentsCancelled, installmentsPaidKept, paidAmountKept },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? "")
   });
-  response.json({ id: request.params.id, status: "CANCELLED", installmentsCancelled });
+  response.json({ id: request.params.id, status: "CANCELLED", installmentsCancelled, installmentsPaidKept, paidAmountKept, warning });
 });
 
 purchaseRouter.patch("/:id/restore", async (request, response) => {
