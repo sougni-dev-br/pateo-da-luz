@@ -5,6 +5,7 @@ import { prisma } from "../../config/database.js";
 import { createOperationalInventoryPdf } from "./operational-inventory-pdf.js";
 import { createStockCountSessionPdf } from "./stock-count-session-pdf.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
+import { cloneFinalAsNextInitial } from "../monthly/monthly.service.js";
 import { auditLog, requestIp, requireRole, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
@@ -1371,12 +1372,42 @@ async function createInventorySnapshotFromOperationalInventory(id: string, user:
     SET "inventorySnapshotId" = ${snapshotId}, "updatedAt" = CURRENT_TIMESTAMP
     WHERE "id" = ${id}
   `;
+  // Encadeia o inventario inicial do mes seguinte, como a importacao por
+  // planilha ja fazia. Sem isto, o mes seguinte abre com estoque inicial ZERO
+  // e o CMV sai menor do que e: em 07/2026 faltaram os R$ 95.251,09 que junho
+  // havia fechado, 31% do CMV do mes.
+  //
+  // Se o mes seguinte ja tem inicial MANUAL, cloneFinalAsNextInitial recusa
+  // para quem nao e ADMIN. Aqui isso nao pode derrubar a geracao do inventario,
+  // que ja esta gravado: registramos a pendencia e seguimos. Silencio foi o que
+  // criou o problema, entao o que nao encadeia fica no AuditLog.
+  let inicialVinculadoId: string | null = null;
+  let falhaNoVinculo: string | null = null;
+  try {
+    inicialVinculadoId = await prisma.$transaction((tx) =>
+      cloneFinalAsNextInitial(tx, snapshotId, {
+        competenceYear: year,
+        competenceMonth: month,
+        countDate: effectiveCountDate,
+        originalFileName: `${inventory.code} - Inventario Final`,
+        userId: user.id,
+        userRole: user.role === "ADMIN" ? "ADMIN" : "GESTAO_COMPLETA"
+      })
+    );
+  } catch (erro) {
+    falhaNoVinculo = erro instanceof Error ? erro.message : String(erro);
+  }
+
   await auditLog({
     userId: user.id,
     action: "CREATE_INVENTORY_SNAPSHOT_FROM_OPERATIONAL",
     entity: "InventorySnapshot",
     entityId: snapshotId,
-    newValue: { operationalInventoryId: id, code: inventory.code, totalItems, totalValue }
+    newValue: {
+      operationalInventoryId: id, code: inventory.code, totalItems, totalValue,
+      inicialDoMesSeguinte: inicialVinculadoId,
+      falhaNoVinculo
+    }
   });
   return snapshotId;
 }
