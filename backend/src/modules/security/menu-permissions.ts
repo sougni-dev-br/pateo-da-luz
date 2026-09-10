@@ -406,6 +406,22 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/monthly/cmv-real")) return "cmv-real";
   if (path.startsWith("/monthly/revenue")) return "revenue";
   if (path.startsWith("/integrations/agile/status")) return "faturamento-salao";
+  // Cadastrar loja e gravar credencial pertencem a tela de Integracoes, cujo modulo
+  // no controle de acesso e "integracao-*". Sem estas duas regras aquele interruptor
+  // so escondia o item do menu: POST /credential continuava alcancavel por quem
+  // tivesse escrita no modulo de VENDAS de delivery, que e outra tela e outro papel.
+  // GET /stores fica de fora de proposito — as telas de venda (DeliveryIfood e
+  // DeliveryNoventaNove) listam as lojas para filtrar o periodo.
+  if (
+    path.startsWith("/integrations/delivery/ifood/credential")
+    || path.startsWith("/integrations/delivery/ifood/test-connection")
+    || (path.startsWith("/integrations/delivery/ifood/stores") && method !== "GET")
+  ) return "integracao-ifood";
+  if (
+    path.startsWith("/integrations/delivery/noventa-nove/credential")
+    || path.startsWith("/integrations/delivery/noventa-nove/test-connection")
+    || (path.startsWith("/integrations/delivery/noventa-nove/stores") && method !== "GET")
+  ) return "integracao-noventa-nove";
   if (path.startsWith("/integrations/delivery/ifood")) return "delivery-ifood";
   if (path.startsWith("/integrations/delivery/noventa-nove")) return "delivery-noventa-nove";
   if (path.startsWith("/monthly/daily-revenue")) return "cash";
