@@ -499,7 +499,11 @@ function snapshotRevenueEntry(row: Record<string, unknown>): RevenueImportChange
     creditAmount: toNumber(row.creditAmount),
     voucherAmount: toNumber(row.voucherAmount),
     notes: row.notes == null ? null : String(row.notes),
-    status: String(row.status ?? "ACTIVE"),
+    // So os dois valores que o sistema conhece. Antes qualquer texto da planilha
+    // entrava direto no banco, e status e String livre, sem enum para barrar.
+    // Valor inesperado vira ACTIVE: receita que existe deve contar, e status
+    // estranho e problema de cadastro, nao cancelamento.
+    status: String(row.status ?? "ACTIVE").trim().toUpperCase() === "CANCELLED" ? "CANCELLED" : "ACTIVE",
     cancelledAt: row.cancelledAt instanceof Date ? row.cancelledAt.toISOString() : row.cancelledAt == null ? null : String(row.cancelledAt),
     cancelledByUserId: row.cancelledByUserId == null ? null : String(row.cancelledByUserId),
     cancellationReason: row.cancellationReason == null ? null : String(row.cancellationReason),
