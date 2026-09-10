@@ -194,7 +194,6 @@ export function sanitizeQuantityInput(value: string) {
   return sign + value.replace(/[^\d.,]/g, "");
 }
 
-const THOUSAND_GROUPED = /^\d{1,3}(\.\d{3})+$/;
 
 // Quilo e litro admitem fracao; o resto se conta inteiro. A lista cobre o que
 // existe no cadastro (UNI, KG, PCTE, MÇ, BDJ, BALD, CX, LITROS, POTE...).
@@ -205,25 +204,11 @@ export function unitAcceptsDecimal(unit: string | null | undefined) {
 }
 
 // Texto curto ao lado do campo. A regra vive na tela, no momento em que a
-// pessoa digita — não num treinamento que ela vai esquecer. Sem isto, quem
-// lê 11.700 na balança digita 11.700 e não entende a recusa.
+// pessoa digita — não num treinamento que ela vai esquecer.
 export function quantityHint(unit: string | null | undefined) {
-  return unitAcceptsDecimal(unit) ? "vírgula: 11,700" : "inteiro: 1510";
+  return unitAcceptsDecimal(unit) ? "11,700 = 11,7" : "inteiro: 1510";
 }
 
-// Verdadeiro quando a entrada pode ser lida de duas formas ("11.700").
-// A tela usa isto para dar a mensagem certa: não é "número inválido", é
-// "diga qual dos dois você quis dizer".
-export function isAmbiguousQuantity(value: string) {
-  const t = value.trim().replace(/^[+-]/, "");
-  return !t.includes(",") && THOUSAND_GROUPED.test(t);
-}
-
-// As duas leituras possíveis, para a mensagem mostrar ambas.
-export function ambiguousReadings(value: string) {
-  const t = value.trim().replace(/^[+-]/, "");
-  return { decimal: t.replace(".", ","), milhar: t.replace(/\./g, "") };
-}
 
 // Converte o texto do campo no formato que a API entende, com a MESMA regra do
 // backend (shared/utils/parse-decimal.ts): havendo virgula, ela e o separador
@@ -240,19 +225,19 @@ export function quantityToApi(value: string): string | undefined {
   let normalized: string;
   if (digits.includes(",")) {
     normalized = digits.replace(/\./g, "").replace(",", ".");
-  } else if (digits.includes(".") && THOUSAND_GROUPED.test(digits)) {
-    // AMBÍGUO, e custou caro: "11.700" tanto é onze mil e setecentos (leitura
-    // pt-BR de milhar) quanto 11 kg e 700 g (o que a balança mostra). Em 04/09
-    // a contagem do freezer foi relançada com 12 leituras de balança e todas
-    // foram gravadas mil vezes maiores — 156.890 virou 156.890 kg de salmão.
-    //
-    // Não adivinhamos: quem adivinha erra por 1000 e o usuário não vê. Devolve
-    // undefined, e a tela pede para desambiguar mostrando as duas leituras.
-    // (O parseDecimalInput do backend mantém a regra de milhar de propósito —
-    // lá ela serve para dinheiro, onde "1.234" é mesmo mil duzentos e trinta e
-    // quatro. A ambiguidade só existe em quantidade.)
-    return undefined;
   } else {
+    // Sem vírgula, o ponto é DECIMAL — a mesma convenção do <input type="number">,
+    // que é o que os outros 70 campos numéricos do ERP já usam. Digitar 11.700
+    // dá 11,7 aqui e em Requisições, Compras e Cartões.
+    //
+    // Antes daqui passaram duas regras erradas, nesta ordem: ler como milhar
+    // (gravou 12 leituras de balança mil vezes maiores em 04/09) e depois
+    // recusar como ambíguo (seguro, mas só nesta tela — o mesmo teclado dava
+    // resultado diferente conforme a tela).
+    //
+    // O troco assumido: quem digitar 1.500 querendo mil e quinhentos recebe 1,5.
+    // Esse risco já existia em todo campo type="number" do sistema; agora e uma
+    // regra só, e a guarda de plausibilidade continua avisando o que destoa.
     normalized = digits;
   }
 
