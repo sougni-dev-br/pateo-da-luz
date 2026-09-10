@@ -2203,6 +2203,7 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
   }
 
   let installmentsCancelled = 0;
+  let cyclesReopened = 0;
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -2288,6 +2289,27 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
             "updatedAt" = CURRENT_TIMESTAMP
         WHERE "id" = ${request.params.id}
       `;
+
+      // Caso a compra cancelada SEJA o agregador de um ciclo de fornecedor (e
+      // nao um item dentro dele, tratado acima): o ciclo ficava CLOSED apontando
+      // para uma compra morta. Sem titulo a pagar e sem caminho de volta, porque
+      // /supplier-cycles/:id/close recusa refechar ciclo CLOSED e nao existe rota
+      // de reabrir. Ha um caso assim em producao — R$ 5.220,66 da DISTRIBUIDORA
+      // FLD, cancelado em 22/07/2026 por "erro de digitacao": a despesa continua
+      // no CMV pelas compras individuais e a divida sumiu do contas a pagar.
+      // Devolver o ciclo para OPEN e limpar a referencia restaura o caminho: da
+      // para fechar de novo, o que gera uma Purchase nova e um titulo vivo.
+      // Ciclo PAID nao e tocado — ali o dinheiro ja saiu.
+      cyclesReopened = await tx.$executeRaw`
+        UPDATE "SupplierBillingCycle"
+        SET "status" = 'OPEN',
+            "generatedPurchaseId" = NULL,
+            "closedAt" = NULL,
+            "closedByUserId" = NULL,
+            "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "generatedPurchaseId" = ${request.params.id}
+          AND "status" = 'CLOSED'
+      `;
     });
   } catch (err) {
     if (err instanceof CycleBlockedError) {
@@ -2326,11 +2348,11 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
     entity: "Purchase",
     entityId: request.params.id,
     previousValue: previous,
-    newValue: { status: "CANCELLED", reason, installmentsCancelled, installmentsPaidKept, paidAmountKept },
+    newValue: { status: "CANCELLED", reason, installmentsCancelled, installmentsPaidKept, paidAmountKept, cyclesReopened },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? "")
   });
-  response.json({ id: request.params.id, status: "CANCELLED", installmentsCancelled, installmentsPaidKept, paidAmountKept, warning });
+  response.json({ id: request.params.id, status: "CANCELLED", installmentsCancelled, installmentsPaidKept, paidAmountKept, cyclesReopened, warning });
 });
 
 purchaseRouter.patch("/:id/restore", async (request, response) => {
