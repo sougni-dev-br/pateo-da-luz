@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { requireRole } from "../security/security-utils.js";
 import { getMonthlyCmv } from "../monthly/monthly.service.js";
@@ -33,13 +34,22 @@ dashboardRouter.get("/purchases", async (request, response) => {
   const previousYear = previousMonthDate.getFullYear();
   const previousMonth = previousMonthDate.getMonth() + 1;
 
+  // Ate 09/2026 esta consulta somava com OU entre as duas bases: a compra entrava
+  // se a DATA caisse no intervalo OU se a COMPETENCIA fosse a do mes. Nota comprada
+  // em julho com competencia de junho era contada nos DOIS meses — inflacao medida
+  // de R$ 78.555,64 no ano, com julho 12% maior e setembro 34% maior.
+  //
+  // Pior: a consulta do mes ANTERIOR, logo abaixo, sempre usou competencia pura,
+  // entao a comparacao mes a mes do painel ja era entre bases diferentes.
+  //
+  // Passa a seguir a mesma regra do DRE (F-50) e do Fechamento Contabil:
+  // competencia quando o filtro e de mes, intervalo de data quando o usuario
+  // escolheu datas — ai nao ha competencia que corresponda ao intervalo.
   const purchaseIds = await prisma.$queryRaw<Array<{ id: string }>>`
     SELECT "id" FROM "Purchase"
-    WHERE (
-        ("purchaseDate" >= CAST(${startDate} AS timestamp)
-          AND "purchaseDate" <= CAST(${endDate} AS timestamp))
-        OR (${isMonthFilter} AND "competenceYear" = ${year} AND "competenceMonth" = ${month})
-      )
+    WHERE ${isMonthFilter
+      ? Prisma.sql`"competenceYear" = ${year} AND "competenceMonth" = ${month}`
+      : Prisma.sql`"purchaseDate" >= CAST(${startDate} AS timestamp) AND "purchaseDate" <= CAST(${endDate} AS timestamp)`}
       AND "status" = 'ACTIVE'
   `;
 
