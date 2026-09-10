@@ -293,6 +293,10 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
   let totalServico = 0;
   let totalTickets = 0;
 
+  // Dias em que assumimos um lancamento de outra origem. Declarado FORA da
+  // transacao porque o aviso e montado depois que ela fecha.
+  const adotados: Array<{ data: Date; origemAnterior: string; valorAnterior: string }> = [];
+
   await prisma.$transaction(async (tx) => {
     // Cria o batch mesmo se não houver dias — assim /status detecta a
     // execução do agente e o Eli sabe que rodou (mesmo em dia vazio).
@@ -317,17 +321,40 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
     `;
 
     for (const dia of diasGravaveis) {
-      const existente = await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT "id" FROM "RevenueEntry"
+      // A busca por duplicata NAO pode filtrar pela propria plataforma. Filtrando,
+      // ela so enxergava lancamentos do proprio Agile e nao via o do mesmo dia
+      // vindo de planilha — criando um segundo. Foi o que aconteceu quando a
+      // integracao entrou no ar em 07/07/2026 e reimportou o historico desde
+      // janeiro: abril e maio de 2026 ficaram com o faturamento de salao
+      // DOBRADO, R$ 461.456,08 contados duas vezes.
+      //
+      // O PDV e a fonte autoritativa do salao, entao quando existe lancamento de
+      // outra origem para o mesmo dia e canal nos assumimos aquele registro em vez
+      // de criar outro. A adocao vira aviso no retorno da sincronizacao e na tela
+      // de status: assumir dado lancado a mao sem avisar seria trocar um problema
+      // por outro, e foi o silencio que deixou abril e maio dobrados por 3 meses.
+      const existente = await tx.$queryRaw<Array<{ id: string; sourcePlatform: string | null; grossAmount: unknown }>>`
+        SELECT "id", "sourcePlatform", "grossAmount" FROM "RevenueEntry"
         WHERE "date" = ${dia.date}
           AND "channel" = ${CHANNEL}
-          AND "sourcePlatform" = ${SOURCE_PLATFORM}
+          AND "status" <> 'CANCELLED'
+        ORDER BY ("sourcePlatform" = ${SOURCE_PLATFORM}) DESC
         LIMIT 1
       `;
+
+      const adotandoDeOutraOrigem = Boolean(existente[0]) && existente[0].sourcePlatform !== SOURCE_PLATFORM;
+      if (adotandoDeOutraOrigem) {
+        adotados.push({
+          data: dia.date,
+          origemAnterior: existente[0].sourcePlatform ?? "(manual)",
+          valorAnterior: String(existente[0].grossAmount ?? "")
+        });
+      }
 
       if (existente[0]) {
         await tx.$executeRaw`
           UPDATE "RevenueEntry" SET
+            "sourcePlatform" = ${SOURCE_PLATFORM},
             "competenceYear" = ${dia.competenceYear},
             "competenceMonth" = ${dia.competenceMonth},
             "weekdayName" = ${dia.weekdayName},
@@ -415,6 +442,17 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
 
   if (vendasCanceladasIgnoradas > 0) {
     avisos.push(`${vendasCanceladasIgnoradas} venda(s) cancelada(s) foram ignoradas.`);
+  }
+
+  // Adotar lancamento de outra origem e o oposto de silencioso: aparece no
+  // retorno da sincronizacao e na tela de status. Foi a ausencia desse aviso
+  // que deixou abril e maio dobrados por tres meses sem ninguem notar.
+  if (adotados.length > 0) {
+    const exemplos = adotados.slice(0, 3).map((a) => a.data.toISOString().slice(0, 10)).join(", ");
+    avisos.push(
+      `${adotados.length} dia(s) ja tinham lancamento de outra origem e foram assumidos pelo PDV ` +
+      `em vez de duplicados (${exemplos}${adotados.length > 3 ? ", ..." : ""}).`
+    );
   }
 
   return {
