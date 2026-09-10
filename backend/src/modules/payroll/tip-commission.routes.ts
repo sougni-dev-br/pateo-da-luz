@@ -319,9 +319,9 @@ tipCommissionRouter.post("/periods/:id/sync", async (request, response) => {
   const period = await prisma.tipPeriod.findUnique({ where: { id: periodId } });
   if (!period) return response.status(404).json({ message: "Período não encontrado." });
   if (await barrouPorFechamento(periodId, response, "Recarregar os participantes")) return;
-  const added = await syncParticipantsFromCadastro(periodId);
+  const { added, elegiveis } = await syncParticipantsFromCadastro(periodId);
   const computation = await computeTipCommission(period.competenceYear, period.competenceMonth);
-  response.json({ added, computation });
+  response.json({ added, elegiveis, computation });
 });
 
 // Remover um participante do período.

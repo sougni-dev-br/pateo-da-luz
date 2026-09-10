@@ -271,7 +271,12 @@ export async function ensureTipPeriod(year: number, month: number, userId: strin
 
 // Adiciona ao período os funcionários com participaGorjeta=true que ainda não estão nele.
 // Inclui desligados (isActive=false), pois recebem a gorjeta do período. Não remove ninguém.
-export async function syncParticipantsFromCadastro(periodId: string): Promise<number> {
+// Devolve tambem quantos sao ELEGIVEIS, nao so quantos entraram. Sem isso quem
+// chama nao distingue "todo mundo ja esta no periodo" de "ninguem esta marcado
+// como participante no cadastro" — os dois davam added = 0 e a tela anunciava
+// sucesso nos dois casos. Hoje em producao os 27 funcionarios tem
+// participaGorjeta = false, entao este sync sempre adiciona zero.
+export async function syncParticipantsFromCadastro(periodId: string): Promise<{ added: number; elegiveis: number }> {
   const elegiveis = await prisma.employee.findMany({
     where: { participaGorjeta: true, deletedAt: null },
     select: { id: true, tipoGorjeta: true, pontosPadrao: true, cotaFixaGorjeta: true },
@@ -292,7 +297,7 @@ export async function syncParticipantsFromCadastro(periodId: string): Promise<nu
       skipDuplicates: true,
     });
   }
-  return toAdd.length;
+  return { added: toAdd.length, elegiveis: elegiveis.length };
 }
 
 // ─── Fechar: recalcula, persiste os valores nos participantes e trava ───────
