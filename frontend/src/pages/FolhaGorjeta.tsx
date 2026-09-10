@@ -287,13 +287,18 @@ export function FolhaGorjeta() {
     try {
       const id = await ensurePeriod();
       if (!id) return;
-      const { added, computation } = await syncTipParticipants(id);
+      const { added, elegiveis, computation } = await syncTipParticipants(id);
       setComp(computation);
       setRows(toRows(computation));
-      setNotice({
-        tone: "success",
-        message: added > 0 ? `${added} funcionário(s) carregado(s) do cadastro.` : "Todos que participam da gorjeta já estão no período.",
-      });
+      // Tres estados, nao dois: "ninguém marcado no cadastro" dava added = 0 e era
+      // anunciado como sucesso, escondendo que o cadastro nunca foi preenchido.
+      setNotice(
+        added > 0
+          ? { tone: "success", message: `${added} funcionário(s) carregado(s) do cadastro.` }
+          : (elegiveis ?? 0) === 0
+            ? { tone: "warning", message: "Nenhum funcionário está marcado como participante da gorjeta no cadastro, então nada foi carregado. Marque em Funcionários, no campo de participação na gorjeta, ou adicione um a um aqui." }
+            : { tone: "success", message: `Todos os ${elegiveis} que participam da gorjeta já estão no período.` }
+      );
     } catch (e) {
       setNotice({ tone: "error", message: (e as Error).message });
     } finally { setBusy(false); }
