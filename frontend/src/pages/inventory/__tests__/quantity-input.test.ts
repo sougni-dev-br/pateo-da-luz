@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { isAmbiguousQuantity, quantityToApi, sanitizeQuantityInput, unitAcceptsDecimal } from "../shared";
+import { quantityToApi, sanitizeQuantityInput, unitAcceptsDecimal } from "../shared";
 
 // Regressao do incidente de 02/09/2026: os campos de contagem sao <input> de
 // texto (inputMode="decimal"). A virgula do teclado pt-BR seguia crua ate a API
@@ -40,28 +40,28 @@ describe("quantityToApi", () => {
     expect(quantityToApi("1.234,5")).toBe("1234.5");
   });
 
-  // Este teste afirmava o contrario: que "1.234" seguia a leitura pt-BR de milhar
-  // e virava 1234. Era a suposicao que causou o defeito. Em 04/09 a contagem do
-  // freezer foi relancada com 12 leituras de balanca (11.700, 156.890...) e todas
-  // foram gravadas mil vezes maiores. Em quantidade os dois sentidos sao possiveis,
-  // entao a entrada e recusada e a tela pergunta qual deles.
-  test("ponto de milhar sem virgula e ambiguo: recusa em vez de adivinhar", () => {
-    expect(quantityToApi("1.234")).toBeUndefined();
-    expect(isAmbiguousQuantity("1.234")).toBe(true);
-  });
-
-  test("leitura de balanca em kg: 11.700 nao vira 11700", () => {
-    expect(quantityToApi("11.700")).toBeUndefined();
-    expect(quantityToApi("156.890")).toBeUndefined();
-    // o caminho certo, que a mensagem ensina
-    expect(quantityToApi("11,700")).toBe("11.700");
-    expect(quantityToApi("156,890")).toBe("156.890");
-  });
-
-  test("ponto com uma ou duas casas nao e ambiguo", () => {
+  // Historia deste teste, que vale mais que o teste: ele ja afirmou que "1.234"
+  // virava 1234 (leitura pt-BR de milhar) — a suposicao que gravou 12 leituras de
+  // balanca mil vezes maiores em 04/09. Depois passou a exigir recusa por
+  // ambiguidade, o que era seguro mas so nesta tela. Agora vale a convencao do
+  // <input type="number"> do resto do ERP: SEM VIRGULA, PONTO E DECIMAL.
+  test("sem virgula, ponto e decimal — a mesma regra do resto do sistema", () => {
+    expect(quantityToApi("1.234")).toBe("1.234");
     expect(quantityToApi("11.7")).toBe("11.7");
     expect(quantityToApi("0.5")).toBe("0.5");
-    expect(isAmbiguousQuantity("11.7")).toBe(false);
+  });
+
+  test("leitura de balanca em kg: 11.700 da 11,7 e nao 11700", () => {
+    expect(Number(quantityToApi("11.700"))).toBe(11.7);
+    expect(Number(quantityToApi("156.890"))).toBe(156.89);
+    // e digitar com virgula da exatamente o mesmo resultado
+    expect(Number(quantityToApi("11,700"))).toBe(11.7);
+    expect(Number(quantityToApi("156,890"))).toBe(156.89);
+  });
+
+  test("havendo virgula, ela e o decimal e os pontos sao de milhar", () => {
+    expect(quantityToApi("1.234,5")).toBe("1234.5");
+    expect(quantityToApi("16,5")).toBe("16.5");
   });
 
   test("unidade decide a dica mostrada no cabecalho e no campo", () => {
