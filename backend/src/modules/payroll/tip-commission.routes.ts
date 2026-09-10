@@ -96,6 +96,26 @@ tipCommissionRouter.get("/pool", async (request, response) => {
   response.json({ year, month, label, periodStart: start, periodEnd: end, grossPool });
 });
 
+// ─── Elenco para o rateio ──────────────────────────────────
+// A tela da gorjeta so precisa saber quem existe e como se chama. Ate aqui ela
+// chamava GET /employees, que devolve a ficha inteira: CPF, RG, PIS, conta
+// bancaria, agencia, PIX e salario-base. Isso obrigava quem opera o rateio a ter
+// tambem permissao de Funcionarios — ou seja, delegar a gorjeta entregava junto o
+// salario de todo mundo.
+//
+// Vivendo sob /payroll/tip, esta rota responde ao modulo payroll-tips (regra em
+// menuFromRequest, que testa /payroll/tip antes de /payroll) e devolve apenas os
+// quatro campos que a tela usa. Inativos entram: o rateio do mes inclui quem foi
+// desligado no meio dele.
+tipCommissionRouter.get("/roster", async (_request, response) => {
+  const employees = await prisma.employee.findMany({
+    where: { deletedAt: null },
+    select: { id: true, firstName: true, lastName: true, displayName: true, isActive: true },
+    orderBy: [{ isActive: "desc" }, { firstName: "asc" }, { lastName: "asc" }],
+  });
+  response.json(employees);
+});
+
 // ─── Abrir/garantir o período (puxa o pool do Faturamento Salão) ────────────
 tipCommissionRouter.post("/periods", async (request, response) => {
   const user = await getSessionUser(request);
