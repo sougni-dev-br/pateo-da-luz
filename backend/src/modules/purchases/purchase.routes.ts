@@ -2059,10 +2059,19 @@ purchaseRouter.put("/:id", async (request, response) => {
         INSERT INTO "InventoryMovement" ("id", "productId", "type", "quantity", "unit", "responsibleUserId", "notes")
         VALUES (${crypto.randomUUID()}, ${productId}, 'ADJUSTMENT', ${delta}, ${validItems.find((item) => item.productId === productId)?.unit ?? null}, ${user.id}, 'Ajuste gerado pela edicao de compra.')
       `;
+      // INSERT ... ON CONFLICT, nao UPDATE puro. O movimento de ajuste acima e
+      // gravado sempre; se o produto ainda nao tem linha em InventoryStock, um
+      // UPDATE simples nao afeta nenhuma linha e o ajuste some — o movimento fica
+      // registrado e o saldo nao muda, divergencia que so aparece conferindo os
+      // dois. Aconteceu com BATATA DE CARINHAS em 06/07/2026: ajuste de +10,5
+      // perdido porque aquele foi o primeiro movimento do produto, antes de
+      // qualquer entrada criar a linha de estoque.
       await tx.$executeRaw`
-        UPDATE "InventoryStock"
-        SET "currentQuantity" = "currentQuantity" + ${delta}, "updatedAt" = CURRENT_TIMESTAMP
-        WHERE "productId" = ${productId}
+        INSERT INTO "InventoryStock" ("id", "productId", "currentQuantity", "updatedAt")
+        VALUES (${crypto.randomUUID()}, ${productId}, ${delta}, CURRENT_TIMESTAMP)
+        ON CONFLICT ("productId") DO UPDATE
+        SET "currentQuantity" = "InventoryStock"."currentQuantity" + ${delta},
+            "updatedAt" = CURRENT_TIMESTAMP
       `;
     }
 
