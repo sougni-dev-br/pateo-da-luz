@@ -292,12 +292,24 @@ async function reflectSalesIntoRevenueEntries(
   if (!store.companyId) return 0;
   const sales = await prisma.noventaNoveSale.findMany({
     where: { deliveryStoreId: store.id, competenceYear: year, competenceMonth: month },
-    select: { orderDate: true, grossAmount: true, promotionAmount: true, channel: true }
+    select: { orderDate: true, grossAmount: true, promotionAmount: true, netAmount: true, channel: true }
   });
   if (sales.length === 0) return 0;
 
   // Agrega por dia (venda + estorno do mesmo dia se cancelam no líquido).
-  const byDate = new Map<string, { gross: number; discounts: number; count: number; dateObj: Date }>();
+  // Acumula tambem o LIQUIDO que a plataforma informa por pedido. Ate 09/2026 o
+  // ERP calculava liquido = bruto - promocao, formula que acerta 384 dos 1.374
+  // pedidos (28%). Nao existe formula unica: ha pedido com comissao zero cujo
+  // liquido e igual ao bruto (promocao bancada pela 99) e pedido em que o liquido
+  // e bruto - comissao - promocao (bancada pelo restaurante). A 99 informa
+  // netAmount em TODOS — nunca nulo, nunca zero — entao some-lo e mais correto do
+  // que qualquer formula.
+  //
+  // Impacto medido: a receita liquida do 99Food estava subestimada em
+  // R$ 13.197,77 (ago R$ 11.920,96 + set R$ 1.276,81). Confrontado com os quatro
+  // repasses de agosto, que a plataforma declara ter PAGO: R$ 19.104,83 contra os
+  // R$ 10.586,73 que o ERP lancava no mesmo periodo.
+  const byDate = new Map<string, { gross: number; net: number; count: number; dateObj: Date }>();
   for (const sale of sales) {
     const dateKey = sale.orderDate.toISOString().slice(0, 10);
     // Meio-dia UTC, nao meia-noite. Todo o resto do sistema grava RevenueEntry as
@@ -310,9 +322,9 @@ async function reflectSalesIntoRevenueEntries(
     // Seguro: o upsert e chaveado por id deterministico (nnfood-loja-YYYYMMDD), sem
     // componente de hora, entao nao duplica — e as 40 linhas ja gravadas se alinham
     // sozinhas no proximo sync do periodo.
-    const prev = byDate.get(dateKey) ?? { gross: 0, discounts: 0, count: 0, dateObj: new Date(dateKey + "T12:00:00.000Z") };
+    const prev = byDate.get(dateKey) ?? { gross: 0, net: 0, count: 0, dateObj: new Date(dateKey + "T12:00:00.000Z") };
     prev.gross += Number(sale.grossAmount);
-    prev.discounts += Number(sale.promotionAmount);
+    prev.net += Number(sale.netAmount);
     // Estorno é linha de ajuste — reduz o gross do dia, mas não conta como
     // "pedido" (senão distorce o ticket médio).
     if (sale.channel !== "DELIVERY_REFUND") prev.count += 1;
@@ -322,8 +334,12 @@ async function reflectSalesIntoRevenueEntries(
   let count = 0;
   for (const [dateKey, agg] of byDate.entries()) {
     const gross = round2(agg.gross);
-    const discounts = round2(agg.discounts);
-    const net = round2(gross - discounts);
+    const net = round2(agg.net);
+    // discounts passa a ser a deducao REAL — o que a plataforma reteve entre o que
+    // o cliente pagou e o que foi repassado. Assim bruto - discounts = liquido volta
+    // a ser verdade na linha, e a linha de deducao do DRE (F-40) bate com ela.
+    // O valor promocional continua disponivel em NoventaNoveSale.promotionAmount.
+    const discounts = round2(gross - net);
     const id = `nnfood-${store.id}-${dateKey.replace(/-/g, "")}`;
     const competenceYear = agg.dateObj.getUTCFullYear();
     const competenceMonth = agg.dateObj.getUTCMonth() + 1;
