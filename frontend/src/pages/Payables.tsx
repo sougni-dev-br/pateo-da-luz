@@ -561,7 +561,7 @@ export function Payables({ user }: PayablesProps) {
       if (isTaxPayment(reversing)) {
         await reverseTaxPayment(reversing.id, reason);
       } else if (isPayroll(reversing)) {
-        await reversePayrollItem(reversing.id);
+        await reversePayrollItem(reversing.id, reason);
       } else {
         await reverseInstallment(reversing.id, reason);
       }

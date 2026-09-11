@@ -5623,8 +5623,12 @@ export function payPayrollItem(id: string, payload: {
   });
 }
 
-export function reversePayrollItem(id: string) {
-  return request<{ id: string; status: string }>(`/payroll/${id}/reverse`, { method: "PATCH" });
+export function reversePayrollItem(id: string, reason: string) {
+  return request<{ id: string; status: string }>(`/payroll/${id}/reverse`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason })
+  });
 }
 
 export function deletePayrollItem(id: string, reason: string) {
