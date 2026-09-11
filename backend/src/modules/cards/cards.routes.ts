@@ -354,41 +354,49 @@ cardsRouter.post("/statements/:id/items", async (request, response) => {
     return;
   }
 
-  if (purchaseId) {
-    await prisma.creditCardStatementItem.deleteMany({ where: { statementId: statement.id, purchaseId } });
-  }
-
-  const item = await prisma.creditCardStatementItem.create({
-    data: {
-      id: crypto.randomUUID(),
-      statementId: statement.id,
-      purchaseId: purchaseId || null,
-      purchaseItemId: purchaseItemId || null,
-      itemDate: request.body.itemDate ? localDate(request.body.itemDate) : null,
-      description,
-      supplierName: supplierName || null,
-      value: new Prisma.Decimal(value),
-      installment: request.body.installment == null ? null : Number(request.body.installment),
-      totalInstallments: request.body.totalInstallments == null ? null : Number(request.body.totalInstallments),
-      categoryName: asText(request.body.categoryName),
-      smallExpenseTypeId: asText(request.body.smallExpenseTypeId),
-      responsibleName: asText(request.body.responsibleName),
-      checked: Boolean(request.body.checked),
-      hasDivergence: Boolean(request.body.hasDivergence),
-      notes: asText(request.body.notes)
+  // deleteMany + create + recalculo do total sao uma operacao so. Com o purchaseId
+  // preenchido o deleteMany REMOVE o item anterior daquela compra: se o create
+  // falhasse depois, a compra sumia da fatura e o total ficava menor que a soma real
+  // — e a fatura passaria a divergir do extrato do cartao sem nada indicar o porque.
+  const item = await prisma.$transaction(async (tx) => {
+    if (purchaseId) {
+      await tx.creditCardStatementItem.deleteMany({ where: { statementId: statement.id, purchaseId } });
     }
-  });
 
-  const [totalRow] = await prisma.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
-    SELECT COALESCE(SUM("value"), 0) AS "total"
-    FROM "CreditCardStatementItem"
-    WHERE "statementId" = ${statement.id}
-  `;
-  await prisma.creditCardStatement.update({
-    where: { id: statement.id },
-    data: {
-      totalAmount: new Prisma.Decimal(Number(totalRow?.total ?? 0))
-    }
+    const criado = await tx.creditCardStatementItem.create({
+      data: {
+        id: crypto.randomUUID(),
+        statementId: statement.id,
+        purchaseId: purchaseId || null,
+        purchaseItemId: purchaseItemId || null,
+        itemDate: request.body.itemDate ? localDate(request.body.itemDate) : null,
+        description,
+        supplierName: supplierName || null,
+        value: new Prisma.Decimal(value),
+        installment: request.body.installment == null ? null : Number(request.body.installment),
+        totalInstallments: request.body.totalInstallments == null ? null : Number(request.body.totalInstallments),
+        categoryName: asText(request.body.categoryName),
+        smallExpenseTypeId: asText(request.body.smallExpenseTypeId),
+        responsibleName: asText(request.body.responsibleName),
+        checked: Boolean(request.body.checked),
+        hasDivergence: Boolean(request.body.hasDivergence),
+        notes: asText(request.body.notes)
+      }
+    });
+
+    const [totalRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
+      SELECT COALESCE(SUM("value"), 0) AS "total"
+      FROM "CreditCardStatementItem"
+      WHERE "statementId" = ${statement.id}
+    `;
+    await tx.creditCardStatement.update({
+      where: { id: statement.id },
+      data: {
+        totalAmount: new Prisma.Decimal(Number(totalRow?.total ?? 0))
+      }
+    });
+
+    return criado;
   });
 
   await auditLog({
@@ -539,29 +547,36 @@ cardsRouter.post("/statements/items/:itemId/reallocate", async (request, respons
 
   const previousItem = { ...item, statement: undefined };
 
-  const updatedItem = await prisma.creditCardStatementItem.update({
-    where: { id: itemId },
-    data: { statementId: targetStatementId }
-  });
+  // Mover o item e recalcular os DOIS totais e uma operacao so. Em tres gravacoes
+  // soltas, falhar depois de mover deixa o total de uma das faturas sem o valor do
+  // item que ela ja contem: o dinheiro some do total sem sair da lista de itens.
+  const updatedItem = await prisma.$transaction(async (tx) => {
+    const movido = await tx.creditCardStatementItem.update({
+      where: { id: itemId },
+      data: { statementId: targetStatementId }
+    });
 
-  const [sourceTotalRow] = await prisma.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
-    SELECT COALESCE(SUM("value"), 0) AS "total"
-    FROM "CreditCardStatementItem"
-    WHERE "statementId" = ${sourceStatement.id}
-  `;
-  await prisma.creditCardStatement.update({
-    where: { id: sourceStatement.id },
-    data: { totalAmount: new Prisma.Decimal(Number(sourceTotalRow?.total ?? 0)) }
-  });
+    const [sourceTotalRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
+      SELECT COALESCE(SUM("value"), 0) AS "total"
+      FROM "CreditCardStatementItem"
+      WHERE "statementId" = ${sourceStatement.id}
+    `;
+    await tx.creditCardStatement.update({
+      where: { id: sourceStatement.id },
+      data: { totalAmount: new Prisma.Decimal(Number(sourceTotalRow?.total ?? 0)) }
+    });
 
-  const [targetTotalRow] = await prisma.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
-    SELECT COALESCE(SUM("value"), 0) AS "total"
-    FROM "CreditCardStatementItem"
-    WHERE "statementId" = ${targetStatementId}
-  `;
-  await prisma.creditCardStatement.update({
-    where: { id: targetStatementId },
-    data: { totalAmount: new Prisma.Decimal(Number(targetTotalRow?.total ?? 0)) }
+    const [targetTotalRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
+      SELECT COALESCE(SUM("value"), 0) AS "total"
+      FROM "CreditCardStatementItem"
+      WHERE "statementId" = ${targetStatementId}
+    `;
+    await tx.creditCardStatement.update({
+      where: { id: targetStatementId },
+      data: { totalAmount: new Prisma.Decimal(Number(targetTotalRow?.total ?? 0)) }
+    });
+
+    return movido;
   });
 
   await auditLog({
@@ -842,18 +857,25 @@ cardsRouter.patch("/statements/:id/pay", async (request, response) => {
     return;
   }
   const status = paidDate.getTime() > new Date(String(installment.dueDate ?? paidDate)).getTime() ? "PAID_LATE" : "PAID";
-  await prisma.paymentInstallment.update({
-    where: { id: installment.id },
-    data: {
-      paidDate,
-      paidAmount: new Prisma.Decimal(paidAmount),
-      paidPaymentMethodName: paymentMethodName,
-      status
-    }
-  });
-  await prisma.creditCardStatement.update({
-    where: { id: statement.id },
-    data: { status: "PAID" }
+  // As duas gravacoes sao uma so operacao. Se a parcela baixasse e a fatura nao,
+  // o Contas a Pagar mostraria a fatura paga enquanto ela seguiria em aberto — e a
+  // guarda la em cima ("Fatura ja baixada") bloquearia a retentativa, exigindo
+  // estorno manual para destravar. paidDate e o campo que posiciona a despesa no
+  // mes do DRE: divergir aqui divergiria o mes.
+  await prisma.$transaction(async (tx) => {
+    await tx.paymentInstallment.update({
+      where: { id: installment.id },
+      data: {
+        paidDate,
+        paidAmount: new Prisma.Decimal(paidAmount),
+        paidPaymentMethodName: paymentMethodName,
+        status
+      }
+    });
+    await tx.creditCardStatement.update({
+      where: { id: statement.id },
+      data: { status: "PAID" }
+    });
   });
 
   await auditLog({
