@@ -36,6 +36,21 @@ const GROUP_META = [
   { key: "DEDUCOES",              label: "Deduções de Receita", sortOrder: 100 },
 ];
 
+// buildExpenseGroups devolve SO os grupos de GROUP_META: grupo fora da lista e
+// descartado do relatorio. Mas totalExpenses soma TODAS as linhas. Uma categoria
+// com dreGroup desconhecido — "DESPESAS GERAIS" com espaco em vez de sublinhado,
+// por exemplo — faria a despesa contar no total e sumir da tela, e a soma dos
+// grupos exibidos deixaria de bater com o total exibido, sem explicacao. Mesma
+// forma do F-40, onde a linha de deducoes nao fechava.
+//
+// A coluna e text livre com default, entao a unica defesa e a porta de entrada.
+const GRUPOS_VALIDOS = GROUP_META.map((g) => g.key);
+
+function grupoInvalido(valor: unknown): string | null {
+  const g = String(valor ?? "DESPESAS_OPERACIONAIS").trim();
+  return GRUPOS_VALIDOS.includes(g) ? null : g;
+}
+
 const SEED_CATEGORIES = [
   // CMV_COMPRAS
   { name: "Custo de Alimentos",      dreGroup: "CMV_COMPRAS", sortOrder: 1 },
@@ -1026,11 +1041,20 @@ dreRouter.post("/categories", async (request, response) => {
     return;
   }
 
+  const grupoRuim = grupoInvalido(request.body.dreGroup);
+  if (grupoRuim) {
+    response.status(400).json({
+      message: `Grupo de DRE "${grupoRuim}" nao existe. Categoria com grupo desconhecido some do relatorio sem aviso.`,
+      gruposAceitos: GRUPOS_VALIDOS
+    });
+    return;
+  }
+
   const row = await prisma.dRECategory.create({
     data: {
       id: crypto.randomUUID(),
       name,
-      dreGroup: String(request.body.dreGroup ?? "DESPESAS_OPERACIONAIS"),
+      dreGroup: String(request.body.dreGroup ?? "DESPESAS_OPERACIONAIS").trim(),
       sortOrder: Number(request.body.sortOrder ?? 0),
       notes: String(request.body.notes ?? "").trim() || null
     }
@@ -1056,11 +1080,20 @@ dreRouter.put("/categories/:id", async (request, response) => {
     return;
   }
 
+  const grupoRuim = grupoInvalido(request.body.dreGroup);
+  if (grupoRuim) {
+    response.status(400).json({
+      message: `Grupo de DRE "${grupoRuim}" nao existe. Categoria com grupo desconhecido some do relatorio sem aviso.`,
+      gruposAceitos: GRUPOS_VALIDOS
+    });
+    return;
+  }
+
   const row = await prisma.dRECategory.update({
     where: { id: request.params.id },
     data: {
       name,
-      dreGroup: String(request.body.dreGroup ?? "DESPESAS_OPERACIONAIS"),
+      dreGroup: String(request.body.dreGroup ?? "DESPESAS_OPERACIONAIS").trim(),
       sortOrder: Number(request.body.sortOrder ?? 0),
       notes: String(request.body.notes ?? "").trim() || null,
       isActive: request.body.isActive !== false
