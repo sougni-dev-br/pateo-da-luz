@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { prisma } from "../../config/database.js";
 import ExcelJS from "exceljs";
 
 export type TaxImportRow = {
@@ -168,13 +169,70 @@ function buildCompanyMap(empresasRows: Record<string, unknown>[]): Map<string, {
   return map;
 }
 
-function makeDedupKey(row: TaxImportRow): string | null {
+// Chave de deduplicacao do import de impostos.
+//
+// Antes existia DUAS vezes: aqui em JS, para as linhas do arquivo, e como uma
+// expressao SQL (CONCAT_WS + DIGEST) copiada em dois pontos de tax-payment.routes
+// para as linhas do banco. As duas versoes divergiam em dois pontos e a
+// deduplicacao ficava cega:
+//
+//   valor      Decimal(12,2)::text da 67.00 / 1274.10; Number do JS da 67 / 1274.1
+//              -> todo imposto com centavos terminando em zero escapava (75 de 536)
+//   competencia CONCAT_WS OMITE argumento nulo, produzindo 5 campos, enquanto o JS
+//              escrevia a palavra "null" e produzia 6 (5 de 536)
+//
+// Medido em producao: 53 de 400 linhas amostradas tinham chaves diferentes dos
+// dois lados. Reimportar a mesma planilha duplicaria essas despesas.
+//
+// Agora ha uma implementacao so, e o lado do banco passa por ela tambem.
+export type DedupSource = {
+  cnpj: string | null;
+  documentType: string | null;
+  description: string | null;
+  competenceDate: Date | null;
+  dueDate: Date | null;
+  amount: number | null;
+};
+
+export function makeDedupKey(row: DedupSource): string | null {
   if (!row.cnpj || !row.documentType || !row.dueDate || row.amount == null) return null;
   const comp = row.competenceDate ? row.competenceDate.toISOString().slice(0, 10) : "null";
   const due = row.dueDate.toISOString().slice(0, 10);
   const desc = (row.description ?? "").toLowerCase().trim();
-  const raw = `${row.cnpj}|${row.documentType}|${desc}|${comp}|${due}|${row.amount}`;
+  // toFixed(2) porque o banco guarda Decimal(12,2): sem isso 1274.10 e 1274.1
+  // produzem hashes diferentes para o mesmo lancamento.
+  const raw = `${row.cnpj}|${row.documentType}|${desc}|${comp}|${due}|${row.amount.toFixed(2)}`;
   return crypto.createHash("sha256").update(raw).digest("hex").slice(0, 32);
+}
+
+// Chaves dos impostos ja gravados, passando pela MESMA makeDedupKey das linhas do
+// arquivo. Antes isto era uma expressao SQL equivalente-por-descuido, copiada em dois
+// pontos das rotas; agora nao ha como as duas pontas divergirem, porque so existe uma.
+//
+// Carregar tudo em memoria e aceitavel: sao ~536 linhas com 6 colunas. Se um dia isso
+// crescer para dezenas de milhares, o caminho e paginar aqui, nao recriar o hash em SQL.
+export async function buildExistingDedupKeys(): Promise<Set<string>> {
+  const rows = await prisma.taxPayment.findMany({
+    // dueDate e obrigatorio no schema; a SQL antiga filtrava IS NOT NULL a toa.
+    where: { deletedAt: null, cnpj: { not: null } },
+    select: {
+      cnpj: true, documentType: true, description: true,
+      competenceDate: true, dueDate: true, amount: true,
+    },
+  });
+  const keys = new Set<string>();
+  for (const r of rows) {
+    const key = makeDedupKey({
+      cnpj: r.cnpj,
+      documentType: r.documentType,
+      description: r.description,
+      competenceDate: r.competenceDate,
+      dueDate: r.dueDate,
+      amount: r.amount == null ? null : Number(r.amount),
+    });
+    if (key) keys.add(key);
+  }
+  return keys;
 }
 
 export async function previewTaxImport(
