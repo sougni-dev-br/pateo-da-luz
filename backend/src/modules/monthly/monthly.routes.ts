@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { REVENUE_CHANNEL_DELIVERY, REVENUE_CHANNEL_SALON } from "./revenue-channels.js";
+import { REVENUE_CHANNEL_DELIVERY, REVENUE_CHANNEL_SALON, normalizePlatform } from "./revenue-channels.js";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -313,6 +313,27 @@ monthlyRouter.get("/revenue", async (request, response) => {
     GROUP BY COALESCE("sourcePlatform", 'Sem plataforma')
     ORDER BY COALESCE(SUM("grossAmount"), 0) DESC
   `;
+  // A MESMA plataforma chega com dois rotulos: a planilha grava "99Food"/"iFood", as
+  // integracoes gravam "NOVENTA_NOVE"/"IFOOD". Agrupar pelo valor cru mostrava a mesma
+  // plataforma em duas linhas na tela de Faturamento. Re-agrupa pelo nome canonico.
+  //
+  // Feito aqui e nao no SQL de proposito: o vocabulario vive em revenue-channels.ts, e
+  // repeti-lo numa expressao CASE seria criar a segunda copia que este projeto ja pagou
+  // caro para eliminar.
+  const porPlataforma = new Map<string, { grossAmount: number; netAmount: number; tickets: number; count: number }>();
+  for (const row of byPlatform) {
+    const nome = normalizePlatform(row.sourcePlatform == null ? null : String(row.sourcePlatform));
+    const acc = porPlataforma.get(nome) ?? { grossAmount: 0, netAmount: 0, tickets: 0, count: 0 };
+    acc.grossAmount += Number(row.grossAmount ?? 0);
+    acc.netAmount += Number(row.netAmount ?? 0);
+    acc.tickets += Number(row.tickets ?? 0);
+    acc.count += Number(row.count ?? 0);
+    porPlataforma.set(nome, acc);
+  }
+  const normalizedByPlatform = [...porPlataforma.entries()]
+    .map(([sourcePlatform, v]) => ({ sourcePlatform, ...v }))
+    .sort((a, b) => b.grossAmount - a.grossAmount);
+
   const normalizedByChannel = byChannel.map((row) => ({
     ...row,
     grossAmount: Number(row.grossAmount ?? 0),
@@ -363,13 +384,7 @@ monthlyRouter.get("/revenue", async (request, response) => {
         ? entries.reduce((sum, entry) => sum + Number(entry.grossAmount ?? 0), 0) / entries.reduce((sum, entry) => sum + Number(entry.tickets ?? 0), 0)
         : 0,
       byChannel: normalizedByChannel,
-      byPlatform: byPlatform.map((row) => ({
-        sourcePlatform: String(row.sourcePlatform ?? "Sem plataforma"),
-        grossAmount: Number(row.grossAmount ?? 0),
-        netAmount: Number(row.netAmount ?? 0),
-        tickets: Number(row.tickets ?? 0),
-        count: Number(row.count ?? 0)
-      })),
+      byPlatform: normalizedByPlatform,
       byDay: normalizedByDay
     }
   });
