@@ -457,11 +457,23 @@ async function loadExistingEntries(competenceYear: number, competenceMonth: numb
       AND "date" >= ${startDate}
       AND "date" <= ${endDate}
       AND "channel" = ${channel}
+    -- Ordem explicita: um dia pode ter varios lancamentos no mesmo canal (Delivery tem
+    -- tres plataformas por dia, e no Salao de abr/mai/2026 existem 61 dias com dois).
+    -- Sem ORDER BY o banco devolvia em ordem arbitraria e a chave simples abaixo
+    -- apontava para um lancamento diferente a cada execucao. O confirm usa essa chave
+    -- como fallback para decidir o que SOBRESCREVER: o mesmo arquivo podia sobrescrever
+    -- o lancamento manual numa vez e o do PDV na seguinte.
+    --
+    -- NULLS FIRST poe o lancamento sem plataforma na frente: planilha atualiza o que
+    -- veio de planilha, nao o que veio de integracao.
+    ORDER BY "sourcePlatform" ASC NULLS FIRST, "createdAt" ASC
   `;
   const existingMap = new Map<string, string>();
   for (const row of rows) {
     const dateKey = toCalendarDateKey(normalizeToCalendarDate(new Date(row.date)));
-    existingMap.set(dateKey, row.id);
+    // A chave simples fica com o PRIMEIRO da ordem acima e nao e sobrescrita pelos
+    // seguintes; a qualificada por plataforma continua exata para cada um.
+    if (!existingMap.has(dateKey)) existingMap.set(dateKey, row.id);
     existingMap.set(`${dateKey}|${row.sourcePlatform ?? ""}`, row.id);
   }
   return existingMap;
