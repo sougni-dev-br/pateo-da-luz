@@ -188,12 +188,45 @@ async function findStoreForCallback(envelope: WebhookEnvelope, orderInfo: OrderC
   return null;
 }
 
+// O order_id da 99 Food tem 19 digitos (ex.: 5764683989109508881) e passa de
+// Number.MAX_SAFE_INTEGER (9.007.199.254.740.991). Como o webhook chega em JSON com o
+// campo NUMERICO, o JSON.parse ja arredonda antes de qualquer codigo nosso rodar:
+// 5764683989109508881 vira 5764683989109509000. String() depois disso so preserva o
+// estrago.
+//
+// Consequencia medida em producao: o mesmo pedido entrava DUAS vezes, porque o sync
+// financeiro grava o id intacto (string) e o webhook gravava o arredondado, e a chave
+// unica (deliveryStoreId, externalOrderId) enxergava dois pedidos diferentes. De
+// 27/08 a 11/09/2026 isso gerou 297 vendas fantasma, R$ 25.331,05 de receita inflada.
+// Confronto que revelou: somando so os canais DELIVERY/DELIVERY_REFUND, os quatro
+// repasses da plataforma batem ao centavo; com as fantasmas, nao batem.
+//
+// O corpo textual original chega aqui em rawPayload (guardado pelo verify() do
+// express.json para a validacao HMAC). Dele da para recuperar os digitos exatos.
+// So substitui quando o literal do texto ARREDONDA para o valor que recebemos —
+// sem esse teste seria chute.
+function exactOrderId(order: OrderCallbackPayload, rawPayload: unknown): string | null {
+  const parsed = order.order_id;
+  if (parsed === undefined || parsed === null) return null;
+  if (typeof parsed === "string") return parsed;
+  if (Number.isSafeInteger(parsed)) return String(parsed);
+
+  const raw = typeof rawPayload === "string" ? rawPayload : null;
+  if (!raw) return String(parsed);
+
+  const alvo = String(parsed);
+  for (const m of raw.matchAll(/"order_id"\s*:\s*"?(\d{10,25})"?/g)) {
+    if (String(Number(m[1])) === alvo) return m[1];
+  }
+  return alvo;
+}
+
 async function persistOrderCallback(
   storeId: string,
   order: OrderCallbackPayload,
   rawPayload: unknown
 ): Promise<string | null> {
-  const externalOrderId = order.order_id !== undefined ? String(order.order_id) : null;
+  const externalOrderId = exactOrderId(order, rawPayload);
   if (!externalOrderId) return null;
 
   const orderDate = unixToDate(order.create_time) ?? unixToDate(order.pay_time) ?? new Date();
