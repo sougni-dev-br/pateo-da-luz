@@ -1013,12 +1013,28 @@ export async function ensureSnapshotForSession(
   }
 
   // 9. Link snapshot back to session (idempotency key for future calls)
-  await tx.$executeRaw`
+  //
+  // Este UPDATE condicional tambem e a GUARDA DE CONCORRENCIA. A verificacao de
+  // idempotencia la no passo 2 le a sessao e decide; entre ler e gravar existe uma
+  // janela em que dois cliques simultaneos passam os dois. Ambos criariam snapshot,
+  // e so um conseguiria ligar — o outro ficaria orfao e ACTIVE, entrando no CMV como
+  // inventario duplicado. Nao ha indice unico que impeca: (competencia, tipo) aceita
+  // varias linhas, distinguidas por status.
+  //
+  // Se o UPDATE nao afetou linha nenhuma, alguem ligou primeiro: aborta e a transacao
+  // inteira (snapshot + itens, do passo 7 ao 9) some junto. Quem perdeu a corrida
+  // recebe erro e, ao repetir, cai no reaproveitamento do passo 2.
+  const ligou = await tx.$executeRaw`
     UPDATE "StockCountSession"
     SET "linkedSnapshotId" = ${snapshotId}, "updatedAt" = CURRENT_TIMESTAMP
     WHERE "id" = ${sessionId}
       AND ("linkedSnapshotId" IS NULL OR "linkedSnapshotId" = '')
   `;
+  if (ligou === 0) {
+    throw new Error(
+      "Esta contagem ja gerou inventario em outra execucao simultanea. Recarregue a tela: o inventario existente sera reaproveitado."
+    );
+  }
   }, { maxWait: 15000, timeout: 120000 });
 
   return snapshotId;
