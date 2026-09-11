@@ -7,6 +7,7 @@ import {
   type NoventaNoveSettlement
 } from "./noventa-nove-financial-api.js";
 import { hasValidCredential } from "./noventa-nove-http-client.js";
+import { assertPeriodWritableForDate } from "../../../cmv-real/cmv-real.service.js";
 import { upsertReceivableFromNoventaNoveSettlement } from "../../../receivables/receivable.service.js";
 
 // Sync real 99 Food — reconcilia o financeiro da Financial API com o que o
@@ -294,8 +295,8 @@ async function reflectSalesIntoRevenueEntries(
   store: { id: string; companyId: string | null; nickname: string },
   year: number,
   month: number
-): Promise<number> {
-  if (!store.companyId) return 0;
+): Promise<{ count: number; bloqueados: string[] }> {
+  if (!store.companyId) return { count: 0, bloqueados: [] };
   // So entra no razao o que a API financeira confirmou como faturado.
   //
   // O webhook da 99 Food e do tipo orderNew: notificacao de pedido CRIADO, com
@@ -320,7 +321,7 @@ async function reflectSalesIntoRevenueEntries(
     },
     select: { orderDate: true, grossAmount: true, promotionAmount: true, netAmount: true, channel: true }
   });
-  if (sales.length === 0) return 0;
+  if (sales.length === 0) return { count: 0, bloqueados: [] };
 
   // Agrega por dia (venda + estorno do mesmo dia se cancelam no líquido).
   // Acumula tambem o LIQUIDO que a plataforma informa por pedido. Ate 09/2026 o
@@ -355,6 +356,24 @@ async function reflectSalesIntoRevenueEntries(
     // "pedido" (senão distorce o ticket médio).
     if (sale.channel !== "DELIVERY_REFUND") prev.count += 1;
     byDate.set(dateKey, prev);
+  }
+
+  // Mes travado ou periodo de CMV fechado nao pode ser reescrito por uma
+  // sincronizacao. O sync do Agile ja fazia isto (agile-sync.service.ts) — o do
+  // delivery nao, entao um sync rodado depois do fechamento reescrevia a receita de
+  // um mes ja apurado, em silencio. Mesma politica do Agile: pula o dia bloqueado e
+  // reporta, em vez de derrubar o sync dos dias abertos.
+  const bloqueados: string[] = [];
+  for (const dateKey of [...byDate.keys()]) {
+    try {
+      await assertPeriodWritableForDate(byDate.get(dateKey)!.dateObj, "Sincronizacao do 99 Food");
+    } catch {
+      bloqueados.push(dateKey);
+      byDate.delete(dateKey);
+    }
+  }
+  if (bloqueados.length > 0) {
+    console.warn(`[99Food] ${bloqueados.length} dia(s) nao gravado(s) por periodo fechado: ${bloqueados.join(", ")}`);
   }
 
   let count = 0;
@@ -429,7 +448,7 @@ async function reflectSalesIntoRevenueEntries(
     console.warn(`[99Food] ${zerados.count} dia(s) sem venda faturada em ${String(month).padStart(2, "0")}/${year} zerados no razao.`);
   }
 
-  return count;
+  return { count, bloqueados };
 }
 
 // ---------------------------------------------------------------------------
@@ -615,7 +634,14 @@ async function syncEligibleStore(
 
   let revenueEntries = 0;
   try {
-    revenueEntries = await reflectSalesIntoRevenueEntries(store, year, month);
+    const r = await reflectSalesIntoRevenueEntries(store, year, month);
+    revenueEntries = r.count;
+    // Dia nao gravado por periodo fechado e o aviso mais consequente daqui: e
+    // faturamento que NAO entrou. Vai para errors de proposito — marca o sync como
+    // PARCIAL e aparece na mensagem, em vez de sumir num console que ninguem le.
+    if (r.bloqueados.length > 0) {
+      errors.push(`${r.bloqueados.length} dia(s) nao gravado(s) por periodo fechado/mes travado: ${r.bloqueados.join(", ")}`);
+    }
   } catch (error: unknown) {
     errors.push(`revenueEntries: ${formatApiError(error)}`);
   }
