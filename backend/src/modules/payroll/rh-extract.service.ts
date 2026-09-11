@@ -165,7 +165,10 @@ export async function importExtrato(opts: {
         dueDate, amount: f.liquido, dreCategoryId, source: "EXTRATO_RH",
         details: { liquido: f.liquido, gorjeta: f.gorjeta, empresa: parsed.empresa }, createdById: opts.userId,
       },
-      update: { amount: f.liquido, dueDate, dreCategoryId, source: "EXTRATO_RH", details: { liquido: f.liquido, gorjeta: f.gorjeta, empresa: parsed.empresa }, updatedById: opts.userId },
+      // deletedAt/deletedById limpos de proposito: a chave unica nao inclui deletedAt, entao
+      // este upsert casa com um item apagado. Sem limpar, ele atualizava o valor e deixava o
+      // lancamento invisivel — a importacao dizia "titulo gerado" e o salario sumia do DRE.
+      update: { amount: f.liquido, dueDate, dreCategoryId, source: "EXTRATO_RH", details: { liquido: f.liquido, gorjeta: f.gorjeta, empresa: parsed.empresa }, updatedById: opts.userId, deletedAt: null, deletedById: null },
     });
     titulosGerados += 1;
   }

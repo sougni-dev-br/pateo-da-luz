@@ -338,8 +338,41 @@ export async function generatePayroll(
       const ajustado = ajustes.get(overrideKey(item));
       const usaAjuste = ajustado != null && ajustado > 0 && ajustado !== item.amount;
       if (usaAjuste) ajustados += 1;
-      await tx.payrollItem.create({
-        data: {
+      // A chave unica (employeeId, type, ano, mes, periodLabel) NAO inclui deletedAt, mas
+      // existsKey acima so enxerga o que tem deletedAt null. Um item apagado continua
+      // ocupando a chave: o gerador o considerava inexistente, tentava criar, e o P2002
+      // derrubava a transacao inteira — o mes todo falhava por causa de um lancamento, e
+      // a linha em conflito e invisivel na tela porque esta apagada. Agora o upsert
+      // ressuscita: regerar a folha e exatamente o gesto de querer o lancamento de volta.
+      await tx.payrollItem.upsert({
+        where: {
+          employeeId_type_competenceYear_competenceMonth_periodLabel: {
+            employeeId: item.employeeId,
+            type: item.type,
+            competenceYear: year,
+            competenceMonth: month,
+            periodLabel: item.periodLabel,
+          },
+        },
+        update: {
+          dueDate: due,
+          amount: usaAjuste ? ajustado : item.amount,
+          workedDays: item.workedDays,
+          freeDays: item.freeDays,
+          bufferAmount: item.bufferAmount,
+          creditApplied: item.creditApplied,
+          details: ({
+            ...(item.details ?? {}),
+            ...(usaAjuste ? { ajusteManual: true, valorCalculado: item.amount } : {}),
+          }) as Prisma.InputJsonValue,
+          status: computeStatus(due, null),
+          dreCategoryId: item.dreCategoryId,
+          source: "GENERATED",
+          updatedById: userId,
+          deletedAt: null,
+          deletedById: null,
+        },
+        create: {
           id: crypto.randomUUID(),
           employeeId: item.employeeId,
           type: item.type,
