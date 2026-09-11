@@ -1463,6 +1463,18 @@ inventoryRouter.post("/count-sessions", async (request, response) => {
   const periodMonth = Number(request.body.periodMonth ?? referenceDate.getMonth() + 1);
   const periodYear = Number(request.body.periodYear ?? referenceDate.getFullYear());
 
+  // O ?? cobre ausencia, nao valor invalido: Number("setembro") e NaN e passava
+  // direto. Sessao com competencia NaN some do escopo do mes — nao apareceria no
+  // fechamento nem no CMV daquela competencia, sem erro nenhum.
+  // Sem evidencia de que tenha ocorrido (as 3 sessoes com periodo nulo em producao
+  // sao COMPLEMENTAR_CMV, criadas por outra rota, onde nulo e por desenho). A guarda
+  // e barata e a falha seria silenciosa.
+  if (!Number.isInteger(periodMonth) || periodMonth < 1 || periodMonth > 12
+      || !Number.isInteger(periodYear) || periodYear < 2000 || periodYear > 2100) {
+    response.status(400).json({ message: "Competencia da contagem invalida (mes 1-12, ano 2000-2100)." });
+    return;
+  }
+
   // Exigir sectorId em SETORIAL (nao aceitar apenas sectorName). Fecha o risco de dedupe
   // colidir entre setores identificados so por nome quando sectorId=NULL (todos NULL sao iguais
   // sob IS NOT DISTINCT FROM). Categoria e' processada apos esta guarda.
