@@ -204,6 +204,23 @@ export async function computePayroll(year: number, month: number) {
           const creditApplied = round2(Math.min(creditBalance, r.gross + buffer));
           const net = round2(Math.max(0, r.gross + buffer - creditApplied));
           creditBalance = round2(buffer + (creditBalance - creditApplied));
+          // Trajeto em branco faz o calculo nao achar tarifa e devolver ZERO, sem
+          // reclamar. O funcionario esta marcado como TRANSPORTE_PUBLICO, trabalhou o
+          // mes, e o vale sai R$ 0,00 — dinheiro que ele tinha a receber e nao recebeu.
+          //
+          // Encontrado em 09/2026: CINCO funcionarios ativos nessa situacao, todos com
+          // vtCommute vazio, com 11 a 31 dias trabalhados em julho. O casamento e
+          // exato: os 5 sem trajeto sao os 5 com vale zerado.
+          //
+          // Zero legitimo existe (credito acumulado cobre o periodo), por isso o aviso
+          // olha a CAUSA — trajeto ausente — e nao o resultado.
+          if (!emp.vtCommute && r.workedDays > 0) {
+            warnings.push(
+              `${emp.firstName} ${emp.lastName} recebe vale-transporte mas nao tem trajeto cadastrado: ` +
+              `${r.workedDays} dia(s) trabalhado(s) em ${p.label} e vale de R$ 0,00. ` +
+              `Preencha o trajeto no cadastro do funcionario.`
+            );
+          }
           items.push({
             ...base,
             amount: net, workedDays: r.workedDays, freeDays: r.freeDays,
