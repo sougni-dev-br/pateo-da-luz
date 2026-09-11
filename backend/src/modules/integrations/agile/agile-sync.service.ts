@@ -355,9 +355,20 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
       // de criar outro. A adocao vira aviso no retorno da sincronizacao e na tela
       // de status: assumir dado lancado a mao sem avisar seria trocar um problema
       // por outro, e foi o silencio que deixou abril e maio dobrados por 3 meses.
+      // Intervalo do dia, nao igualdade. A igualdade so funcionava porque TODO
+      // gravador de RevenueEntry ancora as 12:00 UTC — um acoplamento implicito
+      // entre esta busca e cada escritor do sistema. Basta uma origem gravando em
+      // outro horario para esta consulta ficar cega e criar o segundo lancamento,
+      // que e exatamente o defeito descrito acima. O 99Food ja gravou 00:00 por um
+      // periodo; se aquilo tivesse acontecido no canal Salao, abril e maio se
+      // repetiriam. O intervalo nao depende de ninguem ancorar nada.
+      const inicioDia = new Date(Date.UTC(
+        dia.date.getUTCFullYear(), dia.date.getUTCMonth(), dia.date.getUTCDate(), 0, 0, 0, 0
+      ));
+      const fimDia = new Date(inicioDia.getTime() + 24 * 60 * 60 * 1000);
       const existente = await tx.$queryRaw<Array<{ id: string; sourcePlatform: string | null; grossAmount: unknown }>>`
         SELECT "id", "sourcePlatform", "grossAmount" FROM "RevenueEntry"
-        WHERE "date" = ${dia.date}
+        WHERE "date" >= ${inicioDia} AND "date" < ${fimDia}
           AND "channel" = ${CHANNEL}
           AND "status" <> 'CANCELLED'
         ORDER BY ("sourcePlatform" = ${SOURCE_PLATFORM}) DESC
