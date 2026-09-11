@@ -474,6 +474,12 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
   // Restaurar um registro cancelado desfaz uma exclusao: pede a acao de excluir.
   if (path.endsWith("/restore")) return "delete";
 
+  // Estornar um pagamento desfaz a baixa: tira o desembolso do mes, devolve o titulo
+  // para aberto e mexe num DRE que ja pode ter sido apurado. Mesmo criterio do
+  // "/restore" acima — desfazer pede a mesma forca de quem fez. Sem isto, quem tem
+  // apenas "editar" no modulo conseguia despagar conta a pagar, imposto e folha.
+  if (path.endsWith("/reverse")) return "delete";
+
   if (path.endsWith("/cancel") || method === "DELETE") return "delete";
   if (method === "GET" || method === "HEAD") return "view";
   if (method === "POST") return "create";
