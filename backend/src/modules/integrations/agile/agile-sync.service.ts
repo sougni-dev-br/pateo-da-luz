@@ -284,6 +284,27 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
     avisos.push(
       `${diasBloqueados.length} dia(s) nao gravado(s) por periodo fechado/mes travado: ${diasBloqueados.join(", ")}.`
     );
+
+    // Este e o aviso mais consequente que esta funcao emite: sao dias cujo
+    // faturamento NAO entrou no sistema. E ele ia apenas no retorno HTTP, que quem
+    // le e o agente na maquina do PDV. Ninguem ficaria sabendo que faltou receita —
+    // so apareceria depois, como um buraco no mes, sem explicacao.
+    //
+    // Ainda nao aconteceu (conferido em 09/2026: zero dias faltando na janela
+    // sincronizada), mas o gatilho esta armado: ha periodo de CMV fechado, e o
+    // agente segue sincronizando todo dia.
+    await auditLog({
+      userId: null,
+      action: "AGILE_SYNC_BLOCKED_BY_PERIOD_LOCK",
+      entity: "RevenueEntry",
+      entityId: null,
+      newValue: {
+        batchId,
+        dias: diasBloqueados.length,
+        datas: diasBloqueados,
+        motivo: "periodo de CMV fechado ou mes travado — o faturamento desses dias NAO foi gravado"
+      }
+    });
   }
 
   let diasCriados = 0;
