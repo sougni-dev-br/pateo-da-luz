@@ -359,7 +359,13 @@ export function Purchases({ user }: { user: AppUser }) {
   const [cycleCheckState, setCycleCheckState] = useState<"idle" | "loading" | "found" | "not-found">("idle");
   const [cycleCreating, setCycleCreating] = useState(false);
 
-  const isAdmin = hasPermission(user, "purchases", "admin");
+  // O campo "Motivo da diferenca" no formulario de compra e OPCIONAL no servidor
+  // (purchase.routes.ts:1724 apenas registra quando vem). Esconde-lo atras de "admin"
+  // impedia quem cria ou edita compra de justificar uma divergencia que ele mesmo
+  // acabou de gerar. Passa a acompanhar a permissao de mexer na compra.
+  // (Nao confundir com a baixa de parcela com valor diferente, em
+  // /payables/:id/pay, onde a justificativa e OBRIGATORIA — aquela tela e outra.)
+  const podeJustificarDiferenca = hasPermission(user, "purchases", "edit") || hasPermission(user, "purchases", "create");
   const canEditPurchase = hasPermission(user, "purchases", "edit");
   // Cada gate espelha a acao que o backend exige na rota correspondente:
   // POST /purchases -> create | PUT /purchases/:id -> edit | cancel e restore -> delete.
@@ -2850,7 +2856,7 @@ export function Purchases({ user }: { user: AppUser }) {
                               onBlur={() => { if (!form.paymentNotes.trim()) setShowPaymentNotes(false); }} />
                           </label>
                         )}
-                        {isAdmin && !usesCreditCard && Math.round(amountDifference * 100) !== 0 && (
+                        {podeJustificarDiferenca && !usesCreditCard && Math.round(amountDifference * 100) !== 0 && (
                           <label className="full-width">
                             Motivo da diferença
                             <input autoComplete="off" value={form.paymentDifferenceReason}
