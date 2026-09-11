@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
@@ -472,6 +473,25 @@ supplierCyclesRouter.post("/:id/close", async (request, response) => {
   const invoiceNumber = `CICLO-${request.params.id.substring(0, 8).toUpperCase()}`;
   const competenceMonth = periodStart.getMonth() + 1;
   const competenceYear = periodStart.getFullYear();
+
+  // Fechar o ciclo cria uma Purchase na competencia do periodo e titulos nos
+  // vencimentos escolhidos — as mesmas duas escritas que o fechamento de fatura de
+  // cartao faz, e que ganharam a trava no F-42. O irmao aqui tinha ficado sem: este
+  // arquivo nao importava assertPeriodWritableForDate.
+  //
+  // Sem isso da para fechar um ciclo dentro de um mes com CMV apurado e fechado,
+  // lancando compra e divida num periodo ja conferido. Ha periodo fechado hoje
+  // (CMV-2026-0001, abril).
+  try {
+    await assertPeriodWritableForDate(periodStart, "Fechamento de ciclo de fornecedor");
+    await assertPeriodWritableForDate(firstDueDate, "Fechamento de ciclo de fornecedor (1o vencimento)");
+    if (secondDueDate) {
+      await assertPeriodWritableForDate(secondDueDate, "Fechamento de ciclo de fornecedor (2o vencimento)");
+    }
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
+    return;
+  }
 
   const result = await prisma.$transaction(async (tx) => {
     const purchaseId = crypto.randomUUID();
