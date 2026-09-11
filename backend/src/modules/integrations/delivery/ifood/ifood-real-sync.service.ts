@@ -484,7 +484,14 @@ export async function runRealSync(params: {
       status: perStore.every((r) => r.status !== "ERROR") ? "SUCCESS" : "PARTIAL",
       itemsProcessed: totalPersisted,
       triggeredByUserId: params.triggeredByUserId,
-      errorMessage: perStore.filter((r) => r.status === "ERROR").map((r) => `${r.storeLabel}: ${r.message}`).join(" | ") || null
+      // Guarda tambem os AVISOS, como na 99 (F-61). Sem isso o log fica com
+      // errorMessage nulo em 100% das execucoes bem-sucedidas e parece saude quando
+      // e cegueira — na 99 isso escondeu 4 repasses incompletos por dois meses.
+      // O status continua distinguindo: SUCCESS com texto = aviso, PARTIAL/ERROR = falha.
+      errorMessage:
+        perStore.filter((r) => r.status === "ERROR").map((r) => `${r.storeLabel}: ${r.message}`).join(" | ")
+        || perStore.filter((r) => String(r.message ?? "").includes("⚠️")).map((r) => `${r.storeLabel}: ${r.message}`).join(" | ")
+        || null
     }
   });
 
