@@ -538,6 +538,30 @@ taxPaymentRouter.post("/import-xlsx/confirm", async (request, response) => {
   const preview = await previewTaxImport(filePath, existingKeySet);
 
   const toImport = preview.rows.filter((r) => r.valid && (!skipDuplicates || !r.isDuplicate));
+
+  // O DRE posiciona o imposto pela competenceDate. Importar planilha grava direto
+  // num mes que pode estar fechado — e em LOTE, o que torna pior que a baixa
+  // individual, que ja travava desde o F-33. Recusa o lote inteiro quando alguma
+  // linha cai em periodo fechado, em vez de importar pela metade: meia importacao
+  // e pior que nenhuma, porque parece completa.
+  const linhaBloqueada = [];
+  for (const row of toImport) {
+    for (const [data, rotulo] of [[row.competenceDate, "competencia"], [row.dueDate, "vencimento"]] as Array<[Date | null | undefined, string]>) {
+      if (!data || Number.isNaN(new Date(data).getTime())) continue;
+      try {
+        await assertPeriodWritableForDate(new Date(data), "Importacao de impostos");
+      } catch (error) {
+        linhaBloqueada.push(`${rotulo} ${new Date(data).toISOString().slice(0, 10)}: ${error instanceof Error ? error.message : "periodo fechado"}`);
+      }
+    }
+  }
+  if (linhaBloqueada.length > 0) {
+    return response.status(400).json({
+      message: `A importacao tem ${linhaBloqueada.length} lancamento(s) em periodo fechado e foi recusada por inteiro. Reabra o periodo ou remova essas linhas da planilha.`,
+      bloqueios: linhaBloqueada.slice(0, 10)
+    });
+  }
+
   const batchId = importBatchId ?? crypto.randomUUID();
 
   const created = await prisma.$transaction(async (tx) => {
