@@ -1,6 +1,7 @@
 import { prisma } from "../../../../config/database.js";
 import { getSales, getSettlements, getMaintenanceFees, IfoodApiException } from "./ifood-financial-api.js";
 import { hasValidCredential } from "./ifood-http-client.js";
+import { assertPeriodWritableForDate } from "../../../cmv-real/cmv-real.service.js";
 import { upsertReceivableFromIfoodSettlement } from "../../../receivables/receivable.service.js";
 
 // Sync real do iFood: chama Financial API e persiste em IfoodSale/Settlement/Fee.
@@ -170,7 +171,11 @@ async function syncStoreSettlements(store: { id: string; externalId: string; nic
 // Taxa iFood NÃO entra em platformFees (escolha 2B do usuário: taxa vira despesa
 // separada em Purchase mensal, veja Fase D). Aqui platformFees=0, discounts=promoções.
 // Só roda se a loja tiver companyId setado — senão o lançamento não bate no DRE certo.
-async function reflectSalesIntoRevenueEntries(store: { id: string; companyId: string | null; nickname: string }, year: number, month: number): Promise<number> {
+// `bloqueios` recebe os dias que o periodo fechado impediu de gravar. Vem por
+// parametro, e nao pelo retorno, porque runStep() exige Promise<number> — e o dia nao
+// gravado precisa chegar ao mesmo lugar que os outros erros do sync, nao a um console
+// que ninguem le.
+async function reflectSalesIntoRevenueEntries(store: { id: string; companyId: string | null; nickname: string }, year: number, month: number, bloqueios: string[]): Promise<number> {
   if (!store.companyId) return 0;
   const sales = await prisma.ifoodSale.findMany({
     where: { deliveryStoreId: store.id, competenceYear: year, competenceMonth: month },
@@ -194,6 +199,18 @@ async function reflectSalesIntoRevenueEntries(store: { id: string; companyId: st
     prev.discounts += Number(sale.promotionAmount);
     prev.count += 1;
     byDate.set(dateKey, prev);
+  }
+
+  // Mes travado ou periodo de CMV fechado nao pode ser reescrito por uma
+  // sincronizacao. O sync do Agile ja fazia isto; os de delivery nao. Mesma politica:
+  // pula o dia bloqueado e reporta, sem derrubar o sync dos dias abertos.
+  for (const dateKey of [...byDate.keys()]) {
+    try {
+      await assertPeriodWritableForDate(byDate.get(dateKey)!.dateObj, "Sincronizacao do iFood");
+    } catch {
+      bloqueios.push(dateKey);
+      byDate.delete(dateKey);
+    }
   }
 
   let count = 0;
@@ -482,7 +499,11 @@ export async function runRealSync(params: {
     await runStep("fees", () => syncStoreFees(store, params.year, params.month));
     // Após vendas persistidas, reflete no faturamento oficial do ERP.
     // Não conta como "erro" se não fizer nada — depende de companyId estar setado.
-    await runStep("revenueEntries", () => reflectSalesIntoRevenueEntries(store, params.year, params.month));
+    const bloqueios: string[] = [];
+    await runStep("revenueEntries", () => reflectSalesIntoRevenueEntries(store, params.year, params.month, bloqueios));
+    if (bloqueios.length > 0) {
+      errors.push(`${bloqueios.length} dia(s) nao gravado(s) por periodo fechado/mes travado: ${bloqueios.join(", ")}`);
+    }
     await runStep("monthlyExpense", () => reflectFeesIntoMonthlyExpense(store, params.year, params.month));
 
     const persisted = items.sales + items.settlements + items.fees;
