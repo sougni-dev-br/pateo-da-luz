@@ -687,11 +687,28 @@ monthlyRouter.post("/cmv/calculate", async (request, response) => {
   }
 });
 
+// Fechar e reabrir a competencia sao as escritas mais consequentes do sistema:
+// congelam e descongelam o resultado de um mes inteiro. Ate 09/2026 nenhuma das
+// duas deixava rastro — nem aqui nem em monthly.service.ts, que nao tem uma unica
+// chamada de auditLog. A apuracao de CMV (cmv-real.service.ts) audita as duas
+// operacoes equivalentes desde sempre; o mes contabil ficou de fora.
 monthlyRouter.post("/cmv/close", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
+  const ano = numberParam(request.body.year);
+  const mes = numberParam(request.body.month);
   try {
-    response.json(await closeMonthlyCmv(numberParam(request.body.year), numberParam(request.body.month), user.id, user.role));
+    const resultado = await closeMonthlyCmv(ano, mes, user.id, user.role);
+    await auditLog({
+      userId: user.id,
+      action: "CLOSE_MONTHLY_COMPETENCE",
+      entity: "MonthlyCmv",
+      entityId: `${ano}-${String(mes).padStart(2, "0")}`,
+      newValue: { year: ano, month: mes, resultado },
+      ipAddress: requestIp(request),
+      userAgent: String(request.headers["user-agent"] ?? "")
+    });
+    response.json(resultado);
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao fechar competencia." });
   }
@@ -700,11 +717,23 @@ monthlyRouter.post("/cmv/close", async (request, response) => {
 monthlyRouter.post("/cmv/reopen", async (request, response) => {
   const admin = await requireAdmin(request, response);
   if (!admin) return;
+  const ano = numberParam(request.body.year);
+  const mes = numberParam(request.body.month);
+  const motivo = String(request.body.reason ?? "");
   try {
-    response.json(await reopenMonthlyCmv(numberParam(request.body.year), numberParam(request.body.month), {
+    const resultado = await reopenMonthlyCmv(ano, mes, { userId: admin.id, reason: motivo });
+    // O motivo ja era pedido e guardado so no retorno; agora fica no rastro, que e
+    // onde alguem procura quando pergunta por que o mes foi reaberto.
+    await auditLog({
       userId: admin.id,
-      reason: String(request.body.reason ?? "")
-    }));
+      action: "REOPEN_MONTHLY_COMPETENCE",
+      entity: "MonthlyCmv",
+      entityId: `${ano}-${String(mes).padStart(2, "0")}`,
+      newValue: { year: ano, month: mes, motivo, resultado },
+      ipAddress: requestIp(request),
+      userAgent: String(request.headers["user-agent"] ?? "")
+    });
+    response.json(resultado);
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao reabrir competencia." });
   }
