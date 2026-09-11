@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight, RefreshCw, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { AuditLog, AuditLogsResponse, getAuditLogs, restoreEmployee, restorePayrollItem } from "../api/client";
+import { AuditLog, AuditLogsResponse, getAuditLogs, restoreEmployee, restorePayrollItem, restoreTaxPayment } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
 import { hasPermission } from "../lib/permissions";
@@ -19,9 +19,20 @@ import { formatDate } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 
 // Ações de exclusão que podem ser desfeitas (soft delete) e para qual endpoint.
-const RESTORABLE: Record<string, "payroll" | "employee"> = {
+type RestorableKind = "payroll" | "employee" | "tax-payment";
+
+const RESTORABLE: Record<string, RestorableKind> = {
   DELETE_PAYROLL_ITEM: "payroll",
   DELETE_EMPLOYEE: "employee",
+  DELETE_TAX_PAYMENT: "tax-payment",
+};
+
+// Modulo de origem de cada restauracao: o backend cobra a acao "Excluir" LA,
+// nao acesso a Auditoria. O rotulo acompanha para o confirm nao ficar generico.
+const RESTORE_META: Record<RestorableKind, { menu: string; label: string }> = {
+  "payroll": { menu: "payroll", label: "este lançamento" },
+  "employee": { menu: "employees", label: "este funcionário" },
+  "tax-payment": { menu: "tax-payments", label: "este imposto" },
 };
 
 export function Audit() {
@@ -34,8 +45,7 @@ export function Audit() {
   // Restaurar desfaz uma exclusao no modulo de origem — o backend pede a acao
   // "Excluir" la, nao apenas acesso a Auditoria. Sem esse gate o botao daria 403.
   const { user } = useSession();
-  const canRestore = (kind: "payroll" | "employee") =>
-    hasPermission(user, kind === "payroll" ? "payroll" : "employees", "delete");
+  const canRestore = (kind: RestorableKind) => hasPermission(user, RESTORE_META[kind].menu, "delete");
   const { notice, setNotice } = useNotice();
 
   const rows = response?.data ?? [];
@@ -54,11 +64,12 @@ export function Audit() {
   async function handleRestore(row: AuditLog) {
     const kind = RESTORABLE[row.action];
     if (!kind || !row.entityId) return;
-    const label = kind === "payroll" ? "este lançamento" : "este funcionário";
+    const { label } = RESTORE_META[kind];
     if (!window.confirm(`Restaurar ${label}? Ele volta a aparecer no sistema.`)) return;
     setRestoringId(row.id);
     try {
       if (kind === "payroll") await restorePayrollItem(row.entityId);
+      else if (kind === "tax-payment") await restoreTaxPayment(row.entityId);
       else await restoreEmployee(row.entityId);
       setNotice({ tone: "success", message: kind === "employee" ? "Funcionário restaurado — volta como inativo; reative em Funcionários se precisar." : "Lançamento restaurado." });
       await load(page);

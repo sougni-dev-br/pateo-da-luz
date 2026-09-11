@@ -339,6 +339,51 @@ taxPaymentRouter.delete("/:id", async (request, response) => {
   return response.json({ ok: true });
 });
 
+// ─── PATCH /tax-payments/:id/restore ─────────────────────────────────────────
+// Imposto era o unico dos tres modulos com exclusao logica que nao tinha volta:
+// folha e funcionario ja tinham /restore, alcancado pela tela de Auditoria. Um
+// imposto apagado por engano so voltava por SQL.
+//
+// Travas espelham as do estorno, e nao as da exclusao: restaurar devolve o valor
+// ao mes da competencia E, se o imposto estava pago, devolve o desembolso ao mes
+// do pagamento. Sao dois meses que podem estar fechados.
+taxPaymentRouter.patch("/:id/restore", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+
+  const { id } = request.params;
+  const existing = await prisma.taxPayment.findFirst({ where: { id, deletedAt: { not: null } } });
+  if (!existing) return response.status(404).json({ message: "Lançamento excluído não encontrado (talvez já restaurado)." });
+
+  if (await competenciaBloqueada(existing.competenceDate, "Restauração de imposto", response)) return;
+  if (existing.paymentDate && await competenciaBloqueada(existing.paymentDate, "Restauração de imposto (data do pagamento)", response)) return;
+
+  // So recalcula o vencido de quem voltou em aberto. Pago continua pago, e
+  // WITHOUT_RECEIPT/CANCELED sao estados deliberados que a restauracao nao decide.
+  const now = new Date();
+  const recalcula = !existing.paymentDate && (existing.status === "PENDING" || existing.status === "OVERDUE");
+  const status = recalcula
+    ? (existing.dueDate && existing.dueDate < now ? "OVERDUE" : "PENDING")
+    : existing.status;
+
+  const updated = await prisma.taxPayment.update({
+    where: { id },
+    data: { deletedAt: null, deletedById: null, status, updatedById: user.id },
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "RESTORE_TAX_PAYMENT",
+    entity: "TaxPayment",
+    entityId: updated.id,
+    newValue: { restored: true, status },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+
+  return response.json({ id: updated.id, status: updated.status });
+});
+
 // ─── PATCH /tax-payments/:id/pay ─────────────────────────────────────────────
 taxPaymentRouter.patch("/:id/pay", async (request, response) => {
   const user = await getSessionUser(request);
