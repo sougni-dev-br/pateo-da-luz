@@ -256,6 +256,35 @@ async function reflectSalesIntoRevenueEntries(store: { id: string; companyId: st
     });
     count += 1;
   }
+
+  // Dia que deixou de ter venda precisa ser ZERADO, nao ignorado.
+  //
+  // Mesmo defeito corrigido no 99 Food (F-91): o laco acima so visita os dias
+  // presentes em byDate, entao um dia que perde todas as vendas — pedido cancelado,
+  // periodo reprocessado pela plataforma — mantinha o lancamento antigo intocado.
+  // Ressincronizar nao corrigia, porque o dia nao era visitado.
+  //
+  // Aqui ainda e latente: o iFood nao vendeu nada em producao. Corrigido antes de
+  // entrar no ar, ja que o defeito ja foi observado no modulo irmao.
+  //
+  // Zera em vez de apagar: o lancamento volta a ter valor se a venda reaparecer, e a
+  // linha nao some do historico. Restrito ao prefixo de id desta loja.
+  const diasComVenda = [...byDate.keys()].map((k) => `ifood-${store.id}-${k.replace(/-/g, "")}`);
+  const zerados = await prisma.revenueEntry.updateMany({
+    where: {
+      sourcePlatform: "IFOOD",
+      competenceYear: year,
+      competenceMonth: month,
+      status: "ACTIVE",
+      id: { startsWith: `ifood-${store.id}-`, notIn: diasComVenda },
+      OR: [{ grossAmount: { not: 0 } }, { netAmount: { not: 0 } }, { tickets: { not: 0 } }]
+    },
+    data: { grossAmount: 0, discounts: 0, platformFees: 0, netAmount: 0, tickets: 0 }
+  });
+  if (zerados.count > 0) {
+    console.warn(`[iFood] ${zerados.count} dia(s) sem venda em ${String(month).padStart(2, "0")}/${year} zerados no razao.`);
+  }
+
   return count;
 }
 
