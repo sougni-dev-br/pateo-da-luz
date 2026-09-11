@@ -18,6 +18,22 @@ export type UserRole = SessionUser["role"];
 const JWT_EXPIRES_IN_SECONDS = 60 * 60 * 12;
 export const INACTIVITY_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 horas
 
+// ⚠️ LEIA ANTES DE USAR requireAdmin OU requireRole PARA PROTEGER UMA ROTA NOVA.
+//
+// Nenhuma das duas e uma trava de CARGO. As duas terminam em hasPermission() sobre
+// request.menuAccess, que o middleware global requireMenuAccess (app.ts) ja validou
+// com a MESMA logica (hasModulePermission, em menu-permissions.ts — as duas funcoes
+// sao equivalentes). Ou seja: se a requisicao chegou ao handler, este escape e sempre
+// verdadeiro, e nem a lista de cargos nem a exigencia de ADMIN negam alguem.
+//
+// Isso NAO e defeito: e a regra do projeto — permissao por usuario, nunca por cargo.
+// Quem realmente decide e o par (modulo, acao) que actionFromRequest deriva, e ele e
+// granular: /cancel e DELETE pedem "delete", /close e /reopen pedem "approve", /qr e
+// /seed pedem "admin".
+//
+// A consequencia pratica: colocar requireAdmin numa rota nova NAO a restringe a
+// administradores. Para endurecer o acesso, ajuste actionFromRequest — ou o catalogo
+// em menu-permissions.ts, dando modulo proprio a operacao.
 function hasPermission(permission: ModulePermission | undefined, action: PermissionAction) {
   if (!permission) return false;
   return action === "view" ? Boolean(permission.view) : Boolean(permission.admin || permission[action]);
