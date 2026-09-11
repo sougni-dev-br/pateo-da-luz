@@ -401,6 +401,34 @@ async function reflectSalesIntoRevenueEntries(
     });
     count += 1;
   }
+
+  // Dia que deixou de ter venda faturada precisa ser ZERADO, nao ignorado.
+  //
+  // O laco acima so toca os dias presentes em byDate. Quando um dia perde todas as
+  // vendas faturadas — porque eram do webhook e nao se concretizaram, ou porque o
+  // pedido foi cancelado — o lancamento antigo sobrevivia intocado, com o valor
+  // inflado de antes. Foi o que aconteceu em 11/09/2026: o razao marcava R$ 1.513,91
+  // num dia sem nenhuma venda faturada, e a ressincronizacao nao corrigia.
+  //
+  // Zera em vez de apagar: o lancamento volta a ter valor quando a API financeira
+  // faturar o dia, e a linha nao some do historico. Restrito ao proprio prefixo de id
+  // desta loja — nunca toca lancamento de outra origem.
+  const diasComVenda = [...byDate.keys()].map((k) => `nnfood-${store.id}-${k.replace(/-/g, "")}`);
+  const zerados = await prisma.revenueEntry.updateMany({
+    where: {
+      sourcePlatform: "NOVENTA_NOVE",
+      competenceYear: year,
+      competenceMonth: month,
+      status: "ACTIVE",
+      id: { startsWith: `nnfood-${store.id}-`, notIn: diasComVenda },
+      OR: [{ grossAmount: { not: 0 } }, { netAmount: { not: 0 } }, { tickets: { not: 0 } }]
+    },
+    data: { grossAmount: 0, discounts: 0, platformFees: 0, netAmount: 0, tickets: 0 }
+  });
+  if (zerados.count > 0) {
+    console.warn(`[99Food] ${zerados.count} dia(s) sem venda faturada em ${String(month).padStart(2, "0")}/${year} zerados no razao.`);
+  }
+
   return count;
 }
 
