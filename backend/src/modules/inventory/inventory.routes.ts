@@ -2935,6 +2935,19 @@ inventoryRouter.post("/operational", async (request, response) => {
     response.status(400).json({ message: "Data efetiva da contagem invalida." });
     return;
   }
+
+  // O inventario operacional alimenta createInventorySnapshotFromOperationalInventory,
+  // ou seja, vira inventario — uma das tres pernas do CMV (inicial + compras - final).
+  // Criar um com data efetiva dentro de um mes ja apurado mudaria o CMV daquele mes.
+  // A geracao da base oficial, neste mesmo arquivo, ja travava por effectiveCountDate;
+  // a criacao do inventario que a alimenta nao travava.
+  try {
+    await assertPeriodWritableForDate(effectiveCountDate, "Criacao de inventario operacional");
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
+    return;
+  }
+
   const startedAt = request.body.startedAt ? new Date(String(request.body.startedAt)) : null;
   const finishedAt = request.body.finishedAt ? new Date(String(request.body.finishedAt)) : null;
   if (startedAt && Number.isNaN(startedAt.getTime())) {

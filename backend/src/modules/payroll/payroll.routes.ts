@@ -187,6 +187,24 @@ function addMonthsUTC(date: Date, months: number): Date {
 }
 
 // ─── RESCISÃO — liberar para Contas a Pagar ──────────────────────────────────────
+// A folha ja travava a geracao do mes e a baixa, mas nao a rescisao, as ferias e a
+// restauracao de lancamento excluido — as tres criam ou ressuscitam verba numa
+// competencia, que e como o DRE posiciona folha. Auxiliar comum para as tres.
+async function competenciaDeFolhaBloqueada(
+  competence: Date,
+  contexto: string,
+  response: { status: (c: number) => { json: (b: unknown) => void } }
+) {
+  if (Number.isNaN(competence.getTime())) return false;
+  try {
+    await assertPeriodWritableForDate(competence, contexto);
+    return false;
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
+    return true;
+  }
+}
+
 payrollRouter.post("/termination/:employeeId", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
@@ -196,6 +214,9 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
 
   const existing = await prisma.payrollItem.findFirst({ where: { employeeId: emp.id, type: "RESCISAO", deletedAt: null } });
   if (existing) return response.status(400).json({ message: "Rescisão já lançada para este funcionário." });
+
+  const competenciaRescisao = emp.terminationDate ? new Date(emp.terminationDate) : new Date();
+  if (await competenciaDeFolhaBloqueada(competenciaRescisao, "Lancamento de rescisao", response)) return;
 
   const b = request.body as Record<string, unknown>;
   const gross = numOrNull(b.grossAmount) ?? 0;
@@ -286,6 +307,9 @@ payrollRouter.post("/vacation", async (request, response) => {
   // Vencimento: informado ou, por padrão, 2 dias antes do início (regra CLT de antecipação).
   const dueDate = b.dueDate ? new Date(String(b.dueDate)) : new Date(start.getTime() - 2 * 24 * 60 * 60 * 1000);
   const dre = await prisma.dRECategory.findFirst({ where: { name: "Férias" } });
+
+  // A competencia das ferias e o mes de INICIO, que e o que vai para o PayrollItem.
+  if (await competenciaDeFolhaBloqueada(start, "Lancamento de ferias", response)) return;
 
   const item = await prisma.payrollItem.create({
     data: {
@@ -458,6 +482,15 @@ payrollRouter.patch("/:id/restore", async (request, response) => {
 
   const existing = await prisma.payrollItem.findFirst({ where: { id: request.params.id, deletedAt: { not: null } } });
   if (!existing) return response.status(404).json({ message: "Lançamento excluído não encontrado (talvez já restaurado)." });
+
+  // Restaurar RESSUSCITA despesa num mes passado. A rota vizinha (PATCH /:id, logo
+  // abaixo) ja travava; esta nao — e o efeito e maior, porque muda o total do mes em
+  // vez de editar um lancamento que ja conta.
+  if (await competenciaDeFolhaBloqueada(
+    new Date(existing.competenceYear, existing.competenceMonth - 1, 1),
+    "Restauracao de lancamento de folha",
+    response
+  )) return;
 
   const updated = await prisma.payrollItem.update({
     where: { id: existing.id },
