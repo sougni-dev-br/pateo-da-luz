@@ -311,7 +311,23 @@ dashboardRouter.get("/summary", async (request, response) => {
     monthlyCmv           ? "pending" :
                            "missing";
   const cmvRealValue = cmvStatus === "closed" ? Number(monthlyCmv!.realCmvValue ?? 0) : null;
-  const cmvPercent   = cmvStatus === "closed" ? Number(monthlyCmv!.cmvPercent   ?? 0) : null;
+  // getMonthlyCmv devolve cmvPercent como RAZAO (realCmv / revenue.net = 0,68),
+  // enquanto estimatedMargin, cinco linhas abaixo, ja sai em PERCENTUAL (x100). O
+  // frontend renderiza os dois com o formatPercent de utils/format.ts, que apenas
+  // acrescenta "%" sem multiplicar — entao a margem saia certa e o CMV saia como
+  // "0,7%" onde devia ser "68,0%", no card mais importante do painel.
+  //
+  // Convertido aqui, na fronteira, para o payload do dashboard ficar inteiro na
+  // mesma convencao. Nao da para consertar no formatPercent: ele e usado por varios
+  // outros numeros que JA vem em percentual.
+  //
+  // (A tela de CMV Real nao tem esse problema: ela usa um formatPercent proprio, que
+  // multiplica por 100, e um classifyCmv com limiares de fracao — 0,30 e 0,35.)
+  const razaoParaPercentual = (v: unknown) => {
+    const n = Number(v ?? 0);
+    return Number.isFinite(n) ? n * 100 : null;
+  };
+  const cmvPercent   = cmvStatus === "closed" ? razaoParaPercentual(monthlyCmv!.cmvPercent) : null;
 
   // Resultado estimado = faturamento líquido - compras - pequenos gastos
   const estimatedResult = revNet - purchasesTotal - smallExpTotal;
@@ -370,9 +386,17 @@ dashboardRouter.get("/summary", async (request, response) => {
       status: cmvStatus,
       value: cmvRealValue,
       percent: cmvPercent,
+      // As duas visoes carregam o mesmo cmvPercent em razao — convertidas pelo
+      // mesmo motivo, senao o card gerencial repete o erro do contabil.
       views: {
-        accounting: monthlyCmvViews.views.accounting,
-        managerial: monthlyCmvViews.views.managerial,
+        accounting: {
+          ...monthlyCmvViews.views.accounting,
+          cmvPercent: razaoParaPercentual(monthlyCmvViews.views.accounting?.cmvPercent),
+        },
+        managerial: {
+          ...monthlyCmvViews.views.managerial,
+          cmvPercent: razaoParaPercentual(monthlyCmvViews.views.managerial?.cmvPercent),
+        },
       },
     },
     estimatedResult: {
