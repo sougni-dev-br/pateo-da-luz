@@ -1044,7 +1044,11 @@ purchaseRouter.patch("/payables/:id/pay", async (request, response) => {
   const payingCompanyId = asNullableText(request.body.payingCompanyId);
   const companyBankAccountId = asNullableText(request.body.companyBankAccountId);
 
-  if (Number.isNaN(paidDate.getTime()) || paidAmount <= 0 || (!paidPaymentMethodId && !paidPaymentMethodNameInput)) {
+  // Number.isFinite, nao so "<= 0". Number("1.234,56") e NaN, e NaN <= 0 e FALSO:
+  // o valor passava a guarda e seguia como NaN. Mesmo defeito que o F-33 corrigiu
+  // na baixa de imposto (tax-payment.routes.ts), onde o comentario ja explicava
+  // isso — a rota irma aqui ficou com a guarda antiga.
+  if (Number.isNaN(paidDate.getTime()) || !Number.isFinite(paidAmount) || paidAmount <= 0 || (!paidPaymentMethodId && !paidPaymentMethodNameInput)) {
     response.status(400).json({ message: "Data do pagamento, valor pago e forma efetiva sao obrigatorios." });
     return;
   }
@@ -1320,6 +1324,13 @@ purchaseRouter.post("/", async (request, response) => {
   const noInvoiceReason = String(request.body.noInvoiceReason ?? "").trim();
   const items: Record<string, unknown>[] = Array.isArray(request.body.items) ? request.body.items : [];
   const totalAmount = Number(request.body.totalAmount ?? items.reduce((sum: number, item: Record<string, unknown>) => sum + Number(item.totalPrice ?? 0), 0));
+  // Sem esta guarda, um total nao numerico virava NaN e seguia para a Purchase. O
+  // valor negativo tambem passava: nao existe compra de valor negativo, e ela
+  // entraria no CMV subtraindo.
+  if (!Number.isFinite(totalAmount) || totalAmount < 0) {
+    response.status(400).json({ message: "Valor total da compra invalido." });
+    return;
+  }
   const paymentMethodId = request.body.paymentMethodId ? String(request.body.paymentMethodId) : null;
   const paymentMethodName = request.body.paymentMethod ? String(request.body.paymentMethod) : null;
   const isSmallExpense = Boolean(request.body.isSmallExpense);

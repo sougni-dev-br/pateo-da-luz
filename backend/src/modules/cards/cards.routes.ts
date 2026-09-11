@@ -800,7 +800,16 @@ cardsRouter.patch("/statements/:id/pay", async (request, response) => {
 
   const paidDate = request.body.paidDate ? localDate(request.body.paidDate) : new Date();
   const paymentMethodName = asText(request.body.paymentMethodName) ?? "Cartao de credito/fatura";
-  const paidAmount = Number(request.body.paidAmount ?? statement.totalAmount ?? 0);
+  // asNumber usa parseDecimalInput, que entende "1.234,56" — diferente de Number(),
+  // que devolveria NaN. Esta rota nao tinha guarda nenhuma de valor: o NaN seguia
+  // para a baixa da fatura. Mesma familia do F-33 e da baixa de parcela.
+  const paidAmount = request.body.paidAmount != null
+    ? asNumber(request.body.paidAmount)
+    : Number(statement.totalAmount ?? 0);
+  if (!Number.isFinite(paidAmount) || paidAmount <= 0) {
+    response.status(400).json({ message: "Valor pago invalido. Informe um numero maior que zero." });
+    return;
+  }
 
   const [installment] = await prisma.paymentInstallment.findMany({
     where: { purchaseId: statement.generatedPurchaseId },
