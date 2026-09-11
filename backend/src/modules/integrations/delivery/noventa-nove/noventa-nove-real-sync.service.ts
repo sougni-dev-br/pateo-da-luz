@@ -284,14 +284,40 @@ async function persistSettlements(
 // 3. RevenueEntry — faturamento delivery no DRE (só com companyId)
 // ---------------------------------------------------------------------------
 
+// Canais que a API FINANCEIRA grava (ver persistSales: channel = isRevenue ?
+// "DELIVERY" : "DELIVERY_REFUND"). O webhook grava outra coisa no mesmo campo — o
+// delivery_type numerico do payload, tipicamente "1" — entao o canal serve para
+// separar as duas origens.
+export const CANAIS_FATURADOS = ["DELIVERY", "DELIVERY_REFUND"] as const;
+
 async function reflectSalesIntoRevenueEntries(
   store: { id: string; companyId: string | null; nickname: string },
   year: number,
   month: number
 ): Promise<number> {
   if (!store.companyId) return 0;
+  // So entra no razao o que a API financeira confirmou como faturado.
+  //
+  // O webhook da 99 Food e do tipo orderNew: notificacao de pedido CRIADO, com
+  // status 100 no payload. Pedido criado nao e pedido faturado — quem nao se
+  // concretiza nunca aparece na API financeira e nunca entra em repasse. Somar o
+  // webhook inflava a receita com pedidos que a plataforma nao pagou.
+  //
+  // A prova veio do confronto com os quatro repasses de agosto/2026, que a 99
+  // declara ter PAGO: contando so estes canais, o bruto bate AO CENTAVO nos quatro
+  // (4223.52 / 6115.81 / 4725.70 / 5558.19). Incluindo os do webhook, nao bate —
+  // sobravam 21 pedidos e R$ 1.814,80 que a plataforma nunca faturou.
+  //
+  // O webhook continua sendo gravado em NoventaNoveSale: serve para visibilidade
+  // operacional e para o sync reconciliar por orderId quando o faturamento chega.
+  // So nao vira receita antes da confirmacao.
   const sales = await prisma.noventaNoveSale.findMany({
-    where: { deliveryStoreId: store.id, competenceYear: year, competenceMonth: month },
+    where: {
+      deliveryStoreId: store.id,
+      competenceYear: year,
+      competenceMonth: month,
+      channel: { in: [...CANAIS_FATURADOS] }
+    },
     select: { orderDate: true, grossAmount: true, promotionAmount: true, netAmount: true, channel: true }
   });
   if (sales.length === 0) return 0;
