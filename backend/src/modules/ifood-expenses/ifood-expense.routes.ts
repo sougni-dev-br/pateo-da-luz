@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../../config/database.js";
 import { requireRole } from "../security/security-utils.js";
+import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 
 export const ifoodExpenseRouter = Router();
 
@@ -111,6 +112,24 @@ ifoodExpenseRouter.get("/", async (request, response) => {
   response.json(rows.map(toView));
 });
 
+// Toda baixa de despesa neste sistema respeita a trava de periodo: fatura de cartao,
+// conta a pagar, folha e imposto. Esta nao respeitava — pagar ou cancelar uma despesa
+// do iFood mexia no desembolso de um mes ja fechado sem nada impedir.
+async function periodoBloqueado(
+  data: Date,
+  contexto: string,
+  response: { status: (c: number) => { json: (b: unknown) => void } }
+) {
+  if (Number.isNaN(data.getTime())) return false;
+  try {
+    await assertPeriodWritableForDate(data, contexto);
+    return false;
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
+    return true;
+  }
+}
+
 ifoodExpenseRouter.post("/:id/pay", async (request, response) => {
   const user = await requireRole(request, response, [...WRITE_ROLES]);
   if (!user) return;
@@ -124,6 +143,10 @@ ifoodExpenseRouter.post("/:id/pay", async (request, response) => {
     response.status(404).json({ message: "Despesa não encontrada" });
     return;
   }
+  // Trava na data do PAGAMENTO, que e o mes do desembolso — mesmo criterio da baixa
+  // de fatura de cartao e de conta a pagar.
+  if (await periodoBloqueado(new Date(parsed.data.paidAt), "Pagamento de despesa do iFood", response)) return;
+
   const total = toNumber(existing.totalAmount);
   const status = parsed.data.paidAmount >= total - 0.005 ? "PAID" : "PARTIALLY_PAID";
   const updated = await prisma.ifoodMonthlyExpense.update({
@@ -147,6 +170,21 @@ ifoodExpenseRouter.post("/:id/cancel", async (request, response) => {
   const user = await requireRole(request, response, [...WRITE_ROLES]);
   if (!user) return;
   const reason = typeof request.body?.reason === "string" ? request.body.reason : null;
+
+  // Cancelar TIRA a despesa do mes de competencia — por isso a trava e na competencia,
+  // e nao na data de hoje. Buscar antes tambem evita o erro cru do Prisma quando o id
+  // nao existe, que era o que acontecia aqui.
+  const atual = await prisma.ifoodMonthlyExpense.findUnique({ where: { id: request.params.id } });
+  if (!atual) {
+    response.status(404).json({ message: "Despesa não encontrada" });
+    return;
+  }
+  if (await periodoBloqueado(
+    new Date(Date.UTC(atual.competenceYear, atual.competenceMonth - 1, 1)),
+    "Cancelamento de despesa do iFood",
+    response
+  )) return;
+
   const updated = await prisma.ifoodMonthlyExpense.update({
     where: { id: request.params.id },
     data: {
