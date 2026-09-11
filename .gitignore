@@ -84,3 +84,8 @@ docs/99food/private/
 # resíduos locais que já entraram por engano num commit (09/09/2026)
 /ziXOb2jw
 frontend/public/chamado-*.html
+# Chamados de suporte avulsos: contem CNPJ, e-mail e telefone. Ficavam em
+# frontend/public/, entao o Vite os copiava para o dist e eles iam parar no
+# site publico — pateo.sougni.com/chamado-99food-1.html respondia 200 sem login.
+# Movidos para docs/chamados-99food/, que nao e servido e nao e versionado.
+docs/chamados-99food/
