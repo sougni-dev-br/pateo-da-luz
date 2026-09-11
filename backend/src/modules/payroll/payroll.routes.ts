@@ -444,6 +444,11 @@ payrollRouter.patch("/:id/reverse", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
 
+  // Motivo obrigatorio, igual ao estorno de conta a pagar e ao de imposto. Estornar
+  // apaga a baixa inteira; sem o porque, a auditoria mostra o que sumiu e nao por que.
+  const reason = typeof request.body?.reason === "string" ? request.body.reason.trim() : null;
+  if (!reason) return response.status(400).json({ message: "Motivo obrigatório para estornar o lançamento." });
+
   const existing = await prisma.payrollItem.findFirst({ where: { id: request.params.id, deletedAt: null } });
   if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
   if (!existing.paymentDate) return response.status(400).json({ message: "Este lançamento ainda não foi pago." });
@@ -462,14 +467,15 @@ payrollRouter.patch("/:id/reverse", async (request, response) => {
     data: {
       paymentDate: null, paidAmount: null, status: computeStatus(existing.dueDate, null),
       paidPaymentMethodId: null, paidPaymentMethodName: null, paidByCompanyId: null,
-      companyBankAccountId: null, differenceReason: null, paymentNotes: null,
+      // paymentNotes guarda o motivo do estorno, como no estorno de conta a pagar.
+      companyBankAccountId: null, differenceReason: null, paymentNotes: reason,
       updatedById: user.id,
     },
   });
 
   await auditLog({
     userId: user.id, action: "REVERSE_PAYROLL_ITEM", entity: "PayrollItem", entityId: updated.id,
-    previousValue: existing, newValue: updated, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+    previousValue: existing, newValue: { ...updated, reverseReason: reason }, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
 
   response.json({ id: updated.id, status: updated.status });
