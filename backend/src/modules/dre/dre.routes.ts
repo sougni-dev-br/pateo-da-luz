@@ -5,6 +5,7 @@ import { prisma } from "../../config/database.js";
 import { auditLog, requireRole } from "../security/security-utils.js";
 import { createDrePdf, type DreSummary } from "./dre-pdf.js";
 import {
+  CATEGORIAS_CMV_GERENCIAL,
   getCmvPurchaseTotalByCompetenceMonth,
   getCmvPurchaseTotalByPurchaseDateRange,
   type CmvVisionKey,
@@ -190,7 +191,10 @@ function prevYear(from: Date, to: Date): { from: Date; to: Date } {
   return { from: d, to: dTo };
 }
 
-const MANAGERIAL_CMV_CATEGORY_NAMES = ["Material de Limpeza", "Descartáveis", "Descartáveis / Delivery"];
+// Importada de cmv-purchase-base, onde o predicado de CMV usa a MESMA lista. Os
+// dois predicados sao complementares e precisam concordar: divergir faz a despesa
+// sumir das duas pontas ou contar nas duas.
+const MANAGERIAL_CMV_CATEGORY_NAMES = [...CATEGORIAS_CMV_GERENCIAL];
 
 function expensePredicateByMode(mode: CmvVisionKey) {
   return mode === "managerial"
