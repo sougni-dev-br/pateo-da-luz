@@ -37,11 +37,29 @@ function competenceBounds(startDate: Date, endDate: Date) {
   };
 }
 
+// Categorias que a visao GERENCIAL trata como CMV mesmo estando fora do grupo
+// CMV_COMPRAS. Esta lista tem de ser EXATAMENTE a mesma usada pelo predicado de
+// despesa do DRE (expensePredicateByMode), porque os dois sao complementares:
+// o que sai da despesa entra no CMV. Divergir entre os dois faz a despesa sumir
+// das duas pontas ou contar nas duas — em silencio, sem nada que denuncie.
+//
+// Ate 09/2026 a lista estava escrita duas vezes, aqui como literal no SQL e em
+// dre.routes.ts como constante. Agora ha uma fonte so, e o DRE a importa.
+//
+// ⚠️ O casamento e por NOME, com acento e barra. Renomear uma dessas categorias
+// na tela quebra o vinculo sem aviso. Conferido em 09/2026 que as tres existem
+// com o nome exato.
+export const CATEGORIAS_CMV_GERENCIAL = [
+  "Material de Limpeza",
+  "Descartáveis",
+  "Descartáveis / Delivery",
+] as const;
+
 function cmvPurchasePredicate(mode: CmvVisionKey) {
   if (mode === "managerial") {
     return Prisma.sql`(
       dc."dreGroup" = 'CMV_COMPRAS'
-      OR dc."name" IN ('Material de Limpeza', 'Descartáveis', 'Descartáveis / Delivery')
+      OR dc."name" IN (${Prisma.join([...CATEGORIAS_CMV_GERENCIAL])})
     )`;
   }
   return Prisma.sql`dc."dreGroup" = 'CMV_COMPRAS'`;
