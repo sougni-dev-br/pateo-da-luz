@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 import { PDFParse } from "pdf-parse";
 import { prisma } from "../../config/database.js";
 import { FOLHA_CATEGORY } from "./payroll.service.js";
+import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 
 export type ExtratoFuncionario = {
   nome: string;
@@ -119,6 +120,16 @@ export async function importExtrato(opts: {
   if (parsed.funcionarios.length === 0) throw new Error("Nenhum funcionário lido do extrato.");
   const { competenceYear, competenceMonth } = parsed;
   if (!competenceYear || !competenceMonth) throw new Error("Competência não identificada no extrato.");
+
+  // Importar o extrato GRAVA folha na competencia lida do PDF. Se aquele mes ja foi
+  // fechado, a importacao reescrevia despesa de pessoal de um mes apurado, em silencio.
+  // A trava so pode ficar aqui: a rota nao sabe a competencia antes de ler o arquivo.
+  // Lanca porque a rota devolve 422 com esta mensagem — quem importou precisa saber
+  // que nada entrou, e por que.
+  await assertPeriodWritableForDate(
+    new Date(Date.UTC(competenceYear, competenceMonth - 1, 1)),
+    "Importacao do extrato do RH"
+  );
 
   // Empresa por CNPJ (compara por dígitos); cria se não existir.
   const cnpjNorm = onlyDigits(parsed.cnpj ?? "");
