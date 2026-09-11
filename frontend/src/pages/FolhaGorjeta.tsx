@@ -69,7 +69,11 @@ export function FolhaGorjeta() {
   const canEdit = hasPermission(user, "payroll-tips", "edit");
   const canApprove = hasPermission(user, "payroll-tips", "approve");
   // Reabrir periodo fechado: acao "Administrar" do modulo, nao o cargo ADMIN.
-  const isAdmin = hasPermission(user, "payroll-tips", "admin");
+  // Reabrir periodo pede "approve" no servidor, nao "admin": actionFromRequest
+  // mapeia /reopen para approve, com a regra de que desfazer um fechamento custa o
+  // mesmo que faze-lo. A tela exigia admin e escondia o botao de quem o backend
+  // deixaria reabrir — permissao concedida na tela de Usuarios que nao aparecia.
+  const podeReabrir = hasPermission(user, "payroll-tips", "approve");
   const { notice, setNotice } = useNotice();
 
   const now = new Date();
@@ -613,7 +617,7 @@ export function FolhaGorjeta() {
         {closed
           ? <>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--muted)" }}><Lock size={14} /> Período fechado.</span>
-              {isAdmin && <Button variant="secondary" onClick={() => void reopenPeriod()} disabled={busy} leadingIcon={<Unlock size={14} />}>Reabrir período</Button>}
+              {podeReabrir && <Button variant="secondary" onClick={() => void reopenPeriod()} disabled={busy} leadingIcon={<Unlock size={14} />}>Reabrir período</Button>}
             </>
           : <Button onClick={() => void closePeriod()} disabled={!canApprove || busy || !check?.ok || !comp?.periodId} leadingIcon={<Check size={14} />}>Fechar período</Button>}
         {comp?.periodId && <Button variant="secondary" onClick={() => void exportRhPdf()} leadingIcon={<FileText size={14} />}>Exportar PDF (RH)</Button>}
