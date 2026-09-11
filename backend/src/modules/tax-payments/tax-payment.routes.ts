@@ -5,7 +5,7 @@ import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import multer from "multer";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
-import { previewTaxImport } from "./tax-payment-import.service.js";
+import { buildExistingDedupKeys, previewTaxImport } from "./tax-payment-import.service.js";
 
 export const taxPaymentRouter = Router();
 
@@ -516,26 +516,7 @@ taxPaymentRouter.post("/import-xlsx/preview", upload.single("file"), async (requ
   if (!request.file) return response.status(400).json({ message: "Arquivo XLSX obrigatório." });
 
   // Buscar chaves de deduplicação já existentes no banco
-  const existingKeys = await prisma.$queryRaw<Array<{ key: string }>>`
-    SELECT ENCODE(
-      DIGEST(
-        CONCAT_WS('|', tp."cnpj", tp."documentType",
-          LOWER(TRIM(COALESCE(tp.description, ''))),
-          TO_CHAR(tp."competenceDate", 'YYYY-MM-DD'),
-          TO_CHAR(tp."dueDate", 'YYYY-MM-DD'),
-          tp.amount::text
-        ),
-        'sha256'
-      ),
-      'hex'
-    ) AS key
-    FROM "TaxPayment" tp
-    WHERE tp."deletedAt" IS NULL
-      AND tp."cnpj" IS NOT NULL
-      AND tp."dueDate" IS NOT NULL
-  `.catch(() => [] as Array<{ key: string }>);
-
-  const existingKeySet = new Set(existingKeys.map((r) => r.key.slice(0, 32)));
+  const existingKeySet = await buildExistingDedupKeys();
 
   try {
     const preview = await previewTaxImport(request.file.path, existingKeySet);
@@ -560,26 +541,7 @@ taxPaymentRouter.post("/import-xlsx/confirm", async (request, response) => {
   if (!filePath) return response.status(400).json({ message: "filePath obrigatório." });
   if (!fs.existsSync(filePath)) return response.status(400).json({ message: "Arquivo não encontrado. Faça o upload novamente." });
 
-  const existingKeys = await prisma.$queryRaw<Array<{ key: string }>>`
-    SELECT ENCODE(
-      DIGEST(
-        CONCAT_WS('|', tp."cnpj", tp."documentType",
-          LOWER(TRIM(COALESCE(tp.description, ''))),
-          TO_CHAR(tp."competenceDate", 'YYYY-MM-DD'),
-          TO_CHAR(tp."dueDate", 'YYYY-MM-DD'),
-          tp.amount::text
-        ),
-        'sha256'
-      ),
-      'hex'
-    ) AS key
-    FROM "TaxPayment" tp
-    WHERE tp."deletedAt" IS NULL
-      AND tp."cnpj" IS NOT NULL
-      AND tp."dueDate" IS NOT NULL
-  `.catch(() => [] as Array<{ key: string }>);
-
-  const existingKeySet = new Set(existingKeys.map((r) => r.key.slice(0, 32)));
+  const existingKeySet = await buildExistingDedupKeys();
   const preview = await previewTaxImport(filePath, existingKeySet);
 
   const toImport = preview.rows.filter((r) => r.valid && (!skipDuplicates || !r.isDuplicate));
