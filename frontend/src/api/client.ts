@@ -2110,6 +2110,10 @@ export function payTaxPayment(id: string, payload: { paymentDate: string; paidAm
   });
 }
 
+export function restoreTaxPayment(id: string) {
+  return request<{ id: string; status: string }>(`/tax-payments/${id}/restore`, { method: "PATCH" });
+}
+
 export function reverseTaxPayment(id: string, reason: string) {
   return request<{ id: string; status: string }>(`/tax-payments/${id}/reverse`, {
     method: "PATCH",
