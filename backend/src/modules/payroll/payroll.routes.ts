@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
-import { PAYROLL_KINDS, computePayroll, computeStatus, generatePayroll, getOrDefaultSettings, type PayrollKind, type PayrollOverride } from "./payroll.service.js";
+import { FERIAS_CATEGORY, PAYROLL_KINDS, RESCISAO_CATEGORY, computePayroll, computeStatus, generatePayroll, getOrDefaultSettings, type PayrollKind, type PayrollOverride } from "./payroll.service.js";
 import { round2 } from "./vt-calc.js";
 
 export const payrollRouter = Router();
@@ -227,7 +227,7 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
 
   const firstDue = b.dueDate ? new Date(String(b.dueDate)) : new Date();
   const term = emp.terminationDate ? new Date(emp.terminationDate) : new Date();
-  const dre = await prisma.dRECategory.findFirst({ where: { name: "Rescisão" } });
+  const dre = await prisma.dRECategory.findFirst({ where: { name: RESCISAO_CATEGORY } });
 
   // Parcelamento (acordo/art. 484-A): 1 = título único; N = N títulos mensais em Contas a
   // Pagar. Só parcela quando há líquido positivo a dividir.
@@ -306,7 +306,7 @@ payrollRouter.post("/vacation", async (request, response) => {
 
   // Vencimento: informado ou, por padrão, 2 dias antes do início (regra CLT de antecipação).
   const dueDate = b.dueDate ? new Date(String(b.dueDate)) : new Date(start.getTime() - 2 * 24 * 60 * 60 * 1000);
-  const dre = await prisma.dRECategory.findFirst({ where: { name: "Férias" } });
+  const dre = await prisma.dRECategory.findFirst({ where: { name: FERIAS_CATEGORY } });
 
   // A competencia das ferias e o mes de INICIO, que e o que vai para o PayrollItem.
   if (await competenciaDeFolhaBloqueada(start, "Lancamento de ferias", response)) return;

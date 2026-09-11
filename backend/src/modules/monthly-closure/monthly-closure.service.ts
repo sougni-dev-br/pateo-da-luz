@@ -193,6 +193,24 @@ export async function itensDeInventarioSemCusto(year: number, month: number) {
   `;
 }
 
+// A folha vincula a categoria de DRE por NOME ("Folha de Pagamento", "Vale-Transporte",
+// "Rescisão", "Férias"). Renomear ou apagar a categoria na tela nao quebra nada visivel:
+// o lancamento nasce com dreCategoryId null e some do grupo PESSOAL do DRE, caindo em
+// "Sem categoria". O gasto continua no caixa e no Contas a Pagar — so a LINHA do DRE muda.
+// Por isso a verificacao mora aqui, no fechamento: pega os quatro nomes de uma vez e
+// tambem os lancamentos ja gravados, nao so os novos.
+export async function folhaSemCategoriaDre(year: number, month: number) {
+  return prisma.$queryRaw<Array<{ tipo: string; quantidade: bigint; total: any }>>`
+    SELECT p."type" AS "tipo", COUNT(*) AS "quantidade", SUM(p."amount") AS "total"
+    FROM "PayrollItem" p
+    WHERE p."competenceYear" = ${year} AND p."competenceMonth" = ${month}
+      AND p."deletedAt" IS NULL
+      AND p."dreCategoryId" IS NULL
+    GROUP BY p."type"
+    ORDER BY SUM(p."amount") DESC
+  `;
+}
+
 export async function comprasSemItem(year: number, month: number) {
   return prisma.$queryRaw<Array<{ purchaseNumber: string | null; supplierName: string | null; totalAmount: any }>>`
     SELECT p."purchaseNumber" AS "purchaseNumber",
@@ -443,6 +461,17 @@ export async function getMonthlyClosure(year: number, month: number) {
     pending.push({
       key: "block:inventoryItemsWithoutCost",
       label: `${semCusto.length} item(ns) do inventario final contados com custo zero — nao somam no estoque e distorcem o CMV deste mes e do proximo (${exemplos}${semCusto.length > 3 ? ", ..." : ""})`
+    });
+  }
+
+  const folhaSemDre = await folhaSemCategoriaDre(year, month);
+  if (folhaSemDre.length > 0 && !justificationByKey.has("block:payrollWithoutDreCategory")) {
+    const qtd = folhaSemDre.reduce((acc, r) => acc + Number(r.quantidade ?? 0), 0);
+    const total = folhaSemDre.reduce((acc, r) => acc + Number(r.total ?? 0), 0);
+    const tipos = folhaSemDre.map((r) => r.tipo).join(", ");
+    pending.push({
+      key: "block:payrollWithoutDreCategory",
+      label: `${qtd} lancamento(s) de folha sem categoria de DRE, somando ${total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} — saem do grupo PESSOAL e caem em "Sem categoria" (${tipos})`
     });
   }
 

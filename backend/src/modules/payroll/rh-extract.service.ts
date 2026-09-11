@@ -5,6 +5,7 @@
 import crypto from "node:crypto";
 import { PDFParse } from "pdf-parse";
 import { prisma } from "../../config/database.js";
+import { FOLHA_CATEGORY } from "./payroll.service.js";
 
 export type ExtratoFuncionario = {
   nome: string;
@@ -77,14 +78,24 @@ function splitName(full: string): { firstName: string; lastName: string } {
   return { firstName, lastName };
 }
 
-// Categoria de DRE para a folha (busca existente; cria "Folha de Pagamento" se não houver).
+// Categoria de DRE para a folha. Busca pelo MESMO nome exato que payroll.service usa.
+//
+// Antes isto era um findFirst fuzzy (contains "Salár" OR "Folha" OR "Pessoal") sem orderBy,
+// e havia tres candidatas em producao: "Folha de Pagamento" (PESSOAL), "Folha de Pessoal"
+// (DESPESAS_OPERACIONAIS) e "Provisão 13° Salário" (PLANEJAMENTO). O banco devolvia a que
+// quisesse. Na pratica pegou "Folha de Pessoal", entao o salario de agosto/2026 foi parar
+// em DESPESAS_OPERACIONAIS em vez de PESSOAL — e no mes seguinte poderia cair na PROVISAO.
+// A soma do DRE nao muda; a LINHA muda, e muda sozinha.
+//
+// O fallback tambem criava a categoria com dreGroup "DESPESAS_OPERACIONAIS", divergindo do
+// seed canonico de dre.routes.ts, que cria "Folha de Pagamento" em PESSOAL.
 async function getFolhaDreCategoryId(): Promise<string> {
   const found = await prisma.dRECategory.findFirst({
-    where: { OR: [{ name: { contains: "Salár", mode: "insensitive" } }, { name: { contains: "Folha", mode: "insensitive" } }, { name: { contains: "Pessoal", mode: "insensitive" } }] },
+    where: { name: FOLHA_CATEGORY },
     select: { id: true },
   });
   if (found) return found.id;
-  const created = await prisma.dRECategory.create({ data: { id: crypto.randomUUID(), name: "Folha de Pagamento", dreGroup: "DESPESAS_OPERACIONAIS" } });
+  const created = await prisma.dRECategory.create({ data: { id: crypto.randomUUID(), name: FOLHA_CATEGORY, dreGroup: "PESSOAL" } });
   return created.id;
 }
 

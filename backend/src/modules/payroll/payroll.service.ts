@@ -4,8 +4,17 @@ import { prisma } from "../../config/database.js";
 import { holidaysForYear } from "./holidays.js";
 import { computeVtForPeriod, round2, type Tariffs } from "./vt-calc.js";
 
-const FOLHA_CATEGORY = "Folha de Pagamento";
-const VT_CATEGORY = "Vale-Transporte";
+// Nomes das categorias de DRE que a folha usa. O vinculo e por NOME, com acento:
+// renomear a categoria na tela desliga o vinculo e o lancamento vai para o DRE sem
+// categoria, saindo do grupo PESSOAL. Este projeto ja foi mordido por essa classe
+// — ver o comentario de revenue-channels.ts, onde "Salao" sem acento comparado com
+// "Salão" fazia o fechamento do dia recusar todo dia.
+//
+// Exportados para que as rotas de rescisao e ferias parem de repetir o literal.
+export const FOLHA_CATEGORY = "Folha de Pagamento";
+export const VT_CATEGORY = "Vale-Transporte";
+export const RESCISAO_CATEGORY = "Rescisão";
+export const FERIAS_CATEGORY = "Férias";
 
 export type PayrollItemType = "ADIANTAMENTO" | "SALARIO" | "VALE_TRANSPORTE";
 
@@ -136,6 +145,16 @@ export async function computePayroll(year: number, month: number) {
 
   const items: ComputedItem[] = [];
   const warnings: string[] = [];
+  // Nao achar a categoria nao derruba a geracao — o lancamento nasce sem categoria,
+  // o que e recuperavel. Mas nascia em SILENCIO: o item saia do grupo PESSOAL do DRE
+  // e ia para "Sem categoria" sem ninguem notar. Agora avisa.
+  if (!dreFolha) {
+    warnings.push(`Categoria de DRE "${FOLHA_CATEGORY}" nao encontrada — salario e adiantamento vao ficar sem categoria no DRE.`);
+  }
+  if (!dreVt) {
+    warnings.push(`Categoria de DRE "${VT_CATEGORY}" nao encontrada — o vale-transporte vai ficar sem categoria no DRE.`);
+  }
+
 
   for (const emp of employees) {
     const name = `${emp.firstName} ${emp.lastName}`.trim();
