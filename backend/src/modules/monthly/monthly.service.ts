@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { normalizeHeader, normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDate } from "../../shared/utils/parse-date.js";
+import { assertPeriodWritableForRange } from "../cmv-real/cmv-real.service.js";
 import { parseMoney } from "../../shared/utils/parse-money.js";
 import { readWorksheetRows } from "../imports/excel-reader.service.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
@@ -288,15 +289,20 @@ export async function previewInventorySnapshot(filePath: string, originalFileNam
   };
 }
 
+// Existem DUAS travas de periodo neste sistema: "Travar mes" (MonthlyCmv.status)
+// e "apuracao de CMV fechada" (CmvPeriod.status). assertPeriodWritableForRange
+// honra as duas; esta funcao consultava so a primeira.
+//
+// Consequencia: com o CMV-2026-0001 fechado (02/04 a 30/04), desfazer uma
+// importacao de faturamento de abril passava direto — descoberto em 11/09/2026
+// ao executar o cancelamento dos 61 lancamentos duplicados de abr/mai.
+//
+// Sao 8 pontos de escrita de faturamento chamando esta funcao; delegar aqui
+// conserta todos de uma vez e impede que a regra volte a divergir.
 async function ensureCompetenceOpen(year: number, month: number) {
-  const [closed] = await prisma.$queryRaw<Array<{ id: string }>>`
-    SELECT "id" FROM "MonthlyCmv"
-    WHERE "competenceYear" = ${year}
-      AND "competenceMonth" = ${month}
-      AND "status" = 'CLOSED'
-    LIMIT 1
-  `;
-  if (closed) throw new Error("Competencia fechada. Reabra antes de alterar dados.");
+  const inicio = new Date(Date.UTC(year, month - 1, 1));
+  const fim = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+  await assertPeriodWritableForRange(inicio, fim, "Alteracao de faturamento");
 }
 
 function nextCompetence(year: number, month: number) {
