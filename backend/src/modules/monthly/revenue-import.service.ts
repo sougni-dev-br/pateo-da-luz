@@ -971,7 +971,9 @@ export async function confirmRevenueImport(input: RevenueImportInput): Promise<R
           "overwrittenRows" = ${overwrittenRows}
       WHERE "id" = ${batchId}
     `;
-  });
+  // Mesmo motivo do bloco de desfazer, logo abaixo: importar um mes inteiro nao cabe
+  // nos 5s padrao do Prisma, e estourar aqui reverte a importacao toda.
+  }, { maxWait: 15000, timeout: 120000 });
 
   const importedRows = createdRows + updatedRows;
   const ignoredRows = ignoredSourceRows;
@@ -1124,7 +1126,10 @@ export async function undoRevenueImportBatch(importBatchId: string, input: { use
       DELETE FROM "RevenueImportBatch"
       WHERE "id" = ${resolvedBatchId}
     `;
-  });
+  // Timeout explicito: o padrao do Prisma e 5s e este bloco grava um mes inteiro de
+  // faturamento. Estourou de verdade ao desfazer Abril26.xlsx (30 lancamentos, 5.222ms).
+  // Mesmo remedio ja usado em cmv-real.service.ts para o snapshot de inventario.
+  }, { maxWait: 15000, timeout: 120000 });
 
   await auditLog({
     userId: input.userId,
