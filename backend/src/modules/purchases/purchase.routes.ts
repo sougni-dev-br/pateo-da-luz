@@ -1302,6 +1302,26 @@ purchaseRouter.get("/:id", async (request, response) => {
   response.json(detail);
 });
 
+// Data de compra absurdamente no futuro e erro de digitacao, e caro: o CMV Real usa
+// purchaseDate (nao a competencia) para casar compra com consumo entre duas contagens.
+// Uma nota com ano errado sai do CMV para sempre, sem aparecer em lugar nenhum.
+//
+// Achado em producao: NOVA UNIAO ALIMENTOS, R$ 3.595,95, purchaseDate 28/07/2029,
+// competencia 07/2026, criada em 29/07/2026 — tres anos a frente por um digito.
+//
+// O limite e 12 meses e nao "nada no futuro" de proposito: ha uso legitimo de nota
+// futura no sistema — assinaturas lancadas como uma nota por mes, ate 12 meses a
+// frente (JOHN SYSTEM, parcela 12/12 em 01/2027). Proibir o futuro inteiro quebraria
+// esse fluxo; 12 meses pega o erro de ano sem tocar no que funciona.
+const LIMITE_DATA_FUTURA_MESES = 12;
+
+function dataDeCompraAbsurda(data: Date): boolean {
+  if (Number.isNaN(data.getTime())) return false;
+  const limite = new Date();
+  limite.setMonth(limite.getMonth() + LIMITE_DATA_FUTURA_MESES);
+  return data.getTime() > limite.getTime();
+}
+
 purchaseRouter.post("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -1363,6 +1383,12 @@ purchaseRouter.post("/", async (request, response) => {
     }))
     .filter((item) => item.productId || item.rawProductName || item.quantity || item.totalPrice);
 
+  if (dataDeCompraAbsurda(purchaseDate)) {
+    response.status(400).json({
+      message: `Data da compra (${purchaseDate.toISOString().slice(0, 10)}) esta mais de ${LIMITE_DATA_FUTURA_MESES} meses no futuro. Confira o ano.`
+    });
+    return;
+  }
   if (!supplierId || Number.isNaN(purchaseDate.getTime())) {
     await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Fornecedor e data sao obrigatorios." });
     return;
@@ -1848,6 +1874,12 @@ purchaseRouter.put("/:id", async (request, response) => {
     rawSubcategory: asNullableText(item.rawSubcategory)
   }));
   const invalidItem = validItems.find((item) => !item.productId || !item.unit || item.quantity <= 0 || item.unitPrice < 0);
+  if (dataDeCompraAbsurda(purchaseDate)) {
+    response.status(400).json({
+      message: `Data da compra (${purchaseDate.toISOString().slice(0, 10)}) esta mais de ${LIMITE_DATA_FUTURA_MESES} meses no futuro. Confira o ano.`
+    });
+    return;
+  }
   if (Number.isNaN(purchaseDate.getTime()) || validItems.length === 0 || invalidItem) {
     response.status(400).json({ message: "Data, NF e itens validos sao obrigatorios para editar." });
     return;
