@@ -145,6 +145,8 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
   let periodEnd: Date | undefined;
   let label: string | undefined;
   let grossFromRange: number | undefined;
+  const avisosPeriodo: string[] = [];
+
   if (b.periodStart != null || b.periodEnd != null) {
     const current = await prisma.tipPeriod.findUnique({ where: { id: periodId } });
     if (!current) return response.status(404).json({ message: "Período não encontrado." });
@@ -160,6 +162,36 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
         message: `Este intervalo (${fmtDay(s)}–${fmtDay(e)}) sobrepõe o período "${overlap.label}" (${String(overlap.competenceMonth).padStart(2, "0")}/${overlap.competenceYear}). Para não pagar em duplicidade, ajuste as datas.`,
       });
     }
+    // Sobreposicao ja e barrada acima. LACUNA nao era verificada, e ela custa o
+    // contrario: sobrepor paga em duplicidade, mas deixar um buraco entre dois
+    // periodos faz a taxa de servico daqueles dias NAO entrar em pool nenhum — dinheiro
+    // cobrado do cliente que pertence aos funcionarios e que ninguem distribui, sem
+    // nada indicando.
+    //
+    // Avisa em vez de barrar: pode haver motivo para pular dias (periodo em que a
+    // gorjeta nao foi rateada), e so quem opera sabe. O aviso vai no retorno para
+    // aparecer na tela, junto dos outros.
+    const anterior = await prisma.tipPeriod.findFirst({
+      where: { id: { not: periodId }, periodEnd: { lt: s } },
+      orderBy: { periodEnd: "desc" },
+      select: { label: true, periodEnd: true },
+    });
+    if (anterior) {
+      const diaSeguinte = new Date(anterior.periodEnd.getTime() + 24 * 60 * 60 * 1000);
+      const diasDeBuraco = Math.round((s.getTime() - diaSeguinte.getTime()) / (24 * 60 * 60 * 1000));
+      if (diasDeBuraco > 0) {
+        const [servico] = await prisma.$queryRaw<Array<{ v: unknown }>>`
+          SELECT COALESCE(SUM("serviceAmount"), 0) AS v FROM "RevenueEntry"
+          WHERE "status" = 'ACTIVE' AND "date" >= ${diaSeguinte} AND "date" < ${s}
+        `;
+        const valor = Number(servico?.v ?? 0);
+        avisosPeriodo.push(
+          `Ficam ${diasDeBuraco} dia(s) sem periodo de gorjeta entre "${anterior.label}" (termina ${fmtDay(anterior.periodEnd)}) e este (comeca ${fmtDay(s)})` +
+          (valor > 0 ? `: R$ ${valor.toFixed(2)} de taxa de servico nao entram em pool nenhum.` : ".")
+        );
+      }
+    }
+
     periodStart = s;
     periodEnd = e;
     label = `Gorjeta ${fmtDay(s)}–${fmtDay(e)}`;
@@ -184,7 +216,8 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       updatedById: user.id,
     },
   });
-  response.json(period);
+  // O aviso de lacuna viaja junto do periodo para aparecer na tela.
+  response.json(avisosPeriodo.length > 0 ? { ...period, avisos: avisosPeriodo } : period);
 });
 
 // ─── Participantes: upsert em lote (pontos / cota fixa) ─────────────────────
