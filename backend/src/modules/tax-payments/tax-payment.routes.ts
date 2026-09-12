@@ -409,6 +409,29 @@ taxPaymentRouter.patch("/:id/pay", async (request, response) => {
   // valor errado ficou de pe por um mes ate alguem pagar de novo para corrigir.
   // As rotas irmas (contas a pagar, folha, cartoes) ja exigem estorno antes de
   // repagar; aqui a correcao passa a deixar rastro em vez de apagar a anterior.
+  // Guarda de valor absurdo: pega erro de digitacao sem criar atrito no caso normal.
+  //
+  // Ja existia em payroll.routes.ts e faltava aqui. Nao e a mesma coisa que exigir
+  // justificativa quando o valor difere: diferenca pequena e rotina (juros, multa,
+  // desconto) e tem tratamento proprio. Isto pega a ordem de grandeza errada — um
+  // zero a mais, um valor colado no campo errado.
+  //
+  // As DUAS condicoes precisam valer para rejeitar: mais de 10x o titulo E mais de
+  // R$ 10.000 acima dele. Assim um titulo de R$ 50 pago a R$ 600 (multa alta sobre
+  // valor pequeno) passa, e um de R$ 500 pago a R$ 50.000 nao.
+  const MAX_PAYMENT_MULTIPLIER = 10;
+  const MIN_ABSURD_SURCHARGE = 10_000;
+  const tituloOriginal = Number(existing.amount ?? 0);
+  if (
+    tituloOriginal > 0 &&
+    paidAmount > tituloOriginal * MAX_PAYMENT_MULTIPLIER &&
+    paidAmount - tituloOriginal > MIN_ABSURD_SURCHARGE
+  ) {
+    return response.status(400).json({
+      message: `Valor pago (${paidAmount.toFixed(2)}) é mais de ${MAX_PAYMENT_MULTIPLIER}x o valor do imposto (${tituloOriginal.toFixed(2)}). Confira antes de baixar.`
+    });
+  }
+
   if (existing.status === "PAID" || existing.paymentDate) {
     return response.status(409).json({
       message: "Este imposto ja consta como pago. Estorne a baixa antes de lancar outra — assim a correcao fica registrada."
