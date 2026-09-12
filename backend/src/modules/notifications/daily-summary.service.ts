@@ -26,6 +26,7 @@ type ShiftBreakdown = {
 type EventItem = {
   description: string;
   bruto: number;
+  servico: number;
 };
 
 type DeliveryPlatform = {
@@ -168,15 +169,28 @@ async function fetchEventos(date: string): Promise<EventItem[]> {
   });
   return rows.map((r) => ({
     description: r.description || r.sourcePlatform || "Evento",
-    bruto: toNumber(r.grossAmount)
+    bruto: toNumber(r.grossAmount),
+    servico: toNumber(r.serviceAmount)
   }));
 }
 
 function aggregateEventos(items: EventItem[]): { bruto: number; servico: number; liquido: number } {
-  // Eventos usam a mesma convenção do salão: serviço = 10% do bruto.
+  // Soma o servico GRAVADO em cada lancamento, em vez de recalcular 10% do bruto.
+  //
+  // A tela de faturamento tem um checkbox "incluir servico" no formulario de evento:
+  // desmarcado, ela grava serviceAmount = 0. Este agregador ignorava o campo e aplicava
+  // 10% sempre, entao um evento lancado SEM servico aparecia com servico no resumo, e o
+  // liquido saia 10% menor do que o real. Dois lugares decidindo a mesma coisa, com a
+  // tela perdendo.
+  //
+  // Latente quando corrigido: nao havia nenhum lancamento no canal de eventos nem
+  // nenhum resumo enviado. Corrigido antes do primeiro evento entrar.
+  //
+  // Some tambem o literal 0.1 do backend: a taxa passa a existir so onde o usuario a
+  // escolhe, na tela.
   const bruto = items.reduce((acc, e) => acc + e.bruto, 0);
-  const servico = Number((bruto * 0.1).toFixed(2));
-  return { bruto, servico, liquido: bruto - servico };
+  const servico = Number(items.reduce((acc, e) => acc + e.servico, 0).toFixed(2));
+  return { bruto, servico, liquido: Number((bruto - servico).toFixed(2)) };
 }
 
 // ─── Delivery (iFood + 99Food) ──────────────────────────────────────────────
