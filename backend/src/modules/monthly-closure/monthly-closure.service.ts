@@ -211,6 +211,40 @@ export async function folhaSemCategoriaDre(year: number, month: number) {
   `;
 }
 
+// Este sistema tem DUAS dimensoes por desenho: competencia (DRE, fechamento) e
+// purchaseDate (CMV Real, consumo entre duas contagens fisicas). Divergir em um mes e
+// normal — nota emitida na virada, mercadoria do mes anterior faturada agora. Dois
+// meses ou mais nao e: e erro de digitacao no mes ou no ano.
+//
+// Custa caro porque cada dimensao le um campo. A nota entra no DRE pela competencia
+// (certa) e no CMV Real pela purchaseDate (errada), entao o consumo aparece num
+// periodo em que a mercadoria nao foi comprada e falta no periodo em que foi.
+//
+// Medido em 11/09/2026: de 814 compras ativas, 16 divergem, e 15 sao de um mes so.
+// A unica com dois meses ou mais era a NF 12337 da PESCADOS POPO — 31 kg de tilapia
+// congelada com purchaseDate em 02/03 e competencia 09/2026, criada em 04/09 com
+// parcela vencendo em 24/09. Marco no lugar de setembro.
+//
+// Avisa em vez de bloquear a escrita: nota antiga lancada depois e legitima na carga
+// historica, e so quem ve a nota sabe qual das duas datas esta certa.
+export async function comprasComDataLongeDaCompetencia(year: number, month: number) {
+  return prisma.$queryRaw<Array<{ invoiceNumber: string | null; supplierName: string | null; purchaseDate: Date; totalAmount: any; defasagem: number }>>`
+    SELECT pu."invoiceNumber" AS "invoiceNumber",
+           s."name" AS "supplierName",
+           pu."purchaseDate" AS "purchaseDate",
+           pu."totalAmount" AS "totalAmount",
+           ((pu."competenceYear" * 12 + pu."competenceMonth")
+             - (EXTRACT(YEAR FROM pu."purchaseDate")::int * 12 + EXTRACT(MONTH FROM pu."purchaseDate")::int)) AS "defasagem"
+    FROM "Purchase" pu
+    LEFT JOIN "Supplier" s ON s."id" = pu."supplierId"
+    WHERE pu."status" = 'ACTIVE'
+      AND pu."competenceYear" = ${year} AND pu."competenceMonth" = ${month}
+      AND ABS((pu."competenceYear" * 12 + pu."competenceMonth")
+            - (EXTRACT(YEAR FROM pu."purchaseDate")::int * 12 + EXTRACT(MONTH FROM pu."purchaseDate")::int)) >= 2
+    ORDER BY pu."totalAmount" DESC
+  `;
+}
+
 export async function comprasSemItem(year: number, month: number) {
   return prisma.$queryRaw<Array<{ purchaseNumber: string | null; supplierName: string | null; totalAmount: any }>>`
     SELECT p."purchaseNumber" AS "purchaseNumber",
@@ -472,6 +506,15 @@ export async function getMonthlyClosure(year: number, month: number) {
     pending.push({
       key: "block:payrollWithoutDreCategory",
       label: `${qtd} lancamento(s) de folha sem categoria de DRE, somando ${total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} — saem do grupo PESSOAL e caem em "Sem categoria" (${tipos})`
+    });
+  }
+
+  const dataLonge = await comprasComDataLongeDaCompetencia(year, month);
+  if (dataLonge.length > 0 && !justificationByKey.has("block:purchaseDateFarFromCompetence")) {
+    const exemplos = dataLonge.slice(0, 3).map((c) => `NF ${c.invoiceNumber ?? "?"} (${c.supplierName ?? "?"}, ${Math.abs(Number(c.defasagem))} meses)`).join(", ");
+    pending.push({
+      key: "block:purchaseDateFarFromCompetence",
+      label: `${dataLonge.length} nota(s) com data de compra a 2 meses ou mais da competencia — entram no DRE por um mes e no CMV Real por outro (${exemplos}${dataLonge.length > 3 ? ", ..." : ""})`
     });
   }
 
