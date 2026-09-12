@@ -553,8 +553,20 @@ supplierCyclesRouter.post("/:id/close", async (request, response) => {
       `;
     }
 
-    // Fechar ciclo
-    await tx.$executeRaw`
+    // Fechar ciclo.
+    //
+    // A condicao de status no WHERE e a trava de concorrencia, nao enfeite. A validacao
+    // la em cima le o status e decide; entre a leitura e este UPDATE existe uma janela.
+    // Duas requisicoes simultaneas passavam as duas pela validacao e cada uma criava sua
+    // Purchase e suas PaymentInstallment — dois titulos a pagar para o mesmo ciclo, com
+    // o segundo sobrescrevendo o generatedPurchaseId e deixando o primeiro orfao e
+    // invisivel. O ciclo da DISTRIBUIDORA, por exemplo, vale R$ 5.220,66.
+    //
+    // Com a condicao, a segunda transacao altera 0 linhas, este bloco lanca, e o rollback
+    // leva junto a Purchase e as parcelas que ela tinha acabado de inserir.
+    //
+    // Mesmo padrao do guarda de geracao de inventario em cmv-real.service.ts.
+    const fechou = await tx.$executeRaw`
       UPDATE "SupplierBillingCycle"
       SET
         "status"              = 'CLOSED',
@@ -565,7 +577,13 @@ supplierCyclesRouter.post("/:id/close", async (request, response) => {
         "notes"               = ${notes ?? null},
         "updatedAt"           = CURRENT_TIMESTAMP
       WHERE "id" = ${request.params.id}
+        AND "status" IN ('OPEN', 'CHECKED')
     `;
+    if (fechou === 0) {
+      throw new Error(
+        "Este ciclo foi fechado por outra requisicao enquanto esta era processada. Nenhum titulo foi gerado em duplicidade. Recarregue a tela para ver o ciclo ja fechado."
+      );
+    }
 
     return { purchaseId, purchaseNumber };
   });
