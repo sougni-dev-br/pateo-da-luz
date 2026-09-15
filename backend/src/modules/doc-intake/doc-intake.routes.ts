@@ -1,14 +1,14 @@
 import { Router } from "express";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { agruparTitulos } from "./agrupamento-titulos.js";
-import { enriquecerDocumento, type DocumentoEnriquecido } from "./doc-enrich.service.js";
-import { ArquivoGrandeDemaisError, extrairDocumento } from "./doc-extract.service.js";
 import { listarLancamentosDaLeitura } from "./lancamentos.service.js";
-import { createLlmProvider, LlmRequestError } from "./llm.provider.js";
+import { createLlmProvider } from "./llm.provider.js";
+import { processarDocumentos, type ArquivoRecebido, type EventoProgresso } from "./processar-documentos.service.js";
 import { sugerirProdutos } from "./sugerir-produto.service.js";
-import { TipoArquivoNaoSuportadoError } from "./tipo-arquivo.js";
 
 export const docIntakeRouter = Router();
+
+const MAX_ARQUIVOS = 5;
 
 /**
  * O que ja foi lancado por este caminho. Serve para conferir o que entrou pela
@@ -34,19 +34,17 @@ docIntakeRouter.get("/lancamentos", async (request, response) => {
   });
 });
 
-const MAX_ARQUIVOS = 5;
-const MAX_BYTES = 15 * 1024 * 1024;
-
-type ArquivoRecebido = { nome?: unknown; base64?: unknown };
-
 /**
  * Le documentos e devolve o RASCUNHO do lancamento. NAO grava nada.
+ *
+ * Responde em NDJSON (uma linha JSON por evento) e nao num JSON unico: a leitura
+ * leva dezenas de segundos e a tela precisa dizer em que arquivo esta. Com um
+ * JSON so, a pessoa fica olhando "carregando" sem saber se travou.
  *
  * A gravacao nao mora aqui de proposito: quando a pessoa confirma na tela, o
  * frontend chama POST /purchases, que ja concentra toda a regra de compra
  * (pequeno gasto, cartao, ciclo de fornecedor, parcelas, trava de periodo,
- * duplicidade). Um segundo caminho de escrita duplicaria essas regras e elas
- * divergiriam na primeira mudanca.
+ * duplicidade). Um segundo caminho de escrita duplicaria essas regras.
  */
 docIntakeRouter.post("/preview", async (request, response) => {
   const user = await getSessionUser(request);
@@ -56,7 +54,7 @@ docIntakeRouter.post("/preview", async (request, response) => {
   const recebidos = Array.isArray(body.arquivos) ? (body.arquivos as ArquivoRecebido[]) : [];
 
   if (recebidos.length === 0) {
-    return response.status(400).json({ message: "Envie ao menos um PDF em 'arquivos'." });
+    return response.status(400).json({ message: "Envie ao menos um arquivo em 'arquivos'." });
   }
   if (recebidos.length > MAX_ARQUIVOS) {
     return response.status(400).json({ message: `Envie no maximo ${MAX_ARQUIVOS} arquivos por vez.` });
@@ -69,69 +67,59 @@ docIntakeRouter.post("/preview", async (request, response) => {
     });
   }
 
-  const documentos: DocumentoEnriquecido[] = [];
-  const falhas: Array<{ arquivo: string; erro: string }> = [];
+  response.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+  // Sem isto, proxy e compressao seguram os pedacos e o progresso chega todo de
+  // uma vez no fim — o que anula a razao de existir do streaming.
+  response.setHeader("Cache-Control", "no-cache, no-transform");
+  response.setHeader("X-Accel-Buffering", "no");
+  response.flushHeaders?.();
 
-  for (const recebido of recebidos) {
-    const nomeArquivo = typeof recebido.nome === "string" && recebido.nome ? recebido.nome : "documento.pdf";
+  const emitir = (evento: EventoProgresso | Record<string, unknown>) => {
+    response.write(`${JSON.stringify(evento)}\n`);
+  };
 
-    if (typeof recebido.base64 !== "string" || !recebido.base64) {
-      falhas.push({ arquivo: nomeArquivo, erro: "Arquivo vazio ou nao enviado." });
-      continue;
-    }
+  try {
+    const { documentos, falhas } = await processarDocumentos({
+      recebidos,
+      provider,
+      aoProgredir: emitir,
+    });
 
-    const buffer = Buffer.from(recebido.base64.replace(/^data:[^,]*,/, ""), "base64");
-    if (buffer.length === 0) {
-      falhas.push({ arquivo: nomeArquivo, erro: "Arquivo vazio ou corrompido." });
-      continue;
-    }
-    if (buffer.length > MAX_BYTES) {
-      falhas.push({ arquivo: nomeArquivo, erro: `Arquivo maior que ${MAX_BYTES / 1024 / 1024} MB.` });
-      continue;
-    }
+    emitir({ tipo: "etapa", descricao: "Cruzando com o cadastro e montando os títulos" });
 
-    try {
-      const extraido = await extrairDocumento({ nomeArquivo, buffer, provider });
-      documentos.push(await enriquecerDocumento(extraido));
-    } catch (error) {
-      if (
-        error instanceof ArquivoGrandeDemaisError
-        || error instanceof TipoArquivoNaoSuportadoError
-        || error instanceof LlmRequestError
-      ) {
-        falhas.push({ arquivo: nomeArquivo, erro: error.message });
-        continue;
-      }
-      throw error;
-    }
+    // Sugestao de produto por linha lida. Fica fora de agruparTitulos porque
+    // depende do banco, e o agrupamento e logica pura — da para testar sem banco.
+    const titulos = await Promise.all(
+      agruparTitulos(documentos).map(async (titulo) => ({
+        ...titulo,
+        sugestoesItens: await sugerirProdutos({
+          supplierId: titulo.fornecedor.cadastrado ? titulo.fornecedor.id : null,
+          descricoes: titulo.rubricas.map((rubrica) => rubrica.descricao),
+        }),
+      })),
+    );
+
+    await auditLog({
+      userId: user.id,
+      action: "DOC_INTAKE_PREVIEW",
+      entity: "DocumentIntake",
+      entityId: null,
+      ipAddress: requestIp(request),
+      userAgent: String(request.headers["user-agent"] ?? ""),
+      newValue: {
+        arquivos: recebidos.map((arquivo) => (typeof arquivo.nome === "string" ? arquivo.nome : "?")),
+        lidos: documentos.length,
+        falhas: falhas.length,
+        tokens: documentos.reduce((acc, doc) => acc + (doc.meta.tokensUsed ?? 0), 0),
+      },
+    }).catch(() => undefined);
+
+    emitir({ tipo: "fim", documentos, titulos, falhas });
+  } catch (erro) {
+    // Cabecalho ja foi enviado: nao da para trocar o status. O erro vai como
+    // evento, e a tela sabe tratar.
+    emitir({ tipo: "erro", mensagem: erro instanceof Error ? erro.message : "Falha inesperada na leitura." });
+  } finally {
+    response.end();
   }
-
-  await auditLog({
-    userId: user.id,
-    action: "DOC_INTAKE_PREVIEW",
-    entity: "DocumentIntake",
-    entityId: null,
-    ipAddress: requestIp(request),
-    userAgent: String(request.headers["user-agent"] ?? ""),
-    newValue: {
-      arquivos: recebidos.map((arquivo) => (typeof arquivo.nome === "string" ? arquivo.nome : "?")),
-      lidos: documentos.length,
-      falhas: falhas.length,
-      tokens: documentos.reduce((acc, doc) => acc + (doc.meta.tokensUsed ?? 0), 0),
-    },
-  }).catch(() => undefined);
-
-  // Sugestao de produto por linha lida. Fica fora de agruparTitulos porque
-  // depende do banco, e o agrupamento e logica pura — da para testar sem banco.
-  const titulos = await Promise.all(
-    agruparTitulos(documentos).map(async (titulo) => ({
-      ...titulo,
-      sugestoesItens: await sugerirProdutos({
-        supplierId: titulo.fornecedor.cadastrado ? titulo.fornecedor.id : null,
-        descricoes: titulo.rubricas.map((rubrica) => rubrica.descricao),
-      }),
-    })),
-  );
-
-  return response.json({ documentos, titulos, falhas });
 });
