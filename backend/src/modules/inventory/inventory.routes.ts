@@ -924,8 +924,18 @@ async function auditStockCoverageForOperationalInventory(inventoryId: string): P
 // metade da contagem salva e a outra metade nao, com o inventario resultante
 // parecendo integro. Como bonus, 222 itens deixam de ser 444 idas ao banco.
 //
-// Regra de status do item de contagem, agora expressa no CASE do SQL: sem
-// quantidade => PENDENTE, com quantidade (zero inclusive) => CONTADO.
+// Regra de status do item de contagem, expressa no CASE do SQL. Ela e a MESMA
+// de countedStatus() e de applyOperationalInventoryItems — este era o unico dos
+// cinco caminhos de escrita que usava uma regra propria, de dois estados:
+// PENDENTE quando faltava quantidade, CONTADO para qualquer valor informado.
+//
+// Como esta e a funcao que a TELA de contagem usa, o efeito era que contar pela
+// tela nunca conseguia marcar ZERO nem DIVERGENTE. 5.097 dos 14.298 itens ja
+// contados (36%) ficaram gravados como CONTADO divergindo do esperado, alguns
+// por centenas de quilos, sem nada acender na tela de quem contou.
+//
+// Se countedStatus mudar, este CASE e o de applyOperationalInventoryItems
+// precisam mudar junto. Sao tres copias da mesma regra.
 async function applyStockCountSessionItems(
   sessionId: string,
   items: Array<Record<string, unknown>>,
@@ -944,7 +954,12 @@ async function applyStockCountSessionItems(
     UPDATE "StockCountSessionItem" AS item
     SET "countedQuantity" = v.q,
         "differenceQuantity" = CASE WHEN v.q IS NULL THEN NULL ELSE v.q - item."expectedQuantity" END,
-        "status" = CASE WHEN v.q IS NULL THEN 'PENDENTE' ELSE 'CONTADO' END,
+        "status" = CASE
+          WHEN v.q IS NULL THEN 'PENDENTE'
+          WHEN v.q = 0 THEN 'ZERO'
+          WHEN ABS(v.q - item."expectedQuantity") > 0.0001 THEN 'DIVERGENTE'
+          ELSE 'CONTADO'
+        END,
         "notes" = v.notes,
         "countedByUserId" = CASE WHEN v.q IS NULL THEN NULL ELSE ${userId} END,
         "countedAt" = CASE WHEN v.q IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END,
