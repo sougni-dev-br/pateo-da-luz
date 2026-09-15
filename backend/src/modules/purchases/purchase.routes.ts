@@ -1360,6 +1360,9 @@ purchaseRouter.post("/", async (request, response) => {
   const smallExpenseMoneyOrigin = asNullableText(request.body.smallExpenseMoneyOrigin);
   const smallExpenseNotes = asNullableText(request.body.smallExpenseNotes ?? request.body.notes);
   const creditCardId = request.body.creditCardId ? String(request.body.creditCardId) : null;
+  // Rotulo de origem, so descritivo. Cortado em 200 caracteres porque vai para
+  // uma coluna de texto e nao deve virar campo livre para payload grande.
+  const sourceFile = asNullableText(request.body.sourceFile)?.slice(0, 200) ?? null;
   const numberOfInstallments = Math.max(1, Math.floor(Number(request.body.numberOfInstallments ?? 1)));
   const requestMeta = {
     userId: user.id,
@@ -1603,6 +1606,10 @@ purchaseRouter.post("/", async (request, response) => {
         smallExpenseMoneyOrigin: isSmallExpense ? effectiveSmallExpenseOrigin : null,
         smallExpenseNotes: isSmallExpense ? effectiveSmallExpenseNotes : null,
         rawRow: request.body as Prisma.InputJsonValue,
+        // De onde esta compra veio. A importacao de Excel ja usava este campo; a
+        // leitura de documentos manda "doc-intake:<arquivos>". Serve para listar
+        // — e, se preciso, reverter — tudo que entrou por um caminho especifico.
+        sourceFile,
         companyId
       }
     });
