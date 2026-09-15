@@ -1241,6 +1241,8 @@ export type ManualPurchasePayload = {
   purchaseOrderNumber?: string | null;
   noInvoiceReason?: string | null;
   rawSupplierCode?: string | null;
+  /** Rótulo de origem do lançamento (ex.: "doc-intake:nota.pdf"). Só descritivo. */
+  sourceFile?: string | null;
   paymentMethod?: string | null;
   paymentMethodId?: string | null;
   isSmallExpense?: boolean;
@@ -5802,5 +5804,111 @@ export function adjustHolidayComp(id: string, delta: number) {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ delta })
+  });
+}
+
+// ─── Leitura de documentos (IA) ───────────────────────────────────────────────
+export type DocIntakeAviso = { nivel: "BLOQUEIO" | "ATENCAO"; codigo: string; mensagem: string };
+
+export type DocIntakeParte = {
+  nome: string | null;
+  cnpj: string | null;
+  cnpjDigits: string | null;
+  cnpjValido: boolean;
+};
+
+export type DocIntakeRubrica = { descricao: string; valor: number | null; valorRaw: string };
+
+export type DocIntakeDocumento = {
+  nomeArquivo: string;
+  hash: string;
+  tipoDocumento: "NFSE" | "NFE" | "BOLETO" | "FATURA" | "OUTRO";
+  emissor: DocIntakeParte;
+  destinatario: DocIntakeParte;
+  numeroDocumento: string | null;
+  dataEmissao: string | null;
+  dataEmissaoRaw: string | null;
+  dataVencimento: string | null;
+  dataVencimentoRaw: string | null;
+  valorTotal: number | null;
+  valorTotalRaw: string | null;
+  rubricas: DocIntakeRubrica[];
+  linhaDigitavel: string | null;
+  documentoReferenciado: string | null;
+  observacoes: string | null;
+  chaveTitulo: string | null;
+  lidoPorImagem: boolean;
+  avisos: DocIntakeAviso[];
+  fornecedor: { cadastrado: true; id: string; nome: string } | { cadastrado: false };
+  empresa: { id: string; nome: string } | null;
+  duplicatas: Array<{ id: string; invoiceNumber: string | null; purchaseDate: string; totalAmount: string; status: string }>;
+  podeConfirmar: boolean;
+  meta: { model: string; tokensUsed: number | null; paginas: number | null };
+};
+
+export type DocIntakeProdutoSugerido = {
+  id: string;
+  nome: string;
+  unidade: string | null;
+  codigoExterno: string | null;
+  categoria: string | null;
+  subcategoria: string | null;
+};
+
+/** Sugestão de produto para uma linha lida do documento. */
+export type DocIntakeSugestaoLinha = {
+  descricaoLida: string;
+  sugestao: DocIntakeProdutoSugerido | null;
+  /** ALTA vem pré-selecionada; MEDIA e BAIXA só são oferecidas. */
+  confianca: "ALTA" | "MEDIA" | "BAIXA" | null;
+  motivo: string | null;
+  alternativas: DocIntakeProdutoSugerido[];
+};
+
+/** Uma parcela do título — normalmente veio de um boleto. */
+export type DocIntakeParcela = {
+  numero: number;
+  dataVencimento: string | null;
+  valor: number | null;
+  /** Arquivo de onde a parcela veio, para a conferência. */
+  origem: string;
+  linhaDigitavel: string | null;
+  rotuloLido: string | null;
+};
+
+/** Rascunho consolidado de um título — nota e boletos fundidos num lançamento só. */
+export type DocIntakeTitulo = {
+  parcelas: DocIntakeParcela[];
+  /** Uma sugestão por rubrica lida, na mesma ordem. */
+  sugestoesItens: DocIntakeSugestaoLinha[];
+  chave: string | null;
+  documentos: string[];
+  tipoPrincipal: string;
+  fornecedor: { cadastrado: true; id: string; nome: string } | { cadastrado: false };
+  fornecedorNome: string | null;
+  empresa: { id: string; nome: string } | null;
+  numeroDocumento: string | null;
+  dataEmissao: string | null;
+  dataVencimento: string | null;
+  valorTotal: number | null;
+  rubricas: DocIntakeRubrica[];
+  linhaDigitavel: string | null;
+  duplicatas: Array<{ id: string; invoiceNumber: string | null; purchaseDate: string; totalAmount: string; status: string }>;
+  lidoPorImagem: boolean;
+  avisos: DocIntakeAviso[];
+  podeConfirmar: boolean;
+};
+
+export type DocIntakePreview = {
+  documentos: DocIntakeDocumento[];
+  titulos: DocIntakeTitulo[];
+  falhas: Array<{ arquivo: string; erro: string }>;
+};
+
+export function previewDocumentos(arquivos: Array<{ nome: string; base64: string }>) {
+  return request<DocIntakePreview>("/doc-intake/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ arquivos })
   });
 }
