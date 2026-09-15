@@ -39,15 +39,6 @@ function monthFromPeriod(startDate: string) {
   return startDate.slice(0, 7);
 }
 
-function periodFromMonth(value: string) {
-  const [year, month] = value.split("-").map(Number);
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 0);
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return { preset: "currentMonth" as const, startDate: fmt(start), endDate: fmt(end) };
-}
-
 function safePct(current: number, previous: number): number | null {
   if (previous === 0 || current === 0) return null;
   return ((current - previous) / previous) * 100;
@@ -55,14 +46,20 @@ function safePct(current: number, previous: number): number | null {
 
 type DeltaTone = "success" | "warning" | "neutral";
 
-function deltaInfo(pct: number | null, higherIsGood: boolean): { text: string; tone: DeltaTone } {
-  if (pct === null) return { text: "Sem comparação disponível", tone: "neutral" };
+type DeltaDirection = "up" | "down" | "flat";
+
+function deltaInfo(
+  pct: number | null,
+  higherIsGood: boolean
+): { text: string; tone: DeltaTone; direction: DeltaDirection } {
+  if (pct === null) return { text: "Sem comparação disponível", tone: "neutral", direction: "flat" };
   const sign = pct >= 0 ? "+" : "";
   const tone: DeltaTone =
     pct === 0 ? "neutral"
     : higherIsGood ? (pct > 0 ? "success" : "warning")
     : (pct > 0 ? "warning" : "success");
-  return { text: `${sign}${formatPercent(pct)} vs mês anterior`, tone };
+  const direction: DeltaDirection = pct === 0 ? "flat" : pct > 0 ? "up" : "down";
+  return { text: `${sign}${formatPercent(pct)} vs mês anterior`, tone, direction };
 }
 
 // Mapa path → moduleId para verificação de permissão nos botões de ação
@@ -105,11 +102,16 @@ export function Dashboard() {
     setError(null);
     try {
       const [yearStr, monthStr] = comp.split("-");
-      const p = periodFromMonth(comp);
       const yearNum = Number(yearStr);
       const monthNum = Number(monthStr);
       const [dashData, alertsData, summaryData] = await Promise.allSettled([
-        getDashboard({ year: yearStr, month: monthStr, startDate: p.startDate, endDate: p.endDate }),
+        // Sem startDate/endDate de proposito. O backend so usa competencia quando
+        // as duas datas estao ausentes (isMonthFilter) — mandando o intervalo, a
+        // tela caia sempre no ramo por data da compra e passava a ler um mes
+        // diferente do que o card de compras e o mes anterior liam, ambos por
+        // competencia. Em set/2026 isso dava R$ 103.381,29 na distribuicao contra
+        // R$ 87.069,37 no card. O seletor daqui e de mes: competencia e a base.
+        getDashboard({ year: yearStr, month: monthStr }),
         getDashboardAlerts(comp),
         getDashboardSummary(yearNum, monthNum),
       ]);
@@ -526,6 +528,7 @@ export function Dashboard() {
               <RankingPanel
                 title="Por Categoria"
                 rows={[...data.byCategory].sort((a, b) => b.total - a.total).slice(0, 10)}
+                total={data.byCategoryTotal}
                 emptyText="Nenhuma compra registrada neste período."
                 emptyActionLabel={canViewPurchases ? "Ver compras" : undefined}
                 emptyActionPath={canViewPurchases ? "/compras" : undefined}
@@ -534,6 +537,7 @@ export function Dashboard() {
               <RankingPanel
                 title="Por Fornecedor"
                 rows={[...data.bySupplier].sort((a, b) => b.total - a.total).slice(0, 10)}
+                total={data.bySupplierTotal}
                 emptyText="Nenhuma compra registrada neste período."
                 emptyActionLabel={canViewPurchases ? "Ver fornecedores" : undefined}
                 emptyActionPath={canViewPurchases ? "/compras" : undefined}
@@ -541,6 +545,7 @@ export function Dashboard() {
               />
               <RankingPanel
                 title="Por Produto"
+                total={data.byProductTotal}
                 rows={[...data.byProduct].sort((a, b) => b.total - a.total).slice(0, 10).map((p) => ({
                   name: p.name,
                   total: p.total,
@@ -623,7 +628,7 @@ function KpiCard({
   sub?: ReactNode;
   tone?: "success" | "warning" | "danger" | "info" | "neutral";
   icon?: ReactNode;
-  delta?: { text: string; tone: DeltaTone };
+  delta?: { text: string; tone: DeltaTone; direction?: DeltaDirection };
   actionLabel?: string;
   onAction?: () => void;
 }) {
@@ -635,7 +640,10 @@ function KpiCard({
         {sub && <small className="muted-inline">{sub}</small>}
         {delta && (
           <div className={`dash-delta dash-delta-${delta.tone}`}>
-            {delta.tone === "success" ? <ArrowDown size={11} /> : delta.tone === "warning" ? <ArrowUp size={11} /> : <Minus size={11} />}
+            {/* A seta segue o SINAL; a cor e que segue o julgamento. Vinham as
+                duas do tone, entao faturamento caindo 66,6% — ruim, logo tone
+                warning — era desenhado com a seta pra cima. */}
+            {delta.direction === "up" ? <ArrowUp size={11} /> : delta.direction === "down" ? <ArrowDown size={11} /> : <Minus size={11} />}
             <span>{delta.text}</span>
           </div>
         )}
@@ -693,6 +701,7 @@ function RecentPurchasesList({
 function RankingPanel({
   title,
   rows,
+  total,
   emptyText = "Nenhum dado no período.",
   emptyActionLabel,
   emptyActionPath,
@@ -700,12 +709,15 @@ function RankingPanel({
 }: {
   title: string;
   rows: Array<{ name: string; total: number; sub?: string }>;
+  total?: number;
   emptyText?: string;
   emptyActionLabel?: string;
   emptyActionPath?: string;
   onNavigate?: (path: string) => void;
 }) {
-  const grandTotal = rows.reduce((s, r) => s + r.total, 0);
+  // `total` e o total do periodo inteiro, nao o das linhas visiveis: a lista e
+  // cortada no top 10, e somar so o que aparece inflava cada percentual.
+  const grandTotal = total ?? rows.reduce((s, r) => s + r.total, 0);
 
   return (
     <section className="panel">
