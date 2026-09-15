@@ -2179,6 +2179,15 @@ model DailySummarySent {
 // módulo tax-payments.
 // ─────────────────────────────────────────────────────────────────────────
 
+// Usado APENAS para a regra de folga dominical: a CLT art. 386 garante à
+// mulher uma folga em domingo a cada 15 dias, contra 7 semanas na regra geral.
+// Sem o campo não dá para saber qual limite aplicar — e inferir de nome é chute.
+enum EmployeeGender {
+  FEMININO
+  MASCULINO
+  NAO_INFORMADO
+}
+
 enum EmployeeModality {
   CLT
   NAO_CLT
@@ -2192,6 +2201,7 @@ enum WorkScheduleRegime {
 enum VtType {
   NENHUM
   TRANSPORTE_PUBLICO
+  BILHETE_MENSAL
   AUXILIO_COMBUSTIVEL
 }
 
@@ -2200,13 +2210,102 @@ enum VtPeriodicity {
   MENSAL
 }
 
-enum VtCommute {
-  ONIBUS
-  METRO
-  INTEGRADO
-  ONIBUS_METRO_SEPARADO
-  BILHETE_MENSAL_ONIBUS
-  BILHETE_MENSAL_INTEGRADO
+// Sentido do trajeto. O funcionário pode ir de um jeito e voltar de outro —
+// ida de ônibus + metrô, volta só de ônibus — e isso muda o valor do dia.
+enum VtDirection {
+  IDA
+  VOLTA
+}
+
+// Como a tarifa é cobrada: por embarque (VIAGEM) ou um valor fechado no mês
+// (MENSAL, tipo Bilhete Único Mensal, que não depende de dias trabalhados).
+enum VtFareBasis {
+  VIAGEM
+  MENSAL
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tarifas de transporte — tabela editável, não campos fixos.
+//
+// Antes eram 3 colunas em PayrollSettings (ônibus, metrô, integrada), o que
+// tornava impossível cadastrar EMTU (intermunicipal, Carapicuíba→SP) sem
+// mexer no schema. Agora cada tarifa é uma linha, com a própria regra de
+// gratuidade: ônibus SPTrans é grátis domingo/feriado, EMTU e metrô não.
+// Amarrar a gratuidade à TARIFA (e não ao código) é o que faz o cálculo
+// parar de zerar indevidamente a perna de EMTU de quem viaja no domingo.
+// ─────────────────────────────────────────────────────────────────────────
+model VtFare {
+  id            String      @id @default(cuid())
+  name          String      @unique
+  amount        Decimal     @db.Decimal(8, 2)
+  basis         VtFareBasis @default(VIAGEM)
+  /// Quanto esta tarifa custa nos dias de Domingão Tarifa Zero (domingos + 01/01,
+  /// 25/01 e 25/12). NULL = não muda nada nesses dias.
+  ///
+  /// É um VALOR e não um "grátis sim/não" porque a integração ônibus+metrô não
+  /// zera no domingo: a SPTrans não dá desconto de integração quando o ônibus é
+  /// gratuito, então quem integra paga a tarifa CHEIA do metrô (R$ 5,40) em vez
+  /// dos R$ 9,38 da integração. Um booleano não sabe dizer isso.
+  sundayAmount  Decimal?    @db.Decimal(8, 2)
+  isActive      Boolean     @default(true)
+  sortOrder     Int         @default(0)
+  notes         String?
+  legs          EmployeeVtLeg[]
+  monthlyEmployees Employee[] @relation("EmployeeMonthlyFare")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Desconto de VT por falta.
+//
+// O VT é pago ANTES da quinzena acontecer. Quando alguém falta num dia que já
+// foi pago, o dinheiro já saiu — o acerto só pode entrar no PRÓXIMO vale. Esta
+// tabela é o que impede o desconto de acontecer duas vezes: a chave única
+// (funcionário, dia) é a garantia, no banco, de que cada falta é cobrada uma
+// vez só, mesmo que a folha seja reprocessada.
+//
+// Apagar o lançamento de VT apaga estas linhas junto (ver a rota de exclusão):
+// o desconto volta a ficar pendente e entra no vale seguinte.
+// ─────────────────────────────────────────────────────────────────────────
+model VtFaltaDeduction {
+  id            String      @id @default(cuid())
+  employeeId    String
+  employee      Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  /// O dia da ausência.
+  date          DateTime    @db.Date
+  /// FALTA ou ATESTADO — os dois recuperam o vale, mas quem confere precisa
+  /// saber de qual se trata sem ter de voltar na escala.
+  dayType       ScheduleDayType @default(FALTA)
+  /// Quanto aquele dia teria custado — o valor efetivamente abatido.
+  amount        Decimal     @db.Decimal(12, 2)
+  /// O lançamento de VT em que o abatimento entrou.
+  payrollItemId String
+  payrollItem   PayrollItem @relation(fields: [payrollItemId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@unique([employeeId, date])
+  @@index([payrollItemId])
+}
+
+// Uma perna do trajeto: "na ida, o segundo embarque é metrô". O custo do dia
+// é a soma das pernas de IDA + as de VOLTA, cada uma zerando sozinha nos dias
+// em que a tarifa dela é gratuita.
+model EmployeeVtLeg {
+  id          String      @id @default(cuid())
+  employeeId  String
+  employee    Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  direction   VtDirection
+  sortOrder   Int         @default(0)
+  fareId      String
+  fare        VtFare      @relation(fields: [fareId], references: [id])
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([employeeId])
+  @@index([fareId])
 }
 
 model Employee {
@@ -2219,6 +2318,7 @@ model Employee {
   rg                String?
   pis               String?
   birthDate         DateTime?
+  gender            EmployeeGender     @default(NAO_INFORMADO)
   phone             String?
   email             String?
   // Endereço
@@ -2248,18 +2348,20 @@ model Employee {
   scheduleRegime    WorkScheduleRegime @default(SEIS_POR_UM)
   includeInSchedule Boolean            @default(true)
   admissionDate     DateTime?
-  // Vale-transporte (config usada pelo cálculo nas fases seguintes)
+  // Vale-transporte. TRANSPORTE_PUBLICO calcula pelas pernas (vtLegs) × escala;
+  // BILHETE_MENSAL usa uma tarifa de base MENSAL; AUXILIO_COMBUSTIVEL usa o valor fixo.
   vtType            VtType             @default(TRANSPORTE_PUBLICO)
   vtPeriodicity     VtPeriodicity      @default(QUINZENAL)
-  vtCommute         VtCommute?
-  vtTripsPerDay     Int?               @default(2)
   vtFixedAmount     Decimal?           @db.Decimal(12, 2)
+  vtLegs            EmployeeVtLeg[]
+  vtFaltaDeductions VtFaltaDeduction[]
+  vtMonthlyFareId   String?
+  vtMonthlyFare     VtFare?            @relation("EmployeeMonthlyFare", fields: [vtMonthlyFareId], references: [id])
   // Desligamento
   terminationDate   DateTime?
   terminationReason String?
   isActive          Boolean            @default(true)
   notes             String?
-  vtCreditBalance   Decimal            @default(0) @db.Decimal(12, 2)
   holidayCompBalance Int               @default(0)
   scheduleDays      EmployeeScheduleDay[]
   payrollItems      PayrollItem[]
@@ -2296,6 +2398,10 @@ model Employee {
 
 enum ScheduleDayType {
   FOLGA
+  /// Folga tirada contra o saldo de feriado trabalhado — debita esse saldo.
+  FOLGA_FERIADO
+  /// Folga tirada contra o banco de horas.
+  FOLGA_BANCO_HORAS
   TURNO
   EVENTO
   FERIAS
@@ -2346,15 +2452,23 @@ model ScheduleDayEvent {
 
 model PayrollSettings {
   id             String   @id @default("singleton")
-  busFare        Decimal  @default(5.30) @db.Decimal(8, 2)
-  metroFare      Decimal  @default(5.40) @db.Decimal(8, 2)
-  integratedFare Decimal  @default(9.38) @db.Decimal(8, 2)
-  monthlyPassBus        Decimal @default(257.53) @db.Decimal(8, 2)
-  monthlyPassIntegrated Decimal @default(411.13) @db.Decimal(8, 2)
+  // Dia em que a 2ª quinzena começa. 16 => 1ª quinzena = 01 a 15, 2ª = 16 ao fim.
+  // O VT vence sempre na VÉSPERA do início do período (a 1ª quinzena, portanto,
+  // vence no último dia do mês ANTERIOR): é assim que o pagamento acontece na
+  // prática — 31/08 paga 01→15/09, 15/09 paga 16→30/09.
+  vtSecondPeriodStartDay Int @default(16)
+  /// A folga precisa cair em DOMINGO pelo menos uma vez a cada N semanas.
+  /// Mulher: 2 (CLT art. 386 — escala quinzenal, um domingo sim outro não).
+  /// Demais: 3 (Lei 10.101/2000 art. 6º p.único, aplicada a bares e restaurantes).
+  ///
+  /// Fica em configuração e não no código porque quem define isso na prática é
+  /// a convenção coletiva da categoria, que muda todo ano. Número enterrado em
+  /// código vira regra errada no dia seguinte a uma negociação sindical.
+  dsrDomingoMulherSemanas Int @default(2)
+  dsrDomingoGeralSemanas  Int @default(3)
   advancePercent Decimal  @default(40) @db.Decimal(5, 2)
   advanceDueDay  Int      @default(20)
   salaryDueDay   Int      @default(5)
-  bufferDays     Int      @default(1)
   updatedById    String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -2410,11 +2524,16 @@ model PayrollItem {
   amount          Decimal           @db.Decimal(12, 2)
   workedDays      Int?
   freeDays        Int?
+  // Resíduo do modelo antigo de VT ("dia de sobra" adiantado + crédito na quinzena
+  // seguinte), aposentado em 09/2026 — a quinzena agora é calculada exata. As colunas
+  // ficam porque os lançamentos de julho/2026 as usaram e precisam continuar auditáveis;
+  // nada novo escreve aqui.
   bufferAmount    Decimal?          @db.Decimal(12, 2)
   creditApplied   Decimal?          @db.Decimal(12, 2)
   details         Json?
   paymentDate     DateTime?
   paidAmount      Decimal?          @db.Decimal(12, 2)
+  vtFaltaDeductions     VtFaltaDeduction[]
   paidPaymentMethodId   String?
   paidPaymentMethodName String?
   paidByCompanyId       String?

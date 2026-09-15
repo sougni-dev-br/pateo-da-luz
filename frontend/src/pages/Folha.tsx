@@ -2,8 +2,9 @@ import { Banknote, Bus, Check, ChevronLeft, ChevronRight, Clock, Coins, Palmtree
 import { type CSSProperties, useEffect, useState } from "react";
 import {
   Employee, PayrollComputedItem, PayrollItemType, PayrollKind, PayrollList, PayrollListItem, PayrollOverride, PayrollPreview, PayrollSettings,
-  deletePayrollItem, editPayrollItem, generatePayroll, getEmployees, getPayroll, getPayrollSettings,
-  previewPayroll, releaseVacation, savePayrollSettings
+  VtFare, VtFareBasis,
+  createVtFare, deletePayrollItem, deleteVtFare, editPayrollItem, generatePayroll, getEmployees, getPayroll, getPayrollSettings,
+  getVtFares, previewPayroll, releaseVacation, savePayrollSettings, updateVtFare
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
@@ -44,6 +45,39 @@ function toNumStr(s: string) {
   const t = s.trim();
   return t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t;
 }
+// Como a tarifa se comporta nos dias de Domingão Tarifa Zero. Não é um
+// "grátis sim/não": a integração ônibus+metrô CAI para a tarifa do metrô em vez
+// de zerar, e a coluna precisa mostrar isso ou o número na folha vira mistério.
+function gratuidadeLabel(f: { sundayAmount: string | null; amount: string }) {
+  if (f.sundayAmount == null) return <span style={{ color: "var(--muted)" }}>Cobra sempre</span>;
+  const dom = Number(f.sundayAmount);
+  if (dom <= 0) return "Grátis no domingo";
+  if (dom < Number(f.amount)) return `Domingo: ${money(f.sundayAmount)}`;
+  return <span style={{ color: "var(--muted)" }}>Cobra sempre</span>;
+}
+
+// Escapa texto livre antes de entrar no HTML da impressao. Nome, setor e
+// subgrupo sao digitados a mao no cadastro e vao para um document.write — sem
+// isto, um "<" no nome de alguem quebra a folha, e um <script> executa.
+function escapeHtml(v: unknown): string {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+function fmtDayMonth(iso: string) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "UTC" });
+}
+// "15/09 a 30/09" — o período que o vale cobre. É o que se confere no
+// pagamento, já que o vencimento fica na véspera e não diz nada sobre os dias.
+function periodRange(i: { periodStart: string | null; periodEnd: string | null }) {
+  if (!i.periodStart || !i.periodEnd) return "—";
+  const d = (iso: string) => new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "UTC" });
+  return `${d(i.periodStart)} a ${d(i.periodEnd)}`;
+}
 
 // Apelido ("Como quero ser chamado") — pílula sutil ao lado do nome completo.
 function NickTag({ nick }: { nick: string | null | undefined }) {
@@ -59,8 +93,12 @@ function NickTag({ nick }: { nick: string | null | undefined }) {
 }
 
 const emptySettingsForm = {
-  busFare: "", metroFare: "", integratedFare: "", monthlyPassBus: "", monthlyPassIntegrated: "",
-  advancePercent: "", advanceDueDay: "", salaryDueDay: "", bufferDays: ""
+  vtSecondPeriodStartDay: "", advancePercent: "", advanceDueDay: "", salaryDueDay: ""
+};
+
+const emptyFareForm = {
+  id: "", name: "", amount: "", basis: "VIAGEM" as VtFareBasis,
+  sundayAmount: "", isActive: true, notes: ""
 };
 
 export function Folha() {
@@ -80,6 +118,9 @@ export function Folha() {
   const [settings, setSettings] = useState<PayrollSettings | null>(null);
   const [settingsForm, setSettingsForm] = useState(emptySettingsForm);
   const [showSettings, setShowSettings] = useState(false);
+  const [fares, setFares] = useState<VtFare[]>([]);
+  // null = formulário fechado. Abrir com uma tarifa edita; com null-interno, cria.
+  const [fareForm, setFareForm] = useState<typeof emptyFareForm | null>(null);
   // Conferência do VT antes de mandar pagar: lista por quinzena, com total.
   const [showVtConf, setShowVtConf] = useState(false);
   const [vtQuinzena, setVtQuinzena] = useState<1 | 2>(1);
@@ -117,15 +158,69 @@ export function Folha() {
   function applySettings(s: PayrollSettings) {
     setSettings(s);
     setSettingsForm({
-      busFare: s.busFare, metroFare: s.metroFare, integratedFare: s.integratedFare,
-      monthlyPassBus: s.monthlyPassBus, monthlyPassIntegrated: s.monthlyPassIntegrated,
+      vtSecondPeriodStartDay: String(s.vtSecondPeriodStartDay),
       advancePercent: s.advancePercent, advanceDueDay: String(s.advanceDueDay),
-      salaryDueDay: String(s.salaryDueDay), bufferDays: String(s.bufferDays)
+      salaryDueDay: String(s.salaryDueDay)
     });
   }
 
   useEffect(() => { void load(); setPreview(null); }, [year, month]);
   useEffect(() => { getPayrollSettings().then(applySettings).catch(() => undefined); }, []);
+  useEffect(() => { void loadFares(); }, []);
+
+  async function loadFares() {
+    try {
+      // Inativas também: a tela de tarifas é onde se reativa uma (a EMTU nasce
+      // inativa, esperando o valor da linha).
+      setFares(await getVtFares(true));
+    } catch {
+      setFares([]);
+    }
+  }
+
+  function openFare(f: VtFare | null) {
+    setFareForm(f
+      ? { id: f.id, name: f.name, amount: moneyToMasked(f.amount), basis: f.basis, sundayAmount: f.sundayAmount == null ? "" : moneyToMasked(f.sundayAmount), isActive: f.isActive, notes: f.notes ?? "" }
+      : { ...emptyFareForm });
+  }
+
+  async function handleSaveFare() {
+    if (!fareForm) return;
+    if (!fareForm.name.trim()) return void setNotice({ tone: "error", message: "Informe o nome da tarifa." });
+    setBusy(true);
+    try {
+      const payload = {
+        name: fareForm.name.trim(),
+        amount: toNumStr(fareForm.amount) || "0",
+        basis: fareForm.basis,
+        sundayAmount: fareForm.sundayAmount.trim() === "" ? null : toNumStr(fareForm.sundayAmount),
+        isActive: fareForm.isActive,
+      };
+      if (fareForm.id) await updateVtFare(fareForm.id, payload);
+      else await createVtFare(payload);
+      await loadFares();
+      setFareForm(null);
+      setNotice({ tone: "success", message: "Tarifa salva." });
+    } catch (err) {
+      setNotice({ tone: "error", message: err instanceof Error ? err.message : "Erro ao salvar tarifa." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteFare(f: VtFare) {
+    if (!window.confirm(`Excluir a tarifa "${f.name}"?`)) return;
+    setBusy(true);
+    try {
+      await deleteVtFare(f.id);
+      await loadFares();
+      setNotice({ tone: "success", message: "Tarifa excluída." });
+    } catch (err) {
+      setNotice({ tone: "error", message: err instanceof Error ? err.message : "Erro ao excluir tarifa." });
+    } finally {
+      setBusy(false);
+    }
+  }
   useEffect(() => { getEmployees({}).then(setEmployees).catch(() => undefined); }, []);
 
   function openVacation() {
@@ -212,11 +307,11 @@ export function Folha() {
   // Folha de conferência do VT para levar ao pagamento — autocontida, via iframe.
   function handlePrintVt() {
     const linhas = vtDaQuinzena.map((i) => `<tr>
-      <td class="l">${i.employeeDisplayName?.trim() || i.employeeName}</td>
-      <td class="l">${i.sector ?? "—"}</td>
+      <td class="l">${escapeHtml(i.employeeDisplayName?.trim() || i.employeeName)}</td>
+      <td class="l">${escapeHtml(i.sector ?? "—")}</td>
       <td>${i.workedDays ?? "—"}</td>
       <td>${i.freeDays ?? "—"}</td>
-      <td>${i.creditApplied ? money(i.creditApplied) : "—"}</td>
+      <td>${periodRange(i)}</td>
       <td class="v">${money(i.amount)}</td>
       <td>${i.status === "PAID" ? "Pago" : "Em aberto"}</td>
     </tr>`).join("");
@@ -233,7 +328,7 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
 <h1>Vale-transporte — ${vtQuinzena}ª quinzena · ${MONTHS[month - 1]} ${year}</h1>
 <div class="sub">Pateo da Luz · ${vtDaQuinzena.length} funcionário(s)</div>
 <table>
-<thead><tr><th class="l">Funcionário</th><th class="l">Setor</th><th>Dias</th><th>Grátis</th><th>Crédito</th><th>Valor</th><th>Situação</th></tr></thead>
+<thead><tr><th class="l">Funcionário</th><th class="l">Setor</th><th>Dias</th><th>Grátis</th><th>Período</th><th>Valor</th><th>Situação</th></tr></thead>
 <tbody>${linhas}</tbody>
 <tfoot><tr><td class="l" colspan="5">Total da quinzena</td><td class="v">${money(vtTotal)}</td><td></td></tr></tfoot>
 </table>
@@ -273,18 +368,32 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
   }
 
   async function handleSaveSettings() {
+    // O backend ignora em silêncio um campo inválido (mantém o valor antigo).
+    // Sem esta guarda, a tela dizia "Configurações salvas" e o corte da quinzena
+    // seguia no valor velho — errando o período de 26 pessoas sem avisar ninguém.
+    const corte = Number(settingsForm.vtSecondPeriodStartDay);
+    const percent = Number(toNumStr(settingsForm.advancePercent));
+    const diaAdiant = Number(settingsForm.advanceDueDay);
+    const diaSalario = Number(settingsForm.salaryDueDay);
+    const erro =
+      !Number.isInteger(corte) || corte < 2 || corte > 28
+        ? "O dia de início da 2ª quinzena precisa estar entre 2 e 28."
+        : !Number.isFinite(percent) || percent < 0 || percent > 100
+          ? "O adiantamento precisa ser uma porcentagem entre 0 e 100."
+          : !Number.isInteger(diaAdiant) || diaAdiant < 1 || diaAdiant > 31
+            ? "O dia de vencimento do adiantamento precisa estar entre 1 e 31."
+            : !Number.isInteger(diaSalario) || diaSalario < 1 || diaSalario > 31
+              ? "O dia de vencimento do salário precisa estar entre 1 e 31."
+              : null;
+    if (erro) return void setNotice({ tone: "error", message: erro });
+
     setBusy(true);
     try {
       const saved = await savePayrollSettings({
-        busFare: toNumStr(settingsForm.busFare) as unknown as string,
-        metroFare: toNumStr(settingsForm.metroFare) as unknown as string,
-        integratedFare: toNumStr(settingsForm.integratedFare) as unknown as string,
-        monthlyPassBus: toNumStr(settingsForm.monthlyPassBus) as unknown as string,
-        monthlyPassIntegrated: toNumStr(settingsForm.monthlyPassIntegrated) as unknown as string,
+        vtSecondPeriodStartDay: Number(settingsForm.vtSecondPeriodStartDay) as unknown as number,
         advancePercent: toNumStr(settingsForm.advancePercent) as unknown as string,
         advanceDueDay: Number(settingsForm.advanceDueDay) as unknown as number,
-        salaryDueDay: Number(settingsForm.salaryDueDay) as unknown as number,
-        bufferDays: Number(settingsForm.bufferDays) as unknown as number
+        salaryDueDay: Number(settingsForm.salaryDueDay) as unknown as number
       });
       applySettings(saved);
       setNotice({ tone: "success", message: "Configurações salvas." });
@@ -368,30 +477,77 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
     const v = bruto == null || bruto.trim() === "" ? NaN : Number(toNumStr(bruto));
     return a + (Number.isFinite(v) && v > 0 ? v : i.amount);
   }, 0);
+  // Corte da quinzena. Sem settings carregado ainda, assume o padrão (16) em vez
+  // de classificar tudo como 2ª quinzena enquanto a requisição não volta.
+  const secondPeriodStartDay = settings?.vtSecondPeriodStartDay ?? 16;
+  const daysInSelectedMonth = new Date(year, month, 0).getDate();
+  const quinzenaHint = `1ª: 01 a ${String(secondPeriodStartDay - 1).padStart(2, "0")} · 2ª: ${String(secondPeriodStartDay).padStart(2, "0")} a ${daysInSelectedMonth}. O VT vence na véspera do início de cada período.`;
+
   // VT e folha são fechamentos independentes, e o VT ainda fecha por quinzena
   // (a 2ª só depois que a escala da segunda metade do mês está pronta).
   const novosVtDe = (q: 1 | 2) =>
-    itensDoEscopo.filter((i) => !i.exists && i.type === "VALE_TRANSPORTE" && (new Date(i.dueDate).getUTCDate() <= 15 ? 1 : 2) === q).length;
+    itensDoEscopo.filter((i) => !i.exists && i.type === "VALE_TRANSPORTE" && i.quinzena === q).length;
   const novosVtQ1 = novosVtDe(1);
   const novosVtQ2 = novosVtDe(2);
   const novosFolha = itensDoEscopo.filter((i) => !i.exists && (i.type === "ADIANTAMENTO" || i.type === "SALARIO")).length;
 
   // Conferência: VT já lançado da quinzena escolhida, ordenado por funcionário.
-  const quinzenaDe = (iso: string) => (new Date(iso).getUTCDate() <= 15 ? 1 : 2);
+  //
+  // A quinzena sai do INÍCIO DO PERÍODO, não do vencimento: o VT vence na
+  // véspera, então a 1ª quinzena vence no último dia do mês anterior — a regra
+  // antiga ("dia <= 15 é a primeira") classificaria esse dia 31 como segunda.
+  // Lançamentos antigos (jul/2026) não têm periodStart; para eles a regra antiga
+  // ainda vale, porque naquela época o vencimento era o 1º dia do período.
+  const quinzenaDe = (i: { periodStart: string | null; dueDate: string }) => {
+    const ref = i.periodStart ?? i.dueDate;
+    return new Date(ref).getUTCDate() < secondPeriodStartDay ? 1 : 2;
+  };
   const vtDaQuinzena = (list?.items ?? [])
-    .filter((i) => i.type === "VALE_TRANSPORTE" && quinzenaDe(i.dueDate) === vtQuinzena)
+    .filter((i) => i.type === "VALE_TRANSPORTE" && quinzenaDe(i) === vtQuinzena)
     .sort((a, b) => (a.employeeName || "").localeCompare(b.employeeName || "", "pt-BR"));
   const vtTotal = vtDaQuinzena.reduce((s, i) => s + Number(i.amount), 0);
   const vtPago = vtDaQuinzena.filter((i) => i.status === "PAID").reduce((s, i) => s + Number(i.paidAmount ?? i.amount), 0);
   const vtAberto = vtTotal - vtDaQuinzena.filter((i) => i.status === "PAID").reduce((s, i) => s + Number(i.amount), 0);
 
-  function periodCell(item: { periodLabel: string; workedDays: number | null; freeDays: number | null }) {
+  function periodCell(item: {
+    periodLabel: string;
+    workedDays: number | null;
+    freeDays: number | null;
+    details?: Record<string, unknown> | null;
+    faltaDeductions?: Array<{ date: string; amount: number; tipo: "FALTA" | "ATESTADO" }>;
+  }) {
+    // Faltas com abatimento ZERO existem (faltar num domingo, para quem só usa
+    // ônibus, não custa nada). Elas ficam registradas como quitadas, mas não têm
+    // o que mostrar aqui — "− R$ 0,00 · 1 falta" só confundiria a conferência.
+    const faltas = (item.faltaDeductions ?? []).filter((f) => f.amount > 0);
+    const totalFaltas = faltas.reduce((s, f) => s + f.amount, 0);
+    // Falta e atestado abatem igual (a pessoa não viajou), mas quem confere o
+    // pagamento precisa saber qual é qual sem ter de abrir a escala.
+    const detalheFaltas = faltas
+      .map((f) => `${fmtDayMonth(f.date)}${f.tipo === "ATESTADO" ? " (atestado)" : ""}`)
+      .join(", ");
+    // Vale zerado com dias trabalhados = trajeto em branco. O aviso geral fica no
+    // topo da prévia, longe da linha; sem esta marca o R$ 0,00 passa batido numa
+    // lista de 26 pessoas — foi assim que 5 vales sumiram em julho.
+    const semTrajeto = item.details?.trajeto === "sem trajeto cadastrado" && (item.workedDays ?? 0) > 0;
     return (
       <>
         <div>{item.periodLabel}</div>
         {item.workedDays != null && (
           <div style={{ fontSize: "0.8em", color: "var(--muted)" }}>
-            {item.workedDays} dia(s){item.freeDays ? ` · ${item.freeDays} c/ ônibus grátis` : ""}
+            {item.workedDays} dia(s){item.freeDays ? ` · ${item.freeDays} c/ tarifa zero` : ""}
+          </div>
+        )}
+        {semTrajeto && (
+          <div style={{ fontSize: "0.78em", color: "var(--danger, #b00)", fontWeight: 600 }}>
+            Sem trajeto cadastrado — cadastre a ida e a volta na ficha
+          </div>
+        )}
+        {/* O abatimento é de faltas de períodos JÁ PAGOS — precisa dizer quais
+            dias, senão o valor menor na tela vira mistério no dia do pagamento. */}
+        {faltas.length > 0 && (
+          <div style={{ fontSize: "0.78em", color: "var(--danger, #b00)", fontWeight: 600 }}>
+            − {money(totalFaltas)} · {faltas.length} ausência(s) já paga(s): {detalheFaltas}
           </div>
         )}
       </>
@@ -439,14 +595,11 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
         {/* Configurações */}
         {showSettings && settings && (
           <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14, margin: "0 0 14px" }}>
-            <PanelEyebrow>Tarifas e regras (configuráveis)</PanelEyebrow>
+            <PanelEyebrow>Regras (configuráveis)</PanelEyebrow>
             <FormGrid cols={4}>
-              <FormField label="Ônibus (R$)"><TextField value={settingsForm.busFare} onChange={(e) => setSettingsForm({ ...settingsForm, busFare: e.target.value })} inputMode="decimal" /></FormField>
-              <FormField label="Metrô (R$)"><TextField value={settingsForm.metroFare} onChange={(e) => setSettingsForm({ ...settingsForm, metroFare: e.target.value })} inputMode="decimal" /></FormField>
-              <FormField label="Integração (R$)"><TextField value={settingsForm.integratedFare} onChange={(e) => setSettingsForm({ ...settingsForm, integratedFare: e.target.value })} inputMode="decimal" /></FormField>
-              <FormField label="Bilhete Único Mensal — ônibus (R$)"><TextField value={settingsForm.monthlyPassBus} onChange={(e) => setSettingsForm({ ...settingsForm, monthlyPassBus: e.target.value })} inputMode="decimal" /></FormField>
-              <FormField label="Bilhete Único Mensal — integrado (R$)"><TextField value={settingsForm.monthlyPassIntegrated} onChange={(e) => setSettingsForm({ ...settingsForm, monthlyPassIntegrated: e.target.value })} inputMode="decimal" /></FormField>
-              <FormField label="Dias de sobra (VT)"><TextField value={settingsForm.bufferDays} onChange={(e) => setSettingsForm({ ...settingsForm, bufferDays: e.target.value.replace(/\D/g, "") })} inputMode="numeric" /></FormField>
+              <FormField label="2ª quinzena começa no dia" hint={quinzenaHint}>
+                <TextField value={settingsForm.vtSecondPeriodStartDay} onChange={(e) => setSettingsForm({ ...settingsForm, vtSecondPeriodStartDay: e.target.value.replace(/\D/g, "").slice(0, 2) })} inputMode="numeric" />
+              </FormField>
               <FormField label="Adiantamento (%)"><TextField value={settingsForm.advancePercent} onChange={(e) => setSettingsForm({ ...settingsForm, advancePercent: e.target.value })} inputMode="decimal" /></FormField>
               <FormField label="Vencimento adiantamento (dia)"><TextField value={settingsForm.advanceDueDay} onChange={(e) => setSettingsForm({ ...settingsForm, advanceDueDay: e.target.value.replace(/\D/g, "") })} inputMode="numeric" /></FormField>
               <FormField label="Vencimento salário (dia mês seguinte)"><TextField value={settingsForm.salaryDueDay} onChange={(e) => setSettingsForm({ ...settingsForm, salaryDueDay: e.target.value.replace(/\D/g, "") })} inputMode="numeric" /></FormField>
@@ -454,6 +607,111 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
             <div className="form-actions">
               <Button variant="secondary" onClick={() => setShowSettings(false)}>Fechar</Button>
               {canEdit && <Button onClick={handleSaveSettings} disabled={busy}>Salvar configurações</Button>}
+            </div>
+
+            <div style={{ borderTop: "1px solid var(--border)", marginTop: 16, paddingTop: 14 }}>
+              <PanelEyebrow>Tarifas de transporte</PanelEyebrow>
+              <div style={{ fontSize: "0.82em", color: "var(--muted)", margin: "4px 0 10px" }}>
+                Cada condução que alguém paga é uma tarifa aqui. O trajeto de cada funcionário (ida e volta)
+                é montado com elas na ficha dele. Mudar um valor muda o VT de todo mundo que usa a tarifa.
+              </div>
+              <Table>
+                <Table.Head>
+                  <Table.Row>
+                    <Table.Th>Tarifa</Table.Th>
+                    <Table.Th align="right">Valor</Table.Th>
+                    <Table.Th>Gratuidade</Table.Th>
+                    <Table.Th>Em uso</Table.Th>
+                    <Table.Th>Situação</Table.Th>
+                    <Table.Th actions />
+                  </Table.Row>
+                </Table.Head>
+                <Table.Body>
+                  {fares.map((f) => {
+                    const emUso = f.inUseBy ?? 0;
+                    const semValor = Number(f.amount) <= 0;
+                    // Tarifa desligada que alguém ainda usa é uma armadilha: o
+                    // trajeto continua apontando para ela e o vale sai a menos.
+                    const inativaEmUso = !f.isActive && emUso > 0;
+                    return (
+                      <Table.Row key={f.id} style={f.isActive ? undefined : { opacity: 0.6 }}>
+                        <Table.Td>
+                          <div style={{ fontWeight: 600 }}>{f.name}</div>
+                          {semValor && (
+                            <div style={{ fontSize: "0.78em", color: "var(--danger, #b00)" }}>
+                              Preencha o valor antes de usar
+                            </div>
+                          )}
+                          {inativaEmUso && (
+                            <div style={{ fontSize: "0.78em", color: "var(--danger, #b00)" }}>
+                              Inativa, mas ainda no trajeto de {emUso} funcionário(s)
+                            </div>
+                          )}
+                        </Table.Td>
+                        <Table.Td align="right" style={{ whiteSpace: "nowrap" }}>
+                          {semValor ? <span style={{ color: "var(--danger, #b00)" }}>—</span> : <strong>{money(f.amount)}</strong>}
+                          <div style={{ fontSize: "0.78em", color: "var(--muted)" }}>
+                            {f.basis === "MENSAL" ? "por mês" : "por viagem"}
+                          </div>
+                        </Table.Td>
+                        <Table.Td style={{ whiteSpace: "nowrap" }}>{gratuidadeLabel(f)}</Table.Td>
+                        <Table.Td style={{ whiteSpace: "nowrap" }}>
+                          {emUso === 0 ? <span style={{ color: "var(--muted)" }}>ninguém</span> : `${emUso} func.`}
+                        </Table.Td>
+                        <Table.Td><StatusBadge tone={f.isActive ? "success" : "neutral"}>{f.isActive ? "Ativa" : "Inativa"}</StatusBadge></Table.Td>
+                        <Table.Td actions>
+                          {canEdit && (
+                            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                              <IconButton size="sm" label={`Editar ${f.name}`} icon={<Pencil size={14} />} onClick={() => openFare(f)} />
+                              <IconButton size="sm" variant="danger" label={`Excluir ${f.name}`} icon={<Trash2 size={14} />} onClick={() => void handleDeleteFare(f)} />
+                            </div>
+                          )}
+                        </Table.Td>
+                      </Table.Row>
+                    );
+                  })}
+                </Table.Body>
+              </Table>
+              {canEdit && (
+                <div style={{ marginTop: 10 }}>
+                  <Button variant="secondary" onClick={() => openFare(null)}>Nova tarifa</Button>
+                </div>
+              )}
+
+              {fareForm && (
+                <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 12, marginTop: 12 }}>
+                  <PanelEyebrow>{fareForm.id ? "Editar tarifa" : "Nova tarifa"}</PanelEyebrow>
+                  <FormGrid cols={3}>
+                    <FormField label="Nome" required>
+                      <TextField value={fareForm.name} onChange={(e) => setFareForm({ ...fareForm, name: e.target.value })} placeholder="Ex.: EMTU Carapicuíba – SP" />
+                    </FormField>
+                    <FormField label="Valor (R$)" required>
+                      <TextField value={fareForm.amount} onChange={(e) => setFareForm({ ...fareForm, amount: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" />
+                    </FormField>
+                    <FormField label="Cobrança" hint="mensal = valor fechado, não depende de dias">
+                      <Select value={fareForm.basis} onChange={(e) => setFareForm({ ...fareForm, basis: e.target.value as VtFareBasis })} options={[{ value: "VIAGEM", label: "Por viagem" }, { value: "MENSAL", label: "Mensal (bilhete)" }]} />
+                    </FormField>
+                    <FormField
+                      label="Valor no domingo (R$)"
+                      hint="Vazio = cobra normal. 0,00 = grátis. Vale também em 01/01, 25/01 e 25/12."
+                    >
+                      <TextField
+                        value={fareForm.sundayAmount}
+                        onChange={(e) => setFareForm({ ...fareForm, sundayAmount: maskMoney(e.target.value) })}
+                        placeholder="cobra normal"
+                        inputMode="numeric"
+                      />
+                    </FormField>
+                    <FormField label="Situação">
+                      <Select value={fareForm.isActive ? "1" : "0"} onChange={(e) => setFareForm({ ...fareForm, isActive: e.target.value === "1" })} options={[{ value: "1", label: "Ativa" }, { value: "0", label: "Inativa" }]} />
+                    </FormField>
+                  </FormGrid>
+                  <div className="form-actions">
+                    <Button variant="secondary" onClick={() => setFareForm(null)}>Cancelar</Button>
+                    <Button onClick={() => void handleSaveFare()} disabled={busy}>Salvar tarifa</Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -505,7 +763,7 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                     <Table.Th>Setor</Table.Th>
                     <Table.Th>Dias</Table.Th>
                     <Table.Th>Grátis</Table.Th>
-                    <Table.Th>Crédito</Table.Th>
+                    <Table.Th>Período</Table.Th>
                     <Table.Th>Valor</Table.Th>
                     <Table.Th>Situação</Table.Th>
                   </Table.Row>
@@ -513,11 +771,18 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                 <Table.Body>
                   {vtDaQuinzena.map((i) => (
                     <Table.Row key={i.id}>
-                      <Table.Td><strong>{i.employeeDisplayName?.trim() || i.employeeName}</strong></Table.Td>
+                      <Table.Td>
+                        <strong>{i.employeeDisplayName?.trim() || i.employeeName}</strong>
+                        {/* Vale zerado com dias trabalhados e lançado: é a lista que vai
+                            para o pagamento, então o motivo tem que estar AQUI. */}
+                        {Number(i.amount) === 0 && (i.workedDays ?? 0) > 0 && (
+                          <div style={{ fontSize: "0.78em", color: "var(--danger, #b00)", fontWeight: 600 }}>Vale zerado — confira o trajeto na ficha</div>
+                        )}
+                      </Table.Td>
                       <Table.Td>{i.sector ?? "—"}</Table.Td>
                       <Table.Td>{i.workedDays ?? "—"}</Table.Td>
                       <Table.Td>{i.freeDays ?? "—"}</Table.Td>
-                      <Table.Td>{i.creditApplied ? money(i.creditApplied) : "—"}</Table.Td>
+                      <Table.Td style={{ whiteSpace: "nowrap" }}>{periodRange(i)}</Table.Td>
                       <Table.Td style={{ whiteSpace: "nowrap", fontWeight: 600 }}><Money value={i.amount} /></Table.Td>
                       <Table.Td>
                         <StatusBadge tone={i.status === "PAID" ? "success" : i.status === "OVERDUE" ? "danger" : "warning"}>
@@ -599,7 +864,7 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                       <Table.Row key={idx} style={i.exists ? { opacity: 0.5 } : undefined}>
                         <Table.Td><strong>{i.employeeName}</strong><NickTag nick={i.employeeDisplayName} />{i.sector ? <div style={{ fontSize: "0.8em", color: "var(--muted)" }}>{i.sector}</div> : null}</Table.Td>
                         <Table.Td><StatusBadge tone={TYPE_TONE[i.type]}>{TYPE_LABELS[i.type]}</StatusBadge></Table.Td>
-                        <Table.Td>{periodCell(i)}{i.creditApplied ? <div style={{ fontSize: "0.78em", color: "var(--muted)" }}>+{money(i.bufferAmount)} sobra − {money(i.creditApplied)} crédito</div> : null}</Table.Td>
+                        <Table.Td>{periodCell(i)}</Table.Td>
                         <Table.Td style={{ whiteSpace: "nowrap" }}>{fmtDate(i.dueDate)}</Table.Td>
                         <Table.Td style={{ whiteSpace: "nowrap", fontWeight: 500 }}>
                           {i.exists ? (
@@ -724,7 +989,7 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                       <Table.Th>Setor</Table.Th>
                       <Table.Th>Dias</Table.Th>
                       <Table.Th>Grátis</Table.Th>
-                      <Table.Th>Crédito</Table.Th>
+                      <Table.Th>Período</Table.Th>
                       <Table.Th>Valor</Table.Th>
                       <Table.Th>Situação</Table.Th>
                     </Table.Row>
@@ -732,11 +997,18 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                   <Table.Body>
                     {vtDaQuinzena.map((i) => (
                       <Table.Row key={i.id}>
-                        <Table.Td><strong>{i.employeeDisplayName?.trim() || i.employeeName}</strong></Table.Td>
+                        <Table.Td>
+                        <strong>{i.employeeDisplayName?.trim() || i.employeeName}</strong>
+                        {/* Vale zerado com dias trabalhados e lançado: é a lista que vai
+                            para o pagamento, então o motivo tem que estar AQUI. */}
+                        {Number(i.amount) === 0 && (i.workedDays ?? 0) > 0 && (
+                          <div style={{ fontSize: "0.78em", color: "var(--danger, #b00)", fontWeight: 600 }}>Vale zerado — confira o trajeto na ficha</div>
+                        )}
+                      </Table.Td>
                         <Table.Td>{i.sector ?? "—"}</Table.Td>
                         <Table.Td>{i.workedDays ?? "—"}</Table.Td>
                         <Table.Td>{i.freeDays ?? "—"}</Table.Td>
-                        <Table.Td>{i.creditApplied ? money(i.creditApplied) : "—"}</Table.Td>
+                        <Table.Td style={{ whiteSpace: "nowrap" }}>{periodRange(i)}</Table.Td>
                         <Table.Td style={{ whiteSpace: "nowrap", fontWeight: 600 }}><Money value={i.amount} /></Table.Td>
                         <Table.Td>
                           <StatusBadge tone={i.status === "PAID" ? "success" : i.status === "OVERDUE" ? "danger" : "warning"}>
