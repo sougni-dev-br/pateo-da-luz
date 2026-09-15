@@ -1970,6 +1970,13 @@ export type DashboardData = {
     count: number;
     byChannel: Array<{ channel: string; grossAmount: number; netAmount: number; tickets: number; count: number }>;
   };
+  // Totais do periodo inteiro, para o percentual de cada linha nao ser calculado
+  // sobre o top 10 exibido. `unitemizedTotal` e o quanto as notas cobram alem do
+  // que os itens explicam — aparece como a linha "Sem itemização" em byCategory.
+  bySupplierTotal?: number;
+  byCategoryTotal?: number;
+  byProductTotal?: number;
+  unitemizedTotal?: number;
   bySupplier: Array<{ name: string; total: number }>;
   byCategory: Array<{ name: string; total: number }>;
   byProduct: Array<{ name: string; total: number; quantity: number }>;

@@ -9,6 +9,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import crypto from "node:crypto";
+import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
 
 export type ClosingBlockKey =
   | `supplier:${string}`
@@ -271,10 +272,14 @@ export async function comprasSemItem(year: number, month: number) {
 }
 
 async function getPurchasesSummary(year: number, month: number) {
+  // O mesmo agregador que comprasSemItem (logo acima) ja sabia nao ser nota
+  // precisa sair tambem daqui: somar o totalAmount dele repete a despesa que as
+  // compras individuais do ciclo ja trouxeram. Ver purchase-aggregators.ts.
   const [total] = await prisma.$queryRaw<Array<{ total: any; count: any }>>`
     SELECT COALESCE(SUM("totalAmount"), 0) AS "total", COUNT(*) AS "count"
     FROM "Purchase"
     WHERE "competenceYear" = ${year} AND "competenceMonth" = ${month} AND "status" = 'ACTIVE'
+      AND ${excludeAggregatorsSql()}
   `;
   const byCategory = await prisma.$queryRaw<Array<{ categoryName: string | null; total: any; count: any }>>`
     SELECT COALESCE(dc."name", 'Sem categoria DRE') AS "categoryName",
@@ -330,6 +335,10 @@ async function getRequiredSuppliersStatus(year: number, month: number) {
     WHERE "competenceYear" = ${year} AND "competenceMonth" = ${month}
       AND "status" = 'ACTIVE'
       AND "supplierId" = ANY(${suppliers.map(s => s.id)})
+      -- Sem o filtro, o fornecedor de ciclo aparecia no checklist com o dobro do
+      -- que forneceu. A presenca dele continua detectada pelas notas individuais,
+      -- que sao justamente o que o ciclo agrupa.
+      AND ${excludeAggregatorsSql()}
     GROUP BY "supplierId"
   `;
   const totalMap = new Map<string, { total: number; count: number }>();
