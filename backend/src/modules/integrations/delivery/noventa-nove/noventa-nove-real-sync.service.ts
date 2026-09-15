@@ -9,6 +9,13 @@ import {
 import { hasValidCredential } from "./noventa-nove-http-client.js";
 import { assertPeriodWritableForDate } from "../../../cmv-real/cmv-real.service.js";
 import { upsertReceivableFromNoventaNoveSettlement } from "../../../receivables/receivable.service.js";
+import {
+  edgeBillsWindow,
+  parseYmd,
+  settlementEndsInMonth,
+  settlementSearchWindows,
+  type YmdWindow
+} from "./noventa-nove-settlement-period.js";
 
 // Sync real 99 Food — reconcilia o financeiro da Financial API com o que o
 // webhook orderNew já gravou em NoventaNoveSale.
@@ -45,10 +52,6 @@ const PLACEHOLDER_PREFIX = "PENDENTE-";
 // (grocery, não se aplica ao restaurante — ignorado).
 const BILL_ORDER_TYPE_REVENUE = 1;
 const BILL_REFUND_ORDER_TYPES = new Set<number>([2, 3, 4]);
-
-// Repasses são semanais e podem começar até ~1 semana antes do mês pedido.
-// Buscamos essa borda anterior só pra compor bruto/taxas do repasse.
-const SETTLEMENT_EDGE_DAYS = 8;
 
 // Fuso do restaurante (BRT, sem DST). Mantém o dia-calendário consistente em
 // todo o arquivo — datas da 99 e "hoje" são tratados como BRT.
@@ -96,23 +99,6 @@ function endDayYmdCapped(year: number, month: number): string {
   const isCurrentMonth = nowBrt.getUTCFullYear() === year && nowBrt.getUTCMonth() + 1 === month;
   const day = isCurrentMonth ? Math.min(nowBrt.getUTCDate(), lastDay) : lastDay;
   return `${year}${String(month).padStart(2, "0")}${String(day).padStart(2, "0")}`;
-}
-
-// "YYYYMMDD" → Date (UTC meia-noite).
-function parseYmd(ymd: string | undefined, fallback: Date): Date {
-  if (ymd && /^\d{8}$/.test(ymd)) {
-    return new Date(Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(4, 6)) - 1, Number(ymd.slice(6, 8))));
-  }
-  return fallback;
-}
-
-function toYmd(date: Date): string {
-  return `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}`;
-}
-
-function ymdMinusDays(ymd: string, days: number): string {
-  const base = parseYmd(ymd, new Date());
-  return toYmd(new Date(base.getTime() - days * 86_400_000));
 }
 
 // businessDateTime "YYYY-MM-DD HH:mm:ss" (horário local BRT, sem offset) →
@@ -223,6 +209,25 @@ function composeSettlementTotals(
   return { grossAmount: round2(gross), totalFees: round2(Math.abs(fees)), complete };
 }
 
+// Busca os repasses do mes em duas janelas — a do proprio mes e uma curta em
+// volta da virada, que e a unica em que o repasse vindo do mes anterior cabe
+// inteiro. Alargar a janela do mes nao resolveria: a 99 recusa consulta com mais
+// de 31 dias. Dedup por weekPaymentId porque um repasse pode cair nas duas.
+async function fetchSettlementsForMonth(
+  appShopId: string,
+  monthPeriod: YmdWindow
+): Promise<NoventaNoveSettlement[]> {
+  const porId = new Map<string, NoventaNoveSettlement>();
+  for (const window of settlementSearchWindows(monthPeriod)) {
+    const lote = await getSettlements({ appShopId, ...window });
+    for (const settle of lote) {
+      if (!settle.weekPaymentId) continue;
+      porId.set(settle.weekPaymentId, settle);
+    }
+  }
+  return [...porId.values()];
+}
+
 async function persistSettlements(
   store: { id: string; nickname: string; companyId: string | null },
   settlements: NoventaNoveSettlement[],
@@ -246,6 +251,11 @@ async function persistSettlements(
     if (!settle.weekPaymentId) continue;
     const periodStart = parseYmd(settle.settleStartDate, fallbackStart);
     const periodEnd = parseYmd(settle.settleEndDate, fallbackEnd);
+    // A janela de busca recua uma semana para alcancar o repasse da virada, entao
+    // ela tambem devolve repasses inteiros do mes anterior. Esses ja foram gravados
+    // pelo sync do proprio mes, com todos os bills a mao; regravar aqui so pioraria
+    // (bills incompletos viram bruto = liquido e taxa zero) e mexeria num mes fechado.
+    if (!settlementEndsInMonth(periodEnd, year, month)) continue;
     const netAmount = cents(settle.withdrawAmount);
     const paidAt = settle.withdrawDate ? new Date(settle.withdrawDate) : null;
     const { grossAmount, totalFees, complete } = composeSettlementTotals(settle, billsByDayPayment);
@@ -604,8 +614,7 @@ async function syncEligibleStore(
     try {
       edgeBills = await getBillDetails({
         appShopId: store.externalId,
-        startDate: ymdMinusDays(monthPeriod.startDate, SETTLEMENT_EDGE_DAYS),
-        endDate: ymdMinusDays(monthPeriod.startDate, 1)
+        ...edgeBillsWindow(monthPeriod.startDate)
       });
     } catch {
       /* borda é best-effort */
@@ -623,7 +632,7 @@ async function syncEligibleStore(
   let settlementsCount = 0;
   let settlementsIncomplete = 0;
   try {
-    const settlements = await getSettlements({ appShopId: store.externalId, ...monthPeriod });
+    const settlements = await fetchSettlementsForMonth(store.externalId, monthPeriod);
     const r = await persistSettlements(store, settlements, settlementBills, year, month);
     settlementsCount = r.count;
     settlementsIncomplete = r.incomplete;
