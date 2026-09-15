@@ -5912,10 +5912,67 @@ export type DocIntakePreview = {
   falhas: Array<{ arquivo: string; erro: string }>;
 };
 
-export function previewDocumentos(arquivos: Array<{ nome: string; base64: string }>) {
-  return request<DocIntakePreview>("/doc-intake/preview", {
+/** Progresso da leitura, emitido pelo servidor conforme cada arquivo é lido. */
+export type DocIntakeProgresso =
+  | { tipo: "inicio"; total: number }
+  | { tipo: "arquivo"; indice: number; nome: string; situacao: "lendo" | "lido" | "falhou"; erro?: string }
+  | { tipo: "etapa"; descricao: string };
+
+/**
+ * Lê documentos acompanhando o progresso.
+ *
+ * A resposta vem em NDJSON (uma linha JSON por evento) porque a leitura leva
+ * dezenas de segundos: esperar o JSON inteiro deixaria a tela muda o tempo todo.
+ */
+export async function previewDocumentos(
+  arquivos: Array<{ nome: string; base64: string }>,
+  aoProgredir?: (evento: DocIntakeProgresso) => void,
+): Promise<DocIntakePreview> {
+  const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const resposta = await fetch(`${API_BASE_URL}/doc-intake/preview`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ arquivos })
+    headers,
+    body: JSON.stringify({ arquivos }),
   });
+
+  if (!resposta.ok) {
+    const corpo = await resposta.json().catch(() => null);
+    throw new ApiError(corpo?.message ?? `Falha na leitura (HTTP ${resposta.status}).`, resposta.status, corpo ?? undefined);
+  }
+  if (!resposta.body) throw new Error("O navegador não entregou a resposta da leitura.");
+
+  const leitor = resposta.body.getReader();
+  const decodificador = new TextDecoder();
+  let pendente = "";
+  let resultado: DocIntakePreview | null = null;
+
+  const processarLinha = (linha: string) => {
+    const texto = linha.trim();
+    if (!texto) return;
+    const evento = JSON.parse(texto) as DocIntakeProgresso | { tipo: "fim" } & DocIntakePreview | { tipo: "erro"; mensagem: string };
+    if (evento.tipo === "fim") {
+      const { tipo, ...dados } = evento as { tipo: string } & DocIntakePreview;
+      resultado = dados;
+      return;
+    }
+    if (evento.tipo === "erro") throw new Error((evento as { mensagem: string }).mensagem);
+    aoProgredir?.(evento as DocIntakeProgresso);
+  };
+
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    pendente += decodificador.decode(value, { stream: true });
+    // A última parte pode estar cortada no meio: fica para o próximo pedaço.
+    const linhas = pendente.split("\n");
+    pendente = linhas.pop() ?? "";
+    for (const linha of linhas) processarLinha(linha);
+  }
+  if (pendente.trim()) processarLinha(pendente);
+
+  if (!resultado) throw new Error("A leitura terminou sem devolver o resultado.");
+  return resultado;
 }

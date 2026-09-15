@@ -24,7 +24,7 @@ const SESSAO = {
 
 const FORNECEDORES = [{ id: "sup-1", name: "CONTROLID INDUSTRIA" }] as unknown as Supplier[];
 const EMPRESAS = [{ id: "emp-1", tradeName: "Pateo da Luz Frei" }] as unknown as Company[];
-const FORMAS = [{ id: "pm-1", name: "BOLETO" }] as unknown as PaymentMethod[];
+const FORMAS = [{ id: "pm-1", name: "BOLETO" }, { id: "pm-pix", name: "PIX" }] as unknown as PaymentMethod[];
 
 // Produto real de despesa, com a categoria que o ERP usa no DRE.
 const PRODUTO_TI = {
@@ -70,6 +70,7 @@ function montar(over: Partial<DocIntakeTitulo> = {}) {
       <HideValuesProvider>
         <DocIntakeTituloCard
           titulo={titulo(over)}
+          arquivos={[]}
           fornecedores={FORNECEDORES}
           empresas={EMPRESAS}
           formasPagamento={FORMAS}
@@ -244,7 +245,7 @@ describe("Conferência — título parcelado", () => {
 
   test("mostra uma linha por boleto, com o arquivo de origem", () => {
     montar(PARCELADO);
-    expect(screen.getByText(/Parcelas \(3\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 parcelas/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Vencimento da parcela 3/i)).toHaveValue("2026-12-15");
     expect(screen.getByText("b2.pdf")).toBeInTheDocument();
   });
@@ -275,10 +276,32 @@ describe("Conferência — título parcelado", () => {
     expect(botaoLancar()).toBeDisabled();
   });
 
-  test("dá para remover uma parcela que não era daquele título", () => {
+  test("mudar a quantidade refaz a grade, como no lançamento normal", () => {
+    // Na tela de Compras é assim que se ajusta: a quantidade manda, e o valor
+    // é redividido. Não há lixeira por parcela.
     montar(PARCELADO);
-    fireEvent.click(screen.getByLabelText(/Remover parcela 3/i));
-    expect(screen.getByText(/Parcelas \(2\)/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Quantidade de parcelas/i), { target: { value: "2" } });
+
+    expect(screen.getByLabelText(/Valor da parcela 1/i)).toHaveValue("1500");
+    expect(screen.getByLabelText(/Valor da parcela 2/i)).toHaveValue("1500");
+    expect(screen.queryByLabelText(/Valor da parcela 3/i)).not.toBeInTheDocument();
+  });
+
+  test("os vencimentos são espaçados a partir do primeiro", () => {
+    montar(PARCELADO);
+    fireEvent.change(screen.getByLabelText(/Quantidade de parcelas/i), { target: { value: "2" } });
+
+    expect(screen.getByLabelText(/Vencimento da parcela 1/i)).toHaveValue("2026-10-15");
+    expect(screen.getByLabelText(/Vencimento da parcela 2/i)).toHaveValue("2026-11-14");
+  });
+
+  test("forma que não parcela volta para parcela única", () => {
+    // PIX com 3 parcelas seria recusado pelo backend: a tela corrige antes.
+    montar(PARCELADO);
+    fireEvent.change(screen.getByLabelText(/Forma de pagamento/i), { target: { value: "pm-pix" } });
+
+    expect(screen.queryByLabelText(/Valor da parcela 2/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Quantidade de parcelas/i)).toBeDisabled();
   });
 });
 
