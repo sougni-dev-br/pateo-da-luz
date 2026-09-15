@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "vitest",
+    "dev:qa": "vite --mode qa --port 5175"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.17",
