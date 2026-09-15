@@ -1,12 +1,18 @@
-import { AlertTriangle, CheckCircle2, FileText, Loader2, Plus, ScanLine, Trash2 } from "lucide-react";
+import { CheckCircle2, FileText, Loader2, Plus, ScanLine, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createPurchase, type Company, type DocIntakeProdutoSugerido, type DocIntakeSugestaoLinha, type DocIntakeTitulo, type PaymentMethod, type Product, type Supplier } from "../api/client";
-import { Alert, Button, FormGrid, Select, StatusBadge, TextField } from "../design-system";
+import { Button, FormGrid, Select, StatusBadge, TextField } from "../design-system";
+import { AvisosDoTitulo } from "./AvisosDoTitulo";
 import { ParcelasEditor, type LinhaParcela } from "./ParcelasEditor";
 import { SeletorProduto } from "./SeletorProduto";
+import { VisualizadorDocumento, type DocumentoVisivel } from "./VisualizadorDocumento";
+
+import "./DocIntake.css";
 
 type Props = {
   titulo: DocIntakeTitulo;
+  /** Os arquivos deste titulo, para ficarem a vista durante a conferencia. */
+  arquivos: DocumentoVisivel[];
   fornecedores: Supplier[];
   empresas: Company[];
   formasPagamento: PaymentMethod[];
@@ -74,7 +80,7 @@ function sugestaoOferecida(sugestao: DocIntakeSugestaoLinha | undefined) {
  * documento vira uma linha aqui, para o total dos itens bater com o da nota
  * (o backend recusa a compra se divergir).
  */
-export function DocIntakeTituloCard({ titulo, fornecedores, empresas, formasPagamento, onLancado, onErro }: Props) {
+export function DocIntakeTituloCard({ titulo, arquivos, fornecedores, empresas, formasPagamento, onLancado, onErro }: Props) {
   const [supplierId, setSupplierId] = useState(titulo.fornecedor.cadastrado ? titulo.fornecedor.id : "");
   const [companyId, setCompanyId] = useState(titulo.empresa?.id ?? "");
   const [numeroNota, setNumeroNota] = useState(titulo.numeroDocumento ?? "");
@@ -212,28 +218,35 @@ export function DocIntakeTituloCard({ titulo, fornecedores, empresas, formasPaga
   }
 
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+    <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 16 }}>
+      <div className="doc-conferencia">
+        {/* O documento fica do lado esquerdo, fixo na rolagem: a conferencia e
+            comparar o que esta na tela com o que esta no papel. */}
+        <div className="doc-conferencia__documento">
+          <VisualizadorDocumento documentos={arquivos} />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <StatusBadge tone={bloqueios.length > 0 ? "danger" : "success"}>{titulo.tipoPrincipal}</StatusBadge>
         {titulo.documentos.length > 1 && (
           <StatusBadge tone="info"><FileText size={12} /> {titulo.documentos.length} arquivos = 1 título</StatusBadge>
         )}
         {titulo.lidoPorImagem && <StatusBadge tone="warning"><ScanLine size={12} /> lido da imagem</StatusBadge>}
-        <span style={{ color: "var(--muted)", fontSize: 12 }}>{titulo.documentos.join(" + ")}</span>
       </div>
 
-      {bloqueios.map((aviso) => (
-        <Alert key={aviso.codigo} tone="error"><strong>{aviso.codigo}:</strong> {aviso.mensagem}</Alert>
-      ))}
-      {atencoes.map((aviso) => <Alert key={aviso.codigo} tone="warning">{aviso.mensagem}</Alert>)}
+      {/* O valor e o primeiro numero que se confere: ganha o peso visual. */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <span className="doc-valor-destaque">{dinheiro(valorDocumento)}</span>
+        <span style={{ color: "var(--muted)", fontSize: 12 }}>
+          lido no documento{titulo.numeroDocumento ? ` · nº ${titulo.numeroDocumento}` : ""}
+        </span>
+      </div>
 
-      {titulo.duplicatas.length > 0 && (
-        <Alert tone="warning">
-          <AlertTriangle size={14} /> Títulos parecidos já lançados:{" "}
-          {titulo.duplicatas.map((duplicata) => `${duplicata.invoiceNumber ?? "sem nº"} (R$ ${duplicata.totalAmount})`).join(", ")}
-        </Alert>
-      )}
+      <AvisosDoTitulo avisos={titulo.avisos} duplicatas={titulo.duplicatas} />
 
+      <div className="doc-secao">
+        <span className="doc-secao__titulo">Identificação</span>
       <FormGrid cols={3}>
         <Select
           label="Fornecedor" value={supplierId} onChange={(evento) => setSupplierId(evento.target.value)}
@@ -252,21 +265,17 @@ export function DocIntakeTituloCard({ titulo, fornecedores, empresas, formasPaga
 
       <FormGrid cols={2}>
         <TextField label="Emissão" type="date" value={emissao} onChange={(evento) => setEmissao(evento.target.value)} />
-        <Select
-          label="Forma de pagamento" value={paymentMethodId} onChange={(evento) => setPaymentMethodId(evento.target.value)}
-          placeholder="Selecione…"
-          options={formasPagamento.map((forma) => ({ value: forma.id, label: forma.name }))}
-        />
       </FormGrid>
+      </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <strong style={{ fontSize: 13 }}>Itens da nota</strong>
+      <div className="doc-secao">
+        <span className="doc-secao__titulo">Itens da nota</span>
         <span style={{ fontSize: 12, color: "var(--muted)" }}>
           Escolha o produto de cada linha — categoria e subcategoria vêm dele automaticamente.
         </span>
 
         {linhas.map((linha, indice) => (
-          <div key={indice} style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) 80px 110px 110px 32px", gap: 8, alignItems: "start", borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+          <div key={indice} className="doc-item-linha">
             <div style={{ minWidth: 0 }}>
               {linha.descricaoLida && (
                 <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
@@ -280,18 +289,20 @@ export function DocIntakeTituloCard({ titulo, fornecedores, empresas, formasPaga
                 onSelecionar={(produto) => alterarLinha(indice, { produto })}
               />
             </div>
+            <div className="doc-item-linha__numeros">
             <TextField label={indice === 0 ? "Qtd" : undefined} aria-label={`Quantidade da linha ${indice + 1}`}
               value={linha.quantidade} onChange={(evento) => alterarLinha(indice, { quantidade: evento.target.value })} />
             <TextField label={indice === 0 ? "Unitário" : undefined} aria-label={`Preço unitário da linha ${indice + 1}`}
               value={linha.precoUnitario} onChange={(evento) => alterarLinha(indice, { precoUnitario: evento.target.value })} />
-            <div style={{ paddingTop: indice === 0 ? 26 : 6, fontSize: 13, fontWeight: 600, textAlign: "right" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, textAlign: "right", paddingBottom: 8 }}>
               {dinheiro(numero(linha.quantidade) * numero(linha.precoUnitario))}
             </div>
             <button type="button" title="Remover linha" disabled={linhas.length === 1}
               onClick={() => setLinhas((atual) => atual.filter((_, i) => i !== indice))}
-              style={{ marginTop: indice === 0 ? 26 : 6, border: "none", background: "transparent", cursor: linhas.length === 1 ? "not-allowed" : "pointer", color: "var(--muted)" }}>
+              style={{ marginBottom: 8, border: "none", background: "transparent", cursor: linhas.length === 1 ? "not-allowed" : "pointer", color: "var(--muted)" }}>
               <Trash2 size={14} />
             </button>
+            </div>
           </div>
         ))}
 
@@ -302,7 +313,7 @@ export function DocIntakeTituloCard({ titulo, fornecedores, empresas, formasPaga
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, borderTop: "1px solid var(--border)", paddingTop: 8, fontSize: 13, flexWrap: "wrap" }}>
-          <span style={{ color: "var(--muted)" }}>Valor lido no documento: <strong>{dinheiro(valorDocumento)}</strong></span>
+          <span style={{ color: "var(--muted)" }}>Documento: <strong>{dinheiro(valorDocumento)}</strong></span>
           <span style={{ color: totalBate ? "inherit" : "var(--danger, #c00)", fontWeight: 600 }}>
             Total dos itens: {dinheiro(totalItens)}
             {!totalBate && ` · diferença de ${dinheiro(Math.abs(diferenca))}`}
@@ -310,7 +321,16 @@ export function DocIntakeTituloCard({ titulo, fornecedores, empresas, formasPaga
         </div>
       </div>
 
-      <ParcelasEditor parcelas={parcelas} totalEsperado={totalItens} onChange={setParcelas} />
+      <div className="doc-secao">
+      <ParcelasEditor
+        parcelas={parcelas}
+        totalEsperado={totalItens}
+        formasPagamento={formasPagamento}
+        paymentMethodId={paymentMethodId}
+        onFormaChange={setPaymentMethodId}
+        onChange={setParcelas}
+      />
+      </div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         {lancado ? (
@@ -333,6 +353,8 @@ export function DocIntakeTituloCard({ titulo, fornecedores, empresas, formasPaga
             </span>
           </>
         )}
+      </div>
+        </div>
       </div>
     </div>
   );
