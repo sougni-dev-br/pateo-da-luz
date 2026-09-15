@@ -2,8 +2,8 @@ import { Cake, FileText, Pencil, Plus, PowerOff, RefreshCw, UserCheck, UserMinus
 import { useEffect, useState } from "react";
 import {
   Employee, EmployeeBirthday, EmployeeBankAccountType, EmployeeModality, TerminationInfo,
-  VtCommute, VtPeriodicity, VtType, WorkScheduleRegime,
-  deleteEmployee, getEmployeeBirthdays, getEmployeeOptions, getEmployees, getTerminationInfo,
+  EmployeeGender, VtDirection, VtFare, VtPeriodicity, VtType, WorkScheduleRegime,
+  deleteEmployee, getEmployeeBirthdays, getEmployeeOptions, getEmployees, getTerminationInfo, getVtFares,
   releaseTermination, saveEmployee, setEmployeeStatus, terminateEmployee
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
@@ -19,18 +19,17 @@ const MODALITY_LABELS: Record<EmployeeModality, string> = { CLT: "CLT", NAO_CLT:
 const REGIME_LABELS: Record<WorkScheduleRegime, string> = { SEIS_POR_UM: "6×1", CINCO_POR_DOIS: "5×2" };
 const VT_TYPE_LABELS: Record<VtType, string> = {
   NENHUM: "Não recebe (mora perto)",
-  TRANSPORTE_PUBLICO: "Transporte público",
+  TRANSPORTE_PUBLICO: "Transporte público (calculado pela escala)",
+  BILHETE_MENSAL: "Bilhete mensal (valor fechado)",
   AUXILIO_COMBUSTIVEL: "Ajuda de custo"
 };
-const VT_PERIODICITY_LABELS: Record<VtPeriodicity, string> = { QUINZENAL: "Quinzenal", MENSAL: "Mensal" };
-const VT_COMMUTE_LABELS: Record<VtCommute, string> = {
-  ONIBUS: "Só ônibus (por tarifa/dia)",
-  METRO: "Só metrô (por tarifa/dia)",
-  INTEGRADO: "Ônibus + metrô integrado (por tarifa/dia)",
-  ONIBUS_METRO_SEPARADO: "Ônibus + metrô sem integração (por tarifa/dia)",
-  BILHETE_MENSAL_ONIBUS: "Bilhete Único Mensal — só ônibus",
-  BILHETE_MENSAL_INTEGRADO: "Bilhete Único Mensal — integrado (metrô/CPTM)"
+const GENDER_LABELS: Record<EmployeeGender, string> = {
+  NAO_INFORMADO: "Não informado",
+  FEMININO: "Feminino",
+  MASCULINO: "Masculino"
 };
+const VT_PERIODICITY_LABELS: Record<VtPeriodicity, string> = { QUINZENAL: "Quinzenal", MENSAL: "Mensal" };
+const VT_DIRECTION_LABELS: Record<VtDirection, string> = { IDA: "Ida", VOLTA: "Volta" };
 const ACCOUNT_TYPE_LABELS: Record<EmployeeBankAccountType, string> = {
   CONTA_CORRENTE: "Conta Corrente", POUPANCA: "Poupança", CAIXA: "Caixa",
   CARTEIRA: "Carteira", CARTAO: "Cartão", OUTROS: "Outros"
@@ -93,6 +92,9 @@ function calcAge(birth: string | null): number | null {
   if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age -= 1;
   return age;
 }
+function moneyBr(v: string | number) {
+  return Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
 function moneyToNumberString(s: string) {
   const t = s.trim();
   if (!t) return "";
@@ -110,10 +112,12 @@ const emptyEmployee = {
   id: "", firstName: "", lastName: "", displayName: "", cpf: "", rg: "", pis: "", birthDate: "", phone: "", email: "",
   zipCode: "", address: "", addressNumber: "", addressComplement: "", neighborhood: "", city: "", state: "",
   bankName: "", bankAgency: "", bankAccount: "", bankAccountDigit: "", bankAccountType: "CONTA_CORRENTE" as EmployeeBankAccountType,
+  gender: "NAO_INFORMADO" as EmployeeGender,
   pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", shiftStart: "", shiftEnd: "",
   modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, admissionDate: "",
   vtType: "TRANSPORTE_PUBLICO" as VtType, vtPeriodicity: "QUINZENAL" as VtPeriodicity,
-  vtCommute: "" as VtCommute | "", vtTripsPerDay: "2", vtFixedAmount: "", notes: ""
+  vtFixedAmount: "", vtMonthlyFareId: "", notes: "",
+  vtLegs: [] as Array<{ direction: VtDirection; fareId: string }>
 };
 
 export function Funcionarios() {
@@ -132,6 +136,8 @@ export function Funcionarios() {
   const [saving, setSaving] = useState(false);
 
   const [birthdays, setBirthdays] = useState<EmployeeBirthday[]>([]);
+  // Tarifas ativas: alimentam o seletor de cada perna do trajeto.
+  const [fares, setFares] = useState<VtFare[]>([]);
   const [showBirthdays, setShowBirthdays] = useState(false);
   const [options, setOptions] = useState<{ sectors: string[]; positions: string[] }>({ sectors: [], positions: [] });
 
@@ -171,6 +177,10 @@ export function Funcionarios() {
   useEffect(() => { void loadEmployees(); }, [search, includeInactive]);
   useEffect(() => { getEmployeeBirthdays(currentMonth).then(setBirthdays).catch(() => setBirthdays([])); }, [currentMonth]);
   useEffect(() => { loadOptions(); }, []);
+  // Inclui INATIVAS de proposito: se o trajeto de alguem aponta para uma tarifa
+  // desligada, a tela precisa mostrar isso. Carregando so as ativas, a perna
+  // some do seletor e o custo do dia aparece menor do que o vale vai sair.
+  useEffect(() => { getVtFares(true).then(setFares).catch(() => setFares([])); }, []);
 
   const sectorSuggestions = mergeSuggestions(DEFAULT_SECTORS, options.sectors);
   const positionSuggestions = mergeSuggestions(DEFAULT_POSITIONS, options.positions);
@@ -191,13 +201,14 @@ export function Funcionarios() {
       city: e.city ?? "", state: e.state ?? "",
       bankName: e.bankName ?? "", bankAgency: e.bankAgency ?? "", bankAccount: e.bankAccount ?? "",
       bankAccountDigit: e.bankAccountDigit ?? "", bankAccountType: e.bankAccountType,
+      gender: e.gender ?? "NAO_INFORMADO",
       pixKeyType: e.pixKeyType ?? "", pixKey: e.pixKey ?? "",
       sector: e.sector ?? "", subgroup: e.subgroup ?? "", position: e.position ?? "", baseSalary: moneyToMasked(e.baseSalary),
       shiftStart: e.shiftStart ?? "", shiftEnd: e.shiftEnd ?? "",
       modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, admissionDate: toDateInput(e.admissionDate),
-      vtType: e.vtType, vtPeriodicity: e.vtPeriodicity, vtCommute: e.vtCommute ?? "",
-      vtTripsPerDay: e.vtTripsPerDay != null ? String(e.vtTripsPerDay) : "2",
-      vtFixedAmount: moneyToMasked(e.vtFixedAmount), notes: e.notes ?? ""
+      vtType: e.vtType, vtPeriodicity: e.vtPeriodicity,
+      vtFixedAmount: moneyToMasked(e.vtFixedAmount), vtMonthlyFareId: e.vtMonthlyFareId ?? "", notes: e.notes ?? "",
+      vtLegs: (e.vtLegs ?? []).map((l) => ({ direction: l.direction, fareId: l.fareId }))
     });
     setShowForm(true);
     setError(null);
@@ -219,6 +230,7 @@ export function Funcionarios() {
         rg: form.rg || undefined,
         pis: form.pis || undefined,
         birthDate: form.birthDate || undefined,
+        gender: form.gender,
         phone: form.phone || undefined,
         email: form.email || undefined,
         zipCode: form.zipCode || undefined,
@@ -247,9 +259,15 @@ export function Funcionarios() {
         admissionDate: form.admissionDate || undefined,
         vtType: form.vtType,
         vtPeriodicity: form.vtPeriodicity,
-        vtCommute: form.vtCommute || undefined,
-        vtTripsPerDay: form.vtTripsPerDay || undefined,
-        vtFixedAmount: form.vtFixedAmount ? moneyToNumberString(form.vtFixedAmount) : undefined,
+        // Cada configuração de VT só é enviada quando o tipo escolhido a usa.
+        // Campo ausente = o backend preserva o que está gravado. Assim, passear
+        // pelos tipos de VT na tela e salvar não apaga o trajeto, a tarifa
+        // mensal nem o valor da ajuda de custo de quem já estava configurado.
+        vtLegs: form.vtType === "TRANSPORTE_PUBLICO" ? form.vtLegs : undefined,
+        vtMonthlyFareId: form.vtType === "BILHETE_MENSAL" ? (form.vtMonthlyFareId || null) : undefined,
+        vtFixedAmount: form.vtType === "AUXILIO_COMBUSTIVEL"
+          ? (form.vtFixedAmount ? moneyToNumberString(form.vtFixedAmount) : null)
+          : undefined,
         notes: form.notes || undefined
       });
       setNotice({ tone: "success", message: form.id ? "Funcionário atualizado." : "Funcionário cadastrado." });
@@ -304,9 +322,7 @@ export function Funcionarios() {
     setRescInfo(null);
     setRescForm({ grossAmount: "", vtDiscount: "", otherDiscount: "", otherDiscountLabel: "", dueDate: new Date().toISOString().slice(0, 10), installments: "1", notes: "" });
     try {
-      const info = await getTerminationInfo(e.id);
-      setRescInfo(info);
-      if (info.vtCreditBalance > 0) setRescForm((f) => ({ ...f, vtDiscount: moneyToMasked(info.vtCreditBalance) }));
+      setRescInfo(await getTerminationInfo(e.id));
     } catch (err) {
       setNotice({ tone: "error", message: err instanceof Error ? err.message : "Erro ao carregar dados da rescisão." });
     }
@@ -392,7 +408,60 @@ export function Funcionarios() {
 
   const isPublicVt = form.vtType === "TRANSPORTE_PUBLICO";
   const isFuelVt = form.vtType === "AUXILIO_COMBUSTIVEL";
-  const isMonthlyPass = form.vtCommute === "BILHETE_MENSAL_ONIBUS" || form.vtCommute === "BILHETE_MENSAL_INTEGRADO";
+  const isMonthlyPass = form.vtType === "BILHETE_MENSAL";
+
+  // Só tarifas por viagem entram no trajeto; bilhete mensal é outro tipo de VT.
+  const tripFares = fares.filter((f) => f.basis === "VIAGEM" && f.isActive);
+  // O seletor lista as ativas + a inativa que ESTA no trajeto (rotulada), para
+  // ela nao sumir da tela e deixar o campo em branco sem explicacao.
+  const fareOptions = fares
+    .filter((f) => f.basis === "VIAGEM" && (f.isActive || form.vtLegs.some((l) => l.fareId === f.id)))
+    .map((f) => ({ value: f.id, label: `${f.name} — ${moneyBr(f.amount)}${f.isActive ? "" : " (inativa)"}` }));
+  const fareById = new Map(fares.map((f) => [f.id, f]));
+
+  // Prévia do custo do dia enquanto ele monta o trajeto: é o número que ele
+  // confere de cabeça contra o que paga hoje, antes de fechar a quinzena.
+  const dayCost = (isSunday: boolean) =>
+    form.vtLegs.reduce((total, leg) => {
+      const fare = fareById.get(leg.fareId);
+      if (!fare) return total;
+      // No domingo a tarifa pode zerar (ônibus) ou apenas CAIR (a integração vira
+      // a tarifa do metrô). Por isso é um valor, não um "pula esta perna".
+      if (isSunday && fare.sundayAmount != null) return total + Number(fare.sundayAmount);
+      return total + Number(fare.amount);
+    }, 0);
+  const normalDayCost = dayCost(false);
+  const sundayDayCost = dayCost(true);
+
+  // As pernas de um sentido são mexidas pelo índice DENTRO do sentido; a lista
+  // guardada é única, então traduzimos para o índice global antes de alterar.
+  function legIndex(direction: VtDirection, indexInDirection: number): number {
+    let seen = -1;
+    for (let i = 0; i < form.vtLegs.length; i++) {
+      if (form.vtLegs[i].direction !== direction) continue;
+      seen += 1;
+      if (seen === indexInDirection) return i;
+    }
+    return -1;
+  }
+
+  function addLeg(direction: VtDirection) {
+    const first = tripFares[0];
+    if (!first) return;
+    setForm({ ...form, vtLegs: [...form.vtLegs, { direction, fareId: first.id }] });
+  }
+
+  function setLegFare(direction: VtDirection, indexInDirection: number, fareId: string) {
+    const i = legIndex(direction, indexInDirection);
+    if (i < 0) return;
+    setForm({ ...form, vtLegs: form.vtLegs.map((l, idx) => (idx === i ? { ...l, fareId } : l)) });
+  }
+
+  function removeLeg(direction: VtDirection, indexInDirection: number) {
+    const i = legIndex(direction, indexInDirection);
+    if (i < 0) return;
+    setForm({ ...form, vtLegs: form.vtLegs.filter((_, idx) => idx !== i) });
+  }
 
   return (
     <div className="stack">
@@ -474,6 +543,13 @@ export function Funcionarios() {
                 </FormField>
                 <FormField label="Nascimento" hint={calcAge(form.birthDate) != null ? `${calcAge(form.birthDate)} anos` : undefined}>
                   <TextField type="date" value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} />
+                </FormField>
+                <FormField label="Sexo" hint="usado na regra de folga dominical (CLT art. 386)">
+                  <Select
+                    value={form.gender}
+                    onChange={(e) => setForm({ ...form, gender: e.target.value as EmployeeGender })}
+                    options={toOptions(GENDER_LABELS)}
+                  />
                 </FormField>
                 <FormField label="Telefone">
                   <TextField value={form.phone} onChange={(e) => setForm({ ...form, phone: applyPhoneMask(e.target.value) })} placeholder="(00) 00000-0000" maxLength={15} />
@@ -586,22 +662,17 @@ export function Funcionarios() {
                 <FormField label="Periodicidade">
                   <Select value={form.vtPeriodicity} onChange={(e) => setForm({ ...form, vtPeriodicity: e.target.value as VtPeriodicity })} options={toOptions(VT_PERIODICITY_LABELS)} />
                 </FormField>
-                {isPublicVt && (
-                  <>
-                    <FormField label="Trajeto">
-                      <Select value={form.vtCommute} onChange={(e) => setForm({ ...form, vtCommute: e.target.value as VtCommute | "" })} options={[{ value: "", label: "—" }, ...toOptions(VT_COMMUTE_LABELS)]} />
-                    </FormField>
-                    {!isMonthlyPass && (
-                      <FormField label="Viagens por dia" hint="ida e volta = 2">
-                        <TextField value={form.vtTripsPerDay} onChange={(e) => setForm({ ...form, vtTripsPerDay: e.target.value.replace(/\D/g, "").slice(0, 2) })} inputMode="numeric" />
-                      </FormField>
-                    )}
-                    {isMonthlyPass && (
-                      <FormField label="Passe mensal" hint="valor fixo ilimitado — configurável na Folha">
-                        <TextField value="Valor fixo mensal" disabled />
-                      </FormField>
-                    )}
-                  </>
+                {isMonthlyPass && (
+                  <FormField label="Tarifa mensal" hint="valor fechado — cadastre na tela da Folha">
+                    <Select
+                      value={form.vtMonthlyFareId}
+                      onChange={(e) => setForm({ ...form, vtMonthlyFareId: e.target.value })}
+                      options={[
+                        { value: "", label: "—" },
+                        ...fares.filter((f) => f.basis === "MENSAL").map((f) => ({ value: f.id, label: `${f.name} — ${moneyBr(f.amount)}` }))
+                      ]}
+                    />
+                  </FormField>
                 )}
                 {isFuelVt && (
                   <FormField label="Valor combinado (por período)" hint="quinzenal ou mensal">
@@ -609,6 +680,49 @@ export function Funcionarios() {
                   </FormField>
                 )}
               </FormGrid>
+
+              {isPublicVt && (
+                <div className="stack" style={{ gap: 12, marginTop: 4 }}>
+                  <div style={{ fontSize: "0.82em", color: "var(--muted)" }}>
+                    Ida e volta podem ser diferentes. Some uma perna para cada condução que ele paga no sentido —
+                    ex.: ida com ônibus + metrô, volta só de ônibus. O sistema multiplica pelos dias da escala.
+                  </div>
+                  <FormGrid cols={2}>
+                    {(["IDA", "VOLTA"] as VtDirection[]).map((direction) => {
+                      const legs = form.vtLegs.filter((l) => l.direction === direction);
+                      return (
+                        <div key={direction} className="stack" style={{ gap: 8 }}>
+                          <PanelEyebrow>{VT_DIRECTION_LABELS[direction]}</PanelEyebrow>
+                          {legs.length === 0 && (
+                            <div style={{ fontSize: "0.82em", color: "var(--muted)" }}>Nenhuma condução — o vale deste sentido sai R$ 0,00.</div>
+                          )}
+                          {legs.map((leg, indexInDirection) => (
+                            <div key={`${direction}-${indexInDirection}`} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <Select
+                                value={leg.fareId}
+                                onChange={(e) => setLegFare(direction, indexInDirection, e.target.value)}
+                                options={fareOptions}
+                              />
+                              <IconButton label="Remover condução" icon={<Trash2 size={14} />} onClick={() => removeLeg(direction, indexInDirection)} />
+                            </div>
+                          ))}
+                          <div>
+                            <Button variant="secondary" leadingIcon={<Plus size={14} />} onClick={() => addLeg(direction)} disabled={fareOptions.length === 0}>
+                              Adicionar condução
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </FormGrid>
+                  <div style={{ fontSize: "0.85em" }}>
+                    Custo de um dia normal: <strong><Money value={normalDayCost} /></strong>
+                    {sundayDayCost !== normalDayCost && (
+                      <span style={{ color: "var(--muted)" }}> · domingo/feriado: <Money value={sundayDayCost} /></span>
+                    )}
+                  </div>
+                </div>
+              )}
             </FormSection>
 
             <FormSection title="Observações">
@@ -680,15 +794,17 @@ export function Funcionarios() {
             {rescInfo?.alreadyReleased && <Alert tone="warning">Já existe uma rescisão lançada para este funcionário.</Alert>}
 
             <div style={{ background: "var(--paper-soft, var(--surface-2))", borderRadius: 10, padding: 12, marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Já identificado pelo sistema para descontar</div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
-                <span>Crédito de VT — dias pagos e não usados</span>
-                <strong><Money value={rescInfo?.vtCreditBalance ?? 0} /></strong>
-              </div>
-              {rescInfo && rescInfo.vtItems.length > 0 && (
-                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
-                  VT no mês do desligamento (confira se cabe estorno): {rescInfo.vtItems.map((v) => v.periodLabel).join(" · ")}
+              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Confira antes de lançar</div>
+              {/* O VT é pago na véspera da quinzena. Quem sai no meio do período
+                  recebeu dias que não vai usar — o estorno é decisão de quem lança,
+                  então a tela mostra o que foi pago em vez de preencher sozinha. */}
+              {rescInfo && rescInfo.vtItems.length > 0 ? (
+                <div style={{ fontSize: 13 }}>
+                  VT já pago no mês do desligamento (veja se cabe estorno):{" "}
+                  {rescInfo.vtItems.map((v) => `${v.periodLabel} (${moneyBr(v.amount)})`).join(" · ")}
                 </div>
+              ) : (
+                <div style={{ fontSize: 13, color: "var(--muted)" }}>Nenhum VT lançado no mês do desligamento.</div>
               )}
             </div>
 
@@ -696,7 +812,7 @@ export function Funcionarios() {
               <FormField label="Valor da rescisão — bruto (contabilidade)" required>
                 <TextField value={rescForm.grossAmount} onChange={(e) => setRescForm({ ...rescForm, grossAmount: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" />
               </FormField>
-              <FormField label="VT a descontar" hint="pré-preenchido pelo crédito do sistema">
+              <FormField label="VT a descontar" hint="confira acima o VT já pago e informe o estorno">
                 <TextField value={rescForm.vtDiscount} onChange={(e) => setRescForm({ ...rescForm, vtDiscount: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" />
               </FormField>
               <FormField label="Outro desconto (opcional)">

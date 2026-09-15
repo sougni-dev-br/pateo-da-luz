@@ -28,9 +28,10 @@ function validateCpf(cpf: string): boolean {
 // ─── enums permitidos (validação de entrada) ───────────────────────────────────
 const MODALITIES = ["CLT", "NAO_CLT"] as const;
 const REGIMES = ["SEIS_POR_UM", "CINCO_POR_DOIS"] as const;
-const VT_TYPES = ["NENHUM", "TRANSPORTE_PUBLICO", "AUXILIO_COMBUSTIVEL"] as const;
+const VT_TYPES = ["NENHUM", "TRANSPORTE_PUBLICO", "BILHETE_MENSAL", "AUXILIO_COMBUSTIVEL"] as const;
 const VT_PERIODICITIES = ["QUINZENAL", "MENSAL"] as const;
-const VT_COMMUTES = ["ONIBUS", "METRO", "INTEGRADO", "ONIBUS_METRO_SEPARADO"] as const;
+const VT_DIRECTIONS = ["IDA", "VOLTA"] as const;
+const GENDERS = ["FEMININO", "MASCULINO", "NAO_INFORMADO"] as const;
 const ACCOUNT_TYPES = ["CONTA_CORRENTE", "POUPANCA", "CAIXA", "CARTEIRA", "CARTAO", "OUTROS"] as const;
 
 function oneOf<T extends readonly string[]>(list: T, value: unknown, fallback: T[number]): T[number];
@@ -76,6 +77,7 @@ function buildEmployeeData(b: Record<string, unknown>) {
     rg: str(b.rg),
     pis: digits(b.pis),
     birthDate: dateOrNull(b.birthDate),
+    gender: oneOf(GENDERS, b.gender, "NAO_INFORMADO"),
     phone: str(b.phone),
     email: str(b.email),
     zipCode: str(b.zipCode),
@@ -104,12 +106,69 @@ function buildEmployeeData(b: Record<string, unknown>) {
     admissionDate: dateOrNull(b.admissionDate),
     vtType: oneOf(VT_TYPES, b.vtType, "TRANSPORTE_PUBLICO"),
     vtPeriodicity: oneOf(VT_PERIODICITIES, b.vtPeriodicity, "QUINZENAL"),
-    vtCommute: oneOf(VT_COMMUTES, b.vtCommute, null),
-    vtTripsPerDay: intOrNull(b.vtTripsPerDay) ?? 2,
-    vtFixedAmount: numOrNull(b.vtFixedAmount),
     notes: str(b.notes),
+    // A tarifa mensal e o valor de ajuda de custo só são gravados quando o
+    // corpo os traz. Ausente = não mexe — mesma proteção do trajeto (vtLegs).
+    //
+    // Sem isso, abrir a ficha de quem usa Bilhete Único, trocar o tipo de VT
+    // para olhar outra opção e salvar apagava a tarifa escolhida: o funcionário
+    // ficava BILHETE_MENSAL apontando para nada e o vale saía R$ 0,00. É o
+    // mesmo modo de falha que sumiu com 5 vales em julho.
+    ...("vtMonthlyFareId" in b ? { vtMonthlyFareId: str(b.vtMonthlyFareId) } : {}),
+    ...("vtFixedAmount" in b ? { vtFixedAmount: numOrNull(b.vtFixedAmount) } : {}),
   };
 }
+
+// Trajeto: lista de pernas por sentido. O corpo manda a lista inteira e ela
+// substitui a anterior — meio-termo (só remover a perna X) não existe aqui,
+// porque a ordem das pernas importa e reconciliar item a item convida a erro.
+type LegInput = { direction: "IDA" | "VOLTA"; fareId: string };
+
+function parseLegs(v: unknown): LegInput[] | null {
+  if (!Array.isArray(v)) return null;
+  const legs: LegInput[] = [];
+  for (const raw of v) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Record<string, unknown>;
+    const direction = oneOf(VT_DIRECTIONS, r.direction, null);
+    const fareId = str(r.fareId);
+    if (!direction || !fareId) continue;
+    legs.push({ direction, fareId });
+  }
+  return legs;
+}
+
+// Reescreve as pernas dentro de uma transação: apagar e recriar em passos
+// separados deixaria o funcionário sem trajeto se o segundo passo falhasse,
+// e trajeto vazio é exatamente o bug que faz o vale sair R$ 0,00.
+async function replaceLegs(employeeId: string, legs: LegInput[]) {
+  const fareIds = Array.from(new Set(legs.map((l) => l.fareId)));
+  const validFares = fareIds.length
+    ? await prisma.vtFare.findMany({ where: { id: { in: fareIds } }, select: { id: true } })
+    : [];
+  const valid = new Set(validFares.map((f) => f.id));
+  const unknown = fareIds.filter((id) => !valid.has(id));
+  if (unknown.length > 0) throw new Error("Tarifa de transporte inexistente no trajeto.");
+
+  const byDirection = { IDA: 0, VOLTA: 0 };
+  const rows = legs.map((l) => ({
+    id: crypto.randomUUID(),
+    employeeId,
+    direction: l.direction,
+    fareId: l.fareId,
+    sortOrder: byDirection[l.direction]++,
+  }));
+
+  await prisma.$transaction([
+    prisma.employeeVtLeg.deleteMany({ where: { employeeId } }),
+    ...(rows.length ? [prisma.employeeVtLeg.createMany({ data: rows })] : []),
+  ]);
+}
+
+const employeeInclude = {
+  vtLegs: { include: { fare: true }, orderBy: [{ direction: "asc" }, { sortOrder: "asc" }] },
+  vtMonthlyFare: true,
+} satisfies Prisma.EmployeeInclude;
 
 // ─── LIST ──────────────────────────────────────────────────────────────────────
 employeeRouter.get("/", async (request, response) => {
@@ -133,6 +192,7 @@ employeeRouter.get("/", async (request, response) => {
   const employees = await prisma.employee.findMany({
     where,
     orderBy: [{ isActive: "desc" }, { firstName: "asc" }, { lastName: "asc" }],
+    include: employeeInclude,
   });
   response.json(employees);
 });
@@ -168,7 +228,7 @@ employeeRouter.get("/options", async (_request, response) => {
 
 // ─── GET ONE ─────────────────────────────────────────────────────────────────────
 employeeRouter.get("/:id", async (request, response) => {
-  const employee = await prisma.employee.findFirst({ where: { id: request.params.id, deletedAt: null } });
+  const employee = await prisma.employee.findFirst({ where: { id: request.params.id, deletedAt: null }, include: employeeInclude });
   if (!employee) return response.status(404).json({ message: "Funcionário não encontrado." });
   return response.json(employee);
 });
@@ -193,6 +253,8 @@ employeeRouter.post("/", async (request, response) => {
   const existing = await prisma.employee.findFirst({ where: { cpf, deletedAt: null } });
   if (existing) return response.status(400).json({ message: "Já existe um funcionário com este CPF." });
 
+  const legs = parseLegs(b.vtLegs);
+
   const created = await prisma.employee.create({
     data: {
       id: crypto.randomUUID(),
@@ -202,6 +264,13 @@ employeeRouter.post("/", async (request, response) => {
       createdById: user.id,
     },
   });
+  if (legs) {
+    try {
+      await replaceLegs(created.id, legs);
+    } catch (error) {
+      return response.status(400).json({ message: error instanceof Error ? error.message : "Trajeto inválido." });
+    }
+  }
 
   await auditLog({
     userId: user.id,
@@ -241,6 +310,18 @@ employeeRouter.put("/:id", async (request, response) => {
   });
   if (cpfConflict) return response.status(400).json({ message: "CPF já está em uso por outro funcionário." });
 
+  // Trajeto só é reescrito quando o corpo traz "vtLegs". Um PUT sem o campo
+  // (uma tela antiga, um script) não pode apagar o trajeto de ninguém em
+  // silêncio — o vale dessa pessoa sairia zerado no fechamento seguinte.
+  const legs = parseLegs(b.vtLegs);
+  if (legs) {
+    try {
+      await replaceLegs(request.params.id, legs);
+    } catch (error) {
+      return response.status(400).json({ message: error instanceof Error ? error.message : "Trajeto inválido." });
+    }
+  }
+
   const updated = await prisma.employee.update({
     where: { id: request.params.id },
     data: {
@@ -248,6 +329,7 @@ employeeRouter.put("/:id", async (request, response) => {
       ...buildEmployeeData(b),
       updatedById: user.id,
     },
+    include: employeeInclude,
   });
 
   await auditLog({
@@ -303,7 +385,14 @@ employeeRouter.patch("/:id/terminate", async (request, response) => {
   if (!existing) return response.status(404).json({ message: "Funcionário não encontrado." });
 
   const b = request.body as Record<string, unknown>;
-  const terminationDate = dateOrNull(b.terminationDate) ?? new Date();
+  // Meia-noite UTC do dia de hoje, nao o instante atual: o calculo do VT compara
+  // dia a dia em UTC, e um desligamento gravado as 22h de Brasilia viraria o dia
+  // SEGUINTE em UTC — pagando um dia de vale que a pessoa nao vai usar.
+  // Meia-noite UTC do dia de hoje, não o instante atual: o cálculo do VT compara
+  // dia a dia em UTC, e um desligamento gravado às 22h de Brasília viraria o dia
+  // SEGUINTE em UTC — pagando um dia de vale que a pessoa não vai usar.
+  const hojeUtc = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z");
+  const terminationDate = dateOrNull(b.terminationDate) ?? hojeUtc;
   const terminationReason = str(b.terminationReason);
 
   const updated = await prisma.employee.update({

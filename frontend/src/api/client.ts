@@ -5140,11 +5140,70 @@ export function logoutWhatsApp() {
 }
 
 // ─── Folha de Pagamento — Funcionários ─────────────────────────────────────────
+export type EmployeeGender = "FEMININO" | "MASCULINO" | "NAO_INFORMADO";
 export type EmployeeModality = "CLT" | "NAO_CLT";
 export type WorkScheduleRegime = "SEIS_POR_UM" | "CINCO_POR_DOIS";
-export type VtType = "NENHUM" | "TRANSPORTE_PUBLICO" | "AUXILIO_COMBUSTIVEL";
+export type VtType = "NENHUM" | "TRANSPORTE_PUBLICO" | "BILHETE_MENSAL" | "AUXILIO_COMBUSTIVEL";
 export type VtPeriodicity = "QUINZENAL" | "MENSAL";
-export type VtCommute = "ONIBUS" | "METRO" | "INTEGRADO" | "ONIBUS_METRO_SEPARADO" | "BILHETE_MENSAL_ONIBUS" | "BILHETE_MENSAL_INTEGRADO";
+export type VtDirection = "IDA" | "VOLTA";
+export type VtFareBasis = "VIAGEM" | "MENSAL";
+
+export type VtFare = {
+  id: string;
+  name: string;
+  amount: string;
+  basis: VtFareBasis;
+  /** Valor nos dias de tarifa zero (domingos + 01/01, 25/01, 25/12). */
+  sundayAmount: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  notes: string | null;
+  /** Quantos funcionários ativos dependem desta tarifa. */
+  inUseBy?: number;
+};
+
+export type VtFarePayload = {
+  name: string;
+  amount: string | number;
+  basis?: VtFareBasis;
+  sundayAmount?: string | number | null;
+  isActive?: boolean;
+  sortOrder?: number;
+  notes?: string | null;
+};
+
+/** Uma perna do trajeto: "na ida, o 2º embarque é metrô". */
+export type EmployeeVtLeg = {
+  id: string;
+  direction: VtDirection;
+  sortOrder: number;
+  fareId: string;
+  fare: VtFare;
+};
+
+export function getVtFares(includeInactive = false) {
+  return request<VtFare[]>(`/payroll/vt-fares${includeInactive ? "?includeInactive=true" : ""}`);
+}
+
+export function createVtFare(payload: VtFarePayload) {
+  return request<VtFare>("/payroll/vt-fares", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateVtFare(id: string, payload: Partial<VtFarePayload>) {
+  return request<VtFare>(`/payroll/vt-fares/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteVtFare(id: string) {
+  return request<{ ok: boolean }>(`/payroll/vt-fares/${id}`, { method: "DELETE" });
+}
 export type EmployeeBankAccountType = "CONTA_CORRENTE" | "POUPANCA" | "CAIXA" | "CARTEIRA" | "CARTAO" | "OUTROS";
 
 export type Employee = {
@@ -5156,6 +5215,7 @@ export type Employee = {
   rg: string | null;
   pis: string | null;
   birthDate: string | null;
+  gender: EmployeeGender;
   phone: string | null;
   email: string | null;
   zipCode: string | null;
@@ -5184,9 +5244,11 @@ export type Employee = {
   admissionDate: string | null;
   vtType: VtType;
   vtPeriodicity: VtPeriodicity;
-  vtCommute: VtCommute | null;
-  vtTripsPerDay: number | null;
   vtFixedAmount: string | null;
+  vtMonthlyFareId: string | null;
+  vtMonthlyFare?: VtFare | null;
+  /** Sempre presente: o backend inclui a relacao no list e no get. */
+  vtLegs: EmployeeVtLeg[];
   terminationDate: string | null;
   terminationReason: string | null;
   isActive: boolean;
@@ -5213,6 +5275,7 @@ export type EmployeePayload = {
   rg?: string;
   pis?: string;
   birthDate?: string;
+  gender?: EmployeeGender;
   phone?: string;
   email?: string;
   zipCode?: string;
@@ -5241,9 +5304,10 @@ export type EmployeePayload = {
   admissionDate?: string;
   vtType?: VtType;
   vtPeriodicity?: VtPeriodicity;
-  vtCommute?: VtCommute | "";
-  vtTripsPerDay?: string | number;
-  vtFixedAmount?: string | number;
+  /** null limpa o valor; ausente preserva o que esta gravado. */
+  vtFixedAmount?: string | number | null;
+  vtMonthlyFareId?: string | null;
+  vtLegs?: Array<{ direction: VtDirection; fareId: string }>;
   notes?: string;
 };
 
@@ -5264,7 +5328,7 @@ export function getEmployeeOptions() {
 }
 
 // ─── Escala mensal ──────────────────────────────────────────────────────────────
-export type ScheduleDayType = "FOLGA" | "TURNO" | "EVENTO" | "FERIAS" | "FALTA" | "ATESTADO";
+export type ScheduleDayType = "FOLGA" | "FOLGA_FERIADO" | "FOLGA_BANCO_HORAS" | "TURNO" | "EVENTO" | "FERIAS" | "FALTA" | "ATESTADO";
 export type ScheduleDayMeta = { day: number; dow: number; isSunday: boolean; isHoliday: boolean; holidayName: string | null };
 export type ScheduleEmployee = {
   id: string;
@@ -5279,12 +5343,17 @@ export type ScheduleEmployee = {
   scheduleRegime: WorkScheduleRegime;
   admissionDate: string | null;
   terminationDate: string | null;
+  gender: EmployeeGender;
   holidayCompBalance: number;
+  /** A parte do saldo lancada a mao (o resto vem da escala). */
+  holidayCompManual?: number;
 };
 export type ScheduleEntry = { employeeId: string; day: number; type: ScheduleDayType };
 export type ScheduleVacationDay = { employeeId: string; day: number };
 export type EventSize = "PEQUENO" | "MEDIO" | "GRANDE";
 export type ScheduleDateEvent = { day: number; size: EventSize };
+/** Marcações dos 10 dias antes e depois do mês — para validar a virada. */
+export type ScheduleBorderDay = { employeeId: string; date: string; type: ScheduleDayType };
 export type ScheduleData = {
   year: number;
   month: number;
@@ -5294,6 +5363,10 @@ export type ScheduleData = {
   entries: ScheduleEntry[];
   vacationDays: ScheduleVacationDay[];
   dateEvents: ScheduleDateEvent[];
+  borderDays: ScheduleBorderDay[];
+  /** Domingos das 10 semanas anteriores, com o status ja resolvido. */
+  sundayHistory: Array<{ employeeId: string; date: string; status: "FOLGA" | "TRABALHOU" | "SEM_ESCALA" }>;
+  regraDomingo: { mulher: number; geral: number };
 };
 
 export function getSchedule(year: number, month: number) {
@@ -5314,15 +5387,14 @@ export type PayrollItemStatus = "PENDING" | "PAID" | "OVERDUE" | "CANCELED";
 
 export type PayrollSettings = {
   id: string;
-  busFare: string;
-  metroFare: string;
-  integratedFare: string;
-  monthlyPassBus: string;
-  monthlyPassIntegrated: string;
+  /** Dia em que a 2a quinzena comeca (16 => 1a e 01-15). */
+  vtSecondPeriodStartDay: number;
+  /** Folga em domingo ao menos 1 a cada N semanas (definido pela CCT). */
+  dsrDomingoMulherSemanas: number;
+  dsrDomingoGeralSemanas: number;
   advancePercent: string;
   advanceDueDay: number;
   salaryDueDay: number;
-  bufferDays: number;
 };
 
 export type PayrollComputedItem = {
@@ -5338,8 +5410,10 @@ export type PayrollComputedItem = {
   amount: number;
   workedDays: number | null;
   freeDays: number | null;
-  bufferAmount: number | null;
-  creditApplied: number | null;
+  /** 1 ou 2 no VT; null em salario/adiantamento. */
+  quinzena: 1 | 2 | null;
+  /** Faltas ja pagas que este vale abate (data + valor). */
+  faltaDeductions?: Array<{ date: string; amount: number; tipo: "FALTA" | "ATESTADO" }>;
   dreCategoryName: string | null;
   details: Record<string, unknown> | null;
   exists: boolean;
@@ -5366,8 +5440,6 @@ export type PayrollListItem = {
   amount: string;
   workedDays: number | null;
   freeDays: number | null;
-  bufferAmount: string | null;
-  creditApplied: string | null;
   paymentDate: string | null;
   paidAmount: string | null;
   status: PayrollItemStatus;
@@ -5657,7 +5729,6 @@ export function restorePayrollItem(id: string) {
 
 export type TerminationInfo = {
   employee: { id: string; name: string; terminationDate: string | null; terminationReason: string | null };
-  vtCreditBalance: number;
   vtItems: Array<{ id: string; periodLabel: string; competenceYear: number; competenceMonth: number; amount: string; status: string; dueDate: string }>;
   alreadyReleased: boolean;
   rescisaoId: string | null;
