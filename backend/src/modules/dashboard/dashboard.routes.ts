@@ -3,8 +3,13 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { requireRole } from "../security/security-utils.js";
 import { getMonthlyCmv } from "../monthly/monthly.service.js";
+import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
 
 export const dashboardRouter = Router();
+
+/** Linha sintetica que segura o que a nota cobra mas nenhum item explica. */
+const UNITEMIZED_CATEGORY_LABEL = "Sem itemização";
+const UNITEMIZED_MIN_AMOUNT = 1;
 
 function dateKey(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
@@ -45,12 +50,15 @@ dashboardRouter.get("/purchases", async (request, response) => {
   // Passa a seguir a mesma regra do DRE (F-50) e do Fechamento Contabil:
   // competencia quando o filtro e de mes, intervalo de data quando o usuario
   // escolheu datas — ai nao ha competencia que corresponda ao intervalo.
+  // Agregadores de ciclo/fatura ficam de fora das tres listas: eles repetem
+  // compras que ja estao aqui como notas individuais. Ver purchase-aggregators.ts.
   const purchaseIds = await prisma.$queryRaw<Array<{ id: string }>>`
     SELECT "id" FROM "Purchase"
     WHERE ${isMonthFilter
       ? Prisma.sql`"competenceYear" = ${year} AND "competenceMonth" = ${month}`
       : Prisma.sql`"purchaseDate" >= CAST(${startDate} AS timestamp) AND "purchaseDate" <= CAST(${endDate} AS timestamp)`}
       AND "status" = 'ACTIVE'
+      AND ${excludeAggregatorsSql()}
   `;
 
   const previousIds = await prisma.$queryRaw<Array<{ id: string }>>`
@@ -58,6 +66,7 @@ dashboardRouter.get("/purchases", async (request, response) => {
     WHERE "competenceYear" = ${previousYear}
       AND "competenceMonth" = ${previousMonth}
       AND "status" = 'ACTIVE'
+      AND ${excludeAggregatorsSql()}
   `;
 
   const [revenue] = await prisma.$queryRaw<Array<{
@@ -115,11 +124,20 @@ dashboardRouter.get("/purchases", async (request, response) => {
   const bySupplier = new Map<string, number>();
   const byProduct = new Map<string, { total: number; quantity: number }>();
 
+  // Fornecedor soma a NOTA; categoria e produto somam os ITENS. Quando uma nota
+  // entra sem itemizacao as duas visoes se separam em silencio — foi assim que o
+  // FLV apareceu com R$ 10.690,49 na categoria e R$ 27.437,07 nos fornecedores de
+  // hortifruti. O residuo passa a ser uma linha propria em vez de sumir.
+  let unitemizedTotal = 0;
+
   for (const purchase of purchases) {
     bySupplier.set(
       purchase.supplier.name,
       (bySupplier.get(purchase.supplier.name) ?? 0) + Number(purchase.totalAmount)
     );
+
+    const itemsTotal = purchase.items.reduce((sum, item) => sum + Number(item.totalPrice), 0);
+    unitemizedTotal += Number(purchase.totalAmount) - itemsTotal;
 
     for (const item of purchase.items) {
       const category = item.rawCategory ?? item.product.category?.name ?? "Sem categoria";
@@ -133,8 +151,23 @@ dashboardRouter.get("/purchases", async (request, response) => {
     }
   }
 
+  // Centavos de arredondamento dos itens nao viram linha — jun/2026 fecha com
+  // -R$ 0,03 e nao ha nada para o Eli fazer com isso. Diferenca de verdade, sim.
+  if (Math.abs(unitemizedTotal) >= UNITEMIZED_MIN_AMOUNT) {
+    byCategory.set(
+      UNITEMIZED_CATEGORY_LABEL,
+      (byCategory.get(UNITEMIZED_CATEGORY_LABEL) ?? 0) + unitemizedTotal
+    );
+  }
+
   const sortTotal = <T extends { total: number }>(items: T[]) =>
     items.sort((a, b) => b.total - a.total);
+
+  const sum = (values: Iterable<number>) => {
+    let acc = 0;
+    for (const value of values) acc += value;
+    return acc;
+  };
 
   response.json({
     year,
@@ -165,6 +198,13 @@ dashboardRouter.get("/purchases", async (request, response) => {
         count: Number(row.count ?? 0)
       }))
     },
+    // Os totais vao junto porque o painel corta cada lista no top 10: sem eles o
+    // frontend calcularia o percentual sobre as 10 linhas exibidas, e um
+    // fornecedor de 20,7% do periodo aparecia como 22,0% do top 10.
+    bySupplierTotal: sum(bySupplier.values()),
+    byCategoryTotal: sum(byCategory.values()),
+    byProductTotal: sum([...byProduct.values()].map((v) => v.total)),
+    unitemizedTotal,
     bySupplier: sortTotal(
       [...bySupplier.entries()].map(([name, total]) => ({ name, total }))
     ).slice(0, 10),
@@ -242,6 +282,7 @@ dashboardRouter.get("/summary", async (request, response) => {
         AND "competenceMonth" = ${month}
         AND "status" = 'ACTIVE'
         AND ("isSmallExpense" = false OR "isSmallExpense" IS NULL)
+        AND ${excludeAggregatorsSql()}
     `,
     // Compras regulares mês anterior
     prisma.$queryRaw<Array<{ total: unknown }>>`
@@ -251,6 +292,7 @@ dashboardRouter.get("/summary", async (request, response) => {
         AND "competenceMonth" = ${prevMonth}
         AND "status" = 'ACTIVE'
         AND ("isSmallExpense" = false OR "isSmallExpense" IS NULL)
+        AND ${excludeAggregatorsSql()}
     `,
     // Pequenos gastos período atual
     prisma.$queryRaw<Array<{ total: unknown; cnt: unknown }>>`
@@ -260,6 +302,7 @@ dashboardRouter.get("/summary", async (request, response) => {
         AND "competenceMonth" = ${month}
         AND "status" = 'ACTIVE'
         AND "isSmallExpense" = true
+        AND ${excludeAggregatorsSql()}
     `,
     // Pequenos gastos mês anterior
     prisma.$queryRaw<Array<{ total: unknown }>>`
@@ -269,6 +312,7 @@ dashboardRouter.get("/summary", async (request, response) => {
         AND "competenceMonth" = ${prevMonth}
         AND "status" = 'ACTIVE'
         AND "isSmallExpense" = true
+        AND ${excludeAggregatorsSql()}
     `,
     // CMV Real (fechamento mensal)
     prisma.monthlyCmv.findFirst({

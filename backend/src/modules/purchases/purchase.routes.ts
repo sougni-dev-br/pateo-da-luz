@@ -5,6 +5,7 @@ import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDate } from "../../shared/utils/parse-date.js";
 import { createSupplierPositionPdf, type SupplierPositionData } from "./supplier-position-pdf.js";
+import { excludeAggregatorsWhere } from "./purchase-aggregators.js";
 import {
   formatPaymentMethodWithInstallments,
   getPaymentMethodBaseName,
@@ -368,7 +369,12 @@ purchaseRouter.get("/", async (request, response) => {
   const { startDate, endDate } = parseDateRange(request.query);
 
   const where: Prisma.PurchaseWhereInput = {
-    NOT: { workflowStatus: "CARD_STATEMENT" },
+    // A fatura de cartao ja saia daqui; o ciclo de fornecedor tinha ficado de
+    // fora do mesmo tratamento e aparecia como se fosse mais uma compra, somando
+    // de novo o que as notas do ciclo — que estao logo abaixo na lista — ja
+    // somam. Os dois sao veiculo de pagamento: o lugar deles e Contas a Pagar e
+    // a tela do proprio ciclo/fatura.
+    ...excludeAggregatorsWhere,
     ...(year ? { competenceYear: year } : {}),
     ...(month ? { competenceMonth: month } : {}),
     ...((startDate || endDate)

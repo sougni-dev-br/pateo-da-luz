@@ -4,6 +4,7 @@ import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDate } from "../../shared/utils/parse-date.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
+import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
 
 export const supplierRouter = Router();
 
@@ -368,14 +369,18 @@ supplierRouter.get("/:id/history", async (request, response) => {
   const startYear = new Date(year, 0, 1);
   const endYear = new Date(year + 1, 0, 1);
 
+  // Fornecedor de ciclo (hortifruti) tinha o total do mes e do ano dobrado: a nota
+  // do fechamento somava de novo o que as compras do periodo ja somavam.
   const [monthTotal, yearTotal, lastPurchase, recentInvoices, topProducts, paymentMethods, averageTerm] = await Promise.all([
     prisma.$queryRaw<Array<{ total: string | null }>>`
       SELECT SUM("totalAmount")::text AS "total" FROM "Purchase"
       WHERE "supplierId" = ${request.params.id} AND "purchaseDate" >= ${startMonth} AND "purchaseDate" < ${endMonth} AND "status" <> 'CANCELLED'
+        AND ${excludeAggregatorsSql()}
     `,
     prisma.$queryRaw<Array<{ total: string | null }>>`
       SELECT SUM("totalAmount")::text AS "total" FROM "Purchase"
       WHERE "supplierId" = ${request.params.id} AND "purchaseDate" >= ${startYear} AND "purchaseDate" < ${endYear} AND "status" <> 'CANCELLED'
+        AND ${excludeAggregatorsSql()}
     `,
     prisma.purchase.findFirst({ where: { supplierId: request.params.id }, orderBy: { purchaseDate: "desc" } }),
     prisma.$queryRaw<Array<Record<string, unknown>>>`
