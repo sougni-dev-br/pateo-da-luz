@@ -11,13 +11,16 @@
     "audit:cmv-base": "tsx scripts/audit-cmv-base.ts",
     "report:cmv-sanitization": "tsx scripts/export-cmv-sanitization-report.ts",
     "report:cmv-review-queues": "tsx scripts/export-cmv-review-queues.ts",
+    "doc:testar": "tsx scripts/testar-doc-intake.ts",
     "prisma:generate": "prisma generate",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "dev:qa": "tsx watch --env-file=.env.qa src/server.ts",
+    "qa:usuario": "tsx --env-file=.env.qa scripts/criar-usuario-qa.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",
