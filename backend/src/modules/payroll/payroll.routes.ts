@@ -24,6 +24,13 @@ function numOrNull(v: unknown): number | null {
   return isNaN(n) ? null : n;
 }
 
+// Inteiro dentro de uma faixa, ou undefined (= não mexe no campo).
+function clampInt(v: unknown, min: number, max: number): number | undefined {
+  const n = numOrNull(v);
+  if (n == null) return undefined;
+  return Math.min(Math.max(Math.round(n), min), max);
+}
+
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
 payrollRouter.get("/settings", async (_request, response) => {
   const settings = await getOrDefaultSettings();
@@ -39,15 +46,16 @@ payrollRouter.put("/settings", async (request, response) => {
   const updated = await prisma.payrollSettings.update({
     where: { id: "singleton" },
     data: {
-      busFare: numOrNull(b.busFare) ?? undefined,
-      metroFare: numOrNull(b.metroFare) ?? undefined,
-      integratedFare: numOrNull(b.integratedFare) ?? undefined,
-      monthlyPassBus: numOrNull(b.monthlyPassBus) ?? undefined,
-      monthlyPassIntegrated: numOrNull(b.monthlyPassIntegrated) ?? undefined,
+      // Corte da quinzena: 2 a 28 mantém os dois períodos com pelo menos um dia
+      // em qualquer mês. Fora disso a 1ª ou a 2ª quinzena nasceria vazia.
+      vtSecondPeriodStartDay: clampInt(b.vtSecondPeriodStartDay, 2, 28),
+      // 1 a 12 semanas: abaixo de 1 nao faz sentido e acima de 12 deixaria de ser
+      // "periodicidade" para virar nunca.
+      dsrDomingoMulherSemanas: clampInt(b.dsrDomingoMulherSemanas, 1, 12),
+      dsrDomingoGeralSemanas: clampInt(b.dsrDomingoGeralSemanas, 1, 12),
       advancePercent: numOrNull(b.advancePercent) ?? undefined,
       advanceDueDay: numOrNull(b.advanceDueDay) ?? undefined,
       salaryDueDay: numOrNull(b.salaryDueDay) ?? undefined,
-      bufferDays: numOrNull(b.bufferDays) ?? undefined,
       updatedById: user.id,
     },
   });
@@ -162,7 +170,6 @@ payrollRouter.get("/termination/:employeeId", async (request, response) => {
 
   response.json({
     employee: { id: emp.id, name: `${emp.firstName} ${emp.lastName}`.trim(), terminationDate: emp.terminationDate, terminationReason: emp.terminationReason },
-    vtCreditBalance: Number(emp.vtCreditBalance),
     vtItems: vtItems.map((i) => ({ id: i.id, periodLabel: i.periodLabel, competenceYear: i.competenceYear, competenceMonth: i.competenceMonth, amount: i.amount, status: i.paymentDate ? "PAID" : "PENDING", dueDate: i.dueDate })),
     alreadyReleased: Boolean(already),
     rescisaoId: already?.id ?? null,
@@ -265,8 +272,6 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
         },
       })
     ),
-    // O crédito de VT é acertado na rescisão — zera para não arrastar saldo.
-    prisma.employee.update({ where: { id: emp.id }, data: { vtCreditBalance: 0, updatedById: user.id } }),
   ]);
 
   await auditLog({
@@ -503,9 +508,35 @@ payrollRouter.patch("/:id/restore", async (request, response) => {
     data: { deletedAt: null, deletedById: null, status: computeStatus(existing.dueDate, existing.paymentDate), updatedById: user.id },
   });
 
+  // O valor restaurado JÁ vem com o abatimento de falta embutido, mas a exclusão
+  // tinha soltado essas faltas de volta para a fila. Sem recarimbá-las aqui, o
+  // vale seguinte descontaria as MESMAS faltas outra vez — o funcionário pagaria
+  // duas vezes pelo mesmo dia. A lista vive em details.faltasDescontadas.
+  const faltas = (existing.details as { faltasDescontadas?: unknown } | null)?.faltasDescontadas;
+  let faltasRecarimbadas = 0;
+  if (Array.isArray(faltas) && faltas.length > 0) {
+    const linhas = faltas
+      .filter((f): f is { date: string; amount: number; tipo?: string } =>
+        !!f && typeof f === "object" && typeof (f as { date?: unknown }).date === "string")
+      .map((f) => ({
+        id: crypto.randomUUID(),
+        employeeId: existing.employeeId,
+        date: new Date(`${f.date}T00:00:00.000Z`),
+        // Lançamentos antigos não têm o tipo gravado; FALTA é o padrão seguro.
+        dayType: f.tipo === "ATESTADO" ? ("ATESTADO" as const) : ("FALTA" as const),
+        amount: Number(f.amount ?? 0),
+        payrollItemId: existing.id,
+      }));
+    if (linhas.length > 0) {
+      const res = await prisma.vtFaltaDeduction.createMany({ data: linhas, skipDuplicates: true });
+      faltasRecarimbadas = res.count;
+    }
+  }
+
   await auditLog({
     userId: user.id, action: "RESTORE_PAYROLL_ITEM", entity: "PayrollItem", entityId: updated.id,
-    newValue: { restored: true }, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+    newValue: { restored: true, faltasRecarimbadas },
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
 
   response.json({ id: updated.id, status: updated.status });
@@ -579,6 +610,13 @@ payrollRouter.delete("/:id", async (request, response) => {
   const reason = String((request.body as { reason?: unknown })?.reason ?? "").trim();
   if (reason.length < 3) return response.status(400).json({ message: "Informe a justificativa da exclusão (mín. 3 caracteres)." });
 
+  // Soft-delete não dispara o ON DELETE CASCADE, então os abatimentos de falta
+  // precisam ser soltos à mão. Sem isso, apagar um VT deixaria as faltas dele
+  // carimbadas como "já descontadas" e elas nunca mais voltariam ao cálculo.
+  const faltasLiberadas = await prisma.vtFaltaDeduction.deleteMany({
+    where: { payrollItemId: request.params.id },
+  });
+
   await prisma.payrollItem.update({
     where: { id: request.params.id },
     data: { deletedAt: new Date(), deletedById: user.id },
@@ -586,7 +624,7 @@ payrollRouter.delete("/:id", async (request, response) => {
 
   await auditLog({
     userId: user.id, action: "DELETE_PAYROLL_ITEM", entity: "PayrollItem", entityId: request.params.id,
-    previousValue: existing, newValue: { reason },
+    previousValue: existing, newValue: { reason, faltasLiberadas: faltasLiberadas.count },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
 
