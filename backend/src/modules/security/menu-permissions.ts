@@ -55,7 +55,8 @@ export const menuCatalog = [
   { id: "supplier-cycles", label: "Ciclos de fornecedor", group: "Financeiro" },
   { id: "dre", label: "DRE Gerencial", group: "Financeiro" },
   { id: "dishes", label: "Fichas Técnicas", group: "Cardápio" },
-  { id: "notifications", label: "Notificações WhatsApp", group: "Configuracoes" }
+  { id: "notifications", label: "Notificações WhatsApp", group: "Configuracoes" },
+  { id: "doc-intake", label: "Leitura de documentos", group: "Dados" }
 ] as const;
 
 export type MenuId = (typeof menuCatalog)[number]["id"];
@@ -433,6 +434,7 @@ function menuFromRequest(request: Request): MenuId | null {
   }
   if (path.startsWith("/master-data")) return "master-data";
   if (path.startsWith("/tax-payments")) return "tax-payments";
+  if (path.startsWith("/doc-intake")) return "doc-intake";
   if (path.startsWith("/notifications/whatsapp") || path.startsWith("/whatsapp")) return "notifications";
   return null;
 }
