@@ -11,6 +11,7 @@ import {
   Database,
   FileCog,
   FileSpreadsheet,
+  FileScan,
   Layers,
   LogOut,
   MessageCircle,
@@ -60,6 +61,7 @@ const Cards = lazy(() => import("./pages/Cards").then((module) => ({ default: mo
 const Cash = lazy(() => import("./pages/Cash").then((module) => ({ default: module.Cash })));
 const CmvReal = lazy(() => import("./pages/CmvReal").then((module) => ({ default: module.CmvReal })));
 const Dashboard = lazy(() => import("./pages/Dashboard").then((module) => ({ default: module.Dashboard })));
+const DocIntake = lazy(() => import("./pages/DocIntake").then((module) => ({ default: module.DocIntake })));
 const ImportsHub = lazy(() => import("./pages/ImportsHub").then((module) => ({ default: module.ImportsHub })));
 const Inventory = lazy(() => import("./pages/Inventory").then((module) => ({ default: module.Inventory })));
 const MasterData = lazy(() => import("./pages/MasterData").then((module) => ({ default: module.MasterData })));
@@ -165,6 +167,7 @@ const sections = [
   { id: "payroll-tips", label: "Fechamento de Gorjetas", icon: WalletCards, showInSidebar: false, group: "Pessoal", path: "/pessoal/gorjeta", matchers: ["/pessoal/gorjeta"], description: "Rateio da gorjeta por pontos: total líquido − cotas fixas, menos vales — etapa do fechamento salarial" },
   { id: "import", label: "Importações", icon: FileSpreadsheet, showInSidebar: true, group: "Dados", path: "/dados/importacoes", matchers: ["/dados/importacoes"] },
   { id: "catalog-imports", label: "Importar cadastros", icon: Database, showInSidebar: false, group: "Dados", path: "/dados/importacoes/cadastros", matchers: ["/dados/importacoes/cadastros"] },
+  { id: "doc-intake", label: "Leitura de documentos", icon: FileScan, showInSidebar: true, group: "Dados", path: "/dados/leitura-documentos", matchers: ["/dados/leitura-documentos"], description: "Lê nota, boleto ou fatura em PDF e monta o rascunho do lançamento para conferência" },
   { id: "payment-methods", label: "Pagamentos", icon: CreditCard, showInSidebar: true, group: "Configurações", path: "/configuracoes/pagamentos", matchers: ["/configuracoes/pagamentos"] },
   { id: "master-data", label: "Cadastros base", icon: Layers, showInSidebar: true, group: "Configurações", path: "/configuracoes/cadastros-base", matchers: ["/configuracoes/cadastros-base"] },
   { id: "users", label: "Usuários", icon: Shield, showInSidebar: true, group: "Configurações", path: "/configuracoes/usuarios", matchers: ["/configuracoes/usuarios"] },
@@ -614,6 +617,7 @@ export function App() {
               <Route path="/dashboard" element={<Navigate to="/" replace />} />
               <Route path="/dados/importacoes" element={<ImportsHub activeTab={importsTab} onTabChange={setImportsTab} onNavigate={handleNavigate} />} />
               <Route path="/dados/importacoes/cadastros" element={<CatalogImports />} />
+              <Route path="/dados/leitura-documentos" element={<DocIntake />} />
               <Route path="/compras" element={<Purchases user={user} />} />
               <Route path="/compras/nova" element={<Purchases user={user} />} />
               <Route path="/compras/:id/editar" element={<Purchases user={user} />} />
