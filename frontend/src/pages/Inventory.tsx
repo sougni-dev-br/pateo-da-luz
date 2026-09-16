@@ -3,6 +3,7 @@ import { Fragment, KeyboardEvent, useEffect, useMemo, useRef, useState } from "r
 import { useRevealScroll } from "../lib/useRevealScroll";
 import { hasPermission } from "../lib/permissions";
 import { cicloDivergeDaData, cicloSugerido, opcoesDeCiclo, rotuloDoCiclo } from "../lib/ciclo-contagem";
+import { proximoPassoDoFechamento } from "../lib/fechamento-cmv";
 import {
   ApiError,
   AppUser,
@@ -310,6 +311,9 @@ export function Inventory({
   const [isLoadingCoverageMap, setIsLoadingCoverageMap] = useState(false);
   const [showCmvApproveModal, setShowCmvApproveModal] = useState(false);
   const [approvingFinalCmv, setApprovingFinalCmv] = useState(false);
+  // Trava o botao do proximo passo no card do fechamento enquanto a acao roda.
+  const [acaoFechamentoEmCurso, setAcaoFechamentoEmCurso] = useState(false);
+  const formularioInventarioRef = useRef<HTMLDivElement | null>(null);
   const { notice, setNotice } = useNotice();
   const navigate = useNavigate();
 
@@ -1455,6 +1459,52 @@ export function Inventory({
     return `Atencao: ${negativos.length} produto(s) ficaram com saldo negativo (${nomes}${resto}) — houve saida nao registrada entre a contagem e a aprovacao.`;
   }
 
+  /**
+   * Revela o formulario de criar inventario e rola ate ele. O formulario ficava
+   * sempre aberto no desktop, competindo com o que a tela tem a dizer — e quem
+   * chegava para fechar o mes via um formulario que nao precisava preencher.
+   */
+  function abrirFormularioDeInventario() {
+    setMobileInvFormOpen(true);
+    // Conteudo revelado fora da viewport tem que se apresentar sozinho.
+    window.setTimeout(() => {
+      formularioInventarioRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+
+  /**
+   * Executa o proximo passo do fechamento direto do card, sem obrigar a abrir o
+   * inventario. Aprovar pede confirmacao: cria a base do CMV e, dali em diante,
+   * reabrir custa caro.
+   */
+  async function executarPassoDoFechamento(inventoryId: string, acao: "submit" | "approve") {
+    if (acaoFechamentoEmCurso) return;
+    if (acao === "approve" && !window.confirm(
+      "Aprovar cria a base de estoque do CMV Real a partir deste inventario.\n\n"
+      + "Depois disso, reabrir exige cancelar ou revisar o inventario. Confirma?"
+    )) return;
+
+    setAcaoFechamentoEmCurso(true);
+    try {
+      if (acao === "submit") {
+        await submitOperationalInventory(inventoryId);
+        setNotice({ tone: "success", message: "Inventario enviado para revisao. Agora da para aprovar e criar a base do CMV." });
+      } else {
+        const resultado = await approveOperationalInventory(inventoryId);
+        const ajustados = resultado.reconciliacao?.adjustedItems ?? 0;
+        setNotice({
+          tone: "success",
+          message: `Inventario aprovado — base de estoque do CMV Real criada${ajustados > 0 ? ` (${ajustados} item(ns) reconciliado(s))` : ""}.`,
+        });
+      }
+      await refreshOperational();
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel avancar o fechamento." });
+    } finally {
+      setAcaoFechamentoEmCurso(false);
+    }
+  }
+
   async function operationalAction(action: "submit" | "approve" | "reject" | "close" | "cancel" | "reopen") {
     if (!operationalDetail) return;
     try {
@@ -2341,10 +2391,12 @@ export function Inventory({
       />
 
       <section className={panelClass(["counting", "inventory", "reports"])}>
-        <div className="section-heading inv-op-header">
+        {/* O titulo da pagina ja diz "Inventário" logo acima; repetir "Estoque /
+          * Inventario operacional" aqui era o terceiro rotulo em sequencia
+          * dizendo a mesma coisa. Ficam os controles. */}
+        <div className="section-heading inv-op-header inv-op-header--enxuto">
           <div>
-            <p>Estoque</p>
-            <h2>{activeView === "counting" ? "Contagens de estoque" : "Inventario operacional"}</h2>
+            {activeView === "counting" && <h2>Contagens de estoque</h2>}
           </div>
           <div className="actions-cell">
             <label className="checkbox-label compact-check inventory-toggle-label">
@@ -2359,63 +2411,103 @@ export function Inventory({
 
         {activeView !== "counting" && (
           <>
-            <Tabs
-              value={inventoryDeskTab}
-              onChange={(v) => setInventoryDeskTab(v as InventoryDeskTab)}
-              tabs={[
-                { value: "official", label: "Inventários oficiais" },
-                { value: "purchase", label: "Sugestão de compras" },
-                { value: "stock", label: "Estoque atual" },
-                { value: "reports", label: "Relatórios" }
-              ]}
-            />
-
-            <div className="inventory-action-strip">
-              <Button leadingIcon={<ClipboardCheck size={16} />} onClick={() => setInventoryDeskTab("official")}>Criar inventário</Button>
-              <Button variant="secondary" className="inv-action-secondary" leadingIcon={<Download size={16} />} disabled={!operationalDetail} onClick={() => operationalDetail && downloadInventoryPdf(operationalDetail)}>Gerar PDF</Button>
-              <Button variant="secondary" className="inv-action-secondary" leadingIcon={<RefreshCw size={16} />} onClick={() => { setInventoryDeskTab("purchase"); loadBuyerSupport(); }}>Atualizar relatório</Button>
-              <Button variant="secondary" className="inv-action-secondary" leadingIcon={<FileText size={16} />} disabled={!buyerSupport} onClick={exportBuyerPrelist}>Exportar CSV</Button>
-              <Button className="inv-action-secondary" leadingIcon={<ShoppingCart size={16} />} disabled={!buyerSupport} onClick={generatePurchaseOrdersFromPrelist}>Gerar pedido de compra</Button>
-              <div className="inv-more-actions-wrap">
-                <Button variant="secondary" onClick={() => setMobileInvMoreActionsOpen(v => !v)}>Mais ações ▾</Button>
-                <div className={`inv-more-actions-menu${mobileInvMoreActionsOpen ? " open" : ""}`}>
-                  <button type="button" disabled={!operationalDetail} onClick={() => { operationalDetail && void downloadInventoryPdf(operationalDetail); setMobileInvMoreActionsOpen(false); }}><Download size={14} />Gerar PDF</button>
-                  <button type="button" onClick={() => { setInventoryDeskTab("purchase"); void loadBuyerSupport(); setMobileInvMoreActionsOpen(false); }}><RefreshCw size={14} />Atualizar relatorio</button>
-                  <button type="button" disabled={!buyerSupport} onClick={() => { exportBuyerPrelist(); setMobileInvMoreActionsOpen(false); }}><FileText size={14} />Exportar CSV</button>
-                  <button type="button" disabled={!buyerSupport} onClick={() => { void generatePurchaseOrdersFromPrelist(); setMobileInvMoreActionsOpen(false); }}><ShoppingCart size={14} />Gerar pedido de compra</button>
-                </div>
-              </div>
-            </div>
-
+            {/* O fechamento do mes vem ANTES da navegacao e das acoes: quando ha
+              * um em andamento, ele e o assunto da tela. Ficava depois de duas
+              * barras e de uma fileira de botoes, competindo com tudo. */}
             {operationalSummary.activeFinalCmv && inventoryDeskTab === "official" && (() => {
               const inv = operationalSummary.activeFinalCmv!;
               const cov = finalCmvCoverageMap[inv.id];
-              const isEmRevisao = inv.status === "EM_REVISAO";
               const isComplete = cov?.isComplete === true;
+              const passo = proximoPassoDoFechamento(inv.status, isComplete);
+              const pct = cov && cov.expectedTotal > 0
+                ? Math.min(100, Math.round((cov.coveredTotal / cov.expectedTotal) * 100))
+                : null;
               return (
-                <div className="form-section" style={{ borderLeft: `4px solid ${isEmRevisao ? "var(--warning)" : "var(--success)"}`, background: "var(--paper-soft)", marginTop: 12 }}>
-                  <div className="section-heading compact-heading" style={{ margin: 0 }}>
+                <section className={`fechamento-hero${passo.concluido ? " fechamento-hero--pronto" : ""}`}>
+                  <header className="fechamento-hero__topo">
                     <div>
                       <PanelEyebrow>Fechamento do mês</PanelEyebrow>
-                      <h3 style={{ margin: "2px 0 4px" }}>
-                        {isEmRevisao ? "Inventário Final CMV em revisão" : "Inventário Final CMV em andamento"}
-                      </h3>
-                      <span className="muted">{inv.code} • {formatDate(inv.date)}</span>
-                      {cov && (
-                        <p style={{ margin: "4px 0 0", fontSize: 13, fontWeight: 600, color: isComplete ? "var(--success)" : "var(--warning)" }}>
-                          {cov.coveredTotal}/{cov.expectedTotal} produtos controlados cobertos{isComplete ? " — completo" : ` — ${cov.missingTotal} pendente(s)`}
-                        </p>
-                      )}
-                      {isEmRevisao && <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-muted, #666)" }}>Aguardando revisao e aprovacao para fechamento do CMV Real.</p>}
+                      <h3 className="fechamento-hero__titulo">{passo.titulo}</h3>
+                      <p className="fechamento-hero__meta">{inv.code} · contado em {formatDate(inv.date)}</p>
                     </div>
-                    <div className="actions-cell">
-                      <StatusBadge tone={operationalTone(inv.status)}>{operationalStatusLabels[inv.status] ?? inv.status}</StatusBadge>
-                      <button className="secondary-button" type="button" onClick={() => void openOperationalInventory(inv.id)}>Ver inventario</button>
+                    <StatusBadge tone={operationalTone(inv.status)}>{operationalStatusLabels[inv.status] ?? inv.status}</StatusBadge>
+                  </header>
+
+                  {cov && pct !== null && (
+                    <div className="fechamento-hero__cobertura">
+                      <div className="fechamento-hero__barra" role="img" aria-label={`${pct}% dos produtos controlados cobertos`}>
+                        <span style={{ width: `${pct}%` }} className={isComplete ? "completa" : ""} />
+                      </div>
+                      <p className="fechamento-hero__cobertura-texto">
+                        <strong>{cov.coveredTotal} de {cov.expectedTotal}</strong> produtos controlados cobertos
+                        {isComplete ? " — completo" : ` — faltam ${cov.missingTotal}`}
+                      </p>
                     </div>
+                  )}
+
+                  <p className="fechamento-hero__descricao">{passo.descricao}</p>
+
+                  <div className="fechamento-hero__acoes">
+                    {passo.acao && (
+                      <button
+                        className="primary-button"
+                        type="button"
+                        disabled={acaoFechamentoEmCurso}
+                        onClick={() => void executarPassoDoFechamento(inv.id, passo.acao!)}
+                      >
+                        {acaoFechamentoEmCurso ? "Processando…" : passo.rotuloAcao}
+                      </button>
+                    )}
+                    <button className="secondary-button" type="button" onClick={() => void openOperationalInventory(inv.id)}>Ver inventário</button>
                   </div>
-                </div>
+                </section>
               );
             })()}
+
+            {/* Sub-navegacao e acao principal na mesma faixa. Eram duas linhas
+              * empilhadas, e o olho tinha de descer duas vezes para achar o que
+              * fazer. */}
+            <div className="inventory-nav-bar">
+              <Tabs
+                value={inventoryDeskTab}
+                onChange={(v) => setInventoryDeskTab(v as InventoryDeskTab)}
+                tabs={[
+                  { value: "official", label: "Inventários oficiais" },
+                  { value: "purchase", label: "Sugestão de compras" },
+                  { value: "stock", label: "Estoque atual" },
+                  { value: "reports", label: "Relatórios" }
+                ]}
+              />
+
+              {/* Acoes do contexto, nao todas de uma vez. Eram cinco botoes lado
+                * a lado, dois com peso de primaria, mais um menu que repetia
+                * quatro — e tres pertenciam a outra aba. */}
+              <div className="inventory-action-strip">
+              {inventoryDeskTab === "purchase" ? (
+                <>
+                  <Button leadingIcon={<ShoppingCart size={16} />} disabled={!buyerSupport} onClick={generatePurchaseOrdersFromPrelist}>Gerar pedido de compra</Button>
+                  <div className="inv-more-actions-wrap">
+                    <Button variant="secondary" onClick={() => setMobileInvMoreActionsOpen(v => !v)}>Mais ações ▾</Button>
+                    <div className={`inv-more-actions-menu${mobileInvMoreActionsOpen ? " open" : ""}`}>
+                      <button type="button" onClick={() => { void loadBuyerSupport(); setMobileInvMoreActionsOpen(false); }}><RefreshCw size={14} />Atualizar relatório</button>
+                      <button type="button" disabled={!buyerSupport} onClick={() => { exportBuyerPrelist(); setMobileInvMoreActionsOpen(false); }}><FileText size={14} />Exportar CSV</button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Button leadingIcon={<ClipboardCheck size={16} />} onClick={() => { setInventoryDeskTab("official"); abrirFormularioDeInventario(); }}>Criar inventário</Button>
+                  <div className="inv-more-actions-wrap">
+                    <Button variant="secondary" onClick={() => setMobileInvMoreActionsOpen(v => !v)}>Mais ações ▾</Button>
+                    <div className={`inv-more-actions-menu${mobileInvMoreActionsOpen ? " open" : ""}`}>
+                      <button type="button" disabled={!operationalDetail} onClick={() => { operationalDetail && void downloadInventoryPdf(operationalDetail); setMobileInvMoreActionsOpen(false); }}><Download size={14} />Gerar PDF</button>
+                      <button type="button" onClick={() => { setInventoryDeskTab("purchase"); void loadBuyerSupport(); setMobileInvMoreActionsOpen(false); }}><ShoppingCart size={14} />Ir para sugestão de compras</button>
+                    </div>
+                  </div>
+                </>
+              )}
+              </div>
+            </div>
           </>
         )}
 
@@ -2845,25 +2937,29 @@ export function Inventory({
         )}
 
         {activeView !== "counting" && inventoryDeskTab === "official" && <>
-          <div className="summary-grid inventory-compact-summary">
-            <SummaryCard label="Inventários em rascunho" value={operationalSummary.drafts} tone={operationalSummary.drafts ? "warning" : "info"} icon={<Archive size={18} />} />
-            <SummaryCard label="Em revisão" value={operationalSummary.review} tone={operationalSummary.review ? "warning" : "info"} />
-            <SummaryCard
-              label={operationalSummary.activeFinalCmv ? "Fechamento atual" : "Último final CMV"}
-              value={operationalSummary.activeFinalCmv?.code ?? operationalSummary.lastFinalCmv?.code ?? "-"}
-              detail={operationalSummary.activeFinalCmv
-                ? `${operationalStatusLabels[operationalSummary.activeFinalCmv.status] ?? operationalSummary.activeFinalCmv.status} • ${formatDate(operationalSummary.activeFinalCmv.date)}`
-                : (operationalSummary.lastFinalCmv ? formatDate(operationalSummary.lastFinalCmv.date) : "Nenhum final aprovado")}
-              tone={operationalSummary.activeFinalCmv ? "warning" : "info"}
-            />
-            <SummaryCard label="Pendentes (CMV)" value={operationalSummary.pending} tone={operationalSummary.pending ? "warning" : "success"} />
-            <SummaryCard label="Divergentes (CMV)" value={operationalSummary.divergent} tone={operationalSummary.divergent ? "danger" : "success"} />
-          </div>
+          {/* Quatro cards do mesmo tamanho, com numeros de cores diferentes e
+            * nenhuma hierarquia: a tela nao dizia qual olhar. Viraram uma linha
+            * de estatisticas — informacao de apoio tem peso de apoio. Só o que
+            * exige acao (divergências) ganha destaque. */}
+          <ul className="inv-estatisticas">
+            <li><span>{formatNumber(operationalSummary.drafts)}</span> em rascunho</li>
+            <li><span>{formatNumber(operationalSummary.review)}</span> em revisão</li>
+            <li><span>{formatNumber(operationalSummary.pending)}</span> pendentes</li>
+            <li className={operationalSummary.divergent ? "inv-estatisticas__alerta" : ""}>
+              <span>{formatNumber(operationalSummary.divergent)}</span> divergentes
+            </li>
+            {!operationalSummary.activeFinalCmv && operationalSummary.lastFinalCmv && (
+              <li className="inv-estatisticas__ultimo">
+                último final CMV: {operationalSummary.lastFinalCmv.code} · {formatDate(operationalSummary.lastFinalCmv.date)}
+              </li>
+            )}
+          </ul>
 
-          <button className="inv-mobile-form-toggle" type="button" onClick={() => setMobileInvFormOpen(v => !v)}>
+
+          <button className="inv-mobile-form-toggle" type="button" onClick={() => { if (mobileInvFormOpen) setMobileInvFormOpen(false); else abrirFormularioDeInventario(); }}>
             <ClipboardCheck size={15} />{mobileInvFormOpen ? "Cancelar" : "Criar inventario"}
           </button>
-          <div className={`inv-collapsible-form${mobileInvFormOpen ? " open" : ""}`}>
+          <div className={`inv-collapsible-form${mobileInvFormOpen ? " open" : ""}`} ref={formularioInventarioRef}>
             <div className="form-section inventory-create-panel">
               <div className="section-heading compact-heading">
                 <div>
@@ -3180,6 +3276,34 @@ export function Inventory({
                       {isCreatingComplement ? "Criando..." : `Criar contagem complementar com ${finalCmvCoverage?.missingTotal ?? "?"} produto(s) pendente(s)`}
                     </button>
                   )}
+                </div>
+              );
+            })()}
+
+            {/* Antes este painel so existia para EM_REVISAO. Quem acabava de
+              * consolidar ficava em RASCUNHO sem nenhuma indicacao do que fazer,
+              * e o "Enviar para revisao" morava numa barra generica no rodape. */}
+            {operationalDetail.type === "FINAL_CMV" && ["RASCUNHO", "REJEITADO"].includes(operationalDetail.status) && (() => {
+              const passo = proximoPassoDoFechamento(operationalDetail.status, finalCmvCoverage?.isComplete === true);
+              return (
+                <div className="cmv-closing-assistant">
+                  <div className="cmv-closing-assistant__header">
+                    <Send size={20} className="cmv-closing-assistant__icon" />
+                    <div>
+                      <h4 className="cmv-closing-assistant__title">{passo.titulo}</h4>
+                      <p className="cmv-closing-assistant__info" style={{ margin: "2px 0 0" }}>{passo.descricao}</p>
+                    </div>
+                  </div>
+                  <div className="cmv-closing-assistant__actions">
+                    <button
+                      className="primary-button cmv-closing-assistant__cta"
+                      type="button"
+                      disabled={acaoFechamentoEmCurso}
+                      onClick={() => void executarPassoDoFechamento(operationalDetail.id, "submit")}
+                    >
+                      {acaoFechamentoEmCurso ? "Enviando…" : passo.rotuloAcao}
+                    </button>
+                  </div>
                 </div>
               );
             })()}

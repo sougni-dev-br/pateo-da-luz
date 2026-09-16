@@ -11454,7 +11454,8 @@ tr.dre-row-selected td {
 
 /* ── Inventory Mobile UX ─────────────────────────────────────────────── */
 
-/* Mobile form toggle — hidden on desktop, shown via media query */
+/* Atalho para abrir o formulario. No desktop a acao principal fica na barra de
+ * acoes do topo, entao este botao so aparece no mobile. */
 .inv-mobile-form-toggle {
   display: none;
   align-items: center;
@@ -11474,9 +11475,16 @@ tr.dre-row-selected td {
   box-shadow: 0 2px 6px rgba(22, 21, 18, 0.15);
 }
 
-/* Collapsible form — always visible on desktop */
+/* O formulario de criar inventario so aparece quando alguem pede — em qualquer
+ * largura. Ficava sempre aberto no desktop: quem chegava na tela para fechar o
+ * mes dava de cara com um formulario que nao precisava preencher, e a acao que
+ * ele de fato procurava ficava soterrada. */
 .inv-collapsible-form {
-  /* full display on desktop */
+  display: none;
+}
+
+.inv-collapsible-form.open {
+  display: block;
 }
 
 /* Desktop table wrapper — hidden on mobile via media query */
@@ -11634,8 +11642,11 @@ tr.dre-row-selected td {
 }
 
 /* More actions dropdown */
+/* O menu guarda as acoes secundarias em qualquer largura. Antes so existia no
+ * mobile: no desktop as cinco acoes ficavam lado a lado, duas delas com peso de
+ * primaria, e nenhuma se destacava. */
 .inv-more-actions-wrap {
-  display: none;
+  display: inline-block;
   position: relative;
 }
 
@@ -15522,5 +15533,234 @@ body:has(.pplan-sticky-actions) .pplan {
     font-size: 0.82rem;
     padding: 0 7px;
     white-space: nowrap;
+  }
+}
+
+/* ── Card do fechamento do mês ────────────────────────────────────────────
+ * O status e as duas ações ficavam numa célula genérica, e os botões caíam
+ * empilhados e desalinhados à direita. Aqui eles ganham eixo próprio: o selo
+ * de status em cima, as ações lado a lado embaixo, alinhadas à direita. */
+.fechamento-card__acoes {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.fechamento-card__botoes {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* No celular as ações passam a ocupar a largura toda: são o que a pessoa veio
+ * fazer, e alvo de toque pequeno no canto da tela não serve. */
+@media (max-width: 768px) {
+  .fechamento-card__acoes {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .fechamento-card__botoes {
+    justify-content: stretch;
+  }
+
+  .fechamento-card__botoes > button {
+    flex: 1 1 auto;
+    min-height: 40px;
+  }
+}
+
+/* ── Tabela de inventários ────────────────────────────────────────────────
+ * `overflow-wrap: anywhere`, herdado das regras genéricas de tabela, quebrava
+ * palavra no meio quando a coluna ficava estreita: "Setorial" virava "Setori
+ * al" e "ADEGA" virava "ADEG A". Palavra partida ao meio custa mais para ler do
+ * que uma coluna um pouco mais larga.
+ *
+ * Aqui a quebra volta a ser entre palavras. As colunas curtas e previsíveis —
+ * tipo, status, setor — não quebram: preferem caber. */
+.inventory-official-table td,
+.inventory-official-table th {
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
+}
+
+.inventory-official-table td:nth-child(3),
+.inventory-official-table td:nth-child(4),
+.inventory-official-table td:nth-child(5) {
+  white-space: nowrap;
+}
+
+/* ═══ Inventário — foco da tela ═══════════════════════════════════════════
+ * A tela era uma pilha de blocos com o mesmo peso: dois títulos dizendo a
+ * mesma coisa, duas barras de navegação, uma fileira de botões, o fechamento
+ * do mês perdido no meio e quatro cards de número disputando atenção. Não
+ * havia onde pousar o olho.
+ *
+ * O princípio aqui é um só: quando existe um fechamento em andamento, ele é o
+ * assunto — vem primeiro e tem peso de herói. O resto é apoio. */
+
+.fechamento-hero {
+  border: 1px solid var(--line-strong, var(--border));
+  border-left: 3px solid var(--gold);
+  border-radius: var(--radius, 12px);
+  background: var(--paper);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.fechamento-hero--pronto {
+  border-left-color: var(--success);
+}
+
+.fechamento-hero__topo {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* O passo é o título, não o nome do documento: a pessoa chega aqui para saber
+ * o que fazer, não para ler "Inventário Final CMV em andamento". */
+.fechamento-hero__titulo {
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-h2);
+  line-height: var(--lh-tight);
+}
+
+.fechamento-hero__meta {
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.fechamento-hero__cobertura {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* Barra em vez de fração solta: 677/671 não diz nada num relance, uma barra diz. */
+.fechamento-hero__barra {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--paper-soft);
+  overflow: hidden;
+}
+
+.fechamento-hero__barra > span {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+  border-radius: 999px;
+  transition: width var(--dur, 200ms) var(--ease, ease-out);
+}
+
+.fechamento-hero__barra > span.completa {
+  background: var(--success);
+}
+
+.fechamento-hero__cobertura-texto {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.fechamento-hero__cobertura-texto strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.fechamento-hero__descricao {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  max-width: 68ch;
+}
+
+.fechamento-hero__acoes {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* ── Navegação e ação na mesma faixa ─────────────────────────────────────── */
+.inventory-nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.inventory-nav-bar .inventory-action-strip {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+/* ── Estatísticas de apoio ───────────────────────────────────────────────── */
+.inv-estatisticas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.inv-estatisticas span {
+  font-weight: var(--fw-semibold);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.inv-estatisticas__alerta span {
+  color: var(--danger);
+}
+
+.inv-estatisticas__ultimo {
+  font-size: var(--fs-xs);
+}
+
+.inv-op-header--enxuto {
+  margin-bottom: var(--space-3);
+}
+
+/* O menu abria por cima do conteúdo e deixava o card ilegível por baixo dele.
+ * Ganha fundo opaco, sombra e camada própria — e a seta some quando aberto. */
+.inv-more-actions-menu {
+  z-index: 30;
+  background: var(--paper);
+  box-shadow: var(--shadow-soft, 0 8px 24px rgba(22, 21, 18, 0.14));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .fechamento-hero {
+    padding: var(--space-4);
+  }
+
+  .fechamento-hero__acoes > button {
+    flex: 1 1 auto;
+    min-height: 40px;
+  }
+
+  .inventory-nav-bar {
+    align-items: stretch;
+  }
+
+  .inv-estatisticas {
+    gap: var(--space-1) var(--space-4);
   }
 }
