@@ -9,6 +9,7 @@ import { cloneFinalAsNextInitial } from "../monthly/monthly.service.js";
 import { auditLog, requestIp, requireRole, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
+import { derivarCiclos, duracaoEmDias, fechouForaDoMes } from "./stock-cycle.service.js";
 
 export const inventoryRouter = Router();
 
@@ -1431,6 +1432,136 @@ async function createInventorySnapshotFromOperationalInventory(id: string, user:
   });
   return snapshotId;
 }
+
+// ─── Ciclos operacionais ────────────────────────────────────────────────────
+// O ciclo era implicito: um par de campos nas contagens. Declarado como
+// entidade, com comeco e fim, permite somar "as compras do ciclo" e nao so as da
+// competencia — base para as duas visoes nos relatorios.
+//
+// Esta camada so deriva e grava. Nenhum relatorio consome ainda.
+
+type CicloRow = {
+  id: string;
+  competenceYear: number;
+  competenceMonth: number;
+  startDate: Date;
+  endDate: Date;
+  status: string;
+  closingSnapshotId: string | null;
+  source: string;
+};
+
+/**
+ * Deriva os ciclos do historico de contagens e grava. Idempotente: roda quantas
+ * vezes quiser. Ciclos ajustados a mao (source = MANUAL) sao preservados — quem
+ * corrigiu sabia de algo que o historico nao conta.
+ */
+async function sincronizarCiclos() {
+  const resumos = await prisma.$queryRaw<Array<{ ano: number; mes: number; ultima: Date }>>`
+    SELECT "periodYear" AS ano, "periodMonth" AS mes, MAX("referenceDate") AS ultima
+    FROM "StockCountSession"
+    WHERE "periodYear" IS NOT NULL AND "periodMonth" IS NOT NULL AND "status" <> 'CANCELADA'
+    GROUP BY "periodYear", "periodMonth"
+  `;
+
+  const derivados = derivarCiclos(
+    resumos.map((r) => ({
+      competenceYear: Number(r.ano),
+      competenceMonth: Number(r.mes),
+      ultimaContagem: new Date(r.ultima),
+    }))
+  );
+
+  const manuais = await prisma.$queryRaw<Array<{ competenceYear: number; competenceMonth: number }>>`
+    SELECT "competenceYear", "competenceMonth" FROM "StockCycle" WHERE "source" = 'MANUAL'
+  `;
+  const protegidos = new Set(manuais.map((m) => `${m.competenceYear}-${m.competenceMonth}`));
+
+  let gravados = 0;
+  let preservados = 0;
+  for (const ciclo of derivados) {
+    if (protegidos.has(`${ciclo.competenceYear}-${ciclo.competenceMonth}`)) {
+      preservados++;
+      continue;
+    }
+    await prisma.$executeRaw`
+      INSERT INTO "StockCycle" ("id", "competenceYear", "competenceMonth", "startDate", "endDate", "status", "source", "createdAt", "updatedAt")
+      VALUES (${crypto.randomUUID()}, ${ciclo.competenceYear}, ${ciclo.competenceMonth}, ${ciclo.startDate}, ${ciclo.endDate}, 'ABERTO', 'SISTEMA', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT ("competenceYear", "competenceMonth") DO UPDATE
+        SET "startDate" = EXCLUDED."startDate",
+            "endDate" = EXCLUDED."endDate",
+            "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "StockCycle"."source" <> 'MANUAL'
+    `;
+    gravados++;
+  }
+
+  // O ciclo fecha quando existe inventario final aprovado da competencia.
+  await prisma.$executeRaw`
+    UPDATE "StockCycle" c
+    SET "status" = 'FECHADO', "closingSnapshotId" = s."id", "updatedAt" = CURRENT_TIMESTAMP
+    FROM "InventorySnapshot" s
+    WHERE s."competenceYear" = c."competenceYear"
+      AND s."competenceMonth" = c."competenceMonth"
+      AND s."type" = CAST('INVENTARIO_FINAL' AS "InventorySnapshotType")
+      AND s."status" = 'APPROVED'
+      AND (c."closingSnapshotId" IS DISTINCT FROM s."id" OR c."status" <> 'FECHADO')
+  `;
+
+  return { derivados: derivados.length, gravados, preservados };
+}
+
+inventoryRouter.get("/stock-cycles", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const ciclos = await prisma.$queryRaw<Array<CicloRow>>`
+    SELECT "id", "competenceYear", "competenceMonth", "startDate", "endDate", "status", "closingSnapshotId", "source"
+    FROM "StockCycle"
+    ORDER BY "competenceYear" DESC, "competenceMonth" DESC
+  `;
+  response.json(
+    ciclos.map((c) => ({
+      ...c,
+      startDate: isoDate(new Date(c.startDate)),
+      endDate: isoDate(new Date(c.endDate)),
+      // A virada que motivou a entidade: o ciclo que fecha fora do proprio mes.
+      fechouForaDoMes: fechouForaDoMes({
+        competenceYear: c.competenceYear,
+        competenceMonth: c.competenceMonth,
+        startDate: new Date(c.startDate),
+        endDate: new Date(c.endDate),
+      }),
+      duracaoEmDias: duracaoEmDias({
+        competenceYear: c.competenceYear,
+        competenceMonth: c.competenceMonth,
+        startDate: new Date(c.startDate),
+        endDate: new Date(c.endDate),
+      }),
+    }))
+  );
+});
+
+inventoryRouter.post("/stock-cycles/sync", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  try {
+    const resultado = await sincronizarCiclos();
+    await auditLog({
+      userId: user.id,
+      action: "SYNC_STOCK_CYCLES",
+      entity: "StockCycle",
+      entityId: null,
+      newValue: resultado,
+      ipAddress: requestIp(request),
+      userAgent: String(request.headers["user-agent"] ?? ""),
+    });
+    response.json(resultado);
+  } catch (error) {
+    response.status(500).json({ message: error instanceof Error ? error.message : "Falha ao sincronizar ciclos." });
+  }
+});
 
 inventoryRouter.get("/count-sessions", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);

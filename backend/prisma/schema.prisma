@@ -2649,3 +2649,36 @@ model TipVale {
 
   @@index([participantId])
 }
+
+/// Ciclo operacional de estoque: o intervalo real entre duas contagens de
+/// fechamento. O restaurante nao fecha o CMV por competencia estrita — o ciclo
+/// termina no dia em que se conta, e esse dia cai no mes seguinte sempre que o
+/// ultimo dia do mes esta ocupado (agosto/2026 fechou em 02/09, maio em 01/06).
+///
+/// Ate aqui o ciclo era implicito, um par de campos nas contagens. Declarado
+/// assim, com comeco e fim, da para somar "as compras do ciclo" e nao so as da
+/// competencia — que e o que permite as duas visoes nos relatorios.
+///
+/// Os ciclos nao se sobrepoem e nao deixam buraco: cada um comeca no dia
+/// seguinte ao fim do anterior.
+model StockCycle {
+  id                String   @id
+  competenceYear    Int
+  competenceMonth   Int
+  startDate         DateTime @db.Date
+  endDate           DateTime @db.Date
+  /// ABERTO enquanto nao ha inventario final aprovado; FECHADO depois.
+  status            String   @default("ABERTO")
+  /// O InventorySnapshot final que encerra o ciclo, quando ja existe.
+  closingSnapshotId String?
+  /// SISTEMA para os derivados do historico; MANUAL quando alguem ajusta.
+  source            String   @default("SISTEMA")
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([competenceYear, competenceMonth])
+  @@index([startDate, endDate])
+  @@index([status])
+  @@index([closingSnapshotId])
+}
