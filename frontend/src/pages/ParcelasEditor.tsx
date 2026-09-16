@@ -1,18 +1,29 @@
-import { FileText, Plus, Trash2 } from "lucide-react";
-import { Button, TextField } from "../design-system";
+import { Check, FileText } from "lucide-react";
+import { useMemo } from "react";
+import { Select, TextField } from "../design-system";
+import {
+  dividirValor, formaPermiteParcelamento, formasPorNomeBase, somarDias,
+  type FormaPagamento,
+} from "../lib/formas-pagamento";
 
 export type LinhaParcela = {
   dataVencimento: string;
   valor: string;
-  /** Arquivo de onde a parcela foi lida (vazio quando a pessoa adicionou à mão). */
+  /** Arquivo de onde a parcela foi lida (vazio quando foi gerada pela tela). */
   origem: string;
 };
 
 type Props = {
   parcelas: LinhaParcela[];
   totalEsperado: number;
+  formasPagamento: FormaPagamento[];
+  paymentMethodId: string;
+  onFormaChange: (paymentMethodId: string) => void;
   onChange: (parcelas: LinhaParcela[]) => void;
 };
+
+const TOLERANCIA = 0.01;
+const DIAS_ENTRE_PARCELAS = 30;
 
 function numero(valor: string): number {
   const convertido = Number(String(valor).replace(",", "."));
@@ -23,91 +34,133 @@ function dinheiro(valor: number): string {
   return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-const TOLERANCIA = 0.01;
+function paraBr(dataIso: string): string {
+  return dataIso ? dataIso.split("-").reverse().join("/") : "–";
+}
 
 /**
- * Parcelas do título — uma por boleto enviado.
+ * Pagamento do título — mesmo desenho do lançamento de compra: escolhe-se a
+ * FORMA e a QUANTIDADE de parcelas, e a grade abaixo mostra cada vencimento e
+ * valor, com o total conferido.
  *
- * Fica editável porque a leitura pode errar um vencimento, e porque nem sempre
- * todos os boletos estão em mãos na hora. O total das parcelas precisa fechar
- * com o da compra: o backend recusa o lançamento se divergir, e é melhor a
- * pessoa ver isso aqui do que levar um erro na cara depois de preencher tudo.
+ * Duas diferenças, porque aqui há documento:
+ *   - a quantidade já vem com o número de boletos lidos, e cada linha mostra de
+ *     qual arquivo veio;
+ *   - mudar a quantidade recalcula tudo, e isso descarta o que foi lido — por
+ *     isso o aviso aparece antes, não depois.
  */
-export function ParcelasEditor({ parcelas, totalEsperado, onChange }: Props) {
+export function ParcelasEditor({ parcelas, totalEsperado, formasPagamento, paymentMethodId, onFormaChange, onChange }: Props) {
+  const opcoes = useMemo(() => formasPorNomeBase(formasPagamento), [formasPagamento]);
+  const formaEscolhida = formasPagamento.find((forma) => forma.id === paymentMethodId) ?? null;
+  const permiteParcelar = formaPermiteParcelamento(formaEscolhida);
+
   const soma = parcelas.reduce((total, parcela) => total + numero(parcela.valor), 0);
   const diferenca = soma - totalEsperado;
   const fecha = Math.abs(diferenca) <= TOLERANCIA;
+  const veioDeBoleto = parcelas.some((parcela) => parcela.origem);
 
   function alterar(indice: number, mudanca: Partial<LinhaParcela>) {
     onChange(parcelas.map((parcela, i) => (i === indice ? { ...parcela, ...mudanca } : parcela)));
   }
 
-  function distribuirRestante(indice: number) {
-    const outras = parcelas.reduce((total, parcela, i) => (i === indice ? total : total + numero(parcela.valor)), 0);
-    alterar(indice, { valor: String(Number((totalEsperado - outras).toFixed(2))) });
+  /** Refaz a grade inteira: divide o total e espaça os vencimentos. */
+  function recalcular(quantidade: number) {
+    const total = Math.max(1, Math.min(60, quantidade));
+    const valores = dividirValor(totalEsperado, total);
+    const primeira = parcelas[0]?.dataVencimento || "";
+    onChange(valores.map((valor, indice) => ({
+      dataVencimento: primeira ? somarDias(primeira, indice * DIAS_ENTRE_PARCELAS) : "",
+      valor: String(valor),
+      origem: "",
+    })));
+  }
+
+  function mudarForma(novaFormaId: string) {
+    onFormaChange(novaFormaId);
+    const nova = formasPagamento.find((forma) => forma.id === novaFormaId) ?? null;
+    // Forma que não parcela (PIX, dinheiro, débito) volta para parcela única:
+    // o backend recusaria mais de uma, e é melhor a tela ajustar do que deixar
+    // a pessoa montar um parcelamento que vai ser rejeitado no fim.
+    if (!formaPermiteParcelamento(nova) && parcelas.length > 1) recalcular(1);
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <strong style={{ fontSize: 13 }}>
-        {parcelas.length === 1 ? "Pagamento" : `Parcelas (${parcelas.length})`}
-      </strong>
-      {parcelas.length > 1 && (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <strong style={{ fontSize: 13 }}>Pagamento</strong>
         <span style={{ fontSize: 12, color: "var(--muted)" }}>
-          Uma linha por boleto enviado. Confira cada vencimento e valor antes de lançar.
+          {parcelas.length === 1 ? "parcela única" : `${parcelas.length} parcelas`}
+          {parcelas[0]?.dataVencimento ? ` · 1ª em ${paraBr(parcelas[0].dataVencimento)}` : ""}
+          {` · ${dinheiro(soma)}`}
         </span>
-      )}
+      </div>
 
-      {parcelas.map((parcela, indice) => (
-        <div key={indice} style={{ display: "grid", gridTemplateColumns: "28px 1fr 130px minmax(0,1fr) 32px", gap: 8, alignItems: "center", borderTop: "1px solid var(--border)", paddingTop: 8 }}>
-          <span style={{ fontSize: 12, color: "var(--muted)" }}>{indice + 1}ª</span>
-          <TextField
-            label={indice === 0 ? "Vencimento" : undefined}
-            aria-label={`Vencimento da parcela ${indice + 1}`}
-            type="date"
-            value={parcela.dataVencimento}
-            onChange={(evento) => alterar(indice, { dataVencimento: evento.target.value })}
-          />
-          <TextField
-            label={indice === 0 ? "Valor" : undefined}
-            aria-label={`Valor da parcela ${indice + 1}`}
-            value={parcela.valor}
-            onChange={(evento) => alterar(indice, { valor: evento.target.value })}
-          />
-          <div style={{ fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 6, minWidth: 0, paddingTop: indice === 0 ? 20 : 0 }}>
-            {parcela.origem ? (
-              <><FileText size={12} /> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{parcela.origem}</span></>
-            ) : (
-              <button type="button" onClick={() => distribuirRestante(indice)}
-                style={{ border: "none", background: "transparent", padding: 0, color: "var(--muted)", cursor: "pointer", fontSize: 11, textDecoration: "underline" }}>
-                usar o valor que falta
-              </button>
-            )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+        <Select
+          label="Forma de pagamento"
+          value={paymentMethodId}
+          onChange={(evento) => mudarForma(evento.target.value)}
+          placeholder="Selecione…"
+          options={opcoes.map((forma) => ({ value: forma.id, label: forma.rotulo }))}
+        />
+        <TextField
+          label="Quantidade de parcelas"
+          type="number"
+          min={1}
+          max={60}
+          inputMode="numeric"
+          value={String(parcelas.length)}
+          disabled={!formaEscolhida || !permiteParcelar}
+          onChange={(evento) => recalcular(Number(evento.target.value || 1))}
+          hint={
+            formaEscolhida && !permiteParcelar
+              ? "esta forma não parcela"
+              : veioDeBoleto
+                ? "veio dos boletos — mudar aqui refaz a grade"
+                : undefined
+          }
+        />
+        <TextField
+          label="Primeiro vencimento"
+          value={paraBr(parcelas[0]?.dataVencimento ?? "")}
+          disabled
+          hint="editável na grade abaixo"
+        />
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {parcelas.map((parcela, indice) => (
+          <div key={indice} className="doc-parcela-linha">
+            <span style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" }}>
+              {indice + 1}ª <span style={{ opacity: 0.7 }}>de {parcelas.length}</span>
+            </span>
+            <TextField
+              aria-label={`Vencimento da parcela ${indice + 1}`}
+              type="date"
+              value={parcela.dataVencimento}
+              onChange={(evento) => alterar(indice, { dataVencimento: evento.target.value })}
+            />
+            <TextField
+              aria-label={`Valor da parcela ${indice + 1}`}
+              value={parcela.valor}
+              onChange={(evento) => alterar(indice, { valor: evento.target.value })}
+            />
+            <div className="doc-parcela-linha__origem">
+              {parcela.origem ? (
+                <><FileText size={12} /> <span title={parcela.origem}>{parcela.origem}</span></>
+              ) : null}
+            </div>
           </div>
-          <button
-            type="button"
-            title="Remover parcela"
-            aria-label={`Remover parcela ${indice + 1}`}
-            disabled={parcelas.length === 1}
-            onClick={() => onChange(parcelas.filter((_, i) => i !== indice))}
-            style={{ marginTop: indice === 0 ? 20 : 0, border: "none", background: "transparent", cursor: parcelas.length === 1 ? "not-allowed" : "pointer", color: "var(--muted)" }}
-          >
-            <Trash2 size={14} />
-          </button>
-        </div>
-      ))}
+        ))}
+      </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <Button
-          variant="secondary"
-          leadingIcon={<Plus size={13} />}
-          onClick={() => onChange([...parcelas, { dataVencimento: "", valor: "", origem: "" }])}
-        >
-          Adicionar parcela
-        </Button>
-        <span style={{ fontSize: 13, fontWeight: 600, color: fecha ? "inherit" : "var(--danger, #c00)" }}>
-          Soma das parcelas: {dinheiro(soma)}
-          {!fecha && ` · faltam ${dinheiro(Math.abs(diferenca))} para fechar ${dinheiro(totalEsperado)}`}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+        <span style={{ fontSize: 12, color: "var(--muted)" }}>Total das parcelas</span>
+        <span style={{ fontSize: 13, fontWeight: 650, color: fecha ? "inherit" : "var(--danger, #c00)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          {dinheiro(soma)}
+          {fecha
+            ? <Check size={14} color="var(--success, green)" />
+            : <span style={{ fontWeight: 500 }}>· faltam {dinheiro(Math.abs(diferenca))} para {dinheiro(totalEsperado)}</span>}
         </span>
       </div>
     </div>
