@@ -38,6 +38,14 @@ import {
   Company,
   getCompanies
 } from "../api/client";
+import {
+  formaPermiteParcelamento,
+  nomeBaseDaForma,
+  normalizar as normalize,
+  parcelasNoNomeDaForma,
+  somarDias
+} from "../lib/formas-pagamento";
+import { montarParcelas } from "../lib/parcelas";
 import { Notice, useNotice } from "../components/Notice";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import {
@@ -118,14 +126,6 @@ function todayInputDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function normalize(value?: string | null) {
-  return String(value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
-}
-
 function normalizePurchaseReference(value?: string | null) {
   return String(value ?? "")
     .trim()
@@ -136,58 +136,18 @@ function normalizePurchaseReference(value?: string | null) {
     .replace(/\d+/g, (digits) => digits.replace(/^0+(?=\d)/g, ""));
 }
 
-function parseLegacyInstallmentCount(name?: string | null) {
-  const match = normalize(name).match(/^(.*?)(?:\s+|\/|-)?(\d{1,2})\s*x$/);
-  if (!match) return null;
-  const count = Number(match[2]);
-  return count > 0 ? count : null;
-}
-
-function basePaymentMethodName(name?: string | null) {
-  const raw = String(name ?? "").trim();
-  const normalized = normalize(raw);
-  const match = normalized.match(/^(.*?)(?:\s+|\/|-)?(\d{1,2})\s*x$/);
-  const base = match ? normalize(match[1]) : normalized;
-  if (base.includes("boleto")) return "BOLETO";
-  if (base.includes("faturado") || base.includes("prazo")) return "FATURADO";
-  if (base.includes("cartao") && base.includes("credito")) return "CARTÃO CRÉDITO";
-  if (base.includes("cartao") && base.includes("debito")) return "CARTÃO DÉBITO";
-  if (base.includes("pix")) return "PIX";
-  if (base.includes("dinheiro") || base.includes("caixa")) return "DINHEIRO";
-  return raw || "";
-}
-
 function isLegacyInstallmentMethod(method?: PaymentMethod | null) {
-  return Boolean(parseLegacyInstallmentCount(method?.name));
-}
-
-function allowsInstallments(method?: PaymentMethod | null) {
-  const baseName = normalize(basePaymentMethodName(method?.name));
-  if (["boleto", "faturado", "cartao credito"].includes(baseName)) return true;
-  if (normalize(method?.group) === "faturado") return true;
-  return ["credit_card", "bank_slip"].includes(normalize(method?.type));
+  return Boolean(parcelasNoNomeDaForma(method?.name));
 }
 
 function installmentCountFromPurchase(methodName?: string | null, totalInstallments?: number | null) {
-  return totalInstallments ?? parseLegacyInstallmentCount(methodName) ?? 1;
+  return totalInstallments ?? parcelasNoNomeDaForma(methodName) ?? 1;
 }
 
-function splitAmount(total: number, parts: number) {
-  if (parts <= 0) return [];
-  const totalCents = Math.round(total * 100);
-  const base = Math.floor(totalCents / parts);
-  const remainder = totalCents - base * parts;
-  // Última parcela absorve os centavos restantes
-  return Array.from({ length: parts }, (_, index) => {
-    const isLast = index === parts - 1;
-    return ((base + (isLast ? remainder : 0)) / 100).toFixed(2);
-  });
-}
-
+// somarDias devolve "" para data vazia; aqui a tela sempre caiu para hoje, porque o
+// campo de data da compra pode ficar em branco até a validação do salvar barrar.
 function addDaysToInputDate(inputDate: string, days: number) {
-  const baseDate = inputDate ? new Date(`${inputDate}T12:00:00`) : new Date();
-  baseDate.setDate(baseDate.getDate() + days);
-  return baseDate.toISOString().slice(0, 10);
+  return somarDias(inputDate || todayInputDate(), days);
 }
 
 function installmentStatusLabel(status?: string | null) {
@@ -557,7 +517,7 @@ export function Purchases({ user }: { user: AppUser }) {
   const selectedSupplier = suppliers.find((supplier) => supplier.id === form.supplierId) ?? null;
   const selectedSupplierIsCycle = selectedSupplier?.billingMode === "CYCLE";
   const selectedPaymentMethod = paymentMethods.find((method) => method.id === form.paymentMethodId) ?? null;
-  const selectedPaymentMethodBaseName = basePaymentMethodName(selectedPaymentMethod?.name);
+  const selectedPaymentMethodBaseName = nomeBaseDaForma(selectedPaymentMethod?.name);
   const availablePaymentMethods = useMemo(() => {
     const baseMethods = paymentMethods.filter((method) => !isLegacyInstallmentMethod(method));
     return baseMethods.length > 0 ? baseMethods : paymentMethods;
@@ -566,7 +526,7 @@ export function Purchases({ user }: { user: AppUser }) {
   const smallExpenseUsesCreditCard = form.isSmallExpense && selectedPaymentMethod ? selectedPaymentMethod.type === "CREDIT_CARD" : false;
   const normalPurchaseUsesCreditCard = !form.isSmallExpense && selectedPaymentMethod ? selectedPaymentMethod.type === "CREDIT_CARD" : false;
   const usesCreditCard = smallExpenseUsesCreditCard || normalPurchaseUsesCreditCard;
-  const selectedPaymentMethodAllowsInstallments = allowsInstallments(selectedPaymentMethod);
+  const selectedPaymentMethodAllowsInstallments = formaPermiteParcelamento(selectedPaymentMethod);
   const totalAmount = useMemo(() => items.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0), [items]);
   const installmentTotal = useMemo(() => installments.reduce((sum, installment) => sum + Number(installment.amount || 0), 0), [installments]);
   const amountDifference = totalAmount - installmentTotal;
@@ -852,7 +812,7 @@ export function Purchases({ user }: { user: AppUser }) {
       : (() => {
           // Fallback global: BOLETO
           const boletoMethod = availablePaymentMethods.find(
-            (m) => normalize(basePaymentMethodName(m.name)) === "boleto"
+            (m) => normalize(nomeBaseDaForma(m.name)) === "boleto"
           );
           return boletoMethod?.id ?? form.paymentMethodId ?? "";
         })();
@@ -862,7 +822,7 @@ export function Purchases({ user }: { user: AppUser }) {
       ?? 2;
 
     const resolvedMethod = paymentMethods.find((m) => m.id === resolvedMethodId) ?? null;
-    const count = allowsInstallments(resolvedMethod) ? Math.max(1, supplierInstallmentCount) : 1;
+    const count = formaPermiteParcelamento(resolvedMethod) ? Math.max(1, supplierInstallmentCount) : 1;
     const resolvedNotes = supplier.defaultFinancialNotes ?? "";
 
     setForm((current) => ({
@@ -897,8 +857,8 @@ export function Purchases({ user }: { user: AppUser }) {
   function resolveBasePaymentMethodId(paymentMethodId?: string | null, paymentMethodName?: string | null) {
     const direct = paymentMethods.find((method) => method.id === paymentMethodId && !isLegacyInstallmentMethod(method));
     if (direct) return direct.id;
-    const baseName = normalize(basePaymentMethodName(paymentMethodName ?? paymentMethods.find((method) => method.id === paymentMethodId)?.name));
-    const baseMethod = paymentMethods.find((method) => !isLegacyInstallmentMethod(method) && normalize(basePaymentMethodName(method.name)) === baseName);
+    const baseName = normalize(nomeBaseDaForma(paymentMethodName ?? paymentMethods.find((method) => method.id === paymentMethodId)?.name));
+    const baseMethod = paymentMethods.find((method) => !isLegacyInstallmentMethod(method) && normalize(nomeBaseDaForma(method.name)) === baseName);
     return baseMethod?.id ?? paymentMethodId ?? "";
   }
 
@@ -1295,15 +1255,17 @@ export function Purchases({ user }: { user: AppUser }) {
       setInstallments([]);
       return;
     }
-    const requestedCount = explicitCount ?? Number(form.installmentCount || 1);
-    const count = allowsInstallments(method) ? Math.max(1, requestedCount || 1) : 1;
-    const amounts = splitAmount(total, count);
-    const baseDueDate = addDaysToInputDate(form.purchaseDate, installmentLeadDays);
-    setInstallments(amounts.map((amount, index) => ({
-      installment: index + 1,
-      dueDate: installments[index]?.dueDate || addDaysToInputDate(baseDueDate, index * 30),
-      amount
-    })));
+    setInstallments(montarParcelas({
+      forma: method,
+      total,
+      parcelasPedidas: explicitCount ?? Number(form.installmentCount || 1),
+      dataCompra: form.purchaseDate || todayInputDate(),
+      vencimento: {
+        modo: "escada",
+        diasAteAPrimeira: installmentLeadDays,
+        datasExistentes: installments.map((installment) => installment.dueDate)
+      }
+    }));
   }
 
   function rebuildInstallmentsWithDays(
@@ -1316,15 +1278,12 @@ export function Purchases({ user }: { user: AppUser }) {
     if (smallExpenseUsesCreditCard) { setInstallments([]); return; }
     const method = paymentMethods.find((entry) => entry.id === methodId);
     if (!method) { setInstallments([]); return; }
-    const effectiveCount = allowsInstallments(method) ? Math.max(1, count) : 1;
-    const amounts = splitAmount(total, effectiveCount);
-    setInstallments(amounts.map((amount, index) => {
-      const dayOffset = days[index] ?? (days[days.length - 1] ?? 30) + (index - days.length + 1) * 30;
-      return {
-        installment: index + 1,
-        dueDate: addDaysToInputDate(purchaseDate, dayOffset),
-        amount
-      };
+    setInstallments(montarParcelas({
+      forma: method,
+      total,
+      parcelasPedidas: count,
+      dataCompra: purchaseDate || todayInputDate(),
+      vencimento: { modo: "dias", dias: days }
     }));
   }
 
@@ -1459,7 +1418,7 @@ export function Purchases({ user }: { user: AppUser }) {
         purchaseOrderNumber: form.purchaseOrderNumber || null,
         noInvoiceReason: showNoInvoiceReason ? form.noInvoiceReason || null : null,
         paymentMethodId: selectedSupplierIsCycle ? null : (selectedPaymentMethod?.id ?? null),
-        paymentMethod: selectedSupplierIsCycle ? null : (basePaymentMethodName(selectedPaymentMethod?.name) || selectedPaymentMethod?.name || null),
+        paymentMethod: selectedSupplierIsCycle ? null : (nomeBaseDaForma(selectedPaymentMethod?.name) || selectedPaymentMethod?.name || null),
         notes: form.notes || null,
         isSmallExpense: form.isSmallExpense,
         smallExpenseTypeId: form.isSmallExpense ? form.smallExpenseTypeId || null : null,
@@ -1479,7 +1438,7 @@ export function Purchases({ user }: { user: AppUser }) {
               dueDate: installment.dueDate,
               amount: Number(installment.amount || 0),
               paymentMethodId: selectedPaymentMethod?.id ?? null,
-              paymentMethodName: basePaymentMethodName(selectedPaymentMethod?.name) || selectedPaymentMethod?.name || null,
+              paymentMethodName: nomeBaseDaForma(selectedPaymentMethod?.name) || selectedPaymentMethod?.name || null,
               status: "OPEN"
             })),
         items: validItems.map((item) => {
@@ -2061,7 +2020,7 @@ export function Purchases({ user }: { user: AppUser }) {
                         {selectedSupplier.document && <span>{selectedSupplier.document}</span>}
                         {selectedSupplier.defaultPaymentMethodId ? (
                           <span>
-                            {basePaymentMethodName(selectedPaymentMethod?.name) || "–"}
+                            {nomeBaseDaForma(selectedPaymentMethod?.name) || "–"}
                             {selectedPaymentMethodAllowsInstallments && (() => {
                               const days = Array.isArray(selectedSupplier.defaultInstallmentDays) && (selectedSupplier.defaultInstallmentDays as number[]).length > 0
                                 ? (selectedSupplier.defaultInstallmentDays as number[]).join("/")
@@ -2763,7 +2722,7 @@ export function Purchases({ user }: { user: AppUser }) {
                       onClick={() => setPaymentExpanded((v) => !v)}
                     >
                       <span className="pnova-payment-header-method">
-                        {basePaymentMethodName(selectedPaymentMethod?.name) || "Selecionar forma"}
+                        {nomeBaseDaForma(selectedPaymentMethod?.name) || "Selecionar forma"}
                       </span>
                       {normalPurchaseUsesCreditCard && form.creditCardId && ccInstallmentPreview.length > 0 ? (
                         <span className="pnova-payment-header-info">
@@ -2797,12 +2756,12 @@ export function Purchases({ user }: { user: AppUser }) {
                           Forma de pagamento
                           <select value={form.paymentMethodId} onChange={(event) => {
                             const nextMethod = availablePaymentMethods.find((method) => method.id === event.target.value) ?? null;
-                            const nextCount = nextMethod && allowsInstallments(nextMethod) ? Math.max(1, Number(form.installmentCount || 1)) : 1;
+                            const nextCount = nextMethod && formaPermiteParcelamento(nextMethod) ? Math.max(1, Number(form.installmentCount || 1)) : 1;
                             setForm({ ...form, paymentMethodId: event.target.value, installmentCount: String(nextCount), creditCardId: "", ccNumberOfInstallments: "1" });
                             rebuildInstallments(event.target.value, totalAmount, nextCount);
                           }}>
                             <option value="">Selecione</option>
-                            {availablePaymentMethods.map((method) => <option key={method.id} value={method.id}>{basePaymentMethodName(method.name) || method.name}</option>)}
+                            {availablePaymentMethods.map((method) => <option key={method.id} value={method.id}>{nomeBaseDaForma(method.name) || method.name}</option>)}
                           </select>
                         </label>
                         {normalPurchaseUsesCreditCard ? (
