@@ -5,6 +5,7 @@ import {
   dividirValor, formaPermiteParcelamento, formasPorNomeBase, somarDias,
   type FormaPagamento,
 } from "../lib/formas-pagamento";
+import { numeroBr } from "../utils/format";
 
 export type LinhaParcela = {
   dataVencimento: string;
@@ -24,11 +25,6 @@ type Props = {
 
 const TOLERANCIA = 0.01;
 const DIAS_ENTRE_PARCELAS = 30;
-
-function numero(valor: string): number {
-  const convertido = Number(String(valor).replace(",", "."));
-  return Number.isFinite(convertido) ? convertido : 0;
-}
 
 function dinheiro(valor: number): string {
   return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -54,7 +50,7 @@ export function ParcelasEditor({ parcelas, totalEsperado, formasPagamento, payme
   const formaEscolhida = formasPagamento.find((forma) => forma.id === paymentMethodId) ?? null;
   const permiteParcelar = formaPermiteParcelamento(formaEscolhida);
 
-  const soma = parcelas.reduce((total, parcela) => total + numero(parcela.valor), 0);
+  const soma = parcelas.reduce((total, parcela) => total + numeroBr(parcela.valor), 0);
   const diferenca = soma - totalEsperado;
   const fecha = Math.abs(diferenca) <= TOLERANCIA;
   const veioDeBoleto = parcelas.some((parcela) => parcela.origem);
@@ -70,7 +66,8 @@ export function ParcelasEditor({ parcelas, totalEsperado, formasPagamento, payme
     const primeira = parcelas[0]?.dataVencimento || "";
     onChange(valores.map((valor, indice) => ({
       dataVencimento: primeira ? somarDias(primeira, indice * DIAS_ENTRE_PARCELAS) : "",
-      valor: String(valor),
+      // toFixed(2) como o splitAmount da tela de Compras: o campo e numerico.
+      valor: valor.toFixed(2),
       origem: "",
     })));
   }
@@ -85,17 +82,17 @@ export function ParcelasEditor({ parcelas, totalEsperado, formasPagamento, payme
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-        <strong style={{ fontSize: 13 }}>Pagamento</strong>
-        <span style={{ fontSize: 12, color: "var(--muted)" }}>
+    <div className="doc-pagamento">
+      <div className="doc-pagamento__cabecalho">
+        <strong className="doc-pagamento__titulo">Pagamento</strong>
+        <span className="doc-pagamento__resumo">
           {parcelas.length === 1 ? "parcela única" : `${parcelas.length} parcelas`}
           {parcelas[0]?.dataVencimento ? ` · 1ª em ${paraBr(parcelas[0].dataVencimento)}` : ""}
           {` · ${dinheiro(soma)}`}
         </span>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+      <div className="doc-pagamento__campos">
         <Select
           label="Forma de pagamento"
           value={paymentMethodId}
@@ -128,11 +125,11 @@ export function ParcelasEditor({ parcelas, totalEsperado, formasPagamento, payme
         />
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div className="doc-parcela-grade">
         {parcelas.map((parcela, indice) => (
           <div key={indice} className="doc-parcela-linha">
-            <span style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" }}>
-              {indice + 1}ª <span style={{ opacity: 0.7 }}>de {parcelas.length}</span>
+            <span className="doc-parcela-linha__ordem">
+              {indice + 1}ª <span className="doc-parcela-linha__de">de {parcelas.length}</span>
             </span>
             <TextField
               aria-label={`Vencimento da parcela ${indice + 1}`}
@@ -140,27 +137,34 @@ export function ParcelasEditor({ parcelas, totalEsperado, formasPagamento, payme
               value={parcela.dataVencimento}
               onChange={(evento) => alterar(indice, { dataVencimento: evento.target.value })}
             />
+            {/* Mesmo campo da tela de Compras: numerico com passo de centavo,
+              * nao mascarado — digitar 150 e cento e cinquenta reais. */}
             <TextField
               aria-label={`Valor da parcela ${indice + 1}`}
+              type="number"
+              min={0}
+              step="0.01"
+              inputMode="decimal"
+              placeholder="0,00"
               value={parcela.valor}
               onChange={(evento) => alterar(indice, { valor: evento.target.value })}
             />
-            <div className="doc-parcela-linha__origem">
-              {parcela.origem ? (
-                <><FileText size={12} /> <span title={parcela.origem}>{parcela.origem}</span></>
-              ) : null}
-            </div>
+            {parcela.origem ? (
+              <div className="doc-parcela-linha__origem">
+                <FileText size={12} /> <span title={parcela.origem}>{parcela.origem}</span>
+              </div>
+            ) : null}
           </div>
         ))}
       </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", borderTop: "1px solid var(--border)", paddingTop: 8 }}>
-        <span style={{ fontSize: 12, color: "var(--muted)" }}>Total das parcelas</span>
-        <span style={{ fontSize: 13, fontWeight: 650, color: fecha ? "inherit" : "var(--danger, #c00)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <div className={`doc-total${fecha ? "" : " doc-total--diverge"}`}>
+        <span className="doc-total__rotulo">Total das parcelas</span>
+        <span className="doc-total__valor">
           {dinheiro(soma)}
           {fecha
-            ? <Check size={14} color="var(--success, green)" />
-            : <span style={{ fontWeight: 500 }}>· faltam {dinheiro(Math.abs(diferenca))} para {dinheiro(totalEsperado)}</span>}
+            ? <Check size={14} className="doc-total__check" />
+            : <span className="doc-total__diferenca">falta {dinheiro(Math.abs(diferenca))} para {dinheiro(totalEsperado)}</span>}
         </span>
       </div>
     </div>

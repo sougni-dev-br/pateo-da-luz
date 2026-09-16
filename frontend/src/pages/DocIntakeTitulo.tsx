@@ -1,4 +1,4 @@
-import { CheckCircle2, FileText, Loader2, Plus, ScanLine, Trash2 } from "lucide-react";
+import { Check, CheckCircle2, FileText, Loader2, Plus, ScanLine, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createPurchase, type Company, type DocIntakeProdutoSugerido, type DocIntakeSugestaoLinha, type DocIntakeTitulo, type PaymentMethod, type Product, type Supplier } from "../api/client";
 import { Button, FormGrid, Select, StatusBadge, TextField } from "../design-system";
@@ -6,6 +6,7 @@ import { AvisosDoTitulo } from "./AvisosDoTitulo";
 import { ParcelasEditor, type LinhaParcela } from "./ParcelasEditor";
 import { SeletorProduto } from "./SeletorProduto";
 import { VisualizadorDocumento, type DocumentoVisivel } from "./VisualizadorDocumento";
+import { numeroBr } from "../utils/format";
 
 import "./DocIntake.css";
 
@@ -37,10 +38,8 @@ function paraInputDate(iso: string | null): string {
   return iso ? iso.slice(0, 10) : "";
 }
 
-function numero(valor: string): number {
-  const convertido = Number(String(valor).replace(",", "."));
-  return Number.isFinite(convertido) ? convertido : 0;
-}
+/** Campo de dinheiro/quantidade → número. Aceita "1.234,56" e "1234.56". */
+const numero = numeroBr;
 
 function dinheiro(valor: number): string {
   return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -278,7 +277,7 @@ export function DocIntakeTituloCard({ titulo, arquivos, fornecedores, empresas, 
           <div key={indice} className="doc-item-linha">
             <div style={{ minWidth: 0 }}>
               {linha.descricaoLida && (
-                <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
+                <div className="doc-item-linha__lido">
                   lido: {linha.descricaoLida}
                 </div>
               )}
@@ -291,15 +290,18 @@ export function DocIntakeTituloCard({ titulo, arquivos, fornecedores, empresas, 
             </div>
             <div className="doc-item-linha__numeros">
             <TextField label={indice === 0 ? "Qtd" : undefined} aria-label={`Quantidade da linha ${indice + 1}`}
+              inputMode="decimal"
               value={linha.quantidade} onChange={(evento) => alterarLinha(indice, { quantidade: evento.target.value })} />
+            {/* Mesmo campo da tela de Compras: numerico, passo de centavo. */}
             <TextField label={indice === 0 ? "Unitário" : undefined} aria-label={`Preço unitário da linha ${indice + 1}`}
-              value={linha.precoUnitario} onChange={(evento) => alterarLinha(indice, { precoUnitario: evento.target.value })} />
-            <div style={{ fontSize: 13, fontWeight: 600, textAlign: "right", paddingBottom: 8 }}>
+              type="number" step="0.01" inputMode="decimal" placeholder="0,00"
+              value={linha.precoUnitario}
+              onChange={(evento) => alterarLinha(indice, { precoUnitario: evento.target.value })} />
+            <div className="doc-item-linha__total">
               {dinheiro(numero(linha.quantidade) * numero(linha.precoUnitario))}
             </div>
-            <button type="button" title="Remover linha" disabled={linhas.length === 1}
-              onClick={() => setLinhas((atual) => atual.filter((_, i) => i !== indice))}
-              style={{ marginBottom: 8, border: "none", background: "transparent", cursor: linhas.length === 1 ? "not-allowed" : "pointer", color: "var(--muted)" }}>
+            <button type="button" className="doc-item-linha__remover" title="Remover linha" disabled={linhas.length === 1}
+              onClick={() => setLinhas((atual) => atual.filter((_, i) => i !== indice))}>
               <Trash2 size={14} />
             </button>
             </div>
@@ -312,11 +314,18 @@ export function DocIntakeTituloCard({ titulo, arquivos, fornecedores, empresas, 
           </Button>
         </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, borderTop: "1px solid var(--border)", paddingTop: 8, fontSize: 13, flexWrap: "wrap" }}>
-          <span style={{ color: "var(--muted)" }}>Documento: <strong>{dinheiro(valorDocumento)}</strong></span>
-          <span style={{ color: totalBate ? "inherit" : "var(--danger, #c00)", fontWeight: 600 }}>
-            Total dos itens: {dinheiro(totalItens)}
-            {!totalBate && ` · diferença de ${dinheiro(Math.abs(diferenca))}`}
+        {/* Quando os itens fecham com o documento, repetir o mesmo numero duas
+          * vezes so polui — uma confirmacao basta. A divergencia e que precisa
+          * de peso: e ela que impede o lancamento. */}
+        <div className={`doc-total${totalBate ? "" : " doc-total--diverge"}`}>
+          <span className="doc-total__rotulo">Total dos itens</span>
+          <span className="doc-total__valor">
+            {dinheiro(totalItens)}
+            {totalBate
+              ? <Check size={14} className="doc-total__check" />
+              : <span className="doc-total__diferenca">
+                  {dinheiro(Math.abs(diferenca))} {diferenca > 0 ? "acima" : "abaixo"} do documento ({dinheiro(valorDocumento)})
+                </span>}
           </span>
         </div>
       </div>
@@ -332,7 +341,7 @@ export function DocIntakeTituloCard({ titulo, arquivos, fornecedores, empresas, 
       />
       </div>
 
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+      <div className="doc-acao">
         {lancado ? (
           <StatusBadge tone="success"><CheckCircle2 size={12} /> Lançado — compra {lancado}</StatusBadge>
         ) : (
@@ -340,7 +349,7 @@ export function DocIntakeTituloCard({ titulo, arquivos, fornecedores, empresas, 
             <Button onClick={() => void lancar()} disabled={!podeLancar} leadingIcon={lancando ? <Loader2 size={14} /> : <CheckCircle2 size={14} />}>
               {lancando ? "Lançando…" : "Lançar em Contas a Pagar"}
             </Button>
-            <span style={{ color: "var(--muted)", fontSize: 12 }}>
+            <span className="doc-acao__motivo">
               {bloqueios.length > 0
                 ? "Corrija o bloqueio acima antes de lançar."
                 : !totalBate

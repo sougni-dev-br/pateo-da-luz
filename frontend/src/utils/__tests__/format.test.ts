@@ -1,5 +1,46 @@
 import { describe, expect, test } from "vitest";
-import { formatPercent } from "../format";
+import { formatPercent, maskMoney, moneyToMasked, numeroBr } from "../format";
+
+describe("numeroBr", () => {
+  test("le o que o usuario digitou sob mascara", () => {
+    expect(numeroBr("54.562,79")).toBe(54562.79);
+    expect(numeroBr("1.500,00")).toBe(1500);
+    expect(numeroBr("0,05")).toBe(0.05);
+  });
+
+  test("le o formato canonico que vem da API", () => {
+    expect(numeroBr("54562.79")).toBe(54562.79);
+    expect(numeroBr("3575.03")).toBe(3575.03);
+    expect(numeroBr(7150.07)).toBe(7150.07);
+  });
+
+  test("regressao: replace(',', '.') zerava a parcela mascarada", () => {
+    // O codigo antigo fazia Number("54.562,79".replace(",", ".")) -> NaN -> 0,
+    // e a parcela sumia da soma sem nenhum aviso na tela.
+    expect(Number("54.562,79".replace(",", "."))).toBeNaN();
+    expect(numeroBr("54.562,79")).toBe(54562.79);
+  });
+
+  test("vazio, nulo e lixo viram zero em vez de NaN", () => {
+    for (const entrada of ["", "   ", null, undefined, "abc", "R$"]) {
+      expect(numeroBr(entrada)).toBe(0);
+    }
+  });
+
+  test("fecha o ciclo com a mascara do proprio ERP", () => {
+    // O que maskMoney escreve, numeroBr tem que conseguir ler de volta.
+    for (const digitado of ["150000", "5456279", "5", "100"]) {
+      const mascarado = maskMoney(digitado);
+      expect(numeroBr(mascarado)).toBe(Number(digitado) / 100);
+    }
+  });
+
+  test("fecha o ciclo com moneyToMasked", () => {
+    for (const valor of [7150.07, 3575.04, 0.01, 1234567.89]) {
+      expect(numeroBr(moneyToMasked(valor))).toBe(valor);
+    }
+  });
+});
 
 describe("formatPercent", () => {
   test("formato pt-BR usa virgula decimal", () => {
