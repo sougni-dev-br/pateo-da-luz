@@ -34,3 +34,11 @@ services:
       # o Render usa: nada muda em producao, e o ambiente local passa a bater.
       - key: TZ
         value: UTC
+      # Leitura de documentos (Gemini). Sem esta chave, POST /doc-intake devolve
+      # 503 "GEMINI_API_KEY nao configurada" e a tela nao processa nada — foi o
+      # que aconteceu de 15/09/2026 ate aqui, porque a variavel so existia no
+      # .env local e o blueprint nao a declarava. Declarada agora para que o
+      # servico nao nasca sem ela de novo se for recriado.
+      # sync: false = o valor e preenchido no dashboard, nunca no repositorio.
+      - key: GEMINI_API_KEY
+        sync: false
