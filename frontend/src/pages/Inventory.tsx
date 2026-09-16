@@ -2,6 +2,7 @@
 import { Fragment, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRevealScroll } from "../lib/useRevealScroll";
 import { hasPermission } from "../lib/permissions";
+import { cicloDivergeDaData, cicloSugerido, opcoesDeCiclo, rotuloDoCiclo } from "../lib/ciclo-contagem";
 import {
   ApiError,
   AppUser,
@@ -248,14 +249,23 @@ export function Inventory({
   const [operationalSearch, setOperationalSearch] = useState("");
   const [operationalSectorFilter, setOperationalSectorFilter] = useState("");
   const [operationalLines, setOperationalLines] = useState<Record<string, { countedQuantity: string; notes: string }>>({});
-  const [countSessionForm, setCountSessionForm] = useState({
-    referenceDate: new Date().toISOString().slice(0, 10),
-    type: "GERAL" as StockCountSessionType,
-    sectorId: "",
-    categoryId: "",
-    subcategoryId: "",
-    isMonthEnd: false,
-    notes: ""
+  const [countSessionForm, setCountSessionForm] = useState(() => {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const ciclo = cicloSugerido(hoje);
+    return {
+      referenceDate: hoje,
+      type: "GERAL" as StockCountSessionType,
+      sectorId: "",
+      categoryId: "",
+      subcategoryId: "",
+      isMonthEnd: false,
+      // O ciclo a que a contagem pertence, separado do dia em que se conta.
+      // Ver lib/ciclo-contagem.ts: contagem de virada cai no mes seguinte.
+      periodMonth: ciclo.mes,
+      periodYear: ciclo.ano,
+      cicloEditadoAMao: false,
+      notes: ""
+    };
   });
   const [countSessionSearch, setCountSessionSearch] = useState("");
   const [countSessionSectorFilter, setCountSessionSectorFilter] = useState("");
@@ -807,7 +817,6 @@ export function Inventory({
         setNotice({ tone: "warning", message: "Selecione uma subcategoria para iniciar a contagem por subcategoria." });
         return;
       }
-      const reference = new Date(`${countSessionForm.referenceDate}T00:00:00`);
       const created = await createStockCountSession({
         referenceDate: countSessionForm.referenceDate,
         type: countSessionForm.type,
@@ -818,8 +827,8 @@ export function Inventory({
           : null,
         subcategoryId: countSessionForm.type === "SUBCATEGORIA" ? countSessionForm.subcategoryId || null : null,
         isMonthEnd: countSessionForm.isMonthEnd || countSessionForm.type === "FINAL_MES",
-        periodMonth: reference.getMonth() + 1,
-        periodYear: reference.getFullYear(),
+        periodMonth: countSessionForm.periodMonth,
+        periodYear: countSessionForm.periodYear,
         notes: countSessionForm.notes || null
       });
       setNotice({ tone: "success", message: `${created.code} criada com ${created.totalItems} produto(s)${created.sectorName ? ` do setor ${created.sectorName}` : ""}.` });
@@ -2462,7 +2471,28 @@ export function Inventory({
                   </div>
                 </div>
                 <div className="filters-row">
-                  <label>Data<input type="date" value={countSessionForm.referenceDate} onChange={(event) => setCountSessionForm({ ...countSessionForm, referenceDate: event.target.value })} /></label>
+                  <label>Data<input type="date" value={countSessionForm.referenceDate} onChange={(event) => {
+                    const referenceDate = event.target.value;
+                    // Trocar a data re-sugere o ciclo — a menos que a pessoa ja
+                    // tenha escolhido um, caso em que a escolha dela manda.
+                    const ciclo = countSessionForm.cicloEditadoAMao
+                      ? { mes: countSessionForm.periodMonth, ano: countSessionForm.periodYear }
+                      : cicloSugerido(referenceDate);
+                    setCountSessionForm({ ...countSessionForm, referenceDate, periodMonth: ciclo.mes, periodYear: ciclo.ano });
+                  }} /></label>
+                  <label>Ciclo
+                    <select
+                      value={`${countSessionForm.periodYear}-${countSessionForm.periodMonth}`}
+                      onChange={(event) => {
+                        const [ano, mes] = event.target.value.split("-").map(Number);
+                        setCountSessionForm({ ...countSessionForm, periodMonth: mes, periodYear: ano, cicloEditadoAMao: true });
+                      }}
+                    >
+                      {opcoesDeCiclo(countSessionForm.referenceDate).map((ciclo) => (
+                        <option key={`${ciclo.ano}-${ciclo.mes}`} value={`${ciclo.ano}-${ciclo.mes}`}>{rotuloDoCiclo(ciclo)}</option>
+                      ))}
+                    </select>
+                  </label>
                   <label>Tipo<select value={countSessionForm.type} onChange={(event) => setCountSessionForm({ ...countSessionForm, type: event.target.value as StockCountSessionType, sectorId: "", categoryId: "", subcategoryId: "" })}>
                     <option value="GERAL">Geral</option>
                     <option value="SETORIAL">Por setor</option>
@@ -2496,6 +2526,11 @@ export function Inventory({
                     </select></label>
                   )}
                   <label className="checkbox-label"><input type="checkbox" checked={countSessionForm.isMonthEnd || countSessionForm.type === "FINAL_MES"} onChange={(event) => setCountSessionForm({ ...countSessionForm, isMonthEnd: event.target.checked })} />Contagem final do mes</label>
+                  {cicloDivergeDaData(countSessionForm.referenceDate, { mes: countSessionForm.periodMonth, ano: countSessionForm.periodYear }) && (
+                    <small className="muted-text">
+                      Contando em {countSessionForm.referenceDate.split("-").reverse().join("/")}, mas fecha o ciclo de {rotuloDoCiclo({ mes: countSessionForm.periodMonth, ano: countSessionForm.periodYear })}.
+                    </small>
+                  )}
                   <label>Observacoes<input value={countSessionForm.notes} onChange={(event) => setCountSessionForm({ ...countSessionForm, notes: event.target.value })} /></label>
                   <button className="primary-button" type="button" onClick={createCountSession}><Play size={16} />Iniciar Contagem</button>
                 </div>

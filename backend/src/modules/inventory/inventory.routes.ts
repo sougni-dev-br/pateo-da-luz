@@ -149,6 +149,11 @@ function endOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
 }
 
+/** Ultimo dia do mes, em data local. Dia 0 do mes seguinte e o ultimo do atual. */
+function endOfMonthDate(year: number, month: number) {
+  return new Date(year, month, 0);
+}
+
 const accentChars = "áàãâäéèêëíìîïóòõôöúùûüç";
 const plainChars = "aaaaaeeeeiiiiooooouuuuc";
 
@@ -1799,6 +1804,36 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
     return d > max ? d : max;
   }, new Date(sessions[0].referenceDate));
   const date = dateOnly(latestDate);
+
+  // O restaurante nao fecha o CMV por competencia estrita: a contagem de virada
+  // cai nos primeiros dias do mes seguinte quando o ultimo dia esta ocupado (em
+  // agosto/2026 houve evento no dia 31, e o ciclo so foi contado em 01-02/09).
+  //
+  // Por isso o mes do inventario vem do CICLO declarado nas contagens
+  // (periodYear/periodMonth), nao da data em que se contou — mesma regra que o
+  // cmv-real ja usa ao gerar snapshot de uma sessao. Derivar da data poria um
+  // fechamento de agosto na competencia de setembro, deixando agosto sem
+  // inventario final e sem CMV.
+  //
+  // `date` continua sendo o dia real da contagem; quem define a competencia e o
+  // `effectiveCountDate`, que e de onde createInventorySnapshotFromOperationalInventory
+  // le o ano e o mes.
+  const ciclos = new Set(
+    sessions
+      .filter((s) => s.periodYear != null && s.periodMonth != null)
+      .map((s) => `${s.periodYear}-${s.periodMonth}`)
+  );
+  if (ciclos.size > 1) {
+    response.status(400).json({
+      message: `As contagens pertencem a ciclos diferentes (${[...ciclos].join(", ")}). Consolide um ciclo por vez.`
+    });
+    return;
+  }
+  const [cicloUnico] = [...ciclos];
+  const effectiveCountDate = cicloUnico
+    ? endOfMonthDate(Number(cicloUnico.split("-")[0]), Number(cicloUnico.split("-")[1]))
+    : date;
+
   const inventoryId = crypto.randomUUID();
   const sessionCodes = sessions.map((s) => s.code).join(", ");
   const name = `Inventario Final CMV ${brDate(date)} - ${sessions.length} setor(es) consolidado(s)`;
@@ -1813,11 +1848,11 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`
       INSERT INTO "OperationalInventory" (
-        "id", "code", "date", "name", "type", "status", "sectorId", "sectorName", "responsibleUserId",
+        "id", "code", "date", "effectiveCountDate", "name", "type", "status", "sectorId", "sectorName", "responsibleUserId",
         "notes", "sourceStockCountSessionId", "createdAt", "updatedAt"
       )
       VALUES (
-        ${inventoryId}, ${codigo}, ${date}, ${name}, 'FINAL_CMV', 'RASCUNHO', ${null}, ${null},
+        ${inventoryId}, ${codigo}, ${date}, ${effectiveCountDate}, ${name}, 'FINAL_CMV', 'RASCUNHO', ${null}, ${null},
         ${user.id}, ${asText(request.body.notes) ?? `Consolidado das contagens: ${sessionCodes}.`},
         ${null}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
       )
