@@ -1,12 +1,15 @@
-import { FileUp, Sparkles, Upload } from "lucide-react";
+import { Camera, FileUp, Sparkles, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   getCompanies, getPaymentMethods, getProducts, getSuppliers, previewDocumentos,
-  type Company, type DocIntakePreview, type PaymentMethod, type Product, type Supplier,
+  type Company, type DocIntakePreview, type DocIntakeProgresso, type PaymentMethod, type Product, type Supplier,
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { Alert, Button, FormGrid, SummaryCard } from "../design-system";
 import { prepararArquivo } from "../lib/comprimir-imagem";
+import { CapturaFoto } from "./CapturaFoto";
+import { ProgressoLeitura, type ArquivoEmLeitura } from "./ProgressoLeitura";
+import type { DocumentoVisivel } from "./VisualizadorDocumento";
 import { DocIntakeTituloCard } from "./DocIntakeTitulo";
 
 const MAX_ARQUIVOS = 5;
@@ -16,6 +19,20 @@ function mb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/**
+ * Blob URL em vez de manter o data URL: o navegador carrega o arquivo por
+ * referência, sem repassar megabytes de base64 a cada render do visualizador.
+ * Quem cria precisa revogar — ver a limpeza no envio e no desmonte.
+ */
+function paraBlobUrl(dataUrl: string): { url: string; ehPdf: boolean } {
+  const tipo = dataUrl.slice(5, dataUrl.indexOf(";"));
+  const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  const binario = atob(base64);
+  const bytes = new Uint8Array(binario.length);
+  for (let i = 0; i < binario.length; i += 1) bytes[i] = binario.charCodeAt(i);
+  return { url: URL.createObjectURL(new Blob([bytes], { type: tipo })), ehPdf: tipo === "application/pdf" };
+}
+
 export function DocIntake() {
   const { notice, setNotice } = useNotice();
   const [lendo, setLendo] = useState(false);
@@ -23,6 +40,11 @@ export function DocIntake() {
   const [fornecedores, setFornecedores] = useState<Supplier[]>([]);
   const [empresas, setEmpresas] = useState<Company[]>([]);
   const [formasPagamento, setFormasPagamento] = useState<PaymentMethod[]>([]);
+  const [cameraAberta, setCameraAberta] = useState(false);
+  const [arquivosVisiveis, setArquivosVisiveis] = useState<DocumentoVisivel[]>([]);
+  const [emLeitura, setEmLeitura] = useState<ArquivoEmLeitura[]>([]);
+  const [etapa, setEtapa] = useState<string | null>(null);
+  const [inicioLeitura, setInicioLeitura] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -46,6 +68,12 @@ export function DocIntake() {
     })();
   }, [setNotice]);
 
+  // Blob URL vaza se nao for revogada: limpa ao sair da tela.
+  useEffect(() => () => {
+    arquivosVisiveis.forEach((arquivo) => URL.revokeObjectURL(arquivo.url));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function enviar(arquivos: File[]) {
     if (arquivos.length === 0) return;
     if (arquivos.length > MAX_ARQUIVOS) {
@@ -55,8 +83,14 @@ export function DocIntake() {
 
     setLendo(true);
     setPreview(null);
+    // Libera os arquivos da leitura anterior antes de abrir os novos.
+    setArquivosVisiveis((anteriores) => {
+      anteriores.forEach((arquivo) => URL.revokeObjectURL(arquivo.url));
+      return [];
+    });
     try {
       const preparados = await Promise.all(arquivos.map(prepararArquivo));
+      setArquivosVisiveis(preparados.map((arquivo) => ({ nome: arquivo.nome, ...paraBlobUrl(arquivo.base64) })));
       const comprimidas = preparados.filter((arquivo) => arquivo.comprimida);
       if (comprimidas.length > 0) {
         const antes = comprimidas.reduce((soma, arquivo) => soma + arquivo.bytesOriginais, 0);
@@ -64,8 +98,23 @@ export function DocIntake() {
         setNotice({ tone: "info", message: `Preparando ${comprimidas.length} foto(s): ${mb(antes)} → ${mb(depois)}.` });
       }
 
+      setEmLeitura(preparados.map((arquivo) => ({ nome: arquivo.nome, situacao: "aguardando" as const })));
+      setEtapa(null);
+      setInicioLeitura(Date.now());
+
       const resultado = await previewDocumentos(
         preparados.map((arquivo) => ({ nome: arquivo.nome, base64: arquivo.base64 })),
+        (evento: DocIntakeProgresso) => {
+          if (evento.tipo === "etapa") {
+            setEtapa(evento.descricao);
+            return;
+          }
+          if (evento.tipo === "arquivo") {
+            setEmLeitura((atual) => atual.map((arquivo, indice) =>
+              indice === evento.indice ? { ...arquivo, situacao: evento.situacao, erro: evento.erro } : arquivo,
+            ));
+          }
+        },
       );
       setPreview(resultado);
 
@@ -79,6 +128,7 @@ export function DocIntake() {
       setNotice({ tone: "error", message: (erro as Error).message });
     } finally {
       setLendo(false);
+      setEtapa(null);
     }
   }
 
@@ -89,6 +139,13 @@ export function DocIntake() {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Notice notice={notice} />
 
+      <CapturaFoto
+        aberto={cameraAberta}
+        maximo={MAX_ARQUIVOS}
+        onFechar={() => setCameraAberta(false)}
+        onConfirmar={(fotos) => { void enviar(fotos); }}
+      />
+
       <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
         <strong style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           <Sparkles size={16} /> Leitura de documentos
@@ -98,7 +155,7 @@ export function DocIntake() {
           rascunho do lançamento — <strong>nada é gravado até você conferir e confirmar</strong>. Nota e boleto do mesmo
           título são reconhecidos como um lançamento só; pode enviar os dois juntos.
         </span>
-        <span style={{ color: "var(--muted)", fontSize: 12 }}>
+        <span className="doc-intro-secundaria" style={{ color: "var(--muted)", fontSize: 12 }}>
           Para foto sair legível: documento inteiro no quadro, sem sombra sobre os números, e de frente (não inclinado).
           Valor e vencimento lidos de foto <strong>sempre</strong> merecem uma segunda olhada antes de lançar.
         </span>
@@ -115,14 +172,21 @@ export function DocIntake() {
               event.target.value = "";
             }}
           />
-          <Button onClick={() => inputRef.current?.click()} disabled={lendo} leadingIcon={<Upload size={14} />}>
-            {lendo ? "Lendo o documento…" : "Selecionar PDF ou foto (até 5)"}
+          <Button onClick={() => setCameraAberta(true)} disabled={lendo} leadingIcon={<Camera size={14} />}>
+            Tirar foto
+          </Button>
+          <Button variant="secondary" onClick={() => inputRef.current?.click()} disabled={lendo} leadingIcon={<Upload size={14} />}>
+            {lendo ? "Lendo o documento…" : "Escolher arquivo (até 5)"}
           </Button>
           <span style={{ color: "var(--muted)", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}>
             <FileUp size={14} /> PDF ou foto de nota, boleto ou fatura
           </span>
         </div>
       </div>
+
+      {lendo && emLeitura.length > 0 && (
+        <ProgressoLeitura arquivos={emLeitura} etapa={etapa} inicioEm={inicioLeitura} />
+      )}
 
       {preview && preview.falhas.length > 0 && (
         <Alert tone="warning">
@@ -143,6 +207,7 @@ export function DocIntake() {
             <DocIntakeTituloCard
               key={titulo.chave ?? indice}
               titulo={titulo}
+              arquivos={arquivosVisiveis.filter((arquivo) => titulo.documentos.includes(arquivo.nome))}
               fornecedores={fornecedores}
               empresas={empresas}
               formasPagamento={formasPagamento}
