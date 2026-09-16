@@ -11454,7 +11454,8 @@ tr.dre-row-selected td {
 
 /* ── Inventory Mobile UX ─────────────────────────────────────────────── */
 
-/* Mobile form toggle — hidden on desktop, shown via media query */
+/* Atalho para abrir o formulario. No desktop a acao principal fica na barra de
+ * acoes do topo, entao este botao so aparece no mobile. */
 .inv-mobile-form-toggle {
   display: none;
   align-items: center;
@@ -11474,9 +11475,16 @@ tr.dre-row-selected td {
   box-shadow: 0 2px 6px rgba(22, 21, 18, 0.15);
 }
 
-/* Collapsible form — always visible on desktop */
+/* O formulario de criar inventario so aparece quando alguem pede — em qualquer
+ * largura. Ficava sempre aberto no desktop: quem chegava na tela para fechar o
+ * mes dava de cara com um formulario que nao precisava preencher, e a acao que
+ * ele de fato procurava ficava soterrada. */
 .inv-collapsible-form {
-  /* full display on desktop */
+  display: none;
+}
+
+.inv-collapsible-form.open {
+  display: block;
 }
 
 /* Desktop table wrapper — hidden on mobile via media query */
@@ -11634,8 +11642,11 @@ tr.dre-row-selected td {
 }
 
 /* More actions dropdown */
+/* O menu guarda as acoes secundarias em qualquer largura. Antes so existia no
+ * mobile: no desktop as cinco acoes ficavam lado a lado, duas delas com peso de
+ * primaria, e nenhuma se destacava. */
 .inv-more-actions-wrap {
-  display: none;
+  display: inline-block;
   position: relative;
 }
 
@@ -15523,4 +15534,62 @@ body:has(.pplan-sticky-actions) .pplan {
     padding: 0 7px;
     white-space: nowrap;
   }
+}
+
+/* ── Card do fechamento do mês ────────────────────────────────────────────
+ * O status e as duas ações ficavam numa célula genérica, e os botões caíam
+ * empilhados e desalinhados à direita. Aqui eles ganham eixo próprio: o selo
+ * de status em cima, as ações lado a lado embaixo, alinhadas à direita. */
+.fechamento-card__acoes {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.fechamento-card__botoes {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* No celular as ações passam a ocupar a largura toda: são o que a pessoa veio
+ * fazer, e alvo de toque pequeno no canto da tela não serve. */
+@media (max-width: 768px) {
+  .fechamento-card__acoes {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .fechamento-card__botoes {
+    justify-content: stretch;
+  }
+
+  .fechamento-card__botoes > button {
+    flex: 1 1 auto;
+    min-height: 40px;
+  }
+}
+
+/* ── Tabela de inventários ────────────────────────────────────────────────
+ * `overflow-wrap: anywhere`, herdado das regras genéricas de tabela, quebrava
+ * palavra no meio quando a coluna ficava estreita: "Setorial" virava "Setori
+ * al" e "ADEGA" virava "ADEG A". Palavra partida ao meio custa mais para ler do
+ * que uma coluna um pouco mais larga.
+ *
+ * Aqui a quebra volta a ser entre palavras. As colunas curtas e previsíveis —
+ * tipo, status, setor — não quebram: preferem caber. */
+.inventory-official-table td,
+.inventory-official-table th {
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
+}
+
+.inventory-official-table td:nth-child(3),
+.inventory-official-table td:nth-child(4),
+.inventory-official-table td:nth-child(5) {
+  white-space: nowrap;
 }
