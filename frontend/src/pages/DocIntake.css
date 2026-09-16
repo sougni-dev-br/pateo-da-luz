@@ -35,11 +35,56 @@
   padding-top: 10px;
 }
 
+/* Quantidade e unitario sao entrada; o total da linha e resultado. Ficam em
+ * faixas separadas, com o resultado alinhado a direita sob os dois campos.
+ *
+ * Antes eram quatro colunas na mesma linha (90px + 120px + 1fr + 32px): em
+ * 375px isso consome 266px so em colunas fixas e gaps, e sobrava menos do que
+ * "R$ 5.859,05" precisa — o rotulo da linha truncava. */
 .doc-item-linha__numeros {
   display: grid;
-  grid-template-columns: 90px 120px minmax(0, 1fr) 32px;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px;
+  grid-template-areas:
+    "qtd   unit  remover"
+    "total total total";
+  gap: var(--space-2);
   align-items: end;
+}
+
+.doc-item-linha__numeros > :nth-child(1) {
+  grid-area: qtd;
+}
+
+.doc-item-linha__numeros > :nth-child(2) {
+  grid-area: unit;
+}
+
+.doc-item-linha__total {
+  grid-area: total;
+  text-align: right;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.doc-item-linha__remover {
+  grid-area: remover;
+  margin-bottom: var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.doc-item-linha__remover:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.doc-item-linha__lido {
+  font-size: var(--fs-2xs);
+  color: var(--muted);
+  margin-bottom: var(--space-1);
 }
 
 @media (min-width: 900px) {
@@ -50,24 +95,93 @@
 }
 
 /* Parcelas: mesma lógica. */
+/* Pagamento: cabecalho, campos e grade de parcelas. */
+.doc-pagamento {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.doc-pagamento__cabecalho {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.doc-pagamento__titulo {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.doc-pagamento__resumo {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.doc-pagamento__campos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+}
+
+.doc-parcela-grade {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* No celular a linha quebra em duas faixas: a ordem (e o arquivo de origem)
+ * em cima, vencimento e valor embaixo dividindo a largura em dois.
+ *
+ * Antes era uma coluna unica de 26px para "1ª de 12" — que nao cabe — mais uma
+ * coluna fantasma de 32px para um botao de remover que este componente nunca
+ * teve. O que sobrava para o vencimento nao acomodava o input de data: o
+ * WebKit do iPhone escreve a data por extenso ("1 de jun. de 2026"), enquanto
+ * o Blink escreve "01/06/2026". A coluna fora dimensionada para o formato
+ * curto, entao no iPhone a data aparecia cortada e a ordem sumia atras dela. */
 .doc-parcela-linha {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) 110px 32px;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas:
+    "ordem  origem"
+    "data   valor";
+  gap: var(--space-2);
   align-items: end;
   border-top: 1px solid var(--border);
-  padding-top: 8px;
+  padding-top: var(--space-2);
+}
+
+.doc-parcela-linha__ordem {
+  grid-area: ordem;
+  align-self: center;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.doc-parcela-linha__de {
+  opacity: 0.7;
+}
+
+.doc-parcela-linha > :nth-child(2) {
+  grid-area: data;
+}
+
+.doc-parcela-linha > :nth-child(3) {
+  grid-area: valor;
 }
 
 .doc-parcela-linha__origem {
-  grid-column: 2 / -1;
-  font-size: 11px;
+  grid-area: origem;
+  align-self: center;
+  justify-content: flex-end;
+  font-size: var(--fs-2xs);
   color: var(--muted);
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-1);
   min-width: 0;
-  margin-top: -2px;
 }
 
 .doc-parcela-linha__origem span {
@@ -77,14 +191,54 @@
 }
 
 @media (min-width: 760px) {
+  /* Com largura sobrando a linha volta a ser uma so. O vencimento ganha 150px
+   * fixos: e o que o formato por extenso do WebKit precisa sem truncar. */
   .doc-parcela-linha {
-    grid-template-columns: 26px minmax(0, 1fr) 120px minmax(0, 1fr) 32px;
+    grid-template-columns: 52px 150px 130px minmax(0, 1fr);
+    grid-template-areas: "ordem data valor origem";
   }
 
   .doc-parcela-linha__origem {
-    grid-column: auto;
-    margin-top: 0;
+    justify-content: flex-start;
   }
+}
+
+/* Total conferido: quando fecha e so uma confirmacao discreta; quando nao
+ * fecha vira o aviso mais forte do bloco, porque e o que impede o lancamento. */
+.doc-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-2);
+}
+
+.doc-total__rotulo {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.doc-total__valor {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.doc-total__check {
+  color: var(--success);
+}
+
+.doc-total--diverge .doc-total__valor {
+  color: var(--danger);
+}
+
+.doc-total__diferenca {
+  font-weight: var(--fw-regular);
 }
 
 /* Destaque do valor: é o primeiro número que a pessoa confere. */
@@ -152,25 +306,49 @@
  * pagamento pareciam a mesma coisa. Agora o espaço entre seções é maior que o
  * espaço dentro delas — é o que faz o olho agrupar sem precisar de moldura.
  */
+/* Ritmo da conferencia: o espaco ANTES do titulo de uma secao e maior que o
+ * espaco entre o titulo e o conteudo dele. E o que faz o titulo pertencer ao
+ * bloco de baixo em vez de flutuar entre dois. Com padding uniforme, cada
+ * secao parecia um card solto e a tela virava uma pilha sem leitura. */
 .doc-secao {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 14px;
+  gap: var(--space-2);
+  padding-top: var(--space-6);
   border-top: 1px solid var(--border);
 }
 
 .doc-secao:first-of-type {
-  padding-top: 4px;
+  padding-top: var(--space-1);
   border-top: none;
 }
 
 .doc-secao__titulo {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+/* Acao final da tela: fica colada no bloco de pagamento que ela confirma, com
+ * respiro suficiente para nao ser clicada por engano ao ajustar a ultima
+ * parcela, e a razao do bloqueio ao lado — nao adianta o botao apagado sem
+ * dizer o que falta. */
+.doc-acao {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.doc-acao__motivo {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  flex: 1 1 200px;
+  min-width: 0;
 }
 
 /* ───────────────────────────────────────────────────────────────────────────

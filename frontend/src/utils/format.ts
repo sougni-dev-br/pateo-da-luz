@@ -40,6 +40,29 @@ export function moneyToMasked(v: string | number | null | undefined): string {
   return isNaN(n) ? "" : n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/**
+ * Texto de campo de dinheiro → número. Aceita as duas formas que circulam na
+ * tela: o que o usuário digitou sob máscara ("54.562,79") e o que veio da API
+ * em formato canônico ("54562.79").
+ *
+ * A regra de desempate é a vírgula: se ela existe, é o separador decimal e os
+ * pontos são milhar. Sem vírgula, um ponto só pode ser decimal — é assim que a
+ * API manda. Um `replace(",", ".")` ingênuo, que era o que havia antes, virava
+ * NaN em "54.562,79" e zerava a parcela sem avisar ninguém.
+ */
+export function numeroBr(valor: string | number | null | undefined): number {
+  if (typeof valor === "number") return Number.isFinite(valor) ? valor : 0;
+  const texto = String(valor ?? "").trim();
+  if (!texto) return 0;
+
+  const canonico = texto.includes(",")
+    ? texto.replace(/\./g, "").replace(",", ".")
+    : texto;
+
+  const convertido = Number(canonico);
+  return Number.isFinite(convertido) ? convertido : 0;
+}
+
 export function formatDate(value: string | null | undefined) {
   if (!value) return "-";
 
