@@ -3,6 +3,7 @@ import { Fragment, KeyboardEvent, useEffect, useMemo, useRef, useState } from "r
 import { useRevealScroll } from "../lib/useRevealScroll";
 import { hasPermission } from "../lib/permissions";
 import { cicloDivergeDaData, cicloSugerido, opcoesDeCiclo, rotuloDoCiclo } from "../lib/ciclo-contagem";
+import { proximoPassoDoFechamento } from "../lib/fechamento-cmv";
 import {
   ApiError,
   AppUser,
@@ -310,6 +311,8 @@ export function Inventory({
   const [isLoadingCoverageMap, setIsLoadingCoverageMap] = useState(false);
   const [showCmvApproveModal, setShowCmvApproveModal] = useState(false);
   const [approvingFinalCmv, setApprovingFinalCmv] = useState(false);
+  // Trava o botao do proximo passo no card do fechamento enquanto a acao roda.
+  const [acaoFechamentoEmCurso, setAcaoFechamentoEmCurso] = useState(false);
   const { notice, setNotice } = useNotice();
   const navigate = useNavigate();
 
@@ -1455,6 +1458,39 @@ export function Inventory({
     return `Atencao: ${negativos.length} produto(s) ficaram com saldo negativo (${nomes}${resto}) — houve saida nao registrada entre a contagem e a aprovacao.`;
   }
 
+  /**
+   * Executa o proximo passo do fechamento direto do card, sem obrigar a abrir o
+   * inventario. Aprovar pede confirmacao: cria a base do CMV e, dali em diante,
+   * reabrir custa caro.
+   */
+  async function executarPassoDoFechamento(inventoryId: string, acao: "submit" | "approve") {
+    if (acaoFechamentoEmCurso) return;
+    if (acao === "approve" && !window.confirm(
+      "Aprovar cria a base de estoque do CMV Real a partir deste inventario.\n\n"
+      + "Depois disso, reabrir exige cancelar ou revisar o inventario. Confirma?"
+    )) return;
+
+    setAcaoFechamentoEmCurso(true);
+    try {
+      if (acao === "submit") {
+        await submitOperationalInventory(inventoryId);
+        setNotice({ tone: "success", message: "Inventario enviado para revisao. Agora da para aprovar e criar a base do CMV." });
+      } else {
+        const resultado = await approveOperationalInventory(inventoryId);
+        const ajustados = resultado.reconciliacao?.adjustedItems ?? 0;
+        setNotice({
+          tone: "success",
+          message: `Inventario aprovado — base de estoque do CMV Real criada${ajustados > 0 ? ` (${ajustados} item(ns) reconciliado(s))` : ""}.`,
+        });
+      }
+      await refreshOperational();
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel avancar o fechamento." });
+    } finally {
+      setAcaoFechamentoEmCurso(false);
+    }
+  }
+
   async function operationalAction(action: "submit" | "approve" | "reject" | "close" | "cancel" | "reopen") {
     if (!operationalDetail) return;
     try {
@@ -2392,6 +2428,7 @@ export function Inventory({
               const cov = finalCmvCoverageMap[inv.id];
               const isEmRevisao = inv.status === "EM_REVISAO";
               const isComplete = cov?.isComplete === true;
+              const passoDoFechamento = proximoPassoDoFechamento(inv.status, isComplete);
               return (
                 <div className="form-section" style={{ borderLeft: `4px solid ${isEmRevisao ? "var(--warning)" : "var(--success)"}`, background: "var(--paper-soft)", marginTop: 12 }}>
                   <div className="section-heading compact-heading" style={{ margin: 0 }}>
@@ -2406,10 +2443,24 @@ export function Inventory({
                           {cov.coveredTotal}/{cov.expectedTotal} produtos controlados cobertos{isComplete ? " — completo" : ` — ${cov.missingTotal} pendente(s)`}
                         </p>
                       )}
-                      {isEmRevisao && <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-muted, #666)" }}>Aguardando revisao e aprovacao para fechamento do CMV Real.</p>}
+                      {/* O proximo passo dito em voz alta. Antes o card so tinha
+                        * "Ver inventario", e quem acabava de consolidar nao tinha
+                        * como saber que faltava enviar para revisao e aprovar. */}
+                      <p style={{ margin: "6px 0 0", fontSize: 13, fontWeight: 600 }}>{passoDoFechamento.titulo}</p>
+                      <p style={{ margin: "2px 0 0", fontSize: 13, color: "var(--text-muted, #666)" }}>{passoDoFechamento.descricao}</p>
                     </div>
                     <div className="actions-cell">
                       <StatusBadge tone={operationalTone(inv.status)}>{operationalStatusLabels[inv.status] ?? inv.status}</StatusBadge>
+                      {passoDoFechamento.acao && (
+                        <button
+                          className="primary-button"
+                          type="button"
+                          disabled={acaoFechamentoEmCurso}
+                          onClick={() => void executarPassoDoFechamento(inv.id, passoDoFechamento.acao!)}
+                        >
+                          {acaoFechamentoEmCurso ? "Processando…" : passoDoFechamento.rotuloAcao}
+                        </button>
+                      )}
                       <button className="secondary-button" type="button" onClick={() => void openOperationalInventory(inv.id)}>Ver inventario</button>
                     </div>
                   </div>
@@ -3180,6 +3231,34 @@ export function Inventory({
                       {isCreatingComplement ? "Criando..." : `Criar contagem complementar com ${finalCmvCoverage?.missingTotal ?? "?"} produto(s) pendente(s)`}
                     </button>
                   )}
+                </div>
+              );
+            })()}
+
+            {/* Antes este painel so existia para EM_REVISAO. Quem acabava de
+              * consolidar ficava em RASCUNHO sem nenhuma indicacao do que fazer,
+              * e o "Enviar para revisao" morava numa barra generica no rodape. */}
+            {operationalDetail.type === "FINAL_CMV" && ["RASCUNHO", "REJEITADO"].includes(operationalDetail.status) && (() => {
+              const passo = proximoPassoDoFechamento(operationalDetail.status, finalCmvCoverage?.isComplete === true);
+              return (
+                <div className="cmv-closing-assistant">
+                  <div className="cmv-closing-assistant__header">
+                    <Send size={20} className="cmv-closing-assistant__icon" />
+                    <div>
+                      <h4 className="cmv-closing-assistant__title">{passo.titulo}</h4>
+                      <p className="cmv-closing-assistant__info" style={{ margin: "2px 0 0" }}>{passo.descricao}</p>
+                    </div>
+                  </div>
+                  <div className="cmv-closing-assistant__actions">
+                    <button
+                      className="primary-button cmv-closing-assistant__cta"
+                      type="button"
+                      disabled={acaoFechamentoEmCurso}
+                      onClick={() => void executarPassoDoFechamento(operationalDetail.id, "submit")}
+                    >
+                      {acaoFechamentoEmCurso ? "Enviando…" : passo.rotuloAcao}
+                    </button>
+                  </div>
                 </div>
               );
             })()}
