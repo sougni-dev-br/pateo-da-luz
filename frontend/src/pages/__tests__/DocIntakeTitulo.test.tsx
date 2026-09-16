@@ -118,7 +118,7 @@ describe("Conferência — o que a leitura preencheu", () => {
   test("cria uma linha de item por rubrica lida, já com o valor", () => {
     montar();
     expect(screen.getByText(/lido: SUPORTE TECNICO DE INFORMATICA/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Preço unitário da linha 1/i)).toHaveValue("209");
+    expect(screen.getByLabelText(/Preço unitário da linha 1/i)).toHaveValue(209);
   });
 
   test("avisa quando o documento foi lido da imagem", () => {
@@ -153,9 +153,12 @@ describe("Conferência — travas antes de gravar", () => {
     await escolherProduto();
     fireEvent.change(screen.getByLabelText(/Forma de pagamento/i), { target: { value: "pm-1" } });
     // Mexe no unitário: a nota diz 209,00 e o item passa a somar 150,00.
+    // Campo numérico, como na tela de Compras: digita-se o valor direto.
     fireEvent.change(screen.getByLabelText(/Preço unitário da linha 1/i), { target: { value: "150" } });
 
-    expect(screen.getByText(/diferença de/i)).toBeInTheDocument();
+    // A divergência diz o tamanho e o lado: 150,00 de itens contra 209,00 no
+    // documento são R$ 59,00 abaixo.
+    expect(screen.getByText(/abaixo do documento/i)).toBeInTheDocument();
     expect(botaoLancar()).toBeDisabled();
   });
 
@@ -272,7 +275,7 @@ describe("Conferência — título parcelado", () => {
     fireEvent.change(screen.getByLabelText(/Forma de pagamento/i), { target: { value: "pm-1" } });
     fireEvent.change(screen.getByLabelText(/Valor da parcela 2/i), { target: { value: "500" } });
 
-    expect(screen.getByText(/faltam/i)).toBeInTheDocument();
+    expect(screen.getByText(/falta /i)).toBeInTheDocument();
     expect(botaoLancar()).toBeDisabled();
   });
 
@@ -282,8 +285,8 @@ describe("Conferência — título parcelado", () => {
     montar(PARCELADO);
     fireEvent.change(screen.getByLabelText(/Quantidade de parcelas/i), { target: { value: "2" } });
 
-    expect(screen.getByLabelText(/Valor da parcela 1/i)).toHaveValue("1500");
-    expect(screen.getByLabelText(/Valor da parcela 2/i)).toHaveValue("1500");
+    expect(screen.getByLabelText(/Valor da parcela 1/i)).toHaveValue(1500);
+    expect(screen.getByLabelText(/Valor da parcela 2/i)).toHaveValue(1500);
     expect(screen.queryByLabelText(/Valor da parcela 3/i)).not.toBeInTheDocument();
   });
 
