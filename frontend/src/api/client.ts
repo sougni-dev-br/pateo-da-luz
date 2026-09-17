@@ -3349,6 +3349,27 @@ export function cancelRevenueEntry(id: string, reason: string) {
   });
 }
 
+
+export type AchadoDoFechamento = {
+  codigo: 'CADEIA_QUEBRADA' | 'ITEM_SEM_CUSTO' | 'CUSTO_FORA_DA_SERIE' | 'ITEM_CONCENTRADO' | 'TOTAL_FORA_DA_SERIE';
+  severidade: 'BLOQUEIO' | 'ALERTA';
+  titulo: string;
+  detalhe: string;
+  exemplos: Array<{ produto: string; numero: string }>;
+};
+
+export type VerificacaoDoFechamento = {
+  competenceYear: number;
+  competenceMonth: number;
+  temInventarioFinal: boolean;
+  podeAprovar: boolean;
+  achados: AchadoDoFechamento[];
+};
+
+export function getVerificacaoDoFechamento(year: number, month: number) {
+  return request<VerificacaoDoFechamento>(`/monthly/cmv/verificacao?year=${year}&month=${month}`);
+}
+
 export function getMonthlyCmv(filters: { year: string; month: string }) {
   return request<MonthlyCmv>(`/monthly/cmv${toQueryString(filters)}`);
 }
