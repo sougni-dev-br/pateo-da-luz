@@ -4911,6 +4911,24 @@ export function testNoventaNoveConnection() {
   return request<NoventaNoveConnectionTest>("/integrations/delivery/noventa-nove/test-connection", { method: "POST" });
 }
 
+export type NoventaNoveStoreSyncRow = {
+  appShopId: string;
+  nickname: string;
+  shopIdRemote: string | null;
+  outcome: "NOVA" | "VINCULO_ATUALIZADO" | "JA_SINCRONIZADA" | "NAO_VINCULADA";
+  detail: string;
+};
+
+export type NoventaNoveStoreSyncResult = {
+  ranAt: string;
+  totalNaPlataforma: number;
+  rows: NoventaNoveStoreSyncRow[];
+};
+
+export function syncNoventaNoveStores() {
+  return request<NoventaNoveStoreSyncResult>("/integrations/delivery/noventa-nove/stores/sync", { method: "POST" }, 60_000);
+}
+
 // ============================================================================
 // Contas a receber (Receivable) — cobre iFood, futuros 99/Keeta, eventos, etc.
 // ============================================================================

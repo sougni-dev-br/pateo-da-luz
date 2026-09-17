@@ -156,18 +156,46 @@ function unixToDate(unixSeconds: number | undefined): Date | null {
   return new Date(unixSeconds * 1000);
 }
 
-// Localiza a DeliveryStore correspondente ao evento. Preferência:
-//   1. match por shopIdRemote (data.order_info.shop.shop_id ou envelope.shop_id fallback)
-//   2. match por externalId (envelope.app_shop_id ou data.order_info.shop.app_shop_id)
-async function findStoreForCallback(envelope: WebhookEnvelope, orderInfo: OrderCallbackPayload | null) {
-  const remoteFromShop = orderInfo?.shop?.shop_id !== undefined ? String(orderInfo.shop.shop_id) : null;
-  const remoteFromEnvelope = envelope.shop_id !== undefined ? String(envelope.shop_id) : null;
-  const remoteId = remoteFromShop ?? remoteFromEnvelope;
+// Devolve os valores de shop_id que podem estar gravados em
+// DeliveryStore.shopIdRemote: o arredondado (como o JSON.parse entregou) e,
+// quando recuperavel do texto original, o exato. Mesmo problema e mesma
+// tecnica de exactOrderId — so substitui quando o literal do texto ARREDONDA
+// para o valor recebido, senao seria chute.
+export function shopIdCandidates(bruto: string | number | undefined, rawBody: string): string[] {
+  if (bruto === undefined || bruto === null) return [];
+  if (typeof bruto === "string") return [bruto];
+
+  const arredondado = String(bruto);
+  if (Number.isSafeInteger(bruto)) return [arredondado];
+
+  const candidatos = new Set<string>([arredondado]);
+  for (const m of rawBody.matchAll(/"shop_id"\s*:\s*"?(\d{10,25})"?/g)) {
+    if (String(Number(m[1])) === arredondado) candidatos.add(m[1]);
+  }
+  return [...candidatos];
+}
+
+async function findStoreForCallback(
+  envelope: WebhookEnvelope,
+  orderInfo: OrderCallbackPayload | null,
+  rawBody: string
+) {
+  const bruto = orderInfo?.shop?.shop_id ?? envelope.shop_id;
+  // O shop_id tem 19 digitos e sofre o MESMO arredondamento do order_id (ver
+  // exactOrderId abaixo). Enquanto os dois lados estavam arredondados o match
+  // funcionava por acidente; desde que "Sincronizar lojas da 99" passou a
+  // gravar o shop_id exato vindo de /v1/shop/shop/list, comparar o arredondado
+  // com o exato nao casa mais. Recupera os digitos do texto original.
+  //
+  // Aceita os DOIS: o exato e o arredondado. Ha lojas gravadas antes do
+  // "Sincronizar lojas da 99" que ainda tem o valor arredondado no banco, e
+  // elas precisam continuar casando ate serem reconciliadas.
+  const candidatosRemote = shopIdCandidates(bruto, rawBody);
   const appShopId = envelope.app_shop_id ?? orderInfo?.shop?.app_shop_id ?? null;
 
-  if (remoteId) {
+  if (candidatosRemote.length > 0) {
     const byRemote = await prisma.deliveryStore.findFirst({
-      where: { platform: "NOVENTA_NOVE", shopIdRemote: remoteId }
+      where: { platform: "NOVENTA_NOVE", shopIdRemote: { in: candidatosRemote } }
     });
     if (byRemote) return byRemote;
   }
@@ -176,10 +204,16 @@ async function findStoreForCallback(envelope: WebhookEnvelope, orderInfo: OrderC
       where: { platform: "NOVENTA_NOVE", externalId: appShopId }
     });
     if (byApp) {
-      if (remoteId && !byApp.shopIdRemote) {
+      // Grava o melhor candidato: o recuperado do texto original quando
+      // existe (sempre o ultimo do Set, ja que o arredondado entra primeiro),
+      // nunca o arredondado quando ha alternativa exata.
+      const melhorCandidato = candidatosRemote.length > 1
+        ? candidatosRemote[candidatosRemote.length - 1]
+        : candidatosRemote[0];
+      if (melhorCandidato && !byApp.shopIdRemote) {
         await prisma.deliveryStore.update({
           where: { id: byApp.id },
-          data: { shopIdRemote: remoteId }
+          data: { shopIdRemote: melhorCandidato }
         });
       }
       return byApp;
@@ -322,7 +356,7 @@ export async function handleWebhook(
     ?? (envelope.data as OrderCallbackPayload | undefined)
     ?? null;
 
-  const store = await findStoreForCallback(envelope, orderInfo);
+  const store = await findStoreForCallback(envelope, orderInfo, rawBody);
   if (!store) {
     return {
       event,
