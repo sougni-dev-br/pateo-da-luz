@@ -21,6 +21,7 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { ConfirmDialog } from "../components/ui";
+import { VerificacaoDoFechamento } from "../components/VerificacaoDoFechamento";
 import { Button, IconButton, Money, StatusBadge as DsStatusBadge } from "../design-system";
 import type { StatusTone } from "../design-system";
 import { useSearchParams } from "react-router-dom";
@@ -340,6 +341,13 @@ export function CmvReal({ user }: { user: AppUser }) {
 
   const cmvHealth = useMemo(() => classifyCmv(selectedPeriod?.cmvPercentual), [selectedPeriod?.cmvPercentual]);
   const detailRef = useRevealScroll<HTMLElement>({ when: selectedPeriod?.id });
+
+  // A competência do período vem da data final: é o mês que o inventário fecha,
+  // e é por ele que a conferência procura os snapshots.
+  const competenciaDoPeriodo = useMemo(() => {
+    const data = parseCalendarDate(selectedPeriod?.dataFinal ?? null);
+    return data ? { year: data.getFullYear(), month: data.getMonth() + 1 } : null;
+  }, [selectedPeriod?.dataFinal]);
 
   const initialDropdownValue = form.estoqueInicialSnapshotId ? `SNAPSHOT:${form.estoqueInicialSnapshotId}` : form.estoqueInicialSessionId;
   const finalDropdownValue = form.estoqueFinalSnapshotId ? `SNAPSHOT:${form.estoqueFinalSnapshotId}` : form.estoqueFinalSessionId;
@@ -1102,6 +1110,13 @@ export function CmvReal({ user }: { user: AppUser }) {
         {selectedPeriod && (
           <section className="panel scroll-target" ref={detailRef}>
             <SectionHeader eyebrow="Detalhe" title={selectedPeriod.name} />
+            {/* A conferência vem antes dos números: o que ela aponta muda como
+                se lê o CMV logo abaixo. Deixá-la no rodapé seria o mesmo que
+                não tê-la — foi assim que agosto fechou R$ 81 mil inflado. */}
+            <VerificacaoDoFechamento
+              year={competenciaDoPeriodo?.year ?? null}
+              month={competenciaDoPeriodo?.month ?? null}
+            />
             {periodConsistency?.hasIssue ? (
               <div className="alert warning compact-alert subsection">
                 <AlertTriangle className="alert-icon" size={18} />
