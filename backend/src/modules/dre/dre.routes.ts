@@ -530,7 +530,7 @@ async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
     const ebitdaPercent = totalGross > 0 ? (ebitda / totalGross) * 100 : null;
     return {
       key,
-      label: key === "accounting" ? "Visao atual" : "Visao gerencial",
+      label: key === "accounting" ? "Visão atual" : "Visão gerencial",
       compras: purchaseTotal,
       cmvReal,
       cmvPercent,

@@ -274,12 +274,17 @@ type CmvComputation = {
 };
 
 const CMV_VIEW_LABELS: Record<CmvVisionKey, string> = {
-  accounting: "Visao atual",
-  managerial: "Visao gerencial",
+  accounting: "Visão atual",
+  managerial: "Visão gerencial",
 };
 
 function toDateKey(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+/** Data como quem lê o aviso a escreve: dd/mm/aaaa, não ISO. */
+function toBrDate(value: Date) {
+  return `${String(value.getDate()).padStart(2, "0")}/${String(value.getMonth() + 1).padStart(2, "0")}/${value.getFullYear()}`;
 }
 
 function formatDateKey(value: Date | string | null | undefined) {
@@ -557,7 +562,7 @@ async function buildWarnings(input: {
     warnings.push({
       code: "PERIOD_CROSSES_MONTHS",
       severity: "info",
-      message: `Este ciclo atravessa dois meses (${monthLabel(startDate)} e ${monthLabel(endDate)}). Para o DRE, o CMV sera rateado por dias corridos.`,
+      message: `Este ciclo atravessa dois meses (${monthLabel(startDate)} e ${monthLabel(endDate)}). Para o DRE, o CMV será rateado por dias corridos.`,
       detail: { startMonth: monthLabel(startDate), endMonth: monthLabel(endDate) }
     });
   }
@@ -569,7 +574,7 @@ async function buildWarnings(input: {
     warnings.push({
       code: "SNAPSHOT_DATE_MISMATCH",
       severity: "warning",
-      message: `O inventario inicial foi contado em ${toDateKey(initialCountDate)}, ${diffDaysInitial} dias antes da data inicial declarada do periodo (${toDateKey(startDate)}). Compras e faturamento entre essas datas nao entram no CMV — pode gerar distorcao.`,
+      message: `O inventário inicial foi contado em ${toBrDate(initialCountDate)}, ${diffDaysInitial} dias antes da data inicial declarada do período (${toBrDate(startDate)}). Compras e faturamento entre essas datas não entram no CMV — pode gerar distorção.`,
       detail: { snapshotDate: toDateKey(initialCountDate), startDate: toDateKey(startDate), gapDays: diffDaysInitial }
     });
   }
@@ -584,7 +589,7 @@ async function buildWarnings(input: {
       warnings.push({
         code: "IFOOD_ZERO_WITH_ACTIVE_CREDENTIAL",
         severity: "warning",
-        message: `Credencial iFood ativa em producao mas nenhuma venda foi registrada neste periodo. Verifique se a sincronizacao esta funcionando antes de fechar.`,
+        message: `Credencial iFood ativa em produção, mas nenhuma venda foi registrada neste período. Verifique se a sincronização está funcionando antes de fechar.`,
       });
     }
   }
@@ -598,7 +603,7 @@ async function buildWarnings(input: {
       warnings.push({
         code: "NOVENTA_NOVE_ZERO_WITH_ACTIVE_CREDENTIAL",
         severity: "warning",
-        message: `Credencial 99 Food ativa em producao mas nenhuma venda foi registrada neste periodo. Verifique se a sincronizacao esta funcionando antes de fechar.`,
+        message: `Credencial 99 Food ativa em produção, mas nenhuma venda foi registrada neste período. Verifique se a sincronização está funcionando antes de fechar.`,
       });
     }
   }
