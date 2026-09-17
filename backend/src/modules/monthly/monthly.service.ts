@@ -9,6 +9,8 @@ import { parseMoney } from "../../shared/utils/parse-money.js";
 import { readWorksheetRows } from "../imports/excel-reader.service.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { getCmvPurchaseTotalByCompetenceMonth, type CmvVisionKey } from "../cmv-real/cmv-purchase-base.service.js";
+import { resolverInicial, type InicialResolvido } from "./cadeia-inventario.js";
+import { podeAprovar, verificarFechamento } from "./verificacao-fechamento.js";
 
 type InventorySnapshotType = "INVENTARIO_INICIAL" | "INVENTARIO_FINAL" | "CONTAGEM_PARCIAL" | "AJUSTE";
 type MonthlyRole = "ADMIN" | "GESTAO_COMPLETA" | "ESTOQUISTA" | "VISUALIZACAO";
@@ -737,13 +739,14 @@ export async function undoInventorySnapshot(id: string, input: { reason: string;
 }
 
 export async function getMonthlyCmv(year: number, month: number) {
-  const [initialInventory, finalInventory, purchases, managerialPurchases, revenue] = await Promise.all([
-    snapshotValue(year, month, "INVENTARIO_INICIAL"),
+  const [inicial, finalInventory, purchases, managerialPurchases, revenue] = await Promise.all([
+    inicialDoMes(year, month),
     snapshotValue(year, month, "INVENTARIO_FINAL"),
     purchaseValueByVision(year, month, "accounting"),
     purchaseValueByVision(year, month, "managerial"),
     revenueValue(year, month)
   ]);
+  const initialInventory = inicial.valor;
   const realCmv = initialInventory + purchases - finalInventory;
   const cmvPercent = revenue.net > 0 ? realCmv / revenue.net : null;
   const estimatedGrossMargin = revenue.net - realCmv;
@@ -760,6 +763,10 @@ export async function getMonthlyCmv(year: number, month: number) {
     competenceYear: year,
     competenceMonth: month,
     initialInventoryValue: initialInventory,
+    // De onde veio a abertura. "HERDADO_DO_ANTERIOR" significa que o mes nao tem
+    // snapshot inicial proprio e a tela deve dizer isso — o numero esta certo,
+    // mas o encadeamento ainda precisa ser feito.
+    initialInventoryOrigin: inicial.origem,
     purchasesValue: purchases,
     finalInventoryValue: finalInventory,
     realCmvValue: realCmv,
@@ -790,7 +797,8 @@ export async function getMonthlyCmv(year: number, month: number) {
   };
 }
 
-async function snapshotValue(year: number, month: number, type: InventorySnapshotType) {
+/** null quando nao existe snapshot — distinto de existir valendo zero. */
+async function snapshotValueOrNull(year: number, month: number, type: InventorySnapshotType) {
   const [row] = await prisma.$queryRaw<Array<{ totalValue: Prisma.Decimal | null }>>`
     SELECT "totalValue"
     FROM "InventorySnapshot"
@@ -801,7 +809,32 @@ async function snapshotValue(year: number, month: number, type: InventorySnapsho
     ORDER BY "createdAt" DESC
     LIMIT 1
   `;
-  return Number(row?.totalValue ?? 0);
+  return row?.totalValue == null ? null : Number(row.totalValue);
+}
+
+async function snapshotValue(year: number, month: number, type: InventorySnapshotType) {
+  return (await snapshotValueOrNull(year, month, type)) ?? 0;
+}
+
+/**
+ * O estoque de abertura do mes.
+ *
+ * Sem snapshot proprio, herda o final do mes anterior em vez de assumir zero.
+ * Nao e estimativa: por definicao contabil e o mesmo estoque. Assumir zero e que
+ * era o chute, e um chute que sempre errava para o mesmo lado — foi assim que
+ * 07 e 08/2026 apuraram sem os R$ 115 mil e R$ 49 mil que o mes anterior fechou.
+ *
+ * A heranca nao dispensa o snapshot: ela impede o erro silencioso enquanto a
+ * verificacao de fechamento cobra o que falta.
+ */
+export async function inicialDoMes(year: number, month: number): Promise<InicialResolvido> {
+  const anteriorAno = month === 1 ? year - 1 : year;
+  const anteriorMes = month === 1 ? 12 : month - 1;
+  const [proprio, finalAnterior] = await Promise.all([
+    snapshotValueOrNull(year, month, "INVENTARIO_INICIAL"),
+    snapshotValueOrNull(anteriorAno, anteriorMes, "INVENTARIO_FINAL")
+  ]);
+  return resolverInicial(proprio, finalAnterior);
 }
 
 async function purchaseValue(year: number, month: number) {
@@ -867,7 +900,7 @@ export async function saveMonthlyCmv(year: number, month: number, userId: string
 }
 
 export async function closeMonthlyCmv(year: number, month: number, userId: string, userRole: MonthlyRole = "ADMIN") {
-  const initial = await snapshotValue(year, month, "INVENTARIO_INICIAL");
+  const initial = (await inicialDoMes(year, month)).valor;
   const final = await snapshotValue(year, month, "INVENTARIO_FINAL");
   const purchases = await purchaseValue(year, month);
   const revenue = await revenueValue(year, month);
@@ -911,3 +944,87 @@ export async function reopenMonthlyCmv(year: number, month: number, input: { use
 }
 
 export { ensureCompetenceOpen };
+
+/**
+ * Roda a verificacao de fechamento de um mes.
+ *
+ * Reune o que a verificacao precisa numa consulta por assunto e delega a decisao
+ * ao modulo puro. A separacao e o que permite testar as regras sem banco — e
+ * foram regras testadas que revelaram, por exemplo, que comparar o TOTAL do
+ * inventario nao pegaria o agosto inflado.
+ */
+export async function verificarFechamentoDoMes(year: number, month: number) {
+  const [snapshotDoMes] = await prisma.$queryRaw<Array<{ id: string; totalValue: Prisma.Decimal }>>`
+    SELECT "id", "totalValue" FROM "InventorySnapshot"
+    WHERE "competenceYear" = ${year} AND "competenceMonth" = ${month}
+      AND "type" = CAST('INVENTARIO_FINAL' AS "InventorySnapshotType") AND "status" <> 'CANCELLED'
+    ORDER BY "createdAt" DESC LIMIT 1
+  `;
+
+  const itens = snapshotDoMes
+    ? await prisma.$queryRaw<Array<{ productId: string | null; productName: string; unit: string | null; quantity: Prisma.Decimal; unitCost: Prisma.Decimal | null }>>`
+        SELECT "productId", "productName", "unit", "quantity", "unitCost"
+        FROM "InventorySnapshotItem" WHERE "snapshotId" = ${snapshotDoMes.id}
+      `
+    : [];
+
+  // Custo do mesmo produto nos demais meses do ano, para a comparacao por serie.
+  const historico = await prisma.$queryRaw<Array<{ productId: string; competenceMonth: number; unitCost: Prisma.Decimal }>>`
+    SELECT si."productId", sn."competenceMonth", si."unitCost"
+    FROM "InventorySnapshotItem" si
+    JOIN "InventorySnapshot" sn ON sn."id" = si."snapshotId"
+    WHERE sn."competenceYear" = ${year} AND sn."status" <> 'CANCELLED'
+      AND sn."type" = CAST('INVENTARIO_FINAL' AS "InventorySnapshotType")
+      AND si."productId" IS NOT NULL AND si."unitCost" > 0
+  `;
+
+  const serie = await prisma.$queryRaw<Array<{ competenceMonth: number; type: string; totalValue: Prisma.Decimal }>>`
+    SELECT "competenceMonth", "type"::text AS "type", "totalValue"
+    FROM "InventorySnapshot"
+    WHERE "competenceYear" = ${year} AND "status" <> 'CANCELLED'
+      AND "type" IN (CAST('INVENTARIO_INICIAL' AS "InventorySnapshotType"), CAST('INVENTARIO_FINAL' AS "InventorySnapshotType"))
+    ORDER BY "competenceMonth" ASC
+  `;
+
+  const meses = [...new Set(serie.map((r) => r.competenceMonth))].sort((a, b) => a - b);
+  const cadeia = meses.map((m) => ({
+    competenceYear: year,
+    competenceMonth: m,
+    inicial: serie.find((r) => r.competenceMonth === m && r.type === "INVENTARIO_INICIAL")?.totalValue ?? null,
+    final: serie.find((r) => r.competenceMonth === m && r.type === "INVENTARIO_FINAL")?.totalValue ?? null
+  })).map((e) => ({
+    ...e,
+    inicial: e.inicial == null ? null : Number(e.inicial),
+    final: e.final == null ? null : Number(e.final)
+  }));
+
+  const achados = verificarFechamento({
+    competenceYear: year,
+    competenceMonth: month,
+    totalValue: Number(snapshotDoMes?.totalValue ?? 0),
+    itens: itens.map((i) => ({
+      productId: i.productId,
+      productName: i.productName,
+      unit: i.unit,
+      quantity: Number(i.quantity),
+      unitCost: i.unitCost == null ? null : Number(i.unitCost)
+    })),
+    historicoDeCusto: historico.map((h) => ({
+      productId: h.productId,
+      competenceMonth: h.competenceMonth,
+      unitCost: Number(h.unitCost)
+    })),
+    totaisAnteriores: serie
+      .filter((r) => r.type === "INVENTARIO_FINAL" && r.competenceMonth < month)
+      .map((r) => Number(r.totalValue)),
+    cadeia
+  });
+
+  return {
+    competenceYear: year,
+    competenceMonth: month,
+    temInventarioFinal: snapshotDoMes != null,
+    podeAprovar: podeAprovar(achados),
+    achados
+  };
+}

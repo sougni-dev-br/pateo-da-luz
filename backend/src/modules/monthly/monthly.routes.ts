@@ -18,6 +18,7 @@ import {
   ensureCompetenceOpen,
   getInventorySnapshot,
   getMonthlyCmv,
+  verificarFechamentoDoMes,
   listInventorySnapshots,
   previewInventorySnapshot,
   reopenMonthlyCmv,
@@ -690,6 +691,15 @@ monthlyRouter.get("/cmv", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
   if (!user) return;
   response.json(await getMonthlyCmv(numberParam(request.query.year, new Date().getFullYear()), numberParam(request.query.month, new Date().getMonth() + 1)));
+});
+
+monthlyRouter.get("/cmv/verificacao", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+  response.json(await verificarFechamentoDoMes(
+    numberParam(request.query.year, new Date().getFullYear()),
+    numberParam(request.query.month, new Date().getMonth() + 1)
+  ));
 });
 
 monthlyRouter.post("/cmv/calculate", async (request, response) => {
