@@ -15777,3 +15777,99 @@ body:has(.pplan-sticky-actions) .pplan {
   width: 15px;
   height: 15px;
 }
+
+/* ── CMV Real: resumo em linha ──
+   Substitui os quatro summary-card que ocupavam 344px para exibir quatro
+   numeros que a lista logo abaixo ja detalha linha a linha. */
+.cmv-resumo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.cmv-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  border-radius: var(--radius-pill, 999px);
+  background: var(--surface-muted, rgba(0, 0, 0, 0.02));
+  font-size: 12.5px;
+  color: var(--text-muted, #6b7280);
+  white-space: nowrap;
+}
+
+.cmv-chip strong {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong, #111827);
+}
+
+.cmv-chip--aberta strong { color: var(--tone-warning-strong, #b45309); }
+.cmv-chip--fechada strong { color: var(--tone-success-strong, #047857); }
+
+.cmv-chip--alerta {
+  border-color: var(--tone-danger-border, rgba(185, 28, 28, 0.3));
+  background: var(--tone-danger-surface, rgba(185, 28, 28, 0.06));
+}
+.cmv-chip--alerta strong { color: var(--tone-danger-strong, #b91c1c); }
+
+/* Regra operacional: presente para quem precisa, silenciosa para quem já sabe. */
+.cmv-regra-operacional {
+  border-top: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  padding-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-muted, #6b7280);
+}
+
+.cmv-regra-operacional > summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--fw-medium, 500);
+}
+
+.cmv-regra-operacional > summary::-webkit-details-marker { display: none; }
+
+.cmv-regra-operacional > summary::before {
+  content: "›";
+  display: inline-block;
+  font-size: 15px;
+  line-height: 1;
+  transition: transform var(--dur, 180ms) var(--ease, ease);
+}
+
+.cmv-regra-operacional[open] > summary::before { transform: rotate(90deg); }
+
+.cmv-regra-operacional > summary:hover { color: var(--text-strong, #111827); }
+
+.cmv-regra-operacional > summary:focus-visible {
+  outline: 2px solid var(--focus-ring, #2563eb);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.cmv-regra-operacional > p {
+  margin: 8px 0 0;
+  max-width: 78ch;
+  line-height: 1.55;
+}
+
+/* A lista é navegação, não conteúdo: com 12 apurações por ano ela empurraria
+   o detalhe para fora da tela. Altura fixa e rolagem própria mantêm o
+   resultado perto do topo em qualquer volume. */
+.cmv-desktop-table {
+  max-height: 264px;
+  overflow-y: auto;
+}
+
+.cmv-desktop-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface, #fff);
+}

@@ -1,4 +1,4 @@
-import { LogOut } from "lucide-react";
+import { LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { SidebarNav, withFavoritesGroup } from "./SidebarNav";
 import type { SidebarSectionGroup } from "./types";
 import "./Sidebar.css";
@@ -27,6 +27,10 @@ export type SidebarProps = {
   logoPath?: string;
   /** Slogan sob o nome. Default "Gestão eficiente". */
   tagline?: string;
+  /** Recolhida a so icones. O estado e' do caller, que o persiste. */
+  collapsed?: boolean;
+  /** Ausente = sem botao de recolher (ex.: drawer mobile, que ja fecha). */
+  onToggleCollapse?: () => void;
 };
 
 export function Sidebar({
@@ -42,12 +46,17 @@ export function Sidebar({
   onLogout,
   showDevBadge = false,
   logoPath = "/logo-pateo-luz.png",
-  tagline = "Gestão eficiente"
+  tagline = "Gestão eficiente",
+  collapsed = false,
+  onToggleCollapse
 }: SidebarProps) {
   const displayGroups: SidebarSectionGroup[] = withFavoritesGroup(groups, favorites);
 
   return (
-    <aside className="ds-sidebar" aria-label="Menu lateral">
+    <aside
+      className={collapsed ? "ds-sidebar ds-sidebar--collapsed" : "ds-sidebar"}
+      aria-label="Menu lateral"
+    >
       <div className="ds-sidebar-brand">
         <div className="ds-sidebar-brand-logo-wrap">
           <img
@@ -59,10 +68,24 @@ export function Sidebar({
           />
           <span className="ds-sidebar-brand-logo-fallback">PL</span>
         </div>
-        <div className="ds-sidebar-brand-meta">
-          <strong className="ds-sidebar-brand-name">Pateo da Luz</strong>
-          <span className="ds-sidebar-brand-tag">{tagline}</span>
-        </div>
+        {!collapsed && (
+          <div className="ds-sidebar-brand-meta">
+            <strong className="ds-sidebar-brand-name">Pateo da Luz</strong>
+            <span className="ds-sidebar-brand-tag">{tagline}</span>
+          </div>
+        )}
+        {onToggleCollapse && (
+          <button
+            className="ds-sidebar-collapse-toggle"
+            type="button"
+            onClick={onToggleCollapse}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Expandir menu lateral" : "Recolher menu lateral"}
+            title={collapsed ? "Expandir menu (Ctrl+B)" : "Recolher menu (Ctrl+B)"}
+          >
+            {collapsed ? <PanelLeftOpen size={16} aria-hidden /> : <PanelLeftClose size={16} aria-hidden />}
+          </button>
+        )}
       </div>
 
       <SidebarNav
@@ -72,32 +95,39 @@ export function Sidebar({
         onNavigate={onNavigate}
         onToggleFavorite={onToggleFavorite}
         badges={badges}
+        collapsed={collapsed}
       />
 
       <div className="ds-sidebar-footer">
-        <div className="ds-sidebar-footer-meta">
-          <span className="ds-sidebar-footer-meta-name">{user.name}</span>
-          <small className="ds-sidebar-footer-meta-role">{user.role}</small>
-        </div>
+        {!collapsed && (
+          <div className="ds-sidebar-footer-meta">
+            <span className="ds-sidebar-footer-meta-name">{user.name}</span>
+            <small className="ds-sidebar-footer-meta-role">{user.role}</small>
+          </div>
+        )}
         <div className="ds-sidebar-footer-actions">
           <button
             className="ds-sidebar-footer-button"
             type="button"
             aria-pressed={hideValues}
+            aria-label={collapsed ? (hideValues ? "Mostrar valores" : "Ocultar valores") : undefined}
+            title={hideValues ? "Mostrar valores" : "Ocultar valores"}
             onClick={onToggleValues}
           >
-            {hideValues ? "Mostrar valores" : "Ocultar valores"}
+            {collapsed ? (hideValues ? "R$" : "•••") : hideValues ? "Mostrar valores" : "Ocultar valores"}
           </button>
           <button
             className="ds-sidebar-footer-button ds-sidebar-footer-button-danger"
             type="button"
+            aria-label={collapsed ? "Sair" : undefined}
+            title="Sair"
             onClick={onLogout}
           >
             <LogOut size={16} aria-hidden />
-            Sair
+            {!collapsed && "Sair"}
           </button>
         </div>
-        {showDevBadge && <span className="ds-sidebar-dev-badge">DEV</span>}
+        {showDevBadge && !collapsed && <span className="ds-sidebar-dev-badge">DEV</span>}
       </div>
     </aside>
   );
