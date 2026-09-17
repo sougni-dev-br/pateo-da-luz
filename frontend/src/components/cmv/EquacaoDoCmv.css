@@ -1,0 +1,250 @@
+/* O CMV como conta. Tokens do design system, sem cor solta. */
+
+.eq-bloco {
+  display: grid;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+/* ── O resultado ────────────────────────────────────────────────────────── */
+
+.eq-resultado {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: var(--radius-md, 12px);
+  background: var(--paper);
+}
+
+.eq-bom { border-left-color: var(--success); }
+.eq-atencao { border-left-color: var(--warning); }
+.eq-critico { border-left-color: var(--danger); }
+.eq-neutro { border-left-color: var(--line-strong); }
+
+.eq-resultado-valor strong,
+.eq-resultado-percentual strong {
+  display: block;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.eq-resultado-valor strong { font-size: 2rem; font-weight: 650; }
+.eq-resultado-percentual strong { font-size: 1.5rem; font-weight: 600; text-align: right; }
+
+.eq-resultado-valor span,
+.eq-resultado-percentual span {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.eq-resultado-percentual span { text-align: right; }
+
+.eq-critico .eq-resultado-percentual strong { color: var(--danger); }
+.eq-atencao .eq-resultado-percentual strong { color: var(--warning); }
+.eq-bom .eq-resultado-percentual strong { color: var(--success); }
+
+/* ── A conta ────────────────────────────────────────────────────────────── */
+
+.eq-conta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 12px);
+  background: var(--paper-soft);
+}
+
+.eq-termo {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.eq-termo strong {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.eq-termo small {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* Os sinais são a gramática da conta: alinham com os números, não com os
+   rótulos, para a linha ser lida como uma expressão e não como uma lista. */
+.eq-sinal {
+  font-size: 1.15rem;
+  font-weight: 400;
+  color: var(--muted);
+  align-self: flex-start;
+  margin-top: 1px;
+}
+
+.eq-igual {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.eq-termo-resultado strong {
+  color: var(--ink);
+  font-weight: 700;
+  box-shadow: inset 0 -0.35em 0 var(--gold-soft);
+}
+
+/* ── Rodapé ─────────────────────────────────────────────────────────────── */
+
+.eq-rodape {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.eq-rodape strong {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Celular ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 720px) {
+  .eq-resultado { flex-direction: column; gap: 10px; }
+  .eq-resultado-valor strong { font-size: 1.7rem; }
+  .eq-resultado-percentual strong,
+  .eq-resultado-percentual span { text-align: left; }
+
+  /* A conta vira coluna: cada termo numa linha, com o sinal à esquerda.
+     Espremer uma expressão de cinco termos em 375px a torna ilegível. */
+  .eq-conta {
+    display: grid;
+    grid-template-columns: 16px 1fr;
+    align-items: baseline;
+    gap: 8px 10px;
+  }
+
+  .eq-conta > .eq-termo:first-child { grid-column: 2; }
+  .eq-sinal { margin-top: 0; font-size: 1rem; }
+  .eq-termo strong { font-size: 1rem; }
+  .eq-rodape { flex-direction: column; gap: 4px; }
+}
+
+/* Identificação da apuração: contexto, não resultado. */
+.cmv-identificacao {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 12px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.cmv-identificacao > span { white-space: nowrap; }
+.cmv-identificacao-nota { opacity: 0.8; }
+
+@media (max-width: 720px) {
+  .cmv-identificacao { gap: 6px 10px; }
+  .cmv-identificacao-nota { white-space: normal; }
+}
+
+/* ── As duas visões lado a lado ─────────────────────────────────────────── */
+
+.cmv-visoes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.cmv-visao h4 {
+  margin: 0 0 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Comparando duas contas, o resultado de cada uma não precisa do tamanho de
+   manchete: o que importa é a diferença entre elas. */
+.cmv-visoes .eq-resultado-valor strong { font-size: 1.5rem; }
+.cmv-visoes .eq-resultado-percentual strong { font-size: 1.2rem; }
+
+/* Composição: lista de definição, não cartões. São valores de apoio. */
+.cmv-composicao {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  margin: 16px 0 0;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 12px);
+  overflow: hidden;
+}
+
+.cmv-composicao > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  background: var(--paper);
+}
+
+.cmv-composicao dt {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.cmv-composicao dd {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .cmv-composicao { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Rastreabilidade em uma linha: qual base entrou de cada lado, e quem mexeu.
+   Eram cinco cartões do tamanho dos números do resultado — três deles com "-"
+   em todo período aberto. Contexto não compete com resultado. */
+.cmv-rastreio {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 10px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.cmv-rastreio strong { color: var(--ink); font-weight: 600; }
+
+/* Nota que abre uma subseção: explica o recorte antes de mostrar os números. */
+.subsection-nota {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  max-width: 68ch;
+}
+
+@media (max-width: 720px) {
+  .cmv-rastreio { flex-direction: column; gap: 4px; }
+}

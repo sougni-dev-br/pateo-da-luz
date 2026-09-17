@@ -779,7 +779,7 @@ export async function getMonthlyCmv(year: number, month: number) {
     views: {
       accounting: {
         key: "accounting",
-        label: "Visao atual",
+        label: "Visão atual",
         purchasesValue: purchases,
         realCmvValue: realCmv,
         cmvPercent,
@@ -787,7 +787,7 @@ export async function getMonthlyCmv(year: number, month: number) {
       },
       managerial: {
         key: "managerial",
-        label: "Visao gerencial",
+        label: "Visão gerencial",
         purchasesValue: managerialPurchases,
         realCmvValue: managerialRealCmv,
         cmvPercent: managerialCmvPercent,
