@@ -281,6 +281,8 @@ function warningTitle(code: string): string {
     case "SNAPSHOT_DATE_MISMATCH": return "Data do inventário não bate com o período";
     case "IFOOD_ZERO_WITH_ACTIVE_CREDENTIAL": return "iFood: nenhuma venda registrada";
     case "NOVENTA_NOVE_ZERO_WITH_ACTIVE_CREDENTIAL": return "99 Food: nenhuma venda registrada";
+    case "CLOSED_TOTALS_DIVERGED": return "Os números congelados não batem mais com a base";
+    case "CLOSED_DETAIL_UNAVAILABLE": return "Não foi possível recalcular a composição";
     default: return "Alerta";
   }
 }
