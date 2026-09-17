@@ -15873,3 +15873,89 @@ body:has(.pplan-sticky-actions) .pplan {
   z-index: 1;
   background: var(--surface, #fff);
 }
+
+/* ── CMV Real: lista e detalhe lado a lado ──
+   O gatilho é a largura DESTE contêiner, não a da janela: com o menu lateral
+   expandido sobram ~1023px e a tela empilha; recolhido sobram ~1230px e as
+   duas colunas cabem. Foi tentado antes com media query e revertido — pela
+   janela, "cabe" e "não cabe" davam o mesmo valor nos dois casos. */
+.cmv-workspace {
+  container-type: inline-size;
+  container-name: cmv;
+}
+
+/* Empilhado, o agrupador não existe para o layout: as seções continuam sendo
+   filhas diretas do grid de uma coluna, exatamente como antes. */
+.cmv-coluna-escolha {
+  display: contents;
+}
+
+@container cmv (min-width: 1100px) {
+  .cmv-workspace-grid--com-detalhe {
+    grid-template-columns: minmax(330px, 380px) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha {
+    display: grid;
+    gap: 16px;
+    /* A escolha acompanha a leitura do detalhe, que é o painel longo. */
+    position: sticky;
+    top: 4px;
+  }
+
+  /* Numa coluna de 380px a tabela de 7 colunas não cabe — e os cartões que o
+     mobile já usa cabem. Mesma informação, densidade adequada à largura. */
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .cmv-desktop-table {
+    display: none;
+  }
+
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .cmv-mobile-list {
+    display: grid;
+    gap: 8px;
+    /* Limita só quando a lista realmente cresce; com 3 ou 4 apurações ela
+       aparece inteira, sem cartão cortado no topo sugerindo conteúdo perdido. */
+    max-height: min(56vh, 520px);
+    overflow-y: auto;
+  }
+
+  /* Qual está aberto tem de ser óbvio: a coluna fica ao lado do detalhe o
+     tempo todo, e sem marca os cartões viram uma pilha igual. */
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .cmv-mobile-card.selected-row {
+    border-color: var(--accent, #1d3d6b);
+    box-shadow: inset 3px 0 0 var(--accent, #1d3d6b);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cmv-coluna-escolha { position: static; }
+}
+
+@container cmv (min-width: 1100px) {
+  /* Em 380px o título e as ações não cabem lado a lado: o "Escolha a apuração"
+     quebrava em duas linhas e empurrava o botão de atualizar para baixo do de
+     criar, como se fossem de níveis diferentes. Empilha por inteiro. */
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .section-heading {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .section-heading .actions-cell {
+    justify-content: flex-start;
+  }
+
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .section-heading .actions-cell > button:first-child {
+    flex: 1 1 auto;
+  }
+
+  /* O cartão da lista é navegação: o que decide qual abrir é o período, o
+     status e o CMV %. O resto vai junto, mas em peso de nota. */
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .cmv-mobile-card {
+    padding: 10px 12px;
+  }
+
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .cmv-mobile-row {
+    font-size: 12.5px;
+  }
+}
