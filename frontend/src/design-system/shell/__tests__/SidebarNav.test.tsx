@@ -120,3 +120,34 @@ describe("withFavoritesGroup", () => {
     expect(out).toBe(GROUPS);
   });
 });
+
+describe("SidebarNav recolhida", () => {
+  const props = {
+    groups: GROUPS,
+    activeId: "dashboard",
+    favorites: [] as string[],
+    onNavigate: () => undefined,
+    onToggleFavorite: () => undefined
+  };
+
+  test("esconde a estrela de favorito, que nao cabe ao lado do icone", () => {
+    render(<SidebarNav {...props} collapsed />);
+    expect(screen.queryByRole("button", { name: /favoritos/i })).not.toBeInTheDocument();
+  });
+
+  test("o badge vira ponto: perde o numero, mantem o aviso acessivel", () => {
+    render(<SidebarNav {...props} collapsed badges={{ purchases: 7 }} />);
+    expect(screen.queryByText("7")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("7 pendencia(s)")).toBeInTheDocument();
+  });
+
+  test("expandida continua mostrando o numero do badge", () => {
+    render(<SidebarNav {...props} badges={{ purchases: 7 }} />);
+    expect(screen.getByText("7")).toBeInTheDocument();
+  });
+
+  test("o rotulo do grupo sai da arvore acessivel quando recolhida", () => {
+    render(<SidebarNav {...props} collapsed />);
+    expect(screen.queryByText("Operação")).not.toBeInTheDocument();
+  });
+});
