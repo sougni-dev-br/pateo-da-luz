@@ -24,6 +24,7 @@ import { ConfirmDialog } from "../components/ui";
 import { VerificacaoDoFechamento } from "../components/VerificacaoDoFechamento";
 import { EquacaoDoCmv } from "../components/cmv/EquacaoDoCmv";
 import { ComparacaoDeVisoes } from "../components/cmv/ComparacaoDeVisoes";
+import { ComposicaoDoPeriodo } from "../components/cmv/ComposicaoDoPeriodo";
 import { compararVisoes } from "../lib/visoes-do-cmv";
 import { Button, IconButton, Money, StatusBadge as DsStatusBadge } from "../design-system";
 import type { StatusTone } from "../design-system";
@@ -144,11 +145,6 @@ function statusToneClass(status: string): StatusTone {
 function formatPercent(value: number | null | undefined) {
   if (value == null) return "-";
   return `${(value * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
-}
-
-function percentageOf(total: number, amount: number) {
-  if (!total) return "-";
-  return `${((amount / total) * 100).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 
 function SectionHeader({ eyebrow, title, actions }: { eyebrow: string; title: string; actions?: ReactNode }) {
@@ -297,6 +293,8 @@ export function CmvReal({ user }: { user: AppUser }) {
   const [continuityLocked, setContinuityLocked] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<CmvPeriodDetail | null>(null);
+  // Fechado ao consultar um periodo existente, aberto na apuracao nova.
+  const [edicaoAberta, setEdicaoAberta] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState<{ period: CmvPeriod; reason: string | null } | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -446,6 +444,8 @@ export function CmvReal({ user }: { user: AppUser }) {
     const startDate = nextSuggestions?.suggestedStartDate ?? todayInput();
     setSelectedId(null);
     setDetail(null);
+    // Apuração nova é justamente preencher campos: abre com eles à mostra.
+    setEdicaoAberta(true);
     setContinuityLocked(Boolean(nextSuggestions?.continuityLocked));
     setForm({
       name: defaultPeriodName(startDate, startDate),
@@ -514,6 +514,8 @@ export function CmvReal({ user }: { user: AppUser }) {
   const openPeriod = useCallback(async (period: CmvPeriod) => {
     try {
       setSelectedId(period.id);
+      // Abrir um período é conferir, não editar: os campos ficam a um clique.
+      setEdicaoAberta(false);
       const data = await getCmvPeriod(period.id);
       rememberCmvPeriod(data);
       setDetail(data);
@@ -718,10 +720,14 @@ export function CmvReal({ user }: { user: AppUser }) {
         onConfirm={confirmDelete}
       />
 
-      <section className="panel">
+      {/* "Períodos apurados" e "Escolha a apuração" eram dois painéis para o
+          mesmo assunto — escolher com o que trabalhar. Viraram um: resumo,
+          alertas e lista debaixo do mesmo título. */}
+      <div className="cmv-workspace-grid">
+        <section className="panel">
         <SectionHeader
-          eyebrow="Situação"
-          title="Períodos apurados"
+          eyebrow="Apurações"
+          title="Escolha a apuração"
           actions={(
             <>
               {canEdit && (
@@ -732,39 +738,24 @@ export function CmvReal({ user }: { user: AppUser }) {
           )}
         />
 
-        <div className="summary-grid dashboard-compact-grid">
-          <article className="summary-card compact-summary-card">
-            <div>
-              <span>Apurações cadastradas</span>
-              <strong>{periodStats.total}</strong>
-              <small>Lista operacional do histórico de CMV.</small>
-            </div>
-            <FileText className="summary-card-icon" size={20} />
-          </article>
-          <article className="summary-card compact-summary-card tone-warning">
-            <div>
-              <span>Abertas</span>
-              <strong>{periodStats.open}</strong>
-              <small>Períodos ainda passiveis de cálculo e fechamento.</small>
-            </div>
-            <AlertTriangle className="summary-card-icon" size={20} />
-          </article>
-          <article className="summary-card compact-summary-card tone-success">
-            <div>
-              <span>Fechadas</span>
-              <strong>{periodStats.closed}</strong>
-              <small>Períodos concluidos e prontos para consulta.</small>
-            </div>
-            <CheckCircle2 className="summary-card-icon" size={20} />
-          </article>
-          <article className={`summary-card compact-summary-card ${periodStats.duplicates > 0 ? "tone-danger" : "tone-info"}`}>
-            <div>
-              <span>Duplicidades</span>
-              <strong>{periodStats.duplicates}</strong>
-              <small>Exigem revisão antes de consolidar a análise.</small>
-            </div>
-            <RefreshCw className="summary-card-icon" size={20} />
-          </article>
+        {/* Eram quatro cartoes de 344px para dizer quatro numeros. A propria
+            lista logo abaixo ja mostra status por linha; o que o resumo agrega
+            e o total e o que exige acao, entao ele cabe numa linha. */}
+        <div className="cmv-resumo-chips">
+          <span className="cmv-chip">
+            <strong>{periodStats.total}</strong> apuraç{periodStats.total === 1 ? "ão" : "ões"}
+          </span>
+          <span className="cmv-chip cmv-chip--aberta">
+            <strong>{periodStats.open}</strong> aberta{periodStats.open === 1 ? "" : "s"}
+          </span>
+          <span className="cmv-chip cmv-chip--fechada">
+            <strong>{periodStats.closed}</strong> fechada{periodStats.closed === 1 ? "" : "s"}
+          </span>
+          {periodStats.duplicates > 0 && (
+            <span className="cmv-chip cmv-chip--alerta">
+              <strong>{periodStats.duplicates}</strong> duplicada{periodStats.duplicates === 1 ? "" : "s"}
+            </span>
+          )}
         </div>
 
         {loading && <span className="muted-inline">Carregando...</span>}
@@ -780,22 +771,16 @@ export function CmvReal({ user }: { user: AppUser }) {
           </div>
         )}
 
-        <div className="alert info compact-alert">
-          <FileText className="alert-icon" size={18} />
-          <div>
-            <strong>Regra operacional do período.</strong>
-            <span>
-              O inventário final de uma apuração vira o inventário inicial da próxima na mesma data de contagem.
-              Compras e faturamento entram apenas entre as contagens: depois da data inicial e até a data final.
-            </span>
-          </div>
-        </div>
-
-      </section>
-
-      <div className="cmv-workspace-grid">
-        <section className="panel">
-          <SectionHeader eyebrow="Lista" title="Escolha a apuração" />
+        {/* A regra não muda e quem usa a tela toda semana já a conhece: ficava
+            como um bloco fixo lido uma vez e ignorado nas outras cem. Continua
+            a um clique, para quem chega agora. */}
+        <details className="cmv-regra-operacional">
+          <summary>Como o período funciona</summary>
+          <p>
+            O inventário final de uma apuração vira o inventário inicial da próxima na mesma data de contagem.
+            Compras e faturamento entram apenas entre as contagens: depois da data inicial e até a data final.
+          </p>
+        </details>
 
           <div className="table-wrap subsection cmv-desktop-table operational-table">
             <table>
@@ -865,10 +850,26 @@ export function CmvReal({ user }: { user: AppUser }) {
         </section>
 
         <section className="panel">
+          {/* Para CONFERIR um periodo ninguem precisa dos campos: eram 454px de
+              formulario atravessados toda vez, entre escolher a apuracao e ver o
+              resultado. Fica fechado quando ja ha periodo escolhido e abre
+              sozinho na apuracao nova, que e quando os campos sao o assunto. */}
           <SectionHeader
             eyebrow={selectedId ? "Edição" : "Nova"}
             title={selectedId ? "Apuração selecionada" : "Nova apuração"}
+            actions={selectedId ? (
+              <Button
+                variant="secondary"
+                leadingIcon={<Edit3 size={15} />}
+                aria-expanded={edicaoAberta}
+                aria-controls="cmv-campos-da-apuracao"
+                onClick={() => setEdicaoAberta((aberta) => !aberta)}
+              >
+                {edicaoAberta ? "Ocultar campos" : isClosedSelected ? "Ver campos" : "Editar campos"}
+              </Button>
+            ) : undefined}
           />
+          <div id="cmv-campos-da-apuracao" hidden={!edicaoAberta}>
           <div className="form-grid subsection">
             <label>
               Código
@@ -1083,10 +1084,18 @@ export function CmvReal({ user }: { user: AppUser }) {
             </div>
           )}
 
+          </div>
+
+          {/* As ações ficam FORA do colapso: calcular, fechar e PDF são o que se
+              faz com o período, não parte dos campos.
+
+              A ênfase segue o que dá para fazer — num período fechado, salvar e
+              calcular estão bloqueados, e deixar o destaque num botão que não
+              responde ensina a ignorar o destaque. */}
           {canEdit && (
             <div className="actions-cell subsection wrap">
               <button
-                className="primary-button"
+                className={isClosedSelected ? "secondary-button" : "primary-button"}
                 type="button"
                 onClick={handleSave}
                 disabled={isClosedSelected || saving || checkingCoverage || (finalSessionCoverage != null && !finalSessionCoverage.isComplete)}
@@ -1104,7 +1113,12 @@ export function CmvReal({ user }: { user: AppUser }) {
                   <RotateCcw size={16} /> Reabrir
                 </button>
               )}
-              <button className="secondary-button" type="button" onClick={() => handlePdf()} disabled={!selectedId}>
+              <button
+                className={isClosedSelected ? "primary-button" : "secondary-button"}
+                type="button"
+                onClick={() => handlePdf()}
+                disabled={!selectedId}
+              >
                 <Download size={16} /> PDF
               </button>
             </div>
@@ -1246,67 +1260,8 @@ export function CmvReal({ user }: { user: AppUser }) {
             )}
 
             <div className="subsection">
-              <h3>Compras por categoria</h3>
-              <div className="table-wrap operational-table cmv-analysis-table">
-                <table>
-                  <thead><tr><th className="col-rank">Rank</th><th>Categoria</th><th className="numeric-cell col-secundaria">Itens</th><th className="numeric-cell">Participação</th><th className="numeric-cell">Total</th></tr></thead>
-                  <tbody>
-                    {detail?.purchaseByCategory.map((row, index) => (
-                      <tr key={row.categoryName} className={index < 3 ? "ranking-row" : ""}>
-                        <td className="col-rank">{index + 1}</td>
-                        <td title={row.categoryName}>{row.categoryName}</td>
-                        <td className="numeric-cell col-secundaria">{row.itemsCount}</td>
-                        <td className="numeric-cell nowrap-cell">{percentageOf(detail?.purchasesGrossTotal ?? 0, row.totalAmount)}</td>
-                        <td className="numeric-cell nowrap-cell"><Money value={row.totalAmount} /></td>
-                      </tr>
-                    )) ?? null}
-                    {detail?.purchaseByCategory.length === 0 && <EmptyTableRow colSpan={5} message="Sem dados." />}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="subsection">
-              <h3>Compras por fornecedor</h3>
-              <div className="table-wrap operational-table cmv-analysis-table">
-                <table>
-                  <thead><tr><th className="col-rank">Rank</th><th>Fornecedor</th><th className="col-secundaria">Documento</th><th className="numeric-cell col-secundaria">Pedidos</th><th className="numeric-cell">Participação</th><th className="numeric-cell">Total</th></tr></thead>
-                  <tbody>
-                    {detail?.purchaseBySupplier.map((row, index) => (
-                      <tr key={row.supplierId} className={index < 3 ? "ranking-row" : ""}>
-                        <td className="col-rank">{index + 1}</td>
-                        <td title={row.supplierName}>{row.supplierName}</td>
-                        <td className="nowrap-cell col-secundaria">{row.supplierDocument ?? "-"}</td>
-                        <td className="numeric-cell col-secundaria">{row.purchasesCount}</td>
-                        <td className="numeric-cell nowrap-cell">{percentageOf(detail?.purchasesGrossTotal ?? 0, row.totalAmount)}</td>
-                        <td className="numeric-cell nowrap-cell"><Money value={row.totalAmount} /></td>
-                      </tr>
-                    )) ?? null}
-                    {detail?.purchaseBySupplier.length === 0 && <EmptyTableRow colSpan={6} message="Sem dados." />}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="subsection">
-              <h3>Faturamento por canal</h3>
-              <div className="table-wrap operational-table cmv-analysis-table">
-                <table>
-                  <thead><tr><th>Canal</th><th className="numeric-cell col-secundaria">Qtd.</th><th className="numeric-cell">Participação</th><th className="numeric-cell col-secundaria">Bruto</th><th className="numeric-cell">Líquido</th></tr></thead>
-                  <tbody>
-                    {detail?.revenueByChannel.map((row, index) => (
-                      <tr key={row.channel} className={index === 0 ? "ranking-row" : ""}>
-                        <td>{row.channel}</td>
-                        <td className="numeric-cell col-secundaria">{row.count}</td>
-                        <td className="numeric-cell nowrap-cell">{percentageOf(detail?.revenueNetTotal ?? 0, row.netAmount)}</td>
-                        <td className="numeric-cell nowrap-cell col-secundaria"><Money value={row.grossAmount} /></td>
-                        <td className="numeric-cell nowrap-cell"><Money value={row.netAmount} /></td>
-                      </tr>
-                    )) ?? null}
-                    {detail?.revenueByChannel.length === 0 && <EmptyTableRow colSpan={5} message="Sem dados." />}
-                  </tbody>
-                </table>
-              </div>
+              <h3>Composição do período</h3>
+              <ComposicaoDoPeriodo detail={detail} />
             </div>
           </section>
         )}
