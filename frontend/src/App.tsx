@@ -144,7 +144,11 @@ const sections = [
   { id: "cards", label: "Cartões", icon: CreditCard, showInSidebar: true, group: "Financeiro", path: "/financeiro/cartoes", matchers: ["/financeiro/cartoes"] },
   { id: "cash", label: "Caixa", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/caixa", matchers: ["/financeiro/caixa"] },
   { id: "cmv-real", label: "CMV Real", icon: Calculator, showInSidebar: true, group: "CMV", path: "/cmv/real", matchers: ["/cmv/real"] },
-  { id: "monthly-closing", label: "Fechamento mensal", icon: FileCog, showInSidebar: true, group: "CMV", path: "/cmv/fechamento-mensal", matchers: ["/cmv/fechamento-mensal"] },
+  // O matcher precisa cobrir /:yearMonth, senao "Mes anterior" e "Proximo mes"
+  // saem da secao: findSectionByPath casa com end:true, o guard nao acha secao
+  // nenhuma e redireciona em silencio para o fallback. Na pratica a tela ficava
+  // presa no mes corrente.
+  { id: "monthly-closing", label: "Fechamento mensal", icon: FileCog, showInSidebar: true, group: "CMV", path: "/cmv/fechamento-mensal", matchers: ["/cmv/fechamento-mensal", "/cmv/fechamento-mensal/:yearMonth"] },
   { id: "inventory", label: "Visão Geral", icon: Warehouse, showInSidebar: true, group: "Estoque", path: "/estoque/visao-geral", matchers: ["/estoque/visao-geral"] },
   { id: "products", label: "Produtos", icon: Package, showInSidebar: true, group: "Estoque", path: "/estoque/produtos", matchers: ["/estoque/produtos"] },
   { id: "inventory-movements", label: "Movimentações", icon: Truck, showInSidebar: true, group: "Estoque", path: "/estoque/movimentacoes", matchers: ["/estoque/movimentacoes"] },
