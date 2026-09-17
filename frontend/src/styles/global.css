@@ -7378,48 +7378,46 @@ details[open] .modal-section-summary::before {
 .cmv-workspace-grid {
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(540px, 0.95fr) minmax(560px, 1.05fr);
-}
-
-.cmv-highlight-card {
-  border-width: 2px !important;
-}
-
-.cmv-highlight-card.tone-success {
-  border-color: rgba(39, 103, 73, 0.35) !important;
-}
-
-.cmv-highlight-card.tone-warning {
-  border-color: rgba(185, 154, 88, 0.35) !important;
-}
-
-.cmv-highlight-card.tone-danger {
-  border-color: rgba(159, 45, 45, 0.35) !important;
-}
-
-.cmv-highlight-card.tone-info {
-  border-color: rgba(47, 95, 152, 0.3) !important;
+  /* Empilhado: duas colunas com minimos de 540/560px nao cabem lado a lado —
+     a tabela ganhava rolagem horizontal propria e, quando o detalhe crescia,
+     a coluna da lista terminava deixando metade da tela vazia. */
+  grid-template-columns: 1fr;
 }
 
 .cmv-analysis-table table {
   min-width: 720px;
 }
 
-/* Mobile: reduz min-width das 3 tabelas analytics do painel de detalhe
-   para atenuar scroll-x (720/390 = 1.85x → 480/390 = 1.23x). Aceita
-   aperto de coluna mas preserva comparativo side-by-side. */
+/* Mobile: em vez de espremer seis colunas em 480px — o que fatiava
+   "FORNECEDOR" letra a letra na vertical — some com as colunas de apoio.
+   Um ranking no celular se lê por nome, participação e total; documento e
+   contagem de pedidos só importam no desktop. */
 @media (max-width: 700px) {
   .cmv-analysis-table table {
-    min-width: 480px;
+    min-width: 0;
+  }
+
+  .cmv-analysis-table .col-secundaria,
+  .cmv-analysis-table .col-rank {
+    display: none;
+  }
+
+  /* Sem aperto de coluna, o nome quebra por palavra em vez de por caractere.
+     O teto de 280px herdado de .table-wrap deixava o nome ocupar 3/4 da tela
+     e empurrava participacao e total para fora do campo de visao — o ranking
+     virava uma lista de nomes sem numero nenhum. */
+  .cmv-analysis-table td,
+  .cmv-analysis-table th {
+    overflow-wrap: break-word;
+    max-width: 32vw;
+    padding-left: 6px;
+    padding-right: 6px;
+    font-size: 0.78rem;
   }
 }
 
-.cmv-detail-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .cmv-desktop-table table {
-  min-width: 1120px;
+  min-width: 860px;
 }
 
 .cmv-desktop-table th:first-child,
@@ -7428,13 +7426,8 @@ details[open] .modal-section-summary::before {
   max-width: none;
 }
 
-.cmv-desktop-table th:nth-child(2),
-.cmv-desktop-table td:nth-child(2) {
-  min-width: 130px;
-}
-
-.cmv-desktop-table th:nth-child(9),
-.cmv-desktop-table td:nth-child(9) {
+.cmv-desktop-table th:nth-last-child(2),
+.cmv-desktop-table td:nth-last-child(2) {
   min-width: 100px;
 }
 
@@ -7471,10 +7464,6 @@ details[open] .modal-section-summary::before {
   .cash-sections-grid,
   .cash-delivery-grid,
   .cmv-workspace-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .cmv-detail-grid {
     grid-template-columns: 1fr;
   }
 
@@ -11783,7 +11772,9 @@ tr.dre-row-selected td {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
-  .table-wrap:not(.inv-desktop-table-wrap) table {
+  /* As tabelas de analise do CMV se viram em 375px sem scroll: elas escondem
+     as colunas de apoio em vez de esticar a largura minima. */
+  .table-wrap:not(.inv-desktop-table-wrap):not(.cmv-analysis-table) table {
     min-width: 480px;
   }
 
@@ -15762,5 +15753,209 @@ body:has(.pplan-sticky-actions) .pplan {
 
   .inv-estatisticas {
     gap: var(--space-1) var(--space-4);
+  }
+}
+
+/* Avisos do cálculo do CMV: informam, não alarmam. A decisão de fechar sai da
+   Conferência do fechamento, logo acima — estes são contexto para lê-la. */
+.cmv-avisos {
+  display: grid;
+  gap: 6px;
+}
+
+.cmv-avisos .alert {
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  border-width: 1px;
+}
+
+.cmv-avisos .alert strong {
+  font-size: 0.82rem;
+}
+
+.cmv-avisos .alert-icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* ── CMV Real: resumo em linha ──
+   Substitui os quatro summary-card que ocupavam 344px para exibir quatro
+   numeros que a lista logo abaixo ja detalha linha a linha. */
+.cmv-resumo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.cmv-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  border-radius: var(--radius-pill, 999px);
+  background: var(--surface-muted, rgba(0, 0, 0, 0.02));
+  font-size: 12.5px;
+  color: var(--text-muted, #6b7280);
+  white-space: nowrap;
+}
+
+.cmv-chip strong {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong, #111827);
+}
+
+.cmv-chip--aberta strong { color: var(--tone-warning-strong, #b45309); }
+.cmv-chip--fechada strong { color: var(--tone-success-strong, #047857); }
+
+.cmv-chip--alerta {
+  border-color: var(--tone-danger-border, rgba(185, 28, 28, 0.3));
+  background: var(--tone-danger-surface, rgba(185, 28, 28, 0.06));
+}
+.cmv-chip--alerta strong { color: var(--tone-danger-strong, #b91c1c); }
+
+/* Regra operacional: presente para quem precisa, silenciosa para quem já sabe. */
+.cmv-regra-operacional {
+  border-top: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  padding-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-muted, #6b7280);
+}
+
+.cmv-regra-operacional > summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--fw-medium, 500);
+}
+
+.cmv-regra-operacional > summary::-webkit-details-marker { display: none; }
+
+.cmv-regra-operacional > summary::before {
+  content: "›";
+  display: inline-block;
+  font-size: 15px;
+  line-height: 1;
+  transition: transform var(--dur, 180ms) var(--ease, ease);
+}
+
+.cmv-regra-operacional[open] > summary::before { transform: rotate(90deg); }
+
+.cmv-regra-operacional > summary:hover { color: var(--text-strong, #111827); }
+
+.cmv-regra-operacional > summary:focus-visible {
+  outline: 2px solid var(--focus-ring, #2563eb);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.cmv-regra-operacional > p {
+  margin: 8px 0 0;
+  max-width: 78ch;
+  line-height: 1.55;
+}
+
+/* A lista é navegação, não conteúdo: com 12 apurações por ano ela empurraria
+   o detalhe para fora da tela. Altura fixa e rolagem própria mantêm o
+   resultado perto do topo em qualquer volume. */
+.cmv-desktop-table {
+  max-height: 264px;
+  overflow-y: auto;
+}
+
+.cmv-desktop-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface, #fff);
+}
+
+/* ── CMV Real: lista e detalhe lado a lado ──
+   O gatilho é a largura DESTE contêiner, não a da janela: com o menu lateral
+   expandido sobram ~1023px e a tela empilha; recolhido sobram ~1230px e as
+   duas colunas cabem. Foi tentado antes com media query e revertido — pela
+   janela, "cabe" e "não cabe" davam o mesmo valor nos dois casos. */
+.cmv-workspace {
+  container-type: inline-size;
+  container-name: cmv;
+}
+
+/* Empilhado, o agrupador não existe para o layout: as seções continuam sendo
+   filhas diretas do grid de uma coluna, exatamente como antes. */
+.cmv-coluna-escolha {
+  display: contents;
+}
+
+@container cmv (min-width: 1100px) {
+  .cmv-workspace-grid--com-detalhe {
+    grid-template-columns: minmax(330px, 380px) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha {
+    display: grid;
+    gap: 16px;
+    /* A escolha acompanha a leitura do detalhe, que é o painel longo. */
+    position: sticky;
+    top: 4px;
+  }
+
+  /* Numa coluna de 380px a tabela de 7 colunas não cabe — e os cartões que o
+     mobile já usa cabem. Mesma informação, densidade adequada à largura. */
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .cmv-desktop-table {
+    display: none;
+  }
+
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .cmv-mobile-list {
+    display: grid;
+    gap: 8px;
+    /* Limita só quando a lista realmente cresce; com 3 ou 4 apurações ela
+       aparece inteira, sem cartão cortado no topo sugerindo conteúdo perdido. */
+    max-height: min(56vh, 520px);
+    overflow-y: auto;
+  }
+
+  /* Qual está aberto tem de ser óbvio: a coluna fica ao lado do detalhe o
+     tempo todo, e sem marca os cartões viram uma pilha igual. */
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .cmv-mobile-card.selected-row {
+    border-color: var(--accent, #1d3d6b);
+    box-shadow: inset 3px 0 0 var(--accent, #1d3d6b);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cmv-coluna-escolha { position: static; }
+}
+
+@container cmv (min-width: 1100px) {
+  /* Em 380px o título e as ações não cabem lado a lado: o "Escolha a apuração"
+     quebrava em duas linhas e empurrava o botão de atualizar para baixo do de
+     criar, como se fossem de níveis diferentes. Empilha por inteiro. */
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .section-heading {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .section-heading .actions-cell {
+    justify-content: flex-start;
+  }
+
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .section-heading .actions-cell > button:first-child {
+    flex: 1 1 auto;
+  }
+
+  /* O cartão da lista é navegação: o que decide qual abrir é o período, o
+     status e o CMV %. O resto vai junto, mas em peso de nota. */
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .cmv-mobile-card {
+    padding: 10px 12px;
+  }
+
+  .cmv-workspace-grid--com-detalhe .cmv-coluna-escolha .cmv-mobile-row {
+    font-size: 12.5px;
   }
 }

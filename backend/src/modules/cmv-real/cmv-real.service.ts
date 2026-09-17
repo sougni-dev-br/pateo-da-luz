@@ -9,6 +9,7 @@ import {
   getCmvPurchaseBySupplierByPurchaseDateRange,
   getCmvPurchaseTotalsByPurchaseDateRange,
 } from "./cmv-purchase-base.service.js";
+import { compararTotaisCongelados, mensagemDeDivergencia } from "./divergencia-congelada.js";
 
 type CmvPeriodStatus = "OPEN" | "CLOSED";
 
@@ -252,7 +253,9 @@ export type CmvWarningCode =
   | "PERIOD_CROSSES_MONTHS"
   | "SNAPSHOT_DATE_MISMATCH"
   | "IFOOD_ZERO_WITH_ACTIVE_CREDENTIAL"
-  | "NOVENTA_NOVE_ZERO_WITH_ACTIVE_CREDENTIAL";
+  | "NOVENTA_NOVE_ZERO_WITH_ACTIVE_CREDENTIAL"
+  | "CLOSED_TOTALS_DIVERGED"
+  | "CLOSED_DETAIL_UNAVAILABLE";
 
 export type CmvWarning = {
   code: CmvWarningCode;
@@ -274,12 +277,17 @@ type CmvComputation = {
 };
 
 const CMV_VIEW_LABELS: Record<CmvVisionKey, string> = {
-  accounting: "Visao atual",
-  managerial: "Visao gerencial",
+  accounting: "Visão atual",
+  managerial: "Visão gerencial",
 };
 
 function toDateKey(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+/** Data como quem lê o aviso a escreve: dd/mm/aaaa, não ISO. */
+function toBrDate(value: Date) {
+  return `${String(value.getDate()).padStart(2, "0")}/${String(value.getMonth() + 1).padStart(2, "0")}/${value.getFullYear()}`;
 }
 
 function formatDateKey(value: Date | string | null | undefined) {
@@ -557,7 +565,7 @@ async function buildWarnings(input: {
     warnings.push({
       code: "PERIOD_CROSSES_MONTHS",
       severity: "info",
-      message: `Este ciclo atravessa dois meses (${monthLabel(startDate)} e ${monthLabel(endDate)}). Para o DRE, o CMV sera rateado por dias corridos.`,
+      message: `Este ciclo atravessa dois meses (${monthLabel(startDate)} e ${monthLabel(endDate)}). Para o DRE, o CMV será rateado por dias corridos.`,
       detail: { startMonth: monthLabel(startDate), endMonth: monthLabel(endDate) }
     });
   }
@@ -569,7 +577,7 @@ async function buildWarnings(input: {
     warnings.push({
       code: "SNAPSHOT_DATE_MISMATCH",
       severity: "warning",
-      message: `O inventario inicial foi contado em ${toDateKey(initialCountDate)}, ${diffDaysInitial} dias antes da data inicial declarada do periodo (${toDateKey(startDate)}). Compras e faturamento entre essas datas nao entram no CMV — pode gerar distorcao.`,
+      message: `O inventário inicial foi contado em ${toBrDate(initialCountDate)}, ${diffDaysInitial} dias antes da data inicial declarada do período (${toBrDate(startDate)}). Compras e faturamento entre essas datas não entram no CMV — pode gerar distorção.`,
       detail: { snapshotDate: toDateKey(initialCountDate), startDate: toDateKey(startDate), gapDays: diffDaysInitial }
     });
   }
@@ -584,7 +592,7 @@ async function buildWarnings(input: {
       warnings.push({
         code: "IFOOD_ZERO_WITH_ACTIVE_CREDENTIAL",
         severity: "warning",
-        message: `Credencial iFood ativa em producao mas nenhuma venda foi registrada neste periodo. Verifique se a sincronizacao esta funcionando antes de fechar.`,
+        message: `Credencial iFood ativa em produção, mas nenhuma venda foi registrada neste período. Verifique se a sincronização está funcionando antes de fechar.`,
       });
     }
   }
@@ -598,7 +606,7 @@ async function buildWarnings(input: {
       warnings.push({
         code: "NOVENTA_NOVE_ZERO_WITH_ACTIVE_CREDENTIAL",
         severity: "warning",
-        message: `Credencial 99 Food ativa em producao mas nenhuma venda foi registrada neste periodo. Verifique se a sincronizacao esta funcionando antes de fechar.`,
+        message: `Credencial 99 Food ativa em produção, mas nenhuma venda foi registrada neste período. Verifique se a sincronização está funcionando antes de fechar.`,
       });
     }
   }
@@ -1333,10 +1341,33 @@ export async function listCmvPeriods() {
   }));
 }
 
-export async function getCmvPeriod(id: string) {
-  const row = await loadPeriodRow(id);
-  const period = mapRow(row);
-  if (row.status === "CLOSED") {
+/**
+ * O detalhe de um periodo FECHADO.
+ *
+ * Ate 09/2026 este caminho devolvia literais vazios: purchasesCount 0,
+ * revenueDaysCount 0 e as tres composicoes como []. Congelar os TOTAIS no
+ * fechamento e' correto; zerar a COMPOSICAO nao, porque composicao nao e'
+ * totalizador — e' a explicacao do total. O efeito pratico era a tela (e o PDF,
+ * que le este mesmo endpoint) mostrarem "Compras consideradas: 0" e "Sem dados."
+ * ao lado de R$ 171 mil em compras.
+ *
+ * A regra agora: os cinco numeros da equacao continuam sendo os congelados, a
+ * composicao vem da base de hoje, e um aviso diz quando os dois nao batem mais.
+ */
+async function closedPeriodDetail(row: CmvPeriodRow, period: CmvPeriodSummary): Promise<CmvPeriodDetail> {
+  let computation: CmvComputation;
+  try {
+    computation = await computePeriod(
+      row.dataInicial,
+      row.dataFinal,
+      row.estoqueInicialSnapshotId ?? "",
+      row.estoqueFinalSnapshotId ?? ""
+    );
+  } catch (error) {
+    // Inventario apagado, cancelado ou trocado de status derruba computePeriod.
+    // Num periodo fechado isso nao pode virar 500: o operador ainda precisa ver
+    // os totais congelados. Volta ao detalhe vazio de antes — mas agora dizendo
+    // por que esta vazio, em vez de fingir que o periodo nao teve movimento.
     return {
       ...period,
       purchasesGrossTotal: period.comprasTotal,
@@ -1349,22 +1380,90 @@ export async function getCmvPeriod(id: string) {
       purchaseBySupplier: [],
       revenueByChannel: [],
       viewDetails: {
-        accounting: {
-          purchasesGrossTotal: period.comprasTotal,
-          purchasesCount: 0,
-          purchaseByCategory: [],
-          purchaseBySupplier: [],
-        },
-        managerial: {
-          purchasesGrossTotal: period.comprasTotal,
-          purchasesCount: 0,
-          purchaseByCategory: [],
-          purchaseBySupplier: [],
-        },
+        accounting: { purchasesGrossTotal: period.comprasTotal, purchasesCount: 0, purchaseByCategory: [], purchaseBySupplier: [] },
+        managerial: { purchasesGrossTotal: period.comprasTotal, purchasesCount: 0, purchaseByCategory: [], purchaseBySupplier: [] },
       },
-      warnings: []
+      warnings: [{
+        code: "CLOSED_DETAIL_UNAVAILABLE",
+        severity: "warning",
+        message: `Os totais abaixo sao os congelados no fechamento, mas nao foi possivel recalcular a composicao do periodo: ${error instanceof Error ? error.message : String(error)}`,
+        detail: { motivo: error instanceof Error ? error.message : String(error) }
+      }]
     } satisfies CmvPeriodDetail;
   }
+
+  const divergentes = compararTotaisCongelados(
+    {
+      estoqueInicialTotal: period.estoqueInicialTotal,
+      comprasTotal: period.comprasTotal,
+      estoqueFinalTotal: period.estoqueFinalTotal,
+      cmvReal: period.cmvReal,
+      faturamentoTotal: period.faturamentoTotal,
+    },
+    {
+      estoqueInicialTotal: computation.accounting.estoqueInicialTotal,
+      comprasTotal: computation.accounting.comprasTotal,
+      estoqueFinalTotal: computation.accounting.estoqueFinalTotal,
+      cmvReal: computation.accounting.cmvReal,
+      faturamentoTotal: computation.faturamentoTotal,
+    }
+  );
+
+  const warnings = [...computation.warnings];
+  const divergencia = mensagemDeDivergencia(divergentes, row.fechadoEm);
+  if (divergencia) {
+    // Na frente dos demais: saber que os numeros sao de epocas diferentes muda
+    // como se le todo o resto da tela.
+    warnings.unshift({
+      code: "CLOSED_TOTALS_DIVERGED",
+      severity: "warning",
+      message: divergencia,
+      detail: { campos: divergentes }
+    });
+  }
+
+  return {
+    // Os totais do topo continuam sendo os do fechamento — nada de applyComputation aqui.
+    ...period,
+    purchasesGrossTotal: computation.accounting.comprasTotal,
+    purchasesCount: computation.accounting.purchasesCount,
+    revenueGrossTotal: computation.revenueGrossTotal,
+    revenueServiceTotal: computation.revenueServiceTotal,
+    revenueNetTotal: computation.revenueNetTotal,
+    revenueDaysCount: computation.revenueDaysCount,
+    purchaseByCategory: computation.accounting.purchaseByCategory,
+    purchaseBySupplier: computation.accounting.purchaseBySupplier,
+    revenueByChannel: computation.revenueByChannel,
+    // As duas visoes vem recalculadas, e nao uma congelada contra a outra viva:
+    // os cartoes existem para mostrar a diferenca de CRITERIO entre contabil e
+    // gerencial. Misturar epocas ali faria a diferenca de base (R$ 7,9 mil em
+    // abril/2026) se passar por diferenca de criterio (R$ 18,16).
+    views: {
+      accounting: computation.accounting,
+      managerial: computation.managerial,
+    },
+    viewDetails: {
+      accounting: {
+        purchasesGrossTotal: computation.accounting.comprasTotal,
+        purchasesCount: computation.accounting.purchasesCount,
+        purchaseByCategory: computation.accounting.purchaseByCategory,
+        purchaseBySupplier: computation.accounting.purchaseBySupplier,
+      },
+      managerial: {
+        purchasesGrossTotal: computation.managerial.comprasTotal,
+        purchasesCount: computation.managerial.purchasesCount,
+        purchaseByCategory: computation.managerial.purchaseByCategory,
+        purchaseBySupplier: computation.managerial.purchaseBySupplier,
+      },
+    },
+    warnings
+  } satisfies CmvPeriodDetail;
+}
+
+export async function getCmvPeriod(id: string) {
+  const row = await loadPeriodRow(id);
+  const period = mapRow(row);
+  if (row.status === "CLOSED") return closedPeriodDetail(row, period);
   const computation = await computePeriod(row.dataInicial, row.dataFinal, row.estoqueInicialSnapshotId ?? "", row.estoqueFinalSnapshotId ?? "");
   return {
     ...applyComputation(period, computation),
