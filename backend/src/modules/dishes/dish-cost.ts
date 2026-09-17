@@ -1,8 +1,11 @@
-export type UnitConversion = {
-  fromUnit: string;
-  toUnit: string;
-  factor: number;
-};
+// A conversao de unidades vive em shared/unidades: e a mesma regra que traz uma
+// compra em caixa para a unidade em que o estoque e contado. Enquanto havia duas
+// copias, correcoes como reconhecer "GR" como grama chegavam so num dos lados.
+import { normalizarUnidade, resolveUnitFactor } from "../../shared/unidades/conversao.js";
+
+export { resolveUnitFactor };
+export type { UnitConversion } from "../../shared/unidades/conversao.js";
+import type { UnitConversion } from "../../shared/unidades/conversao.js";
 
 export type CostProduct = {
   /** Unidade em que o custo medio esta expresso (unidade de estoque). */
@@ -40,42 +43,7 @@ export type DishCostResult = {
   hasMissingCost: boolean;
 };
 
-/** Conversoes que valem para qualquer produto: massa e volume sao fisica. */
-const UNIVERSAL_FACTORS: Record<string, number> = {
-  "G>KG": 0.001,
-  "KG>G": 1000,
-  "ML>L": 0.001,
-  "L>ML": 1000
-};
-
-function clean(unit: unknown): string {
-  return String(unit ?? "").trim().toUpperCase();
-}
-
-/**
- * Quantos "toUnit" cabem em 1 "fromUnit". null quando nao ha como saber.
- *
- * A conversao cadastrada no produto vem antes da universal: um pacote pode
- * pesar 0,7 KG neste produto e 2 KG em outro.
- */
-export function resolveUnitFactor(
-  fromUnit: unknown,
-  toUnit: unknown,
-  conversions: UnitConversion[]
-): number | null {
-  const from = clean(fromUnit);
-  const to = clean(toUnit);
-  if (!from || !to) return null;
-  if (from === to) return 1;
-
-  const direct = conversions.find((c) => clean(c.fromUnit) === from && clean(c.toUnit) === to);
-  if (direct && Number.isFinite(direct.factor) && direct.factor > 0) return direct.factor;
-
-  const inverse = conversions.find((c) => clean(c.fromUnit) === to && clean(c.toUnit) === from);
-  if (inverse && Number.isFinite(inverse.factor) && inverse.factor > 0) return 1 / inverse.factor;
-
-  return UNIVERSAL_FACTORS[`${from}>${to}`] ?? null;
-}
+const clean = normalizarUnidade;
 
 /**
  * Custo de uma ficha tecnica.

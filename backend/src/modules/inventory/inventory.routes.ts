@@ -5,10 +5,12 @@ import { prisma } from "../../config/database.js";
 import { createOperationalInventoryPdf } from "./operational-inventory-pdf.js";
 import { createStockCountSessionPdf } from "./stock-count-session-pdf.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
-import { cloneFinalAsNextInitial } from "../monthly/monthly.service.js";
+import { cancelarSnapshotEmCascata, carregarSnapshotCancelavel, cloneFinalAsNextInitial } from "../monthly/monthly.service.js";
 import { auditLog, requestIp, requireRole, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
+import { converterItemDeCompra } from "../../shared/unidades/conversao.js";
+import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { derivarCiclos, duracaoEmDias, fechouForaDoMes } from "./stock-cycle.service.js";
 
 export const inventoryRouter = Router();
@@ -337,6 +339,20 @@ async function upsertStock(input: {
   `;
 }
 
+/**
+ * Entrada de estoque a partir de um item de compra.
+ *
+ * Ponto unico por onde passam os dois caminhos (importacao de planilha e
+ * lancamento manual), e por isso o lugar certo para converter a unidade: a nota
+ * chega em caixa/fardo e o estoque e contado na unidade que da para contar.
+ * Sem a conversao, uma caixa de 800 sacos lancada como "1 UN a R$ 113,16" faz o
+ * custo medio virar R$ 113,16 POR SACO — foi assim que o inventario de agosto
+ * de 2026 fechou R$ 81,4 mil acima do real.
+ *
+ * O total da compra nunca muda: a conversao redistribui a mesma despesa por
+ * outra quantidade. Se mexesse no total, mexeria nas compras do mes e o CMV
+ * mudaria pelos dois lados.
+ */
 export async function recordPurchaseInventoryEntry(input: {
   productId: string;
   purchaseItemId: string;
@@ -345,15 +361,64 @@ export async function recordPurchaseInventoryEntry(input: {
   unitMeasureId: string | null;
   totalCost: number;
 }) {
-  const [product] = await prisma.$queryRaw<Array<{ controlsStock: boolean }>>`
-    SELECT "controlsStock"
+  const [product] = await prisma.$queryRaw<Array<{
+    controlsStock: boolean;
+    stockUnit: string | null;
+    unit: string | null;
+  }>>`
+    SELECT "controlsStock", "stockUnit", "unit"
     FROM "Product"
     WHERE "id" = ${input.productId}
     LIMIT 1
   `;
-  if (!product?.controlsStock) return null;
+  if (!product) return null;
 
-  const quantity = input.quantity > 0 ? input.quantity : 0;
+  const conversions = await prisma.$queryRaw<Array<{ fromUnit: string; toUnit: string; factor: Prisma.Decimal }>>`
+    SELECT "fromUnit", "toUnit", "factor"
+    FROM "ProductUnitConversion"
+    WHERE "productId" = ${input.productId} AND "isActive" = true
+  `;
+
+  const unidadeDeEstoque = product.stockUnit ?? product.unit;
+  const quantidadeBruta = input.quantity > 0 ? input.quantity : 0;
+  const conversao = converterItemDeCompra({
+    quantity: quantidadeBruta,
+    unitPrice: quantidadeBruta > 0 ? input.totalCost / quantidadeBruta : 0,
+    unidadeDaCompra: input.unit,
+    unidadeDeEstoque,
+    conversions: conversions.map((c) => ({
+      fromUnit: c.fromUnit,
+      toUnit: c.toUnit,
+      factor: Number(c.factor)
+    }))
+  });
+
+  // Gravado mesmo para produto que nao controla estoque: a inteligencia de preco
+  // por fornecedor le estes campos para nao comparar preco de caixa com preco
+  // de unidade.
+  await prisma.$executeRaw`
+    UPDATE "PurchaseItem"
+    SET
+      "convertedUnit" = ${conversao.convertedUnit},
+      "convertedQuantity" = ${conversao.convertedQuantity},
+      "convertedUnitPrice" = ${conversao.convertedUnitPrice},
+      "conversionFactorUsed" = ${conversao.conversionFactorUsed},
+      "conversionMissing" = ${conversao.conversionMissing}
+    WHERE "id" = ${input.purchaseItemId}
+  `;
+
+  if (!product.controlsStock) return null;
+
+  // Entra no estoque na unidade de contagem quando ha conversao; sem ela, entra
+  // como veio e o item fica marcado em conversionMissing para a tela cobrar o
+  // cadastro. Estimar um fator aqui trocaria um numero errado por outro.
+  const converteu = conversao.convertedQuantity != null && conversao.conversionFactorUsed != null;
+  const quantity = converteu ? conversao.convertedQuantity! : quantidadeBruta;
+  const unit = converteu ? conversao.convertedUnit : input.unit;
+  // A unidade de medida cadastrada descreve a unidade da nota; depois de
+  // converter ela nao vale mais, e null preserva a que o estoque ja tinha.
+  const unitMeasureId = converteu && conversao.conversionFactorUsed !== 1 ? null : input.unitMeasureId;
+
   if (!quantity) return null;
   const unitCost = input.totalCost / quantity;
   const movementId = crypto.randomUUID();
@@ -376,19 +441,21 @@ export async function recordPurchaseInventoryEntry(input: {
       ${input.productId},
       'PURCHASE_IN',
       ${quantity},
-      ${input.unit},
-      ${input.unitMeasureId},
+      ${unit},
+      ${unitMeasureId},
       ${unitCost},
       ${input.totalCost},
       ${input.purchaseItemId},
-      'Entrada gerada automaticamente pela importacao de compra.'
+      ${converteu && conversao.conversionFactorUsed !== 1
+        ? `Entrada gerada automaticamente pela compra. Convertido: ${conversao.motivo}`
+        : "Entrada gerada automaticamente pela importacao de compra."}
     )
   `;
   await upsertStock({
     productId: input.productId,
     quantityDelta: quantity,
-    unit: input.unit,
-    unitMeasureId: input.unitMeasureId,
+    unit,
+    unitMeasureId,
     unitCost,
     totalCost: input.totalCost
   });
@@ -1318,7 +1385,17 @@ async function reconcileStockFromOperationalInventory(id: string, user: SessionU
 async function createInventorySnapshotFromOperationalInventory(id: string, user: SessionUser) {
   const inventory = await getOperationalInventoryOrThrow(id);
   if (inventory.type !== "FINAL_CMV" || !finalOperationalInventoryStatuses.has(inventory.status)) return inventory.inventorySnapshotId;
-  if (inventory.inventorySnapshotId) return inventory.inventorySnapshotId;
+
+  // Reaproveita a base existente, mas so enquanto ela vale. Uma base cancelada
+  // nao serve para o CMV: devolve-la aqui faria o inventario ser aprovado sem
+  // base nenhuma, que e pior do que o problema que este retorno evita.
+  if (inventory.inventorySnapshotId) {
+    const [base] = await prisma.$queryRaw<Array<{ status: string }>>`
+      SELECT "status" FROM "InventorySnapshot" WHERE "id" = ${inventory.inventorySnapshotId}
+    `;
+    if (podeReaproveitarBase(base?.status ?? null)) return inventory.inventorySnapshotId;
+  }
+
   const effectiveCountDate = inventory.effectiveCountDate ?? inventory.date;
   await assertPeriodWritableForDate(effectiveCountDate, "Geracao de base oficial de estoque");
 
@@ -4167,7 +4244,18 @@ inventoryRouter.patch("/operational/:id/cancel", async (request, response) => {
   try {
     const inventory = await getOperationalInventoryOrThrow(request.params.id);
     if (inventory.status === "FECHADO") throw new Error("Inventario fechado nao pode ser cancelado por esta acao.");
-    const unlinkedSessions = await prisma.$transaction(async (tx) => {
+
+    // A base oficial de estoque nasce do inventario aprovado e e o que o CMV le.
+    // Cancelar o inventario sem cancelar a base deixava o CMV do mes lendo um
+    // numero de um inventario que nao existe mais — foi assim que o inventario
+    // de agosto/2026 seguiu valendo R$ 137 mil depois de identificado o erro.
+    // Carregado ANTES da transacao: se o periodo estiver travado, nada e alterado.
+    const snapshot = inventory.inventorySnapshotId
+      ? await carregarSnapshotCancelavel(inventory.inventorySnapshotId)
+      : null;
+    const cancelarBase = cancelamentoDeveCancelarBase(snapshot?.status ?? null);
+
+    const { sessions: unlinkedSessions, linkedInitials } = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
         UPDATE "OperationalInventory"
         SET "status" = 'CANCELADO', "canceledByUserId" = ${user.id}, "canceledAt" = CURRENT_TIMESTAMP,
@@ -4180,15 +4268,27 @@ inventoryRouter.patch("/operational/:id/cancel", async (request, response) => {
         WHERE "generatedInventoryId" = ${request.params.id}
         RETURNING "id", "code"
       `;
-      return affected;
+      const cascata = cancelarBase
+        ? await cancelarSnapshotEmCascata(tx, snapshot!, {
+            reason: `Inventario operacional ${inventory.code} cancelado: ${reason}`,
+            userId: user.id
+          })
+        : { linkedInitials: [] as string[] };
+      return { sessions: affected, linkedInitials: cascata.linkedInitials };
     });
     await auditLog({
       userId: user.id,
       action: "CANCEL_OPERATIONAL_INVENTORY",
       entity: "OperationalInventory",
       entityId: request.params.id,
-      previousValue: { status: inventory.status },
-      newValue: { status: "CANCELADO", reason, unlinkedSessions: unlinkedSessions.map((s) => s.code) }
+      previousValue: { status: inventory.status, inventorySnapshotId: inventory.inventorySnapshotId },
+      newValue: {
+        status: "CANCELADO",
+        reason,
+        unlinkedSessions: unlinkedSessions.map((s) => s.code),
+        snapshotCancelado: cancelarBase ? inventory.inventorySnapshotId : null,
+        iniciaisCancelados: linkedInitials
+      }
     });
     response.json(await getOperationalInventorySummary(request.params.id));
   } catch (error) {
@@ -4207,9 +4307,22 @@ inventoryRouter.patch("/operational/:id/reopen", async (request, response) => {
   try {
     const inventory = await getOperationalInventoryOrThrow(request.params.id);
     if (!["REJEITADO", "CANCELADO"].includes(inventory.status)) throw new Error("Apenas inventario rejeitado ou cancelado pode voltar para rascunho.");
+
+    // O ponteiro para uma base cancelada tem de cair aqui. Enquanto ele existe,
+    // aprovar de novo devolve o snapshot cancelado em vez de gerar um novo, e o
+    // inventario termina aprovado sem base viva nenhuma.
+    const [baseVinculada] = inventory.inventorySnapshotId
+      ? await prisma.$queryRaw<Array<{ status: string }>>`
+          SELECT "status" FROM "InventorySnapshot" WHERE "id" = ${inventory.inventorySnapshotId}
+        `
+      : [];
+    const soltarBase = reaberturaDeveSoltarBase(baseVinculada?.status ?? null);
+
     await prisma.$executeRaw`
       UPDATE "OperationalInventory"
-      SET "status" = 'RASCUNHO', "updatedAt" = CURRENT_TIMESTAMP
+      SET "status" = 'RASCUNHO',
+          "inventorySnapshotId" = CASE WHEN ${soltarBase} THEN NULL ELSE "inventorySnapshotId" END,
+          "updatedAt" = CURRENT_TIMESTAMP
       WHERE "id" = ${request.params.id}
     `;
     await auditLog({
@@ -4217,8 +4330,8 @@ inventoryRouter.patch("/operational/:id/reopen", async (request, response) => {
       action: "REOPEN_OPERATIONAL_INVENTORY",
       entity: "OperationalInventory",
       entityId: request.params.id,
-      previousValue: { status: inventory.status },
-      newValue: { status: "RASCUNHO", reason }
+      previousValue: { status: inventory.status, inventorySnapshotId: inventory.inventorySnapshotId },
+      newValue: { status: "RASCUNHO", reason, baseDesvinculada: soltarBase ? inventory.inventorySnapshotId : null }
     });
     response.json(await getOperationalInventorySummary(request.params.id));
   } catch (error) {

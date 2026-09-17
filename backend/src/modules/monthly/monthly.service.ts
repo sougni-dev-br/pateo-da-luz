@@ -653,36 +653,80 @@ export async function getInventorySnapshot(id: string) {
   return { ...snapshot, items };
 }
 
-export async function undoInventorySnapshot(id: string, input: { reason: string; userId: string; ipAddress?: string | null; userAgent?: string | null }) {
-  const [snapshot] = await prisma.$queryRaw<Array<{ competenceYear: number; competenceMonth: number; status: string; type: string; countDate: Date }>>`
-    SELECT "competenceYear", "competenceMonth", "status", "type"::text AS "type", "countDate" FROM "InventorySnapshot" WHERE "id" = ${id}
+export type SnapshotCancelavel = {
+  id: string;
+  competenceYear: number;
+  competenceMonth: number;
+  status: string;
+  type: string;
+  countDate: Date;
+};
+
+/**
+ * Le o snapshot e recusa o cancelamento quando o periodo ja esta travado.
+ *
+ * Roda FORA da transacao de proposito: quem cancela um inventario operacional
+ * precisa descobrir que nao vai dar ANTES de comecar a mexer no inventario,
+ * senao sobra um inventario cancelado com a base de estoque viva.
+ */
+export async function carregarSnapshotCancelavel(id: string): Promise<SnapshotCancelavel | null> {
+  const [snapshot] = await prisma.$queryRaw<Array<SnapshotCancelavel>>`
+    SELECT "id", "competenceYear", "competenceMonth", "status", "type"::text AS "type", "countDate"
+    FROM "InventorySnapshot" WHERE "id" = ${id}
   `;
-  if (!snapshot) throw new Error("Inventario nao encontrado.");
+  if (!snapshot) return null;
+  if (snapshot.status === "CANCELLED") return snapshot;
   await ensureCompetenceOpen(snapshot.competenceYear, snapshot.competenceMonth);
-  await assertPeriodWritableForDate(snapshot.countDate, "Desfazer inventario oficial");
+  await assertPeriodWritableForDate(snapshot.countDate, "Cancelar base oficial de estoque");
+  return snapshot;
+}
+
+/**
+ * Cancela a base oficial de estoque e o inicial que foi clonado dela.
+ *
+ * O inicial do mes seguinte e uma copia do final deste mes. Cancelar so o final
+ * deixaria o mes seguinte abrindo com um estoque que o sistema ja considera
+ * invalido — e o CMV do mes seguinte continuaria lendo esse numero.
+ *
+ * Recebe o client da transacao porque o cancelamento acontece junto com o do
+ * inventario operacional: as duas coisas valem juntas ou nenhuma vale.
+ */
+export async function cancelarSnapshotEmCascata(
+  tx: Prisma.TransactionClient,
+  snapshot: SnapshotCancelavel,
+  input: { reason: string; userId: string | null }
+) {
+  await tx.$executeRaw`
+    UPDATE "InventorySnapshot"
+    SET "status" = 'CANCELLED',
+        "cancelledAt" = CURRENT_TIMESTAMP,
+        "cancelledByUserId" = ${input.userId},
+        "cancellationReason" = ${input.reason}
+    WHERE "id" = ${snapshot.id}
+  `;
+
+  if (snapshot.type !== "INVENTARIO_FINAL") return { linkedInitials: [] as string[] };
+
+  const linkedInitials = await tx.$queryRaw<Array<{ id: string }>>`
+    UPDATE "InventorySnapshot"
+    SET "status" = 'CANCELLED',
+        "cancelledAt" = CURRENT_TIMESTAMP,
+        "cancelledByUserId" = ${input.userId},
+        "cancellationReason" = ${`Inventario inicial automatico cancelado porque o inventario final vinculado foi desfeito: ${input.reason}`}
+    WHERE "linkedFromSnapshotId" = ${snapshot.id}
+      AND "isAutoLinkedInitial" = true
+      AND "status" <> 'CANCELLED'
+    RETURNING "id"
+  `;
+  return { linkedInitials: linkedInitials.map((row) => row.id) };
+}
+
+export async function undoInventorySnapshot(id: string, input: { reason: string; userId: string; ipAddress?: string | null; userAgent?: string | null }) {
+  const snapshot = await carregarSnapshotCancelavel(id);
+  if (!snapshot) throw new Error("Inventario nao encontrado.");
   if (!input.reason.trim()) throw new Error("Motivo obrigatorio.");
   await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`
-      UPDATE "InventorySnapshot"
-      SET "status" = 'CANCELLED',
-          "cancelledAt" = CURRENT_TIMESTAMP,
-          "cancelledByUserId" = ${input.userId},
-          "cancellationReason" = ${input.reason}
-      WHERE "id" = ${id}
-    `;
-
-    if (snapshot.type === "INVENTARIO_FINAL") {
-      await tx.$executeRaw`
-        UPDATE "InventorySnapshot"
-        SET "status" = 'CANCELLED',
-            "cancelledAt" = CURRENT_TIMESTAMP,
-            "cancelledByUserId" = ${input.userId},
-            "cancellationReason" = ${`Inventario inicial automatico cancelado porque o inventario final vinculado foi desfeito: ${input.reason}`}
-        WHERE "linkedFromSnapshotId" = ${id}
-          AND "isAutoLinkedInitial" = true
-          AND "status" <> 'CANCELLED'
-      `;
-    }
+    await cancelarSnapshotEmCascata(tx, snapshot, { reason: input.reason, userId: input.userId });
   });
   await prisma.$executeRaw`
     INSERT INTO "AuditLog" ("id", "userId", "action", "entity", "entityId", "ipAddress", "userAgent", "newValue")
