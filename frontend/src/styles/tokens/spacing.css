@@ -38,4 +38,6 @@
 
   /* ── Layout ── */
   --sidebar-w: 264px;
+  /* Recolhida: cabe o icone (18px) + o alvo de toque de 44px com folga. */
+  --sidebar-w-collapsed: 72px;
 }

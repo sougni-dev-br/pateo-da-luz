@@ -19,6 +19,21 @@
   );
 }
 
+/* Recolhida: so a largura do shell muda — a sidebar se adapta sozinha ao
+   espaco que sobra. Animar grid-template-columns e' suportado nos navegadores
+   que este ERP atende (Chrome desktop e mobile). */
+.app-shell {
+  transition: grid-template-columns var(--dur) var(--ease);
+}
+
+.app-shell--sidebar-collapsed {
+  --sidebar-w: var(--sidebar-w-collapsed);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell { transition: none; }
+}
+
 .main-col {
   height: 100vh;
   height: 100dvh;
