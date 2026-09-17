@@ -5,11 +5,12 @@ import { prisma } from "../../config/database.js";
 import { createOperationalInventoryPdf } from "./operational-inventory-pdf.js";
 import { createStockCountSessionPdf } from "./stock-count-session-pdf.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
-import { cloneFinalAsNextInitial } from "../monthly/monthly.service.js";
+import { cancelarSnapshotEmCascata, carregarSnapshotCancelavel, cloneFinalAsNextInitial } from "../monthly/monthly.service.js";
 import { auditLog, requestIp, requireRole, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { converterItemDeCompra } from "../../shared/unidades/conversao.js";
+import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { derivarCiclos, duracaoEmDias, fechouForaDoMes } from "./stock-cycle.service.js";
 
 export const inventoryRouter = Router();
@@ -1384,7 +1385,17 @@ async function reconcileStockFromOperationalInventory(id: string, user: SessionU
 async function createInventorySnapshotFromOperationalInventory(id: string, user: SessionUser) {
   const inventory = await getOperationalInventoryOrThrow(id);
   if (inventory.type !== "FINAL_CMV" || !finalOperationalInventoryStatuses.has(inventory.status)) return inventory.inventorySnapshotId;
-  if (inventory.inventorySnapshotId) return inventory.inventorySnapshotId;
+
+  // Reaproveita a base existente, mas so enquanto ela vale. Uma base cancelada
+  // nao serve para o CMV: devolve-la aqui faria o inventario ser aprovado sem
+  // base nenhuma, que e pior do que o problema que este retorno evita.
+  if (inventory.inventorySnapshotId) {
+    const [base] = await prisma.$queryRaw<Array<{ status: string }>>`
+      SELECT "status" FROM "InventorySnapshot" WHERE "id" = ${inventory.inventorySnapshotId}
+    `;
+    if (podeReaproveitarBase(base?.status ?? null)) return inventory.inventorySnapshotId;
+  }
+
   const effectiveCountDate = inventory.effectiveCountDate ?? inventory.date;
   await assertPeriodWritableForDate(effectiveCountDate, "Geracao de base oficial de estoque");
 
@@ -4233,7 +4244,18 @@ inventoryRouter.patch("/operational/:id/cancel", async (request, response) => {
   try {
     const inventory = await getOperationalInventoryOrThrow(request.params.id);
     if (inventory.status === "FECHADO") throw new Error("Inventario fechado nao pode ser cancelado por esta acao.");
-    const unlinkedSessions = await prisma.$transaction(async (tx) => {
+
+    // A base oficial de estoque nasce do inventario aprovado e e o que o CMV le.
+    // Cancelar o inventario sem cancelar a base deixava o CMV do mes lendo um
+    // numero de um inventario que nao existe mais — foi assim que o inventario
+    // de agosto/2026 seguiu valendo R$ 137 mil depois de identificado o erro.
+    // Carregado ANTES da transacao: se o periodo estiver travado, nada e alterado.
+    const snapshot = inventory.inventorySnapshotId
+      ? await carregarSnapshotCancelavel(inventory.inventorySnapshotId)
+      : null;
+    const cancelarBase = cancelamentoDeveCancelarBase(snapshot?.status ?? null);
+
+    const { sessions: unlinkedSessions, linkedInitials } = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
         UPDATE "OperationalInventory"
         SET "status" = 'CANCELADO', "canceledByUserId" = ${user.id}, "canceledAt" = CURRENT_TIMESTAMP,
@@ -4246,15 +4268,27 @@ inventoryRouter.patch("/operational/:id/cancel", async (request, response) => {
         WHERE "generatedInventoryId" = ${request.params.id}
         RETURNING "id", "code"
       `;
-      return affected;
+      const cascata = cancelarBase
+        ? await cancelarSnapshotEmCascata(tx, snapshot!, {
+            reason: `Inventario operacional ${inventory.code} cancelado: ${reason}`,
+            userId: user.id
+          })
+        : { linkedInitials: [] as string[] };
+      return { sessions: affected, linkedInitials: cascata.linkedInitials };
     });
     await auditLog({
       userId: user.id,
       action: "CANCEL_OPERATIONAL_INVENTORY",
       entity: "OperationalInventory",
       entityId: request.params.id,
-      previousValue: { status: inventory.status },
-      newValue: { status: "CANCELADO", reason, unlinkedSessions: unlinkedSessions.map((s) => s.code) }
+      previousValue: { status: inventory.status, inventorySnapshotId: inventory.inventorySnapshotId },
+      newValue: {
+        status: "CANCELADO",
+        reason,
+        unlinkedSessions: unlinkedSessions.map((s) => s.code),
+        snapshotCancelado: cancelarBase ? inventory.inventorySnapshotId : null,
+        iniciaisCancelados: linkedInitials
+      }
     });
     response.json(await getOperationalInventorySummary(request.params.id));
   } catch (error) {
@@ -4273,9 +4307,22 @@ inventoryRouter.patch("/operational/:id/reopen", async (request, response) => {
   try {
     const inventory = await getOperationalInventoryOrThrow(request.params.id);
     if (!["REJEITADO", "CANCELADO"].includes(inventory.status)) throw new Error("Apenas inventario rejeitado ou cancelado pode voltar para rascunho.");
+
+    // O ponteiro para uma base cancelada tem de cair aqui. Enquanto ele existe,
+    // aprovar de novo devolve o snapshot cancelado em vez de gerar um novo, e o
+    // inventario termina aprovado sem base viva nenhuma.
+    const [baseVinculada] = inventory.inventorySnapshotId
+      ? await prisma.$queryRaw<Array<{ status: string }>>`
+          SELECT "status" FROM "InventorySnapshot" WHERE "id" = ${inventory.inventorySnapshotId}
+        `
+      : [];
+    const soltarBase = reaberturaDeveSoltarBase(baseVinculada?.status ?? null);
+
     await prisma.$executeRaw`
       UPDATE "OperationalInventory"
-      SET "status" = 'RASCUNHO', "updatedAt" = CURRENT_TIMESTAMP
+      SET "status" = 'RASCUNHO',
+          "inventorySnapshotId" = CASE WHEN ${soltarBase} THEN NULL ELSE "inventorySnapshotId" END,
+          "updatedAt" = CURRENT_TIMESTAMP
       WHERE "id" = ${request.params.id}
     `;
     await auditLog({
@@ -4283,8 +4330,8 @@ inventoryRouter.patch("/operational/:id/reopen", async (request, response) => {
       action: "REOPEN_OPERATIONAL_INVENTORY",
       entity: "OperationalInventory",
       entityId: request.params.id,
-      previousValue: { status: inventory.status },
-      newValue: { status: "RASCUNHO", reason }
+      previousValue: { status: inventory.status, inventorySnapshotId: inventory.inventorySnapshotId },
+      newValue: { status: "RASCUNHO", reason, baseDesvinculada: soltarBase ? inventory.inventorySnapshotId : null }
     });
     response.json(await getOperationalInventorySummary(request.params.id));
   } catch (error) {
