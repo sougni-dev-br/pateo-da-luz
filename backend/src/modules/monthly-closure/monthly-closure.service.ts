@@ -390,7 +390,13 @@ async function getFinalInventoryStatus(year: number, month: number) {
     SELECT "id", "countDate", "totalValue", "totalItems"
     FROM "InventorySnapshot"
     WHERE "competenceYear" = ${year} AND "competenceMonth" = ${month}
-      AND type = 'INVENTARIO_FINAL' AND status = 'ACTIVE'
+      AND type = 'INVENTARIO_FINAL'
+      -- APPROVED e o status de todo inventario gerado pelo sistema; so os
+      -- importados de planilha ficam ACTIVE. Filtrar so por ACTIVE fazia a tela
+      -- cobrar inventario final de meses que tinham um, e a pendencia fantasma
+      -- travava o fechamento. A consulta irma (itensDeInventarioSemCusto) ja
+      -- aceitava os dois.
+      AND status IN ('ACTIVE', 'APPROVED')
     ORDER BY "countDate" DESC
     LIMIT 1
   `;
