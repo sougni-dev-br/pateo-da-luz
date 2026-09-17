@@ -22,6 +22,9 @@ import {
 import { Notice, useNotice } from "../components/Notice";
 import { ConfirmDialog } from "../components/ui";
 import { VerificacaoDoFechamento } from "../components/VerificacaoDoFechamento";
+import { EquacaoDoCmv } from "../components/cmv/EquacaoDoCmv";
+import { ComparacaoDeVisoes } from "../components/cmv/ComparacaoDeVisoes";
+import { compararVisoes } from "../lib/visoes-do-cmv";
 import { Button, IconButton, Money, StatusBadge as DsStatusBadge } from "../design-system";
 import type { StatusTone } from "../design-system";
 import { useSearchParams } from "react-router-dom";
@@ -72,8 +75,8 @@ function stockBaseTypeLabel(base: StockBase): string {
     }
   }
   switch (base.inventoryType) {
-    case "INVENTARIO_FINAL": return "Inventario final";
-    case "INVENTARIO_INICIAL": return "Inventario inicial";
+    case "INVENTARIO_FINAL": return "Inventário final";
+    case "INVENTARIO_INICIAL": return "Inventário inicial";
     default: return base.inventoryType;
   }
 }
@@ -87,9 +90,9 @@ function StockBaseCard({ base }: { base: StockBase }) {
     <div className="stock-base-card">
       <div className="stock-base-card__row">
         {base.sourceType === "SESSION" && (
-          <span><span className="stock-base-card__label">Codigo:</span> {base.code}</span>
+          <span><span className="stock-base-card__label">Código:</span> {base.code}</span>
         )}
-        {month && <span><span className="stock-base-card__label">Competencia:</span> {month}</span>}
+        {month && <span><span className="stock-base-card__label">Competência:</span> {month}</span>}
         <span><span className="stock-base-card__label">Tipo:</span> {typeLabel}</span>
         <span><span className="stock-base-card__label">Itens:</span> {base.totalItems}</span>
         <span><span className="stock-base-card__label">Origem:</span> {originLabel}</span>
@@ -136,12 +139,6 @@ function statusToneClass(status: string): StatusTone {
   return "info";
 }
 
-function classifyCmv(percentual: number | null | undefined) {
-  if (percentual == null) return { label: "Sem calculo", tone: "tone-neutral" };
-  if (percentual <= 0.3) return { label: "Bom", tone: "tone-success" };
-  if (percentual <= 0.35) return { label: "Atencao", tone: "tone-warning" };
-  return { label: "Critico", tone: "tone-danger" };
-}
 
 // pt-BR: virgula decimal. Aceita fracao (0-1) e multiplica por 100 internamente.
 function formatPercent(value: number | null | undefined) {
@@ -166,15 +163,6 @@ function SectionHeader({ eyebrow, title, actions }: { eyebrow: string; title: st
   );
 }
 
-function MetricCard({ label, value, detail, className = "" }: { label: string; value: ReactNode; detail?: ReactNode; className?: string }) {
-  return (
-    <article className={className}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {detail ? <small className="muted-inline">{detail}</small> : null}
-    </article>
-  );
-}
 
 function StatusBadge({ status }: { status: string }) {
   return <DsStatusBadge tone={statusToneClass(status)}>{formatStatusLabel(status)}</DsStatusBadge>;
@@ -229,24 +217,18 @@ function CmvPeriodMobileCard({
   return (
     <article className={`cmv-mobile-card${isSelected ? " selected-row" : ""}`}>
       <div className="cmv-mobile-row">
-        <span>Periodo</span>
+        <span>Período</span>
         <strong>{formatDate(period.dataInicial)} - {formatDate(period.dataFinal)}</strong>
       </div>
       <div className="cmv-mobile-row">
-        <span>Codigo</span>
+        <span>Código</span>
         <span>{period.code ?? "-"}</span>
       </div>
-      <div className="cmv-mobile-row">
-        <span>Estoque inicial</span>
-        <span><Money value={period.estoqueInicialTotal} /></span>
-      </div>
+      {/* As três pernas da equação saíram da lista (aqui e na tabela desktop):
+          elas aparecem inteiras, e explicadas, na equação do detalhe. */}
       <div className="cmv-mobile-row">
         <span>Compras</span>
         <span><Money value={period.comprasTotal} /></span>
-      </div>
-      <div className="cmv-mobile-row">
-        <span>Estoque final</span>
-        <span><Money value={period.estoqueFinalTotal} /></span>
       </div>
       <div className="cmv-mobile-row">
         <span>CMV real</span>
@@ -295,8 +277,8 @@ function CmvPeriodMobileCard({
 
 function warningTitle(code: string): string {
   switch (code) {
-    case "PERIOD_CROSSES_MONTHS": return "Periodo cruza dois meses";
-    case "SNAPSHOT_DATE_MISMATCH": return "Data do inventario nao bate com o periodo";
+    case "PERIOD_CROSSES_MONTHS": return "Período cruza dois meses";
+    case "SNAPSHOT_DATE_MISMATCH": return "Data do inventário não bate com o período";
     case "IFOOD_ZERO_WITH_ACTIVE_CREDENTIAL": return "iFood: nenhuma venda registrada";
     case "NOVENTA_NOVE_ZERO_WITH_ACTIVE_CREDENTIAL": return "99 Food: nenhuma venda registrada";
     default: return "Alerta";
@@ -339,7 +321,26 @@ export function CmvReal({ user }: { user: AppUser }) {
   const isClosedSelected = Boolean(selectedId && selectedPeriod?.status === "CLOSED");
   const isOpenSelected = Boolean(selectedId && selectedPeriod?.status === "OPEN");
 
-  const cmvHealth = useMemo(() => classifyCmv(selectedPeriod?.cmvPercentual), [selectedPeriod?.cmvPercentual]);
+
+  // A diferença entre as duas visões, resumida: a visão contábil é a mesma que
+  // já aparece no topo, então só a divergência merece espaço na tela.
+  //
+  // Os totais chegam com a listagem e as categorias só com o detalhe, que vem
+  // depois. Misturar as duas fontes faz a tela subtrair números de períodos
+  // diferentes entre o clique e a resposta da API — e o resto da diferença cai
+  // em "fora das compras", que é justamente onde um erro de verdade apareceria.
+  // Ou o detalhe do período selecionado está em mãos, ou não há comparação.
+  const comparacaoDeVisoes = useMemo(() => {
+    if (!detail || detail.id !== selectedId) return null;
+    return compararVisoes(
+      detail.views.accounting.cmvReal,
+      detail.views.managerial.cmvReal,
+      detail.views.accounting.cmvPercentual,
+      detail.views.managerial.cmvPercentual,
+      detail.viewDetails.accounting.purchaseByCategory,
+      detail.viewDetails.managerial.purchaseByCategory
+    );
+  }, [detail, selectedId]);
   const detailRef = useRevealScroll<HTMLElement>({ when: selectedPeriod?.id });
 
   // A competência do período vem da data final: é o mês que o inventário fecha,
@@ -361,10 +362,10 @@ export function CmvReal({ user }: { user: AppUser }) {
     [cmvBases, finalDropdownValue]
   );
 
-  // Filtro de opcoes do dropdown Estoque Inicial/Final (CMV v2 — task #14):
-  // Modo padrao mostra apenas snapshots INVENTARIO_INICIAL/FINAL (bases oficiais).
+  // Filtro de opções do dropdown Estoque Inicial/Final (CMV v2 — task #14):
+  // Modo padrão mostra apenas snapshots INVENTARIO_INICIAL/FINAL (bases oficiais).
   // "Mostrar avancado" libera todas as contagens individuais e planilhas.
-  // Sempre mantem a opcao atualmente selecionada visivel para nao perder contexto ao trocar o filtro.
+  // Sempre mantem a opcao atualmente selecionada visivel para não perder contexto ao trocar o filtro.
   const visibleBases = useMemo(() => {
     if (showAdvancedBases) return cmvBases;
     const selectedInitialKey = initialDropdownValue;
@@ -517,7 +518,7 @@ export function CmvReal({ user }: { user: AppUser }) {
       setContinuityLocked(false);
       applyPeriodToForm(data);
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao abrir apuracao." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao abrir apuração." });
     }
   }, [applyPeriodToForm, setNotice]);
 
@@ -547,7 +548,7 @@ export function CmvReal({ user }: { user: AppUser }) {
     if (finalSessionCoverage && !finalSessionCoverage.isComplete) {
       setNotice({
         tone: "error",
-        message: `Base de estoque incompleta: ${finalSessionCoverage.coveredTotal}/${finalSessionCoverage.expectedTotal} produtos cobertos. Corrija o inventario antes de salvar.`
+        message: `Base de estoque incompleta: ${finalSessionCoverage.coveredTotal}/${finalSessionCoverage.expectedTotal} produtos cobertos. Corrija o inventário antes de salvar.`
       });
       return;
     }
@@ -564,7 +565,7 @@ export function CmvReal({ user }: { user: AppUser }) {
           || form.estoqueInicialSnapshotId !== suggestedInitialSnapshotId
         );
       if (isAdmin && changingSuggestedContinuity) {
-        const reason = window.prompt("Informe o motivo para alterar a continuidade da apuracao:");
+        const reason = window.prompt("Informe o motivo para alterar a continuidade da apuração:");
         if (!reason?.trim()) {
           setNotice({ tone: "warning", message: "Motivo obrigatorio para alterar a continuidade." });
           return;
@@ -583,13 +584,13 @@ export function CmvReal({ user }: { user: AppUser }) {
         observacoes: form.observacoes,
         continuityOverrideReason
       });
-      setNotice({ tone: "success", message: selectedId ? "Apuracao atualizada com sucesso." : "Apuracao criada com sucesso." });
+      setNotice({ tone: "success", message: selectedId ? "Apuração atualizada com sucesso." : "Apuração criada com sucesso." });
       setSelectedId(saved.id);
       rememberCmvPeriod(saved);
       setDetail(saved);
       await load(saved.id);
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao salvar apuracao." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao salvar apuração." });
     } finally {
       setSaving(false);
     }
@@ -612,10 +613,10 @@ export function CmvReal({ user }: { user: AppUser }) {
     try {
       const updated = await closeCmvPeriod(selectedId);
       setDetail(updated);
-      setNotice({ tone: "success", message: "Apuracao fechada com sucesso." });
+      setNotice({ tone: "success", message: "Apuração fechada com sucesso." });
       await load(selectedId);
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao fechar apuracao." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao fechar apuração." });
     }
   }
 
@@ -626,10 +627,10 @@ export function CmvReal({ user }: { user: AppUser }) {
     try {
       const updated = await reopenCmvPeriod(selectedId, reason);
       setDetail(updated);
-      setNotice({ tone: "success", message: "Apuracao reaberta com sucesso." });
+      setNotice({ tone: "success", message: "Apuração reaberta com sucesso." });
       await load(selectedId);
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao reabrir apuracao." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao reabrir apuração." });
     }
   }
 
@@ -637,13 +638,13 @@ export function CmvReal({ user }: { user: AppUser }) {
     if (!isAdmin) return;
     const isDuplicate = duplicatePeriodKeys.has(periodKey(period));
     const warning = period.status === "CLOSED"
-      ? "Esta apuracao esta fechada. A exclusao exige motivo e pode afetar o encadeamento com o proximo periodo."
-      : "A exclusao pode afetar o encadeamento com o proximo periodo se houver apuracao vinculada.";
-    let reason: string | null = isDuplicate ? "Exclusao de apuracao duplicada" : null;
+      ? "Esta apuração esta fechada. A exclusão exige motivo e pode afetar o encadeamento com o próximo período."
+      : "A exclusão pode afetar o encadeamento com o próximo período se houver apuração vinculada.";
+    let reason: string | null = isDuplicate ? "Exclusão de apuração duplicada" : null;
     if (period.status === "CLOSED") {
-      const typedReason = window.prompt(`${warning}\n\nDigite o motivo da exclusao:`);
+      const typedReason = window.prompt(`${warning}\n\nDigite o motivo da exclusão:`);
       if (!typedReason?.trim()) {
-        setNotice({ tone: "warning", message: "Motivo obrigatorio para excluir apuracao fechada." });
+        setNotice({ tone: "warning", message: "Motivo obrigatorio para excluir apuração fechada." });
         return;
       }
       reason = typedReason.trim();
@@ -663,13 +664,13 @@ export function CmvReal({ user }: { user: AppUser }) {
       setNotice({
         tone: "success",
         message: result.linkedNextPeriods > 0
-          ? "Apuracao excluida. Havia periodo seguinte vinculado, revise a continuidade."
-          : "Apuracao excluida com AuditLog registrado."
+          ? "Apuração excluida. Havia período seguinte vinculado, revise a continuidade."
+          : "Apuração excluida com AuditLog registrado."
       });
       setDeleteDialog(null);
       await load(null);
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao excluir apuracao." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao excluir apuração." });
     }
   }
 
@@ -699,16 +700,16 @@ export function CmvReal({ user }: { user: AppUser }) {
       <Notice notice={notice} />
       <ConfirmDialog
         open={Boolean(deleteDialog)}
-        title="Excluir apuracao de CMV?"
+        title="Excluir apuração de CMV?"
         tone="danger"
-        confirmLabel="Excluir apuracao"
+        confirmLabel="Excluir apuração"
         description={deleteDialog ? (
           <div className="stack compact-stack">
             <p>
-              Periodo: <strong>{formatDate(deleteDialog.period.dataInicial)} a {formatDate(deleteDialog.period.dataFinal)}</strong>
+              Período: <strong>{formatDate(deleteDialog.period.dataInicial)} a {formatDate(deleteDialog.period.dataFinal)}</strong>
             </p>
             <p>Status: <strong>{formatStatusLabel(deleteDialog.period.status)}</strong></p>
-            <p>Esta acao registra auditoria e pode afetar a continuidade se houver periodo seguinte vinculado.</p>
+            <p>Esta acao registra auditoria e pode afetar a continuidade se houver período seguinte vinculado.</p>
           </div>
         ) : null}
         onCancel={() => setDeleteDialog(null)}
@@ -717,12 +718,12 @@ export function CmvReal({ user }: { user: AppUser }) {
 
       <section className="panel">
         <SectionHeader
-          eyebrow="Lista"
-          title="Periodos apurados"
+          eyebrow="Situação"
+          title="Períodos apurados"
           actions={(
             <>
               {canEdit && (
-                <Button leadingIcon={<Plus size={16} />} onClick={() => startNewPeriod()}>Nova apuracao</Button>
+                <Button leadingIcon={<Plus size={16} />} onClick={() => startNewPeriod()}>Nova apuração</Button>
               )}
               <IconButton icon={<RefreshCw size={16} className={loading ? "spin" : ""} />} label="Atualizar CMV Real" onClick={() => load()} />
             </>
@@ -732,9 +733,9 @@ export function CmvReal({ user }: { user: AppUser }) {
         <div className="summary-grid dashboard-compact-grid">
           <article className="summary-card compact-summary-card">
             <div>
-              <span>Apuracoes cadastradas</span>
+              <span>Apurações cadastradas</span>
               <strong>{periodStats.total}</strong>
-              <small>Lista operacional do historico de CMV.</small>
+              <small>Lista operacional do histórico de CMV.</small>
             </div>
             <FileText className="summary-card-icon" size={20} />
           </article>
@@ -742,7 +743,7 @@ export function CmvReal({ user }: { user: AppUser }) {
             <div>
               <span>Abertas</span>
               <strong>{periodStats.open}</strong>
-              <small>Periodos ainda passiveis de calculo e fechamento.</small>
+              <small>Períodos ainda passiveis de cálculo e fechamento.</small>
             </div>
             <AlertTriangle className="summary-card-icon" size={20} />
           </article>
@@ -750,7 +751,7 @@ export function CmvReal({ user }: { user: AppUser }) {
             <div>
               <span>Fechadas</span>
               <strong>{periodStats.closed}</strong>
-              <small>Periodos concluidos e prontos para consulta.</small>
+              <small>Períodos concluidos e prontos para consulta.</small>
             </div>
             <CheckCircle2 className="summary-card-icon" size={20} />
           </article>
@@ -758,7 +759,7 @@ export function CmvReal({ user }: { user: AppUser }) {
             <div>
               <span>Duplicidades</span>
               <strong>{periodStats.duplicates}</strong>
-              <small>Exigem revisao antes de consolidar a analise.</small>
+              <small>Exigem revisão antes de consolidar a análise.</small>
             </div>
             <RefreshCw className="summary-card-icon" size={20} />
           </article>
@@ -769,9 +770,9 @@ export function CmvReal({ user }: { user: AppUser }) {
           <div className="alert warning compact-alert">
             <AlertTriangle className="alert-icon" size={18} />
             <div>
-              <strong>Apuracao duplicada encontrada.</strong>
+              <strong>Apuração duplicada encontrada.</strong>
               <span>
-                {duplicatePeriods.length} registros compartilham o mesmo periodo. Exclua a duplicada somente apos conferir a continuidade.
+                {duplicatePeriods.length} registros compartilham o mesmo período. Exclua a duplicada somente apos conferir a continuidade.
               </span>
             </div>
           </div>
@@ -780,274 +781,31 @@ export function CmvReal({ user }: { user: AppUser }) {
         <div className="alert info compact-alert">
           <FileText className="alert-icon" size={18} />
           <div>
-            <strong>Regra operacional do periodo.</strong>
+            <strong>Regra operacional do período.</strong>
             <span>
-              O inventario final de uma apuracao vira o inventario inicial da proxima na mesma data de contagem.
-              Compras e faturamento entram apenas entre as contagens: depois da data inicial e ate a data final.
+              O inventário final de uma apuração vira o inventário inicial da próxima na mesma data de contagem.
+              Compras e faturamento entram apenas entre as contagens: depois da data inicial e até a data final.
             </span>
           </div>
         </div>
 
-        <div className="form-grid subsection">
-          <label>
-            Codigo
-            <input className="locked-field" title="Codigo gerado automaticamente pelo sistema" value={form.code || "Gerado ao salvar"} readOnly />
-          </label>
-          <label>
-            Nome da apuracao
-            <input
-              value={form.name || defaultPeriodName(form.dataInicial, form.dataFinal)}
-              readOnly={isClosedSelected}
-              className={isClosedSelected ? "locked-field" : undefined}
-              title={isClosedSelected ? "Nome bloqueado em apuracoes fechadas" : "Nome da apuracao"}
-              onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-            />
-          </label>
-          <label>
-            Data inicial
-            <input
-              className={isClosedSelected ? "locked-field" : undefined}
-              type="date"
-              value={form.dataInicial}
-              disabled={isClosedSelected}
-              title={isClosedSelected ? "Data bloqueada em apuracoes fechadas" : form.dataInicial}
-              onChange={(event) => setForm((current) => {
-                const newStart = event.target.value;
-                const autoName = defaultPeriodName(current.dataInicial, current.dataFinal);
-                const nameIsAuto = !current.name || current.name === autoName;
-                return { ...current, dataInicial: newStart, name: nameIsAuto ? defaultPeriodName(newStart, current.dataFinal) : current.name };
-              })}
-            />
-          </label>
-          <label>
-            Data final
-            <input
-              className={isClosedSelected ? "locked-field" : undefined}
-              type="date"
-              value={form.dataFinal}
-              disabled={isClosedSelected}
-              onChange={(event) => setForm((current) => {
-                const newEnd = event.target.value;
-                const autoName = defaultPeriodName(current.dataInicial, current.dataFinal);
-                const nameIsAuto = !current.name || current.name === autoName;
-                return { ...current, dataFinal: newEnd, name: nameIsAuto ? defaultPeriodName(current.dataInicial, newEnd) : current.name };
-              })}
-            />
-          </label>
-          <label>
-            Estoque inicial
-            <select
-              className={isClosedSelected ? "locked-field" : undefined}
-              value={initialDropdownValue}
-              disabled={isClosedSelected}
-              title={selectedInitialBase ? selectedInitialBase.displayLabel : "Selecionar"}
-              onChange={(event) => {
-                const val = event.target.value;
-                if (!val) {
-                  setForm((f) => ({ ...f, estoqueInicialSessionId: "", estoqueInicialSnapshotId: "" }));
-                } else if (val.startsWith("SNAPSHOT:")) {
-                  const snapshotId = val.slice(9);
-                  const picked = cmvBases.find((b) => b.sourceType === "SNAPSHOT" && b.id === snapshotId);
-                  // CMV v2 — task #20: ao escolher snapshot inicial, auto-preenche dataInicial com a data efetiva da contagem.
-                  setForm((f) => ({
-                    ...f,
-                    estoqueInicialSnapshotId: snapshotId,
-                    estoqueInicialSessionId: "",
-                    dataInicial: picked?.date ?? f.dataInicial
-                  }));
-                } else {
-                  const picked = cmvBases.find((b) => b.sourceType === "SESSION" && b.id === val);
-                  setForm((f) => ({
-                    ...f,
-                    estoqueInicialSessionId: val,
-                    estoqueInicialSnapshotId: "",
-                    dataInicial: picked?.date ?? f.dataInicial
-                  }));
-                }
-              }}
-            >
-              <option value="">Selecionar estoque</option>
-              {visibleBases.map((base) => {
-                const optionValue = base.sourceType === "SNAPSHOT" ? `SNAPSHOT:${base.id}` : base.id;
-                return (
-                  <option key={optionValue} value={optionValue}>
-                    {base.displayLabel}
-                  </option>
-                );
-              })}
-            </select>
-            {selectedInitialBase && <StockBaseCard base={selectedInitialBase} />}
-          </label>
-          <label>
-            Estoque final
-            <select
-              className={isClosedSelected ? "locked-field" : undefined}
-              value={finalDropdownValue}
-              disabled={isClosedSelected}
-              title={selectedFinalBase ? selectedFinalBase.displayLabel : "Selecionar"}
-              onChange={(event) => {
-                const val = event.target.value;
-                if (!val) {
-                  setForm((f) => ({ ...f, estoqueFinalSessionId: "", estoqueFinalSnapshotId: "" }));
-                  setFinalSessionCoverage(null);
-                } else if (val.startsWith("SNAPSHOT:")) {
-                  const snapshotId = val.slice(9);
-                  const picked = cmvBases.find((b) => b.sourceType === "SNAPSHOT" && b.id === snapshotId);
-                  // CMV v2 — task #20: auto-preenche dataFinal com a data da contagem final.
-                  setForm((f) => ({
-                    ...f,
-                    estoqueFinalSnapshotId: snapshotId,
-                    estoqueFinalSessionId: "",
-                    dataFinal: picked?.date ?? f.dataFinal
-                  }));
-                  setFinalSessionCoverage(null);
-                } else {
-                  const picked = cmvBases.find((b) => b.sourceType === "SESSION" && b.id === val);
-                  setForm((f) => ({
-                    ...f,
-                    estoqueFinalSessionId: val,
-                    estoqueFinalSnapshotId: "",
-                    dataFinal: picked?.date ?? f.dataFinal
-                  }));
-                  checkFinalSessionCoverage(val);
-                }
-              }}
-            >
-              <option value="">Selecionar estoque</option>
-              {visibleBases.map((base) => {
-                const optionValue = base.sourceType === "SNAPSHOT" ? `SNAPSHOT:${base.id}` : base.id;
-                return (
-                  <option key={optionValue} value={optionValue}>
-                    {base.displayLabel}
-                  </option>
-                );
-              })}
-            </select>
-            {selectedFinalBase && <StockBaseCard base={selectedFinalBase} />}
-            {checkingCoverage && (
-              <small style={{ color: "var(--muted)", fontSize: 12, marginTop: 4, display: "block" }}>Verificando cobertura...</small>
-            )}
-            {!checkingCoverage && finalSessionCoverage && (
-              <div style={{
-                marginTop: 6,
-                padding: "8px 12px",
-                borderRadius: 5,
-                background: finalSessionCoverage.isComplete ? "var(--success-soft, #e6f4ea)" : "var(--error-soft, #fdecea)",
-                border: `1px solid ${finalSessionCoverage.isComplete ? "var(--success, #2e7d32)" : "var(--error, #c62828)"}`,
-                fontSize: 12
-              }}>
-                {finalSessionCoverage.isComplete ? (
-                  <span style={{ color: "var(--success, #2e7d32)", fontWeight: 600 }}>
-                    Cobertura completa: {finalSessionCoverage.coveredTotal}/{finalSessionCoverage.expectedTotal} produtos.
-                  </span>
-                ) : (
-                  <>
-                    <span style={{ color: "var(--error, #c62828)", fontWeight: 600 }}>
-                      Base incompleta: {finalSessionCoverage.coveredTotal}/{finalSessionCoverage.expectedTotal} produtos cobertos. {finalSessionCoverage.missingTotal} sem contagem - salvar bloqueado.
-                    </span>
-                    {finalSessionCoverage.missingSectors.length > 0 && (
-                      <div style={{ marginTop: 4 }}>Setores ausentes: <strong>{finalSessionCoverage.missingSectors.join(", ")}</strong></div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </label>
-          <label className="full-width">
-            <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
-              <input
-                type="checkbox"
-                checked={showAdvancedBases}
-                onChange={(event) => setShowAdvancedBases(event.target.checked)}
-              />
-              Mostrar opcoes avancadas nos dropdowns (contagens individuais, planilhas). Padrao: apenas inventarios oficiais (INICIAL / FINAL).
-            </span>
-          </label>
-          <label className="full-width">
-            Observacoes
-            <input
-              className={isClosedSelected ? "locked-field" : undefined}
-              title={form.observacoes}
-              value={form.observacoes}
-              readOnly={isClosedSelected}
-              onChange={(event) => setForm({ ...form, observacoes: event.target.value })}
-            />
-          </label>
-        </div>
-
-        {!selectedId && continuityLocked && suggestions?.latestPeriod && (
-          <div className="alert info compact-alert subsection">
-            <FileText className="alert-icon" size={18} />
-            <div>
-              <strong>Continuidade sugerida preenchida automaticamente.</strong>
-              <span>
-                A sugestao usa a data e o inventario final do ultimo periodo como ponto de partida, mas voce pode ajustar os campos desta nova apuracao conforme a operacao real.
-              </span>
-            </div>
-            <button className="secondary-button" type="button" onClick={applySuggestedContinuity}>
-              Reaplicar sugestao
-            </button>
-          </div>
-        )}
-
-        {isClosedSelected && (
-          <div className="alert info compact-alert subsection">
-            <FileText className="alert-icon" size={18} />
-            <div>
-              <strong>Apuracao fechada em modo de consulta.</strong>
-              <span>
-                Para alterar dados desta apuracao, primeiro reabra o periodo. Enquanto estiver fechada, os campos ficam somente para leitura.
-              </span>
-            </div>
-          </div>
-        )}
-
-        {canEdit && (
-          <div className="actions-cell subsection wrap">
-            <button
-              className="primary-button"
-              type="button"
-              onClick={handleSave}
-              disabled={isClosedSelected || saving || checkingCoverage || (finalSessionCoverage != null && !finalSessionCoverage.isComplete)}
-            >
-              <Save size={16} /> {selectedId ? "Atualizar apuracao" : "Criar apuracao"}
-            </button>
-            <button className="secondary-button" type="button" onClick={handleCalculate} disabled={!selectedId || isClosedSelected}>
-              <FileText size={16} /> Calcular
-            </button>
-            <button className="secondary-button" type="button" onClick={handleClose} disabled={!isOpenSelected}>
-              <CheckCircle2 size={16} /> Fechar
-            </button>
-            {isAdmin && (
-              <button className="secondary-button" type="button" onClick={handleReopen} disabled={!isClosedSelected}>
-                <RotateCcw size={16} /> Reabrir
-              </button>
-            )}
-            <button className="secondary-button" type="button" onClick={() => handlePdf()} disabled={!selectedId}>
-              <Download size={16} /> PDF
-            </button>
-          </div>
-        )}
       </section>
 
       <div className="cmv-workspace-grid">
         <section className="panel">
-          <SectionHeader eyebrow="Resumo" title="Apuracoes cadastradas" />
+          <SectionHeader eyebrow="Lista" title="Escolha a apuração" />
 
           <div className="table-wrap subsection cmv-desktop-table operational-table">
             <table>
               <thead>
                 <tr>
-                  <th>Periodo</th>
-                  <th>Codigo</th>
-                  <th className="numeric-cell">Estoque inicial</th>
+                  <th>Período</th>
                   <th className="numeric-cell">Compras</th>
-                  <th className="numeric-cell">Estoque final</th>
                   <th className="numeric-cell">CMV real</th>
                   <th className="numeric-cell">Faturamento</th>
                   <th className="numeric-cell">CMV %</th>
                   <th>Status</th>
-                  <th>Acoes</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -1055,14 +813,11 @@ export function CmvReal({ user }: { user: AppUser }) {
                   <tr key={period.id} className={period.id === selectedId ? "selected-row" : ""}>
                     <td className="cmv-period-cell" title={`${formatDate(period.dataInicial)} - ${formatDate(period.dataFinal)}`}>
                       <strong>{formatDate(period.dataInicial)} - {formatDate(period.dataFinal)}</strong>
-                      <small>{period.name}</small>
+                      <small>{period.code ?? "sem código"} · {period.name}</small>
                       {duplicatePeriodKeys.has(periodKey(period)) && <span className="status-pill warning">Duplicada</span>}
                       {hasInconsistentBases(period) && <span className="status-pill warning">Bases inconsistentes</span>}
                     </td>
-                    <td className="nowrap-cell">{period.code ?? "-"}</td>
-                    <td className="numeric-cell nowrap-cell"><Money value={period.estoqueInicialTotal} /></td>
                     <td className="numeric-cell nowrap-cell"><Money value={period.comprasTotal} /></td>
-                    <td className="numeric-cell nowrap-cell"><Money value={period.estoqueFinalTotal} /></td>
                     <td className="numeric-cell nowrap-cell"><Money value={period.cmvReal} /></td>
                     <td className="numeric-cell nowrap-cell"><Money value={period.faturamentoTotal} /></td>
                     <td className="numeric-cell nowrap-cell">{formatPercent(period.cmvPercentual)}</td>
@@ -1076,7 +831,7 @@ export function CmvReal({ user }: { user: AppUser }) {
                           <Download size={14} /> PDF
                         </button>
                         {isAdmin && (
-                          <button className="danger-icon-button" type="button" title="Excluir apuracao" onClick={() => handleDelete(period)}>
+                          <button className="danger-icon-button" type="button" title="Excluir apuração" onClick={() => handleDelete(period)}>
                             <Trash2 size={14} />
                           </button>
                         )}
@@ -1084,7 +839,7 @@ export function CmvReal({ user }: { user: AppUser }) {
                     </td>
                   </tr>
                 ))}
-                {periods.length === 0 && <EmptyTableRow colSpan={10} message="Nenhuma apuracao cadastrada." />}
+                {periods.length === 0 && <EmptyTableRow colSpan={7} message="Nenhuma apuração cadastrada." />}
               </tbody>
             </table>
           </div>
@@ -1103,8 +858,255 @@ export function CmvReal({ user }: { user: AppUser }) {
                 onDelete={handleDelete}
               />
             ))}
-            {periods.length === 0 && <div className="alert warning">Nenhuma apuracao cadastrada.</div>}
+            {periods.length === 0 && <div className="alert warning">Nenhuma apuração cadastrada.</div>}
           </div>
+        </section>
+
+        <section className="panel">
+          <SectionHeader
+            eyebrow={selectedId ? "Edição" : "Nova"}
+            title={selectedId ? "Apuração selecionada" : "Nova apuração"}
+          />
+          <div className="form-grid subsection">
+            <label>
+              Código
+              <input className="locked-field" title="Código gerado automaticamente pelo sistema" value={form.code || "Gerado ao salvar"} readOnly />
+            </label>
+            <label>
+              Nome da apuração
+              <input
+                value={form.name || defaultPeriodName(form.dataInicial, form.dataFinal)}
+                readOnly={isClosedSelected}
+                className={isClosedSelected ? "locked-field" : undefined}
+                title={isClosedSelected ? "Nome bloqueado em apurações fechadas" : "Nome da apuração"}
+                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+              />
+            </label>
+            <label>
+              Data inicial
+              <input
+                className={isClosedSelected ? "locked-field" : undefined}
+                type="date"
+                value={form.dataInicial}
+                disabled={isClosedSelected}
+                title={isClosedSelected ? "Data bloqueada em apurações fechadas" : form.dataInicial}
+                onChange={(event) => setForm((current) => {
+                  const newStart = event.target.value;
+                  const autoName = defaultPeriodName(current.dataInicial, current.dataFinal);
+                  const nameIsAuto = !current.name || current.name === autoName;
+                  return { ...current, dataInicial: newStart, name: nameIsAuto ? defaultPeriodName(newStart, current.dataFinal) : current.name };
+                })}
+              />
+            </label>
+            <label>
+              Data final
+              <input
+                className={isClosedSelected ? "locked-field" : undefined}
+                type="date"
+                value={form.dataFinal}
+                disabled={isClosedSelected}
+                onChange={(event) => setForm((current) => {
+                  const newEnd = event.target.value;
+                  const autoName = defaultPeriodName(current.dataInicial, current.dataFinal);
+                  const nameIsAuto = !current.name || current.name === autoName;
+                  return { ...current, dataFinal: newEnd, name: nameIsAuto ? defaultPeriodName(current.dataInicial, newEnd) : current.name };
+                })}
+              />
+            </label>
+            <label>
+              Estoque inicial
+              <select
+                className={isClosedSelected ? "locked-field" : undefined}
+                value={initialDropdownValue}
+                disabled={isClosedSelected}
+                title={selectedInitialBase ? selectedInitialBase.displayLabel : "Selecionar"}
+                onChange={(event) => {
+                  const val = event.target.value;
+                  if (!val) {
+                    setForm((f) => ({ ...f, estoqueInicialSessionId: "", estoqueInicialSnapshotId: "" }));
+                  } else if (val.startsWith("SNAPSHOT:")) {
+                    const snapshotId = val.slice(9);
+                    const picked = cmvBases.find((b) => b.sourceType === "SNAPSHOT" && b.id === snapshotId);
+                    // CMV v2 — task #20: ao escolher snapshot inicial, auto-preenche dataInicial com a data efetiva da contagem.
+                    setForm((f) => ({
+                      ...f,
+                      estoqueInicialSnapshotId: snapshotId,
+                      estoqueInicialSessionId: "",
+                      dataInicial: picked?.date ?? f.dataInicial
+                    }));
+                  } else {
+                    const picked = cmvBases.find((b) => b.sourceType === "SESSION" && b.id === val);
+                    setForm((f) => ({
+                      ...f,
+                      estoqueInicialSessionId: val,
+                      estoqueInicialSnapshotId: "",
+                      dataInicial: picked?.date ?? f.dataInicial
+                    }));
+                  }
+                }}
+              >
+                <option value="">Selecionar estoque</option>
+                {visibleBases.map((base) => {
+                  const optionValue = base.sourceType === "SNAPSHOT" ? `SNAPSHOT:${base.id}` : base.id;
+                  return (
+                    <option key={optionValue} value={optionValue}>
+                      {base.displayLabel}
+                    </option>
+                  );
+                })}
+              </select>
+              {selectedInitialBase && <StockBaseCard base={selectedInitialBase} />}
+            </label>
+            <label>
+              Estoque final
+              <select
+                className={isClosedSelected ? "locked-field" : undefined}
+                value={finalDropdownValue}
+                disabled={isClosedSelected}
+                title={selectedFinalBase ? selectedFinalBase.displayLabel : "Selecionar"}
+                onChange={(event) => {
+                  const val = event.target.value;
+                  if (!val) {
+                    setForm((f) => ({ ...f, estoqueFinalSessionId: "", estoqueFinalSnapshotId: "" }));
+                    setFinalSessionCoverage(null);
+                  } else if (val.startsWith("SNAPSHOT:")) {
+                    const snapshotId = val.slice(9);
+                    const picked = cmvBases.find((b) => b.sourceType === "SNAPSHOT" && b.id === snapshotId);
+                    // CMV v2 — task #20: auto-preenche dataFinal com a data da contagem final.
+                    setForm((f) => ({
+                      ...f,
+                      estoqueFinalSnapshotId: snapshotId,
+                      estoqueFinalSessionId: "",
+                      dataFinal: picked?.date ?? f.dataFinal
+                    }));
+                    setFinalSessionCoverage(null);
+                  } else {
+                    const picked = cmvBases.find((b) => b.sourceType === "SESSION" && b.id === val);
+                    setForm((f) => ({
+                      ...f,
+                      estoqueFinalSessionId: val,
+                      estoqueFinalSnapshotId: "",
+                      dataFinal: picked?.date ?? f.dataFinal
+                    }));
+                    checkFinalSessionCoverage(val);
+                  }
+                }}
+              >
+                <option value="">Selecionar estoque</option>
+                {visibleBases.map((base) => {
+                  const optionValue = base.sourceType === "SNAPSHOT" ? `SNAPSHOT:${base.id}` : base.id;
+                  return (
+                    <option key={optionValue} value={optionValue}>
+                      {base.displayLabel}
+                    </option>
+                  );
+                })}
+              </select>
+              {selectedFinalBase && <StockBaseCard base={selectedFinalBase} />}
+              {checkingCoverage && (
+                <small style={{ color: "var(--muted)", fontSize: 12, marginTop: 4, display: "block" }}>Verificando cobertura...</small>
+              )}
+              {!checkingCoverage && finalSessionCoverage && (
+                <div style={{
+                  marginTop: 6,
+                  padding: "8px 12px",
+                  borderRadius: 5,
+                  background: finalSessionCoverage.isComplete ? "var(--success-soft, #e6f4ea)" : "var(--error-soft, #fdecea)",
+                  border: `1px solid ${finalSessionCoverage.isComplete ? "var(--success, #2e7d32)" : "var(--error, #c62828)"}`,
+                  fontSize: 12
+                }}>
+                  {finalSessionCoverage.isComplete ? (
+                    <span style={{ color: "var(--success, #2e7d32)", fontWeight: 600 }}>
+                      Cobertura completa: {finalSessionCoverage.coveredTotal}/{finalSessionCoverage.expectedTotal} produtos.
+                    </span>
+                  ) : (
+                    <>
+                      <span style={{ color: "var(--error, #c62828)", fontWeight: 600 }}>
+                        Base incompleta: {finalSessionCoverage.coveredTotal}/{finalSessionCoverage.expectedTotal} produtos cobertos. {finalSessionCoverage.missingTotal} sem contagem - salvar bloqueado.
+                      </span>
+                      {finalSessionCoverage.missingSectors.length > 0 && (
+                        <div style={{ marginTop: 4 }}>Setores ausentes: <strong>{finalSessionCoverage.missingSectors.join(", ")}</strong></div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </label>
+            <label className="full-width">
+              <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
+                <input
+                  type="checkbox"
+                  checked={showAdvancedBases}
+                  onChange={(event) => setShowAdvancedBases(event.target.checked)}
+                />
+                Mostrar opções avançadas nos dropdowns (contagens individuais, planilhas). Padrão: apenas inventários oficiais (INICIAL / FINAL).
+              </span>
+            </label>
+            <label className="full-width">
+              Observações
+              <input
+                className={isClosedSelected ? "locked-field" : undefined}
+                title={form.observacoes}
+                value={form.observacoes}
+                readOnly={isClosedSelected}
+                onChange={(event) => setForm({ ...form, observacoes: event.target.value })}
+              />
+            </label>
+          </div>
+
+          {!selectedId && continuityLocked && suggestions?.latestPeriod && (
+            <div className="alert info compact-alert subsection">
+              <FileText className="alert-icon" size={18} />
+              <div>
+                <strong>Continuidade sugerida preenchida automaticamente.</strong>
+                <span>
+                  A sugestao usa a data e o inventário final do ultimo período como ponto de partida, mas voce pode ajustar os campos desta nova apuração conforme a operacao real.
+                </span>
+              </div>
+              <button className="secondary-button" type="button" onClick={applySuggestedContinuity}>
+                Reaplicar sugestao
+              </button>
+            </div>
+          )}
+
+          {isClosedSelected && (
+            <div className="alert info compact-alert subsection">
+              <FileText className="alert-icon" size={18} />
+              <div>
+                <strong>Apuração fechada em modo de consulta.</strong>
+                <span>
+                  Para alterar dados desta apuração, primeiro reabra o período. Enquanto estiver fechada, os campos ficam somente para leitura.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {canEdit && (
+            <div className="actions-cell subsection wrap">
+              <button
+                className="primary-button"
+                type="button"
+                onClick={handleSave}
+                disabled={isClosedSelected || saving || checkingCoverage || (finalSessionCoverage != null && !finalSessionCoverage.isComplete)}
+              >
+                <Save size={16} /> {selectedId ? "Atualizar apuração" : "Criar apuração"}
+              </button>
+              <button className="secondary-button" type="button" onClick={handleCalculate} disabled={!selectedId || isClosedSelected}>
+                <FileText size={16} /> Calcular
+              </button>
+              <button className="secondary-button" type="button" onClick={handleClose} disabled={!isOpenSelected}>
+                <CheckCircle2 size={16} /> Fechar
+              </button>
+              {isAdmin && (
+                <button className="secondary-button" type="button" onClick={handleReopen} disabled={!isClosedSelected}>
+                  <RotateCcw size={16} /> Reabrir
+                </button>
+              )}
+              <button className="secondary-button" type="button" onClick={() => handlePdf()} disabled={!selectedId}>
+                <Download size={16} /> PDF
+              </button>
+            </div>
+          )}
         </section>
 
         {selectedPeriod && (
@@ -1121,22 +1123,25 @@ export function CmvReal({ user }: { user: AppUser }) {
               <div className="alert warning compact-alert subsection">
                 <AlertTriangle className="alert-icon" size={18} />
                 <div>
-                  <strong>Periodo com continuidade inconsistente.</strong>
+                  <strong>Período com continuidade inconsistente.</strong>
                   <span>
                     {periodConsistency.initialAfterFinal
                       ? "A base inicial esta com data posterior a base final."
-                      : "As datas das bases de estoque nao batem com a janela do periodo."} Revise este CMV antes do fechamento.
+                      : "As datas das bases de estoque não batem com a janela do período."} Revise este CMV antes do fechamento.
                   </span>
                 </div>
               </div>
             ) : null}
+            {/* Os avisos do cálculo vinham como dois blocos amarelos do tamanho
+                de um parágrafo, logo acima do número principal — gritavam mais
+                que a conferência, que é o que de fato decide se dá para fechar.
+                Mesmo conteúdo, peso visual de nota de rodapé. */}
             {detail?.warnings && detail.warnings.length > 0 && (
-              <div className="subsection">
+              <div className="subsection cmv-avisos">
                 {detail.warnings.map((w) => (
                   <div
                     key={w.code}
                     className={`alert compact-alert ${w.severity === "warning" ? "warning" : "info"}`}
-                    style={{ marginBottom: 8 }}
                   >
                     <AlertTriangle className="alert-icon" size={18} />
                     <div>
@@ -1147,110 +1152,108 @@ export function CmvReal({ user }: { user: AppUser }) {
                 ))}
               </div>
             )}
-            <div className="summary-grid dashboard-compact-grid cmv-detail-grid">
-              <MetricCard label="Codigo" value={selectedPeriod.code ?? "-"} />
-              <MetricCard label="Periodo" value={`${formatDate(selectedPeriod.dataInicial)} a ${formatDate(selectedPeriod.dataFinal)}`} />
-              <MetricCard
-                label="Movimentos considerados"
-                value={`${formatDate(nextDateKey(selectedPeriod.dataInicial))} a ${formatDate(selectedPeriod.dataFinal)}`}
-                detail="Compras e faturamento entre as contagens"
-              />
-              <MetricCard label="Status" value={<StatusBadge status={selectedPeriod.status} />} />
-              <MetricCard label="CMV %" value={formatPercent(selectedPeriod.cmvPercentual)} className={`cmv-highlight-card ${cmvHealth.tone}`} detail={cmvHealth.label} />
-              <MetricCard label="Margem bruta" value={<Money value={selectedPeriod.margemBruta} />} className="cmv-highlight-card tone-info" />
-              <MetricCard label="Estoque inicial" value={<Money value={selectedPeriod.estoqueInicialTotal} />} />
-              <MetricCard label="Compras" value={<Money value={selectedPeriod.comprasTotal} />} />
-              <MetricCard label="Estoque final" value={<Money value={selectedPeriod.estoqueFinalTotal} />} />
-              <MetricCard label="CMV real" value={<Money value={selectedPeriod.cmvReal} />} />
-              <MetricCard label="Faturamento" value={<Money value={selectedPeriod.faturamentoTotal} />} />
-            </div>
+            {/* Código, período e status sao identificacao, não resultado: saem
+                da grade de numeros e viram uma linha de contexto. */}
+            <p className="cmv-identificacao">
+              <StatusBadge status={selectedPeriod.status} />
+              <span>{selectedPeriod.code ?? "sem código"}</span>
+              <span>{formatDate(selectedPeriod.dataInicial)} a {formatDate(selectedPeriod.dataFinal)}</span>
+              <span className="cmv-identificacao-nota">
+                Movimentos entre {formatDate(nextDateKey(selectedPeriod.dataInicial))} e {formatDate(selectedPeriod.dataFinal)}
+              </span>
+            </p>
 
-            <div className="subsection">
-              <h3>Rastreabilidade</h3>
-              <div className="summary-grid dashboard-compact-grid financial-summary cmv-detail-grid">
-                <MetricCard
-                  label="Base inicial"
-                  value={selectedPeriod.estoqueInicialSessionCode ?? "Inventario oficial"}
-                  detail={selectedPeriod.estoqueInicialSnapshotData ? `Data da contagem: ${formatDate(selectedPeriod.estoqueInicialSnapshotData)}` : undefined}
-                />
-                <MetricCard
-                  label="Base final"
-                  value={selectedPeriod.estoqueFinalSessionCode ?? "Inventario oficial"}
-                  detail={selectedPeriod.estoqueFinalSnapshotData ? `Data da contagem: ${formatDate(selectedPeriod.estoqueFinalSnapshotData)}` : undefined}
-                />
-                <MetricCard
-                  label="Fechado por"
-                  value={selectedPeriod.fechadoPorNome ?? "-"}
-                  detail={formatDateTime(selectedPeriod.fechadoEm)}
-                />
-                <MetricCard
-                  label="Reaberto por"
-                  value={selectedPeriod.reabertoPorNome ?? "-"}
-                  detail={formatDateTime(selectedPeriod.reabertoEm)}
-                />
-                <MetricCard label="Motivo da reabertura" value={selectedPeriod.motivoReabertura ?? "-"} />
-              </div>
-            </div>
+            <EquacaoDoCmv
+              estoqueInicial={selectedPeriod.estoqueInicialTotal}
+              compras={selectedPeriod.comprasTotal}
+              estoqueFinal={selectedPeriod.estoqueFinalTotal}
+              cmvReal={selectedPeriod.cmvReal}
+              faturamento={selectedPeriod.faturamentoTotal}
+              cmvPercentual={selectedPeriod.cmvPercentual}
+              margemBruta={selectedPeriod.margemBruta}
+            />
 
-            <div className="subsection">
-              <h3>Visoes do calculo</h3>
-              <div className="summary-grid dashboard-compact-grid financial-summary cmv-detail-grid">
-                <MetricCard label="CMV atual" value={<Money value={selectedPeriod.views.accounting.cmvReal} />} detail={selectedPeriod.views.accounting.label} className="cmv-highlight-card tone-info" />
-                <MetricCard label="Compras atuais" value={<Money value={selectedPeriod.views.accounting.comprasTotal} />} />
-                <MetricCard label="CMV % atual" value={formatPercent(selectedPeriod.views.accounting.cmvPercentual)} />
-                <MetricCard label="CMV gerencial" value={<Money value={selectedPeriod.views.managerial.cmvReal} />} detail={selectedPeriod.views.managerial.label} className="cmv-highlight-card tone-success" />
-                <MetricCard label="Compras gerenciais" value={<Money value={selectedPeriod.views.managerial.comprasTotal} />} />
-                <MetricCard label="CMV % gerencial" value={formatPercent(selectedPeriod.views.managerial.cmvPercentual)} />
-              </div>
-            </div>
+            {/* O que a receita e as compras trouxeram, e de onde vieram as bases.
+                Antes eram cinco cartões de "Rastreabilidade" — três deles com "-"
+                em todo período aberto — mais uma lista que repetia as datas de
+                contagem que os cartões já traziam. */}
+            <dl className="cmv-composicao">
+              <div><dt>Receita bruta</dt><dd><Money value={detail?.revenueGrossTotal ?? 0} /></dd></div>
+              <div><dt>Serviço</dt><dd><Money value={detail?.revenueServiceTotal ?? 0} /></dd></div>
+              <div><dt>Receita líquida</dt><dd><Money value={detail?.revenueNetTotal ?? selectedPeriod.faturamentoTotal} /></dd></div>
+              <div><dt>Dias com faturamento</dt><dd>{detail?.revenueDaysCount ?? 0}</dd></div>
+              <div><dt>Compras consideradas</dt><dd>{detail?.purchasesCount ?? 0}</dd></div>
+            </dl>
 
-            <div className="subsection">
-              <h3>Memoria de calculo (visao atual)</h3>
-              <div className="summary-grid dashboard-compact-grid financial-summary cmv-detail-grid">
-                <MetricCard label="Formula" value="Estoque inicial + Compras - Estoque final" />
-                <MetricCard
-                  label="Aplicacao"
-                  value={<><Money value={selectedPeriod.estoqueInicialTotal} /> + <Money value={selectedPeriod.comprasTotal} /> - <Money value={selectedPeriod.estoqueFinalTotal} /></>}
-                />
-                <MetricCard label="Resultado" value={<Money value={selectedPeriod.cmvReal} />} />
-                <MetricCard label="CMV %" value={formatPercent(selectedPeriod.cmvPercentual)} detail={cmvHealth.label} />
-                <MetricCard label="Faturamento liquido" value={<Money value={selectedPeriod.faturamentoTotal} />} />
-                <MetricCard label="Compras consideradas" value={<Money value={detail?.purchasesGrossTotal ?? selectedPeriod.comprasTotal} />} detail={`${detail?.purchasesCount ?? 0} compras`} />
-                <MetricCard label="Dias com faturamento" value={detail?.revenueDaysCount ?? 0} />
-                <MetricCard label="Receita bruta" value={<Money value={detail?.revenueGrossTotal ?? 0} />} />
-                <MetricCard label="Servico" value={<Money value={detail?.revenueServiceTotal ?? 0} />} />
-                <MetricCard label="Receita liquida" value={<Money value={detail?.revenueNetTotal ?? selectedPeriod.faturamentoTotal} />} />
-                <MetricCard label="Inventario inicial" value={selectedPeriod.estoqueInicialSnapshotData ? formatDate(selectedPeriod.estoqueInicialSnapshotData) : "-"} />
-                <MetricCard label="Inventario final" value={selectedPeriod.estoqueFinalSnapshotData ? formatDate(selectedPeriod.estoqueFinalSnapshotData) : "-"} />
-              </div>
-            </div>
+            <p className="cmv-rastreio">
+              <span>
+                Base inicial{" "}
+                <strong>{selectedPeriod.estoqueInicialSessionCode ?? "inventário oficial"}</strong>
+                {selectedPeriod.estoqueInicialSnapshotData
+                  ? `, contada em ${formatDate(selectedPeriod.estoqueInicialSnapshotData)}`
+                  : ""}
+              </span>
+              <span>
+                Base final{" "}
+                <strong>{selectedPeriod.estoqueFinalSessionCode ?? "inventário oficial"}</strong>
+                {selectedPeriod.estoqueFinalSnapshotData
+                  ? `, contada em ${formatDate(selectedPeriod.estoqueFinalSnapshotData)}`
+                  : ""}
+              </span>
+              {/* Quem fechou e quem reabriu só existem depois que alguém fez isso:
+                  mostrar "-" em todo período aberto é ruído, não rastreabilidade. */}
+              {selectedPeriod.fechadoPorNome && (
+                <span>
+                  Fechado por <strong>{selectedPeriod.fechadoPorNome}</strong>
+                  {selectedPeriod.fechadoEm ? ` em ${formatDateTime(selectedPeriod.fechadoEm)}` : ""}
+                </span>
+              )}
+              {selectedPeriod.reabertoPorNome && (
+                <span>
+                  Reaberto por <strong>{selectedPeriod.reabertoPorNome}</strong>
+                  {selectedPeriod.reabertoEm ? ` em ${formatDateTime(selectedPeriod.reabertoEm)}` : ""}
+                  {selectedPeriod.motivoReabertura ? ` — ${selectedPeriod.motivoReabertura}` : ""}
+                </span>
+              )}
+            </p>
 
-            <div className="subsection">
-              <h3>Memoria de calculo (visao gerencial)</h3>
-              <div className="summary-grid dashboard-compact-grid financial-summary cmv-detail-grid">
-                <MetricCard label="Formula" value="Estoque inicial + Compras - Estoque final" />
-                <MetricCard
-                  label="Aplicacao"
-                  value={<><Money value={selectedPeriod.views.managerial.estoqueInicialTotal} /> + <Money value={selectedPeriod.views.managerial.comprasTotal} /> - <Money value={selectedPeriod.views.managerial.estoqueFinalTotal} /></>}
+            {/* A outra visão do cálculo.
+                Aqui havia três seções e cerca de trinta cartões: "Visões do
+                cálculo" e duas "Memórias de cálculo", cada uma abrindo com um
+                cartão cujo VALOR era o texto "Estoque inicial + Compras -
+                Estoque final" e repetindo resultado e CMV% já mostrados acima —
+                o CMV% aparecia três vezes na mesma tela.
+
+                Mostrar as duas contas lado a lado ainda repetia a do topo, que
+                é a visão contábil. A única pergunta que a seção responde é
+                quanto a gerencial difere e por quê — então é isso que ela diz. */}
+            {comparacaoDeVisoes && detail && (
+              <div className="subsection">
+                <h3>{detail.views.managerial.label}</h3>
+                <p className="subsection-nota">
+                  A conta acima é a {detail.views.accounting.label.toLowerCase()}. A gerencial soma
+                  categorias de compra que aquela deixa de fora.
+                </p>
+                <ComparacaoDeVisoes
+                  rotulo={detail.views.managerial.label}
+                  cmvGerencial={detail.views.managerial.cmvReal}
+                  percentualGerencial={detail.views.managerial.cmvPercentual}
+                  comparacao={comparacaoDeVisoes}
                 />
-                <MetricCard label="Resultado" value={<Money value={selectedPeriod.views.managerial.cmvReal} />} />
-                <MetricCard label="CMV %" value={formatPercent(selectedPeriod.views.managerial.cmvPercentual)} />
-                <MetricCard label="Faturamento liquido" value={<Money value={selectedPeriod.views.managerial.faturamentoTotal} />} />
-                <MetricCard label="Compras consideradas" value={<Money value={detail?.viewDetails.managerial.purchasesGrossTotal ?? selectedPeriod.views.managerial.comprasTotal} />} detail={`${detail?.viewDetails.managerial.purchasesCount ?? 0} compras`} />
               </div>
-            </div>
+            )}
 
             <div className="subsection">
               <h3>Compras por categoria</h3>
               <div className="table-wrap operational-table cmv-analysis-table">
                 <table>
-                  <thead><tr><th>Rank</th><th>Categoria</th><th className="numeric-cell">Itens</th><th className="numeric-cell">Participacao</th><th className="numeric-cell">Total</th></tr></thead>
+                  <thead><tr><th className="col-rank">Rank</th><th>Categoria</th><th className="numeric-cell col-secundaria">Itens</th><th className="numeric-cell">Participação</th><th className="numeric-cell">Total</th></tr></thead>
                   <tbody>
                     {detail?.purchaseByCategory.map((row, index) => (
                       <tr key={row.categoryName} className={index < 3 ? "ranking-row" : ""}>
-                        <td>{index + 1}</td>
+                        <td className="col-rank">{index + 1}</td>
                         <td title={row.categoryName}>{row.categoryName}</td>
-                        <td className="numeric-cell">{row.itemsCount}</td>
+                        <td className="numeric-cell col-secundaria">{row.itemsCount}</td>
                         <td className="numeric-cell nowrap-cell">{percentageOf(detail?.purchasesGrossTotal ?? 0, row.totalAmount)}</td>
                         <td className="numeric-cell nowrap-cell"><Money value={row.totalAmount} /></td>
                       </tr>
@@ -1262,38 +1265,17 @@ export function CmvReal({ user }: { user: AppUser }) {
             </div>
 
             <div className="subsection">
-              <h3>Compras por categoria (visao gerencial)</h3>
-              <div className="table-wrap operational-table cmv-analysis-table">
-                <table>
-                  <thead><tr><th>Rank</th><th>Categoria</th><th className="numeric-cell">Itens</th><th className="numeric-cell">Participacao</th><th className="numeric-cell">Total</th></tr></thead>
-                  <tbody>
-                    {detail?.viewDetails.managerial.purchaseByCategory.map((row, index) => (
-                      <tr key={`${row.categoryName}-managerial`} className={index < 3 ? "ranking-row" : ""}>
-                        <td>{index + 1}</td>
-                        <td title={row.categoryName}>{row.categoryName}</td>
-                        <td className="numeric-cell">{row.itemsCount}</td>
-                        <td className="numeric-cell nowrap-cell">{percentageOf(detail?.viewDetails.managerial.purchasesGrossTotal ?? 0, row.totalAmount)}</td>
-                        <td className="numeric-cell nowrap-cell"><Money value={row.totalAmount} /></td>
-                      </tr>
-                    )) ?? null}
-                    {(detail?.viewDetails.managerial.purchaseByCategory.length ?? 0) === 0 && <EmptyTableRow colSpan={5} message="Sem dados." />}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="subsection">
               <h3>Compras por fornecedor</h3>
               <div className="table-wrap operational-table cmv-analysis-table">
                 <table>
-                  <thead><tr><th>Rank</th><th>Fornecedor</th><th>Documento</th><th className="numeric-cell">Pedidos</th><th className="numeric-cell">Participacao</th><th className="numeric-cell">Total</th></tr></thead>
+                  <thead><tr><th className="col-rank">Rank</th><th>Fornecedor</th><th className="col-secundaria">Documento</th><th className="numeric-cell col-secundaria">Pedidos</th><th className="numeric-cell">Participação</th><th className="numeric-cell">Total</th></tr></thead>
                   <tbody>
                     {detail?.purchaseBySupplier.map((row, index) => (
                       <tr key={row.supplierId} className={index < 3 ? "ranking-row" : ""}>
-                        <td>{index + 1}</td>
+                        <td className="col-rank">{index + 1}</td>
                         <td title={row.supplierName}>{row.supplierName}</td>
-                        <td className="nowrap-cell">{row.supplierDocument ?? "-"}</td>
-                        <td className="numeric-cell">{row.purchasesCount}</td>
+                        <td className="nowrap-cell col-secundaria">{row.supplierDocument ?? "-"}</td>
+                        <td className="numeric-cell col-secundaria">{row.purchasesCount}</td>
                         <td className="numeric-cell nowrap-cell">{percentageOf(detail?.purchasesGrossTotal ?? 0, row.totalAmount)}</td>
                         <td className="numeric-cell nowrap-cell"><Money value={row.totalAmount} /></td>
                       </tr>
@@ -1308,14 +1290,14 @@ export function CmvReal({ user }: { user: AppUser }) {
               <h3>Faturamento por canal</h3>
               <div className="table-wrap operational-table cmv-analysis-table">
                 <table>
-                  <thead><tr><th>Canal</th><th className="numeric-cell">Qtd.</th><th className="numeric-cell">Participacao</th><th className="numeric-cell">Bruto</th><th className="numeric-cell">Liquido</th></tr></thead>
+                  <thead><tr><th>Canal</th><th className="numeric-cell col-secundaria">Qtd.</th><th className="numeric-cell">Participação</th><th className="numeric-cell col-secundaria">Bruto</th><th className="numeric-cell">Líquido</th></tr></thead>
                   <tbody>
                     {detail?.revenueByChannel.map((row, index) => (
                       <tr key={row.channel} className={index === 0 ? "ranking-row" : ""}>
                         <td>{row.channel}</td>
-                        <td className="numeric-cell">{row.count}</td>
+                        <td className="numeric-cell col-secundaria">{row.count}</td>
                         <td className="numeric-cell nowrap-cell">{percentageOf(detail?.revenueNetTotal ?? 0, row.netAmount)}</td>
-                        <td className="numeric-cell nowrap-cell"><Money value={row.grossAmount} /></td>
+                        <td className="numeric-cell nowrap-cell col-secundaria"><Money value={row.grossAmount} /></td>
                         <td className="numeric-cell nowrap-cell"><Money value={row.netAmount} /></td>
                       </tr>
                     )) ?? null}
