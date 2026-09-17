@@ -723,7 +723,16 @@ export function CmvReal({ user }: { user: AppUser }) {
       {/* "Períodos apurados" e "Escolha a apuração" eram dois painéis para o
           mesmo assunto — escolher com o que trabalhar. Viraram um: resumo,
           alertas e lista debaixo do mesmo título. */}
-      <div className="cmv-workspace-grid">
+      {/* O lado a lado liga por CONTAINER query, não por largura de janela: o
+          que decide é o espaço que sobra aqui dentro, que muda quando o menu
+          lateral recolhe. Preso a media query, a tela ficaria dependendo de uma
+          preferência que o usuário pode desligar a qualquer momento. */}
+      <div className="cmv-workspace">
+      {/* Sem período aberto não há segunda coluna para preencher: a tela volta
+          a uma só, e o formulário de nova apuração usa a largura inteira em vez
+          de ficar espremido em 380px ao lado de um vazio. */}
+      <div className={selectedPeriod ? "cmv-workspace-grid cmv-workspace-grid--com-detalhe" : "cmv-workspace-grid"}>
+        <div className="cmv-coluna-escolha">
         <section className="panel">
         <SectionHeader
           eyebrow="Apurações"
@@ -1124,9 +1133,10 @@ export function CmvReal({ user }: { user: AppUser }) {
             </div>
           )}
         </section>
+        </div>
 
         {selectedPeriod && (
-          <section className="panel scroll-target" ref={detailRef}>
+          <section className="panel scroll-target cmv-coluna-detalhe" ref={detailRef}>
             <SectionHeader eyebrow="Detalhe" title={selectedPeriod.name} />
             {/* A conferência vem antes dos números: o que ela aponta muda como
                 se lê o CMV logo abaixo. Deixá-la no rodapé seria o mesmo que
@@ -1265,6 +1275,7 @@ export function CmvReal({ user }: { user: AppUser }) {
             </div>
           </section>
         )}
+      </div>
       </div>
     </div>
   );
