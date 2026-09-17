@@ -184,6 +184,23 @@ export async function refreshAuthToken(appShopId: string): Promise<void> {
 // navegador pra autorizar o bind (loja → nosso app_shop_id). É o
 // equivalente ao "authorization code" do OAuth2 do iFood, mas em URL única
 // que o dono da loja acessa e confirma.
+//
+// Normaliza as três formas que o campo `data` pode assumir: objeto `{ url }`
+// (o que a 99 realmente devolve), string pura e array de uma string (o que o
+// YAML descrevia).
+export function extractAuthorizationUrl(data: unknown): string | null {
+  if (typeof data === "string") return data.length > 0 ? data : null;
+  if (Array.isArray(data)) {
+    const primeiro = data[0];
+    return typeof primeiro === "string" && primeiro.length > 0 ? primeiro : null;
+  }
+  if (data && typeof data === "object") {
+    const url = (data as { url?: unknown }).url;
+    return typeof url === "string" && url.length > 0 ? url : null;
+  }
+  return null;
+}
+
 export async function fetchAuthorizationPageUrl(appShopId: string): Promise<string> {
   const cred = await loadCredential();
   const response = await fetchWithTimeout(`${DIDI_FOOD_BASE_URL}/v1/auth/authorizationpage/getUrl`, {
@@ -197,9 +214,15 @@ export async function fetchAuthorizationPageUrl(appShopId: string): Promise<stri
       app_shop_id: appShopId
     })
   });
-  const data = await parseResponse<string | string[]>(response);
-  // YAML mostra que "data" pode vir como array de 1 URL. Normalizamos.
-  const url = Array.isArray(data) ? data[0] : data;
+  const data = await parseResponse<string | string[] | { url?: string }>(response);
+  // O formato REAL, confirmado contra produção em 17/09/2026, é
+  // `data: { url: "https://merchant.99app.com/..." }` — um objeto, não a string
+  // que o YAML sugeria. Enquanto só tratávamos string/array, esta função
+  // devolvia "formato inesperado" em 100% das chamadas com a API respondendo
+  // errno 0: o recurso de vincular loja nunca funcionou, e é provavelmente
+  // por isso que 3 das 4 lojas do Pateo seguiam sem vínculo.
+  // As outras duas formas ficam aceitas porque não custa nada e o YAML as prevê.
+  const url = extractAuthorizationUrl(data);
   if (typeof url !== "string" || url.length === 0) {
     throw new NoventaNoveApiException({
       status: 502,
