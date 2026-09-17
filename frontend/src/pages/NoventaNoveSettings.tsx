@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Save, RefreshCw, CheckCircle2, AlertTriangle, PlugZap, Store } from "lucide-react";
+import { Save, RefreshCw, CheckCircle2, AlertTriangle, PlugZap, Store, Link as LinkIcon } from "lucide-react";
 import {
   getCompanies,
+  getNoventaNoveAuthorizationUrl,
   getNoventaNoveStatus,
   getNoventaNoveStores,
   saveNoventaNoveCredential,
@@ -444,6 +445,9 @@ function StoreRow({ store, companies, onSave }: StoreRowProps) {
   const [nickname, setNickname] = useState(store.nickname);
   const [active, setActive] = useState(store.active);
   const [companyId, setCompanyId] = useState<string>(store.companyId ?? "");
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [gerandoUrl, setGerandoUrl] = useState(false);
   const dirty = externalId !== store.externalId
     || nickname !== store.nickname
     || active !== store.active
@@ -455,6 +459,24 @@ function StoreRow({ store, companies, onSave }: StoreRowProps) {
     setActive(store.active);
     setCompanyId(store.companyId ?? "");
   }, [store.externalId, store.nickname, store.active, store.companyId]);
+
+  // A URL de autorização carrega `time` + `sign` e é de uso único — o vínculo
+  // é amarrado ao `uid` da requisição que a gerou, não ao app_shop_id (ele não
+  // aparece na query string). Por isso cada loja precisa da SUA URL, e uma
+  // expirada se resolve gerando outra aqui em vez de reaproveitar a anterior.
+  async function handleGerarUrl() {
+    setGerandoUrl(true);
+    setAuthError(null);
+    setAuthUrl(null);
+    try {
+      const result = await getNoventaNoveAuthorizationUrl(store.id);
+      setAuthUrl(result.url);
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : "Falha ao gerar URL de autorização.");
+    } finally {
+      setGerandoUrl(false);
+    }
+  }
 
   const companyOptions = [
     { value: "", label: "— sem empresa vinculada —" },
@@ -493,7 +515,44 @@ function StoreRow({ store, companies, onSave }: StoreRowProps) {
             Salvar
           </Button>
         </div>
+        <Button
+          variant="secondary"
+          onClick={handleGerarUrl}
+          disabled={gerandoUrl || dirty || store.externalId.startsWith("PENDENTE-")}
+          leadingIcon={<LinkIcon size={16} />}
+          title={
+            store.externalId.startsWith("PENDENTE-")
+              ? "Defina o AppShopID definitivo antes de gerar a URL"
+              : dirty
+                ? "Salve as alterações antes de gerar a URL"
+                : undefined
+          }
+        >
+          {gerandoUrl ? "Gerando..." : "URL de autorização"}
+        </Button>
       </div>
+
+      {(authUrl || authError) && (
+        <div style={{ gridColumn: "1 / -1", marginTop: "10px" }}>
+          {authError && <Alert tone="error">{authError}</Alert>}
+          {authUrl && (
+            <Alert tone="info" title={`Autorize "${store.nickname}" no 99 Food`}>
+              <p style={{ margin: "4px 0 8px 0", fontSize: "13px" }}>
+                Abra esta URL, autorize a loja e depois clique em "Sincronizar lojas da 99" para
+                confirmar o vínculo. Ela vale para <b>esta</b> loja e expira — se falhar, gere outra.
+              </p>
+              <a
+                href={authUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: "12px", wordBreak: "break-all" }}
+              >
+                {authUrl}
+              </a>
+            </Alert>
+          )}
+        </div>
+      )}
     </div>
   );
 }
