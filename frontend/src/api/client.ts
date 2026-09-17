@@ -4925,6 +4925,14 @@ export type NoventaNoveStoreSyncResult = {
   rows: NoventaNoveStoreSyncRow[];
 };
 
+export function getNoventaNoveAuthorizationUrl(storeId: string) {
+  return request<{ url: string; appShopId: string }>(
+    `/integrations/delivery/noventa-nove/stores/${storeId}/authorization-url`,
+    { method: "POST" },
+    60_000
+  );
+}
+
 export function syncNoventaNoveStores() {
   return request<NoventaNoveStoreSyncResult>("/integrations/delivery/noventa-nove/stores/sync", { method: "POST" }, 60_000);
 }
