@@ -170,3 +170,41 @@
   background: rgba(159, 45, 45, 0.14);
   color: var(--danger);
 }
+
+/* ── Navegacao recolhida ──
+   O rotulo do grupo sai, mas a separacao entre grupos continua legivel: vira
+   um filete. Sem ele, 30 icones viram uma coluna indistinta. */
+.ds-sidebar-nav--collapsed {
+  gap: 10px;
+  width: 100%;
+}
+
+.ds-sidebar-nav--collapsed .ds-sidebar-nav-group + .ds-sidebar-nav-group {
+  border-top: 1px solid rgba(216, 195, 145, 0.12);
+  padding-top: 10px;
+}
+
+.ds-sidebar-nav--collapsed .ds-sidebar-nav-group-label {
+  display: none;
+}
+
+.ds-sidebar-nav--collapsed .ds-sidebar-nav-item {
+  justify-content: center;
+  gap: 0;
+  padding: 11px 0;
+}
+
+/* Recolhida, o numero do badge nao cabe — vira um ponto no canto do icone,
+   que responde a "tem pendencia aqui?", a unica pergunta que cabe num icone. */
+.ds-sidebar-nav--collapsed .ds-sidebar-nav-item-badge {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  min-width: 8px;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 0;
+  line-height: 0;
+}

@@ -29,7 +29,7 @@ import {
   X
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, matchPath, useLocation, useNavigate, useParams } from "react-router-dom";
 import { AppUser, addMenuFavorite, getMe, getMenuFavorites, getStockCountSessions, logout, removeMenuFavorite, type PermissionAction } from "./api/client";
 import { PageHeader } from "./components/ui";
@@ -263,6 +263,11 @@ export function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hideSensitiveValues, setHideSensitiveValues] = useState(() => window.localStorage.getItem("hideSensitiveValues") === "true");
   const [favorites, setFavorites] = useState<string[]>([]);
+  // Menu recolhido e' preferencia de quem usa, nao estado de navegacao: fica no
+  // localStorage para a tela abrir do jeito que ele deixou.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => window.localStorage.getItem("sidebarCollapsed") === "true"
+  );
   // Modulo que o usuario tentou abrir sem permissao — usado para explicar o redirecionamento.
   const [deniedSectionLabel, setDeniedSectionLabel] = useState<string | null>(null);
   // Contagens CONCLUIDAS ainda nao convertidas em pedido/inventario — usado no badge
@@ -275,6 +280,30 @@ export function App() {
     window.localStorage.setItem("hideSensitiveValues", String(next));
     setHideSensitiveValues(next);
   };
+
+  const toggleSidebarCollapsed = useCallback(() => {
+    setSidebarCollapsed((atual) => {
+      const proximo = !atual;
+      window.localStorage.setItem("sidebarCollapsed", String(proximo));
+      return proximo;
+    });
+  }, []);
+
+  // Ctrl+B / Cmd+B: o atalho que editor e navegador ja usam para a mesma coisa.
+  // Ignorado enquanto o foco esta num campo de texto, onde Ctrl+B pode ser negrito.
+  useEffect(() => {
+    function aoTeclar(evento: KeyboardEvent) {
+      if (evento.key.toLowerCase() !== "b" || !(evento.ctrlKey || evento.metaKey) || evento.altKey) return;
+      const alvo = evento.target as HTMLElement | null;
+      const editando = alvo?.isContentEditable
+        || ["INPUT", "TEXTAREA", "SELECT"].includes(alvo?.tagName ?? "");
+      if (editando) return;
+      evento.preventDefault();
+      toggleSidebarCollapsed();
+    }
+    window.addEventListener("keydown", aoTeclar);
+    return () => window.removeEventListener("keydown", aoTeclar);
+  }, [toggleSidebarCollapsed]);
 
   const sessionContextValue = useMemo(() => ({
     user,
@@ -579,6 +608,8 @@ export function App() {
       }}
       showDevBadge={isLocal}
       logoPath={logoPath}
+      collapsed={sidebarCollapsed}
+      onToggleCollapse={toggleSidebarCollapsed}
     />
   );
 
@@ -592,6 +623,7 @@ export function App() {
           mobileHeader={mobileHeaderNode}
           drawer={drawerNode}
           sidebar={sidebarNode}
+          sidebarCollapsed={sidebarCollapsed}
           topbar={(
             <Topbar
               breadcrumb={topbarBreadcrumb}

@@ -11,6 +11,8 @@ export type AppShellProps = {
   mobileHeader?: ReactNode;
   /** Drawer mobile (AnimatePresence). Renderizado antes do main. */
   drawer?: ReactNode;
+  /** Sidebar recolhida a so icones — o shell encolhe a coluna da esquerda. */
+  sidebarCollapsed?: boolean;
   children: ReactNode;
 };
 
@@ -20,11 +22,11 @@ export type AppShellProps = {
  * Não gerencia sessão nem rotas — só provê a estrutura visual.
  */
 export const AppShell = forwardRef<HTMLElement, AppShellProps>(function AppShell(
-  { sidebar, topbar, mobileHeader, drawer, children },
+  { sidebar, topbar, mobileHeader, drawer, sidebarCollapsed = false, children },
   contentRef
 ) {
   return (
-    <main className="app-shell">
+    <main className={sidebarCollapsed ? "app-shell app-shell--sidebar-collapsed" : "app-shell"}>
       {mobileHeader}
       {drawer}
       {sidebar}

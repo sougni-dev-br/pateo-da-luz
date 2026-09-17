@@ -1,0 +1,99 @@
+/* A diferença entre as visões. Tokens do design system, sem cor solta. */
+
+.cmv-visoes-iguais {
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 12px);
+  background: var(--paper-soft);
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.cmv-visoes-iguais strong { color: var(--ink); font-weight: 600; }
+
+.cmv-comparacao {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 12px);
+  overflow: hidden;
+  background: var(--paper);
+}
+
+.cmv-comparacao-cabeca {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 14px 16px;
+  background: var(--paper-soft);
+  border-bottom: 1px solid var(--line);
+}
+
+.cmv-comparacao-total strong,
+.cmv-comparacao-delta strong {
+  display: block;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.cmv-comparacao-total strong { font-size: 1.35rem; font-weight: 650; }
+.cmv-comparacao-delta strong { font-size: 1.15rem; font-weight: 600; text-align: right; }
+
+.cmv-comparacao-delta.maior strong { color: var(--danger); }
+.cmv-comparacao-delta.menor strong { color: var(--success); }
+
+.cmv-comparacao-total span,
+.cmv-comparacao-delta span {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.cmv-comparacao-delta span { text-align: right; }
+
+/* De onde vem a diferença: uma linha por categoria, alinhada à direita para
+   que os valores se somem visualmente até o total do cabeçalho. */
+.cmv-comparacao-origem {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cmv-comparacao-origem li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 16px;
+  font-size: 0.86rem;
+  border-top: 1px solid var(--line);
+}
+
+.cmv-comparacao-origem li:first-child { border-top: 0; }
+
+.cmv-origem-nome { color: var(--ink); }
+.cmv-origem-itens { font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
+
+.cmv-origem-valor {
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 96px;
+  text-align: right;
+}
+
+.cmv-origem-resto .cmv-origem-nome { color: var(--muted); font-style: italic; }
+
+@media (max-width: 720px) {
+  .cmv-comparacao-cabeca { flex-direction: column; gap: 10px; }
+  .cmv-comparacao-delta strong,
+  .cmv-comparacao-delta span { text-align: left; }
+  .cmv-comparacao-origem li { grid-template-columns: 1fr auto; row-gap: 2px; }
+  .cmv-origem-itens { grid-row: 2; grid-column: 1; }
+  .cmv-origem-valor { grid-row: 1 / span 2; }
+}
