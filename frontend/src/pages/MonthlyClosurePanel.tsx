@@ -13,6 +13,7 @@ import {
   MonthlyClosureState,
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
+import { VerificacaoDoFechamento } from "../components/VerificacaoDoFechamento";
 import { Alert, Button, Money, PanelEyebrow } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { formatDate } from "../utils/format";
@@ -243,6 +244,19 @@ Compras, baixas de contas a pagar, faturamento e inventário com data em ${Strin
             <strong>Pronto pra travar.</strong> Todos os blocos concluídos ou justificados.
           </Alert>
         )}
+      </section>
+
+      {/* CONFERÊNCIA — antes dos blocos de propósito.
+          O checklist abaixo confere se cada peça FOI LANÇADA; esta conferência
+          confere se o que foi lançado FAZ SENTIDO. Um mês pode ter os cinco
+          blocos verdes e ainda assim apurar sobre estoque de abertura zero ou
+          com um terço dos itens valendo R$ 0,00 — foi o que aconteceu de junho
+          a agosto de 2026. Travar o mês sem ver isto é o que se quer evitar. */}
+      <section className="panel">
+        <PanelEyebrow>Conferência</PanelEyebrow>
+        <div style={{ marginTop: 8 }}>
+          <VerificacaoDoFechamento year={year} month={month} />
+        </div>
       </section>
 
       {/* FATURAMENTO */}

@@ -1,0 +1,177 @@
+/* Conferência do fechamento — a lista de achados antes de o mês virar CMV.
+   Usa os tokens do design system; nada de cor solta. */
+
+.verif-painel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 12px);
+  background: var(--paper);
+  overflow: hidden;
+}
+
+.verif-cabecalho {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-soft);
+}
+
+.verif-cabecalho-icone {
+  display: inline-flex;
+  color: var(--muted);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.verif-cabecalho h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.verif-cabecalho p {
+  margin: 2px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.verif-estado {
+  margin: 0;
+  padding: 12px 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.verif-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.verif-achado + .verif-achado {
+  border-top: 1px solid var(--line);
+}
+
+/* A faixa lateral é o que separa impedimento de atenção sem depender de cor de
+   texto — quem lê rápido vê a barra antes de ler o título. */
+.verif-achado {
+  border-left: 3px solid var(--warning);
+}
+
+.verif-achado-bloqueio {
+  border-left-color: var(--danger);
+}
+
+.verif-achado-topo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 16px;
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--ink);
+}
+
+.verif-achado-topo:hover {
+  background: var(--row-hover);
+}
+
+.verif-achado-topo:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+}
+
+.verif-achado-icone {
+  display: inline-flex;
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+.verif-achado-bloqueio .verif-achado-icone {
+  color: var(--danger);
+}
+
+.verif-achado-titulo {
+  flex: 1;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.verif-achado-seta {
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+
+.verif-achado-seta.aberta {
+  transform: rotate(180deg);
+}
+
+.verif-achado-corpo {
+  padding: 0 16px 14px 42px;
+}
+
+.verif-achado-detalhe {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.verif-exemplos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.verif-exemplos li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  font-size: 0.82rem;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.verif-exemplos li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.verif-exemplo-produto {
+  color: var(--ink);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* O número é o que faz abrir o item, então não pode quebrar em duas linhas. */
+.verif-exemplo-numero {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .verif-achado-corpo {
+    padding-left: 16px;
+  }
+
+  .verif-exemplos li {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .verif-exemplo-numero {
+    white-space: normal;
+  }
+}
