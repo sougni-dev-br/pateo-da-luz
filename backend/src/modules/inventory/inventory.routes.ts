@@ -9,6 +9,7 @@ import { cloneFinalAsNextInitial } from "../monthly/monthly.service.js";
 import { auditLog, requestIp, requireRole, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
+import { converterItemDeCompra } from "../../shared/unidades/conversao.js";
 import { derivarCiclos, duracaoEmDias, fechouForaDoMes } from "./stock-cycle.service.js";
 
 export const inventoryRouter = Router();
@@ -337,6 +338,20 @@ async function upsertStock(input: {
   `;
 }
 
+/**
+ * Entrada de estoque a partir de um item de compra.
+ *
+ * Ponto unico por onde passam os dois caminhos (importacao de planilha e
+ * lancamento manual), e por isso o lugar certo para converter a unidade: a nota
+ * chega em caixa/fardo e o estoque e contado na unidade que da para contar.
+ * Sem a conversao, uma caixa de 800 sacos lancada como "1 UN a R$ 113,16" faz o
+ * custo medio virar R$ 113,16 POR SACO — foi assim que o inventario de agosto
+ * de 2026 fechou R$ 81,4 mil acima do real.
+ *
+ * O total da compra nunca muda: a conversao redistribui a mesma despesa por
+ * outra quantidade. Se mexesse no total, mexeria nas compras do mes e o CMV
+ * mudaria pelos dois lados.
+ */
 export async function recordPurchaseInventoryEntry(input: {
   productId: string;
   purchaseItemId: string;
@@ -345,15 +360,64 @@ export async function recordPurchaseInventoryEntry(input: {
   unitMeasureId: string | null;
   totalCost: number;
 }) {
-  const [product] = await prisma.$queryRaw<Array<{ controlsStock: boolean }>>`
-    SELECT "controlsStock"
+  const [product] = await prisma.$queryRaw<Array<{
+    controlsStock: boolean;
+    stockUnit: string | null;
+    unit: string | null;
+  }>>`
+    SELECT "controlsStock", "stockUnit", "unit"
     FROM "Product"
     WHERE "id" = ${input.productId}
     LIMIT 1
   `;
-  if (!product?.controlsStock) return null;
+  if (!product) return null;
 
-  const quantity = input.quantity > 0 ? input.quantity : 0;
+  const conversions = await prisma.$queryRaw<Array<{ fromUnit: string; toUnit: string; factor: Prisma.Decimal }>>`
+    SELECT "fromUnit", "toUnit", "factor"
+    FROM "ProductUnitConversion"
+    WHERE "productId" = ${input.productId} AND "isActive" = true
+  `;
+
+  const unidadeDeEstoque = product.stockUnit ?? product.unit;
+  const quantidadeBruta = input.quantity > 0 ? input.quantity : 0;
+  const conversao = converterItemDeCompra({
+    quantity: quantidadeBruta,
+    unitPrice: quantidadeBruta > 0 ? input.totalCost / quantidadeBruta : 0,
+    unidadeDaCompra: input.unit,
+    unidadeDeEstoque,
+    conversions: conversions.map((c) => ({
+      fromUnit: c.fromUnit,
+      toUnit: c.toUnit,
+      factor: Number(c.factor)
+    }))
+  });
+
+  // Gravado mesmo para produto que nao controla estoque: a inteligencia de preco
+  // por fornecedor le estes campos para nao comparar preco de caixa com preco
+  // de unidade.
+  await prisma.$executeRaw`
+    UPDATE "PurchaseItem"
+    SET
+      "convertedUnit" = ${conversao.convertedUnit},
+      "convertedQuantity" = ${conversao.convertedQuantity},
+      "convertedUnitPrice" = ${conversao.convertedUnitPrice},
+      "conversionFactorUsed" = ${conversao.conversionFactorUsed},
+      "conversionMissing" = ${conversao.conversionMissing}
+    WHERE "id" = ${input.purchaseItemId}
+  `;
+
+  if (!product.controlsStock) return null;
+
+  // Entra no estoque na unidade de contagem quando ha conversao; sem ela, entra
+  // como veio e o item fica marcado em conversionMissing para a tela cobrar o
+  // cadastro. Estimar um fator aqui trocaria um numero errado por outro.
+  const converteu = conversao.convertedQuantity != null && conversao.conversionFactorUsed != null;
+  const quantity = converteu ? conversao.convertedQuantity! : quantidadeBruta;
+  const unit = converteu ? conversao.convertedUnit : input.unit;
+  // A unidade de medida cadastrada descreve a unidade da nota; depois de
+  // converter ela nao vale mais, e null preserva a que o estoque ja tinha.
+  const unitMeasureId = converteu && conversao.conversionFactorUsed !== 1 ? null : input.unitMeasureId;
+
   if (!quantity) return null;
   const unitCost = input.totalCost / quantity;
   const movementId = crypto.randomUUID();
@@ -376,19 +440,21 @@ export async function recordPurchaseInventoryEntry(input: {
       ${input.productId},
       'PURCHASE_IN',
       ${quantity},
-      ${input.unit},
-      ${input.unitMeasureId},
+      ${unit},
+      ${unitMeasureId},
       ${unitCost},
       ${input.totalCost},
       ${input.purchaseItemId},
-      'Entrada gerada automaticamente pela importacao de compra.'
+      ${converteu && conversao.conversionFactorUsed !== 1
+        ? `Entrada gerada automaticamente pela compra. Convertido: ${conversao.motivo}`
+        : "Entrada gerada automaticamente pela importacao de compra."}
     )
   `;
   await upsertStock({
     productId: input.productId,
     quantityDelta: quantity,
-    unit: input.unit,
-    unitMeasureId: input.unitMeasureId,
+    unit,
+    unitMeasureId,
     unitCost,
     totalCost: input.totalCost
   });

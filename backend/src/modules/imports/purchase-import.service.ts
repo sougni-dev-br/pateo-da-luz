@@ -511,27 +511,6 @@ async function findOrCreateUnitMeasure(
   return tx.unitMeasure.create({ data: { code, name: code, type: "Compra" } });
 }
 
-type ItemConversionResult = {
-  convertedUnit: string | null;
-  convertedQuantity: number | null;
-  convertedUnitPrice: number | null;
-  conversionFactorUsed: number | null;
-  conversionMissing: boolean;
-};
-
-function calculateItemConversion(
-  row: PurchaseImportRow
-): ItemConversionResult {
-  void row;
-  return {
-    convertedUnit: null,
-    convertedQuantity: null,
-    convertedUnitPrice: null,
-    conversionFactorUsed: null,
-    conversionMissing: false
-  };
-}
-
 function getPaymentMethodType(value: string | null) {
   const normalized = normalizeText(value);
 
@@ -1141,8 +1120,6 @@ export async function confirmPurchaseImport(
           });
         }
 
-        const conversion = calculateItemConversion(entry.row);
-
         const purchaseItem = await tx.purchaseItem.create({
           data: {
             purchaseId: purchase.id,
@@ -1159,16 +1136,10 @@ export async function confirmPurchaseImport(
           }
         });
 
-        await tx.$executeRaw`
-          UPDATE "PurchaseItem"
-          SET
-            "convertedUnit" = ${conversion.convertedUnit},
-            "convertedQuantity" = ${conversion.convertedQuantity},
-            "convertedUnitPrice" = ${conversion.convertedUnitPrice},
-            "conversionFactorUsed" = ${conversion.conversionFactorUsed},
-            "conversionMissing" = ${conversion.conversionMissing}
-          WHERE "id" = ${purchaseItem.id}
-        `;
+        // Os campos de conversao sao preenchidos por recordPurchaseInventoryEntry,
+        // logo apos a transacao: e la que o produto e lido com as conversoes
+        // cadastradas, e e o unico ponto por onde passam tambem as compras
+        // lancadas a mao.
         inventoryEntries.push({
           productId: product.id,
           purchaseItemId: purchaseItem.id,

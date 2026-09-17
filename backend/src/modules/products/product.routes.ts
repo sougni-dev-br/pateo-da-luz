@@ -11,6 +11,7 @@ import { resolvePagination } from "../../shared/pagination.js";
 import { productSchema, productStatusSchema } from "./product.schemas.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { beverageSectorName, normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
+import { detectarEmbalagem } from "../../shared/unidades/conversao.js";
 
 export const productRouter = Router();
 
@@ -34,7 +35,7 @@ function normalizeUnit(value: unknown): string | null {
   return text ? text.toUpperCase() : null;
 }
 
-async function hydrateProductConversionFields<T extends { id: string }>(products: T[]) {
+async function hydrateProductConversionFields<T extends { id: string; name?: string }>(products: T[]) {
   if (products.length === 0) return [];
 
   const ids = products.map((product) => product.id);
@@ -116,11 +117,20 @@ async function hydrateProductConversionFields<T extends { id: string }>(products
     conversionsByProduct.set(conversion.productId, current);
   }
 
-  return products.map((product) => ({
-    ...product,
-    ...(detailById.get(product.id) ?? {}),
-    unitConversions: conversionsByProduct.get(product.id) ?? []
-  }));
+  return products.map((product) => {
+    const unitConversions = conversionsByProduct.get(product.id) ?? [];
+    return {
+      ...product,
+      ...(detailById.get(product.id) ?? {}),
+      unitConversions,
+      // O nome do produto ja carrega a embalagem por convencao do fornecedor
+      // ("C800", "C/24", "PCTE 500G"). Oferecer a leitura poupa digitacao e,
+      // mais importante, revela que o cadastro esta faltando. So aparece quando
+      // nao ha conversao cadastrada: sugerir por cima do que foi decidido a mao
+      // seria discutir com quem ja respondeu.
+      embalagemSugerida: unitConversions.length > 0 ? [] : detectarEmbalagem(product.name)
+    };
+  });
 }
 
 async function updateProductConversionDefaults(productId: string, body: Record<string, unknown>) {
