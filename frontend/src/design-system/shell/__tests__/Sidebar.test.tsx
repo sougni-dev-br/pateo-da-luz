@@ -106,3 +106,45 @@ describe("Sidebar", () => {
     expect(onNavigate).toHaveBeenCalledWith("purchases");
   });
 });
+
+describe("Sidebar recolhida", () => {
+  test("sem onToggleCollapse nao mostra o botao (caso do drawer mobile)", () => {
+    render(<Sidebar {...baseProps} />);
+    expect(screen.queryByRole("button", { name: /recolher menu/i })).not.toBeInTheDocument();
+  });
+
+  test("o botao diz o que vai acontecer, nao o estado atual", () => {
+    const { rerender } = render(<Sidebar {...baseProps} onToggleCollapse={() => undefined} />);
+    expect(screen.getByRole("button", { name: "Recolher menu lateral" })).toHaveAttribute("aria-expanded", "true");
+
+    rerender(<Sidebar {...baseProps} collapsed onToggleCollapse={() => undefined} />);
+    expect(screen.getByRole("button", { name: "Expandir menu lateral" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("clicar avisa o caller, que e' quem guarda o estado", () => {
+    const aoRecolher = vi.fn();
+    render(<Sidebar {...baseProps} onToggleCollapse={aoRecolher} />);
+    fireEvent.click(screen.getByRole("button", { name: "Recolher menu lateral" }));
+    expect(aoRecolher).toHaveBeenCalledTimes(1);
+  });
+
+  test("recolhida esconde os rotulos mas os itens continuam alcancaveis por nome", () => {
+    render(<Sidebar {...baseProps} collapsed onToggleCollapse={() => undefined} />);
+    // O texto sai da tela...
+    expect(screen.queryByText("Compras")).not.toBeInTheDocument();
+    // ...mas o leitor de tela e o teclado ainda chegam no item.
+    expect(screen.getByRole("button", { name: "Compras" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
+  });
+
+  test("recolhida nao esconde sair nem o controle de valores", () => {
+    render(<Sidebar {...baseProps} collapsed onToggleCollapse={() => undefined} />);
+    expect(screen.getByRole("button", { name: "Sair" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ocultar valores" })).toBeInTheDocument();
+  });
+
+  test("recolhida some com o nome do usuario, que nao cabe em 72px", () => {
+    render(<Sidebar {...baseProps} collapsed onToggleCollapse={() => undefined} />);
+    expect(screen.queryByText("Rafael Oliveira")).not.toBeInTheDocument();
+  });
+});

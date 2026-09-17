@@ -436,7 +436,7 @@ export function DRE() {
               <section className="dre-vision-block">
                 <div className="dre-vision-block__header">
                   <span className="dre-vision-block__eyebrow">Comparativo CMV</span>
-                  <strong className="dre-vision-block__title">Visao atual x visao gerencial</strong>
+                  <strong className="dre-vision-block__title">Visão atual x visão gerencial</strong>
                 </div>
                 <div className="dre-cards dre-cards-secondary">
                   <DRECard
