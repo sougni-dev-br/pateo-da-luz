@@ -1,0 +1,454 @@
+/* Fechamento mensal.
+   Tudo em tokens — a versão anterior tinha 60+ style={{}} inline, que é o que
+   fazia a tela envelhecer sem ninguém perceber. */
+
+.fm-page {
+  display: grid;
+  gap: 16px;
+}
+
+/* ── Cabeçalho: o mês e o resultado ─────────────────────────────────────── */
+
+.fm-cabecalho-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.fm-mes h2 {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.fm-mes > p {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.fm-progresso {
+  margin-top: 10px;
+  max-width: 280px;
+}
+
+.fm-progresso-barra {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.fm-progresso-barra span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--gold);
+  transition: width 400ms var(--ease-out, ease);
+}
+
+.fm-progresso small {
+  display: block;
+  margin-top: 5px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.fm-acoes {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Os indicadores. O valor vem antes do rótulo: o olho bate no número. */
+.fm-indicadores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1px;
+  margin-top: 20px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 12px);
+  overflow: hidden;
+}
+
+.fm-indicador {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  background: var(--paper);
+}
+
+.fm-indicador strong {
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.fm-indicador span {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.fm-indicador small {
+  font-size: 0.72rem;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+/* O CMV é o motivo da tela existir: ganha peso e a faixa dourada. */
+.fm-indicador.destaque {
+  background: var(--row-hover);
+  box-shadow: inset 3px 0 0 var(--gold);
+}
+
+.fm-indicador.destaque strong {
+  font-size: 1.5rem;
+}
+
+/* ── Atenção x espera ───────────────────────────────────────────────────── */
+
+.fm-atencao,
+.fm-aguardando {
+  border-left: 3px solid var(--danger);
+}
+
+.fm-aguardando {
+  border-left-color: var(--line-strong);
+}
+
+.fm-atencao header,
+.fm-aguardando header {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.fm-atencao header > svg { color: var(--danger); flex-shrink: 0; margin-top: 2px; }
+.fm-aguardando header > svg { color: var(--muted); flex-shrink: 0; margin-top: 2px; }
+
+.fm-atencao h3,
+.fm-aguardando h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.fm-atencao header p,
+.fm-aguardando header p {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.fm-atencao ul,
+.fm-aguardando ul {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.fm-atencao li,
+.fm-aguardando li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 0.85rem;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.fm-atencao li:last-child,
+.fm-aguardando li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.fm-aguardando li {
+  color: var(--muted);
+}
+
+/* ── Blocos ─────────────────────────────────────────────────────────────── */
+
+.fm-blocos {
+  display: grid;
+  gap: 10px;
+}
+
+.fbloco {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 12px);
+  background: var(--paper);
+  overflow: hidden;
+}
+
+.fbloco-atencao {
+  border-color: var(--danger);
+}
+
+.fbloco-topo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 16px;
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.fbloco-topo:hover { background: var(--row-hover); }
+.fbloco-topo:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+
+.fbloco-numero {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--paper-soft);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.fbloco-titulo {
+  font-size: 0.9rem;
+  font-weight: 550;
+}
+
+/* O resumo empurra o estado para a direita e some primeiro no celular. */
+.fbloco-resumo {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fbloco-estado {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.fbloco-ok .fbloco-estado,
+.fbloco-justificado .fbloco-estado { color: var(--success); }
+.fbloco-atencao .fbloco-estado { color: var(--danger); }
+
+.fbloco-seta {
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+
+.fbloco-seta.aberta { transform: rotate(180deg); }
+
+.fbloco-corpo {
+  padding: 4px 16px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.fm-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.fm-grade .fm-indicador { padding: 0; }
+.fm-grade .fm-indicador strong { font-size: 1.05rem; }
+
+.fm-grupo { margin-top: 16px; }
+
+.fm-grupo h4 {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.fm-tabela {
+  margin-top: 10px;
+  font-size: 0.82rem;
+  width: 100%;
+}
+
+.fm-tabela th { text-align: left; }
+.fm-tabela .num { text-align: right; font-variant-numeric: tabular-nums; }
+.fm-tabela .num.forte { font-weight: 600; }
+
+.fm-nota {
+  margin: 10px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.fm-linha-forte {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 12px 0 0;
+  font-size: 0.9rem;
+}
+
+.fm-linha-acoes {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.fm-justificada {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  margin: 10px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* ── Justificativas registradas ─────────────────────────────────────────── */
+
+.fm-justificativas h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.fm-justificativas ul {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.fm-justificativas li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: baseline;
+  font-size: 0.82rem;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.fm-justificativas li:last-child { border-bottom: 0; padding-bottom: 0; }
+.fm-just-motivo { color: var(--ink); }
+.fm-just-data { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ── Diálogo de justificativa ───────────────────────────────────────────── */
+
+.just-dialog { display: grid; gap: 14px; }
+
+.just-dialog-alvo {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--paper-soft);
+}
+
+.just-dialog-alvo span { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.just-dialog-alvo strong { font-size: 0.88rem; color: var(--ink); font-weight: 550; }
+
+.just-dialog-campo { display: grid; gap: 6px; }
+.just-dialog-campo > span { font-size: 0.8rem; color: var(--ink); font-weight: 550; }
+
+.just-dialog-campo textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px);
+  font: inherit;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--paper);
+  resize: vertical;
+}
+
+.just-dialog-campo textarea:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -1px;
+  border-color: var(--gold);
+}
+
+.just-dialog-campo textarea[aria-invalid="true"] { border-color: var(--danger); }
+
+.just-dialog-ajuda { margin: 0; font-size: 0.76rem; color: var(--muted); }
+.just-dialog-ajuda.invalido { color: var(--danger); }
+
+.just-dialog-acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── Celular ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 720px) {
+  .fm-cabecalho-topo { flex-direction: column; }
+  .fm-acoes { width: 100%; }
+  .fm-acoes > * { flex: 1 1 auto; }
+
+  .fm-indicadores { grid-template-columns: repeat(2, 1fr); }
+  .fm-indicador.destaque { grid-column: 1 / -1; }
+
+  /* O resumo do bloco cede lugar ao título e ao estado, que são o que
+     orienta. O número reaparece dentro, ao abrir. */
+  .fbloco-resumo { display: none; }
+  .fbloco-estado-texto { display: none; }
+
+  .fm-atencao li,
+  .fm-aguardando li,
+  .fm-justificativas li { flex-direction: column; gap: 4px; }
+
+  /* Tabela larga rola em vez de espremer a coluna do nome. */
+  .fbloco-corpo { overflow-x: auto; }
+  .fm-tabela { min-width: 420px; }
+}
+
+/* Trocar de mês recarrega tudo. Em vez de sumir com a tela, ela esmaece e
+   fica inerte — os botões de navegação seguem onde estavam. */
+.fm-atualizando {
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+@media (max-width: 720px) {
+  /* Em duas colunas de ~170px, 1.25rem trunca "R$ 235.677,44". O número
+     inteiro vale mais que o tamanho da fonte. */
+  .fm-indicador strong { font-size: 1.05rem; }
+  .fm-indicador.destaque strong { font-size: 1.35rem; }
+  .fm-indicador { padding: 12px 14px; }
+}
