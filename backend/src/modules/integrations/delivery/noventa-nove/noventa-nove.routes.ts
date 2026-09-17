@@ -9,6 +9,7 @@ import {
   runMockSync,
   runSmartSyncGuarded,
   saveCredential,
+  syncStoresFromPlatform,
   updateStore
 } from "./noventa-nove.service.js";
 import {
@@ -70,6 +71,21 @@ noventaNoveDeliveryRouter.put("/stores/:id", async (request, response) => {
     response.json(updated);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erro ao atualizar loja";
+    response.status(400).json({ message });
+  }
+});
+
+// Reconcilia a lista de lojas do ERP com as que a 99 tem vinculadas ao nosso
+// app. Leitura na 99 + escrita só no vínculo (shopIdRemote) e em lojas novas —
+// não mexe em apelido, empresa nem no flag active de loja já cadastrada.
+noventaNoveDeliveryRouter.post("/stores/sync", async (request, response) => {
+  const user = await requireRole(request, response, [...WRITE_ROLES]);
+  if (!user) return;
+  try {
+    const result = await syncStoresFromPlatform();
+    response.json(result);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Falha ao sincronizar lojas com a 99.";
     response.status(400).json({ message });
   }
 });

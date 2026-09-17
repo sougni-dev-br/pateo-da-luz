@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Save, RefreshCw, CheckCircle2, AlertTriangle, PlugZap } from "lucide-react";
+import { Save, RefreshCw, CheckCircle2, AlertTriangle, PlugZap, Store } from "lucide-react";
 import {
   getCompanies,
   getNoventaNoveStatus,
@@ -7,11 +7,13 @@ import {
   saveNoventaNoveCredential,
   updateNoventaNoveStore,
   runNoventaNoveMockSync,
+  syncNoventaNoveStores,
   testNoventaNoveConnection,
   type Company,
   type NoventaNoveConnectionTest,
   type NoventaNoveSmartSyncResult,
   type NoventaNoveStatusView,
+  type NoventaNoveStoreSyncResult,
   type NoventaNoveStoreView
 } from "../api/client";
 import { Alert, Button, Card, PanelEyebrow, TextField, Select } from "../design-system";
@@ -35,6 +37,8 @@ export function NoventaNoveSettings() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<NoventaNoveConnectionTest | null>(null);
   const [syncResult, setSyncResult] = useState<NoventaNoveSmartSyncResult | null>(null);
+  const [syncingStores, setSyncingStores] = useState(false);
+  const [storeSyncResult, setStoreSyncResult] = useState<NoventaNoveStoreSyncResult | null>(null);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [environment, setEnvironment] = useState<"PRODUCTION" | "SANDBOX">("PRODUCTION");
@@ -126,6 +130,29 @@ export function NoventaNoveSettings() {
       });
     } finally {
       setTesting(false);
+    }
+  }
+
+  // Reconcilia o cadastro de lojas com o que a 99 tem vinculado ao nosso app.
+  // Não confundir com handleSync, que puxa o FINANCEIRO (vendas e repasses).
+  async function handleSyncStores() {
+    setSyncingStores(true);
+    setError(null);
+    setFeedback(null);
+    setStoreSyncResult(null);
+    try {
+      const result = await syncNoventaNoveStores();
+      setStoreSyncResult(result);
+      const naoVinculadas = result.rows.filter((row) => row.outcome === "NAO_VINCULADA").length;
+      setFeedback(
+        `A 99 reconhece ${result.totalNaPlataforma} loja(s) vinculada(s) ao nosso app.` +
+        (naoVinculadas > 0 ? ` ${naoVinculadas} loja(s) daqui ainda aguardam autorização no portal do 99 Food.` : "")
+      );
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao sincronizar lojas com a 99.");
+    } finally {
+      setSyncingStores(false);
     }
   }
 
@@ -271,15 +298,57 @@ export function NoventaNoveSettings() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
           <div>
             <PanelEyebrow>Lojas cadastradas</PanelEyebrow>
-            <h2 style={{ margin: "4px 0 0 0", fontSize: "20px" }}>4 lojas 99 Food do Pateo</h2>
+            <h2 style={{ margin: "4px 0 0 0", fontSize: "20px" }}>
+              {stores.length} {stores.length === 1 ? "loja 99 Food" : "lojas 99 Food"} do Pateo
+            </h2>
             <p style={{ color: "var(--color-text-muted, #6b7280)", margin: "6px 0 0 0", fontSize: "14px" }}>
               Substitua o AppShopID "PENDENTE-99-*" pelo real quando o 99 liberar cada loja.
             </p>
           </div>
-          <Button variant="secondary" onClick={handleSync} disabled={syncing} leadingIcon={<RefreshCw size={16} />}>
-            {syncing ? "Sincronizando..." : "Sincronizar agora"}
-          </Button>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <Button variant="secondary" onClick={handleSyncStores} disabled={syncingStores} leadingIcon={<Store size={16} />}>
+              {syncingStores ? "Consultando a 99..." : "Sincronizar lojas da 99"}
+            </Button>
+            <Button variant="secondary" onClick={handleSync} disabled={syncing} leadingIcon={<RefreshCw size={16} />}>
+              {syncing ? "Sincronizando..." : "Sincronizar agora"}
+            </Button>
+          </div>
         </div>
+
+        {storeSyncResult && (
+          <div style={{ marginTop: "16px" }}>
+            <Alert
+              tone={storeSyncResult.rows.some((row) => row.outcome === "NAO_VINCULADA") ? "warning" : "success"}
+              title={`Lojas vinculadas na 99: ${storeSyncResult.totalNaPlataforma}`}
+            >
+              <div style={{ display: "grid", gap: "8px", marginTop: "6px" }}>
+                {storeSyncResult.rows.map((row) => {
+                  const cor = row.outcome === "NOVA" ? "#16a34a"
+                    : row.outcome === "VINCULO_ATUALIZADO" ? "#2563eb"
+                    : row.outcome === "NAO_VINCULADA" ? "#d97706"
+                    : "#6b7280";
+                  const rotulo = row.outcome === "NOVA" ? "NOVA"
+                    : row.outcome === "VINCULO_ATUALIZADO" ? "VÍNCULO ATUALIZADO"
+                    : row.outcome === "NAO_VINCULADA" ? "NÃO VINCULADA"
+                    : "JÁ SINCRONIZADA";
+                  return (
+                    <div
+                      key={`${row.appShopId}-${row.outcome}`}
+                      style={{ padding: "10px 12px", borderRadius: "8px", background: "rgba(107,114,128,0.06)", borderLeft: `3px solid ${cor}` }}
+                    >
+                      <div style={{ display: "flex", gap: "8px", alignItems: "baseline", flexWrap: "wrap" }}>
+                        <strong style={{ fontSize: "14px" }}>{row.nickname}</strong>
+                        <code style={{ fontSize: "12px", color: "var(--color-text-muted, #6b7280)" }}>{row.appShopId}</code>
+                        <span style={{ fontSize: "11px", fontWeight: 700, color: cor, letterSpacing: "0.04em" }}>{rotulo}</span>
+                      </div>
+                      <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "var(--color-text-muted, #6b7280)" }}>{row.detail}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </Alert>
+          </div>
+        )}
 
         <div style={{ display: "grid", gap: "12px", marginTop: "16px" }}>
           {stores.map((store) => (

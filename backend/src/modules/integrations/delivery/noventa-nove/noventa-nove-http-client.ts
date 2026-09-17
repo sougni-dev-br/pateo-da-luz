@@ -11,11 +11,12 @@ import { prisma } from "../../../../config/database.js";
 //   - authtoken por loja: gerado por (app_id, app_secret, app_shop_id),
 //     com validade e refresh — armazenado em NoventaNoveShopAuthToken
 //
-// ATENÇÃO — TODOs até sandbox liberar:
-//   1. Algoritmo de assinatura (sign+timestamp) usado em rotas como
-//      /v1/shop/shop/list ainda não está mapeado neste código. Está
-//      documentado na página HTML "Before Coding" do portal, não no YAML.
-//      Marcar como TODO — implementar quando sandbox der 401.
+// ATENÇÃO:
+//   1. O esquema sign+timestamp de rotas como /v1/shop/shop/list está
+//      implementado (signRequestParams + buildSignedBody) e validado contra a
+//      API de produção em 17/09/2026. Ver a nota do timestamp em
+//      SIGN_TIMESTAMP_BACKDATE_SECONDS — ela é a diferença entre funcionar e
+//      levar errno 10002 em toda chamada.
 //   2. IDs long 64-bit (app_id, shop_id, order_id) circulam SEMPRE como
 //      string. Nunca converter pra Number no TS (perde precisão >2^53).
 
@@ -78,7 +79,9 @@ async function parseResponse<T>(response: Response): Promise<T> {
     const errno = payload?.errno ?? null;
     const errmsg = payload?.errmsg ?? `HTTP ${response.status}`;
     const isAuthError = response.status === 401 || response.status === 403 || errno === 1001 || errno === 1002;
-    const isRateLimit = response.status === 429;
+    // A 99 devolve HTTP 200 + errno 10005 quando estoura a janela de rate
+    // limit — sem esse caso o erro chegaria na tela como falha genérica.
+    const isRateLimit = response.status === 429 || errno === 10005;
     throw new NoventaNoveApiException({
       status: response.status,
       errno,
@@ -307,14 +310,128 @@ export function signRequestParams(
   return crypto.createHash("md5").update(toSign, "utf8").digest("hex");
 }
 
+// A 99 rejeita timestamp que ela considere "no futuro", mesmo quando bate
+// com o relógio dela ao segundo: a resposta vem errno 10002 "the duration
+// from the timestamp in request to now should be in 5 minutes", que engana
+// porque sugere relógio dessincronizado.
+//
+// Medido contra a API de produção em 17/09/2026, com o timestamp nosso igual
+// ao campo `time` da própria resposta deles:
+//   agora      → 10002   agora-5s → 10002   agora-60s → errno 0
+// O relógio de validação deles corre atrasado em relação ao que devolvem.
+// Recuar 60s custa nada (a janela permitida é de 5 minutos) e é o menor
+// valor que se provou estável.
+const SIGN_TIMESTAMP_BACKDATE_SECONDS = 60;
+
 // Envelopa params com timestamp + sign, pronto pra POST body em endpoints
 // que exigem esse esquema (não usam auth_token per-loja).
 export async function buildSignedBody(params: Record<string, unknown>): Promise<Record<string, unknown>> {
   const cred = await loadCredential();
-  const timestamp = Math.floor(Date.now() / 1000);
+  const timestamp = Math.floor(Date.now() / 1000) - SIGN_TIMESTAMP_BACKDATE_SECONDS;
   const withMeta = { ...params, app_id: cred.clientId, timestamp };
   const sign = signRequestParams(withMeta, cred.clientSecret);
   return { ...withMeta, sign };
+}
+
+// ---------------------------------------------------------------------------
+// Lojas vinculadas ao app (POST /v1/shop/shop/list)
+// ---------------------------------------------------------------------------
+
+export type BoundShop = {
+  /** app_shop_id — o identificador que NÓS escolhemos e a loja autorizou. */
+  appShopId: string;
+  /** shop_id — id da loja no sistema da 99. 19 dígitos, sempre string. */
+  shopId: string;
+  /** true quando não foi possível recuperar os dígitos exatos do shop_id. */
+  shopIdApproximate: boolean;
+  cityId: number | null;
+  tokenExpiresAt: Date | null;
+};
+
+// shop_id da 99 tem 19 dígitos e estoura Number.MAX_SAFE_INTEGER, então o
+// JSON.parse arredonda antes de qualquer código nosso rodar (5764608397866174292
+// vira 5764608397866174000). Mesmo problema já documentado em exactOrderId no
+// webhook service — aqui a recuperação é idêntica: procura no texto original o
+// literal que ARREDONDA para o valor recebido. Sem esse teste seria chute.
+//
+// Se dois literais diferentes arredondarem para o mesmo valor, não dá pra
+// decidir qual é qual: devolve o arredondado e marca como aproximado, em vez
+// de gravar o id errado com cara de certo.
+export function exactShopId(parsedShopId: number | string, rawBody: string): { value: string; approximate: boolean } {
+  if (typeof parsedShopId === "string") return { value: parsedShopId, approximate: false };
+  if (Number.isSafeInteger(parsedShopId)) return { value: String(parsedShopId), approximate: false };
+
+  const alvo = String(parsedShopId);
+  const candidatos = new Set<string>();
+  for (const m of rawBody.matchAll(/"shop_id"\s*:\s*"?(\d{10,25})"?/g)) {
+    if (String(Number(m[1])) === alvo) candidatos.add(m[1]);
+  }
+  if (candidatos.size === 1) return { value: [...candidatos][0], approximate: false };
+  return { value: alvo, approximate: true };
+}
+
+// Retorna TODAS as lojas que a 99 tem vinculadas ao nosso app_id.
+//
+// ⚠️ Rate limit medido em produção: janela de 20s, limite 1 chamada. Por isso
+// pedimos page_size no máximo (100) — com o volume do Pateo cabe numa página
+// só. Se um dia passar de 100, o chamador espera a janela entre as páginas.
+export async function fetchBoundShops(pageNo = 1, pageSize = 100): Promise<{ shops: BoundShop[]; total: number }> {
+  const body = await buildSignedBody({ page_no: pageNo, page_size: pageSize });
+  const response = await fetchWithTimeout(`${DIDI_FOOD_BASE_URL}/v1/shop/shop/list`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const rawBody = await response.text();
+
+  // Só os ids longos precisam do texto cru; errno/errmsg são pequenos e
+  // sobrevivem ao JSON.parse sem perda.
+  let payload: StandardResponse<{
+    total?: number;
+    shop_list?: { shop_id: number | string; app_shop_id?: string; city_id?: number; token_expiration_time?: number }[];
+  }> | null = null;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok || !payload || payload.errno !== 0) {
+    const errno = payload?.errno ?? null;
+    const errmsg = payload?.errmsg ?? `HTTP ${response.status}`;
+    const isRateLimit = response.status === 429 || errno === 10005;
+    const isAuthError = response.status === 401 || response.status === 403 || errno === 1001 || errno === 1002;
+    throw new NoventaNoveApiException({
+      status: response.status,
+      errno,
+      message: isRateLimit
+        ? "A 99 limita essa consulta a 1 chamada a cada 20 segundos. Aguarde e tente de novo."
+        : isAuthError
+          ? "Autenticação 99 Food falhou. Verifique app_id/app_secret."
+          : `99 Food retornou erro ao listar lojas: ${errmsg}`,
+      detail: rawBody.slice(0, 500) || null,
+      isAuthError,
+      isRateLimit
+    });
+  }
+
+  const lista = payload.data?.shop_list ?? [];
+  const shops: BoundShop[] = [];
+  for (const item of lista) {
+    const appShopId = typeof item.app_shop_id === "string" ? item.app_shop_id.trim() : "";
+    if (!appShopId) continue; // sem app_shop_id não há como casar com a DeliveryStore
+    const { value, approximate } = exactShopId(item.shop_id, rawBody);
+    shops.push({
+      appShopId,
+      shopId: value,
+      shopIdApproximate: approximate,
+      cityId: typeof item.city_id === "number" ? item.city_id : null,
+      tokenExpiresAt: typeof item.token_expiration_time === "number" && item.token_expiration_time > 0
+        ? new Date(item.token_expiration_time * 1000)
+        : null
+    });
+  }
+  return { shops, total: typeof payload.data?.total === "number" ? payload.data.total : shops.length };
 }
 
 export async function callNoventaNoveShop<T>(

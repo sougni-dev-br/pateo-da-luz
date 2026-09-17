@@ -9,7 +9,7 @@ import type {
 } from "./noventa-nove.types.js";
 import { buildMockSummary, consolidateSummaries } from "./noventa-nove-mock.service.js";
 import { runRealSync, type RealSyncResult } from "./noventa-nove-real-sync.service.js";
-import { hasValidCredential } from "./noventa-nove-http-client.js";
+import { fetchBoundShops, hasValidCredential } from "./noventa-nove-http-client.js";
 
 // Lojas 99 Food do Pateo — usadas na primeira execução para popular a tabela
 // DeliveryStore com platform=NOVENTA_NOVE. Depois de criadas, o admin edita
@@ -67,6 +67,121 @@ export async function listStores(): Promise<NoventaNoveStoreView[]> {
     include: { company: { select: { tradeName: true } } }
   });
   return rows.map(toStoreView);
+}
+
+// ---------------------------------------------------------------------------
+// Sincronizar lojas com a 99
+// ---------------------------------------------------------------------------
+
+// Traz da 99 a lista de lojas vinculadas ao nosso app e reconcilia com a
+// DeliveryStore. A 99 é a fonte da verdade sobre QUAIS lojas existem — o ERP
+// só decide apelido, empresa e se está ativa.
+//
+// O que a função NÃO faz de propósito:
+//   - não inativa loja que a 99 não conhece. Uma loja pode estar cadastrada
+//     aqui esperando autorização (é o caso dos PENDENTE-*); apagar ou desligar
+//     por conta própria destruiria cadastro que o Eli preencheu. Ela aparece
+//     como NAO_VINCULADA no relatório e a decisão fica com quem olha.
+//   - não adivinha qual placeholder corresponde a qual loja nova. Casar
+//     "PENDENTE-99-2" com uma loja recém-autorizada seria chute; a loja nova
+//     entra como registro próprio e o apelido se ajusta na tela.
+export type StoreSyncOutcome = "NOVA" | "VINCULO_ATUALIZADO" | "JA_SINCRONIZADA" | "NAO_VINCULADA";
+
+export type StoreSyncRow = {
+  appShopId: string;
+  nickname: string;
+  shopIdRemote: string | null;
+  outcome: StoreSyncOutcome;
+  detail: string;
+};
+
+export type StoreSyncResult = {
+  ranAt: string;
+  totalNaPlataforma: number;
+  rows: StoreSyncRow[];
+};
+
+export async function syncStoresFromPlatform(): Promise<StoreSyncResult> {
+  const { shops, total } = await fetchBoundShops();
+
+  const rows: StoreSyncRow[] = [];
+  const vistosNaPlataforma = new Set<string>();
+
+  for (const shop of shops) {
+    vistosNaPlataforma.add(shop.appShopId);
+    const existente = await prisma.deliveryStore.findFirst({
+      where: { platform: "NOVENTA_NOVE", externalId: shop.appShopId }
+    });
+
+    const avisoPrecisao = shop.shopIdApproximate
+      ? " ⚠️ shop_id pode estar arredondado — dois ids diferentes colidiram na leitura."
+      : "";
+
+    if (!existente) {
+      const criada = await prisma.deliveryStore.create({
+        data: {
+          platform: "NOVENTA_NOVE",
+          externalId: shop.appShopId,
+          shopIdRemote: shop.shopId,
+          nickname: shop.appShopId,
+          active: true
+        }
+      });
+      rows.push({
+        appShopId: shop.appShopId,
+        nickname: criada.nickname,
+        shopIdRemote: shop.shopId,
+        outcome: "NOVA",
+        detail: `Loja vinculada na 99 que ainda não existia aqui. Defina apelido e empresa.${avisoPrecisao}`
+      });
+      continue;
+    }
+
+    if (existente.shopIdRemote !== shop.shopId) {
+      const anterior = existente.shopIdRemote;
+      await prisma.deliveryStore.update({
+        where: { id: existente.id },
+        data: { shopIdRemote: shop.shopId }
+      });
+      rows.push({
+        appShopId: shop.appShopId,
+        nickname: existente.nickname,
+        shopIdRemote: shop.shopId,
+        outcome: "VINCULO_ATUALIZADO",
+        detail: anterior
+          ? `shop_id corrigido: ${anterior} → ${shop.shopId}.${avisoPrecisao}`
+          : `shop_id da 99 gravado pela primeira vez.${avisoPrecisao}`
+      });
+      continue;
+    }
+
+    rows.push({
+      appShopId: shop.appShopId,
+      nickname: existente.nickname,
+      shopIdRemote: existente.shopIdRemote,
+      outcome: "JA_SINCRONIZADA",
+      detail: "Já estava correta."
+    });
+  }
+
+  const locais = await prisma.deliveryStore.findMany({
+    where: { platform: "NOVENTA_NOVE" },
+    orderBy: { createdAt: "asc" }
+  });
+  for (const loja of locais) {
+    if (vistosNaPlataforma.has(loja.externalId)) continue;
+    rows.push({
+      appShopId: loja.externalId,
+      nickname: loja.nickname,
+      shopIdRemote: loja.shopIdRemote,
+      outcome: "NAO_VINCULADA",
+      detail: loja.externalId.startsWith("PENDENTE-")
+        ? "Ainda é placeholder. Troque pelo app_shop_id definitivo e gere a URL de autorização."
+        : "A 99 não reconhece esse app_shop_id. A loja precisa autorizar o vínculo no portal."
+    });
+  }
+
+  return { ranAt: new Date().toISOString(), totalNaPlataforma: total, rows };
 }
 
 export async function updateStore(id: string, input: NoventaNoveStoreInput): Promise<NoventaNoveStoreView> {
