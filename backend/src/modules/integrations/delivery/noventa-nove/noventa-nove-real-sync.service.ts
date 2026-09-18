@@ -580,6 +580,23 @@ async function reflectFeesIntoMonthlyExpense(
 // Orquestração
 // ---------------------------------------------------------------------------
 
+// A 99 responde HTTP 400 com error_code "0017"/STORE_NOT_AUTHORIZED quando a
+// loja existe do nosso lado mas ainda nao autorizou o vinculo no portal dela.
+//
+// Isso NAO e falha: e o estado normal de uma loja recem-cadastrada esperando o
+// dono clicar "autorizar". Sem distinguir, a tela pintava a loja de vermelho e o
+// sync inteiro virava PARTIAL — inclusive na rodada do cron das 04:00, todo dia,
+// ate alguem autorizar. Um alarme que toca sozinho e previsivelmente vira ruido
+// que ninguem le, e ai o alarme que importa passa junto.
+//
+// Detectamos pelo corpo bruto porque a Financial API embute o error_code no
+// detail, nao no errno do envelope.
+export function isStoreNotAuthorized(error: unknown): boolean {
+  if (!(error instanceof NoventaNoveApiException)) return false;
+  const texto = `${error.info.message} ${error.info.detail ?? ""}`;
+  return texto.includes("STORE_NOT_AUTHORIZED") || texto.includes('"0017"');
+}
+
 function formatApiError(error: unknown): string {
   if (error instanceof NoventaNoveApiException) {
     return error.info.message + (error.info.detail ? ` — ${error.info.detail.slice(0, 120)}` : "");
@@ -597,6 +614,7 @@ async function syncEligibleStore(
   const errors: string[] = [];
   let billDataFailed = false;
   let settlementsFailed = false;
+  let naoAutorizada = false;
 
   // Bills do mês — base de sales/DRE/despesas.
   let monthlyBills: NoventaNoveBillDetail[] = [];
@@ -604,7 +622,24 @@ async function syncEligibleStore(
     monthlyBills = await getBillDetails({ appShopId: store.externalId, ...monthPeriod });
   } catch (error: unknown) {
     billDataFailed = true;
-    errors.push(`billData: ${formatApiError(error)}`);
+    if (isStoreNotAuthorized(error)) naoAutorizada = true;
+    else errors.push(`billData: ${formatApiError(error)}`);
+  }
+
+  // Loja sem vinculo nao tem o que buscar em nenhum endpoint — sai antes de
+  // gastar mais chamadas (e mais rate limit) para colher o mesmo 0017.
+  if (naoAutorizada) {
+    return {
+      result: {
+        storeId: store.id,
+        storeLabel: store.nickname,
+        externalId: store.externalId,
+        status: "SKIPPED",
+        itemsPersisted: { sales: 0, settlements: 0, fees: 0 },
+        message: "Aguardando autorização no 99 Food. Gere a URL de autorização na linha desta loja, autorize no portal e sincronize de novo."
+      },
+      persisted: 0
+    };
   }
 
   // Bills da borda anterior (~1 semana) — SÓ pra compor repasses semanais que
@@ -638,7 +673,9 @@ async function syncEligibleStore(
     settlementsIncomplete = r.incomplete;
   } catch (error: unknown) {
     settlementsFailed = true;
-    errors.push(`settlements: ${formatApiError(error)}`);
+    // Mesma leitura do billData: 0017 aqui e "ainda nao autorizada", nao falha.
+    if (isStoreNotAuthorized(error)) naoAutorizada = true;
+    else errors.push(`settlements: ${formatApiError(error)}`);
   }
 
   let revenueEntries = 0;
@@ -665,7 +702,8 @@ async function syncEligibleStore(
   const persisted = salesCount + settlementsCount + monthlyExpense;
 
   let status: StoreStatus;
-  if (billDataFailed && settlementsFailed) status = "ERROR"; // nenhuma fonte respondeu
+  if (naoAutorizada && persisted === 0 && errors.length === 0) status = "SKIPPED";
+  else if (billDataFailed && settlementsFailed) status = "ERROR"; // nenhuma fonte respondeu
   else if (errors.length > 0) status = "PARTIAL";
   else status = "SUCCESS";
 
@@ -681,8 +719,11 @@ async function syncEligibleStore(
   if (settlementsIncomplete > 0) {
     messageParts.push(`⚠️ ${settlementsIncomplete} repasse(s) com bruto/taxas incompletos (pedidos fora da janela sincronizada).`);
   }
+  if (naoAutorizada) {
+    messageParts.push("Aguardando autorização no 99 Food. Gere a URL de autorização na linha desta loja, autorize no portal e sincronize de novo.");
+  }
   if (errors.length > 0) messageParts.push(`Falhas parciais: ${errors.join(" | ")}`);
-  if (persisted === 0 && errors.length === 0) {
+  if (persisted === 0 && errors.length === 0 && !naoAutorizada) {
     messageParts.push("99 Food retornou zero registros neste período. Normal em sandbox sem histórico.");
   }
 
