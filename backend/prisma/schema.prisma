@@ -1581,11 +1581,55 @@ model Dish {
   notes            String?
   isActive         Boolean       @default(true)
   items            DishItem[]
+  listings         DishListing[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
   @@index([categoryId])
   @@index([isActive])
+}
+
+// Onde um prato e vendido e por quanto.
+//
+// O preco NAO cabe num campo do Dish. Medido no cardapio da 99 em 18/09/2026:
+// dos 29 pratos que aparecem em mais de uma loja, 23 tem preco diferente entre
+// elas — "Contra Filé em tiras + Batatas Bravas" sai a R$ 59,42 numa e R$ 119,90
+// noutra. Um `salePriceDefault` unico teria que escolher um e mentir sobre o resto.
+//
+// O prato (a ficha tecnica) e unico; a listagem e por canal e loja. As 4 lojas da
+// 99 ficam no MESMO endereco (Rua Frei Caneca, 569), ou seja, mesma cozinha — por
+// isso prato de mesmo nome e tratado como a mesma receita, e a diferenca de preco
+// e posicionamento de marca, nao porcao diferente. Se algum caso desmentir isso,
+// separa-se criando outro Dish e movendo a listagem.
+model DishListing {
+  id              String         @id @default(cuid())
+  dishId          String
+  dish            Dish           @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  // Canal de venda. Hoje so NOVENTA_NOVE; salao (Agile) e iFood entram aqui depois
+  // sem mudar o modelo. Salao e delivery sao cardapios SEPARADOS (regra do Eli).
+  channel         String
+  deliveryStoreId String?
+  deliveryStore   DeliveryStore? @relation(fields: [deliveryStoreId], references: [id], onDelete: SetNull)
+  // app_item_id da 99 — como o canal identifica o item.
+  externalItemId  String
+  // Nome COMO APARECE no canal. Fica separado de Dish.name para o Eli poder
+  // renomear o prato no ERP sem perder o rastro do que a plataforma mostra.
+  externalName    String
+  price           Decimal        @db.Decimal(10, 2)
+  categoryName    String?
+  // status=1 na 99. Item desativado no canal continua na tabela, marcado — some
+  // do cardapio sem sumir do historico.
+  isActive        Boolean        @default(true)
+  // Ultima vez que o import viu este item no canal. Item que sumiu do cardapio
+  // para de ser atualizado e da para detectar pela data.
+  lastSeenAt      DateTime
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([channel, deliveryStoreId, externalItemId], map: "dishlst_channel_store_item_uniq")
+  @@index([dishId], map: "dishlst_dish_idx")
+  @@index([deliveryStoreId], map: "dishlst_store_idx")
+  @@index([channel, isActive], map: "dishlst_channel_active_idx")
 }
 
 model DishItem {
@@ -1779,6 +1823,7 @@ model DeliveryStore {
   noventaNoveSyncLogs        NoventaNoveSyncLog[]
   noventaNoveMonthlyExpenses NoventaNoveMonthlyExpense[]
   noventaNoveAuthToken       NoventaNoveShopAuthToken?
+  dishListings               DishListing[]
 
   @@unique([platform, externalId])
   @@index([platform, active])

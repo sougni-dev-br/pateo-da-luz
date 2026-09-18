@@ -19,6 +19,7 @@ import {
 } from "./noventa-nove.types.js";
 import { fetchAuthorizationPageUrl, testNoventaNoveConnection } from "./noventa-nove-http-client.js";
 import { seedTestMenu } from "./noventa-nove-test-menu.service.js";
+import { importarCardapios } from "./noventa-nove-menu.service.js";
 import { handleWebhook, type WebhookEnvelope } from "./noventa-nove-webhook.service.js";
 
 // Router protegido — usado por telas do ERP com sessão de usuário.
@@ -86,6 +87,20 @@ noventaNoveDeliveryRouter.post("/stores/sync", async (request, response) => {
     response.json(result);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Falha ao sincronizar lojas com a 99.";
+    response.status(400).json({ message });
+  }
+});
+
+// Importa o cardapio das lojas para Dish + DishListing. Nao monta ficha tecnica —
+// traz nome, categoria e preco por loja.
+noventaNoveDeliveryRouter.post("/menu/import", async (request, response) => {
+  const user = await requireRole(request, response, [...WRITE_ROLES]);
+  if (!user) return;
+  try {
+    const result = await importarCardapios();
+    response.json(result);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Falha ao importar o cardápio da 99.";
     response.status(400).json({ message });
   }
 });
