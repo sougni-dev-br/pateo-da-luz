@@ -29,6 +29,44 @@ describe("chaveDoPrato", () => {
   });
 });
 
+describe("chave do item quando a 99 nao da identificador", () => {
+  // Payload REAL de producao (18/09/2026, Pateo da Luz Pizzaria): a 99 devolve
+  // app_item_id VAZIO para todo item criado no portal dela — o campo e o id que o
+  // INTEGRADOR envia ao subir cardapio por API, e este cardapio foi feito a mao.
+  // A primeira versao do import usava esse campo como chave e pulou os 250 itens.
+  const ITEM_REAL = {
+    app_item_id: "",
+    app_external_id: "",
+    item_name: "Brotinho de chocolate",
+    short_desc: "Brotinho de chocolate",
+    item_type: 0,
+    status: 1,
+    price: 5090
+  };
+
+  function chaveDoItem(item: { app_item_id?: string; item_name?: string }) {
+    const idDaPlataforma = item.app_item_id ? String(item.app_item_id).trim() : "";
+    return idDaPlataforma || `nome:${chaveDoPrato(item.item_name ?? "")}`;
+  }
+
+  test("item sem identificador cai para o nome — e nao e descartado", () => {
+    expect(chaveDoItem(ITEM_REAL)).toBe("nome:brotinho de chocolate");
+  });
+
+  test("a chave derivada e estavel entre lojas que digitaram o nome diferente", () => {
+    expect(chaveDoItem({ app_item_id: "", item_name: "Brotinho de Chocolate" }))
+      .toBe(chaveDoItem({ app_item_id: "", item_name: "  brotinho  de chocolate " }));
+  });
+
+  test("se um dia a plataforma der id, ele tem prioridade sobre o nome", () => {
+    expect(chaveDoItem({ app_item_id: "ABC-1", item_name: "Brotinho" })).toBe("ABC-1");
+  });
+
+  test("preco do item real converte de centavos", () => {
+    expect(precoEmReais(ITEM_REAL.price)).toBe(50.9);
+  });
+});
+
 describe("precoEmReais", () => {
   test("converte centavos, como todo valor da 99", () => {
     expect(precoEmReais(5942)).toBe(59.42);
