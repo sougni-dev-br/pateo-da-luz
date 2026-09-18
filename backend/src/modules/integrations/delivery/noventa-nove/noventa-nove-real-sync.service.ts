@@ -41,10 +41,12 @@ import {
 //
 // Valores da 99 vêm em centavos (int) → /100 pro Decimal(14,2).
 //
-// ⚠️ Sinais em estornos: orderAmount/settlementAmount vêm negativos (reduzem
-// faturamento/líquido — o que corrige o DRE). Já commissionAmount/vatAmount de
-// estorno têm sinal a confirmar com pedido real no sandbox; afeta só a precisão
-// da despesa mensal (Contas a Pagar), não o faturamento.
+// Sinais (confirmados com bills reais de producao em 17/09/2026, nao mais "a
+// confirmar no sandbox"): a 99 manda DEDUCAO como negativo na linha de receita
+// (commissionAmount -329, b2pDeliveryAmount -600) e INVERTE no estorno (a taxa de
+// entrega devolvida vem +450). orderAmount/settlementAmount de estorno vem
+// negativos, reduzindo faturamento e liquido — o que corrige o DRE.
+// Ver deducaoComoCusto().
 
 const PLACEHOLDER_PREFIX = "PENDENTE-";
 
@@ -85,6 +87,28 @@ function cents(value: number | undefined | null): number {
 }
 
 const round2 = (v: number): number => Math.round(v * 100) / 100;
+
+// A 99 manda TODA deducao como numero NEGATIVO no bill de receita
+// (commissionAmount -329, shopActivityOutcome -2297, b2pDeliveryAmount -600), e
+// inverte o sinal no estorno — onde a taxa de entrega devolvida vem +450. O ERP
+// guarda deducao como CUSTO POSITIVO.
+//
+// Negar cobre os dois casos de uma vez: receita vira custo positivo, estorno vira
+// custo negativo (credito). Math.abs seria errado — transformaria a devolucao de
+// uma taxa em cobranca de novo.
+//
+// promotionAmount e composeSettlementTotals ja tratavam o sinal (com Math.abs);
+// commissionAmount e b2pDeliveryAmount escaparam, e ficaram negativos no banco.
+// Consequencia medida em 17/09/2026: em reflectFeesIntoMonthlyExpense o
+// `Math.max(0, ...)` zerava as duas linhas e a despesa inteira caia em "outros" —
+// jul/2026 comissao 0,00 e entrega -10.341,00, set/2026 comissao -2.310,12. O
+// TOTAL sempre esteve certo (vem do repasse), mas o detalhamento nao existia.
+export function deducaoComoCusto(valorDaPlataforma: number | undefined | null): number {
+  const valor = cents(valorDaPlataforma);
+  // `-0` e o resultado natural de negar zero, e sobreviveria ate a tela como
+  // "-R$ 0,00". Devolve zero positivo.
+  return valor === 0 ? 0 : -valor;
+}
 
 // YYYYMMDD do 1º dia do mês.
 function firstDayYmd(year: number, month: number): string {
@@ -158,9 +182,9 @@ async function persistSales(
       competenceYear: orderDate.getUTCFullYear(),
       competenceMonth: orderDate.getUTCMonth() + 1,
       grossAmount: cents(bill.orderAmount), // estorno vem negativo → reduz faturamento
-      noventaNoveFeeAmount: cents(bill.commissionAmount),
+      noventaNoveFeeAmount: deducaoComoCusto(bill.commissionAmount),
       promotionAmount: isRevenue ? Math.abs(cents(bill.shopActivityOutcome)) : 0,
-      deliveryFeeAmount: cents(bill.b2pDeliveryAmount),
+      deliveryFeeAmount: deducaoComoCusto(bill.b2pDeliveryAmount),
       netAmount: cents(bill.settlementAmount),
       paymentMethod: bill.paymentChannel != null ? String(bill.paymentChannel) : null,
       channel: isRevenue ? "DELIVERY" : "DELIVERY_REFUND",
