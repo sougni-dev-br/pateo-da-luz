@@ -4,12 +4,14 @@ import { REVENUE_CHANNEL_SALON } from "../../monthly/revenue-channels.js";
 import { prisma } from "../../../config/database.js";
 import { auditLog } from "../../security/security-utils.js";
 import { createCalendarDate } from "../../../shared/utils/calendar-date.js";
+import type { Prisma } from "@prisma/client";
 import type {
   AgileSyncPayload,
   AgileSyncReport,
   AgileSyncStatus,
   AgileVenda,
-  AgilePagamento
+  AgilePagamento,
+  AgileItem
 } from "./agile-sync.types.js";
 
 // Origem fixa desta integração — usada para separar do faturamento manual
@@ -57,6 +59,80 @@ type DayAggregate = {
 // chave para deduplicar caso o mesmo pedido apareça em múltiplas
 // linhas do CSV (defensivo — não deveria acontecer, mas o export do Agile
 // já surpreendeu antes).
+// Uma linha do PDV vira uma linha da tabela.
+//
+// `dt_movimento` chega como "YYYY-MM-DD". createCalendarDate ancora as 12:00 UTC,
+// mesma convencao de TODO gravador de data do sistema — sem isso a linha cai no
+// dia anterior quando lida em Sao Paulo, e a competencia de virada de mes erra.
+// A competencia sai dos numeros da string, nao de getMonth() de um Date, para
+// nao depender do fuso do processo (o mesmo erro que ja mordeu este repo).
+export function mapSaleItemRow(item: AgileItem) {
+  const [ano, mes, dia] = item.dt_movimento.split("-").map(Number);
+  return {
+    saleId: item.nrseqvenda,
+    itemSeq: item.nrseqitem,
+    movementDate: createCalendarDate(ano, mes, dia),
+    competenceYear: ano,
+    competenceMonth: mes,
+    shift: item.turno,
+    saleStatus: item.situacao_da_venda,
+    // O PDV manda string vazia quando nao tem codigo; vira null para nao poluir
+    // o agrupamento por produto com uma chave "".
+    productCode: item.cod_produto?.trim() ? item.cod_produto.trim() : null,
+    productName: item.produto.trim(),
+    productGroup: item.grupo_produto?.trim() ? item.grupo_produto.trim() : null,
+    productCategory: item.categoria_produto?.trim() ? item.categoria_produto.trim() : null,
+    quantity: item.qtd,
+    totalAmount: item.vl_tot
+  };
+}
+
+// Quantas linhas por ida ao banco. O agente reimportou o historico inteiro desde
+// janeiro quando a integracao entrou no ar (07/07/2026); um payload assim tem
+// dezenas de milhares de itens e nao pode virar uma query gigante.
+const LOTE_ITENS = 500;
+
+// Grava a venda ITEM A ITEM do salao.
+//
+// O agente sempre enviou `payload.itens` (produto, codigo, grupo, categoria,
+// quantidade, valor) e o backend so lia `.length` para uma linha de log — o dado
+// chegava todo dia e era descartado. Sem ele nao existe mix de vendas, e sem mix
+// nao da para priorizar quais dos 217 pratos do cardapio merecem ficha tecnica
+// primeiro.
+//
+// Substitui POR VENDA (delete + insert) em vez de upsert linha a linha: assim o
+// reimport converge de verdade, inclusive quando o PDV corrige um item ou remove
+// um de uma venda ja enviada. Upsert por chave natural deixaria o item removido
+// para tras para sempre.
+//
+// Grava a linha CRUA, inclusive de venda cancelada — o status vai no registro e
+// quem analisa filtra. O agregado diario ignora cancelada (vira receita errada),
+// mas para entender mix de vendas o cancelamento e informacao, nao ruido.
+//
+// NAO respeita trava de periodo, de proposito: isto e dado analitico e nao
+// alimenta DRE nem CMV (nada le esta tabela para compor faturamento). Bloquear em
+// mes fechado abriria buraco no mix justamente nos meses ja apurados, que sao os
+// que mais interessa analisar.
+async function persistSaleItems(tx: Prisma.TransactionClient, itens: AgileItem[]): Promise<number> {
+  if (itens.length === 0) return 0;
+
+  const vendas = [...new Set(itens.map((item) => item.nrseqvenda))];
+  for (let i = 0; i < vendas.length; i += LOTE_ITENS) {
+    await tx.agileSaleItem.deleteMany({ where: { saleId: { in: vendas.slice(i, i + LOTE_ITENS) } } });
+  }
+
+  const linhas = itens.map(mapSaleItemRow);
+
+  let gravados = 0;
+  for (let i = 0; i < linhas.length; i += LOTE_ITENS) {
+    // skipDuplicates porque o export do Agile as vezes repete a mesma linha — o
+    // mesmo bug de relatorio que ja obriga a deduplicar nrseqvenda em agruparPorDia.
+    const r = await tx.agileSaleItem.createMany({ data: linhas.slice(i, i + LOTE_ITENS), skipDuplicates: true });
+    gravados += r.count;
+  }
+  return gravados;
+}
+
 function agruparPorDia(payload: AgileSyncPayload): { dias: Map<string, DayAggregate>; duplicatasNrseqvenda: number } {
   const dias = new Map<string, DayAggregate>();
   // O export do Agile ocasionalmente emite a mesma nrseqvenda em 2+ linhas
@@ -309,6 +385,7 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
 
   let diasCriados = 0;
   let diasAtualizados = 0;
+  let itensGravados = 0;
   let vendasProcessadas = 0;
   let totalBruto = 0;
   let totalLiquido = 0;
@@ -464,6 +541,8 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
       totalTickets += dia.tickets;
     }
 
+    itensGravados = await persistSaleItems(tx, payload.itens);
+
     await tx.$executeRaw`
       UPDATE "RevenueImportBatch"
         SET "importedRows" = ${diasCriados + diasAtualizados},
@@ -519,6 +598,7 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
     diasAtualizados,
     vendasProcessadas,
     vendasCanceladasIgnoradas,
+    itensGravados,
     totalBruto: round2(totalBruto),
     totalLiquido: round2(totalLiquido),
     totalServico: round2(totalServico),
