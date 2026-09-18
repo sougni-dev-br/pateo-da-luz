@@ -42,6 +42,15 @@ export type MenuImportResult = {
   pratosDistintos: number;
   /** Mesmo prato com preco diferente entre lojas — o Eli precisa olhar. */
   precosDivergentes: { prato: string; precos: string[] }[];
+  /**
+   * Itens com o MESMO nome dentro da MESMA loja. Sem id de plataforma eles sao
+   * indistinguiveis, entao um sobrescreve o outro e o primeiro se perde.
+   * Caso real em 18/09/2026: a Pizzaria tem dois "Peperoni" ativos, a R$ 101,90 e
+   * a R$ 76,00 — so o segundo sobreviveu ao import. Isso PRECISA aparecer no
+   * retorno: perder item de cardapio em silencio e como o erro chega no calculo
+   * de margem sem ninguem saber.
+   */
+  itensColapsados: { loja: string; nome: string; precos: string[] }[];
 };
 
 // Normaliza o nome para casar o mesmo prato entre lojas.
@@ -90,6 +99,7 @@ export async function importarCardapios(): Promise<MenuImportResult> {
   const agora = new Date();
   // chave normalizada -> { nome exibido, precos vistos por loja }
   const vistos = new Map<string, { nome: string; precos: Map<string, number> }>();
+  const itensColapsados: { loja: string; nome: string; precos: string[] }[] = [];
 
   // Carrega os pratos existentes UMA vez, indexados pela mesma chave normalizada
   // que o import usa. Duas razoes:
@@ -154,6 +164,9 @@ export async function importarCardapios(): Promise<MenuImportResult> {
 
     const itens = resposta.items ?? [];
     const categoriaPorItem = mapaCategoriaPorItem(resposta.categories);
+    // Duas linhas do MESMO cardapio que colapsam na mesma chave: a segunda
+    // sobrescreveria a primeira sem deixar rastro. Registra para o retorno.
+    const chavesNaLoja = new Map<string, number>();
     let pratosCriados = 0;
     let listagensCriadas = 0;
     let listagensAtualizadas = 0;
@@ -178,6 +191,16 @@ export async function importarCardapios(): Promise<MenuImportResult> {
       // 99 cria listagem nova e a antiga para de ser vista (detectavel por
       // lastSeenAt). O prefixo deixa explicito que a chave e derivada, para
       // ninguem confundir com id de plataforma.
+      const anterior = chavesNaLoja.get(chave);
+      if (anterior !== undefined) {
+        itensColapsados.push({
+          loja: loja.nickname,
+          nome,
+          precos: [anterior, preco].map((p) => `R$ ${p.toFixed(2)}`)
+        });
+      }
+      chavesNaLoja.set(chave, preco);
+
       const idDaPlataforma = item.app_item_id ? String(item.app_item_id).trim() : "";
       const externalItemId = idDaPlataforma || `nome:${chave}`;
 
@@ -255,7 +278,8 @@ export async function importarCardapios(): Promise<MenuImportResult> {
     ranAt: agora.toISOString(),
     perStore,
     pratosDistintos: vistos.size,
-    precosDivergentes: detectarPrecosDivergentes(vistos)
+    precosDivergentes: detectarPrecosDivergentes(vistos),
+    itensColapsados
   };
 }
 
