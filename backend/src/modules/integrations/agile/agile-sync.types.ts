@@ -80,6 +80,7 @@ export type AgileSyncReport = {
   diasAtualizados: number;
   vendasProcessadas: number;
   vendasCanceladasIgnoradas: number;
+  itensGravados: number;
   totalBruto: number;
   totalLiquido: number;
   totalServico: number;
