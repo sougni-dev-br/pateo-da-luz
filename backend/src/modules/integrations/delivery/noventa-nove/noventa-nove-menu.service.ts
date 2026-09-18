@@ -159,16 +159,32 @@ export async function importarCardapios(): Promise<MenuImportResult> {
     let listagensAtualizadas = 0;
 
     for (const item of itens) {
-      const externalItemId = item.app_item_id ? String(item.app_item_id) : "";
       const nome = item.item_name?.trim() ?? "";
-      // Item sem id nao tem como ser reconciliado no proximo import, e item sem
-      // nome nao vira prato. Pular e melhor do que criar lixo que alguem teria
-      // que limpar a mao depois.
-      if (!externalItemId || !nome) continue;
+      // Item sem nome nao vira prato. Pular e melhor do que criar lixo.
+      if (!nome) continue;
 
       const chave = chaveDoPrato(nome);
       const preco = precoEmReais(item.price);
-      const categoria = categoriaPorItem.get(externalItemId) ?? null;
+
+      // A 99 NAO devolve identificador proprio para item criado no portal dela.
+      // Medido em producao em 18/09/2026: nos 58 itens da Pizzaria os campos
+      // `app_item_id`, `app_external_id` e `app_category_id` vieram TODOS vazios.
+      // O campo e "ID do item fornecido pela loja" — ou seja, preenchido pelo
+      // INTEGRADOR ao subir cardapio via API. Como o cardapio foi montado a mao
+      // no portal, esse id nunca existiu. A primeira versao deste import usava
+      // app_item_id como chave e por isso pulou os 250 itens, criando zero.
+      //
+      // Sobra o nome como unica ancora. Consequencia aceita: renomear o prato na
+      // 99 cria listagem nova e a antiga para de ser vista (detectavel por
+      // lastSeenAt). O prefixo deixa explicito que a chave e derivada, para
+      // ninguem confundir com id de plataforma.
+      const idDaPlataforma = item.app_item_id ? String(item.app_item_id).trim() : "";
+      const externalItemId = idDaPlataforma || `nome:${chave}`;
+
+      // Pela mesma razao a categoria e irrecuperavel hoje: `categories[].app_item_ids`
+      // e uma lista dos mesmos ids vazios. Fica NULA em vez de inventada. Se um dia
+      // o cardapio subir por API os ids passam a existir e isto volta a funcionar.
+      const categoria = idDaPlataforma ? categoriaPorItem.get(idDaPlataforma) ?? null : null;
 
       const jaVisto = vistos.get(chave);
       if (jaVisto) jaVisto.precos.set(loja.nickname, preco);
