@@ -138,3 +138,48 @@ describe("detectarPrecosDivergentes", () => {
     expect(r[0].prato).toBe("Tres lojas");
   });
 });
+
+describe("itens colapsados dentro da mesma loja", () => {
+  // Caso REAL (18/09/2026, Pateo da Luz Pizzaria): dois itens chamados "Peperoni",
+  // ambos ativos, a R$ 101,90 e R$ 76,00. Sem id de plataforma sao indistinguiveis,
+  // e o segundo sobrescreveu o primeiro — 58 itens viraram 57 listagens.
+  // Perder item de cardapio em silencio e como o erro chega no calculo de margem
+  // sem ninguem saber, entao isto tem que sair no retorno.
+  function detectaColapso(itens: { item_name: string; price: number }[]) {
+    const vistas = new Map<string, number>();
+    const colapsados: { nome: string; precos: string[] }[] = [];
+    for (const i of itens) {
+      const chave = chaveDoPrato(i.item_name);
+      const preco = precoEmReais(i.price);
+      const anterior = vistas.get(chave);
+      if (anterior !== undefined) {
+        colapsados.push({ nome: i.item_name, precos: [anterior, preco].map((p) => `R$ ${p.toFixed(2)}`) });
+      }
+      vistas.set(chave, preco);
+    }
+    return colapsados;
+  }
+
+  test("dois Peperoni com precos diferentes sao reportados", () => {
+    const r = detectaColapso([
+      { item_name: "Peperoni", price: 10190 },
+      { item_name: "Peperoni", price: 7600 }
+    ]);
+    expect(r).toHaveLength(1);
+    expect(r[0].precos).toEqual(["R$ 101.90", "R$ 76.00"]);
+  });
+
+  test("mesmo nome digitado com espaco diferente tambem colapsa e e reportado", () => {
+    expect(detectaColapso([
+      { item_name: "Pizza Portuguesa", price: 5000 },
+      { item_name: "pizza  portuguesa", price: 6000 }
+    ])).toHaveLength(1);
+  });
+
+  test("cardapio sem repeticao nao gera ruido", () => {
+    expect(detectaColapso([
+      { item_name: "Peperoni", price: 10190 },
+      { item_name: "Portuguesa", price: 7600 }
+    ])).toHaveLength(0);
+  });
+});
