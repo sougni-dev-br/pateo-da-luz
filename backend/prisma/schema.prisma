@@ -1397,6 +1397,47 @@ model RevenueImportChange {
   @@index([entryId])
 }
 
+// Venda item a item do salao, vinda do Agile PDV.
+//
+// O agente SEMPRE enviou `payload.itens` (produto, codigo, grupo, categoria,
+// quantidade, valor) e o backend so contava o tamanho do array para uma linha de
+// log — o dado chegava todo dia e era descartado. Sem ele nao existe mix de
+// vendas, e sem mix nao da para saber quais pratos merecem ficha tecnica
+// primeiro: o cardapio somado das lojas tem 217 pratos distintos.
+//
+// Guarda a linha CRUA, inclusive de venda cancelada (`saleStatus`), porque o
+// recorte certo depende da analise. Filtrar na entrada perderia a informacao
+// para sempre.
+//
+// NAO respeita trava de periodo de proposito: isto e dado analitico, nao
+// lancamento financeiro — nao alimenta DRE nem CMV. Bloquear em mes fechado
+// abriria buracos no mix justamente nos meses que mais interessa analisar.
+model AgileSaleItem {
+  id              String   @id @default(cuid())
+  // Chave natural do PDV: (nrseqvenda, nrseqitem). Torna o import idempotente.
+  saleId          String
+  itemSeq         String
+  movementDate    DateTime
+  competenceYear  Int
+  competenceMonth Int
+  shift           String
+  saleStatus      String
+  productCode     String?
+  productName     String
+  productGroup    String?
+  productCategory String?
+  quantity        Decimal  @default(0) @db.Decimal(12, 3)
+  totalAmount     Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([saleId, itemSeq], map: "agitem_sale_seq_uniq")
+  @@index([movementDate], map: "agitem_movement_idx")
+  @@index([competenceYear, competenceMonth], map: "agitem_competence_idx")
+  @@index([productCode], map: "agitem_product_code_idx")
+  @@index([productName], map: "agitem_product_name_idx")
+}
+
 model MonthlyCmv {
   id                    String             @id
   competenceYear        Int
