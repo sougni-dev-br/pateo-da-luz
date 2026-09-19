@@ -7,7 +7,14 @@ import {
   type NoventaNovePeriodSummary,
   type NoventaNoveStoreView
 } from "../api/client";
-import { Alert, Card, Money, PanelEyebrow, Select, SummaryCard, Table } from "../design-system";
+import { Alert, Card, Money, PanelEyebrow, Select, SummaryCard, Table, Tabs } from "../design-system";
+import { DeliveryNoventaNovePainel } from "./DeliveryNoventaNovePainel";
+
+type ViewMode = "painel" | "detalhado";
+const TAB_ITEMS = [
+  { value: "painel", label: "Painel do dono" },
+  { value: "detalhado", label: "Detalhado" }
+];
 
 // Tela de faturamento delivery 99 Food.
 // Enquanto o app do Pateo estiver em análise em developer-food.99app.com,
@@ -48,6 +55,7 @@ export function DeliveryNoventaNove() {
   const [selectedMonth, setSelectedMonth] = useState<string>(monthOptions[0]?.value ?? "");
   const [summary, setSummary] = useState<NoventaNovePeriodSummary | null>(null);
   const [awaitingApproval, setAwaitingApproval] = useState<boolean>(true);
+  const [view, setView] = useState<ViewMode>("painel");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,22 +103,25 @@ export function DeliveryNoventaNove() {
   return (
     <div style={{ display: "grid", gap: "20px" }}>
       {awaitingApproval && (
-        <Alert tone="warning" title="99 Food — cadastro em análise">
-          O app do Pateo está aguardando aprovação em developer-food.99app.com (até 3 dias úteis).
-          Enquanto isso, os números aqui são gerados por mock determinístico com base nas 4 lojas
-          cadastradas. Assim que o 99 aprovar, cadastre o AppShopID de cada loja em Configurações →
-          Integrações → 99 Food e o sync real substitui automaticamente.
+        <Alert tone="warning" title="99 Food — integração ainda não ativa">
+          Falta a credencial ou o vínculo das lojas em Configurações → Integrações → 99 Food.
+          Enquanto isso não estiver pronto, esta tela mostra apenas dados de demonstração —
+          nenhum valor aqui é faturamento real.
         </Alert>
       )}
 
+      <Tabs tabs={TAB_ITEMS} value={view} onChange={(v) => setView(v as ViewMode)} />
+
       <Card>
-        <div style={{ display: "grid", gap: "12px", gridTemplateColumns: "minmax(200px, 1fr) minmax(200px, 1fr)" }}>
-          <Select
-            label="Loja"
-            value={selectedStore}
-            onChange={(e) => setSelectedStore(e.target.value)}
-            options={storeOptions}
-          />
+        <div style={{ display: "grid", gap: "12px", gridTemplateColumns: view === "detalhado" ? "minmax(200px, 1fr) minmax(200px, 1fr)" : "minmax(200px, 1fr)" }}>
+          {view === "detalhado" && (
+            <Select
+              label="Loja"
+              value={selectedStore}
+              onChange={(e) => setSelectedStore(e.target.value)}
+              options={storeOptions}
+            />
+          )}
           <Select
             label="Mês de competência"
             value={selectedMonth}
@@ -120,9 +131,14 @@ export function DeliveryNoventaNove() {
         </div>
       </Card>
 
+      {view === "painel" ? (
+        <DeliveryNoventaNovePainel year={year} month={month} />
+      ) : (
+        <>
       {summary?.isMock && !awaitingApproval && (
-        <Alert tone="info" title="Dados de demonstração">
-          Ainda sem vendas reais persistidas neste período. Números fictícios até o sync trazer os dados.
+        <Alert tone="warning" title="Sem vendas faturadas neste período">
+          Nenhuma venda da 99 foi sincronizada para este mês e loja. Os valores abaixo são
+          <b> zero</b> — não são estimativa.
         </Alert>
       )}
 
@@ -263,6 +279,8 @@ export function DeliveryNoventaNove() {
         </>
       ) : (
         <p style={{ padding: "24px" }}>Sem dados para o período.</p>
+      )}
+        </>
       )}
     </div>
   );

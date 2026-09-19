@@ -4866,6 +4866,45 @@ export function saveNoventaNoveCredential(payload: { clientId: string; clientSec
   });
 }
 
+export type Variacao = { percentual: number; comparavel: boolean };
+
+export type PainelDonoNoventaNove = {
+  period: { year: number; month: number; diaDeHoje: number; diasNoMes: number; mesEmCurso: boolean };
+  current: { orders: number; grossAmount: number; netAmount: number; ticketAverage: number };
+  previousMonth: {
+    orders: number; grossAmount: number; netAmount: number; ticketAverage: number;
+    deltaGross: Variacao; deltaNet: Variacao;
+  };
+  lastYear: {
+    orders: number; grossAmount: number; netAmount: number; ticketAverage: number;
+    deltaGross: Variacao; deltaNet: Variacao;
+  };
+  projection: {
+    grossAmount: number; netAmount: number;
+    diasDecorridos: number; diasRestantes: number; ehProjecao: boolean; nota: string;
+  };
+  ranking: Array<{
+    storeId: string; storeLabel: string;
+    grossAmount: number; netAmount: number; orders: number;
+    sharePercent: number; deltaVsPreviousMonth: Variacao;
+  }>;
+  breakdown: {
+    deducaoPercent: number; liquidoPercent: number; deducaoValor: number;
+    informadoPelaPlataforma: {
+      taxa: number; promocao: number; entrega: number; outrasTaxas: number; disponivel: boolean;
+    };
+  };
+  weekday: Array<{ dow: number; label: string; avgNet: number; avgOrders: number; dias: number }>;
+  ticketByStore: Array<{ storeId: string; storeLabel: string; ticket: number; delta: Variacao }>;
+  alerts: Array<{ severity: "info" | "warn" | "danger"; title: string; message: string; storeId: string | null }>;
+  semDados: boolean;
+};
+
+export function getNoventaNovePainelDono(params: { year: number; month: number }) {
+  const query = new URLSearchParams({ year: String(params.year), month: String(params.month) });
+  return request<PainelDonoNoventaNove>(`/integrations/delivery/noventa-nove/painel-dono?${query.toString()}`);
+}
+
 export function getNoventaNoveSummary(params: { year: number; month: number; storeId?: string }) {
   const query = new URLSearchParams({
     year: String(params.year),
