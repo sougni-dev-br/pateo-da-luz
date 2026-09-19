@@ -8,7 +8,8 @@ import type {
   NoventaNoveStoreView
 } from "./noventa-nove.types.js";
 import { buildMockSummary, consolidateSummaries } from "./noventa-nove-mock.service.js";
-import { runRealSync, type RealSyncResult } from "./noventa-nove-real-sync.service.js";
+import { CANAIS_FATURADOS, runRealSync, type RealSyncResult } from "./noventa-nove-real-sync.service.js";
+import { contaComoPedido } from "./contagem-de-pedidos.js";
 import { fetchBoundShops, hasValidCredential } from "./noventa-nove-http-client.js";
 
 // Lojas 99 Food do Pateo — usadas na primeira execução para popular a tabela
@@ -258,8 +259,23 @@ export async function getCredentialStatus(): Promise<NoventaNoveCredentialStatus
 }
 
 async function readSummaryFromDb(store: NoventaNoveStoreView, year: number, month: number): Promise<NoventaNovePeriodSummary | null> {
+  // Mesma base do razao: so o que a API financeira confirmou como FATURADO.
+  //
+  // Sem este filtro a tela somava tambem o que o webhook grava (channel = o
+  // delivery_type numerico do payload, tipicamente "1"), que e pedido CRIADO, nao
+  // pedido faturado — 101 vendas e R$ 8.426,96 que a plataforma nunca pagou — e
+  // 339 vendas de channel nulo valendo R$ 0,00, que nao mexem no valor mas contam
+  // como pedido e derrubam o ticket medio. Em setembro/2026 a tela mostrava
+  // R$ 42.417,34 contra os R$ 34.291,27 do razao.
+  //
+  // Ver a justificativa completa em reflectSalesIntoRevenueEntries.
   const sales = await prisma.noventaNoveSale.findMany({
-    where: { deliveryStoreId: store.id, competenceYear: year, competenceMonth: month },
+    where: {
+      deliveryStoreId: store.id,
+      competenceYear: year,
+      competenceMonth: month,
+      channel: { in: [...CANAIS_FATURADOS] }
+    },
     orderBy: { orderDate: "asc" }
   });
   if (sales.length === 0) return null;
@@ -279,7 +295,8 @@ async function readSummaryFromDb(store: NoventaNoveStoreView, year: number, mont
     const promo = Number(sale.promotionAmount);
     const deliveryFee = Number(sale.deliveryFeeAmount);
     const net = Number(sale.netAmount);
-    totalOrders += 1;
+    const ehPedido = contaComoPedido(sale.channel);
+    if (ehPedido) totalOrders += 1;
     totalGross += gross;
     totalNoventaNoveFee += noventaNoveFee;
     totalPromo += promo;
@@ -287,7 +304,7 @@ async function readSummaryFromDb(store: NoventaNoveStoreView, year: number, mont
     totalNet += net;
     const prev = dailyMap.get(dateKey);
     dailyMap.set(dateKey, {
-      orders: (prev?.orders ?? 0) + 1,
+      orders: (prev?.orders ?? 0) + (ehPedido ? 1 : 0),
       grossAmount: (prev?.grossAmount ?? 0) + gross,
       noventaNoveFeeAmount: (prev?.noventaNoveFeeAmount ?? 0) + noventaNoveFee,
       promotionAmount: (prev?.promotionAmount ?? 0) + promo,
@@ -342,10 +359,37 @@ async function readSummaryFromDb(store: NoventaNoveStoreView, year: number, mont
   };
 }
 
-async function summaryForStore(store: NoventaNoveStoreView, year: number, month: number): Promise<NoventaNovePeriodSummary> {
+/**
+ * O mock existe para a fase em que a integracao ainda nao foi aprovada e nao ha
+ * nada para mostrar. Depois que ela entra no ar, loja sem venda no mes significa
+ * exatamente isso — zero — e nao "invente numeros".
+ *
+ * Enquanto valia "sem venda => mock", a loja PEPOSO-FREI-CANECA (ativa, sem
+ * vinculo, nunca vendeu) devolvia ficcao todo mes.
+ */
+async function summaryForStore(
+  store: NoventaNoveStoreView,
+  year: number,
+  month: number,
+  permitirMock: boolean
+): Promise<NoventaNovePeriodSummary> {
   const real = await readSummaryFromDb(store, year, month);
   if (real) return real;
-  return buildMockSummary({ storeId: store.id, storeLabel: store.nickname, year, month });
+  if (permitirMock) return buildMockSummary({ storeId: store.id, storeLabel: store.nickname, year, month });
+  return summaryVazio(store.id, store.nickname, year, month);
+}
+
+function summaryVazio(storeId: string | null, storeLabel: string, year: number, month: number): NoventaNovePeriodSummary {
+  return {
+    period: { year, month },
+    storeId,
+    storeLabel,
+    totals: { orders: 0, grossAmount: 0, noventaNoveFeeAmount: 0, promotionAmount: 0, deliveryFeeAmount: 0, netAmount: 0, otherFees: 0 },
+    daily: [],
+    fees: [],
+    settlements: [],
+    isMock: false
+  };
 }
 
 export async function getPeriodSummary(params: {
@@ -355,6 +399,13 @@ export async function getPeriodSummary(params: {
 }): Promise<NoventaNovePeriodSummary> {
   const stores = await listStores();
   const activeStores = stores.filter((store) => store.active);
+
+  // Mesma condicao que getStatus usa para acender o aviso de "aguardando
+  // aprovacao". Com credencial valida e ao menos uma loja de verdade, a
+  // integracao esta no ar e nada aqui pode ser inventado.
+  const credencialOk = await hasValidCredential();
+  const algumaLojaReal = activeStores.some((store) => !store.externalId.startsWith("PENDENTE-"));
+  const permitirMock = !credencialOk || !algumaLojaReal;
 
   if (params.storeId) {
     const selected = activeStores.find((store) => store.id === params.storeId);
@@ -370,11 +421,11 @@ export async function getPeriodSummary(params: {
         isMock: true
       };
     }
-    return summaryForStore(selected, params.year, params.month);
+    return summaryForStore(selected, params.year, params.month, permitirMock);
   }
 
   const summaries = await Promise.all(
-    activeStores.map((store) => summaryForStore(store, params.year, params.month))
+    activeStores.map((store) => summaryForStore(store, params.year, params.month, permitirMock))
   );
   return consolidateSummaries(summaries, params.year, params.month);
 }

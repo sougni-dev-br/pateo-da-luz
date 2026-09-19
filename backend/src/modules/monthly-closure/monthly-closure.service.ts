@@ -100,8 +100,15 @@ export async function getCmvAttributedToMonth(year: number, month: number) {
   return { total, breakdown: contributions };
 }
 
+// O razao e a fonte unica do faturamento do mes: ele ja contem salao E delivery,
+// com o delivery conciliado contra o repasse da plataforma.
+//
+// Ate 18/09/2026 `salon` era um SELECT sobre TODO o RevenueEntry (sem filtrar
+// origem) e o total somava `salon + ifood + noventaNove` — contando o delivery
+// duas vezes, R$ 398.262,10 entre abril e setembro. Ver faturamento-do-mes.ts.
 async function getRevenueSummary(year: number, month: number) {
   const { start, end } = monthRange(year, month);
+
   const [salon] = await prisma.$queryRaw<Array<{
     grossAmount: any; netAmount: any; daysCount: any; entryCount: any;
   }>>`
@@ -111,18 +118,43 @@ async function getRevenueSummary(year: number, month: number) {
            COUNT(*) AS "entryCount"
     FROM "RevenueEntry"
     WHERE "status" <> 'CANCELLED'
+      AND "channel" = 'Salão'
       AND "date" >= ${start} AND "date" <= ${end}
   `;
-  const [ifood] = await prisma.$queryRaw<Array<{ grossAmount: any; count: any }>>`
-    SELECT COALESCE(SUM("grossAmount"), 0) AS "grossAmount", COUNT(*) AS "count"
-    FROM "IfoodSale"
-    WHERE "orderDate" >= ${start} AND "orderDate" <= ${end}
+
+  // Uma linha por plataforma, do MESMO razao — para a tela mostrar a composicao
+  // sem inventar uma segunda base.
+  const plataformas = await prisma.$queryRaw<Array<{ sourcePlatform: string | null; grossAmount: any; netAmount: any; tickets: any }>>`
+    SELECT "sourcePlatform",
+           COALESCE(SUM("grossAmount"), 0) AS "grossAmount",
+           COALESCE(SUM("netAmount"), 0) AS "netAmount",
+           COALESCE(SUM("tickets"), 0) AS "tickets"
+    FROM "RevenueEntry"
+    WHERE "status" <> 'CANCELLED'
+      AND "channel" <> 'Salão'
+      AND "date" >= ${start} AND "date" <= ${end}
+    GROUP BY "sourcePlatform"
   `;
-  const [nn] = await prisma.$queryRaw<Array<{ grossAmount: any; count: any }>>`
-    SELECT COALESCE(SUM("grossAmount"), 0) AS "grossAmount", COUNT(*) AS "count"
-    FROM "NoventaNoveSale"
-    WHERE "orderDate" >= ${start} AND "orderDate" <= ${end}
+
+  const [total] = await prisma.$queryRaw<Array<{ grossAmount: any; netAmount: any }>>`
+    SELECT COALESCE(SUM("grossAmount"), 0) AS "grossAmount",
+           COALESCE(SUM("netAmount"), 0) AS "netAmount"
+    FROM "RevenueEntry"
+    WHERE "status" <> 'CANCELLED'
+      AND "date" >= ${start} AND "date" <= ${end}
   `;
+
+  const porPlataforma = (nome: string) => {
+    const linha = plataformas.find((row) => row.sourcePlatform === nome);
+    return {
+      grossAmount: toNumber(linha?.grossAmount),
+      count: toNumber(linha?.tickets),
+    };
+  };
+
+  const conhecidas = new Set(["iFood", "NOVENTA_NOVE"]);
+  const outras = plataformas.filter((row) => !conhecidas.has(row.sourcePlatform ?? ""));
+
   return {
     salon: {
       grossAmount: toNumber(salon?.grossAmount),
@@ -130,13 +162,16 @@ async function getRevenueSummary(year: number, month: number) {
       daysCount: toNumber(salon?.daysCount),
       entryCount: toNumber(salon?.entryCount),
     },
-    ifood: {
-      grossAmount: toNumber(ifood?.grossAmount),
-      count: toNumber(ifood?.count),
+    ifood: porPlataforma("iFood"),
+    noventaNove: porPlataforma("NOVENTA_NOVE"),
+    outrosDelivery: {
+      grossAmount: outras.reduce((soma, row) => soma + toNumber(row.grossAmount), 0),
+      count: outras.reduce((soma, row) => soma + toNumber(row.tickets), 0),
+      plataformas: outras.map((row) => row.sourcePlatform ?? "(sem origem)"),
     },
-    noventaNove: {
-      grossAmount: toNumber(nn?.grossAmount),
-      count: toNumber(nn?.count),
+    total: {
+      grossAmount: toNumber(total?.grossAmount),
+      netAmount: toNumber(total?.netAmount),
     },
   };
 }
@@ -616,8 +651,8 @@ export async function lockMonthlyClosure(input: { year: number; month: number; u
         "closedAt" = CURRENT_TIMESTAMP,
         "cmvAttributedValue" = ${cmvAttribution.total},
         "attributionBreakdown" = ${JSON.stringify(cmvAttribution.breakdown)}::jsonb,
-        "revenueGrossValue" = ${state.revenue.salon.grossAmount + state.revenue.ifood.grossAmount + state.revenue.noventaNove.grossAmount},
-        "revenueNetValue" = ${state.revenue.salon.netAmount},
+        "revenueGrossValue" = ${state.revenue.total.grossAmount},
+        "revenueNetValue" = ${state.revenue.total.netAmount},
         "purchasesValue" = ${state.purchases.total},
         "finalInventoryValue" = ${state.finalInventory.hasSnapshot ? state.finalInventory.totalValue : 0},
         "updatedAt" = CURRENT_TIMESTAMP
