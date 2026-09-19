@@ -232,8 +232,9 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
   }
 
   const isClosed = state.status === "CLOSED";
-  const totalRevenueGross =
-    state.revenue.salon.grossAmount + state.revenue.ifood.grossAmount + state.revenue.noventaNove.grossAmount;
+  // Vem pronto do razao. Somar salão + iFood + 99 aqui contava o delivery duas
+  // vezes, porque o "salão" do backend trazia todo o RevenueEntry dentro.
+  const totalRevenueGross = state.revenue.total.grossAmount;
 
   /** O estado de um bloco, a partir da pendência que ele gera. */
   function estadoDoBloco(chave: string, resolvido: boolean): EstadoDoBloco {
@@ -418,7 +419,11 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
               apoio={`${state.revenue.ifood.count} vendas`} />
             <Indicador rotulo="99 Food" valor={<Money value={state.revenue.noventaNove.grossAmount} />}
               apoio={`${state.revenue.noventaNove.count} vendas`} />
-            <Indicador rotulo="Líquido do salão" valor={<Money value={state.revenue.salon.netAmount} />} />
+            {state.revenue.outrosDelivery.grossAmount > 0 && (
+              <Indicador rotulo="Outros delivery" valor={<Money value={state.revenue.outrosDelivery.grossAmount} />}
+                apoio={state.revenue.outrosDelivery.plataformas.join(" · ")} />
+            )}
+            <Indicador rotulo="Líquido do mês" valor={<Money value={state.revenue.total.netAmount} />} />
           </div>
           {state.summary.pending.some((p) => p.key === "block:revenue") &&
             acaoDeJustificar("block:revenue", "Faturamento com poucos dias")}
