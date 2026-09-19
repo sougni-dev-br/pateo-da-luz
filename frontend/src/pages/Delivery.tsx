@@ -3,22 +3,24 @@ import { useSearchParams } from "react-router-dom";
 import { Tabs } from "../design-system";
 import { DeliveryAcumulado } from "./DeliveryAcumulado";
 import { DeliveryIfood } from "./DeliveryIfood";
+import { DeliveryKeeta } from "./DeliveryKeeta";
 import { DeliveryNoventaNove } from "./DeliveryNoventaNove";
 
 // Menu unificado "Delivery": aba por plataforma + Acumulado que soma tudo.
 // Aba controlada via query param ?platform= pra permitir bookmark e
 // redirecionar rotas antigas /financeiro/delivery-ifood.
 
-type Platform = "acumulado" | "ifood" | "noventa-nove";
+type Platform = "acumulado" | "ifood" | "noventa-nove" | "keeta";
 
 const TABS = [
   { value: "acumulado", label: "Acumulado" },
   { value: "ifood", label: "iFood" },
-  { value: "noventa-nove", label: "99 Food" }
+  { value: "noventa-nove", label: "99 Food" },
+  { value: "keeta", label: "Keeta" }
 ];
 
 function isPlatform(value: string | null): value is Platform {
-  return value === "acumulado" || value === "ifood" || value === "noventa-nove";
+  return value === "acumulado" || value === "ifood" || value === "noventa-nove" || value === "keeta";
 }
 
 export function Delivery() {
@@ -38,6 +40,7 @@ export function Delivery() {
       {platform === "acumulado" && <DeliveryAcumulado />}
       {platform === "ifood" && <DeliveryIfood />}
       {platform === "noventa-nove" && <DeliveryNoventaNove />}
+      {platform === "keeta" && <DeliveryKeeta />}
     </div>
   );
 }
