@@ -43,12 +43,26 @@ type SalonMeta = {
 
 type DeliveryPlatformKey = "food99" | "ifood" | "keeta" | "retiradaBalcao" | "outrosDelivery";
 
-const deliveryPlatforms: Array<{ key: DeliveryPlatformKey; label: string; sourcePlatform: string }> = [
-  { key: "food99", label: "99Food", sourcePlatform: "99Food" },
-  { key: "ifood", label: "iFood", sourcePlatform: "iFood" },
-  { key: "keeta", label: "Keeta", sourcePlatform: "Keeta" },
-  { key: "retiradaBalcao", label: "Retirada Balcão", sourcePlatform: "RetiradaBalcao" },
-  { key: "outrosDelivery", label: "Outros", sourcePlatform: "OutrosDelivery" }
+/**
+ * `origem: "portal"` significa que o faturamento daquela plataforma entra pelo
+ * portal dela, não pela mão.
+ *
+ * A Keeta virou "portal" em 19/09/2026, junto com o import dos 6 meses que
+ * faltavam (R$ 490 mil de abr a set). Se continuasse aceitando lançamento aqui,
+ * cada dia digitado somaria em cima do que já veio do portal — e o valor certo
+ * nem é o que se vê no app: o portal dá o preço de tabela, o desconto bancado
+ * pela loja e o repasse em campos separados, e o ERP grava a receita já
+ * descontada, com a comissão em `platformFees`. Digitar um número só perde essa
+ * separação inteira.
+ */
+type OrigemDelivery = "manual" | "portal";
+
+const deliveryPlatforms: Array<{ key: DeliveryPlatformKey; label: string; sourcePlatform: string; origem: OrigemDelivery }> = [
+  { key: "food99", label: "99Food", sourcePlatform: "99Food", origem: "manual" },
+  { key: "ifood", label: "iFood", sourcePlatform: "iFood", origem: "manual" },
+  { key: "keeta", label: "Keeta", sourcePlatform: "Keeta", origem: "portal" },
+  { key: "retiradaBalcao", label: "Retirada Balcão", sourcePlatform: "RetiradaBalcao", origem: "manual" },
+  { key: "outrosDelivery", label: "Outros", sourcePlatform: "OutrosDelivery", origem: "manual" }
 ];
 
 const emptyShift = (): ShiftFields => ({ cash: "", pix: "", card: "", ticket: "", service: "", tcs: "" });
@@ -186,6 +200,7 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
           setDailyStatus({ salon: false, delivery: true });
           const d = emptyDelivery();
           for (const p of deliveryPlatforms) {
+            if (p.origem === "portal") continue;
             if (entry.sourcePlatform === p.sourcePlatform) {
               d[p.key] = { orders: String(entry.tickets ?? ""), earnings: String(entry.grossAmount ?? "") };
             }
@@ -236,6 +251,10 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
       const { year, month } = splitDate(date);
       let saved = 0;
       for (const platform of deliveryPlatforms) {
+        // Trava de servidor-do-pobre: a UI já esconde os campos das plataformas
+        // de portal, mas um estado antigo em memória ainda poderia chegar aqui
+        // e duplicar o faturamento do dia.
+        if (platform.origem === "portal") continue;
         const orders = Math.trunc(nv(delivery[platform.key].orders));
         const earnings = nv(delivery[platform.key].earnings);
         if (orders <= 0 && earnings <= 0) continue;
@@ -458,6 +477,20 @@ export function Cash({ user, entryId, onOpenRevenue }: CashProps) {
             const orders = Math.trunc(nv(delivery[platform.key].orders));
             const earnings = nv(delivery[platform.key].earnings);
             const avg = orders > 0 ? earnings / orders : 0;
+            if (platform.origem === "portal") {
+              return (
+                <article className="cash-platform-card" key={platform.key}>
+                  <div className="cash-platform-header">
+                    <h3>{platform.label}</h3>
+                    <StatusBadge tone="neutral">Vem do portal</StatusBadge>
+                  </div>
+                  <p style={{ fontSize: "13px", color: "var(--color-text-muted, #6b7280)", margin: "8px 0 0" }}>
+                    O faturamento da {platform.label} é importado do portal dela, com o desconto e a
+                    comissão separados. Lançar aqui somaria em cima do que já entrou.
+                  </p>
+                </article>
+              );
+            }
             return (
               <article className="cash-platform-card" key={platform.key}>
                 <div className="cash-platform-header">
