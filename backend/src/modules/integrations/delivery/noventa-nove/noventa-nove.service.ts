@@ -258,6 +258,21 @@ export async function getCredentialStatus(): Promise<NoventaNoveCredentialStatus
   };
 }
 
+/**
+ * Leitura crua do banco para uma loja. `null` quando nao ha venda faturada no
+ * periodo — o chamador decide o que fazer com o vazio.
+ *
+ * Usada pelo Painel do dono, que precisa distinguir "loja sem venda" de "zero",
+ * e nunca pode cair em mock.
+ */
+export async function lerResumoDaLoja(
+  store: NoventaNoveStoreView,
+  year: number,
+  month: number
+): Promise<NoventaNovePeriodSummary | null> {
+  return readSummaryFromDb(store, year, month);
+}
+
 async function readSummaryFromDb(store: NoventaNoveStoreView, year: number, month: number): Promise<NoventaNovePeriodSummary | null> {
   // Mesma base do razao: so o que a API financeira confirmou como FATURADO.
   //

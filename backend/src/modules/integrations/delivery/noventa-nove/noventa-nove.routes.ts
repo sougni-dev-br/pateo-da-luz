@@ -21,6 +21,7 @@ import { fetchAuthorizationPageUrl, testNoventaNoveConnection } from "./noventa-
 import { seedTestMenu } from "./noventa-nove-test-menu.service.js";
 import { importarCardapios } from "./noventa-nove-menu.service.js";
 import { handleWebhook, type WebhookEnvelope } from "./noventa-nove-webhook.service.js";
+import { getPainelDono } from "./noventa-nove-insights.service.js";
 
 // Router protegido — usado por telas do ERP com sessão de usuário.
 export const noventaNoveDeliveryRouter = Router();
@@ -115,6 +116,21 @@ noventaNoveDeliveryRouter.post("/credential", async (request, response) => {
   }
   const status = await saveCredential(parsed.data);
   response.json(status);
+});
+
+// Painel do dono — leitura analitica do mes: comparacao com o mes anterior e
+// com o ano passado, projecao, ranking de lojas, composicao da deducao, media
+// por dia da semana, ticket por loja e alertas.
+noventaNoveDeliveryRouter.get("/painel-dono", async (request, response) => {
+  const user = await requireRole(request, response, [...READ_ROLES]);
+  if (!user) return;
+  const parsed = periodQuerySchema.safeParse(request.query);
+  if (!parsed.success) {
+    response.status(400).json({ message: "Parâmetros inválidos", errors: parsed.error.flatten() });
+    return;
+  }
+  const painel = await getPainelDono({ year: parsed.data.year, month: parsed.data.month });
+  response.json(painel);
 });
 
 noventaNoveDeliveryRouter.get("/summary", async (request, response) => {
