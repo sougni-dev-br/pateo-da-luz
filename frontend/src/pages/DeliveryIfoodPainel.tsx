@@ -210,8 +210,10 @@ export function DeliveryIfoodPainel({ year, month }: Props) {
   return (
     <div style={{ display: "grid", gap: "20px" }}>
       {insights.isMock && (
-        <Alert tone="info" title="Dados de demonstração">
-          Números fictícios até a credencial real do iFood entrar. Todos os cálculos e alertas estão prontos.
+        <Alert tone="warning" title="Sem dados do iFood para analisar">
+          A integração do iFood ainda não está ativa — nenhuma venda foi sincronizada. Ranking,
+          projeção, comparações e alertas abaixo estão <b>zerados</b>, não estimados.
+          Até a credencial da Integradora entrar, não há o que analisar aqui.
         </Alert>
       )}
 

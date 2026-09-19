@@ -148,9 +148,11 @@ function DeliveryIfoodDetalhado({ summary, loading, error }: DetalhadoProps) {
   return (
     <div style={{ display: "grid", gap: "20px" }}>
       {summary?.isMock && (
-        <Alert tone="info" title="Dados de demonstração">
-          Números fictícios (determinísticos por loja + mês). Estrutura final pronta — troca para
-          dados reais quando o iFood liberar a credencial da Integradora.
+        <Alert tone="warning" title="Sem vendas do iFood neste período">
+          A integração do iFood ainda não está ativa — nenhuma venda foi sincronizada, e por isso
+          os valores abaixo são <b>zero</b>. Não são estimativa nem projeção.
+          O faturamento de iFood que existe em abril e maio veio de planilha e está no DRE e no
+          Fechamento Mensal, não aqui.
         </Alert>
       )}
 

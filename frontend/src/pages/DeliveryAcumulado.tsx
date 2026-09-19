@@ -212,10 +212,10 @@ export function DeliveryAcumulado() {
       </Card>
 
       {summary?.anyMock && (
-        <Alert tone="info" title="Dados parciais em modo demonstração">
-          Alguma plataforma está com mock ativo (sem sync real ainda).
-          Os totais somam o que é real + o que é mock. Assim que ambas
-          integrações estiverem persistindo vendas reais, este aviso some.
+        <Alert tone="warning" title="Uma das plataformas não tem vendas sincronizadas">
+          Os totais abaixo somam <b>apenas</b> o que existe de venda real. A plataforma sem
+          integração ativa entra como zero — nada é estimado nem completado.
+          Hoje o iFood está nessa situação, então o acumulado é, na prática, só a 99 Food.
         </Alert>
       )}
 
