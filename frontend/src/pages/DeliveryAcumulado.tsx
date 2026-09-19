@@ -2,20 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import { Store, TrendingDown, TrendingUp, ShoppingBag, Percent, Truck as TruckIcon } from "lucide-react";
 import {
   getIfoodSummary,
+  getKeetaSummary,
   getNoventaNoveSummary,
   type IfoodPeriodSummary,
+  type KeetaPeriodSummary,
   type NoventaNovePeriodSummary
 } from "../api/client";
 import { Alert, Card, Money, PanelEyebrow, Select, SummaryCard, Table } from "../design-system";
 
-// Aba "Acumulado" — consolida iFood + 99 Food para o dono ver total delivery.
+// Aba "Acumulado" — consolida iFood + 99 Food + Keeta para o dono ver total delivery.
 // Regra:
 //   - Consolidação SEMPRE no consolidado das lojas (não faz sentido filtrar loja
 //     porque uma loja pode ter nomes diferentes entre plataformas).
 //   - Consolidação puramente no cliente: chama /summary das duas APIs em
 //     paralelo e soma. Não cria endpoint novo — schema-first, refactor pra
 //     backend só se performance apertar.
-//   - `platformFeeAmount` = taxa iFood + taxa 99 Food (rótulo "Taxa plataformas").
+//   - `platformFeeAmount` = taxa iFood + taxa 99 Food + deducao da Keeta (rotulo "Taxa plataformas").
 
 const MONTHS_PT = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -42,6 +44,10 @@ function parseMonthKey(key: string): { year: number; month: number } {
   return { year: Number(y), month: Number(m) };
 }
 
+// Percentual em pt-BR: "53,7%" e nao "53.7%" — a mesma tela ja escreve "R$ 34.500,00".
+const pctBR = (valor: number, casas = 1) =>
+  valor.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
+
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
@@ -58,7 +64,7 @@ type ConsolidatedDaily = {
 
 type ConsolidatedFee = {
   key: string;
-  platform: "IFOOD" | "NOVENTA_NOVE";
+  platform: "IFOOD" | "NOVENTA_NOVE" | "KEETA";
   feeType: string;
   description: string | null;
   amount: number;
@@ -66,7 +72,7 @@ type ConsolidatedFee = {
 
 type ConsolidatedSettlement = {
   id: string;
-  platform: "IFOOD" | "NOVENTA_NOVE";
+  platform: "IFOOD" | "NOVENTA_NOVE" | "KEETA";
   externalId: string;
   periodStart: string;
   periodEnd: string;
@@ -91,7 +97,7 @@ type ConsolidatedSummary = {
   fees: ConsolidatedFee[];
   settlements: ConsolidatedSettlement[];
   breakdownByPlatform: Array<{
-    platform: "IFOOD" | "NOVENTA_NOVE";
+    platform: "IFOOD" | "NOVENTA_NOVE" | "KEETA";
     label: string;
     orders: number;
     grossAmount: number;
@@ -101,7 +107,20 @@ type ConsolidatedSummary = {
   anyMock: boolean;
 };
 
-function consolidate(ifood: IfoodPeriodSummary, nn: NoventaNovePeriodSummary): ConsolidatedSummary {
+/**
+ * Consolida as três plataformas.
+ *
+ * A Keeta entra diferente, e isso é de propósito: ela não tem integração, então
+ * não há `fees` nem `settlements`, e a dedução vem como um número só — o import
+ * do portal gravou comissão e taxas somadas em `platformFees`, sem separar
+ * promoção e entrega. Ela soma em `platformFeeAmount` porque é exatamente isso
+ * que a plataforma reteve; `promotionAmount` e `deliveryFeeAmount` ficam em zero
+ * para ela, e a tela ressalva isso em vez de fingir uma quebra que não existe.
+ *
+ * O que NÃO pode faltar é pedidos, bruto e líquido: sem a Keeta, o card
+ * "total delivery" mostrava menos da metade do delivery real desde junho.
+ */
+function consolidate(ifood: IfoodPeriodSummary, nn: NoventaNovePeriodSummary, keeta: KeetaPeriodSummary): ConsolidatedSummary {
   const dailyMap = new Map<string, ConsolidatedDaily>();
 
   const addDaily = (
@@ -135,6 +154,9 @@ function consolidate(ifood: IfoodPeriodSummary, nn: NoventaNovePeriodSummary): C
   for (const row of nn.daily) {
     addDaily(row.date, row.orders, row.grossAmount, row.noventaNoveFeeAmount, row.promotionAmount, row.deliveryFeeAmount, row.netAmount);
   }
+  for (const row of keeta.daily) {
+    addDaily(row.date, row.orders, row.grossAmount, round2(row.grossAmount - row.netAmount), 0, 0, row.netAmount);
+  }
 
   const fees: ConsolidatedFee[] = [
     ...ifood.fees.map((f) => ({ key: `IFOOD:${f.feeType}`, platform: "IFOOD" as const, feeType: f.feeType, description: f.description, amount: f.amount })),
@@ -148,21 +170,23 @@ function consolidate(ifood: IfoodPeriodSummary, nn: NoventaNovePeriodSummary): C
 
   return {
     totals: {
-      orders: ifood.totals.orders + nn.totals.orders,
-      grossAmount: round2(ifood.totals.grossAmount + nn.totals.grossAmount),
-      platformFeeAmount: round2(ifood.totals.ifoodFeeAmount + nn.totals.noventaNoveFeeAmount),
+      orders: ifood.totals.orders + nn.totals.orders + keeta.totals.orders,
+      grossAmount: round2(ifood.totals.grossAmount + nn.totals.grossAmount + keeta.totals.grossAmount),
+      platformFeeAmount: round2(ifood.totals.ifoodFeeAmount + nn.totals.noventaNoveFeeAmount + keeta.totals.deductionAmount),
       promotionAmount: round2(ifood.totals.promotionAmount + nn.totals.promotionAmount),
       deliveryFeeAmount: round2(ifood.totals.deliveryFeeAmount + nn.totals.deliveryFeeAmount),
-      netAmount: round2(ifood.totals.netAmount + nn.totals.netAmount),
+      netAmount: round2(ifood.totals.netAmount + nn.totals.netAmount + keeta.totals.netAmount),
       otherFees: round2(ifood.totals.otherFees + nn.totals.otherFees)
     },
     daily: Array.from(dailyMap.values()).sort((a, b) => (a.date < b.date ? -1 : 1)),
     fees,
     settlements,
     breakdownByPlatform: [
-      { platform: "IFOOD", label: "iFood", orders: ifood.totals.orders, grossAmount: ifood.totals.grossAmount, netAmount: ifood.totals.netAmount, isMock: ifood.isMock },
-      { platform: "NOVENTA_NOVE", label: "99 Food", orders: nn.totals.orders, grossAmount: nn.totals.grossAmount, netAmount: nn.totals.netAmount, isMock: nn.isMock }
-    ],
+      { platform: "IFOOD" as const, label: "iFood", orders: ifood.totals.orders, grossAmount: ifood.totals.grossAmount, netAmount: ifood.totals.netAmount, isMock: ifood.isMock },
+      { platform: "NOVENTA_NOVE" as const, label: "99 Food", orders: nn.totals.orders, grossAmount: nn.totals.grossAmount, netAmount: nn.totals.netAmount, isMock: nn.isMock },
+      // A Keeta nunca é mock: ou o mês foi importado do portal, ou está zerado.
+      { platform: "KEETA" as const, label: "Keeta", orders: keeta.totals.orders, grossAmount: keeta.totals.grossAmount, netAmount: keeta.totals.netAmount, isMock: false }
+    ].sort((a, b) => b.grossAmount - a.grossAmount),
     anyMock: ifood.isMock || nn.isMock
   };
 }
@@ -183,9 +207,10 @@ export function DeliveryAcumulado() {
     setError(null);
     void Promise.all([
       getIfoodSummary({ year, month }),
-      getNoventaNoveSummary({ year, month })
+      getNoventaNoveSummary({ year, month }),
+      getKeetaSummary({ year, month })
     ])
-      .then(([ifood, nn]) => { if (alive) setSummary(consolidate(ifood, nn)); })
+      .then(([ifood, nn, keeta]) => { if (alive) setSummary(consolidate(ifood, nn, keeta)); })
       .catch((err) => { if (alive) setError(err instanceof Error ? err.message : "Falha ao carregar faturamento consolidado."); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
@@ -215,7 +240,18 @@ export function DeliveryAcumulado() {
         <Alert tone="warning" title="Uma das plataformas não tem vendas sincronizadas">
           Os totais abaixo somam <b>apenas</b> o que existe de venda real. A plataforma sem
           integração ativa entra como zero — nada é estimado nem completado.
-          Hoje o iFood está nessa situação, então o acumulado é, na prática, só a 99 Food.
+          Hoje o iFood está nessa situação.
+        </Alert>
+      )}
+
+      {/* A Keeta soma nos totais, mas não tem como entrar nas seções de taxa e de
+          ciclo: o import do portal não trouxe a quebra por tipo nem os repasses. */}
+      {summary && summary.breakdownByPlatform.some((p) => p.platform === "KEETA" && p.grossAmount > 0) && (
+        <Alert tone="info" title="A Keeta entra nos totais, mas sem quebra de taxas">
+          O faturamento da Keeta é importado do portal e vem com a dedução em um número só.
+          Ela soma em pedidos, bruto, líquido e "taxa plataformas" — mas não aparece nas
+          listas de <b>taxas por tipo</b> nem de <b>ciclos de pagamento</b>, que dependem da
+          integração. Para o detalhe dela, use a aba Keeta.
         </Alert>
       )}
 
@@ -229,14 +265,14 @@ export function DeliveryAcumulado() {
             <SummaryCard
               label="Faturamento bruto (total delivery)"
               moneyValue={summary.totals.grossAmount}
-              detail={`${summary.totals.orders} pedidos — iFood + 99 Food`}
+              detail={`${summary.totals.orders} pedidos — iFood + 99 Food + Keeta`}
               tone="neutral"
               icon={<ShoppingBag size={18} />}
             />
             <SummaryCard
               label="Taxas plataformas"
               moneyValue={summary.totals.platformFeeAmount}
-              detail={`${feePercent.toFixed(1)}% do bruto`}
+              detail={`${pctBR(feePercent)}% do bruto`}
               tone="danger"
               icon={<Percent size={18} />}
             />
@@ -257,7 +293,7 @@ export function DeliveryAcumulado() {
             <SummaryCard
               label="Líquido consolidado"
               moneyValue={summary.totals.netAmount}
-              detail={`${netPercent.toFixed(1)}% do bruto`}
+              detail={`${pctBR(netPercent)}% do bruto`}
               tone="success"
               icon={<TrendingUp size={18} />}
             />
@@ -288,7 +324,7 @@ export function DeliveryAcumulado() {
                       <td style={{ textAlign: "right" }}>{row.orders}</td>
                       <td style={{ textAlign: "right" }}><Money value={row.grossAmount} /></td>
                       <td style={{ textAlign: "right" }}><Money value={row.netAmount} /></td>
-                      <td style={{ textAlign: "right" }}>{share.toFixed(1)}%</td>
+                      <td style={{ textAlign: "right" }}>{pctBR(share)}%</td>
                       <td style={{ fontSize: "12px", color: "var(--color-text-muted, #6b7280)" }}>
                         {row.isMock ? "mock" : "dados reais"}
                       </td>

@@ -788,6 +788,11 @@ function mockResponseFor(url: string): unknown {
   // Painel do dono da 99. Precisa de shape completo: a tela le
   // `painel.breakdown.liquidoPercent` direto, e o fallback `{}` a quebrava.
   // Numeros redondos de proposito — para ninguem confundir com producao.
+  if (path.includes("/keeta/summary")) return buildResumoKeeta();
+  // O iFood nao tem venda real; o mock devolve shape valido ZERADO, que e a
+  // verdade da plataforma hoje. Sem isso a aba Acumulado quebrava em
+  // `ifood.daily is not iterable`.
+  if (path.includes("/ifood/summary")) return buildResumoIfood();
   if (path.includes("/noventa-nove/painel-dono")) return buildPainelNoventaNove();
   // A tela da 99 le `summary.totals.grossAmount` sem defesa — com `{}` a pagina
   // inteira caia em "Esta pagina nao pode ser renderizada", inclusive o painel.
@@ -893,6 +898,59 @@ function buildResumoNoventaNove() {
     totals: {
       orders: 1000, grossAmount: 40_000, noventaNoveFeeAmount: 3_000,
       promotionAmount: 28_000, deliveryFeeAmount: 5_000, netAmount: 36_000, otherFees: 0
+    },
+    daily: [], fees: [], settlements: [], isMock: true
+  };
+}
+
+// Resumo da Keeta. Shape completo porque a tela le totals/previousMonth
+// aninhados direto — com o fallback `{}` a aba quebraria inteira.
+function buildResumoKeeta() {
+  const p = currentPeriod();
+  const dias = Array.from({ length: 10 }, (_, i) => ({
+    date: `${p.year}-${p.monthStr}-${String(i + 1).padStart(2, "0")}`,
+    orders: 50 + i,
+    grossAmount: 3_000 + i * 100,
+    netAmount: 2_300 + i * 80
+  }));
+  const soma = (k: "orders" | "grossAmount" | "netAmount") => dias.reduce((s, d) => s + d[k], 0);
+  const gross = soma("grossAmount");
+  const net = soma("netAmount");
+  const orders = soma("orders");
+  const totals = {
+    orders,
+    grossAmount: gross,
+    netAmount: net,
+    deductionAmount: gross - net,
+    ticketAverage: Math.round((gross / orders) * 100) / 100,
+    deductionPercent: Math.round(((gross - net) / gross) * 1000) / 10,
+    netPercent: Math.round((net / gross) * 1000) / 10
+  };
+  return {
+    period: { year: p.year, month: p.month },
+    totals,
+    daily: dias,
+    previousMonth: {
+      year: p.month === 1 ? p.year - 1 : p.year,
+      month: p.month === 1 ? 12 : p.month - 1,
+      totals: { ...totals, grossAmount: gross * 1.4, netAmount: net * 1.4, orders: Math.round(orders * 1.4) },
+      deltaGross: { percentual: -28.6, comparavel: true },
+      deltaNet: { percentual: -28.6, comparavel: true },
+      deltaOrders: { percentual: -28.6, comparavel: true }
+    },
+    semDados: false
+  };
+}
+
+function buildResumoIfood() {
+  const p = currentPeriod();
+  return {
+    period: { year: p.year, month: p.month },
+    storeId: null,
+    storeLabel: "Todas as lojas (demo)",
+    totals: {
+      orders: 0, grossAmount: 0, ifoodFeeAmount: 0,
+      promotionAmount: 0, deliveryFeeAmount: 0, netAmount: 0, otherFees: 0
     },
     daily: [], fees: [], settlements: [], isMock: true
   };

@@ -21,6 +21,7 @@ export const menuCatalog = [
   { id: "faturamento-salao", label: "Faturamento Salao (Agile PDV)", group: "Financeiro" },
   { id: "delivery-ifood", label: "Delivery iFood", group: "Financeiro" },
   { id: "delivery-noventa-nove", label: "Delivery 99 Food", group: "Financeiro" },
+  { id: "delivery-keeta", label: "Delivery Keeta", group: "Financeiro" },
   { id: "integracao-ifood", label: "Integração iFood", group: "Integrações" },
   { id: "integracao-noventa-nove", label: "Integração 99 Food", group: "Integrações" },
   { id: "cards", label: "Cartoes", group: "Financeiro" },
@@ -425,6 +426,13 @@ function menuFromRequest(request: Request): MenuId | null {
   ) return "integracao-noventa-nove";
   if (path.startsWith("/integrations/delivery/ifood")) return "delivery-ifood";
   if (path.startsWith("/integrations/delivery/noventa-nove")) return "delivery-noventa-nove";
+
+  // A Keeta nao tem integracao — so a tela de faturamento, que le RevenueEntry.
+  // Sem este mapeamento a rota cairia no early-return de `requireMenuAccess`
+  // ("contexto nao resolvido => next()") e ficaria PUBLICA: /integrations/delivery/keeta
+  // e um prefixo de topo novo, e e exatamente esse o caso que o checklist de
+  // modulo novo previne.
+  if (path.startsWith("/integrations/delivery/keeta")) return "delivery-keeta";
   if (path.startsWith("/monthly/daily-revenue")) return "cash";
   if (path.startsWith("/monthly")) return "monthly-closing";
   if (path.startsWith("/dre")) return "dre";
