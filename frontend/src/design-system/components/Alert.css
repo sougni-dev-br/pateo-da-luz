@@ -46,3 +46,9 @@
 .ds-alert-body {
   min-width: 0;
 }
+
+.ds-alert-title {
+  display: block;
+  font-weight: var(--fw-bold);
+  margin-bottom: 2px;
+}

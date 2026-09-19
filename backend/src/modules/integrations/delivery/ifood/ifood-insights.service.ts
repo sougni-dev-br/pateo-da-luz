@@ -1,6 +1,7 @@
 import { prisma } from "../../../../config/database.js";
 import { lerResumoDaLoja } from "./ifood.service.js";
 import { resumoSemDados } from "./ifood-sem-dados.js";
+import { pct as pctTexto } from "../noventa-nove/painel-dono-calculo.js";
 import type { IfoodPeriodSummary } from "./ifood.types.js";
 
 // Thresholds fixos (v1). Se Eli quiser configurável, viram tabela no banco.
@@ -225,7 +226,7 @@ export async function getPainelDonoInsights(params: {
     alerts.push({
       severity: "warn",
       title: "Taxa iFood alta",
-      message: `Taxa iFood consumindo ${breakdown.ifoodFeePercent.toFixed(1)}% do bruto (limite saudável: ${ALERT_THRESHOLDS.IFOOD_FEE_PERCENT_WARN}%). Verifique plano contratado.`,
+      message: `Taxa iFood consumindo ${pctTexto(breakdown.ifoodFeePercent)}% do bruto (limite saudável: ${ALERT_THRESHOLDS.IFOOD_FEE_PERCENT_WARN}%). Verifique plano contratado.`,
       storeId: null
     });
   }
@@ -233,7 +234,7 @@ export async function getPainelDonoInsights(params: {
     alerts.push({
       severity: "warn",
       title: "Promoções custeadas altas",
-      message: `Promoção custeada pela loja em ${breakdown.promotionPercent.toFixed(1)}% do bruto. Avalie se está gerando pedidos incrementais.`,
+      message: `Promoção custeada pela loja em ${pctTexto(breakdown.promotionPercent)}% do bruto. Avalie se está gerando pedidos incrementais.`,
       storeId: null
     });
   }
@@ -241,7 +242,7 @@ export async function getPainelDonoInsights(params: {
     alerts.push({
       severity: "danger",
       title: "Margem líquida baixa",
-      message: `Líquido em ${breakdown.netPercent.toFixed(1)}% do bruto (alerta abaixo de ${ALERT_THRESHOLDS.NET_MARGIN_WARN}%). Custos totais estão consumindo muito.`,
+      message: `Líquido em ${pctTexto(breakdown.netPercent)}% do bruto (alerta abaixo de ${ALERT_THRESHOLDS.NET_MARGIN_WARN}%). Custos totais estão consumindo muito.`,
       storeId: null
     });
   }
@@ -250,7 +251,7 @@ export async function getPainelDonoInsights(params: {
       alerts.push({
         severity: "danger",
         title: `${store.storeLabel} caiu`,
-        message: `Líquido caiu ${Math.abs(store.deltaVsPreviousMonthPercent).toFixed(1)}% vs mês anterior. Investigue avaliações, tempo de entrega, cancelamentos.`,
+        message: `Líquido caiu ${pctTexto(Math.abs(store.deltaVsPreviousMonthPercent))}% vs mês anterior. Investigue avaliações, tempo de entrega, cancelamentos.`,
         storeId: store.storeId
       });
     }
