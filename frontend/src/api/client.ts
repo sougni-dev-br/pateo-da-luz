@@ -4894,6 +4894,21 @@ export type PainelDonoNoventaNove = {
       taxa: number; promocao: number; entrega: number; outrasTaxas: number; disponivel: boolean;
     };
   };
+  /** O delivery é vendido com desconto — esta é a conta sobre o preço ANUNCIADO. */
+  precoDeTabela: {
+    /** `false` em abr–jun/2026: vieram do relatório do portal, que não traz o preço de tabela. */
+    disponivel: boolean;
+    tabela: number;
+    bruto: number;
+    liquido: number;
+    descontoTotal: number;
+    descontoPercent: number;
+    bancadoPelaLoja: number;
+    bancadoPelaPlataforma: number;
+    brutoSobreTabelaPercent: number;
+    liquidoSobreTabelaPercent: number;
+    cobertura: { comTabela: number; total: number };
+  };
   weekday: Array<{ dow: number; label: string; avgNet: number; avgOrders: number; dias: number }>;
   ticketByStore: Array<{ storeId: string; storeLabel: string; ticket: number; delta: Variacao }>;
   alerts: Array<{ severity: "info" | "warn" | "danger"; title: string; message: string; storeId: string | null }>;
