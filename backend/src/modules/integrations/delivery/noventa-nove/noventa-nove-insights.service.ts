@@ -8,14 +8,17 @@
 //   - a comparacao com o ano passado diz "sem base" quando nao ha ano passado,
 //     em vez de anunciar +100%.
 
+import { prisma } from "../../../../config/database.js";
 import { listStores, lerResumoDaLoja } from "./noventa-nove.service.js";
-import { participacao, projetarMes, round2, ticketMedio, variacao, type Projecao, type Variacao } from "./painel-dono-calculo.js";
+import { participacao, pct, precoDeTabela, projetarMes, reais, round2, ticketMedio, variacao, type PrecoDeTabela, type Projecao, type Variacao } from "./painel-dono-calculo.js";
 import type { NoventaNovePeriodSummary } from "./noventa-nove.types.js";
 
 // Limites de alerta. Ficam aqui, visiveis, em vez de espalhados em ifs.
 const LIMITES = {
   /** Deducao real (bruto − liquido) sobre o bruto. */
   DEDUCAO_PERCENT: 25,
+  /** Quanto do preco ANUNCIADO chega ao caixa. Abaixo disso, o desconto esta comendo o canal. */
+  LIQUIDO_SOBRE_TABELA_PERCENT: 55,
   /** Queda do liquido de uma loja contra o mes anterior. */
   QUEDA_PERCENT: -15
 };
@@ -60,6 +63,8 @@ export type PainelDonoNoventaNove = {
       disponivel: boolean;
     };
   };
+  /** O delivery é vendido com desconto — esta é a conta sobre o preço ANUNCIADO. */
+  precoDeTabela: PrecoDeTabela;
   weekday: Array<{ dow: number; label: string; avgNet: number; avgOrders: number; dias: number }>;
   ticketByStore: Array<{ storeId: string; storeLabel: string; ticket: number; delta: Variacao }>;
   alerts: Array<{ severity: "info" | "warn" | "danger"; title: string; message: string; storeId: string | null }>;
@@ -148,6 +153,35 @@ export async function getPainelDono(params: { year: number; month: number }): Pr
     .filter((linha) => linha.grossAmount !== 0 || linha.orders !== 0)
     .sort((a, b) => b.grossAmount - a.grossAmount);
 
+  // Preço de tabela: vem do `mealOriginalAmount` que a 99 manda em cada pedido e
+  // que nunca foi exposto. Só compara os pedidos que TÊM o campo — senão o
+  // denominador cobriria menos pedidos que o numerador e o percentual mentiria.
+  const [tabelaRow] = await prisma.$queryRawUnsafe<Array<{
+    tabela: number | null; bruto: number | null; liquido: number | null; promo: number | null; comTabela: number; total: number;
+  }>>(
+    `SELECT
+       SUM(("rawPayload"->>'mealOriginalAmount')::numeric / 100) FILTER (WHERE "rawPayload"->>'mealOriginalAmount' IS NOT NULL) AS "tabela",
+       SUM("grossAmount")   FILTER (WHERE "rawPayload"->>'mealOriginalAmount' IS NOT NULL) AS "bruto",
+       SUM("netAmount")     FILTER (WHERE "rawPayload"->>'mealOriginalAmount' IS NOT NULL) AS "liquido",
+       SUM("promotionAmount") FILTER (WHERE "rawPayload"->>'mealOriginalAmount' IS NOT NULL) AS "promo",
+       COUNT(*)             FILTER (WHERE "rawPayload"->>'mealOriginalAmount' IS NOT NULL)::int AS "comTabela",
+       COUNT(*)::int AS "total"
+     FROM "NoventaNoveSale" s
+     JOIN "DeliveryStore" st ON st.id = s."deliveryStoreId"
+     WHERE st.platform = 'NOVENTA_NOVE' AND st.active = true
+       AND s."competenceYear" = $1 AND s."competenceMonth" = $2
+       AND s.channel IN ('DELIVERY', 'DELIVERY_REFUND')`,
+    params.year, params.month
+  );
+  const tabela = precoDeTabela({
+    tabela: Number(tabelaRow?.tabela ?? 0),
+    bruto: Number(tabelaRow?.bruto ?? 0),
+    liquido: Number(tabelaRow?.liquido ?? 0),
+    bancadoPelaLoja: Number(tabelaRow?.promo ?? 0),
+    pedidosComTabela: tabelaRow?.comTabela ?? 0,
+    pedidosTotal: tabelaRow?.total ?? 0
+  });
+
   const deducao = cur.grossAmount - cur.netAmount;
   const informados = cur.noventaNoveFeeAmount + cur.promotionAmount + cur.deliveryFeeAmount + cur.otherFees;
   const breakdown = {
@@ -214,12 +248,25 @@ export async function getPainelDono(params: { year: number; month: number }): Pr
   if (cur.grossAmount > 0) {
     if (breakdown.deducaoPercent > LIMITES.DEDUCAO_PERCENT) {
       alerts.push({ severity: "danger", title: "Dedução total alta",
-        message: `A plataforma reteve ${breakdown.deducaoPercent.toFixed(1)}% do bruto (limite ${LIMITES.DEDUCAO_PERCENT}%). Restou ${breakdown.liquidoPercent.toFixed(1)}%.`, storeId: null });
+        message: `A plataforma reteve ${pct(breakdown.deducaoPercent)}% do bruto (limite ${LIMITES.DEDUCAO_PERCENT}%). Restou ${pct(breakdown.liquidoPercent)}%.`, storeId: null });
     }
+    // O alerta que faltava: o desconto come mais da metade do preço anunciado, e
+    // a maior parte dele sai do bolso da loja.
+    if (tabela.disponivel && tabela.liquidoSobreTabelaPercent < LIMITES.LIQUIDO_SOBRE_TABELA_PERCENT) {
+      alerts.push({
+        severity: "danger",
+        title: "Pouco do preço anunciado chega ao caixa",
+        message: `De cada R$ 100 de cardápio, entram R$ ${tabela.liquidoSobreTabelaPercent.toFixed(0)}. `
+          + `O desconto levou ${pct(tabela.descontoPercent)}% do preço de tabela, e a loja bancou `
+          + `R$ ${reais(tabela.bancadoPelaLoja)} disso.`,
+        storeId: null
+      });
+    }
+
     for (const loja of ranking) {
       if (loja.deltaVsPreviousMonth.comparavel && loja.deltaVsPreviousMonth.percentual < LIMITES.QUEDA_PERCENT) {
         alerts.push({ severity: "danger", title: `${loja.storeLabel} caiu`,
-          message: `Líquido ${Math.abs(loja.deltaVsPreviousMonth.percentual).toFixed(1)}% abaixo do mês anterior.`, storeId: loja.storeId });
+          message: `Líquido ${pct(Math.abs(loja.deltaVsPreviousMonth.percentual))}% abaixo do mês anterior.`, storeId: loja.storeId });
       }
     }
   }
@@ -251,6 +298,7 @@ export async function getPainelDono(params: { year: number; month: number }): Pr
     projection,
     ranking,
     breakdown,
+    precoDeTabela: tabela,
     weekday,
     ticketByStore,
     alerts,

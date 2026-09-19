@@ -82,8 +82,89 @@ export function ticketMedio(bruto: number, pedidos: number): number {
   return round2(bruto / pedidos);
 }
 
+/**
+ * Percentual para TEXTO em pt-BR: "52,4%" e nao "52.4%".
+ *
+ * As mensagens de alerta saiam com ponto decimal no meio de frases em portugues
+ * que ja escreviam "R$ 26.951,17" — duas convencoes na mesma linha.
+ */
+export function pct(valor: number, casas = 1): string {
+  return valor.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
+}
+
+/** Valor em reais para TEXTO em pt-BR, sem o prefixo "R$". */
+export function reais(valor: number): string {
+  return valor.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 /** Participacao de uma parte no total, em %. */
 export function participacao(parte: number, total: number): number {
   if (total === 0) return 0;
   return round2((parte / total) * 100);
+}
+
+export type PrecoDeTabela = {
+  /** `false` em abr–jun/2026: vieram do relatorio do portal, que nao traz o preco de tabela. */
+  disponivel: boolean;
+  tabela: number;
+  bruto: number;
+  liquido: number;
+  descontoTotal: number;
+  descontoPercent: number;
+  bancadoPelaLoja: number;
+  bancadoPelaPlataforma: number;
+  /** Quanto do preco ANUNCIADO vira receita. */
+  brutoSobreTabelaPercent: number;
+  /** Quanto do preco ANUNCIADO chega ao caixa. */
+  liquidoSobreTabelaPercent: number;
+  /** Quantos pedidos do mes tinham preco de tabela, de quantos. */
+  cobertura: { comTabela: number; total: number };
+};
+
+/**
+ * O delivery e vendido com desconto, e a conta que interessa ao dono nao e
+ * sobre o bruto — e sobre o PRECO ANUNCIADO.
+ *
+ * O painel mostrava "ficou com a loja: 89,4%", verdade sobre o bruto. So que o
+ * bruto ja e a receita DEPOIS do desconto: sobre o preco de tabela ficam 42,5%.
+ * Medido em set/2026 sobre os pedidos faturados: tabela R$ 72.089,81, liquido no
+ * caixa R$ 30.663,70. E a serie piora — 46,7% (jul), 46,0% (ago), 42,5% (set).
+ *
+ * `bancadoPelaLoja` e o `shopActivityOutcome` da 99: a parte do desconto que sai
+ * do bolso da loja (~70% do total). O resto e promocao da plataforma.
+ */
+export function precoDeTabela(input: {
+  tabela: number;
+  bruto: number;
+  liquido: number;
+  bancadoPelaLoja: number;
+  pedidosComTabela: number;
+  pedidosTotal: number;
+}): PrecoDeTabela {
+  const { tabela, bruto, liquido, bancadoPelaLoja, pedidosComTabela, pedidosTotal } = input;
+  if (tabela <= 0) {
+    return {
+      disponivel: false,
+      tabela: 0, bruto: 0, liquido: 0,
+      descontoTotal: 0, descontoPercent: 0,
+      bancadoPelaLoja: 0, bancadoPelaPlataforma: 0,
+      brutoSobreTabelaPercent: 0, liquidoSobreTabelaPercent: 0,
+      cobertura: { comTabela: 0, total: pedidosTotal }
+    };
+  }
+  const descontoTotal = round2(tabela - bruto);
+  return {
+    disponivel: true,
+    tabela: round2(tabela),
+    bruto: round2(bruto),
+    liquido: round2(liquido),
+    descontoTotal,
+    descontoPercent: participacao(descontoTotal, tabela),
+    bancadoPelaLoja: round2(bancadoPelaLoja),
+    // O que sobra do desconto depois da parte da loja e promocao da plataforma.
+    bancadoPelaPlataforma: round2(descontoTotal - bancadoPelaLoja),
+    brutoSobreTabelaPercent: participacao(bruto, tabela),
+    liquidoSobreTabelaPercent: participacao(liquido, tabela),
+    cobertura: { comTabela: pedidosComTabela, total: pedidosTotal }
+  };
 }

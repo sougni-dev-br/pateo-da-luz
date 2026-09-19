@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { participacao, projetarMes, ticketMedio, variacao } from "../painel-dono-calculo.js";
+import { participacao, pct, precoDeTabela, projetarMes, reais, ticketMedio, variacao } from "../painel-dono-calculo.js";
 
 describe("variacao diz quando NAO ha base de comparacao", () => {
   // A 99 so tem dados desde abril/2026. Comparar setembro com setembro do ano
@@ -98,5 +98,76 @@ describe("ticket medio e participacao", () => {
 
   test("total zero nao estoura", () => {
     expect(participacao(10, 0)).toBe(0);
+  });
+});
+
+describe("preco de tabela — a conta que o dono precisa ver", () => {
+  // Setembro/2026 medido em producao a partir de `mealOriginalAmount`, sobre os
+  // MESMOS pedidos que o painel conta (channel DELIVERY / DELIVERY_REFUND) —
+  // uma medicao anterior somava todos os canais e dava outro denominador.
+  const SET = {
+    tabela: 72_089.81, bruto: 34_291.27, liquido: 30_663.70,
+    bancadoPelaLoja: 26_951.17, pedidosComTabela: 982, pedidosTotal: 982
+  };
+
+  test("o bruto e menos da metade do preco anunciado", () => {
+    expect(precoDeTabela(SET).brutoSobreTabelaPercent).toBeCloseTo(47.6, 1);
+  });
+
+  // O painel dizia "ficou com a loja: 89,4%" — certo sobre o bruto, mas o bruto
+  // ja e a receita depois do desconto. Sobre o que a loja anuncia, sao 42,5%.
+  test("o que chega ao caixa e 42,5% do anunciado, nao 89,4%", () => {
+    const p = precoDeTabela(SET);
+    expect(p.liquidoSobreTabelaPercent).toBeCloseTo(42.5, 1);
+    expect(p.liquidoSobreTabelaPercent).toBeLessThan(50);
+    // 89,4% e o mesmo liquido sobre o BRUTO — os dois numeros sao verdadeiros, e
+    // por isso a tela precisa dizer sobre qual base cada um fala.
+    expect(participacao(SET.liquido, SET.bruto)).toBeCloseTo(89.4, 1);
+  });
+
+  test("separa quem bancou o desconto — a loja paga a maior parte", () => {
+    const p = precoDeTabela(SET);
+    expect(p.descontoTotal).toBeCloseTo(37_798.54, 1);
+    expect(p.bancadoPelaLoja).toBeCloseTo(26_951.17, 1);
+    expect(p.bancadoPelaPlataforma).toBeCloseTo(10_847.37, 1);
+    expect(p.bancadoPelaLoja + p.bancadoPelaPlataforma).toBeCloseTo(p.descontoTotal, 1);
+  });
+
+  test("o desconto e mais da metade do preco anunciado", () => {
+    expect(precoDeTabela(SET).descontoPercent).toBeCloseTo(52.4, 1);
+  });
+
+  // A tela desenha o preco de tabela como quatro fatias: liquido + retido pela
+  // 99 + desconto bancado pela loja + desconto bancado pela plataforma. Se isso
+  // nao fechar, a barra mente por omissao.
+  test("as quatro fatias da tela somam o preco de tabela", () => {
+    const p = precoDeTabela(SET);
+    const retidoPelaPlataforma = p.bruto - p.liquido;
+    expect(p.liquido + retidoPelaPlataforma + p.bancadoPelaLoja + p.bancadoPelaPlataforma).toBeCloseTo(p.tabela, 1);
+  });
+
+  // abr–jun vieram do relatorio do portal, que nao traz mealOriginalAmount.
+  test("sem preco de tabela marca indisponivel, em vez de mostrar zero como se fosse fato", () => {
+    const p = precoDeTabela({ tabela: 0, bruto: 63_353.14, liquido: 57_520.36, bancadoPelaLoja: 0, pedidosComTabela: 0, pedidosTotal: 1400 });
+    expect(p.disponivel).toBe(false);
+    expect(p.cobertura).toEqual({ comTabela: 0, total: 1400 });
+  });
+
+  test("cobertura parcial fica registrada, para a tela poder ressalvar", () => {
+    const p = precoDeTabela({ ...SET, pedidosComTabela: 800, pedidosTotal: 982 });
+    expect(p.disponivel).toBe(true);
+    expect(p.cobertura).toEqual({ comTabela: 800, total: 982 });
+  });
+});
+
+describe("texto em pt-BR", () => {
+  // As mensagens de alerta misturavam "52.4%" com "R$ 26.951,17" na mesma frase.
+  test("percentual sai com virgula, nao com ponto", () => {
+    expect(pct(52.43)).toBe("52,4");
+    expect(pct(55)).toBe("55,0");
+  });
+
+  test("valor sai no formato brasileiro", () => {
+    expect(reais(26_951.17)).toBe("26.951,17");
   });
 });

@@ -785,6 +785,20 @@ function mockResponseFor(url: string): unknown {
   ];
   if (listPatterns.some((p) => path.includes(p))) return [];
 
+  // Painel do dono da 99. Precisa de shape completo: a tela le
+  // `painel.breakdown.liquidoPercent` direto, e o fallback `{}` a quebrava.
+  // Numeros redondos de proposito — para ninguem confundir com producao.
+  if (path.includes("/noventa-nove/painel-dono")) return buildPainelNoventaNove();
+  // A tela da 99 le `summary.totals.grossAmount` sem defesa — com `{}` a pagina
+  // inteira caia em "Esta pagina nao pode ser renderizada", inclusive o painel.
+  if (path.includes("/noventa-nove/summary")) return buildResumoNoventaNove();
+  if (path.includes("/noventa-nove/status")) {
+    return {
+      credential: { configured: true, environment: "PRODUCTION", lastCheckedAt: null, message: "Mock" },
+      stores: [], lastSync: null, mockMode: true, awaitingApproval: false
+    };
+  }
+
   // Fallback: objeto vazio. Paginas devem lidar com campos undefined
   // (a maioria ja faz por ter erro de rede em prod).
   return {};
@@ -808,4 +822,78 @@ export function installMockFetch(): void {
   installed = true;
   // eslint-disable-next-line no-console
   console.info("[mock-user] fetch interceptor ativo — respostas de API mockadas");
+}
+
+// ─── Painel do dono da 99 Food ──────────────────────────────────────────
+//
+// Shape completo porque a tela consome campos aninhados direto. Exercita as
+// duas ramificacoes que mais erram na revisao visual: `precoDeTabela.disponivel`
+// (mes com dado de API x mes vindo do relatorio do portal) e os alertas por
+// loja, que a tela agrupa num bloco so.
+function buildPainelNoventaNove() {
+  const p = currentPeriod();
+  const semBase = { percentual: 0, comparavel: false };
+  const tabela = 80_000;
+  const bruto = 40_000;
+  const liquido = 36_000;
+  const bancadoPelaLoja = 28_000;
+  return {
+    period: { year: p.year, month: p.month, diaDeHoje: 20, diasNoMes: 30, mesEmCurso: true },
+    current: { orders: 1000, grossAmount: bruto, netAmount: liquido, ticketAverage: 40 },
+    previousMonth: {
+      orders: 1200, grossAmount: 50_000, netAmount: 45_000, ticketAverage: 41.67,
+      deltaGross: { percentual: -20, comparavel: true }, deltaNet: { percentual: -20, comparavel: true }
+    },
+    lastYear: {
+      orders: 0, grossAmount: 0, netAmount: 0, ticketAverage: 0,
+      deltaGross: semBase, deltaNet: semBase
+    },
+    projection: {
+      grossAmount: 60_000, netAmount: 54_000, diasDecorridos: 20, diasRestantes: 10,
+      ehProjecao: true, nota: "Projeção pela média de 20 dia(s) corridos, aplicada aos 30 do mês."
+    },
+    ranking: [
+      { storeId: "mock-1", storeLabel: "Loja Demo 1", grossAmount: 24_000, netAmount: 21_600, orders: 600, sharePercent: 60, deltaVsPreviousMonth: { percentual: -18, comparavel: true } },
+      { storeId: "mock-2", storeLabel: "Loja Demo 2", grossAmount: 16_000, netAmount: 14_400, orders: 400, sharePercent: 40, deltaVsPreviousMonth: { percentual: -22, comparavel: true } }
+    ],
+    breakdown: {
+      deducaoPercent: 10, liquidoPercent: 90, deducaoValor: 4_000,
+      informadoPelaPlataforma: { taxa: 3_000, promocao: bancadoPelaLoja, entrega: 5_000, outrasTaxas: 0, disponivel: true }
+    },
+    precoDeTabela: {
+      disponivel: true, tabela, bruto, liquido,
+      descontoTotal: tabela - bruto, descontoPercent: 50,
+      bancadoPelaLoja, bancadoPelaPlataforma: tabela - bruto - bancadoPelaLoja,
+      brutoSobreTabelaPercent: 50, liquidoSobreTabelaPercent: 45,
+      cobertura: { comTabela: 1000, total: 1000 }
+    },
+    weekday: [1, 2, 3, 4, 5, 6, 0].map((dow) => ({
+      dow, label: ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"][dow],
+      avgNet: 1_200, avgOrders: 33, dias: 4
+    })),
+    ticketByStore: [
+      { storeId: "mock-1", storeLabel: "Loja Demo 1", ticket: 40, delta: { percentual: 2, comparavel: true } },
+      { storeId: "mock-2", storeLabel: "Loja Demo 2", ticket: 40, delta: semBase }
+    ],
+    alerts: [
+      { severity: "danger", title: "Pouco do preço anunciado chega ao caixa", message: "De cada R$ 100 de cardápio, entram R$ 45. O desconto levou 50,0% do preço de tabela, e a loja bancou R$ 28.000,00 disso.", storeId: null },
+      { severity: "danger", title: "Loja Demo 1 caiu", message: "Líquido 18,0% abaixo do mês anterior.", storeId: "mock-1" },
+      { severity: "danger", title: "Loja Demo 2 caiu", message: "Líquido 22,0% abaixo do mês anterior.", storeId: "mock-2" }
+    ],
+    semDados: false
+  };
+}
+
+function buildResumoNoventaNove() {
+  const p = currentPeriod();
+  return {
+    period: { year: p.year, month: p.month },
+    storeId: null,
+    storeLabel: "Todas as lojas (demo)",
+    totals: {
+      orders: 1000, grossAmount: 40_000, noventaNoveFeeAmount: 3_000,
+      promotionAmount: 28_000, deliveryFeeAmount: 5_000, netAmount: 36_000, otherFees: 0
+    },
+    daily: [], fees: [], settlements: [], isMock: true
+  };
 }
