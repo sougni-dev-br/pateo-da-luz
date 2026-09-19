@@ -1,5 +1,6 @@
 import { prisma } from "../../../../config/database.js";
-import { buildMockSummary } from "./ifood-mock.service.js";
+import { lerResumoDaLoja } from "./ifood.service.js";
+import { resumoSemDados } from "./ifood-sem-dados.js";
 import type { IfoodPeriodSummary } from "./ifood.types.js";
 
 // Thresholds fixos (v1). Se Eli quiser configurável, viram tabela no banco.
@@ -107,16 +108,23 @@ export async function getPainelDonoInsights(params: {
     orderBy: { createdAt: "asc" }
   });
 
-  const buildForPeriod = (year: number, month: number): IfoodPeriodSummary[] =>
-    activeStores.map((store) =>
-      buildMockSummary({ storeId: store.id, storeLabel: store.nickname, year, month })
+  // Lia o MOCK e nunca o banco: o "Painel do dono" — a tela de analise, com
+  // ranking de lojas, projecao e comparacao com o ano passado — era inteiramente
+  // ficcao. Com as tabelas do iFood vazias, ele mostrava um negocio saudavel que
+  // nao existe. Agora vem do banco; sem venda, vem zero.
+  const buildForPeriod = async (year: number, month: number): Promise<IfoodPeriodSummary[]> =>
+    Promise.all(
+      activeStores.map(async (store) => {
+        const real = await lerResumoDaLoja(store.id, store.nickname, year, month);
+        return real ?? resumoSemDados(store.id, store.nickname, year, month);
+      })
     );
 
-  const currentPerStore = buildForPeriod(params.year, params.month);
+  const currentPerStore = await buildForPeriod(params.year, params.month);
   const prev = shiftMonth(params.year, params.month, -1);
-  const prevPerStore = buildForPeriod(prev.year, prev.month);
+  const prevPerStore = await buildForPeriod(prev.year, prev.month);
   const lastYearRef = shiftMonth(params.year, params.month, -12);
-  const lastYearPerStore = buildForPeriod(lastYearRef.year, lastYearRef.month);
+  const lastYearPerStore = await buildForPeriod(lastYearRef.year, lastYearRef.month);
 
   const sumTotals = (rows: IfoodPeriodSummary[]) =>
     rows.reduce(
@@ -282,6 +290,8 @@ export async function getPainelDonoInsights(params: {
     weekday,
     ticketByStore,
     alerts,
-    isMock: true
+    // Era `true` literal. Agora diz a verdade sobre ESTE periodo: so marca
+    // "sem dados" quando nenhuma loja tem venda sincronizada.
+    isMock: currentPerStore.every((loja) => loja.isMock)
   };
 }

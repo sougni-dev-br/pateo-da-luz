@@ -7,7 +7,7 @@ import type {
   IfoodStoreInput,
   IfoodStoreView
 } from "./ifood.types.js";
-import { buildMockSummary, consolidateSummaries } from "./ifood-mock.service.js";
+import { resumoSemDados, somarResumos } from "./ifood-sem-dados.js";
 import { runRealSync, type RealSyncResult } from "./ifood-real-sync.service.js";
 import { hasValidCredential } from "./ifood-http-client.js";
 
@@ -229,7 +229,23 @@ async function readSummaryFromDb(store: IfoodStoreView, year: number, month: num
 async function summaryForStore(store: IfoodStoreView, year: number, month: number): Promise<IfoodPeriodSummary> {
   const real = await readSummaryFromDb(store, year, month);
   if (real) return real;
-  return buildMockSummary({ storeId: store.id, storeLabel: store.nickname, year, month });
+  // Sem venda sincronizada devolve ZERO, nunca ficcao. Ver ifood-sem-dados.ts.
+  return resumoSemDados(store.id, store.nickname, year, month);
+}
+
+/**
+ * Leitura crua do banco para uma loja, sem preencher vazio com nada.
+ * Devolve `null` quando nao ha venda no periodo — o chamador decide o que fazer.
+ *
+ * Existe para o Painel do dono, que lia o mock em vez do banco.
+ */
+export async function lerResumoDaLoja(
+  storeId: string,
+  storeLabel: string,
+  year: number,
+  month: number
+): Promise<IfoodPeriodSummary | null> {
+  return readSummaryFromDb({ id: storeId, nickname: storeLabel } as IfoodStoreView, year, month);
 }
 
 export async function getPeriodSummary(params: {
@@ -260,7 +276,7 @@ export async function getPeriodSummary(params: {
   const summaries = await Promise.all(
     activeStores.map((store) => summaryForStore(store, params.year, params.month))
   );
-  return consolidateSummaries(summaries, params.year, params.month);
+  return somarResumos(summaries, params.year, params.month);
 }
 
 export async function getStatus(): Promise<IfoodStatusView> {
