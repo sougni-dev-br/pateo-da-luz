@@ -4920,6 +4920,44 @@ export function getNoventaNovePainelDono(params: { year: number; month: number }
   return request<PainelDonoNoventaNove>(`/integrations/delivery/noventa-nove/painel-dono?${query.toString()}`);
 }
 
+/**
+ * Resumo da Keeta.
+ *
+ * Diferente de iFood e 99: a Keeta não tem integração, então não há lojas, nem
+ * repasses, nem a quebra da dedução em taxa/promoção/entrega. O faturamento é
+ * importado do portal e lido de `RevenueEntry` — por isso o tipo é bem menor
+ * que o `NoventaNovePeriodSummary`.
+ */
+export type KeetaTotais = {
+  orders: number;
+  grossAmount: number;
+  deductionAmount: number;
+  netAmount: number;
+  ticketAverage: number;
+  deductionPercent: number;
+  netPercent: number;
+};
+
+export type KeetaPeriodSummary = {
+  period: { year: number; month: number };
+  totals: KeetaTotais;
+  daily: Array<{ date: string; orders: number; grossAmount: number; netAmount: number }>;
+  previousMonth: {
+    year: number;
+    month: number;
+    totals: KeetaTotais;
+    deltaGross: Variacao;
+    deltaNet: Variacao;
+    deltaOrders: Variacao;
+  };
+  semDados: boolean;
+};
+
+export function getKeetaSummary(params: { year: number; month: number }) {
+  const query = new URLSearchParams({ year: String(params.year), month: String(params.month) });
+  return request<KeetaPeriodSummary>(`/integrations/delivery/keeta/summary?${query.toString()}`);
+}
+
 export function getNoventaNoveSummary(params: { year: number; month: number; storeId?: string }) {
   const query = new URLSearchParams({
     year: String(params.year),
