@@ -3536,6 +3536,9 @@ export type MonthlyClosureState = {
     salon: { grossAmount: number; netAmount: number; daysCount: number; entryCount: number };
     ifood: { grossAmount: number; count: number };
     noventaNove: { grossAmount: number; count: number };
+    outrosDelivery: { grossAmount: number; count: number; plataformas: string[] };
+    /** Total do mes, lido do razao. Nunca some as parcelas acima — elas saem dele. */
+    total: { grossAmount: number; netAmount: number };
   };
   purchases: {
     total: number;
