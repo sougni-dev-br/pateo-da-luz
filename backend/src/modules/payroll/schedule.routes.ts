@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
@@ -153,6 +154,31 @@ async function saldosDeFolgaFeriado(
   return saldos;
 }
 
+// ─── Quem entra na escala de um mês ─────────────────────────────────────────────
+//
+// Ativos com "Entra na escala" ligado E os desligados cujo desligamento cai
+// dentro do mês ou depois dele. O desligamento grava isActive=false no mesmo
+// instante, e filtrar só por isActive fazia a pessoa sumir da escala no dia em
+// que era lançado — levando junto as folgas do mês e os meses anteriores, que
+// ela trabalhou de verdade e alimentam o VT e a rescisão.
+//
+// Inativo SEM data de desligamento (o "Inativar" simples) continua fora: não há
+// data para saber até quando ele conta.
+function empregadosDaEscala(monthStart: Date): Prisma.EmployeeWhereInput {
+  return {
+    deletedAt: null,
+    includeInSchedule: true,
+    OR: [{ isActive: true }, { isActive: false, terminationDate: { gte: monthStart } }],
+  };
+}
+
+// Marcação depois do desligamento não existe: a pessoa já saiu. Sobra de folga
+// planejada antes do desligamento seria lida pelo mural e por quem somar a
+// escala — descartada no salvamento.
+function depoisDoDesligamento(terminationDate: Date | null, dia: Date): boolean {
+  return terminationDate != null && dia.getTime() > terminationDate.getTime();
+}
+
 // ─── GET /schedule?year=&month= ─────────────────────────────────────────────────
 scheduleRouter.get("/", async (request, response) => {
   const { year, month } = parseYearMonth(request.query as { year?: unknown; month?: unknown });
@@ -166,29 +192,34 @@ scheduleRouter.get("/", async (request, response) => {
     days.push({ day: d, dow, isSunday: dow === 0, isHoliday: holidayName != null, holidayName });
   }
 
+  const monthStart = new Date(Date.UTC(year, month - 1, 1));
+  const nextMonthStart = new Date(Date.UTC(year, month, 1));
+
   const employees = await prisma.employee.findMany({
-    where: { deletedAt: null, isActive: true, includeInSchedule: true },
+    where: empregadosDaEscala(monthStart),
     select: {
       id: true, firstName: true, lastName: true, displayName: true, sector: true, subgroup: true, position: true,
       shiftStart: true, shiftEnd: true, scheduleRegime: true, admissionDate: true, terminationDate: true, gender: true,
-      holidayCompBalance: true,
+      holidayCompBalance: true, isActive: true,
     },
     orderBy: [{ sector: "asc" }, { firstName: "asc" }, { lastName: "asc" }],
   });
+  const empIds = employees.map((e) => e.id);
+  const desligamentoPorId = new Map(employees.map((e) => [e.id, e.terminationDate]));
 
-  const monthStart = new Date(Date.UTC(year, month - 1, 1));
-  const nextMonthStart = new Date(Date.UTC(year, month, 1));
   const rows = await prisma.employeeScheduleDay.findMany({
-    where: { date: { gte: monthStart, lt: nextMonthStart }, employee: { deletedAt: null, isActive: true } },
+    where: { date: { gte: monthStart, lt: nextMonthStart }, employeeId: { in: empIds } },
     select: { employeeId: true, date: true, type: true },
   });
-  const entries = rows.map((r) => ({ employeeId: r.employeeId, day: r.date.getUTCDate(), type: r.type }));
+  const entries = rows
+    .filter((r) => !depoisDoDesligamento(desligamentoPorId.get(r.employeeId) ?? null, r.date))
+    .map((r) => ({ employeeId: r.employeeId, day: r.date.getUTCDate(), type: r.type }));
 
   // Férias (PayrollItem type FERIAS) que tocam este mês → dias para a grade sombrear.
   const feriasItems = await prisma.payrollItem.findMany({
     where: {
       type: "FERIAS", deletedAt: null,
-      employee: { deletedAt: null, isActive: true },
+      employeeId: { in: empIds },
       periodStart: { lt: nextMonthStart }, periodEnd: { gte: monthStart },
     },
     select: { employeeId: true, periodStart: true, periodEnd: true },
@@ -217,7 +248,7 @@ scheduleRouter.get("/", async (request, response) => {
   const bordaFim = new Date(nextMonthStart.getTime() + 10 * 86400000);
   const bordaRows = await prisma.employeeScheduleDay.findMany({
     where: {
-      employeeId: { in: employees.map((e) => e.id) },
+      employeeId: { in: empIds },
       OR: [
         { date: { gte: bordaInicio, lt: monthStart } },
         { date: { gte: nextMonthStart, lt: bordaFim } },
@@ -233,7 +264,7 @@ scheduleRouter.get("/", async (request, response) => {
 
   const cfg = await prisma.payrollSettings.findUnique({ where: { id: "singleton" }, select: { dsrDomingoMulherSemanas: true, dsrDomingoGeralSemanas: true } });
   const regraDomingo = { mulher: cfg?.dsrDomingoMulherSemanas ?? 2, geral: cfg?.dsrDomingoGeralSemanas ?? 3 };
-  const sundayHistory = await domingosAnteriores(employees.map((e) => e.id), monthStart);
+  const sundayHistory = await domingosAnteriores(empIds, monthStart);
   const saldos = await saldosDeFolgaFeriado(employees);
   const employeesComSaldo = employees.map((e) => ({
     ...e,
@@ -270,11 +301,19 @@ scheduleRouter.post("/bulk", async (request, response) => {
       return true;
     });
 
-  const activeEmployees = await prisma.employee.findMany({
-    where: { deletedAt: null, isActive: true },
-    select: { id: true },
+  const monthStart = new Date(Date.UTC(year, month - 1, 1));
+  const nextMonthStart = new Date(Date.UTC(year, month, 1));
+
+  // Quem este salvamento pode reescrever: todos os ativos (como sempre foi) e
+  // os desligados que a tela mostra neste mês. Desligado com "Entra na escala"
+  // desligado fica de fora — não aparece na tela, então não manda marcação, e
+  // incluí-lo aqui apagaria as folgas dele em silêncio.
+  const editaveis = await prisma.employee.findMany({
+    where: { OR: [{ deletedAt: null, isActive: true }, empregadosDaEscala(monthStart)] },
+    select: { id: true, terminationDate: true },
   });
-  const activeIds = new Set(activeEmployees.map((e) => e.id));
+  const activeIds = new Set(editaveis.map((e) => e.id));
+  const desligamentoPorId = new Map(editaveis.map((e) => [e.id, e.terminationDate]));
 
   const seen = new Set<string>();
   const entries = rawEntries
@@ -287,14 +326,12 @@ scheduleRouter.post("/bulk", async (request, response) => {
     }))
     .filter((e) => {
       if (!(e.day >= 1 && e.day <= daysInMonth)) return false;
+      if (depoisDoDesligamento(desligamentoPorId.get(e.employeeId) ?? null, new Date(Date.UTC(year, month - 1, e.day)))) return false;
       const k = `${e.employeeId}|${e.day}`;
       if (seen.has(k)) return false;
       seen.add(k);
       return true;
     });
-
-  const monthStart = new Date(Date.UTC(year, month - 1, 1));
-  const nextMonthStart = new Date(Date.UTC(year, month, 1));
 
   await prisma.$transaction(async (tx) => {
     await tx.employeeScheduleDay.deleteMany({

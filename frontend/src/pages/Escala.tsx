@@ -159,6 +159,36 @@ function withinEmployment(e: ScheduleEmployee, year: number, month: number, day:
   }
   return true;
 }
+function desligado(e: ScheduleEmployee): boolean {
+  return !e.isActive && !!e.terminationDate;
+}
+function dataCurta(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+// Desligados que NÃO saem no mural deste mês. A escolha é do mês impresso, não
+// do cadastro: a pessoa continua na tela (as folgas dela contam para o VT e a
+// rescisão), só deixa de ir para a parede. Para tirá-la da escala de vez, o
+// caminho é "Entra na escala" no cadastro. Guardado neste navegador — é uma
+// preferência de impressão, não um dado do negócio.
+const chaveForaDoMural = (year: number, month: number) => `escala:fora-do-mural:${year}-${month}`;
+function lerForaDoMural(year: number, month: number): Set<string> {
+  try {
+    const raw = localStorage.getItem(chaveForaDoMural(year, month));
+    const ids = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(ids) ? ids.filter((v): v is string => typeof v === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+function gravarForaDoMural(year: number, month: number, ids: Set<string>) {
+  try {
+    localStorage.setItem(chaveForaDoMural(year, month), JSON.stringify(Array.from(ids)));
+  } catch {
+    // Sem armazenamento (aba anônima, bloqueio): a escolha vale só até recarregar.
+  }
+}
 
 export function Escala() {
   const { user } = useSession();
@@ -186,6 +216,19 @@ export function Escala() {
   // Marca selecionada na paleta. null = o clique volta a ciclar F → T → vazio.
   const [pincel, setPincel] = useState<MarcaCelula | null>(null);
   const [regraDomingo, setRegraDomingo] = useState({ mulher: 2, geral: 3 });
+  const [foraDoMural, setForaDoMural] = useState<Set<string>>(() => lerForaDoMural(year, month));
+
+  useEffect(() => { setForaDoMural(lerForaDoMural(year, month)); }, [year, month]);
+
+  function alternarMural(employeeId: string) {
+    setForaDoMural((prev) => {
+      const next = new Set(prev);
+      if (next.has(employeeId)) next.delete(employeeId);
+      else next.add(employeeId);
+      gravarForaDoMural(year, month, next);
+      return next;
+    });
+  }
 
   // Entrar em tela cheia recolhe legenda e detalhes (densidade máxima para
   // montar a escala); sair devolve os dois. Usado pelo botão E pelo Esc.
@@ -573,7 +616,16 @@ export function Escala() {
       return `<th class="${cls}">${d.day}<br><span>${PRINT_DOW[d.dow]}</span></th>`;
     }).join("");
     const holidayList = data.days.filter((d) => d.isHoliday && d.holidayName).map((d) => `${d.day} — ${escapeHtml(d.holidayName)}`).join(" · ");
-    const rows = sectorGroups.map((g) => {
+    // Desligado desmarcado sai do mural; setor/praça que ficar vazio sai junto.
+    const gruposMural = sectorGroups
+      .map((g) => ({
+        ...g,
+        subs: g.subs
+          .map((s) => ({ ...s, employees: s.employees.filter((e) => !foraDoMural.has(e.id)) }))
+          .filter((s) => s.employees.length > 0),
+      }))
+      .filter((g) => g.subs.length > 0);
+    const rows = gruposMural.map((g) => {
       const sec = `<tr class="sector"><td colspan="${data.days.length + 1}">${escapeHtml(g.sector)}</td></tr>`;
       const subsHtml = g.subs.map((sub) => {
         const subHead = sub.subgroup ? `<tr class="subsector"><td colspan="${data.days.length + 1}">${escapeHtml(sub.subgroup)}</td></tr>` : "";
@@ -591,6 +643,9 @@ export function Escala() {
             const mk = isFeriasDay ? undefined : MARCA_POR_TIPO.get(mark as MarcaCelula);
             const mkPrint = mk && mk.noMural ? mk : undefined;
             const evd = dateEvents.get(d.day);
+            // Fora do vínculo (antes da admissão, depois do desligamento) sai em
+            // BRANCO: sem hachura e sem a cor de domingo/feriado/evento. Qualquer
+            // desenho ali o pessoal lê como escala — "folga?", "vem no domingo?".
             const cls = !within ? "out" : isFeriasDay ? "ferias" : mkPrint ? `m-${mkPrint.tipo.toLowerCase()}` : evd ? `evd-${evd.toLowerCase()}` : d.isHoliday ? "hol" : d.isSunday ? "sun" : "";
             const label = within ? (isFeriasDay ? "Fér" : mkPrint ? mkPrint.letra : "") : "";
             return `<td class="${cls}">${label}</td>`;
@@ -603,7 +658,7 @@ export function Escala() {
     }).join("");
     // Mural precisa ser legível de longe: usa a maior fonte que ainda cabe em UMA
     // página paisagem. Quanto mais linhas (setores + praças + funcionários), menor.
-    const printRows = sectorGroups.reduce(
+    const printRows = gruposMural.reduce(
       (n, g) => n + 1 + g.subs.reduce((m, s) => m + (s.subgroup ? 1 : 0) + s.employees.length, 0),
       0
     );
@@ -638,7 +693,7 @@ th.ev-pequeno,td.evd-pequeno{background:${COLORS.eventoPequeno}}
 th.ev-medio,td.evd-medio{background:${COLORS.eventoMedio}}
 th.ev-grande,td.evd-grande{background:${COLORS.eventoGrande}}
 th.ev-pequeno span,th.ev-medio span,th.ev-grande span{color:#333}
-td.out{background:repeating-linear-gradient(45deg,#fff,#fff 3px,#e6e6e6 3px,#e6e6e6 6px)}
+td.out{background:#fff}
 .legend{margin-top:8px;font-size:${S.legend}px;font-weight:600}.legend span{margin-right:18px;display:inline-block;margin-bottom:3px}
 .box{display:inline-block;width:${S.box}px;height:${S.box}px;border:1px solid #777;vertical-align:-3px;margin-right:5px;text-align:center;line-height:${S.box - 2}px;font-size:${Math.round(S.box * 0.66)}px;font-weight:bold}
 .foot{margin-top:6px;font-size:${S.legend - 1}px;color:#444}
@@ -860,7 +915,7 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
         {!loading && data && data.employees.length === 0 && (
           <EmptyState
             title="Nenhum funcionário na escala"
-            description="Só entram aqui funcionários ativos com 'Entra na escala' ligado no cadastro. Verifique em Funcionários."
+            description="Entram aqui os funcionários com 'Entra na escala' ligado no cadastro — ativos, e desligados até o mês do desligamento. Verifique em Funcionários."
           />
         )}
 
@@ -920,6 +975,23 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                               <div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: NAME_COL - 20 }} title={nomeTitle}>{fullName(emp)}</div>
                             );
                           })()}
+                          {desligado(emp) && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2, fontSize: 10.5, whiteSpace: "nowrap" }}>
+                              <span style={{ color: "var(--danger, #b00)", fontWeight: 600 }}>Deslig. {dataCurta(emp.terminationDate!)}</span>
+                              <label
+                                style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--muted)", cursor: "pointer" }}
+                                title="Marcado: sai na escala impressa até o dia do desligamento, com os dias seguintes em branco. Desmarcado: fica só na tela. Para tirar da escala de vez, desligue 'Entra na escala' no cadastro."
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={!foraDoMural.has(emp.id)}
+                                  onChange={() => alternarMural(emp.id)}
+                                  style={{ margin: 0, width: 12, height: 12 }}
+                                />
+                                mural
+                              </label>
+                            </div>
+                          )}
                           {showDetails && (
                             <>
                               <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
@@ -991,7 +1063,9 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                                       : "transparent";
                           const clickable = within && !isFeriasDay;
                           const title = !within
-                            ? "Fora do vínculo"
+                            ? (emp.terminationDate && dateMs(year, month, d.day) > new Date(emp.terminationDate).getTime()
+                              ? `Desligado em ${dataCurta(emp.terminationDate)}`
+                              : "Fora do vínculo")
                             : isFeriasDay
                               ? "Férias (gerenciado na Folha)"
                               : marca
