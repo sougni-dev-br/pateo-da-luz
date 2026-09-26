@@ -636,7 +636,7 @@ export function Funcionarios() {
                 <FormField label="Regime de escala">
                   <Select value={form.scheduleRegime} onChange={(e) => setForm({ ...form, scheduleRegime: e.target.value as WorkScheduleRegime })} options={toOptions(REGIME_LABELS)} />
                 </FormField>
-                <FormField label="Entra na escala" hint="desligue p/ quem não tem escala (ex.: gerência/administrativo)">
+                <FormField label="Entra na escala" hint="desligue p/ quem não tem escala (gerência/administrativo) ou p/ tirar um desligado da escala do mês em que saiu">
                   <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 38 }}>
                     <Switch checked={form.includeInSchedule} onChange={(v) => setForm({ ...form, includeInSchedule: v })} label="Entra na escala" />
                     <span style={{ fontSize: 13, color: "var(--muted)" }}>{form.includeInSchedule ? "Sim" : "Não"}</span>

@@ -5496,6 +5496,8 @@ export type ScheduleEmployee = {
   scheduleRegime: WorkScheduleRegime;
   admissionDate: string | null;
   terminationDate: string | null;
+  /** false = desligado; ainda aparece na escala dos meses ate o desligamento. */
+  isActive: boolean;
   gender: EmployeeGender;
   holidayCompBalance: number;
   /** A parte do saldo lancada a mao (o resto vem da escala). */
