@@ -4,7 +4,10 @@ import {
   type TipFunction, type TipTeamMember, getTipCompanies, getTipFunctions, getTipTeam, saveTipFunctions, saveTipTeamMember,
 } from "../../api/client";
 import { Alert, Button, StatusBadge, Table } from "../../design-system";
+import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
+import "./gorjeta.css";
 import { inputStyle, mutedStyle, numInputStyle, panelStyle, pts } from "./gorjetaUtils";
+import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 
 type Props = {
   canEdit: boolean;
@@ -14,6 +17,30 @@ type Props = {
 
 const nome = (e: TipTeamMember) => (e.displayName || `${e.firstName} ${e.lastName}`).trim();
 const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v.replace(",", ".")));
+const primeiroDe = (texto: Set<string>) => (coluna: string) => (texto.has(coluna) ? "asc" as const : "desc" as const);
+
+const COLUNAS_EQUIPE: ColunaOpcional[] = [
+  { chave: "participa", rotulo: "Participa" }, { chave: "funcao", rotulo: "Função" }, { chave: "pers", rotulo: "Pontos pers." },
+  { chave: "base", rotulo: "Base" }, { chave: "empresa", rotulo: "Empresa" }, { chave: "reserva", rotulo: "Reserva" },
+];
+const TEXTO_EQUIPE = new Set(["nome", "funcao", "empresa"]);
+
+const COLUNAS_FUNCOES: ColunaOpcional[] = [
+  { chave: "pontos", rotulo: "Pontos" }, { chave: "min", rotulo: "Mín." }, { chave: "max", rotulo: "Máx." },
+  { chave: "grupo", rotulo: "Grupo" }, { chave: "obs", rotulo: "Observação" }, { chave: "ativa", rotulo: "Ativa" },
+];
+const TEXTO_FUNCOES = new Set(["nome", "grupo", "obs"]);
+
+type FuncaoComIndice = { f: TipFunction; i: number };
+const EXTRATORES_FUNCOES: Extratores<FuncaoComIndice> = {
+  nome: ({ f }) => f.name,
+  pontos: ({ f }) => f.points,
+  min: ({ f }) => f.minPoints,
+  max: ({ f }) => f.maxPoints,
+  grupo: ({ f }) => f.group,
+  obs: ({ f }) => f.notes,
+  ativa: ({ f }) => (f.isActive ? 1 : 0),
+};
 
 // Quem participa da gorjeta, com que função e em que empresa. Os pontos-base do
 // rateio saem daqui: função (ou pontos personalizados). O ajuste de cada mês é
@@ -25,6 +52,17 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
   const [salvando, setSalvando] = useState<string | null>(null);
   const [mostrarInativos, setMostrarInativos] = useState(false);
   const [funcoesSujas, setFuncoesSujas] = useState(false);
+
+  const ordEquipe = useOrdenacao("equipe");
+  const colEquipe = useColunas("equipe");
+  const ordFuncoes = useOrdenacao("funcoes");
+  const colFuncoes = useColunas("funcoes");
+  const ve = colEquipe.visivel;
+  const vf = colFuncoes.visivel;
+  const primeiroEquipe = primeiroDe(TEXTO_EQUIPE);
+  const primeiroFuncoes = primeiroDe(TEXTO_FUNCOES);
+  const thE = (coluna: string) => ({ coluna, ordem: ordEquipe.ordem, onOrdenar: () => ordEquipe.alternar(coluna, primeiroEquipe(coluna)) });
+  const thF = (coluna: string) => ({ coluna, ordem: ordFuncoes.ordem, onOrdenar: () => ordFuncoes.alternar(coluna, primeiroFuncoes(coluna)) });
 
   async function carregar() {
     try {
@@ -41,6 +79,21 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
   useEffect(() => { void carregar(); }, []);
 
   const funcaoPorId = useMemo(() => new Map(funcoes.filter((f) => f.id).map((f) => [f.id!, f])), [funcoes]);
+  const empresaPorId = useMemo(() => new Map(empresas.map((c) => [c.id, c.tradeName])), [empresas]);
+  const baseDe = (m: TipTeamMember) => {
+    const f = m.tipFunctionId ? funcaoPorId.get(m.tipFunctionId) : undefined;
+    return m.pontosPadrao ?? f?.points ?? null;
+  };
+
+  const extratoresEquipe: Extratores<TipTeamMember> = {
+    nome: (m) => nome(m),
+    participa: (m) => (m.participaGorjeta ? 1 : 0),
+    funcao: (m) => (m.tipFunctionId ? funcaoPorId.get(m.tipFunctionId)?.name : null),
+    pers: (m) => m.pontosPadrao,
+    base: (m) => baseDe(m),
+    empresa: (m) => (m.companyId ? empresaPorId.get(m.companyId) : null),
+    reserva: (m) => (m.gorjetaReserva ? 1 : 0),
+  };
 
   async function salvarMembro(m: TipTeamMember, patch: Partial<TipTeamMember>) {
     const novo = { ...m, ...patch };
@@ -77,46 +130,55 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
   }
 
   const visiveis = team.filter((m) => mostrarInativos || m.isActive || m.participaGorjeta);
+  const equipeOrdenada = aplicarOrdem(visiveis, ordEquipe.ordem, extratoresEquipe);
   const participantes = team.filter((m) => m.participaGorjeta);
-  const somaBase = participantes.filter((m) => m.isActive).reduce((a, m) => {
-    const f = m.tipFunctionId ? funcaoPorId.get(m.tipFunctionId) : undefined;
-    return a + (m.pontosPadrao ?? f?.points ?? 0);
-  }, 0);
+  const somaBase = participantes.filter((m) => m.isActive).reduce((a, m) => a + (baseDe(m) ?? 0), 0);
+
+  // A edição usa a posição original da função; a ordem é só de exibição.
+  // Função nova (ainda sem id) fica sempre no fim, onde foi criada.
+  const funcoesComIndice = funcoes.map((f, i) => ({ f, i }));
+  const funcoesOrdenadas = [
+    ...aplicarOrdem(funcoesComIndice.filter((x) => x.f.id), ordFuncoes.ordem, EXTRATORES_FUNCOES),
+    ...funcoesComIndice.filter((x) => !x.f.id),
+  ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={panelStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
           <strong>Equipe da gorjeta</strong>
-          <span style={mutedStyle}>
-            {participantes.length} participantes · <strong>{pts(somaBase)}</strong> pontos-base entre os ativos
-            {salvando && " · salvando…"}
-          </span>
+          <div className="barra-lista">
+            <span style={mutedStyle}>
+              {participantes.length} participantes · <strong>{pts(somaBase)}</strong> pontos-base entre os ativos
+              {salvando && " · salvando…"}
+            </span>
+            <label className="barra-lista-campo">
+              <input type="checkbox" checked={mostrarInativos} onChange={(e) => setMostrarInativos(e.target.checked)} />
+              Mostrar desligados que não participam
+            </label>
+            <SeletorColunas colunas={COLUNAS_EQUIPE} ocultas={colEquipe.ocultas} alternar={colEquipe.alternar} mostrarTodas={colEquipe.mostrarTodas} />
+          </div>
         </div>
         <span style={mutedStyle}>
           Pontos-base = pontos da função, ou os personalizados quando preenchidos. Sem registro recebe salário + gorjeta na lista de pagamento.
           Reserva: entra no rateio, mas o valor fica na casa e não vai para pagamento.
         </span>
-        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
-          <input type="checkbox" checked={mostrarInativos} onChange={(e) => setMostrarInativos(e.target.checked)} />
-          Mostrar desligados que não participam
-        </label>
-        <Table>
+        <Table className="tabela-gorjeta">
           <Table.Head>
             <Table.Row>
-              <Table.Th minWidth={200}>Funcionário</Table.Th>
-              <Table.Th>Participa</Table.Th>
-              <Table.Th minWidth={200}>Função</Table.Th>
-              <Table.Th>Pontos pers.</Table.Th>
-              <Table.Th>Base</Table.Th>
-              <Table.Th minWidth={160}>Empresa</Table.Th>
-              <Table.Th>Reserva</Table.Th>
+              <ThOrdenavel {...thE("nome")} align="left" minWidth={200}>Funcionário</ThOrdenavel>
+              {ve("participa") && <ThOrdenavel {...thE("participa")}>Participa</ThOrdenavel>}
+              {ve("funcao") && <ThOrdenavel {...thE("funcao")} minWidth={200}>Função</ThOrdenavel>}
+              {ve("pers") && <ThOrdenavel {...thE("pers")} title="Pontos personalizados: substituem os da função">Pontos pers.</ThOrdenavel>}
+              {ve("base") && <ThOrdenavel {...thE("base")}>Base</ThOrdenavel>}
+              {ve("empresa") && <ThOrdenavel {...thE("empresa")} minWidth={160}>Empresa</ThOrdenavel>}
+              {ve("reserva") && <ThOrdenavel {...thE("reserva")}>Reserva</ThOrdenavel>}
             </Table.Row>
           </Table.Head>
           <Table.Body>
-            {visiveis.map((m) => {
+            {equipeOrdenada.map((m) => {
               const f = m.tipFunctionId ? funcaoPorId.get(m.tipFunctionId) : undefined;
-              const base = m.pontosPadrao ?? f?.points ?? null;
+              const base = baseDe(m);
               const foraFaixa = m.pontosPadrao != null && f && (
                 (f.minPoints != null && m.pontosPadrao < f.minPoints) || (f.maxPoints != null && m.pontosPadrao > f.maxPoints));
               const off = !canEdit || salvando === m.id;
@@ -129,42 +191,54 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
                       {!m.isActive && <StatusBadge tone="neutral">Desligado</StatusBadge>}
                     </div>
                   </Table.Td>
-                  <Table.Td>
-                    <input type="checkbox" checked={m.participaGorjeta} disabled={off} aria-label={`${nome(m)} participa da gorjeta`}
-                      onChange={(e) => void salvarMembro(m, { participaGorjeta: e.target.checked })} />
-                  </Table.Td>
-                  <Table.Td>
-                    <select style={inputStyle} value={m.tipFunctionId ?? ""} disabled={off}
-                      onChange={(e) => void salvarMembro(m, { tipFunctionId: e.target.value || null })}>
-                      <option value="">—</option>
-                      {funcoes.filter((x) => x.isActive || x.id === m.tipFunctionId).map((x) => (
-                        <option key={x.id} value={x.id}>{x.name} ({pts(x.points)})</option>
-                      ))}
-                    </select>
-                  </Table.Td>
-                  <Table.Td>
-                    <input key={`${m.id}-${m.pontosPadrao}`} style={numInputStyle} type="number" step="0.5" min="0" disabled={off}
-                      defaultValue={m.pontosPadrao ?? ""} placeholder={f ? pts(f.points) : ""}
-                      onBlur={(e) => {
-                        const v = numOrNull(e.target.value);
-                        if (v !== m.pontosPadrao) void salvarMembro(m, { pontosPadrao: v });
-                      }} />
-                  </Table.Td>
-                  <Table.Td style={{ fontWeight: 600, color: foraFaixa ? "var(--warning, #b45309)" : undefined }}
-                    title={foraFaixa ? `Fora da faixa da função (${f?.minPoints} a ${f?.maxPoints})` : undefined}>
-                    {pts(base)}{foraFaixa ? " ⚠" : ""}
-                  </Table.Td>
-                  <Table.Td>
-                    <select style={inputStyle} value={m.companyId ?? ""} disabled={off}
-                      onChange={(e) => void salvarMembro(m, { companyId: e.target.value || null })}>
-                      <option value="">—</option>
-                      {empresas.map((c) => <option key={c.id} value={c.id}>{c.tradeName}</option>)}
-                    </select>
-                  </Table.Td>
-                  <Table.Td>
-                    <input type="checkbox" checked={m.gorjetaReserva} disabled={off} aria-label={`${nome(m)} guarda a reserva`}
-                      onChange={(e) => void salvarMembro(m, { gorjetaReserva: e.target.checked })} />
-                  </Table.Td>
+                  {ve("participa") && (
+                    <Table.Td>
+                      <input type="checkbox" checked={m.participaGorjeta} disabled={off} aria-label={`${nome(m)} participa da gorjeta`}
+                        onChange={(e) => void salvarMembro(m, { participaGorjeta: e.target.checked })} />
+                    </Table.Td>
+                  )}
+                  {ve("funcao") && (
+                    <Table.Td>
+                      <select style={inputStyle} value={m.tipFunctionId ?? ""} disabled={off}
+                        onChange={(e) => void salvarMembro(m, { tipFunctionId: e.target.value || null })}>
+                        <option value="">—</option>
+                        {funcoes.filter((x) => x.isActive || x.id === m.tipFunctionId).map((x) => (
+                          <option key={x.id} value={x.id}>{x.name} ({pts(x.points)})</option>
+                        ))}
+                      </select>
+                    </Table.Td>
+                  )}
+                  {ve("pers") && (
+                    <Table.Td>
+                      <input key={`${m.id}-${m.pontosPadrao}`} style={{ ...numInputStyle, textAlign: "center" }} type="number" step="0.5" min="0" disabled={off}
+                        defaultValue={m.pontosPadrao ?? ""} placeholder={f ? pts(f.points) : ""} aria-label={`Pontos personalizados de ${nome(m)}`}
+                        onBlur={(e) => {
+                          const v = numOrNull(e.target.value);
+                          if (v !== m.pontosPadrao) void salvarMembro(m, { pontosPadrao: v });
+                        }} />
+                    </Table.Td>
+                  )}
+                  {ve("base") && (
+                    <Table.Td style={{ fontWeight: 600, color: foraFaixa ? "var(--warning, #b45309)" : undefined }}
+                      title={foraFaixa ? `Fora da faixa da função (${f?.minPoints} a ${f?.maxPoints})` : undefined}>
+                      {pts(base)}{foraFaixa ? " ⚠" : ""}
+                    </Table.Td>
+                  )}
+                  {ve("empresa") && (
+                    <Table.Td>
+                      <select style={inputStyle} value={m.companyId ?? ""} disabled={off}
+                        onChange={(e) => void salvarMembro(m, { companyId: e.target.value || null })}>
+                        <option value="">—</option>
+                        {empresas.map((c) => <option key={c.id} value={c.id}>{c.tradeName}</option>)}
+                      </select>
+                    </Table.Td>
+                  )}
+                  {ve("reserva") && (
+                    <Table.Td>
+                      <input type="checkbox" checked={m.gorjetaReserva} disabled={off} aria-label={`${nome(m)} guarda a reserva`}
+                        onChange={(e) => void salvarMembro(m, { gorjetaReserva: e.target.checked })} />
+                    </Table.Td>
+                  )}
                 </Table.Row>
               );
             })}
@@ -175,39 +249,42 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
       <div style={panelStyle}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <strong>Funções e pontos-base</strong>
-          {canEdit && (
-            <div style={{ display: "flex", gap: 8 }}>
-              <Button variant="secondary" leadingIcon={<Plus size={14} />}
-                onClick={() => { setFuncoes((p) => [...p, { name: "", points: 0, minPoints: null, maxPoints: null, group: null, notes: null, isActive: true }]); setFuncoesSujas(true); }}>
-                Nova função
-              </Button>
-              <Button leadingIcon={<Save size={14} />} disabled={!funcoesSujas} onClick={() => void salvarFuncoes()}>Salvar tabela</Button>
-            </div>
-          )}
+          <div className="barra-lista">
+            <SeletorColunas colunas={COLUNAS_FUNCOES} ocultas={colFuncoes.ocultas} alternar={colFuncoes.alternar} mostrarTodas={colFuncoes.mostrarTodas} />
+            {canEdit && (
+              <>
+                <Button variant="secondary" leadingIcon={<Plus size={14} />}
+                  onClick={() => { setFuncoes((p) => [...p, { name: "", points: 0, minPoints: null, maxPoints: null, group: null, notes: null, isActive: true }]); setFuncoesSujas(true); }}>
+                  Nova função
+                </Button>
+                <Button leadingIcon={<Save size={14} />} disabled={!funcoesSujas} onClick={() => void salvarFuncoes()}>Salvar tabela</Button>
+              </>
+            )}
+          </div>
         </div>
         {funcoesSujas && <Alert tone="warning">Alterações na tabela ainda não salvas.</Alert>}
-        <Table>
+        <Table className="tabela-gorjeta">
           <Table.Head>
             <Table.Row>
-              <Table.Th minWidth={200}>Função / nível</Table.Th>
-              <Table.Th>Pontos</Table.Th>
-              <Table.Th>Mín.</Table.Th>
-              <Table.Th>Máx.</Table.Th>
-              <Table.Th>Grupo</Table.Th>
-              <Table.Th minWidth={220}>Observação</Table.Th>
-              <Table.Th>Ativa</Table.Th>
+              <ThOrdenavel {...thF("nome")} align="left" minWidth={200}>Função / nível</ThOrdenavel>
+              {vf("pontos") && <ThOrdenavel {...thF("pontos")}>Pontos</ThOrdenavel>}
+              {vf("min") && <ThOrdenavel {...thF("min")}>Mín.</ThOrdenavel>}
+              {vf("max") && <ThOrdenavel {...thF("max")}>Máx.</ThOrdenavel>}
+              {vf("grupo") && <ThOrdenavel {...thF("grupo")}>Grupo</ThOrdenavel>}
+              {vf("obs") && <ThOrdenavel {...thF("obs")} minWidth={220}>Observação</ThOrdenavel>}
+              {vf("ativa") && <ThOrdenavel {...thF("ativa")}>Ativa</ThOrdenavel>}
             </Table.Row>
           </Table.Head>
           <Table.Body>
-            {funcoes.map((f, i) => (
+            {funcoesOrdenadas.map(({ f, i }) => (
               <Table.Row key={f.id ?? `nova-${i}`}>
-                <Table.Td><input style={inputStyle} value={f.name} disabled={!canEdit} onChange={(e) => editarFuncao(i, { name: e.target.value })} /></Table.Td>
-                <Table.Td><input style={numInputStyle} type="number" step="0.5" min="0" value={f.points} disabled={!canEdit} onChange={(e) => editarFuncao(i, { points: Number(e.target.value) })} /></Table.Td>
-                <Table.Td><input style={numInputStyle} type="number" step="0.5" min="0" value={f.minPoints ?? ""} disabled={!canEdit} onChange={(e) => editarFuncao(i, { minPoints: numOrNull(e.target.value) })} /></Table.Td>
-                <Table.Td><input style={numInputStyle} type="number" step="0.5" min="0" value={f.maxPoints ?? ""} disabled={!canEdit} onChange={(e) => editarFuncao(i, { maxPoints: numOrNull(e.target.value) })} /></Table.Td>
-                <Table.Td><input style={{ ...inputStyle, width: 120 }} value={f.group ?? ""} disabled={!canEdit} onChange={(e) => editarFuncao(i, { group: e.target.value || null })} /></Table.Td>
-                <Table.Td><input style={inputStyle} value={f.notes ?? ""} disabled={!canEdit} onChange={(e) => editarFuncao(i, { notes: e.target.value || null })} /></Table.Td>
-                <Table.Td><input type="checkbox" checked={f.isActive} disabled={!canEdit} onChange={(e) => editarFuncao(i, { isActive: e.target.checked })} /></Table.Td>
+                <Table.Td><input style={inputStyle} value={f.name} disabled={!canEdit} aria-label="Nome da função" onChange={(e) => editarFuncao(i, { name: e.target.value })} /></Table.Td>
+                {vf("pontos") && <Table.Td><input style={{ ...numInputStyle, textAlign: "center" }} type="number" step="0.5" min="0" value={f.points} disabled={!canEdit} aria-label="Pontos" onChange={(e) => editarFuncao(i, { points: Number(e.target.value) })} /></Table.Td>}
+                {vf("min") && <Table.Td><input style={{ ...numInputStyle, textAlign: "center" }} type="number" step="0.5" min="0" value={f.minPoints ?? ""} disabled={!canEdit} aria-label="Mínimo" onChange={(e) => editarFuncao(i, { minPoints: numOrNull(e.target.value) })} /></Table.Td>}
+                {vf("max") && <Table.Td><input style={{ ...numInputStyle, textAlign: "center" }} type="number" step="0.5" min="0" value={f.maxPoints ?? ""} disabled={!canEdit} aria-label="Máximo" onChange={(e) => editarFuncao(i, { maxPoints: numOrNull(e.target.value) })} /></Table.Td>}
+                {vf("grupo") && <Table.Td><input style={{ ...inputStyle, width: 120, textAlign: "center" }} value={f.group ?? ""} disabled={!canEdit} aria-label="Grupo" onChange={(e) => editarFuncao(i, { group: e.target.value || null })} /></Table.Td>}
+                {vf("obs") && <Table.Td><input style={inputStyle} value={f.notes ?? ""} disabled={!canEdit} aria-label="Observação" onChange={(e) => editarFuncao(i, { notes: e.target.value || null })} /></Table.Td>}
+                {vf("ativa") && <Table.Td><input type="checkbox" checked={f.isActive} disabled={!canEdit} aria-label="Função ativa" onChange={(e) => editarFuncao(i, { isActive: e.target.checked })} /></Table.Td>}
               </Table.Row>
             ))}
           </Table.Body>
