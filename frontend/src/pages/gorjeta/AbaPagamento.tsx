@@ -1,11 +1,30 @@
 import { FileText } from "lucide-react";
 import { useMemo } from "react";
-import type { TipComputation } from "../../api/client";
+import type { TipComputation, TipComputedParticipant } from "../../api/client";
 import { Alert, Button, Money, StatusBadge, Table } from "../../design-system";
 import { exportarContabilidade, exportarListaPagamento } from "./exportarPdf";
+import "./gorjeta.css";
+import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
   type LocalRow, type RowPatch, estimarAdicionais, fmtDate, fmtHoras, inputStyle, money, mutedStyle, numInputStyle, ordenar, panelStyle, parseHoras,
 } from "./gorjetaUtils";
+
+const EXTRATORES: Extratores<TipComputedParticipant> = {
+  nome: (p) => p.employeeName,
+  empresa: (p) => p.companyName,
+  gorjeta: (p) => p.rateioAmount,
+  horaExtra: (p) => parseHoras(p.horaExtra),
+  noturno: (p) => parseHoras(p.adicionalNoturno),
+  faltas: (p) => p.faltas,
+  atestados: (p) => p.atestados,
+  salarioBase: (p) => p.baseSalary,
+  dias: (p) => p.diasSalario,
+  salario: (p) => p.salarioProporcional,
+  vales: (p) => p.creditos - p.descontos,
+  aPagar: (p) => p.totalAPagar,
+  pix: (p) => p.pixKey,
+};
+const TEXTO = new Set(["nome", "empresa", "pix"]);
 
 type Props = {
   comp: TipComputation;
@@ -22,6 +41,12 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   const semRegistro = participantes.filter((p) => p.semRegistro && !p.reserva);
   const reserva = participantes.filter((p) => p.reserva);
   const veSalario = participantes.some((p) => p.baseSalary != null);
+  const ordContab = useOrdenacao("contabilidade");
+  const ordPag = useOrdenacao("pagamento");
+  const registradosOrd = useMemo(() => aplicarOrdem(registrados, ordContab.ordem, EXTRATORES), [registrados, ordContab.ordem]);
+  const semRegistroOrd = useMemo(() => aplicarOrdem(semRegistro, ordPag.ordem, EXTRATORES), [semRegistro, ordPag.ordem]);
+  const thC = (coluna: string) => ({ coluna, ordem: ordContab.ordem, onOrdenar: () => ordContab.alternar(coluna, TEXTO.has(coluna) ? "asc" : "desc") });
+  const thP = (coluna: string) => ({ coluna, ordem: ordPag.ordem, onOrdenar: () => ordPag.alternar(coluna, TEXTO.has(coluna) ? "asc" : "desc") });
 
   async function exportar(fn: (c: TipComputation) => Promise<void>) {
     try { await fn(comp); } catch (e) { onError("Erro ao gerar o PDF: " + (e as Error).message); }
@@ -56,19 +81,19 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
         <Table>
           <Table.Head>
             <Table.Row>
-              <Table.Th minWidth={180}>Funcionário</Table.Th>
-              <Table.Th>Empresa</Table.Th>
-              <Table.Th>Gorjeta</Table.Th>
-              <Table.Th>Hora extra</Table.Th>
-              <Table.Th>Ad. noturno</Table.Th>
+              <ThOrdenavel {...thC("nome")} minWidth={180}>Funcionário</ThOrdenavel>
+              <ThOrdenavel {...thC("empresa")}>Empresa</ThOrdenavel>
+              <ThOrdenavel {...thC("gorjeta")} align="right">Gorjeta</ThOrdenavel>
+              <ThOrdenavel {...thC("horaExtra")}>Hora extra</ThOrdenavel>
+              <ThOrdenavel {...thC("noturno")}>Ad. noturno</ThOrdenavel>
               {veSalario && <Table.Th>Estimativa</Table.Th>}
-              <Table.Th>Faltas</Table.Th>
-              <Table.Th>Atest.</Table.Th>
+              <ThOrdenavel {...thC("faltas")}>Faltas</ThOrdenavel>
+              <ThOrdenavel {...thC("atestados")}>Atest.</ThOrdenavel>
               <Table.Th>Justificada</Table.Th>
             </Table.Row>
           </Table.Head>
           <Table.Body>
-            {registrados.map((p) => {
+            {registradosOrd.map((p) => {
               const r = rowPorFuncionario.get(p.employeeId);
               if (!r) return null;
               const est = estimarAdicionais(p.baseSalary, parseHoras(r.horaExtra), parseHoras(r.adicionalNoturno));
@@ -128,18 +153,18 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
             <Table>
               <Table.Head>
                 <Table.Row>
-                  <Table.Th minWidth={180}>Funcionário</Table.Th>
-                  <Table.Th>Salário base</Table.Th>
-                  <Table.Th>Dias</Table.Th>
-                  <Table.Th>Salário</Table.Th>
-                  <Table.Th>Gorjeta</Table.Th>
-                  <Table.Th>Vales</Table.Th>
-                  <Table.Th>A pagar</Table.Th>
-                  <Table.Th>PIX</Table.Th>
+                  <ThOrdenavel {...thP("nome")} minWidth={180}>Funcionário</ThOrdenavel>
+                  <ThOrdenavel {...thP("salarioBase")}>Salário base</ThOrdenavel>
+                  <ThOrdenavel {...thP("dias")}>Dias</ThOrdenavel>
+                  <ThOrdenavel {...thP("salario")}>Salário</ThOrdenavel>
+                  <ThOrdenavel {...thP("gorjeta")}>Gorjeta</ThOrdenavel>
+                  <ThOrdenavel {...thP("vales")}>Vales</ThOrdenavel>
+                  <ThOrdenavel {...thP("aPagar")}>A pagar</ThOrdenavel>
+                  <ThOrdenavel {...thP("pix")}>PIX</ThOrdenavel>
                 </Table.Row>
               </Table.Head>
               <Table.Body>
-                {semRegistro.map((p) => {
+                {semRegistroOrd.map((p) => {
                   const r = rowPorFuncionario.get(p.employeeId);
                   if (!r) return null;
                   return (
