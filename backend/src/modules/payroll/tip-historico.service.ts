@@ -1,6 +1,6 @@
 // Histórico de função/pontos, fundo de reserva e relatórios da gorjeta.
 //
-// Histórico: toda mudança de função, pontos personalizados ou participação de um
+// Histórico: toda mudança de função, ponto extra ou participação de um
 // funcionário vira uma linha com a data a partir da qual vale. Mudança nos pontos
 // de uma função também registra uma linha para cada funcionário cuja base mudou.
 //
@@ -17,7 +17,8 @@ type Tx = Prisma.TransactionClient;
 export type SituacaoGorjeta = {
   participaGorjeta: boolean;
   tipFunctionId: string | null;
-  pontosPadrao: number | null;
+  pontosExtra: number | null;
+  pontosExtraMotivo?: string | null;
 };
 
 const num = (v: unknown): number | null => (v == null ? null : Number(v));
@@ -28,10 +29,10 @@ export async function registrarHistorico(
 ) {
   const e = await tx.employee.findUniqueOrThrow({
     where: { id: employeeId },
-    select: { participaGorjeta: true, tipFunctionId: true, pontosPadrao: true, tipFunction: { select: { name: true, points: true } } },
+    select: { participaGorjeta: true, tipFunctionId: true, pontosExtra: true, pontosExtraMotivo: true, tipFunction: { select: { name: true, points: true } } },
   });
   const pontosFuncao = num(e.tipFunction?.points);
-  const pers = num(e.pontosPadrao);
+  const extra = num(e.pontosExtra);
   await tx.employeeTipHistory.create({
     data: {
       id: crypto.randomUUID(),
@@ -40,8 +41,9 @@ export async function registrarHistorico(
       tipFunctionId: e.tipFunctionId,
       functionName: e.tipFunction?.name ?? null,
       functionPoints: pontosFuncao,
-      pontosPadrao: pers,
-      basePoints: pers ?? pontosFuncao,
+      pontosExtra: extra,
+      pontosExtraMotivo: e.pontosExtraMotivo,
+      basePoints: pontosFuncao == null && extra == null ? null : Math.max(0, round2((pontosFuncao ?? 0) + (extra ?? 0))),
       reason, changedById: userId,
     },
   });
@@ -66,7 +68,8 @@ export function motivoParaNaoRetirar(saldoAtual: number, retirada: number, rotul
 export function mudouSituacao(antes: SituacaoGorjeta, depois: SituacaoGorjeta): boolean {
   return antes.participaGorjeta !== depois.participaGorjeta
     || antes.tipFunctionId !== depois.tipFunctionId
-    || (antes.pontosPadrao ?? null) !== (depois.pontosPadrao ?? null);
+    || (antes.pontosExtra ?? null) !== (depois.pontosExtra ?? null)
+    || ((antes.pontosExtraMotivo ?? null) !== (depois.pontosExtraMotivo ?? null) && depois.pontosExtra != null);
 }
 
 // ─── Relatório: mudanças de função e pontos ─────────────────────────────────

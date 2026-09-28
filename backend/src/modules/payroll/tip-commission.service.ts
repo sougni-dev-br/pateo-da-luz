@@ -58,11 +58,11 @@ export async function findOverlappingPeriod(start: Date, end: Date, excludePerio
   });
 }
 
-// Pontos-base do cadastro: os personalizados, se houver; senão os da função.
-export function pontosBaseDoCadastro(emp: { pontosPadrao: unknown; tipFunction: { points: unknown } | null }): number {
-  if (emp.pontosPadrao != null) return Number(emp.pontosPadrao);
-  if (emp.tipFunction) return Number(emp.tipFunction.points);
-  return 0;
+// Pontos-base do cadastro: os da função mais o ponto extra (±) da pessoa.
+export function pontosBaseDoCadastro(emp: { pontosExtra: unknown; tipFunction: { points: unknown } | null }): number {
+  const funcao = emp.tipFunction ? Number(emp.tipFunction.points) : 0;
+  const extra = emp.pontosExtra == null ? 0 : Number(emp.pontosExtra);
+  return Math.max(0, Math.round((funcao + extra) * 100) / 100);
 }
 
 // ─── Tipos de saída ─────────────────────────────────────────────────────────
@@ -223,7 +223,7 @@ export async function computeTipCommission(
               companyId: true, company: { select: { tradeName: true } },
               modality: true, baseSalary: true, pixKeyType: true, pixKey: true,
               admissionDate: true, terminationDate: true,
-              pontosPadrao: true, tipFunction: { select: { name: true, minPoints: true, maxPoints: true } },
+              pontosExtra: true, tipFunction: { select: { name: true, points: true, minPoints: true, maxPoints: true } },
             },
           },
         },
@@ -410,13 +410,13 @@ export async function computeTipCommission(
   if (valesDemais.length) warnings.push(`Vales maiores que a gorjeta: ${listar(valesDemais)}.`);
   for (const r of rows) {
     const fn = r.employee.tipFunction;
-    if (r.employee.pontosPadrao == null || !fn) continue;
-    const pontos = Number(r.employee.pontosPadrao);
+    if (r.employee.pontosExtra == null || !fn) continue;
+    const pontos = pontosBaseDoCadastro(r.employee);
     const min = num(fn.minPoints);
     const max = num(fn.maxPoints);
     if ((min != null && pontos < min) || (max != null && pontos > max)) {
       const nome = (r.employee.displayName || `${r.employee.firstName} ${r.employee.lastName}`).trim();
-      warnings.push(`${nome}: ${pontos} pontos personalizados, fora da faixa de "${fn.name}" (${min ?? "—"} a ${max ?? "—"}).`);
+      warnings.push(`${nome}: ${pontos} pontos com o extra, fora da faixa de "${fn.name}" (${min ?? "—"} a ${max ?? "—"}).`);
     }
   }
 
@@ -531,7 +531,7 @@ export async function syncParticipantsFromCadastro(periodId: string): Promise<{ 
       // Quem saiu antes do período começar já recebeu no período dele.
       OR: [{ terminationDate: null }, { terminationDate: { gte: periodo.periodStart } }],
     },
-    select: { id: true, tipoGorjeta: true, pontosPadrao: true, cotaFixaGorjeta: true, tipFunction: { select: { points: true, name: true } } },
+    select: { id: true, tipoGorjeta: true, pontosExtra: true, cotaFixaGorjeta: true, tipFunction: { select: { points: true, name: true } } },
   });
   const existing = await prisma.tipParticipant.findMany({ where: { periodId }, select: { id: true, employeeId: true, basePoints: true, functionName: true } });
   const byEmp = new Map(existing.map((e) => [e.employeeId, e]));

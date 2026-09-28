@@ -2457,8 +2457,9 @@ model Employee {
   participaGorjeta  Boolean            @default(false)
   tipoGorjeta       TipParticipantKind @default(PONTOS)
   cotaFixaGorjeta   Decimal?           @db.Decimal(14, 2)
-  // Pontos personalizados: quando preenchido, substitui os pontos da função.
-  pontosPadrao      Decimal?           @db.Decimal(6, 2)
+  // Ponto extra (±) somado aos pontos da função, sempre com justificativa.
+  pontosExtra       Decimal?           @db.Decimal(6, 2)
+  pontosExtraMotivo String?
   tipFunctionId     String?
   tipFunction       TipFunction?       @relation(fields: [tipFunctionId], references: [id])
   tipParticipations TipParticipant[]
@@ -2705,7 +2706,9 @@ model EmployeeTipHistory {
   tipFunctionId    String?
   functionName     String?
   functionPoints   Decimal? @db.Decimal(6, 2)
-  pontosPadrao     Decimal? @db.Decimal(6, 2)
+  pontosPadrao     Decimal? @db.Decimal(6, 2) // legado: pontos personalizados (antes do ponto extra)
+  pontosExtra      Decimal? @db.Decimal(6, 2)
+  pontosExtraMotivo String?
   basePoints       Decimal? @db.Decimal(6, 2)
   reason           String?
   changedById      String
