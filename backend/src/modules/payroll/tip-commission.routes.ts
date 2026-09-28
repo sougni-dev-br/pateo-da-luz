@@ -623,14 +623,31 @@ tipCommissionRouter.post("/periods/:year/:month/reopen", async (request, respons
 });
 
 // ─── Tabela de funções e pontos-base ────────────────────────────────────────
-tipCommissionRouter.get("/functions", async (_request, response) => {
-  const funcoes = await prisma.tipFunction.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
-  response.json(funcoes.map((f) => ({
+// Versão da tabela de funções: muda a cada gravação. Quem edita manda a versão
+// que abriu; se outra pessoa salvou no meio, o servidor recusa em vez de sobrescrever.
+function funcaoParaTela(f: { id: string; name: string; points: unknown; minPoints: unknown; maxPoints: unknown; group: string | null; notes: string | null; sortOrder: number; isActive: boolean }) {
+  return {
     id: f.id, name: f.name, points: Number(f.points),
     minPoints: f.minPoints == null ? null : Number(f.minPoints),
     maxPoints: f.maxPoints == null ? null : Number(f.maxPoints),
     group: f.group, notes: f.notes, sortOrder: f.sortOrder, isActive: f.isActive,
-  })));
+  };
+}
+
+function versaoDaTabela(funcoes: Array<{ updatedAt: Date }>): string {
+  const ultima = funcoes.reduce((m, f) => Math.max(m, f.updatedAt.getTime()), 0);
+  return `${funcoes.length}:${ultima}`;
+}
+
+tipCommissionRouter.get("/functions", async (_request, response) => {
+  const funcoes = await prisma.tipFunction.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
+  response.json(funcoes.map(funcaoParaTela));
+});
+
+// Tabela para edição: as funções e a versão aberta (para não sobrescrever quem salvou antes).
+tipCommissionRouter.get("/functions/table", async (_request, response) => {
+  const funcoes = await prisma.tipFunction.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
+  response.json({ versao: versaoDaTabela(funcoes), funcoes: funcoes.map(funcaoParaTela) });
 });
 
 tipCommissionRouter.get("/functions/history", async (_request, response) => {
@@ -665,6 +682,9 @@ tipCommissionRouter.put("/functions", async (request, response) => {
   }));
   const invalida = limpas.find((f) => !f.name || f.points == null || f.points < 0);
   if (invalida) return response.status(422).json({ message: `Função "${invalida.name || "sem nome"}": informe nome e pontos (≥ 0).` });
+  const foraDaFaixa = limpas.find((f) => (f.minPoints != null && f.maxPoints != null && f.minPoints > f.maxPoints)
+    || (f.minPoints != null && f.points! < f.minPoints) || (f.maxPoints != null && f.points! > f.maxPoints));
+  if (foraDaFaixa) return response.status(422).json({ message: `Função "${foraDaFaixa.name}": os pontos precisam ficar entre o mínimo e o máximo.` });
   const nomes = new Set<string>();
   for (const f of limpas) {
     const k = f.name.toLocaleLowerCase("pt-BR");
@@ -673,6 +693,12 @@ tipCommissionRouter.put("/functions", async (request, response) => {
   }
 
   const antes = await prisma.tipFunction.findMany();
+  const versaoAberta = typeof b.baseVersion === "string" ? b.baseVersion : null;
+  if (versaoAberta && versaoAberta !== versaoDaTabela(antes)) {
+    return response.status(409).json({
+      message: "A tabela de funções foi salva por outra pessoa depois que você começou a editar. Suas alterações continuam na tela: confira e salve de novo.",
+    });
+  }
   const antesPorId = new Map(antes.map((a) => [a.id, a]));
   const vigencia = parseDateUTC(b.validFrom) ?? hojeUTC();
   const motivo = textoOuNull((request.body as Record<string, unknown>).reason);

@@ -1,15 +1,15 @@
-import { History, Plus, Save, X } from "lucide-react";
+import { History, X } from "lucide-react";
 import { EditorExtra, ExtraCelula } from "./PontoExtra";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   type TipFunction, type TipMudanca, type TipTeamMember, getTipCompanies, getTipFunctions, getTipMemberHistory, getTipTeam,
-  saveTipFunctions, saveTipTeamMember,
+  saveTipTeamMember,
 } from "../../api/client";
 import { HistoricoLinhaDoTempo } from "./HistoricoLinhaDoTempo";
-import { Alert, Button, StatusBadge, Table } from "../../design-system";
+import { StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import "./gorjeta.css";
-import { inputStyle, mutedStyle, numInputStyle, panelStyle, pts } from "./gorjetaUtils";
+import { inputStyle, mutedStyle, panelStyle, pts } from "./gorjetaUtils";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 
 type Props = {
@@ -19,7 +19,6 @@ type Props = {
 };
 
 const nome = (e: TipTeamMember) => (e.displayName || `${e.firstName} ${e.lastName}`).trim();
-const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v.replace(",", ".")));
 const primeiroDe = (texto: Set<string>) => (coluna: string) => (texto.has(coluna) ? "asc" as const : "desc" as const);
 
 const COLUNAS_EQUIPE: ColunaOpcional[] = [
@@ -28,22 +27,6 @@ const COLUNAS_EQUIPE: ColunaOpcional[] = [
 ];
 const TEXTO_EQUIPE = new Set(["nome", "funcao", "empresa"]);
 
-const COLUNAS_FUNCOES: ColunaOpcional[] = [
-  { chave: "pontos", rotulo: "Pontos" }, { chave: "min", rotulo: "Mín." }, { chave: "max", rotulo: "Máx." },
-  { chave: "grupo", rotulo: "Grupo" }, { chave: "obs", rotulo: "Observação" }, { chave: "ativa", rotulo: "Ativa" },
-];
-const TEXTO_FUNCOES = new Set(["nome", "grupo", "obs"]);
-
-type FuncaoComIndice = { f: TipFunction; i: number };
-const EXTRATORES_FUNCOES: Extratores<FuncaoComIndice> = {
-  nome: ({ f }) => f.name,
-  pontos: ({ f }) => f.points,
-  min: ({ f }) => f.minPoints,
-  max: ({ f }) => f.maxPoints,
-  grupo: ({ f }) => f.group,
-  obs: ({ f }) => f.notes,
-  ativa: ({ f }) => (f.isActive ? 1 : 0),
-};
 
 // Quem participa da gorjeta, com que função e em que empresa. Os pontos-base do
 // rateio saem daqui: pontos da função + ponto extra da pessoa (com justificativa).
@@ -54,7 +37,6 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
   const [empresas, setEmpresas] = useState<Array<{ id: string; tradeName: string }>>([]);
   const [salvando, setSalvando] = useState<string | null>(null);
   const [mostrarInativos, setMostrarInativos] = useState(false);
-  const [funcoesSujas, setFuncoesSujas] = useState(false);
   // Vigência e motivo das mudanças de função/pontos: vão para o histórico.
   const [vigencia, setVigencia] = useState(() => new Date().toISOString().slice(0, 10));
   const [motivo, setMotivo] = useState("");
@@ -76,14 +58,9 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
 
   const ordEquipe = useOrdenacao("equipe");
   const colEquipe = useColunas("equipe");
-  const ordFuncoes = useOrdenacao("funcoes");
-  const colFuncoes = useColunas("funcoes");
   const ve = colEquipe.visivel;
-  const vf = colFuncoes.visivel;
   const primeiroEquipe = primeiroDe(TEXTO_EQUIPE);
-  const primeiroFuncoes = primeiroDe(TEXTO_FUNCOES);
   const thE = (coluna: string) => ({ coluna, ordem: ordEquipe.ordem, onOrdenar: () => ordEquipe.alternar(coluna, primeiroEquipe(coluna)) });
-  const thF = (coluna: string) => ({ coluna, ordem: ordFuncoes.ordem, onOrdenar: () => ordFuncoes.alternar(coluna, primeiroFuncoes(coluna)) });
 
   async function carregar() {
     try {
@@ -91,7 +68,6 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
       setTeam(t);
       setFuncoes(f);
       setEmpresas(c);
-      setFuncoesSujas(false);
     } catch (e) {
       onNotice("error", (e as Error).message);
     }
@@ -150,34 +126,10 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
     }
   }
 
-  function editarFuncao(i: number, patch: Partial<TipFunction>) {
-    setFuncoes((prev) => prev.map((f, j) => (j === i ? { ...f, ...patch } : f)));
-    setFuncoesSujas(true);
-  }
-
-  async function salvarFuncoes() {
-    try {
-      await saveTipFunctions(funcoes, { validFrom: vigencia || undefined, reason: motivo.trim() || undefined });
-      onNotice("success", "Tabela de funções salva. Use \"Atualizar do cadastro\" na Apuração para levar os novos pontos ao período aberto.");
-      await carregar();
-      onChanged();
-    } catch (e) {
-      onNotice("error", (e as Error).message);
-    }
-  }
-
   const visiveis = team.filter((m) => mostrarInativos || m.isActive || m.participaGorjeta);
   const equipeOrdenada = aplicarOrdem(visiveis, ordEquipe.ordem, extratoresEquipe);
   const participantes = team.filter((m) => m.participaGorjeta);
   const somaBase = participantes.filter((m) => m.isActive).reduce((a, m) => a + (baseDe(m) ?? 0), 0);
-
-  // A edição usa a posição original da função; a ordem é só de exibição.
-  // Função nova (ainda sem id) fica sempre no fim, onde foi criada.
-  const funcoesComIndice = funcoes.map((f, i) => ({ f, i }));
-  const funcoesOrdenadas = [
-    ...aplicarOrdem(funcoesComIndice.filter((x) => x.f.id), ordFuncoes.ordem, EXTRATORES_FUNCOES),
-    ...funcoesComIndice.filter((x) => !x.f.id),
-  ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -207,7 +159,7 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
         </div>
         <span style={mutedStyle}>
           Total = pontos da função + ponto extra. O extra é da pessoa (sobe ou desce) e sempre tem justificativa; a função não muda.
-          Sem registro recebe salário + gorjeta na lista de pagamento.
+          Os pontos de cada função se editam na aba “Funções e pontos”. Sem registro recebe salário + gorjeta na lista de pagamento.
         </span>
         <Table className="tabela-gorjeta">
           <Table.Head>
@@ -319,50 +271,6 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
         )}
       </div>
 
-      <div style={panelStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <strong>Funções e pontos-base</strong>
-          <div className="barra-lista">
-            <SeletorColunas colunas={COLUNAS_FUNCOES} ocultas={colFuncoes.ocultas} alternar={colFuncoes.alternar} mostrarTodas={colFuncoes.mostrarTodas} />
-            {canEdit && (
-              <>
-                <Button variant="secondary" leadingIcon={<Plus size={14} />}
-                  onClick={() => { setFuncoes((p) => [...p, { name: "", points: 0, minPoints: null, maxPoints: null, group: null, notes: null, isActive: true }]); setFuncoesSujas(true); }}>
-                  Nova função
-                </Button>
-                <Button leadingIcon={<Save size={14} />} disabled={!funcoesSujas} onClick={() => void salvarFuncoes()}>Salvar tabela</Button>
-              </>
-            )}
-          </div>
-        </div>
-        {funcoesSujas && <Alert tone="warning">Alterações na tabela ainda não salvas.</Alert>}
-        <Table className="tabela-gorjeta">
-          <Table.Head>
-            <Table.Row>
-              <ThOrdenavel {...thF("nome")} align="left" minWidth={200}>Função / nível</ThOrdenavel>
-              {vf("pontos") && <ThOrdenavel {...thF("pontos")}>Pontos</ThOrdenavel>}
-              {vf("min") && <ThOrdenavel {...thF("min")}>Mín.</ThOrdenavel>}
-              {vf("max") && <ThOrdenavel {...thF("max")}>Máx.</ThOrdenavel>}
-              {vf("grupo") && <ThOrdenavel {...thF("grupo")}>Grupo</ThOrdenavel>}
-              {vf("obs") && <ThOrdenavel {...thF("obs")} minWidth={220}>Observação</ThOrdenavel>}
-              {vf("ativa") && <ThOrdenavel {...thF("ativa")}>Ativa</ThOrdenavel>}
-            </Table.Row>
-          </Table.Head>
-          <Table.Body>
-            {funcoesOrdenadas.map(({ f, i }) => (
-              <Table.Row key={f.id ?? `nova-${i}`}>
-                <Table.Td><input style={inputStyle} value={f.name} disabled={!canEdit} aria-label="Nome da função" onChange={(e) => editarFuncao(i, { name: e.target.value })} /></Table.Td>
-                {vf("pontos") && <Table.Td><input style={{ ...numInputStyle, textAlign: "center" }} type="number" step="0.5" min="0" value={f.points} disabled={!canEdit} aria-label="Pontos" onChange={(e) => editarFuncao(i, { points: Number(e.target.value) })} /></Table.Td>}
-                {vf("min") && <Table.Td><input style={{ ...numInputStyle, textAlign: "center" }} type="number" step="0.5" min="0" value={f.minPoints ?? ""} disabled={!canEdit} aria-label="Mínimo" onChange={(e) => editarFuncao(i, { minPoints: numOrNull(e.target.value) })} /></Table.Td>}
-                {vf("max") && <Table.Td><input style={{ ...numInputStyle, textAlign: "center" }} type="number" step="0.5" min="0" value={f.maxPoints ?? ""} disabled={!canEdit} aria-label="Máximo" onChange={(e) => editarFuncao(i, { maxPoints: numOrNull(e.target.value) })} /></Table.Td>}
-                {vf("grupo") && <Table.Td><input style={{ ...inputStyle, width: 120, textAlign: "center" }} value={f.group ?? ""} disabled={!canEdit} aria-label="Grupo" onChange={(e) => editarFuncao(i, { group: e.target.value || null })} /></Table.Td>}
-                {vf("obs") && <Table.Td><input style={inputStyle} value={f.notes ?? ""} disabled={!canEdit} aria-label="Observação" onChange={(e) => editarFuncao(i, { notes: e.target.value || null })} /></Table.Td>}
-                {vf("ativa") && <Table.Td><input type="checkbox" checked={f.isActive} disabled={!canEdit} aria-label="Função ativa" onChange={(e) => editarFuncao(i, { isActive: e.target.checked })} /></Table.Td>}
-              </Table.Row>
-            ))}
-          </Table.Body>
-        </Table>
-      </div>
     </div>
   );
 }
