@@ -465,3 +465,58 @@
 .fechamento-lancamentos li { display: flex; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
 .fechamento-hash summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 .fechamento-hash code { display: block; margin: 6px 0 4px; font-size: 11px; overflow-wrap: anywhere; }
+
+/* Ponto extra na Equipe */
+.extra-adicionar {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px dashed var(--line-strong, var(--line)); border-radius: 999px;
+  background: transparent; color: var(--muted); font-size: 12px; padding: 3px 10px; cursor: pointer;
+}
+.extra-adicionar:hover, .extra-adicionar:focus-visible { color: var(--ink); border-style: solid; }
+.extra-chip {
+  display: inline-grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 6px;
+  max-width: 220px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper);
+  padding: 3px 8px; cursor: pointer; font-size: 12px; text-align: left; color: var(--ink);
+}
+.extra-chip:disabled { cursor: default; }
+.extra-chip:not(:disabled):hover { border-color: var(--line-strong, var(--ink)); }
+.extra-mais strong { color: var(--success); }
+.extra-menos strong { color: var(--danger); }
+.extra-motivo { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.extra-lapis { color: var(--muted); }
+.linha-em-edicao > td { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+.linha-editor-extra > td { background: color-mix(in srgb, var(--ink) 3%, transparent); text-align: left !important; }
+.editor-extra { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; padding: 4px 4px 2px; }
+.editor-extra-conta { display: flex; align-items: baseline; gap: 8px; flex-basis: 100%; font-size: 13px; }
+.editor-extra-campo { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.editor-extra-campo input:not([type="number"]) {
+  height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper);
+  color: var(--ink); font-size: 13px; text-transform: none; letter-spacing: normal;
+}
+.editor-extra-campo input[aria-invalid="true"] { border-color: var(--warning, #b45309); }
+.editor-extra-acoes { display: flex; align-items: center; gap: 8px; }
+
+/* Cabeçalho do período: mês, identidade da apuração e ações numa linha. */
+.cabecalho-periodo {
+  display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper);
+}
+.navegador-mes { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.navegador-mes button {
+  display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px;
+  border: none; background: transparent; color: var(--ink); cursor: pointer;
+}
+.navegador-mes button:hover, .navegador-mes button:focus-visible { background: var(--paper-soft, rgba(0,0,0,0.04)); }
+.navegador-mes strong {
+  min-width: 150px; text-align: center; font-size: 15px; padding: 0 6px;
+  border-left: 1px solid var(--line); border-right: 1px solid var(--line); line-height: 34px;
+}
+.identidade-periodo { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.identidade-periodo-datas { color: var(--muted); font-size: 13px; }
+.cabecalho-periodo-acoes { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.cabecalho-salvando { color: var(--muted); font-size: 12px; min-width: 56px; text-align: right; }
+.botao-icone {
+  display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); cursor: pointer;
+}
+.botao-icone:hover, .botao-icone:focus-visible { border-color: var(--line-strong, var(--ink)); }

@@ -1,5 +1,5 @@
 // Importa a aba "Cadastro Funcionários" da planilha de apuração da gorjeta para o
-// cadastro do ERP: quem participa, função, pontos personalizados, empresa,
+// cadastro do ERP: quem participa, função, ponto extra (pontos da planilha − função), empresa,
 // e "sem registro". A linha da reserva (Ricardo Almeida na planilha) não vira
 // funcionário nem é importada: a reserva agora é 0 e o que sobra vai sozinho ao fundo.
 //
@@ -171,9 +171,12 @@ async function main() {
       avisos.push(`${prefixo}: desligamento no ERP ${dia(emp.terminationDate)} × planilha ${dia(l.desligamento)} (não alterado).`);
     }
 
+    // A planilha traz os pontos finais; o ERP guarda a diferença para a função como extra.
+    const extraBruto = l.pontosPers == null ? null : l.pontosPers - Number(funcao?.points ?? 0);
+    const extra = extraBruto == null || Math.abs(extraBruto) < 0.005 ? null : Math.round(extraBruto * 100) / 100;
     console.log(
       `${aplicar ? "GRAVA" : "SIMULA"} ${prefixo} → função ${funcao?.name ?? "—"}` +
-      `${l.pontosPers != null ? `, ${l.pontosPers} pts pers.` : ""}` +
+      `${extra != null ? `, extra ${extra > 0 ? "+" : ""}${extra} pt (planilha ${l.pontosPers})` : ""}` +
       `, ${semRegistro ? "sem registro" : `empresa ${empresa?.tradeName ?? "—"}`}`,
     );
     if (aplicar) {
@@ -181,7 +184,8 @@ async function main() {
         participaGorjeta: true,
         tipoGorjeta: "PONTOS" as const,
         tipFunctionId: funcao?.id ?? null,
-        pontosPadrao: l.pontosPers,
+        pontosExtra: extra,
+        pontosExtraMotivo: extra == null ? null : `Planilha de gorjeta (${l.codigo}): ${l.pontosPers} pts no lugar de ${Number(funcao?.points ?? 0)}`,
         ...(semRegistro ? { modality: "NAO_CLT" as const } : empresa ? { companyId: empresa.id } : {}),
       };
       await prisma.$transaction(async (tx) => {

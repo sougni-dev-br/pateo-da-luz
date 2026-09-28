@@ -287,7 +287,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
           <Table.Row>
             <ThOrdenavel {...th("nome")} align="left" minWidth={190}>Funcionário</ThOrdenavel>
 {v("base") && (
-            <ThOrdenavel {...th("base")} align="center" title="Pontos da função (ou personalizados)">Base</ThOrdenavel>
+            <ThOrdenavel {...th("base")} align="center" title="Pontos da função + ponto extra do cadastro">Base</ThOrdenavel>
 )}
 {v("faltas") && (
             <ThOrdenavel {...th("faltas")} align="center" style={inicioBloco} title="Faltas injustificadas no período">Faltas</ThOrdenavel>

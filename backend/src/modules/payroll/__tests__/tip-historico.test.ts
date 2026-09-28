@@ -12,7 +12,7 @@ const emp = { firstName: "Luiz", lastName: "Moreno", displayName: null };
 let seq = 0;
 const linha = (validFrom: string, over: Record<string, unknown>) => ({
   id: `h${++seq}`, employeeId: "e1", validFrom: d(validFrom), participaGorjeta: true, tipFunctionId: "pizzaiolo",
-  functionName: "Pizzaiolo", functionPoints: 3.5, pontosPadrao: null, basePoints: 3.5, reason: null,
+  functionName: "Pizzaiolo", functionPoints: 3.5, pontosPadrao: null, pontosExtra: null, pontosExtraMotivo: null, basePoints: 3.5, reason: null,
   changedById: "u", createdAt: d(validFrom), employee: emp, ...over,
 });
 
@@ -21,7 +21,7 @@ describe("listarMudancas", () => {
     vi.mocked(prisma.employeeTipHistory.findMany).mockResolvedValue([
       linha("2025-01-01", { participaGorjeta: false, basePoints: 3.5 }),
       linha("2026-01-10", {}),
-      linha("2026-05-01", { pontosPadrao: 4, basePoints: 4, reason: "Promoção" }),
+      linha("2026-05-01", { pontosExtra: 0.5, basePoints: 4, reason: "Promoção" }),
       linha("2026-07-01", { tipFunctionId: "lider", functionName: "Líder de setor", functionPoints: 5, pontosPadrao: null, basePoints: 5 }),
       linha("2026-08-01", { tipFunctionId: "atend", functionName: "Atendimento", functionPoints: 5, basePoints: 5 }),
       linha("2026-09-01", { basePoints: 4.5, functionPoints: 4.5 }),
@@ -47,7 +47,7 @@ describe("listarMudancas", () => {
   test("filtro de datas usa a vigência, mas o 'antes' vem da linha anterior mesmo fora do filtro", async () => {
     vi.mocked(prisma.employeeTipHistory.findMany).mockResolvedValue([
       linha("2025-01-01", {}),
-      linha("2026-09-10", { pontosPadrao: 5, basePoints: 5 }),
+      linha("2026-09-10", { pontosExtra: 1.5, basePoints: 5 }),
     ] as never);
     const r = await listarMudancas({ de: d("2026-09-01"), ate: d("2026-09-30") });
     expect(r).toHaveLength(1);
@@ -57,13 +57,14 @@ describe("listarMudancas", () => {
 });
 
 describe("mudouSituacao", () => {
-  const base = { participaGorjeta: true, tipFunctionId: "f", pontosPadrao: null };
+  const base = { participaGorjeta: true, tipFunctionId: "f", pontosExtra: null, pontosExtraMotivo: null };
   test("empresa ou outro campo fora da gorjeta não gera histórico", () => {
     expect(mudouSituacao(base, { ...base })).toBe(false);
   });
   test("função, pontos ou participação geram", () => {
     expect(mudouSituacao(base, { ...base, tipFunctionId: "g" })).toBe(true);
-    expect(mudouSituacao(base, { ...base, pontosPadrao: 4 })).toBe(true);
+    expect(mudouSituacao(base, { ...base, pontosExtra: 1, pontosExtraMotivo: "Líder de turno" })).toBe(true);
+    expect(mudouSituacao({ ...base, pontosExtra: 1, pontosExtraMotivo: "a" }, { ...base, pontosExtra: 1, pontosExtraMotivo: "b" })).toBe(true);
     expect(mudouSituacao(base, { ...base, participaGorjeta: false })).toBe(true);
   });
 });

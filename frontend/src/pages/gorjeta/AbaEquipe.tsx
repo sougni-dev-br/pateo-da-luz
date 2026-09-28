@@ -1,5 +1,6 @@
 import { History, Plus, Save, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { EditorExtra, ExtraCelula } from "./PontoExtra";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   type TipFunction, type TipMudanca, type TipTeamMember, getTipCompanies, getTipFunctions, getTipMemberHistory, getTipTeam,
   saveTipFunctions, saveTipTeamMember,
@@ -22,8 +23,8 @@ const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v.replace(",",
 const primeiroDe = (texto: Set<string>) => (coluna: string) => (texto.has(coluna) ? "asc" as const : "desc" as const);
 
 const COLUNAS_EQUIPE: ColunaOpcional[] = [
-  { chave: "participa", rotulo: "Participa" }, { chave: "funcao", rotulo: "Função" }, { chave: "pers", rotulo: "Pontos pers." },
-  { chave: "base", rotulo: "Base" }, { chave: "empresa", rotulo: "Empresa" },
+  { chave: "participa", rotulo: "Participa" }, { chave: "funcao", rotulo: "Função" }, { chave: "pfuncao", rotulo: "Pontos da função" },
+  { chave: "extra", rotulo: "Ponto extra" }, { chave: "base", rotulo: "Total" }, { chave: "empresa", rotulo: "Empresa" },
 ];
 const TEXTO_EQUIPE = new Set(["nome", "funcao", "empresa"]);
 
@@ -45,8 +46,8 @@ const EXTRATORES_FUNCOES: Extratores<FuncaoComIndice> = {
 };
 
 // Quem participa da gorjeta, com que função e em que empresa. Os pontos-base do
-// rateio saem daqui: função (ou pontos personalizados). O ajuste de cada mês é
-// feito na aba Apuração, sem mexer nesta base.
+// rateio saem daqui: pontos da função + ponto extra da pessoa (com justificativa).
+// O ajuste de cada mês é feito na aba Apuração, sem mexer nesta base.
 export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
   const [team, setTeam] = useState<TipTeamMember[]>([]);
   const [funcoes, setFuncoes] = useState<TipFunction[]>([]);
@@ -60,6 +61,7 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
   const [historicoDe, setHistoricoDe] = useState<TipTeamMember | null>(null);
   const [historico, setHistorico] = useState<TipMudanca[] | null>(null);
   const painelHistorico = useRef<HTMLDivElement>(null);
+  const [extraDe, setExtraDe] = useState<string | null>(null);
 
   async function abrirHistorico(m: TipTeamMember) {
     if (historicoDe?.id === m.id) { setHistoricoDe(null); return; }
@@ -99,35 +101,50 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
 
   const funcaoPorId = useMemo(() => new Map(funcoes.filter((f) => f.id).map((f) => [f.id!, f])), [funcoes]);
   const empresaPorId = useMemo(() => new Map(empresas.map((c) => [c.id, c.tradeName])), [empresas]);
+  const pontosDaFuncao = (m: TipTeamMember) => (m.tipFunctionId ? funcaoPorId.get(m.tipFunctionId)?.points ?? null : null);
   const baseDe = (m: TipTeamMember) => {
-    const f = m.tipFunctionId ? funcaoPorId.get(m.tipFunctionId) : undefined;
-    return m.pontosPadrao ?? f?.points ?? null;
+    const f = pontosDaFuncao(m);
+    if (f == null && m.pontosExtra == null) return null;
+    return Math.max(0, Math.round(((f ?? 0) + (m.pontosExtra ?? 0)) * 100) / 100);
   };
+  // Funções agrupadas (Salão, Cozinha…) para o seletor ficar curto de ler.
+  const funcoesPorGrupo = useMemo(() => {
+    const grupos = new Map<string, TipFunction[]>();
+    for (const x of funcoes) {
+      if (!x.id) continue;
+      const g = x.group?.trim() || "Outras";
+      grupos.set(g, [...(grupos.get(g) ?? []), x]);
+    }
+    return [...grupos.entries()];
+  }, [funcoes]);
 
   const extratoresEquipe: Extratores<TipTeamMember> = {
     nome: (m) => nome(m),
     participa: (m) => (m.participaGorjeta ? 1 : 0),
     funcao: (m) => (m.tipFunctionId ? funcaoPorId.get(m.tipFunctionId)?.name : null),
-    pers: (m) => m.pontosPadrao,
+    pfuncao: (m) => pontosDaFuncao(m),
+    extra: (m) => m.pontosExtra,
     base: (m) => baseDe(m),
     empresa: (m) => (m.companyId ? empresaPorId.get(m.companyId) : null),
   };
 
-  async function salvarMembro(m: TipTeamMember, patch: Partial<TipTeamMember>) {
+  async function salvarMembro(m: TipTeamMember, patch: Partial<TipTeamMember>): Promise<boolean> {
     const novo = { ...m, ...patch };
     setTeam((prev) => prev.map((x) => (x.id === m.id ? novo : x)));
     setSalvando(m.id);
     try {
       await saveTipTeamMember(m.id, {
         participaGorjeta: novo.participaGorjeta, tipoGorjeta: novo.tipoGorjeta, cotaFixaGorjeta: novo.cotaFixaGorjeta,
-        pontosPadrao: novo.pontosPadrao, tipFunctionId: novo.tipFunctionId, companyId: novo.companyId,
+        pontosExtra: novo.pontosExtra, pontosExtraMotivo: novo.pontosExtraMotivo, tipFunctionId: novo.tipFunctionId, companyId: novo.companyId,
         validFrom: vigencia || undefined, reason: motivo.trim() || undefined,
       });
       onChanged();
       if (historicoDe?.id === m.id) setHistorico(await getTipMemberHistory(m.id));
+      return true;
     } catch (e) {
       setTeam((prev) => prev.map((x) => (x.id === m.id ? m : x)));
       onNotice("error", (e as Error).message);
+      return false;
     } finally {
       setSalvando(null);
     }
@@ -189,18 +206,19 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
           </div>
         </div>
         <span style={mutedStyle}>
-          Pontos-base = pontos da função, ou os personalizados quando preenchidos. Sem registro recebe salário + gorjeta na lista de pagamento.
-          A reserva da casa não é mais um funcionário: é informada em pontos nos parâmetros de cada período.
+          Total = pontos da função + ponto extra. O extra é da pessoa (sobe ou desce) e sempre tem justificativa; a função não muda.
+          Sem registro recebe salário + gorjeta na lista de pagamento.
         </span>
         <Table className="tabela-gorjeta">
           <Table.Head>
             <Table.Row>
               <ThOrdenavel {...thE("nome")} align="left" minWidth={200}>Funcionário</ThOrdenavel>
               {ve("participa") && <ThOrdenavel {...thE("participa")}>Participa</ThOrdenavel>}
-              {ve("funcao") && <ThOrdenavel {...thE("funcao")} minWidth={200}>Função</ThOrdenavel>}
-              {ve("pers") && <ThOrdenavel {...thE("pers")} title="Pontos personalizados: substituem os da função">Pontos pers.</ThOrdenavel>}
-              {ve("base") && <ThOrdenavel {...thE("base")}>Base</ThOrdenavel>}
-              {ve("empresa") && <ThOrdenavel {...thE("empresa")} minWidth={160}>Empresa</ThOrdenavel>}
+              {ve("funcao") && <ThOrdenavel {...thE("funcao")} minWidth={190}>Função</ThOrdenavel>}
+              {ve("pfuncao") && <ThOrdenavel {...thE("pfuncao")} title="Pontos definidos na tabela de funções">Pontos da função</ThOrdenavel>}
+              {ve("extra") && <ThOrdenavel {...thE("extra")} minWidth={170} title="Ponto extra da pessoa, com justificativa">Ponto extra</ThOrdenavel>}
+              {ve("base") && <ThOrdenavel {...thE("base")} title="Pontos da função + ponto extra">Total</ThOrdenavel>}
+              {ve("empresa") && <ThOrdenavel {...thE("empresa")} minWidth={150}>Empresa</ThOrdenavel>}
               <Table.Th aria-label="Histórico"> </Table.Th>
             </Table.Row>
           </Table.Head>
@@ -208,11 +226,14 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
             {equipeOrdenada.map((m) => {
               const f = m.tipFunctionId ? funcaoPorId.get(m.tipFunctionId) : undefined;
               const base = baseDe(m);
-              const foraFaixa = m.pontosPadrao != null && f && (
-                (f.minPoints != null && m.pontosPadrao < f.minPoints) || (f.maxPoints != null && m.pontosPadrao > f.maxPoints));
+              const foraFaixa = m.pontosExtra != null && base != null && f && (
+                (f.minPoints != null && base < f.minPoints) || (f.maxPoints != null && base > f.maxPoints));
               const off = !canEdit || salvando === m.id;
+              const editando = extraDe === m.id;
+              const colunasVisiveis = 2 + COLUNAS_EQUIPE.filter((c) => ve(c.chave)).length;
               return (
-                <Table.Row key={m.id}>
+                <Fragment key={m.id}>
+                <Table.Row className={editando ? "linha-em-edicao" : undefined}>
                   <Table.Td>
                     <div style={{ fontWeight: 500 }}>{nome(m)}</div>
                     <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
@@ -228,27 +249,26 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
                   )}
                   {ve("funcao") && (
                     <Table.Td>
-                      <select style={inputStyle} value={m.tipFunctionId ?? ""} disabled={off}
+                      <select style={inputStyle} value={m.tipFunctionId ?? ""} disabled={off} aria-label={`Função de ${nome(m)}`}
                         onChange={(e) => void salvarMembro(m, { tipFunctionId: e.target.value || null })}>
-                        <option value="">—</option>
-                        {funcoes.filter((x) => x.isActive || x.id === m.tipFunctionId).map((x) => (
-                          <option key={x.id} value={x.id}>{x.name} ({pts(x.points)})</option>
+                        <option value="">— sem função —</option>
+                        {funcoesPorGrupo.map(([grupo, lista]) => (
+                          <optgroup key={grupo} label={grupo}>
+                            {lista.filter((x) => x.isActive || x.id === m.tipFunctionId).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                          </optgroup>
                         ))}
                       </select>
                     </Table.Td>
                   )}
-                  {ve("pers") && (
+                  {ve("pfuncao") && <Table.Td style={{ color: f ? undefined : "var(--muted)" }}>{f ? pts(f.points) : "—"}</Table.Td>}
+                  {ve("extra") && (
                     <Table.Td>
-                      <input key={`${m.id}-${m.pontosPadrao}`} style={{ ...numInputStyle, textAlign: "center" }} type="number" step="0.5" min="0" disabled={off}
-                        defaultValue={m.pontosPadrao ?? ""} placeholder={f ? pts(f.points) : ""} aria-label={`Pontos personalizados de ${nome(m)}`}
-                        onBlur={(e) => {
-                          const v = numOrNull(e.target.value);
-                          if (v !== m.pontosPadrao) void salvarMembro(m, { pontosPadrao: v });
-                        }} />
+                      <ExtraCelula extra={m.pontosExtra} motivo={m.pontosExtraMotivo} aberto={editando} podeEditar={!off}
+                        rotulo={nome(m)} onAbrir={() => setExtraDe(editando ? null : m.id)} />
                     </Table.Td>
                   )}
                   {ve("base") && (
-                    <Table.Td style={{ fontWeight: 600, color: foraFaixa ? "var(--warning, #b45309)" : undefined }}
+                    <Table.Td style={{ fontWeight: 700, color: foraFaixa ? "var(--warning, #b45309)" : undefined }}
                       title={foraFaixa ? `Fora da faixa da função (${f?.minPoints} a ${f?.maxPoints})` : undefined}>
                       {pts(base)}{foraFaixa ? " ⚠" : ""}
                     </Table.Td>
@@ -270,6 +290,19 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
                     </button>
                   </Table.Td>
                 </Table.Row>
+                {editando && (
+                  <Table.Row className="linha-editor-extra">
+                    <Table.Td colSpan={colunasVisiveis}>
+                      <EditorExtra nome={nome(m)} pontosFuncao={f?.points ?? null} extra={m.pontosExtra} motivo={m.pontosExtraMotivo}
+                        salvando={salvando === m.id}
+                        onCancelar={() => setExtraDe(null)}
+                        onSalvar={async (extra, motivoExtra) => {
+                          if (await salvarMembro(m, { pontosExtra: extra, pontosExtraMotivo: motivoExtra })) setExtraDe(null);
+                        }} />
+                    </Table.Td>
+                  </Table.Row>
+                )}
+                </Fragment>
               );
             })}
           </Table.Body>
