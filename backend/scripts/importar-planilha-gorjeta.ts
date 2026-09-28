@@ -1,6 +1,8 @@
 // Importa a aba "Cadastro Funcionários" da planilha de apuração da gorjeta para o
 // cadastro do ERP: quem participa, função, pontos personalizados, empresa,
-// "sem registro" e a reserva da casa.
+// e "sem registro". A linha da reserva (Ricardo Almeida na planilha) não vira
+// funcionário: o script só informa os pontos dela, que vão em "Pontos da reserva"
+// nos parâmetros do período.
 //
 // Por padrão só SIMULA e mostra o que faria. Para gravar: --aplicar.
 //   npx tsx scripts/importar-planilha-gorjeta.ts <planilha.xlsx> [--reserva "Ricardo Almeida"] [--aplicar]
@@ -125,6 +127,11 @@ async function main() {
     const semRegistro = norm(l.empresa) === "s registro";
     const reserva = norm(l.nome) === norm(nomeReserva);
     const prefixo = `${l.codigo} ${l.nome}`;
+    if (reserva) {
+      const pontos = l.pontosPers ?? funcao?.points ?? null;
+      console.log(`RESERVA ${prefixo} → não é importado; use ${pontos ?? "?"} em "Pontos da reserva" no período.`);
+      continue;
+    }
 
     if (emp === null) { avisos.push(`${prefixo}: não achei no cadastro — cadastre em Funcionários e rode de novo.`); continue; }
     if (emp === "AMBIGUO") { avisos.push(`${prefixo}: mais de um funcionário com esse nome — ajuste à mão.`); continue; }
@@ -143,7 +150,7 @@ async function main() {
     console.log(
       `${aplicar ? "GRAVA" : "SIMULA"} ${prefixo} → função ${funcao?.name ?? "—"}` +
       `${l.pontosPers != null ? `, ${l.pontosPers} pts pers.` : ""}` +
-      `, ${semRegistro ? "sem registro" : `empresa ${empresa?.tradeName ?? "—"}`}${reserva ? ", RESERVA" : ""}`,
+      `, ${semRegistro ? "sem registro" : `empresa ${empresa?.tradeName ?? "—"}`}`,
     );
     if (aplicar) {
       await prisma.employee.update({
@@ -153,7 +160,6 @@ async function main() {
           tipoGorjeta: "PONTOS",
           tipFunctionId: funcao?.id ?? null,
           pontosPadrao: l.pontosPers,
-          gorjetaReserva: reserva,
           ...(semRegistro ? { modality: "NAO_CLT" as const } : empresa ? { companyId: empresa.id } : {}),
         },
       });
