@@ -33,3 +33,144 @@
 .ds-table-th > button:hover {
   color: var(--ink);
 }
+
+.th-ordenavel-icone {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.th-ordenavel:hover .th-ordenavel-icone,
+.th-ordenavel > button:focus-visible .th-ordenavel-icone {
+  opacity: 0.45;
+}
+
+.th-ordenavel-icone[data-ativa] {
+  opacity: 1;
+  color: var(--gold);
+}
+
+/* Barra acima da lista: uma linha, quebra sem cortar em telas estreitas. */
+.barra-lista {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 13px;
+}
+
+.barra-lista-campo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.barra-lista-campo select,
+.barra-lista-botao {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.barra-lista-link {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
+.barra-lista-segmento {
+  display: inline-flex;
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+.barra-lista-segmento button {
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.barra-lista-segmento button + button {
+  border-left: 1px solid var(--line);
+}
+
+.barra-lista-segmento button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.barra-lista button:focus-visible,
+.barra-lista select:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
+/* Tela cheia: a página ocupa a janela inteira, com rolagem própria. */
+.gorjeta-tela-cheia {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: auto;
+  padding: 16px 20px 32px;
+  background: var(--app-bg-from, #f7f8fa);
+}
+
+/* Resumo numa linha (tela cheia). */
+.resumo-compacto {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  align-items: baseline;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  font-variant-numeric: tabular-nums;
+}
+
+.resumo-compacto-rotulo {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Tela cheia: menos espaço entre blocos, linhas baixas e cabeçalho fixo ao rolar. */
+.gorjeta-tela-cheia {
+  gap: 10px !important;
+}
+
+.gorjeta-tela-cheia .ds-table-scroll:has(> .tabela-rateio) {
+  max-height: calc(100vh - 190px);
+  overflow: auto;
+}
+
+.gorjeta-tela-cheia .tabela-rateio .ds-table-th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.gorjeta-tela-cheia .tabela-rateio .ds-table-td {
+  padding: 3px 8px;
+}
+
+.gorjeta-tela-cheia .tabela-rateio input {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
