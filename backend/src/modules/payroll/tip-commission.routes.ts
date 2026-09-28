@@ -3,6 +3,7 @@
 
 import crypto from "node:crypto";
 import { Router, type Response } from "express";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
@@ -18,6 +19,7 @@ import {
   registrarHistorico, saldoReserva, travarFundo,
 } from "./tip-historico.service.js";
 import { detalheFechamento, listarFechamentos } from "./tip-fechamento.service.js";
+import { lerPdfRescisao } from "./tip-trct.service.js";
 
 // Formata dd/mm a partir de uma data UTC.
 function fmtDay(d: Date): string {
@@ -394,7 +396,8 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
       await tx.tipParticipant.upsert({
         where: { periodId_employeeId: { periodId, employeeId } },
         create: { id: crypto.randomUUID(), periodId, employeeId, basePoints: basePorFuncionario.get(employeeId) ?? 0, ...dados },
-        update: dados,
+        // Sem valor quitado, o recibo lido do TRCT deixa de valer.
+        update: dados.rescisaoValorFixo == null ? { ...dados, rescisaoRecibo: Prisma.DbNull } : dados,
       });
     }
   });
@@ -953,4 +956,96 @@ tipCommissionRouter.get("/closings/:id", async (request, response) => {
   const detalhe = await detalheFechamento(request.params.id);
   if (!detalhe) return response.status(404).json({ message: "Registro de fechamento não encontrado." });
   response.json(detalhe);
+});
+
+// ─── Recibo da rescisão (TRCT) que volta da contabilidade ───────────────────
+// Lê o PDF, casa com o funcionário pelo CPF (sem gravar o CPF) e, com aplicar=true,
+// grava a gorjeta paga como valor quitado da rescisão no período da saída.
+tipCommissionRouter.post("/periods/:year/:month/rescisao-recibo", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const year = parseInt(request.params.year, 10);
+  const month = parseInt(request.params.month, 10);
+  const b = request.body as { fileBase64?: unknown; fileName?: unknown; aplicar?: unknown };
+  if (typeof b.fileBase64 !== "string" || !b.fileBase64) return response.status(400).json({ message: "Envie o PDF da rescisão." });
+  const arquivo = String(b.fileName ?? "rescisao.pdf").replace(/[^\p{L}\p{N}.\-() _]/gu, "_").slice(0, 120);
+
+  let lido;
+  try {
+    lido = await lerPdfRescisao(Buffer.from(b.fileBase64.replace(/^data:[^,]*,/, ""), "base64"));
+  } catch (err) {
+    return response.status(422).json({ message: "Não foi possível ler o PDF da rescisão. " + (err as Error).message });
+  }
+  const { recibo, hash } = lido;
+  if (!recibo.cpfDigitos) return response.status(422).json({ message: "Não achei o CPF no termo de rescisão para saber de quem é." });
+  const candidatos = await prisma.employee.findMany({
+    where: { deletedAt: null },
+    select: { id: true, cpf: true, firstName: true, lastName: true, displayName: true, admissionDate: true, terminationDate: true },
+  });
+  // Casa pelo CPF; se não achar, pelo nome completo (único) — e avisa, para o cadastro ser conferido.
+  const semAcento = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+  let emp = candidatos.find((e) => (e.cpf ?? "").replace(/\D/g, "") === recibo.cpfDigitos);
+  let casadoPeloNome = false;
+  if (!emp && recibo.nome) {
+    const nomeTermo = semAcento(recibo.nome);
+    const mesmos = candidatos.filter((e) => semAcento(`${e.firstName} ${e.lastName}`) === nomeTermo);
+    if (mesmos.length === 1) { emp = mesmos[0]; casadoPeloNome = true; }
+  }
+  if (!emp) {
+    return response.status(422).json({ message: `Não achei no cadastro de funcionários de quem é o termo (${recibo.nome ?? "nome não lido"}): nem pelo CPF, nem pelo nome completo.` });
+  }
+  const nome = (emp.displayName || `${emp.firstName} ${emp.lastName}`).trim();
+
+  const periodo = await prisma.tipPeriod.findUnique({ where: { competenceYear_competenceMonth: { competenceYear: year, competenceMonth: month } } });
+  if (!periodo) return response.status(404).json({ message: "Período não encontrado." });
+  const participante = await prisma.tipParticipant.findUnique({ where: { periodId_employeeId: { periodId: periodo.id, employeeId: emp.id } } });
+
+  const dia = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+  const br = (isoDia: string | null) => (isoDia ? isoDia.split("-").reverse().join("/") : "vazia");
+  const divergencias: string[] = [];
+  if (casadoPeloNome) divergencias.push("O CPF do termo é diferente do CPF no cadastro: reconhecido pelo nome completo. Confira o cadastro.");
+  if (recibo.gorjeta == null) divergencias.push("O termo não tem a rubrica de gorjeta.");
+  if (recibo.afastamento && dia(emp.terminationDate) !== recibo.afastamento) {
+    divergencias.push(`Saída no cadastro: ${br(dia(emp.terminationDate))} × termo: ${br(recibo.afastamento)}.`);
+  }
+  if (recibo.admissao && dia(emp.admissionDate) !== recibo.admissao) {
+    divergencias.push(`Admissão no cadastro: ${br(dia(emp.admissionDate))} × termo: ${br(recibo.admissao)}.`);
+  }
+  if (recibo.afastamento && (recibo.afastamento < dia(periodo.periodStart)! || recibo.afastamento > dia(periodo.periodEnd)!)) {
+    divergencias.push(`A saída (${br(recibo.afastamento)}) não cai neste período (${periodo.label}).`);
+  }
+  if (!participante) divergencias.push(`${nome} não está na apuração deste período.`);
+  if (participante?.rescisaoValorFixo != null && recibo.gorjeta != null && Number(participante.rescisaoValorFixo) !== recibo.gorjeta) {
+    divergencias.push(`Valor quitado digitado antes: ${Number(participante.rescisaoValorFixo).toFixed(2)} (será trocado pelo do termo).`);
+  }
+
+  const previa = {
+    employeeId: emp.id, nome, arquivo, hash,
+    gorjeta: recibo.gorjeta, liquido: recibo.liquido,
+    admissao: recibo.admissao, afastamento: recibo.afastamento, pagamento: recibo.pagamento,
+    divergencias,
+  };
+  if (b.aplicar !== true) return response.json({ previa, aplicado: false });
+
+  if (!participante || recibo.gorjeta == null) {
+    return response.status(422).json({ message: participante ? "O termo não tem a rubrica de gorjeta." : `${nome} não está na apuração deste período.` });
+  }
+  if (await barrouPorFechamento(periodo.id, response, "Lançar o recibo da rescisão")) return;
+  const gravado = {
+    fonte: "TRCT", arquivo, hash, gorjeta: recibo.gorjeta, liquido: recibo.liquido,
+    admissao: recibo.admissao, afastamento: recibo.afastamento, pagamento: recibo.pagamento,
+    importadoEm: new Date().toISOString(), importadoPor: user.name,
+  };
+  await prisma.tipParticipant.update({
+    where: { id: participante.id },
+    data: { rescisaoValorFixo: recibo.gorjeta, rescisaoRecibo: gravado },
+  });
+  await auditLog({
+    userId: user.id, action: "TIP_RESCISAO_RECIBO", entity: "TipParticipant", entityId: participante.id,
+    previousValue: { rescisaoValorFixo: participante.rescisaoValorFixo == null ? null : Number(participante.rescisaoValorFixo) },
+    newValue: { employeeId: emp.id, ...gravado },
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+  const computation = await computeTipCommission(year, month, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
+  response.json({ previa, aplicado: true, computation });
 });

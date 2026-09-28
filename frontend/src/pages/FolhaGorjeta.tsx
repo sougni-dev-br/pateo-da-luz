@@ -413,7 +413,12 @@ export function FolhaGorjeta() {
 
               {aba === "apuracao" && (
                 <AbaApuracao comp={comp} rows={rows} readonly={readonly} onRow={setRow}
-                  onRemove={(p) => void remover(p)} onAddVale={lancarVale} onRemoveVale={(id) => void apagarVale(id)} />
+                  onRemove={(p) => void remover(p)} onAddVale={lancarVale} onRemoveVale={(id) => void apagarVale(id)}
+                  recibo={{
+                    antesDeGravar: flush,
+                    onAplicado: (c) => { aplicar(c); setNotice({ tone: "success", message: "Termo de rescisão lido: a gorjeta paga ficou como valor quitado e saiu da lista a pagar." }); },
+                    onErro: (m) => setNotice({ tone: "error", message: m }),
+                  }} />
               )}
               {aba === "pagamento" && (
                 <AbaPagamento comp={comp} rows={rows} readonly={readonly} onRow={setRow} onError={(m) => setNotice({ tone: "error", message: m })} />

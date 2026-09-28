@@ -66,6 +66,18 @@ export function pontosBaseDoCadastro(emp: { pontosExtra: unknown; tipFunction: {
 }
 
 // ─── Tipos de saída ─────────────────────────────────────────────────────────
+export type ReciboGravado = {
+  fonte: "TRCT";
+  arquivo: string;
+  hash: string;
+  gorjeta: number;
+  liquido: number | null;
+  admissao: string | null;
+  afastamento: string | null;
+  pagamento: string | null;
+  importadoEm: string;
+  importadoPor: string;
+};
 export type ComputedVale = { id: string; type: string; amount: number; date: string | null; notes: string | null };
 export type Origem = "ESCALA" | "MANUAL";
 
@@ -106,6 +118,9 @@ export type ComputedParticipant = {
   rescisaoServicoOrigem: "FATURAMENTO" | "MANUAL" | null;
   rescisaoValorFixo: number | null;
   rescisaoPendente: boolean;
+  // Gorjeta quitada na rescisão: já foi paga pela contabilidade, não entra na lista a pagar.
+  pagoNaRescisao: boolean;
+  rescisaoRecibo: ReciboGravado | null;
   rateioAmount: number;
   descontos: number;
   creditos: number;
@@ -172,7 +187,7 @@ export type TipComputation = {
   reservaPontos: number;
   fundoReservaSaldo: number;
   participants: ComputedParticipant[];
-  totals: { rateio: number; vales: number; netCommission: number; salarios: number; totalAPagar: number };
+  totals: { rateio: number; vales: number; netCommission: number; salarios: number; totalAPagar: number; pagoNaRescisao: number };
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
   pendencias: string[];
   warnings: string[];
@@ -320,7 +335,8 @@ export async function computeTipCommission(
     const rateioAmount = closed ? Number(r.rateioAmount) : calc.rateio;
     const netCommission = closed ? Number(r.netCommission) : calc.comissaoLiquida;
     const salarioProporcional = closed ? Number(r.salarioProporcional) : calc.salarioProporcional;
-    const totalAPagar = closed ? Number(r.totalAPagar) : calc.totalAPagar;
+    const pagoNaRescisao = calc.tipoCalculo === "RESCISAO_QUITADA";
+    const totalAPagar = pagoNaRescisao ? 0 : closed ? Number(r.totalAPagar) : calc.totalAPagar;
     return {
       participantId: r.id,
       employeeId: r.employeeId,
@@ -356,6 +372,8 @@ export async function computeTipCommission(
       rescisaoServicoOrigem: r.rescisaoServicoBruto != null ? "MANUAL" : servicoAteSaida.has(r.id) ? "FATURAMENTO" : null,
       rescisaoValorFixo: ent.rescisaoValorFixo,
       rescisaoPendente: !closed && calc.rescisaoPendente,
+      pagoNaRescisao,
+      rescisaoRecibo: (r.rescisaoRecibo as ReciboGravado | null) ?? null,
       rateioAmount,
       descontos: calc.descontos,
       creditos: calc.creditos,
@@ -468,6 +486,7 @@ export async function computeTipCommission(
       netCommission: round2(participants.reduce((a, p) => a + p.netCommission, 0)),
       salarios: round2(participants.reduce((a, p) => a + p.salarioProporcional, 0)),
       totalAPagar: round2(participants.reduce((a, p) => a + p.totalAPagar, 0)),
+      pagoNaRescisao: round2(participants.filter((p) => p.pagoNaRescisao).reduce((a, p) => a + p.rateioAmount, 0)),
     },
     check: { expectedNetPool: netPool, sumRateios: distribuido, ok, diff: round2(distribuido - netPool) },
     pendencias,

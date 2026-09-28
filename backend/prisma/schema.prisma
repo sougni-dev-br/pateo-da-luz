@@ -2867,6 +2867,8 @@ model TipParticipant {
   // e valor já quitado/congelado, que prevalece sobre o cálculo.
   rescisaoServicoBruto Decimal?    @db.Decimal(14, 2)
   rescisaoValorFixo    Decimal?    @db.Decimal(14, 2)
+  // Recibo da rescisão lido do TRCT (gorjeta paga, datas, hash do arquivo).
+  rescisaoRecibo       Json?
   // Sem registro: dias de salário (null = calcular) e valores do fechamento.
   diasSalarioOverride  Int?
   salarioProporcional  Decimal     @default(0) @db.Decimal(14, 2)
