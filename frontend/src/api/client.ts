@@ -5825,12 +5825,14 @@ export type TipTeamMember = {
   participaGorjeta: boolean;
   tipoGorjeta: TipParticipantKind;
   cotaFixaGorjeta: number | null;
-  pontosPadrao: number | null;
+  /** Ponto extra (±) somado aos pontos da função. */
+  pontosExtra: number | null;
+  pontosExtraMotivo: string | null;
   tipFunctionId: string | null;
 };
 
 export type TipTeamPayload = Pick<TipTeamMember,
-  "participaGorjeta" | "tipoGorjeta" | "cotaFixaGorjeta" | "pontosPadrao" | "tipFunctionId" | "companyId"> & {
+  "participaGorjeta" | "tipoGorjeta" | "cotaFixaGorjeta" | "pontosExtra" | "pontosExtraMotivo" | "tipFunctionId" | "companyId"> & {
   /** Data a partir da qual a mudança de função/pontos vale (AAAA-MM-DD). */
   validFrom?: string;
   reason?: string;

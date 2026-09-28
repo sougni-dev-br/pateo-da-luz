@@ -336,12 +336,12 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
   if (!periodBefore) return response.status(404).json({ message: "Período não encontrado." });
   if (await barrouPorFechamento(periodId, response, "Alterar os participantes")) return;
 
-  // Pontos-base vêm do cadastro (função ou personalizados) e não se editam aqui:
+  // Pontos-base vêm do cadastro (função + ponto extra) e não se editam aqui:
   // o período só guarda o ajuste do mês. Quem entra pela tela pega a base na hora.
   const novos = (list as Array<Record<string, unknown>>).map((raw) => String(raw.employeeId ?? "")).filter(Boolean);
   const cadastro = await prisma.employee.findMany({
     where: { id: { in: novos } },
-    select: { id: true, pontosPadrao: true, tipFunction: { select: { points: true } } },
+    select: { id: true, pontosExtra: true, tipFunction: { select: { points: true } } },
   });
   const basePorFuncionario = new Map(cadastro.map((e) => [e.id, pontosBaseDoCadastro(e)]));
 
@@ -698,7 +698,7 @@ tipCommissionRouter.put("/functions", async (request, response) => {
           },
         });
       }
-      // Quem está nesta função sem pontos personalizados tem a base alterada: fica no histórico dele.
+      // Quem está nesta função tem a base alterada: fica no histórico dele.
       if (velha && (mudouPontos || mudouNome)) {
         const afetados = await tx.employee.findMany({ where: { tipFunctionId: id, deletedAt: null }, select: { id: true } });
         for (const a of afetados) {
@@ -726,14 +726,14 @@ tipCommissionRouter.get("/team", async (_request, response) => {
       id: true, firstName: true, lastName: true, displayName: true, isActive: true,
       sector: true, position: true, modality: true, admissionDate: true, terminationDate: true,
       companyId: true, participaGorjeta: true, tipoGorjeta: true, cotaFixaGorjeta: true,
-      pontosPadrao: true, tipFunctionId: true,
+      pontosExtra: true, pontosExtraMotivo: true, tipFunctionId: true,
     },
     orderBy: [{ isActive: "desc" }, { firstName: "asc" }, { lastName: "asc" }],
   });
   response.json(employees.map((e) => ({
     ...e,
     cotaFixaGorjeta: e.cotaFixaGorjeta == null ? null : Number(e.cotaFixaGorjeta),
-    pontosPadrao: e.pontosPadrao == null ? null : Number(e.pontosPadrao),
+    pontosExtra: e.pontosExtra == null ? null : Number(e.pontosExtra),
   })));
 });
 
@@ -745,7 +745,7 @@ tipCommissionRouter.put("/team/:employeeId", async (request, response) => {
     where: { id: request.params.employeeId, deletedAt: null },
     select: {
       id: true, companyId: true, participaGorjeta: true, tipoGorjeta: true, cotaFixaGorjeta: true,
-      pontosPadrao: true, tipFunctionId: true,
+      pontosExtra: true, pontosExtraMotivo: true, tipFunctionId: true,
     },
   });
   if (!antes) return response.status(404).json({ message: "Funcionário não encontrado." });
@@ -758,16 +758,30 @@ tipCommissionRouter.put("/team/:employeeId", async (request, response) => {
   if (companyId && !(await prisma.company.findUnique({ where: { id: companyId } }))) {
     return response.status(422).json({ message: "Empresa não encontrada." });
   }
-  const pontos = numOrNull(b.pontosPadrao);
-  if (pontos != null && pontos < 0) return response.status(422).json({ message: "Pontos personalizados não podem ser negativos." });
+  // Ponto extra: soma (ou tira) dos pontos da função, sempre com justificativa.
+  const extraBruto = numOrNull(b.pontosExtra);
+  const extra = extraBruto == null || Math.abs(extraBruto) < 0.005 ? null : Math.round(extraBruto * 100) / 100;
+  const motivoExtra = extra == null ? null : textoOuNull(b.pontosExtraMotivo);
+  if (extra != null && (!motivoExtra || motivoExtra.length < 5)) {
+    return response.status(422).json({ message: "Informe a justificativa do ponto extra (pelo menos 5 caracteres)." });
+  }
+  if (extra != null && Math.abs(extra) > 100) return response.status(422).json({ message: "Ponto extra fora do limite (±100)." });
+  const pontosFuncao = tipFunctionId ? Number((await prisma.tipFunction.findUnique({ where: { id: tipFunctionId } }))?.points ?? 0) : 0;
+  if (extra != null && pontosFuncao + extra < 0) {
+    return response.status(422).json({ message: `O extra deixaria a pessoa com pontos negativos (função ${pontosFuncao}, extra ${extra}).` });
+  }
 
   const tipoGorjeta = b.tipoGorjeta === "FIXO" ? "FIXO" : "PONTOS";
   const participa = Boolean(b.participaGorjeta);
   // Função, pontos e participação ficam no histórico, com a data a partir da qual valem.
   const registrar = mudouSituacao(
-    { participaGorjeta: antes.participaGorjeta, tipFunctionId: antes.tipFunctionId, pontosPadrao: antes.pontosPadrao == null ? null : Number(antes.pontosPadrao) },
-    { participaGorjeta: participa, tipFunctionId, pontosPadrao: pontos },
+    { participaGorjeta: antes.participaGorjeta, tipFunctionId: antes.tipFunctionId, pontosExtra: antes.pontosExtra == null ? null : Number(antes.pontosExtra), pontosExtraMotivo: antes.pontosExtraMotivo },
+    { participaGorjeta: participa, tipFunctionId, pontosExtra: extra, pontosExtraMotivo: motivoExtra },
   );
+  // Tirar o extra também explica no histórico o que saiu.
+  const extraRetirado = extra == null && antes.pontosExtra != null
+    ? `Ponto extra retirado (era ${Number(antes.pontosExtra) > 0 ? "+" : ""}${Number(antes.pontosExtra)}: ${antes.pontosExtraMotivo ?? "sem justificativa"})`
+    : null;
   const vigencia = parseDateUTC(b.validFrom) ?? hojeUTC();
   const depois = await prisma.$transaction(async (tx) => {
     const atualizado = await tx.employee.update({
@@ -775,7 +789,8 @@ tipCommissionRouter.put("/team/:employeeId", async (request, response) => {
     data: {
       participaGorjeta: participa,
       tipFunctionId,
-      pontosPadrao: pontos,
+      pontosExtra: extra,
+      pontosExtraMotivo: motivoExtra,
       companyId,
       tipoGorjeta,
       cotaFixaGorjeta: tipoGorjeta === "FIXO" ? (numOrNull(b.cotaFixaGorjeta) ?? 0) : null,
@@ -783,10 +798,10 @@ tipCommissionRouter.put("/team/:employeeId", async (request, response) => {
     },
     select: {
       id: true, companyId: true, participaGorjeta: true, tipoGorjeta: true, cotaFixaGorjeta: true,
-      pontosPadrao: true, tipFunctionId: true,
+      pontosExtra: true, pontosExtraMotivo: true, tipFunctionId: true,
     },
     });
-    if (registrar) await registrarHistorico(tx, antes.id, vigencia, user.id, textoOuNull(b.reason));
+    if (registrar) await registrarHistorico(tx, antes.id, vigencia, user.id, textoOuNull(b.reason) ?? motivoExtra ?? extraRetirado);
     return atualizado;
   });
   await auditLog({

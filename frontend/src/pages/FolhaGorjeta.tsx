@@ -274,36 +274,38 @@ export function FolhaGorjeta() {
     <div ref={raiz} className={telaCheia ? "gorjeta-tela-cheia" : undefined} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Notice notice={notice} />
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <Button variant="secondary" onClick={() => void changeMonth(-1)} aria-label="Mês anterior" leadingIcon={<ChevronLeft size={14} />}>Anterior</Button>
-        <strong style={{ minWidth: 150, textAlign: "center" }}>{MONTHS[month - 1]} / {year}</strong>
-        <Button variant="secondary" onClick={() => void changeMonth(1)} aria-label="Próximo mês" leadingIcon={<ChevronRight size={14} />}>Próximo</Button>
-        <Button variant="secondary" onClick={() => void load()} aria-label="Recarregar" leadingIcon={<RefreshCw size={14} />}>Recarregar</Button>
-        {comp?.code && <span className="codigo-apuracao" title="Código da apuração">{comp.code}</span>}
-        <span style={{ color: "var(--muted)", fontSize: 13 }}>{comp?.label}</span>
-        {comp?.periodId && (
-          <StatusBadge tone={closed ? "success" : "info"}>{closed ? "Fechada" : "Em apuração"}</StatusBadge>
-        )}
-        <span aria-live="polite" style={{ color: "var(--muted)", fontSize: 12 }}>{autoSaving ? "salvando…" : ""}</span>
+      <div className="cabecalho-periodo">
+        <div className="navegador-mes" role="group" aria-label="Competência">
+          <button type="button" onClick={() => void changeMonth(-1)} aria-label="Mês anterior" title="Mês anterior"><ChevronLeft size={16} /></button>
+          <strong>{MONTHS[month - 1]} / {year}</strong>
+          <button type="button" onClick={() => void changeMonth(1)} aria-label="Próximo mês" title="Próximo mês"><ChevronRight size={16} /></button>
+        </div>
+        <div className="identidade-periodo">
+          {comp?.code && <span className="codigo-apuracao" title="Código da apuração">{comp.code}</span>}
+          <span className="identidade-periodo-datas">{comp?.label}</span>
+          {comp?.periodId && <StatusBadge tone={closed ? "success" : "info"}>{closed ? "Fechada" : "Em apuração"}</StatusBadge>}
+        </div>
+        <div className="cabecalho-periodo-acoes">
+          <span aria-live="polite" className="cabecalho-salvando">{autoSaving ? "salvando…" : ""}</span>
+          <button type="button" className="botao-icone" onClick={() => void load()} aria-label="Recarregar" title="Recarregar"><RefreshCw size={15} /></button>
+          <Button variant="secondary" onClick={() => void alternarTelaCheia()}
+            leadingIcon={telaCheia ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            title={telaCheia ? "Voltar ao tamanho normal (Esc)" : "Ver a tela inteira de uma vez"}>
+            {telaCheia ? "Sair da tela cheia" : "Tela cheia"}
+          </Button>
+        </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <Tabs
-          value={aba}
-          onChange={(v) => setAba(v as Aba)}
-          tabs={[
-            { value: "apuracao", label: "Apuração" },
-            { value: "pagamento", label: "Pagamento e envio" },
-            { value: "equipe", label: "Equipe e funções" },
-            { value: "relatorios", label: "Relatórios" },
-          ]}
-        />
-        <Button variant="secondary" onClick={() => void alternarTelaCheia()}
-          leadingIcon={telaCheia ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-          title={telaCheia ? "Voltar ao tamanho normal (Esc)" : "Ver a tela inteira de uma vez"}>
-          {telaCheia ? "Sair da tela cheia" : "Tela cheia"}
-        </Button>
-      </div>
+      <Tabs
+        value={aba}
+        onChange={(v) => setAba(v as Aba)}
+        tabs={[
+          { value: "apuracao", label: "Apuração" },
+          { value: "pagamento", label: "Pagamento e envio" },
+          { value: "equipe", label: "Equipe e funções" },
+          { value: "relatorios", label: "Relatórios" },
+        ]}
+      />
 
       {aba === "equipe" && (
         <AbaEquipe
