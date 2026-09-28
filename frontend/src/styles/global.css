@@ -16299,3 +16299,69 @@ td.count-list-divergent {
   line-height: 1.2;
   white-space: normal;
 }
+
+/* ── Movimentacoes ─────────────────────────────────────────────────── */
+
+.movement-in {
+  color: var(--success);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.movement-out {
+  color: var(--danger);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.movement-mobile-list {
+  gap: 0;
+}
+
+.movement-mobile-item {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px 2px;
+}
+
+.movement-mobile-item > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.movement-mobile-item strong {
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
+
+.movement-mobile-item small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.movement-mobile-item > span {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: end;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Agenda no celular: sem Responsavel (4a coluna) cabe sem rolar de lado. */
+@media (max-width: 768px) {
+  .movement-agenda th:nth-child(4),
+  .movement-agenda td:nth-child(4) {
+    display: none;
+  }
+
+  .table-wrap.movement-agenda:not(.inv-desktop-table-wrap):not(.cmv-analysis-table) table {
+    min-width: 0;
+  }
+}

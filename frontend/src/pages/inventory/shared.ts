@@ -136,6 +136,28 @@ export const movementTypes = [
   { value: "PURCHASE_IN", label: "Entrada manual" }
 ];
 
+// Rotulo para o historico. A lista mostrava o codigo cru ("MANUAL_OUT").
+// Aqui o PURCHASE_IN e so "Entrada": alem da manual, as compras tambem geram.
+// ADJUSTMENT nao existe no formulario — e o ajuste que o sistema cria sozinho
+// ao concluir contagem ou editar compra.
+const movementTypeHistoryLabels: Record<string, string> = {
+  ...Object.fromEntries(movementTypes.map((type) => [type.value, type.label])),
+  PURCHASE_IN: "Entrada",
+  ADJUSTMENT: "Ajuste automatico"
+};
+
+export function movementTypeLabel(type: string): string {
+  return movementTypeHistoryLabels[type] ?? type;
+}
+
+// Quantidade com o sinal que ela tem no estoque — espelha movementQuantitySign
+// do backend (inventory.routes.ts). O historico mostrava tudo positivo: uma
+// perda de 3 e uma entrada de 3 pareciam a mesma coisa.
+export function movementSignedQuantity(type: string, quantity: number): number {
+  if (["PURCHASE_IN", "POSITIVE_ADJUSTMENT", "RETURN", "ADJUSTMENT"].includes(type)) return quantity;
+  return -quantity;
+}
+
 export const sensitiveMovementTypes = ["BREAKAGE", "LOSS", "EMPLOYEE_PURCHASE", "NEGATIVE_ADJUSTMENT"];
 
 export function monthValue(date = new Date()) {
