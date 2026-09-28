@@ -362,6 +362,13 @@ export function evaluateQuantity(
   return warnings;
 }
 
+// O que aparece na linha durante a contagem. Zero fica de fora: em cozinha
+// acabar e rotina, e o aviso em todo zero fazia o estoquista parar item a item.
+// O zero atipico continua no resumo do "Concluir", que e o ponto de conferencia.
+export function inlineCountWarnings(warnings: QuantityWarning[]): QuantityWarning[] {
+  return warnings.filter((warning) => warning !== "ZERO_INESPERADO");
+}
+
 export function quantityWarningLabel(warning: QuantityWarning, plausibility: QuantityPlausibility): string {
   switch (warning) {
     case "ZERO_INESPERADO":
