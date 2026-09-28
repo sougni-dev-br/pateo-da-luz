@@ -1842,15 +1842,19 @@ export function Inventory({
                 {countSessionDetail.code} - {formatDate(countSessionDetail.referenceDate)} - {countSessionTypeLabels[countSessionDetail.type]}
                 {countSessionDetail.sectorName ? ` - ${countSessionDetail.sectorName}` : ""}
               </p>
-              <h2>Lançamento de contagem</h2>
+              <h2>
+                Lançamento de contagem
+                <StatusBadge tone={countSessionDetail.status === "CONCLUIDA" ? "success" : "warning"}>
+                  {countSessionStatusLabels[countSessionDetail.status] ?? countSessionDetail.status}
+                </StatusBadge>
+              </h2>
               <span className="muted">Digite as quantidades físicas. Sem estoque, informe 0. Campo vazio fica pendente.</span>
-
             </div>
+            {/* Salvar e Concluir moram na faixa fixa abaixo: aqui eles rolavam
+                para fora da tela logo no primeiro item. */}
             <div className="actions-cell">
               <button className="secondary-button" type="button" onClick={() => { setCountSessionDetail(null); onCloseCountSessionRoute?.(); }}><X size={16} />Voltar</button>
               <button className="secondary-button" type="button" onClick={() => downloadCountSessionPdf(countSessionDetail)}><Download size={16} />Gerar PDF</button>
-              <button className="secondary-button large-action" type="button" disabled={locked} onClick={saveCountSessionDraft}><Save size={17} />Salvar Contagem</button>
-              <button className="primary-button large-action" type="button" disabled={locked} onClick={concludeCountSession}><CheckCircle2 size={17} />Concluir Contagem</button>
               {canReshapeCountSession && !countSessionDetail.generatedInventoryId && ["ABERTA", "EM_ANDAMENTO", "CONCLUIDA"].includes(countSessionDetail.status) && ["GERAL", "SETORIAL"].includes(countSessionDetail.type) && (
                 <button className="secondary-button" type="button" onClick={reshapeCountSessionToCurrentFilters}>
                   <FilterX size={16} />Recortar para filtros
@@ -1871,35 +1875,84 @@ export function Inventory({
             </div>
           </div>
 
-          <div className="summary-grid">
-            <article><span>Total de produtos</span><strong>{countSessionProgress.total}</strong></article>
-            <article><span>Contados</span><strong>{countSessionProgress.counted}</strong></article>
-            <article><span>Pendentes</span><strong>{countSessionProgress.pending}</strong></article>
-            <article><span>Status</span><strong>{countSessionStatusLabels[countSessionDetail.status] ?? countSessionDetail.status}</strong></article>
+          {/* Filtros de recorte rolam junto com o cabecalho: sao usados uma vez
+              por contagem. Fixo fica so o que se usa a cada item. */}
+          <div className="filters-row desktop-count-filters">
+            <label>Setor<select value={countSessionSectorFilter} onChange={(event) => setCountSessionSectorFilter(event.target.value)}>
+              <option value="">Todos</option>
+              {countSessionSectors.map((sector) => <option key={sector} value={sector}>{sector}</option>)}
+            </select></label>
+            <label>Categoria<select value={countSessionCategoryFilter} onChange={(event) => setCountSessionCategoryFilter(event.target.value)}>
+              <option value="">Todas</option>
+              {countSessionCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+            </select></label>
+            <label>Subcategoria<select value={countSessionSubcategoryFilter} onChange={(event) => setCountSessionSubcategoryFilter(event.target.value)}>
+              <option value="">Todas</option>
+              {countSessionSubcategories.map((subcategory) => <option key={subcategory} value={subcategory}>{subcategory}</option>)}
+            </select></label>
+            <label>Unidade<select value={countSessionUnitFilter} onChange={(event) => setCountSessionUnitFilter(event.target.value)}>
+              <option value="">Todas</option>
+              {countSessionUnits.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+            </select></label>
+            <label>Status<select value={countSessionStatusFilter} onChange={(event) => setCountSessionStatusFilter(event.target.value as "TODOS" | "PENDENTE" | "CONTADO")}>
+              <option value="TODOS">Todos</option>
+              <option value="PENDENTE">Pendentes</option>
+              <option value="CONTADO">Contados</option>
+            </select></label>
+            <div className="desktop-count-filters-tools">
+              <button className="secondary-button" type="button" disabled={locked} onClick={markFilteredCountSessionItemsAsZero}>Marcar filtrados como zero</button>
+              <details className="column-picker">
+                <summary>Colunas</summary>
+                <div className="column-picker-menu">
+                  {countSessionColumnOptions.map((column) => (
+                    <label key={column.key} className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={countSessionVisibleColumns[column.key]}
+                        disabled={column.required}
+                        onChange={() => toggleCountSessionColumn(column.key)}
+                      />
+                      {column.label}
+                    </label>
+                  ))}
+                </div>
+              </details>
+            </div>
           </div>
 
+          {/* Uma faixa fixa so, com fundo solido. Eram duas (cabecalho e
+              progresso/filtros) grudando em alturas diferentes, e a de baixo,
+              transparente, deixava os itens passarem por dentro dela. */}
           <div className="count-session-sticky-shell">
-            <div className="count-progress-block compact-progress-block">
-              <div className="progress-header">
-                <span>{countSessionProgress.counted} de {countSessionProgress.total} produtos contados</span>
-                <strong>{countSessionProgress.percent}%</strong>
+            <div className="count-progress-block count-toolbar">
+              <div className="count-toolbar-progress">
+                <div className="progress-header">
+                  <span><strong>{countSessionProgress.counted}</strong> de {countSessionProgress.total} contados <em>{countSessionProgress.pending} pendentes</em></span>
+                  <strong>{countSessionProgress.percent}%</strong>
+                </div>
+                <div className="progress-track"><div className="progress-fill" style={{ width: `${countSessionProgress.percent}%` }} /></div>
               </div>
-              <div className="progress-track"><div className="progress-fill" style={{ width: `${countSessionProgress.percent}%` }} /></div>
+              <label className="count-toolbar-search" aria-label="Busca por codigo ou produto">
+                <Search size={16} />
+                <input autoFocus value={countSessionSearch} onChange={(event) => setCountSessionSearch(event.target.value)} placeholder="Codigo ou produto" />
+              </label>
+              <button className={countSessionStatusFilter === "PENDENTE" ? "secondary-button active-filter pending-filter-button" : "secondary-button pending-filter-button"} type="button" aria-pressed={countSessionStatusFilter === "PENDENTE"} onClick={() => setCountSessionStatusFilter(countSessionStatusFilter === "PENDENTE" ? "TODOS" : "PENDENTE")}>Somente pendentes</button>
+              <div className="count-toolbar-actions">
+                <button className="secondary-button" type="button" disabled={locked} onClick={saveCountSessionDraft}><Save size={16} />Salvar</button>
+                <button className="primary-button" type="button" disabled={locked} onClick={concludeCountSession}><CheckCircle2 size={16} />Concluir</button>
+              </div>
               {regraDeDigitacao}
             </div>
 
             <div className="mobile-count-sticky-bar">
               <div className="mobile-count-progress-line">
-                <strong>{countSessionProgress.counted}/{countSessionProgress.total} contados</strong>
+                <strong>{countSessionProgress.counted}/{countSessionProgress.total}</strong>
                 <span>{countSessionProgress.pending} pendentes</span>
+                <button className={mobileQuickCountMode ? "primary-button" : "secondary-button"} type="button" aria-pressed={mobileQuickCountMode} onClick={toggleMobileQuickCountMode}>
+                  {mobileQuickCountMode ? "Sair do rapido" : "Modo rapido"}
+                </button>
               </div>
               <div className="progress-track"><div className="progress-fill" style={{ width: `${countSessionProgress.percent}%` }} /></div>
-              <div className="mobile-quick-count-row">
-                <button className={mobileQuickCountMode ? "primary-button" : "secondary-button"} type="button" onClick={toggleMobileQuickCountMode}>
-                  {mobileQuickCountMode ? "Sair do modo rapido" : "Lancamento rapido"}
-                </button>
-                <span>{[countSessionSectorFilter || "Todos setores", "Pendentes"].join(" - ")}</span>
-              </div>
               {regraDeDigitacao}
               <div className="mobile-count-search-row">
                 <label aria-label="Busca por codigo ou produto">
@@ -1943,55 +1996,6 @@ export function Inventory({
               )}
             </div>
 
-            <div className="filters-row mobile-count-filters desktop-count-filters">
-              <label>Busca<input autoFocus value={countSessionSearch} onChange={(event) => setCountSessionSearch(event.target.value)} placeholder="Codigo ou produto" /></label>
-              <label>Setor<select value={countSessionSectorFilter} onChange={(event) => setCountSessionSectorFilter(event.target.value)}>
-                <option value="">Todos</option>
-                {countSessionSectors.map((sector) => <option key={sector} value={sector}>{sector}</option>)}
-              </select></label>
-              <label>Categoria<select value={countSessionCategoryFilter} onChange={(event) => setCountSessionCategoryFilter(event.target.value)}>
-                <option value="">Todas</option>
-                {countSessionCategories.map((category) => <option key={category} value={category}>{category}</option>)}
-              </select></label>
-              <label>Subcategoria<select value={countSessionSubcategoryFilter} onChange={(event) => setCountSessionSubcategoryFilter(event.target.value)}>
-                <option value="">Todas</option>
-                {countSessionSubcategories.map((subcategory) => <option key={subcategory} value={subcategory}>{subcategory}</option>)}
-              </select></label>
-              <label>Unidade<select value={countSessionUnitFilter} onChange={(event) => setCountSessionUnitFilter(event.target.value)}>
-                <option value="">Todas</option>
-                {countSessionUnits.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
-              </select></label>
-              <label>Status<select value={countSessionStatusFilter} onChange={(event) => setCountSessionStatusFilter(event.target.value as "TODOS" | "PENDENTE" | "CONTADO")}>
-                <option value="TODOS">Todos</option>
-                <option value="PENDENTE">Pendentes</option>
-                <option value="CONTADO">Contados</option>
-              </select></label>
-              <button className={countSessionStatusFilter === "PENDENTE" ? "secondary-button active-filter pending-filter-button" : "secondary-button pending-filter-button"} type="button" onClick={() => setCountSessionStatusFilter(countSessionStatusFilter === "PENDENTE" ? "TODOS" : "PENDENTE")}>Somente pendentes</button>
-              <button className="secondary-button" type="button" disabled={locked} onClick={markFilteredCountSessionItemsAsZero}>Marcar filtrados como zero</button>
-              <details className="column-picker">
-                <summary>Colunas</summary>
-                <div className="column-picker-menu">
-                  {countSessionColumnOptions.map((column) => (
-                    <label key={column.key} className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={countSessionVisibleColumns[column.key]}
-                        disabled={column.required}
-                        onChange={() => toggleCountSessionColumn(column.key)}
-                      />
-                      {column.label}
-                    </label>
-                  ))}
-                </div>
-              </details>
-            </div>
-          </div>
-
-          <div className="chart-grid count-session-charts">
-            <SimpleBarChart title="Progresso" items={[
-              { label: "Contados", value: countSessionProgress.counted },
-              { label: "Pendentes", value: countSessionProgress.pending }
-            ]} />
           </div>
 
           <div className="mobile-count-card-list">

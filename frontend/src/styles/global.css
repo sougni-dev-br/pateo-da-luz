@@ -6799,11 +6799,25 @@ details[open] .modal-section-summary::before {
 }
 
 .count-session-launch .section-heading {
-  background: rgba(255, 255, 255, 0.96);
   padding-bottom: 10px;
-  position: sticky;
-  top: 0;
-  z-index: 18;
+}
+
+.count-session-launch .section-heading h2 {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* O respiro do topo do .content fica ACIMA de qualquer sticky: o elemento gruda
+   abaixo do padding, e por essa fresta os itens apareciam passando por cima da
+   faixa fixa. Nesta tela o respiro vira padding da propria pagina, que rola. */
+.content:has(.count-session-launch) {
+  padding-top: 0;
+}
+
+.count-session-launch {
+  padding-top: 28px;
 }
 
 /* Ações do cabeçalho da ficha de contagem: compactas no desktop.
@@ -6841,19 +6855,119 @@ details[open] .modal-section-summary::before {
 
 .count-session-sticky-shell {
   display: grid;
-  gap: 12px;
-  margin-bottom: 14px;
+  margin: 0 -18px 14px;
+  padding: 10px 18px;
   position: sticky;
-  top: 12px;
+  top: 0;
   z-index: 16;
+  /* Solido e na largura do painel: nada da lista pode aparecer atras. */
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 8px 14px -12px rgba(22, 21, 18, 0.28);
 }
 
-.compact-progress-block {
-  background: rgba(255, 255, 255, 0.94);
+.count-toolbar {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  display: grid;
+  gap: 8px 12px;
+  grid-template-columns: minmax(250px, 1fr) minmax(200px, 300px) auto auto;
+  margin: 0;
+  padding: 0;
+}
+
+.count-toolbar .count-rule-hints {
+  grid-column: 1 / -1;
+}
+
+.count-toolbar-progress .progress-header {
+  font-size: 0.86rem;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.count-toolbar-progress .progress-header span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count-toolbar-progress .progress-header em {
+  color: var(--muted);
+  font-style: normal;
+  margin-left: 6px;
+}
+
+.count-toolbar-search {
+  align-items: center;
+  background: #fff;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  margin-top: 0;
-  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--muted);
+  display: flex;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.count-toolbar-search:focus-within {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(185, 154, 88, 0.16);
+}
+
+.count-toolbar-search input {
+  background: transparent;
+  border: 0;
+  min-height: 36px;
+  min-width: 0;
+  outline: none;
+  padding: 0;
+  width: 100%;
+}
+
+.count-toolbar .pending-filter-button,
+.count-toolbar-actions button {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.count-toolbar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.desktop-count-filters {
+  align-items: end;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+  margin-bottom: 12px;
+}
+
+.desktop-count-filters-tools {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+/* Tela media: busca e botoes descem para a segunda linha em vez de espremer. */
+@media (max-width: 1180px) {
+  .count-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .count-toolbar-progress {
+    grid-column: 1 / -1;
+  }
+
+  .desktop-count-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .desktop-count-filters-tools {
+    grid-column: 1 / -1;
+  }
 }
 
 .count-session-table-wrap {
@@ -6961,14 +7075,6 @@ details[open] .modal-section-summary::before {
 .compact-check {
   align-self: center;
   min-height: 40px;
-}
-
-.mobile-count-filters {
-  align-items: end;
-}
-
-.count-session-charts {
-  grid-template-columns: minmax(220px, 420px);
 }
 
 .mobile-count-sticky-bar,
@@ -7523,6 +7629,14 @@ details[open] .modal-section-summary::before {
   .count-session-launch {
     gap: 12px;
     padding-bottom: 68px;
+    padding-top: 10px;
+  }
+
+  /* O .filters-row generico (<=560px) vem depois e tem o mesmo peso: sem o
+     prefixo da tela, os filtros do desktop reapareciam no celular, duplicando
+     a busca e os filtros da barra fixa. */
+  .count-session-launch .desktop-count-filters {
+    display: none;
   }
 
   .count-session-sticky-shell {
@@ -7558,7 +7672,7 @@ details[open] .modal-section-summary::before {
 
   .count-session-launch .section-heading .actions-cell,
   .count-session-launch .summary-grid,
-  .count-session-charts,
+
   .desktop-count-filters,
   .count-session-table-wrap,
   .column-picker,
@@ -7586,8 +7700,7 @@ details[open] .modal-section-summary::before {
   .mobile-count-progress-line {
     align-items: center;
     display: flex;
-    gap: 10px;
-    justify-content: space-between;
+    gap: 8px;
     min-width: 0;
   }
 
@@ -7597,8 +7710,24 @@ details[open] .modal-section-summary::before {
 
   .mobile-count-progress-line span {
     color: var(--muted);
+    flex: 1 1 auto;
     font-size: 0.82rem;
     white-space: nowrap;
+  }
+
+  .mobile-count-progress-line button {
+    font-size: 0.8rem;
+    min-height: 32px;
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+
+  /* Regras de digitacao numa linha so; se nao couber, rola de lado em vez de
+     empurrar a barra fixa para baixo. */
+  .mobile-count-sticky-bar .count-rule-hints {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
 
   .mobile-count-search-row {
@@ -7633,28 +7762,6 @@ details[open] .modal-section-summary::before {
   .mobile-count-search-row .active-filter {
     background: var(--text);
     color: #fff;
-  }
-
-  .mobile-quick-count-row {
-    align-items: center;
-    display: grid;
-    gap: 8px;
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .mobile-quick-count-row button {
-    min-height: 36px;
-    padding: 0 10px;
-    white-space: nowrap;
-  }
-
-  .mobile-quick-count-row span {
-    color: var(--muted);
-    font-size: 0.78rem;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .quick-count-mode .mobile-count-sticky-bar {
@@ -15451,12 +15558,12 @@ body:has(.pplan-sticky-actions) .pplan {
 /* Na barra fixa a regra é referência de canto de olho: menor e mais discreta
    que no cabeçalho, para não competir com progresso e busca. */
 .mobile-count-sticky-bar .count-rule-hints,
-.compact-progress-block .count-rule-hints {
+.count-toolbar .count-rule-hints {
   margin-top: 0;
 }
 
 .mobile-count-sticky-bar .count-rule-hints span,
-.compact-progress-block .count-rule-hints span {
+.count-toolbar .count-rule-hints span {
   font-size: 0.66rem;
   padding: 2px 8px;
 }
