@@ -29,7 +29,7 @@ const estilo = {
 // registro não vão para a contabilidade — vão para a lista de pagamento.
 export async function exportarContabilidade(comp: TipComputation) {
   const { doc, autoTable, finalY } = await novoPdf("Fechamento de Gorjetas — Envio à Contabilidade", comp);
-  const registrados = ordenar(comp.participants).filter((p) => !p.semRegistro && !p.reserva && p.tipoCalculo !== "FORA_DO_PERIODO");
+  const registrados = ordenar(comp.participants).filter((p) => !p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO");
   const grupos = new Map<string, TipComputedParticipant[]>();
   for (const p of registrados) {
     const k = p.companyName || "Sem empresa";
@@ -64,7 +64,7 @@ export async function exportarContabilidade(comp: TipComputation) {
 // Lista de pagamento dos sem registro: salário proporcional + gorjeta − vales + créditos.
 export async function exportarListaPagamento(comp: TipComputation) {
   const { doc, autoTable, finalY } = await novoPdf("Lista de Pagamento — Sem registro", comp);
-  const lista = ordenar(comp.participants).filter((p) => p.semRegistro && !p.reserva && p.tipoCalculo !== "FORA_DO_PERIODO");
+  const lista = ordenar(comp.participants).filter((p) => p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO");
   autoTable(doc, {
     ...estilo,
     startY: 30,

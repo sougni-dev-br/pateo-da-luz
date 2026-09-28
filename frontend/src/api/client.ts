@@ -5640,7 +5640,6 @@ export type TipComputedParticipant = {
   functionName: string | null;
   isActive: boolean;
   semRegistro: boolean;
-  reserva: boolean;
   admissionDate: string | null;
   terminationDate: string | null;
   kind: TipParticipantKind;
@@ -5708,6 +5707,8 @@ export type TipComputation = {
   distribuido: number;
   saldo: number;
   reservaTotal: number;
+  reservaPontos: number;
+  fundoReservaSaldo: number;
   composicao: {
     mes: { valor: number; pontos: number; pessoas: number };
     rescisoes: { valor: number; pontos: number; pessoas: number; pendentes: number };
@@ -5760,6 +5761,7 @@ export type TipParticipantInput = {
 export type TipPeriodPayload = {
   grossPool?: number; deductionPercent?: number; pointsTotal?: number; periodStart?: string; periodEnd?: string;
   diasPadrao?: number; descontaFalta?: boolean; descontaAtestado?: boolean; descontaFerias?: boolean; descontaOutros?: boolean;
+  reservaPontos?: number;
 };
 
 export type TipFunction = {
@@ -5791,21 +5793,86 @@ export type TipTeamMember = {
   cotaFixaGorjeta: number | null;
   pontosPadrao: number | null;
   tipFunctionId: string | null;
-  gorjetaReserva: boolean;
 };
 
 export type TipTeamPayload = Pick<TipTeamMember,
-  "participaGorjeta" | "tipoGorjeta" | "cotaFixaGorjeta" | "pontosPadrao" | "tipFunctionId" | "gorjetaReserva" | "companyId">;
+  "participaGorjeta" | "tipoGorjeta" | "cotaFixaGorjeta" | "pontosPadrao" | "tipFunctionId" | "companyId"> & {
+  /** Data a partir da qual a mudança de função/pontos vale (AAAA-MM-DD). */
+  validFrom?: string;
+  reason?: string;
+};
+
+export type TipMudancaTipo = "INICIAL" | "PROMOCAO" | "REDUCAO" | "TROCA_DE_FUNCAO" | "ENTRADA" | "SAIDA" | "OUTRA";
+export type TipMudanca = {
+  id: string; employeeId: string; employeeName: string; validFrom: string; tipo: TipMudancaTipo;
+  funcaoAntes: string | null; funcaoDepois: string | null; baseAntes: number | null; baseDepois: number | null;
+  diferenca: number | null; participa: boolean; motivo: string | null; registradoEm: string;
+};
+export type TipEvolucao = {
+  competencias: Array<{ ano: number; mes: number; status: "OPEN" | "CLOSED"; pointValue: number }>;
+  linhas: Array<{
+    employeeId: string; employeeName: string;
+    meses: Record<string, { funcao: string | null; base: number | null; pontos: number | null; gorjeta: number | null } | undefined>;
+  }>;
+};
+export type TipReservaMovimento = {
+  id: string; date: string; type: "FECHAMENTO_RESERVA" | "FECHAMENTO_SALDO" | "DISTRIBUICAO" | "AJUSTE";
+  amount: number; saldo: number; competencia: string | null; employeeName: string | null; notes: string | null; removivel: boolean;
+};
+export type TipFuncaoHistorico = {
+  id: string; tipFunctionId: string; name: string; pointsBefore: number | null; pointsAfter: number;
+  minPoints: number | null; maxPoints: number | null; createdAt: string;
+};
+
+export function getTipMemberHistory(employeeId: string) {
+  return request<TipMudanca[]>(`/payroll/tip/team/${employeeId}/history`);
+}
+
+export function getTipChanges(de?: string, ate?: string) {
+  return request<TipMudanca[]>(`/payroll/tip/reports/changes${toQueryString({ de, ate })}`);
+}
+
+export function getTipEvolution(de: string, ate: string) {
+  return request<TipEvolucao>(`/payroll/tip/reports/evolution${toQueryString({ de, ate })}`);
+}
+
+export function getTipFunctionHistory() {
+  return request<TipFuncaoHistorico[]>("/payroll/tip/functions/history");
+}
+
+export function getTipReserve() {
+  return request<{ saldo: number; movimentos: TipReservaMovimento[] }>("/payroll/tip/reserve");
+}
+
+export function addTipReserveAdjustment(payload: { amount: number; notes: string; date?: string }) {
+  return request<{ ok: boolean }>("/payroll/tip/reserve/adjustments", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteTipReserveAdjustment(id: string) {
+  return request<{ ok: boolean }>(`/payroll/tip/reserve/adjustments/${id}`, { method: "DELETE" });
+}
+
+export function distributeTipReserve(periodId: string, items: Array<{ employeeId: string; amount: number; notes?: string }>) {
+  return request<{ total: number; saldoDepois: number }>("/payroll/tip/reserve/distribute", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ periodId, items })
+  });
+}
 
 export function getTipFunctions() {
   return request<TipFunction[]>("/payroll/tip/functions");
 }
 
-export function saveTipFunctions(functions: TipFunction[]) {
+export function saveTipFunctions(functions: TipFunction[], vigencia: { validFrom?: string; reason?: string } = {}) {
   return request<{ ok: boolean }>("/payroll/tip/functions", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ functions })
+    body: JSON.stringify({ functions, ...vigencia })
   });
 }
 

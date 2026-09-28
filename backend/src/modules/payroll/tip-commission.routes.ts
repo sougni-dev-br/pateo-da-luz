@@ -13,6 +13,9 @@ import {
 import fs from "node:fs";
 import path from "node:path";
 import { importExtrato, onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
+import {
+  distribuirReserva, evolucaoMensal, extratoReserva, lancarAjusteReserva, listarMudancas, mudouSituacao, registrarHistorico,
+} from "./tip-historico.service.js";
 
 // Formata dd/mm a partir de uma data UTC.
 function fmtDay(d: Date): string {
@@ -90,6 +93,15 @@ function intOrNull(v: unknown): number | null {
 function intOrUndefined(v: unknown, min: number, max: number): number | undefined {
   const n = numOrNull(v);
   return n == null ? undefined : Math.min(max, Math.max(min, Math.round(n)));
+}
+
+function textoOuNull(v: unknown): string | null {
+  return v != null && String(v).trim() !== "" ? String(v).trim() : null;
+}
+
+function hojeUTC(): Date {
+  const d = new Date();
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
 function boolOrUndefined(v: unknown): boolean | undefined {
@@ -237,6 +249,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       descontaAtestado: boolOrUndefined(b.descontaAtestado),
       descontaFerias: boolOrUndefined(b.descontaFerias),
       descontaOutros: boolOrUndefined(b.descontaOutros),
+      reservaPontos: (() => { const n = numOrNull(b.reservaPontos); return n == null ? undefined : Math.max(0, n); })(),
       periodStart,
       periodEnd,
       label,
@@ -532,12 +545,23 @@ tipCommissionRouter.get("/functions", async (_request, response) => {
   })));
 });
 
+tipCommissionRouter.get("/functions/history", async (_request, response) => {
+  const linhas = await prisma.tipFunctionHistory.findMany({ orderBy: { createdAt: "desc" }, take: 500 });
+  response.json(linhas.map((l) => ({
+    id: l.id, tipFunctionId: l.tipFunctionId, name: l.name,
+    pointsBefore: l.pointsBefore == null ? null : Number(l.pointsBefore), pointsAfter: Number(l.pointsAfter),
+    minPoints: l.minPoints == null ? null : Number(l.minPoints), maxPoints: l.maxPoints == null ? null : Number(l.maxPoints),
+    createdAt: l.createdAt.toISOString(),
+  })));
+});
+
 // Grava a tabela inteira (cria as novas, atualiza as existentes). Função não se
 // apaga — desativa — porque funcionários e períodos antigos apontam para ela.
 tipCommissionRouter.put("/functions", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
-  const list = (request.body as { functions?: unknown }).functions;
+  const b = request.body as Record<string, unknown>;
+  const list = b.functions;
   if (!Array.isArray(list)) return response.status(400).json({ message: "functions deve ser uma lista." });
 
   const limpas = (list as Array<Record<string, unknown>>).map((raw, i) => ({
@@ -561,14 +585,39 @@ tipCommissionRouter.put("/functions", async (request, response) => {
   }
 
   const antes = await prisma.tipFunction.findMany();
+  const antesPorId = new Map(antes.map((a) => [a.id, a]));
+  const vigencia = parseDateUTC(b.validFrom) ?? hojeUTC();
+  const motivo = textoOuNull((request.body as Record<string, unknown>).reason);
   await prisma.$transaction(async (tx) => {
     for (const f of limpas) {
       const dados = {
         name: f.name, points: f.points!, minPoints: f.minPoints, maxPoints: f.maxPoints,
         group: f.group, notes: f.notes, sortOrder: f.sortOrder, isActive: f.isActive,
       };
-      if (f.id) await tx.tipFunction.update({ where: { id: f.id }, data: dados });
-      else await tx.tipFunction.create({ data: { id: crypto.randomUUID(), ...dados } });
+      const velha = f.id ? antesPorId.get(f.id) : undefined;
+      const id = f.id ?? crypto.randomUUID();
+      if (f.id) await tx.tipFunction.update({ where: { id }, data: dados });
+      else await tx.tipFunction.create({ data: { id, ...dados } });
+      const mudouPontos = !velha || Number(velha.points) !== f.points;
+      const mudouNome = velha && velha.name !== f.name;
+      const mudouFaixa = velha && (Number(velha.minPoints ?? -1) !== (f.minPoints ?? -1) || Number(velha.maxPoints ?? -1) !== (f.maxPoints ?? -1));
+      if (mudouPontos || mudouNome || mudouFaixa) {
+        await tx.tipFunctionHistory.create({
+          data: {
+            id: crypto.randomUUID(), tipFunctionId: id, name: f.name,
+            pointsBefore: velha ? Number(velha.points) : null, pointsAfter: f.points!,
+            minPoints: f.minPoints, maxPoints: f.maxPoints, changedById: user.id,
+          },
+        });
+      }
+      // Quem está nesta função sem pontos personalizados tem a base alterada: fica no histórico dele.
+      if (velha && (mudouPontos || mudouNome)) {
+        const afetados = await tx.employee.findMany({ where: { tipFunctionId: id, deletedAt: null }, select: { id: true } });
+        for (const a of afetados) {
+          await registrarHistorico(tx, a.id, vigencia,
+            user.id, motivo ?? `Tabela de funções: "${f.name}" ${mudouPontos ? `passou de ${Number(velha.points)} para ${f.points} pontos` : "mudou de nome"}`);
+        }
+      }
     }
   });
   await auditLog({
@@ -589,7 +638,7 @@ tipCommissionRouter.get("/team", async (_request, response) => {
       id: true, firstName: true, lastName: true, displayName: true, isActive: true,
       sector: true, position: true, modality: true, admissionDate: true, terminationDate: true,
       companyId: true, participaGorjeta: true, tipoGorjeta: true, cotaFixaGorjeta: true,
-      pontosPadrao: true, tipFunctionId: true, gorjetaReserva: true,
+      pontosPadrao: true, tipFunctionId: true,
     },
     orderBy: [{ isActive: "desc" }, { firstName: "asc" }, { lastName: "asc" }],
   });
@@ -608,7 +657,7 @@ tipCommissionRouter.put("/team/:employeeId", async (request, response) => {
     where: { id: request.params.employeeId, deletedAt: null },
     select: {
       id: true, companyId: true, participaGorjeta: true, tipoGorjeta: true, cotaFixaGorjeta: true,
-      pontosPadrao: true, tipFunctionId: true, gorjetaReserva: true,
+      pontosPadrao: true, tipFunctionId: true,
     },
   });
   if (!antes) return response.status(404).json({ message: "Funcionário não encontrado." });
@@ -625,13 +674,20 @@ tipCommissionRouter.put("/team/:employeeId", async (request, response) => {
   if (pontos != null && pontos < 0) return response.status(422).json({ message: "Pontos personalizados não podem ser negativos." });
 
   const tipoGorjeta = b.tipoGorjeta === "FIXO" ? "FIXO" : "PONTOS";
-  const depois = await prisma.employee.update({
+  const participa = Boolean(b.participaGorjeta);
+  // Função, pontos e participação ficam no histórico, com a data a partir da qual valem.
+  const registrar = mudouSituacao(
+    { participaGorjeta: antes.participaGorjeta, tipFunctionId: antes.tipFunctionId, pontosPadrao: antes.pontosPadrao == null ? null : Number(antes.pontosPadrao) },
+    { participaGorjeta: participa, tipFunctionId, pontosPadrao: pontos },
+  );
+  const vigencia = parseDateUTC(b.validFrom) ?? hojeUTC();
+  const depois = await prisma.$transaction(async (tx) => {
+    const atualizado = await tx.employee.update({
     where: { id: antes.id },
     data: {
-      participaGorjeta: Boolean(b.participaGorjeta),
+      participaGorjeta: participa,
       tipFunctionId,
       pontosPadrao: pontos,
-      gorjetaReserva: Boolean(b.gorjetaReserva),
       companyId,
       tipoGorjeta,
       cotaFixaGorjeta: tipoGorjeta === "FIXO" ? (numOrNull(b.cotaFixaGorjeta) ?? 0) : null,
@@ -639,8 +695,11 @@ tipCommissionRouter.put("/team/:employeeId", async (request, response) => {
     },
     select: {
       id: true, companyId: true, participaGorjeta: true, tipoGorjeta: true, cotaFixaGorjeta: true,
-      pontosPadrao: true, tipFunctionId: true, gorjetaReserva: true,
+      pontosPadrao: true, tipFunctionId: true,
     },
+    });
+    if (registrar) await registrarHistorico(tx, antes.id, vigencia, user.id, textoOuNull(b.reason));
+    return atualizado;
   });
   await auditLog({
     userId: user.id, action: "UPDATE_TIP_TEAM_MEMBER", entity: "Employee", entityId: antes.id,
@@ -658,4 +717,87 @@ tipCommissionRouter.get("/companies", async (_request, response) => {
     orderBy: { tradeName: "asc" },
   });
   response.json(companies);
+});
+
+// ─── Histórico e relatórios ─────────────────────────────────────────────────
+tipCommissionRouter.get("/team/:employeeId/history", async (request, response) => {
+  response.json(await listarMudancas({ employeeId: request.params.employeeId }));
+});
+
+tipCommissionRouter.get("/reports/changes", async (request, response) => {
+  const q = request.query as Record<string, unknown>;
+  response.json(await listarMudancas({ de: parseDateUTC(q.de) ?? undefined, ate: parseDateUTC(q.ate) ?? undefined }));
+});
+
+// ?de=AAAA-MM&ate=AAAA-MM
+tipCommissionRouter.get("/reports/evolution", async (request, response) => {
+  const q = request.query as Record<string, unknown>;
+  const mes = (v: unknown, padrao: { ano: number; mes: number }) => {
+    const m = /^(\d{4})-(\d{2})$/.exec(String(v ?? ""));
+    return m ? { ano: Number(m[1]), mes: Number(m[2]) } : padrao;
+  };
+  const hoje = new Date();
+  const ate = mes(q.ate, { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
+  const de = mes(q.de, { ano: ate.ano - 1, mes: ate.mes });
+  response.json(await evolucaoMensal(de, ate));
+});
+
+// ─── Fundo de reserva ───────────────────────────────────────────────────────
+tipCommissionRouter.get("/reserve", async (_request, response) => {
+  response.json(await extratoReserva());
+});
+
+// Ajuste manual (saldo inicial, correção). Valor positivo entra, negativo sai.
+tipCommissionRouter.post("/reserve/adjustments", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const b = request.body as Record<string, unknown>;
+  const amount = numOrNull(b.amount);
+  const notes = textoOuNull(b.notes);
+  if (amount == null || amount === 0) return response.status(422).json({ message: "Informe um valor diferente de zero." });
+  if (!notes) return response.status(422).json({ message: "Descreva o ajuste (ex.: saldo inicial guardado até set/2026)." });
+  const mov = await lancarAjusteReserva(amount, parseDateUTC(b.date) ?? hojeUTC(), notes, user.id);
+  await auditLog({
+    userId: user.id, action: "TIP_RESERVE_ADJUSTMENT", entity: "TipReserveMovement", entityId: mov.id,
+    newValue: { amount, notes }, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+  response.status(201).json({ ok: true });
+});
+
+tipCommissionRouter.delete("/reserve/adjustments/:id", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const mov = await prisma.tipReserveMovement.findUnique({ where: { id: request.params.id } });
+  if (!mov || mov.type !== "AJUSTE") return response.status(404).json({ message: "Só ajustes manuais podem ser apagados aqui." });
+  await prisma.tipReserveMovement.delete({ where: { id: mov.id } });
+  await auditLog({
+    userId: user.id, action: "DELETE_TIP_RESERVE_ADJUSTMENT", entity: "TipReserveMovement", entityId: mov.id,
+    previousValue: { amount: String(mov.amount), notes: mov.notes }, newValue: null,
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+  response.json({ ok: true });
+});
+
+// body: { periodId, items: [{ employeeId, amount, notes? }] }
+tipCommissionRouter.post("/reserve/distribute", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const b = request.body as { periodId?: unknown; items?: unknown };
+  const periodId = String(b.periodId ?? "");
+  if (!periodId) return response.status(400).json({ message: "Informe o período." });
+  if (await barrouPorFechamento(periodId, response, "Distribuir a reserva")) return;
+  const itens = Array.isArray(b.items) ? (b.items as Array<Record<string, unknown>>).map((i) => ({
+    employeeId: String(i.employeeId ?? ""), amount: numOrNull(i.amount) ?? 0, notes: textoOuNull(i.notes),
+  })).filter((i) => i.employeeId && i.amount > 0) : [];
+  if (itens.length === 0) return response.status(422).json({ message: "Informe ao menos um funcionário e um valor." });
+  try {
+    const r = await distribuirReserva(periodId, itens, user.id);
+    await auditLog({
+      userId: user.id, action: "TIP_RESERVE_DISTRIBUTION", entity: "TipPeriod", entityId: periodId,
+      newValue: { itens, ...r }, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+    });
+    response.status(201).json(r);
+  } catch (err) {
+    response.status(422).json({ message: (err as Error).message });
+  }
 });

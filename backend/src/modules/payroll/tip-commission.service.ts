@@ -12,7 +12,8 @@
 import crypto from "node:crypto";
 import { prisma } from "../../config/database.js";
 import { round2 } from "./vt-calc.js";
-import { calcularRateio, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo } from "./tip-rateio.js";
+import { motivoParaNaoRetirar, saldoReserva, travarFundo } from "./tip-historico.service.js";
+import { calcularRateio, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, valorPontoMes } from "./tip-rateio.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
@@ -76,7 +77,6 @@ export type ComputedParticipant = {
   functionName: string | null;
   isActive: boolean;
   semRegistro: boolean;
-  reserva: boolean;
   admissionDate: string | null;
   terminationDate: string | null;
   kind: "FIXO" | "PONTOS";
@@ -152,6 +152,9 @@ export type TipComputation = {
   };
   saldo: number;
   reservaTotal: number;
+  // Pontos do período que vão para o fundo de reserva e o saldo acumulado do fundo.
+  reservaPontos: number;
+  fundoReservaSaldo: number;
   participants: ComputedParticipant[];
   totals: { rateio: number; vales: number; netCommission: number; salarios: number; totalAPagar: number };
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
@@ -203,7 +206,7 @@ export async function computeTipCommission(
               firstName: true, lastName: true, displayName: true, isActive: true,
               companyId: true, company: { select: { tradeName: true } },
               modality: true, baseSalary: true, pixKeyType: true, pixKey: true,
-              admissionDate: true, terminationDate: true, gorjetaReserva: true,
+              admissionDate: true, terminationDate: true,
               pontosPadrao: true, tipFunction: { select: { name: true, minPoints: true, maxPoints: true } },
             },
           },
@@ -267,6 +270,18 @@ export async function computeTipCommission(
 
   const rateio = calcularRateio(regras, entradas);
   const closed = period?.status === "CLOSED";
+
+  // Reserva da casa: pontos do período × valor do ponto do mês. Fechado, vale o
+  // que entrou no fundo naquele fechamento.
+  const reservaPontos = Number(period?.reservaPontos ?? 0);
+  const movimentosDoPeriodo = period
+    ? await prisma.tipReserveMovement.findMany({ where: { periodId: period.id, type: "FECHAMENTO_RESERVA" }, select: { amount: true } })
+    : [];
+  const reservaValor = closed && movimentosDoPeriodo.length > 0
+    ? round2(movimentosDoPeriodo.reduce((a, m) => a + Number(m.amount), 0))
+    : round2(reservaPontos * valorPontoMes(regras, rateio.totalCotasFixas));
+  const fundo = await prisma.tipReserveMovement.aggregate({ _sum: { amount: true } });
+  const fundoReservaSaldo = round2(Number(fundo._sum.amount ?? 0));
   const dadosPessoais = opts.incluirDadosPessoais ?? false;
 
   const participants: ComputedParticipant[] = rows.map((r, i) => {
@@ -283,10 +298,9 @@ export async function computeTipCommission(
       employeeName: (r.employee.displayName || `${r.employee.firstName} ${r.employee.lastName}`).trim(),
       companyId: r.employee.companyId ?? null,
       companyName: r.employee.company?.tradeName ?? null,
-      functionName: r.employee.tipFunction?.name ?? null,
+      functionName: closed ? (r.functionName ?? r.employee.tipFunction?.name ?? null) : (r.employee.tipFunction?.name ?? null),
       isActive: r.employee.isActive,
       semRegistro: ent.semRegistro,
-      reserva: r.employee.gorjetaReserva,
       admissionDate: r.employee.admissionDate?.toISOString() ?? null,
       terminationDate: r.employee.terminationDate?.toISOString() ?? null,
       kind: r.kind,
@@ -332,9 +346,10 @@ export async function computeTipCommission(
     };
   });
 
-  const distribuido = round2(participants.reduce((a, p) => a + p.rateioAmount, 0));
+  // Distribuído = o que foi para as pessoas + a reserva da casa.
+  const distribuido = round2(participants.reduce((a, p) => a + p.rateioAmount, 0) + reservaValor);
   const saldo = round2(netPool - distribuido);
-  const totalPoints = round2(participants.reduce((a, p) => a + (p.kind === "PONTOS" ? p.points : 0), 0));
+  const totalPoints = round2(participants.reduce((a, p) => a + (p.kind === "PONTOS" ? p.points : 0), 0) + reservaPontos);
   const pointsPool = round2(netPool - rateio.totalCotasFixas);
 
   const pendencias: string[] = [];
@@ -355,7 +370,7 @@ export async function computeTipCommission(
   const semBase = noPeriodo.filter((p) => p.kind === "PONTOS" && p.basePoints <= 0);
   if (semBase.length) warnings.push(`Sem pontos-base (defina a função em "Equipe e funções"): ${listar(semBase)}.`);
   const semSalario = participants.filter((p, i) =>
-    p.semRegistro && !p.reserva && p.tipoCalculo !== "FORA_DO_PERIODO" && entradas[i].salarioBase == null);
+    p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && entradas[i].salarioBase == null);
   if (semSalario.length) warnings.push(`Sem registro e sem salário no cadastro (a lista de pagamento sai só com a gorjeta): ${listar(semSalario)}.`);
   const semAdmissao = noPeriodo.filter((p) => !p.admissionDate);
   if (semAdmissao.length) warnings.push(`Sem data de admissão (considerados no período inteiro): ${listar(semAdmissao)}.`);
@@ -396,22 +411,24 @@ export async function computeTipCommission(
     descontaOutros: regras.descontaOutros,
     distribuido, saldo,
     composicao: {
-      mes: somar(participants.filter((p) => p.kind === "PONTOS" && p.tipoCalculo === "MES" && !p.reserva)),
+      mes: somar(participants.filter((p) => p.kind === "PONTOS" && p.tipoCalculo === "MES")),
       rescisoes: {
         ...somar(participants.filter((p) => p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA")),
         pendentes: participants.filter((p) => p.rescisaoPendente).length,
       },
-      reserva: (({ valor, pontos }) => ({ valor, pontos }))(somar(participants.filter((p) => p.reserva && p.tipoCalculo === "MES"))),
+      reserva: { valor: reservaValor, pontos: reservaPontos },
       fixos: (({ valor, pessoas }) => ({ valor, pessoas }))(somar(participants.filter((p) => p.kind === "FIXO" && p.tipoCalculo === "MES"))),
     },
-    reservaTotal: round2(participants.filter((p) => p.reserva).reduce((a, p) => a + p.rateioAmount, 0)),
+    reservaTotal: reservaValor,
+    reservaPontos,
+    fundoReservaSaldo,
     participants,
     totals: {
       rateio: distribuido,
       vales: round2(participants.reduce((a, p) => a + p.valesTotal, 0)),
       netCommission: round2(participants.reduce((a, p) => a + p.netCommission, 0)),
       salarios: round2(participants.reduce((a, p) => a + p.salarioProporcional, 0)),
-      totalAPagar: round2(participants.filter((p) => !p.reserva).reduce((a, p) => a + p.totalAPagar, 0)),
+      totalAPagar: round2(participants.reduce((a, p) => a + p.totalAPagar, 0)),
     },
     check: { expectedNetPool: netPool, sumRateios: distribuido, ok, diff: round2(distribuido - netPool) },
     pendencias,
@@ -462,9 +479,9 @@ export async function syncParticipantsFromCadastro(periodId: string): Promise<{ 
       // Quem saiu antes do período começar já recebeu no período dele.
       OR: [{ terminationDate: null }, { terminationDate: { gte: periodo.periodStart } }],
     },
-    select: { id: true, tipoGorjeta: true, pontosPadrao: true, cotaFixaGorjeta: true, tipFunction: { select: { points: true } } },
+    select: { id: true, tipoGorjeta: true, pontosPadrao: true, cotaFixaGorjeta: true, tipFunction: { select: { points: true, name: true } } },
   });
-  const existing = await prisma.tipParticipant.findMany({ where: { periodId }, select: { id: true, employeeId: true, basePoints: true } });
+  const existing = await prisma.tipParticipant.findMany({ where: { periodId }, select: { id: true, employeeId: true, basePoints: true, functionName: true } });
   const byEmp = new Map(existing.map((e) => [e.employeeId, e]));
   const toAdd = elegiveis.filter((e) => !byEmp.has(e.id));
   if (toAdd.length > 0) {
@@ -475,6 +492,7 @@ export async function syncParticipantsFromCadastro(periodId: string): Promise<{ 
         employeeId: e.id,
         kind: e.tipoGorjeta,
         basePoints: e.tipoGorjeta === "PONTOS" ? pontosBaseDoCadastro(e) : null,
+        functionName: e.tipFunction?.name ?? null,
         fixedAmount: e.tipoGorjeta === "FIXO" ? (e.cotaFixaGorjeta ?? 0) : null,
       })),
       skipDuplicates: true,
@@ -485,8 +503,9 @@ export async function syncParticipantsFromCadastro(periodId: string): Promise<{ 
     const atual = byEmp.get(e.id);
     if (!atual || e.tipoGorjeta !== "PONTOS") continue;
     const base = pontosBaseDoCadastro(e);
-    if (Number(atual.basePoints ?? -1) !== base) {
-      await prisma.tipParticipant.update({ where: { id: atual.id }, data: { basePoints: base } });
+    const funcao = e.tipFunction?.name ?? null;
+    if (Number(atual.basePoints ?? -1) !== base || atual.functionName !== funcao) {
+      await prisma.tipParticipant.update({ where: { id: atual.id }, data: { basePoints: base, functionName: funcao } });
       atualizados += 1;
     }
   }
@@ -519,6 +538,34 @@ export async function closeTipPeriod(year: number, month: number, userId: string
           atestados: p.atestados,
           ferias: p.ferias,
           rescisaoServicoBruto: p.rescisaoServicoBruto,
+          functionName: p.functionName,
+        },
+      });
+    }
+    // Fundo de reserva: o que o fechamento guarda. Refazer um fechamento troca os lançamentos dele.
+    await travarFundo(tx);
+    const anteriores = await tx.tipReserveMovement.findMany({
+      where: { periodId: comp.periodId!, type: { in: ["FECHAMENTO_RESERVA", "FECHAMENTO_SALDO"] } }, select: { amount: true },
+    });
+    const retirada = round2(anteriores.reduce((a, m) => a + Number(m.amount), 0) - comp.composicao.reserva.valor - Math.max(0, comp.saldo));
+    const bloqueio = motivoParaNaoRetirar(await saldoReserva(tx), retirada, `${String(month).padStart(2, "0")}/${year}`);
+    if (bloqueio) throw new Error(bloqueio);
+    await tx.tipReserveMovement.deleteMany({ where: { periodId: comp.periodId!, type: { in: ["FECHAMENTO_RESERVA", "FECHAMENTO_SALDO"] } } });
+    const dataFechamento = new Date(comp.periodEnd);
+    const rotulo = `${String(month).padStart(2, "0")}/${year}`;
+    if (comp.composicao.reserva.valor > 0) {
+      await tx.tipReserveMovement.create({
+        data: {
+          id: crypto.randomUUID(), date: dataFechamento, type: "FECHAMENTO_RESERVA", amount: comp.composicao.reserva.valor,
+          periodId: comp.periodId!, notes: `Reserva de ${rotulo}: ${comp.reservaPontos} pontos × ${comp.pointValue.toFixed(2)}`, createdById: userId,
+        },
+      });
+    }
+    if (comp.saldo > 0.005) {
+      await tx.tipReserveMovement.create({
+        data: {
+          id: crypto.randomUUID(), date: dataFechamento, type: "FECHAMENTO_SALDO", amount: comp.saldo,
+          periodId: comp.periodId!, notes: `Saldo não distribuído de ${rotulo}`, createdById: userId,
         },
       });
     }
@@ -542,9 +589,19 @@ export async function reopenTipPeriod(year: number, month: number, userId: strin
   if (!period) throw new Error("Período não encontrado.");
   if (period.status !== "CLOSED") throw new Error("O período não está fechado.");
 
-  await prisma.tipPeriod.update({
-    where: { competenceYear_competenceMonth: { competenceYear: year, competenceMonth: month } },
-    data: { status: "OPEN", closedAt: null, updatedById: userId },
+  await prisma.$transaction(async (tx) => {
+    await travarFundo(tx);
+    const guardado = await tx.tipReserveMovement.findMany({
+      where: { periodId: period.id, type: { in: ["FECHAMENTO_RESERVA", "FECHAMENTO_SALDO"] } }, select: { amount: true },
+    });
+    const retirada = round2(guardado.reduce((a, m) => a + Number(m.amount), 0));
+    const bloqueio = motivoParaNaoRetirar(await saldoReserva(tx), retirada, `${String(month).padStart(2, "0")}/${year}`);
+    if (bloqueio) throw new Error(bloqueio);
+    await tx.tipReserveMovement.deleteMany({ where: { periodId: period.id, type: { in: ["FECHAMENTO_RESERVA", "FECHAMENTO_SALDO"] } } });
+    await tx.tipPeriod.update({
+      where: { competenceYear_competenceMonth: { competenceYear: year, competenceMonth: month } },
+      data: { status: "OPEN", closedAt: null, updatedById: userId },
+    });
   });
 
   return computeTipCommission(year, month);

@@ -311,3 +311,75 @@
   opacity: 0.4;
   cursor: default;
 }
+
+/* Vigência das mudanças de função/pontos. */
+.barra-vigencia {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: 10px;
+  background: var(--paper);
+  font-size: 13px;
+}
+
+.barra-vigencia input {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+
+.barra-vigencia-nota {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.painel-historico {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-soft);
+}
+
+/* Linha do tempo do histórico. */
+.linha-tempo {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.linha-tempo li {
+  position: relative;
+  font-size: 13px;
+}
+
+.linha-tempo li::before {
+  content: "";
+  position: absolute;
+  left: -20px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--muted);
+}
+
+.linha-tempo li[data-tipo="PROMOCAO"]::before { border-color: var(--success); background: var(--success); }
+.linha-tempo li[data-tipo="REDUCAO"]::before { border-color: var(--danger); background: var(--danger); }
+.linha-tempo li[data-tipo="ENTRADA"]::before { border-color: var(--info); }
+.linha-tempo li[data-tipo="SAIDA"]::before { border-color: var(--warning); }

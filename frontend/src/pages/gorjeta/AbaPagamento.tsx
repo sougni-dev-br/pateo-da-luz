@@ -7,7 +7,7 @@ import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
-  type LocalRow, type RowPatch, estimarAdicionais, fmtDate, fmtHoras, inputStyle, money, mutedStyle, numInputStyle, ordenar, panelStyle, parseHoras,
+  type LocalRow, type RowPatch, estimarAdicionais, fmtDate, fmtHoras, inputStyle, money, mutedStyle, numInputStyle, ordenar, panelStyle, parseHoras, pts,
 } from "./gorjetaUtils";
 
 const EXTRATORES: Extratores<TipComputedParticipant> = {
@@ -49,9 +49,8 @@ type Props = {
 export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   const rowPorFuncionario = useMemo(() => new Map(rows.map((r) => [r.employeeId, r])), [rows]);
   const participantes = useMemo(() => ordenar(comp.participants).filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO"), [comp]);
-  const registrados = participantes.filter((p) => !p.semRegistro && !p.reserva);
-  const semRegistro = participantes.filter((p) => p.semRegistro && !p.reserva);
-  const reserva = participantes.filter((p) => p.reserva);
+  const registrados = participantes.filter((p) => !p.semRegistro);
+  const semRegistro = participantes.filter((p) => p.semRegistro);
   const veSalario = participantes.some((p) => p.baseSalary != null);
   const ordContab = useOrdenacao("contabilidade");
   const colC = useColunas("contabilidade");
@@ -281,19 +280,16 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
           )}
       </div>
 
-      {(reserva.length > 0 || comp.saldo > 0) && (
-        <div style={panelStyle}>
-          <strong>Reserva da casa</strong>
-          <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "center" }}>
-            {reserva.map((p) => (
-              <span key={p.employeeId}>{p.employeeName} <StatusBadge tone="info">Reserva</StatusBadge>: <strong>{money(p.rateioAmount)}</strong></span>
-            ))}
-            {comp.saldo > 0 && <span>Saldo não distribuído: <strong>{money(comp.saldo)}</strong></span>}
-            <span>Total retido: <strong>{money(comp.reservaTotal + Math.max(0, comp.saldo))}</strong></span>
-          </div>
-          <span style={mutedStyle}>Não entra na lista de pagamento nem no envio à contabilidade.</span>
+      <div style={panelStyle}>
+        <strong>Fundo de reserva da gorjeta</strong>
+        <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "baseline", fontVariantNumeric: "tabular-nums" }}>
+          <span>Reserva deste período ({pts(comp.reservaPontos)} pts): <strong>{money(comp.reservaTotal)}</strong></span>
+          <span>Saldo não distribuído: <strong>{money(Math.max(0, comp.saldo))}</strong></span>
+          <span>Entra no fundo ao fechar: <strong>{money(comp.reservaTotal + Math.max(0, comp.saldo))}</strong></span>
+          <span>Saldo atual do fundo: <strong>{money(comp.fundoReservaSaldo)}</strong></span>
         </div>
-      )}
+        <span style={mutedStyle}>Não entra na lista de pagamento nem no envio à contabilidade. Extrato, ajustes e distribuição ficam em Relatórios → Fundo de reserva.</span>
+      </div>
     </div>
   );
 }
