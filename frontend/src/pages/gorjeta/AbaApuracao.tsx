@@ -19,13 +19,9 @@ type Props = {
 };
 
 const num: CSSProperties = { fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
-// O nome fica visível ao rolar a tabela para o lado.
-const colunaNome: CSSProperties = { position: "sticky", left: 0, zIndex: 1, background: "var(--surface, #fff)", boxShadow: "1px 0 0 var(--border)" };
-// Cabeçalho da coluna fixa: mesmo fundo do cabeçalho, acima das linhas ao rolar.
-const colunaNomeTh: CSSProperties = { ...colunaNome, zIndex: 2, background: "var(--paper-soft, #f2f4f7)" };
 // Separa visualmente presença | pontos | valores sem precisar de uma segunda linha de cabeçalho.
 const inicioBloco: CSSProperties = { borderLeft: "1px solid var(--line)" };
-const grupoTd: CSSProperties = { background: "var(--paper-soft, #f2f4f7)", padding: "8px 12px" };
+const grupoTd: CSSProperties = { background: "var(--paper-soft, #f2f4f7)", padding: "6px 10px", textAlign: "left" };
 const totalTd: CSSProperties = { background: "var(--paper-soft, #f2f4f7)", fontWeight: 700, borderTop: "2px solid var(--line-strong, #c8d0da)" };
 
 const somaPontos = (l: TipComputedParticipant[]) => l.reduce((a, p) => a + (p.kind === "PONTOS" ? p.points : 0), 0);
@@ -131,7 +127,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
     const saldoVales = p.creditos - p.descontos;
     return (
       <Table.Row key={p.employeeId} style={fora ? { opacity: 0.55 } : undefined}>
-        <Table.Td style={colunaNome}>
+        <Table.Td>
           <div style={{ fontWeight: 500 }}>{p.employeeName}</div>
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2, alignItems: "center" }}>
             {p.functionName && <span style={mutedStyle}>{p.functionName}</span>}
@@ -140,7 +136,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
             {p.terminationDate && p.tipoCalculo !== "MES" && <StatusBadge tone="neutral">Saída {fmtDate(p.terminationDate)}</StatusBadge>}
           </div>
         </Table.Td>
-        <Table.Td align="right" style={num}>
+        <Table.Td align="center" style={num}>
           {p.kind === "FIXO"
             ? <input style={{ ...numInputStyle, width: 90 }} type="number" step="0.01" value={r.fixedAmount} disabled={readonly}
                 aria-label="Cota fixa" title="Cota fixa em R$" onChange={(e) => set({ fixedAmount: e.target.value })} />
@@ -169,14 +165,14 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
                 onChange={(e) => set({ pointsAdjustment: e.target.value })} />
             : "—"}
         </Table.Td>
-        <Table.Td align="right" style={{ ...num, fontWeight: 700 }}
+        <Table.Td align="center" style={{ ...num, fontWeight: 700 }}
           title={p.kind === "PONTOS" ? `${pts(p.basePoints)} × ${p.diasComputados}/${p.diasPrevistos} = ${pts(p.pontosApurados)}${p.pointsAdjustment ? ` ${p.pointsAdjustment > 0 ? "+" : "−"} ${pts(Math.abs(p.pointsAdjustment))}` : ""}` : undefined}>
           {p.kind === "PONTOS" ? pts(p.points) : "—"}
           {p.kind === "PONTOS" && p.pontosApurados !== p.basePoints && (
             <div style={{ ...mutedStyle, fontSize: 11, fontWeight: 400 }}>de {pts(p.basePoints)}</div>
           )}
         </Table.Td>
-        <Table.Td align="right" style={{ ...num, ...inicioBloco }}>
+        <Table.Td align="center" style={{ ...num, ...inicioBloco }}>
           {p.rescisaoPendente
             ? <StatusBadge tone="warning">pendente</StatusBadge>
             : <>
@@ -185,7 +181,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
                 {p.tipoCalculo === "RESCISAO_QUITADA" && <div style={{ ...mutedStyle, fontSize: 11 }}>quitada</div>}
               </>}
         </Table.Td>
-        <Table.Td align="right" style={{ ...num, fontWeight: 700 }}>
+        <Table.Td align="center" style={{ ...num, fontWeight: 700 }}>
           <Money value={p.netCommission} />
           {saldoVales !== 0 && (
             <div style={{ fontSize: 11, fontWeight: 400, color: saldoVales < 0 ? "var(--danger)" : "var(--success)" }}>vales {money(saldoVales)}</div>
@@ -237,20 +233,20 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
         </div>
       </div>
 
-      <Table className="tabela-rateio">
+      <Table className="tabela-gorjeta">
         <Table.Head>
           <Table.Row>
-            <ThOrdenavel {...th("nome")} minWidth={190} style={colunaNomeTh}>Funcionário</ThOrdenavel>
-            <ThOrdenavel {...th("base")} align="right" title="Pontos da função (ou personalizados)">Base</ThOrdenavel>
+            <ThOrdenavel {...th("nome")} align="left" minWidth={190}>Funcionário</ThOrdenavel>
+            <ThOrdenavel {...th("base")} align="center" title="Pontos da função (ou personalizados)">Base</ThOrdenavel>
             <ThOrdenavel {...th("faltas")} align="center" style={inicioBloco} title="Faltas injustificadas no período">Faltas</ThOrdenavel>
             <ThOrdenavel {...th("atestados")} align="center" title="Atestados / afastamentos">Atest.</ThOrdenavel>
             <ThOrdenavel {...th("ferias")} align="center">Férias</ThOrdenavel>
             <ThOrdenavel {...th("outros")} align="center">Outros</ThOrdenavel>
             <ThOrdenavel {...th("dias")} align="center" title="Dias trabalhados / previstos (26 no mês cheio)">Dias</ThOrdenavel>
             <ThOrdenavel {...th("ajuste")} align="center" style={inicioBloco} title="Acréscimo ou desconto de pontos no mês">Ajuste</ThOrdenavel>
-            <ThOrdenavel {...th("pontos")} align="right" title="Pontos finais: base × dias ÷ previstos + ajuste">Pontos</ThOrdenavel>
-            <ThOrdenavel {...th("gorjeta")} align="right" style={inicioBloco}>Gorjeta</ThOrdenavel>
-            <ThOrdenavel {...th("liquido")} align="right" title="Gorjeta − vales + créditos">Líquido</ThOrdenavel>
+            <ThOrdenavel {...th("pontos")} align="center" title="Pontos finais: base × dias ÷ previstos + ajuste">Pontos</ThOrdenavel>
+            <ThOrdenavel {...th("gorjeta")} align="center" style={inicioBloco}>Gorjeta</ThOrdenavel>
+            <ThOrdenavel {...th("liquido")} align="center" title="Gorjeta − vales + créditos">Líquido</ThOrdenavel>
             <Table.Th aria-label="Ações"> </Table.Th>
           </Table.Row>
         </Table.Head>
@@ -259,23 +255,24 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
             <Fragment key={g.chave}>
               <Table.Row>
                 <Table.Td colSpan={12} style={grupoTd}>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline", position: "sticky", left: 12, width: "fit-content" }}>
+                  <div className="grupo-cabecalho">
                     <strong>{g.titulo}</strong>
-                    <span style={{ color: "var(--muted)" }}>{g.lista.length} {g.lista.length === 1 ? "pessoa" : "pessoas"}</span>
-                    <span style={num}>· {pts(somaPontos(g.lista))} pts · <strong>{money(somaGorjeta(g.lista))}</strong></span>
+                    <span className="grupo-chip">{g.lista.length} {g.lista.length === 1 ? "pessoa" : "pessoas"}</span>
+                    <span className="grupo-chip">{pts(somaPontos(g.lista))} pts</span>
+                    <span className="grupo-chip grupo-chip-valor">{money(somaGorjeta(g.lista))}</span>
                   </div>
-                  {g.nota && <div style={{ ...mutedStyle, marginTop: 2 }}>{g.nota}</div>}
+                  {g.nota && <div className="grupo-nota">{g.nota}</div>}
                 </Table.Td>
               </Table.Row>
               {g.lista.map(linha)}
             </Fragment>
           ))}
           <Table.Row>
-            <Table.Td style={{ ...colunaNome, ...totalTd }}>Total distribuído</Table.Td>
+            <Table.Td style={totalTd}>Total distribuído</Table.Td>
             <Table.Td colSpan={7} style={totalTd}> </Table.Td>
-            <Table.Td align="right" style={{ ...totalTd, ...num }}>{pts(somaPontos(participantes))}</Table.Td>
-            <Table.Td align="right" style={{ ...totalTd, ...num }}>{money(somaGorjeta(participantes))}</Table.Td>
-            <Table.Td align="right" style={{ ...totalTd, ...num }}>
+            <Table.Td align="center" style={{ ...totalTd, ...num }}>{pts(somaPontos(participantes))}</Table.Td>
+            <Table.Td align="center" style={{ ...totalTd, ...num }}>{money(somaGorjeta(participantes))}</Table.Td>
+            <Table.Td align="center" style={{ ...totalTd, ...num }}>
               {money(participantes.reduce((a, p) => a + p.netCommission, 0))}
               {totalVales !== 0 && <div style={{ ...mutedStyle, fontSize: 11, fontWeight: 400 }}>vales {money(totalVales)}</div>}
             </Table.Td>
@@ -338,7 +335,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
             O valor do ponto de quem saiu usa o serviço arrecadado até a data da saída (puxado do faturamento). Se a gorjeta já foi paga
             na rescisão, informe o valor quitado: ele fica congelado e não muda com o serviço do mês.
           </span>
-          <Table>
+          <Table className="tabela-gorjeta">
             <Table.Head>
               <Table.Row>
                 <Table.Th minWidth={180}>Funcionário</Table.Th>
@@ -386,7 +383,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
               <Table.Row>
                 <Table.Td style={totalTd}>Total das rescisões</Table.Td>
                 <Table.Td colSpan={4} style={totalTd}> </Table.Td>
-                <Table.Td align="right" style={{ ...totalTd, ...num }} colSpan={2}>{money(rescisoes.reduce((a, p) => a + p.rateioAmount, 0))}</Table.Td>
+                <Table.Td align="center" style={{ ...totalTd, ...num }} colSpan={2}>{money(rescisoes.reduce((a, p) => a + p.rateioAmount, 0))}</Table.Td>
                 <Table.Td style={totalTd}>{rescisoes.some((p) => p.rescisaoPendente) ? <StatusBadge tone="warning">com pendência</StatusBadge> : " "}</Table.Td>
               </Table.Row>
             </Table.Body>
