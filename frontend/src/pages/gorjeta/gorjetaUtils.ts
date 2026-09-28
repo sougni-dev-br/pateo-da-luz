@@ -137,3 +137,19 @@ export function toPayload(r: LocalRow): TipParticipantInput {
 }
 
 export type RowPatch = (employeeId: string, patch: Partial<LocalRow>) => void;
+
+// CSV com ponto e vírgula e vírgula decimal: abre direto no Excel em português.
+export function baixarCsv(nome: string, linhas: Array<Array<string | number | null>>) {
+  const celula = (v: string | number | null) => {
+    if (v == null) return "";
+    const t = typeof v === "number" ? String(v).replace(".", ",") : v;
+    return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  const csv = "﻿" + linhas.map((l) => l.map(celula).join(";")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nome;
+  a.click();
+  URL.revokeObjectURL(url);
+}

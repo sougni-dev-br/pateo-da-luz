@@ -17,6 +17,7 @@ import {
   distribuirReserva, evolucaoMensal, extratoReserva, lancarAjusteReserva, listarMudancas, motivoParaNaoRetirar, mudouSituacao,
   registrarHistorico, saldoReserva, travarFundo,
 } from "./tip-historico.service.js";
+import { detalheFechamento, listarFechamentos } from "./tip-fechamento.service.js";
 
 // Formata dd/mm a partir de uma data UTC.
 function fmtDay(d: Date): string {
@@ -585,10 +586,10 @@ tipCommissionRouter.post("/periods/:year/:month/close", async (request, response
   const year = parseInt(request.params.year, 10);
   const month = parseInt(request.params.month, 10);
   try {
-    const result = await closeTipPeriod(year, month, user.id);
+    const result = await closeTipPeriod(year, month, { id: user.id, name: user.name });
     await auditLog({
-      userId: user.id, action: "CLOSE_TIP_PERIOD", entity: "TipPeriod", entityId: `${year}-${month}`,
-      newValue: result.totals, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+      userId: user.id, action: "CLOSE_TIP_PERIOD", entity: "TipPeriod", entityId: result.code ?? `${year}-${month}`,
+      newValue: { registro: result.fechamento?.code ?? null, ...result.totals }, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
     });
     response.json(result);
   } catch (err) {
@@ -609,10 +610,11 @@ tipCommissionRouter.post("/periods/:year/:month/reopen", async (request, respons
   const year = parseInt(request.params.year, 10);
   const month = parseInt(request.params.month, 10);
   try {
-    const result = await reopenTipPeriod(year, month, user.id);
+    const motivo = String((request.body as { motivo?: unknown } | undefined)?.motivo ?? "");
+    const result = await reopenTipPeriod(year, month, { id: user.id, name: user.name }, motivo);
     await auditLog({
-      userId: user.id, action: "REOPEN_TIP_PERIOD", entity: "TipPeriod", entityId: `${year}-${month}`,
-      newValue: { competenceYear: year, competenceMonth: month }, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+      userId: user.id, action: "REOPEN_TIP_PERIOD", entity: "TipPeriod", entityId: result.code ?? `${year}-${month}`,
+      newValue: { competenceYear: year, competenceMonth: month, motivo }, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
     });
     response.json(result);
   } catch (err) {
@@ -896,4 +898,16 @@ tipCommissionRouter.post("/reserve/distribute", async (request, response) => {
   } catch (err) {
     response.status(422).json({ message: (err as Error).message });
   }
+});
+
+// ─── Registro dos fechamentos ───────────────────────────────────────────────
+tipCommissionRouter.get("/closings", async (request, response) => {
+  const ano = Number((request.query as Record<string, unknown>).ano) || undefined;
+  response.json(await listarFechamentos(ano));
+});
+
+tipCommissionRouter.get("/closings/:id", async (request, response) => {
+  const detalhe = await detalheFechamento(request.params.id);
+  if (!detalhe) return response.status(404).json({ message: "Registro de fechamento não encontrado." });
+  response.json(detalhe);
 });
