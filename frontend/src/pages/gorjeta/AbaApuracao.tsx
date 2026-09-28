@@ -3,6 +3,7 @@ import { Fragment, type CSSProperties, useEffect, useMemo, useRef, useState } fr
 import type { TipComputation, TipComputedParticipant, TipValeType } from "../../api/client";
 import { Button, FormField, Money, StatusBadge, Table } from "../../design-system";
 import "./gorjeta.css";
+import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
   type LocalRow, type RowPatch, VALE_LABELS, fmtDate, inputStyle, money, mutedStyle, numInputStyle, ordenar, panelStyle, pts,
 } from "./gorjetaUtils";
@@ -29,6 +30,34 @@ const somaGorjeta = (l: TipComputedParticipant[]) => l.reduce((a, p) => a + p.ra
 
 const VALE_TYPES = Object.keys(VALE_LABELS) as TipValeType[];
 
+const SITUACAO: Record<string, number> = { MES: 0, RESCISAO: 1, RESCISAO_QUITADA: 1, FORA_DO_PERIODO: 2 };
+
+// O que cada coluna ordena. Vale sempre o número efetivo (o da Escala ou o digitado).
+const EXTRATORES: Extratores<TipComputedParticipant> = {
+  nome: (p) => p.employeeName,
+  funcao: (p) => p.functionName,
+  empresa: (p) => (p.semRegistro ? "Sem registro" : p.companyName),
+  situacao: (p) => SITUACAO[p.tipoCalculo],
+  base: (p) => (p.kind === "PONTOS" ? p.basePoints : null),
+  faltas: (p) => p.faltas,
+  atestados: (p) => p.atestados,
+  ferias: (p) => p.ferias,
+  outros: (p) => p.outrosDias,
+  dias: (p) => p.diasComputados,
+  ajuste: (p) => p.pointsAdjustment,
+  pontos: (p) => (p.kind === "PONTOS" ? p.points : null),
+  gorjeta: (p) => p.rateioAmount,
+  vales: (p) => p.creditos - p.descontos,
+  liquido: (p) => p.netCommission,
+};
+
+const OPCOES_ORDEM: Array<[string, string]> = [
+  ["nome", "Nome"], ["funcao", "Função"], ["empresa", "Empresa"], ["situacao", "Situação"], ["base", "Pontos-base"],
+  ["faltas", "Faltas"], ["atestados", "Atestados"], ["ferias", "Férias"], ["outros", "Outros dias"], ["dias", "Dias trabalhados"],
+  ["ajuste", "Ajuste"], ["pontos", "Pontos finais"], ["gorjeta", "Gorjeta"], ["vales", "Vales"], ["liquido", "Líquido"],
+];
+const TEXTO = new Set(["nome", "funcao", "empresa", "situacao"]);
+
 function Ocorrencia({ value, escala, manual, disabled, label, onChange }: {
   value: string; escala: number; manual: boolean; disabled: boolean; label: string; onChange: (v: string) => void;
 }) {
@@ -49,6 +78,18 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
 
   const rowPorFuncionario = useMemo(() => new Map(rows.map((r) => [r.employeeId, r])), [rows]);
   const participantes = useMemo(() => ordenar(comp.participants), [comp]);
+  const { ordem, alternar, definir } = useOrdenacao("apuracao");
+  const [agrupar, setAgruparState] = useState(() => {
+    try { return window.localStorage.getItem("gorjeta-agrupar") !== "nao"; } catch { return true; }
+  });
+  function setAgrupar(v: boolean) {
+    setAgruparState(v);
+    try { window.localStorage.setItem("gorjeta-agrupar", v ? "sim" : "nao"); } catch { /* só não lembra */ }
+  }
+  const ordenados = useMemo(() => aplicarOrdem(participantes, ordem, EXTRATORES), [participantes, ordem]);
+  // Texto começa do A; número começa do maior, que é o que se costuma conferir.
+  const ordenarPor = (coluna: string) => alternar(coluna, TEXTO.has(coluna) ? "asc" : "desc");
+  const th = (coluna: string) => ({ coluna, ordem, onOrdenar: () => ordenarPor(coluna) });
   const rescisoes = participantes.filter((p) => p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA");
   const aberto = comp.participants.find((p) => p.participantId === valesDe) ?? null;
   const painelVales = useRef<HTMLDivElement>(null);
@@ -68,13 +109,14 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
     setNovoVale({ type: "ADIANTAMENTO", amount: "", date: "", notes: "" });
   }
 
-  const grupos = [
-    { chave: "mes", titulo: "No mês", nota: null as string | null, lista: participantes.filter((p) => p.tipoCalculo === "MES") },
+  // Agrupado: a ordem vale dentro de cada grupo. Sem agrupar: uma lista só, como no Excel.
+  const grupos = agrupar ? [
+    { chave: "mes", titulo: "No mês", nota: null as string | null, lista: ordenados.filter((p) => p.tipoCalculo === "MES") },
     { chave: "resc", titulo: "Desligados no período", nota: "Valor do ponto próprio: serviço até a saída, menos a retenção, ÷ 100. Detalhes em \"Rescisões do período\", abaixo.",
-      lista: participantes.filter((p) => p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA") },
+      lista: ordenados.filter((p) => p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA") },
     { chave: "fora", titulo: "Fora do período", nota: "Saíram antes do início do período: não recebem nesta competência.",
-      lista: participantes.filter((p) => p.tipoCalculo === "FORA_DO_PERIODO") },
-  ];
+      lista: ordenados.filter((p) => p.tipoCalculo === "FORA_DO_PERIODO") },
+  ] : [{ chave: "todos", titulo: "Todos", nota: null as string | null, lista: ordenados }];
   const totalVales = participantes.reduce((a, p) => a + p.creditos - p.descontos, 0);
 
   function linha(p: TipComputedParticipant) {
@@ -168,26 +210,53 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
+        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <span style={{ color: "var(--muted)" }}>Ordenar por</span>
+          <select style={{ ...inputStyle, width: "auto", padding: "4px 8px" }} value={ordem?.coluna ?? ""}
+            onChange={(e) => definir(e.target.value ? { coluna: e.target.value, direcao: TEXTO.has(e.target.value) ? "asc" : "desc" } : null)}>
+            <option value="">Padrão (nome)</option>
+            {OPCOES_ORDEM.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
+        {ordem && (
+          <>
+            <button type="button" onClick={() => definir({ coluna: ordem.coluna, direcao: ordem.direcao === "asc" ? "desc" : "asc" })}
+              style={{ border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface, #fff)", padding: "4px 10px", cursor: "pointer", color: "inherit" }}>
+              {ordem.direcao === "asc" ? "↑ Crescente" : "↓ Decrescente"}
+            </button>
+            <button type="button" onClick={() => definir(null)}
+              style={{ border: "none", background: "transparent", color: "var(--muted)", textDecoration: "underline", cursor: "pointer", padding: 0 }}>
+              limpar
+            </button>
+          </>
+        )}
+        <label style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto" }}>
+          <input type="checkbox" checked={agrupar} onChange={(e) => setAgrupar(e.target.checked)} />
+          Agrupar por situação
+        </label>
+      </div>
+
       <Table className="tabela-rateio">
         <Table.Head>
           <Table.Row>
-            <Table.Th rowSpan={2} minWidth={190} style={colunaNome}>Funcionário</Table.Th>
-            <Table.Th rowSpan={2} align="right">Base</Table.Th>
+            <ThOrdenavel {...th("nome")} rowSpan={2} minWidth={190} style={{ ...colunaNome, zIndex: 2 }}>Funcionário</ThOrdenavel>
+            <ThOrdenavel {...th("base")} rowSpan={2} align="right">Base</ThOrdenavel>
             <Table.Th colSpan={4} align="center" style={grupoTh}>Ocorrências (dias)</Table.Th>
-            <Table.Th rowSpan={2} align="center" title="Dias trabalhados / previstos no vínculo (26 no mês cheio)">Dias</Table.Th>
+            <ThOrdenavel {...th("dias")} rowSpan={2} align="center">Dias</ThOrdenavel>
             <Table.Th colSpan={2} align="center" style={grupoTh}>Pontos</Table.Th>
             <Table.Th colSpan={2} align="center" style={grupoTh}>Valores</Table.Th>
             <Table.Th rowSpan={2}> </Table.Th>
           </Table.Row>
           <Table.Row>
-            <Table.Th align="center">Falta</Table.Th>
-            <Table.Th align="center">Atest.</Table.Th>
-            <Table.Th align="center">Férias</Table.Th>
-            <Table.Th align="center">Outros</Table.Th>
-            <Table.Th align="center">Ajuste ±</Table.Th>
-            <Table.Th align="right">Finais</Table.Th>
-            <Table.Th align="right">Gorjeta</Table.Th>
-            <Table.Th align="right">Líquido</Table.Th>
+            <ThOrdenavel {...th("faltas")} align="center">Falta</ThOrdenavel>
+            <ThOrdenavel {...th("atestados")} align="center">Atest.</ThOrdenavel>
+            <ThOrdenavel {...th("ferias")} align="center">Férias</ThOrdenavel>
+            <ThOrdenavel {...th("outros")} align="center">Outros</ThOrdenavel>
+            <ThOrdenavel {...th("ajuste")} align="center">Ajuste ±</ThOrdenavel>
+            <ThOrdenavel {...th("pontos")} align="right">Finais</ThOrdenavel>
+            <ThOrdenavel {...th("gorjeta")} align="right">Gorjeta</ThOrdenavel>
+            <ThOrdenavel {...th("liquido")} align="right">Líquido</ThOrdenavel>
           </Table.Row>
         </Table.Head>
         <Table.Body>
