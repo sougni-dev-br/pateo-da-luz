@@ -152,6 +152,45 @@ describe("sem registro", () => {
   });
 });
 
+describe("rescisões abatidas da apuração", () => {
+  test("o que a rescisão levou sai do líquido e os pontos dela saem dos 100", () => {
+    // Analia: 3,11 pts × R$ 80 (serviço de 10.000 até a saída) = 248,80
+    const res = calcularRateio(SETEMBRO, [
+      pessoa({ basePoints: 3.5, desligamento: d("2026-09-16"), faltas: 2, rescisaoServicoBruto: 10000 }),
+      pessoa({ basePoints: 10 }),
+    ]);
+    expect(res.rescisoes).toEqual({ valor: 248.8, pontos: 3.11 });
+    expect(res.pontosDisponiveis).toBe(96.89);
+    // (18.632,99 − 248,80) ÷ 96,89
+    expect(res.valorPontoBruto).toBeCloseTo(189.7429, 3);
+    expect(res.linhas[1].rateio).toBe(1897.43);
+  });
+
+  test("rescisão quitada abate o valor pago e os pontos dela", () => {
+    const res = calcularRateio(SETEMBRO, [
+      pessoa({ basePoints: 4, desligamento: d("2026-09-10"), rescisaoValorFixo: 500 }),
+      pessoa({ basePoints: 10 }),
+    ]);
+    expect(res.rescisoes.valor).toBe(500);
+    expect(res.valorPontoBruto).toBeCloseTo((18632.99 - 500) / (100 - res.rescisoes.pontos), 6);
+  });
+
+  test("sem rescisões, o valor do ponto é líquido ÷ 100 como na planilha", () => {
+    const res = calcularRateio(SETEMBRO, [pessoa({ basePoints: 4 })]);
+    expect(res.valorPonto).toBe(186.33);
+    expect(res.pontosDisponiveis).toBe(100);
+  });
+
+  test("rescisão pendente (sem serviço) não abate valor, mas já tira os pontos", () => {
+    const res = calcularRateio(SETEMBRO, [
+      pessoa({ basePoints: 3.5, desligamento: d("2026-09-16"), faltas: 2 }),
+      pessoa({ basePoints: 4 }),
+    ]);
+    expect(res.rescisoes).toEqual({ valor: 0, pontos: 3.11 });
+    expect(res.linhas[0].rescisaoPendente).toBe(true);
+  });
+});
+
 describe("rateio do período", () => {
   test("valor do ponto é fixo e a sobra vira saldo", () => {
     const res = calcularRateio(SETEMBRO, [pessoa({ basePoints: 10 }), pessoa({ basePoints: 4, faltas: 13 })]);

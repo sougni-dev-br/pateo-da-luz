@@ -73,7 +73,7 @@ function Ocorrencia({ value, escala, manual, disabled, label, onChange }: {
   return (
     <input
       style={{ ...numInputStyle, width: 40, textAlign: "center", fontWeight: manual ? 700 : 400 }}
-      type="number" min="0" step="1" value={value} disabled={disabled} aria-label={label}
+      type="number" min="0" max="31" step="1" value={value} disabled={disabled} aria-label={label}
       placeholder={escala ? String(escala) : ""}
       title={manual ? "Digitado — apague para voltar a usar a Escala" : "Vazio = usa a Escala"}
       onChange={(e) => onChange(e.target.value)}
@@ -125,7 +125,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
   // Agrupado: a ordem vale dentro de cada grupo. Sem agrupar: uma lista só, como no Excel.
   const grupos = agrupar ? [
     { chave: "mes", titulo: "No mês", nota: null as string | null, lista: ordenados.filter((p) => p.tipoCalculo === "MES") },
-    { chave: "resc", titulo: "Desligados no período", nota: "Valor do ponto próprio: serviço até a saída, menos a retenção, ÷ 100. Detalhes em \"Rescisões do período\", abaixo.",
+    { chave: "resc", titulo: "Desligados no período", nota: "Valor do ponto próprio (serviço até a saída, menos a retenção, ÷ 100). O valor e os pontos das rescisões saem antes de dividir o restante entre quem fica.",
       lista: ordenados.filter((p) => p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA") },
     { chave: "fora", titulo: "Fora do período", nota: "Saíram antes do início do período: não recebem nesta competência.",
       lista: ordenados.filter((p) => p.tipoCalculo === "FORA_DO_PERIODO") },
