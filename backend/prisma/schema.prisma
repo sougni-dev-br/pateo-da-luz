@@ -2457,7 +2457,13 @@ model Employee {
   participaGorjeta  Boolean            @default(false)
   tipoGorjeta       TipParticipantKind @default(PONTOS)
   cotaFixaGorjeta   Decimal?           @db.Decimal(14, 2)
-  pontosPadrao      Int?
+  // Pontos personalizados: quando preenchido, substitui os pontos da função.
+  pontosPadrao      Decimal?           @db.Decimal(6, 2)
+  tipFunctionId     String?
+  tipFunction       TipFunction?       @relation(fields: [tipFunctionId], references: [id])
+  // Cadastro que guarda a reserva da casa (saldo para distribuição futura).
+  // Entra no rateio normalmente, mas não vai para a lista de pagamento.
+  gorjetaReserva    Boolean            @default(false)
   tipParticipations TipParticipant[]
   // Auditoria / soft delete
   createdById       String
@@ -2667,6 +2673,24 @@ enum TipValeType {
   RETIRADA_CAIXA
   ADIANTAMENTO
   OUTRO
+  // Único tipo que SOMA ao valor a receber (ajuste a favor do funcionário).
+  CREDITO
+}
+
+// Função/nível e seus pontos-base no rateio (aba "Regras e Pontos" da planilha).
+model TipFunction {
+  id        String     @id
+  name      String     @unique
+  points    Decimal    @db.Decimal(6, 2)
+  minPoints Decimal?   @db.Decimal(6, 2)
+  maxPoints Decimal?   @db.Decimal(6, 2)
+  group     String?
+  notes     String?
+  sortOrder Int        @default(0)
+  isActive  Boolean    @default(true)
+  employees Employee[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }
 
 // Competência da gorjeta: 26 do mês anterior a 25 do mês da competência.
@@ -2684,6 +2708,14 @@ model TipPeriod {
   netPool          Decimal          @default(0) @db.Decimal(14, 2)
   pointsTotal      Int              @default(100) // total de pontos do rateio (denominador). Editável por competência.
   pointValue       Decimal          @default(0) @db.Decimal(14, 6)
+  // Presença: dias padrão de trabalho no período e quais ocorrências reduzem o rateio.
+  diasPadrao       Int              @default(26)
+  descontaFalta    Boolean          @default(true)
+  descontaAtestado Boolean          @default(true)
+  descontaFerias   Boolean          @default(true)
+  descontaOutros   Boolean          @default(false)
+  // Parte do líquido que ficou sem distribuir no fechamento.
+  saldoRetido      Decimal          @default(0) @db.Decimal(14, 2)
   status           TipPeriodStatus  @default(OPEN)
   closedAt         DateTime?
   participants     TipParticipant[]
@@ -2703,8 +2735,26 @@ model TipParticipant {
   employeeId    String
   employee      Employee           @relation(fields: [employeeId], references: [id])
   kind          TipParticipantKind @default(PONTOS)
-  points        Int?
+  // Pontos da função (ou personalizados) trazidos do cadastro — não se edita aqui.
+  basePoints       Decimal?        @db.Decimal(8, 2)
+  // Acréscimo (+) ou desconto (−) do mês sobre os pontos-base.
+  pointsAdjustment Decimal         @default(0) @db.Decimal(8, 2)
+  // Pontos finais (base × presença + ajuste), gravados no fechamento.
+  points        Decimal?           @db.Decimal(8, 2)
   fixedAmount   Decimal?           @db.Decimal(14, 2)
+  // Ocorrências do período. null = usar o que está na Escala.
+  atestados            Int?
+  ferias               Int?
+  outrosDias           Int?
+  diasPrevistosOverride Int?
+  // Rescisão: serviço bruto até o desligamento (null = puxar do faturamento)
+  // e valor já quitado/congelado, que prevalece sobre o cálculo.
+  rescisaoServicoBruto Decimal?    @db.Decimal(14, 2)
+  rescisaoValorFixo    Decimal?    @db.Decimal(14, 2)
+  // Sem registro: dias de salário (null = calcular) e valores do fechamento.
+  diasSalarioOverride  Int?
+  salarioProporcional  Decimal     @default(0) @db.Decimal(14, 2)
+  totalAPagar          Decimal     @default(0) @db.Decimal(14, 2)
   rateioAmount  Decimal            @default(0) @db.Decimal(14, 2)
   valesTotal    Decimal            @default(0) @db.Decimal(14, 2)
   netCommission Decimal            @default(0) @db.Decimal(14, 2)

@@ -5625,9 +5625,11 @@ export function savePayrollSettings(payload: Partial<PayrollSettings>) {
 
 // ─── Folha da Gorjeta (Comissão) — Fase A ────────────────────────────────────
 export type TipParticipantKind = "FIXO" | "PONTOS";
-export type TipValeType = "REFEICAO" | "VALE_CONSUMO" | "RETIRADA_CAIXA" | "ADIANTAMENTO" | "OUTRO";
+export type TipValeType = "REFEICAO" | "VALE_CONSUMO" | "RETIRADA_CAIXA" | "ADIANTAMENTO" | "OUTRO" | "CREDITO";
 
 export type TipComputedVale = { id: string; type: TipValeType; amount: number; date: string | null; notes: string | null };
+export type TipOrigem = "ESCALA" | "MANUAL";
+export type TipTipoCalculo = "MES" | "RESCISAO" | "RESCISAO_QUITADA" | "FORA_DO_PERIODO";
 
 export type TipComputedParticipant = {
   participantId: string | null;
@@ -5635,15 +5637,48 @@ export type TipComputedParticipant = {
   employeeName: string;
   companyId: string | null;
   companyName: string | null;
+  functionName: string | null;
+  isActive: boolean;
+  semRegistro: boolean;
+  reserva: boolean;
+  admissionDate: string | null;
+  terminationDate: string | null;
   kind: TipParticipantKind;
-  points: number | null;
+  basePoints: number;
+  pointsAdjustment: number;
   fixedAmount: number | null;
+  faltas: number; faltasOrigem: TipOrigem;
+  atestados: number; atestadosOrigem: TipOrigem;
+  ferias: number; feriasOrigem: TipOrigem;
+  outrosDias: number;
+  diasPrevistosOverride: number | null;
+  diasElegiveis: number;
+  diasPrevistos: number;
+  diasComputados: number;
+  fatorPresenca: number;
+  pontosApurados: number;
+  points: number;
+  tipoCalculo: TipTipoCalculo;
+  valorPonto: number;
+  rescisaoServicoBruto: number | null;
+  rescisaoServicoOrigem: "FATURAMENTO" | "MANUAL" | null;
+  rescisaoValorFixo: number | null;
+  rescisaoPendente: boolean;
   rateioAmount: number;
+  descontos: number;
+  creditos: number;
   valesTotal: number;
   netCommission: number;
+  diasSalarioOverride: number | null;
+  diasSalario: number;
+  salarioProporcional: number;
+  totalAPagar: number;
+  /** null quando o usuário não tem permissão de ver Funcionários. */
+  baseSalary: number | null;
+  pixKeyType: string | null;
+  pixKey: string | null;
   horaExtra: string | null;
   adicionalNoturno: string | null;
-  faltas: number | null;
   justificada: boolean;
   vales: TipComputedVale[];
 };
@@ -5664,12 +5699,19 @@ export type TipComputation = {
   pointsBudget: number;
   totalPoints: number;
   pointsRemaining: number;
-  undistributedAmount: number;
-  overAllocated: boolean;
   pointValue: number;
+  diasPadrao: number;
+  descontaFalta: boolean;
+  descontaAtestado: boolean;
+  descontaFerias: boolean;
+  descontaOutros: boolean;
+  distribuido: number;
+  saldo: number;
+  reservaTotal: number;
   participants: TipComputedParticipant[];
-  totals: { rateio: number; vales: number; netCommission: number };
+  totals: { rateio: number; vales: number; netCommission: number; salarios: number; totalAPagar: number };
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
+  pendencias: string[];
   warnings: string[];
 };
 
@@ -5693,13 +5735,89 @@ export type TipPeriod = {
 export type TipParticipantInput = {
   employeeId: string;
   kind: TipParticipantKind;
-  points?: number | null;
   fixedAmount?: number | null;
+  pointsAdjustment?: number;
+  /** null = usar a Escala / o cálculo. */
+  faltas?: number | null;
+  atestados?: number | null;
+  ferias?: number | null;
+  outrosDias?: number | null;
+  diasPrevistosOverride?: number | null;
+  diasSalarioOverride?: number | null;
+  rescisaoServicoBruto?: number | null;
+  rescisaoValorFixo?: number | null;
   horaExtra?: string | null;
   adicionalNoturno?: string | null;
-  faltas?: number | null;
   justificada?: boolean;
 };
+
+export type TipPeriodPayload = {
+  grossPool?: number; deductionPercent?: number; pointsTotal?: number; periodStart?: string; periodEnd?: string;
+  diasPadrao?: number; descontaFalta?: boolean; descontaAtestado?: boolean; descontaFerias?: boolean; descontaOutros?: boolean;
+};
+
+export type TipFunction = {
+  id?: string;
+  name: string;
+  points: number;
+  minPoints: number | null;
+  maxPoints: number | null;
+  group: string | null;
+  notes: string | null;
+  sortOrder?: number;
+  isActive: boolean;
+};
+
+export type TipTeamMember = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  displayName: string | null;
+  isActive: boolean;
+  sector: string | null;
+  position: string | null;
+  modality: EmployeeModality;
+  admissionDate: string | null;
+  terminationDate: string | null;
+  companyId: string | null;
+  participaGorjeta: boolean;
+  tipoGorjeta: TipParticipantKind;
+  cotaFixaGorjeta: number | null;
+  pontosPadrao: number | null;
+  tipFunctionId: string | null;
+  gorjetaReserva: boolean;
+};
+
+export type TipTeamPayload = Pick<TipTeamMember,
+  "participaGorjeta" | "tipoGorjeta" | "cotaFixaGorjeta" | "pontosPadrao" | "tipFunctionId" | "gorjetaReserva" | "companyId">;
+
+export function getTipFunctions() {
+  return request<TipFunction[]>("/payroll/tip/functions");
+}
+
+export function saveTipFunctions(functions: TipFunction[]) {
+  return request<{ ok: boolean }>("/payroll/tip/functions", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ functions })
+  });
+}
+
+export function getTipTeam() {
+  return request<TipTeamMember[]>("/payroll/tip/team");
+}
+
+export function saveTipTeamMember(employeeId: string, payload: TipTeamPayload) {
+  return request<{ ok: boolean }>(`/payroll/tip/team/${employeeId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function getTipCompanies() {
+  return request<Array<{ id: string; tradeName: string }>>("/payroll/tip/companies");
+}
 
 export function getTipCommission(year: number, month: number) {
   return request<TipComputation>(`/payroll/tip?year=${year}&month=${month}`);
@@ -5733,7 +5851,7 @@ export function openTipPeriod(year: number, month: number) {
   });
 }
 
-export function updateTipPeriod(id: string, payload: { grossPool?: number; deductionPercent?: number; pointsTotal?: number; periodStart?: string; periodEnd?: string }) {
+export function updateTipPeriod(id: string, payload: TipPeriodPayload) {
   return request<TipPeriod>(`/payroll/tip/periods/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -5776,7 +5894,7 @@ export function reopenTipPeriodApi(year: number, month: number) {
 // elegiveis = quantos funcionarios tem participaGorjeta no cadastro. Serve para a
 // tela distinguir "ja estao todos" de "nao ha ninguem marcado".
 export function syncTipParticipants(periodId: string) {
-  return request<{ added: number; elegiveis: number; computation: TipComputation }>(`/payroll/tip/periods/${periodId}/sync`, { method: "POST" });
+  return request<{ added: number; elegiveis: number; atualizados: number; computation: TipComputation }>(`/payroll/tip/periods/${periodId}/sync`, { method: "POST" });
 }
 
 export type ExtratoPreviewItem = {
