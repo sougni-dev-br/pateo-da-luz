@@ -1,4 +1,4 @@
-import { Check, ChevronLeft, ChevronRight, Lock, Plus, RefreshCw, Save, Unlock, UserPlus } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Lock, Maximize2, Minimize2, Plus, RefreshCw, Save, Unlock, UserPlus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   type TipComputation, type TipComputedParticipant, type TipRosterEmployee, type TipValeType,
@@ -9,6 +9,7 @@ import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
 import { Button, FormField, FormGrid, StatusBadge, Tabs } from "../design-system";
 import { hasPermission } from "../lib/permissions";
+import "./gorjeta/gorjeta.css";
 import { AbaApuracao } from "./gorjeta/AbaApuracao";
 import { AbaEquipe } from "./gorjeta/AbaEquipe";
 import { AbaPagamento } from "./gorjeta/AbaPagamento";
@@ -54,6 +55,34 @@ export function FolhaGorjeta() {
   rowsRef.current = rows;
   const pendente = useRef<ReturnType<typeof setTimeout> | null>(null);
   const emVoo = useRef<Promise<void> | null>(null);
+
+  // Tela cheia: a página cobre a janela (e usa a tela cheia do navegador quando ele deixa).
+  const raiz = useRef<HTMLDivElement>(null);
+  const [telaCheia, setTelaCheia] = useState(false);
+
+  async function alternarTelaCheia() {
+    if (!telaCheia) {
+      setTelaCheia(true);
+      try { await raiz.current?.requestFullscreen?.(); } catch { /* sem a API, fica o modo janela inteira */ }
+      return;
+    }
+    setTelaCheia(false);
+    if (document.fullscreenElement) {
+      try { await document.exitFullscreen(); } catch { /* já saiu */ }
+    }
+  }
+
+  useEffect(() => {
+    // Esc do navegador sai da tela cheia: a página acompanha.
+    const aoMudar = () => { if (!document.fullscreenElement) setTelaCheia(false); };
+    const aoTeclar = (e: KeyboardEvent) => { if (e.key === "Escape" && !document.fullscreenElement) setTelaCheia(false); };
+    document.addEventListener("fullscreenchange", aoMudar);
+    window.addEventListener("keydown", aoTeclar);
+    return () => {
+      document.removeEventListener("fullscreenchange", aoMudar);
+      window.removeEventListener("keydown", aoTeclar);
+    };
+  }, []);
 
   const closed = comp?.status === "CLOSED";
   const readonly = closed || !canEdit;
@@ -232,7 +261,7 @@ export function FolhaGorjeta() {
   const disponiveis = roster.filter((e) => !rows.some((r) => r.employeeId === e.id));
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div ref={raiz} className={telaCheia ? "gorjeta-tela-cheia" : undefined} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Notice notice={notice} />
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -245,6 +274,13 @@ export function FolhaGorjeta() {
           <StatusBadge tone={closed ? "success" : "info"}>{closed ? "Fechada" : "Em apuração"}</StatusBadge>
         )}
         <span aria-live="polite" style={{ color: "var(--muted)", fontSize: 12 }}>{autoSaving ? "salvando…" : ""}</span>
+        <div style={{ marginLeft: "auto" }}>
+          <Button variant="secondary" onClick={() => void alternarTelaCheia()}
+            leadingIcon={telaCheia ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            title={telaCheia ? "Voltar ao tamanho normal (Esc)" : "Ver a tela inteira de uma vez"}>
+            {telaCheia ? "Sair da tela cheia" : "Tela cheia"}
+          </Button>
+        </div>
       </div>
 
       <Tabs
@@ -267,7 +303,7 @@ export function FolhaGorjeta() {
 
       {aba !== "equipe" && comp && (
         <>
-          {comp.periodId != null && <ResumoApuracao comp={comp} />}
+          {comp.periodId != null && <ResumoApuracao comp={comp} compacto={telaCheia} />}
 
           {comp.periodId == null ? (
             <div style={{ ...panelStyle, gap: 8 }}>
@@ -279,9 +315,9 @@ export function FolhaGorjeta() {
             </div>
           ) : (
             <>
-              <Pendencias pendencias={comp.pendencias} avisos={comp.warnings} fechado={closed} />
+              <Pendencias pendencias={comp.pendencias} avisos={comp.warnings} fechado={closed} compacto={telaCheia} />
 
-              {aba === "apuracao" && params && (
+              {aba === "apuracao" && params && !telaCheia && (
                 <details style={panelStyle}>
                   <summary style={{ cursor: "pointer", fontWeight: 600 }}>
                     Parâmetros do período <span style={{ ...mutedStyle, fontWeight: 400 }}>
@@ -309,7 +345,7 @@ export function FolhaGorjeta() {
                 </details>
               )}
 
-              {aba === "apuracao" && !readonly && (
+              {aba === "apuracao" && !readonly && !telaCheia && (
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
                   <Button variant="secondary" onClick={() => void sincronizar()} disabled={busy} leadingIcon={<UserPlus size={14} />}
                     title="Inclui quem foi marcado na equipe e atualiza os pontos-base">

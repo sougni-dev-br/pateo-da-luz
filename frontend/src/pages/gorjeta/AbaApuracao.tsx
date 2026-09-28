@@ -21,7 +21,10 @@ type Props = {
 const num: CSSProperties = { fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
 // O nome fica visível ao rolar a tabela para o lado.
 const colunaNome: CSSProperties = { position: "sticky", left: 0, zIndex: 1, background: "var(--surface, #fff)", boxShadow: "1px 0 0 var(--border)" };
-const grupoTh: CSSProperties = { borderBottom: "1px solid var(--border)", color: "var(--muted)", fontSize: 11, letterSpacing: ".04em" };
+// Cabeçalho da coluna fixa: mesmo fundo do cabeçalho, acima das linhas ao rolar.
+const colunaNomeTh: CSSProperties = { ...colunaNome, zIndex: 2, background: "var(--paper-soft, #f2f4f7)" };
+// Separa visualmente presença | pontos | valores sem precisar de uma segunda linha de cabeçalho.
+const inicioBloco: CSSProperties = { borderLeft: "1px solid var(--line)" };
 const grupoTd: CSSProperties = { background: "var(--paper-soft, #f2f4f7)", padding: "8px 12px" };
 const totalTd: CSSProperties = { background: "var(--paper-soft, #f2f4f7)", fontWeight: 700, borderTop: "2px solid var(--line-strong, #c8d0da)" };
 
@@ -143,7 +146,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
                 aria-label="Cota fixa" title="Cota fixa em R$" onChange={(e) => set({ fixedAmount: e.target.value })} />
             : pts(p.basePoints)}
         </Table.Td>
-        <Table.Td align="center"><Ocorrencia label="Faltas" value={r.faltas} escala={p.faltasOrigem === "ESCALA" ? p.faltas : 0} manual={r.faltas !== ""} disabled={readonly} onChange={(v) => set({ faltas: v })} /></Table.Td>
+        <Table.Td align="center" style={inicioBloco}><Ocorrencia label="Faltas" value={r.faltas} escala={p.faltasOrigem === "ESCALA" ? p.faltas : 0} manual={r.faltas !== ""} disabled={readonly} onChange={(v) => set({ faltas: v })} /></Table.Td>
         <Table.Td align="center"><Ocorrencia label="Atestados" value={r.atestados} escala={p.atestadosOrigem === "ESCALA" ? p.atestados : 0} manual={r.atestados !== ""} disabled={readonly} onChange={(v) => set({ atestados: v })} /></Table.Td>
         <Table.Td align="center"><Ocorrencia label="Férias" value={r.ferias} escala={p.feriasOrigem === "ESCALA" ? p.ferias : 0} manual={r.ferias !== ""} disabled={readonly} onChange={(v) => set({ ferias: v })} /></Table.Td>
         <Table.Td align="center"><Ocorrencia label="Outros dias" value={r.outrosDias} escala={0} manual={r.outrosDias !== ""} disabled={readonly} onChange={(v) => set({ outrosDias: v })} /></Table.Td>
@@ -158,7 +161,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
               onChange={(e) => set({ diasPrevistosOverride: e.target.value })} />
           </span>
         </Table.Td>
-        <Table.Td align="center">
+        <Table.Td align="center" style={inicioBloco}>
           {p.kind === "PONTOS"
             ? <input style={{ ...numInputStyle, width: 52, textAlign: "center", fontWeight: p.pointsAdjustment ? 700 : 400, color: p.pointsAdjustment < 0 ? "var(--danger)" : p.pointsAdjustment > 0 ? "var(--success)" : undefined }}
                 type="number" step="0.5" value={r.pointsAdjustment} disabled={readonly || fora}
@@ -173,7 +176,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
             <div style={{ ...mutedStyle, fontSize: 11, fontWeight: 400 }}>de {pts(p.basePoints)}</div>
           )}
         </Table.Td>
-        <Table.Td align="right" style={num}>
+        <Table.Td align="right" style={{ ...num, ...inicioBloco }}>
           {p.rescisaoPendente
             ? <StatusBadge tone="warning">pendente</StatusBadge>
             : <>
@@ -210,60 +213,52 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
-        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span style={{ color: "var(--muted)" }}>Ordenar por</span>
-          <select style={{ ...inputStyle, width: "auto", padding: "4px 8px" }} value={ordem?.coluna ?? ""}
+      <div className="barra-lista">
+        <label className="barra-lista-campo">
+          <span>Ordenar por</span>
+          <select value={ordem?.coluna ?? ""}
             onChange={(e) => definir(e.target.value ? { coluna: e.target.value, direcao: TEXTO.has(e.target.value) ? "asc" : "desc" } : null)}>
-            <option value="">Padrão (nome)</option>
+            <option value="">Nome (padrão)</option>
             {OPCOES_ORDEM.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </label>
         {ordem && (
           <>
-            <button type="button" onClick={() => definir({ coluna: ordem.coluna, direcao: ordem.direcao === "asc" ? "desc" : "asc" })}
-              style={{ border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface, #fff)", padding: "4px 10px", cursor: "pointer", color: "inherit" }}>
-              {ordem.direcao === "asc" ? "↑ Crescente" : "↓ Decrescente"}
+            <button type="button" className="barra-lista-botao" onClick={() => definir({ coluna: ordem.coluna, direcao: ordem.direcao === "asc" ? "desc" : "asc" })}
+              title="Inverter a ordem" aria-label={ordem.direcao === "asc" ? "Crescente — inverter" : "Decrescente — inverter"}>
+              {ordem.direcao === "asc" ? "↑ A→Z / menor" : "↓ Z→A / maior"}
             </button>
-            <button type="button" onClick={() => definir(null)}
-              style={{ border: "none", background: "transparent", color: "var(--muted)", textDecoration: "underline", cursor: "pointer", padding: 0 }}>
-              limpar
-            </button>
+            <button type="button" className="barra-lista-link" onClick={() => definir(null)}>limpar</button>
           </>
         )}
-        <label style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto" }}>
-          <input type="checkbox" checked={agrupar} onChange={(e) => setAgrupar(e.target.checked)} />
-          Agrupar por situação
-        </label>
+        <div className="barra-lista-segmento" role="group" aria-label="Visualização">
+          <button type="button" aria-pressed={agrupar} onClick={() => setAgrupar(true)}>Por situação</button>
+          <button type="button" aria-pressed={!agrupar} onClick={() => setAgrupar(false)}>Lista única</button>
+        </div>
       </div>
 
       <Table className="tabela-rateio">
         <Table.Head>
           <Table.Row>
-            <ThOrdenavel {...th("nome")} rowSpan={2} minWidth={190} style={{ ...colunaNome, zIndex: 2 }}>Funcionário</ThOrdenavel>
-            <ThOrdenavel {...th("base")} rowSpan={2} align="right">Base</ThOrdenavel>
-            <Table.Th colSpan={4} align="center" style={grupoTh}>Ocorrências (dias)</Table.Th>
-            <ThOrdenavel {...th("dias")} rowSpan={2} align="center">Dias</ThOrdenavel>
-            <Table.Th colSpan={2} align="center" style={grupoTh}>Pontos</Table.Th>
-            <Table.Th colSpan={2} align="center" style={grupoTh}>Valores</Table.Th>
-            <Table.Th rowSpan={2}> </Table.Th>
-          </Table.Row>
-          <Table.Row>
-            <ThOrdenavel {...th("faltas")} align="center">Falta</ThOrdenavel>
-            <ThOrdenavel {...th("atestados")} align="center">Atest.</ThOrdenavel>
+            <ThOrdenavel {...th("nome")} minWidth={190} style={colunaNomeTh}>Funcionário</ThOrdenavel>
+            <ThOrdenavel {...th("base")} align="right" title="Pontos da função (ou personalizados)">Base</ThOrdenavel>
+            <ThOrdenavel {...th("faltas")} align="center" style={inicioBloco} title="Faltas injustificadas no período">Faltas</ThOrdenavel>
+            <ThOrdenavel {...th("atestados")} align="center" title="Atestados / afastamentos">Atest.</ThOrdenavel>
             <ThOrdenavel {...th("ferias")} align="center">Férias</ThOrdenavel>
             <ThOrdenavel {...th("outros")} align="center">Outros</ThOrdenavel>
-            <ThOrdenavel {...th("ajuste")} align="center">Ajuste ±</ThOrdenavel>
-            <ThOrdenavel {...th("pontos")} align="right">Finais</ThOrdenavel>
-            <ThOrdenavel {...th("gorjeta")} align="right">Gorjeta</ThOrdenavel>
-            <ThOrdenavel {...th("liquido")} align="right">Líquido</ThOrdenavel>
+            <ThOrdenavel {...th("dias")} align="center" title="Dias trabalhados / previstos (26 no mês cheio)">Dias</ThOrdenavel>
+            <ThOrdenavel {...th("ajuste")} align="center" style={inicioBloco} title="Acréscimo ou desconto de pontos no mês">Ajuste</ThOrdenavel>
+            <ThOrdenavel {...th("pontos")} align="right" title="Pontos finais: base × dias ÷ previstos + ajuste">Pontos</ThOrdenavel>
+            <ThOrdenavel {...th("gorjeta")} align="right" style={inicioBloco}>Gorjeta</ThOrdenavel>
+            <ThOrdenavel {...th("liquido")} align="right" title="Gorjeta − vales + créditos">Líquido</ThOrdenavel>
+            <Table.Th aria-label="Ações"> </Table.Th>
           </Table.Row>
         </Table.Head>
         <Table.Body>
           {grupos.map((g) => g.lista.length > 0 && (
             <Fragment key={g.chave}>
               <Table.Row>
-                <Table.Td colSpan={11} style={grupoTd}>
+                <Table.Td colSpan={12} style={grupoTd}>
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline", position: "sticky", left: 12, width: "fit-content" }}>
                     <strong>{g.titulo}</strong>
                     <span style={{ color: "var(--muted)" }}>{g.lista.length} {g.lista.length === 1 ? "pessoa" : "pessoas"}</span>
@@ -277,7 +272,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
           ))}
           <Table.Row>
             <Table.Td style={{ ...colunaNome, ...totalTd }}>Total distribuído</Table.Td>
-            <Table.Td colSpan={6} style={totalTd}> </Table.Td>
+            <Table.Td colSpan={7} style={totalTd}> </Table.Td>
             <Table.Td align="right" style={{ ...totalTd, ...num }}>{pts(somaPontos(participantes))}</Table.Td>
             <Table.Td align="right" style={{ ...totalTd, ...num }}>{money(somaGorjeta(participantes))}</Table.Td>
             <Table.Td align="right" style={{ ...totalTd, ...num }}>

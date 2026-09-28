@@ -25,7 +25,7 @@ function Termo({ label, children, destaque, detalhe }: { label: string; children
 
 type Fatia = { chave: string; label: string; valor: number; detalhe: string; cor: string; hachurado?: boolean };
 
-export function ResumoApuracao({ comp }: { comp: TipComputation }) {
+export function ResumoApuracao({ comp, compacto = false }: { comp: TipComputation; compacto?: boolean }) {
   const retido = Math.round((comp.grossPool - comp.netPool) * 100) / 100;
   const c = comp.composicao;
   const estourou = comp.saldo < -0.005;
@@ -41,6 +41,23 @@ export function ResumoApuracao({ comp }: { comp: TipComputation }) {
   ].filter((f) => f.valor > 0.004 || f.chave === "mes" || f.chave === "saldo" || (f.chave === "resc" && c.rescisoes.pessoas > 0));
 
   const base = Math.max(comp.netPool, comp.distribuido, 0.01);
+
+  if (compacto) {
+    const itens: Array<[string, string, string | undefined]> = [
+      ["Serviço", money(comp.grossPool), undefined],
+      [`Líquido (−${comp.deductionPercent.toLocaleString("pt-BR")}%)`, money(comp.netPool), "var(--info)"],
+      [`Ponto (÷ ${pts(comp.pointsBudget)})`, money(comp.pointValue), "var(--gold)"],
+      ["Distribuído", money(comp.distribuido), undefined],
+      [estourou ? "Estouro" : "Saldo", money(Math.abs(comp.saldo)), estourou ? "var(--danger)" : "var(--warning)"],
+    ];
+    return (
+      <section aria-label="Resumo da apuração" className="resumo-compacto">
+        {itens.map(([l, v, cor]) => (
+          <span key={l}><span className="resumo-compacto-rotulo">{l}</span> <strong style={{ color: cor }}>{v}</strong></span>
+        ))}
+      </section>
+    );
+  }
 
   return (
     <section aria-label="Resumo da apuração" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
