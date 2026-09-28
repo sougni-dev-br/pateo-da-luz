@@ -29,6 +29,9 @@ export type RegrasPeriodo = {
   descontaAtestado: boolean;
   descontaFerias: boolean;
   descontaOutros: boolean;
+  // Admitido no meio do período recebe proporcional aos dias (padrão). Desligado
+  // já é proporcional pelo valor do ponto próprio (serviço até a saída).
+  proporcionalEntrada: boolean;
   pointsTotal: number;
   deductionPercent: number;
   netPool: number;
@@ -48,6 +51,14 @@ export type ParticipanteEntrada = {
   ferias: number;
   outrosDias: number;
   diasPrevistosOverride: number | null;
+  // Decisão de quem fecha, pessoa a pessoa. null = segue a regra do período.
+  regras: {
+    descontaFalta: boolean | null;
+    descontaAtestado: boolean | null;
+    descontaFerias: boolean | null;
+    descontaOutros: boolean | null;
+    proporcionalEntrada: boolean | null;
+  };
   rescisaoServicoBruto: number | null;
   rescisaoValorFixo: number | null;
   semRegistro: boolean;
@@ -62,6 +73,8 @@ export type ParticipanteCalculado = {
   tipoCalculo: TipoCalculo;
   diasElegiveis: number;
   diasPrevistos: number;
+  // Base da proporção: 26 no mês cheio; menos para quem saiu (até a saída).
+  diasReferencia: number;
   diasComputados: number;
   fatorPresenca: number;
   pontosApurados: number;
@@ -102,19 +115,43 @@ export function valorPontoRescisao(regras: RegrasPeriodo, servicoBruto: number):
   return (servicoBruto * (1 - regras.deductionPercent / 100)) / regras.pointsTotal;
 }
 
+// Regra efetiva de uma pessoa: a dela, se quem fecha decidiu; senão, a do período.
+export function regraEfetiva(regras: RegrasPeriodo, p: ParticipanteEntrada) {
+  return {
+    descontaFalta: p.regras.descontaFalta ?? regras.descontaFalta,
+    descontaAtestado: p.regras.descontaAtestado ?? regras.descontaAtestado,
+    descontaFerias: p.regras.descontaFerias ?? regras.descontaFerias,
+    descontaOutros: p.regras.descontaOutros ?? regras.descontaOutros,
+    proporcionalEntrada: p.regras.proporcionalEntrada ?? regras.proporcionalEntrada,
+  };
+}
+
+// Presença:
+//   previstos  = dias padrão × (dias no vínculo ÷ dias corridos) — o que a pessoa deveria trabalhar
+//   computados = previstos − ocorrências que descontam
+//   referência = base da proporção. Mês cheio = 26. Admitido no meio conta desde o
+//                início do período (recebe proporcional); desligado conta só até a
+//                saída, porque o valor do ponto dele já é proporcional ao serviço
+//                até ali. Sem proporcional de entrada, referência = previstos.
+//   fator      = computados ÷ referência
 function presenca(regras: RegrasPeriodo, p: ParticipanteEntrada) {
+  const r = regraEfetiva(regras, p);
   const corridos = diasEntre(regras.start, regras.end);
+  const proporcao = (dias: number) => (corridos > 0 ? Math.round(regras.diasPadrao * (dias / corridos)) : 0);
   const elegiveis = diasElegiveis(regras, p.admissao, p.desligamento);
-  const calculados = corridos > 0 ? Math.round(regras.diasPadrao * (elegiveis / corridos)) : 0;
-  const previstos = p.diasPrevistosOverride ?? calculados;
+  const previstos = p.diasPrevistosOverride ?? proporcao(elegiveis);
+  const ateSaida = elegiveis > 0 ? diasElegiveis(regras, null, p.desligamento) : 0;
+  const referencia = p.diasPrevistosOverride != null || !r.proporcionalEntrada
+    ? previstos
+    : Math.max(previstos, proporcao(ateSaida));
   const descontados =
-    (regras.descontaFalta ? p.faltas : 0) +
-    (regras.descontaAtestado ? p.atestados : 0) +
-    (regras.descontaFerias ? p.ferias : 0) +
-    (regras.descontaOutros ? p.outrosDias : 0);
+    (r.descontaFalta ? p.faltas : 0) +
+    (r.descontaAtestado ? p.atestados : 0) +
+    (r.descontaFerias ? p.ferias : 0) +
+    (r.descontaOutros ? p.outrosDias : 0);
   const computados = Math.max(0, previstos - descontados);
-  const fator = previstos > 0 ? computados / previstos : 0;
-  return { elegiveis, previstos, computados, fator };
+  const fator = referencia > 0 ? Math.min(1, computados / referencia) : 0;
+  return { elegiveis, previstos, referencia, computados, fator };
 }
 
 // Quem não tem registro recebe o salário junto da gorjeta, calculado como se
@@ -128,7 +165,7 @@ function salarioSemRegistro(p: ParticipanteEntrada, elegiveis: number, corridos:
 }
 
 export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntrada, valorPontoDoMes: number): ParticipanteCalculado {
-  const { elegiveis, previstos, computados, fator } = presenca(regras, p);
+  const { elegiveis, previstos, referencia, computados, fator } = presenca(regras, p);
   const corridos = diasEntre(regras.start, regras.end);
 
   const desligadoNoPeriodo = p.desligamento != null && p.desligamento <= regras.end;
@@ -169,6 +206,7 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
     tipoCalculo,
     diasElegiveis: elegiveis,
     diasPrevistos: previstos,
+    diasReferencia: referencia,
     diasComputados: computados,
     fatorPresenca: fator,
     pontosApurados,

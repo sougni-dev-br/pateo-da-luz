@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { TipComputation, TipComputedParticipant, TipParticipantInput, TipParticipantKind, TipValeType } from "../../api/client";
+import type { TipComputation, TipComputedParticipant, TipParticipantInput, TipParticipantKind, TipRegrasPessoa, TipValeType } from "../../api/client";
 
 export const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
@@ -71,6 +71,7 @@ export type LocalRow = {
   ferias: string;
   outrosDias: string;
   diasPrevistosOverride: string;
+  regras: TipRegrasPessoa;
   diasSalarioOverride: string;
   rescisaoServicoBruto: string;
   rescisaoValorFixo: string;
@@ -92,6 +93,7 @@ export function toLocalRow(p: TipComputedParticipant): LocalRow {
     ferias: p.feriasOrigem === "MANUAL" ? s(p.ferias) : "",
     outrosDias: p.outrosDias ? String(p.outrosDias) : "",
     diasPrevistosOverride: s(p.diasPrevistosOverride),
+    regras: { ...p.regras },
     diasSalarioOverride: s(p.diasSalarioOverride),
     rescisaoServicoBruto: p.rescisaoServicoOrigem === "MANUAL" ? s(p.rescisaoServicoBruto) : "",
     rescisaoValorFixo: s(p.rescisaoValorFixo),
@@ -124,6 +126,7 @@ export function toPayload(r: LocalRow): TipParticipantInput {
     ferias: numOrNull(r.ferias),
     outrosDias: numOrNull(r.outrosDias),
     diasPrevistosOverride: numOrNull(r.diasPrevistosOverride),
+    ...r.regras,
     diasSalarioOverride: numOrNull(r.diasSalarioOverride),
     rescisaoServicoBruto: numOrNull(r.rescisaoServicoBruto),
     rescisaoValorFixo: numOrNull(r.rescisaoValorFixo),

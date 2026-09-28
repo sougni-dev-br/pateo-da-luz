@@ -2779,6 +2779,8 @@ model TipPeriod {
   descontaAtestado Boolean          @default(true)
   descontaFerias   Boolean          @default(true)
   descontaOutros   Boolean          @default(false)
+  // Admitido no meio do período recebe proporcional aos dias.
+  proporcionalEntrada Boolean       @default(true)
   // Parte do líquido que ficou sem distribuir no fechamento.
   saldoRetido      Decimal          @default(0) @db.Decimal(14, 2)
   // Pontos que vão para o fundo de reserva da gorjeta (valor = pontos × valor do ponto).
@@ -2817,6 +2819,12 @@ model TipParticipant {
   ferias               Int?
   outrosDias           Int?
   diasPrevistosOverride Int?
+  // Decisão de quem fecha para esta pessoa (null = regra do período).
+  descontaFalta        Boolean?
+  descontaAtestado     Boolean?
+  descontaFerias       Boolean?
+  descontaOutros       Boolean?
+  proporcionalEntrada  Boolean?
   // Rescisão: serviço bruto até o desligamento (null = puxar do faturamento)
   // e valor já quitado/congelado, que prevalece sobre o cálculo.
   rescisaoServicoBruto Decimal?    @db.Decimal(14, 2)

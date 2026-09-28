@@ -5631,6 +5631,14 @@ export type TipComputedVale = { id: string; type: TipValeType; amount: number; d
 export type TipOrigem = "ESCALA" | "MANUAL";
 export type TipTipoCalculo = "MES" | "RESCISAO" | "RESCISAO_QUITADA" | "FORA_DO_PERIODO";
 
+export type TipRegrasPessoa = {
+  descontaFalta: boolean | null;
+  descontaAtestado: boolean | null;
+  descontaFerias: boolean | null;
+  descontaOutros: boolean | null;
+  proporcionalEntrada: boolean | null;
+};
+
 export type TipComputedParticipant = {
   participantId: string | null;
   employeeId: string;
@@ -5652,6 +5660,10 @@ export type TipComputedParticipant = {
   outrosDias: number;
   diasPrevistosOverride: number | null;
   diasElegiveis: number;
+  diasReferencia: number;
+  /** Decisão de quem fecha para esta pessoa; null = regra do período. */
+  regras: TipRegrasPessoa;
+  regrasEfetivas: { descontaFalta: boolean; descontaAtestado: boolean; descontaFerias: boolean; descontaOutros: boolean; proporcionalEntrada: boolean };
   diasPrevistos: number;
   diasComputados: number;
   fatorPresenca: number;
@@ -5709,6 +5721,7 @@ export type TipComputation = {
   descontaAtestado: boolean;
   descontaFerias: boolean;
   descontaOutros: boolean;
+  proporcionalEntrada: boolean;
   distribuido: number;
   saldo: number;
   reservaTotal: number;
@@ -5756,6 +5769,11 @@ export type TipParticipantInput = {
   outrosDias?: number | null;
   diasPrevistosOverride?: number | null;
   diasSalarioOverride?: number | null;
+  descontaFalta?: boolean | null;
+  descontaAtestado?: boolean | null;
+  descontaFerias?: boolean | null;
+  descontaOutros?: boolean | null;
+  proporcionalEntrada?: boolean | null;
   rescisaoServicoBruto?: number | null;
   rescisaoValorFixo?: number | null;
   horaExtra?: string | null;
@@ -5766,6 +5784,7 @@ export type TipParticipantInput = {
 export type TipPeriodPayload = {
   grossPool?: number; deductionPercent?: number; pointsTotal?: number; periodStart?: string; periodEnd?: string;
   diasPadrao?: number; descontaFalta?: boolean; descontaAtestado?: boolean; descontaFerias?: boolean; descontaOutros?: boolean;
+  proporcionalEntrada?: boolean;
   reservaPontos?: number;
   ajusteServico?: number;
   ajusteServicoMotivo?: string | null;

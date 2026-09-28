@@ -13,7 +13,7 @@ import crypto from "node:crypto";
 import { prisma } from "../../config/database.js";
 import { round2 } from "./vt-calc.js";
 import { motivoParaNaoRetirar, saldoReserva, travarFundo } from "./tip-historico.service.js";
-import { calcularRateio, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo } from "./tip-rateio.js";
+import { calcularRateio, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
@@ -91,7 +91,11 @@ export type ComputedParticipant = {
   diasPrevistosOverride: number | null;
   diasElegiveis: number;
   diasPrevistos: number;
+  diasReferencia: number;
   diasComputados: number;
+  // Decisão de quem fecha para esta pessoa (null = regra do período) e o que vale no fim.
+  regras: ParticipanteEntrada["regras"];
+  regrasEfetivas: ReturnType<typeof regraEfetiva>;
   fatorPresenca: number;
   pontosApurados: number;
   points: number;          // pontos finais
@@ -149,6 +153,7 @@ export type TipComputation = {
   descontaAtestado: boolean;
   descontaFerias: boolean;
   descontaOutros: boolean;
+  proporcionalEntrada: boolean;
   distribuido: number;
   // De onde sai o distribuído: quem está no mês, quem saiu no período, a reserva e as cotas fixas.
   composicao: {
@@ -238,6 +243,7 @@ export async function computeTipCommission(
     descontaAtestado: period?.descontaAtestado ?? true,
     descontaFerias: period?.descontaFerias ?? true,
     descontaOutros: period?.descontaOutros ?? false,
+    proporcionalEntrada: period?.proporcionalEntrada ?? true,
   };
 
   const rows = period?.participants ?? [];
@@ -268,6 +274,10 @@ export async function computeTipCommission(
       ferias: r.ferias ?? e.ferias,
       outrosDias: r.outrosDias ?? 0,
       diasPrevistosOverride: r.diasPrevistosOverride,
+      regras: {
+        descontaFalta: r.descontaFalta, descontaAtestado: r.descontaAtestado, descontaFerias: r.descontaFerias,
+        descontaOutros: r.descontaOutros, proporcionalEntrada: r.proporcionalEntrada,
+      },
       rescisaoServicoBruto: num(r.rescisaoServicoBruto) ?? servicoAteSaida.get(r.id) ?? null,
       rescisaoValorFixo: num(r.rescisaoValorFixo),
       semRegistro: r.employee.modality === "NAO_CLT",
@@ -323,7 +333,10 @@ export async function computeTipCommission(
       diasPrevistosOverride: r.diasPrevistosOverride,
       diasElegiveis: calc.diasElegiveis,
       diasPrevistos: calc.diasPrevistos,
+      diasReferencia: calc.diasReferencia,
       diasComputados: calc.diasComputados,
+      regras: ent.regras,
+      regrasEfetivas: regraEfetiva(regras, ent),
       fatorPresenca: calc.fatorPresenca,
       pontosApurados: calc.pontosApurados,
       points: closed && r.points != null ? Number(r.points) : calc.pontosFinais,
@@ -422,6 +435,7 @@ export async function computeTipCommission(
     descontaAtestado: regras.descontaAtestado,
     descontaFerias: regras.descontaFerias,
     descontaOutros: regras.descontaOutros,
+    proporcionalEntrada: regras.proporcionalEntrada,
     distribuido, saldo,
     composicao: {
       mes: somar(participants.filter((p) => p.kind === "PONTOS" && p.tipoCalculo === "MES")),
