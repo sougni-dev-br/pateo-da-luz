@@ -35,6 +35,7 @@ import {
   downloadBuyerPrelistCsv,
   getCategories,
   getProducts,
+  getProductsSummary,
   getSectors,
   getSubcategories,
   getStockCounts,
@@ -49,6 +50,7 @@ import {
   OperationalInventoryPurchasingReport,
   OperationalInventoryType,
   Product,
+  ProductSummary,
   generateInventoryFromStockCountSession,
   consolidateMonthEndSessions,
   previewConsolidationCoverage,
@@ -96,6 +98,14 @@ type InventoryProps = {
 };
 
 type InventoryView = "overview" | "movements" | "counting" | "inventory" | "reports";
+
+const INVENTORY_VIEW_PATHS: Record<InventoryView, string> = {
+  overview: "/estoque/visao-geral",
+  movements: "/estoque/movimentacoes",
+  counting: "/estoque/contagens",
+  inventory: "/estoque/inventario",
+  reports: "/estoque/relatorios"
+};
 type InventoryDeskTab = "official" | "purchase" | "stock" | "reports";
 
 import {
@@ -211,6 +221,10 @@ export function Inventory({
   const [countSessions, setCountSessions] = useState<StockCountSession[]>([]);
   const [countSessionDetail, setCountSessionDetail] = useState<StockCountSessionDetail | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
+  // Totais da Visao Geral vem do banco. `products` e so o setor da agenda do
+  // dia (a lista da contagem do estoquista): a tela dizia "104 cadastrados"
+  // contando so o BAR, e "estoque baixo: 180" passava do total.
+  const [productSummary, setProductSummary] = useState<ProductSummary | null>(null);
   const [sectors, setSectors] = useState<InventorySector[]>([]);
   const [agenda, setAgenda] = useState<InventoryAgenda | null>(null);
   const [month, setMonth] = useState(monthValue());
@@ -311,6 +325,15 @@ export function Inventory({
   const formularioInventarioRef = useRef<HTMLDivElement | null>(null);
   const { notice, setNotice } = useNotice();
   const navigate = useNavigate();
+
+  // Trocar de aba muda a rota. Antes so trocava o conteudo: o endereco e o
+  // titulo da pagina continuavam "Visao Geral" mostrando as contagens, e
+  // recarregar voltava para a aba errada. A rota devolve a aba pelo
+  // initialView (efeito que sincroniza activeView), sem remontar a tela.
+  function irParaVisao(view: InventoryView) {
+    setActiveView(view);
+    navigate(INVENTORY_VIEW_PATHS[view]);
+  }
 
   const formatDateTime = (value?: string | null) => {
     if (!value) return "-";
@@ -628,15 +651,12 @@ export function Inventory({
     }).length;
     return { total: productsForCount.length, counted, pending: Math.max(productsForCount.length - counted, 0), divergent };
   }, [countLines, productsForCount, stocks]);
-  const activeProducts = useMemo(() => products.filter((product) => product.isActive !== false), [products]);
   const lowStockItems = useMemo(() => buyerSupport?.items.filter((item) => item.alerts.includes("ZERADO") || item.alerts.includes("ABAIXO_DO_MINIMO")) ?? [], [buyerSupport]);
   const latestCountSession = useMemo(() => [...countSessions].sort((a, b) => String(b.referenceDate).localeCompare(String(a.referenceDate)))[0] ?? null, [countSessions]);
   const latestClosedInventory = useMemo(
     () => [...operationalInventories].filter((item) => item.status === "FECHADO").sort((a, b) => String(b.date).localeCompare(String(a.date)))[0] ?? null,
     [operationalInventories]
   );
-  const productsByCategory = useMemo(() => countBy(products, (product) => product.category?.name), [products]);
-  const productsBySector = useMemo(() => countBy(products, (product) => product.inventorySector?.name), [products]);
   const movementsByType = useMemo(() => countBy(movements, (movement) => movementTypeLabel(movement.type)), [movements]);
   const movementsByProduct = useMemo(() => sumBy(movements, (movement) => movement.productName, (movement) => Math.abs(Number(movement.quantity ?? 0))), [movements]);
   const movementsTimeline = useMemo(() => countBy(movements, (movement) => formatDate(movement.createdAt)), [movements]);
@@ -670,6 +690,9 @@ export function Inventory({
       const monthParts = parseMonth(month);
       // Nao buscar o que o usuario nao tem permissao de ver: evita 403 silencioso e
       // payload inutil. Cada recurso segue o modulo correspondente.
+      void getProductsSummary({ controlsStock: "true" })
+        .then(setProductSummary)
+        .catch(() => setProductSummary(null));
       const [stockResult, movementResult, countResult, countSessionResult, agendaResult, operationalResult, sectorResult] = await Promise.allSettled([
         getInventoryStocks(search),
         canViewMovements ? getInventoryMovements({ startDate: movementPeriod.startDate, endDate: movementPeriod.endDate }) : Promise.resolve([] as InventoryMovement[]),
@@ -1123,7 +1146,7 @@ export function Inventory({
       const inventory = await generateInventoryFromStockCountSession(countSessionDetail.id);
       setNotice({ tone: "success", message: `${inventory.code} gerado a partir da contagem ${countSessionDetail.code}.` });
       await Promise.all([refreshCountSessions(countSessionDetail.id), refreshOperational(inventory.id)]);
-      setActiveView("inventory");
+      irParaVisao("inventory");
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel gerar o inventario." });
     }
@@ -1171,7 +1194,7 @@ export function Inventory({
       const session = await createMissingCount(inventoryId);
       setNotice({ tone: "success", message: `Contagem complementar ${session.code} criada com ${session.totalItems} produto(s) pendente(s). Preencha as quantidades abaixo.` });
       await Promise.all([refreshCountSessions(), refreshOperational()]);
-      setActiveView("counting");
+      irParaVisao("counting");
       await openCountSession(session.id, false);
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao criar contagem complementar." });
@@ -2429,7 +2452,7 @@ export function Inventory({
 
       <div className="module-tabs stock-module-tabs">
         {viewItems.map((item) => (
-          <button className={activeView === item.id ? "active" : ""} key={item.id} type="button" onClick={() => setActiveView(item.id)}>
+          <button className={activeView === item.id ? "active" : ""} key={item.id} type="button" onClick={() => irParaVisao(item.id)}>
             {item.label}
           </button>
         ))}
@@ -2439,19 +2462,16 @@ export function Inventory({
         className={panelClass(["overview"])}
         loading={loading}
         onRefresh={load}
-        products={products}
-        activeProducts={activeProducts}
+        productSummary={productSummary}
         lowStockItems={lowStockItems}
         latestCountSession={latestCountSession}
         latestClosedInventory={latestClosedInventory}
         activeCountProgress={activeCountProgress}
         openCountsCount={openCounts.length}
-        productsByCategory={productsByCategory}
-        productsBySector={productsBySector}
         movementsByType={movementsByType}
         countsByStatus={countsByStatus}
-        onStartCounting={() => setActiveView("counting")}
-        onOpenInventory={() => setActiveView("inventory")}
+        onStartCounting={() => { irParaVisao("counting"); setMobileCountFormOpen(true); }}
+        onOpenInventory={() => irParaVisao("inventory")}
       />
 
       <section className={panelClass(["counting", "inventory"])}>
@@ -2629,7 +2649,7 @@ export function Inventory({
                     </div>
                     <div className="actions-cell">
                       <StatusBadge tone={operationalTone(inv.status)}>{operationalStatusLabels[inv.status] ?? inv.status}</StatusBadge>
-                      <button className="secondary-button" type="button" onClick={() => { setActiveView("inventory"); setInventoryDeskTab("official"); void openOperationalInventory(inv.id); }}>Ver inventario</button>
+                      <button className="secondary-button" type="button" onClick={() => { irParaVisao("inventory"); setInventoryDeskTab("official"); void openOperationalInventory(inv.id); }}>Ver inventario</button>
                     </div>
                   </div>
                 </div>
@@ -2847,7 +2867,7 @@ export function Inventory({
                   <button
                     className="secondary-button"
                     type="button"
-                    onClick={() => { setActiveView("inventory"); setInventoryDeskTab("official"); void openOperationalInventory(inv.id); }}
+                    onClick={() => { irParaVisao("inventory"); setInventoryDeskTab("official"); void openOperationalInventory(inv.id); }}
                   >
                     Ver inventario
                   </button>
