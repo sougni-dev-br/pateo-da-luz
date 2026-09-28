@@ -10,6 +10,7 @@ import {
 } from "../api/client";
 import { Alert, Button, Card, Money, PanelEyebrow, Select, SummaryCard, Table, TextField } from "../design-system";
 import "./DeliveryFinance.css";
+import { hojeLocalIso } from "../lib/datas";
 
 const STATUS_LABEL: Record<string, string> = {
   OPEN: "Em aberto",
@@ -310,7 +311,7 @@ type MarkReceivedModalProps = {
 };
 
 function MarkReceivedModal({ receivable, onClose, onSubmit }: MarkReceivedModalProps) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hojeLocalIso();
   const [receivedDate, setReceivedDate] = useState(today);
   const [paidAmount, setPaidAmount] = useState(String(receivable.netAmount));
   const [paymentMethod, setPaymentMethod] = useState(receivable.paymentMethod ?? "");

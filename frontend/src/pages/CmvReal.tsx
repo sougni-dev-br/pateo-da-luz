@@ -32,9 +32,10 @@ import { useSearchParams } from "react-router-dom";
 import { hasPermission } from "../lib/permissions";
 import { useRevealScroll } from "../lib/useRevealScroll";
 import { formatDate } from "../utils/format";
+import { dataLocalIso, hojeLocalIso } from "../lib/datas";
 
 function todayInput() {
-  return new Date().toISOString().slice(0, 10);
+  return hojeLocalIso();
 }
 
 function nextDateKey(value: string) {
@@ -42,7 +43,7 @@ function nextDateKey(value: string) {
   if (!year || !month || !day) return value;
   const next = new Date(year, month - 1, day);
   next.setDate(next.getDate() + 1);
-  return next.toISOString().slice(0, 10);
+  return dataLocalIso(next);
 }
 
 function parseCalendarDate(value: string | null | undefined) {

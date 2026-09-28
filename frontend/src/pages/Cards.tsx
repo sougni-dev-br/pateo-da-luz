@@ -34,13 +34,14 @@ const CARDS_TONE_TO_DS: Record<string, StatusTone> = {
 import { hasPermission } from "../lib/permissions";
 import { formatDate } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
+import { hojeLocalIso } from "../lib/datas";
 
 type CardsProps = { user: AppUser };
 
 const emptyCard = { id: "", name: "", bankName: "", last4Digits: "", closingDay: 1, dueDay: 1, notes: "", isActive: true };
 
 function todayDate() {
-  return new Date().toISOString().slice(0, 10);
+  return hojeLocalIso();
 }
 
 function statementStatusLabel(status: CreditCardStatement["status"]) {

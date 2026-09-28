@@ -49,6 +49,8 @@ function statusTone(status: string) {
   return "warning" as const;
 }
 
+// UTC de proposito: o backend grava a previsao de entrega com new Date("AAAA-MM-DD"),
+// que e meia-noite UTC. Ler no fuso local devolveria o dia anterior no Brasil.
 function toInputDate(value?: string | null) {
   return value ? new Date(value).toISOString().slice(0, 10) : "";
 }

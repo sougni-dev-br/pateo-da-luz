@@ -17,6 +17,7 @@ import { PeriodFilter } from "../components/PeriodFilter";
 import type { ImportTab } from "./ImportsHub";
 import { formatDate, formatNumber, formatPercent } from "../utils/format";
 import { currentMonthPeriod, periodForPreset, type PeriodState } from "../utils/period";
+import { hojeLocalIso } from "../lib/datas";
 
 const channels = ["Salão", "Delivery", "Eventos / Empreitada", "Outros"];
 
@@ -32,7 +33,7 @@ const eventTypes = [
 const eventPaymentMethods = ["PIX", "Transferência bancária", "Dinheiro", "Boleto", "A receber", "Outro"];
 
 function todayInputDate() {
-  return new Date().toISOString().slice(0, 10);
+  return hojeLocalIso();
 }
 
 const emptyEventForm = {

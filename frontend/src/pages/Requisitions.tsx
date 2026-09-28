@@ -18,6 +18,7 @@ import {
 import { Button, EmptyState, IconButton, PanelEyebrow, StatusBadge, Table } from "../design-system";
 import { Notice, useNotice } from "../components/Notice";
 import { formatDate, formatNumber } from "../utils/format";
+import { hojeLocalIso } from "../lib/datas";
 
 type RequisitionShift = "MORNING" | "AFTERNOON" | "NIGHT";
 type RequisitionReason = "DAILY_PRODUCTION" | "PREP" | "EVENT" | "OTHER";
@@ -48,7 +49,7 @@ const shiftTone = (shift: string) =>
   shift === "MORNING" ? "info" : shift === "AFTERNOON" ? "warning" : "neutral";
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return hojeLocalIso();
 }
 
 export function Requisitions({ user }: { user: AppUser }) {
