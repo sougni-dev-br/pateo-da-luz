@@ -84,7 +84,7 @@ type ThOrdenavelProps = Omit<TableThProps, "children"> & {
   children: ReactNode;
 };
 
-export function ThOrdenavel({ coluna, ordem, onOrdenar, primeiro = "asc", children, align, style, ...rest }: ThOrdenavelProps) {
+export function ThOrdenavel({ coluna, ordem, onOrdenar, primeiro = "asc", children, align = "center", style, ...rest }: ThOrdenavelProps) {
   const ativa = ordem?.coluna === coluna ? ordem.direcao : null;
   const Icone = ativa === "asc" ? ArrowUp : ativa === "desc" ? ArrowDown : ArrowUpDown;
   const rotulo = typeof children === "string" ? children : coluna;

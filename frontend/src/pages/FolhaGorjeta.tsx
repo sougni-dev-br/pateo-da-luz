@@ -274,24 +274,24 @@ export function FolhaGorjeta() {
           <StatusBadge tone={closed ? "success" : "info"}>{closed ? "Fechada" : "Em apuração"}</StatusBadge>
         )}
         <span aria-live="polite" style={{ color: "var(--muted)", fontSize: 12 }}>{autoSaving ? "salvando…" : ""}</span>
-        <div style={{ marginLeft: "auto" }}>
-          <Button variant="secondary" onClick={() => void alternarTelaCheia()}
-            leadingIcon={telaCheia ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            title={telaCheia ? "Voltar ao tamanho normal (Esc)" : "Ver a tela inteira de uma vez"}>
-            {telaCheia ? "Sair da tela cheia" : "Tela cheia"}
-          </Button>
-        </div>
       </div>
 
-      <Tabs
-        value={aba}
-        onChange={(v) => setAba(v as Aba)}
-        tabs={[
-          { value: "apuracao", label: "Apuração" },
-          { value: "pagamento", label: "Pagamento e envio" },
-          { value: "equipe", label: "Equipe e funções" },
-        ]}
-      />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <Tabs
+          value={aba}
+          onChange={(v) => setAba(v as Aba)}
+          tabs={[
+            { value: "apuracao", label: "Apuração" },
+            { value: "pagamento", label: "Pagamento e envio" },
+            { value: "equipe", label: "Equipe e funções" },
+          ]}
+        />
+        <Button variant="secondary" onClick={() => void alternarTelaCheia()}
+          leadingIcon={telaCheia ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          title={telaCheia ? "Voltar ao tamanho normal (Esc)" : "Ver a tela inteira de uma vez"}>
+          {telaCheia ? "Sair da tela cheia" : "Tela cheia"}
+        </Button>
+      </div>
 
       {aba === "equipe" && (
         <AbaEquipe
