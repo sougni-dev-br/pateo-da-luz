@@ -90,6 +90,7 @@ export function ThOrdenavel({ coluna, ordem, onOrdenar, primeiro = "asc", childr
   const rotulo = typeof children === "string" ? children : coluna;
   return (
     <Table.Th
+      className="th-ordenavel"
       align={align}
       aria-sort={ativa === "asc" ? "ascending" : ativa === "desc" ? "descending" : "none"}
       style={{ ...style, padding: 0 }}
@@ -107,7 +108,7 @@ export function ThOrdenavel({ coluna, ordem, onOrdenar, primeiro = "asc", childr
         }}
       >
         {children}
-        <Icone size={12} aria-hidden style={{ opacity: ativa ? 1 : 0.35, flexShrink: 0, color: ativa ? "var(--gold)" : undefined }} />
+        <Icone size={12} aria-hidden className="th-ordenavel-icone" data-ativa={ativa ? "" : undefined} />
       </button>
     </Table.Th>
   );
