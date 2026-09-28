@@ -14,6 +14,7 @@ const SETEMBRO: RegrasPeriodo = {
   descontaAtestado: true,
   descontaFerias: true,
   descontaOutros: false,
+  proporcionalEntrada: true,
   pointsTotal: 100,
   deductionPercent: 20,
   netPool: 18632.99, // 23.291,24 − 20%
@@ -24,6 +25,7 @@ function pessoa(over: Partial<ParticipanteEntrada> = {}): ParticipanteEntrada {
     kind: "PONTOS", basePoints: 4, ajuste: 0, fixedAmount: null,
     admissao: d("2025-01-01"), desligamento: null,
     faltas: 0, atestados: 0, ferias: 0, outrosDias: 0, diasPrevistosOverride: null,
+    regras: { descontaFalta: null, descontaAtestado: null, descontaFerias: null, descontaOutros: null, proporcionalEntrada: null },
     rescisaoServicoBruto: null, rescisaoValorFixo: null,
     semRegistro: false, salarioBase: null, diasSalarioOverride: null,
     vales: [],
@@ -50,14 +52,49 @@ describe("presença", () => {
     expect(r.pontosApurados).toBe(3.11);
   });
 
-  test("admitido 04/09 e desligado 23/09 com 1 falta e 2 atestados: 2,88 pontos (Lucas)", () => {
+  test("admitido 04/09 e desligado 23/09: proporcional à entrada, até a saída (Lucas)", () => {
     const r = calcularParticipante(SETEMBRO, pessoa({
       basePoints: 3.5, admissao: d("2026-09-04"), desligamento: d("2026-09-23"), faltas: 1, atestados: 2,
     }), VALOR_PONTO);
     expect(r.diasElegiveis).toBe(20);
     expect(r.diasPrevistos).toBe(17);
     expect(r.diasComputados).toBe(14);
+    expect(r.diasReferencia).toBe(24); // 26/08 a 23/09 = 29 dias → 26 × 29 ÷ 31
+    expect(r.pontosApurados).toBe(2.04); // 3,5 × 14 ÷ 24
+  });
+
+  test("sem proporcional de entrada, volta à regra da planilha (2,88)", () => {
+    const r = calcularParticipante(SETEMBRO, pessoa({
+      basePoints: 3.5, admissao: d("2026-09-04"), desligamento: d("2026-09-23"), faltas: 1, atestados: 2,
+      regras: { descontaFalta: null, descontaAtestado: null, descontaFerias: null, descontaOutros: null, proporcionalEntrada: false },
+    }), VALOR_PONTO);
     expect(r.pontosApurados).toBe(2.88);
+  });
+
+  test("admitido no meio do mês sem faltas recebe proporcional aos dias", () => {
+    // entrou 11/09: 15 dias de 31 → 13 previstos de 26
+    const r = calcularParticipante(SETEMBRO, pessoa({ basePoints: 4, admissao: d("2026-09-11") }), VALOR_PONTO);
+    expect(r.diasPrevistos).toBe(13);
+    expect(r.diasReferencia).toBe(26);
+    expect(r.pontosApurados).toBe(2);
+  });
+
+  test("quem fecha pode não descontar a falta de uma pessoa", () => {
+    const base = { basePoints: 4, faltas: 3 };
+    const padrao = calcularParticipante(SETEMBRO, pessoa(base), VALOR_PONTO);
+    const perdoado = calcularParticipante(SETEMBRO, pessoa({
+      ...base, regras: { descontaFalta: false, descontaAtestado: null, descontaFerias: null, descontaOutros: null, proporcionalEntrada: null },
+    }), VALOR_PONTO);
+    expect(padrao.pontosApurados).toBe(3.54); // 4 × 23 ÷ 26
+    expect(perdoado.pontosApurados).toBe(4);
+  });
+
+  test("e pode descontar 'outros dias' de uma pessoa mesmo com o período não descontando", () => {
+    const r = calcularParticipante(SETEMBRO, pessoa({
+      basePoints: 4, outrosDias: 13,
+      regras: { descontaFalta: null, descontaAtestado: null, descontaFerias: null, descontaOutros: true, proporcionalEntrada: null },
+    }), VALOR_PONTO);
+    expect(r.pontosApurados).toBe(2);
   });
 
   test("ocorrência que não desconta não reduz os dias", () => {
