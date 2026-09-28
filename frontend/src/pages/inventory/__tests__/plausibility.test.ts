@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { evaluateQuantity, packSizeFromName, type QuantityPlausibility } from "../shared";
+import { evaluateQuantity, inlineCountWarnings, packSizeFromName, type QuantityPlausibility } from "../shared";
 
 const vazio: QuantityPlausibility = {
   itemId: "i1", median: null, maxCount: null, weakBaseline: false, erraticHistory: false, observations: 0, purchasedEver: null
@@ -132,5 +132,19 @@ describe("evaluateQuantity — base fraca (uma unica contagem anterior)", () => 
     // PALITO: a unica contagem anterior era 1800 (palito avulso). Digitar 1, que
     // e o certo, nao pode ser acusado — foi o falso positivo que derrubou a v1.
     expect(evaluateQuantity(umaContagem(1800), "1")).toEqual([]);
+  });
+});
+
+describe("inlineCountWarnings — o que aparece na linha durante a contagem", () => {
+  test("zero atipico nao interrompe o estoquista", () => {
+    expect(inlineCountWarnings(["ZERO_INESPERADO"])).toEqual([]);
+  });
+
+  test("desvio de ordem de grandeza continua aparecendo", () => {
+    expect(inlineCountWarnings(["FORA_DA_FAIXA", "MAIOR_QUE_COMPRADO"])).toEqual(["FORA_DA_FAIXA", "MAIOR_QUE_COMPRADO"]);
+  });
+
+  test("conferir unidade continua aparecendo", () => {
+    expect(inlineCountWarnings(["CONFERIR_UNIDADE", "ZERO_INESPERADO"])).toEqual(["CONFERIR_UNIDADE"]);
   });
 });

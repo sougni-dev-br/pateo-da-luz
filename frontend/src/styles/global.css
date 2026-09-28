@@ -15340,50 +15340,34 @@ body:has(.pplan-sticky-actions) .pplan {
 
 /* Guarda de plausibilidade da contagem — avisa sem bloquear.
    Usa os mesmos tokens de warning do design system para nao inventar
-   uma cor de alerta paralela. */
+   uma cor de alerta paralela. Linha fina na largura inteira do cartao/linha,
+   abaixo do campo — nunca na coluna do campo (la ela cobria o input no celular). */
 .count-guard {
   grid-column: 1 / -1;
   margin-top: 6px;
-  padding: 8px 10px;
-  background: var(--tint-warning);
-  border: 1px solid var(--tint-warning-border);
-  border-radius: var(--radius-sm, 6px);
-  color: var(--warning);
+  padding: 4px 8px;
+  border-left: 3px solid var(--tint-warning-border);
+  border-radius: 0 var(--radius-sm, 6px) var(--radius-sm, 6px) 0;
   font-size: var(--fs-xs, 12px);
-  line-height: 1.45;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  line-height: 1.35;
+  display: grid;
+  gap: 2px;
 }
 
-.count-guard-pack {
+.count-guard p {
   margin: 0;
+}
+
+.count-guard.is-warning {
+  background: var(--tint-warning);
+  border-left-color: var(--warning);
+  color: var(--warning);
   font-weight: 600;
 }
 
-.count-guard-list {
-  margin: 0;
-  padding-left: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.count-guard-confirm {
-  align-self: flex-start;
-  padding: 4px 10px;
+.count-guard.is-hint {
   background: transparent;
-  border: 1px solid currentColor;
-  border-radius: var(--radius-sm, 6px);
-  color: inherit;
-  font-size: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.count-guard-confirm:hover,
-.count-guard-confirm:focus-visible {
-  background: var(--tint-warning-border);
+  color: var(--muted);
 }
 
 /* Quantidade ilegível no planejamento de compra: quem digitou "16,5" queria
