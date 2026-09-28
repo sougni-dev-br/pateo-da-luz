@@ -1,25 +1,25 @@
 /* Tabela do rateio: muitas colunas numéricas; espaçamento mais justo para que
    Gorjeta e Líquido caibam na tela sem rolar para o lado. */
-.tabela-rateio .ds-table-th,
-.tabela-rateio .ds-table-td {
+.tabela-gorjeta .ds-table-th,
+.tabela-gorjeta .ds-table-td {
   padding: 6px 8px;
 }
 
-.tabela-rateio .ds-table-th {
+.tabela-gorjeta .ds-table-th {
   white-space: nowrap;
 }
 
-.tabela-rateio input[type="number"]::-webkit-inner-spin-button,
-.tabela-rateio input[type="number"]::-webkit-outer-spin-button {
+.tabela-gorjeta input[type="number"]::-webkit-inner-spin-button,
+.tabela-gorjeta input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
 
-.tabela-rateio input[type="number"] {
+.tabela-gorjeta input[type="number"] {
   -moz-appearance: textfield;
 }
 
-.tabela-rateio input:focus-visible {
+.tabela-gorjeta input:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 1px;
 }
@@ -155,22 +155,95 @@
   gap: 10px !important;
 }
 
-.gorjeta-tela-cheia .ds-table-scroll:has(> .tabela-rateio) {
+.gorjeta-tela-cheia .ds-table-scroll:has(> .tabela-gorjeta) {
   max-height: calc(100vh - 190px);
   overflow: auto;
 }
 
-.gorjeta-tela-cheia .tabela-rateio .ds-table-th {
+.gorjeta-tela-cheia .tabela-gorjeta .ds-table-th {
   position: sticky;
   top: 0;
   z-index: 3;
 }
 
-.gorjeta-tela-cheia .tabela-rateio .ds-table-td {
+.gorjeta-tela-cheia .tabela-gorjeta .ds-table-td {
   padding: 3px 8px;
 }
 
-.gorjeta-tela-cheia .tabela-rateio input {
+.gorjeta-tela-cheia .tabela-gorjeta input {
   padding-top: 2px;
   padding-bottom: 2px;
+}
+
+/* Todas as colunas centralizadas; só o nome fica à esquerda. */
+.tabela-gorjeta .ds-table-th,
+.tabela-gorjeta .ds-table-td {
+  text-align: center;
+}
+
+.tabela-gorjeta .ds-table-th:first-child,
+.tabela-gorjeta .ds-table-td:first-child {
+  text-align: left;
+}
+
+/* Nome fixo ao rolar para o lado, com o mesmo fundo da linha e do cabeçalho. */
+.tabela-gorjeta .ds-table-td:first-child:not([colspan]) {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--paper);
+  box-shadow: 1px 0 0 var(--line);
+}
+
+.tabela-gorjeta .ds-table-th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  box-shadow: 1px 0 0 var(--line);
+}
+
+/* O realce da linha também pega a coluna do nome. */
+.tabela-gorjeta .ds-table-body .ds-table-row:hover .ds-table-td:first-child:not([colspan]) {
+  background: var(--row-hover);
+}
+
+/* Faixa de grupo (No mês, Desligados...). */
+.grupo-cabecalho {
+  position: sticky;
+  left: 10px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.grupo-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.grupo-chip-valor {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.grupo-nota {
+  position: sticky;
+  left: 10px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Em tela cheia o cabeçalho fixo fica acima da coluna do nome. */
+.gorjeta-tela-cheia .tabela-gorjeta .ds-table-th:first-child {
+  z-index: 4;
 }

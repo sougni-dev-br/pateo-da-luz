@@ -78,12 +78,12 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
           <strong>Envio à contabilidade <span style={{ ...mutedStyle, fontWeight: 400 }}>— registrados, por empresa</span></strong>
           <Button variant="secondary" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarContabilidade)}>PDF contabilidade</Button>
         </div>
-        <Table>
+        <Table className="tabela-gorjeta">
           <Table.Head>
             <Table.Row>
-              <ThOrdenavel {...thC("nome")} minWidth={180}>Funcionário</ThOrdenavel>
+              <ThOrdenavel {...thC("nome")} align="left" minWidth={180}>Funcionário</ThOrdenavel>
               <ThOrdenavel {...thC("empresa")}>Empresa</ThOrdenavel>
-              <ThOrdenavel {...thC("gorjeta")} align="right">Gorjeta</ThOrdenavel>
+              <ThOrdenavel {...thC("gorjeta")} align="center">Gorjeta</ThOrdenavel>
               <ThOrdenavel {...thC("horaExtra")}>Hora extra</ThOrdenavel>
               <ThOrdenavel {...thC("noturno")}>Ad. noturno</ThOrdenavel>
               {veSalario && <Table.Th>Estimativa</Table.Th>}
@@ -150,10 +150,10 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
         {semRegistro.length === 0
           ? <span style={mutedStyle}>Ninguém sem registro no período.</span>
           : (
-            <Table>
+            <Table className="tabela-gorjeta">
               <Table.Head>
                 <Table.Row>
-                  <ThOrdenavel {...thP("nome")} minWidth={180}>Funcionário</ThOrdenavel>
+                  <ThOrdenavel {...thP("nome")} align="left" minWidth={180}>Funcionário</ThOrdenavel>
                   <ThOrdenavel {...thP("salarioBase")}>Salário base</ThOrdenavel>
                   <ThOrdenavel {...thP("dias")}>Dias</ThOrdenavel>
                   <ThOrdenavel {...thP("salario")}>Salário</ThOrdenavel>
