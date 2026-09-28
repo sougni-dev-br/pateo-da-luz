@@ -16436,3 +16436,172 @@ td.count-list-divergent {
     grid-column: 1 / -1;
   }
 }
+
+/* Rotina do estoquista (Contagens): o que contar em cada dia da semana.
+ * Lista compacta — data, setor, status, acao — com o dia de hoje marcado
+ * pelo mesmo filete dourado do fechamento do mes. */
+@media (min-width: 641px) {
+  .routine-week .section-heading {
+    align-items: flex-end;
+  }
+}
+
+@media (max-width: 640px) {
+  .routine-week .section-heading {
+    align-items: flex-start;
+    text-align: left;
+  }
+}
+
+.routine-week__resumo {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.routine-week__resumo strong {
+  color: var(--ink);
+}
+
+.routine-week__atrasadas {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.routine-week__lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.routine-week__dia {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: var(--radius, 12px);
+  background: var(--paper);
+}
+
+.routine-week__dia--hoje {
+  border-left-color: var(--gold);
+  background: var(--paper-soft);
+}
+
+.routine-week__dia--atrasada {
+  border-left-color: var(--danger);
+}
+
+.routine-week__dia--feita {
+  opacity: 0.72;
+}
+
+.routine-week__data {
+  display: grid;
+  line-height: 1.15;
+}
+
+.routine-week__data span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.routine-week__data strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.routine-week__alvo {
+  display: grid;
+  min-width: 0;
+}
+
+.routine-week__alvo strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routine-week__alvo small {
+  color: var(--muted);
+}
+
+.routine-week__acao {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .routine-week__dia {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+  }
+
+  .routine-week__acao {
+    grid-column: 1 / -1;
+  }
+
+  .routine-week__acao:empty {
+    display: none;
+  }
+
+  .routine-week__acao .ds-button {
+    width: 100%;
+  }
+}
+
+/* Blocos recolhidos de Contagens (agenda e contagem avulsa): ficam fechados
+ * para o dia a dia do estoquista e abrem para quem configura. */
+.routine-config > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius, 12px);
+}
+
+.routine-config > summary::-webkit-details-marker {
+  display: none;
+}
+
+.routine-config > summary > span {
+  display: grid;
+  gap: 2px;
+}
+
+.routine-config > summary strong {
+  font-size: 16px;
+}
+
+.routine-config > summary small {
+  color: var(--muted);
+  text-align: right;
+}
+
+.routine-config > summary::after {
+  content: "▾";
+  color: var(--muted);
+  transition: transform var(--dur, 200ms) var(--ease, ease-out);
+}
+
+.routine-config[open] > summary {
+  margin-bottom: 16px;
+}
+
+.routine-config[open] > summary::after {
+  transform: rotate(180deg);
+}
+
+.routine-config > summary:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 4px;
+}
