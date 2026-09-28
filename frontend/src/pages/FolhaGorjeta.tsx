@@ -290,8 +290,8 @@ export function FolhaGorjeta() {
           <button type="button" className="botao-icone" onClick={() => void load()} aria-label="Recarregar" title="Recarregar"><RefreshCw size={15} /></button>
           <Button variant="secondary" onClick={() => void alternarTelaCheia()}
             leadingIcon={telaCheia ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            title={telaCheia ? "Voltar ao tamanho normal (Esc)" : "Ver a tela inteira de uma vez"}>
-            {telaCheia ? "Sair da tela cheia" : "Tela cheia"}
+            aria-label={telaCheia ? "Sair da tela cheia" : "Tela cheia"} title={telaCheia ? "Voltar ao tamanho normal (Esc)" : "Ver a tela inteira de uma vez"}>
+            <span className="rotulo-tela-cheia">{telaCheia ? "Sair da tela cheia" : "Tela cheia"}</span>
           </Button>
         </div>
       </div>

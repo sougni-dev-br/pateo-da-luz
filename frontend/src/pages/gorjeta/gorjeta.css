@@ -498,10 +498,10 @@
 
 /* Cabeçalho do período: mês, identidade da apuração e ações numa linha. */
 .cabecalho-periodo {
-  display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 12px 16px; flex-wrap: nowrap;
   padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper);
 }
-.navegador-mes { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.navegador-mes { flex: none; display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .navegador-mes button {
   display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px;
   border: none; background: transparent; color: var(--ink); cursor: pointer;
@@ -511,12 +511,17 @@
   min-width: 150px; text-align: center; font-size: 15px; padding: 0 6px;
   border-left: 1px solid var(--line); border-right: 1px solid var(--line); line-height: 34px;
 }
-.identidade-periodo { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.identidade-periodo-datas { color: var(--muted); font-size: 13px; }
-.cabecalho-periodo-acoes { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
-.cabecalho-salvando { color: var(--muted); font-size: 12px; min-width: 56px; text-align: right; }
+.identidade-periodo { display: inline-flex; align-items: center; gap: 10px; flex-wrap: nowrap; min-width: 0; }
+.identidade-periodo > * { flex: none; }
+.identidade-periodo-datas { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto !important; min-width: 0; }
+.cabecalho-periodo-acoes { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.cabecalho-salvando { color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; }
 .botao-icone {
   display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px;
   border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); cursor: pointer;
 }
 .botao-icone:hover, .botao-icone:focus-visible { border-color: var(--line-strong, var(--ink)); }
+
+/* Espaço curto: o botão de tela cheia fica só com o ícone; no celular a barra quebra. */
+@media (max-width: 1180px) { .rotulo-tela-cheia { display: none; } }
+@media (max-width: 640px) { .cabecalho-periodo { flex-wrap: wrap; } .identidade-periodo { flex-wrap: wrap; } }
