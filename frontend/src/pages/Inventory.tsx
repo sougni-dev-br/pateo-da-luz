@@ -121,6 +121,7 @@ import {
   operationalTone,
   operationalTypeLabels,
   evaluateQuantity,
+  inlineCountWarnings,
   quantityHint,
   packSizeFromName,
   parseMonth,
@@ -137,45 +138,37 @@ import {
 } from "./inventory/shared";
 import type { CountSessionColumn, QuantityPlausibility } from "./inventory/shared";
 
-// Aviso de plausibilidade da contagem. Amarelo, inline, com um clique para
-// seguir: contagem legitima as vezes e atipica (compra grande, produto novo),
-// entao bloquear pararia o estoquista no corredor por falso positivo.
+// Aviso de plausibilidade da contagem: uma linha fina na largura do cartao,
+// sem botao. Antes abria uma caixa com "Conferi, esta certo" dentro da coluna
+// do campo — no celular cobria o proprio campo e triplicava a altura do
+// cartao, e aparecia a cada tecla (digitar "250" avisava no "25"). Agora so
+// fala depois que a pessoa sai do item, e a conferencia fica no "Concluir".
 function CountQuantityGuard({
   itemId,
   productName,
   unit,
-  warnings,
+  value,
   plausibility,
-  onConfirm
+  isActive
 }: {
   itemId: string;
   productName: string;
   unit?: string | null;
-  warnings: ReturnType<typeof evaluateQuantity>;
+  value: string;
   plausibility?: QuantityPlausibility;
-  onConfirm: () => void;
+  isActive: boolean;
 }) {
-  const packSize = packSizeFromName(productName);
+  const packSize = isActive ? packSizeFromName(productName) : null;
+  const warnings = isActive ? [] : inlineCountWarnings(evaluateQuantity(plausibility, value));
   if (!warnings.length && packSize == null) return null;
   return (
-    <div className="count-guard" role="status" aria-live="polite">
+    <div className={`count-guard ${warnings.length ? "is-warning" : "is-hint"}`} role="status">
       {packSize != null && (
-        <p className="count-guard-pack">
-          Embalagem com {packSize.toLocaleString("pt-BR")}. Conte <strong>{unit || "pacotes"}</strong>, nao a peca avulsa.
-        </p>
+        <p>Embalagem com {packSize.toLocaleString("pt-BR")}: conte <strong>{unit || "pacotes"}</strong>, nao a peca avulsa.</p>
       )}
-      {warnings.length > 0 && plausibility && (
-        <>
-          <ul className="count-guard-list">
-            {warnings.map((warning) => (
-              <li key={`${itemId}-${warning}`}>{quantityWarningLabel(warning, plausibility)}</li>
-            ))}
-          </ul>
-          <button type="button" className="count-guard-confirm" onClick={onConfirm}>
-            Conferi, esta certo
-          </button>
-        </>
-      )}
+      {plausibility && warnings.map((warning) => (
+        <p key={`${itemId}-${warning}`}>{quantityWarningLabel(warning, plausibility)}</p>
+      ))}
     </div>
   );
 }
@@ -280,10 +273,8 @@ export function Inventory({
   // por ultimo devolvia os itens do colega ao valor antigo — sem erro nem aviso.
   const [countSessionDirty, setCountSessionDirty] = useState<Record<string, true>>({});
   const [operationalDirty, setOperationalDirty] = useState<Record<string, true>>({});
-  // Faixa esperada por item + avisos ja reconhecidos pela pessoa. Guarda de
-  // plausibilidade: avisa, nunca bloqueia.
+  // Faixa esperada por item. Guarda de plausibilidade: avisa, nunca bloqueia.
   const [countSessionPlausibility, setCountSessionPlausibility] = useState<Record<string, QuantityPlausibility>>({});
-  const [countSessionWarningsSeen, setCountSessionWarningsSeen] = useState<Record<string, true>>({});
   const [mobileCountFiltersOpen, setMobileCountFiltersOpen] = useState(false);
   const [mobileCountMoreActionsOpen, setMobileCountMoreActionsOpen] = useState(false);
   const [mobileQuickCountMode, setMobileQuickCountMode] = useState(false);
@@ -863,7 +854,6 @@ export function Inventory({
     setCountSessionUnitFilter("");
     setCountSessionStatusFilter("TODOS");
     setCountSessionDirty({});
-    setCountSessionWarningsSeen({});
     setCountSessionPlausibility({});
     // Em paralelo e sem bloquear a abertura: se falhar, a contagem segue sem a guarda.
     void getStockCountSessionPlausibility(id)
@@ -877,23 +867,7 @@ export function Inventory({
     if (showMessage) setNotice({ tone: "success", message: `${detail.code} aberta para lancamento.` });
   }
 
-  // Avisos ativos de um item, ja descontando o que a pessoa confirmou.
-  function countSessionWarningsFor(itemId: string, value: string) {
-    if (countSessionWarningsSeen[itemId]) return [];
-    return evaluateQuantity(countSessionPlausibility[itemId], value);
-  }
-
   function updateCountSessionLine(itemId: string, patch: Partial<{ countedQuantity: string; notes: string }>) {
-    // Mexeu no valor: o aviso volta a valer, senao a confirmacao de um numero
-    // cobriria silenciosamente o proximo.
-    if (patch.countedQuantity !== undefined) {
-      setCountSessionWarningsSeen((prev) => {
-        if (!prev[itemId]) return prev;
-        const next = { ...prev };
-        delete next[itemId];
-        return next;
-      });
-    }
     setCountSessionLines((prev) => {
       const atual = prev[itemId] ?? { countedQuantity: "", notes: "" };
       return { ...prev, [itemId]: { ...atual, ...patch } };
@@ -1304,12 +1278,14 @@ export function Inventory({
     }
     const nextItemId = nextInput.getAttribute("data-session-count-item-id");
     if (nextItemId) setActiveCountSessionInputId(nextItemId);
+    // Foco na hora, dentro do proprio Enter: com o atraso de 60ms quem digita
+    // rapido mandava os primeiros numeros para o item anterior ("3" + "012"
+    // virava "3012"), e no iPhone foco fora do gesto pode fechar o teclado.
+    nextInput.focus({ preventScroll: true });
+    nextInput.select();
     scrollCountInputToComfort(nextInput);
-    window.setTimeout(() => {
-      nextInput.focus();
-      nextInput.select();
-      scrollCountInputToComfort(nextInput);
-    }, 60);
+    // O aviso do item que ficou para tras pode mudar a altura da lista.
+    window.requestAnimationFrame(() => scrollCountInputToComfort(nextInput));
   }
 
   function advanceCountSessionItem(itemId: string) {
@@ -2068,14 +2044,6 @@ export function Inventory({
                           onChange={(event) => updateCountSessionLine(item.id, { countedQuantity: sanitizeQuantityInput(event.target.value) })}
                         />
                       </label>
-                      <CountQuantityGuard
-                        itemId={item.id}
-                        productName={item.productNameSnapshot}
-                        unit={item.unitLabel ?? item.unitSnapshot}
-                        warnings={countSessionWarningsFor(item.id, line.countedQuantity)}
-                        plausibility={countSessionPlausibility[item.id]}
-                        onConfirm={() => setCountSessionWarningsSeen((prev) => ({ ...prev, [item.id]: true }))}
-                      />
                       <button
                         className={`note-flag mobile-note-button ${hasNotes ? "has-note" : ""}`}
                         type="button"
@@ -2091,6 +2059,14 @@ export function Inventory({
                         </button>
                       )}
                     </div>
+                    <CountQuantityGuard
+                      itemId={item.id}
+                      productName={item.productNameSnapshot}
+                      unit={item.unitLabel ?? item.unitSnapshot}
+                      value={line.countedQuantity}
+                      plausibility={countSessionPlausibility[item.id]}
+                      isActive={isActiveInput}
+                    />
                   </article>
                 </div>
               );
@@ -2196,14 +2172,6 @@ export function Inventory({
                             onChange={(event) => updateCountSessionLine(item.id, { countedQuantity: sanitizeQuantityInput(event.target.value) })}
                           />
                         </label>
-                        <CountQuantityGuard
-                          itemId={item.id}
-                          productName={item.productNameSnapshot}
-                          unit={item.unitLabel ?? item.unitSnapshot}
-                          warnings={countSessionWarningsFor(item.id, line.countedQuantity)}
-                          plausibility={countSessionPlausibility[item.id]}
-                          onConfirm={() => setCountSessionWarningsSeen((prev) => ({ ...prev, [item.id]: true }))}
-                        />
                       </div>
                       {countSessionVisibleColumns.status && (
                         <div className="count-session-status-block">
@@ -2212,6 +2180,14 @@ export function Inventory({
                         </div>
                       )}
                     </div>
+                    <CountQuantityGuard
+                      itemId={item.id}
+                      productName={item.productNameSnapshot}
+                      unit={item.unitLabel ?? item.unitSnapshot}
+                      value={line.countedQuantity}
+                      plausibility={countSessionPlausibility[item.id]}
+                      isActive={isActiveInput}
+                    />
                   </article>
                 );
               })}
