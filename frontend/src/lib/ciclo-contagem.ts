@@ -55,3 +55,15 @@ export function opcoesDeCiclo(dataIso: string): Ciclo[] {
   const retrasado = anterior.mes === 1 ? { mes: 12, ano: anterior.ano - 1 } : { mes: anterior.mes - 1, ano: anterior.ano };
   return [base, anterior, retrasado];
 }
+
+/**
+ * Data de hoje no fuso de quem esta usando, em AAAA-MM-DD. toISOString() da a
+ * data em UTC: depois das 21h no Brasil ja e amanha, e uma contagem de
+ * fechamento feita a noite do dia 30 nascia datada do dia 1o — e, pelo
+ * cicloSugerido, no ciclo do mes seguinte.
+ */
+export function hojeLocalIso(agora: Date = new Date()): string {
+  const mes = String(agora.getMonth() + 1).padStart(2, "0");
+  const dia = String(agora.getDate()).padStart(2, "0");
+  return `${agora.getFullYear()}-${mes}-${dia}`;
+}

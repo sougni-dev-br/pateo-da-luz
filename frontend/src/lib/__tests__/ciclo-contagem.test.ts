@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { cicloDivergeDaData, cicloSugerido, opcoesDeCiclo, rotuloDoCiclo } from "../ciclo-contagem";
+import { cicloDivergeDaData, cicloSugerido, hojeLocalIso, opcoesDeCiclo, rotuloDoCiclo } from "../ciclo-contagem";
 
 describe("cicloSugerido — o caso que deixou agosto sem inventario", () => {
   test("contagem em 01 e 02/09 sugere o ciclo de agosto", () => {
@@ -78,5 +78,19 @@ describe("rotuloDoCiclo", () => {
     expect(rotuloDoCiclo({ mes: 8, ano: 2026 })).toBe("agosto/2026");
     expect(rotuloDoCiclo({ mes: 12, ano: 2026 })).toBe("dezembro/2026");
     expect(rotuloDoCiclo({ mes: 3, ano: 2027 })).toBe("março/2027");
+  });
+});
+
+describe("hojeLocalIso — contagem de fechamento feita a noite", () => {
+  test("23h30 do dia 30 continua sendo dia 30, nao o dia 1o em UTC", () => {
+    expect(hojeLocalIso(new Date(2026, 8, 30, 23, 30))).toBe("2026-09-30");
+  });
+
+  test("zero a esquerda em mes e dia", () => {
+    expect(hojeLocalIso(new Date(2026, 0, 5, 8, 0))).toBe("2026-01-05");
+  });
+
+  test("com o sugerido, a contagem da noite do dia 30 fica no proprio ciclo", () => {
+    expect(cicloSugerido(hojeLocalIso(new Date(2026, 8, 30, 23, 30)))).toEqual({ mes: 9, ano: 2026 });
   });
 });
