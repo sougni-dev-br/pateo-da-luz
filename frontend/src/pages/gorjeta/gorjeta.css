@@ -525,3 +525,34 @@
 /* Espaço curto: o botão de tela cheia fica só com o ícone; no celular a barra quebra. */
 @media (max-width: 1180px) { .rotulo-tela-cheia { display: none; } }
 @media (max-width: 640px) { .cabecalho-periodo { flex-wrap: wrap; } .identidade-periodo { flex-wrap: wrap; } }
+
+/* Funções e pontos: alterações pendentes e barra de salvar */
+.linha-alterada > td { background: color-mix(in srgb, var(--warning, #b45309) 4%, transparent); }
+.celula-alterada { box-shadow: inset 3px 0 0 var(--warning, #b45309); }
+.celula-alterada input { border-color: var(--warning, #b45309) !important; }
+.celula-nova { box-shadow: inset 3px 0 0 var(--info, #2563eb); }
+.botao-desfazer {
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer;
+}
+.botao-desfazer:hover, .botao-desfazer:focus-visible { border-color: var(--line); color: var(--ink); }
+.barra-salvar {
+  position: sticky; bottom: 12px; z-index: 5; display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 14px; border: 1px solid var(--warning, #b45309); border-radius: 12px;
+  background: var(--paper); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+.barra-salvar-linha { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
+.barra-salvar-status { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; }
+.ponto-pendente { width: 8px; height: 8px; border-radius: 50%; background: var(--warning, #b45309); }
+.barra-salvar-motivo {
+  flex: 1 1 220px; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--paper); color: var(--ink); font-size: 13px;
+}
+.barra-salvar-acoes { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.barra-salvar-revisao ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow: auto; }
+.barra-salvar-revisao li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 13px; }
+.barra-salvar-funcao { font-weight: 600; min-width: 180px; }
+.barra-salvar-campo { color: var(--muted); }
+.barra-salvar-campo strong { color: var(--ink); }
+.barra-salvar-afeta { display: inline-flex; align-items: center; gap: 4px; color: var(--warning, #b45309); font-size: 12px; }
+.barra-salvar-erros { display: flex; gap: 8px; align-items: flex-start; color: var(--danger); font-size: 13px; }

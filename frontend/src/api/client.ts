@@ -5904,7 +5904,12 @@ export function getTipFunctions() {
   return request<TipFunction[]>("/payroll/tip/functions");
 }
 
-export function saveTipFunctions(functions: TipFunction[], vigencia: { validFrom?: string; reason?: string } = {}) {
+/** Tabela para edição, com a versão aberta (o servidor recusa gravar por cima de quem salvou antes). */
+export function getTipFunctionsTable() {
+  return request<{ versao: string; funcoes: TipFunction[] }>("/payroll/tip/functions/table");
+}
+
+export function saveTipFunctions(functions: TipFunction[], vigencia: { validFrom?: string; reason?: string; baseVersion?: string } = {}) {
   return request<{ ok: boolean }>("/payroll/tip/functions", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

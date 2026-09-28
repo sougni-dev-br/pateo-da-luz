@@ -13,13 +13,14 @@ import { hasPermission } from "../lib/permissions";
 import "./gorjeta/gorjeta.css";
 import { AbaApuracao } from "./gorjeta/AbaApuracao";
 import { AbaEquipe } from "./gorjeta/AbaEquipe";
+import { AbaFuncoes } from "./gorjeta/AbaFuncoes";
 import { AbaPagamento } from "./gorjeta/AbaPagamento";
 import { AbaRelatorios } from "./gorjeta/AbaRelatorios";
 import { Pendencias } from "./gorjeta/Pendencias";
 import { ResumoApuracao } from "./gorjeta/ResumoApuracao";
 import { type LocalRow, MONTHS, inputStyle, money, mutedStyle, panelStyle, toPayload, toRows } from "./gorjeta/gorjetaUtils";
 
-type Aba = "apuracao" | "pagamento" | "equipe" | "relatorios";
+type Aba = "apuracao" | "pagamento" | "equipe" | "funcoes" | "relatorios";
 
 type Parametros = {
   start: string; end: string; pool: string; deduction: string; pointsTotal: string; diasPadrao: string;
@@ -302,13 +303,22 @@ export function FolhaGorjeta() {
         tabs={[
           { value: "apuracao", label: "Apuração" },
           { value: "pagamento", label: "Pagamento e envio" },
-          { value: "equipe", label: "Equipe e funções" },
+          { value: "equipe", label: "Equipe" },
+          { value: "funcoes", label: "Funções e pontos" },
           { value: "relatorios", label: "Relatórios" },
         ]}
       />
 
       {aba === "equipe" && (
         <AbaEquipe
+          canEdit={canEdit}
+          onNotice={(tone, message) => setNotice({ tone, message })}
+          onChanged={() => { if (comp?.periodId && !closed) void getTipCommission(year, month).then(setComp); }}
+        />
+      )}
+
+      {aba === "funcoes" && (
+        <AbaFuncoes
           canEdit={canEdit}
           onNotice={(tone, message) => setNotice({ tone, message })}
           onChanged={() => { if (comp?.periodId && !closed) void getTipCommission(year, month).then(setComp); }}
