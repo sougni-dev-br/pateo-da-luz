@@ -4,6 +4,7 @@ import type { TipComputation, TipComputedParticipant } from "../../api/client";
 import { Alert, Button, Money, StatusBadge, Table } from "../../design-system";
 import { exportarContabilidade, exportarListaPagamento } from "./exportarPdf";
 import "./gorjeta.css";
+import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
   type LocalRow, type RowPatch, estimarAdicionais, fmtDate, fmtHoras, inputStyle, money, mutedStyle, numInputStyle, ordenar, panelStyle, parseHoras,
@@ -26,6 +27,17 @@ const EXTRATORES: Extratores<TipComputedParticipant> = {
 };
 const TEXTO = new Set(["nome", "empresa", "pix"]);
 
+const COLUNAS_CONTAB: ColunaOpcional[] = [
+  { chave: "empresa", rotulo: "Empresa" }, { chave: "gorjeta", rotulo: "Gorjeta" }, { chave: "horaExtra", rotulo: "Hora extra" },
+  { chave: "noturno", rotulo: "Ad. noturno" }, { chave: "estimativa", rotulo: "Estimativa" }, { chave: "faltas", rotulo: "Faltas" },
+  { chave: "atestados", rotulo: "Atestados" }, { chave: "justificada", rotulo: "Justificada" },
+];
+const COLUNAS_PAG: ColunaOpcional[] = [
+  { chave: "salarioBase", rotulo: "Salário base" }, { chave: "dias", rotulo: "Dias" }, { chave: "salario", rotulo: "Salário" },
+  { chave: "gorjeta", rotulo: "Gorjeta" }, { chave: "vales", rotulo: "Vales" }, { chave: "aPagar", rotulo: "A pagar" },
+  { chave: "pix", rotulo: "PIX" },
+];
+
 type Props = {
   comp: TipComputation;
   rows: LocalRow[];
@@ -42,6 +54,10 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   const reserva = participantes.filter((p) => p.reserva);
   const veSalario = participantes.some((p) => p.baseSalary != null);
   const ordContab = useOrdenacao("contabilidade");
+  const colC = useColunas("contabilidade");
+  const colP = useColunas("pagamento");
+  const vc = colC.visivel;
+  const vp = colP.visivel;
   const ordPag = useOrdenacao("pagamento");
   const registradosOrd = useMemo(() => aplicarOrdem(registrados, ordContab.ordem, EXTRATORES), [registrados, ordContab.ordem]);
   const semRegistroOrd = useMemo(() => aplicarOrdem(semRegistro, ordPag.ordem, EXTRATORES), [semRegistro, ordPag.ordem]);
@@ -76,20 +92,37 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
       <div style={panelStyle}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <strong>Envio à contabilidade <span style={{ ...mutedStyle, fontWeight: 400 }}>— registrados, por empresa</span></strong>
-          <Button variant="secondary" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarContabilidade)}>PDF contabilidade</Button>
+          <div className="barra-lista">
+            <SeletorColunas colunas={COLUNAS_CONTAB.filter((c) => veSalario || c.chave !== "estimativa")} ocultas={colC.ocultas} alternar={colC.alternar} mostrarTodas={colC.mostrarTodas} />
+            <Button variant="secondary" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarContabilidade)}>PDF contabilidade</Button>
+          </div>
         </div>
         <Table className="tabela-gorjeta">
           <Table.Head>
             <Table.Row>
               <ThOrdenavel {...thC("nome")} align="left" minWidth={180}>Funcionário</ThOrdenavel>
+{vc("empresa") && (
               <ThOrdenavel {...thC("empresa")}>Empresa</ThOrdenavel>
+)}
+{vc("gorjeta") && (
               <ThOrdenavel {...thC("gorjeta")} align="center">Gorjeta</ThOrdenavel>
+)}
+{vc("horaExtra") && (
               <ThOrdenavel {...thC("horaExtra")}>Hora extra</ThOrdenavel>
+)}
+{vc("noturno") && (
               <ThOrdenavel {...thC("noturno")}>Ad. noturno</ThOrdenavel>
-              {veSalario && <Table.Th>Estimativa</Table.Th>}
+)}
+              {veSalario && vc("estimativa") && <Table.Th>Estimativa</Table.Th>}
+{vc("faltas") && (
               <ThOrdenavel {...thC("faltas")}>Faltas</ThOrdenavel>
+)}
+{vc("atestados") && (
               <ThOrdenavel {...thC("atestados")}>Atest.</ThOrdenavel>
+)}
+{vc("justificada") && (
               <Table.Th>Justificada</Table.Th>
+)}
             </Table.Row>
           </Table.Head>
           <Table.Body>
@@ -103,25 +136,38 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                     <div style={{ fontWeight: 500 }}>{p.employeeName}</div>
                     {p.tipoCalculo !== "MES" && <span style={mutedStyle}>Rescisão {fmtDate(p.terminationDate)}</span>}
                   </Table.Td>
+{vc("empresa") && (
                   <Table.Td>{p.companyName ?? <span style={{ color: "var(--warning, #b45309)" }}>sem empresa</span>}</Table.Td>
+)}
+{vc("gorjeta") && (
                   <Table.Td><Money value={p.rateioAmount} /></Table.Td>
+)}
+{vc("horaExtra") && (
                   <Table.Td>
                     <input style={{ ...numInputStyle, width: 70 }} value={r.horaExtra} disabled={readonly} placeholder="0:00" aria-label="Hora extra"
                       onChange={(e) => onRow(p.employeeId, { horaExtra: e.target.value })}
                       onBlur={(e) => normalizarHoras(p.employeeId, "horaExtra", e.target.value)} />
                   </Table.Td>
+)}
+{vc("noturno") && (
                   <Table.Td>
                     <input style={{ ...numInputStyle, width: 70 }} value={r.adicionalNoturno} disabled={readonly} placeholder="0:00" aria-label="Adicional noturno"
                       onChange={(e) => onRow(p.employeeId, { adicionalNoturno: e.target.value })}
                       onBlur={(e) => normalizarHoras(p.employeeId, "adicionalNoturno", e.target.value)} />
                   </Table.Td>
-                  {veSalario && (
+)}
+                  {veSalario && vc("estimativa") && (
                     <Table.Td style={mutedStyle} title={est ? `HE ${money(est.he)} · noturno ${money(est.noturno)}` : "Sem salário no cadastro"}>
                       {est && est.total > 0 ? money(est.total) : "—"}
                     </Table.Td>
                   )}
+{vc("faltas") && (
                   <Table.Td>{p.faltas || "—"}</Table.Td>
+)}
+{vc("atestados") && (
                   <Table.Td>{p.atestados || "—"}</Table.Td>
+)}
+{vc("justificada") && (
                   <Table.Td>
                     <select style={{ ...inputStyle, width: 80 }} value={r.justificada ? "S" : "N"} disabled={readonly}
                       onChange={(e) => onRow(p.employeeId, { justificada: e.target.value === "S" })}>
@@ -129,6 +175,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                       <option value="S">Sim</option>
                     </select>
                   </Table.Td>
+)}
                 </Table.Row>
               );
             })}
@@ -142,7 +189,10 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
       <div style={panelStyle}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <strong>Lista de pagamento <span style={{ ...mutedStyle, fontWeight: 400 }}>— sem registro: salário + gorjeta</span></strong>
-          <Button variant="secondary" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarListaPagamento)}>PDF pagamento</Button>
+          <div className="barra-lista">
+            <SeletorColunas colunas={COLUNAS_PAG} ocultas={colP.ocultas} alternar={colP.alternar} mostrarTodas={colP.mostrarTodas} />
+            <Button variant="secondary" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarListaPagamento)}>PDF pagamento</Button>
+          </div>
         </div>
         {!veSalario && semRegistro.length > 0 && (
           <Alert tone="warning">Salário e PIX só aparecem para quem tem permissão de ver Funcionários.</Alert>
@@ -154,13 +204,27 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
               <Table.Head>
                 <Table.Row>
                   <ThOrdenavel {...thP("nome")} align="left" minWidth={180}>Funcionário</ThOrdenavel>
+{vp("salarioBase") && (
                   <ThOrdenavel {...thP("salarioBase")}>Salário base</ThOrdenavel>
+)}
+{vp("dias") && (
                   <ThOrdenavel {...thP("dias")}>Dias</ThOrdenavel>
+)}
+{vp("salario") && (
                   <ThOrdenavel {...thP("salario")}>Salário</ThOrdenavel>
+)}
+{vp("gorjeta") && (
                   <ThOrdenavel {...thP("gorjeta")}>Gorjeta</ThOrdenavel>
+)}
+{vp("vales") && (
                   <ThOrdenavel {...thP("vales")}>Vales</ThOrdenavel>
+)}
+{vp("aPagar") && (
                   <ThOrdenavel {...thP("aPagar")}>A pagar</ThOrdenavel>
+)}
+{vp("pix") && (
                   <ThOrdenavel {...thP("pix")}>PIX</ThOrdenavel>
+)}
                 </Table.Row>
               </Table.Head>
               <Table.Body>
@@ -173,30 +237,44 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                         <div style={{ fontWeight: 500 }}>{p.employeeName}</div>
                         {p.tipoCalculo !== "MES" && <span style={mutedStyle}>Saída {fmtDate(p.terminationDate)}</span>}
                       </Table.Td>
+{vp("salarioBase") && (
                       <Table.Td>{p.baseSalary != null ? money(p.baseSalary) : "—"}</Table.Td>
+)}
+{vp("dias") && (
                       <Table.Td>
                         <input style={{ ...numInputStyle, width: 52 }} type="number" min="0" max="31" step="1" value={r.diasSalarioOverride}
                           disabled={readonly} placeholder={String(p.diasSalario)} aria-label="Dias de salário"
                           title="Mês inteiro = 30; entrada/saída no meio = dias corridos; faltas descontam. Preencha só para corrigir."
                           onChange={(e) => onRow(p.employeeId, { diasSalarioOverride: e.target.value })} />
                       </Table.Td>
+)}
+{vp("salario") && (
                       <Table.Td><Money value={p.salarioProporcional} /></Table.Td>
+)}
+{vp("gorjeta") && (
                       <Table.Td><Money value={p.rateioAmount} /></Table.Td>
+)}
+{vp("vales") && (
                       <Table.Td>{p.descontos || p.creditos ? money(p.creditos - p.descontos) : "—"}</Table.Td>
+)}
+{vp("aPagar") && (
                       <Table.Td style={{ fontWeight: 700 }}><Money value={p.totalAPagar} /></Table.Td>
+)}
+{vp("pix") && (
                       <Table.Td style={mutedStyle}>{p.pixKey ?? "—"}</Table.Td>
+)}
                     </Table.Row>
                   );
                 })}
                 <Table.Row>
                   <Table.Td style={{ fontWeight: 600 }}>Total</Table.Td>
-                  <Table.Td> </Table.Td>
-                  <Table.Td> </Table.Td>
-                  <Table.Td style={{ fontWeight: 600 }}><Money value={semRegistro.reduce((a, p) => a + p.salarioProporcional, 0)} /></Table.Td>
-                  <Table.Td style={{ fontWeight: 600 }}><Money value={semRegistro.reduce((a, p) => a + p.rateioAmount, 0)} /></Table.Td>
-                  <Table.Td> </Table.Td>
-                  <Table.Td style={{ fontWeight: 700 }}><Money value={semRegistro.reduce((a, p) => a + p.totalAPagar, 0)} /></Table.Td>
-                  <Table.Td> </Table.Td>
+                  {vp("salarioBase") && <Table.Td> </Table.Td>}
+                  {vp("dias") && <Table.Td> </Table.Td>}
+                  {vp("salario") && <Table.Td style={{ fontWeight: 600 }}><Money value={semRegistro.reduce((a, p) => a + p.salarioProporcional, 0)} /></Table.Td>}
+                  {vp("gorjeta") && <Table.Td style={{ fontWeight: 600 }}><Money value={semRegistro.reduce((a, p) => a + p.rateioAmount, 0)} /></Table.Td>}
+                  {vp("vales") && <Table.Td> </Table.Td>}
+                  {vp("aPagar") && <Table.Td style={{ fontWeight: 700 }}><Money value={semRegistro.reduce((a, p) => a + p.totalAPagar, 0)} /></Table.Td>}
+                  {vp("pix") && <Table.Td> </Table.Td>}
                 </Table.Row>
               </Table.Body>
             </Table>

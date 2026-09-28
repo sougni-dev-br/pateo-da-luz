@@ -3,6 +3,7 @@ import { Fragment, type CSSProperties, useEffect, useMemo, useRef, useState } fr
 import type { TipComputation, TipComputedParticipant, TipValeType } from "../../api/client";
 import { Button, FormField, Money, StatusBadge, Table } from "../../design-system";
 import "./gorjeta.css";
+import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
   type LocalRow, type RowPatch, VALE_LABELS, fmtDate, inputStyle, money, mutedStyle, numInputStyle, ordenar, panelStyle, pts,
@@ -57,6 +58,15 @@ const OPCOES_ORDEM: Array<[string, string]> = [
 ];
 const TEXTO = new Set(["nome", "funcao", "empresa", "situacao"]);
 
+const COLUNAS: ColunaOpcional[] = [
+  { chave: "base", rotulo: "Base" }, { chave: "faltas", rotulo: "Faltas" }, { chave: "atestados", rotulo: "Atestados" },
+  { chave: "ferias", rotulo: "Férias" }, { chave: "outros", rotulo: "Outros dias" }, { chave: "dias", rotulo: "Dias" },
+  { chave: "ajuste", rotulo: "Ajuste" }, { chave: "pontos", rotulo: "Pontos" }, { chave: "gorjeta", rotulo: "Gorjeta" },
+  { chave: "liquido", rotulo: "Líquido" },
+];
+// Colunas antes de "Pontos": na linha de total elas viram um espaço em branco só.
+const ANTES_DOS_PONTOS = ["base", "faltas", "atestados", "ferias", "outros", "dias", "ajuste"];
+
 function Ocorrencia({ value, escala, manual, disabled, label, onChange }: {
   value: string; escala: number; manual: boolean; disabled: boolean; label: string; onChange: (v: string) => void;
 }) {
@@ -78,6 +88,10 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
   const rowPorFuncionario = useMemo(() => new Map(rows.map((r) => [r.employeeId, r])), [rows]);
   const participantes = useMemo(() => ordenar(comp.participants), [comp]);
   const { ordem, alternar, definir } = useOrdenacao("apuracao");
+  const colunas = useColunas("apuracao");
+  const v = colunas.visivel;
+  const visiveis = COLUNAS.filter((c) => v(c.chave)).length;
+  const brancoTotal = ANTES_DOS_PONTOS.filter(v).length;
   const [agrupar, setAgruparState] = useState(() => {
     try { return window.localStorage.getItem("gorjeta-agrupar") !== "nao"; } catch { return true; }
   });
@@ -136,16 +150,27 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
             {p.terminationDate && p.tipoCalculo !== "MES" && <StatusBadge tone="neutral">Saída {fmtDate(p.terminationDate)}</StatusBadge>}
           </div>
         </Table.Td>
+{v("base") && (
         <Table.Td align="center" style={num}>
           {p.kind === "FIXO"
             ? <input style={{ ...numInputStyle, width: 90 }} type="number" step="0.01" value={r.fixedAmount} disabled={readonly}
                 aria-label="Cota fixa" title="Cota fixa em R$" onChange={(e) => set({ fixedAmount: e.target.value })} />
             : pts(p.basePoints)}
         </Table.Td>
+)}
+{v("faltas") && (
         <Table.Td align="center" style={inicioBloco}><Ocorrencia label="Faltas" value={r.faltas} escala={p.faltasOrigem === "ESCALA" ? p.faltas : 0} manual={r.faltas !== ""} disabled={readonly} onChange={(v) => set({ faltas: v })} /></Table.Td>
+)}
+{v("atestados") && (
         <Table.Td align="center"><Ocorrencia label="Atestados" value={r.atestados} escala={p.atestadosOrigem === "ESCALA" ? p.atestados : 0} manual={r.atestados !== ""} disabled={readonly} onChange={(v) => set({ atestados: v })} /></Table.Td>
+)}
+{v("ferias") && (
         <Table.Td align="center"><Ocorrencia label="Férias" value={r.ferias} escala={p.feriasOrigem === "ESCALA" ? p.ferias : 0} manual={r.ferias !== ""} disabled={readonly} onChange={(v) => set({ ferias: v })} /></Table.Td>
+)}
+{v("outros") && (
         <Table.Td align="center"><Ocorrencia label="Outros dias" value={r.outrosDias} escala={0} manual={r.outrosDias !== ""} disabled={readonly} onChange={(v) => set({ outrosDias: v })} /></Table.Td>
+)}
+{v("dias") && (
         <Table.Td align="center" title={`Presença ${(p.fatorPresenca * 100).toFixed(0)}% · ${p.diasElegiveis} dias corridos no vínculo`}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 3, ...num }}>
             <strong style={{ color: p.diasComputados < p.diasPrevistos ? "var(--warning)" : undefined }}>{p.diasComputados}</strong>
@@ -157,6 +182,8 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
               onChange={(e) => set({ diasPrevistosOverride: e.target.value })} />
           </span>
         </Table.Td>
+)}
+{v("ajuste") && (
         <Table.Td align="center" style={inicioBloco}>
           {p.kind === "PONTOS"
             ? <input style={{ ...numInputStyle, width: 52, textAlign: "center", fontWeight: p.pointsAdjustment ? 700 : 400, color: p.pointsAdjustment < 0 ? "var(--danger)" : p.pointsAdjustment > 0 ? "var(--success)" : undefined }}
@@ -165,6 +192,8 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
                 onChange={(e) => set({ pointsAdjustment: e.target.value })} />
             : "—"}
         </Table.Td>
+)}
+{v("pontos") && (
         <Table.Td align="center" style={{ ...num, fontWeight: 700 }}
           title={p.kind === "PONTOS" ? `${pts(p.basePoints)} × ${p.diasComputados}/${p.diasPrevistos} = ${pts(p.pontosApurados)}${p.pointsAdjustment ? ` ${p.pointsAdjustment > 0 ? "+" : "−"} ${pts(Math.abs(p.pointsAdjustment))}` : ""}` : undefined}>
           {p.kind === "PONTOS" ? pts(p.points) : "—"}
@@ -172,6 +201,8 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
             <div style={{ ...mutedStyle, fontSize: 11, fontWeight: 400 }}>de {pts(p.basePoints)}</div>
           )}
         </Table.Td>
+)}
+{v("gorjeta") && (
         <Table.Td align="center" style={{ ...num, ...inicioBloco }}>
           {p.rescisaoPendente
             ? <StatusBadge tone="warning">pendente</StatusBadge>
@@ -181,12 +212,15 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
                 {p.tipoCalculo === "RESCISAO_QUITADA" && <div style={{ ...mutedStyle, fontSize: 11 }}>quitada</div>}
               </>}
         </Table.Td>
+)}
+{v("liquido") && (
         <Table.Td align="center" style={{ ...num, fontWeight: 700 }}>
           <Money value={p.netCommission} />
           {saldoVales !== 0 && (
             <div style={{ fontSize: 11, fontWeight: 400, color: saldoVales < 0 ? "var(--danger)" : "var(--success)" }}>vales {money(saldoVales)}</div>
           )}
         </Table.Td>
+)}
         <Table.Td style={{ whiteSpace: "nowrap" }}>
           <button type="button" onClick={() => setValesDe(aberto ? null : p.participantId)} disabled={!p.participantId}
             aria-expanded={aberto} aria-label={`Vales e créditos de ${p.employeeName}`} title="Vales e créditos"
@@ -227,6 +261,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
             <button type="button" className="barra-lista-link" onClick={() => definir(null)}>limpar</button>
           </>
         )}
+        <SeletorColunas colunas={COLUNAS} ocultas={colunas.ocultas} alternar={colunas.alternar} mostrarTodas={colunas.mostrarTodas} />
         <div className="barra-lista-segmento" role="group" aria-label="Visualização">
           <button type="button" aria-pressed={agrupar} onClick={() => setAgrupar(true)}>Por situação</button>
           <button type="button" aria-pressed={!agrupar} onClick={() => setAgrupar(false)}>Lista única</button>
@@ -237,16 +272,36 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
         <Table.Head>
           <Table.Row>
             <ThOrdenavel {...th("nome")} align="left" minWidth={190}>Funcionário</ThOrdenavel>
+{v("base") && (
             <ThOrdenavel {...th("base")} align="center" title="Pontos da função (ou personalizados)">Base</ThOrdenavel>
+)}
+{v("faltas") && (
             <ThOrdenavel {...th("faltas")} align="center" style={inicioBloco} title="Faltas injustificadas no período">Faltas</ThOrdenavel>
+)}
+{v("atestados") && (
             <ThOrdenavel {...th("atestados")} align="center" title="Atestados / afastamentos">Atest.</ThOrdenavel>
+)}
+{v("ferias") && (
             <ThOrdenavel {...th("ferias")} align="center">Férias</ThOrdenavel>
+)}
+{v("outros") && (
             <ThOrdenavel {...th("outros")} align="center">Outros</ThOrdenavel>
+)}
+{v("dias") && (
             <ThOrdenavel {...th("dias")} align="center" title="Dias trabalhados / previstos (26 no mês cheio)">Dias</ThOrdenavel>
+)}
+{v("ajuste") && (
             <ThOrdenavel {...th("ajuste")} align="center" style={inicioBloco} title="Acréscimo ou desconto de pontos no mês">Ajuste</ThOrdenavel>
+)}
+{v("pontos") && (
             <ThOrdenavel {...th("pontos")} align="center" title="Pontos finais: base × dias ÷ previstos + ajuste">Pontos</ThOrdenavel>
+)}
+{v("gorjeta") && (
             <ThOrdenavel {...th("gorjeta")} align="center" style={inicioBloco}>Gorjeta</ThOrdenavel>
+)}
+{v("liquido") && (
             <ThOrdenavel {...th("liquido")} align="center" title="Gorjeta − vales + créditos">Líquido</ThOrdenavel>
+)}
             <Table.Th aria-label="Ações"> </Table.Th>
           </Table.Row>
         </Table.Head>
@@ -254,7 +309,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
           {grupos.map((g) => g.lista.length > 0 && (
             <Fragment key={g.chave}>
               <Table.Row>
-                <Table.Td colSpan={12} style={grupoTd}>
+                <Table.Td colSpan={visiveis + 2} style={grupoTd}>
                   <div className="grupo-cabecalho">
                     <strong>{g.titulo}</strong>
                     <span className="grupo-chip">{g.lista.length} {g.lista.length === 1 ? "pessoa" : "pessoas"}</span>
@@ -269,13 +324,19 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
           ))}
           <Table.Row>
             <Table.Td style={totalTd}>Total distribuído</Table.Td>
-            <Table.Td colSpan={7} style={totalTd}> </Table.Td>
+            {brancoTotal > 0 && <Table.Td colSpan={brancoTotal} style={totalTd}> </Table.Td>}
+{v("pontos") && (
             <Table.Td align="center" style={{ ...totalTd, ...num }}>{pts(somaPontos(participantes))}</Table.Td>
+)}
+{v("gorjeta") && (
             <Table.Td align="center" style={{ ...totalTd, ...num }}>{money(somaGorjeta(participantes))}</Table.Td>
+)}
+{v("liquido") && (
             <Table.Td align="center" style={{ ...totalTd, ...num }}>
               {money(participantes.reduce((a, p) => a + p.netCommission, 0))}
               {totalVales !== 0 && <div style={{ ...mutedStyle, fontSize: 11, fontWeight: 400 }}>vales {money(totalVales)}</div>}
             </Table.Td>
+)}
             <Table.Td style={totalTd}> </Table.Td>
           </Table.Row>
         </Table.Body>
