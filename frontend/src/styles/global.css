@@ -16365,3 +16365,74 @@ td.count-list-divergent {
     min-width: 0;
   }
 }
+
+/* ── Visao Geral do estoque ─────────────────────────────────────────── */
+
+/* Acoes na primeira linha, no lugar do titulo que repetia o da pagina. */
+.inv-overview-heading-row {
+  align-items: center;
+}
+
+.inv-overview-heading-row .quick-actions-row {
+  margin-top: 0;
+}
+
+/* Cinco numeros numa linha: em 3 colunas sobrava um cartao sozinho e o
+   bloco media 280px antes do primeiro grafico. */
+.inv-overview-summary {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 1100px) {
+  .inv-overview-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .inv-overview-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inv-overview-heading-row .quick-actions-row {
+    flex: 1 1 auto;
+  }
+
+  .inv-overview-heading-row .quick-actions-row > * {
+    flex: 1 1 0;
+  }
+}
+
+/* "CNT-2026-0047" nao cabia no tamanho padrao do valor em 5 colunas. */
+.inv-overview-summary .ds-summary-card-value {
+  font-size: 1.1rem;
+  white-space: nowrap;
+}
+
+.inv-overview-summary .ds-summary-card {
+  padding: 14px;
+}
+
+@media (max-width: 640px) {
+  /* Acoes e atualizar na mesma linha; o .section-heading do celular empilha. */
+  .section-heading.inv-overview-heading-row {
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .inv-overview-heading-row .quick-actions-row > * {
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+
+  .inv-overview-summary .ds-summary-card-value {
+    font-size: 0.88rem;
+  }
+
+  /* O quinto cartao ficava sozinho com meia largura. */
+  .inv-overview-summary > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
