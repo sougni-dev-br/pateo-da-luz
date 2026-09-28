@@ -24,6 +24,7 @@ type Aba = "apuracao" | "pagamento" | "equipe" | "relatorios";
 type Parametros = {
   start: string; end: string; pool: string; deduction: string; pointsTotal: string; diasPadrao: string;
   descontaFalta: boolean; descontaAtestado: boolean; descontaFerias: boolean; descontaOutros: boolean;
+  proporcionalEntrada: boolean;
   reservaPontos: string;
 };
 
@@ -32,6 +33,7 @@ function parametrosDe(c: TipComputation): Parametros {
     start: c.periodStart.slice(0, 10), end: c.periodEnd.slice(0, 10),
     pool: String(c.grossPool), deduction: String(c.deductionPercent), pointsTotal: String(c.pointsBudget), diasPadrao: String(c.diasPadrao),
     descontaFalta: c.descontaFalta, descontaAtestado: c.descontaAtestado, descontaFerias: c.descontaFerias, descontaOutros: c.descontaOutros,
+    proporcionalEntrada: c.proporcionalEntrada,
     reservaPontos: String(c.reservaPontos),
   };
 }
@@ -174,6 +176,7 @@ export function FolhaGorjeta() {
         diasPadrao: Math.round(Number(params.diasPadrao) || 26),
         descontaFalta: params.descontaFalta, descontaAtestado: params.descontaAtestado,
         descontaFerias: params.descontaFerias, descontaOutros: params.descontaOutros,
+        proporcionalEntrada: params.proporcionalEntrada,
         reservaPontos: Math.max(0, Number(params.reservaPontos.replace(",", ".")) || 0),
         ...(datasMudaram ? { periodStart: params.start, periodEnd: params.end } : {}),
       });
@@ -351,7 +354,7 @@ export function FolhaGorjeta() {
                 <details style={panelStyle}>
                   <summary style={{ cursor: "pointer", fontWeight: 600 }}>
                     Parâmetros do período <span style={{ ...mutedStyle, fontWeight: 400 }}>
-                      — {comp.diasPadrao} dias padrão; descontam: {[comp.descontaFalta && "falta", comp.descontaAtestado && "atestado", comp.descontaFerias && "férias", comp.descontaOutros && "outros"].filter(Boolean).join(", ") || "nada"}
+                      — {comp.diasPadrao} dias padrão; descontam: {[comp.descontaFalta && "falta", comp.descontaAtestado && "atestado", comp.descontaFerias && "férias", comp.descontaOutros && "outros"].filter(Boolean).join(", ") || "nada"}{comp.proporcionalEntrada ? "; admitido recebe proporcional" : ""}
                     </span>
                   </summary>
                   <FormGrid cols={4}>
@@ -364,13 +367,13 @@ export function FolhaGorjeta() {
                   </FormGrid>
                   <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 14 }}>
                     <span style={mutedStyle}>Reduzem o rateio:</span>
-                    {([["descontaFalta", "Falta injustificada"], ["descontaAtestado", "Atestado / afastamento"], ["descontaFerias", "Férias"], ["descontaOutros", "Outros dias"]] as const).map(([k, label]) => (
+                    {([["descontaFalta", "Falta injustificada"], ["descontaAtestado", "Atestado / afastamento"], ["descontaFerias", "Férias"], ["descontaOutros", "Outros dias"], ["proporcionalEntrada", "Admitido no período: proporcional aos dias"]] as const).map(([k, label]) => (
                       <label key={k} style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <input type="checkbox" checked={params[k]} disabled={readonly} onChange={(e) => setParams({ ...params, [k]: e.target.checked })} />{label}
                       </label>
                     ))}
                   </div>
-                  <span style={mutedStyle}>Folga normal não desconta: já está embutida nos dias padrão. Mudar as datas repuxa o serviço do faturamento (o ajuste é mantido). O ajuste do serviço fica em "Serviço arrecadado → ajustar", no resumo.</span>
+                  <span style={mutedStyle}>Estas são as regras do período; em cada pessoa, o botão de regras (engrenagem) permite decidir diferente. Folga normal não desconta: já está embutida nos dias padrão. Mudar as datas repuxa o serviço do faturamento (o ajuste é mantido). O ajuste do serviço fica em "Serviço arrecadado → ajustar", no resumo.</span>
                   {!readonly && <div><Button onClick={() => void salvarParametros()} disabled={busy} leadingIcon={<Save size={14} />}>Salvar parâmetros</Button></div>}
                 </details>
               )}

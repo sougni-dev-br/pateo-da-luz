@@ -383,3 +383,41 @@
 .linha-tempo li[data-tipo="REDUCAO"]::before { border-color: var(--danger); background: var(--danger); }
 .linha-tempo li[data-tipo="ENTRADA"]::before { border-color: var(--info); }
 .linha-tempo li[data-tipo="SAIDA"]::before { border-color: var(--warning); }
+
+/* Regras de presença por pessoa (engrenagem na linha). */
+.regras-pessoa {
+  position: absolute;
+  right: 100%;
+  top: 0;
+  z-index: 30;
+  width: 290px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  white-space: normal;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  box-shadow: 0 12px 28px rgba(22, 21, 18, 0.16);
+  font-size: 13px;
+}
+
+.regras-pessoa-linha {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.regras-pessoa-linha select {
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}

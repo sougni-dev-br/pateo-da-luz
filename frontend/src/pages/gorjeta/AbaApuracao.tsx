@@ -1,9 +1,10 @@
-import { Plus, ReceiptText, Trash2 } from "lucide-react";
+import { Plus, ReceiptText, Settings2, Trash2 } from "lucide-react";
 import { Fragment, type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import type { TipComputation, TipComputedParticipant, TipValeType } from "../../api/client";
 import { Button, FormField, Money, StatusBadge, Table } from "../../design-system";
 import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
+import { RegrasPessoa, temRegraPropria } from "./RegrasPessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
   type LocalRow, type RowPatch, VALE_LABELS, fmtDate, inputStyle, money, mutedStyle, numInputStyle, ordenar, panelStyle, pts,
@@ -67,15 +68,16 @@ const COLUNAS: ColunaOpcional[] = [
 // Colunas antes de "Pontos": na linha de total elas viram um espaço em branco só.
 const ANTES_DOS_PONTOS = ["base", "faltas", "atestados", "ferias", "outros", "dias", "ajuste"];
 
-function Ocorrencia({ value, escala, manual, disabled, label, onChange }: {
-  value: string; escala: number; manual: boolean; disabled: boolean; label: string; onChange: (v: string) => void;
+function Ocorrencia({ value, escala, manual, disabled, label, onChange, desconta = true }: {
+  value: string; escala: number; manual: boolean; disabled: boolean; label: string; onChange: (v: string) => void; desconta?: boolean;
 }) {
   return (
     <input
-      style={{ ...numInputStyle, width: 40, textAlign: "center", fontWeight: manual ? 700 : 400 }}
+      style={{ ...numInputStyle, width: 40, textAlign: "center", fontWeight: manual ? 700 : 400,
+        textDecoration: desconta ? undefined : "line-through", color: desconta ? undefined : "var(--muted)" }}
       type="number" min="0" max="31" step="1" value={value} disabled={disabled} aria-label={label}
       placeholder={escala ? String(escala) : ""}
-      title={manual ? "Digitado — apague para voltar a usar a Escala" : "Vazio = usa a Escala"}
+      title={(manual ? "Digitado — apague para voltar a usar a Escala" : "Vazio = usa a Escala") + (desconta ? "" : ". Não desconta para esta pessoa.")}
       onChange={(e) => onChange(e.target.value)}
     />
   );
@@ -83,6 +85,7 @@ function Ocorrencia({ value, escala, manual, disabled, label, onChange }: {
 
 export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, onRemoveVale }: Props) {
   const [valesDe, setValesDe] = useState<string | null>(null);
+  const [regrasDe, setRegrasDe] = useState<string | null>(null);
   const [novoVale, setNovoVale] = useState<{ type: TipValeType; amount: string; date: string; notes: string }>({ type: "ADIANTAMENTO", amount: "", date: "", notes: "" });
 
   const rowPorFuncionario = useMemo(() => new Map(rows.map((r) => [r.employeeId, r])), [rows]);
@@ -158,19 +161,19 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
         </Table.Td>
 )}
 {v("faltas") && (
-        <Table.Td align="center" style={inicioBloco}><Ocorrencia label="Faltas" value={r.faltas} escala={p.faltasOrigem === "ESCALA" ? p.faltas : 0} manual={r.faltas !== ""} disabled={readonly} onChange={(v) => set({ faltas: v })} /></Table.Td>
+        <Table.Td align="center" style={inicioBloco}><Ocorrencia label="Faltas" desconta={p.regrasEfetivas.descontaFalta} value={r.faltas} escala={p.faltasOrigem === "ESCALA" ? p.faltas : 0} manual={r.faltas !== ""} disabled={readonly} onChange={(v) => set({ faltas: v })} /></Table.Td>
 )}
 {v("atestados") && (
-        <Table.Td align="center"><Ocorrencia label="Atestados" value={r.atestados} escala={p.atestadosOrigem === "ESCALA" ? p.atestados : 0} manual={r.atestados !== ""} disabled={readonly} onChange={(v) => set({ atestados: v })} /></Table.Td>
+        <Table.Td align="center"><Ocorrencia label="Atestados" desconta={p.regrasEfetivas.descontaAtestado} value={r.atestados} escala={p.atestadosOrigem === "ESCALA" ? p.atestados : 0} manual={r.atestados !== ""} disabled={readonly} onChange={(v) => set({ atestados: v })} /></Table.Td>
 )}
 {v("ferias") && (
-        <Table.Td align="center"><Ocorrencia label="Férias" value={r.ferias} escala={p.feriasOrigem === "ESCALA" ? p.ferias : 0} manual={r.ferias !== ""} disabled={readonly} onChange={(v) => set({ ferias: v })} /></Table.Td>
+        <Table.Td align="center"><Ocorrencia label="Férias" desconta={p.regrasEfetivas.descontaFerias} value={r.ferias} escala={p.feriasOrigem === "ESCALA" ? p.ferias : 0} manual={r.ferias !== ""} disabled={readonly} onChange={(v) => set({ ferias: v })} /></Table.Td>
 )}
 {v("outros") && (
-        <Table.Td align="center"><Ocorrencia label="Outros dias" value={r.outrosDias} escala={0} manual={r.outrosDias !== ""} disabled={readonly} onChange={(v) => set({ outrosDias: v })} /></Table.Td>
+        <Table.Td align="center"><Ocorrencia label="Outros dias" desconta={p.regrasEfetivas.descontaOutros} value={r.outrosDias} escala={0} manual={r.outrosDias !== ""} disabled={readonly} onChange={(v) => set({ outrosDias: v })} /></Table.Td>
 )}
 {v("dias") && (
-        <Table.Td align="center" title={`Presença ${(p.fatorPresenca * 100).toFixed(0)}% · ${p.diasElegiveis} dias corridos no vínculo`}>
+        <Table.Td align="center" title={`Presença ${(p.fatorPresenca * 100).toFixed(0)}% · ${p.diasElegiveis} dias corridos no vínculo${p.diasReferencia !== p.diasPrevistos ? ` · proporcional: ${p.diasComputados} de ${p.diasReferencia} dias do período` : ""}`}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 3, ...num }}>
             <strong style={{ color: p.diasComputados < p.diasPrevistos ? "var(--warning)" : undefined }}>{p.diasComputados}</strong>
             <span style={{ color: "var(--muted)" }}>/</span>
@@ -220,7 +223,19 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
           )}
         </Table.Td>
 )}
-        <Table.Td style={{ whiteSpace: "nowrap" }}>
+        <Table.Td style={{ whiteSpace: "nowrap", position: "relative" }}>
+          <button type="button" onClick={() => setRegrasDe(regrasDe === p.employeeId ? null : p.employeeId)}
+            aria-expanded={regrasDe === p.employeeId} aria-label={`Regras de presença de ${p.employeeName}`}
+            title={temRegraPropria(p.regras) ? "Regras próprias desta pessoa" : "Regras de presença (seguindo o período)"}
+            style={{ border: "none", borderRadius: 6, padding: 4, cursor: "pointer", position: "relative",
+              background: regrasDe === p.employeeId ? "var(--paper-soft)" : "transparent",
+              color: temRegraPropria(p.regras) ? "var(--gold)" : "var(--muted)" }}>
+            <Settings2 size={15} />
+          </button>
+          {regrasDe === p.employeeId && (
+            <RegrasPessoa comp={comp} p={p} regras={r.regras} disabled={readonly}
+              onChange={(regras) => set({ regras })} onFechar={() => setRegrasDe(null)} />
+          )}
           <button type="button" onClick={() => setValesDe(aberto ? null : p.participantId)} disabled={!p.participantId}
             aria-expanded={aberto} aria-label={`Vales e créditos de ${p.employeeName}`} title="Vales e créditos"
             style={{ border: "none", borderRadius: 6, background: aberto ? "var(--paper-soft)" : "transparent", cursor: "pointer", color: p.vales.length ? "var(--ink)" : "var(--muted)", padding: 4, position: "relative" }}>

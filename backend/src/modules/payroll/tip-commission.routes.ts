@@ -105,6 +105,10 @@ function hojeUTC(): Date {
   return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
+function boolOrNull(v: unknown): boolean | null {
+  return typeof v === "boolean" ? v : null;
+}
+
 function boolOrUndefined(v: unknown): boolean | undefined {
   return typeof v === "boolean" ? v : undefined;
 }
@@ -177,7 +181,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
     select: {
       grossPool: true, servicoFaturamento: true, ajusteServico: true, ajusteServicoMotivo: true, deductionPercent: true,
       pointsTotal: true, periodStart: true, periodEnd: true, diasPadrao: true, reservaPontos: true,
-      descontaFalta: true, descontaAtestado: true, descontaFerias: true, descontaOutros: true,
+      descontaFalta: true, descontaAtestado: true, descontaFerias: true, descontaOutros: true, proporcionalEntrada: true,
     },
   });
   const gross = numOrNull(b.grossPool);
@@ -274,6 +278,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       descontaAtestado: boolOrUndefined(b.descontaAtestado),
       descontaFerias: boolOrUndefined(b.descontaFerias),
       descontaOutros: boolOrUndefined(b.descontaOutros),
+      proporcionalEntrada: boolOrUndefined(b.proporcionalEntrada),
       reservaPontos: (() => { const n = numOrNull(b.reservaPontos); return n == null ? undefined : Math.max(0, n); })(),
       periodStart,
       periodEnd,
@@ -290,6 +295,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       ajusteServicoMotivo: period.ajusteServicoMotivo, deductionPercent: period.deductionPercent, pointsTotal: period.pointsTotal,
       periodStart: period.periodStart, periodEnd: period.periodEnd, diasPadrao: period.diasPadrao, reservaPontos: period.reservaPontos,
       descontaFalta: period.descontaFalta, descontaAtestado: period.descontaAtestado, descontaFerias: period.descontaFerias, descontaOutros: period.descontaOutros,
+      proporcionalEntrada: period.proporcionalEntrada,
     },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
@@ -374,6 +380,12 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
         diasSalarioOverride: intOrNull(raw.diasSalarioOverride),
         rescisaoServicoBruto: numOrNull(raw.rescisaoServicoBruto),
         rescisaoValorFixo: numOrNull(raw.rescisaoValorFixo),
+        // Regra própria da pessoa: true/false decide; null volta para a regra do período.
+        descontaFalta: boolOrNull(raw.descontaFalta),
+        descontaAtestado: boolOrNull(raw.descontaAtestado),
+        descontaFerias: boolOrNull(raw.descontaFerias),
+        descontaOutros: boolOrNull(raw.descontaOutros),
+        proporcionalEntrada: boolOrNull(raw.proporcionalEntrada),
         horaExtra: texto(raw.horaExtra),
         adicionalNoturno: texto(raw.adicionalNoturno),
         justificada: Boolean(raw.justificada),
