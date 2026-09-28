@@ -5674,6 +5674,9 @@ export type TipComputedParticipant = {
   rescisaoServicoBruto: number | null;
   rescisaoServicoOrigem: "FATURAMENTO" | "MANUAL" | null;
   rescisaoValorFixo: number | null;
+  /** Gorjeta quitada na rescisão: já paga pela contabilidade, fora da lista a pagar. */
+  pagoNaRescisao: boolean;
+  rescisaoRecibo: TipReciboRescisao | null;
   rescisaoPendente: boolean;
   rateioAmount: number;
   descontos: number;
@@ -5738,7 +5741,7 @@ export type TipComputation = {
     fixos: { valor: number; pessoas: number };
   };
   participants: TipComputedParticipant[];
-  totals: { rateio: number; vales: number; netCommission: number; salarios: number; totalAPagar: number };
+  totals: { rateio: number; vales: number; netCommission: number; salarios: number; totalAPagar: number; pagoNaRescisao: number };
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
   pendencias: string[];
   warnings: string[];
@@ -6049,6 +6052,23 @@ export type ExtratoPreview = {
   totalLiquido: number; matchedCount: number;
   items: ExtratoPreviewItem[];
 };
+export type TipReciboRescisao = {
+  fonte: "TRCT"; arquivo: string; hash: string; gorjeta: number; liquido: number | null;
+  admissao: string | null; afastamento: string | null; pagamento: string | null; importadoEm: string; importadoPor: string;
+};
+export type TipReciboPrevia = {
+  employeeId: string; nome: string; arquivo: string; hash: string; gorjeta: number | null; liquido: number | null;
+  admissao: string | null; afastamento: string | null; pagamento: string | null; divergencias: string[];
+};
+/** Lê o termo de rescisão (PDF) da contabilidade; com aplicar=true grava a gorjeta paga como valor quitado. */
+export function lerReciboRescisao(year: number, month: number, fileBase64: string, fileName: string, aplicar: boolean) {
+  return request<{ previa: TipReciboPrevia; aplicado: boolean; computation?: TipComputation }>(`/payroll/tip/periods/${year}/${month}/rescisao-recibo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fileBase64, fileName, aplicar }),
+  });
+}
+
 export function previewExtratoRh(fileBase64: string) {
   return request<ExtratoPreview>("/payroll/tip/extrato/preview", {
     method: "POST",

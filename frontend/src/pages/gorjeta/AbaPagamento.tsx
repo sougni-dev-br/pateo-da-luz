@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import type { TipComputation, TipComputedParticipant } from "../../api/client";
 import { Alert, Button, Money, StatusBadge, Table } from "../../design-system";
 import { exportarContabilidade, exportarListaPagamento } from "./exportarPdf";
+import { SeloRecibo } from "./ReciboRescisao";
 import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
@@ -51,6 +52,9 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   const participantes = useMemo(() => ordenar(comp.participants).filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO"), [comp]);
   const registrados = participantes.filter((p) => !p.semRegistro);
   const semRegistro = participantes.filter((p) => p.semRegistro);
+  // Gorjeta já paga dentro da rescisão (termo da contabilidade): aparece, mas não soma no que falta pagar.
+  const registradosAPagar = registrados.filter((p) => !p.pagoNaRescisao);
+  const pagasNaRescisao = participantes.filter((p) => p.pagoNaRescisao);
   const veSalario = participantes.some((p) => p.baseSalary != null);
   const ordContab = useOrdenacao("contabilidade");
   const colC = useColunas("contabilidade");
@@ -77,7 +81,8 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 8 }}>
         {[
-          { label: "Contabilidade (gorjeta dos registrados)", valor: registrados.reduce((a, p) => a + p.rateioAmount, 0), detalhe: `${registrados.length} pessoas`, cor: "var(--info)" },
+          { label: "Contabilidade (gorjeta dos registrados)", valor: registradosAPagar.reduce((a, p) => a + p.rateioAmount, 0), detalhe: `${registradosAPagar.length} pessoas`, cor: "var(--info)" },
+          ...(pagasNaRescisao.length ? [{ label: "Já pago nas rescisões", valor: pagasNaRescisao.reduce((a, p) => a + p.rateioAmount, 0), detalhe: `${pagasNaRescisao.length} pessoa(s) · não pagar de novo`, cor: "var(--muted)" }] : []),
           { label: "Lista de pagamento (salário + gorjeta)", valor: semRegistro.reduce((a, p) => a + p.totalAPagar, 0), detalhe: `${semRegistro.length} sem registro`, cor: "var(--success)" },
           { label: "Fica na casa (reserva + saldo)", valor: comp.reservaTotal + Math.max(0, comp.saldo), detalhe: "não é pago", cor: "var(--gold)" },
         ].map((c) => (
@@ -133,13 +138,17 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                 <Table.Row key={p.employeeId}>
                   <Table.Td>
                     <div style={{ fontWeight: 500 }}>{p.employeeName}</div>
-                    {p.tipoCalculo !== "MES" && <span style={mutedStyle}>Rescisão {fmtDate(p.terminationDate)}</span>}
+                    {p.pagoNaRescisao
+                      ? <SeloRecibo pago pagamento={p.rescisaoRecibo?.pagamento ?? null} arquivo={p.rescisaoRecibo?.arquivo} />
+                      : p.tipoCalculo !== "MES" && <span style={mutedStyle}>Rescisão {fmtDate(p.terminationDate)}</span>}
                   </Table.Td>
 {vc("empresa") && (
                   <Table.Td>{p.companyName ?? <span style={{ color: "var(--warning, #b45309)" }}>sem empresa</span>}</Table.Td>
 )}
 {vc("gorjeta") && (
-                  <Table.Td><Money value={p.rateioAmount} /></Table.Td>
+                  <Table.Td className={p.pagoNaRescisao ? "valor-ja-pago" : undefined} title={p.pagoNaRescisao ? "Já pago na rescisão — não entra no envio do mês" : undefined}>
+                    <Money value={p.rateioAmount} />
+                  </Table.Td>
 )}
 {vc("horaExtra") && (
                   <Table.Td>

@@ -5,12 +5,15 @@ import { Button, FormField, Money, StatusBadge, Table } from "../../design-syste
 import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { RegrasPessoa, temRegraPropria } from "./RegrasPessoa";
+import { ReciboRescisao, SeloRecibo } from "./ReciboRescisao";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
   type LocalRow, type RowPatch, VALE_LABELS, fmtDate, inputStyle, money, mutedStyle, numInputStyle, ordenar, panelStyle, pts,
 } from "./gorjetaUtils";
 
 type Props = {
+  /** Leitura do termo de rescisão (TRCT) da contabilidade. */
+  recibo: { antesDeGravar: () => Promise<void>; onAplicado: (c: TipComputation) => void; onErro: (m: string) => void };
   comp: TipComputation;
   rows: LocalRow[];
   readonly: boolean;
@@ -83,7 +86,7 @@ function Ocorrencia({ value, escala, manual, disabled, label, onChange, desconta
   );
 }
 
-export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, onRemoveVale }: Props) {
+export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, onRemoveVale, recibo }: Props) {
   const [valesDe, setValesDe] = useState<string | null>(null);
   const [regrasDe, setRegrasDe] = useState<string | null>(null);
   const [novoVale, setNovoVale] = useState<{ type: TipValeType; amount: string; date: string; notes: string }>({ type: "ADIANTAMENTO", amount: "", date: "", notes: "" });
@@ -407,9 +410,11 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
         <div style={panelStyle}>
           <strong>Rescisões do período</strong>
           <span style={mutedStyle}>
-            O valor do ponto de quem saiu usa o serviço arrecadado até a data da saída (puxado do faturamento). Se a gorjeta já foi paga
-            na rescisão, informe o valor quitado: ele fica congelado e não muda com o serviço do mês.
+            O valor do ponto de quem saiu usa o serviço arrecadado até a data da saída (puxado do faturamento). Quando a rescisão volta
+            da contabilidade, leia o termo: a gorjeta paga vira o valor quitado, fica congelada e não entra de novo na lista a pagar.
           </span>
+          <ReciboRescisao year={comp.year} month={comp.month} readonly={readonly}
+            antesDeGravar={recibo.antesDeGravar} onAplicado={recibo.onAplicado} onErro={recibo.onErro} />
           <Table className="tabela-gorjeta">
             <Table.Head>
               <Table.Row>
@@ -448,7 +453,9 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
                         onChange={(e) => onRow(p.employeeId, { rescisaoValorFixo: e.target.value })} />
                     </Table.Td>
                     <Table.Td>
-                      {quitada ? <StatusBadge tone="success">Quitada</StatusBadge>
+                      {quitada ? (p.rescisaoRecibo
+                        ? <SeloRecibo pago pagamento={p.rescisaoRecibo.pagamento} arquivo={p.rescisaoRecibo.arquivo} />
+                        : <StatusBadge tone="success">Quitada</StatusBadge>)
                         : p.rescisaoPendente ? <StatusBadge tone="warning">Falta o serviço</StatusBadge>
                         : <StatusBadge tone="info">Calculada</StatusBadge>}
                     </Table.Td>
