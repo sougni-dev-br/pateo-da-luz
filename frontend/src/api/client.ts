@@ -5699,6 +5699,10 @@ export type TipComputation = {
   month: number;
   label: string;
   periodId: string | null;
+  /** Código da apuração: GOR-AAAA-NNNN. */
+  code: string | null;
+  /** Registro vigente do fechamento (null enquanto aberto). */
+  fechamento: { id: string; code: string; version: number; closedAt: string; closedByName: string } | null;
   status: "OPEN" | "CLOSED" | null;
   periodStart: string;
   periodEnd: string;
@@ -5990,8 +5994,36 @@ export function closeTipPeriodApi(year: number, month: number) {
   return request<TipComputation>(`/payroll/tip/periods/${year}/${month}/close`, { method: "POST" });
 }
 
-export function reopenTipPeriodApi(year: number, month: number) {
-  return request<TipComputation>(`/payroll/tip/periods/${year}/${month}/reopen`, { method: "POST" });
+export function reopenTipPeriodApi(year: number, month: number, motivo: string) {
+  return request<TipComputation>(`/payroll/tip/periods/${year}/${month}/reopen`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ motivo })
+  });
+}
+
+export type TipFechamentoResumo = {
+  id: string; code: string; version: number; competenceYear: number; competenceMonth: number;
+  periodStart: string; periodEnd: string; closedAt: string; closedByName: string;
+  reopenedAt: string | null; reopenedByName: string | null; reopenReason: string | null;
+  pessoas: number; liquido: number; distribuido: number; saldo: number; valorPonto: number; integro: boolean;
+};
+
+export type TipFechamentoDetalhe = Omit<TipFechamentoResumo, "pessoas" | "liquido" | "distribuido" | "saldo" | "valorPonto"> & {
+  params: Record<string, unknown>;
+  totals: Record<string, unknown>;
+  participants: Array<Record<string, unknown>>;
+  reserve: Record<string, unknown>;
+  payloadHash: string;
+  closedById: string;
+};
+
+export function getTipClosings(ano?: number) {
+  return request<TipFechamentoResumo[]>(`/payroll/tip/closings${ano ? `?ano=${ano}` : ""}`);
+}
+
+export function getTipClosing(id: string) {
+  return request<TipFechamentoDetalhe>(`/payroll/tip/closings/${id}`);
 }
 
 // elegiveis = quantos funcionarios tem participaGorjeta no cadastro. Serve para a

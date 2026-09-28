@@ -7,11 +7,12 @@ import {
 import { Button, Money, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import "./gorjeta.css";
-import { MONTHS, inputStyle, money, mutedStyle, numInputStyle, panelStyle, pts } from "./gorjetaUtils";
+import { MONTHS, baixarCsv, inputStyle, money, mutedStyle, numInputStyle, panelStyle, pts } from "./gorjetaUtils";
 import { TIPO_MUDANCA, fmtDia } from "./HistoricoLinhaDoTempo";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
+import { RelatorioFechamentos } from "./RelatorioFechamentos";
 
-type Visao = "mudancas" | "evolucao" | "reserva" | "funcoes";
+type Visao = "fechamentos" | "mudancas" | "evolucao" | "reserva" | "funcoes";
 
 type Props = {
   comp: TipComputation | null;
@@ -25,35 +26,20 @@ const inicioDoAno = () => `${new Date().getFullYear()}-01-01`;
 const mesAtual = () => new Date().toISOString().slice(0, 7);
 const mesesAtras = (n: number) => { const d = new Date(); d.setMonth(d.getMonth() - n); return d.toISOString().slice(0, 7); };
 
-// CSV com ponto e vírgula e vírgula decimal: abre direto no Excel em português.
-function baixarCsv(nome: string, linhas: Array<Array<string | number | null>>) {
-  const celula = (v: string | number | null) => {
-    if (v == null) return "";
-    const t = typeof v === "number" ? String(v).replace(".", ",") : v;
-    return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
-  };
-  const csv = "﻿" + linhas.map((l) => l.map(celula).join(";")).join("\r\n");
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = nome;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 export function AbaRelatorios({ comp, canEdit, onNotice, onChanged }: Props) {
-  const [visao, setVisao] = useState<Visao>("mudancas");
+  const [visao, setVisao] = useState<Visao>("fechamentos");
   const erro = (e: unknown) => onNotice("error", (e as Error).message);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="barra-lista">
         <div className="barra-lista-segmento" role="group" aria-label="Relatório" style={{ marginLeft: 0 }}>
-          {([["mudancas", "Mudanças de função e pontos"], ["evolucao", "Evolução mês a mês"], ["reserva", "Fundo de reserva"], ["funcoes", "Tabela de funções"]] as const).map(([v, l]) => (
+          {([["fechamentos", "Fechamentos"], ["mudancas", "Mudanças de função e pontos"], ["evolucao", "Evolução mês a mês"], ["reserva", "Fundo de reserva"], ["funcoes", "Tabela de funções"]] as const).map(([v, l]) => (
             <button key={v} type="button" aria-pressed={visao === v} onClick={() => setVisao(v)}>{l}</button>
           ))}
         </div>
       </div>
+      {visao === "fechamentos" && <RelatorioFechamentos onErro={erro} />}
       {visao === "mudancas" && <RelatorioMudancas onErro={erro} />}
       {visao === "evolucao" && <RelatorioEvolucao onErro={erro} />}
       {visao === "reserva" && <FundoReserva comp={comp} canEdit={canEdit} onNotice={onNotice} onChanged={onChanged} />}

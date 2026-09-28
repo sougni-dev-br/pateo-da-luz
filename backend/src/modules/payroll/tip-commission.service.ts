@@ -13,6 +13,7 @@ import crypto from "node:crypto";
 import { prisma } from "../../config/database.js";
 import { round2 } from "./vt-calc.js";
 import { motivoParaNaoRetirar, saldoReserva, travarFundo } from "./tip-historico.service.js";
+import { proximoCodigoApuracao, registrarFechamento, registrarReabertura } from "./tip-fechamento.service.js";
 import { calcularRateio, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
@@ -129,6 +130,9 @@ export type TipComputation = {
   month: number;
   label: string;
   periodId: string | null;
+  code: string | null;
+  // Versão vigente do registro de fechamento (null enquanto nunca fechou).
+  fechamento: { id: string; code: string; version: number; closedAt: string; closedByName: string } | null;
   status: "OPEN" | "CLOSED" | null;
   periodStart: string;
   periodEnd: string;
@@ -289,6 +293,12 @@ export async function computeTipCommission(
 
   const rateio = calcularRateio(regras, entradas);
   const closed = period?.status === "CLOSED";
+  const registro = period && closed
+    ? await prisma.tipPeriodClosing.findFirst({
+      where: { periodId: period.id, reopenedAt: null }, orderBy: { version: "desc" },
+      select: { id: true, code: true, version: true, closedAt: true, closedByName: true },
+    })
+    : null;
 
   // Reserva da casa: pontos do período × valor do ponto do mês. Fechado, vale o
   // que entrou no fundo naquele fechamento.
@@ -417,6 +427,8 @@ export async function computeTipCommission(
   return {
     year, month, label,
     periodId: period?.id ?? null,
+    code: period?.code ?? null,
+    fechamento: registro ? { ...registro, closedAt: registro.closedAt.toISOString() } : null,
     status: period?.status ?? null,
     periodStart: start.toISOString(),
     periodEnd: end.toISOString(),
@@ -481,15 +493,28 @@ export async function ensureTipPeriod(year: number, month: number, userId: strin
   const { start, end, label } = tipPeriodBounds(year, month);
   const grossPool = await getServicePool(year, month);
   const netPool = round2(grossPool * 0.8);
-  const period = await prisma.tipPeriod.create({
-    data: {
-      id: crypto.randomUUID(),
-      competenceYear: year, competenceMonth: month,
-      periodStart: start, periodEnd: end, label,
-      grossPool, servicoFaturamento: grossPool, poolSource: "REVENUE", deductionPercent: 20, netPool,
-      createdById: userId,
-    },
-  });
+  let period;
+  for (let tentativa = 0; ; tentativa++) {
+    try {
+      period = await prisma.tipPeriod.create({
+        data: {
+          id: crypto.randomUUID(),
+          code: await proximoCodigoApuracao(prisma, year),
+          competenceYear: year, competenceMonth: month,
+          periodStart: start, periodEnd: end, label,
+          grossPool, servicoFaturamento: grossPool, poolSource: "REVENUE", deductionPercent: 20, netPool,
+          createdById: userId,
+        },
+      });
+      break;
+    } catch (err) {
+      // Código repetido (outra abertura no mesmo instante): gera o próximo.
+      const codigo = (err as { code?: string }).code;
+      if (codigo !== "P2002" || tentativa >= 3) throw err;
+      const outro = await prisma.tipPeriod.findUnique({ where: { competenceYear_competenceMonth: { competenceYear: year, competenceMonth: month } } });
+      if (outro) return outro;
+    }
+  }
   await syncParticipantsFromCadastro(period.id);
   return period;
 }
@@ -542,7 +567,8 @@ export async function syncParticipantsFromCadastro(periodId: string): Promise<{ 
 // ─── Fechar: recalcula, grava os valores e trava ─────────────────────────────
 // Grava também as ocorrências e o serviço da rescisão que vieram da Escala e do
 // faturamento, para o período fechado não mudar se essas fontes mudarem depois.
-export async function closeTipPeriod(year: number, month: number, userId: string) {
+export async function closeTipPeriod(year: number, month: number, usuario: { id: string; name: string }) {
+  const userId = usuario.id;
   const comp = await computeTipCommission(year, month);
   if (!comp.periodId) throw new Error("Período não encontrado.");
   if (!comp.check.ok) {
@@ -603,13 +629,23 @@ export async function closeTipPeriod(year: number, month: number, userId: string
         status: "CLOSED", closedAt: new Date(), updatedById: userId,
       },
     });
+    // Registro permanente deste fechamento (retrato + hash), na mesma transação.
+    const lancadas = await tx.tipReserveMovement.findMany({
+      where: { periodId: comp.periodId!, type: { in: ["FECHAMENTO_RESERVA", "FECHAMENTO_SALDO"] } },
+      select: { type: true, amount: true, notes: true },
+    });
+    await registrarFechamento(tx, comp, usuario, await saldoReserva(tx),
+      lancadas.map((l) => ({ type: l.type, amount: Number(l.amount), notes: l.notes })));
   });
 
   return computeTipCommission(year, month);
 }
 
 // ─── Reabrir: destrava um período fechado para correções ─────────────────────
-export async function reopenTipPeriod(year: number, month: number, userId: string) {
+export async function reopenTipPeriod(year: number, month: number, usuario: { id: string; name: string }, motivo: string) {
+  const userId = usuario.id;
+  const texto = motivo.trim();
+  if (texto.length < 10) throw new Error("Informe o motivo da reabertura (pelo menos 10 caracteres). Ele fica gravado no registro do fechamento.");
   const period = await prisma.tipPeriod.findUnique({
     where: { competenceYear_competenceMonth: { competenceYear: year, competenceMonth: month } },
   });
@@ -625,6 +661,7 @@ export async function reopenTipPeriod(year: number, month: number, userId: strin
     const bloqueio = motivoParaNaoRetirar(await saldoReserva(tx), retirada, `${String(month).padStart(2, "0")}/${year}`);
     if (bloqueio) throw new Error(bloqueio);
     await tx.tipReserveMovement.deleteMany({ where: { periodId: period.id, type: { in: ["FECHAMENTO_RESERVA", "FECHAMENTO_SALDO"] } } });
+    await registrarReabertura(tx, period.id, usuario, texto);
     await tx.tipPeriod.update({
       where: { competenceYear_competenceMonth: { competenceYear: year, competenceMonth: month } },
       data: { status: "OPEN", closedAt: null, updatedById: userId },

@@ -2753,10 +2753,44 @@ model TipReserveMovement {
   @@index([periodId])
 }
 
+// Registro permanente de cada fechamento da gorjeta (retrato completo). Um
+// fechamento por versão: reabrir marca a versão como reaberta (com motivo) e o
+// próximo fechamento cria a versão seguinte. O banco impede apagar e editar o
+// conteúdo (trigger na migration); só os campos de reabertura são gravados depois.
+model TipPeriodClosing {
+  id             String    @id
+  periodId       String
+  period         TipPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  code           String    @unique // GOR-AAAA-NNNN/vN
+  version        Int
+  competenceYear  Int
+  competenceMonth Int
+  periodStart    DateTime  @db.Date
+  periodEnd      DateTime  @db.Date
+  closedAt       DateTime
+  closedById     String
+  closedByName   String
+  params         Json
+  totals         Json
+  participants   Json
+  reserve        Json
+  // SHA-256 do conteúdo (params + totais + pessoas + fundo), para provar integridade.
+  payloadHash    String
+  reopenedAt     DateTime?
+  reopenedById   String?
+  reopenedByName String?
+  reopenReason   String?
+
+  @@unique([periodId, version])
+  @@index([competenceYear, competenceMonth])
+}
+
 // Competência da gorjeta: 26 do mês anterior a 25 do mês da competência.
 // Pool único (não separa por empresa); a empresa importa só na exportação.
 model TipPeriod {
   id               String           @id @default(cuid())
+  // Código da apuração, gerado automaticamente: GOR-AAAA-NNNN.
+  code             String           @unique
   competenceYear   Int
   competenceMonth  Int
   periodStart      DateTime         @db.Date
@@ -2786,6 +2820,7 @@ model TipPeriod {
   // Pontos que vão para o fundo de reserva da gorjeta (valor = pontos × valor do ponto).
   reservaPontos    Decimal          @default(0) @db.Decimal(8, 2)
   reserveMovements TipReserveMovement[]
+  closings         TipPeriodClosing[]
   status           TipPeriodStatus  @default(OPEN)
   closedAt         DateTime?
   participants     TipParticipant[]
