@@ -143,6 +143,13 @@ export type TipComputation = {
   descontaFerias: boolean;
   descontaOutros: boolean;
   distribuido: number;
+  // De onde sai o distribuído: quem está no mês, quem saiu no período, a reserva e as cotas fixas.
+  composicao: {
+    mes: { valor: number; pontos: number; pessoas: number };
+    rescisoes: { valor: number; pontos: number; pessoas: number; pendentes: number };
+    reserva: { valor: number; pontos: number };
+    fixos: { valor: number; pessoas: number };
+  };
   saldo: number;
   reservaTotal: number;
   participants: ComputedParticipant[];
@@ -174,6 +181,8 @@ async function contarOcorrenciasDaEscala(employeeIds: string[], start: Date, end
 }
 
 const num = (v: unknown): number | null => (v == null ? null : Number(v));
+
+const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 const fmtIso = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "—");
 
@@ -338,9 +347,9 @@ export async function computeTipCommission(
     pendencias.push(`${p.employeeName}: saiu em ${fmtIso(p.terminationDate)} e falta o serviço até a saída (faturamento não importado). Informe o valor em "Rescisões do período".`);
   }
   if (pointsPool < 0) {
-    pendencias.push(`As cotas fixas (R$ ${rateio.totalCotasFixas.toFixed(2)}) passam do líquido do período (R$ ${netPool.toFixed(2)}).`);
+    pendencias.push(`As cotas fixas (${brl(rateio.totalCotasFixas)}) passam do líquido do período (${brl(netPool)}).`);
   } else if (saldo < -0.005) {
-    pendencias.push(`A distribuição (R$ ${distribuido.toFixed(2)}) passa do líquido (R$ ${netPool.toFixed(2)}) em R$ ${Math.abs(saldo).toFixed(2)}. Reduza pontos ou ajustes.`);
+    pendencias.push(`A distribuição (${brl(distribuido)}) passa do líquido (${brl(netPool)}) em ${brl(Math.abs(saldo))}. Reduza pontos ou ajustes.`);
   }
 
   const semBase = noPeriodo.filter((p) => p.kind === "PONTOS" && p.basePoints <= 0);
@@ -362,9 +371,6 @@ export async function computeTipCommission(
       const nome = (r.employee.displayName || `${r.employee.firstName} ${r.employee.lastName}`).trim();
       warnings.push(`${nome}: ${pontos} pontos personalizados, fora da faixa de "${fn.name}" (${min ?? "—"} a ${max ?? "—"}).`);
     }
-  }
-  if (period && rows.length > 0 && saldo > 0.005 && pointsPool >= 0) {
-    warnings.push(`Saldo não distribuído: R$ ${saldo.toFixed(2)}. Fica retido no fechamento, junto da reserva.`);
   }
 
   // Fechado: os avisos servem para editar, e não há mais o que editar.
@@ -389,6 +395,15 @@ export async function computeTipCommission(
     descontaFerias: regras.descontaFerias,
     descontaOutros: regras.descontaOutros,
     distribuido, saldo,
+    composicao: {
+      mes: somar(participants.filter((p) => p.kind === "PONTOS" && p.tipoCalculo === "MES" && !p.reserva)),
+      rescisoes: {
+        ...somar(participants.filter((p) => p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA")),
+        pendentes: participants.filter((p) => p.rescisaoPendente).length,
+      },
+      reserva: (({ valor, pontos }) => ({ valor, pontos }))(somar(participants.filter((p) => p.reserva && p.tipoCalculo === "MES"))),
+      fixos: (({ valor, pessoas }) => ({ valor, pessoas }))(somar(participants.filter((p) => p.kind === "FIXO" && p.tipoCalculo === "MES"))),
+    },
     reservaTotal: round2(participants.filter((p) => p.reserva).reduce((a, p) => a + p.rateioAmount, 0)),
     participants,
     totals: {
@@ -401,6 +416,14 @@ export async function computeTipCommission(
     check: { expectedNetPool: netPool, sumRateios: distribuido, ok, diff: round2(distribuido - netPool) },
     pendencias,
     warnings,
+  };
+}
+
+function somar(lista: ComputedParticipant[]) {
+  return {
+    valor: round2(lista.reduce((a, p) => a + p.rateioAmount, 0)),
+    pontos: round2(lista.reduce((a, p) => a + (p.kind === "PONTOS" ? p.points : 0), 0)),
+    pessoas: lista.length,
   };
 }
 

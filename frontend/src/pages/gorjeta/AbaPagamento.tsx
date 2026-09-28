@@ -35,6 +35,19 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 8 }}>
+        {[
+          { label: "Contabilidade (gorjeta dos registrados)", valor: registrados.reduce((a, p) => a + p.rateioAmount, 0), detalhe: `${registrados.length} pessoas`, cor: "var(--info)" },
+          { label: "Lista de pagamento (salário + gorjeta)", valor: semRegistro.reduce((a, p) => a + p.totalAPagar, 0), detalhe: `${semRegistro.length} sem registro`, cor: "var(--success)" },
+          { label: "Fica na casa (reserva + saldo)", valor: comp.reservaTotal + Math.max(0, comp.saldo), detalhe: "não é pago", cor: "var(--gold)" },
+        ].map((c) => (
+          <div key={c.label} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", boxShadow: `inset 3px 0 0 ${c.cor}`, background: "var(--surface, #fff)" }}>
+            <div style={mutedStyle}>{c.label}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money(c.valor)}</div>
+            <div style={{ ...mutedStyle, fontSize: 11 }}>{c.detalhe}</div>
+          </div>
+        ))}
+      </div>
       <div style={panelStyle}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <strong>Envio à contabilidade <span style={{ ...mutedStyle, fontWeight: 400 }}>— registrados, por empresa</span></strong>
