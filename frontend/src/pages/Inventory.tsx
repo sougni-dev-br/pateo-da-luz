@@ -2,7 +2,7 @@
 import { Fragment, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRevealScroll } from "../lib/useRevealScroll";
 import { hasPermission } from "../lib/permissions";
-import { cicloDivergeDaData, cicloSugerido, opcoesDeCiclo, rotuloDoCiclo } from "../lib/ciclo-contagem";
+import { cicloDivergeDaData, cicloSugerido, hojeLocalIso, opcoesDeCiclo, rotuloDoCiclo } from "../lib/ciclo-contagem";
 import { proximoPassoDoFechamento } from "../lib/fechamento-cmv";
 import {
   ApiError,
@@ -78,6 +78,7 @@ import { PeriodFilter } from "../components/PeriodFilter";
 import { SimpleBarChart } from "../components/SimpleBarChart";
 import { ConfirmDialog } from "../components/ui";
 import { Alert, Button, EmptyState, Money, PanelEyebrow, RowMenu, StatusBadge, SummaryCard, Table, Tabs } from "../design-system";
+import type { RowMenuItem, RowMenuSeparator } from "../design-system";
 import { OverviewSection } from "./inventory/OverviewSection";
 import { formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
@@ -232,8 +233,8 @@ export function Inventory({
   const [editingCountSessionNoteId, setEditingCountSessionNoteId] = useState<string | null>(null);
   const [editingOperationalNoteId, setEditingOperationalNoteId] = useState<string | null>(null);
   const [operationalForm, setOperationalForm] = useState({
-    date: new Date().toISOString().slice(0, 10),
-    effectiveCountDate: new Date().toISOString().slice(0, 10),
+    date: hojeLocalIso(),
+    effectiveCountDate: hojeLocalIso(),
     startedAt: "",
     finishedAt: "",
     type: "GERAL" as OperationalInventoryType,
@@ -244,7 +245,7 @@ export function Inventory({
   const [operationalSectorFilter, setOperationalSectorFilter] = useState("");
   const [operationalLines, setOperationalLines] = useState<Record<string, { countedQuantity: string; notes: string }>>({});
   const [countSessionForm, setCountSessionForm] = useState(() => {
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = hojeLocalIso();
     const ciclo = cicloSugerido(hoje);
     return {
       referenceDate: hoje,
@@ -1286,6 +1287,24 @@ export function Inventory({
     scrollCountInputToComfort(nextInput);
     // O aviso do item que ficou para tras pode mudar a altura da lista.
     window.requestAnimationFrame(() => scrollCountInputToComfort(nextInput));
+  }
+
+  // Acoes secundarias de uma contagem da lista. O mesmo menu no desktop e no
+  // celular: no celular Cancelar era um botao vermelho de largura total em
+  // toda contagem, a um toque errado de distancia do Continuar.
+  function countSessionMenuItems(session: StockCountSession): Array<RowMenuItem | RowMenuSeparator> {
+    return [
+      { label: "Gerar PDF", icon: <Download size={15} />, onClick: () => downloadCountSessionPdf(session) },
+      ...(canPlanPurchase && session.status === "CONCLUIDA"
+        ? [{ label: "Gerar pedido de compra", icon: <ShoppingCart size={15} />, onClick: () => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`) }]
+        : []),
+      ...(canGenerateInventoryFromCount(session)
+        ? [{ label: "Gerar inventário", icon: <ClipboardCheck size={15} />, onClick: async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventário gerado a partir da contagem." }); } }]
+        : []),
+      ...(canCancelCountSession(session)
+        ? [{ separator: true as const }, { label: "Cancelar contagem", icon: <Trash2 size={15} />, tone: "danger" as const, onClick: () => cancelCountSessionAction(session) }]
+        : [])
+    ];
   }
 
   function advanceCountSessionItem(itemId: string) {
@@ -2379,6 +2398,14 @@ export function Inventory({
             {activeView === "counting" && <h2>Contagens de estoque</h2>}
           </div>
           <div className="actions-cell">
+            {/* No desktop nao havia como abrir uma contagem nesta tela: o botao
+                do formulario so existia no mobile e a barra de acoes do topo
+                nao e renderizada na aba de contagens. */}
+            {activeView === "counting" && (
+              <button className="primary-button count-new-button" type="button" aria-expanded={mobileCountFormOpen} onClick={() => setMobileCountFormOpen((v) => !v)}>
+                {mobileCountFormOpen ? <X size={16} /> : <Play size={16} />}{mobileCountFormOpen ? "Fechar" : "Nova contagem"}
+              </button>
+            )}
             <label className="checkbox-label compact-check inventory-toggle-label">
               <input type="checkbox" checked={showCanceledStockData} onChange={(event) => setShowCanceledStockData(event.target.checked)} />
               Exibir cancelados/testes
@@ -2493,12 +2520,14 @@ export function Inventory({
 
         {activeView === "counting" && (
           <>
-            <div className="summary-grid dashboard-summary">
-              <SummaryCard label="Abertas" value={activeCountSessions.filter((item) => item.status === "ABERTA").length} tone="warning" icon={<ClipboardCheck size={18} />} />
-              <SummaryCard label="Em andamento" value={activeCountSessions.filter((item) => item.status === "EM_ANDAMENTO").length} tone="info" />
-              <SummaryCard label="Concluidas" value={completedCountSessions.length} tone="success" icon={<CheckCircle2 size={18} />} />
-              {activeCountSessions.length > 0 && <SummaryCard label="Progresso medio" value={`${activeCountProgress}%`} tone={activeCountProgress >= 80 ? "success" : "warning"} />}
-            </div>
+            {/* Linha de numeros, como na aba Inventario. Eram quatro cartoes de
+                ~130px: no celular empurravam a primeira contagem para 860px. */}
+            <ul className="inv-estatisticas">
+              <li><span>{activeCountSessions.filter((item) => item.status === "ABERTA").length}</span> abertas</li>
+              <li><span>{activeCountSessions.filter((item) => item.status === "EM_ANDAMENTO").length}</span> em andamento</li>
+              <li><span>{completedCountSessions.length}</span> concluídas</li>
+              {activeCountSessions.length > 0 && <li><span>{activeCountProgress}%</span> progresso médio das abertas</li>}
+            </ul>
 
             {operationalSummary.activeFinalCmv && (() => {
               const inv = operationalSummary.activeFinalCmv!;
@@ -2614,14 +2643,14 @@ export function Inventory({
         {activeView === "counting" && (() => {
           const consolidatable = countSessions.filter((s) => s.type === "SETORIAL" && s.status === "CONCLUIDA" && (!s.generatedInventoryId || s.generatedInventoryStatus === "CANCELADO"));
           return consolidatable.length > 0 && canCreateOperational ? (
-            <div className="form-section" style={{ borderColor: "var(--gold)", background: "var(--surface)" }}>
-              <div className="section-heading compact-heading">
-                <div>
-                  <p>Fechamento do mes</p>
-                  <h3><Layers size={16} style={{ verticalAlign: "middle", marginRight: 6 }} />Consolidar contagens setoriais em inventario Final CMV</h3>
-                  <span className="muted">Selecione as contagens setoriais concluidas que deseja unificar. Os produtos duplicados entre setores terao a contagem mais recente prevalecida.</span>
-                </div>
-              </div>
+            // Recolhido por padrao: e acao de fim de mes, e aberto ocupava a tela
+            // inteira do celular antes da primeira contagem.
+            <details className="form-section count-consolidation" style={{ borderColor: "var(--gold)", background: "var(--surface)" }}>
+              <summary>
+                <span className="count-consolidation__title"><Layers size={16} />Fechamento do mês: consolidar setoriais em inventário Final CMV</span>
+                <span className="count-consolidation__meta">{consolidatable.length} pronta{consolidatable.length !== 1 ? "s" : ""}</span>
+              </summary>
+              <p className="muted count-consolidation__help">Selecione as contagens setoriais concluídas que deseja unificar. Os produtos duplicados entre setores terão a contagem mais recente prevalecida.</p>
               <div className="filters-row" style={{ flexWrap: "wrap", gap: 8 }}>
                 {consolidatable.map((s) => (
                   <label key={s.id} className="checkbox-label" style={{ border: "1px solid var(--line)", borderRadius: 6, padding: "6px 10px", background: consolidationSelected.has(s.id) ? "var(--gold-soft)" : "#fff", cursor: "pointer" }}>
@@ -2711,7 +2740,7 @@ export function Inventory({
                   <button className="secondary-button" type="button" onClick={() => { setConsolidationSelected(new Set()); setConsolidationCoverage(null); }}>Limpar selecao</button>
                 )}
               </div>
-            </div>
+            </details>
           ) : null;
         })()}
 
@@ -2797,71 +2826,59 @@ export function Inventory({
             <h3>Contagens de estoque</h3>
             <p className="muted">Atividade operacional do estoquista. Concluir contagem nao fecha inventario.</p>
 
-            {/* Desktop table */}
+            {/* Desktop. Eram 11 colunas e Acoes caia fora da tela, atras de uma
+                rolagem lateral. Total/Contados/Pendentes viraram uma coluna de
+                progresso, e Tipo deixou de repetir o setor da coluna ao lado. */}
             <div className="inv-desktop-table-wrap">
               <Table>
                 <Table.Head>
                   <Table.Row>
-                    <Table.Th minWidth={160}>Código</Table.Th>
+                    <Table.Th>Código</Table.Th>
                     <Table.Th>Data</Table.Th>
-                    <Table.Th>Tipo</Table.Th>
-                    <Table.Th>Setor/Categoria</Table.Th>
+                    <Table.Th>Tipo / setor</Table.Th>
                     <Table.Th>Status</Table.Th>
+                    <Table.Th minWidth={120}>Progresso</Table.Th>
+                    <Table.Th align="right">Div.</Table.Th>
                     <Table.Th>Responsável</Table.Th>
-                    <Table.Th align="right">Total</Table.Th>
-                    <Table.Th align="right">Contados</Table.Th>
-                    <Table.Th align="right">Pendentes</Table.Th>
-                    <Table.Th align="right">Divergentes</Table.Th>
                     <Table.Th actions>Ações</Table.Th>
                   </Table.Row>
                 </Table.Head>
                 <Table.Body>
-                  {countSessions.map((session) => (
-                    <Table.Row key={session.id}>
-                      <Table.Td title={session.notes ?? session.code}>
-                        <strong>{session.code}</strong>
-                        {session.source === "IMPORTACAO_PLANILHA" && <StatusBadge tone="info">Importada</StatusBadge>}
-                        <small>{session.generatedInventoryCode ? `Inventário: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mês" : session.source === "IMPORTACAO_PLANILHA" ? "Importada via planilha" : "Contagem operacional"}</small>
-                      </Table.Td>
-                      <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(session.referenceDate)}</Table.Td>
-                      <Table.Td>
-                        {countSessionTypeLabels[session.type] ?? session.type}
-                        {session.type === "SETORIAL" && session.sectorName && <small>SETOR: {session.sectorName}</small>}
-                      </Table.Td>
-                      <Table.Td truncate style={{ maxWidth: 200 }} title={[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ") || "-"}>
-                        {[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ") || "-"}
-                        <small>{formatNumber(session.countedItems)}/{formatNumber(session.totalItems)} contados</small>
-                      </Table.Td>
-                      <Table.Td><StatusBadge tone={countSessionTone(session.status)}>{countSessionStatusLabels[session.status] ?? session.status}</StatusBadge></Table.Td>
-                      <Table.Td truncate style={{ maxWidth: 140 }} title={session.responsibleName ?? "-"}>{session.responsibleName ?? "-"}</Table.Td>
-                      <Table.Td align="right">{formatNumber(session.totalItems)}</Table.Td>
-                      <Table.Td align="right">{formatNumber(session.countedItems)}</Table.Td>
-                      <Table.Td align="right">{formatNumber(session.pendingItems)}</Table.Td>
-                      <Table.Td align="right">{formatNumber(session.divergentItems)}</Table.Td>
-                      <Table.Td actions>
-                        <Button variant="secondary" size="sm" onClick={() => openCountSession(session.id)}>{editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}</Button>
-                        <RowMenu
-                          label={`Mais ações — ${session.code}`}
-                          items={[
-                            { label: "Gerar PDF", icon: <Download size={15} />, onClick: () => downloadCountSessionPdf(session) },
-                            ...(canPlanPurchase && session.status === "CONCLUIDA"
-                              ? [{ label: "Gerar pedido de compra", icon: <ShoppingCart size={15} />, onClick: () => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`) }]
-                              : []),
-                            ...(canGenerateInventoryFromCount(session)
-                              ? [{ label: "Gerar inventário", icon: <ClipboardCheck size={15} />, onClick: async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventário gerado a partir da contagem." }); } }]
-                              : []),
-                            ...(canCancelCountSession(session)
-                              ? [{ separator: true as const }, { label: "Cancelar contagem", icon: <Trash2 size={15} />, tone: "danger" as const, onClick: () => cancelCountSessionAction(session) }]
-                              : [])
-                          ]}
-                        />
-                      </Table.Td>
-                    </Table.Row>
-                  ))}
+                  {countSessions.map((session) => {
+                    const escopo = [session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ");
+                    const pct = session.totalItems > 0 ? Math.round((Number(session.countedItems) / Number(session.totalItems)) * 100) : 0;
+                    return (
+                      <Table.Row key={session.id}>
+                        <Table.Td className="count-list-code" title={session.notes ?? session.code}>
+                          <strong>{session.code}</strong>
+                          {session.source === "IMPORTACAO_PLANILHA" && <StatusBadge tone="info">Importada</StatusBadge>}
+                          <small>{session.generatedInventoryCode ? `Inventário: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mês" : session.source === "IMPORTACAO_PLANILHA" ? "Importada via planilha" : "Contagem operacional"}</small>
+                        </Table.Td>
+                        <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(session.referenceDate)}</Table.Td>
+                        <Table.Td truncate style={{ maxWidth: 200 }} title={escopo || undefined}>
+                          {countSessionTypeLabels[session.type] ?? session.type}
+                          {escopo && <small>{escopo}</small>}
+                        </Table.Td>
+                        <Table.Td><StatusBadge tone={countSessionTone(session.status)}>{countSessionStatusLabels[session.status] ?? session.status}</StatusBadge></Table.Td>
+                        <Table.Td>
+                          <div className="count-list-progress">
+                            <span><strong>{formatNumber(session.countedItems)}</strong>/{formatNumber(session.totalItems)}{Number(session.pendingItems) > 0 && <em>{formatNumber(session.pendingItems)} pend.</em>}</span>
+                            <div className="progress-track"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
+                          </div>
+                        </Table.Td>
+                        <Table.Td align="right" className={Number(session.divergentItems) > 0 ? "count-list-divergent" : undefined}>{formatNumber(session.divergentItems)}</Table.Td>
+                        <Table.Td truncate style={{ maxWidth: 120 }} title={session.responsibleName ?? "-"}>{session.responsibleName ?? "-"}</Table.Td>
+                        <Table.Td actions>
+                          <Button variant={editableCountSessionStatuses.has(session.status) ? "primary" : "secondary"} size="sm" onClick={() => openCountSession(session.id)}>{editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}</Button>
+                          <RowMenu label={`Mais ações — ${session.code}`} items={countSessionMenuItems(session)} />
+                        </Table.Td>
+                      </Table.Row>
+                    );
+                  })}
                   {countSessions.length === 0 && (
                     <Table.Row>
-                      <Table.Td colSpan={11}>
-                        <EmptyState title="Nenhuma contagem encontrada" description="Clique em Iniciar Contagem para abrir uma ficha de lançamento com produtos controlados." />
+                      <Table.Td colSpan={8}>
+                        <EmptyState title="Nenhuma contagem encontrada" description="Clique em Nova contagem para abrir uma ficha de lançamento com produtos controlados." />
                       </Table.Td>
                     </Table.Row>
                   )}
@@ -2869,49 +2886,46 @@ export function Inventory({
               </Table>
             </div>
 
-            {/* Mobile cards */}
+            {/* Celular: um botao principal e o resto no menu. */}
             <div className="inv-mobile-cards">
               {countSessions.length === 0 && (
                 <EmptyState title="Nenhuma contagem encontrada" description="Toque em Nova contagem para abrir uma ficha de lancamento." />
               )}
-              {countSessions.map((session) => (
-                <div key={session.id} className="inv-mobile-card">
-                  <div className="inv-mc-header">
-                    <div className="inv-mc-header-left">
-                      <strong>{session.code}</strong>
-                      <small>{session.generatedInventoryCode ? `Inv: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mes" : countSessionTypeLabels[session.type] ?? session.type}</small>
-                      {[session.sectorName, session.categoryName, session.subcategoryName].some(Boolean) && (
-                        <small>{[session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ")}</small>
-                      )}
+              {countSessions.map((session) => {
+                const escopo = [session.sectorName, session.categoryName, session.subcategoryName].filter(Boolean).join(" - ");
+                const pct = session.totalItems > 0 ? Math.round((Number(session.countedItems) / Number(session.totalItems)) * 100) : 0;
+                const editavel = editableCountSessionStatuses.has(session.status);
+                return (
+                  <div key={session.id} className={`inv-mobile-card count-list-card${editavel ? " is-open" : ""}`}>
+                    <div className="inv-mc-header">
+                      <div className="inv-mc-header-left">
+                        <strong>{session.code}</strong>
+                        <small>
+                          {[session.generatedInventoryCode ? `Inv: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mes" : countSessionTypeLabels[session.type] ?? session.type, escopo].filter(Boolean).join(" · ")}
+                        </small>
+                      </div>
+                      <StatusBadge tone={countSessionTone(session.status)}>{countSessionStatusLabels[session.status] ?? session.status}</StatusBadge>
                     </div>
-                    <StatusBadge tone={countSessionTone(session.status)}>{countSessionStatusLabels[session.status] ?? session.status}</StatusBadge>
+                    <div className="count-list-progress">
+                      <span>
+                        <strong>{formatNumber(session.countedItems)}</strong>/{formatNumber(session.totalItems)} contados
+                        {Number(session.pendingItems) > 0 && <em>{formatNumber(session.pendingItems)} pend.</em>}
+                        {Number(session.divergentItems) > 0 && <em className="count-list-divergent">{formatNumber(session.divergentItems)} div.</em>}
+                      </span>
+                      <div className="progress-track"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
+                    </div>
+                    <div className="count-list-card-footer">
+                      <small>{formatDate(session.referenceDate)}{session.responsibleName ? ` · ${session.responsibleName}` : ""}</small>
+                      <div className="count-list-card-actions">
+                        <button className={editavel ? "primary-button" : "secondary-button"} type="button" onClick={() => openCountSession(session.id)}>
+                          {editavel ? "Continuar" : "Visualizar"}
+                        </button>
+                        <RowMenu label={`Mais ações — ${session.code}`} items={countSessionMenuItems(session)} />
+                      </div>
+                    </div>
                   </div>
-                  <div className="inv-mc-meta">
-                    <span>{formatDate(session.referenceDate)}</span>
-                    {session.responsibleName && <span>{session.responsibleName}</span>}
-                  </div>
-                  <div className="inv-mc-progress">
-                    <span>{formatNumber(session.countedItems)}/{formatNumber(session.totalItems)} contados</span>
-                    {Number(session.pendingItems) > 0 && <span className="inv-mc-pending">{formatNumber(session.pendingItems)} pend.</span>}
-                    {Number(session.divergentItems) > 0 && <span className="inv-mc-divergent">{formatNumber(session.divergentItems)} div.</span>}
-                  </div>
-                  <div className="inv-mc-actions">
-                    <button className="secondary-button" type="button" onClick={() => openCountSession(session.id)}>
-                      {editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}
-                    </button>
-                    <button className="secondary-button" type="button" onClick={() => downloadCountSessionPdf(session)}><Download size={16} />Gerar PDF</button>
-                    {canPlanPurchase && session.status === "CONCLUIDA" && (
-                      <button className="secondary-button" type="button" onClick={() => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`)}><ShoppingCart size={16} />Gerar pedido</button>
-                    )}
-                    {canGenerateInventoryFromCount(session) && (
-                      <button className="primary-button" type="button" onClick={async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventario gerado a partir da contagem." }); }}>Gerar inv.</button>
-                    )}
-                    {canCancelCountSession(session) && (
-                      <button className="danger-button" type="button" onClick={() => cancelCountSessionAction(session)}>Cancelar</button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
