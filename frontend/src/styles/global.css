@@ -16193,3 +16193,109 @@ td.count-list-divergent {
 .inv-desktop-table-wrap .count-list-progress {
   min-width: 110px;
 }
+
+/* ── Listas de inventario ───────────────────────────────────────────── */
+
+.inventory-row-actions {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.inventory-row-actions .icon-button {
+  min-height: 34px;
+  min-width: 34px;
+}
+
+/* Codigo e selos numa linha; o nome longo ("Inventario 05/06/2026 - gerado
+   da contagem CNT-...") numa linha so, com o texto inteiro no title. */
+.inventory-code-cell strong {
+  margin-right: 6px;
+  white-space: nowrap;
+}
+
+.inventory-code-cell .ds-status-badge {
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.inventory-code-cell small {
+  display: block;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count-list-progress em.is-ok {
+  color: var(--success);
+}
+
+/* O selo de status encostava na borda do card no celular. */
+.count-list-card .inv-mc-header {
+  gap: 10px;
+}
+
+.count-list-card .inv-mc-header > .ds-status-badge {
+  flex: 0 0 auto;
+}
+
+.count-list-card .inv-mc-header-left {
+  min-width: 0;
+}
+
+.count-list-card .inventory-row-actions > button:first-child {
+  min-height: 40px;
+  padding: 0 16px;
+}
+
+.count-list-card .inventory-row-actions .icon-button {
+  min-height: 40px;
+  min-width: 40px;
+}
+
+/* Detalhe do inventario no celular. As colunas fixas somavam 402px num
+   visor de ~310: a tabela rolava de lado e Dif./Status ficavam fora da
+   tela. Codigo, setor (ja tem filtro acima) e status (a cor da Dif. ja diz)
+   saem; o nome do produto ganha a largura. */
+@media (max-width: 768px) {
+  .operational-count-table th:nth-child(1),
+  .operational-count-table tr:not(.op-note-expansion-row) > td:nth-child(1),
+  .operational-count-table th:nth-child(3),
+  .operational-count-table tr:not(.op-note-expansion-row) > td:nth-child(3),
+  .operational-count-table th:nth-child(7),
+  .operational-count-table tr:not(.op-note-expansion-row) > td:nth-child(7) {
+    display: none;
+  }
+
+  .operational-count-table .op-product-name {
+    -webkit-line-clamp: 3;
+  }
+
+  /* A regra geral de tabela no celular impoe min-width 480px; aqui as
+     colunas que sobraram cabem no visor. */
+  .table-wrap.operational-count-table:not(.inv-desktop-table-wrap):not(.cmv-analysis-table) table {
+    min-width: 0;
+  }
+
+  .operational-count-table th:nth-child(4),
+  .operational-count-table tr:not(.op-note-expansion-row) > td:nth-child(4) { width: 54px; }
+
+  .operational-count-table th:nth-child(5),
+  .operational-count-table tr:not(.op-note-expansion-row) > td:nth-child(5) { width: 64px; padding-right: 6px; }
+
+  .op-detail-head-actions {
+    flex-wrap: wrap;
+  }
+}
+
+.op-detail-stats {
+  margin: 4px 0 12px;
+}
+
+/* "SALDO ESP." nao cabe em 54-68px numa linha e encostava em "QTD.". */
+.operational-count-table th:nth-child(4) {
+  line-height: 1.2;
+  white-space: normal;
+}

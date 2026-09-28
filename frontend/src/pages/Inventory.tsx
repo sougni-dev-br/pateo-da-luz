@@ -1,5 +1,6 @@
 ﻿import { AlertTriangle, Archive, ArrowDown, CalendarDays, CheckCircle2, ClipboardCheck, Download, FileText, FilterX, Layers, Loader2, MessageSquare, Play, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { Fragment, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useRevealScroll } from "../lib/useRevealScroll";
 import { hasPermission } from "../lib/permissions";
 import { cicloDivergeDaData, cicloSugerido, hojeLocalIso, opcoesDeCiclo, rotuloDoCiclo } from "../lib/ciclo-contagem";
@@ -731,7 +732,7 @@ export function Inventory({
     setOperationalInventories(rows);
     setPurchasingReport(reportRows);
     setBuyerSupport(buyerRows);
-    if (id) await openOperationalInventory(id, false);
+    if (id) await openOperationalInventory(id);
   }
 
   async function loadBuyerSupport() {
@@ -1307,6 +1308,53 @@ export function Inventory({
     ];
   }
 
+  // Pedacos das linhas das listas de inventario, iguais no desktop e no celular.
+  function inventoryBadges(inventory: OperationalInventory) {
+    return (
+      <>
+        {inventory.type === "FINAL_CMV" && <StatusBadge tone="warning">final CMV</StatusBadge>}
+        {inventory.inventorySnapshotId && <StatusBadge tone="info">snapshot CMV</StatusBadge>}
+      </>
+    );
+  }
+
+  function inventoryProgress(inventory: OperationalInventory, extra?: ReactNode) {
+    const total = Number(inventory.totalItems);
+    const pct = total > 0 ? Math.round((Number(inventory.countedItems) / total) * 100) : 0;
+    return (
+      <div className="count-list-progress">
+        <span>
+          <strong>{formatNumber(inventory.countedItems)}</strong>/{formatNumber(inventory.totalItems)}
+          {Number(inventory.pendingItems) > 0 && <em>{formatNumber(inventory.pendingItems)} pend.</em>}
+          {extra}
+        </span>
+        <div className="progress-track"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
+      </div>
+    );
+  }
+
+  // Abrir + PDF lado a lado. Eram dois botoes empilhados, e "Gerar PDF" ainda
+  // quebrava em duas linhas: cada linha da tabela ficava com ~65px.
+  function inventoryActions(inventory: OperationalInventory) {
+    const emAnalise = inventory.type === "FINAL_CMV" && inventory.status === "EM_REVISAO";
+    return (
+      <div className="inventory-row-actions">
+        <button
+          className={emAnalise ? "primary-button" : "secondary-button"}
+          type="button"
+          disabled={openingInventoryId === inventory.id}
+          onClick={() => void openOperationalInventory(inventory.id)}
+        >
+          {openingInventoryId === inventory.id ? <Loader2 size={14} className="spin" /> : null}
+          {emAnalise ? "Continuar análise" : "Abrir"}
+        </button>
+        <button className="icon-button" type="button" aria-label={`Gerar PDF — ${inventory.code}`} title="Gerar PDF" onClick={() => downloadInventoryPdf(inventory)}>
+          <Download size={16} />
+        </button>
+      </div>
+    );
+  }
+
   function advanceCountSessionItem(itemId: string) {
     const input = getVisibleCountSessionInputs().find((candidate) => candidate.getAttribute("data-session-count-item-id") === itemId);
     if (input) advanceCountSessionInput(input);
@@ -1388,7 +1436,10 @@ export function Inventory({
     }
   }
 
-  async function openOperationalInventory(id: string, showMessage = true) {
+  // Sem aviso de "aberto": o Notice tambem rola a pagina ate ele, no topo, e
+  // disputava com a rolagem ate o painel — o inventario abria 1.800px abaixo e
+  // a pessoa continuava olhando a lista. O painel aparecer ja e o retorno.
+  async function openOperationalInventory(id: string) {
     setOpeningInventoryId(id);
     try {
       const detail = await getOperationalInventory(id);
@@ -1400,7 +1451,6 @@ export function Inventory({
         item.id,
         { countedQuantity: item.countedQuantity == null ? "" : String(item.countedQuantity), notes: item.notes ?? "" }
       ])));
-      if (showMessage) setNotice({ tone: "success", message: `${detail.code} aberto para consulta.` });
       if (detail.type === "FINAL_CMV" && detail.status === "RASCUNHO") {
         void loadFinalCmvCoverage(id);
       }
@@ -2503,7 +2553,19 @@ export function Inventory({
                 </>
               ) : (
                 <>
-                  <Button leadingIcon={<ClipboardCheck size={16} />} onClick={() => { setInventoryDeskTab("official"); abrirFormularioDeInventario(); }}>Criar inventário</Button>
+                  {/* Alterna: no desktop o formulario abria e nao tinha como fechar
+                      (o "Cancelar" so existia no botao duplicado do celular). */}
+                  <Button
+                    leadingIcon={mobileInvFormOpen && inventoryDeskTab === "official" ? <X size={16} /> : <ClipboardCheck size={16} />}
+                    aria-expanded={mobileInvFormOpen && inventoryDeskTab === "official"}
+                    onClick={() => {
+                      if (mobileInvFormOpen && inventoryDeskTab === "official") { setMobileInvFormOpen(false); return; }
+                      setInventoryDeskTab("official");
+                      abrirFormularioDeInventario();
+                    }}
+                  >
+                    {mobileInvFormOpen && inventoryDeskTab === "official" ? "Fechar" : "Criar inventário"}
+                  </Button>
                   <div className="inv-more-actions-wrap">
                     <Button variant="secondary" onClick={() => setMobileInvMoreActionsOpen(v => !v)}>Mais ações ▾</Button>
                     <div className={`inv-more-actions-menu${mobileInvMoreActionsOpen ? " open" : ""}`}>
@@ -2950,9 +3012,6 @@ export function Inventory({
           </ul>
 
 
-          <button className="inv-mobile-form-toggle" type="button" onClick={() => { if (mobileInvFormOpen) setMobileInvFormOpen(false); else abrirFormularioDeInventario(); }}>
-            <ClipboardCheck size={15} />{mobileInvFormOpen ? "Cancelar" : "Criar inventario"}
-          </button>
           <div className={`inv-collapsible-form${mobileInvFormOpen ? " open" : ""}`} ref={formularioInventarioRef}>
             <div className="form-section inventory-create-panel">
               <div className="section-heading compact-heading">
@@ -2994,103 +3053,69 @@ export function Inventory({
                 </div>
               </div>
 
-              {/* Desktop table */}
-              <div className="table-wrap inv-desktop-table-wrap">
-                <table className="inventory-official-table">
-                  <thead style={{ whiteSpace: 'nowrap' }}><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Cobertura CMV</th><th>Acoes</th></tr></thead>
-                  <tbody>
+              {/* Desktop. Total/Contados/Pendentes viraram uma coluna de progresso,
+                  e Tipo e Setor dividem uma so. */}
+              <div className="inv-desktop-table-wrap">
+                <Table>
+                  <Table.Head>
+                    <Table.Row>
+                      <Table.Th>Código</Table.Th>
+                      <Table.Th>Data</Table.Th>
+                      <Table.Th>Tipo / setor</Table.Th>
+                      <Table.Th>Status</Table.Th>
+                      <Table.Th minWidth={120}>Progresso</Table.Th>
+                      <Table.Th title="Cobertura do inventário final CMV">Cobertura</Table.Th>
+                      <Table.Th>Responsável</Table.Th>
+                      <Table.Th actions>Ações</Table.Th>
+                    </Table.Row>
+                  </Table.Head>
+                  <Table.Body>
                     {operationalCounts.map((inventory) => {
                       const cov = inventory.type === "FINAL_CMV" ? finalCmvCoverageMap[inventory.id] : undefined;
+                      const carregando = isLoadingCoverageMap && !cov && inventory.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inventory.status);
                       return (
-                        <tr key={inventory.id}>
-                          <td title={inventory.name}>
-                            <strong>{inventory.code}</strong><small>{inventory.name}</small>
-                            <div className="badge-row inventory-inline-badges">
-                              {inventory.type === "FINAL_CMV" && <StatusBadge tone="warning">final CMV</StatusBadge>}
-                            </div>
-                          </td>
-                          <td>{formatDate(inventory.date)}</td>
-                          <td>{operationalTypeLabels[inventory.type]}</td>
-                          <td title={inventory.sectorName ?? "-"}>{inventory.sectorName ?? "-"}</td>
-                          <td><StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge></td>
-                          <td title={inventory.responsibleName ?? "-"}>{inventory.responsibleName ?? "-"}</td>
-                          <td>{formatNumber(inventory.totalItems)}</td>
-                          <td>{formatNumber(inventory.countedItems)}</td>
-                          <td>{formatNumber(inventory.pendingItems)}</td>
-                          <td>
-                            {isLoadingCoverageMap && !cov && inventory.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inventory.status) && (
-                              <span style={{ color: "var(--text-muted, #666)", fontSize: 12 }}>...</span>
-                            )}
-                            {cov && (
-                              <StatusBadge tone={cov.isComplete ? "success" : "warning"}>
-                                {cov.coveredTotal}/{cov.expectedTotal}
-                              </StatusBadge>
-                            )}
-                            {!cov && !(isLoadingCoverageMap && inventory.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inventory.status)) && "-"}
-                          </td>
-                          <td className="actions-cell">
-                            <button
-                              className={inventory.type === "FINAL_CMV" && inventory.status === "EM_REVISAO" ? "primary-button" : "secondary-button"}
-                              type="button"
-                              disabled={openingInventoryId === inventory.id}
-                              onClick={() => void openOperationalInventory(inventory.id)}
-                            >
-                              {openingInventoryId === inventory.id ? <Loader2 size={14} className="spin" /> : null}
-                              {inventory.type === "FINAL_CMV" && inventory.status === "EM_REVISAO" ? "Continuar análise" : "Abrir"}
-                            </button>
-                            <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>Gerar PDF</button>
-                          </td>
-                        </tr>
+                        <Table.Row key={inventory.id}>
+                          <Table.Td className="inventory-code-cell" title={inventory.name}>
+                            <strong>{inventory.code}</strong>{inventoryBadges(inventory)}
+                            <small>{inventory.name}</small>
+                          </Table.Td>
+                          <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(inventory.date)}</Table.Td>
+                          <Table.Td>
+                            {operationalTypeLabels[inventory.type]}
+                            {inventory.sectorName && <small>{inventory.sectorName}</small>}
+                          </Table.Td>
+                          <Table.Td><StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge></Table.Td>
+                          <Table.Td>{inventoryProgress(inventory)}</Table.Td>
+                          <Table.Td>
+                            {carregando && <span className="muted">...</span>}
+                            {cov && <StatusBadge tone={cov.isComplete ? "success" : "warning"}>{cov.coveredTotal}/{cov.expectedTotal}</StatusBadge>}
+                            {!cov && !carregando && "-"}
+                          </Table.Td>
+                          <Table.Td truncate style={{ maxWidth: 110 }} title={inventory.responsibleName ?? "-"}>{inventory.responsibleName ?? "-"}</Table.Td>
+                          <Table.Td actions>{inventoryActions(inventory)}</Table.Td>
+                        </Table.Row>
                       );
                     })}
-                  </tbody>
-                </table>
+                  </Table.Body>
+                </Table>
               </div>
 
-              {/* Mobile cards */}
               <div className="inv-mobile-cards">
                 {operationalCounts.map((inventory) => {
                   const cov = inventory.type === "FINAL_CMV" ? finalCmvCoverageMap[inventory.id] : undefined;
                   return (
-                    <div key={inventory.id} className="inv-mobile-card">
+                    <div key={inventory.id} className="inv-mobile-card count-list-card">
                       <div className="inv-mc-header">
                         <div className="inv-mc-header-left">
                           <strong>{inventory.code}</strong>
-                          <small>{inventory.name}</small>
-                          <div className="inv-mc-badges">
-                            {inventory.type === "FINAL_CMV" && <StatusBadge tone="warning">Final CMV</StatusBadge>}
-                          </div>
+                          <small>{[operationalTypeLabels[inventory.type], inventory.sectorName].filter(Boolean).join(" · ")}</small>
                         </div>
                         <StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge>
                       </div>
-                      <div className="inv-mc-meta">
-                        <span>{operationalTypeLabels[inventory.type]}</span>
-                        <span>{formatDate(inventory.date)}</span>
-                        {inventory.sectorName && <span>{inventory.sectorName}</span>}
-                      </div>
-                      <div className="inv-mc-progress">
-                        <span>{formatNumber(inventory.countedItems)}/{formatNumber(inventory.totalItems)} contados</span>
-                        {Number(inventory.pendingItems) > 0 && <span className="inv-mc-pending">{formatNumber(inventory.pendingItems)} pend.</span>}
-                      </div>
-                      {inventory.type === "FINAL_CMV" && (
-                        <div className="inv-mc-coverage">
-                          <span>Cobertura:</span>
-                          {isLoadingCoverageMap && !cov ? <span style={{ fontSize: 12, color: "var(--muted)" }}>...</span> : cov ? (
-                            <StatusBadge tone={cov.isComplete ? "success" : "warning"}>{cov.coveredTotal}/{cov.expectedTotal}</StatusBadge>
-                          ) : null}
-                        </div>
-                      )}
-                      <div className="inv-mc-actions">
-                        <button
-                          className="primary-button"
-                          type="button"
-                          disabled={openingInventoryId === inventory.id}
-                          onClick={() => void openOperationalInventory(inventory.id)}
-                        >
-                          {openingInventoryId === inventory.id ? <Loader2 size={14} className="spin" /> : null}
-                          {inventory.type === "FINAL_CMV" && inventory.status === "EM_REVISAO" ? "Continuar análise" : "Abrir"}
-                        </button>
-                        <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>PDF</button>
+                      {inventoryProgress(inventory, cov ? <em className={cov.isComplete ? "is-ok" : undefined}>cobertura {cov.coveredTotal}/{cov.expectedTotal}</em> : undefined)}
+                      <div className="count-list-card-footer">
+                        <small>{formatDate(inventory.date)}{inventory.type === "FINAL_CMV" ? " · final CMV" : ""}</small>
+                        {inventoryActions(inventory)}
                       </div>
                     </div>
                   );
@@ -3107,83 +3132,64 @@ export function Inventory({
               </div>
             </div>
 
-            {/* Desktop table */}
-            <div className="table-wrap inv-desktop-table-wrap">
-              <table className="inventory-official-table">
-                <thead style={{ whiteSpace: 'nowrap' }}><tr><th>Codigo</th><th>Data</th><th>Tipo</th><th>Setor</th><th>Status</th><th>Responsavel</th><th>Total</th><th>Contados</th><th>Pendentes</th><th>Divergentes</th><th>Acoes</th></tr></thead>
-                <tbody>
+            <div className="inv-desktop-table-wrap">
+              <Table>
+                <Table.Head>
+                  <Table.Row>
+                    <Table.Th>Código</Table.Th>
+                    <Table.Th>Data</Table.Th>
+                    <Table.Th>Tipo / setor</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th minWidth={120}>Progresso</Table.Th>
+                    <Table.Th align="right">Div.</Table.Th>
+                    <Table.Th>Responsável</Table.Th>
+                    <Table.Th actions>Ações</Table.Th>
+                  </Table.Row>
+                </Table.Head>
+                <Table.Body>
                   {officialInventories.map((inventory) => (
-                    <tr key={inventory.id}>
-                      <td title={inventory.name}><strong>{inventory.code}</strong><small>{inventory.name}</small><div className="badge-row inventory-inline-badges">{inventory.status === "FECHADO" && <StatusBadge tone="success">fechado</StatusBadge>}{inventory.inventorySnapshotId && <StatusBadge tone="info">snapshot CMV</StatusBadge>}{inventory.type === "FINAL_CMV" && <StatusBadge tone="warning">final CMV</StatusBadge>}</div></td>
-                      <td>{formatDate(inventory.date)}</td>
-                      <td>{operationalTypeLabels[inventory.type]}</td>
-                      <td title={inventory.sectorName ?? "-"}>{inventory.sectorName ?? "-"}</td>
-                      <td><StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge></td>
-                      <td title={inventory.responsibleName ?? "-"}>{inventory.responsibleName ?? "-"}</td>
-                      <td>{formatNumber(inventory.totalItems)}</td>
-                      <td>{formatNumber(inventory.countedItems)}</td>
-                      <td>{formatNumber(inventory.pendingItems)}</td>
-                      <td>{formatNumber(inventory.divergentItems)}</td>
-                      <td className="actions-cell">
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          disabled={openingInventoryId === inventory.id}
-                          onClick={() => void openOperationalInventory(inventory.id)}
-                        >
-                          {openingInventoryId === inventory.id ? <Loader2 size={14} className="spin" /> : null}
-                          Abrir
-                        </button>
-                        <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>Gerar PDF</button>
-                      </td>
-                    </tr>
+                    <Table.Row key={inventory.id}>
+                      {/* "fechado" saiu dos selos: ja e o Status, uma coluna ao lado. */}
+                      <Table.Td className="inventory-code-cell" title={inventory.name}>
+                        <strong>{inventory.code}</strong>{inventoryBadges(inventory)}
+                        <small>{inventory.name}</small>
+                      </Table.Td>
+                      <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(inventory.date)}</Table.Td>
+                      <Table.Td>
+                        {operationalTypeLabels[inventory.type]}
+                        {inventory.sectorName && <small>{inventory.sectorName}</small>}
+                      </Table.Td>
+                      <Table.Td><StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge></Table.Td>
+                      <Table.Td>{inventoryProgress(inventory)}</Table.Td>
+                      <Table.Td align="right" className={Number(inventory.divergentItems) > 0 ? "count-list-divergent" : undefined}>{formatNumber(inventory.divergentItems)}</Table.Td>
+                      <Table.Td truncate style={{ maxWidth: 110 }} title={inventory.responsibleName ?? "-"}>{inventory.responsibleName ?? "-"}</Table.Td>
+                      <Table.Td actions>{inventoryActions(inventory)}</Table.Td>
+                    </Table.Row>
                   ))}
                   {officialInventories.length === 0 && (
-                    <tr><td colSpan={11}><EmptyState title="Nenhum inventario oficial" description="Aprove ou feche uma contagem para gerar o documento oficial." /></td></tr>
+                    <Table.Row><Table.Td colSpan={8}><EmptyState title="Nenhum inventario oficial" description="Aprove ou feche uma contagem para gerar o documento oficial." /></Table.Td></Table.Row>
                   )}
-                </tbody>
-              </table>
+                </Table.Body>
+              </Table>
             </div>
 
-            {/* Mobile cards */}
             <div className="inv-mobile-cards">
               {officialInventories.length === 0 && (
                 <EmptyState title="Nenhum inventario oficial" description="Aprove ou feche uma contagem para gerar o documento oficial." />
               )}
               {officialInventories.map((inventory) => (
-                <div key={inventory.id} className="inv-mobile-card">
+                <div key={inventory.id} className="inv-mobile-card count-list-card">
                   <div className="inv-mc-header">
                     <div className="inv-mc-header-left">
                       <strong>{inventory.code}</strong>
-                      <small>{inventory.name}</small>
-                      <div className="inv-mc-badges">
-                        {inventory.status === "FECHADO" && <StatusBadge tone="success">Fechado</StatusBadge>}
-                        {inventory.inventorySnapshotId && <StatusBadge tone="info">Snapshot CMV</StatusBadge>}
-                        {inventory.type === "FINAL_CMV" && <StatusBadge tone="warning">Final CMV</StatusBadge>}
-                      </div>
+                      <small>{[operationalTypeLabels[inventory.type], inventory.sectorName, inventory.inventorySnapshotId ? "snapshot CMV" : null].filter(Boolean).join(" · ")}</small>
                     </div>
                     <StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge>
                   </div>
-                  <div className="inv-mc-meta">
-                    <span>{operationalTypeLabels[inventory.type]}</span>
-                    <span>{formatDate(inventory.date)}</span>
-                    {inventory.sectorName && <span>{inventory.sectorName}</span>}
-                  </div>
-                  <div className="inv-mc-progress">
-                    <span>{formatNumber(inventory.countedItems)}/{formatNumber(inventory.totalItems)} contados</span>
-                    {Number(inventory.divergentItems) > 0 && <span className="inv-mc-divergent">{formatNumber(inventory.divergentItems)} div.</span>}
-                  </div>
-                  <div className="inv-mc-actions">
-                    <button
-                      className="primary-button"
-                      type="button"
-                      disabled={openingInventoryId === inventory.id}
-                      onClick={() => void openOperationalInventory(inventory.id)}
-                    >
-                      {openingInventoryId === inventory.id ? <Loader2 size={14} className="spin" /> : null}
-                      Abrir
-                    </button>
-                    <button className="secondary-button" type="button" onClick={() => downloadInventoryPdf(inventory)}>PDF</button>
+                  {inventoryProgress(inventory, Number(inventory.divergentItems) > 0 ? <em className="count-list-divergent">{formatNumber(inventory.divergentItems)} div.</em> : undefined)}
+                  <div className="count-list-card-footer">
+                    <small>{formatDate(inventory.date)}{inventory.responsibleName ? ` · ${inventory.responsibleName}` : ""}</small>
+                    {inventoryActions(inventory)}
                   </div>
                 </div>
               ))}
@@ -3199,6 +3205,18 @@ export function Inventory({
                 <h3 tabIndex={-1} data-autofocus title={operationalDetail.name}>{operationalDetail.name}</h3>
               </div>
               <div className="op-detail-head-actions">
+                {/* O detalhe abre abaixo das duas listas e nao tinha saida: era
+                    rolar de volta ate o topo na mao. */}
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    setOperationalDetail(null);
+                    document.querySelector(".content")?.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                >
+                  <X size={15} /> Voltar à lista
+                </button>
                 <StatusBadge tone={operationalTone(operationalDetail.status)}>{operationalStatusLabels[operationalDetail.status] ?? operationalDetail.status}</StatusBadge>
                 {canPlanPurchase && operationalDetail.status !== "CANCELADO" && operationalDetail.pendingItems === 0 && (
                   <button
@@ -3212,15 +3230,17 @@ export function Inventory({
               </div>
             </div>
 
-            <div className="summary-grid op-summary-pills">
-              <article><span>Total</span><strong>{formatNumber(operationalDetail.totalItems)}</strong></article>
-              <article><span>Contados</span><strong>{formatNumber(operationalDetail.countedItems)}</strong></article>
-              <article><span>Pendentes</span><strong>{formatNumber(operationalDetail.pendingItems)}</strong></article>
-              <article><span>Divergentes</span><strong>{formatNumber(operationalDetail.divergentItems)}</strong></article>
-              <article><span>Data efetiva</span><strong>{formatDate(operationalDetail.effectiveCountDate ?? operationalDetail.date)}</strong></article>
-              <article><span>Início real</span><strong>{formatDateTime(operationalDetail.startedAt)}</strong></article>
-              <article><span>Fim real</span><strong>{formatDateTime(operationalDetail.finishedAt)}</strong></article>
-            </div>
+            {/* Linha de numeros no lugar de sete cartoes: no celular eles
+                ocupavam meia tela e a data quebrava em "05/06/2 026". */}
+            <ul className="inv-estatisticas op-detail-stats">
+              <li><span>{formatNumber(operationalDetail.countedItems)}/{formatNumber(operationalDetail.totalItems)}</span> contados</li>
+              <li><span>{formatNumber(operationalDetail.pendingItems)}</span> pendentes</li>
+              <li className={Number(operationalDetail.divergentItems) > 0 ? "inv-estatisticas__alerta" : ""}><span>{formatNumber(operationalDetail.divergentItems)}</span> divergentes</li>
+              <li className="inv-estatisticas__ultimo">
+                efetiva {formatDate(operationalDetail.effectiveCountDate ?? operationalDetail.date)}
+                {(operationalDetail.startedAt || operationalDetail.finishedAt) && ` · ${formatDateTime(operationalDetail.startedAt)} → ${formatDateTime(operationalDetail.finishedAt)}`}
+              </li>
+            </ul>
 
             {operationalDetail.type === "FINAL_CMV" && operationalDetail.status === "RASCUNHO" && (() => {
               const complementSessions = countSessions.filter((s) =>
@@ -3391,18 +3411,26 @@ export function Inventory({
                 </select></label>
                 <label>Busca<input value={operationalSearch} onChange={(event) => setOperationalSearch(event.target.value)} placeholder="Codigo ou produto" /></label>
               </div>
+              {/* So o que vale para o status atual. Antes os sete botoes ficavam
+                  sempre, a maioria desabilitada: no celular eram sete linhas
+                  antes do primeiro produto, e nao dava para saber qual era o
+                  proximo passo. Mesmas condicoes de antes, invertidas. */}
               <div className="op-filters-bar__actions">
-                <button className="secondary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={markOperationalFilteredZero}>Marcar filtrados como zero</button>
-                <button className="secondary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={saveOperationalDraft}><Save size={16} />Salvar rascunho</button>
-                <button className="primary-button" type="button" disabled={!editableOperationalInventoryStatuses.has(operationalDetail.status)} onClick={() => operationalAction("submit")}><Send size={16} />Enviar para revisao</button>
-                {canApproveOperational && (<>
-                  {operationalDetail.type !== "FINAL_CMV" && <button className="secondary-button" type="button" disabled={operationalDetail.status !== "EM_REVISAO"} onClick={() => operationalAction("approve")}>Aprovar</button>}
-                  <button className="secondary-button" type="button" disabled={operationalDetail.status !== "EM_REVISAO"} onClick={() => operationalAction("reject")}>Rejeitar</button>
-                  {operationalDetail.type !== "FINAL_CMV" && <button className="primary-button" type="button" disabled={operationalDetail.status !== "APROVADO"} onClick={() => operationalAction("close")}>Fechar</button>}
+                {editableOperationalInventoryStatuses.has(operationalDetail.status) && (<>
+                  <button className="secondary-button" type="button" onClick={markOperationalFilteredZero}>Marcar filtrados como zero</button>
+                  <button className="secondary-button" type="button" onClick={saveOperationalDraft}><Save size={16} />Salvar rascunho</button>
+                  <button className="primary-button" type="button" onClick={() => operationalAction("submit")}><Send size={16} />Enviar para revisao</button>
                 </>)}
-                {canCancelOperational && (<>
+                {canApproveOperational && operationalDetail.status === "EM_REVISAO" && (<>
+                  {operationalDetail.type !== "FINAL_CMV" && <button className="primary-button" type="button" onClick={() => operationalAction("approve")}>Aprovar</button>}
+                  <button className="secondary-button" type="button" onClick={() => operationalAction("reject")}>Rejeitar</button>
+                </>)}
+                {canApproveOperational && operationalDetail.type !== "FINAL_CMV" && operationalDetail.status === "APROVADO" && (
+                  <button className="primary-button" type="button" onClick={() => operationalAction("close")}>Fechar</button>
+                )}
+                {canCancelOperational && !["FECHADO", "CANCELADO"].includes(operationalDetail.status) && (<>
                   <span className="op-filters-bar__danger-sep" aria-hidden="true" />
-                  <button className="danger-button" type="button" disabled={["FECHADO", "CANCELADO"].includes(operationalDetail.status)} onClick={() => operationalAction("cancel")}>Cancelar</button>
+                  <button className="danger-button" type="button" onClick={() => operationalAction("cancel")}>Cancelar</button>
                 </>)}
               </div>
             </div>
@@ -3786,7 +3814,9 @@ export function Inventory({
         </div>
       </section>
 
-      <section className={panelClass(["inventory", "reports"])}>
+      {/* So com a aba dele: nas outras abas o conteudo nao renderiza e sobrava
+          um painel "Estoque atual" vazio no fim da pagina. */}
+      <section className={inventoryDeskTab === "stock" || inventoryDeskTab === "reports" ? panelClass(["inventory", "reports"]) : "panel inventory-section-hidden"}>
         <div className="section-heading">
           <div>
             <PanelEyebrow>{inventoryDeskTab === "reports" ? "Relatórios" : "Estoque atual"}</PanelEyebrow>
