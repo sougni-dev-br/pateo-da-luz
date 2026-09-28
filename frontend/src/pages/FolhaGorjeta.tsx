@@ -42,6 +42,7 @@ export function FolhaGorjeta() {
   const { user } = useSession();
   const canEdit = hasPermission(user, "payroll-tips", "edit");
   const canApprove = hasPermission(user, "payroll-tips", "approve");
+  const podeReabrir = hasPermission(user, "payroll-tips", "admin");
   const { notice, setNotice } = useNotice();
 
   const now = new Date();
@@ -249,18 +250,21 @@ export function FolhaGorjeta() {
     try {
       await closeTipPeriodApi(year, month);
       await load();
-      setNotice({ tone: "success", message: "Período fechado. Valores gravados para contabilidade e pagamento." });
+      setNotice({ tone: "success", message: "Período fechado. O retrato completo ficou gravado no registro de fechamentos (Relatórios → Fechamentos)." });
     } catch (e) { erro(e); } finally { setBusy(false); }
   }
 
+  const [reabrindo, setReabrindo] = useState(false);
+  const [motivoReabrir, setMotivoReabrir] = useState("");
   async function reabrir() {
     await flush();
-    if (!window.confirm("Reabrir este período? Ele volta a ficar editável e precisará ser fechado de novo.")) return;
     setBusy(true);
     try {
-      await reopenTipPeriodApi(year, month);
+      await reopenTipPeriodApi(year, month, motivoReabrir.trim());
+      setReabrindo(false);
+      setMotivoReabrir("");
       await load();
-      setNotice({ tone: "success", message: "Período reaberto." });
+      setNotice({ tone: "success", message: "Período reaberto. O motivo ficou registrado." });
     } catch (e) { erro(e); } finally { setBusy(false); }
   }
 
@@ -275,6 +279,7 @@ export function FolhaGorjeta() {
         <strong style={{ minWidth: 150, textAlign: "center" }}>{MONTHS[month - 1]} / {year}</strong>
         <Button variant="secondary" onClick={() => void changeMonth(1)} aria-label="Próximo mês" leadingIcon={<ChevronRight size={14} />}>Próximo</Button>
         <Button variant="secondary" onClick={() => void load()} aria-label="Recarregar" leadingIcon={<RefreshCw size={14} />}>Recarregar</Button>
+        {comp?.code && <span className="codigo-apuracao" title="Código da apuração">{comp.code}</span>}
         <span style={{ color: "var(--muted)", fontSize: 13 }}>{comp?.label}</span>
         {comp?.periodId && (
           <StatusBadge tone={closed ? "success" : "info"}>{closed ? "Fechada" : "Em apuração"}</StatusBadge>
@@ -405,8 +410,20 @@ export function FolhaGorjeta() {
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 {closed ? (
                   <>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--muted)" }}><Lock size={14} /> Período fechado.</span>
-                    {canApprove && <Button variant="secondary" onClick={() => void reabrir()} disabled={busy} leadingIcon={<Unlock size={14} />}>Reabrir período</Button>}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--muted)" }}>
+                      <Lock size={14} /> Fechado{comp.fechamento ? ` — registro ${comp.fechamento.code}, por ${comp.fechamento.closedByName} em ${new Date(comp.fechamento.closedAt).toLocaleString("pt-BR")}` : ""}.
+                    </span>
+                    {podeReabrir && !reabrindo && <Button variant="secondary" onClick={() => setReabrindo(true)} disabled={busy} leadingIcon={<Unlock size={14} />}>Reabrir período</Button>}
+                    {reabrindo && (
+                      <div className="barra-lista" style={{ flex: "1 1 100%" }}>
+                        <input autoFocus value={motivoReabrir} onChange={(e) => setMotivoReabrir(e.target.value)}
+                          placeholder="Motivo da reabertura (fica gravado no registro)" aria-label="Motivo da reabertura"
+                          style={{ ...inputStyle, flex: "1 1 320px", width: "auto" }} />
+                        <Button onClick={() => void reabrir()} disabled={busy || motivoReabrir.trim().length < 10} leadingIcon={<Unlock size={14} />}>Confirmar reabertura</Button>
+                        <button type="button" className="barra-lista-link" onClick={() => { setReabrindo(false); setMotivoReabrir(""); }}>cancelar</button>
+                        <span style={{ ...mutedStyle, flexBasis: "100%" }}>O fechamento atual continua guardado; fechar de novo cria a versão seguinte.</span>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <Button onClick={() => void fechar()} disabled={!canApprove || busy || autoSaving || !comp.check.ok} leadingIcon={<Check size={14} />}

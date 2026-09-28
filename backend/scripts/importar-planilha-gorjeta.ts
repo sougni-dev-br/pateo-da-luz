@@ -1,8 +1,7 @@
 // Importa a aba "Cadastro Funcionários" da planilha de apuração da gorjeta para o
 // cadastro do ERP: quem participa, função, pontos personalizados, empresa,
 // e "sem registro". A linha da reserva (Ricardo Almeida na planilha) não vira
-// funcionário: o script só informa os pontos dela, que vão em "Pontos da reserva"
-// nos parâmetros do período.
+// funcionário nem é importada: a reserva agora é 0 e o que sobra vai sozinho ao fundo.
 //
 // Por padrão só SIMULA e mostra o que faria. Para gravar: --aplicar.
 //   npx tsx scripts/importar-planilha-gorjeta.ts <planilha.xlsx> [--reserva "Ricardo Almeida"] [--aplicar]
@@ -149,7 +148,7 @@ async function main() {
     const prefixo = `${l.codigo} ${l.nome}`;
     if (reserva) {
       const pontos = l.pontosPers ?? funcao?.points ?? null;
-      console.log(`RESERVA ${prefixo} → não é importado; use ${pontos ?? "?"} em "Pontos da reserva" no período.`);
+      console.log(`RESERVA ${prefixo} (${pontos ?? "?"} pts) → não é importada; a reserva fica 0 e o saldo do mês vai sozinho ao fundo (saldo inicial já lançado pela migration).`);
       continue;
     }
 
