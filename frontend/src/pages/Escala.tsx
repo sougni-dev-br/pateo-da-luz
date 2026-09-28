@@ -500,6 +500,8 @@ export function Escala() {
     for (let t = inicio.getTime(); t <= fim.getTime(); t += 86400000) {
       const dia = new Date(t);
       const noMes = dia.getUTCFullYear() === year && dia.getUTCMonth() === month - 1;
+      // UTC de proposito: `dia` nasce de Date.UTC e anda de 86400000 em 86400000,
+      // entao toISOString devolve o proprio dia do calendario, sem fuso nem horario de verao.
       const iso = dia.toISOString().slice(0, 10);
       // Dia de mês vizinho sem escala montada: não dá para afirmar que foi
       // trabalhado. Corta a sequência em vez de chutar.

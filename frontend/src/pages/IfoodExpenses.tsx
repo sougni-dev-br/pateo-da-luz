@@ -9,6 +9,7 @@ import {
 } from "../api/client";
 import { Alert, Button, Card, Money, PanelEyebrow, Select, SummaryCard, Table, TextField } from "../design-system";
 import "./DeliveryFinance.css";
+import { hojeLocalIso } from "../lib/datas";
 
 const MONTHS_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 
@@ -282,7 +283,7 @@ type PayModalProps = {
 };
 
 function PayModal({ expense, onClose, onSubmit }: PayModalProps) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hojeLocalIso();
   const [paidAt, setPaidAt] = useState(today);
   const [paidAmount, setPaidAmount] = useState(String(expense.totalAmount));
   const [paymentMethod, setPaymentMethod] = useState("iFood — desconto em repasse");

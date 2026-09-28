@@ -7,6 +7,8 @@
 // Purchases.tsx tinha uma cópia local sem testes até 2026-09-15. A troca está
 // caracterizada em __tests__/formas-pagamento.caracterizacao.test.ts.
 
+import { dataLocalIso } from "./datas";
+
 const PADRAO_PARCELAS = /^(.*?)(?:\s+|\/|-)?(\d{1,2})\s*x$/;
 
 export function normalizar(valor?: string | null): string {
@@ -94,5 +96,5 @@ export function somarDias(dataIso: string, dias: number): string {
   const data = new Date(`${dataIso}T12:00:00`);
   if (Number.isNaN(data.getTime())) return "";
   data.setDate(data.getDate() + dias);
-  return data.toISOString().slice(0, 10);
+  return dataLocalIso(data);
 }

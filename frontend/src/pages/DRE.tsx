@@ -32,6 +32,7 @@ import { useSession } from "../context/SessionContext";
 import { hasPermission } from "../lib/permissions";
 import { Alert, Button, IconButton, Money, Select, Tabs, useFormatCurrency } from "../design-system";
 import { formatDate } from "../utils/format";
+import { dataLocalIso } from "../lib/datas";
 
 // ─────────────────────────────────────────────
 // Types
@@ -97,7 +98,7 @@ function statusLabel(s: string) {
 }
 
 function toDateInput(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  return dataLocalIso(d);
 }
 
 // DRE_GROUPS e DRECategoryOptions vêm de ../components/DRECategoryOptions
