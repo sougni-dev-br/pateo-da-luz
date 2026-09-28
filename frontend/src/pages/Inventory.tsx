@@ -118,6 +118,8 @@ import {
   itemTone,
   loadCountSessionColumnPreferences,
   monthValue,
+  movementSignedQuantity,
+  movementTypeLabel,
   movementTypes,
   operationalStatusLabels,
   operationalTone,
@@ -635,7 +637,7 @@ export function Inventory({
   );
   const productsByCategory = useMemo(() => countBy(products, (product) => product.category?.name), [products]);
   const productsBySector = useMemo(() => countBy(products, (product) => product.inventorySector?.name), [products]);
-  const movementsByType = useMemo(() => countBy(movements, (movement) => movement.type), [movements]);
+  const movementsByType = useMemo(() => countBy(movements, (movement) => movementTypeLabel(movement.type)), [movements]);
   const movementsByProduct = useMemo(() => sumBy(movements, (movement) => movement.productName, (movement) => Math.abs(Number(movement.quantity ?? 0))), [movements]);
   const movementsTimeline = useMemo(() => countBy(movements, (movement) => formatDate(movement.createdAt)), [movements]);
   const countsByStatus = useMemo(() => countBy(countSessions, (session) => countSessionStatusLabels[session.status] ?? session.status), [countSessions]);
@@ -658,6 +660,9 @@ export function Inventory({
     { id: "reports" as const, label: "Relatórios", allowed: canViewInventoryReports }
   ].filter((item) => item.allowed).map(({ id, label }) => ({ id, label }));
   const panelClass = (views: InventoryView[]) => views.includes(activeView) ? "panel" : "panel inventory-section-hidden";
+  // A rota Relatorios mostra a leitura gerencial direto, sem depender da aba
+  // escolhida dentro de Inventario (que comeca em "Inventarios oficiais").
+  const showManagementReport = activeView === "reports" || inventoryDeskTab === "reports";
 
   async function load() {
     setLoading(true);
@@ -721,8 +726,10 @@ export function Inventory({
       isActive: "true"
     });
     setProducts(productRows.items);
+    // Movimentacao nao pre-seleciona produto: vinha com o primeiro da lista e
+    // um aviso verde "Selecionado", e quem so digitava a quantidade lancava a
+    // saida no produto errado.
     if (productRows.items[0]) {
-      setMovementForm((current) => current.productId ? current : { ...current, productId: productRows.items[0].id, unit: productRows.items[0].unit ?? "" });
       setCountForm((current) => current.productId ? current : { ...current, productId: productRows.items[0].id, unit: productRows.items[0].unit ?? "" });
     }
   }
@@ -1654,7 +1661,15 @@ export function Inventory({
   }
 
   async function submitMovement() {
-    if (!movementForm.productId || !movementForm.quantity) return;
+    // Antes saia calado: o botao nao fazia nada e ninguem sabia por que.
+    if (!movementForm.productId) {
+      setNotice({ tone: "warning", message: "Escolha o produto antes de salvar a movimentacao." });
+      return;
+    }
+    if (!movementForm.quantity) {
+      setNotice({ tone: "warning", message: "Informe a quantidade da movimentacao." });
+      return;
+    }
     if (sensitiveMovementTypes.includes(movementForm.type) && !movementForm.notes.trim()) {
       setNotice({ tone: "error", message: "Observacao obrigatoria para este tipo de movimentacao." });
       return;
@@ -2439,7 +2454,7 @@ export function Inventory({
         onOpenInventory={() => setActiveView("inventory")}
       />
 
-      <section className={panelClass(["counting", "inventory", "reports"])}>
+      <section className={panelClass(["counting", "inventory"])}>
         {/* O titulo da pagina ja diz "Inventário" logo acima; repetir "Estoque /
           * Inventario operacional" aqui era o terceiro rotulo em sequencia
           * dizendo a mesma coisa. Ficam os controles. */}
@@ -3694,6 +3709,139 @@ export function Inventory({
         )}
       </section>
 
+      {/* So com a aba dele: nas outras abas o conteudo nao renderiza e sobrava
+          um painel "Estoque atual" vazio no fim da pagina. */}
+      <section className={activeView === "reports" ? "panel" : inventoryDeskTab === "stock" || inventoryDeskTab === "reports" ? panelClass(["inventory"]) : "panel inventory-section-hidden"}>
+        <div className="section-heading">
+          <div>
+            <PanelEyebrow>{showManagementReport ? "Relatórios" : "Estoque atual"}</PanelEyebrow>
+            <h2>{showManagementReport ? "Leitura gerencial" : "Estoque atual"}</h2>
+          </div>
+        </div>
+        {!showManagementReport && inventoryDeskTab === "stock" && (
+          <>
+        <div className="summary-grid inventory-compact-summary stock-summary-grid">
+          <SummaryCard label="Itens em estoque" value={stockSummary.total} tone="info" icon={<Archive size={18} />} />
+          <SummaryCard label="Zerados" value={stockSummary.zeros} tone={stockSummary.zeros ? "danger" : "success"} />
+          <SummaryCard label="Abaixo do mínimo" value={stockSummary.belowMinimum} tone={stockSummary.belowMinimum ? "warning" : "success"} />
+          <SummaryCard label="Divergentes" value={stockSummary.divergent} tone={stockSummary.divergent ? "danger" : "success"} />
+          <SummaryCard label="Sem fornecedor" value={stockSummary.withoutSupplier} tone={stockSummary.withoutSupplier ? "danger" : "success"} />
+          <SummaryCard label="Cadastro incompleto" value={stockSummary.incomplete} tone={stockSummary.incomplete ? "warning" : "success"} />
+        </div>
+        <div className="filters-row inventory-filter-row">
+          <label>Busca<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Codigo, produto, setor ou fornecedor" /></label>
+          <label>Setor<select value={stockFilters.sector} onChange={(event) => setStockFilters((current) => ({ ...current, sector: event.target.value }))}><option value="">Todos</option>{stockFilterOptions.sectors.map((sector) => <option key={sector} value={sector}>{sector}</option>)}</select></label>
+          <label>Categoria<select value={stockFilters.category} onChange={(event) => setStockFilters((current) => ({ ...current, category: event.target.value }))}><option value="">Todas</option>{stockFilterOptions.categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+          <label>Subcategoria<select value={stockFilters.subcategory} onChange={(event) => setStockFilters((current) => ({ ...current, subcategory: event.target.value }))}><option value="">Todas</option>{stockFilterOptions.subcategories.map((subcategory) => <option key={subcategory} value={subcategory}>{subcategory}</option>)}</select></label>
+          <label>Fornecedor<select value={stockFilters.supplier} onChange={(event) => setStockFilters((current) => ({ ...current, supplier: event.target.value }))}><option value="">Todos</option>{stockFilterOptions.suppliers.map((supplier) => <option key={supplier} value={supplier}>{supplier}</option>)}</select></label>
+          <label>Status/alerta<select value={stockFilters.alert} onChange={(event) => setStockFilters((current) => ({ ...current, alert: event.target.value }))}><option value="">Todos</option>{stockFilterOptions.alerts.map((alert) => <option key={alert} value={alert}>{buyerAlertLabel(alert)}</option>)}</select></label>
+          <Button onClick={load}>Filtrar</Button>
+          <Button variant="secondary" leadingIcon={<FilterX size={16} />} onClick={() => {
+            setSearch("");
+            setStockFilters({ sector: "", category: "", subcategory: "", supplier: "", alert: "" });
+          }}>Limpar</Button>
+        </div>
+        <div className="chart-grid">
+          <SimpleBarChart title="Divergências por setor/tipo" items={divergencesBySector} />
+          <SimpleBarChart title="Status dos inventários" items={countsByStatus} />
+          <SimpleBarChart title="Estoque contado x pendente" items={[
+            { label: "Contados", value: operationalInventories.reduce((sum, item) => sum + Number(item.countedItems ?? 0), 0) },
+            { label: "Pendentes", value: operationalInventories.reduce((sum, item) => sum + Number(item.pendingItems ?? 0), 0) }
+          ]} />
+        </div>
+        <div className="subsection inventory-stock-table-wrap">
+          <table className="inventory-stock-table">
+            <thead>
+              <tr>
+                <th>Produto</th>
+                <th>Setor</th>
+                <th>Fornecedor</th>
+                <th className="numeric-cell">Quantidade</th>
+                <th className="numeric-cell" title="Quantidade mínima em estoque — edite clicando no campo">Mínimo</th>
+                <th title="UN = unidade, CX = caixa, KG = quilograma">Unidade</th>
+                {canViewCosts && <><th className="numeric-cell">Custo medio</th><th className="numeric-cell" title="Custo por quilograma">KG</th><th className="numeric-cell" title="Custo por caixa">CX</th><th className="numeric-cell" title="Custo por unidade">UN</th></>}
+                <th title="Data da ultima movimentacao">Ultima movimentacao</th>
+                <th>Alertas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredStockRows.length ? filteredStockRows.map((stock) => {
+                const rowClass = [
+                  stock.alerts.includes("ZERADO") ? "is-zero" : "",
+                  stock.alerts.includes("ABAIXO DO MINIMO") ? "is-warning" : "",
+                  stock.alerts.includes("DIVERGENTE") ? "is-divergent" : "",
+                  stock.alerts.includes("SEM_FORNECEDOR") ? "is-problem" : "",
+                  stock.alerts.includes("CADASTRO INCOMPLETO") ? "is-incomplete" : ""
+                ].filter(Boolean).join(" ");
+                return (
+                  <tr key={stock.id} className={rowClass}>
+                    <td title={stock.productDisplayName}>
+                      <strong>{stock.productDisplayName}</strong>
+                      <small>{stock.codeLabel}</small>
+                      <small>{[stock.categoryName, stock.subcategoryName].filter(Boolean).join(" / ") || "Sem classificacao"}</small>
+                    </td>
+                    <td><span className="table-muted-badge">{displayLabel(stock.sectorName, "Sem setor")}</span></td>
+                    <td title={stock.supplierName}>{stock.supplierName}</td>
+                    <td className="numeric-cell">{formatNumber(stock.currentQuantityNumber)}</td>
+                    <td className="numeric-cell" style={{ padding: "2px 4px" }}>
+                      {canEditStockMinimum ? (
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          className="inline-qty-input"
+                          style={{ width: 72, textAlign: "right" }}
+                          value={minQtyEdit[stock.productId] ?? (stock.minQuantity == null ? "" : String(Number(stock.minQuantity)))}
+                          placeholder="—"
+                          disabled={savingMinQty[stock.productId]}
+                          onChange={(e) => setMinQtyEdit((prev) => ({ ...prev, [stock.productId]: e.target.value }))}
+                          onBlur={() => { void saveMinQty(stock.productId); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.currentTarget.blur(); } }}
+                        />
+                      ) : (
+                        stock.minQuantity == null ? "—" : formatNumber(Number(stock.minQuantity))
+                      )}
+                    </td>
+                    <td>{displayLabel(stock.unitCode, "-")}</td>
+                    {canViewCosts && <><td className="numeric-cell"><Money value={stock.averageCost ?? 0} /></td><td className="numeric-cell">{stock.costPerKg ? <Money value={stock.costPerKg} /> : "-"}</td><td className="numeric-cell">{stock.costPerBox ? <Money value={stock.costPerBox} /> : "-"}</td><td className="numeric-cell">{stock.costPerUnit ? <Money value={stock.costPerUnit} /> : "-"}</td></>}
+                    <td>{formatDate(stock.lastMovementAt)}</td>
+                    <td>
+                      <div className="badge-row">
+                        {stock.alerts.length ? stock.alerts.map((alert) => <StatusBadge key={`${stock.id}-${alert}`} tone={buyerAlertTone(alert)}>{buyerAlertLabel(alert)}</StatusBadge>) : <StatusBadge tone="success">ok</StatusBadge>}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }) : (
+                <tr>
+                  <td colSpan={canViewCosts ? 12 : 8} className="empty-table-state">Nenhum item encontrado com os filtros atuais.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+          </>
+        )}
+        {showManagementReport && (
+          <>
+            <div className="summary-grid inventory-compact-summary">
+              <SummaryCard label="Movimentações" value={movements.length} tone="info" />
+              <SummaryCard label="Contagens" value={counts.length} tone="info" />
+              <SummaryCard label="Inventários oficiais" value={officialInventories.length} tone="success" />
+              <SummaryCard label="Divergências" value={counts.filter((count) => Number(count.divergenceQuantity) !== 0).length} tone="warning" />
+            </div>
+            <div className="chart-grid">
+              <SimpleBarChart title="Divergências por setor/tipo" items={divergencesBySector} />
+              <SimpleBarChart title="Status dos inventários" items={countsByStatus} />
+              <SimpleBarChart title="Estoque contado x pendente" items={[
+                { label: "Contados", value: operationalInventories.reduce((sum, item) => sum + Number(item.countedItems ?? 0), 0) },
+                { label: "Pendentes", value: operationalInventories.reduce((sum, item) => sum + Number(item.pendingItems ?? 0), 0) }
+              ]} />
+            </div>
+          </>
+        )}
+      </section>
+
       <section className={panelClass(["reports"])}>
         <div className="section-heading">
           <div>
@@ -3814,145 +3962,12 @@ export function Inventory({
         </div>
       </section>
 
-      {/* So com a aba dele: nas outras abas o conteudo nao renderiza e sobrava
-          um painel "Estoque atual" vazio no fim da pagina. */}
-      <section className={inventoryDeskTab === "stock" || inventoryDeskTab === "reports" ? panelClass(["inventory", "reports"]) : "panel inventory-section-hidden"}>
-        <div className="section-heading">
-          <div>
-            <PanelEyebrow>{inventoryDeskTab === "reports" ? "Relatórios" : "Estoque atual"}</PanelEyebrow>
-            <h2>{inventoryDeskTab === "reports" ? "Leitura gerencial" : "Estoque atual"}</h2>
-          </div>
-        </div>
-        {inventoryDeskTab === "stock" && (
-          <>
-        <div className="summary-grid inventory-compact-summary stock-summary-grid">
-          <SummaryCard label="Itens em estoque" value={stockSummary.total} tone="info" icon={<Archive size={18} />} />
-          <SummaryCard label="Zerados" value={stockSummary.zeros} tone={stockSummary.zeros ? "danger" : "success"} />
-          <SummaryCard label="Abaixo do mínimo" value={stockSummary.belowMinimum} tone={stockSummary.belowMinimum ? "warning" : "success"} />
-          <SummaryCard label="Divergentes" value={stockSummary.divergent} tone={stockSummary.divergent ? "danger" : "success"} />
-          <SummaryCard label="Sem fornecedor" value={stockSummary.withoutSupplier} tone={stockSummary.withoutSupplier ? "danger" : "success"} />
-          <SummaryCard label="Cadastro incompleto" value={stockSummary.incomplete} tone={stockSummary.incomplete ? "warning" : "success"} />
-        </div>
-        <div className="filters-row inventory-filter-row">
-          <label>Busca<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Codigo, produto, setor ou fornecedor" /></label>
-          <label>Setor<select value={stockFilters.sector} onChange={(event) => setStockFilters((current) => ({ ...current, sector: event.target.value }))}><option value="">Todos</option>{stockFilterOptions.sectors.map((sector) => <option key={sector} value={sector}>{sector}</option>)}</select></label>
-          <label>Categoria<select value={stockFilters.category} onChange={(event) => setStockFilters((current) => ({ ...current, category: event.target.value }))}><option value="">Todas</option>{stockFilterOptions.categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
-          <label>Subcategoria<select value={stockFilters.subcategory} onChange={(event) => setStockFilters((current) => ({ ...current, subcategory: event.target.value }))}><option value="">Todas</option>{stockFilterOptions.subcategories.map((subcategory) => <option key={subcategory} value={subcategory}>{subcategory}</option>)}</select></label>
-          <label>Fornecedor<select value={stockFilters.supplier} onChange={(event) => setStockFilters((current) => ({ ...current, supplier: event.target.value }))}><option value="">Todos</option>{stockFilterOptions.suppliers.map((supplier) => <option key={supplier} value={supplier}>{supplier}</option>)}</select></label>
-          <label>Status/alerta<select value={stockFilters.alert} onChange={(event) => setStockFilters((current) => ({ ...current, alert: event.target.value }))}><option value="">Todos</option>{stockFilterOptions.alerts.map((alert) => <option key={alert} value={alert}>{buyerAlertLabel(alert)}</option>)}</select></label>
-          <Button onClick={load}>Filtrar</Button>
-          <Button variant="secondary" leadingIcon={<FilterX size={16} />} onClick={() => {
-            setSearch("");
-            setStockFilters({ sector: "", category: "", subcategory: "", supplier: "", alert: "" });
-          }}>Limpar</Button>
-        </div>
-        <div className="chart-grid">
-          <SimpleBarChart title="Divergências por setor/tipo" items={divergencesBySector} />
-          <SimpleBarChart title="Status dos inventários" items={countsByStatus} />
-          <SimpleBarChart title="Estoque contado x pendente" items={[
-            { label: "Contados", value: operationalInventories.reduce((sum, item) => sum + Number(item.countedItems ?? 0), 0) },
-            { label: "Pendentes", value: operationalInventories.reduce((sum, item) => sum + Number(item.pendingItems ?? 0), 0) }
-          ]} />
-        </div>
-        <div className="subsection inventory-stock-table-wrap">
-          <table className="inventory-stock-table">
-            <thead>
-              <tr>
-                <th>Produto</th>
-                <th>Setor</th>
-                <th>Fornecedor</th>
-                <th className="numeric-cell">Quantidade</th>
-                <th className="numeric-cell" title="Quantidade mínima em estoque — edite clicando no campo">Mínimo</th>
-                <th title="UN = unidade, CX = caixa, KG = quilograma">Unidade</th>
-                {canViewCosts && <><th className="numeric-cell">Custo medio</th><th className="numeric-cell" title="Custo por quilograma">KG</th><th className="numeric-cell" title="Custo por caixa">CX</th><th className="numeric-cell" title="Custo por unidade">UN</th></>}
-                <th title="Data da ultima movimentacao">Ultima movimentacao</th>
-                <th>Alertas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredStockRows.length ? filteredStockRows.map((stock) => {
-                const rowClass = [
-                  stock.alerts.includes("ZERADO") ? "is-zero" : "",
-                  stock.alerts.includes("ABAIXO DO MINIMO") ? "is-warning" : "",
-                  stock.alerts.includes("DIVERGENTE") ? "is-divergent" : "",
-                  stock.alerts.includes("SEM_FORNECEDOR") ? "is-problem" : "",
-                  stock.alerts.includes("CADASTRO INCOMPLETO") ? "is-incomplete" : ""
-                ].filter(Boolean).join(" ");
-                return (
-                  <tr key={stock.id} className={rowClass}>
-                    <td title={stock.productDisplayName}>
-                      <strong>{stock.productDisplayName}</strong>
-                      <small>{stock.codeLabel}</small>
-                      <small>{[stock.categoryName, stock.subcategoryName].filter(Boolean).join(" / ") || "Sem classificacao"}</small>
-                    </td>
-                    <td><span className="table-muted-badge">{displayLabel(stock.sectorName, "Sem setor")}</span></td>
-                    <td title={stock.supplierName}>{stock.supplierName}</td>
-                    <td className="numeric-cell">{formatNumber(stock.currentQuantityNumber)}</td>
-                    <td className="numeric-cell" style={{ padding: "2px 4px" }}>
-                      {canEditStockMinimum ? (
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.001"
-                          className="inline-qty-input"
-                          style={{ width: 72, textAlign: "right" }}
-                          value={minQtyEdit[stock.productId] ?? (stock.minQuantity == null ? "" : String(Number(stock.minQuantity)))}
-                          placeholder="—"
-                          disabled={savingMinQty[stock.productId]}
-                          onChange={(e) => setMinQtyEdit((prev) => ({ ...prev, [stock.productId]: e.target.value }))}
-                          onBlur={() => { void saveMinQty(stock.productId); }}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.currentTarget.blur(); } }}
-                        />
-                      ) : (
-                        stock.minQuantity == null ? "—" : formatNumber(Number(stock.minQuantity))
-                      )}
-                    </td>
-                    <td>{displayLabel(stock.unitCode, "-")}</td>
-                    {canViewCosts && <><td className="numeric-cell"><Money value={stock.averageCost ?? 0} /></td><td className="numeric-cell">{stock.costPerKg ? <Money value={stock.costPerKg} /> : "-"}</td><td className="numeric-cell">{stock.costPerBox ? <Money value={stock.costPerBox} /> : "-"}</td><td className="numeric-cell">{stock.costPerUnit ? <Money value={stock.costPerUnit} /> : "-"}</td></>}
-                    <td>{formatDate(stock.lastMovementAt)}</td>
-                    <td>
-                      <div className="badge-row">
-                        {stock.alerts.length ? stock.alerts.map((alert) => <StatusBadge key={`${stock.id}-${alert}`} tone={buyerAlertTone(alert)}>{buyerAlertLabel(alert)}</StatusBadge>) : <StatusBadge tone="success">ok</StatusBadge>}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              }) : (
-                <tr>
-                  <td colSpan={canViewCosts ? 12 : 8} className="empty-table-state">Nenhum item encontrado com os filtros atuais.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-          </>
-        )}
-        {inventoryDeskTab === "reports" && (
-          <>
-            <div className="summary-grid inventory-compact-summary">
-              <SummaryCard label="Movimentações" value={movements.length} tone="info" />
-              <SummaryCard label="Contagens" value={counts.length} tone="info" />
-              <SummaryCard label="Inventários oficiais" value={officialInventories.length} tone="success" />
-              <SummaryCard label="Divergências" value={counts.filter((count) => Number(count.divergenceQuantity) !== 0).length} tone="warning" />
-            </div>
-            <div className="chart-grid">
-              <SimpleBarChart title="Divergências por setor/tipo" items={divergencesBySector} />
-              <SimpleBarChart title="Status dos inventários" items={countsByStatus} />
-              <SimpleBarChart title="Estoque contado x pendente" items={[
-                { label: "Contados", value: operationalInventories.reduce((sum, item) => sum + Number(item.countedItems ?? 0), 0) },
-                { label: "Pendentes", value: operationalInventories.reduce((sum, item) => sum + Number(item.pendingItems ?? 0), 0) }
-              ]} />
-            </div>
-          </>
-        )}
-      </section>
-
       <section className={panelClass(["movements"])}>
         <div className="section-heading"><div><PanelEyebrow>Movimentação autorizada</PanelEyebrow><h2>Registrar movimentação</h2></div></div>
         <div className="form-grid">
           <label>Buscar produto<input list="movement-products" value={movementSearch} onBlur={findMovementProduct} onChange={(event) => setMovementSearch(event.target.value)} placeholder="Código ou nome" /><datalist id="movement-products">{products.map((product) => <option key={product.id} value={product.externalCode ? `${product.externalCode} - ${product.name}` : product.name} />)}</datalist></label>
           <Button variant="secondary" leadingIcon={<Search size={16} />} onClick={findMovementProduct}>Buscar</Button>
-          <label>Produto<select value={movementForm.productId} onChange={(event) => selectMovementProduct(event.target.value)}>{products.map((product) => <option key={product.id} value={product.id}>{product.externalCode ? `${product.externalCode} - ` : ""}{product.name}</option>)}</select></label>
+          <label>Produto<select value={movementForm.productId} onChange={(event) => selectMovementProduct(event.target.value)}><option value="">Selecione o produto</option>{products.map((product) => <option key={product.id} value={product.id}>{product.externalCode ? `${product.externalCode} - ` : ""}{product.name}</option>)}</select></label>
           <label>Tipo<select value={movementForm.type} onChange={(event) => setMovementForm({ ...movementForm, type: event.target.value })}>{movementTypes.filter((type) => canViewCosts || type.value !== "PURCHASE_IN").map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
           <label>Quantidade<input inputMode="decimal" value={movementForm.quantity} onChange={(event) => setMovementForm({ ...movementForm, quantity: sanitizeQuantityInput(event.target.value) })} /></label>
           <label>Unidade<input value={movementForm.unit} onChange={(event) => setMovementForm({ ...movementForm, unit: event.target.value })} /></label>
@@ -3992,52 +4007,85 @@ export function Inventory({
         onCancel={() => setShowCmvApproveModal(false)}
       />
 
-      <section className={panelClass(["movements", "reports"])}>
+      <section className={panelClass(["movements"])}>
         <div className="section-heading"><div><PanelEyebrow>Histórico</PanelEyebrow><h2>{stockkeeperMode ? "Contagens e movimentações" : "Movimentações recentes"}</h2></div></div>
         <div className="filters-row">
           <PeriodFilter value={movementPeriod} onChange={setMovementPeriod} />
           <Button onClick={load}>Filtrar</Button>
         </div>
-        <div className="chart-grid">
-          <SimpleBarChart title="Entradas x saídas por tipo" items={movementsByType} />
-          <SimpleBarChart title="Produtos mais movimentados" items={movementsByProduct} />
-          <SimpleBarChart title="Linha temporal de movimentações" items={movementsTimeline} />
-        </div>
-        <Table>
-          <Table.Head>
-            <Table.Row>
-              <Table.Th>Data</Table.Th>
-              <Table.Th minWidth={180}>Produto</Table.Th>
-              <Table.Th>Tipo/status</Table.Th>
-              <Table.Th align="right">Quantidade</Table.Th>
-              <Table.Th>Unidade</Table.Th>
-              {canViewCosts && <Table.Th align="right">Custo total</Table.Th>}
-              <Table.Th>Obs.</Table.Th>
-            </Table.Row>
-          </Table.Head>
-          <Table.Body>
-            {movements.map((movement) => (
-              <Table.Row key={movement.id}>
-                <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(movement.createdAt)}</Table.Td>
-                <Table.Td truncate title={movement.productName}>{movement.productName}</Table.Td>
-                <Table.Td>{movement.type}</Table.Td>
-                <Table.Td align="right">{formatNumber(Number(movement.quantity))}</Table.Td>
-                <Table.Td>{movement.unit ?? "-"}</Table.Td>
-                {canViewCosts && <Table.Td align="right">{movement.totalCost ? <Money value={Number(movement.totalCost)} /> : "-"}</Table.Td>}
-                <Table.Td truncate style={{ maxWidth: 200 }} title={movement.notes ?? undefined}>{movement.notes ?? "-"}</Table.Td>
-              </Table.Row>
-            ))}
-            {movements.length === 0 && (
-              <Table.Row>
-                <Table.Td colSpan={canViewCosts ? 7 : 6}>
-                  <EmptyState title="Nenhuma movimentação no período" />
-                </Table.Td>
-              </Table.Row>
-            )}
-          </Table.Body>
-        </Table>
-        {canConfigureAgenda && (
-          <div className="subsection table-wrap">
+        {/* Sem movimentacao no periodo, eram tres cartoes "Sem dados
+            suficientes" — no celular, uma tela inteira de nada. */}
+        {movements.length > 0 && (
+          <div className="chart-grid">
+            <SimpleBarChart title="Entradas x saídas por tipo" items={movementsByType} />
+            <SimpleBarChart title="Produtos mais movimentados" items={movementsByProduct} />
+            <SimpleBarChart title="Linha temporal de movimentações" items={movementsTimeline} />
+          </div>
+        )}
+        {movements.length === 0 && <EmptyState title="Nenhuma movimentação no período" description="Troque o período acima para ver outros meses." />}
+        {movements.length > 0 && (<>
+          <div className="inv-desktop-table-wrap">
+            <Table>
+              <Table.Head>
+                <Table.Row>
+                  <Table.Th>Data</Table.Th>
+                  <Table.Th minWidth={180}>Produto</Table.Th>
+                  <Table.Th>Tipo</Table.Th>
+                  <Table.Th align="right">Quantidade</Table.Th>
+                  {canViewCosts && <Table.Th align="right">Custo total</Table.Th>}
+                  <Table.Th>Obs.</Table.Th>
+                </Table.Row>
+              </Table.Head>
+              <Table.Body>
+                {movements.map((movement) => {
+                  const assinada = movementSignedQuantity(movement.type, Number(movement.quantity));
+                  return (
+                    <Table.Row key={movement.id}>
+                      <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(movement.createdAt)}</Table.Td>
+                      <Table.Td truncate title={movement.productName}>{movement.productName}</Table.Td>
+                      <Table.Td>{movementTypeLabel(movement.type)}</Table.Td>
+                      {/* Com sinal: uma perda de 3 e uma entrada de 3 apareciam iguais. */}
+                      <Table.Td align="right" className={assinada < 0 ? "movement-out" : "movement-in"} style={{ whiteSpace: "nowrap" }}>
+                        {assinada > 0 ? "+" : ""}{formatNumber(assinada)} {movement.unit ?? ""}
+                      </Table.Td>
+                      {canViewCosts && <Table.Td align="right">{movement.totalCost ? <Money value={Number(movement.totalCost)} /> : "-"}</Table.Td>}
+                      <Table.Td truncate style={{ maxWidth: 200 }} title={movement.notes ?? undefined}>{movement.notes ?? "-"}</Table.Td>
+                    </Table.Row>
+                  );
+                })}
+              </Table.Body>
+            </Table>
+          </div>
+
+          {/* Celular: a tabela de 7 colunas rolava 394px de lado. */}
+          <div className="inv-mobile-cards movement-mobile-list">
+            {movements.map((movement) => {
+              const assinada = movementSignedQuantity(movement.type, Number(movement.quantity));
+              return (
+                <div key={movement.id} className="movement-mobile-item">
+                  <div>
+                    <strong>{movement.productName}</strong>
+                    <small>{formatDate(movement.createdAt)} · {movementTypeLabel(movement.type)}{movement.notes ? ` · ${movement.notes}` : ""}</small>
+                  </div>
+                  <span className={assinada < 0 ? "movement-out" : "movement-in"}>
+                    {assinada > 0 ? "+" : ""}{formatNumber(assinada)} {movement.unit ?? ""}
+                    {canViewCosts && movement.totalCost ? <small><Money value={Number(movement.totalCost)} /></small> : null}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </>)}
+        {canConfigureAgenda && (agenda?.items.length ?? 0) > 0 && (
+          <div className="subsection table-wrap movement-agenda">
+            {/* Estava solta no fim da secao, sem titulo: nao dava para saber
+                que era a agenda de contagens a confirmar. */}
+            <div className="inventory-block-heading">
+              <div>
+                <h3>Agenda de contagens do mês</h3>
+                <p className="muted">Contagens programadas por setor. As enviadas pelo estoquista aguardam sua confirmação.</p>
+              </div>
+            </div>
             <table>
               <thead><tr><th>Dia</th><th>Categoria</th><th>Status</th><th>Responsavel</th><th>Acoes</th></tr></thead>
               <tbody>{agenda?.items.map((item) => {
