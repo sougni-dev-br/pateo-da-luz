@@ -778,6 +778,8 @@ tipCommissionRouter.put("/team/:employeeId", async (request, response) => {
     { participaGorjeta: antes.participaGorjeta, tipFunctionId: antes.tipFunctionId, pontosExtra: antes.pontosExtra == null ? null : Number(antes.pontosExtra), pontosExtraMotivo: antes.pontosExtraMotivo },
     { participaGorjeta: participa, tipFunctionId, pontosExtra: extra, pontosExtraMotivo: motivoExtra },
   );
+  // A justificativa do extra só explica o histórico quando foi o extra que mudou.
+  const extraMudou = (antes.pontosExtra == null ? null : Number(antes.pontosExtra)) !== extra || antes.pontosExtraMotivo !== motivoExtra;
   // Tirar o extra também explica no histórico o que saiu.
   const extraRetirado = extra == null && antes.pontosExtra != null
     ? `Ponto extra retirado (era ${Number(antes.pontosExtra) > 0 ? "+" : ""}${Number(antes.pontosExtra)}: ${antes.pontosExtraMotivo ?? "sem justificativa"})`
@@ -801,7 +803,7 @@ tipCommissionRouter.put("/team/:employeeId", async (request, response) => {
       pontosExtra: true, pontosExtraMotivo: true, tipFunctionId: true,
     },
     });
-    if (registrar) await registrarHistorico(tx, antes.id, vigencia, user.id, textoOuNull(b.reason) ?? motivoExtra ?? extraRetirado);
+    if (registrar) await registrarHistorico(tx, antes.id, vigencia, user.id, textoOuNull(b.reason) ?? (extraMudou ? motivoExtra ?? extraRetirado : null));
     return atualizado;
   });
   await auditLog({
