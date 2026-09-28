@@ -8,7 +8,7 @@ import { auditLog, getSessionUser, requestIp, type SessionUser } from "../securi
 import { userHasPermission } from "../security/menu-permissions.js";
 import {
   closeTipPeriod, computeTipCommission, ensureTipPeriod, findOverlappingPeriod,
-  getServicePool, getServicePoolByRange, reopenTipPeriod, syncParticipantsFromCadastro, tipPeriodBounds,
+  getServicePool, getServicePoolByRange, pontosBaseDoCadastro, reopenTipPeriod, syncParticipantsFromCadastro, tipPeriodBounds,
 } from "./tip-commission.service.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -81,10 +81,32 @@ function numOrNull(v: unknown): number | null {
   return isNaN(n) ? null : n;
 }
 
+// Inteiro ≥ 0 ou null (campo vazio = "usar o cálculo/Escala").
+function intOrNull(v: unknown): number | null {
+  const n = numOrNull(v);
+  return n == null ? null : Math.max(0, Math.round(n));
+}
+
+function intOrUndefined(v: unknown, min: number, max: number): number | undefined {
+  const n = numOrNull(v);
+  return n == null ? undefined : Math.min(max, Math.max(min, Math.round(n)));
+}
+
+function boolOrUndefined(v: unknown): boolean | undefined {
+  return typeof v === "boolean" ? v : undefined;
+}
+
 // ─── Prévia do cálculo (não persiste) ───────────────────────────────────────
+// Salário e PIX só vão para quem também pode ver a ficha de Funcionários: delegar a
+// gorjeta não entrega junto o salário de todo mundo (ver /roster abaixo).
+async function podeVerDadosPessoais(request: Parameters<typeof getSessionUser>[0]) {
+  const user = await getSessionUser(request);
+  return user ? userHasPermission(user as SessionUser, "employees", "view") : false;
+}
+
 tipCommissionRouter.get("/", async (request, response) => {
   const { year, month } = parseYearMonth(request.query as { year?: unknown; month?: unknown });
-  const computation = await computeTipCommission(year, month);
+  const computation = await computeTipCommission(year, month, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
   response.json(computation);
 });
 
@@ -210,6 +232,11 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       poolSource: gross != null ? "MANUAL" : (grossFromRange != null ? "REVENUE" : undefined),
       deductionPercent: numOrNull(b.deductionPercent) ?? undefined,
       pointsTotal,
+      diasPadrao: intOrUndefined(b.diasPadrao, 1, 31),
+      descontaFalta: boolOrUndefined(b.descontaFalta),
+      descontaAtestado: boolOrUndefined(b.descontaAtestado),
+      descontaFerias: boolOrUndefined(b.descontaFerias),
+      descontaOutros: boolOrUndefined(b.descontaOutros),
       periodStart,
       periodEnd,
       label,
@@ -233,40 +260,47 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
   if (!periodBefore) return response.status(404).json({ message: "Período não encontrado." });
   if (await barrouPorFechamento(periodId, response, "Alterar os participantes")) return;
 
-  // Bloqueio: a soma dos pontos distribuídos não pode ultrapassar o total definido no período.
-  const budget = Number(periodBefore.pointsTotal);
-  const sumPoints = (list as Array<Record<string, unknown>>).reduce((acc, raw) => {
-    const kind = raw.kind === "FIXO" ? "FIXO" : "PONTOS";
-    return acc + (kind === "PONTOS" ? (numOrNull(raw.points) ?? 0) : 0);
-  }, 0);
-  if (sumPoints > budget) {
-    return response.status(422).json({
-      message: `A soma dos pontos (${sumPoints}) ultrapassa o total definido (${budget}). Reduza os pontos ou aumente o total do rateio.`,
-    });
-  }
+  // Pontos-base vêm do cadastro (função ou personalizados) e não se editam aqui:
+  // o período só guarda o ajuste do mês. Quem entra pela tela pega a base na hora.
+  const novos = (list as Array<Record<string, unknown>>).map((raw) => String(raw.employeeId ?? "")).filter(Boolean);
+  const cadastro = await prisma.employee.findMany({
+    where: { id: { in: novos } },
+    select: { id: true, pontosPadrao: true, tipFunction: { select: { points: true } } },
+  });
+  const basePorFuncionario = new Map(cadastro.map((e) => [e.id, pontosBaseDoCadastro(e)]));
 
   await prisma.$transaction(async (tx) => {
     for (const raw of list as Array<Record<string, unknown>>) {
       const employeeId = String(raw.employeeId ?? "");
-      if (!employeeId) continue;
+      if (!employeeId || !basePorFuncionario.has(employeeId)) continue;
       const kind = raw.kind === "FIXO" ? "FIXO" : "PONTOS";
-      const points = kind === "PONTOS" ? (numOrNull(raw.points) ?? 0) : null;
-      const fixedAmount = kind === "FIXO" ? (numOrNull(raw.fixedAmount) ?? 0) : null;
-      // Dados do RH (texto livre / número / booleano).
-      const horaExtra = raw.horaExtra != null && String(raw.horaExtra).trim() !== "" ? String(raw.horaExtra).trim() : null;
-      const adicionalNoturno = raw.adicionalNoturno != null && String(raw.adicionalNoturno).trim() !== "" ? String(raw.adicionalNoturno).trim() : null;
-      const faltas = numOrNull(raw.faltas);
-      const justificada = Boolean(raw.justificada);
+      const texto = (v: unknown) => (v != null && String(v).trim() !== "" ? String(v).trim() : null);
+      const dados = {
+        kind,
+        fixedAmount: kind === "FIXO" ? (numOrNull(raw.fixedAmount) ?? 0) : null,
+        pointsAdjustment: numOrNull(raw.pointsAdjustment) ?? 0,
+        faltas: intOrNull(raw.faltas),
+        atestados: intOrNull(raw.atestados),
+        ferias: intOrNull(raw.ferias),
+        outrosDias: intOrNull(raw.outrosDias),
+        diasPrevistosOverride: intOrNull(raw.diasPrevistosOverride),
+        diasSalarioOverride: intOrNull(raw.diasSalarioOverride),
+        rescisaoServicoBruto: numOrNull(raw.rescisaoServicoBruto),
+        rescisaoValorFixo: numOrNull(raw.rescisaoValorFixo),
+        horaExtra: texto(raw.horaExtra),
+        adicionalNoturno: texto(raw.adicionalNoturno),
+        justificada: Boolean(raw.justificada),
+      } as const;
       await tx.tipParticipant.upsert({
         where: { periodId_employeeId: { periodId, employeeId } },
-        create: { id: crypto.randomUUID(), periodId, employeeId, kind, points, fixedAmount, horaExtra, adicionalNoturno, faltas, justificada },
-        update: { kind, points, fixedAmount, horaExtra, adicionalNoturno, faltas, justificada },
+        create: { id: crypto.randomUUID(), periodId, employeeId, basePoints: basePorFuncionario.get(employeeId) ?? 0, ...dados },
+        update: dados,
       });
     }
   });
 
   const period = await prisma.tipPeriod.findUniqueOrThrow({ where: { id: periodId } });
-  const computation = await computeTipCommission(period.competenceYear, period.competenceMonth);
+  const computation = await computeTipCommission(period.competenceYear, period.competenceMonth, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
   response.json(computation);
 });
 
@@ -352,9 +386,9 @@ tipCommissionRouter.post("/periods/:id/sync", async (request, response) => {
   const period = await prisma.tipPeriod.findUnique({ where: { id: periodId } });
   if (!period) return response.status(404).json({ message: "Período não encontrado." });
   if (await barrouPorFechamento(periodId, response, "Recarregar os participantes")) return;
-  const { added, elegiveis } = await syncParticipantsFromCadastro(periodId);
-  const computation = await computeTipCommission(period.competenceYear, period.competenceMonth);
-  response.json({ added, elegiveis, computation });
+  const { added, elegiveis, atualizados } = await syncParticipantsFromCadastro(periodId);
+  const computation = await computeTipCommission(period.competenceYear, period.competenceMonth, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
+  response.json({ added, elegiveis, atualizados, computation });
 });
 
 // Remover um participante do período.
@@ -399,7 +433,7 @@ tipCommissionRouter.post("/participants/:id/vales", async (request, response) =>
   const amount = numOrNull(b.amount);
   if (amount == null || amount <= 0) return response.status(400).json({ message: "amount inválido." });
   if (await barrouPorFechamento(await periodIdDoParticipante(request.params.id), response, "Lançar um vale")) return;
-  const type = ["REFEICAO", "VALE_CONSUMO", "RETIRADA_CAIXA", "ADIANTAMENTO", "OUTRO"].includes(String(b.type)) ? String(b.type) : "OUTRO";
+  const type = ["REFEICAO", "VALE_CONSUMO", "RETIRADA_CAIXA", "ADIANTAMENTO", "OUTRO", "CREDITO"].includes(String(b.type)) ? String(b.type) : "OUTRO";
   const vale = await prisma.tipVale.create({
     data: {
       id: crypto.randomUUID(),
@@ -485,4 +519,143 @@ tipCommissionRouter.post("/periods/:year/:month/reopen", async (request, respons
   } catch (err) {
     response.status(422).json({ message: (err as Error).message });
   }
+});
+
+// ─── Tabela de funções e pontos-base ────────────────────────────────────────
+tipCommissionRouter.get("/functions", async (_request, response) => {
+  const funcoes = await prisma.tipFunction.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
+  response.json(funcoes.map((f) => ({
+    id: f.id, name: f.name, points: Number(f.points),
+    minPoints: f.minPoints == null ? null : Number(f.minPoints),
+    maxPoints: f.maxPoints == null ? null : Number(f.maxPoints),
+    group: f.group, notes: f.notes, sortOrder: f.sortOrder, isActive: f.isActive,
+  })));
+});
+
+// Grava a tabela inteira (cria as novas, atualiza as existentes). Função não se
+// apaga — desativa — porque funcionários e períodos antigos apontam para ela.
+tipCommissionRouter.put("/functions", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const list = (request.body as { functions?: unknown }).functions;
+  if (!Array.isArray(list)) return response.status(400).json({ message: "functions deve ser uma lista." });
+
+  const limpas = (list as Array<Record<string, unknown>>).map((raw, i) => ({
+    id: raw.id ? String(raw.id) : null,
+    name: String(raw.name ?? "").trim(),
+    points: numOrNull(raw.points),
+    minPoints: numOrNull(raw.minPoints),
+    maxPoints: numOrNull(raw.maxPoints),
+    group: raw.group ? String(raw.group).trim() : null,
+    notes: raw.notes ? String(raw.notes).trim() : null,
+    sortOrder: numOrNull(raw.sortOrder) ?? i + 1,
+    isActive: raw.isActive !== false,
+  }));
+  const invalida = limpas.find((f) => !f.name || f.points == null || f.points < 0);
+  if (invalida) return response.status(422).json({ message: `Função "${invalida.name || "sem nome"}": informe nome e pontos (≥ 0).` });
+  const nomes = new Set<string>();
+  for (const f of limpas) {
+    const k = f.name.toLocaleLowerCase("pt-BR");
+    if (nomes.has(k)) return response.status(422).json({ message: `A função "${f.name}" aparece duas vezes.` });
+    nomes.add(k);
+  }
+
+  const antes = await prisma.tipFunction.findMany();
+  await prisma.$transaction(async (tx) => {
+    for (const f of limpas) {
+      const dados = {
+        name: f.name, points: f.points!, minPoints: f.minPoints, maxPoints: f.maxPoints,
+        group: f.group, notes: f.notes, sortOrder: f.sortOrder, isActive: f.isActive,
+      };
+      if (f.id) await tx.tipFunction.update({ where: { id: f.id }, data: dados });
+      else await tx.tipFunction.create({ data: { id: crypto.randomUUID(), ...dados } });
+    }
+  });
+  await auditLog({
+    userId: user.id, action: "UPDATE_TIP_FUNCTIONS", entity: "TipFunction", entityId: "tabela",
+    previousValue: antes, newValue: limpas,
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+  response.json({ ok: true });
+});
+
+// ─── Equipe da gorjeta ──────────────────────────────────────────────────────
+// Só os campos da gorjeta (sem CPF, salário ou dados bancários), para quem opera
+// a gorjeta não precisar da permissão de Funcionários.
+tipCommissionRouter.get("/team", async (_request, response) => {
+  const employees = await prisma.employee.findMany({
+    where: { deletedAt: null },
+    select: {
+      id: true, firstName: true, lastName: true, displayName: true, isActive: true,
+      sector: true, position: true, modality: true, admissionDate: true, terminationDate: true,
+      companyId: true, participaGorjeta: true, tipoGorjeta: true, cotaFixaGorjeta: true,
+      pontosPadrao: true, tipFunctionId: true, gorjetaReserva: true,
+    },
+    orderBy: [{ isActive: "desc" }, { firstName: "asc" }, { lastName: "asc" }],
+  });
+  response.json(employees.map((e) => ({
+    ...e,
+    cotaFixaGorjeta: e.cotaFixaGorjeta == null ? null : Number(e.cotaFixaGorjeta),
+    pontosPadrao: e.pontosPadrao == null ? null : Number(e.pontosPadrao),
+  })));
+});
+
+tipCommissionRouter.put("/team/:employeeId", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const b = request.body as Record<string, unknown>;
+  const antes = await prisma.employee.findFirst({
+    where: { id: request.params.employeeId, deletedAt: null },
+    select: {
+      id: true, companyId: true, participaGorjeta: true, tipoGorjeta: true, cotaFixaGorjeta: true,
+      pontosPadrao: true, tipFunctionId: true, gorjetaReserva: true,
+    },
+  });
+  if (!antes) return response.status(404).json({ message: "Funcionário não encontrado." });
+
+  const tipFunctionId = b.tipFunctionId ? String(b.tipFunctionId) : null;
+  if (tipFunctionId && !(await prisma.tipFunction.findUnique({ where: { id: tipFunctionId } }))) {
+    return response.status(422).json({ message: "Função não encontrada." });
+  }
+  const companyId = b.companyId ? String(b.companyId) : null;
+  if (companyId && !(await prisma.company.findUnique({ where: { id: companyId } }))) {
+    return response.status(422).json({ message: "Empresa não encontrada." });
+  }
+  const pontos = numOrNull(b.pontosPadrao);
+  if (pontos != null && pontos < 0) return response.status(422).json({ message: "Pontos personalizados não podem ser negativos." });
+
+  const tipoGorjeta = b.tipoGorjeta === "FIXO" ? "FIXO" : "PONTOS";
+  const depois = await prisma.employee.update({
+    where: { id: antes.id },
+    data: {
+      participaGorjeta: Boolean(b.participaGorjeta),
+      tipFunctionId,
+      pontosPadrao: pontos,
+      gorjetaReserva: Boolean(b.gorjetaReserva),
+      companyId,
+      tipoGorjeta,
+      cotaFixaGorjeta: tipoGorjeta === "FIXO" ? (numOrNull(b.cotaFixaGorjeta) ?? 0) : null,
+      updatedById: user.id,
+    },
+    select: {
+      id: true, companyId: true, participaGorjeta: true, tipoGorjeta: true, cotaFixaGorjeta: true,
+      pontosPadrao: true, tipFunctionId: true, gorjetaReserva: true,
+    },
+  });
+  await auditLog({
+    userId: user.id, action: "UPDATE_TIP_TEAM_MEMBER", entity: "Employee", entityId: antes.id,
+    previousValue: antes, newValue: depois,
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+  response.json({ ok: true });
+});
+
+// Empresas para agrupar o envio à contabilidade (só id e nome).
+tipCommissionRouter.get("/companies", async (_request, response) => {
+  const companies = await prisma.company.findMany({
+    where: { isActive: true },
+    select: { id: true, tradeName: true },
+    orderBy: { tradeName: "asc" },
+  });
+  response.json(companies);
 });
