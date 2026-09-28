@@ -2764,6 +2764,11 @@ model TipPeriod {
   label            String
   grossPool        Decimal          @default(0) @db.Decimal(14, 2)
   poolSource       String           @default("REVENUE") // REVENUE (puxado) | MANUAL (editado)
+  // Serviço arrecadado = o que veio do faturamento + ajuste manual (serviço que
+  // não passa pelo sistema). grossPool guarda a soma.
+  servicoFaturamento  Decimal       @default(0) @db.Decimal(14, 2)
+  ajusteServico       Decimal       @default(0) @db.Decimal(14, 2)
+  ajusteServicoMotivo String?
   deductionPercent Decimal          @default(20) @db.Decimal(5, 2)
   netPool          Decimal          @default(0) @db.Decimal(14, 2)
   pointsTotal      Int              @default(100) // total de pontos do rateio (denominador). Editável por competência.

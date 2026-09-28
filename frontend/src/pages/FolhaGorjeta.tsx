@@ -3,8 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   type TipComputation, type TipComputedParticipant, type TipRosterEmployee, type TipValeType,
   addTipVale, closeTipPeriodApi, getTipCommission, getTipRoster, openTipPeriod,
-  removeTipParticipant, removeTipVale, reopenTipPeriodApi, saveTipParticipants, syncTipParticipants, updateTipPeriod,
+  refreshTipService, removeTipParticipant, removeTipVale, reopenTipPeriodApi, saveTipParticipants, syncTipParticipants, updateTipPeriod,
 } from "../api/client";
+import { AjusteServico } from "./gorjeta/AjusteServico";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
 import { Button, FormField, FormGrid, StatusBadge, Tabs } from "../design-system";
@@ -52,6 +53,7 @@ export function FolhaGorjeta() {
   const [addEmpId, setAddEmpId] = useState("");
   const [busy, setBusy] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
+  const [ajustandoServico, setAjustandoServico] = useState(false);
   // Autosave: a edição agenda um salvamento; qualquer outra ação salva antes o que
   // estiver pendente (flush), para não sobrescrever um sync nem bater num período já fechado.
   const rowsRef = useRef<LocalRow[]>([]);
@@ -166,7 +168,6 @@ export function FolhaGorjeta() {
     try {
       const id = await ensurePeriod();
       const datasMudaram = params.start !== comp.periodStart.slice(0, 10) || params.end !== comp.periodEnd.slice(0, 10);
-      const poolMudou = params.pool !== String(comp.grossPool);
       await updateTipPeriod(id, {
         deductionPercent: Number(params.deduction),
         pointsTotal: Math.max(1, Math.round(Number(params.pointsTotal) || 100)),
@@ -175,8 +176,6 @@ export function FolhaGorjeta() {
         descontaFerias: params.descontaFerias, descontaOutros: params.descontaOutros,
         reservaPontos: Math.max(0, Number(params.reservaPontos.replace(",", ".")) || 0),
         ...(datasMudaram ? { periodStart: params.start, periodEnd: params.end } : {}),
-        // Só manda o bruto se foi digitado; se só as datas mudaram, o backend repuxa do faturamento.
-        ...(poolMudou || !datasMudaram ? { grossPool: Number(params.pool) } : {}),
       });
       await load();
       setNotice({ tone: "success", message: "Parâmetros do período salvos." });
@@ -313,7 +312,28 @@ export function FolhaGorjeta() {
 
       {(aba === "apuracao" || aba === "pagamento") && comp && (
         <>
-          {comp.periodId != null && <ResumoApuracao comp={comp} compacto={telaCheia} />}
+          {comp.periodId != null && (
+            <ResumoApuracao comp={comp} compacto={telaCheia}
+              onAjustarServico={readonly ? undefined : () => setAjustandoServico((v) => !v)} />
+          )}
+          {ajustandoServico && comp.periodId != null && !readonly && (
+            <AjusteServico comp={comp}
+              onFechar={() => setAjustandoServico(false)}
+              onSalvar={async (ajuste, motivo) => {
+                await flush();
+                await updateTipPeriod(comp.periodId!, { ajusteServico: ajuste, ajusteServicoMotivo: motivo });
+                await load();
+                setAjustandoServico(false);
+                setNotice({ tone: "success", message: "Serviço arrecadado ajustado." });
+              }}
+              onAtualizarFaturamento={async () => {
+                await flush();
+                await refreshTipService(comp.periodId!);
+                await load();
+                setNotice({ tone: "success", message: "Serviço do faturamento atualizado; o ajuste foi mantido." });
+              }}
+              onErro={erro} />
+          )}
 
           {comp.periodId == null ? (
             <div style={{ ...panelStyle, gap: 8 }}>
@@ -337,7 +357,6 @@ export function FolhaGorjeta() {
                   <FormGrid cols={4}>
                     <FormField label="Início"><input style={inputStyle} type="date" value={params.start} disabled={readonly} onChange={(e) => setParams({ ...params, start: e.target.value })} /></FormField>
                     <FormField label="Fim"><input style={inputStyle} type="date" value={params.end} disabled={readonly} onChange={(e) => setParams({ ...params, end: e.target.value })} /></FormField>
-                    <FormField label="Serviço arrecadado R$"><input style={inputStyle} type="number" step="0.01" value={params.pool} disabled={readonly} onChange={(e) => setParams({ ...params, pool: e.target.value })} /></FormField>
                     <FormField label="Retenção (%)"><input style={inputStyle} type="number" step="0.01" value={params.deduction} disabled={readonly} onChange={(e) => setParams({ ...params, deduction: e.target.value })} /></FormField>
                     <FormField label="Pontos de referência"><input style={inputStyle} type="number" step="1" min="1" value={params.pointsTotal} disabled={readonly} onChange={(e) => setParams({ ...params, pointsTotal: e.target.value })} /></FormField>
                     <FormField label="Dias padrão de trabalho"><input style={inputStyle} type="number" step="1" min="1" max="31" value={params.diasPadrao} disabled={readonly} onChange={(e) => setParams({ ...params, diasPadrao: e.target.value })} /></FormField>
@@ -351,7 +370,7 @@ export function FolhaGorjeta() {
                       </label>
                     ))}
                   </div>
-                  <span style={mutedStyle}>Folga normal não desconta: já está embutida nos dias padrão. Mudar as datas repuxa o serviço do faturamento.</span>
+                  <span style={mutedStyle}>Folga normal não desconta: já está embutida nos dias padrão. Mudar as datas repuxa o serviço do faturamento (o ajuste é mantido). O ajuste do serviço fica em "Serviço arrecadado → ajustar", no resumo.</span>
                   {!readonly && <div><Button onClick={() => void salvarParametros()} disabled={busy} leadingIcon={<Save size={14} />}>Salvar parâmetros</Button></div>}
                 </details>
               )}
