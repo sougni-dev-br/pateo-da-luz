@@ -1,0 +1,25 @@
+/* Tabela do rateio: muitas colunas numéricas; espaçamento mais justo para que
+   Gorjeta e Líquido caibam na tela sem rolar para o lado. */
+.tabela-rateio .ds-table-th,
+.tabela-rateio .ds-table-td {
+  padding: 6px 8px;
+}
+
+.tabela-rateio .ds-table-th {
+  white-space: nowrap;
+}
+
+.tabela-rateio input[type="number"]::-webkit-inner-spin-button,
+.tabela-rateio input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.tabela-rateio input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.tabela-rateio input:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}

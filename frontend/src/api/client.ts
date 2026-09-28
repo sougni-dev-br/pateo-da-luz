@@ -5708,6 +5708,12 @@ export type TipComputation = {
   distribuido: number;
   saldo: number;
   reservaTotal: number;
+  composicao: {
+    mes: { valor: number; pontos: number; pessoas: number };
+    rescisoes: { valor: number; pontos: number; pessoas: number; pendentes: number };
+    reserva: { valor: number; pontos: number };
+    fixos: { valor: number; pessoas: number };
+  };
   participants: TipComputedParticipant[];
   totals: { rateio: number; vales: number; netCommission: number; salarios: number; totalAPagar: number };
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
