@@ -1,4 +1,4 @@
-import { Check, ChevronLeft, ChevronRight, Coins, Lock, Plus, RefreshCw, Save, Unlock, UserPlus } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Lock, Plus, RefreshCw, Save, Unlock, UserPlus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   type TipComputation, type TipComputedParticipant, type TipRosterEmployee, type TipValeType,
@@ -7,12 +7,14 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
-import { Alert, Button, FormField, FormGrid, SummaryCard, Tabs } from "../design-system";
+import { Button, FormField, FormGrid, StatusBadge, Tabs } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { AbaApuracao } from "./gorjeta/AbaApuracao";
 import { AbaEquipe } from "./gorjeta/AbaEquipe";
 import { AbaPagamento } from "./gorjeta/AbaPagamento";
-import { type LocalRow, MONTHS, inputStyle, money, mutedStyle, panelStyle, pts, toPayload, toRows } from "./gorjeta/gorjetaUtils";
+import { Pendencias } from "./gorjeta/Pendencias";
+import { ResumoApuracao } from "./gorjeta/ResumoApuracao";
+import { type LocalRow, MONTHS, inputStyle, money, mutedStyle, panelStyle, toPayload, toRows } from "./gorjeta/gorjetaUtils";
 
 type Aba = "apuracao" | "pagamento" | "equipe";
 
@@ -228,7 +230,6 @@ export function FolhaGorjeta() {
   }
 
   const disponiveis = roster.filter((e) => !rows.some((r) => r.employeeId === e.id));
-  const saldoTom = !comp ? "neutral" : comp.saldo < -0.005 ? "danger" : comp.saldo > 0.005 ? "warning" : "success";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -239,9 +240,11 @@ export function FolhaGorjeta() {
         <strong style={{ minWidth: 150, textAlign: "center" }}>{MONTHS[month - 1]} / {year}</strong>
         <Button variant="secondary" onClick={() => void changeMonth(1)} aria-label="Próximo mês" leadingIcon={<ChevronRight size={14} />}>Próximo</Button>
         <Button variant="secondary" onClick={() => void load()} aria-label="Recarregar" leadingIcon={<RefreshCw size={14} />}>Recarregar</Button>
-        <span style={{ color: "var(--muted)", fontSize: 13 }}>
-          {comp?.label}{closed ? " — FECHADA" : ""}{autoSaving ? " · recalculando…" : ""}
-        </span>
+        <span style={{ color: "var(--muted)", fontSize: 13 }}>{comp?.label}</span>
+        {comp?.periodId && (
+          <StatusBadge tone={closed ? "success" : "info"}>{closed ? "Fechada" : "Em apuração"}</StatusBadge>
+        )}
+        <span aria-live="polite" style={{ color: "var(--muted)", fontSize: 12 }}>{autoSaving ? "salvando…" : ""}</span>
       </div>
 
       <Tabs
@@ -264,18 +267,7 @@ export function FolhaGorjeta() {
 
       {aba !== "equipe" && comp && (
         <>
-          <FormGrid cols={4}>
-            <SummaryCard compact label="Serviço arrecadado" moneyValue={comp.grossPool} icon={<Coins size={16} />} />
-            <SummaryCard compact label={`Líquido (−${comp.deductionPercent}%)`} moneyValue={comp.netPool} tone="info" />
-            <SummaryCard compact label={`Valor do ponto (÷ ${comp.pointsBudget})`} moneyValue={comp.pointValue} tone="warning" />
-            <SummaryCard compact label="Saldo não distribuído" moneyValue={comp.saldo} tone={saldoTom} />
-          </FormGrid>
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontSize: 14 }}>
-            <span>Distribuído: <strong>{money(comp.distribuido)}</strong></span>
-            <span>Pontos usados: <strong>{pts(comp.totalPoints)}</strong> de {comp.pointsBudget}</span>
-            {comp.reservaTotal > 0 && <span>Reserva: <strong>{money(comp.reservaTotal)}</strong></span>}
-            <span>A pagar (sem registro): <strong>{money(comp.participants.filter((p) => p.semRegistro && !p.reserva).reduce((a, p) => a + p.totalAPagar, 0))}</strong></span>
-          </div>
+          {comp.periodId != null && <ResumoApuracao comp={comp} />}
 
           {comp.periodId == null ? (
             <div style={{ ...panelStyle, gap: 8 }}>
@@ -287,12 +279,7 @@ export function FolhaGorjeta() {
             </div>
           ) : (
             <>
-              {(comp.pendencias.length > 0 || comp.warnings.length > 0) && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {comp.pendencias.map((w, i) => <Alert key={`p${i}`} tone="error">{w}</Alert>)}
-                  {comp.warnings.map((w, i) => <Alert key={`w${i}`} tone="warning">{w}</Alert>)}
-                </div>
-              )}
+              <Pendencias pendencias={comp.pendencias} avisos={comp.warnings} fechado={closed} />
 
               {aba === "apuracao" && params && (
                 <details style={panelStyle}>
