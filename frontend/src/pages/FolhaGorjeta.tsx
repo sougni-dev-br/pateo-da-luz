@@ -13,15 +13,17 @@ import "./gorjeta/gorjeta.css";
 import { AbaApuracao } from "./gorjeta/AbaApuracao";
 import { AbaEquipe } from "./gorjeta/AbaEquipe";
 import { AbaPagamento } from "./gorjeta/AbaPagamento";
+import { AbaRelatorios } from "./gorjeta/AbaRelatorios";
 import { Pendencias } from "./gorjeta/Pendencias";
 import { ResumoApuracao } from "./gorjeta/ResumoApuracao";
 import { type LocalRow, MONTHS, inputStyle, money, mutedStyle, panelStyle, toPayload, toRows } from "./gorjeta/gorjetaUtils";
 
-type Aba = "apuracao" | "pagamento" | "equipe";
+type Aba = "apuracao" | "pagamento" | "equipe" | "relatorios";
 
 type Parametros = {
   start: string; end: string; pool: string; deduction: string; pointsTotal: string; diasPadrao: string;
   descontaFalta: boolean; descontaAtestado: boolean; descontaFerias: boolean; descontaOutros: boolean;
+  reservaPontos: string;
 };
 
 function parametrosDe(c: TipComputation): Parametros {
@@ -29,6 +31,7 @@ function parametrosDe(c: TipComputation): Parametros {
     start: c.periodStart.slice(0, 10), end: c.periodEnd.slice(0, 10),
     pool: String(c.grossPool), deduction: String(c.deductionPercent), pointsTotal: String(c.pointsBudget), diasPadrao: String(c.diasPadrao),
     descontaFalta: c.descontaFalta, descontaAtestado: c.descontaAtestado, descontaFerias: c.descontaFerias, descontaOutros: c.descontaOutros,
+    reservaPontos: String(c.reservaPontos),
   };
 }
 
@@ -170,6 +173,7 @@ export function FolhaGorjeta() {
         diasPadrao: Math.round(Number(params.diasPadrao) || 26),
         descontaFalta: params.descontaFalta, descontaAtestado: params.descontaAtestado,
         descontaFerias: params.descontaFerias, descontaOutros: params.descontaOutros,
+        reservaPontos: Math.max(0, Number(params.reservaPontos.replace(",", ".")) || 0),
         ...(datasMudaram ? { periodStart: params.start, periodEnd: params.end } : {}),
         // Só manda o bruto se foi digitado; se só as datas mudaram, o backend repuxa do faturamento.
         ...(poolMudou || !datasMudaram ? { grossPool: Number(params.pool) } : {}),
@@ -284,6 +288,7 @@ export function FolhaGorjeta() {
             { value: "apuracao", label: "Apuração" },
             { value: "pagamento", label: "Pagamento e envio" },
             { value: "equipe", label: "Equipe e funções" },
+            { value: "relatorios", label: "Relatórios" },
           ]}
         />
         <Button variant="secondary" onClick={() => void alternarTelaCheia()}
@@ -301,7 +306,12 @@ export function FolhaGorjeta() {
         />
       )}
 
-      {aba !== "equipe" && comp && (
+      {aba === "relatorios" && (
+        <AbaRelatorios comp={comp} canEdit={canEdit} onNotice={(tone, message) => setNotice({ tone, message })}
+          onChanged={() => { void getTipCommission(year, month).then(aplicar); }} />
+      )}
+
+      {(aba === "apuracao" || aba === "pagamento") && comp && (
         <>
           {comp.periodId != null && <ResumoApuracao comp={comp} compacto={telaCheia} />}
 
@@ -331,6 +341,7 @@ export function FolhaGorjeta() {
                     <FormField label="Retenção (%)"><input style={inputStyle} type="number" step="0.01" value={params.deduction} disabled={readonly} onChange={(e) => setParams({ ...params, deduction: e.target.value })} /></FormField>
                     <FormField label="Pontos de referência"><input style={inputStyle} type="number" step="1" min="1" value={params.pointsTotal} disabled={readonly} onChange={(e) => setParams({ ...params, pointsTotal: e.target.value })} /></FormField>
                     <FormField label="Dias padrão de trabalho"><input style={inputStyle} type="number" step="1" min="1" max="31" value={params.diasPadrao} disabled={readonly} onChange={(e) => setParams({ ...params, diasPadrao: e.target.value })} /></FormField>
+                    <FormField label="Pontos da reserva da casa"><input style={inputStyle} type="number" step="0.5" min="0" value={params.reservaPontos} disabled={readonly} title="Vão para o fundo de reserva: pontos × valor do ponto" onChange={(e) => setParams({ ...params, reservaPontos: e.target.value })} /></FormField>
                   </FormGrid>
                   <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 14 }}>
                     <span style={mutedStyle}>Reduzem o rateio:</span>

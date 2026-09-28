@@ -146,7 +146,6 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2, alignItems: "center" }}>
             {p.functionName && <span style={mutedStyle}>{p.functionName}</span>}
             {p.semRegistro && <StatusBadge tone="warning">Sem registro</StatusBadge>}
-            {p.reserva && <StatusBadge tone="info">Reserva</StatusBadge>}
             {p.terminationDate && p.tipoCalculo !== "MES" && <StatusBadge tone="neutral">Saída {fmtDate(p.terminationDate)}</StatusBadge>}
           </div>
         </Table.Td>

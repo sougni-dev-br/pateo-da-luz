@@ -2461,10 +2461,9 @@ model Employee {
   pontosPadrao      Decimal?           @db.Decimal(6, 2)
   tipFunctionId     String?
   tipFunction       TipFunction?       @relation(fields: [tipFunctionId], references: [id])
-  // Cadastro que guarda a reserva da casa (saldo para distribuição futura).
-  // Entra no rateio normalmente, mas não vai para a lista de pagamento.
-  gorjetaReserva    Boolean            @default(false)
   tipParticipations TipParticipant[]
+  tipHistory        EmployeeTipHistory[]
+  tipReserveMovements TipReserveMovement[]
   // Auditoria / soft delete
   createdById       String
   updatedById       String?
@@ -2689,8 +2688,69 @@ model TipFunction {
   sortOrder Int        @default(0)
   isActive  Boolean    @default(true)
   employees Employee[]
+  history   TipFunctionHistory[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+}
+
+// Histórico da função e dos pontos de cada funcionário na gorjeta. Uma linha por
+// mudança (ou por mudança na tabela de funções que altere a base dele), com a
+// data a partir da qual vale. Base dos relatórios de promoção e evolução.
+model EmployeeTipHistory {
+  id               String   @id
+  employeeId       String
+  employee         Employee @relation(fields: [employeeId], references: [id])
+  validFrom        DateTime @db.Date
+  participaGorjeta Boolean
+  tipFunctionId    String?
+  functionName     String?
+  functionPoints   Decimal? @db.Decimal(6, 2)
+  pontosPadrao     Decimal? @db.Decimal(6, 2)
+  basePoints       Decimal? @db.Decimal(6, 2)
+  reason           String?
+  changedById      String
+  createdAt        DateTime @default(now())
+
+  @@index([employeeId, validFrom])
+  @@index([validFrom])
+}
+
+// Mudanças na tabela de funções (nome, pontos, faixa).
+model TipFunctionHistory {
+  id            String      @id
+  tipFunctionId String
+  tipFunction   TipFunction @relation(fields: [tipFunctionId], references: [id])
+  name          String
+  pointsBefore  Decimal?    @db.Decimal(6, 2)
+  pointsAfter   Decimal     @db.Decimal(6, 2)
+  minPoints     Decimal?    @db.Decimal(6, 2)
+  maxPoints     Decimal?    @db.Decimal(6, 2)
+  changedById   String
+  createdAt     DateTime    @default(now())
+
+  @@index([tipFunctionId, createdAt])
+}
+
+// Fundo de reserva da gorjeta: extrato de entradas (reserva e saldo de cada
+// fechamento, ajustes) e saídas (distribuição a funcionários). Saldo = soma.
+model TipReserveMovement {
+  id          String     @id
+  date        DateTime   @db.Date
+  // FECHAMENTO_RESERVA | FECHAMENTO_SALDO | DISTRIBUICAO | AJUSTE
+  type        String
+  amount      Decimal    @db.Decimal(14, 2)
+  periodId    String?
+  period      TipPeriod? @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employeeId  String?
+  employee    Employee?  @relation(fields: [employeeId], references: [id])
+  valeId      String?    @unique
+  vale        TipVale?   @relation(fields: [valeId], references: [id], onDelete: Cascade)
+  notes       String?
+  createdById String
+  createdAt   DateTime   @default(now())
+
+  @@index([date])
+  @@index([periodId])
 }
 
 // Competência da gorjeta: 26 do mês anterior a 25 do mês da competência.
@@ -2716,6 +2776,9 @@ model TipPeriod {
   descontaOutros   Boolean          @default(false)
   // Parte do líquido que ficou sem distribuir no fechamento.
   saldoRetido      Decimal          @default(0) @db.Decimal(14, 2)
+  // Pontos que vão para o fundo de reserva da gorjeta (valor = pontos × valor do ponto).
+  reservaPontos    Decimal          @default(0) @db.Decimal(8, 2)
+  reserveMovements TipReserveMovement[]
   status           TipPeriodStatus  @default(OPEN)
   closedAt         DateTime?
   participants     TipParticipant[]
@@ -2737,6 +2800,8 @@ model TipParticipant {
   kind          TipParticipantKind @default(PONTOS)
   // Pontos da função (ou personalizados) trazidos do cadastro — não se edita aqui.
   basePoints       Decimal?        @db.Decimal(8, 2)
+  // Função do período, guardada para os relatórios não mudarem se o cadastro mudar.
+  functionName     String?
   // Acréscimo (+) ou desconto (−) do mês sobre os pontos-base.
   pointsAdjustment Decimal         @default(0) @db.Decimal(8, 2)
   // Pontos finais (base × presença + ajuste), gravados no fechamento.
@@ -2782,6 +2847,7 @@ model TipVale {
   notes         String?
   createdById   String
   createdAt     DateTime       @default(now())
+  reserveMovement TipReserveMovement?
 
   @@index([participantId])
 }

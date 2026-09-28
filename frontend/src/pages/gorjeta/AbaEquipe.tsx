@@ -1,8 +1,10 @@
-import { Plus, Save } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { History, Plus, Save, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  type TipFunction, type TipTeamMember, getTipCompanies, getTipFunctions, getTipTeam, saveTipFunctions, saveTipTeamMember,
+  type TipFunction, type TipMudanca, type TipTeamMember, getTipCompanies, getTipFunctions, getTipMemberHistory, getTipTeam,
+  saveTipFunctions, saveTipTeamMember,
 } from "../../api/client";
+import { HistoricoLinhaDoTempo } from "./HistoricoLinhaDoTempo";
 import { Alert, Button, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import "./gorjeta.css";
@@ -21,7 +23,7 @@ const primeiroDe = (texto: Set<string>) => (coluna: string) => (texto.has(coluna
 
 const COLUNAS_EQUIPE: ColunaOpcional[] = [
   { chave: "participa", rotulo: "Participa" }, { chave: "funcao", rotulo: "Função" }, { chave: "pers", rotulo: "Pontos pers." },
-  { chave: "base", rotulo: "Base" }, { chave: "empresa", rotulo: "Empresa" }, { chave: "reserva", rotulo: "Reserva" },
+  { chave: "base", rotulo: "Base" }, { chave: "empresa", rotulo: "Empresa" },
 ];
 const TEXTO_EQUIPE = new Set(["nome", "funcao", "empresa"]);
 
@@ -52,6 +54,23 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
   const [salvando, setSalvando] = useState<string | null>(null);
   const [mostrarInativos, setMostrarInativos] = useState(false);
   const [funcoesSujas, setFuncoesSujas] = useState(false);
+  // Vigência e motivo das mudanças de função/pontos: vão para o histórico.
+  const [vigencia, setVigencia] = useState(() => new Date().toISOString().slice(0, 10));
+  const [motivo, setMotivo] = useState("");
+  const [historicoDe, setHistoricoDe] = useState<TipTeamMember | null>(null);
+  const [historico, setHistorico] = useState<TipMudanca[] | null>(null);
+  const painelHistorico = useRef<HTMLDivElement>(null);
+
+  async function abrirHistorico(m: TipTeamMember) {
+    if (historicoDe?.id === m.id) { setHistoricoDe(null); return; }
+    setHistoricoDe(m);
+    setHistorico(null);
+    try { setHistorico(await getTipMemberHistory(m.id)); } catch (e) { onNotice("error", (e as Error).message); }
+  }
+  // O histórico abre abaixo da tabela: rola até ele.
+  useEffect(() => {
+    if (historicoDe) painelHistorico.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [historicoDe]);
 
   const ordEquipe = useOrdenacao("equipe");
   const colEquipe = useColunas("equipe");
@@ -92,7 +111,6 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
     pers: (m) => m.pontosPadrao,
     base: (m) => baseDe(m),
     empresa: (m) => (m.companyId ? empresaPorId.get(m.companyId) : null),
-    reserva: (m) => (m.gorjetaReserva ? 1 : 0),
   };
 
   async function salvarMembro(m: TipTeamMember, patch: Partial<TipTeamMember>) {
@@ -102,9 +120,11 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
     try {
       await saveTipTeamMember(m.id, {
         participaGorjeta: novo.participaGorjeta, tipoGorjeta: novo.tipoGorjeta, cotaFixaGorjeta: novo.cotaFixaGorjeta,
-        pontosPadrao: novo.pontosPadrao, tipFunctionId: novo.tipFunctionId, gorjetaReserva: novo.gorjetaReserva, companyId: novo.companyId,
+        pontosPadrao: novo.pontosPadrao, tipFunctionId: novo.tipFunctionId, companyId: novo.companyId,
+        validFrom: vigencia || undefined, reason: motivo.trim() || undefined,
       });
       onChanged();
+      if (historicoDe?.id === m.id) setHistorico(await getTipMemberHistory(m.id));
     } catch (e) {
       setTeam((prev) => prev.map((x) => (x.id === m.id ? m : x)));
       onNotice("error", (e as Error).message);
@@ -120,7 +140,7 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
 
   async function salvarFuncoes() {
     try {
-      await saveTipFunctions(funcoes);
+      await saveTipFunctions(funcoes, { validFrom: vigencia || undefined, reason: motivo.trim() || undefined });
       onNotice("success", "Tabela de funções salva. Use \"Atualizar do cadastro\" na Apuração para levar os novos pontos ao período aberto.");
       await carregar();
       onChanged();
@@ -144,6 +164,15 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="barra-vigencia">
+        <History size={16} aria-hidden />
+        <span>Mudanças de função e pontos valem a partir de</span>
+        <input type="date" value={vigencia} onChange={(e) => setVigencia(e.target.value)} aria-label="Vigência das mudanças" />
+        <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (ex.: promoção a líder)"
+          aria-label="Motivo das mudanças" style={{ flex: "1 1 220px" }} />
+        <span className="barra-vigencia-nota">Fica no histórico de cada pessoa e nos Relatórios.</span>
+      </div>
+
       <div style={panelStyle}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
           <strong>Equipe da gorjeta</strong>
@@ -161,7 +190,7 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
         </div>
         <span style={mutedStyle}>
           Pontos-base = pontos da função, ou os personalizados quando preenchidos. Sem registro recebe salário + gorjeta na lista de pagamento.
-          Reserva: entra no rateio, mas o valor fica na casa e não vai para pagamento.
+          A reserva da casa não é mais um funcionário: é informada em pontos nos parâmetros de cada período.
         </span>
         <Table className="tabela-gorjeta">
           <Table.Head>
@@ -172,7 +201,7 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
               {ve("pers") && <ThOrdenavel {...thE("pers")} title="Pontos personalizados: substituem os da função">Pontos pers.</ThOrdenavel>}
               {ve("base") && <ThOrdenavel {...thE("base")}>Base</ThOrdenavel>}
               {ve("empresa") && <ThOrdenavel {...thE("empresa")} minWidth={160}>Empresa</ThOrdenavel>}
-              {ve("reserva") && <ThOrdenavel {...thE("reserva")}>Reserva</ThOrdenavel>}
+              <Table.Th aria-label="Histórico"> </Table.Th>
             </Table.Row>
           </Table.Head>
           <Table.Body>
@@ -233,17 +262,28 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
                       </select>
                     </Table.Td>
                   )}
-                  {ve("reserva") && (
-                    <Table.Td>
-                      <input type="checkbox" checked={m.gorjetaReserva} disabled={off} aria-label={`${nome(m)} guarda a reserva`}
-                        onChange={(e) => void salvarMembro(m, { gorjetaReserva: e.target.checked })} />
-                    </Table.Td>
-                  )}
+                  <Table.Td>
+                    <button type="button" onClick={() => void abrirHistorico(m)} aria-expanded={historicoDe?.id === m.id}
+                      aria-label={`Histórico de ${nome(m)}`} title="Histórico de função e pontos"
+                      style={{ border: "none", borderRadius: 6, padding: 4, cursor: "pointer", background: historicoDe?.id === m.id ? "var(--paper-soft)" : "transparent", color: "var(--muted)" }}>
+                      <History size={15} />
+                    </button>
+                  </Table.Td>
                 </Table.Row>
               );
             })}
           </Table.Body>
         </Table>
+        {historicoDe && (
+          <div ref={painelHistorico} className="painel-historico">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <strong>Histórico de {nome(historicoDe)}</strong>
+              <button type="button" onClick={() => setHistoricoDe(null)} aria-label="Fechar histórico"
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--muted)" }}><X size={16} /></button>
+            </div>
+            {historico == null ? <span style={mutedStyle}>Carregando…</span> : <HistoricoLinhaDoTempo mudancas={historico} />}
+          </div>
+        )}
       </div>
 
       <div style={panelStyle}>
