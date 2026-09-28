@@ -79,6 +79,11 @@ export type ParticipanteCalculado = {
   fatorPresenca: number;
   pontosApurados: number;
   pontosFinais: number;
+  // Rescisão quitada: os pontos a que tinha direito × os que a gorjeta paga vale.
+  pontosDireito: number;
+  pontosDevolvidos: number;
+  extraRescisao: number;
+  justificativaExtra: string | null;
   valorPonto: number;
   rateio: number;
   descontos: number;
@@ -89,6 +94,9 @@ export type ParticipanteCalculado = {
   totalAPagar: number;
   rescisaoPendente: boolean;
 };
+
+const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }).replace(/ /g, " ");
+const ptsTexto = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 
 function diasEntre(a: Date, b: Date): number {
   return Math.round((b.getTime() - a.getTime()) / DIA_MS) + 1;
@@ -179,12 +187,27 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
   let valorPonto = valorPontoDoMes;
   let rateio = 0;
   let rescisaoPendente = false;
+  let pontosConsumidos = pontosFinais;
+  let extraRescisao = 0;
+  let pontosDevolvidos = 0;
+  let justificativaExtra: string | null = null;
   if (tipoCalculo === "FORA_DO_PERIODO") {
     rateio = 0;
   } else if (p.kind === "FIXO") {
     rateio = round2(p.fixedAmount ?? 0);
   } else if (tipoCalculo === "RESCISAO_QUITADA") {
+    // A gorjeta paga vale (pago ÷ valor do ponto do mês) pontos. Abaixo do direito,
+    // o resto volta à apuração; acima, a diferença é extra, com justificativa.
     rateio = round2(p.rescisaoValorFixo ?? 0);
+    if (valorPontoDoMes > 0) {
+      pontosConsumidos = round2(rateio / valorPontoDoMes);
+      extraRescisao = Math.max(0, round2(pontosConsumidos - pontosFinais));
+      pontosDevolvidos = Math.max(0, round2(pontosFinais - pontosConsumidos));
+      if (extraRescisao > 0) {
+        justificativaExtra = `Gorjeta paga na rescisão (${reais(rateio)}) equivale a ${ptsTexto(pontosConsumidos)} pts; `
+          + `o direito era ${ptsTexto(pontosFinais)} pts: +${ptsTexto(extraRescisao)} pts de extra.`;
+      }
+    }
   } else if (tipoCalculo === "RESCISAO") {
     if (p.rescisaoServicoBruto == null) {
       rescisaoPendente = true;
@@ -210,7 +233,11 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
     diasComputados: computados,
     fatorPresenca: fator,
     pontosApurados,
-    pontosFinais,
+    pontosFinais: pontosConsumidos,
+    pontosDireito: pontosFinais,
+    pontosDevolvidos,
+    extraRescisao,
+    justificativaExtra,
     valorPonto: round2(valorPonto),
     rateio,
     descontos,
@@ -240,16 +267,21 @@ export function calcularRateio(regras: RegrasPeriodo, participantes: Participant
   const totalCotasFixas = round2(
     participantes.filter((p) => p.kind === "FIXO").reduce((a, p) => a + (p.fixedAmount ?? 0), 0),
   );
-  // 1ª passada: as rescisões não dependem do valor do ponto do mês.
+  // 1ª passada: as rescisões calculadas (serviço até a saída) não dependem do ponto do mês.
+  // As quitadas ficam fora: medidas pelo próprio valor do ponto, não o alteram.
   const previa = participantes.map((p) => calcularParticipante(regras, p, 0));
+  const calculadas = {
+    valor: round2(previa.reduce((a, l) => a + (l.tipoCalculo === "RESCISAO" ? l.rateio : 0), 0)),
+    pontos: round2(previa.reduce((a, l) => a + (l.tipoCalculo === "RESCISAO" ? l.pontosFinais : 0), 0)),
+  };
+  const valorPonto = valorPontoMes(regras, totalCotasFixas, calculadas);
+  // 2ª passada: quem fica e as quitadas, com o valor do ponto que sobrou.
+  const linhas = participantes.map((p) => calcularParticipante(regras, p, valorPonto));
   const ehRescisao = (t: string) => t === "RESCISAO" || t === "RESCISAO_QUITADA";
   const rescisoes = {
-    valor: round2(previa.reduce((a, l) => a + (ehRescisao(l.tipoCalculo) ? l.rateio : 0), 0)),
-    pontos: round2(previa.reduce((a, l) => a + (ehRescisao(l.tipoCalculo) ? l.pontosFinais : 0), 0)),
+    valor: round2(linhas.reduce((a, l) => a + (ehRescisao(l.tipoCalculo) ? l.rateio : 0), 0)),
+    pontos: round2(linhas.reduce((a, l) => a + (ehRescisao(l.tipoCalculo) ? l.pontosFinais : 0), 0)),
   };
-  const valorPonto = valorPontoMes(regras, totalCotasFixas, rescisoes);
-  // 2ª passada: quem fica, com o valor do ponto que sobrou.
-  const linhas = participantes.map((p) => calcularParticipante(regras, p, valorPonto));
   const distribuido = round2(linhas.reduce((a, l) => a + l.rateio, 0));
   return {
     valorPonto: round2(valorPonto),

@@ -112,6 +112,11 @@ export type ComputedParticipant = {
   fatorPresenca: number;
   pontosApurados: number;
   points: number;          // pontos finais
+  // Rescisão quitada: direito × o que a gorjeta paga vale em pontos.
+  pontosDireito: number;
+  pontosDevolvidos: number;
+  extraRescisao: number;
+  justificativaExtra: string | null;
   tipoCalculo: TipoCalculo;
   valorPonto: number;
   rescisaoServicoBruto: number | null;
@@ -366,6 +371,10 @@ export async function computeTipCommission(
       fatorPresenca: calc.fatorPresenca,
       pontosApurados: calc.pontosApurados,
       points: closed && r.points != null ? Number(r.points) : calc.pontosFinais,
+      pontosDireito: calc.pontosDireito,
+      pontosDevolvidos: calc.pontosDevolvidos,
+      extraRescisao: calc.extraRescisao,
+      justificativaExtra: calc.justificativaExtra,
       tipoCalculo: calc.tipoCalculo,
       valorPonto: calc.valorPonto,
       rescisaoServicoBruto: ent.rescisaoServicoBruto,
@@ -409,7 +418,7 @@ export async function computeTipCommission(
   const listar = (lista: ComputedParticipant[]) => lista.map((p) => p.employeeName).join(", ");
 
   for (const p of noPeriodo.filter((x) => x.rescisaoPendente)) {
-    pendencias.push(`${p.employeeName}: saiu em ${fmtIso(p.terminationDate)} e falta o serviço até a saída (faturamento não importado). Informe o valor em "Rescisões do período".`);
+    pendencias.push(`${p.employeeName}: saiu em ${fmtIso(p.terminationDate)} e falta o valor da rescisão. Em "Rescisões do período", digite a gorjeta paga (ou leia o termo da contabilidade) ou o serviço até a saída.`);
   }
   if (pointsPool < 0) {
     pendencias.push(`As cotas fixas (${brl(rateio.totalCotasFixas)}) passam do líquido do período (${brl(netPool)}).`);

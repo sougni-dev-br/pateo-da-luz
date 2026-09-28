@@ -5669,6 +5669,10 @@ export type TipComputedParticipant = {
   fatorPresenca: number;
   pontosApurados: number;
   points: number;
+  pontosDireito: number;
+  pontosDevolvidos: number;
+  extraRescisao: number;
+  justificativaExtra: string | null;
   tipoCalculo: TipTipoCalculo;
   valorPonto: number;
   rescisaoServicoBruto: number | null;
