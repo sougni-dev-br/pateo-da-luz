@@ -14,7 +14,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { importExtrato, onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
 import {
-  distribuirReserva, evolucaoMensal, extratoReserva, lancarAjusteReserva, listarMudancas, mudouSituacao, registrarHistorico,
+  distribuirReserva, evolucaoMensal, extratoReserva, lancarAjusteReserva, listarMudancas, motivoParaNaoRetirar, mudouSituacao,
+  registrarHistorico, saldoReserva, travarFundo,
 } from "./tip-historico.service.js";
 
 // Formata dd/mm a partir de uma data UTC.
@@ -170,6 +171,15 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
   const b = request.body as Record<string, unknown>;
   const periodId = request.params.id;
   if (await barrouPorFechamento(periodId, response, "Alterar o período")) return;
+  // Serviço, retenção, datas e pontos mudam o valor de todo mundo: fica no rastro.
+  const antesDoPeriodo = await prisma.tipPeriod.findUnique({
+    where: { id: periodId },
+    select: {
+      grossPool: true, servicoFaturamento: true, ajusteServico: true, ajusteServicoMotivo: true, deductionPercent: true,
+      pointsTotal: true, periodStart: true, periodEnd: true, diasPadrao: true, reservaPontos: true,
+      descontaFalta: true, descontaAtestado: true, descontaFerias: true, descontaOutros: true,
+    },
+  });
   const gross = numOrNull(b.grossPool);
   const pointsTotalRaw = numOrNull(b.pointsTotal);
   const pointsTotal = pointsTotalRaw == null ? undefined : Math.max(1, Math.round(pointsTotalRaw));
@@ -236,12 +246,27 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
     }
   }
 
-  const grossFinal = gross ?? grossFromRange;
+  // Serviço arrecadado = faturamento + ajuste. Mudar as datas repuxa o faturamento
+  // e mantém o ajuste; o ajuste (com motivo) é o jeito de somar serviço que não
+  // passa pelo sistema. "grossPool" direto (legado) vira ajuste sobre o faturamento.
+  const atual = await prisma.tipPeriod.findUniqueOrThrow({ where: { id: periodId }, select: { servicoFaturamento: true, ajusteServico: true } });
+  const faturamento = grossFromRange ?? Number(atual.servicoFaturamento);
+  let ajuste = numOrNull(b.ajusteServico) ?? Number(atual.ajusteServico);
+  if (gross != null && b.ajusteServico === undefined) ajuste = gross - faturamento;
+  const motivo = b.ajusteServicoMotivo !== undefined ? textoOuNull(b.ajusteServicoMotivo) : undefined;
+  if (Math.abs(ajuste) >= 0.005 && motivo === null) {
+    return response.status(422).json({ message: "Informe o motivo do ajuste no serviço arrecadado." });
+  }
+  const grossFinal = Math.round((faturamento + ajuste) * 100) / 100;
+  if (grossFinal < 0) return response.status(422).json({ message: "O serviço arrecadado não pode ficar negativo." });
   const period = await prisma.tipPeriod.update({
     where: { id: periodId },
     data: {
-      grossPool: grossFinal ?? undefined,
-      poolSource: gross != null ? "MANUAL" : (grossFromRange != null ? "REVENUE" : undefined),
+      grossPool: grossFinal,
+      servicoFaturamento: faturamento,
+      ajusteServico: ajuste,
+      ajusteServicoMotivo: Math.abs(ajuste) < 0.005 ? null : motivo,
+      poolSource: Math.abs(ajuste) >= 0.005 ? "MANUAL" : "REVENUE",
       deductionPercent: numOrNull(b.deductionPercent) ?? undefined,
       pointsTotal,
       diasPadrao: intOrUndefined(b.diasPadrao, 1, 31),
@@ -257,7 +282,38 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
     },
   });
   // O aviso de lacuna viaja junto do periodo para aparecer na tela.
+  await auditLog({
+    userId: user.id, action: "UPDATE_TIP_PERIOD", entity: "TipPeriod", entityId: periodId,
+    previousValue: antesDoPeriodo,
+    newValue: {
+      grossPool: period.grossPool, servicoFaturamento: period.servicoFaturamento, ajusteServico: period.ajusteServico,
+      ajusteServicoMotivo: period.ajusteServicoMotivo, deductionPercent: period.deductionPercent, pointsTotal: period.pointsTotal,
+      periodStart: period.periodStart, periodEnd: period.periodEnd, diasPadrao: period.diasPadrao, reservaPontos: period.reservaPontos,
+      descontaFalta: period.descontaFalta, descontaAtestado: period.descontaAtestado, descontaFerias: period.descontaFerias, descontaOutros: period.descontaOutros,
+    },
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
   response.json(avisosPeriodo.length > 0 ? { ...period, avisos: avisosPeriodo } : period);
+});
+
+// Busca de novo o serviço do faturamento no intervalo do período (ex.: depois de
+// importar dias que faltavam). O ajuste manual continua valendo.
+tipCommissionRouter.post("/periods/:id/refresh-service", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const periodId = request.params.id;
+  if (await barrouPorFechamento(periodId, response, "Atualizar o serviço")) return;
+  const p = await prisma.tipPeriod.findUnique({ where: { id: periodId } });
+  if (!p) return response.status(404).json({ message: "Período não encontrado." });
+  const faturamento = await getServicePoolByRange(p.periodStart, new Date(p.periodEnd.getTime() + 24 * 60 * 60 * 1000));
+  const gross = Math.round((faturamento + Number(p.ajusteServico)) * 100) / 100;
+  await prisma.tipPeriod.update({ where: { id: periodId }, data: { servicoFaturamento: faturamento, grossPool: gross, updatedById: user.id } });
+  await auditLog({
+    userId: user.id, action: "REFRESH_TIP_SERVICE", entity: "TipPeriod", entityId: periodId,
+    previousValue: { servicoFaturamento: String(p.servicoFaturamento) }, newValue: { servicoFaturamento: faturamento },
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+  response.json({ servicoFaturamento: faturamento, grossPool: gross });
 });
 
 // ─── Participantes: upsert em lote (pontos / cota fixa) ─────────────────────
@@ -281,6 +337,24 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
     select: { id: true, pontosPadrao: true, tipFunction: { select: { points: true } } },
   });
   const basePorFuncionario = new Map(cadastro.map((e) => [e.id, pontosBaseDoCadastro(e)]));
+
+  // Ocorrências e dias são contagens dentro de um período de ~31 dias.
+  const CAMPOS_DIAS: Array<[string, string]> = [
+    ["faltas", "Faltas"], ["atestados", "Atestados"], ["ferias", "Férias"], ["outrosDias", "Outros dias"],
+    ["diasPrevistosOverride", "Dias previstos"], ["diasSalarioOverride", "Dias de salário"],
+  ];
+  for (const raw of list as Array<Record<string, unknown>>) {
+    for (const [campo, rotulo] of CAMPOS_DIAS) {
+      const n = numOrNull(raw[campo]);
+      if (n != null && (n < 0 || n > 31)) {
+        return response.status(422).json({ message: `${rotulo}: ${n} não é possível num período (use de 0 a 31).` });
+      }
+    }
+    const ajuste = numOrNull(raw.pointsAdjustment);
+    if (ajuste != null && Math.abs(ajuste) > 100) {
+      return response.status(422).json({ message: `Ajuste de pontos ${ajuste} fora do razoável (máximo ±100).` });
+    }
+  }
 
   await prisma.$transaction(async (tx) => {
     for (const raw of list as Array<Record<string, unknown>>) {
@@ -769,7 +843,17 @@ tipCommissionRouter.delete("/reserve/adjustments/:id", async (request, response)
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
   const mov = await prisma.tipReserveMovement.findUnique({ where: { id: request.params.id } });
   if (!mov || mov.type !== "AJUSTE") return response.status(404).json({ message: "Só ajustes manuais podem ser apagados aqui." });
-  await prisma.tipReserveMovement.delete({ where: { id: mov.id } });
+  // Apagar um ajuste de entrada que já foi usado em distribuições deixaria o fundo negativo.
+  try {
+    await prisma.$transaction(async (tx) => {
+      await travarFundo(tx);
+      const bloqueio = motivoParaNaoRetirar(await saldoReserva(tx), Number(mov.amount), "este ajuste");
+      if (bloqueio) throw new Error(bloqueio.replace("Apague créditos de distribuição em período aberto ou lance um ajuste no fundo antes de reabrir.", "Lance outro ajuste antes de apagar este."));
+      await tx.tipReserveMovement.delete({ where: { id: mov.id } });
+    });
+  } catch (err) {
+    return response.status(422).json({ message: (err as Error).message });
+  }
   await auditLog({
     userId: user.id, action: "DELETE_TIP_RESERVE_ADJUSTMENT", entity: "TipReserveMovement", entityId: mov.id,
     previousValue: { amount: String(mov.amount), notes: mov.notes }, newValue: null,

@@ -5691,9 +5691,14 @@ export type TipComputation = {
   periodStart: string;
   periodEnd: string;
   grossPool: number;
+  servicoFaturamento: number;
+  ajusteServico: number;
+  ajusteServicoMotivo: string | null;
   deductionPercent: number;
   netPool: number;
   fixedTotal: number;
+  rescisoes: { valor: number; pontos: number };
+  pontosDisponiveis: number;
   pointsPool: number;
   pointsBudget: number;
   totalPoints: number;
@@ -5762,7 +5767,13 @@ export type TipPeriodPayload = {
   grossPool?: number; deductionPercent?: number; pointsTotal?: number; periodStart?: string; periodEnd?: string;
   diasPadrao?: number; descontaFalta?: boolean; descontaAtestado?: boolean; descontaFerias?: boolean; descontaOutros?: boolean;
   reservaPontos?: number;
+  ajusteServico?: number;
+  ajusteServicoMotivo?: string | null;
 };
+
+export function refreshTipService(periodId: string) {
+  return request<{ servicoFaturamento: number; grossPool: number }>(`/payroll/tip/periods/${periodId}/refresh-service`, { method: "POST" });
+}
 
 export type TipFunction = {
   id?: string;

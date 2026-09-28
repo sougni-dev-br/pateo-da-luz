@@ -7,17 +7,23 @@
 // Por padrão só SIMULA e mostra o que faria. Para gravar: --aplicar.
 //   npx tsx scripts/importar-planilha-gorjeta.ts <planilha.xlsx> [--reserva "Ricardo Almeida"] [--aplicar]
 //
-// Casa o funcionário pelo nome (sem acento, sem caixa). Não mexe em salário, datas
-// nem desligamento: divergências nesses campos só são listadas, para conferir à mão.
+// Casa o funcionário pelo nome completo (sem acento, sem caixa, ignorando "de/da/do").
+// Nome parecido mas não igual NÃO é gravado: aparece na lista para conferir (use
+// --aceitar-aproximados só depois de conferir). Grava como a tela de Equipe: com
+// linha no histórico de função/pontos e registro de auditoria. Não mexe em
+// salário, datas nem desligamento: divergências só são listadas.
 
 import ExcelJS from "exceljs";
 import { PrismaClient } from "@prisma/client";
+import { registrarHistorico } from "../src/modules/payroll/tip-historico.service.js";
+import { auditLog } from "../src/modules/security/security-utils.js";
 
 const prisma = new PrismaClient();
 
 const args = process.argv.slice(2);
 const arquivo = args.find((a) => !a.startsWith("--"));
 const aplicar = args.includes("--aplicar");
+const aceitarAproximados = args.includes("--aceitar-aproximados");
 const iReserva = args.indexOf("--reserva");
 const nomeReserva = iReserva >= 0 ? args[iReserva + 1] : "Ricardo Almeida";
 
@@ -80,6 +86,14 @@ async function lerPlanilha(caminho: string): Promise<Linha[]> {
   return linhas;
 }
 
+// Data de vigência do histórico: --vigencia AAAA-MM-DD (padrão: hoje).
+const iVig = args.indexOf("--vigencia");
+const vigencia = (() => {
+  const v = iVig >= 0 ? args[iVig + 1] : null;
+  const d = v ? new Date(`${v}T00:00:00.000Z`) : new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+})();
+
 async function main() {
   if (!arquivo) throw new Error("Informe o caminho da planilha .xlsx.");
   const linhas = await lerPlanilha(arquivo);
@@ -109,19 +123,25 @@ async function main() {
   const acharFuncionario = (nome: string) => {
     const n = norm(nome);
     const alvo = tokens(nome);
-    const candidatos = funcionarios.filter((f) => {
-      if (norm(`${f.firstName} ${f.lastName}`) === n || (f.displayName && norm(f.displayName) === n)) return true;
-      // Mesmo primeiro nome e todos os demais nomes da planilha presentes no cadastro.
+    // Igual (sem "de/da/do"): casa com segurança.
+    const iguais = funcionarios.filter((f) => {
+      const cad = tokens(`${f.firstName} ${f.lastName}`).join(" ");
+      return cad === alvo.join(" ") || norm(`${f.firstName} ${f.lastName}`) === n || (f.displayName && norm(f.displayName) === n);
+    });
+    if (iguais.length === 1) return { emp: iguais[0], exato: true };
+    if (iguais.length > 1) return "AMBIGUO" as const;
+    // Parecido: mesmo primeiro nome e os nomes da planilha contidos no cadastro. Só com confirmação.
+    const parecidos = funcionarios.filter((f) => {
       const partes = tokens(`${f.firstName} ${f.lastName}`);
       return partes[0] === alvo[0] && alvo.slice(1).every((p) => partes.includes(p));
     });
-    return candidatos.length === 1 ? candidatos[0] : candidatos.length > 1 ? "AMBIGUO" as const : null;
+    return parecidos.length === 1 ? { emp: parecidos[0], exato: false } : parecidos.length > 1 ? "AMBIGUO" as const : null;
   };
 
   let gravados = 0;
   const avisos: string[] = [];
   for (const l of linhas) {
-    const emp = acharFuncionario(l.nome);
+    const achado = acharFuncionario(l.nome);
     const funcao = funcaoPorNome.get(norm(l.funcao)) ?? null;
     const empresa = acharEmpresa(l.empresa);
     const semRegistro = norm(l.empresa) === "s registro";
@@ -133,8 +153,13 @@ async function main() {
       continue;
     }
 
-    if (emp === null) { avisos.push(`${prefixo}: não achei no cadastro — cadastre em Funcionários e rode de novo.`); continue; }
-    if (emp === "AMBIGUO") { avisos.push(`${prefixo}: mais de um funcionário com esse nome — ajuste à mão.`); continue; }
+    if (achado === null) { avisos.push(`${prefixo}: não achei no cadastro — cadastre em Funcionários e rode de novo.`); continue; }
+    if (achado === "AMBIGUO") { avisos.push(`${prefixo}: mais de um funcionário com esse nome — ajuste à mão.`); continue; }
+    const emp = achado.emp;
+    if (!achado.exato) {
+      avisos.push(`${prefixo}: casado por aproximação com "${emp.firstName} ${emp.lastName}"${aceitarAproximados ? " (aceito)" : " — NÃO gravado; confira e rode com --aceitar-aproximados"}.`);
+      if (!aceitarAproximados) continue;
+    }
     if (!funcao && l.funcao) avisos.push(`${prefixo}: função "${l.funcao}" não existe na tabela.`);
     if (!empresa && !semRegistro && l.empresa) avisos.push(`${prefixo}: empresa "${l.empresa}" não encontrada.`);
     if (l.salario != null && Number(emp.baseSalary ?? 0) !== l.salario) {
@@ -153,16 +178,18 @@ async function main() {
       `, ${semRegistro ? "sem registro" : `empresa ${empresa?.tradeName ?? "—"}`}`,
     );
     if (aplicar) {
-      await prisma.employee.update({
-        where: { id: emp.id },
-        data: {
-          participaGorjeta: true,
-          tipoGorjeta: "PONTOS",
-          tipFunctionId: funcao?.id ?? null,
-          pontosPadrao: l.pontosPers,
-          ...(semRegistro ? { modality: "NAO_CLT" as const } : empresa ? { companyId: empresa.id } : {}),
-        },
+      const dados = {
+        participaGorjeta: true,
+        tipoGorjeta: "PONTOS" as const,
+        tipFunctionId: funcao?.id ?? null,
+        pontosPadrao: l.pontosPers,
+        ...(semRegistro ? { modality: "NAO_CLT" as const } : empresa ? { companyId: empresa.id } : {}),
+      };
+      await prisma.$transaction(async (tx) => {
+        await tx.employee.update({ where: { id: emp.id }, data: dados });
+        await registrarHistorico(tx, emp.id, vigencia, "script-importacao", `Importação da planilha (${l.codigo})`);
       });
+      await auditLog({ userId: null, action: "IMPORT_TIP_TEAM_MEMBER", entity: "Employee", entityId: emp.id, newValue: { ...dados, origem: arquivo } });
       gravados += 1;
     }
   }

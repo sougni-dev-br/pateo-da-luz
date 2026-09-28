@@ -13,7 +13,7 @@ import crypto from "node:crypto";
 import { prisma } from "../../config/database.js";
 import { round2 } from "./vt-calc.js";
 import { motivoParaNaoRetirar, saldoReserva, travarFundo } from "./tip-historico.service.js";
-import { calcularRateio, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, valorPontoMes } from "./tip-rateio.js";
+import { calcularRateio, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo } from "./tip-rateio.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
@@ -129,9 +129,16 @@ export type TipComputation = {
   periodStart: string;
   periodEnd: string;
   grossPool: number;
+  // Serviço arrecadado = faturamento + ajuste manual (serviço fora do sistema).
+  servicoFaturamento: number;
+  ajusteServico: number;
+  ajusteServicoMotivo: string | null;
   deductionPercent: number;
   netPool: number;
   fixedTotal: number;
+  // O que as rescisões levam sai da apuração do mês: em reais e em pontos.
+  rescisoes: { valor: number; pontos: number };
+  pontosDisponiveis: number;
   pointsPool: number;
   pointsBudget: number;
   totalPoints: number;
@@ -219,6 +226,8 @@ export async function computeTipCommission(
   const end = period ? period.periodEnd : bounds.end;
   const label = period ? period.label : bounds.label;
   const grossPool = period ? round2(Number(period.grossPool)) : await getServicePool(year, month);
+  const servicoFaturamento = period ? round2(Number(period.servicoFaturamento)) : grossPool;
+  const ajusteServico = period ? round2(Number(period.ajusteServico)) : 0;
   const deductionPercent = period ? Number(period.deductionPercent) : 20;
   const netPool = round2(grossPool * (1 - deductionPercent / 100));
   const pointsBudget = period ? Number(period.pointsTotal) : 100;
@@ -279,7 +288,7 @@ export async function computeTipCommission(
     : [];
   const reservaValor = closed && movimentosDoPeriodo.length > 0
     ? round2(movimentosDoPeriodo.reduce((a, m) => a + Number(m.amount), 0))
-    : round2(reservaPontos * valorPontoMes(regras, rateio.totalCotasFixas));
+    : round2(reservaPontos * rateio.valorPontoBruto);
   const fundo = await prisma.tipReserveMovement.aggregate({ _sum: { amount: true } });
   const fundoReservaSaldo = round2(Number(fundo._sum.amount ?? 0));
   const dadosPessoais = opts.incluirDadosPessoais ?? false;
@@ -398,8 +407,12 @@ export async function computeTipCommission(
     status: period?.status ?? null,
     periodStart: start.toISOString(),
     periodEnd: end.toISOString(),
-    grossPool, deductionPercent, netPool,
+    grossPool, servicoFaturamento, ajusteServico,
+    ajusteServicoMotivo: period?.ajusteServicoMotivo ?? null,
+    deductionPercent, netPool,
     fixedTotal: rateio.totalCotasFixas,
+    rescisoes: rateio.rescisoes,
+    pontosDisponiveis: rateio.pontosDisponiveis,
     pointsPool,
     pointsBudget, totalPoints,
     pointsRemaining: round2(pointsBudget - totalPoints),
@@ -459,7 +472,7 @@ export async function ensureTipPeriod(year: number, month: number, userId: strin
       id: crypto.randomUUID(),
       competenceYear: year, competenceMonth: month,
       periodStart: start, periodEnd: end, label,
-      grossPool, poolSource: "REVENUE", deductionPercent: 20, netPool,
+      grossPool, servicoFaturamento: grossPool, poolSource: "REVENUE", deductionPercent: 20, netPool,
       createdById: userId,
     },
   });

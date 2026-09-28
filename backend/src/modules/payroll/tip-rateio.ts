@@ -2,17 +2,20 @@
 // sem banco: o serviço junta os dados e este arquivo faz a conta.
 //
 //   líquido = bruto − dedução (20%)
-//   valor do ponto do mês = (líquido − cotas fixas) ÷ pontos de referência (100)
 //   pontos apurados = pontos-base × (dias computados ÷ dias previstos)
 //   pontos finais   = apurados + ajuste do mês (acréscimo ou desconto)
-//   rateio          = pontos finais × valor do ponto
 //
-// O valor do ponto NÃO sobe quando alguém perde pontos: a diferença fica como
-// saldo, e a casa decide o que fazer com ele (hoje, a reserva).
+// Rescisões primeiro: quem saiu no período tem valor do ponto próprio, sobre o
+// serviço arrecadado até a saída (ou o valor quitado, que não muda mais). O que
+// as rescisões levam — em reais e em pontos — sai da apuração do mês:
 //
-// Desligado no período tem valor do ponto próprio, calculado sobre o serviço
-// arrecadado até a data do desligamento. Se a rescisão já foi quitada, o valor
-// pago prevalece e não muda mais quando o serviço do mês é atualizado.
+//   valor do ponto do mês = (líquido − cotas fixas − rescisões)
+//                           ÷ (pontos de referência − pontos das rescisões)
+//   rateio                = pontos finais × valor do ponto do mês
+//
+// Assim o serviço gerado depois da saída fica com quem continua. O valor do
+// ponto NÃO sobe quando alguém do mês perde pontos por falta: a diferença fica
+// como saldo (retido pela casa).
 
 import { round2 } from "./vt-calc.js";
 
@@ -85,9 +88,13 @@ export function diasElegiveis(regras: Pick<RegrasPeriodo, "start" | "end">, admi
   return fim < inicio ? 0 : diasEntre(inicio, fim);
 }
 
-export function valorPontoMes(regras: RegrasPeriodo, totalCotasFixas: number): number {
-  if (regras.pointsTotal <= 0) return 0;
-  return (regras.netPool - totalCotasFixas) / regras.pointsTotal;
+// Valor do ponto de quem fica: o líquido e os pontos que sobram depois das rescisões.
+export function valorPontoMes(
+  regras: RegrasPeriodo, totalCotasFixas: number, rescisoes: { valor: number; pontos: number } = { valor: 0, pontos: 0 },
+): number {
+  const pontos = regras.pointsTotal - rescisoes.pontos;
+  if (pontos <= 0) return 0;
+  return Math.max(0, regras.netPool - totalCotasFixas - rescisoes.valor) / pontos;
 }
 
 export function valorPontoRescisao(regras: RegrasPeriodo, servicoBruto: number): number {
@@ -180,6 +187,10 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
 
 export type ResumoRateio = {
   valorPonto: number;
+  /** Sem arredondar: é o que multiplica os pontos (e a reserva). */
+  valorPontoBruto: number;
+  rescisoes: { valor: number; pontos: number };
+  pontosDisponiveis: number;
   totalCotasFixas: number;
   distribuido: number;
   saldo: number;
@@ -191,11 +202,22 @@ export function calcularRateio(regras: RegrasPeriodo, participantes: Participant
   const totalCotasFixas = round2(
     participantes.filter((p) => p.kind === "FIXO").reduce((a, p) => a + (p.fixedAmount ?? 0), 0),
   );
-  const valorPonto = valorPontoMes(regras, totalCotasFixas);
+  // 1ª passada: as rescisões não dependem do valor do ponto do mês.
+  const previa = participantes.map((p) => calcularParticipante(regras, p, 0));
+  const ehRescisao = (t: string) => t === "RESCISAO" || t === "RESCISAO_QUITADA";
+  const rescisoes = {
+    valor: round2(previa.reduce((a, l) => a + (ehRescisao(l.tipoCalculo) ? l.rateio : 0), 0)),
+    pontos: round2(previa.reduce((a, l) => a + (ehRescisao(l.tipoCalculo) ? l.pontosFinais : 0), 0)),
+  };
+  const valorPonto = valorPontoMes(regras, totalCotasFixas, rescisoes);
+  // 2ª passada: quem fica, com o valor do ponto que sobrou.
   const linhas = participantes.map((p) => calcularParticipante(regras, p, valorPonto));
   const distribuido = round2(linhas.reduce((a, l) => a + l.rateio, 0));
   return {
     valorPonto: round2(valorPonto),
+    valorPontoBruto: valorPonto,
+    rescisoes,
+    pontosDisponiveis: round2(regras.pointsTotal - rescisoes.pontos),
     totalCotasFixas,
     distribuido,
     saldo: round2(regras.netPool - distribuido),

@@ -2,7 +2,8 @@ import type { CSSProperties, ReactNode } from "react";
 import type { TipComputation } from "../../api/client";
 import { money, pts } from "./gorjetaUtils";
 
-// A conta inteira à vista: serviço − retenção = líquido ÷ pontos = valor do ponto;
+// A conta inteira à vista: serviço − retenção = líquido − rescisões ÷ pontos que
+// sobram = valor do ponto;
 // e embaixo, para onde foi cada real do líquido. Tudo que aparece aqui soma: se
 // não fechar com a planilha, a diferença fica visível em qual fatia está.
 
@@ -13,19 +14,25 @@ const termo: CSSProperties = {
 const rotulo: CSSProperties = { fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" };
 const valor: CSSProperties = { fontSize: 18, fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
 
-function Termo({ label, children, destaque, detalhe }: { label: string; children: ReactNode; destaque?: string; detalhe?: string }) {
+function Termo({ label, children, destaque, detalhe, acao }: {
+  label: string; children: ReactNode; destaque?: string; detalhe?: ReactNode; acao?: ReactNode;
+}) {
   return (
     <div style={{ ...termo, ...(destaque ? { borderColor: destaque, boxShadow: `inset 3px 0 0 ${destaque}` } : null) }}>
-      <span style={rotulo}>{label}</span>
+      <span style={{ ...rotulo, display: "flex", justifyContent: "space-between", gap: 6 }}>{label}{acao}</span>
       <span style={{ ...valor, color: destaque }}>{children}</span>
-      {detalhe && <span style={{ ...rotulo, fontSize: 11 }}>{detalhe}</span>}
+      {detalhe && <span style={{ ...rotulo, fontSize: 11, whiteSpace: "normal" }}>{detalhe}</span>}
     </div>
   );
 }
 
 type Fatia = { chave: string; label: string; valor: number; detalhe: string; cor: string; hachurado?: boolean };
 
-export function ResumoApuracao({ comp, compacto = false }: { comp: TipComputation; compacto?: boolean }) {
+type ResumoProps = { comp: TipComputation; compacto?: boolean; onAjustarServico?: () => void };
+
+export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: ResumoProps) {
+  const temRescisao = comp.rescisoes.pontos > 0 || comp.rescisoes.valor > 0;
+  const ajustado = Math.abs(comp.ajusteServico) >= 0.005;
   const retido = Math.round((comp.grossPool - comp.netPool) * 100) / 100;
   const c = comp.composicao;
   const estourou = comp.saldo < -0.005;
@@ -46,7 +53,8 @@ export function ResumoApuracao({ comp, compacto = false }: { comp: TipComputatio
     const itens: Array<[string, string, string | undefined]> = [
       ["Serviço", money(comp.grossPool), undefined],
       [`Líquido (−${comp.deductionPercent.toLocaleString("pt-BR")}%)`, money(comp.netPool), "var(--info)"],
-      [`Ponto (÷ ${pts(comp.pointsBudget)})`, money(comp.pointValue), "var(--gold)"],
+      ...(temRescisao ? [["Rescisões", `− ${money(comp.rescisoes.valor)}`, undefined] as [string, string, string | undefined]] : []),
+      [`Ponto (÷ ${pts(comp.pontosDisponiveis)})`, money(comp.pointValue), "var(--gold)"],
       ["Distribuído", money(comp.distribuido), undefined],
       [estourou ? "Estouro" : "Saldo", money(Math.abs(comp.saldo)), estourou ? "var(--danger)" : "var(--warning)"],
     ];
@@ -62,10 +70,27 @@ export function ResumoApuracao({ comp, compacto = false }: { comp: TipComputatio
   return (
     <section aria-label="Resumo da apuração" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8, alignItems: "stretch" }}>
-        <Termo label="Serviço arrecadado">{money(comp.grossPool)}</Termo>
+        <Termo label="Serviço arrecadado"
+          acao={onAjustarServico && (
+            <button type="button" className="barra-lista-link" onClick={onAjustarServico} style={{ fontSize: 11 }}>ajustar</button>
+          )}
+          detalhe={ajustado
+            ? <>faturamento {money(comp.servicoFaturamento)} <strong style={{ color: comp.ajusteServico > 0 ? "var(--success)" : "var(--danger)" }}>
+                {comp.ajusteServico > 0 ? "+" : "−"} {money(Math.abs(comp.ajusteServico))}</strong> de ajuste</>
+            : "do faturamento"}>
+          {money(comp.grossPool)}
+        </Termo>
         <Termo label={`Retenção ${comp.deductionPercent.toLocaleString("pt-BR")}%`}>− {money(retido)}</Termo>
         <Termo label="Líquido a distribuir" destaque="var(--info)">{money(comp.netPool)}</Termo>
-        <Termo label="Pontos de referência">÷ {pts(comp.pointsBudget)}</Termo>
+        {temRescisao && (
+          <Termo label="Rescisões (saem antes)" detalhe={`${pts(comp.rescisoes.pontos)} pts com o valor do ponto de cada saída`}>
+            − {money(comp.rescisoes.valor)}
+          </Termo>
+        )}
+        <Termo label={temRescisao ? "Pontos que sobram" : "Pontos de referência"}
+          detalhe={temRescisao ? `${pts(comp.pointsBudget)} − ${pts(comp.rescisoes.pontos)} das rescisões` : undefined}>
+          ÷ {pts(comp.pontosDisponiveis)}
+        </Termo>
         <Termo label="Valor do ponto" destaque="var(--gold)"
           detalhe={comp.fixedTotal > 0 ? `depois de ${money(comp.fixedTotal)} em cotas fixas` : undefined}>
           {money(comp.pointValue)}
