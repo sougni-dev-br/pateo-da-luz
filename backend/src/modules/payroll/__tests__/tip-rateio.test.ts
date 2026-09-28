@@ -203,13 +203,55 @@ describe("rescisões abatidas da apuração", () => {
     expect(res.linhas[1].rateio).toBe(1897.43);
   });
 
-  test("rescisão quitada abate o valor pago e os pontos dela", () => {
+  // Gorjeta paga (digitada ou do termo): vira pontos pelo valor do ponto do mês.
+  const QUITADA = { desligamento: d("2026-09-25"), admissao: d("2025-01-01") };
+
+  test("gorjeta paga abaixo do direito: consome só os pontos que ela vale; o resto volta à apuração", () => {
     const res = calcularRateio(SETEMBRO, [
-      pessoa({ basePoints: 4, desligamento: d("2026-09-10"), rescisaoValorFixo: 500 }),
+      pessoa({ ...QUITADA, basePoints: 4, rescisaoValorFixo: 372.66 }), // 2 pts × 186,33
       pessoa({ basePoints: 10 }),
     ]);
-    expect(res.rescisoes.valor).toBe(500);
-    expect(res.valorPontoBruto).toBeCloseTo((18632.99 - 500) / (100 - res.rescisoes.pontos), 6);
+    const q = res.linhas[0];
+    expect(q.tipoCalculo).toBe("RESCISAO_QUITADA");
+    expect(q.rateio).toBe(372.66);
+    expect(q.pontosDireito).toBe(4);
+    expect(q.pontosFinais).toBe(2);
+    expect(q.pontosDevolvidos).toBe(2);
+    expect(q.extraRescisao).toBe(0);
+    expect(q.justificativaExtra).toBeNull();
+    expect(res.rescisoes).toEqual({ valor: 372.66, pontos: 2 });
+  });
+
+  test("gorjeta paga acima do direito: a diferença vira extra com justificativa automática", () => {
+    const res = calcularRateio(SETEMBRO, [
+      pessoa({ ...QUITADA, basePoints: 2, rescisaoValorFixo: 745.32 }), // 4 pts × 186,33
+      pessoa({ basePoints: 10 }),
+    ]);
+    const q = res.linhas[0];
+    expect(q.pontosDireito).toBe(2);
+    expect(q.pontosFinais).toBe(4);
+    expect(q.extraRescisao).toBe(2);
+    expect(q.pontosDevolvidos).toBe(0);
+    expect(q.justificativaExtra).toBe("Gorjeta paga na rescisão (R$ 745,32) equivale a 4 pts; o direito era 2 pts: +2 pts de extra.");
+  });
+
+  test("a gorjeta paga não muda o valor do ponto de quem fica", () => {
+    const sem = calcularRateio(SETEMBRO, [pessoa({ basePoints: 10 })]);
+    const com = calcularRateio(SETEMBRO, [pessoa({ ...QUITADA, basePoints: 4, rescisaoValorFixo: 900 }), pessoa({ basePoints: 10 })]);
+    expect(com.valorPonto).toBe(sem.valorPonto);
+    expect(com.linhas[1].rateio).toBe(sem.linhas[0].rateio);
+  });
+
+  test("com rescisão calculada no mês, a quitada é medida pelo ponto que sobrou", () => {
+    const res = calcularRateio(SETEMBRO, [
+      pessoa({ basePoints: 3.5, desligamento: d("2026-09-16"), faltas: 2, rescisaoServicoBruto: 10000 }),
+      pessoa({ ...QUITADA, basePoints: 4, rescisaoValorFixo: 379.49 }),
+      pessoa({ basePoints: 10 }),
+    ]);
+    // (18.632,99 − 248,80) ÷ 96,89 = 189,7429 → 379,49 ÷ 189,7429 = 2 pts
+    expect(res.valorPontoBruto).toBeCloseTo(189.7429, 3);
+    expect(res.linhas[1].pontosFinais).toBe(2);
+    expect(res.linhas[2].rateio).toBe(1897.43);
   });
 
   test("sem rescisões, o valor do ponto é líquido ÷ 100 como na planilha", () => {

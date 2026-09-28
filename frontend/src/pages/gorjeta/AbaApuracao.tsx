@@ -410,8 +410,9 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
         <div style={panelStyle}>
           <strong>Rescisões do período</strong>
           <span style={mutedStyle}>
-            O valor do ponto de quem saiu usa o serviço arrecadado até a data da saída (puxado do faturamento). Quando a rescisão volta
-            da contabilidade, leia o termo: a gorjeta paga vira o valor quitado, fica congelada e não entra de novo na lista a pagar.
+            Para cada saída, informe a <strong>gorjeta paga</strong> (digitada ou lida do termo da contabilidade) ou o serviço até a saída.
+            A gorjeta paga vira pontos pelo valor do ponto do mês: se valer menos que o direito, o resto volta à apuração; se valer mais,
+            a diferença entra como extra com justificativa automática. Paga na rescisão, sai da lista a pagar.
           </span>
           <ReciboRescisao year={comp.year} month={comp.month} readonly={readonly}
             antesDeGravar={recibo.antesDeGravar} onAplicado={recibo.onAplicado} onErro={recibo.onErro} />
@@ -420,12 +421,12 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
               <Table.Row>
                 <Table.Th minWidth={180}>Funcionário</Table.Th>
                 <Table.Th>Saída</Table.Th>
-                <Table.Th>Serviço até a saída</Table.Th>
-                <Table.Th>Valor do ponto</Table.Th>
+                <Table.Th title="Gorjeta já paga na rescisão: digite ou leia o termo">Gorjeta paga</Table.Th>
                 <Table.Th>Pontos</Table.Th>
-                <Table.Th>Gorjeta calculada</Table.Th>
-                <Table.Th>Valor quitado</Table.Th>
                 <Table.Th>Situação</Table.Th>
+                <Table.Th title="Alternativa: sem a gorjeta paga, calcula pelo serviço arrecadado até a saída">Ou: serviço até a saída</Table.Th>
+                <Table.Th>Valor do ponto</Table.Th>
+                <Table.Th>Gorjeta calculada</Table.Th>
               </Table.Row>
             </Table.Head>
             <Table.Body>
@@ -438,35 +439,44 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
                     <Table.Td style={{ fontWeight: 500 }}>{p.employeeName}</Table.Td>
                     <Table.Td>{fmtDate(p.terminationDate)}</Table.Td>
                     <Table.Td>
+                      <input style={{ ...numInputStyle, width: 100, fontWeight: 600 }} type="number" step="0.01" min="0" value={r.rescisaoValorFixo}
+                        disabled={readonly} aria-label={`Gorjeta paga na rescisão de ${p.employeeName}`} placeholder="R$ pago"
+                        onChange={(e) => onRow(p.employeeId, { rescisaoValorFixo: e.target.value })} />
+                    </Table.Td>
+                    <Table.Td>
+                      <div style={{ fontWeight: 600 }}>{pts(p.points)}</div>
+                      {quitada && p.pontosDireito !== p.points && <div style={mutedStyle}>direito {pts(p.pontosDireito)}</div>}
+                      {quitada && p.pontosDevolvidos > 0 && <div className="nota-pontos nota-volta">{pts(p.pontosDevolvidos)} voltam à apuração</div>}
+                      {quitada && p.extraRescisao > 0 && (
+                        <div className="nota-pontos nota-extra" title={p.justificativaExtra ?? undefined}>+{pts(p.extraRescisao)} extra automático</div>
+                      )}
+                    </Table.Td>
+                    <Table.Td>
+                      {quitada ? (p.rescisaoRecibo
+                        ? <SeloRecibo pago pagamento={p.rescisaoRecibo.pagamento} arquivo={p.rescisaoRecibo.arquivo} />
+                        : <StatusBadge tone="success">Paga · digitada</StatusBadge>)
+                        : p.rescisaoPendente ? <StatusBadge tone="warning">Falta o valor</StatusBadge>
+                        : <StatusBadge tone="info">Calculada</StatusBadge>}
+                    </Table.Td>
+                    <Table.Td>
                       <input style={{ ...numInputStyle, width: 110 }} type="number" step="0.01" min="0" value={r.rescisaoServicoBruto}
-                        disabled={readonly || quitada} aria-label="Serviço bruto até a saída"
+                        disabled={readonly || quitada} aria-label={`Serviço bruto até a saída de ${p.employeeName}`}
                         placeholder={p.rescisaoServicoOrigem === "FATURAMENTO" && p.rescisaoServicoBruto != null ? p.rescisaoServicoBruto.toFixed(2) : ""}
                         title="Vazio = soma do faturamento do início do período até a saída"
                         onChange={(e) => onRow(p.employeeId, { rescisaoServicoBruto: e.target.value })} />
                     </Table.Td>
                     <Table.Td>{quitada || p.rescisaoPendente ? "—" : money(p.valorPonto)}</Table.Td>
-                    <Table.Td>{pts(p.points)}</Table.Td>
-                    <Table.Td>{quitada ? "—" : p.rescisaoPendente ? "—" : money(p.rateioAmount)}</Table.Td>
-                    <Table.Td>
-                      <input style={{ ...numInputStyle, width: 100 }} type="number" step="0.01" min="0" value={r.rescisaoValorFixo}
-                        disabled={readonly} aria-label="Valor quitado na rescisão"
-                        onChange={(e) => onRow(p.employeeId, { rescisaoValorFixo: e.target.value })} />
-                    </Table.Td>
-                    <Table.Td>
-                      {quitada ? (p.rescisaoRecibo
-                        ? <SeloRecibo pago pagamento={p.rescisaoRecibo.pagamento} arquivo={p.rescisaoRecibo.arquivo} />
-                        : <StatusBadge tone="success">Quitada</StatusBadge>)
-                        : p.rescisaoPendente ? <StatusBadge tone="warning">Falta o serviço</StatusBadge>
-                        : <StatusBadge tone="info">Calculada</StatusBadge>}
-                    </Table.Td>
+                    <Table.Td>{quitada || p.rescisaoPendente ? "—" : money(p.rateioAmount)}</Table.Td>
                   </Table.Row>
                 );
               })}
               <Table.Row>
                 <Table.Td style={totalTd}>Total das rescisões</Table.Td>
-                <Table.Td colSpan={4} style={totalTd}> </Table.Td>
-                <Table.Td align="center" style={{ ...totalTd, ...num }} colSpan={2}>{money(rescisoes.reduce((a, p) => a + p.rateioAmount, 0))}</Table.Td>
+                <Table.Td style={totalTd}> </Table.Td>
+                <Table.Td align="center" style={{ ...totalTd, ...num }}>{money(rescisoes.reduce((a, p) => a + p.rateioAmount, 0))}</Table.Td>
+                <Table.Td align="center" style={{ ...totalTd, ...num }}>{pts(rescisoes.reduce((a, p) => a + p.points, 0))}</Table.Td>
                 <Table.Td style={totalTd}>{rescisoes.some((p) => p.rescisaoPendente) ? <StatusBadge tone="warning">com pendência</StatusBadge> : " "}</Table.Td>
+                <Table.Td colSpan={3} style={totalTd}> </Table.Td>
               </Table.Row>
             </Table.Body>
           </Table>
