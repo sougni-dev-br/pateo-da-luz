@@ -72,6 +72,7 @@ import { PeriodFilter } from "../components/PeriodFilter";
 import { hasPermission } from "../lib/permissions";
 import { formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
+import { hojeLocalIso } from "../lib/datas";
 
 type PurchaseItemForm = {
   productCode: string;
@@ -123,7 +124,7 @@ const emptyEntry: EntryLine = {
 
 
 function todayInputDate() {
-  return new Date().toISOString().slice(0, 10);
+  return hojeLocalIso();
 }
 
 function normalizePurchaseReference(value?: string | null) {

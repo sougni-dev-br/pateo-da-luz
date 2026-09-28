@@ -18,6 +18,7 @@ import { hasPermission } from "../lib/permissions";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
+import { hojeLocalIso } from "../lib/datas";
 
 const inventoryTypes: Array<{ value: InventorySnapshotType; label: string }> = [
   { value: "INVENTARIO_INICIAL", label: "Inventario inicial" },
@@ -37,7 +38,7 @@ function splitMonth(value: string) {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return hojeLocalIso();
 }
 
 export function MonthlyClosing({ user }: { user: AppUser }) {

@@ -4,6 +4,7 @@
 // compartilhados pelas views (overview, contagens, inventario, relatorios).
 
 import type { OperationalInventoryType } from "../../api/client";
+import { dataLocalIso } from "../../lib/datas";
 
 export const weekdays = [
   { value: "", label: "Sem dia fixo" },
@@ -146,6 +147,8 @@ export function parseMonth(value: string) {
   return { year: String(year), month: String(month) };
 }
 
+// UTC de proposito: o backend grava scheduledDate como meia-noite do servidor, que
+// roda em UTC. Ler no fuso local devolveria o dia anterior no Brasil.
 export function dateKey(value: string) {
   return new Date(value).toISOString().slice(0, 10);
 }
@@ -165,7 +168,10 @@ export function inventoryClassificationSortText(value: string | null | undefined
 }
 
 export function sameDay(a: string, b: Date) {
-  return dateKey(a) === b.toISOString().slice(0, 10);
+  // `a` e data de calendario gravada em UTC; `b` e o relogio de quem usa (em geral
+  // new Date()). Comparar `b` em UTC fazia a agenda de "hoje" mostrar a de amanha
+  // depois das 21h.
+  return dateKey(a) === dataLocalIso(b);
 }
 
 export function operationalTone(status: string) {

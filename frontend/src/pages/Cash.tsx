@@ -4,9 +4,10 @@ import { AppUser, closeDailyRevenue, getRevenueEntry, RevenueEntry, saveRevenueE
 import { Notice, useNotice } from "../components/Notice";
 import { Button, Money, PanelEyebrow, StatusBadge } from "../design-system";
 import { hasPermission } from "../lib/permissions";
+import { hojeLocalIso } from "../lib/datas";
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return hojeLocalIso();
 }
 
 function splitDate(value: string) {

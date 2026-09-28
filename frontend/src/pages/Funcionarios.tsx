@@ -14,6 +14,7 @@ import {
 } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { maskMoney, moneyToMasked } from "../utils/format";
+import { hojeLocalIso } from "../lib/datas";
 
 const MODALITY_LABELS: Record<EmployeeModality, string> = { CLT: "CLT", NAO_CLT: "Não-CLT" };
 const REGIME_LABELS: Record<WorkScheduleRegime, string> = { SEIS_POR_UM: "6×1", CINCO_POR_DOIS: "5×2" };
@@ -293,7 +294,7 @@ export function Funcionarios() {
 
   function openTerminate(e: Employee) {
     setTerminating(e);
-    setTerminationForm({ terminationDate: new Date().toISOString().slice(0, 10), terminationType: "", terminationNote: "" });
+    setTerminationForm({ terminationDate: hojeLocalIso(), terminationType: "", terminationNote: "" });
     setTerminationError(null);
   }
 
@@ -320,7 +321,7 @@ export function Funcionarios() {
   async function openRescisao(e: Employee) {
     setRescinding(e);
     setRescInfo(null);
-    setRescForm({ grossAmount: "", vtDiscount: "", otherDiscount: "", otherDiscountLabel: "", dueDate: new Date().toISOString().slice(0, 10), installments: "1", notes: "" });
+    setRescForm({ grossAmount: "", vtDiscount: "", otherDiscount: "", otherDiscountLabel: "", dueDate: hojeLocalIso(), installments: "1", notes: "" });
     try {
       setRescInfo(await getTerminationInfo(e.id));
     } catch (err) {
@@ -370,7 +371,7 @@ export function Funcionarios() {
     const totalCents = Math.round(rescNet * 100);
     const base = Math.floor(totalCents / rescInstallments);
     const remainder = totalCents - base * rescInstallments;
-    const parts = (rescForm.dueDate || new Date().toISOString().slice(0, 10)).split("-").map(Number);
+    const parts = (rescForm.dueDate || hojeLocalIso()).split("-").map(Number);
     const fy = parts[0];
     const fm = (parts[1] ?? 1) - 1;
     const fd = parts[2] ?? 1;

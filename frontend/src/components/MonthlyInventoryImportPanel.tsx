@@ -10,6 +10,7 @@ import {
 import { Notice, useNotice } from "./Notice";
 import { Money } from "../design-system";
 import { formatNumber } from "../utils/format";
+import { hojeLocalIso } from "../lib/datas";
 
 const inventoryTypes: Array<{ value: InventorySnapshotType; label: string }> = [
   { value: "INVENTARIO_INICIAL", label: "Inventario inicial" },
@@ -19,7 +20,7 @@ const inventoryTypes: Array<{ value: InventorySnapshotType; label: string }> = [
 ];
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return hojeLocalIso();
 }
 
 function currentMonth() {
