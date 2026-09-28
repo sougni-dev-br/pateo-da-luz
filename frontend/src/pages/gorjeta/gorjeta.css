@@ -247,3 +247,67 @@
 .gorjeta-tela-cheia .tabela-gorjeta .ds-table-th:first-child {
   z-index: 4;
 }
+
+/* Seletor de colunas visíveis. */
+.seletor-colunas {
+  position: relative;
+}
+
+.seletor-colunas .barra-lista-botao {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.seletor-colunas-contagem {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.seletor-colunas-painel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  box-shadow: 0 12px 28px rgba(22, 21, 18, 0.14);
+  font-size: 13px;
+}
+
+.seletor-colunas-painel label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.seletor-colunas-painel label:hover {
+  background: var(--row-hover);
+}
+
+.seletor-colunas-rodape {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 6px 2px;
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.seletor-colunas-rodape .barra-lista-link:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
