@@ -1637,6 +1637,22 @@ export type InventoryAgendaItem = {
   startedAt: string | null;
   submittedAt: string | null;
   confirmedAt: string | null;
+  // Rotina do estoquista: setor ativo que o dia representa (null = nao abre
+  // sessao) e a sessao de contagem que cumpre o dia. O status vem dela.
+  activeSectorId?: string | null;
+  activeSectorName?: string | null;
+  sessionId?: string | null;
+  sessionCode?: string | null;
+  sessionStatus?: StockCountSessionStatus | null;
+  routineStatus?: InventoryRoutineStatus;
+};
+
+export type InventoryRoutineStatus = "FEITA" | "EM_ANDAMENTO" | "ATRASADA" | "HOJE" | "PREVISTA";
+
+export type InventoryAgendaWeek = {
+  from: string;
+  to: string;
+  items: InventoryAgendaItem[];
 };
 
 export type InventoryAgenda = {
@@ -2982,8 +2998,13 @@ export function getOpeningBasisStockCountSession(filters: { year: number; month:
   return request<StockCountSession | null>(`/inventory/count-sessions/opening-basis${toQueryString({ year: String(filters.year), month: String(filters.month) })}`);
 }
 
-export function getInventoryAgenda(filters: { year: string; month: string }) {
+export function getInventoryAgenda(filters: { year: string; month: string; hoje?: string }) {
   return request<InventoryAgenda>(`/inventory/agenda${toQueryString(filters)}`);
+}
+
+// `hoje` vem do navegador: o servidor roda em UTC e a noite ja estaria no dia seguinte.
+export function getInventoryAgendaWeek(hoje: string) {
+  return request<InventoryAgendaWeek>(`/inventory/agenda/week${toQueryString({ hoje })}`);
 }
 
 export function saveInventoryAgendaRule(payload: Partial<InventoryAgendaRule> & { categoryName: string }) {

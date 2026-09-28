@@ -23,6 +23,7 @@ import {
   deleteInventoryAgendaRule,
   getInventoryAgendaDetail,
   getInventoryAgenda,
+  getInventoryAgendaWeek,
   getInventoryMovements,
   getInventoryStocks,
   getOperationalInventories,
@@ -83,6 +84,8 @@ import { ConfirmDialog } from "../components/ui";
 import { Alert, Button, EmptyState, Money, PanelEyebrow, RowMenu, StatusBadge, SummaryCard, Table, Tabs } from "../design-system";
 import type { RowMenuItem, RowMenuSeparator } from "../design-system";
 import { OverviewSection } from "./inventory/OverviewSection";
+import { rotuloDoStatusDaRotina } from "./inventory/routine";
+import { RoutineWeekSection } from "./inventory/RoutineWeekSection";
 import { formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
 import { useNavigate } from "react-router-dom";
@@ -145,7 +148,6 @@ import {
   sanitizeQuantityInput,
   sensitiveMovementTypes,
   settledValue,
-  statusLabels,
   stockCountSortText,
   sumBy,
   weekdays
@@ -205,6 +207,7 @@ export function Inventory({
   const canEditCountSession = hasPermission(user, "inventory-counting", "edit");
   const canDeleteCountSession = hasPermission(user, "inventory-counting", "delete");
   const canConfigureAgenda = hasPermission(user, "inventory-counting", "admin");
+  const canStartCountSession = hasPermission(user, "inventory-counting", "create");
   const canViewOperational = hasPermission(user, "inventory-official", "view");
   const canCreateOperational = hasPermission(user, "inventory-official", "create");
   const canApproveOperational = hasPermission(user, "inventory-official", "approve");
@@ -227,6 +230,9 @@ export function Inventory({
   const [productSummary, setProductSummary] = useState<ProductSummary | null>(null);
   const [sectors, setSectors] = useState<InventorySector[]>([]);
   const [agenda, setAgenda] = useState<InventoryAgenda | null>(null);
+  const [routineWeek, setRoutineWeek] = useState<InventoryAgendaItem[]>([]);
+  const [routineWeekLoading, setRoutineWeekLoading] = useState(false);
+  const [startingRoutineItemId, setStartingRoutineItemId] = useState<string | null>(null);
   const [month, setMonth] = useState(monthValue());
   const [movementPeriod, setMovementPeriod] = useState(currentMonthPeriod());
   const [selectedAgendaId, setSelectedAgendaId] = useState<string>("");
@@ -345,10 +351,6 @@ export function Inventory({
   const selectedAgenda = useMemo(
     () => agenda?.items.find((item) => item.id === selectedAgendaId) ?? null,
     [agenda, selectedAgendaId]
-  );
-  const todayItems = useMemo(
-    () => agenda?.items.filter((item) => sameDay(item.scheduledDate, new Date())) ?? [],
-    [agenda]
   );
   // Planejamento de compra gera Pedidos de compra: sem essa permissao o usuario seria
   // redirecionado ao abrir a tela. Esconder o botao evita o beco sem saida.
@@ -693,12 +695,13 @@ export function Inventory({
       void getProductsSummary({ controlsStock: "true" })
         .then(setProductSummary)
         .catch(() => setProductSummary(null));
+      void loadRoutineWeek();
       const [stockResult, movementResult, countResult, countSessionResult, agendaResult, operationalResult, sectorResult] = await Promise.allSettled([
         getInventoryStocks(search),
         canViewMovements ? getInventoryMovements({ startDate: movementPeriod.startDate, endDate: movementPeriod.endDate }) : Promise.resolve([] as InventoryMovement[]),
         getStockCounts(),
         getStockCountSessions(showCanceledStockData),
-        getInventoryAgenda(monthParts),
+        getInventoryAgenda({ ...monthParts, hoje: hojeLocalIso() }),
         canViewOperational ? getOperationalInventories(showCanceledStockData) : Promise.resolve([] as OperationalInventory[]),
         getSectors(undefined, { forStockCounting: true })
       ]);
@@ -825,39 +828,27 @@ export function Inventory({
   async function refreshCountSessions(id?: string) {
     const rows = await getStockCountSessions(showCanceledStockData);
     setCountSessions(rows);
+    void loadRoutineWeek();
     if (id) await openCountSession(id, false);
   }
 
-  async function createCountSession() {
+  async function loadRoutineWeek() {
+    setRoutineWeekLoading(true);
     try {
-      // Backend deriva os nomes (sectorName/categoryName/subcategoryName) a partir dos IDs —
-      // aqui so validamos presenca dos IDs e enviamos IDs. Sem denormalizado no payload.
-      if (countSessionForm.type === "SETORIAL" && !countSessionForm.sectorId) {
-        setNotice({ tone: "warning", message: "Selecione um setor para iniciar a contagem por setor." });
-        return;
-      }
-      if (countSessionForm.type === "CATEGORIA" && !countSessionForm.categoryId) {
-        setNotice({ tone: "warning", message: "Selecione uma categoria para iniciar a contagem por categoria." });
-        return;
-      }
-      if (countSessionForm.type === "SUBCATEGORIA" && !countSessionForm.subcategoryId) {
-        setNotice({ tone: "warning", message: "Selecione uma subcategoria para iniciar a contagem por subcategoria." });
-        return;
-      }
-      const created = await createStockCountSession({
-        referenceDate: countSessionForm.referenceDate,
-        type: countSessionForm.type,
-        sectorId: countSessionForm.type === "SETORIAL" ? countSessionForm.sectorId || null : null,
-        // SETORIAL aceita categoria opcional (escopo composto). CATEGORIA exige categoria.
-        categoryId: countSessionForm.type === "CATEGORIA" || countSessionForm.type === "SETORIAL"
-          ? countSessionForm.categoryId || null
-          : null,
-        subcategoryId: countSessionForm.type === "SUBCATEGORIA" ? countSessionForm.subcategoryId || null : null,
-        isMonthEnd: countSessionForm.isMonthEnd || countSessionForm.type === "FINAL_MES",
-        periodMonth: countSessionForm.periodMonth,
-        periodYear: countSessionForm.periodYear,
-        notes: countSessionForm.notes || null
-      });
+      const week = await getInventoryAgendaWeek(hojeLocalIso());
+      setRoutineWeek(week.items);
+    } catch {
+      setRoutineWeek([]);
+    } finally {
+      setRoutineWeekLoading(false);
+    }
+  }
+
+  // Cria a sessao e abre; se ja houver uma em andamento para o mesmo escopo
+  // (409), abre a existente em vez de falhar.
+  async function iniciarSessaoDeContagem(payload: Parameters<typeof createStockCountSession>[0]) {
+    try {
+      const created = await createStockCountSession(payload);
       setNotice({ tone: "success", message: `${created.code} criada com ${created.totalItems} produto(s)${created.sectorName ? ` do setor ${created.sectorName}` : ""}.` });
       await refreshCountSessions(created.id);
       onOpenCountSessionRoute?.(created.id);
@@ -874,6 +865,58 @@ export function Inventory({
       }
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel iniciar a contagem." });
     }
+  }
+
+  // "Comecar contagem" da rotina: sessao do setor inteiro, no ciclo sugerido
+  // para hoje, ja ligada ao dia da agenda.
+  async function startRoutineCount(item: InventoryAgendaItem) {
+    if (!item.activeSectorId) return;
+    const hoje = hojeLocalIso();
+    const ciclo = cicloSugerido(hoje);
+    setStartingRoutineItemId(item.id);
+    try {
+      await iniciarSessaoDeContagem({
+        referenceDate: hoje,
+        type: "SETORIAL",
+        sectorId: item.activeSectorId,
+        periodMonth: ciclo.mes,
+        periodYear: ciclo.ano,
+        inventoryAgendaItemId: item.id
+      });
+    } finally {
+      setStartingRoutineItemId(null);
+    }
+  }
+
+  async function createCountSession() {
+    // Backend deriva os nomes (sectorName/categoryName/subcategoryName) a partir dos IDs —
+    // aqui so validamos presenca dos IDs e enviamos IDs. Sem denormalizado no payload.
+    if (countSessionForm.type === "SETORIAL" && !countSessionForm.sectorId) {
+      setNotice({ tone: "warning", message: "Selecione um setor para iniciar a contagem por setor." });
+      return;
+    }
+    if (countSessionForm.type === "CATEGORIA" && !countSessionForm.categoryId) {
+      setNotice({ tone: "warning", message: "Selecione uma categoria para iniciar a contagem por categoria." });
+      return;
+    }
+    if (countSessionForm.type === "SUBCATEGORIA" && !countSessionForm.subcategoryId) {
+      setNotice({ tone: "warning", message: "Selecione uma subcategoria para iniciar a contagem por subcategoria." });
+      return;
+    }
+    await iniciarSessaoDeContagem({
+      referenceDate: countSessionForm.referenceDate,
+      type: countSessionForm.type,
+      sectorId: countSessionForm.type === "SETORIAL" ? countSessionForm.sectorId || null : null,
+      // SETORIAL aceita categoria opcional (escopo composto). CATEGORIA exige categoria.
+      categoryId: countSessionForm.type === "CATEGORIA" || countSessionForm.type === "SETORIAL"
+        ? countSessionForm.categoryId || null
+        : null,
+      subcategoryId: countSessionForm.type === "SUBCATEGORIA" ? countSessionForm.subcategoryId || null : null,
+      isMonthEnd: countSessionForm.isMonthEnd || countSessionForm.type === "FINAL_MES",
+      periodMonth: countSessionForm.periodMonth,
+      periodYear: countSessionForm.periodYear,
+      notes: countSessionForm.notes || null
+    });
   }
 
   async function openCountSession(id: string, showMessage = true, syncRoute = true) {
@@ -1875,6 +1918,8 @@ export function Inventory({
     if (activeView !== "counting") return;
     if (!countSessionId) {
       setCountSessionDetail(null);
+      // De volta a lista: outra pessoa pode ter concluido um dia da rotina.
+      void loadRoutineWeek();
       return;
     }
     let active = true;
@@ -2473,6 +2518,17 @@ export function Inventory({
         onStartCounting={() => { irParaVisao("counting"); setMobileCountFormOpen(true); }}
         onOpenInventory={() => irParaVisao("inventory")}
       />
+
+      {activeView === "counting" && (
+        <RoutineWeekSection
+          items={routineWeek}
+          loading={routineWeekLoading}
+          canStartCount={canStartCountSession}
+          startingItemId={startingRoutineItemId}
+          onStart={(item) => void startRoutineCount(item)}
+          onOpenSession={(sessionId) => void openCountSession(sessionId)}
+        />
+      )}
 
       <section className={panelClass(["counting", "inventory"])}>
         {/* O titulo da pagina ja diz "Inventário" logo acima; repetir "Estoque /
@@ -3862,16 +3918,17 @@ export function Inventory({
         )}
       </section>
 
-      <section className={panelClass(["reports"])}>
-        <div className="section-heading">
-          <div>
-            <p>Rotina do estoque</p>
-            <h2>Agenda de inventario</h2>
-          </div>
-          <button className="icon-button" type="button" onClick={load} aria-label="Atualizar">
-            {loading ? <Loader2 size={18} /> : <RefreshCw size={18} />}
-          </button>
-        </div>
+      {/* A agenda e a rotina do estoquista: mora em Contagens, recolhida, para
+          quem configura. O dia a dia fica na faixa "Contagens da semana". */}
+      <section className={canConfigureAgenda || canViewInventoryReports ? panelClass(["counting"]) : "panel inventory-section-hidden"}>
+        <details className="routine-config">
+          <summary>
+            <span>
+              <PanelEyebrow>Rotina do estoquista</PanelEyebrow>
+              <strong>Agenda de contagens</strong>
+            </span>
+            <small>Regras por setor e o mês inteiro</small>
+          </summary>
 
         <div className="filters-row">
           <label>
@@ -3881,36 +3938,36 @@ export function Inventory({
           <button className="secondary-button" type="button" onClick={() => setMonth(monthValue())}>
             Mes atual
           </button>
+          <button className="icon-button" type="button" onClick={load} aria-label="Atualizar agenda">
+            {loading ? <Loader2 size={18} /> : <RefreshCw size={18} />}
+          </button>
         </div>
 
-        {todayItems.length > 0 && (
-          <div className="today-count-card">
-            <div>
-              <span>Contagem de hoje</span>
-              <strong>{todayItems.map((item) => item.sectorName || item.categoryName).join(", ")}</strong>
-            </div>
-            <button className="primary-button large-action" type="button" onClick={() => openCount(todayItems[0])}>
-              <CalendarDays size={18} />
-              Abrir contagem
-            </button>
+        {(agenda?.items.length ?? 0) > 0 && (
+          <div className="table-wrap subsection">
+            <table>
+              <thead><tr><th>Dia</th><th>Setor</th><th>Situação</th><th>Contagem</th><th>Responsavel</th><th>Acoes</th></tr></thead>
+              <tbody>{agenda?.items.map((item) => {
+                const rotina = rotuloDoStatusDaRotina[item.routineStatus ?? "PREVISTA"];
+                return (
+                  <tr key={item.id}>
+                    <td>{formatDate(item.scheduledDate)}</td>
+                    <td>{item.activeSectorName ?? item.sectorName ?? item.categoryName}</td>
+                    <td><StatusBadge tone={item.activeSectorId ? rotina.tone : "neutral"}>{item.activeSectorId ? rotina.label : "Lembrete"}</StatusBadge></td>
+                    <td>{item.sessionId ? <button type="button" className="link-button" onClick={() => void openCountSession(item.sessionId!)}>{item.sessionCode}</button> : "-"}</td>
+                    <td>{item.responsibleName ?? "-"}</td>
+                    <td>
+                      <div className="actions-cell">
+                        {item.status === "SUBMITTED" && canConfigureAgenda && <Button variant="secondary" size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={() => confirmAgenda(item)}>Confirmar</Button>}
+                        <button type="button" onClick={() => openCount(item)}><CalendarDays size={14} />Contagem avulsa</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
           </div>
         )}
-
-        <div className="agenda-calendar">
-          {agenda?.items.map((item) => (
-            <button
-              className={selectedAgendaId === item.id ? "agenda-day active" : `agenda-day ${item.status.toLowerCase()}`}
-              key={item.id}
-              type="button"
-              onClick={() => openCount(item)}
-            >
-              <strong>{new Date(item.scheduledDate).getDate()}</strong>
-              <span>{item.sectorName || item.categoryName}</span>
-              <small>{statusLabels[item.status] ?? item.status}</small>
-              <small>Abrir contagem</small>
-            </button>
-          ))}
-        </div>
 
         {canConfigureAgenda && (
           <div className="subsection">
@@ -3942,14 +3999,23 @@ export function Inventory({
             </div>
           </div>
         )}
+        </details>
       </section>
 
-      <section className={panelClass(["reports"])}>
+      {/* Contagem avulsa, produto a produto (grava StockCount; nao ajusta
+          estoque nem entra no CMV). Recolhida: o caminho normal e a sessao. */}
+      <section className={panelClass(["counting"])}>
+        <details className="routine-config">
+          <summary>
+            <span>
+              <PanelEyebrow>{selectedAgenda ? selectedAgenda.sectorName || selectedAgenda.categoryName : "Contagem rapida"}</PanelEyebrow>
+              <strong>Contagem avulsa de um produto</strong>
+            </span>
+            <small>Não ajusta o estoque nem entra no CMV</small>
+          </summary>
         <div className="section-heading">
-          <div>
-            <p>{selectedAgenda ? selectedAgenda.sectorName || selectedAgenda.categoryName : "Contagem rapida"}</p>
-            <h2>Contagem do estoquista</h2>
-          </div>
+          <div />
+
           <div className="actions-cell">
             <button className="secondary-button large-action" type="button" onClick={startAgenda} disabled={!selectedAgenda || selectedAgenda.status === "CONFIRMED"}>
               <Play size={17} />
@@ -3980,6 +4046,7 @@ export function Inventory({
             <tbody>{productsForCount.slice(0, 80).map((product) => <tr key={product.id}><td>{product.name}<small>{product.externalCode ?? "Sem codigo"}</small></td><td>{product.inventorySector?.name ?? "-"}</td><td>{[product.storageLocation, product.storageShelf, product.storagePosition].filter(Boolean).join(" - ") || "-"}</td><td>{product.category?.name ?? "-"}</td><td>{product.stockUnit ?? product.unit ?? "-"}</td></tr>)}</tbody>
           </table>
         </div>
+        </details>
       </section>
 
       <section className={panelClass(["movements"])}>
@@ -4096,28 +4163,6 @@ export function Inventory({
             })}
           </div>
         </>)}
-        {canConfigureAgenda && (agenda?.items.length ?? 0) > 0 && (
-          <div className="subsection table-wrap movement-agenda">
-            {/* Estava solta no fim da secao, sem titulo: nao dava para saber
-                que era a agenda de contagens a confirmar. */}
-            <div className="inventory-block-heading">
-              <div>
-                <h3>Agenda de contagens do mês</h3>
-                <p className="muted">Contagens programadas por setor. As enviadas pelo estoquista aguardam sua confirmação.</p>
-              </div>
-            </div>
-            <table>
-              <thead><tr><th>Dia</th><th>Categoria</th><th>Status</th><th>Responsavel</th><th>Acoes</th></tr></thead>
-              <tbody>{agenda?.items.map((item) => {
-                const st = item.status;
-                const tone = st === "CONFIRMED" ? "success" : st === "LATE" ? "danger" : st === "SUBMITTED" ? "info" : "warning";
-                return (
-                <tr key={item.id}><td>{formatDate(item.scheduledDate)}</td><td>{item.sectorName || item.categoryName}</td><td><StatusBadge tone={tone}>{statusLabels[st] ?? st}</StatusBadge></td><td>{item.responsibleName ?? "-"}</td><td>{st === "SUBMITTED" ? <Button variant="secondary" size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={() => confirmAgenda(item)}>Confirmar</Button> : "-"}</td></tr>
-                );
-              })}</tbody>
-            </table>
-          </div>
-        )}
       </section>
     </div>
   );
