@@ -29,7 +29,10 @@ const estilo = {
 // registro não vão para a contabilidade — vão para a lista de pagamento.
 export async function exportarContabilidade(comp: TipComputation) {
   const { doc, autoTable, finalY } = await novoPdf("Fechamento de Gorjetas — Envio à Contabilidade", comp);
-  const registrados = ordenar(comp.participants).filter((p) => !p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO");
+  const noPeriodo = ordenar(comp.participants).filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO");
+  // Quem já recebeu a gorjeta na rescisão não entra de novo no envio do mês.
+  const registrados = noPeriodo.filter((p) => !p.semRegistro && !p.pagoNaRescisao);
+  const pagas = noPeriodo.filter((p) => p.pagoNaRescisao);
   const grupos = new Map<string, TipComputedParticipant[]>();
   for (const p of registrados) {
     const k = p.companyName || "Sem empresa";
@@ -55,6 +58,17 @@ export async function exportarContabilidade(comp: TipComputation) {
     });
     y = finalY() + 4;
   }
+  if (pagas.length) {
+    autoTable(doc, {
+      ...estilo,
+      startY: y + 4,
+      head: [["Já pagas na rescisão — informativo, NÃO lançar de novo", "Gorjeta", "Saída", "Pagamento"]],
+      body: pagas.map((p) => [p.employeeName, money(p.rateioAmount), fmtDate(p.terminationDate), fmtDate(p.rescisaoRecibo?.pagamento ?? null)]),
+      headStyles: { fillColor: [140, 140, 140], textColor: 255 },
+      columnStyles: { 1: { halign: "right" }, 2: { halign: "center" }, 3: { halign: "center" } },
+    });
+    y = finalY() + 4;
+  }
   doc.setFontSize(8);
   doc.setTextColor(120);
   doc.text("Gorjeta = rateio por pontos do período. Hora extra e adicional noturno em horas (h:mm).", 14, y + 4);
@@ -64,7 +78,7 @@ export async function exportarContabilidade(comp: TipComputation) {
 // Lista de pagamento dos sem registro: salário proporcional + gorjeta − vales + créditos.
 export async function exportarListaPagamento(comp: TipComputation) {
   const { doc, autoTable, finalY } = await novoPdf("Lista de Pagamento — Sem registro", comp);
-  const lista = ordenar(comp.participants).filter((p) => p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO");
+  const lista = ordenar(comp.participants).filter((p) => p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && !p.pagoNaRescisao);
   autoTable(doc, {
     ...estilo,
     startY: 30,
