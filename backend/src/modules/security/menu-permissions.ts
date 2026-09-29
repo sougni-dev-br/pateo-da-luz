@@ -468,6 +468,10 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
   // restaurante a quem escanear, e logout/restart derrubam o canal de mensagens.
   if (path.endsWith("/qr") || path.endsWith("/logout") || path.endsWith("/restart")) return "admin";
 
+  // Regras da agenda de contagem mudam o que todos contam em cada dia: e
+  // configuracao do modulo, nao registro do dia a dia. Ler segue pedindo "view".
+  if (menuId === "inventory-counting" && path.startsWith("/inventory/agenda/rules") && method !== "GET" && method !== "HEAD") return "admin";
+
   // Semear estrutura (categorias do DRE) ou injetar dados de teste/mock em producao
   // reescreve base de configuracao — administrativo, nao "criar um registro".
   if (path.endsWith("/seed") || path.endsWith("/seed-test-menu") || path.endsWith("/sync-mock-only")) return "admin";
