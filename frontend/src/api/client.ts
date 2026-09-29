@@ -6415,11 +6415,12 @@ export type TipEtapasEstado = {
 };
 export type TipStatusConferencia =
   | "OK" | "DIVERGE" | "ACEITA" | "SALARIO_COMBINADO"
-  | "FALTA_NO_EXTRATO" | "SO_NO_EXTRATO" | "SEM_EXTRATO_DA_EMPRESA" | "NAO_PARTICIPA";
+  | "FALTA_NO_EXTRATO" | "SO_NO_EXTRATO" | "SEM_EXTRATO_DA_EMPRESA" | "NAO_PARTICIPA" | "VINCULO_A_CONFIRMAR";
 export type TipLinhaConferencia = {
   chave: string; employeeId: string | null; nome: string; empresa: string | null;
   apuracao: number | null; extrato: number | null; diferenca: number | null;
   status: TipStatusConferencia; justificativa: string | null;
+  extratoId?: string; nomeNoExtrato?: string;
 };
 export type TipExtratoMeta = { id: string; empresa: string; cnpj: string; arquivo: string; hash: string; importadoEm: string; importadoPor: string; pessoas: number };
 export type TipConferencia = {
@@ -6458,6 +6459,10 @@ export function aceitarTipDivergencia(year: number, month: number, chave: string
 }
 export function desfazerTipAceite(year: number, month: number, chave: string) {
   return request<TipConferencia>(`${baseTip(year, month)}/conferencia/aceites?chave=${encodeURIComponent(chave)}`, { method: "DELETE" });
+}
+/** Confirma (ou recusa) que a pessoa do extrato, achada pelo nome, é a do cadastro. */
+export function confirmarTipVinculo(year: number, month: number, extratoId: string, nome: string, confirma: boolean) {
+  return request<TipConferencia>(`${baseTip(year, month)}/extratos/${extratoId}/vinculo`, json("PUT", { nome, confirma }));
 }
 export function marcarTipEtapa(year: number, month: number, etapa: TipEtapa, acao: "MARCOU" | "DESMARCOU", obs?: string) {
   return request<TipEtapasEstado>(`${baseTip(year, month)}/etapas`, json("POST", { etapa, acao, obs }));

@@ -4,7 +4,7 @@ import { Check, FileUp, Trash2, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   type TipConferencia, type TipConferenciaCompleta, type TipEtapa, type TipLinhaConferencia, type TipStatusConferencia,
-  aceitarTipDivergencia, desfazerTipAceite, enviarTipExtrato, getTipConferencia, marcarTipEtapa, removerTipExtrato,
+  aceitarTipDivergencia, confirmarTipVinculo, desfazerTipAceite, enviarTipExtrato, getTipConferencia, marcarTipEtapa, removerTipExtrato,
 } from "../../api/client";
 import { Button, StatusBadge, Table } from "../../design-system";
 import { FolhaLiquidos } from "./FolhaLiquidos";
@@ -28,8 +28,9 @@ const STATUS: Record<TipStatusConferencia, { rotulo: string; tom: "success" | "w
   SO_NO_EXTRATO: { rotulo: "Só no extrato", tom: "danger" },
   SEM_EXTRATO_DA_EMPRESA: { rotulo: "Falta o extrato da empresa", tom: "warning" },
   NAO_PARTICIPA: { rotulo: "Não participa", tom: "neutral" },
+  VINCULO_A_CONFIRMAR: { rotulo: "Confirmar a pessoa", tom: "warning" },
 };
-const PENDENTE = new Set<TipStatusConferencia>(["DIVERGE", "FALTA_NO_EXTRATO", "SO_NO_EXTRATO", "SEM_EXTRATO_DA_EMPRESA"]);
+const PENDENTE = new Set<TipStatusConferencia>(["DIVERGE", "FALTA_NO_EXTRATO", "SO_NO_EXTRATO", "SEM_EXTRATO_DA_EMPRESA", "VINCULO_A_CONFIRMAR"]);
 const quando = (iso: string | null) => (iso ? new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "");
 
 const lerComoBase64 = (arquivo: File) => new Promise<string>((ok, falha) => {
@@ -185,6 +186,9 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
                     <Table.Td style={{ fontWeight: 500, textAlign: "left" }}>
                       {l.nome}
                       {l.justificativa && <div style={mutedStyle}>{l.justificativa}</div>}
+                      {l.status === "VINCULO_A_CONFIRMAR" && l.nomeNoExtrato && l.nomeNoExtrato !== l.nome && (
+                        <div style={mutedStyle}>no extrato: {l.nomeNoExtrato}</div>
+                      )}
                       {abrindo && (
                         <form className="aceite-form" onSubmit={(e) => {
                           e.preventDefault();
@@ -206,7 +210,15 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
                     <Table.Td>
                       <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                         <StatusBadge tone={STATUS[l.status].tom}>{STATUS[l.status].rotulo}</StatusBadge>
-                        {canEdit && !ok && pend && !abrindo && (
+                        {canEdit && !ok && l.status === "VINCULO_A_CONFIRMAR" && l.extratoId && (
+                          <>
+                            <button type="button" className="barra-lista-link" title={`No extrato: ${l.nomeNoExtrato ?? l.nome}`}
+                              onClick={() => void confirmarTipVinculo(year, month, l.extratoId!, l.nomeNoExtrato ?? l.nome, true).then(aplicarConf).catch(erro)}>é esta pessoa</button>
+                            <button type="button" className="barra-lista-link"
+                              onClick={() => void confirmarTipVinculo(year, month, l.extratoId!, l.nomeNoExtrato ?? l.nome, false).then(aplicarConf).catch(erro)}>não é</button>
+                          </>
+                        )}
+                        {canEdit && !ok && pend && l.status !== "VINCULO_A_CONFIRMAR" && !abrindo && (
                           <button type="button" className="barra-lista-link" onClick={() => setAceitando({ chave: l.chave, texto: "" })}>aceitar</button>
                         )}
                         {canEdit && !ok && l.status === "ACEITA" && (
@@ -224,7 +236,7 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
       )}
 
       {dados.podeVerFolha
-        ? <FolhaLiquidos year={year} month={month} canEdit={canEdit} liberada={ok} versao={`${dados.extratos.map((x) => x.id + x.importadoEm).join()}|${ok}`} onNotice={onNotice} />
+        ? <FolhaLiquidos year={year} month={month} canEdit={canEdit} liberada={ok} versao={`${dados.extratos.map((x) => x.id + x.importadoEm).join()}|${ok}|${dados.linhas.map((l) => l.chave + l.status).join()}`} onNotice={onNotice} />
         : <div style={panelStyle}><span style={mutedStyle}>A folha salarial líquidos tem salários e PIX: aparece para quem pode ver Funcionários.</span></div>}
     </div>
   );
