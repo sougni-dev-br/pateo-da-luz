@@ -1,6 +1,6 @@
 // Importa a aba "Cadastro Funcionários" da planilha de apuração da gorjeta para o
 // cadastro do ERP: quem participa, função, ponto extra (pontos da planilha − função), empresa,
-// e "sem registro". A linha da reserva (Ricardo Almeida na planilha) não vira
+// e vínculo: quem tem empresa na planilha vira CLT; "s registro" vira sem registro. A linha da reserva (Ricardo Almeida na planilha) não vira
 // funcionário nem é importada: a reserva agora é 0 e o que sobra vai sozinho ao fundo.
 //
 // Por padrão só SIMULA e mostra o que faria. Para gravar: --aplicar.
@@ -10,7 +10,8 @@
 // Nome parecido mas não igual NÃO é gravado: aparece na lista para conferir (use
 // --aceitar-aproximados só depois de conferir). Grava como a tela de Equipe: com
 // linha no histórico de função/pontos e registro de auditoria. Não mexe em
-// salário, datas nem desligamento: divergências só são listadas.
+// salário, datas nem desligamento: divergências só são listadas. Quando o vínculo
+// muda (CLT ↔ sem registro), a linha mostra "vínculo X → Y" para conferir.
 
 import ExcelJS from "exceljs";
 import { PrismaClient } from "@prisma/client";
@@ -172,12 +173,17 @@ async function main() {
     }
 
     // A planilha traz os pontos finais; o ERP guarda a diferença para a função como extra.
+    const vinculoNovo = semRegistro ? "NAO_CLT" as const : empresa ? "CLT" as const : null;
+    const mudaVinculo = vinculoNovo != null && vinculoNovo !== emp.modality;
+    const nomeVinculo = (m: string | null) => (m === "CLT" ? "CLT" : m === "NAO_CLT" ? "sem registro" : "—");
+
     const extraBruto = l.pontosPers == null ? null : l.pontosPers - Number(funcao?.points ?? 0);
     const extra = extraBruto == null || Math.abs(extraBruto) < 0.005 ? null : Math.round(extraBruto * 100) / 100;
     console.log(
       `${aplicar ? "GRAVA" : "SIMULA"} ${prefixo} → função ${funcao?.name ?? "—"}` +
       `${extra != null ? `, extra ${extra > 0 ? "+" : ""}${extra} pt (planilha ${l.pontosPers})` : ""}` +
-      `, ${semRegistro ? "sem registro" : `empresa ${empresa?.tradeName ?? "—"}`}`,
+      `, ${semRegistro ? "sem registro" : `empresa ${empresa?.tradeName ?? "—"}`}` +
+      `${mudaVinculo ? ` (vínculo ${nomeVinculo(emp.modality)} → ${nomeVinculo(vinculoNovo)})` : ""}`,
     );
     if (aplicar) {
       const dados = {
@@ -186,7 +192,8 @@ async function main() {
         tipFunctionId: funcao?.id ?? null,
         pontosExtra: extra,
         pontosExtraMotivo: extra == null ? null : `Planilha de gorjeta (${l.codigo}): ${l.pontosPers} pts no lugar de ${Number(funcao?.points ?? 0)}`,
-        ...(semRegistro ? { modality: "NAO_CLT" as const } : empresa ? { companyId: empresa.id } : {}),
+        ...(vinculoNovo ? { modality: vinculoNovo } : {}),
+        ...(!semRegistro && empresa ? { companyId: empresa.id } : {}),
       };
       await prisma.$transaction(async (tx) => {
         await tx.employee.update({ where: { id: emp.id }, data: dados });
