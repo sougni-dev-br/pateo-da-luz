@@ -350,7 +350,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
           <strong>Rescisões do período</strong>
           <span style={mutedStyle}>
             Informe a <strong>gorjeta paga</strong> de cada saída (digitada ou lida do termo) ou, sem ela, o serviço até a saída.
-            A gorjeta paga vira pontos pelo valor do ponto do mês: o que sobrar do direito volta à apuração; o que passar vira extra automático.
+            A gorjeta paga vira pontos pelo valor do ponto do mês: o que sobrar do direito fica livre para distribuir; o que passar vira extra automático.
             CLT já recebeu na rescisão; sem registro recebe na lista, com o salário.
           </span>
           <ReciboRescisao year={comp.year} month={comp.month} readonly={readonly}
@@ -385,7 +385,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                     <Table.Td>
                       <div style={{ fontWeight: 600 }}>{pts(p.points)}</div>
                       {quitada && p.pontosDireito !== p.points && <div style={mutedStyle}>direito {pts(p.pontosDireito)}</div>}
-                      {quitada && p.pontosDevolvidos > 0 && <div className="nota-pontos nota-volta">{pts(p.pontosDevolvidos)} voltam à apuração</div>}
+                      {quitada && p.pontosDevolvidos > 0 && <div className="nota-pontos nota-volta" title="Ficam livres para o responsável distribuir no mês; o que sobrar vai ao fundo de reserva">{pts(p.pontosDevolvidos)} pts livres para distribuir</div>}
                       {quitada && p.extraRescisao > 0 && (
                         <div className="nota-pontos nota-extra" title={p.justificativaExtra ?? undefined}>+{pts(p.extraRescisao)} extra automático</div>
                       )}
