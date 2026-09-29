@@ -110,7 +110,7 @@ export function FormLancarVale({ pessoas, descricoes, pessoaInicial, ocupado, on
         <span className="lancar-vale-conta">
           {pessoa ? (
             <>
-              {pessoa.nome.split(" ")[0]}: gorjeta líquida {money(pessoa.liquida)}
+              {pessoa.apelido || pessoa.nome.split(" ")[0]}: gorjeta líquida {money(pessoa.liquida)}
               {depois != null && <> → <strong style={{ color: depois < 0 ? "var(--danger)" : undefined }}>{money(depois)}</strong> depois deste vale</>}
               {depois != null && depois < 0 && <em role="alert"> · passa da gorjeta</em>}
             </>

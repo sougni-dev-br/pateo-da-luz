@@ -3,7 +3,7 @@
 // Tudo fica gravado: corrigir e cancelar deixam autor e motivo; cancelado
 // continua na lista e nos relatórios, só deixa de descontar.
 import { Ban, Check, Download, Pencil, Printer, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import {
   type TipValeDescricao, type TipValeLancado, type TipValeType, type TipValesPeriodo, addTipVale, cancelarTipVale, editarTipVale,
   emitirReciboVale, getTipCompanies, getTipValeDescricoes, getTipVales,
@@ -11,6 +11,9 @@ import {
 import { FormLancarVale, type NovoVale } from "./FormLancarVale";
 import { imprimirReciboVale } from "./reciboVale";
 import { Button, StatusBadge, Table } from "../../design-system";
+import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
+import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
+import { NomePessoa, textoPessoa } from "./NomePessoa";
 import { VALE_LABELS, baixarCsv, money, mutedStyle, panelStyle } from "./gorjetaUtils";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 
@@ -25,10 +28,14 @@ type Props = {
   pessoaInicial?: string | null;
 };
 
+type PessoaVales = TipValesPeriodo["pessoas"][number];
+
 const TIPOS: TipValeType[] = ["ADIANTAMENTO", "REFEICAO", "VALE_CONSUMO", "RETIRADA_CAIXA", "OUTRO", "CREDITO"];
 const dia = (iso: string | null) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—");
 const quando = (iso: string | null) => (iso ? new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "");
 const sinal = (v: TipValeLancado) => (v.type === "CREDITO" ? v.amount : -v.amount);
+const empresaDe = (p: PessoaVales) => (p.semRegistro ? "Sem registro" : p.empresa);
+const totalTd: CSSProperties = { background: "var(--paper-soft, #f2f4f7)", fontWeight: 700, borderTop: "2px solid var(--line-strong, #c8d0da)" };
 
 type Formulario = { participantId: string; type: TipValeType; amount: string; date: string; notes: string };
 const CHAVE_EMPRESA = "gorjeta-vales-empresa-recibo";
@@ -36,8 +43,20 @@ const lerEmpresa = () => { try { return window.localStorage.getItem(CHAVE_EMPRES
 
 const EXT: Extratores<TipValeLancado> = {
   data: (v) => v.date ?? v.lancadoEm, nome: (v) => v.nome, tipo: (v) => VALE_LABELS[v.type], valor: (v) => sinal(v),
-  obs: (v) => v.notes, por: (v) => v.lancadoPor,
+  obs: (v) => v.notes, por: (v) => v.lancadoPor, recibo: (v) => v.codigo,
 };
+const COLUNAS_LISTA: ColunaOpcional[] = [
+  { chave: "data", rotulo: "Data" }, { chave: "tipo", rotulo: "Tipo" }, { chave: "obs", rotulo: "Descrição" },
+  { chave: "valor", rotulo: "Valor" }, { chave: "por", rotulo: "Lançado por" }, { chave: "recibo", rotulo: "Recibo" },
+];
+
+const EXT_PESSOA: Extratores<PessoaVales> = {
+  nome: (p) => p.nome, gorjeta: (p) => p.gorjeta, vales: (p) => p.descontos, creditos: (p) => p.creditos, liquida: (p) => p.liquida,
+};
+const COLUNAS_PESSOA: ColunaOpcional[] = [
+  { chave: "gorjeta", rotulo: "Gorjeta" }, { chave: "vales", rotulo: "Vales" }, { chave: "creditos", rotulo: "Créditos" },
+  { chave: "liquida", rotulo: "Gorjeta líquida" },
+];
 
 export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInicial = null }: Props) {
   const [dados, setDados] = useState<TipValesPeriodo | null>(null);
@@ -48,10 +67,13 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
   const [escolherEmpresa, setEscolherEmpresa] = useState<{ valeId: string; nome: string; empresaId: string } | null>(null);
   const [editando, setEditando] = useState<(Formulario & { id: string }) | null>(null);
   const [cancelando, setCancelando] = useState<{ id: string; motivo: string } | null>(null);
-  const [filtroPessoa, setFiltroPessoa] = useState(pessoaInicial ?? "");
-  const [verCancelados, setVerCancelados] = useState(false);
   const [ocupado, setOcupado] = useState(false);
-  const ord = useOrdenacao("vales");
+  const ord = useOrdenacao("vales-lista");
+  const filtro = useFiltro("vales-lista");
+  const col = useColunas("vales-lista", ["data", "por", "recibo"]);
+  const ordP = useOrdenacao("vales-pessoas");
+  const filtroP = useFiltro("vales-pessoas");
+  const colP = useColunas("vales-pessoas", ["gorjeta", "creditos"]);
   const erro = (e: unknown) => onNotice("error", (e as Error).message);
 
   async function carregar() {
@@ -67,6 +89,9 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
     getTipCompanies().then(setEmpresas).catch(erro);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Vindo do atalho da Apuração: a pessoa entra no filtro da lista de lançamentos.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (pessoaInicial) filtro.setValor("pessoa", pessoaInicial); }, [pessoaInicial]);
 
   // Recibo: registra a emissão, gera o PDF e abre a caixa de impressão; o link fica à mão.
   async function imprimir(valeId: string, empresaId: string | null) {
@@ -138,8 +163,8 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
   function exportar() {
     if (!dados) return;
     baixarCsv(`gorjeta-vales-${dados.code}.csv`, [
-      ["Data", "Funcionário", "Tipo", "Descrição", "Valor", "Lançado por", "Lançado em", "Situação", "Motivo do cancelamento"],
-      ...(dados.vales).map((v) => [dia(v.date), v.nome, VALE_LABELS[v.type], v.notes, sinal(v), v.lancadoPor, quando(v.lancadoEm),
+      ["Data", "Funcionário", "Apelido", "Tipo", "Descrição", "Valor", "Lançado por", "Lançado em", "Situação", "Motivo do cancelamento"],
+      ...(dados.vales).map((v) => [dia(v.date), v.nome, v.apelido ?? "", VALE_LABELS[v.type], v.notes, sinal(v), v.lancadoPor, quando(v.lancadoEm),
         v.canceladoEm ? `Cancelado por ${v.canceladoPor ?? "—"} em ${quando(v.canceladoEm)}` : "Ativo", v.motivoCancelamento]),
     ]);
   }
@@ -150,12 +175,66 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
   const totalCreditos = ativos.filter((v) => v.type === "CREDITO").reduce((a, v) => a + v.amount, 0);
   const gorjeta = pessoas.reduce((a, p) => a + p.gorjeta, 0);
   const liquida = pessoas.reduce((a, p) => a + p.liquida, 0);
-  const lista = aplicarOrdem(
-    dados.vales.filter((v) => (verCancelados || !v.canceladoEm) && (!filtroPessoa || v.participantId === filtroPessoa)),
-    ord.ordem, EXT,
-  );
-  const comVales = pessoas.filter((p) => p.descontos > 0 || p.creditos > 0);
+
+  // Lançamentos: texto por nome/apelido/descrição/código; listas por pessoa, tipo, situação e empresa.
+  const pessoaPorParticipante = new Map(pessoas.map((p) => [p.participantId, p]));
+  const pessoaFiltrada = filtro.valores.pessoa ?? "";
+  const listasLancamentos = [
+    { chave: "pessoa", rotulo: "Pessoa", opcoes: pessoas.filter((p) => p.participantId)
+      .map((p) => ({ valor: p.participantId!, rotulo: p.apelido ? `${p.nome} (${p.apelido})` : p.nome })) },
+    { chave: "tipo", rotulo: "Tipo", opcoes: TIPOS.map((t) => ({ valor: t, rotulo: VALE_LABELS[t] })) },
+    { chave: "situacao", rotulo: "Situação", opcoes: [{ valor: "Ativo", rotulo: "Ativos" }, { valor: "Cancelado", rotulo: "Cancelados" }] },
+    { chave: "empresa", rotulo: "Empresa", opcoes: opcoesDe(pessoas, empresaDe) },
+  ];
+  const filtrados = filtro.aplicar(dados.vales,
+    (v) => [textoPessoa(v.nome, v.apelido), v.notes ?? "", VALE_LABELS[v.type], v.codigo ?? "", v.lancadoPor ?? ""].join(" "),
+    {
+      pessoa: (v) => v.participantId, tipo: (v) => v.type, situacao: (v) => (v.canceladoEm ? "Cancelado" : "Ativo"),
+      empresa: (v) => { const p = pessoaPorParticipante.get(v.participantId); return p ? empresaDe(p) : null; },
+    });
+  const lista = aplicarOrdem(filtrados, ord.ordem, EXT);
+  const saldoLista = filtrados.filter((v) => !v.canceladoEm).reduce((a, v) => a + sinal(v), 0);
+  const vc = col.visivel;
   const th = (c: string) => ({ coluna: c, ordem: ord.ordem, onOrdenar: () => ord.alternar(c, c === "valor" ? "desc" : "asc") });
+  // Linha de total: o rótulo ocupa as colunas até o Valor.
+  const antesDoValor = 1 + ["data", "tipo", "obs"].filter(vc).length;
+  const depoisDoValor = 1 + ["por", "recibo"].filter(vc).length;
+  const rotuloLista = filtro.ativo ? `Total do filtro (${filtrados.length} de ${dados.vales.length})` : "Total";
+
+  // Por pessoa: texto por nome/apelido/função/empresa; listas por vínculo, empresa e função.
+  const comVales = pessoas.filter((p) => p.descontos > 0 || p.creditos > 0);
+  const listasPessoas = [
+    { chave: "vinculo", rotulo: "Vínculo", opcoes: [{ valor: "CLT", rotulo: "CLT" }, { valor: "Sem registro", rotulo: "Sem registro" }] },
+    { chave: "empresa", rotulo: "Empresa", opcoes: opcoesDe(comVales, (p) => p.empresa) },
+    { chave: "funcao", rotulo: "Função", opcoes: opcoesDe(comVales, (p) => p.funcao) },
+  ];
+  const pessoasFiltradas = filtroP.aplicar(comVales,
+    (p) => [textoPessoa(p.nome, p.apelido), p.funcao ?? "", p.empresa ?? ""].join(" "),
+    { vinculo: (p) => (p.semRegistro ? "Sem registro" : "CLT"), empresa: (p) => p.empresa, funcao: (p) => p.funcao });
+  const linhasPessoas = aplicarOrdem(pessoasFiltradas, ordP.ordem, EXT_PESSOA);
+  const vp = colP.visivel;
+  const thP = (c: string) => ({ coluna: c, ordem: ordP.ordem, onOrdenar: () => ordP.alternar(c, c === "nome" ? "asc" : "desc") });
+  const somaP = (f: (p: PessoaVales) => number) => pessoasFiltradas.reduce((a, p) => a + f(p), 0);
+
+  // Situação do cancelamento: vai na Descrição; com ela oculta, fica embaixo do nome.
+  function blocoCancelamento(v: TipValeLancado) {
+    return (
+      <>
+        {v.canceladoEm && <div style={mutedStyle}>Cancelado por {v.canceladoPor} em {quando(v.canceladoEm)}: {v.motivoCancelamento}</div>}
+        {cancelando?.id === v.id && (
+          <form className="aceite-form" onSubmit={(e) => { e.preventDefault(); void cancelar(); }}>
+            <input autoFocus value={cancelando.motivo} onChange={(e) => setCancelando({ id: v.id, motivo: e.target.value })}
+              placeholder="Motivo do cancelamento" aria-label="Motivo do cancelamento" />
+            <Button type="submit" size="sm" variant="danger" disabled={ocupado || cancelando.motivo.trim().length < 5}>Cancelar vale</Button>
+            {cancelando.motivo.trim().length < 5 && (
+              <span className="dica-minimo">faltam {5 - cancelando.motivo.trim().length} letra(s) no motivo</span>
+            )}
+            <button type="button" className="barra-lista-link" onClick={() => setCancelando(null)}>voltar</button>
+          </form>
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="aba-vales" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -170,7 +249,7 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
         <div style={panelStyle}>
           <FormLancarVale
             pessoas={pessoas.filter((p) => p.participantId).map((p) => ({
-              participantId: p.participantId!, nome: p.nome, funcao: p.funcao, empresa: p.empresa, semRegistro: p.semRegistro, liquida: p.liquida,
+              participantId: p.participantId!, nome: p.nome, apelido: p.apelido, funcao: p.funcao, empresa: p.empresa, semRegistro: p.semRegistro, liquida: p.liquida,
             }))}
             descricoes={descricoes} pessoaInicial={pessoaInicial ?? ""} ocupado={ocupado}
             onLancar={lancar} onDescricoesMudaram={() => void carregarDescricoes()} onErro={erro} />
@@ -221,36 +300,52 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
 
       {comVales.length > 0 && (
         <div style={panelStyle}>
-          <div className="cabecalho-painel-texto">
-            <strong>Por pessoa</strong>
-            <span>Clique numa pessoa para ver só os vales dela.</span>
+          <div className="cabecalho-painel">
+            <div className="cabecalho-painel-texto">
+              <strong>Por pessoa</strong>
+              <span>Clique numa pessoa para ver só os vales dela.</span>
+            </div>
+            <div className="cabecalho-painel-acoes">
+              <SeletorColunas colunas={COLUNAS_PESSOA} ocultas={colP.ocultas} alternar={colP.alternar} mostrarTodas={colP.mostrarTodas} />
+            </div>
           </div>
-          <Table className="tabela-gorjeta">
-            <Table.Head>
-              <Table.Row>
-                <Table.Th minWidth={200}>Funcionário</Table.Th>
-                <Table.Th>Gorjeta</Table.Th>
-                <Table.Th>Vales</Table.Th>
-                <Table.Th>Créditos</Table.Th>
-                <Table.Th>Gorjeta líquida</Table.Th>
-              </Table.Row>
-            </Table.Head>
-            <Table.Body>
-              {comVales.map((p) => (
-                <Table.Row key={p.employeeId} className={`linha-clicavel${filtroPessoa === p.participantId ? " linha-em-edicao" : ""}`}
-                  onClick={() => setFiltroPessoa(filtroPessoa === p.participantId ? "" : p.participantId ?? "")}>
-                  <Table.Td style={{ fontWeight: 500 }}>
-                    {p.nome}
-                    {p.liquida < 0 && <div style={{ ...mutedStyle, color: "var(--danger)" }}>vales maiores que a gorjeta</div>}
-                  </Table.Td>
-                  <Table.Td>{money(p.gorjeta)}</Table.Td>
-                  <Table.Td style={{ color: "var(--danger)" }}>{p.descontos ? money(-p.descontos) : "—"}</Table.Td>
-                  <Table.Td style={{ color: "var(--success)" }}>{p.creditos ? money(p.creditos) : "—"}</Table.Td>
-                  <Table.Td style={{ fontWeight: 700 }}>{money(p.liquida)}</Table.Td>
+          <BarraFiltro filtro={filtroP} listas={listasPessoas} total={comVales.length} visiveis={pessoasFiltradas.length} />
+          {pessoasFiltradas.length === 0 ? <span style={mutedStyle}>Ninguém bate com o filtro.</span> : (
+            <Table className="tabela-gorjeta">
+              <Table.Head>
+                <Table.Row>
+                  <ThOrdenavel {...thP("nome")} align="left" minWidth={200}>Funcionário</ThOrdenavel>
+                  {vp("gorjeta") && <ThOrdenavel {...thP("gorjeta")}>Gorjeta</ThOrdenavel>}
+                  {vp("vales") && <ThOrdenavel {...thP("vales")}>Vales</ThOrdenavel>}
+                  {vp("creditos") && <ThOrdenavel {...thP("creditos")}>Créditos</ThOrdenavel>}
+                  {vp("liquida") && <ThOrdenavel {...thP("liquida")}>Gorjeta líquida</ThOrdenavel>}
                 </Table.Row>
-              ))}
-            </Table.Body>
-          </Table>
+              </Table.Head>
+              <Table.Body>
+                {linhasPessoas.map((p) => (
+                  <Table.Row key={p.employeeId} className={`linha-clicavel${p.participantId && pessoaFiltrada === p.participantId ? " linha-em-edicao" : ""}`}
+                    onClick={() => filtro.setValor("pessoa", pessoaFiltrada === p.participantId ? "" : p.participantId ?? "")}>
+                    <Table.Td>
+                      <NomePessoa nome={p.nome} apelido={p.apelido} employeeId={p.employeeId}>
+                        {p.liquida < 0 && <span style={{ ...mutedStyle, color: "var(--danger)" }}>vales maiores que a gorjeta</span>}
+                      </NomePessoa>
+                    </Table.Td>
+                    {vp("gorjeta") && <Table.Td>{money(p.gorjeta)}</Table.Td>}
+                    {vp("vales") && <Table.Td style={{ color: "var(--danger)" }}>{p.descontos ? money(-p.descontos) : "—"}</Table.Td>}
+                    {vp("creditos") && <Table.Td style={{ color: "var(--success)" }}>{p.creditos ? money(p.creditos) : "—"}</Table.Td>}
+                    {vp("liquida") && <Table.Td style={{ fontWeight: 700 }}>{money(p.liquida)}</Table.Td>}
+                  </Table.Row>
+                ))}
+                <Table.Row>
+                  <Table.Td style={totalTd}>{filtroP.ativo ? `Total do filtro (${pessoasFiltradas.length} de ${comVales.length})` : "Total"}</Table.Td>
+                  {vp("gorjeta") && <Table.Td style={totalTd}>{money(somaP((p) => p.gorjeta))}</Table.Td>}
+                  {vp("vales") && <Table.Td style={{ ...totalTd, color: "var(--danger)" }}>{money(-somaP((p) => p.descontos))}</Table.Td>}
+                  {vp("creditos") && <Table.Td style={{ ...totalTd, color: "var(--success)" }}>{money(somaP((p) => p.creditos))}</Table.Td>}
+                  {vp("liquida") && <Table.Td style={totalTd}>{money(somaP((p) => p.liquida))}</Table.Td>}
+                </Table.Row>
+              </Table.Body>
+            </Table>
+          )}
         </div>
       )}
 
@@ -261,19 +356,14 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
             <span>{ativos.length} ativo(s){dados.vales.length !== ativos.length ? ` · ${dados.vales.length - ativos.length} cancelado(s)` : ""}</span>
           </div>
           <div className="cabecalho-painel-acoes">
-            <label className="barra-lista-campo">
-              Pessoa
-              <select value={filtroPessoa} onChange={(e) => setFiltroPessoa(e.target.value)}>
-                <option value="">Todas</option>
-                {pessoas.filter((p) => p.participantId).map((p) => <option key={p.participantId!} value={p.participantId!}>{p.nome}</option>)}
-              </select>
-            </label>
-            <label className="barra-lista-campo">
-              <input type="checkbox" checked={verCancelados} onChange={(e) => setVerCancelados(e.target.checked)} /> Mostrar cancelados
-            </label>
+            <SeletorColunas colunas={COLUNAS_LISTA} ocultas={col.ocultas} alternar={col.alternar} mostrarTodas={col.mostrarTodas} />
             <Button variant="secondary" size="sm" leadingIcon={<Download size={14} />} onClick={exportar} disabled={dados.vales.length === 0}>Excel (CSV)</Button>
           </div>
         </div>
+        {dados.vales.length > 0 && (
+          <BarraFiltro filtro={filtro} listas={listasLancamentos} total={dados.vales.length} visiveis={filtrados.length}
+            placeholder="Filtrar por nome, apelido, descrição…" />
+        )}
         {lista.length === 0 ? (
           <div className="estado-vazio">
             <strong>{dados.vales.length === 0 ? "Nenhum vale lançado neste período." : "Nenhum vale com esse filtro."}</strong>
@@ -283,13 +373,13 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
           <Table className="tabela-gorjeta">
             <Table.Head>
               <Table.Row>
-                <ThOrdenavel {...th("data")}>Data</ThOrdenavel>
+                {vc("data") && <ThOrdenavel {...th("data")}>Data</ThOrdenavel>}
                 <ThOrdenavel {...th("nome")} align="left" minWidth={180}>Funcionário</ThOrdenavel>
-                <ThOrdenavel {...th("tipo")}>Tipo</ThOrdenavel>
-                <ThOrdenavel {...th("obs")} minWidth={180}>Descrição</ThOrdenavel>
-                <ThOrdenavel {...th("valor")}>Valor</ThOrdenavel>
-                <ThOrdenavel {...th("por")}>Lançado por</ThOrdenavel>
-                <Table.Th>Recibo</Table.Th>
+                {vc("tipo") && <ThOrdenavel {...th("tipo")}>Tipo</ThOrdenavel>}
+                {vc("obs") && <ThOrdenavel {...th("obs")} minWidth={180}>Descrição</ThOrdenavel>}
+                {vc("valor") && <ThOrdenavel {...th("valor")}>Valor</ThOrdenavel>}
+                {vc("por") && <ThOrdenavel {...th("por")}>Lançado por</ThOrdenavel>}
+                {vc("recibo") && <ThOrdenavel {...th("recibo")}>Recibo</ThOrdenavel>}
                 <Table.Th aria-label="Ações"> </Table.Th>
               </Table.Row>
             </Table.Head>
@@ -299,51 +389,57 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
                 const emEdicao = editando?.id === v.id;
                 return (
                   <Table.Row key={v.id} className={cancelado ? "linha-cancelada" : undefined}>
-                    <Table.Td>{emEdicao
-                      ? <input type="date" value={editando.date} onChange={(e) => setEditando({ ...editando, date: e.target.value })} aria-label="Data do vale" />
-                      : dia(v.date)}</Table.Td>
-                    <Table.Td style={{ fontWeight: 500 }}>{v.nome}</Table.Td>
-                    <Table.Td>{emEdicao
-                      ? (
-                        <select value={editando.type} onChange={(e) => setEditando({ ...editando, type: e.target.value as TipValeType })} aria-label="Tipo do vale">
-                          {TIPOS.map((t) => <option key={t} value={t}>{VALE_LABELS[t]}</option>)}
-                        </select>
-                      )
-                      : <>{VALE_LABELS[v.type]}{v.doFundo && <div style={mutedStyle}>distribuição do fundo</div>}</>}</Table.Td>
-                    <Table.Td style={{ textAlign: "left" }}>
-                      {emEdicao
-                        ? <input value={editando.notes} onChange={(e) => setEditando({ ...editando, notes: e.target.value })} aria-label="Descrição do vale" maxLength={300} />
-                        : v.notes ?? "—"}
-                      {cancelado && <div style={mutedStyle}>Cancelado por {v.canceladoPor} em {quando(v.canceladoEm)}: {v.motivoCancelamento}</div>}
-                      {cancelando?.id === v.id && (
-                        <form className="aceite-form" onSubmit={(e) => { e.preventDefault(); void cancelar(); }}>
-                          <input autoFocus value={cancelando.motivo} onChange={(e) => setCancelando({ id: v.id, motivo: e.target.value })}
-                            placeholder="Motivo do cancelamento" aria-label="Motivo do cancelamento" />
-                          <Button type="submit" size="sm" variant="danger" disabled={ocupado || cancelando.motivo.trim().length < 5}>Cancelar vale</Button>
-                          {cancelando.motivo.trim().length < 5 && (
-                            <span className="dica-minimo">faltam {5 - cancelando.motivo.trim().length} letra(s) no motivo</span>
-                          )}
-                          <button type="button" className="barra-lista-link" onClick={() => setCancelando(null)}>voltar</button>
-                        </form>
-                      )}
+                    {vc("data") && (
+                      <Table.Td>{emEdicao
+                        ? <input type="date" value={editando.date} onChange={(e) => setEditando({ ...editando, date: e.target.value })} aria-label="Data do vale" />
+                        : dia(v.date)}</Table.Td>
+                    )}
+                    <Table.Td>
+                      <NomePessoa nome={v.nome} apelido={v.apelido} employeeId={v.employeeId}>
+                        {!vc("tipo") && <span style={mutedStyle}>{VALE_LABELS[v.type]}</span>}
+                      </NomePessoa>
+                      {!vc("obs") && blocoCancelamento(v)}
                     </Table.Td>
-                    <Table.Td style={{ fontWeight: 700, color: v.type === "CREDITO" ? "var(--success)" : "var(--danger)" }}>
-                      {emEdicao
-                        ? <input type="number" step="0.01" inputMode="decimal" min="0" value={editando.amount} onChange={(e) => setEditando({ ...editando, amount: e.target.value })} aria-label="Valor do vale" style={{ width: 100 }} />
-                        : money(sinal(v))}
-                    </Table.Td>
-                    <Table.Td style={mutedStyle} title={v.alteradoEm ? `Corrigido em ${quando(v.alteradoEm)}` : undefined}>
-                      {v.lancadoPor ?? "—"}<div>{quando(v.lancadoEm)}{v.alteradoEm ? " · corrigido" : ""}</div>
-                    </Table.Td>
-                    <Table.Td style={{ whiteSpace: "nowrap" }}>
-                      <span style={{ ...mutedStyle, display: "block" }}>{v.codigo ?? "—"}</span>
-                      {!cancelado && v.type !== "CREDITO" && (
-                        <button type="button" className="botao-recibo" onClick={() => pedirRecibo(v.id, v.participantId, v.nome)}
-                          title={v.reciboImpressoEm ? `Impresso ${v.reciboImpressoes}× · último em ${quando(v.reciboImpressoEm)}` : "Imprimir recibo para assinatura"}>
-                          <Printer size={13} /> {v.reciboImpressoes ? `imprimir de novo (${v.reciboImpressoes}×)` : "imprimir"}
-                        </button>
-                      )}
-                    </Table.Td>
+                    {vc("tipo") && (
+                      <Table.Td>{emEdicao
+                        ? (
+                          <select value={editando.type} onChange={(e) => setEditando({ ...editando, type: e.target.value as TipValeType })} aria-label="Tipo do vale">
+                            {TIPOS.map((t) => <option key={t} value={t}>{VALE_LABELS[t]}</option>)}
+                          </select>
+                        )
+                        : <>{VALE_LABELS[v.type]}{v.doFundo && <div style={mutedStyle}>distribuição do fundo</div>}</>}</Table.Td>
+                    )}
+                    {vc("obs") && (
+                      <Table.Td style={{ textAlign: "left" }}>
+                        {emEdicao
+                          ? <input value={editando.notes} onChange={(e) => setEditando({ ...editando, notes: e.target.value })} aria-label="Descrição do vale" maxLength={300} />
+                          : v.notes ?? "—"}
+                        {blocoCancelamento(v)}
+                      </Table.Td>
+                    )}
+                    {vc("valor") && (
+                      <Table.Td style={{ fontWeight: 700, color: v.type === "CREDITO" ? "var(--success)" : "var(--danger)" }}>
+                        {emEdicao
+                          ? <input type="number" step="0.01" inputMode="decimal" min="0" value={editando.amount} onChange={(e) => setEditando({ ...editando, amount: e.target.value })} aria-label="Valor do vale" style={{ width: 100 }} />
+                          : money(sinal(v))}
+                      </Table.Td>
+                    )}
+                    {vc("por") && (
+                      <Table.Td style={mutedStyle} title={v.alteradoEm ? `Corrigido em ${quando(v.alteradoEm)}` : undefined}>
+                        {v.lancadoPor ?? "—"}<div>{quando(v.lancadoEm)}{v.alteradoEm ? " · corrigido" : ""}</div>
+                      </Table.Td>
+                    )}
+                    {vc("recibo") && (
+                      <Table.Td style={{ whiteSpace: "nowrap" }}>
+                        <span style={{ ...mutedStyle, display: "block" }}>{v.codigo ?? "—"}</span>
+                        {!cancelado && v.type !== "CREDITO" && (
+                          <button type="button" className="botao-recibo" onClick={() => pedirRecibo(v.id, v.participantId, v.nome)}
+                            title={v.reciboImpressoEm ? `Impresso ${v.reciboImpressoes}× · último em ${quando(v.reciboImpressoEm)}` : "Imprimir recibo para assinatura"}>
+                            <Printer size={13} /> {v.reciboImpressoes ? `imprimir de novo (${v.reciboImpressoes}×)` : "imprimir"}
+                          </button>
+                        )}
+                      </Table.Td>
+                    )}
                     <Table.Td style={{ whiteSpace: "nowrap" }}>
                       {cancelado ? <StatusBadge tone="neutral">Cancelado</StatusBadge>
                         : emEdicao ? (
@@ -369,6 +465,17 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
                   </Table.Row>
                 );
               })}
+              <Table.Row>
+                {vc("valor") ? (
+                  <>
+                    <Table.Td colSpan={antesDoValor} style={totalTd} title="Vales cancelados não entram no total">{rotuloLista}</Table.Td>
+                    <Table.Td style={{ ...totalTd, whiteSpace: "nowrap" }}>{money(saldoLista)}</Table.Td>
+                    <Table.Td colSpan={depoisDoValor} style={totalTd}> </Table.Td>
+                  </>
+                ) : (
+                  <Table.Td colSpan={antesDoValor + depoisDoValor} style={totalTd} title="Vales cancelados não entram no total">{rotuloLista}: {money(saldoLista)}</Table.Td>
+                )}
+              </Table.Row>
             </Table.Body>
           </Table>
         )}
