@@ -462,6 +462,16 @@ export function Funcionarios() {
   const justificativaOk = rescJust.trim().length >= 10;
   const rescEditavel = !rescInfo?.alreadyReleased || rescAjustando;
   const semSeparacao = rescAjustando && semRegistroResc && rescInfo?.lancada?.salario == null;
+  // Ajuste que não muda nada não é salvo (só encheria o histórico).
+  const rescNadaMudou = (() => {
+    const l = rescInfo?.lancada;
+    if (!rescAjustando || !l) return false;
+    const igual = (a: number | null | undefined, b: number | null | undefined) => Math.round(Math.abs((a ?? 0) - (b ?? 0)) * 100) < 1;
+    const txt = (v: string | null | undefined) => (v ?? "").trim();
+    return igual(l.bruto, rescBruto) && igual(l.salario, rescValores.salario) && igual(l.gorjeta, rescValores.gorjeta)
+      && igual(l.vales, rescValores.vales) && igual(l.vtDesconto, rescValores.vtDesconto) && igual(l.outroDesconto, numero(rescForm.otherDiscount))
+      && txt(l.outroDescontoRotulo) === txt(rescForm.otherDiscountLabel) && txt(l.valesRotulo) === txt(rescForm.valesLabel) && txt(l.notes) === txt(rescForm.notes);
+  })();
 
   const rescNet = rescBruto - rescValores.vales - rescValores.vtDesconto - numero(rescForm.otherDiscount);
 
@@ -1016,6 +1026,7 @@ export function Funcionarios() {
                 <FormField label="Justificativa (obrigatória)" hint="fica gravada junto da rescisão, com o valor apurado e o lançado">
                   <Textarea rows={2} value={rescJust} onChange={(e) => setRescJust(e.target.value)} placeholder="Ex.: adiantamento de salário pago em 10/09 fora do sistema" />
                 </FormField>
+                {rescNadaMudou && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Nada mudou em relação à rescisão lançada: altere algum valor para salvar o ajuste.</div>}
               </div>
             )}
             </>}
@@ -1024,7 +1035,8 @@ export function Funcionarios() {
               {rescAjustando
                 ? <>
                   <Button variant="secondary" onClick={() => setRescAjustando(false)}>Desistir do ajuste</Button>
-                  <Button onClick={handleAjustarRescisao} disabled={rescBusy || !justificativaOk}>{rescBusy ? "Salvando..." : "Salvar ajuste"}</Button>
+                  <Button onClick={handleAjustarRescisao} disabled={rescBusy || !justificativaOk || rescNadaMudou}
+                    title={rescNadaMudou ? "Nada mudou em relação à rescisão lançada" : undefined}>{rescBusy ? "Salvando..." : "Salvar ajuste"}</Button>
                 </>
                 : <>
                   <Button variant="secondary" onClick={() => setRescinding(null)}>{rescInfo?.alreadyReleased ? "Fechar" : "Cancelar"}</Button>
