@@ -6,12 +6,13 @@ import { createOperationalInventoryPdf } from "./operational-inventory-pdf.js";
 import { createStockCountSessionPdf } from "./stock-count-session-pdf.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { cancelarSnapshotEmCascata, carregarSnapshotCancelavel, cloneFinalAsNextInitial } from "../monthly/monthly.service.js";
-import { auditLog, requestIp, requireRole, type SessionUser } from "../security/security-utils.js";
+import { auditLog, requestIp, requireMenuPermission, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { converterItemDeCompra } from "../../shared/unidades/conversao.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { derivarCiclos, duracaoEmDias, fechouForaDoMes } from "./stock-cycle.service.js";
+import { semanaDaData, statusDaRotina } from "./agenda-rotina.js";
 
 export const inventoryRouter = Router();
 
@@ -270,6 +271,91 @@ async function markLateAgendaItems(userId: string | null) {
     entity: "InventoryAgendaItem",
     newValue: { ids: lateItems.map((item) => item.id) }
   });
+}
+
+// Setor ATIVO que um dia da agenda representa. O id gravado na regra pode
+// apontar para um setor desativado (a regra "ESTOQUE" aponta para "ESTOQUE SECO"),
+// entao cai para o nome. Dia sem setor ativo (ex.: "Revisao/Pendencias") nao
+// abre sessao.
+function sqlSetorAtivoDoDiaDaAgenda(sectorIdAlvo: string | null = null) {
+  return Prisma.sql`
+    SELECT s."id", s."name"
+    FROM "InventorySector" s
+    WHERE s."isActive" = true
+      AND (s."id" = i."sectorId" OR upper(s."name") = upper(coalesce(i."sectorName", i."categoryName")))
+      ${sectorIdAlvo ? Prisma.sql`AND s."id" = ${sectorIdAlvo}` : Prisma.empty}
+    ORDER BY (s."id" = i."sectorId") DESC
+    LIMIT 1
+  `;
+}
+
+type DiaDaAgendaComSessao = {
+  id: string;
+  scheduledDate: Date;
+  categoryName: string;
+  sectorName: string | null;
+  status: string;
+  responsibleName: string | null;
+  notes: string | null;
+  activeSectorId: string | null;
+  activeSectorName: string | null;
+  sessionId: string | null;
+  sessionCode: string | null;
+  sessionStatus: string | null;
+};
+
+async function carregarDiasDaAgenda(inicio: Date, fim: Date, hoje: Date) {
+  const rows = await prisma.$queryRaw<DiaDaAgendaComSessao[]>`
+    SELECT
+      i.*,
+      u."name" AS "responsibleName",
+      sec."id" AS "activeSectorId", sec."name" AS "activeSectorName",
+      ses."id" AS "sessionId", ses."code" AS "sessionCode", ses."status" AS "sessionStatus"
+    FROM "InventoryAgendaItem" i
+    LEFT JOIN "User" u ON u."id" = i."responsibleUserId"
+    LEFT JOIN LATERAL (${sqlSetorAtivoDoDiaDaAgenda()}) sec ON true
+    LEFT JOIN LATERAL (
+      SELECT cs."id", cs."code", cs."status"
+      FROM "StockCountSession" cs
+      WHERE cs."inventoryAgendaItemId" = i."id" AND cs."status" <> 'CANCELADA'
+      ORDER BY (cs."status" = 'CONCLUIDA') DESC, cs."createdAt" DESC
+      LIMIT 1
+    ) ses ON true
+    WHERE i."scheduledDate" >= ${inicio}
+      AND i."scheduledDate" < ${fim}
+    ORDER BY i."scheduledDate", i."categoryName"
+  `;
+  return rows.map((row) => ({
+    ...row,
+    routineStatus: statusDaRotina(new Date(row.scheduledDate), hoje, row.sessionStatus)
+  }));
+}
+
+// "Hoje" vem do navegador (YYYY-MM-DD): o servidor roda em UTC e, a noite no
+// Brasil, ja estaria no dia seguinte.
+function hojeDoPedido(valor: unknown) {
+  const data = typeof valor === "string" && valor ? parseLocalDate(valor) : new Date();
+  return dateOnly(Number.isNaN(data.getTime()) ? new Date() : data);
+}
+
+// Dia pendente da agenda, na semana da contagem, para o mesmo setor. Usado
+// para ligar sozinha a sessao aberta por "Nova contagem" ao dia da agenda.
+async function diaPendenteDaAgendaParaSetor(tx: Prisma.TransactionClient, sectorId: string, referenceDate: Date) {
+  const { inicio, fim } = semanaDaData(referenceDate);
+  const [row] = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT i."id"
+    FROM "InventoryAgendaItem" i
+    WHERE i."scheduledDate" >= ${inicio}
+      AND i."scheduledDate" < ${fim}
+      AND EXISTS (${sqlSetorAtivoDoDiaDaAgenda(sectorId)})
+      AND NOT EXISTS (
+        SELECT 1 FROM "StockCountSession" cs
+        WHERE cs."inventoryAgendaItemId" = i."id" AND cs."status" <> 'CANCELADA'
+      )
+    ORDER BY i."scheduledDate"
+    LIMIT 1
+  `;
+  return row?.id ?? null;
 }
 
 // Aceita o cliente da transacao para poder participar de uma escrita atomica.
@@ -1589,7 +1675,7 @@ async function sincronizarCiclos() {
 }
 
 inventoryRouter.get("/stock-cycles", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const ciclos = await prisma.$queryRaw<Array<CicloRow>>`
@@ -1620,7 +1706,7 @@ inventoryRouter.get("/stock-cycles", async (request, response) => {
 });
 
 inventoryRouter.post("/stock-cycles/sync", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   try {
@@ -1641,7 +1727,7 @@ inventoryRouter.post("/stock-cycles/sync", async (request, response) => {
 });
 
 inventoryRouter.get("/count-sessions", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
   const includeCanceled = String(request.query.includeCanceled ?? "").toLowerCase() === "true";
 
@@ -1669,7 +1755,7 @@ inventoryRouter.get("/count-sessions", async (request, response) => {
 });
 
 inventoryRouter.post("/count-sessions", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const referenceDate = request.body.referenceDate ? parseLocalDate(request.body.referenceDate) : dateOnly(new Date());
@@ -1784,6 +1870,22 @@ inventoryRouter.post("/count-sessions", async (request, response) => {
         } satisfies TxError;
       }
 
+      // Liga a sessao ao dia da agenda: o pedido explicito ("Comecar contagem"
+      // da rotina) ou, para o setor inteiro, o dia pendente daquele setor na
+      // semana — assim "Nova contagem" tambem da baixa na rotina. Contagem de
+      // parte do setor (setor + categoria) nao conta como o dia feito.
+      let agendaItemId = asText(request.body.inventoryAgendaItemId);
+      if (agendaItemId) {
+        const [agendaItem] = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT "id" FROM "InventoryAgendaItem" WHERE "id" = ${agendaItemId} LIMIT 1
+        `;
+        if (!agendaItem) {
+          throw { status: 400, body: { message: "Dia da agenda nao encontrado." } } satisfies TxError;
+        }
+      } else if (type === "SETORIAL" && sectorId && !effectiveCategoryId) {
+        agendaItemId = await diaPendenteDaAgendaParaSetor(tx, sectorId, referenceDate);
+      }
+
       await tx.$executeRaw`
         INSERT INTO "StockCountSession" (
           "id", "code", "type", "status", "referenceDate", "periodMonth", "periodYear", "isMonthEnd",
@@ -1793,7 +1895,7 @@ inventoryRouter.post("/count-sessions", async (request, response) => {
         VALUES (
           ${id}, ${code}, ${type}, 'ABERTA', ${referenceDate}, ${periodMonth}, ${periodYear}, ${isMonthEnd},
           ${sectorId}, ${sectorName}, ${effectiveCategoryId}, ${categoryName}, ${subcategoryId}, ${subcategoryName},
-          ${asText(request.body.inventoryAgendaItemId)}, ${user.id}, ${notes ?? `Nova ${title}.`}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          ${agendaItemId}, ${user.id}, ${notes ?? `Nova ${title}.`}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         )
       `;
     });
@@ -1894,7 +1996,7 @@ inventoryRouter.post("/count-sessions", async (request, response) => {
 });
 
 inventoryRouter.get("/count-sessions/month-end", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const year = Number(request.query.year ?? new Date().getFullYear());
@@ -1915,7 +2017,7 @@ inventoryRouter.get("/count-sessions/month-end", async (request, response) => {
 });
 
 inventoryRouter.get("/count-sessions/opening-basis", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const year = Number(request.query.year ?? new Date().getFullYear());
@@ -1937,7 +2039,7 @@ inventoryRouter.get("/count-sessions/opening-basis", async (request, response) =
 });
 
 inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   // Cria um Inventario oficial: a autorizacao e do modulo Inventario, nao da Contagem.
@@ -2145,7 +2247,7 @@ inventoryRouter.post("/count-sessions/consolidate-month-end", async (request, re
 
 // Preview de cobertura antes de consolidar (não cria nada)
 inventoryRouter.post("/count-sessions/coverage-preview", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const sessionIds = request.body.sessionIds;
@@ -2159,7 +2261,7 @@ inventoryRouter.post("/count-sessions/coverage-preview", async (request, respons
 
 // Auditoria de cobertura de inventário FINAL_CMV existente
 inventoryRouter.get("/final-cmv/:id/coverage", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const [inv] = await prisma.$queryRaw<Array<{ id: string; type: string; code: string }>>`
@@ -2176,7 +2278,7 @@ inventoryRouter.get("/final-cmv/:id/coverage", async (request, response) => {
 
 // Criar contagem complementar para produtos ausentes de um FINAL_CMV
 inventoryRouter.post("/final-cmv/:id/create-missing-count", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const inventoryId = request.params.id;
@@ -2298,7 +2400,7 @@ inventoryRouter.post("/final-cmv/:id/create-missing-count", async (request, resp
 
 // Anexar contagem complementar concluída ao inventário FINAL_CMV
 inventoryRouter.post("/final-cmv/:id/append-missing-count", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const inventoryId = request.params.id;
@@ -2422,7 +2524,7 @@ inventoryRouter.post("/final-cmv/:id/append-missing-count", async (request, resp
 });
 
 inventoryRouter.get("/count-sessions/:id", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   // Contagem e colaborativa por natureza: um usuario comeca, outro continua e um terceiro
@@ -2482,7 +2584,7 @@ inventoryRouter.get("/count-sessions/:id", async (request, response) => {
 // como teto acusaria estoque legitimo. A compra so entra como sinal quando o
 // historico de contagem e erratico e portanto nao serve de base.
 inventoryRouter.get("/count-sessions/:id/plausibility", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const rows = await prisma.$queryRaw<Array<{
@@ -2565,7 +2667,7 @@ inventoryRouter.get("/count-sessions/:id/plausibility", async (request, response
 });
 
 inventoryRouter.get("/count-sessions/:id/pdf", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   // A rota de detalhe logo acima documenta a regra do módulo: a contagem é
@@ -2575,7 +2677,7 @@ inventoryRouter.get("/count-sessions/:id/pdf", async (request, response) => {
   // responsável. Não protegia nada — o mesmo usuário lê e edita a sessão
   // inteira pelas outras rotas — e ainda respondia 404 "não encontrada" para
   // uma sessão que existe. Controle de acesso aqui é por permissão, nunca por
-  // cargo; o requireRole acima já delimita quem entra no módulo.
+  // cargo; o requireMenuPermission acima já delimita quem entra no módulo.
   const session = await getStockCountSessionSummary(request.params.id);
   if (!session) {
     response.status(404).json({ message: "Contagem de estoque nao encontrada." });
@@ -2652,7 +2754,7 @@ inventoryRouter.get("/count-sessions/:id/pdf", async (request, response) => {
 });
 
 inventoryRouter.patch("/count-sessions/:id/items", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   await assertCanEditStockCountSession(request.params.id, user);
@@ -2682,7 +2784,7 @@ inventoryRouter.patch("/count-sessions/:id/items", async (request, response) => 
 });
 
 inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   await assertCanEditStockCountSession(request.params.id, user);
@@ -2801,7 +2903,7 @@ inventoryRouter.patch("/count-sessions/:id/conclude", async (request, response) 
 });
 
 inventoryRouter.patch("/count-sessions/:id/reshape-scope", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const session = await getStockCountSessionOrThrow(request.params.id);
@@ -2957,7 +3059,7 @@ inventoryRouter.patch("/count-sessions/:id/reshape-scope", async (request, respo
 });
 
 inventoryRouter.patch("/count-sessions/:id/reopen", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const session = await getStockCountSessionOrThrow(request.params.id);
@@ -2981,7 +3083,7 @@ inventoryRouter.patch("/count-sessions/:id/reopen", async (request, response) =>
 });
 
 inventoryRouter.patch("/count-sessions/:id/cancel", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const session = await getStockCountSessionOrThrow(request.params.id);
@@ -3031,7 +3133,7 @@ inventoryRouter.patch("/count-sessions/:id/cancel", async (request, response) =>
 });
 
 inventoryRouter.post("/count-sessions/:id/generate-inventory", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   // Cria um Inventario oficial: a autorizacao e do modulo Inventario, nao da Contagem.
@@ -3185,7 +3287,7 @@ inventoryRouter.get("/operational", async (request, response) => {
 });
 
 inventoryRouter.post("/operational", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const date = request.body.date ? parseLocalDate(request.body.date) : dateOnly(new Date());
@@ -3884,7 +3986,7 @@ export async function buildBuyerSupportReport(query: Record<string, unknown>) {
 }
 
 inventoryRouter.get("/operational/buyer-support", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
   let report: Awaited<ReturnType<typeof buildBuyerSupportReport>>;
   try {
@@ -3905,7 +4007,7 @@ inventoryRouter.get("/operational/buyer-support", async (request, response) => {
 });
 
 inventoryRouter.get("/operational/buyer-support/prelist.csv", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
   let report: Awaited<ReturnType<typeof buildBuyerSupportReport>>;
   try {
@@ -3945,7 +4047,7 @@ inventoryRouter.get("/operational/buyer-support/prelist.csv", async (request, re
 });
 
 inventoryRouter.get("/operational/:id/pdf", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const inventory = await getOperationalInventorySummary(request.params.id);
@@ -4045,7 +4147,7 @@ inventoryRouter.get("/operational/:id", async (request, response) => {
 });
 
 inventoryRouter.patch("/operational/:id/items", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
   try {
     await assertCanEditOperationalInventory(request.params.id, user);
@@ -4064,7 +4166,7 @@ inventoryRouter.patch("/operational/:id/items", async (request, response) => {
 });
 
 inventoryRouter.patch("/operational/:id/mark-zero", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
   try {
     await assertCanEditOperationalInventory(request.params.id, user);
@@ -4095,7 +4197,7 @@ inventoryRouter.patch("/operational/:id/mark-zero", async (request, response) =>
 });
 
 inventoryRouter.patch("/operational/:id/submit", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
   try {
     const inventory = await assertCanEditOperationalInventory(request.params.id, user);
@@ -4119,7 +4221,7 @@ inventoryRouter.patch("/operational/:id/submit", async (request, response) => {
 });
 
 inventoryRouter.patch("/operational/:id/approve", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
   try {
     const inventory = await getOperationalInventoryOrThrow(request.params.id);
@@ -4177,7 +4279,7 @@ inventoryRouter.patch("/operational/:id/approve", async (request, response) => {
 });
 
 inventoryRouter.patch("/operational/:id/reject", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
   const reason = asText(request.body.reason);
   if (!reason) {
@@ -4208,7 +4310,7 @@ inventoryRouter.patch("/operational/:id/reject", async (request, response) => {
 });
 
 inventoryRouter.patch("/operational/:id/close", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
   try {
     const inventory = await getOperationalInventoryOrThrow(request.params.id);
@@ -4234,7 +4336,7 @@ inventoryRouter.patch("/operational/:id/close", async (request, response) => {
 });
 
 inventoryRouter.patch("/operational/:id/cancel", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
   const reason = asText(request.body.reason);
   if (!reason) {
@@ -4297,7 +4399,7 @@ inventoryRouter.patch("/operational/:id/cancel", async (request, response) => {
 });
 
 inventoryRouter.patch("/operational/:id/reopen", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
   const reason = asText(request.body.reason);
   if (!reason) {
@@ -4340,7 +4442,7 @@ inventoryRouter.patch("/operational/:id/reopen", async (request, response) => {
 });
 
 inventoryRouter.get("/stocks", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const search = asText(request.query.search);
@@ -4367,7 +4469,7 @@ inventoryRouter.get("/stocks", async (request, response) => {
 });
 
 inventoryRouter.patch("/stocks/:productId/min-quantity", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const { productId } = request.params;
@@ -4384,7 +4486,7 @@ inventoryRouter.patch("/stocks/:productId/min-quantity", async (request, respons
 });
 
 inventoryRouter.get("/movements", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const productId = asText(request.query.productId);
@@ -4412,7 +4514,7 @@ inventoryRouter.get("/movements", async (request, response) => {
 });
 
 inventoryRouter.post("/movements", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const productId = asText(request.body.productId);
@@ -4467,7 +4569,7 @@ inventoryRouter.post("/movements", async (request, response) => {
 });
 
 inventoryRouter.get("/counts", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const counts = await prisma.$queryRaw<Array<Record<string, unknown>>>`
@@ -4481,7 +4583,7 @@ inventoryRouter.get("/counts", async (request, response) => {
 });
 
 inventoryRouter.post("/counts", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const productId = asText(request.body.productId);
@@ -4578,7 +4680,7 @@ inventoryRouter.post("/counts", async (request, response) => {
 });
 
 inventoryRouter.get("/policy", async (_request, response) => {
-  const user = await requireRole(_request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(_request, response);
   if (!user) return;
 
   const [policy] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
@@ -4588,7 +4690,7 @@ inventoryRouter.get("/policy", async (_request, response) => {
 });
 
 inventoryRouter.put("/policy", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const frequency = asText(request.body.frequency) ?? "WEEKLY";
@@ -4603,7 +4705,7 @@ inventoryRouter.put("/policy", async (request, response) => {
 });
 
 inventoryRouter.get("/agenda", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const now = new Date();
@@ -4615,18 +4717,7 @@ inventoryRouter.get("/agenda", async (request, response) => {
   await markLateAgendaItems(user.id);
 
   const [items, rules] = await Promise.all([
-    prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT
-        i.*,
-        u."name" AS "responsibleName",
-        c."name" AS "categoryDisplayName"
-      FROM "InventoryAgendaItem" i
-      LEFT JOIN "User" u ON u."id" = i."responsibleUserId"
-      LEFT JOIN "Category" c ON c."id" = i."categoryId"
-      WHERE i."scheduledDate" >= ${start}
-        AND i."scheduledDate" < ${end}
-      ORDER BY i."scheduledDate", i."categoryName"
-    `,
+    carregarDiasDaAgenda(start, end, hojeDoPedido(request.query.hoje)),
     prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT r.*, u."name" AS "responsibleName"
       FROM "InventoryAgendaRule" r
@@ -4638,8 +4729,25 @@ inventoryRouter.get("/agenda", async (request, response) => {
   response.json({ year, month, items, rules });
 });
 
+// Rotina do estoquista: os dias da agenda na semana (segunda a domingo) da
+// data informada, com o setor a contar e a sessao que ja cumpre o dia.
+inventoryRouter.get("/agenda/week", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+
+  const hoje = hojeDoPedido(request.query.hoje);
+  const { inicio, fim } = semanaDaData(hoje);
+  const ultimoDia = new Date(fim.getFullYear(), fim.getMonth(), fim.getDate() - 1);
+  await ensureAgendaForMonth(inicio.getFullYear(), inicio.getMonth() + 1);
+  if (ultimoDia.getMonth() !== inicio.getMonth()) {
+    await ensureAgendaForMonth(ultimoDia.getFullYear(), ultimoDia.getMonth() + 1);
+  }
+
+  response.json({ from: inicio, to: ultimoDia, items: await carregarDiasDaAgenda(inicio, fim, hoje) });
+});
+
 inventoryRouter.post("/agenda/rules", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const id = crypto.randomUUID();
@@ -4669,7 +4777,7 @@ inventoryRouter.post("/agenda/rules", async (request, response) => {
 });
 
 inventoryRouter.put("/agenda/rules/:id", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const [previous] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
@@ -4704,7 +4812,7 @@ inventoryRouter.put("/agenda/rules/:id", async (request, response) => {
 });
 
 inventoryRouter.delete("/agenda/rules/:id", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const [previous] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
@@ -4732,7 +4840,7 @@ inventoryRouter.delete("/agenda/rules/:id", async (request, response) => {
 });
 
 inventoryRouter.get("/agenda/:id/detail", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const [item] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
@@ -4783,7 +4891,7 @@ inventoryRouter.get("/agenda/:id/detail", async (request, response) => {
 });
 
 inventoryRouter.patch("/agenda/:id/start", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   await prisma.$executeRaw`
@@ -4800,7 +4908,7 @@ inventoryRouter.patch("/agenda/:id/start", async (request, response) => {
 });
 
 inventoryRouter.patch("/agenda/:id/submit", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   await prisma.$executeRaw`
@@ -4865,7 +4973,7 @@ async function nextRequisitionCode(date: Date) {
 }
 
 inventoryRouter.get("/requisitions", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const { startDate, endDate } = queryDateRange(request.query);
@@ -4917,7 +5025,7 @@ inventoryRouter.get("/requisitions", async (request, response) => {
 });
 
 inventoryRouter.get("/requisitions/:id", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const [row] = await prisma.$queryRaw<Array<InventoryRequisitionRow>>`
@@ -4952,7 +5060,7 @@ inventoryRouter.get("/requisitions/:id", async (request, response) => {
 
 inventoryRouter.post("/requisitions", async (request, response) => {
   const t0 = Date.now();
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   const clientRequestId = asText(request.body.clientRequestId);
@@ -5151,7 +5259,7 @@ inventoryRouter.post("/requisitions", async (request, response) => {
 });
 
 inventoryRouter.patch("/agenda/:id/confirm", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
 
   await prisma.$executeRaw`
