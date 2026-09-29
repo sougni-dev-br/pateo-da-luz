@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
+import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import {
   closeTipPeriod, computeTipCommission, ensureTipPeriod, findOverlappingPeriod,
   getServicePool, getServicePoolByRange, pontosBaseDoCadastro, reopenTipPeriod, syncParticipantsFromCadastro, tipPeriodBounds,
@@ -124,9 +125,16 @@ function boolOrUndefined(v: unknown): boolean | undefined {
 // ─── Prévia do cálculo (não persiste) ───────────────────────────────────────
 // Salário e PIX só vão para quem também pode ver a ficha de Funcionários: delegar a
 // gorjeta não entrega junto o salário de todo mundo (ver /roster abaixo).
-async function podeVerDadosPessoais(request: Parameters<typeof getSessionUser>[0]) {
-  const user = await getSessionUser(request);
-  return user ? userHasPermission(user as SessionUser, "employees", "view") : false;
+// Participantes cuja gorjeta paga foi gravada por uma rescisão viva (qualquer parcela).
+async function participantesTravadosPelaRescisao(employeeIds: string[]): Promise<Set<string>> {
+  if (employeeIds.length === 0) return new Set();
+  const rescisoes = await prisma.payrollItem.findMany({
+    where: { type: "RESCISAO", deletedAt: null, status: { not: "CANCELED" }, employeeId: { in: employeeIds } },
+    select: { details: true },
+  });
+  return new Set(rescisoes
+    .map((x) => (x.details as { gorjetaNaApuracao?: { participantId?: string } } | null)?.gorjetaNaApuracao?.participantId)
+    .filter((id): id is string => Boolean(id)));
 }
 
 tipCommissionRouter.get("/", async (request, response) => {
@@ -370,15 +378,23 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
     }
   }
 
-  // Quem tem a gorjeta definida pela rescisão lançada não muda a gorjeta paga aqui:
-  // a rescisão é a fonte (ajuste lá, com justificativa).
-  const rescisoes = await prisma.payrollItem.findMany({
-    where: { type: "RESCISAO", deletedAt: null, employeeId: { in: (list as Array<Record<string, unknown>>).map((x) => String(x.employeeId ?? "")) } },
-    select: { employeeId: true, details: true },
+  // Quem tem a gorjeta paga definida pela rescisão lançada (neste período) não muda
+  // esse valor aqui: a rescisão é a fonte — ajuste lá, com justificativa.
+  const idsDaLista = (list as Array<Record<string, unknown>>).map((x) => String(x.employeeId ?? ""));
+  const travados = await participantesTravadosPelaRescisao(idsDaLista);
+  const atuais = await prisma.tipParticipant.findMany({
+    where: { periodId, employeeId: { in: idsDaLista } }, select: { id: true, employeeId: true, rescisaoValorFixo: true },
   });
-  const gorjetaPelaRescisao = new Set(rescisoes
-    .filter((x) => (x.details as { gorjetaNaApuracao?: { participantId?: string } } | null)?.gorjetaNaApuracao)
-    .map((x) => x.employeeId));
+  const gorjetaPelaRescisao = new Set(atuais.filter((p) => travados.has(p.id)).map((p) => p.employeeId));
+  for (const raw of list as Array<Record<string, unknown>>) {
+    const atual = atuais.find((p) => p.employeeId === String(raw.employeeId ?? ""));
+    if (!atual || !gorjetaPelaRescisao.has(atual.employeeId) || raw.rescisaoValorFixo === undefined) continue;
+    const novo = numOrNull(raw.rescisaoValorFixo);
+    const antes = atual.rescisaoValorFixo == null ? null : Number(atual.rescisaoValorFixo);
+    if ((novo == null) !== (antes == null) || (novo != null && antes != null && Math.round(Math.abs(novo - antes) * 100) >= 1)) {
+      return response.status(409).json({ message: "Esta gorjeta paga veio da rescisão lançada: ajuste em Funcionários → Lançar rescisão → Ajustar rescisão." });
+    }
+  }
 
   await prisma.$transaction(async (tx) => {
     for (const raw of list as Array<Record<string, unknown>>) {
@@ -528,6 +544,9 @@ tipCommissionRouter.delete("/participants/:id", async (request, response) => {
   });
   if (!antes) return response.status(404).json({ message: "Participante não encontrado." });
   if (await barrouPorFechamento(antes.periodId, response, "Remover um participante")) return;
+  if ((await participantesTravadosPelaRescisao([antes.employeeId])).has(antes.id)) {
+    return response.status(409).json({ message: "Esta pessoa tem a rescisão lançada com a gorjeta deste período: exclua a rescisão antes de tirá-la da apuração." });
+  }
   await prisma.tipParticipant.delete({ where: { id: participantId } });
   await auditLog({
     userId: user.id, action: "DELETE_TIP_PARTICIPANT", entity: "TipParticipant",
@@ -1003,6 +1022,9 @@ tipCommissionRouter.post("/periods/:year/:month/rescisao-recibo", async (request
     return response.status(422).json({ message: participante ? "O termo não tem a rubrica de gorjeta." : `${nome} não está na apuração deste período.` });
   }
   if (await barrouPorFechamento(periodo.id, response, "Lançar o recibo da rescisão")) return;
+  if ((await participantesTravadosPelaRescisao([participante.employeeId])).has(participante.id)) {
+    return response.status(409).json({ message: "A gorjeta paga desta pessoa veio da rescisão lançada: ajuste pela rescisão (Funcionários → Lançar rescisão)." });
+  }
   const gravado = {
     fonte: "TRCT", arquivo, hash, gorjeta: recibo.gorjeta, liquido: recibo.liquido,
     admissao: recibo.admissao, afastamento: recibo.afastamento, pagamento: recibo.pagamento,

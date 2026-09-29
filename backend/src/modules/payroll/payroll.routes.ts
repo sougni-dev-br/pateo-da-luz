@@ -6,9 +6,10 @@ import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { FERIAS_CATEGORY, PAYROLL_KINDS, RESCISAO_CATEGORY, computePayroll, computeStatus, generatePayroll, getOrDefaultSettings, type PayrollKind, type PayrollOverride } from "./payroll.service.js";
 import {
-  JUSTIFICATIVA_MINIMA, apurarRescisao, divergenciasDoApurado, localizarGorjetaNaApuracao,
+  JUSTIFICATIVA_MINIMA, apurarRescisao, divergenciasDoApurado, localizarGorjetaNaApuracao, semDadosPessoais,
   type GorjetaNaApuracao, type ValoresRescisao,
 } from "./rescisao-apuracao.js";
+import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { round2 } from "./vt-calc.js";
 
 export const payrollRouter = Router();
@@ -170,16 +171,17 @@ payrollRouter.get("/termination/:employeeId", async (request, response) => {
     },
     orderBy: [{ competenceYear: "desc" }, { competenceMonth: "desc" }, { periodLabel: "asc" }],
   });
-  const already = await prisma.payrollItem.findFirst({ where: { employeeId: emp.id, type: "RESCISAO", deletedAt: null } });
-  const lancada = await rescisaoLancada(emp.id);
+  const already = await prisma.payrollItem.findFirst({ where: { employeeId: emp.id, type: "RESCISAO", deletedAt: null, status: { not: "CANCELED" } } });
+  const podeVer = await podeVerDadosPessoais(request);
+  const apuracao = await apurarRescisao(emp.id);
 
   response.json({
     employee: { id: emp.id, name: `${emp.firstName} ${emp.lastName}`.trim(), terminationDate: emp.terminationDate, terminationReason: emp.terminationReason },
     vtItems: vtItems.map((i) => ({ id: i.id, periodLabel: i.periodLabel, competenceYear: i.competenceYear, competenceMonth: i.competenceMonth, amount: i.amount, status: i.paymentDate ? "PAID" : "PENDING", dueDate: i.dueDate })),
     alreadyReleased: Boolean(already),
     rescisaoId: already?.id ?? null,
-    apuracao: await apurarRescisao(emp.id),
-    lancada,
+    apuracao: podeVer ? apuracao : semDadosPessoais(apuracao),
+    lancada: lancadaVisivel(await rescisaoLancada(emp.id), podeVer),
   });
 });
 
@@ -226,7 +228,7 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   const emp = await prisma.employee.findFirst({ where: { id: request.params.employeeId, deletedAt: null } });
   if (!emp) return response.status(404).json({ message: "Funcionário não encontrado." });
 
-  const existing = await prisma.payrollItem.findFirst({ where: { employeeId: emp.id, type: "RESCISAO", deletedAt: null } });
+  const existing = await prisma.payrollItem.findFirst({ where: { employeeId: emp.id, type: "RESCISAO", deletedAt: null, status: { not: "CANCELED" } } });
   if (existing) return response.status(400).json({ message: "Rescisão já lançada para este funcionário." });
 
   const competenciaRescisao = emp.terminationDate ? new Date(emp.terminationDate) : new Date();
@@ -234,7 +236,9 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
 
   const b = request.body as Record<string, unknown>;
   // O que o sistema apurou na hora de lançar fica junto, para comparar com o que foi digitado.
-  const apuracao = await apurarRescisao(emp.id).catch(() => null);
+  const apurado = await apurarOuResponder(emp.id, response);
+  if (!apurado) return;
+  const { apuracao } = apurado;
   const lido = lerValoresRescisao(b, emp.modality === "NAO_CLT", apuracao?.sugestao.creditos ?? 0);
   if ("erro" in lido) return response.status(400).json({ message: lido.erro });
   const { gross, vtDiscount, otherDiscount, net } = lido;
@@ -259,11 +263,15 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   const loc = await localizarGorjetaNaApuracao(emp.id, emp.terminationDate, lido.componentes.gorjeta);
   if ("erro" in loc) return response.status(400).json({ message: loc.erro });
   const gorjetaNaApuracao: GorjetaNaApuracao | null = loc.alvo ? { ...loc.alvo, aplicada: lido.componentes.gorjeta! } : null;
+  // Todas as parcelas levam o mesmo grupo e o vínculo com a gorjeta: excluir uma parcela
+  // isolada não pode soltar a gorjeta enquanto as outras seguem valendo.
+  const grupoRescisao = crypto.randomUUID();
   const baseDetails = {
-    grossAmount: gross, vtDiscount, otherDiscount, otherDiscountLabel: (b.otherDiscountLabel as string) || null,
+    grupoRescisao,
+    grossAmount: gross, vtDiscount, otherDiscount, otherDiscountLabel: textoLimitado(b.otherDiscountLabel, 300),
     gorjetaNaApuracao,
     salario: lido.componentes.salario, gorjeta: lido.componentes.gorjeta, creditos: lido.creditos,
-    valesDiscount: lido.componentes.vales, valesLabel: typeof b.valesLabel === "string" ? b.valesLabel.slice(0, 300) : null,
+    valesDiscount: lido.componentes.vales, valesLabel: textoLimitado(b.valesLabel, 300),
     apuracaoSistema: apuracao ? JSON.parse(JSON.stringify(apuracao)) : null,
     ajusteManual: divergencias.length > 0
       ? { divergencias, justificativa, porUserId: user.id, porNome: user.name ?? null, em: new Date().toISOString() }
@@ -291,10 +299,10 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
           status: computeStatus(p.due, null),
           dreCategoryId: dre?.id ?? null,
           source: "MANUAL",
-          notes: (b.notes as string) || null,
+          notes: textoLimitado(b.notes, 1000),
           // A 1ª parcela carrega o detalhamento (bruto/descontos); todas guardam o índice.
           details: n > 1
-            ? { ...(p.number === 1 ? baseDetails : {}), installmentNumber: p.number, installmentTotal: n, netTotal: net }
+            ? { ...(p.number === 1 ? baseDetails : { grupoRescisao, gorjetaNaApuracao }), installmentNumber: p.number, installmentTotal: n, netTotal: net }
             : baseDetails,
           createdById: user.id,
         },
@@ -327,36 +335,95 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
 // Vales) formam o bruto, e os vales descontam. CLT: bruto da contabilidade; vales já
 // saíram da gorjeta enviada, então não descontam aqui. Sem salário/gorjeta no corpo
 // (tela antiga), vale o bruto digitado.
-function lerValoresRescisao(b: Record<string, unknown>, semRegistro: boolean, creditosApurados: number):
+const VALOR_MAXIMO_RESCISAO = 1_000_000;
+// Texto livre que vai para o JSON da rescisão: só string, com tamanho limitado.
+export function textoLimitado(v: unknown, max: number): string | null {
+  return typeof v === "string" && v.trim() !== "" ? v.trim().slice(0, max) : null;
+}
+
+export function lerValoresRescisao(b: Record<string, unknown>, semRegistro: boolean, creditosApurados: number):
   | { erro: string }
   | { gross: number; vtDiscount: number; otherDiscount: number; net: number; creditos: number; componentes: ValoresRescisao } {
-  const salario = semRegistro ? numOrNull(b.salario) : null;
-  const gorjeta = semRegistro ? numOrNull(b.gorjeta) : null;
-  const vales = semRegistro ? numOrNull(b.valesDiscount) ?? 0 : 0;
-  const vtDiscount = numOrNull(b.vtDiscount) ?? 0;
-  const otherDiscount = numOrNull(b.otherDiscount) ?? 0;
-  if ([salario, gorjeta, vales, vtDiscount, otherDiscount].some((v) => v != null && v < 0)) return { erro: "Valores da rescisão não podem ser negativos." };
-  const porPartes = salario != null || gorjeta != null;
-  const creditos = porPartes ? creditosApurados : 0;
-  const gross = porPartes ? round2((salario ?? 0) + (gorjeta ?? 0) + creditos) : numOrNull(b.grossAmount) ?? 0;
+  // Número de verdade, finito e dentro do razoável; ausente = null.
+  let invalido = false;
+  const valor = (v: unknown): number | null => {
+    if (v == null || v === "") return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0 || n > VALOR_MAXIMO_RESCISAO) { invalido = true; return null; }
+    return round2(n);
+  };
+  const salario = semRegistro ? valor(b.salario) : null;
+  const gorjeta = semRegistro ? valor(b.gorjeta) : null;
+  const vales = semRegistro ? valor(b.valesDiscount) ?? 0 : 0;
+  const vtDiscount = valor(b.vtDiscount) ?? 0;
+  const otherDiscount = valor(b.otherDiscount) ?? 0;
+  const brutoInformado = semRegistro ? null : valor(b.grossAmount);
+  if (invalido) return { erro: "Valores da rescisão precisam ser números entre 0 e 1.000.000." };
+  // Sem registro: o bruto é sempre salário + gorjeta. Aceitar um bruto avulso deixaria
+  // lançar sem passar pela comparação com o apurado (e sem justificativa).
+  if (semRegistro && (salario == null || gorjeta == null)) return { erro: "Informe o salário proporcional e a gorjeta da rescisão." };
+  const creditos = semRegistro ? round2(creditosApurados) : 0;
+  const gross = semRegistro ? round2((salario ?? 0) + (gorjeta ?? 0) + creditos) : brutoInformado ?? 0;
   if (gross <= 0) return { erro: "Valor da rescisão (bruto) é obrigatório." };
   const net = round2(gross - vtDiscount - vales - otherDiscount);
   if (net < 0) return { erro: "Os descontos passam do bruto: o líquido ficaria negativo." };
   return {
-    gross, vtDiscount, otherDiscount: round2(otherDiscount), net, creditos,
-    componentes: { salario, gorjeta, vales: round2(vales), vtDesconto: round2(vtDiscount) },
+    gross, vtDiscount, otherDiscount, net, creditos,
+    componentes: { salario, gorjeta, vales, vtDesconto: vtDiscount },
   };
 }
 
-async function desfazerGorjetaDaRescisao(details: unknown) {
-  const g = (details as { gorjetaNaApuracao?: GorjetaNaApuracao | null } | null)?.gorjetaNaApuracao;
+type Tx = Prisma.TransactionClient;
+const gorjetaDe = (details: unknown) =>
+  (details as { gorjetaNaApuracao?: GorjetaNaApuracao | null } | null)?.gorjetaNaApuracao ?? null;
+
+// O vínculo com a apuração que vale para esta rescisão: o da própria parcela ou, nas
+// lançadas antes de ele ir para todas as parcelas, o da parcela 1 (mesmo excluída).
+async function vinculoGorjeta(tx: Tx, employeeId: string, details: unknown): Promise<GorjetaNaApuracao | null> {
+  const proprio = gorjetaDe(details);
+  if (proprio) return proprio;
+  const irmas = await tx.payrollItem.findMany({
+    where: { employeeId, type: "RESCISAO" }, orderBy: { createdAt: "desc" }, select: { details: true },
+  });
+  return irmas.map((i) => gorjetaDe(i.details)).find((g) => g != null) ?? null;
+}
+
+// Excluída a última parcela, a gorjeta da apuração volta ao que era antes — só se o mês
+// da gorjeta segue aberto e ninguém trocou o valor depois.
+async function desfazerGorjetaDaRescisao(tx: Tx, employeeId: string, details: unknown) {
+  const g = await vinculoGorjeta(tx, employeeId, details);
   if (!g) return null;
-  // Só se o mês da gorjeta segue aberto e ninguém trocou o valor depois.
-  const r = await prisma.tipParticipant.updateMany({
+  const r = await tx.tipParticipant.updateMany({
     where: { id: g.participantId, rescisaoValorFixo: g.aplicada, period: { status: { not: "CLOSED" } } },
     data: { rescisaoValorFixo: g.anterior },
   });
   return r.count > 0 ? { participantId: g.participantId, voltouPara: g.anterior } : null;
+}
+
+// Apuração obrigatória para lançar/ajustar: se ela falhar, não dá para comparar com o
+// lançado nem exigir justificativa — então não lança (antes caía em silêncio para null).
+async function apurarOuResponder(employeeId: string, response: { status: (c: number) => { json: (b: unknown) => void } }) {
+  try {
+    return { apuracao: await apurarRescisao(employeeId) };
+  } catch (err) {
+    console.error("[rescisao] apuração falhou", err);
+    response.status(500).json({ message: "Não consegui apurar a rescisão agora (gorjeta/VT). Tente de novo em instantes." });
+    return null;
+  }
+}
+
+// Sem a permissão de ver Funcionários, a rescisão lançada sai sem o salário.
+type Lancada = NonNullable<Awaited<ReturnType<typeof rescisaoLancada>>>;
+function lancadaVisivel(l: Lancada | null, podeVer: boolean): Lancada | null {
+  if (!l || podeVer) return l;
+  const semSalario = <T extends { salario?: number | null }>(v: T) => ({ ...v, salario: null });
+  const ajuste = l.ajusteManual as { divergencias?: Array<{ campo?: string }> } | null;
+  return {
+    ...l,
+    salario: null,
+    ajusteManual: ajuste ? { ...ajuste, divergencias: (ajuste.divergencias ?? []).filter((d) => d.campo !== "salario") } : null,
+    historicoAjustes: l.historicoAjustes.map((h) => ({ ...h, antes: semSalario(h.antes), depois: semSalario(h.depois) })),
+  };
 }
 
 // A rescisão lançada, somada das parcelas, com o histórico de ajustes (na 1ª parcela).
@@ -377,7 +444,7 @@ export function valoresMudaram(antes: ValoresLancados, depois: ValoresLancados):
 }
 async function rescisaoLancada(employeeId: string) {
   const itens = await prisma.payrollItem.findMany({
-    where: { employeeId, type: "RESCISAO", deletedAt: null },
+    where: { employeeId, type: "RESCISAO", deletedAt: null, status: { not: "CANCELED" } },
     orderBy: { dueDate: "asc" },
   });
   if (itens.length === 0) return null;
@@ -408,7 +475,7 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
   const emp = await prisma.employee.findFirst({ where: { id: request.params.employeeId, deletedAt: null } });
   if (!emp) return response.status(404).json({ message: "Funcionário não encontrado." });
 
-  const itens = await prisma.payrollItem.findMany({ where: { employeeId: emp.id, type: "RESCISAO", deletedAt: null }, orderBy: { dueDate: "asc" } });
+  const itens = await prisma.payrollItem.findMany({ where: { employeeId: emp.id, type: "RESCISAO", deletedAt: null, status: { not: "CANCELED" } }, orderBy: { dueDate: "asc" } });
   if (itens.length === 0) return response.status(404).json({ message: "Não há rescisão lançada para ajustar." });
   if (itens.some((i) => i.paymentDate)) {
     return response.status(400).json({ message: "Rescisão com parcela já paga: estorne o pagamento em Contas a Pagar antes de ajustar." });
@@ -417,8 +484,12 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
   if (await competenciaDeFolhaBloqueada(new Date(Date.UTC(primeira.competenceYear, primeira.competenceMonth - 1, 1)), "Ajuste de rescisao", response)) return;
 
   const b = request.body as Record<string, unknown>;
-  const apuracao = await apurarRescisao(emp.id).catch(() => null);
-  const lido = lerValoresRescisao(b, emp.modality === "NAO_CLT", apuracao?.sugestao.creditos ?? 0);
+  const apurado = await apurarOuResponder(emp.id, response);
+  if (!apurado) return;
+  const { apuracao } = apurado;
+  // Créditos: os que entraram no lançamento; recalcular mudaria o bruto sem ninguém ver.
+  const creditosLancados = (primeira.details as { creditos?: unknown } | null)?.creditos;
+  const lido = lerValoresRescisao(b, emp.modality === "NAO_CLT", typeof creditosLancados === "number" ? creditosLancados : apuracao?.sugestao.creditos ?? 0);
   if ("erro" in lido) return response.status(400).json({ message: lido.erro });
   const { gross, vtDiscount, otherDiscount, net } = lido;
   const justificativa = typeof b.justificativa === "string" ? b.justificativa.trim().slice(0, 1000) : "";
@@ -457,38 +528,56 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
   const gorjetaNaApuracao: GorjetaNaApuracao | null = loc.alvo
     ? { ...loc.alvo, anterior: jaAplicada?.participantId === loc.alvo.participantId ? jaAplicada.anterior : loc.alvo.anterior, aplicada: lido.componentes.gorjeta! }
     : jaAplicada ?? null;
-  await prisma.$transaction([...itens.map((it, i) => prisma.payrollItem.update({
-    where: { id: it.id },
-    data: {
-      amount: valores[i],
-      updatedById: user.id,
-      ...(b.notes !== undefined && i === 0 ? { notes: (b.notes as string) || null } : {}),
-      details: (i === 0
-        ? {
-          ...detalhes,
-          grossAmount: depois.bruto, vtDiscount: depois.vtDesconto, otherDiscount: depois.outroDesconto,
-          salario: depois.salario, gorjeta: depois.gorjeta, creditos: lido.creditos, valesDiscount: depois.vales,
-          ...(b.valesLabel !== undefined ? { valesLabel: typeof b.valesLabel === "string" ? b.valesLabel.slice(0, 300) : null } : {}),
-          otherDiscountLabel: b.otherDiscountLabel !== undefined ? ((b.otherDiscountLabel as string) || null) : (detalhes.otherDiscountLabel ?? null),
-          ...(itens.length > 1 ? { netTotal: net } : {}),
-          historicoAjustes: [...atual.historicoAjustes, ajuste],
-          gorjetaNaApuracao,
-        }
-        : { ...((it.details ?? {}) as Record<string, unknown>), netTotal: net }) as Prisma.InputJsonValue,
-    },
-  })),
-  ...(gorjetaNaApuracao && loc.alvo ? [prisma.tipParticipant.update({
-    where: { id: gorjetaNaApuracao.participantId },
-    data: { rescisaoValorFixo: gorjetaNaApuracao.aplicada, rescisaoRecibo: Prisma.DbNull },
-  })] : []),
-  ]);
+  // Dois ajustes ao mesmo tempo: o segundo leria o histórico velho e apagaria o do
+  // primeiro. Confere, dentro da transação, que ninguém mexeu desde a leitura.
+  const MAX_HISTORICO = 50;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const agora = await tx.payrollItem.findUnique({ where: { id: primeira.id }, select: { updatedAt: true } });
+      if (!agora || agora.updatedAt.getTime() !== primeira.updatedAt.getTime()) throw new Error("CONFLITO_AJUSTE");
+      for (const [i, it] of itens.entries()) {
+        await tx.payrollItem.update({
+          where: { id: it.id },
+          data: {
+            amount: valores[i],
+            updatedById: user.id,
+            ...(b.notes !== undefined && i === 0 ? { notes: textoLimitado(b.notes, 1000) } : {}),
+            details: (i === 0
+              ? {
+                ...detalhes,
+                grossAmount: depois.bruto, vtDiscount: depois.vtDesconto, otherDiscount: depois.outroDesconto,
+                salario: depois.salario, gorjeta: depois.gorjeta, creditos: lido.creditos, valesDiscount: depois.vales,
+                ...(b.valesLabel !== undefined ? { valesLabel: textoLimitado(b.valesLabel, 300) } : {}),
+                otherDiscountLabel: b.otherDiscountLabel !== undefined ? textoLimitado(b.otherDiscountLabel, 300) : (detalhes.otherDiscountLabel ?? null),
+                ...(itens.length > 1 ? { netTotal: net } : {}),
+                // A auditoria guarda todos; aqui ficam os últimos, para a rescisão não crescer sem fim.
+                historicoAjustes: [...atual.historicoAjustes, ajuste].slice(-MAX_HISTORICO),
+                gorjetaNaApuracao,
+              }
+              : { ...((it.details ?? {}) as Record<string, unknown>), netTotal: net, gorjetaNaApuracao }) as Prisma.InputJsonValue,
+          },
+        });
+      }
+      if (gorjetaNaApuracao && loc.alvo) {
+        await tx.tipParticipant.update({
+          where: { id: gorjetaNaApuracao.participantId },
+          data: { rescisaoValorFixo: gorjetaNaApuracao.aplicada, rescisaoRecibo: Prisma.DbNull },
+        });
+      }
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "CONFLITO_AJUSTE") {
+      return response.status(409).json({ message: "A rescisão foi alterada por outra pessoa enquanto você ajustava. Reabra e confira antes de salvar." });
+    }
+    throw err;
+  }
 
   await auditLog({
     userId: user.id, action: "ADJUST_TERMINATION", entity: "PayrollItem", entityId: primeira.id,
     previousValue: antes, newValue: { ...depois, justificativa },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
-  response.json({ ok: true, lancada: await rescisaoLancada(emp.id) });
+  response.json({ ok: true, lancada: lancadaVisivel(await rescisaoLancada(emp.id), await podeVerDadosPessoais(request)) });
 });
 
 // ─── FÉRIAS — lançar (contabilidade manda o valor; sistema agenda + marca na escala) ──
@@ -706,18 +795,43 @@ payrollRouter.patch("/:id/restore", async (request, response) => {
     response
   )) return;
 
-  const updated = await prisma.payrollItem.update({
-    where: { id: existing.id },
-    data: { deletedAt: null, deletedById: null, status: computeStatus(existing.dueDate, existing.paymentDate), updatedById: user.id },
-  });
-  // Rescisão restaurada: a gorjeta dela volta a valer na apuração (se o mês ainda está aberto).
-  const g = (existing.details as { gorjetaNaApuracao?: GorjetaNaApuracao | null } | null)?.gorjetaNaApuracao;
-  if (existing.type === "RESCISAO" && g) {
-    await prisma.tipParticipant.updateMany({
-      where: { id: g.participantId, period: { status: { not: "CLOSED" } } },
-      data: { rescisaoValorFixo: g.aplicada },
+  // Rescisão: só volta se não houver OUTRA rescisão viva (lançada depois da exclusão) —
+  // senão ficariam duas, e a gorjeta da antiga passaria por cima da nova.
+  if (existing.type === "RESCISAO") {
+    const vivas = await prisma.payrollItem.findMany({
+      where: { employeeId: existing.employeeId, type: "RESCISAO", deletedAt: null, status: { not: "CANCELED" } },
+      select: { details: true, createdAt: true },
     });
+    const grupo = (existing.details as { grupoRescisao?: string } | null)?.grupoRescisao;
+    const mesmaRescisao = (v: { details: unknown; createdAt: Date }) => grupo
+      ? (v.details as { grupoRescisao?: string } | null)?.grupoRescisao === grupo
+      : Math.abs(v.createdAt.getTime() - existing.createdAt.getTime()) < 5000;
+    if (vivas.some((v) => !mesmaRescisao(v))) {
+      return response.status(409).json({ message: "Já existe outra rescisão lançada para este funcionário. Exclua a atual antes de restaurar esta." });
+    }
   }
+
+  const { updated, gorjetaRestaurada } = await prisma.$transaction(async (tx) => {
+    const item = await tx.payrollItem.update({
+      where: { id: existing.id },
+      data: { deletedAt: null, deletedById: null, status: computeStatus(existing.dueDate, existing.paymentDate), updatedById: user.id },
+    });
+    // Rescisão restaurada: a gorjeta dela volta a valer na apuração — se o mês ainda está
+    // aberto e ninguém gravou outro valor depois da exclusão.
+    let restaurada = null;
+    const g = existing.type === "RESCISAO" ? await vinculoGorjeta(tx, existing.employeeId, existing.details) : null;
+    if (g) {
+      const r = await tx.tipParticipant.updateMany({
+        where: {
+          id: g.participantId, period: { status: { not: "CLOSED" } },
+          OR: [{ rescisaoValorFixo: g.anterior }, ...(g.anterior == null ? [] : [{ rescisaoValorFixo: g.aplicada }])],
+        },
+        data: { rescisaoValorFixo: g.aplicada, rescisaoRecibo: Prisma.DbNull },
+      });
+      restaurada = r.count > 0 ? { participantId: g.participantId, valor: g.aplicada } : { conflito: "gorjeta paga mudou depois da exclusão; não sobrescrevi" };
+    }
+    return { updated: item, gorjetaRestaurada: restaurada };
+  });
 
   // O valor restaurado JÁ vem com o abatimento de falta embutido, mas a exclusão
   // tinha soltado essas faltas de volta para a fila. Sem recarimbá-las aqui, o
@@ -746,7 +860,7 @@ payrollRouter.patch("/:id/restore", async (request, response) => {
 
   await auditLog({
     userId: user.id, action: "RESTORE_PAYROLL_ITEM", entity: "PayrollItem", entityId: updated.id,
-    newValue: { restored: true, faltasRecarimbadas },
+    newValue: { restored: true, faltasRecarimbadas, ...(gorjetaRestaurada ? { gorjetaRestaurada } : {}) },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
 
@@ -824,16 +938,24 @@ payrollRouter.delete("/:id", async (request, response) => {
   // Soft-delete não dispara o ON DELETE CASCADE, então os abatimentos de falta
   // precisam ser soltos à mão. Sem isso, apagar um VT deixaria as faltas dele
   // carimbadas como "já descontadas" e elas nunca mais voltariam ao cálculo.
-  const faltasLiberadas = await prisma.vtFaltaDeduction.deleteMany({
-    where: { payrollItemId: request.params.id },
-  });
+  // Parcela de rescisão já paga: excluir apagaria a despesa e desfaria a gorjeta de algo
+  // que já saiu do caixa. Estorna primeiro.
+  if (existing.type === "RESCISAO" && existing.paymentDate) {
+    return response.status(400).json({ message: "Parcela de rescisão já paga: estorne o pagamento em Contas a Pagar antes de excluir." });
+  }
 
-  await prisma.payrollItem.update({
-    where: { id: request.params.id },
-    data: { deletedAt: new Date(), deletedById: user.id },
+  const { faltasLiberadas, gorjetaDesfeita } = await prisma.$transaction(async (tx) => {
+    const liberadas = await tx.vtFaltaDeduction.deleteMany({ where: { payrollItemId: request.params.id } });
+    await tx.payrollItem.update({ where: { id: request.params.id }, data: { deletedAt: new Date(), deletedById: user.id } });
+    // Rescisão: a gorjeta que ela gravou na apuração volta ao que era antes — só quando
+    // sai a última parcela (enquanto houver parcela viva, a rescisão continua valendo).
+    let desfeita = null;
+    if (existing.type === "RESCISAO") {
+      const restantes = await tx.payrollItem.count({ where: { employeeId: existing.employeeId, type: "RESCISAO", deletedAt: null, status: { not: "CANCELED" } } });
+      if (restantes === 0) desfeita = await desfazerGorjetaDaRescisao(tx, existing.employeeId, existing.details);
+    }
+    return { faltasLiberadas: liberadas, gorjetaDesfeita: desfeita };
   });
-  // Rescisão excluída: a gorjeta que ela gravou na apuração volta ao que era antes.
-  const gorjetaDesfeita = existing.type === "RESCISAO" ? await desfazerGorjetaDaRescisao(existing.details) : null;
 
   await auditLog({
     userId: user.id, action: "DELETE_PAYROLL_ITEM", entity: "PayrollItem", entityId: request.params.id,
