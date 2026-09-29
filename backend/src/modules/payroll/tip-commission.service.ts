@@ -340,7 +340,7 @@ export async function computeTipCommission(
     const rateioAmount = closed ? Number(r.rateioAmount) : calc.rateio;
     const netCommission = closed ? Number(r.netCommission) : calc.comissaoLiquida;
     const salarioProporcional = closed ? Number(r.salarioProporcional) : calc.salarioProporcional;
-    const pagoNaRescisao = calc.tipoCalculo === "RESCISAO_QUITADA";
+    const pagoNaRescisao = calc.pagoNaRescisao;
     const totalAPagar = pagoNaRescisao ? 0 : closed ? Number(r.totalAPagar) : calc.totalAPagar;
     return {
       participantId: r.id,

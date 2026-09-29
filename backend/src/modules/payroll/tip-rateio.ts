@@ -93,6 +93,9 @@ export type ParticipanteCalculado = {
   salarioProporcional: number;
   totalAPagar: number;
   rescisaoPendente: boolean;
+  // CLT com gorjeta paga: a contabilidade já pagou na rescisão. Sem registro não
+  // tem rescisão da contabilidade: o valor informado é pago na lista, com o salário.
+  pagoNaRescisao: boolean;
 };
 
 const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }).replace(/ /g, " ");
@@ -224,6 +227,7 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
   const descontos = round2(p.vales.filter((v) => v.type !== "CREDITO").reduce((a, v) => a + v.amount, 0));
   const comissaoLiquida = round2(rateio - descontos + creditos);
   const salario = salarioSemRegistro(p, elegiveis, corridos);
+  const pagoNaRescisao = tipoCalculo === "RESCISAO_QUITADA" && !p.semRegistro;
 
   return {
     tipoCalculo,
@@ -245,8 +249,9 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
     comissaoLiquida,
     diasSalario: salario.dias,
     salarioProporcional: salario.valor,
-    totalAPagar: round2(salario.valor + comissaoLiquida),
+    totalAPagar: pagoNaRescisao ? 0 : round2(salario.valor + comissaoLiquida),
     rescisaoPendente,
+    pagoNaRescisao,
   };
 }
 

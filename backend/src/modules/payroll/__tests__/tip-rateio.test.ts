@@ -235,6 +235,23 @@ describe("rescisões abatidas da apuração", () => {
     expect(q.justificativaExtra).toBe("Gorjeta paga na rescisão (R$ 745,32) equivale a 4 pts; o direito era 2 pts: +2 pts de extra.");
   });
 
+  test("CLT com gorjeta paga: já recebeu na rescisão, nada a pagar na lista", () => {
+    const r = calcularParticipante(SETEMBRO, pessoa({ ...QUITADA, rescisaoValorFixo: 370.93, salarioBase: 2200 }), VALOR_PONTO);
+    expect(r.pagoNaRescisao).toBe(true);
+    expect(r.totalAPagar).toBe(0);
+  });
+
+  test("sem registro com gorjeta digitada: não tem rescisão da contabilidade, recebe salário + gorjeta na lista", () => {
+    const r = calcularParticipante(SETEMBRO, pessoa({
+      ...QUITADA, desligamento: d("2026-09-14"), semRegistro: true, salarioBase: 2200, faltas: 2, rescisaoValorFixo: 300,
+    }), VALOR_PONTO);
+    expect(r.tipoCalculo).toBe("RESCISAO_QUITADA");
+    expect(r.pagoNaRescisao).toBe(false);
+    expect(r.diasSalario).toBe(18); // 26/08 a 14/09 = 20 dias corridos (com folgas) − 2 faltas
+    expect(r.salarioProporcional).toBe(1320); // 2.200 ÷ 30 × 18
+    expect(r.totalAPagar).toBe(1620);
+  });
+
   test("a gorjeta paga não muda o valor do ponto de quem fica", () => {
     const sem = calcularRateio(SETEMBRO, [pessoa({ basePoints: 10 })]);
     const com = calcularRateio(SETEMBRO, [pessoa({ ...QUITADA, basePoints: 4, rescisaoValorFixo: 900 }), pessoa({ basePoints: 10 })]);
