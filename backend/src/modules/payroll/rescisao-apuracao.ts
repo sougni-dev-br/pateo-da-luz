@@ -78,62 +78,64 @@ export type ApuracaoRescisao = {
   vales: { itens: ValeAberto[]; descontos: number; creditos: number; liquido: number; entraNaRescisao: boolean };
   gorjeta: GorjetaAteSaida | null;
   gorjetaObservacao: string | null;
-  sugestao: {
-    bruto: number | null;
-    brutoComposicao: string | null;
-    vtDesconto: number;
-    outroDesconto: number;
-    outroDescontoRotulo: string | null;
-  };
+  sugestao: SugestaoRescisao;
 };
 
-const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }).replace(/ /g, " ");
+// O que preenche a tela, parte por parte. Sem registro: salário, gorjeta e vales vêm
+// daqui, cada um no seu campo. CLT: só o VT (bruto e gorjeta vêm da contabilidade).
+export type SugestaoRescisao = {
+  salario: number | null;
+  gorjeta: number | null;
+  creditos: number;
+  vales: number;
+  valesRotulo: string | null;
+  vtDesconto: number;
+  bruto: number | null;
+};
 
 // Junta as partes na sugestão que preenche a tela. Pura, para o teste.
-export function montarSugestao(a: Omit<ApuracaoRescisao, "sugestao">): ApuracaoRescisao["sugestao"] {
+export function montarSugestao(a: Omit<ApuracaoRescisao, "sugestao">): SugestaoRescisao {
   const vtDesconto = a.vt.total;
   if (!a.semRegistro) {
-    return { bruto: null, brutoComposicao: null, vtDesconto, outroDesconto: 0, outroDescontoRotulo: null };
+    return { salario: null, gorjeta: null, creditos: 0, vales: 0, valesRotulo: null, vtDesconto, bruto: null };
   }
   const g = a.gorjeta;
+  const salario = g ? g.salarioProporcional : null;
+  const gorjeta = g && !g.pendente ? g.gorjeta : null;
   // Crédito lançado na aba Vales (ex.: do fundo) soma ao que a pessoa recebe.
   const creditos = a.vales.creditos;
-  const bruto = g && !g.pendente ? round2(g.salarioProporcional + g.gorjeta + creditos) : null;
-  const valesDescontos = a.vales.descontos;
+  const vales = a.vales.descontos;
   return {
-    bruto,
-    brutoComposicao: g && !g.pendente
-      ? `salário ${reais(g.salarioProporcional)} (${g.diasSalario} dias) + gorjeta ${reais(g.gorjeta)}`
-        + (creditos > 0 ? ` + créditos ${reais(creditos)}` : "")
-      : null,
+    salario, gorjeta, creditos, vales,
+    valesRotulo: vales > 0 ? a.vales.itens.filter((v) => v.tipo !== "CREDITO").map((v) => v.codigo ?? v.descricao ?? v.tipo).join(", ") : null,
     vtDesconto,
-    outroDesconto: valesDescontos,
-    outroDescontoRotulo: valesDescontos > 0
-      ? `Vales da gorjeta: ${a.vales.itens.filter((v) => v.tipo !== "CREDITO").map((v) => v.codigo ?? v.descricao ?? v.tipo).join(", ")}`
-      : null,
+    bruto: salario != null && gorjeta != null ? round2(salario + gorjeta + creditos) : null,
   };
 }
 
-export type ValoresRescisao = { bruto: number; vtDesconto: number; outroDesconto: number };
+// O que foi lançado, na mesma forma. Salário e gorjeta só existem para sem registro.
+export type ValoresRescisao = { salario: number | null; gorjeta: number | null; vales: number; vtDesconto: number };
 export type Divergencia = { campo: keyof ValoresRescisao; rotulo: string; apurado: number; lancado: number; diferenca: number };
 
 const ROTULOS: Record<keyof ValoresRescisao, string> = {
-  bruto: "Valor bruto", vtDesconto: "VT a descontar", outroDesconto: "Outro desconto (vales)",
+  salario: "Salário proporcional", gorjeta: "Gorjeta até a saída", vales: "Vales", vtDesconto: "VT a descontar",
 };
 export const JUSTIFICATIVA_MINIMA = 10;
 
-// Onde o que foi lançado difere do que o sistema apurou. Bruto de CLT não entra:
-// quem apura é a contabilidade, não o sistema.
-export function divergenciasDoApurado(sugestao: ApuracaoRescisao["sugestao"] | null, lancado: ValoresRescisao): Divergencia[] {
+// Onde o que foi lançado difere do que o sistema apurou, campo a campo. O que o
+// sistema não apurou (bruto e gorjeta de CLT, gorjeta pendente) não conta.
+export function divergenciasDoApurado(sugestao: SugestaoRescisao | null, lancado: ValoresRescisao): Divergencia[] {
   if (!sugestao) return [];
   const apurado: Record<keyof ValoresRescisao, number | null> = {
-    bruto: sugestao.bruto, vtDesconto: sugestao.vtDesconto, outroDesconto: sugestao.outroDesconto,
+    salario: sugestao.salario, gorjeta: sugestao.gorjeta,
+    vales: sugestao.salario != null ? sugestao.vales : null,
+    vtDesconto: sugestao.vtDesconto,
   };
   return (Object.keys(apurado) as Array<keyof ValoresRescisao>)
-    .filter((c) => apurado[c] != null && Math.abs(round2(lancado[c]) - round2(apurado[c]!)) >= 0.01)
+    .filter((c) => apurado[c] != null && lancado[c] != null && Math.abs(round2(lancado[c]!) - round2(apurado[c]!)) >= 0.01)
     .map((c) => ({
-      campo: c, rotulo: ROTULOS[c], apurado: round2(apurado[c]!), lancado: round2(lancado[c]),
-      diferenca: round2(lancado[c] - apurado[c]!),
+      campo: c, rotulo: ROTULOS[c], apurado: round2(apurado[c]!), lancado: round2(lancado[c]!),
+      diferenca: round2(lancado[c]! - apurado[c]!),
     }));
 }
 

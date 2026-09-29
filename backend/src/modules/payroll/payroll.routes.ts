@@ -5,7 +5,7 @@ import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { FERIAS_CATEGORY, PAYROLL_KINDS, RESCISAO_CATEGORY, computePayroll, computeStatus, generatePayroll, getOrDefaultSettings, type PayrollKind, type PayrollOverride } from "./payroll.service.js";
-import { JUSTIFICATIVA_MINIMA, apurarRescisao, divergenciasDoApurado } from "./rescisao-apuracao.js";
+import { JUSTIFICATIVA_MINIMA, apurarRescisao, divergenciasDoApurado, type ValoresRescisao } from "./rescisao-apuracao.js";
 import { round2 } from "./vt-calc.js";
 
 export const payrollRouter = Router();
@@ -230,11 +230,11 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   if (await competenciaDeFolhaBloqueada(competenciaRescisao, "Lancamento de rescisao", response)) return;
 
   const b = request.body as Record<string, unknown>;
-  const gross = numOrNull(b.grossAmount) ?? 0;
-  const vtDiscount = numOrNull(b.vtDiscount) ?? 0;
-  const otherDiscount = numOrNull(b.otherDiscount) ?? 0;
-  if (gross <= 0) return response.status(400).json({ message: "Valor da rescisão (bruto) é obrigatório." });
-  const net = round2(gross - vtDiscount - otherDiscount);
+  // O que o sistema apurou na hora de lançar fica junto, para comparar com o que foi digitado.
+  const apuracao = await apurarRescisao(emp.id).catch(() => null);
+  const lido = lerValoresRescisao(b, emp.modality === "NAO_CLT", apuracao?.sugestao.creditos ?? 0);
+  if ("erro" in lido) return response.status(400).json({ message: lido.erro });
+  const { gross, vtDiscount, otherDiscount, net } = lido;
 
   const firstDue = b.dueDate ? new Date(String(b.dueDate)) : new Date();
   const term = emp.terminationDate ? new Date(emp.terminationDate) : new Date();
@@ -244,10 +244,8 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   // Pagar. Só parcela quando há líquido positivo a dividir.
   const requested = Math.trunc(numOrNull(b.installments) ?? 1);
   const n = net > 0 ? Math.max(1, Math.min(requested, 12)) : 1;
-  // O que o sistema apurou na hora de lançar fica junto, para comparar com o que foi digitado.
   // Mudou algum valor apurado: exige a justificativa e grava o antes e o depois.
-  const apuracao = await apurarRescisao(emp.id).catch(() => null);
-  const divergencias = divergenciasDoApurado(apuracao?.sugestao ?? null, { bruto: gross, vtDesconto: vtDiscount, outroDesconto: otherDiscount });
+  const divergencias = divergenciasDoApurado(apuracao?.sugestao ?? null, lido.componentes);
   const justificativa = typeof b.ajusteJustificativa === "string" ? b.ajusteJustificativa.trim().slice(0, 1000) : "";
   if (divergencias.length > 0 && justificativa.length < JUSTIFICATIVA_MINIMA) {
     return response.status(400).json({
@@ -256,6 +254,8 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   }
   const baseDetails = {
     grossAmount: gross, vtDiscount, otherDiscount, otherDiscountLabel: (b.otherDiscountLabel as string) || null,
+    salario: lido.componentes.salario, gorjeta: lido.componentes.gorjeta, creditos: lido.creditos,
+    valesDiscount: lido.componentes.vales, valesLabel: typeof b.valesLabel === "string" ? b.valesLabel.slice(0, 300) : null,
     apuracaoSistema: apuracao ? JSON.parse(JSON.stringify(apuracao)) : null,
     ajusteManual: divergencias.length > 0
       ? { divergencias, justificativa, porUserId: user.id, porNome: user.name ?? null, em: new Date().toISOString() }
@@ -311,11 +311,40 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   });
 });
 
+// Lê o que foi digitado na rescisão. Sem registro: salário + gorjeta (+ créditos da aba
+// Vales) formam o bruto, e os vales descontam. CLT: bruto da contabilidade; vales já
+// saíram da gorjeta enviada, então não descontam aqui. Sem salário/gorjeta no corpo
+// (tela antiga), vale o bruto digitado.
+function lerValoresRescisao(b: Record<string, unknown>, semRegistro: boolean, creditosApurados: number):
+  | { erro: string }
+  | { gross: number; vtDiscount: number; otherDiscount: number; net: number; creditos: number; componentes: ValoresRescisao } {
+  const salario = semRegistro ? numOrNull(b.salario) : null;
+  const gorjeta = semRegistro ? numOrNull(b.gorjeta) : null;
+  const vales = semRegistro ? numOrNull(b.valesDiscount) ?? 0 : 0;
+  const vtDiscount = numOrNull(b.vtDiscount) ?? 0;
+  const otherDiscount = numOrNull(b.otherDiscount) ?? 0;
+  if ([salario, gorjeta, vales, vtDiscount, otherDiscount].some((v) => v != null && v < 0)) return { erro: "Valores da rescisão não podem ser negativos." };
+  const porPartes = salario != null || gorjeta != null;
+  const creditos = porPartes ? creditosApurados : 0;
+  const gross = porPartes ? round2((salario ?? 0) + (gorjeta ?? 0) + creditos) : numOrNull(b.grossAmount) ?? 0;
+  if (gross <= 0) return { erro: "Valor da rescisão (bruto) é obrigatório." };
+  const net = round2(gross - vtDiscount - vales - otherDiscount);
+  if (net < 0) return { erro: "Os descontos passam do bruto: o líquido ficaria negativo." };
+  return {
+    gross, vtDiscount, otherDiscount: round2(otherDiscount), net, creditos,
+    componentes: { salario, gorjeta, vales: round2(vales), vtDesconto: round2(vtDiscount) },
+  };
+}
+
 // A rescisão lançada, somada das parcelas, com o histórico de ajustes (na 1ª parcela).
 type AjusteRescisao = {
   em: string; porUserId: string; porNome: string | null; justificativa: string;
-  antes: { bruto: number; vtDesconto: number; outroDesconto: number; liquido: number };
-  depois: { bruto: number; vtDesconto: number; outroDesconto: number; liquido: number };
+  antes: ValoresLancados;
+  depois: ValoresLancados;
+};
+type ValoresLancados = {
+  bruto: number; salario: number | null; gorjeta: number | null; vales: number;
+  vtDesconto: number; outroDesconto: number; liquido: number;
 };
 async function rescisaoLancada(employeeId: string) {
   const itens = await prisma.payrollItem.findMany({
@@ -325,8 +354,12 @@ async function rescisaoLancada(employeeId: string) {
   if (itens.length === 0) return null;
   const d = (itens[0].details ?? {}) as Record<string, unknown>;
   const n = (v: unknown) => (typeof v === "number" ? v : Number(v ?? 0)) || 0;
+  const ouNulo = (v: unknown) => (v == null ? null : n(v));
   return {
     bruto: n(d.grossAmount), vtDesconto: n(d.vtDiscount), outroDesconto: n(d.otherDiscount),
+    // Lançadas antes da separação não têm salário/gorjeta: ficam null.
+    salario: ouNulo(d.salario), gorjeta: ouNulo(d.gorjeta), vales: n(d.valesDiscount),
+    valesRotulo: (d.valesLabel as string | null) ?? null,
     outroDescontoRotulo: (d.otherDiscountLabel as string | null) ?? null,
     liquido: round2(itens.reduce((a, i) => a + Number(i.amount), 0)),
     parcelas: itens.map((i) => ({ id: i.id, rotulo: i.periodLabel, valor: Number(i.amount), vencimento: i.dueDate.toISOString(), paga: i.paymentDate != null })),
@@ -355,25 +388,27 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
   if (await competenciaDeFolhaBloqueada(new Date(Date.UTC(primeira.competenceYear, primeira.competenceMonth - 1, 1)), "Ajuste de rescisao", response)) return;
 
   const b = request.body as Record<string, unknown>;
-  const gross = numOrNull(b.grossAmount) ?? 0;
-  const vtDiscount = numOrNull(b.vtDiscount) ?? 0;
-  const otherDiscount = numOrNull(b.otherDiscount) ?? 0;
-  if (gross <= 0) return response.status(400).json({ message: "Valor da rescisão (bruto) é obrigatório." });
-  if (vtDiscount < 0 || otherDiscount < 0) return response.status(400).json({ message: "Desconto não pode ser negativo." });
-  const net = round2(gross - vtDiscount - otherDiscount);
-  if (net < 0) return response.status(400).json({ message: "Os descontos passam do bruto: o líquido ficaria negativo." });
+  const apuracao = await apurarRescisao(emp.id).catch(() => null);
+  const lido = lerValoresRescisao(b, emp.modality === "NAO_CLT", apuracao?.sugestao.creditos ?? 0);
+  if ("erro" in lido) return response.status(400).json({ message: lido.erro });
+  const { gross, vtDiscount, otherDiscount, net } = lido;
   const justificativa = typeof b.justificativa === "string" ? b.justificativa.trim().slice(0, 1000) : "";
   if (justificativa.length < JUSTIFICATIVA_MINIMA) {
     return response.status(400).json({ message: `Explique o ajuste da rescisão (pelo menos ${JUSTIFICATIVA_MINIMA} letras).` });
   }
 
   const atual = (await rescisaoLancada(emp.id))!;
-  const antes = { bruto: atual.bruto, vtDesconto: atual.vtDesconto, outroDesconto: atual.outroDesconto, liquido: atual.liquido };
-  const depois = { bruto: round2(gross), vtDesconto: round2(vtDiscount), outroDesconto: round2(otherDiscount), liquido: net };
-  const apuracao = await apurarRescisao(emp.id).catch(() => null);
+  const antes: ValoresLancados = {
+    bruto: atual.bruto, salario: atual.salario, gorjeta: atual.gorjeta, vales: atual.vales,
+    vtDesconto: atual.vtDesconto, outroDesconto: atual.outroDesconto, liquido: atual.liquido,
+  };
+  const depois: ValoresLancados = {
+    bruto: round2(gross), salario: lido.componentes.salario, gorjeta: lido.componentes.gorjeta, vales: lido.componentes.vales,
+    vtDesconto: round2(vtDiscount), outroDesconto: round2(otherDiscount), liquido: net,
+  };
   const ajuste: AjusteRescisao & { divergenciasDoApurado: unknown } = {
     em: new Date().toISOString(), porUserId: user.id, porNome: user.name ?? null, justificativa, antes, depois,
-    divergenciasDoApurado: divergenciasDoApurado(apuracao?.sugestao ?? null, { bruto: gross, vtDesconto: vtDiscount, outroDesconto: otherDiscount }),
+    divergenciasDoApurado: divergenciasDoApurado(apuracao?.sugestao ?? null, lido.componentes),
   };
   // O líquido novo se reparte nas mesmas parcelas, mantendo os vencimentos.
   const valores = splitCents(Math.round(net * 100), itens.length).map((c) => round2(c / 100));
@@ -388,6 +423,8 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
         ? {
           ...detalhes,
           grossAmount: depois.bruto, vtDiscount: depois.vtDesconto, otherDiscount: depois.outroDesconto,
+          salario: depois.salario, gorjeta: depois.gorjeta, creditos: lido.creditos, valesDiscount: depois.vales,
+          ...(b.valesLabel !== undefined ? { valesLabel: typeof b.valesLabel === "string" ? b.valesLabel.slice(0, 300) : null } : {}),
           otherDiscountLabel: b.otherDiscountLabel !== undefined ? ((b.otherDiscountLabel as string) || null) : (detalhes.otherDiscountLabel ?? null),
           ...(itens.length > 1 ? { netTotal: net } : {}),
           historicoAjustes: [...atual.historicoAjustes, ajuste],
