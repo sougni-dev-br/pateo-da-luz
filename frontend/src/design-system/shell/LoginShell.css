@@ -104,7 +104,7 @@
 
 .ds-login-aside-body h2 {
   margin: 16px 0 0;
-  font-size: 38px;
+  font-size: clamp(34px, 3.1vw, 44px);
   line-height: 1.12;
   font-weight: var(--fw-bold);
   letter-spacing: -0.02em;
@@ -131,7 +131,8 @@
 }
 .ds-login-feats li {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  line-height: 24px;
   gap: 12px;
   color: #ded6c6;
   font-size: 15px;
@@ -161,44 +162,191 @@
   background: var(--success);
   box-shadow: 0 0 0 4px rgba(63, 143, 99, 0.18);
 }
+.ds-login-dot-checking {
+  background: var(--gold-soft);
+  box-shadow: 0 0 0 4px rgba(216, 195, 145, 0.18);
+  animation: ds-login-pulse 1.4s ease-in-out infinite;
+}
+.ds-login-dot-offline {
+  background: #d9534f;
+  box-shadow: 0 0 0 4px rgba(217, 83, 79, 0.2);
+}
+
+@keyframes ds-login-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
 
 /* ── Main: formulario ── */
 .ds-login-main {
+  position: relative;
   display: grid;
   place-items: center;
   padding: 32px;
   overflow-y: auto;
-  background: var(--paper);
+  background:
+    radial-gradient(560px 380px at 100% 0%, rgba(185, 154, 88, 0.09), transparent 70%),
+    radial-gradient(420px 320px at 0% 100%, rgba(185, 154, 88, 0.05), transparent 70%),
+    #fbfaf7;
 }
 
 .ds-login-card {
-  width: min(408px, 100%);
+  width: min(392px, 100%);
   display: grid;
-  gap: 15px;
+  gap: 18px;
   color: var(--ink);
+  animation: ds-login-rise 420ms var(--ease) both;
+}
+
+@keyframes ds-login-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
 }
 
 .ds-login-head {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+}
+/* Filete dourado: amarra o formulario a paleta do painel escuro. */
+.ds-login-head::before {
+  content: "";
+  display: block;
+  width: 28px;
+  height: 3px;
+  margin-bottom: 20px;
+  border-radius: 999px;
+  background: var(--gold);
 }
 .ds-login-head h1 {
   margin: 0;
-  font-size: 25px;
+  font-size: 28px;
+  line-height: 1.15;
   font-weight: var(--fw-bold);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   color: var(--ink);
 }
 .ds-login-head p {
-  margin: 7px 0 0;
+  margin: 8px 0 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+/* Campos maiores que o padrao do ERP: e a tela mais usada com o celular na mao.
+   16px evita o zoom automatico do Safari/Chrome do iPhone ao focar o campo. */
+.ds-login-card .ds-text-field {
+  gap: 7px;
+}
+.ds-login-card .ds-text-field-label {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+}
+.ds-login-card .ds-text-field-input,
+.ds-login-card .password-field {
+  min-height: 46px;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 16px;
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.ds-login-card .ds-text-field-input {
+  padding: 0 14px;
+}
+.ds-login-card .ds-text-field-input::placeholder {
+  color: #a3aab5;
+}
+.ds-login-card .ds-text-field-input:hover,
+.ds-login-card .password-field:hover {
+  border-color: #c9ced6;
+}
+.ds-login-card .password-field {
+  grid-template-columns: 1fr 46px;
+}
+.ds-login-card .password-field input {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 16px;
+  box-shadow: none;
+}
+.ds-login-card .password-field button {
+  width: 46px;
+  height: 44px;
+  border-left: 0;
+  background: transparent;
+  transition: color var(--dur) var(--ease);
+}
+.ds-login-card .password-field button:hover {
+  color: var(--ink);
+}
+.ds-login-card .password-field:focus-within {
+  border-color: var(--gold);
+  box-shadow: var(--focus-ring);
+}
+.ds-login-card .password-capslock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #8a5a00;
+  font-weight: var(--fw-medium);
+}
+.ds-login-card .password-capslock::before {
+  content: "⇪";
+  font-size: 13px;
+}
+
+.ds-login-card button[type="submit"] {
+  min-height: 48px;
+  margin-top: 4px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: var(--fw-semibold);
+  transition:
+    transform var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+.ds-login-card button[type="submit"]:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-button);
+}
+.ds-login-card button[type="submit"]:not(:disabled):active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+.ds-login-card button[type="submit"]:disabled {
+  cursor: progress;
+}
+
+.ds-login-card .ds-alert {
+  animation: ds-login-rise 220ms var(--ease) both;
 }
 
 .ds-login-legal {
-  margin-top: 4px;
+  margin: 10px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 12px;
   text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-login-card,
+  .ds-login-card .ds-alert,
+  .ds-login-dot-checking {
+    animation: none;
+  }
+  .ds-login-card button[type="submit"]:not(:disabled):hover {
+    transform: none;
+  }
 }
 
 /* Mobile brand header (escondido no desktop) */
@@ -253,7 +401,7 @@
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 8px;
+    gap: 6px;
     margin-top: 4px;
   }
   .ds-login-mfeats span {
@@ -263,7 +411,7 @@
     color: #ded6c6;
     font-size: 12px;
     font-weight: var(--fw-medium);
-    padding: 5px 11px;
+    padding: 5px 10px;
     border-radius: 999px;
     background: rgba(216, 195, 145, 0.12);
   }
@@ -275,5 +423,11 @@
   }
   .ds-login-head {
     text-align: center;
+  }
+  .ds-login-head::before {
+    display: none;
+  }
+  .ds-login-head h1 {
+    font-size: 24px;
   }
 }
