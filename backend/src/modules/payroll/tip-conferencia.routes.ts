@@ -6,6 +6,7 @@ import { Router, type Request, type Response } from "express";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
+import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
 import {
@@ -19,11 +20,6 @@ const ETAPAS = ["ENVIADO_CONTABILIDADE", "OK_CONTABILIDADE", "FOLHA_PAGA"] as co
 type Etapa = (typeof ETAPAS)[number];
 
 const semAcento = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
-
-async function podeVerDadosPessoais(request: Request) {
-  const user = await getSessionUser(request);
-  return user ? userHasPermission(user as SessionUser, "employees", "view") : false;
-}
 
 async function periodoDe(request: Request, response: Response) {
   const year = parseInt(request.params.year, 10);

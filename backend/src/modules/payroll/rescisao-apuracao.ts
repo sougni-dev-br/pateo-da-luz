@@ -67,8 +67,9 @@ export type GorjetaAteSaida = {
   valorPonto: number;
   gorjeta: number;
   pendente: boolean;
-  diasSalario: number;
-  salarioProporcional: number;
+  // null = oculto (sem permissão de ver Funcionários).
+  diasSalario: number | null;
+  salarioProporcional: number | null;
 };
 
 export type ApuracaoRescisao = {
@@ -79,6 +80,7 @@ export type ApuracaoRescisao = {
   gorjeta: GorjetaAteSaida | null;
   gorjetaObservacao: string | null;
   sugestao: SugestaoRescisao;
+  dadosPessoaisOcultos?: boolean;
 };
 
 // O que preenche a tela, parte por parte. Sem registro: salário, gorjeta e vales vêm
@@ -198,7 +200,11 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
       gorjeta = {
         periodo: comp.label,
         status: comp.status === "CLOSED" ? "CLOSED" : "OPEN",
-        pontos: p.points, valorPonto: p.valorPonto, gorjeta: p.rateioAmount,
+        // Já quitada (a rescisão gravou a gorjeta paga): o apurado continua sendo o
+        // direito, não o valor pago — senão a comparação com o lançado some.
+        pontos: p.tipoCalculo === "RESCISAO_QUITADA" ? p.pontosDireito : p.points,
+        valorPonto: p.valorPonto,
+        gorjeta: p.tipoCalculo === "RESCISAO_QUITADA" ? p.valorDireito ?? p.rateioAmount : p.rateioAmount,
         pendente: p.rescisaoPendente,
         diasSalario: p.diasSalario, salarioProporcional: p.salarioProporcional,
       };
@@ -263,3 +269,16 @@ export async function localizarGorjetaNaApuracao(
 }
 
 const reaisBr = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+// Sem a permissão de ver Funcionários: sai o salário (e o que o revela) e a descrição
+// dos vales; ficam gorjeta, VT e os totais.
+export function semDadosPessoais(a: ApuracaoRescisao | null): ApuracaoRescisao | null {
+  if (!a) return a;
+  return {
+    ...a,
+    gorjeta: a.gorjeta ? { ...a.gorjeta, salarioProporcional: null, diasSalario: null } : null,
+    vales: { ...a.vales, itens: a.vales.itens.map((v) => ({ ...v, descricao: null })) },
+    sugestao: { ...a.sugestao, salario: null, bruto: null },
+    dadosPessoaisOcultos: true,
+  };
+}
