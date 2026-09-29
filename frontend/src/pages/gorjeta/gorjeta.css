@@ -824,3 +824,6 @@
 /* Atalho da gorjeta para a rescisão da pessoa (Funcionários). */
 .resc-link-gorjeta { font-size: 12px; color: var(--accent, #2563eb); text-decoration: underline; }
 .como-funciona > summary { cursor: pointer; font-size: 12px; color: var(--muted); margin: 2px 0 6px; }
+
+/* Acima do cabeçalho de celular (z 70), abaixo da gaveta do menu (80+). */
+.modal-backdrop.sobre-topo { z-index: 75; }

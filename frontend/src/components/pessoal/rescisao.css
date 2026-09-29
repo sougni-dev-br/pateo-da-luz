@@ -92,3 +92,6 @@
   .resc-rodape-acoes > * { flex: 1 1 auto; }
 }
 .resc-historico { padding: 6px 0; border-top: 1px solid var(--border); }
+
+/* Acima do cabeçalho de celular (z 70), abaixo da gaveta do menu (80+). */
+.modal-backdrop.sobre-topo { z-index: 75; }

@@ -104,6 +104,8 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     rescisaoServicoBruto: p.rescisaoServicoBruto,
     rescisaoValorFixo: p.rescisaoValorFixo,
     gorjeta: p.rateioAmount,
+    // Gorjeta real no lugar da calculada: o que o sistema calculou e o porquê.
+    ...(p.gorjetaReal ? { gorjetaCalculada: p.gorjetaCalculada, gorjetaReal: p.gorjetaReal } : {}),
     vales: p.vales.map((v) => ({ tipo: v.type, valor: v.amount, data: v.date?.slice(0, 10) ?? null, descricao: v.notes })),
     descontos: p.descontos,
     creditos: p.creditos,

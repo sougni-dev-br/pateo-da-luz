@@ -74,6 +74,8 @@ export type ParticipanteEntrada = {
   // Rescisão lançada em Contas a Pagar (Folha → rescisão). Sem registro: ela já
   // pagou salário e gorjeta até a saída, então a pessoa sai da lista do mês.
   rescisaoLancada: boolean;
+  // Gorjeta real digitada no lugar da calculada (quem está no mês, por pontos).
+  gorjetaReal?: number | null;
   vales: ValeEntrada[];
 };
 
@@ -98,6 +100,8 @@ export type ParticipanteCalculado = {
   // valor que sai do líquido antes do ponto do mês, como numa rescisão calculada; a
   // diferença para o que foi pago volta ao saldo (ou sai dele, se pagou a mais).
   valorDireito: number | null;
+  // O que o sistema calculou antes de qualquer valor real digitado.
+  gorjetaCalculada: number;
   valorPonto: number;
   rateio: number;
   descontos: number;
@@ -249,6 +253,21 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
   } else {
     rateio = round2(pontosFinais * valorPontoDoMes);
   }
+  const gorjetaCalculada = rateio;
+
+  // Gorjeta real no lugar da calculada: os outros não mudam (o ponto do mês não depende
+  // dela) e a diferença fica no livre para distribuir. Vira pontos pelo ponto do mês.
+  if (tipoCalculo === "MES" && p.kind === "PONTOS" && p.gorjetaReal != null) {
+    rateio = round2(p.gorjetaReal);
+    if (valorPontoDoMes > 0) {
+      pontosConsumidos = round2(rateio / valorPontoDoMes);
+      extraRescisao = Math.max(0, round2(pontosConsumidos - pontosFinais));
+      pontosDevolvidos = Math.max(0, round2(pontosFinais - pontosConsumidos));
+      if (extraRescisao > 0) {
+        justificativaExtra = `Gorjeta real (${reais(rateio)}) acima da calculada (${reais(gorjetaCalculada)}): +${ptsTexto(extraRescisao)} pts.`;
+      }
+    }
+  }
 
   const creditos = round2(p.vales.filter((v) => v.type === "CREDITO").reduce((a, v) => a + v.amount, 0));
   const descontos = round2(p.vales.filter((v) => v.type !== "CREDITO").reduce((a, v) => a + v.amount, 0));
@@ -273,6 +292,7 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
     extraRescisao,
     justificativaExtra,
     valorDireito,
+    gorjetaCalculada,
     valorPonto: round2(valorPonto),
     rateio,
     descontos,
