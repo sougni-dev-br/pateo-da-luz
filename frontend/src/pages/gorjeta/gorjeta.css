@@ -665,3 +665,26 @@
   .cards-totais { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
   .cards-totais > :last-child:nth-child(odd) { grid-column: auto; }
 }
+
+/* Vales */
+.aba-vales { container-type: inline-size; }
+.card-total {
+  display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; min-width: 0;
+  border: 1px solid var(--border, var(--line)); border-radius: 10px; background: var(--surface, #fff);
+}
+.card-total span { font-size: 12px; color: var(--muted); }
+.card-total strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.card-total small { font-size: 11px; color: var(--muted); }
+.lancar-vale { gap: 10px; }
+.lancar-vale-campos { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 12px; }
+.lancar-vale-campos label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; flex: 1 1 140px; min-width: 0; }
+.lancar-vale-campos select, .lancar-vale-campos input, .tabela-gorjeta .linha-cancelada input, .tabela-gorjeta td > input, .tabela-gorjeta td > select {
+  height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper);
+  color: var(--ink); font: inherit; font-size: 13px; text-transform: none; letter-spacing: normal; min-width: 0;
+}
+.linha-cancelada > td { opacity: 0.6; }
+.linha-cancelada > td:nth-child(5) { text-decoration: line-through; }
+.tabela-gorjeta .linha-colunas .ds-table-th { background: var(--paper-soft, #f4f5f7); border-bottom: 1px solid var(--line); }
+.barra-lista-campo input[type="month"], .barra-lista-campo input[type="date"] {
+  height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font: inherit;
+}
