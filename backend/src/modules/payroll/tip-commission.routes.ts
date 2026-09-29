@@ -908,7 +908,12 @@ tipCommissionRouter.get("/closings", async (request, response) => {
 tipCommissionRouter.get("/closings/:id", async (request, response) => {
   const detalhe = await detalheFechamento(request.params.id);
   if (!detalhe) return response.status(404).json({ message: "Registro de fechamento não encontrado." });
-  response.json(detalhe);
+  if (await podeVerDadosPessoais(request)) return response.json(detalhe);
+  // Sem a permissão de Funcionários: some o que mistura salário (proporcional e total a pagar).
+  const participants = (detalhe.participants as Array<Record<string, unknown>>).map(
+    ({ salarioProporcional: _s, totalAPagar: _t, diasSalario: _d, ...resto }) => resto,
+  );
+  response.json({ ...detalhe, participants, salariosOcultos: true });
 });
 
 // ─── Recibo da rescisão (TRCT) que volta da contabilidade ───────────────────

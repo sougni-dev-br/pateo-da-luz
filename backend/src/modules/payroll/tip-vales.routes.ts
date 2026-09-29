@@ -156,6 +156,10 @@ tipValesRouter.put("/vales/:id", async (request, response) => {
 tipValesRouter.post("/vales/:id/cancelar", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  // Cancelar desfaz um lançamento: pede a ação de excluir (além do mapa de permissões).
+  if (!(await userHasPermission(user as SessionUser, "payroll-tips", "delete"))) {
+    return response.status(403).json({ message: "Cancelar vale exige a permissão de excluir na gorjeta." });
+  }
   const motivo = String((request.body as { motivo?: unknown } | undefined)?.motivo ?? "").trim().slice(0, 300);
   if (motivo.length < 5) return response.status(422).json({ message: "Escreva o motivo do cancelamento (pelo menos 5 letras)." });
   const antes = await prisma.tipVale.findUnique({ where: { id: request.params.id }, include: { participant: { select: { periodId: true, employeeId: true } }, reserveMovement: true } });

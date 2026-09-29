@@ -490,7 +490,8 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
   // apenas "editar" no modulo conseguia despagar conta a pagar, imposto e folha.
   if (path.endsWith("/reverse")) return "delete";
 
-  if (path.endsWith("/cancel") || method === "DELETE") return "delete";
+  // "/cancelar" (vales da gorjeta) é o mesmo que "/cancel": desfaz um lançamento.
+  if (path.endsWith("/cancel") || path.endsWith("/cancelar") || method === "DELETE") return "delete";
   if (method === "GET" || method === "HEAD") return "view";
   if (method === "POST") return "create";
   if (method === "PUT" || method === "PATCH") return "edit";

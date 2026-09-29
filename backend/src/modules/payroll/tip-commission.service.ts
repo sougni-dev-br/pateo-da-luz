@@ -424,7 +424,11 @@ export async function computeTipCommission(
   if (pointsPool < 0) {
     pendencias.push(`As cotas fixas (${brl(rateio.totalCotasFixas)}) passam do líquido do período (${brl(netPool)}).`);
   } else if (saldo < -0.005) {
-    pendencias.push(`A distribuição (${brl(distribuido)}) passa do líquido (${brl(netPool)}) em ${brl(Math.abs(saldo))}. Reduza pontos ou ajustes.`);
+    const extraRescisoes = round2(participants.reduce((a, p) => a + (p.extraRescisao ?? 0), 0));
+    pendencias.push(`A distribuição (${brl(distribuido)}) passa do líquido (${brl(netPool)}) em ${brl(Math.abs(saldo))}.`
+      + (extraRescisoes > 0
+        ? ` Parte vem da gorjeta paga acima do direito nas rescisões (+${extraRescisoes.toLocaleString("pt-BR")} pts de extra automático). Reduza pontos ou ajustes da equipe, ou confira o valor pago.`
+        : " Reduza pontos ou ajustes."));
   }
 
   const semBase = noPeriodo.filter((p) => p.kind === "PONTOS" && p.basePoints <= 0);
