@@ -67,12 +67,44 @@ const OPCOES_ORDEM: Array<[string, string]> = [
 ];
 const TEXTO = new Set(["nome", "funcao", "empresa", "situacao"]);
 
+// "Gorjeta" não se oculta: tem o lápis da gorjeta real, e é a coluna que a tabela existe para mostrar.
 const COLUNAS: ColunaOpcional[] = [
   { chave: "base", rotulo: "Base" }, { chave: "faltas", rotulo: "Faltas" }, { chave: "atestados", rotulo: "Atestados" },
   { chave: "ferias", rotulo: "Férias" }, { chave: "outros", rotulo: "Outros dias" }, { chave: "dias", rotulo: "Dias" },
-  { chave: "ajuste", rotulo: "Ajuste" }, { chave: "pontos", rotulo: "Pontos" }, { chave: "gorjeta", rotulo: "Gorjeta" },
+  { chave: "ajuste", rotulo: "Ajuste" }, { chave: "pontos", rotulo: "Pontos" },
   { chave: "liquido", rotulo: "Gorjeta líquida" },
 ];
+
+// ─── Rescisões do período ───────────────────────────────────────────────────
+// Nome e os dois campos digitáveis (gorjeta paga, serviço até a saída) não se ocultam.
+const COLUNAS_RESC: ColunaOpcional[] = [
+  { chave: "saida", rotulo: "Saída" }, { chave: "contas", rotulo: "Contas a Pagar" }, { chave: "pontos", rotulo: "Pontos" },
+  { chave: "situacao", rotulo: "Situação" }, { chave: "valorPonto", rotulo: "Valor do ponto" }, { chave: "calculada", rotulo: "Gorjeta calculada" },
+];
+const TEXTO_RESC = new Set(["nome", "situacao", "contas"]);
+
+function situacaoRescisao(p: TipComputedParticipant): string {
+  if (p.tipoCalculo === "RESCISAO_QUITADA") {
+    if (p.rescisaoRecibo) return "Paga · termo lido";
+    if (!p.semRegistro) return "Paga · digitada";
+    return p.pagoNaRescisao ? "Paga na rescisão · fora da lista" : "Valor manual · na lista";
+  }
+  return p.rescisaoPendente ? "Falta o valor" : "Calculada";
+}
+const contasRescisao = (p: TipComputedParticipant) =>
+  (p.rescisaoContasPagar ? SITUACAO_CONTA[p.rescisaoContasPagar.status].rotulo : "não lançada");
+
+const EXT_RESC: Extratores<TipComputedParticipant> = {
+  nome: (p) => p.employeeName,
+  saida: (p) => p.terminationDate,
+  contas: contasRescisao,
+  paga: (p) => p.rescisaoValorFixo,
+  pontos: (p) => p.points,
+  situacao: situacaoRescisao,
+  servico: (p) => p.rescisaoServicoBruto,
+  valorPonto: (p) => (p.tipoCalculo === "RESCISAO_QUITADA" || p.rescisaoPendente ? null : p.valorPonto),
+  calculada: (p) => (p.tipoCalculo === "RESCISAO_QUITADA" || p.rescisaoPendente ? null : p.rateioAmount),
+};
 // Colunas antes de "Pontos": na linha de total elas viram um espaço em branco só.
 const ANTES_DOS_PONTOS = ["base", "faltas", "atestados", "ferias", "outros", "dias", "ajuste"];
 
@@ -121,8 +153,9 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
   const { ordem, alternar, definir } = useOrdenacao("apuracao");
   // No celular começa com o essencial (nome, pontos, gorjeta); o resto se liga em "Colunas".
   const colunas = useColunas("apuracao", ["faltas", "atestados", "ferias", "outros", "dias", "ajuste", "base"]);
-  const v = colunas.visivel;
-  const visiveis = COLUNAS.filter((c) => v(c.chave)).length;
+  // Quem já tinha ocultado "Gorjeta" antes de ela virar fixa volta a vê-la.
+  const v = (c: string) => c === "gorjeta" || colunas.visivel(c);
+  const visiveis = COLUNAS.filter((c) => v(c.chave)).length + 1;
   const brancoTotal = ANTES_DOS_PONTOS.filter(v).length;
   const [agrupar, setAgruparState] = useState(() => {
     try { return window.localStorage.getItem("gorjeta-agrupar") !== "nao"; } catch { return true; }
@@ -133,6 +166,9 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
   }
   // Filtro: nome/apelido/função/empresa pelo texto; vínculo, empresa, função e situação por lista.
   const filtro = useFiltro("apuracao");
+  const filtroResc = useFiltro("apuracao-rescisoes");
+  const ordResc = useOrdenacao("apuracao-rescisoes");
+  const colResc = useColunas("apuracao-rescisoes", ["saida", "valorPonto", "calculada"]);
   const ROTULO_SITUACAO: Record<string, string> = { MES: "No mês", RESCISAO: "Desligado no período", RESCISAO_QUITADA: "Desligado no período", FORA_DO_PERIODO: "Fora do período" };
   const listasFiltro = [
     { chave: "vinculo", rotulo: "Vínculo", opcoes: [{ valor: "CLT", rotulo: "CLT" }, { valor: "Sem registro", rotulo: "Sem registro" }] },
@@ -148,6 +184,18 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
   const ordenarPor = (coluna: string) => alternar(coluna, TEXTO.has(coluna) ? "asc" : "desc");
   const th = (coluna: string) => ({ coluna, ordem, onOrdenar: () => ordenarPor(coluna) });
   const rescisoes = participantes.filter((p) => p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA");
+  // Rescisões: ordem, filtro e colunas próprios (a tabela de cima não mexe nesta).
+  const listasResc = [
+    { chave: "vinculo", rotulo: "Vínculo", opcoes: [{ valor: "CLT", rotulo: "CLT" }, { valor: "Sem registro", rotulo: "Sem registro" }] },
+    { chave: "situacao", rotulo: "Situação", opcoes: opcoesDe(rescisoes, situacaoRescisao) },
+    { chave: "contas", rotulo: "Contas a Pagar", opcoes: opcoesDe(rescisoes, contasRescisao) },
+  ];
+  const rescFiltradas = filtroResc.aplicar(rescisoes,
+    (p) => [textoPessoa(p.employeeName, p.apelido), p.functionName ?? "", p.companyName ?? ""].join(" "),
+    { vinculo: (p) => (p.semRegistro ? "Sem registro" : "CLT"), situacao: situacaoRescisao, contas: contasRescisao });
+  const rescLinhas = aplicarOrdem(rescFiltradas, ordResc.ordem, EXT_RESC);
+  const vr = colResc.visivel;
+  const thR = (c: string) => ({ coluna: c, ordem: ordResc.ordem, onOrdenar: () => ordResc.alternar(c, TEXTO_RESC.has(c) ? "asc" : "desc") });
   // Agrupado: a ordem vale dentro de cada grupo. Sem agrupar: uma lista só, como no Excel.
   const grupos = agrupar ? [
     { chave: "mes", titulo: "No mês", nota: null as string | null, lista: ordenados.filter((p) => p.tipoCalculo === "MES") },
@@ -177,21 +225,21 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
         <Table.Td align="center" style={num}>
           {p.kind === "FIXO"
             ? <input style={{ ...numInputStyle, width: 90 }} type="number" step="0.01" inputMode="decimal" value={r.fixedAmount} disabled={readonly}
-                aria-label="Cota fixa" title="Cota fixa em R$" onChange={(e) => set({ fixedAmount: e.target.value })} />
+                aria-label={`Cota fixa de ${p.employeeName}`} title="Cota fixa em R$" onChange={(e) => set({ fixedAmount: e.target.value })} />
             : pts(p.basePoints)}
         </Table.Td>
 )}
 {v("faltas") && (
-        <Table.Td align="center" style={inicioBloco}><Ocorrencia label="Faltas" desconta={p.regrasEfetivas.descontaFalta} value={r.faltas} escala={p.faltasOrigem === "ESCALA" ? p.faltas : 0} manual={r.faltas !== ""} disabled={readonly} onChange={(v) => set({ faltas: v })} /></Table.Td>
+        <Table.Td align="center" style={inicioBloco}><Ocorrencia label={`Faltas de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaFalta} value={r.faltas} escala={p.faltasOrigem === "ESCALA" ? p.faltas : 0} manual={r.faltas !== ""} disabled={readonly} onChange={(v) => set({ faltas: v })} /></Table.Td>
 )}
 {v("atestados") && (
-        <Table.Td align="center"><Ocorrencia label="Atestados" desconta={p.regrasEfetivas.descontaAtestado} value={r.atestados} escala={p.atestadosOrigem === "ESCALA" ? p.atestados : 0} manual={r.atestados !== ""} disabled={readonly} onChange={(v) => set({ atestados: v })} /></Table.Td>
+        <Table.Td align="center"><Ocorrencia label={`Atestados de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaAtestado} value={r.atestados} escala={p.atestadosOrigem === "ESCALA" ? p.atestados : 0} manual={r.atestados !== ""} disabled={readonly} onChange={(v) => set({ atestados: v })} /></Table.Td>
 )}
 {v("ferias") && (
-        <Table.Td align="center"><Ocorrencia label="Férias" desconta={p.regrasEfetivas.descontaFerias} value={r.ferias} escala={p.feriasOrigem === "ESCALA" ? p.ferias : 0} manual={r.ferias !== ""} disabled={readonly} onChange={(v) => set({ ferias: v })} /></Table.Td>
+        <Table.Td align="center"><Ocorrencia label={`Férias de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaFerias} value={r.ferias} escala={p.feriasOrigem === "ESCALA" ? p.ferias : 0} manual={r.ferias !== ""} disabled={readonly} onChange={(v) => set({ ferias: v })} /></Table.Td>
 )}
 {v("outros") && (
-        <Table.Td align="center"><Ocorrencia label="Outros dias" desconta={p.regrasEfetivas.descontaOutros} value={r.outrosDias} escala={0} manual={r.outrosDias !== ""} disabled={readonly} onChange={(v) => set({ outrosDias: v })} /></Table.Td>
+        <Table.Td align="center"><Ocorrencia label={`Outros dias de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaOutros} value={r.outrosDias} escala={0} manual={r.outrosDias !== ""} disabled={readonly} onChange={(v) => set({ outrosDias: v })} /></Table.Td>
 )}
 {v("dias") && (
         <Table.Td align="center" title={`Presença ${(p.fatorPresenca * 100).toFixed(0)}% · ${p.diasElegiveis} dias corridos no vínculo${p.diasReferencia !== p.diasPrevistos ? ` · proporcional: ${p.diasComputados} de ${p.diasReferencia} dias do período` : ""}`}>
@@ -200,7 +248,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
             <span style={{ color: "var(--muted)" }}>/</span>
             <input style={{ ...numInputStyle, width: 38, textAlign: "center", fontWeight: r.diasPrevistosOverride ? 700 : 400 }}
               type="number" min="0" step="1" value={r.diasPrevistosOverride} disabled={readonly}
-              aria-label="Dias previstos" placeholder={String(p.diasPrevistos)}
+              aria-label={`Dias previstos de ${p.employeeName}`} placeholder={String(p.diasPrevistos)}
               title="Dias previstos. Preencha só para corrigir o cálculo."
               onChange={(e) => set({ diasPrevistosOverride: e.target.value })} />
           </span>
@@ -211,7 +259,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
           {p.kind === "PONTOS"
             ? <input style={{ ...numInputStyle, width: 52, textAlign: "center", fontWeight: p.pointsAdjustment ? 700 : 400, color: p.pointsAdjustment < 0 ? "var(--danger)" : p.pointsAdjustment > 0 ? "var(--success)" : undefined }}
                 type="number" step="0.5" value={r.pointsAdjustment} disabled={readonly || fora}
-                aria-label="Ajuste de pontos" placeholder="0" title="Acréscimo (+) ou desconto (−) do mês, sem mudar a base"
+                aria-label={`Ajuste de pontos de ${p.employeeName}`} placeholder="0" title="Acréscimo (+) ou desconto (−) do mês, sem mudar a base"
                 onChange={(e) => set({ pointsAdjustment: e.target.value })} />
             : "—"}
         </Table.Td>
@@ -412,30 +460,48 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
           </details>
           <ReciboRescisao year={comp.year} month={comp.month} readonly={readonly}
             antesDeGravar={recibo.antesDeGravar} onAplicado={recibo.onAplicado} onErro={recibo.onErro} />
+          <div className="barra-lista">
+            <div style={{ marginLeft: "auto" }}>
+              <SeletorColunas colunas={COLUNAS_RESC} ocultas={colResc.ocultas} alternar={colResc.alternar} mostrarTodas={colResc.mostrarTodas} />
+            </div>
+          </div>
+          <BarraFiltro filtro={filtroResc} listas={listasResc} total={rescisoes.length} visiveis={rescFiltradas.length} />
+          {rescFiltradas.length === 0 && <span style={mutedStyle}>Nenhuma rescisão bate com o filtro.</span>}
           <Table className="tabela-gorjeta">
             <Table.Head>
               <Table.Row>
-                <Table.Th minWidth={180}>Funcionário</Table.Th>
-                <Table.Th>Saída</Table.Th>
-                <Table.Th title="Rescisão lançada pela Folha em Contas a Pagar">Contas a Pagar</Table.Th>
-                <Table.Th title="Gorjeta já paga na rescisão: digite ou leia o termo">Gorjeta paga</Table.Th>
-                <Table.Th>Pontos</Table.Th>
-                <Table.Th>Situação</Table.Th>
-                <Table.Th title="Alternativa: sem a gorjeta paga, calcula pelo serviço arrecadado até a saída">Ou: serviço até a saída</Table.Th>
-                <Table.Th>Valor do ponto</Table.Th>
-                <Table.Th>Gorjeta calculada</Table.Th>
+                <ThOrdenavel {...thR("nome")} align="left" minWidth={180}>Funcionário</ThOrdenavel>
+                {vr("saida") && <ThOrdenavel {...thR("saida")}>Saída</ThOrdenavel>}
+                {vr("contas") && <ThOrdenavel {...thR("contas")} title="Rescisão lançada pela Folha em Contas a Pagar">Contas a Pagar</ThOrdenavel>}
+                <ThOrdenavel {...thR("paga")} title="Gorjeta já paga na rescisão: digite ou leia o termo">Gorjeta paga</ThOrdenavel>
+                {vr("pontos") && <ThOrdenavel {...thR("pontos")}>Pontos</ThOrdenavel>}
+                {vr("situacao") && <ThOrdenavel {...thR("situacao")}>Situação</ThOrdenavel>}
+                <ThOrdenavel {...thR("servico")} title="Alternativa: sem a gorjeta paga, calcula pelo serviço arrecadado até a saída">Ou: serviço até a saída</ThOrdenavel>
+                {vr("valorPonto") && <ThOrdenavel {...thR("valorPonto")}>Valor do ponto</ThOrdenavel>}
+                {vr("calculada") && <ThOrdenavel {...thR("calculada")}>Gorjeta calculada</ThOrdenavel>}
               </Table.Row>
             </Table.Head>
             <Table.Body>
-              {rescisoes.map((p) => {
+              {rescLinhas.map((p) => {
                 const r = rowPorFuncionario.get(p.employeeId);
                 if (!r) return null;
                 const quitada = p.tipoCalculo === "RESCISAO_QUITADA";
                 return (
                   <Table.Row key={p.employeeId}>
-                    <Table.Td style={{ fontWeight: 500 }}>{p.employeeName}</Table.Td>
-                    <Table.Td>{fmtDate(p.terminationDate)}</Table.Td>
-                    <Table.Td><RescisaoLancada r={p.rescisaoContasPagar} employeeId={p.employeeId} /></Table.Td>
+                    <Table.Td style={{ textAlign: "left" }}>
+                      <NomePessoa nome={p.employeeName} apelido={p.apelido}>
+                        {p.semRegistro && <StatusBadge tone="warning">Sem registro</StatusBadge>}
+                        {!vr("saida") && p.terminationDate && <StatusBadge tone="neutral">Saída {fmtDate(p.terminationDate)}</StatusBadge>}
+                      </NomePessoa>
+                      {/* Com "Contas a Pagar" oculta, o atalho para a rescisão continua aqui. */}
+                      {!vr("contas") && (
+                        <Link className="resc-link-gorjeta" to={"/pessoal/funcionarios?rescisao=" + p.employeeId}>
+                          {p.rescisaoContasPagar ? "abrir rescisão" : "lançar rescisão"}
+                        </Link>
+                      )}
+                    </Table.Td>
+                    {vr("saida") && <Table.Td>{fmtDate(p.terminationDate)}</Table.Td>}
+                    {vr("contas") && <Table.Td><RescisaoLancada r={p.rescisaoContasPagar} employeeId={p.employeeId} /></Table.Td>}
                     <Table.Td>
                       <input style={{ ...numInputStyle, width: 100, fontWeight: 600 }} type="number" step="0.01" inputMode="decimal" min="0" value={r.rescisaoValorFixo}
                         disabled={readonly || Boolean(p.rescisaoContasPagar?.gorjetaDefinida)} aria-label={`Gorjeta paga na rescisão de ${p.employeeName}`} placeholder="R$ pago"
@@ -446,6 +512,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                         </div>
                       )}
                     </Table.Td>
+                    {vr("pontos") && (
                     <Table.Td>
                       <div style={{ fontWeight: 600 }}>{pts(p.points)}</div>
                       {quitada && p.pontosDireito !== p.points && <div style={mutedStyle}>direito {pts(p.pontosDireito)}</div>}
@@ -454,6 +521,8 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                         <div className="nota-pontos nota-extra" title={p.justificativaExtra ?? undefined}>+{pts(p.extraRescisao)} extra automático</div>
                       )}
                     </Table.Td>
+                    )}
+                    {vr("situacao") && (
                     <Table.Td>
                       {p.semRegistro && p.pagoNaRescisao && <div style={{ marginBottom: 4 }}><StatusBadge tone="success" title="A rescisão lançada em Contas a Pagar já pagou salário e gorjeta até a saída">Paga na rescisão · fora da lista</StatusBadge></div>}
                       {quitada ? (p.rescisaoRecibo
@@ -464,6 +533,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                         : p.rescisaoPendente ? <StatusBadge tone="warning">Falta o valor</StatusBadge>
                         : <StatusBadge tone="info">Calculada</StatusBadge>}
                     </Table.Td>
+                    )}
                     <Table.Td>
                       <input style={{ ...numInputStyle, width: 110 }} type="number" step="0.01" inputMode="decimal" min="0" value={r.rescisaoServicoBruto}
                         disabled={readonly || quitada} aria-label={`Serviço bruto até a saída de ${p.employeeName}`}
@@ -471,19 +541,24 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                         title="Vazio = soma do faturamento do início do período até a saída"
                         onChange={(e) => onRow(p.employeeId, { rescisaoServicoBruto: e.target.value })} />
                     </Table.Td>
-                    <Table.Td>{quitada || p.rescisaoPendente ? "—" : money(p.valorPonto)}</Table.Td>
-                    <Table.Td>{quitada || p.rescisaoPendente ? "—" : money(p.rateioAmount)}</Table.Td>
+                    {vr("valorPonto") && <Table.Td>{quitada || p.rescisaoPendente ? "—" : money(p.valorPonto)}</Table.Td>}
+                    {vr("calculada") && <Table.Td>{quitada || p.rescisaoPendente ? "—" : money(p.rateioAmount)}</Table.Td>}
                   </Table.Row>
                 );
               })}
+              {rescFiltradas.length > 0 && (
               <Table.Row>
-                <Table.Td style={totalTd}>Total das rescisões</Table.Td>
-                <Table.Td colSpan={2} style={totalTd}> </Table.Td>
-                <Table.Td align="center" style={{ ...totalTd, ...num }}>{money(rescisoes.reduce((a, p) => a + p.rateioAmount, 0))}</Table.Td>
-                <Table.Td align="center" style={{ ...totalTd, ...num }}>{pts(rescisoes.reduce((a, p) => a + p.points, 0))}</Table.Td>
-                <Table.Td style={totalTd}>{rescisoes.some((p) => p.rescisaoPendente) ? <StatusBadge tone="warning">com pendência</StatusBadge> : " "}</Table.Td>
-                <Table.Td colSpan={3} style={totalTd}> </Table.Td>
+                <Table.Td style={totalTd}>{filtroResc.ativo ? `Total do filtro (${rescFiltradas.length} de ${rescisoes.length})` : "Total das rescisões"}</Table.Td>
+                {vr("saida") && <Table.Td style={totalTd}> </Table.Td>}
+                {vr("contas") && <Table.Td style={totalTd}> </Table.Td>}
+                <Table.Td align="center" style={{ ...totalTd, ...num }}>{money(rescFiltradas.reduce((a, p) => a + p.rateioAmount, 0))}</Table.Td>
+                {vr("pontos") && <Table.Td align="center" style={{ ...totalTd, ...num }}>{pts(rescFiltradas.reduce((a, p) => a + p.points, 0))}</Table.Td>}
+                {vr("situacao") && <Table.Td style={totalTd}>{rescFiltradas.some((p) => p.rescisaoPendente) ? <StatusBadge tone="warning">com pendência</StatusBadge> : " "}</Table.Td>}
+                <Table.Td style={totalTd}> </Table.Td>
+                {vr("valorPonto") && <Table.Td style={totalTd}> </Table.Td>}
+                {vr("calculada") && <Table.Td style={totalTd}> </Table.Td>}
               </Table.Row>
+              )}
             </Table.Body>
           </Table>
         </div>

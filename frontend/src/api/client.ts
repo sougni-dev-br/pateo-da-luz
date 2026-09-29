@@ -5886,17 +5886,19 @@ export type TipMudanca = {
   id: string; employeeId: string; employeeName: string; validFrom: string; tipo: TipMudancaTipo;
   funcaoAntes: string | null; funcaoDepois: string | null; baseAntes: number | null; baseDepois: number | null;
   diferenca: number | null; participa: boolean; motivo: string | null; registradoEm: string;
+  apelido?: string | null;
 };
 export type TipEvolucao = {
   competencias: Array<{ ano: number; mes: number; status: "OPEN" | "CLOSED"; pointValue: number }>;
   linhas: Array<{
-    employeeId: string; employeeName: string;
+    employeeId: string; employeeName: string; apelido?: string | null;
     meses: Record<string, { funcao: string | null; base: number | null; pontos: number | null; gorjeta: number | null } | undefined>;
   }>;
 };
 export type TipReservaMovimento = {
   id: string; date: string; type: "FECHAMENTO_RESERVA" | "FECHAMENTO_SALDO" | "DISTRIBUICAO" | "AJUSTE";
   amount: number; saldo: number; competencia: string | null; employeeName: string | null; notes: string | null; removivel: boolean;
+  employeeId?: string | null; apelido?: string | null;
 };
 export type TipFuncaoHistorico = {
   id: string; tipFunctionId: string; name: string; pointsBefore: number | null; pointsAfter: number;
@@ -6312,6 +6314,8 @@ export type ApuracaoRescisao = {
   gorjetaObservacao: string | null;
   sugestao: { salario: number | null; gorjeta: number | null; creditos: number; vales: number; valesRotulo: string | null; vtDesconto: number; bruto: number | null };
   dadosPessoaisOcultos?: boolean;
+  /** Salário e gorjeta até a saída já pagos na lista de pagamento da gorjeta (sem registro). */
+  jaPagoNaLista?: { valor: number; competencia: string } | null;
 };
 
 export function getTerminationInfo(employeeId: string) {
@@ -6568,6 +6572,7 @@ export type TipLinhaConferencia = {
   apuracao: number | null; extrato: number | null; diferenca: number | null;
   status: TipStatusConferencia; justificativa: string | null;
   extratoId?: string; nomeNoExtrato?: string;
+  apelido?: string | null;
 };
 export type TipExtratoMeta = { id: string; empresa: string; cnpj: string; arquivo: string; hash: string; importadoEm: string; importadoPor: string; pessoas: number };
 export type TipConferencia = {

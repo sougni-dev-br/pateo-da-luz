@@ -104,3 +104,14 @@ NF: 1`;
     expect(f).toMatchObject({ nome: "FULANO DE TAL", gorjeta: 1328, liquido: 3030, adiantamento: 1468.8, situacao: "Trabalhando" });
   });
 });
+
+describe("apelido na conferência", () => {
+  test("cada linha com vínculo leva o apelido do mapa; sem vínculo, null", () => {
+    const r = conferir(
+      [pessoa({ employeeId: "a", nome: "Ana Paula", gorjetaLiquida: 10 })],
+      [extrato([linha({ employeeId: "a", nome: "ANA PAULA", gorjeta: 10 }), linha({ nome: "SEM CADASTRO", gorjeta: 5 })])],
+      new Map(), new Map(), new Map([["a", "Aninha"]]),
+    );
+    expect(r.map((l) => [l.chave, l.apelido])).toEqual([["a", "Aninha"], ["extrato:SEM CADASTRO", null]]);
+  });
+});

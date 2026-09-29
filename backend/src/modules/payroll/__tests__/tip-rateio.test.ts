@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  calcularParticipante, calcularRateio, diasElegiveis, type ParticipanteEntrada, type RegrasPeriodo,
+  calcularParticipante, calcularRateio, diasElegiveis, motivoGorjetaRealSemEfeito, type ParticipanteEntrada, type RegrasPeriodo,
 } from "../tip-rateio.js";
 
 // Gabarito: planilha de apuração de 28/09/2026, competência setembro (26/08 → 25/09).
@@ -419,5 +419,33 @@ describe("gorjeta real digitada no lugar da calculada", () => {
   test("sem valor real, nada muda", () => {
     const r = calcularParticipante(SETEMBRO, pessoa({ basePoints: 4 }), VALOR_PONTO);
     expect(r.gorjetaCalculada).toBe(r.rateio);
+  });
+});
+
+describe("gorjeta real que deixou de valer", () => {
+  test("no mês, por pontos: aplicada", () => {
+    expect(calcularParticipante(SETEMBRO, pessoa({ basePoints: 4, gorjetaReal: 500 }), VALOR_PONTO).gorjetaRealAplicada).toBe(true);
+    expect(calcularParticipante(SETEMBRO, pessoa({ basePoints: 4 }), VALOR_PONTO).gorjetaRealAplicada).toBe(false);
+  });
+
+  test("ganhou data de saída no período: vale a rescisão, não a real", () => {
+    const r = calcularParticipante(SETEMBRO, pessoa({ basePoints: 4, gorjetaReal: 500, desligamento: d("2026-09-10"), rescisaoServicoBruto: 10000 }), VALOR_PONTO);
+    expect(r.tipoCalculo).toBe("RESCISAO");
+    expect(r.gorjetaRealAplicada).toBe(false);
+    expect(r.rateio).not.toBe(500);
+  });
+
+  test("virou cota fixa: vale a cota", () => {
+    const r = calcularParticipante(SETEMBRO, pessoa({ kind: "FIXO", fixedAmount: 300, gorjetaReal: 500 }), VALOR_PONTO);
+    expect(r.gorjetaRealAplicada).toBe(false);
+    expect(r.rateio).toBe(300);
+  });
+
+  test("o motivo de cada caso vira o aviso", () => {
+    expect(motivoGorjetaRealSemEfeito("MES", "PONTOS")).toBeNull();
+    expect(motivoGorjetaRealSemEfeito("MES", "FIXO")).toBe("passou a receber cota fixa");
+    expect(motivoGorjetaRealSemEfeito("RESCISAO", "PONTOS")).toContain("saiu no período");
+    expect(motivoGorjetaRealSemEfeito("RESCISAO_QUITADA", "PONTOS")).toContain("saiu no período");
+    expect(motivoGorjetaRealSemEfeito("FORA_DO_PERIODO", "PONTOS")).toContain("fora do período");
   });
 });
