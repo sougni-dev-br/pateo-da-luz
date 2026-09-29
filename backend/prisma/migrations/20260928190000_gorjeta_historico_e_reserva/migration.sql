@@ -62,7 +62,9 @@ CREATE UNIQUE INDEX "TipReserveMovement_valeId_key" ON "TipReserveMovement"("val
 CREATE INDEX "TipReserveMovement_date_idx" ON "TipReserveMovement"("date");
 CREATE INDEX "TipReserveMovement_periodId_idx" ON "TipReserveMovement"("periodId");
 
--- Quem era "reserva" vira pontos da reserva do período e sai da equipe.
+-- Quem era "reserva" vira pontos da reserva do período e sai da equipe — só em
+-- período ainda não fechado. Período fechado fica exatamente como foi fechado:
+-- nada é apagado do histórico e a reserva não é contada duas vezes.
 UPDATE "TipPeriod" tp SET "reservaPontos" = r.pontos
 FROM (
   SELECT p."periodId", SUM(COALESCE(p."basePoints", p."points", 0)) AS pontos
@@ -70,10 +72,11 @@ FROM (
   WHERE e."gorjetaReserva" = true
   GROUP BY p."periodId"
 ) r
-WHERE r."periodId" = tp."id";
+WHERE r."periodId" = tp."id" AND tp."status"::text <> 'CLOSED';
 
-DELETE FROM "TipParticipant" p USING "Employee" e
-WHERE e."id" = p."employeeId" AND e."gorjetaReserva" = true;
+DELETE FROM "TipParticipant" p USING "Employee" e, "TipPeriod" tp
+WHERE e."id" = p."employeeId" AND e."gorjetaReserva" = true
+  AND tp."id" = p."periodId" AND tp."status"::text <> 'CLOSED';
 
 UPDATE "Employee" SET "participaGorjeta" = false WHERE "gorjetaReserva" = true;
 
