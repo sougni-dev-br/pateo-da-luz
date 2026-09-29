@@ -114,6 +114,29 @@ export function montarSugestao(a: Omit<ApuracaoRescisao, "sugestao">): ApuracaoR
   };
 }
 
+export type ValoresRescisao = { bruto: number; vtDesconto: number; outroDesconto: number };
+export type Divergencia = { campo: keyof ValoresRescisao; rotulo: string; apurado: number; lancado: number; diferenca: number };
+
+const ROTULOS: Record<keyof ValoresRescisao, string> = {
+  bruto: "Valor bruto", vtDesconto: "VT a descontar", outroDesconto: "Outro desconto (vales)",
+};
+export const JUSTIFICATIVA_MINIMA = 10;
+
+// Onde o que foi lançado difere do que o sistema apurou. Bruto de CLT não entra:
+// quem apura é a contabilidade, não o sistema.
+export function divergenciasDoApurado(sugestao: ApuracaoRescisao["sugestao"] | null, lancado: ValoresRescisao): Divergencia[] {
+  if (!sugestao) return [];
+  const apurado: Record<keyof ValoresRescisao, number | null> = {
+    bruto: sugestao.bruto, vtDesconto: sugestao.vtDesconto, outroDesconto: sugestao.outroDesconto,
+  };
+  return (Object.keys(apurado) as Array<keyof ValoresRescisao>)
+    .filter((c) => apurado[c] != null && Math.abs(round2(lancado[c]) - round2(apurado[c]!)) >= 0.01)
+    .map((c) => ({
+      campo: c, rotulo: ROTULOS[c], apurado: round2(apurado[c]!), lancado: round2(lancado[c]),
+      diferenca: round2(lancado[c] - apurado[c]!),
+    }));
+}
+
 export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescisao | null> {
   const emp = await prisma.employee.findFirst({
     where: { id: employeeId, deletedAt: null },
