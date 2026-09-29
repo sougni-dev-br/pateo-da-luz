@@ -21,6 +21,7 @@ import { AbaPagamento } from "./gorjeta/AbaPagamento";
 import { AbaRelatorios } from "./gorjeta/AbaRelatorios";
 import { Pendencias } from "./gorjeta/Pendencias";
 import { ResumoApuracao } from "./gorjeta/ResumoApuracao";
+import { ApelidosContext } from "./gorjeta/NomePessoa";
 import { type LocalRow, MONTHS, inputStyle, money, mutedStyle, panelStyle, toPayload, toRows } from "./gorjeta/gorjetaUtils";
 
 type Aba = "apuracao" | "vales" | "pagamento" | "contabilidade" | "equipe" | "funcoes" | "relatorios";
@@ -289,7 +290,11 @@ export function FolhaGorjeta() {
 
   const disponiveis = roster.filter((e) => !rows.some((r) => r.employeeId === e.id));
 
+  // Apelido de cada pessoa, para as abas que só recebem o nome (extrato, folha, vales).
+  const apelidos = new Map((comp?.participants ?? []).filter((p) => p.apelido).map((p) => [p.employeeId, p.apelido as string]));
+
   return (
+    <ApelidosContext.Provider value={apelidos}>
     <div ref={raiz} className={telaCheia ? "gorjeta-tela-cheia" : undefined} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Notice notice={notice} />
       {caixaConfirmacao}
@@ -504,5 +509,6 @@ export function FolhaGorjeta() {
         </>
       )}
     </div>
+    </ApelidosContext.Provider>
   );
 }

@@ -15,6 +15,7 @@ import { round2 } from "./vt-calc.js";
 import { motivoParaNaoRetirar, saldoReserva, travarFundo } from "./tip-historico.service.js";
 import { proximoCodigoApuracao, registrarFechamento, registrarReabertura } from "./tip-fechamento.service.js";
 import { calcularRateio, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
+import { apelidoDe, nomeCompleto } from "./nomes.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
@@ -94,6 +95,8 @@ export type ComputedParticipant = {
   participantId: string | null;
   employeeId: string;
   employeeName: string;
+  // Apelido ("como quero ser chamado"), mostrado embaixo do nome; null se igual ou vazio.
+  apelido: string | null;
   companyId: string | null;
   companyName: string | null;
   functionName: string | null;
@@ -417,7 +420,8 @@ export async function computeTipCommission(
     return {
       participantId: r.id,
       employeeId: r.employeeId,
-      employeeName: (r.employee.displayName || `${r.employee.firstName} ${r.employee.lastName}`).trim(),
+      employeeName: nomeCompleto(r.employee),
+      apelido: apelidoDe(r.employee),
       companyId: r.employee.companyId ?? null,
       companyName: r.employee.company?.tradeName ?? null,
       functionName: closed ? (r.functionName ?? r.employee.tipFunction?.name ?? null) : (r.employee.tipFunction?.name ?? null),
@@ -540,7 +544,7 @@ export async function computeTipCommission(
     const min = num(fn.minPoints);
     const max = num(fn.maxPoints);
     if ((min != null && pontos < min) || (max != null && pontos > max)) {
-      const nome = (r.employee.displayName || `${r.employee.firstName} ${r.employee.lastName}`).trim();
+      const nome = nomeCompleto(r.employee);
       warnings.push(`${nome}: ${pontos} pontos com o extra, fora da faixa de "${fn.name}" (${min ?? "—"} a ${max ?? "—"}).`);
     }
   }

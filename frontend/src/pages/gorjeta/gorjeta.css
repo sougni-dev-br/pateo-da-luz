@@ -827,3 +827,21 @@
 
 /* Acima do cabeçalho de celular (z 70), abaixo da gaveta do menu (80+). */
 .modal-backdrop.sobre-topo { z-index: 75; }
+
+/* Nome completo em cima, apelido embaixo (todas as abas). */
+.nome-pessoa-nome { font-weight: 500; }
+.nome-pessoa-extra { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 2px; }
+.nome-pessoa-apelido { font-size: 12px; color: var(--muted); }
+
+/* Barra de filtro das tabelas. */
+.barra-filtro { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 8px; }
+.barra-filtro-busca {
+  display: inline-flex; align-items: center; gap: 6px; flex: 1 1 220px; max-width: 360px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; background: var(--surface, #fff); color: var(--muted);
+}
+.barra-filtro-busca input { border: 0; outline: 0; background: transparent; padding: 7px 0; width: 100%; font: inherit; color: var(--text, inherit); }
+.barra-filtro-busca:focus-within { border-color: var(--accent, #2563eb); }
+.barra-filtro select { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; background: var(--surface, #fff); font: inherit; font-size: 13px; }
+.barra-filtro select.barra-filtro-ativo { border-color: var(--accent, #2563eb); font-weight: 600; }
+.barra-filtro-contagem { font-size: 12px; color: var(--warning, #b45309); display: inline-flex; gap: 8px; align-items: center; }
+.barra-filtro-limpar { background: none; border: 0; padding: 0; color: var(--accent, #2563eb); text-decoration: underline; cursor: pointer; font-size: 12px; display: inline-flex; gap: 2px; align-items: center; }

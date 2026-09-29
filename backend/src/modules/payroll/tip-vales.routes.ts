@@ -10,6 +10,7 @@ import { auditLog, getSessionUser, requestIp, type SessionUser } from "../securi
 import { userHasPermission } from "../security/menu-permissions.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { saldoReserva, travarFundo } from "./tip-historico.service.js";
+import { apelidoDe, nomeCompleto } from "./nomes.js";
 
 export const tipValesRouter = Router();
 
@@ -18,7 +19,7 @@ type Tipo = (typeof TIPOS)[number];
 const VALOR_MAXIMO = 100_000;
 
 const nomeDe = (e: { displayName: string | null; firstName: string; lastName: string }) =>
-  (e.displayName || `${e.firstName} ${e.lastName}`).trim();
+  nomeCompleto(e);
 
 function dataOuNull(v: unknown): Date | null | "invalida" {
   if (v == null || v === "") return null;
@@ -92,9 +93,9 @@ tipValesRouter.get("/periods/:year/:month/vales", async (request: Request, respo
   ]);
   response.json({
     code: periodo.code, status: periodo.status,
-    vales: vales.map((v) => ({ ...valeParaTela(v), employeeId: v.participant.employeeId, nome: nomeDe(v.participant.employee) })),
+    vales: vales.map((v) => ({ ...valeParaTela(v), employeeId: v.participant.employeeId, nome: nomeDe(v.participant.employee), apelido: apelidoDe(v.participant.employee) })),
     pessoas: comp.participants.filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO").map((p) => ({
-      participantId: p.participantId, employeeId: p.employeeId, nome: p.employeeName, semRegistro: p.semRegistro,
+      participantId: p.participantId, employeeId: p.employeeId, nome: p.employeeName, apelido: p.apelido, semRegistro: p.semRegistro,
       funcao: p.functionName, empresaId: p.companyId, empresa: p.companyName,
       gorjeta: p.rateioAmount, descontos: p.descontos, creditos: p.creditos, liquida: p.netCommission, pagoNaRescisao: p.pagoNaRescisao,
     })),
@@ -207,7 +208,7 @@ tipValesRouter.get("/reports/vales", async (request, response) => {
   response.json(vales.map((v) => {
     const p = porId.get(v.participant.periodId)!;
     return {
-      ...valeParaTela(v), employeeId: v.participant.employeeId, nome: nomeDe(v.participant.employee),
+      ...valeParaTela(v), employeeId: v.participant.employeeId, nome: nomeDe(v.participant.employee), apelido: apelidoDe(v.participant.employee),
       periodo: p.code, competencia: `${String(p.competenceMonth).padStart(2, "0")}/${p.competenceYear}`,
     };
   }));
