@@ -35,6 +35,10 @@ export type RegrasPeriodo = {
   pointsTotal: number;
   deductionPercent: number;
   netPool: number;
+  // Competência do salário de quem não tem registro: o mês civil (setembro = 01 a 30/09),
+  // não o ciclo da gorjeta (26/08–25/09). O mês anterior já foi pago até o dia 31.
+  // Ausente = usa o próprio período (compatível com o que havia antes).
+  mesSalario?: { start: Date; end: Date };
 };
 
 export type ValeEntrada = { type: string; amount: number };
@@ -64,6 +68,9 @@ export type ParticipanteEntrada = {
   semRegistro: boolean;
   salarioBase: number | null;
   diasSalarioOverride: number | null;
+  // Faltas dentro do mês do salário (as de 26 a 31 do mês anterior são daquele salário).
+  // Ausente = usa as faltas do período.
+  faltasSalario?: number;
   // Rescisão lançada em Contas a Pagar (Folha → rescisão). Sem registro: ela já
   // pagou salário e gorjeta até a saída, então a pessoa sai da lista do mês.
   rescisaoLancada: boolean;
@@ -173,12 +180,15 @@ function presenca(regras: RegrasPeriodo, p: ParticipanteEntrada) {
 }
 
 // Quem não tem registro recebe o salário junto da gorjeta, calculado como se
-// fosse registrado: salário ÷ 30 × dias. Mês inteiro no vínculo conta 30 dias;
-// entrada ou saída no meio conta os dias corridos. Faltas injustificadas descontam.
-function salarioSemRegistro(p: ParticipanteEntrada, elegiveis: number, corridos: number): { dias: number; valor: number } {
+// fosse registrado: diária × dias do MÊS CIVIL da competência. Mês inteiro no vínculo
+// conta 30 dias; entrada ou saída no meio conta os dias corridos. Faltas descontam.
+function salarioSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo): { dias: number; valor: number } {
   if (!p.semRegistro || !p.salarioBase) return { dias: 0, valor: 0 };
+  const janela = regras.mesSalario ?? { start: regras.start, end: regras.end };
+  const corridos = diasEntre(janela.start, janela.end);
+  const elegiveis = diasElegiveis(janela, p.admissao, p.desligamento);
   const base = elegiveis >= corridos ? 30 : Math.min(30, elegiveis);
-  const dias = p.diasSalarioOverride ?? Math.max(0, base - p.faltas);
+  const dias = p.diasSalarioOverride ?? Math.max(0, base - (p.faltasSalario ?? p.faltas));
   // Mês cheio paga o salário inteiro; proporcional é a diária arredondada × dias,
   // como o RH faz à mão (2.200 ÷ 30 = 73,33; 9 dias = 659,97, não 660,00).
   if (dias >= 30) return { dias, valor: round2(p.salarioBase) };
@@ -187,7 +197,6 @@ function salarioSemRegistro(p: ParticipanteEntrada, elegiveis: number, corridos:
 
 export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntrada, valorPontoDoMes: number): ParticipanteCalculado {
   const { elegiveis, previstos, referencia, computados, fator } = presenca(regras, p);
-  const corridos = diasEntre(regras.start, regras.end);
 
   const desligadoNoPeriodo = p.desligamento != null && p.desligamento <= regras.end;
   let tipoCalculo: TipoCalculo = "MES";
@@ -244,7 +253,7 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
   const creditos = round2(p.vales.filter((v) => v.type === "CREDITO").reduce((a, v) => a + v.amount, 0));
   const descontos = round2(p.vales.filter((v) => v.type !== "CREDITO").reduce((a, v) => a + v.amount, 0));
   const comissaoLiquida = round2(rateio - descontos + creditos);
-  const salario = salarioSemRegistro(p, elegiveis, corridos);
+  const salario = salarioSemRegistro(p, regras);
   const saiuNoPeriodo = tipoCalculo === "RESCISAO" || tipoCalculo === "RESCISAO_QUITADA";
   const pagoNaRescisao = p.semRegistro
     ? saiuNoPeriodo && p.rescisaoLancada

@@ -320,10 +320,14 @@ export async function computeTipCommission(
     descontaFerias: period?.descontaFerias ?? true,
     descontaOutros: period?.descontaOutros ?? false,
     proporcionalEntrada: period?.proporcionalEntrada ?? true,
+    // O salário de quem não tem registro é do mês civil da competência.
+    mesSalario: { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 0)) },
   };
 
   const rows = period?.participants ?? [];
   const escala = await contarOcorrenciasDaEscala(rows.map((r) => r.employeeId), start, end);
+  // Faltas do mês civil, para o salário (as do fim do mês anterior são daquele salário).
+  const escalaMes = await contarOcorrenciasDaEscala(rows.map((r) => r.employeeId), regras.mesSalario!.start, regras.mesSalario!.end);
 
   // Serviço até o desligamento, para quem saiu dentro do período (inclusive com a gorjeta
   // paga: é ele que dá o valor do ponto da saída para medir o que foi pago).
@@ -364,6 +368,8 @@ export async function computeTipCommission(
       semRegistro: r.employee.modality === "NAO_CLT",
       salarioBase: num(r.employee.baseSalary),
       diasSalarioOverride: r.diasSalarioOverride,
+      // Faltas digitadas na apuração não dizem o dia: valem também para o salário.
+      faltasSalario: r.faltas ?? escalaMes.get(r.employeeId)?.faltas ?? 0,
       rescisaoLancada: rescisoesLancadas.has(r.employeeId),
       vales: r.vales.map((v) => ({ type: v.type, amount: Number(v.amount) })),
     };

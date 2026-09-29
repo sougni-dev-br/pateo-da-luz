@@ -361,3 +361,29 @@ describe("gorjeta paga na rescisão medida pelo ponto da saída (regra A)", () =
     expect(paga.linhas[0].extraRescisao).toBeGreaterThan(0);
   });
 });
+
+describe("salário de sem registro na competência do mês civil", () => {
+  // Gorjeta de setembro: ciclo 26/08–25/09. Salário de setembro: 01/09–30/09 (agosto já foi pago até 31/08).
+  const SET_COM_MES: RegrasPeriodo = { ...SETEMBRO, mesSalario: { start: d("2026-09-01"), end: d("2026-09-30") } };
+
+  test("admitido em agosto e desligado em setembro: salário só de 01/09 até a saída", () => {
+    const r = calcularParticipante(SET_COM_MES, pessoa({
+      semRegistro: true, salarioBase: 2200, admissao: d("2026-08-10"), desligamento: d("2026-09-12"), faltasSalario: 2,
+    }), VALOR_PONTO);
+    expect(r.diasSalario).toBe(10); // 01/09 a 12/09 = 12 dias − 2 faltas
+    expect(r.salarioProporcional).toBe(733.3); // 73,33 × 10
+  });
+
+  test("faltas de 26 a 31/08 são do salário de agosto: não descontam o de setembro", () => {
+    const r = calcularParticipante(SET_COM_MES, pessoa({
+      semRegistro: true, salarioBase: 2200, faltas: 3, faltasSalario: 0,
+    }), VALOR_PONTO);
+    expect(r.diasSalario).toBe(30);
+    expect(r.salarioProporcional).toBe(2200);
+  });
+
+  test("mês civil inteiro no vínculo paga o salário cheio", () => {
+    const r = calcularParticipante(SET_COM_MES, pessoa({ semRegistro: true, salarioBase: 2200, admissao: d("2026-01-01") }), VALOR_PONTO);
+    expect(r.salarioProporcional).toBe(2200);
+  });
+});
