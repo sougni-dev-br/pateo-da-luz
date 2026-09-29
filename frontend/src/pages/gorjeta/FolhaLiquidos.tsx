@@ -2,7 +2,7 @@
 // CLT pelo líquido do extrato (ou pela regra do salário combinado); sem registro
 // pelo total da apuração (salário ÷ 30 × dias + gorjeta − vales).
 // O salário combinado se cadastra em Funcionários; aqui só aparece o efeito.
-import { FileText } from "lucide-react";
+import { AlertTriangle, FileText } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type TipFolhaLiquidos, type TipLinhaFolha, getTipFolhaLiquidos } from "../../api/client";
 import { Button, StatusBadge, Table } from "../../design-system";
@@ -51,7 +51,9 @@ export function FolhaLiquidos({ year, month, liberada, versao, onNotice }: Props
         </div>
       </div>
       {folha.extratos.length === 0 && <span style={mutedStyle}>Sem extrato carregado: a lista só tem os sem registro.</span>}
-      <span style={mutedStyle}>Quem ganha acima do registrado: cadastre o salário combinado em Funcionários (ficha da pessoa, seção Trabalho).</span>
+      {folha.linhas.some((l) => l.origem === "SALARIO_COMBINADO") && (
+        <span style={mutedStyle}>Salário combinado: definido na ficha do funcionário (Funcionários → seção Trabalho).</span>
+      )}
       <Table className="tabela-gorjeta">
         <Table.Head>
           <Table.Row>
@@ -74,7 +76,11 @@ export function FolhaLiquidos({ year, month, liberada, versao, onNotice }: Props
                 <Table.Row key={`${g}-${l.employeeId ?? l.nome}`}>
                   <Table.Td style={{ textAlign: "left" }}>
                     <div style={{ fontWeight: 500 }}>{l.nome}</div>
-                    {l.aviso && <div style={{ ...mutedStyle, color: "var(--warning, #b45309)" }}>{l.aviso}</div>}
+                    {l.aviso && (
+                      <div style={{ ...mutedStyle, color: "var(--warning, #b45309)", display: "flex", gap: 4, alignItems: "center" }}>
+                        <AlertTriangle size={12} aria-hidden /> {l.aviso}
+                      </div>
+                    )}
                   </Table.Td>
                   <Table.Td><StatusBadge tone={l.origem === "SALARIO_COMBINADO" ? "info" : "neutral"}>{ORIGEM[l.origem]}</StatusBadge></Table.Td>
                   <Table.Td style={mutedStyle}>{l.composicao}</Table.Td>

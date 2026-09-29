@@ -1,15 +1,15 @@
 import { Cake, FileText, Pencil, Plus, PowerOff, Printer, RefreshCw, UserCheck, UserMinus, Users, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
-  ApuracaoRescisao, Employee, EmployeeBirthday, EmployeeBankAccountType, EmployeeModality, TerminationInfo,
+  Employee, EmployeeBirthday, EmployeeBankAccountType, EmployeeModality,
   EmployeeGender, VtDirection, VtFare, VtPeriodicity, VtType, WorkScheduleRegime,
-  deleteEmployee, getEmployeeBirthdays, getEmployeeOptions, getEmployees, getTerminationInfo, getVtFares,
-  adjustTermination, releaseTermination, saveEmployee, setEmployeeStatus, terminateEmployee
+  deleteEmployee, getEmployeeBirthdays, getEmployeeOptions, getEmployees, getVtFares,
+  saveEmployee, setEmployeeStatus, terminateEmployee
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
-import { ApuracaoRescisaoPainel } from "../components/pessoal/ApuracaoRescisao";
 import { ImpressaoAniversariantes } from "../components/pessoal/ImpressaoAniversariantes";
-import { ListaDivergencias, RescisaoLancadaPainel, divergencias } from "../components/pessoal/RescisaoLancada";
+import { RescisaoModal } from "../components/pessoal/RescisaoModal";
 import { useSession } from "../context/SessionContext";
 import {
   Alert, Button, EmptyState, FormField, FormGrid, FormSection,
@@ -41,11 +41,6 @@ const ACCOUNT_TYPE_LABELS: Record<EmployeeBankAccountType, string> = {
 const PIX_TYPE_LABELS: Record<string, string> = {
   "": "—", CPF: "CPF", EMAIL: "E-mail", TELEFONE: "Telefone", ALEATORIA: "Aleatória"
 };
-// Parcelamento da rescisão/acordo (1 = à vista, até 12×).
-const INSTALLMENT_OPTIONS = Array.from({ length: 12 }, (_, i) => ({
-  value: String(i + 1),
-  label: i === 0 ? "À vista (1×)" : `${i + 1}×`
-}));
 // Tipos de desligamento (rótulo canônico salvo em terminationReason + observação opcional).
 const TERMINATION_TYPES = [
   "Pedido de demissão",
@@ -124,12 +119,6 @@ const emptyEmployee = {
   vtLegs: [] as Array<{ direction: VtDirection; fareId: string }>
 };
 
-// Formulário da rescisão: salário, gorjeta e vales só valem para sem registro.
-const RESC_FORM_VAZIO = () => ({
-  grossAmount: "", salario: "", gorjeta: "", valesDiscount: "", valesLabel: "", vtDiscount: "",
-  otherDiscount: "", otherDiscountLabel: "", dueDate: hojeLocalIso(), installments: "1", notes: "",
-});
-
 export function Funcionarios() {
   const { user } = useSession();
   const canEdit = hasPermission(user, "employees", "edit");
@@ -158,12 +147,19 @@ export function Funcionarios() {
   const [terminatingBusy, setTerminatingBusy] = useState(false);
 
   const [rescinding, setRescinding] = useState<Employee | null>(null);
-  const [rescInfo, setRescInfo] = useState<TerminationInfo | null>(null);
-  const [rescForm, setRescForm] = useState(RESC_FORM_VAZIO);
-  const [rescBusy, setRescBusy] = useState(false);
-  // Ajuste manual: justificativa obrigatória quando o lançado difere do apurado, ou ao corrigir a já lançada.
-  const [rescAjustando, setRescAjustando] = useState(false);
-  const [rescJust, setRescJust] = useState("");
+  const [motivoCombinadoTocado, setMotivoCombinadoTocado] = useState(false);
+  // Atalho da gorjeta: /pessoal/funcionarios?rescisao=<id> abre a rescisão da pessoa.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rescisaoPedida = searchParams.get("rescisao");
+  useEffect(() => {
+    if (!rescisaoPedida) return;
+    let vivo = true;
+    getEmployees({ includeInactive: true })
+      .then((todos) => { const e = todos.find((x) => x.id === rescisaoPedida); if (vivo && e) setRescinding(e); })
+      .catch(() => undefined)
+      .finally(() => { if (vivo) setSearchParams((p) => { p.delete("rescisao"); return p; }, { replace: true }); });
+    return () => { vivo = false; };
+  }, [rescisaoPedida, setSearchParams]);
 
   const [deletingEmp, setDeletingEmp] = useState<Employee | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
@@ -202,6 +198,7 @@ export function Funcionarios() {
   function openNew() {
     setForm(emptyEmployee);
     setShowForm(true);
+    setMotivoCombinadoTocado(false);
     setError(null);
   }
 
@@ -226,6 +223,7 @@ export function Funcionarios() {
       vtLegs: (e.vtLegs ?? []).map((l) => ({ direction: l.direction, fareId: l.fareId }))
     });
     setShowForm(true);
+    setMotivoCombinadoTocado(false);
     setError(null);
   }
 
@@ -234,7 +232,8 @@ export function Funcionarios() {
     if (!form.lastName.trim()) return void setError("Sobrenome é obrigatório.");
     if (!form.cpf.trim()) return void setError("CPF é obrigatório.");
     if (form.modality === "CLT" && form.salarioCombinado && form.salarioCombinadoMotivo.trim().length < 5) {
-      return void setError("Explique o salário combinado (pelo menos 5 letras).");
+      setMotivoCombinadoTocado(true);
+      return void setError("Explique o salário combinado (pelo menos 5 letras) — campo na seção Trabalho.");
     }
     setSaving(true);
     setError(null);
@@ -340,161 +339,10 @@ export function Funcionarios() {
     }
   }
 
-  async function openRescisao(e: Employee) {
+  function openRescisao(e: Employee) {
     setRescinding(e);
-    setRescInfo(null);
-    setRescAjustando(false);
-    setRescJust("");
-    setRescForm(RESC_FORM_VAZIO());
-    try {
-      const info = await getTerminationInfo(e.id);
-      setRescInfo(info);
-      // Já abre preenchido com o que o sistema apurou; quem lança confere e ajusta.
-      if (info.apuracao && !info.alreadyReleased) aplicarApuracao(info.apuracao);
-    } catch (err) {
-      setNotice({ tone: "error", message: err instanceof Error ? err.message : "Erro ao carregar dados da rescisão." });
-    }
   }
 
-  const mascarar = (v: number | null | undefined) => (v == null ? "" : moneyToMasked(v));
-  const numero = (s: string) => Number(moneyToNumberString(s)) || 0;
-
-  function aplicarApuracao(a: ApuracaoRescisao) {
-    const s = a.sugestao;
-    setRescForm((f) => ({
-      ...f,
-      salario: mascarar(s.salario), gorjeta: mascarar(s.gorjeta),
-      valesDiscount: s.vales > 0 ? mascarar(s.vales) : "", valesLabel: s.valesRotulo ?? "",
-      vtDiscount: mascarar(s.vtDesconto),
-    }));
-  }
-
-  const semRegistroResc = rescinding?.modality === "NAO_CLT";
-  const rescCreditos = rescInfo?.apuracao?.sugestao.creditos ?? 0;
-  // Sem registro: o bruto é salário + gorjeta (+ créditos da aba Vales). CLT: o da contabilidade.
-  const rescBruto = semRegistroResc
-    ? Math.round((numero(rescForm.salario) + numero(rescForm.gorjeta) + rescCreditos) * 100) / 100
-    : numero(rescForm.grossAmount);
-  const rescValores = {
-    salario: semRegistroResc ? numero(rescForm.salario) : null,
-    gorjeta: semRegistroResc ? numero(rescForm.gorjeta) : null,
-    vales: semRegistroResc ? numero(rescForm.valesDiscount) : 0,
-    vtDesconto: numero(rescForm.vtDiscount),
-  };
-  const partesRescisao = () => ({
-    grossAmount: rescBruto,
-    ...(semRegistroResc ? {
-      salario: rescValores.salario ?? 0, gorjeta: rescValores.gorjeta ?? 0,
-      valesDiscount: rescValores.vales, valesLabel: rescForm.valesLabel || undefined,
-    } : {}),
-    vtDiscount: rescValores.vtDesconto,
-    otherDiscount: numero(rescForm.otherDiscount),
-    otherDiscountLabel: rescForm.otherDiscountLabel || undefined,
-  });
-
-  async function handleReleaseRescisao() {
-    if (!rescinding) return;
-    if (!rescBruto || rescBruto <= 0) return void setNotice({ tone: "error", message: semRegistroResc ? "Informe o salário e a gorjeta da rescisão." : "Informe o valor da rescisão (bruto) que a contabilidade enviou." });
-    setRescBusy(true);
-    try {
-      const res = await releaseTermination(rescinding.id, {
-        ...partesRescisao(),
-        dueDate: rescForm.dueDate || undefined,
-        installments: Math.max(1, Math.min(Number(rescForm.installments) || 1, 12)),
-        notes: rescForm.notes || undefined,
-        ajusteJustificativa: rescDivergencias.length > 0 ? rescJust.trim() : undefined
-      });
-      setNotice({
-        tone: "success",
-        message: res.installments > 1
-          ? `Rescisão liberada em ${res.installments}× para a Contas a Pagar.`
-          : "Rescisão liberada para a Contas a Pagar."
-      });
-      setRescinding(null);
-      await loadEmployees();
-    } catch (err) {
-      setNotice({ tone: "error", message: err instanceof Error ? err.message : "Erro ao liberar rescisão." });
-    } finally {
-      setRescBusy(false);
-    }
-  }
-
-  function iniciarAjuste() {
-    const l = rescInfo?.lancada;
-    if (!l) return;
-    const s = rescInfo?.apuracao?.sugestao;
-    // Lançada antes da separação (sem salário/gorjeta gravados): parte do apurado.
-    setRescForm((f) => ({
-      ...f,
-      grossAmount: mascarar(l.bruto),
-      salario: mascarar(l.salario ?? s?.salario), gorjeta: mascarar(l.gorjeta ?? s?.gorjeta),
-      valesDiscount: l.vales > 0 ? mascarar(l.vales) : "", valesLabel: l.valesRotulo ?? "",
-      vtDiscount: mascarar(l.vtDesconto),
-      otherDiscount: l.outroDesconto > 0 ? mascarar(l.outroDesconto) : "", otherDiscountLabel: l.outroDescontoRotulo ?? "",
-      notes: l.notes ?? "",
-    }));
-    setRescJust("");
-    setRescAjustando(true);
-  }
-
-  async function handleAjustarRescisao() {
-    if (!rescinding) return;
-    setRescBusy(true);
-    try {
-      const res = await adjustTermination(rescinding.id, {
-        ...partesRescisao(),
-        otherDiscount: numero(rescForm.otherDiscount),
-        notes: rescForm.notes,
-        justificativa: rescJust.trim(),
-      });
-      setRescInfo((i) => (i ? { ...i, lancada: res.lancada } : i));
-      setRescAjustando(false);
-      setNotice({ tone: "success", message: "Rescisão ajustada. O valor anterior e a justificativa ficaram no histórico." });
-    } catch (err) {
-      setNotice({ tone: "error", message: err instanceof Error ? err.message : "Erro ao ajustar a rescisão." });
-    } finally {
-      setRescBusy(false);
-    }
-  }
-
-  const rescDivergencias = rescAjustando ? [] : divergencias(rescInfo?.apuracao?.sugestao, rescValores);
-  const precisaJustificar = rescAjustando || rescDivergencias.length > 0;
-  const justificativaOk = rescJust.trim().length >= 10;
-  const rescEditavel = !rescInfo?.alreadyReleased || rescAjustando;
-  const semSeparacao = rescAjustando && semRegistroResc && rescInfo?.lancada?.salario == null;
-  // Ajuste que não muda nada não é salvo (só encheria o histórico).
-  const rescNadaMudou = (() => {
-    const l = rescInfo?.lancada;
-    if (!rescAjustando || !l) return false;
-    const igual = (a: number | null | undefined, b: number | null | undefined) => Math.round(Math.abs((a ?? 0) - (b ?? 0)) * 100) < 1;
-    const txt = (v: string | null | undefined) => (v ?? "").trim();
-    return igual(l.bruto, rescBruto) && igual(l.salario, rescValores.salario) && igual(l.gorjeta, rescValores.gorjeta)
-      && igual(l.vales, rescValores.vales) && igual(l.vtDesconto, rescValores.vtDesconto) && igual(l.outroDesconto, numero(rescForm.otherDiscount))
-      && txt(l.outroDescontoRotulo) === txt(rescForm.otherDiscountLabel) && txt(l.valesRotulo) === txt(rescForm.valesLabel) && txt(l.notes) === txt(rescForm.notes);
-  })();
-
-  const rescNet = rescBruto - rescValores.vales - rescValores.vtDesconto - numero(rescForm.otherDiscount);
-
-  // Prévia do parcelamento — mesma lógica de centavos do backend (1ª parcela absorve o resto),
-  // vencimentos mensais a partir do 1º. Vazio quando é à vista ou não há líquido positivo.
-  const rescInstallments = Math.max(1, Math.min(Number(rescForm.installments) || 1, 12));
-  const rescParcelas = (() => {
-    if (rescNet <= 0 || rescInstallments <= 1) return [] as Array<{ number: number; amount: number; due: Date }>;
-    const totalCents = Math.round(rescNet * 100);
-    const base = Math.floor(totalCents / rescInstallments);
-    const remainder = totalCents - base * rescInstallments;
-    const parts = (rescForm.dueDate || hojeLocalIso()).split("-").map(Number);
-    const fy = parts[0];
-    const fm = (parts[1] ?? 1) - 1;
-    const fd = parts[2] ?? 1;
-    return Array.from({ length: rescInstallments }, (_, i) => {
-      const cents = base + (i === 0 ? remainder : 0);
-      const due = new Date(fy, fm + i, 1);
-      const lastDay = new Date(due.getFullYear(), due.getMonth() + 1, 0).getDate();
-      due.setDate(Math.min(fd, lastDay));
-      return { number: i + 1, amount: cents / 100, due };
-    });
-  })();
 
   function openDelete(e: Employee) {
     setDeletingEmp(e);
@@ -757,13 +605,15 @@ export function Funcionarios() {
                 </FormField>
                 {form.modality === "CLT" && (
                   <>
-                    <FormField label="Salário combinado" hint="só para quem ganha acima do registrado; vazio = não tem">
+                    <FormField label="Salário combinado" hint="quem ganha acima do registrado; na folha de líquidos recebe o combinado − adiantamento + gorjeta. Vazio = não tem">
                       <TextField value={form.salarioCombinado} onChange={(e) => setForm({ ...form, salarioCombinado: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" aria-label="Salário combinado" />
                     </FormField>
                     {form.salarioCombinado && (
                       <div className="ds-form-grid-span-all">
-                        <FormField label="Motivo do salário combinado" hint="Na folha de líquidos: (salário combinado − adiantamento do extrato) + gorjeta">
-                          <TextField value={form.salarioCombinadoMotivo} onChange={(e) => setForm({ ...form, salarioCombinadoMotivo: e.target.value })} placeholder="Ex.: salário acertado acima do registrado" maxLength={300} />
+                        <FormField label="Motivo do salário combinado" required hint="por que ganha acima do registrado"
+                          error={motivoCombinadoTocado && form.salarioCombinadoMotivo.trim().length < 5 ? "Explique em pelo menos 5 letras." : undefined}>
+                          <TextField value={form.salarioCombinadoMotivo} onChange={(e) => setForm({ ...form, salarioCombinadoMotivo: e.target.value })}
+                            onBlur={() => setMotivoCombinadoTocado(true)} placeholder="Ex.: salário acertado acima do registrado" maxLength={300} />
                         </FormField>
                       </div>
                     )}
@@ -915,142 +765,8 @@ export function Funcionarios() {
         </div>
       )}
 
-      {/* Modal de rescisão */}
-      {rescinding && (
-        <div className="modal-backdrop">
-          <section className="panel modal-panel">
-            <div className="section-heading">
-              <div>
-                <PanelEyebrow>{rescinding.modality === "NAO_CLT" ? "Rescisão · sem registro, apurada aqui" : "Rescisão · contabilidade envia o valor"}</PanelEyebrow>
-                <h2>{fullName(rescinding)}</h2>
-              </div>
-              <Button variant="secondary" onClick={() => setRescinding(null)}>Fechar</Button>
-            </div>
-
-            {rescInfo?.lancada && <RescisaoLancadaPainel lancada={rescInfo.lancada} onAjustar={iniciarAjuste} />}
-
-            {rescInfo?.apuracao && <ApuracaoRescisaoPainel apuracao={rescInfo.apuracao} onUsar={() => aplicarApuracao(rescInfo.apuracao!)} />}
-
-            {!rescInfo?.apuracao && <div style={{ background: "var(--paper-soft, var(--surface-2))", borderRadius: 10, padding: 12, marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Confira antes de lançar</div>
-              {/* O VT é pago na véspera da quinzena. Quem sai no meio do período
-                  recebeu dias que não vai usar — o estorno é decisão de quem lança,
-                  então a tela mostra o que foi pago em vez de preencher sozinha. */}
-              {rescInfo && rescInfo.vtItems.length > 0 ? (
-                <div style={{ fontSize: 13 }}>
-                  VT já pago no mês do desligamento (veja se cabe estorno):{" "}
-                  {rescInfo.vtItems.map((v) => `${v.periodLabel} (${moneyBr(v.amount)})`).join(" · ")}
-                </div>
-              ) : (
-                <div style={{ fontSize: 13, color: "var(--muted)" }}>Nenhum VT lançado no mês do desligamento.</div>
-              )}
-            </div>}
-
-            {rescEditavel && <>
-            {rescAjustando && <Alert tone="info">Ajustando a rescisão lançada: o líquido novo se reparte nas mesmas parcelas, com os mesmos vencimentos.</Alert>}
-            {semSeparacao && <Alert tone="warning">Esta rescisão foi lançada antes da separação entre salário e gorjeta (bruto lançado: {moneyBr(rescInfo?.lancada?.bruto ?? 0)}). Salário e gorjeta vieram do apurado: confira antes de salvar.</Alert>}
-            <FormGrid cols={2}>
-              {semRegistroResc ? <>
-                <FormField label="Salário proporcional" required hint="apurado: diária arredondada × dias até a saída">
-                  <TextField value={rescForm.salario} onChange={(e) => setRescForm({ ...rescForm, salario: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" aria-label="Salário proporcional" />
-                </FormField>
-                <FormField label="Gorjeta até a saída" required hint="apurada na gorjeta do mês">
-                  <TextField value={rescForm.gorjeta} onChange={(e) => setRescForm({ ...rescForm, gorjeta: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" aria-label="Gorjeta até a saída" />
-                </FormField>
-                <FormField label="Vales a descontar" hint="lançados na aba Vales da gorjeta">
-                  <TextField value={rescForm.valesDiscount} onChange={(e) => setRescForm({ ...rescForm, valesDiscount: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" aria-label="Vales a descontar" />
-                </FormField>
-                <FormField label="Vales descontados">
-                  <TextField value={rescForm.valesLabel} onChange={(e) => setRescForm({ ...rescForm, valesLabel: e.target.value })} placeholder="Ex.: VALE-2026-00012" />
-                </FormField>
-              </> : (
-                <FormField label="Valor da rescisão — bruto (contabilidade)" required hint="a gorjeta já vem no TRCT">
-                  <TextField value={rescForm.grossAmount} onChange={(e) => setRescForm({ ...rescForm, grossAmount: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" />
-                </FormField>
-              )}
-              <FormField label="VT a descontar" hint="VT já pago para os dias depois da saída">
-                <TextField value={rescForm.vtDiscount} onChange={(e) => setRescForm({ ...rescForm, vtDiscount: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" />
-              </FormField>
-              <FormField label="Outro desconto (opcional)">
-                <TextField value={rescForm.otherDiscount} onChange={(e) => setRescForm({ ...rescForm, otherDiscount: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" />
-              </FormField>
-              <FormField label="Descrição do outro desconto">
-                <TextField value={rescForm.otherDiscountLabel} onChange={(e) => setRescForm({ ...rescForm, otherDiscountLabel: e.target.value })} placeholder="Ex.: adiantamento em aberto" />
-              </FormField>
-              {!rescAjustando && <>
-              <FormField label={rescInstallments > 1 ? "Vencimento da 1ª parcela" : "Vencimento"}>
-                <TextField type="date" value={rescForm.dueDate} onChange={(e) => setRescForm({ ...rescForm, dueDate: e.target.value })} />
-              </FormField>
-              <FormField label="Parcelas" hint="acordo (art. 484-A) pode ser dividido; mensais">
-                <Select value={rescForm.installments} onChange={(e) => setRescForm({ ...rescForm, installments: e.target.value })} options={INSTALLMENT_OPTIONS} />
-              </FormField>
-              </>}
-              <div className="ds-form-grid-span-all">
-                <FormField label="Observações">
-                  <Textarea rows={2} value={rescForm.notes} onChange={(e) => setRescForm({ ...rescForm, notes: e.target.value })} />
-                </FormField>
-              </div>
-            </FormGrid>
-
-            {!rescAjustando && rescParcelas.length > 0 && (
-              <div style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
-                <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", padding: "8px 12px", background: "var(--surface-2)" }}>
-                  {rescParcelas.length} parcelas mensais · vira {rescParcelas.length} títulos em Contas a Pagar
-                </div>
-                {rescParcelas.map((p) => (
-                  <div key={p.number} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", fontSize: 14, borderTop: "1px solid var(--border)" }}>
-                    <span>Parcela {p.number}/{rescParcelas.length} · vence {p.due.toLocaleDateString("pt-BR")}</span>
-                    <strong><Money value={p.amount} /></strong>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, padding: "12px 14px", border: "1px solid var(--border-strong, var(--border))", borderRadius: 10 }}>
-              <span style={{ fontWeight: 500 }}>
-                Líquido a pagar
-                <span style={{ display: "block", fontSize: 12, color: "var(--muted)", fontWeight: 400 }}>
-                  bruto {moneyBr(rescBruto)}{semRegistroResc && rescCreditos > 0 ? ` (com ${moneyBr(rescCreditos)} de créditos)` : ""}
-                  {rescValores.vales > 0 ? ` − vales ${moneyBr(rescValores.vales)}` : ""}
-                  {rescValores.vtDesconto > 0 ? ` − VT ${moneyBr(rescValores.vtDesconto)}` : ""}
-                  {numero(rescForm.otherDiscount) > 0 ? ` − outro ${moneyBr(numero(rescForm.otherDiscount))}` : ""}
-                </span>
-              </span>
-              <strong style={{ fontSize: 19 }}><Money value={rescNet} /></strong>
-            </div>
-
-            {precisaJustificar && (
-              <div style={{ marginTop: 12, border: "1px solid var(--warning, #b45309)", borderRadius: 10, padding: "10px 14px" }}>
-                <strong style={{ fontSize: 14 }}>{rescAjustando ? "Justifique o ajuste da rescisão lançada" : "Ajuste manual sobre o apurado pelo sistema"}</strong>
-                {rescDivergencias.length > 0 && <ListaDivergencias itens={rescDivergencias} />}
-                <FormField label="Justificativa (obrigatória)" hint="fica gravada junto da rescisão, com o valor apurado e o lançado">
-                  <Textarea rows={2} value={rescJust} onChange={(e) => setRescJust(e.target.value)} placeholder="Ex.: adiantamento de salário pago em 10/09 fora do sistema" />
-                </FormField>
-                {rescNadaMudou && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Nada mudou em relação à rescisão lançada: altere algum valor para salvar o ajuste.</div>}
-              </div>
-            )}
-            </>}
-
-            <div className="form-actions">
-              {rescAjustando
-                ? <>
-                  <Button variant="secondary" onClick={() => setRescAjustando(false)}>Desistir do ajuste</Button>
-                  <Button onClick={handleAjustarRescisao} disabled={rescBusy || !justificativaOk || rescNadaMudou}
-                    title={rescNadaMudou ? "Nada mudou em relação à rescisão lançada" : undefined}>{rescBusy ? "Salvando..." : "Salvar ajuste"}</Button>
-                </>
-                : <>
-                  <Button variant="secondary" onClick={() => setRescinding(null)}>{rescInfo?.alreadyReleased ? "Fechar" : "Cancelar"}</Button>
-                  {!rescInfo?.alreadyReleased && (
-                    <Button onClick={handleReleaseRescisao} disabled={rescBusy || (precisaJustificar && !justificativaOk)}
-                      title={precisaJustificar && !justificativaOk ? "Explique o ajuste sobre o apurado (pelo menos 10 letras)" : undefined}>
-                      {rescBusy ? "Liberando..." : "Liberar para Contas a Pagar"}
-                    </Button>
-                  )}
-                </>}
-            </div>
-          </section>
-        </div>
-      )}
+      {/* Janela da rescisão */}
+      {rescinding && <RescisaoModal funcionario={rescinding} onFechar={() => setRescinding(null)} onGravou={() => void loadEmployees()} />}
 
       {/* Modal de exclusão de funcionário — exige justificativa (auditoria) */}
       {deletingEmp && (
