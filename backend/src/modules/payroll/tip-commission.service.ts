@@ -14,7 +14,7 @@ import { prisma } from "../../config/database.js";
 import { round2 } from "./vt-calc.js";
 import { motivoParaNaoRetirar, saldoReserva, travarFundo } from "./tip-historico.service.js";
 import { proximoCodigoApuracao, registrarFechamento, registrarReabertura } from "./tip-fechamento.service.js";
-import { calcularRateio, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
+import { calcularRateio, motivoGorjetaRealSemEfeito, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
@@ -130,7 +130,8 @@ export type ComputedParticipant = {
   extraRescisao: number;
   // Quitada: o que o direito valia (a gorjeta que o sistema apuraria sem o valor pago).
   valorDireito: number | null;
-  // Gorjeta real digitada no lugar da calculada (null = vale a calculada).
+  // Gorjeta real digitada no lugar da calculada (null = vale a calculada). Gravada mas
+  // sem efeito (virou fixo, saiu, ficou fora do período) também sai null, com aviso.
   gorjetaCalculada: number;
   gorjetaReal: { valor: number; motivo: string | null; por: string | null; em: string | null } | null;
   justificativaExtra: string | null;
@@ -451,7 +452,7 @@ export async function computeTipCommission(
       pontosDevolvidos: calc.pontosDevolvidos,
       extraRescisao: calc.extraRescisao,
       gorjetaCalculada: calc.gorjetaCalculada,
-      gorjetaReal: r.gorjetaReal == null ? null : {
+      gorjetaReal: r.gorjetaReal == null || !calc.gorjetaRealAplicada ? null : {
         valor: Number(r.gorjetaReal), motivo: r.gorjetaRealMotivo, por: r.gorjetaRealPor, em: r.gorjetaRealEm?.toISOString() ?? null,
       },
       valorDireito: calc.tipoCalculo === "RESCISAO_QUITADA"
@@ -533,6 +534,13 @@ export async function computeTipCommission(
     const diferenca = round2(comReal.reduce((a, p) => a + (p.gorjetaCalculada - p.rateioAmount), 0));
     warnings.push(`Gorjeta real no lugar da calculada: ${listar(comReal)}. ${diferenca >= 0 ? "Sobram" : "Faltam"} ${brl(Math.abs(diferenca))} no livre para distribuir por isso.`);
   }
+  // Gorjeta real gravada que o cálculo não usa mais: ninguém vê o valor, mas ele
+  // volta a valer se a situação mudar de novo. Quem fecha precisa rever.
+  rows.forEach((r, i) => {
+    if (r.gorjetaReal == null || rateio.linhas[i].gorjetaRealAplicada) return;
+    const motivo = motivoGorjetaRealSemEfeito(rateio.linhas[i].tipoCalculo, r.kind);
+    warnings.push(`A gorjeta real de ${nomeCompleto(r.employee)} (${brl(Number(r.gorjetaReal))}) não vale mais porque ${motivo}. Reveja: apague-a ou ajuste o cadastro.`);
+  });
   const semAdmissao = noPeriodo.filter((p) => !p.admissionDate);
   if (semAdmissao.length) warnings.push(`Sem data de admissão (considerados no período inteiro): ${listar(semAdmissao)}.`);
   const valesDemais = noPeriodo.filter((p) => p.descontos > 0 && p.netCommission < 0);

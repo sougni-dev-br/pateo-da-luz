@@ -79,9 +79,27 @@ export type ApuracaoRescisao = {
   vales: { itens: ValeAberto[]; descontos: number; creditos: number; liquido: number; entraNaRescisao: boolean };
   gorjeta: GorjetaAteSaida | null;
   gorjetaObservacao: string | null;
+  // Sem registro com a gorjeta do mês já fechada e paga na lista: salário e gorjeta
+  // até a saída já saíram por lá. valor = null quando oculto (sem ver Funcionários).
+  jaPagoNaLista: JaPagoNaLista | null;
   sugestao: SugestaoRescisao;
   dadosPessoaisOcultos?: boolean;
 };
+
+export type JaPagoNaLista = { valor: number | null; competencia: string };
+
+// Gorjeta fechada com total a pagar gravado para quem não tem registro: a lista de
+// pagamento já levou salário, gorjeta e vales. Lançar de novo na rescisão paga duas vezes.
+export function jaPagoNaListaFechada(
+  a: { status: string | null; semRegistro: boolean; totalAPagar: number | null | undefined },
+): boolean {
+  return a.semRegistro && a.status === "CLOSED" && Number(a.totalAPagar ?? 0) > 0.005;
+}
+
+export function observacaoJaPago(j: JaPagoNaLista): string {
+  const quanto = j.valor == null ? "salário e gorjeta" : `${reaisBr(j.valor)} de salário e gorjeta`;
+  return `Já pago na lista de pagamento da gorjeta de ${j.competencia} (fechada): ${quanto}. Não lance de novo aqui.`;
+}
 
 // O que preenche a tela, parte por parte. Sem registro: salário, gorjeta e vales vêm
 // daqui, cada um no seu campo. CLT: só o VT (bruto e gorjeta vêm da contabilidade).
@@ -100,6 +118,11 @@ export function montarSugestao(a: Omit<ApuracaoRescisao, "sugestao">): SugestaoR
   const vtDesconto = a.vt.total;
   if (!a.semRegistro) {
     return { salario: null, gorjeta: null, creditos: 0, vales: 0, valesRotulo: null, vtDesconto, bruto: null };
+  }
+  // Já pago na lista fechada: salário, gorjeta, vales e créditos já entraram nela. O
+  // apurado vira zero, e qualquer valor lançado aqui cai na divergência com justificativa.
+  if (a.jaPagoNaLista) {
+    return { salario: 0, gorjeta: 0, creditos: 0, vales: 0, valesRotulo: null, vtDesconto, bruto: 0 };
   }
   const g = a.gorjeta;
   const salario = g ? g.salarioProporcional : null;
@@ -189,6 +212,7 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
   let valesItens: ValeAberto[] = [];
   let descontos = 0;
   let creditos = 0;
+  let jaPagoNaLista: JaPagoNaLista | null = null;
   if (!periodo) {
     gorjetaObservacao = "Não há período de gorjeta aberto que contenha a data de saída.";
   } else {
@@ -209,6 +233,13 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
         diasSalario: p.diasSalario, salarioProporcional: p.salarioProporcional,
       };
       if (p.rescisaoPendente) gorjetaObservacao = "A gorjeta até a saída está pendente: falta o serviço até a saída (faturamento).";
+      if (jaPagoNaListaFechada({ status: comp.status, semRegistro, totalAPagar: p.totalAPagar })) {
+        jaPagoNaLista = {
+          valor: round2(p.totalAPagar),
+          competencia: `${String(periodo.competenceMonth).padStart(2, "0")}/${periodo.competenceYear}`,
+        };
+        gorjetaObservacao = observacaoJaPago(jaPagoNaLista);
+      }
       descontos = p.descontos;
       creditos = p.creditos;
       if (p.participantId) {
@@ -234,6 +265,7 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
     },
     gorjeta,
     gorjetaObservacao,
+    jaPagoNaLista,
   };
   return { ...base, sugestao: montarSugestao(base) };
 }
@@ -256,10 +288,15 @@ export async function localizarGorjetaNaApuracao(
   if (!periodo) return { alvo: null };
   const p = await prisma.tipParticipant.findUnique({
     where: { periodId_employeeId: { periodId: periodo.id, employeeId } },
-    select: { id: true, rescisaoValorFixo: true, rateioAmount: true },
+    select: { id: true, rescisaoValorFixo: true, rateioAmount: true, totalAPagar: true, employee: { select: { modality: true } } },
   });
   if (!p) return { alvo: null };
   const anterior = p.rescisaoValorFixo == null ? null : round2(Number(p.rescisaoValorFixo));
+  // Já pago na lista fechada: a apuração não muda. O que for lançado aqui além do zero
+  // apurado já passou pela divergência com justificativa.
+  if (jaPagoNaListaFechada({ status: periodo.status, semRegistro: p.employee.modality === "NAO_CLT", totalAPagar: Number(p.totalAPagar ?? 0) })) {
+    return { alvo: null };
+  }
   if (periodo.status === "CLOSED") {
     // Fechada, a gorjeta não muda mais: só aceita o mesmo valor que foi fechado.
     if (Math.abs(round2(Number(p.rateioAmount ?? 0)) - round2(gorjeta)) < 0.01) return { alvo: null };
@@ -270,6 +307,11 @@ export async function localizarGorjetaNaApuracao(
 
 const reaisBr = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+function ocultarJaPago(j: JaPagoNaLista) {
+  const oculto: JaPagoNaLista = { ...j, valor: null };
+  return { jaPagoNaLista: oculto, gorjetaObservacao: observacaoJaPago(oculto) };
+}
+
 // Sem a permissão de ver Funcionários: sai o salário (e o que o revela) e a descrição
 // dos vales; ficam gorjeta, VT e os totais.
 export function semDadosPessoais(a: ApuracaoRescisao | null): ApuracaoRescisao | null {
@@ -279,6 +321,8 @@ export function semDadosPessoais(a: ApuracaoRescisao | null): ApuracaoRescisao |
     gorjeta: a.gorjeta ? { ...a.gorjeta, salarioProporcional: null, diasSalario: null } : null,
     vales: { ...a.vales, itens: a.vales.itens.map((v) => ({ ...v, descricao: null })) },
     sugestao: { ...a.sugestao, salario: null, bruto: null },
+    // O total pago na lista inclui o salário: some o valor, fica o aviso.
+    ...(a.jaPagoNaLista ? ocultarJaPago(a.jaPagoNaLista) : {}),
     dadosPessoaisOcultos: true,
   };
 }

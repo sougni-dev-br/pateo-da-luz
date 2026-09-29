@@ -3,7 +3,7 @@
 // Tudo fica gravado: corrigir e cancelar deixam autor e motivo; cancelado
 // continua na lista e nos relatórios, só deixa de descontar.
 import { Ban, Check, Download, Pencil, Printer, X } from "lucide-react";
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import {
   type TipValeDescricao, type TipValeLancado, type TipValeType, type TipValesPeriodo, addTipVale, cancelarTipVale, editarTipVale,
   emitirReciboVale, getTipCompanies, getTipValeDescricoes, getTipVales,
@@ -24,8 +24,11 @@ type Props = {
   onNotice: (tone: "success" | "error" | "warning", message: string) => void;
   /** Um vale mudou: a apuração e o pagamento precisam recarregar. */
   onChanged: () => void;
-  /** Pessoa para já abrir filtrada (vindo do atalho da Apuração). */
-  pessoaInicial?: string | null;
+  /**
+   * Atalho "Vales de X" da Apuração: aplica a pessoa no filtro uma vez por pedido (n muda a
+   * cada clique). Limpar o filtro depois vale; ao sair da aba, a pessoa do atalho sai junto.
+   */
+  pedidoPessoa?: { pessoa: string; n: number } | null;
 };
 
 type PessoaVales = TipValesPeriodo["pessoas"][number];
@@ -45,6 +48,8 @@ const EXT: Extratores<TipValeLancado> = {
   data: (v) => v.date ?? v.lancadoEm, nome: (v) => v.nome, tipo: (v) => VALE_LABELS[v.type], valor: (v) => sinal(v),
   obs: (v) => v.notes, por: (v) => v.lancadoPor, recibo: (v) => v.codigo,
 };
+// Corrigindo um vale, estas colunas aparecem mesmo se ocultas: são os campos da correção.
+const EDITAVEIS = new Set(["data", "tipo", "obs", "valor"]);
 const COLUNAS_LISTA: ColunaOpcional[] = [
   { chave: "data", rotulo: "Data" }, { chave: "tipo", rotulo: "Tipo" }, { chave: "obs", rotulo: "Descrição" },
   { chave: "valor", rotulo: "Valor" }, { chave: "por", rotulo: "Lançado por" }, { chave: "recibo", rotulo: "Recibo" },
@@ -58,7 +63,7 @@ const COLUNAS_PESSOA: ColunaOpcional[] = [
   { chave: "liquida", rotulo: "Gorjeta líquida" },
 ];
 
-export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInicial = null }: Props) {
+export function AbaVales({ year, month, canEdit, onNotice, onChanged, pedidoPessoa = null }: Props) {
   const [dados, setDados] = useState<TipValesPeriodo | null>(null);
   const [descricoes, setDescricoes] = useState<TipValeDescricao[]>([]);
   const [empresas, setEmpresas] = useState<Array<{ id: string; tradeName: string }>>([]);
@@ -89,9 +94,27 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
     getTipCompanies().then(setEmpresas).catch(erro);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // Vindo do atalho da Apuração: a pessoa entra no filtro da lista de lançamentos.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (pessoaInicial) filtro.setValor("pessoa", pessoaInicial); }, [pessoaInicial]);
+  // Vindo do atalho da Apuração: a pessoa entra no filtro da lista de lançamentos, uma vez
+  // por clique. Ao sair da aba, sai também — se o usuário não tiver trocado de pessoa.
+  const pessoaDoAtalho = useRef<string | null>(null);
+  useEffect(() => {
+    if (!pedidoPessoa) return;
+    filtro.setValor("pessoa", pedidoPessoa.pessoa);
+    pessoaDoAtalho.current = pedidoPessoa.pessoa;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidoPessoa?.n]);
+  useEffect(() => () => {
+    if (pessoaDoAtalho.current) filtro.limparValorSe("pessoa", pessoaDoAtalho.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // A pessoa do filtro é um participante deste período: em outro mês ela não existe e
+  // esconderia todos os vales. Ao carregar, pessoa que não está no período sai do filtro.
+  useEffect(() => {
+    const pessoa = filtro.valores.pessoa;
+    if (!dados || !pessoa) return;
+    if (!dados.pessoas.some((p) => p.participantId === pessoa)) filtro.setValor("pessoa", "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dados]);
 
   // Recibo: registra a emissão, gera o PDF e abre a caixa de impressão; o link fica à mão.
   async function imprimir(valeId: string, empresaId: string | null) {
@@ -194,7 +217,7 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
     });
   const lista = aplicarOrdem(filtrados, ord.ordem, EXT);
   const saldoLista = filtrados.filter((v) => !v.canceladoEm).reduce((a, v) => a + sinal(v), 0);
-  const vc = col.visivel;
+  const vc = (c: string) => col.visivel(c) || (editando != null && EDITAVEIS.has(c));
   const th = (c: string) => ({ coluna: c, ordem: ord.ordem, onOrdenar: () => ord.alternar(c, c === "valor" ? "desc" : "asc") });
   // Linha de total: o rótulo ocupa as colunas até o Valor.
   const antesDoValor = 1 + ["data", "tipo", "obs"].filter(vc).length;
@@ -247,11 +270,11 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
 
       {pode && (
         <div style={panelStyle}>
-          <FormLancarVale
+          <FormLancarVale key={pedidoPessoa?.n ?? 0}
             pessoas={pessoas.filter((p) => p.participantId).map((p) => ({
               participantId: p.participantId!, nome: p.nome, apelido: p.apelido, funcao: p.funcao, empresa: p.empresa, semRegistro: p.semRegistro, liquida: p.liquida,
             }))}
-            descricoes={descricoes} pessoaInicial={pessoaInicial ?? ""} ocupado={ocupado}
+            descricoes={descricoes} pessoaInicial={pedidoPessoa?.pessoa ?? ""} ocupado={ocupado}
             onLancar={lancar} onDescricoesMudaram={() => void carregarDescricoes()} onErro={erro} />
         </div>
       )}
@@ -432,14 +455,10 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
                     {vc("recibo") && (
                       <Table.Td style={{ whiteSpace: "nowrap" }}>
                         <span style={{ ...mutedStyle, display: "block" }}>{v.codigo ?? "—"}</span>
-                        {!cancelado && v.type !== "CREDITO" && (
-                          <button type="button" className="botao-recibo" onClick={() => pedirRecibo(v.id, v.participantId, v.nome)}
-                            title={v.reciboImpressoEm ? `Impresso ${v.reciboImpressoes}× · último em ${quando(v.reciboImpressoEm)}` : "Imprimir recibo para assinatura"}>
-                            <Printer size={13} /> {v.reciboImpressoes ? `imprimir de novo (${v.reciboImpressoes}×)` : "imprimir"}
-                          </button>
-                        )}
+                        {v.reciboImpressoEm && <span style={{ ...mutedStyle, fontSize: 11 }}>impresso {v.reciboImpressoes}×</span>}
                       </Table.Td>
                     )}
+                    {/* Ações ficam numa coluna que não se oculta: recibo, corrigir e cancelar. */}
                     <Table.Td style={{ whiteSpace: "nowrap" }}>
                       {cancelado ? <StatusBadge tone="neutral">Cancelado</StatusBadge>
                         : emEdicao ? (
@@ -447,7 +466,16 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
                             <button type="button" className="botao-desfazer" aria-label="Salvar correção" disabled={ocupado || !(Number(editando.amount) > 0)} onClick={() => void salvarEdicao()}><Check size={15} /></button>
                             <button type="button" className="botao-desfazer" aria-label="Desistir da correção" onClick={() => setEditando(null)}><X size={15} /></button>
                           </>
-                        ) : pode && (
+                        ) : (
+                          <>
+                            {v.type !== "CREDITO" && (
+                              <button type="button" className="botao-recibo" onClick={() => pedirRecibo(v.id, v.participantId, v.nome)}
+                                aria-label={`Imprimir recibo do vale de ${v.nome}`}
+                                title={v.reciboImpressoEm ? `Impresso ${v.reciboImpressoes}× · último em ${quando(v.reciboImpressoEm)}` : "Imprimir recibo para assinatura"}>
+                                <Printer size={13} /> {v.reciboImpressoes ? `imprimir de novo (${v.reciboImpressoes}×)` : "imprimir"}
+                              </button>
+                            )}
+                            {pode && (
                           <>
                             {!v.doFundo && (
                               <button type="button" className="botao-desfazer" aria-label={`Corrigir vale de ${v.nome}`} title="Corrigir"
@@ -459,6 +487,8 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
                               onClick={() => { setEditando(null); setCancelando({ id: v.id, motivo: "" }); }}>
                               <Ban size={14} /><span className="acao-texto">cancelar</span>
                             </button>
+                          </>
+                            )}
                           </>
                         )}
                     </Table.Td>

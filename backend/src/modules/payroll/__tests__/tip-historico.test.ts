@@ -1,11 +1,11 @@
 import { describe, expect, test, vi } from "vitest";
 
 vi.mock("../../../config/database.js", () => ({
-  prisma: { employeeTipHistory: { findMany: vi.fn() } },
+  prisma: { employeeTipHistory: { findMany: vi.fn() }, tipPeriod: { findMany: vi.fn() }, tipReserveMovement: { findMany: vi.fn() } },
 }));
 
 import { prisma } from "../../../config/database.js";
-import { listarMudancas, motivoParaNaoRetirar, mudouSituacao } from "../tip-historico.service.js";
+import { evolucaoMensal, extratoReserva, listarMudancas, motivoParaNaoRetirar, mudouSituacao } from "../tip-historico.service.js";
 
 const d = (s: string) => new Date(`${s}T00:00:00.000Z`);
 const emp = { firstName: "Luiz", lastName: "Moreno", displayName: null };
@@ -80,5 +80,34 @@ describe("motivoParaNaoRetirar (reabrir/refechar não deixa o fundo negativo)", 
   });
   test("refechar com reserva maior (retirada negativa) nunca bloqueia", () => {
     expect(motivoParaNaoRetirar(0, -150, "07/2026")).toBeNull();
+  });
+});
+
+describe("apelido nos relatórios (nome continua o completo)", () => {
+  const comApelido = { firstName: "José", lastName: "Carlos", displayName: "Zé" };
+
+  test("mudanças de função/pontos", async () => {
+    vi.mocked(prisma.employeeTipHistory.findMany).mockResolvedValue([linha("2026-01-01", { employee: comApelido }), linha("2026-02-01", {})] as never);
+    const r = await listarMudancas({});
+    expect(r.map((m) => [m.employeeName, m.apelido])).toEqual([["Luiz Moreno", null], ["José Carlos", "Zé"]]);
+  });
+
+  test("evolução mês a mês", async () => {
+    vi.mocked(prisma.tipPeriod.findMany).mockResolvedValue([{
+      competenceYear: 2026, competenceMonth: 9, status: "CLOSED", pointValue: 150,
+      participants: [{ employeeId: "e2", functionName: "Garçom", basePoints: 4, points: 4, rateioAmount: 600, employee: comApelido }],
+    }] as never);
+    const r = await evolucaoMensal({ ano: 2026, mes: 9 }, { ano: 2026, mes: 9 });
+    expect(r.linhas[0]).toMatchObject({ employeeId: "e2", employeeName: "José Carlos", apelido: "Zé" });
+  });
+
+  test("movimentos do fundo de reserva trazem employeeId e apelido", async () => {
+    vi.mocked(prisma.tipReserveMovement.findMany).mockResolvedValue([
+      { id: "m1", date: d("2026-09-25"), type: "FECHAMENTO_RESERVA", amount: 300, notes: null, employeeId: null, employee: null, period: { competenceYear: 2026, competenceMonth: 9 } },
+      { id: "m2", date: d("2026-09-26"), type: "DISTRIBUICAO", amount: -100, notes: null, employeeId: "e2", employee: comApelido, period: null },
+    ] as never);
+    const r = await extratoReserva();
+    expect(r.movimentos.map((m) => [m.employeeId, m.employeeName, m.apelido])).toEqual([["e2", "José Carlos", "Zé"], [null, null, null]]);
+    expect(JSON.stringify(r)).not.toMatch(/cpf|salar/i);
   });
 });

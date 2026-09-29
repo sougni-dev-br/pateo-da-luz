@@ -102,6 +102,8 @@ export type ParticipanteCalculado = {
   valorDireito: number | null;
   // O que o sistema calculou antes de qualquer valor real digitado.
   gorjetaCalculada: number;
+  // A gorjeta real digitada entrou no cálculo (só vale no mês, por pontos).
+  gorjetaRealAplicada: boolean;
   valorPonto: number;
   rateio: number;
   descontos: number;
@@ -199,6 +201,19 @@ function salarioSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo): { di
   return { dias, valor: round2(round2(p.salarioBase / 30) * dias) };
 }
 
+// Gorjeta real só substitui a calculada de quem está no mês, por pontos.
+export function gorjetaRealVale(tipoCalculo: TipoCalculo, kind: "FIXO" | "PONTOS"): boolean {
+  return tipoCalculo === "MES" && kind === "PONTOS";
+}
+
+// Por que uma gorjeta real gravada deixou de valer (null = vale). Vira aviso na apuração.
+export function motivoGorjetaRealSemEfeito(tipoCalculo: TipoCalculo, kind: "FIXO" | "PONTOS"): string | null {
+  if (gorjetaRealVale(tipoCalculo, kind)) return null;
+  if (tipoCalculo === "FORA_DO_PERIODO") return "ficou fora do período (admissão ou saída mudou)";
+  if (tipoCalculo === "RESCISAO" || tipoCalculo === "RESCISAO_QUITADA") return "saiu no período e a gorjeta passou a vir da rescisão";
+  return "passou a receber cota fixa";
+}
+
 export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntrada, valorPontoDoMes: number): ParticipanteCalculado {
   const { elegiveis, previstos, referencia, computados, fator } = presenca(regras, p);
 
@@ -257,8 +272,9 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
 
   // Gorjeta real no lugar da calculada: os outros não mudam (o ponto do mês não depende
   // dela) e a diferença fica no livre para distribuir. Vira pontos pelo ponto do mês.
-  if (tipoCalculo === "MES" && p.kind === "PONTOS" && p.gorjetaReal != null) {
-    rateio = round2(p.gorjetaReal);
+  const gorjetaRealAplicada = gorjetaRealVale(tipoCalculo, p.kind) && p.gorjetaReal != null;
+  if (gorjetaRealAplicada) {
+    rateio = round2(p.gorjetaReal ?? 0);
     if (valorPontoDoMes > 0) {
       pontosConsumidos = round2(rateio / valorPontoDoMes);
       extraRescisao = Math.max(0, round2(pontosConsumidos - pontosFinais));
@@ -293,6 +309,7 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
     justificativaExtra,
     valorDireito,
     gorjetaCalculada,
+    gorjetaRealAplicada,
     valorPonto: round2(valorPonto),
     rateio,
     descontos,

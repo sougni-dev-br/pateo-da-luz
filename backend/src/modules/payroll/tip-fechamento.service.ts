@@ -74,6 +74,8 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
   const participants = comp.participants.map((p) => ({
     employeeId: p.employeeId,
     nome: p.employeeName,
+    // Retratos gravados antes desta versão não têm o apelido.
+    apelido: p.apelido,
     funcao: p.functionName,
     empresa: p.companyName,
     semRegistro: p.semRegistro,
@@ -104,8 +106,9 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     rescisaoServicoBruto: p.rescisaoServicoBruto,
     rescisaoValorFixo: p.rescisaoValorFixo,
     gorjeta: p.rateioAmount,
-    // Gorjeta real no lugar da calculada: o que o sistema calculou e o porquê.
-    ...(p.gorjetaReal ? { gorjetaCalculada: p.gorjetaCalculada, gorjetaReal: p.gorjetaReal } : {}),
+    // Gorjeta real no lugar da calculada: o que o sistema calculou e o porquê. Só a que
+    // entrou no cálculo (a que deixou de valer vem null do cálculo).
+    ...(p.gorjetaReal != null ? { gorjetaCalculada: p.gorjetaCalculada, gorjetaReal: p.gorjetaReal } : {}),
     vales: p.vales.map((v) => ({ tipo: v.type, valor: v.amount, data: v.date?.slice(0, 10) ?? null, descricao: v.notes })),
     descontos: p.descontos,
     creditos: p.creditos,
