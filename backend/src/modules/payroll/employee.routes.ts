@@ -217,7 +217,7 @@ employeeRouter.get("/", async (request, response) => {
 employeeRouter.get("/birthdays", async (request, response) => {
   const month = intOrNull(request.query.month) ?? new Date().getMonth() + 1;
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-    SELECT id, "firstName", "lastName", "birthDate", sector, position
+    SELECT id, "firstName", "lastName", "displayName", "birthDate", sector, position
     FROM "Employee"
     WHERE "deletedAt" IS NULL AND "isActive" = true AND "birthDate" IS NOT NULL
       AND EXTRACT(MONTH FROM "birthDate") = ${month}

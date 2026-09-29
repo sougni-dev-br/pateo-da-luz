@@ -5437,6 +5437,7 @@ export type EmployeeBirthday = {
   id: string;
   firstName: string;
   lastName: string;
+  displayName?: string | null;
   birthDate: string;
   sector: string | null;
   position: string | null;
