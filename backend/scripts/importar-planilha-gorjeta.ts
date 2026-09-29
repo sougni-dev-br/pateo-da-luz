@@ -4,7 +4,7 @@
 // funcionário nem é importada: a reserva agora é 0 e o que sobra vai sozinho ao fundo.
 //
 // Por padrão só SIMULA e mostra o que faria. Para gravar: --aplicar.
-//   npx tsx scripts/importar-planilha-gorjeta.ts <planilha.xlsx> [--reserva "Ricardo Almeida"] [--acertos acertos.json] [--aplicar]
+//   npx tsx scripts/importar-planilha-gorjeta.ts <planilha.xlsx> [--reserva "Ricardo Almeida"] [--acertos acertos.json] [--aplicar [--producao]]
 //
 // --acertos: decisões do RH que valem mais que a planilha, por nome da planilha:
 //   [{ "nome": "Victoria Alves dos Anjos", "vinculo": "CLT", "empresa": "Pateo Frei" },
@@ -29,13 +29,31 @@ import { auditLog } from "../src/modules/security/security-utils.js";
 const prisma = new PrismaClient();
 
 const args = process.argv.slice(2);
-const arquivo = args.find((a) => !a.startsWith("--"));
+// Opções com valor consomem o argumento seguinte; o que sobra (sem --) é a planilha.
+const COM_VALOR = new Set(["--reserva", "--acertos"]);
+const opcoes = new Map<string, string>();
+const livres: string[] = [];
+for (let i = 0; i < args.length; i++) {
+  if (COM_VALOR.has(args[i])) {
+    const v = args[i + 1];
+    if (!v || v.startsWith("--")) throw new Error(`${args[i]} precisa de um valor.`);
+    opcoes.set(args[i], v);
+    i++;
+  } else if (!args[i].startsWith("--")) livres.push(args[i]);
+}
+const arquivo = livres[0];
 const aplicar = args.includes("--aplicar");
 const aceitarAproximados = args.includes("--aceitar-aproximados");
-const iReserva = args.indexOf("--reserva");
-const nomeReserva = iReserva >= 0 ? args[iReserva + 1] : "Ricardo Almeida";
-const iAcertos = args.indexOf("--acertos");
-const arquivoAcertos = iAcertos >= 0 ? args[iAcertos + 1] : null;
+const nomeReserva = opcoes.get("--reserva") ?? "Ricardo Almeida";
+const arquivoAcertos = opcoes.get("--acertos") ?? null;
+
+// Para onde vai gravar: mostra o host sempre; produção (Render) só com --producao.
+const destino = (() => { try { return new URL(process.env.DATABASE_URL ?? "").hostname || "?"; } catch { return "?"; } })();
+console.log(`Banco de destino: ${destino}${aplicar ? " (GRAVANDO)" : " (simulação)"}`);
+if (aplicar && /render\.com$/.test(destino) && !args.includes("--producao")) {
+  throw new Error("O destino é o banco de produção: confirme com --producao junto de --aplicar.");
+}
+if (process.env.TZ !== "UTC") console.warn("Aviso: rode com TZ=UTC (as datas de produção são em UTC).");
 
 // cadastro: o nome como está no ERP, quando a planilha escreve diferente ("Elenice Tais" → "Elenice Alves").
 type Acerto = { nome: string; cadastro?: string; vinculo?: "CLT" | "sem registro"; empresa?: string; salario?: number };

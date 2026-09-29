@@ -125,6 +125,8 @@ export type ComputedParticipant = {
   pontosDireito: number;
   pontosDevolvidos: number;
   extraRescisao: number;
+  // Quitada: o que o direito valia (a gorjeta que o sistema apuraria sem o valor pago).
+  valorDireito: number | null;
   justificativaExtra: string | null;
   tipoCalculo: TipoCalculo;
   valorPonto: number;
@@ -404,8 +406,10 @@ export async function computeTipCommission(
     const rateioAmount = closed ? Number(r.rateioAmount) : calc.rateio;
     const netCommission = closed ? Number(r.netCommission) : calc.comissaoLiquida;
     const salarioProporcional = closed ? Number(r.salarioProporcional) : calc.salarioProporcional;
-    const pagoNaRescisao = calc.pagoNaRescisao;
-    const totalAPagar = pagoNaRescisao ? 0 : closed ? Number(r.totalAPagar) : calc.totalAPagar;
+    // Fechado: vale o que foi gravado no fechamento. Lançar ou excluir uma rescisão
+    // depois não muda uma lista que já foi paga.
+    const totalAPagar = closed ? Number(r.totalAPagar) : calc.pagoNaRescisao ? 0 : calc.totalAPagar;
+    const pagoNaRescisao = closed ? calc.pagoNaRescisao && totalAPagar === 0 : calc.pagoNaRescisao;
     return {
       participantId: r.id,
       employeeId: r.employeeId,
@@ -438,6 +442,9 @@ export async function computeTipCommission(
       pontosDireito: calc.pontosDireito,
       pontosDevolvidos: calc.pontosDevolvidos,
       extraRescisao: calc.extraRescisao,
+      valorDireito: calc.tipoCalculo === "RESCISAO_QUITADA"
+        ? calc.valorDireito ?? round2(calc.pontosDireito * calc.valorPonto)
+        : null,
       justificativaExtra: calc.justificativaExtra,
       tipoCalculo: calc.tipoCalculo,
       valorPonto: calc.valorPonto,
