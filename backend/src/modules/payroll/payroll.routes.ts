@@ -369,6 +369,12 @@ type ValoresLancados = {
   bruto: number; salario: number | null; gorjeta: number | null; vales: number;
   vtDesconto: number; outroDesconto: number; liquido: number;
 };
+
+// Algum valor da rescisão mudou (centavo a centavo)?
+export function valoresMudaram(antes: ValoresLancados, depois: ValoresLancados): boolean {
+  const campos: Array<keyof ValoresLancados> = ["bruto", "salario", "gorjeta", "vales", "vtDesconto", "outroDesconto", "liquido"];
+  return campos.some((c) => Math.round(Math.abs((antes[c] ?? 0) - (depois[c] ?? 0)) * 100) >= 1);
+}
 async function rescisaoLancada(employeeId: string) {
   const itens = await prisma.payrollItem.findMany({
     where: { employeeId, type: "RESCISAO", deletedAt: null },
@@ -429,6 +435,14 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
     bruto: round2(gross), salario: lido.componentes.salario, gorjeta: lido.componentes.gorjeta, vales: lido.componentes.vales,
     vtDesconto: round2(vtDiscount), outroDesconto: round2(otherDiscount), liquido: net,
   };
+  // Ajuste sem nada mudado só enche o histórico: recusa.
+  const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const mudouTexto = (campo: string, atualValor: string | null) =>
+    b[campo] !== undefined && texto(b[campo]) !== (atualValor ?? "").trim();
+  if (!valoresMudaram(antes, depois) && !mudouTexto("otherDiscountLabel", atual.outroDescontoRotulo)
+    && !mudouTexto("valesLabel", atual.valesRotulo) && !mudouTexto("notes", atual.notes)) {
+    return response.status(400).json({ message: "Nada mudou em relação à rescisão lançada: não há o que ajustar." });
+  }
   const ajuste: AjusteRescisao & { divergenciasDoApurado: unknown } = {
     em: new Date().toISOString(), porUserId: user.id, porNome: user.name ?? null, justificativa, antes, depois,
     divergenciasDoApurado: divergenciasDoApurado(apuracao?.sugestao ?? null, lido.componentes),
