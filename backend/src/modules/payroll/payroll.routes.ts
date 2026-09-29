@@ -5,6 +5,7 @@ import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { FERIAS_CATEGORY, PAYROLL_KINDS, RESCISAO_CATEGORY, computePayroll, computeStatus, generatePayroll, getOrDefaultSettings, type PayrollKind, type PayrollOverride } from "./payroll.service.js";
+import { apurarRescisao } from "./rescisao-apuracao.js";
 import { round2 } from "./vt-calc.js";
 
 export const payrollRouter = Router();
@@ -173,6 +174,7 @@ payrollRouter.get("/termination/:employeeId", async (request, response) => {
     vtItems: vtItems.map((i) => ({ id: i.id, periodLabel: i.periodLabel, competenceYear: i.competenceYear, competenceMonth: i.competenceMonth, amount: i.amount, status: i.paymentDate ? "PAID" : "PENDING", dueDate: i.dueDate })),
     alreadyReleased: Boolean(already),
     rescisaoId: already?.id ?? null,
+    apuracao: await apurarRescisao(emp.id),
   });
 });
 
@@ -240,7 +242,12 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   // Pagar. Só parcela quando há líquido positivo a dividir.
   const requested = Math.trunc(numOrNull(b.installments) ?? 1);
   const n = net > 0 ? Math.max(1, Math.min(requested, 12)) : 1;
-  const baseDetails = { grossAmount: gross, vtDiscount, otherDiscount, otherDiscountLabel: (b.otherDiscountLabel as string) || null };
+  // O que o sistema apurou na hora de lançar fica junto, para comparar com o que foi digitado.
+  const apuracao = await apurarRescisao(emp.id).catch(() => null);
+  const baseDetails = {
+    grossAmount: gross, vtDiscount, otherDiscount, otherDiscountLabel: (b.otherDiscountLabel as string) || null,
+    apuracaoSistema: apuracao ? JSON.parse(JSON.stringify(apuracao)) : null,
+  };
   const parcelas = splitCents(Math.round(net * 100), n).map((cents, i) => ({
     id: crypto.randomUUID(),
     number: i + 1,

@@ -6262,6 +6262,29 @@ export type TerminationInfo = {
   vtItems: Array<{ id: string; periodLabel: string; competenceYear: number; competenceMonth: number; amount: string; status: string; dueDate: string }>;
   alreadyReleased: boolean;
   rescisaoId: string | null;
+  /** O que o sistema apura sozinho (null sem data de desligamento). */
+  apuracao: ApuracaoRescisao | null;
+};
+
+export type ApuracaoRescisao = {
+  saida: string;
+  semRegistro: boolean;
+  vt: {
+    total: number;
+    dias: Array<{ data: string; custo: number; lancamento: string; pago: boolean }>;
+    semDetalhe: string[];
+    observacao: string | null;
+  };
+  vales: {
+    itens: Array<{ codigo: string | null; data: string | null; tipo: string; descricao: string | null; valor: number }>;
+    descontos: number; creditos: number; liquido: number; entraNaRescisao: boolean;
+  };
+  gorjeta: {
+    periodo: string; status: "OPEN" | "CLOSED"; pontos: number; valorPonto: number; gorjeta: number;
+    pendente: boolean; diasSalario: number; salarioProporcional: number;
+  } | null;
+  gorjetaObservacao: string | null;
+  sugestao: { bruto: number | null; brutoComposicao: string | null; vtDesconto: number; outroDesconto: number; outroDescontoRotulo: string | null };
 };
 
 export function getTerminationInfo(employeeId: string) {

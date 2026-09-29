@@ -1,12 +1,13 @@
 import { Cake, FileText, Pencil, Plus, PowerOff, Printer, RefreshCw, UserCheck, UserMinus, Users, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
-  Employee, EmployeeBirthday, EmployeeBankAccountType, EmployeeModality, TerminationInfo,
+  ApuracaoRescisao, Employee, EmployeeBirthday, EmployeeBankAccountType, EmployeeModality, TerminationInfo,
   EmployeeGender, VtDirection, VtFare, VtPeriodicity, VtType, WorkScheduleRegime,
   deleteEmployee, getEmployeeBirthdays, getEmployeeOptions, getEmployees, getTerminationInfo, getVtFares,
   releaseTermination, saveEmployee, setEmployeeStatus, terminateEmployee
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
+import { ApuracaoRescisaoPainel } from "../components/pessoal/ApuracaoRescisao";
 import { ImpressaoAniversariantes } from "../components/pessoal/ImpressaoAniversariantes";
 import { useSession } from "../context/SessionContext";
 import {
@@ -334,16 +335,31 @@ export function Funcionarios() {
     setRescInfo(null);
     setRescForm({ grossAmount: "", vtDiscount: "", otherDiscount: "", otherDiscountLabel: "", dueDate: hojeLocalIso(), installments: "1", notes: "" });
     try {
-      setRescInfo(await getTerminationInfo(e.id));
+      const info = await getTerminationInfo(e.id);
+      setRescInfo(info);
+      // Já abre preenchido com o que o sistema apurou; quem lança confere e ajusta.
+      if (info.apuracao && !info.alreadyReleased) aplicarApuracao(info.apuracao);
     } catch (err) {
       setNotice({ tone: "error", message: err instanceof Error ? err.message : "Erro ao carregar dados da rescisão." });
     }
   }
 
+  function aplicarApuracao(a: ApuracaoRescisao) {
+    const s = a.sugestao;
+    setRescForm((f) => ({
+      ...f,
+      grossAmount: s.bruto != null ? moneyToMasked(s.bruto) : f.grossAmount,
+      vtDiscount: moneyToMasked(s.vtDesconto),
+      otherDiscount: s.outroDesconto > 0 ? moneyToMasked(s.outroDesconto) : "",
+      otherDiscountLabel: s.outroDescontoRotulo ?? "",
+      notes: f.notes || (s.brutoComposicao ? `Apurado pelo sistema: ${s.brutoComposicao}` : ""),
+    }));
+  }
+
   async function handleReleaseRescisao() {
     if (!rescinding) return;
     const gross = Number(moneyToNumberString(rescForm.grossAmount));
-    if (!gross || gross <= 0) return void setNotice({ tone: "error", message: "Informe o valor da rescisão (bruto) que a contabilidade enviou." });
+    if (!gross || gross <= 0) return void setNotice({ tone: "error", message: rescinding.modality === "NAO_CLT" ? "Informe o valor bruto da rescisão (salário + gorjeta)." : "Informe o valor da rescisão (bruto) que a contabilidade enviou." });
     setRescBusy(true);
     try {
       const res = await releaseTermination(rescinding.id, {
@@ -820,7 +836,7 @@ export function Funcionarios() {
           <section className="panel modal-panel">
             <div className="section-heading">
               <div>
-                <PanelEyebrow>Rescisão · contabilidade envia o valor</PanelEyebrow>
+                <PanelEyebrow>{rescinding.modality === "NAO_CLT" ? "Rescisão · sem registro, apurada aqui" : "Rescisão · contabilidade envia o valor"}</PanelEyebrow>
                 <h2>{fullName(rescinding)}</h2>
               </div>
               <Button variant="secondary" onClick={() => setRescinding(null)}>Fechar</Button>
@@ -828,7 +844,9 @@ export function Funcionarios() {
 
             {rescInfo?.alreadyReleased && <Alert tone="warning">Já existe uma rescisão lançada para este funcionário.</Alert>}
 
-            <div style={{ background: "var(--paper-soft, var(--surface-2))", borderRadius: 10, padding: 12, marginBottom: 12 }}>
+            {rescInfo?.apuracao && <ApuracaoRescisaoPainel apuracao={rescInfo.apuracao} onUsar={() => aplicarApuracao(rescInfo.apuracao!)} />}
+
+            {!rescInfo?.apuracao && <div style={{ background: "var(--paper-soft, var(--surface-2))", borderRadius: 10, padding: 12, marginBottom: 12 }}>
               <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Confira antes de lançar</div>
               {/* O VT é pago na véspera da quinzena. Quem sai no meio do período
                   recebeu dias que não vai usar — o estorno é decisão de quem lança,
@@ -841,13 +859,13 @@ export function Funcionarios() {
               ) : (
                 <div style={{ fontSize: 13, color: "var(--muted)" }}>Nenhum VT lançado no mês do desligamento.</div>
               )}
-            </div>
+            </div>}
 
             <FormGrid cols={2}>
-              <FormField label="Valor da rescisão — bruto (contabilidade)" required>
+              <FormField label={rescinding.modality === "NAO_CLT" ? "Valor da rescisão — bruto (salário + gorjeta)" : "Valor da rescisão — bruto (contabilidade)"} required>
                 <TextField value={rescForm.grossAmount} onChange={(e) => setRescForm({ ...rescForm, grossAmount: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" />
               </FormField>
-              <FormField label="VT a descontar" hint="confira acima o VT já pago e informe o estorno">
+              <FormField label="VT a descontar" hint="VT já pago para os dias depois da saída">
                 <TextField value={rescForm.vtDiscount} onChange={(e) => setRescForm({ ...rescForm, vtDiscount: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" />
               </FormField>
               <FormField label="Outro desconto (opcional)">
