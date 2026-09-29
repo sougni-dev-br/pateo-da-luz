@@ -4,7 +4,13 @@
 // funcionário nem é importada: a reserva agora é 0 e o que sobra vai sozinho ao fundo.
 //
 // Por padrão só SIMULA e mostra o que faria. Para gravar: --aplicar.
-//   npx tsx scripts/importar-planilha-gorjeta.ts <planilha.xlsx> [--reserva "Ricardo Almeida"] [--aplicar]
+//   npx tsx scripts/importar-planilha-gorjeta.ts <planilha.xlsx> [--reserva "Ricardo Almeida"] [--acertos acertos.json] [--aplicar]
+//
+// --acertos: decisões do RH que valem mais que a planilha, por nome da planilha:
+//   [{ "nome": "Victoria Alves dos Anjos", "vinculo": "CLT", "empresa": "Pateo Frei" },
+//    { "nome": "Janete Cristina de Oliveira", "vinculo": "sem registro" },
+//    { "nome": "Lidiane Souza Felipe", "salario": 2600 }]
+//   Só aqui o importador altera salário; sem acerto, divergência de salário é só listada.
 //
 // Casa o funcionário pelo nome completo (sem acento, sem caixa, ignorando "de/da/do").
 // Nome parecido mas não igual NÃO é gravado: aparece na lista para conferir (use
@@ -13,6 +19,7 @@
 // salário, datas nem desligamento: divergências só são listadas. Quando o vínculo
 // muda (CLT ↔ sem registro), a linha mostra "vínculo X → Y" para conferir.
 
+import { readFileSync } from "node:fs";
 import ExcelJS from "exceljs";
 import { PrismaClient } from "@prisma/client";
 import { registrarHistorico } from "../src/modules/payroll/tip-historico.service.js";
@@ -26,6 +33,22 @@ const aplicar = args.includes("--aplicar");
 const aceitarAproximados = args.includes("--aceitar-aproximados");
 const iReserva = args.indexOf("--reserva");
 const nomeReserva = iReserva >= 0 ? args[iReserva + 1] : "Ricardo Almeida";
+const iAcertos = args.indexOf("--acertos");
+const arquivoAcertos = iAcertos >= 0 ? args[iAcertos + 1] : null;
+
+type Acerto = { nome: string; vinculo?: "CLT" | "sem registro"; empresa?: string; salario?: number };
+function lerAcertos(caminho: string | null): Acerto[] {
+  if (!caminho) return [];
+  const lista = JSON.parse(readFileSync(caminho, "utf8")) as Acerto[];
+  if (!Array.isArray(lista)) throw new Error("--acertos: o arquivo deve ser uma lista.");
+  for (const a of lista) {
+    if (!a.nome) throw new Error("--acertos: toda linha precisa de nome.");
+    if (a.vinculo && a.vinculo !== "CLT" && a.vinculo !== "sem registro") throw new Error(`--acertos: vínculo inválido para ${a.nome}.`);
+    if (a.vinculo === "CLT" && !a.empresa) throw new Error(`--acertos: ${a.nome} como CLT precisa da empresa.`);
+    if (a.salario != null && !(typeof a.salario === "number" && a.salario > 0)) throw new Error(`--acertos: salário inválido para ${a.nome}.`);
+  }
+  return lista;
+}
 
 const norm = (s: string) =>
   s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
@@ -97,11 +120,13 @@ const vigencia = (() => {
 async function main() {
   if (!arquivo) throw new Error("Informe o caminho da planilha .xlsx.");
   const linhas = await lerPlanilha(arquivo);
+  const acertos = new Map(lerAcertos(arquivoAcertos).map((a) => [norm(a.nome), a]));
+  const acertosUsados = new Set<string>();
   const [funcionarios, funcoes, empresas] = await Promise.all([
     prisma.employee.findMany({
       where: { deletedAt: null },
       select: {
-        id: true, firstName: true, lastName: true, displayName: true, modality: true, baseSalary: true,
+        id: true, firstName: true, lastName: true, displayName: true, modality: true, baseSalary: true, companyId: true,
         admissionDate: true, terminationDate: true,
       },
     }),
@@ -143,8 +168,12 @@ async function main() {
   for (const l of linhas) {
     const achado = acharFuncionario(l.nome);
     const funcao = funcaoPorNome.get(norm(l.funcao)) ?? null;
-    const empresa = acharEmpresa(l.empresa);
-    const semRegistro = norm(l.empresa) === "s registro";
+    const acerto = acertos.get(norm(l.nome));
+    if (acerto) acertosUsados.add(norm(l.nome));
+    const semRegistro = acerto?.vinculo ? acerto.vinculo === "sem registro" : norm(l.empresa) === "s registro";
+    const empresa = acerto?.vinculo ? (acerto.empresa ? acharEmpresa(acerto.empresa) : null) : acharEmpresa(l.empresa);
+    if (acerto?.empresa && !empresa) throw new Error(`--acertos: empresa "${acerto.empresa}" não encontrada.`);
+    const salarioNovo = acerto?.salario ?? null;
     const reserva = norm(l.nome) === norm(nomeReserva);
     const prefixo = `${l.codigo} ${l.nome}`;
     if (reserva) {
@@ -161,8 +190,9 @@ async function main() {
       if (!aceitarAproximados) continue;
     }
     if (!funcao && l.funcao) avisos.push(`${prefixo}: função "${l.funcao}" não existe na tabela.`);
-    if (!empresa && !semRegistro && l.empresa) avisos.push(`${prefixo}: empresa "${l.empresa}" não encontrada.`);
-    if (l.salario != null && Number(emp.baseSalary ?? 0) !== l.salario) {
+    if (!acerto?.vinculo && !empresa && !semRegistro && l.empresa) avisos.push(`${prefixo}: empresa "${l.empresa}" não encontrada.`);
+    const mudaSalario = salarioNovo != null && Number(emp.baseSalary ?? 0) !== salarioNovo;
+    if (salarioNovo == null && l.salario != null && Number(emp.baseSalary ?? 0) !== l.salario) {
       avisos.push(`${prefixo}: salário no ERP ${emp.baseSalary ?? "vazio"} × planilha ${l.salario} (não alterado).`);
     }
     if (dia(emp.admissionDate) !== dia(l.admissao)) {
@@ -183,7 +213,9 @@ async function main() {
       `${aplicar ? "GRAVA" : "SIMULA"} ${prefixo} → função ${funcao?.name ?? "—"}` +
       `${extra != null ? `, extra ${extra > 0 ? "+" : ""}${extra} pt (planilha ${l.pontosPers})` : ""}` +
       `, ${semRegistro ? "sem registro" : `empresa ${empresa?.tradeName ?? "—"}`}` +
-      `${mudaVinculo ? ` (vínculo ${nomeVinculo(emp.modality)} → ${nomeVinculo(vinculoNovo)})` : ""}`,
+      `${mudaVinculo ? ` (vínculo ${nomeVinculo(emp.modality)} → ${nomeVinculo(vinculoNovo)})` : ""}` +
+      `${mudaSalario ? ` (salário ${emp.baseSalary ?? "vazio"} → ${salarioNovo})` : ""}` +
+      `${acerto ? " [acerto do RH]" : ""}`,
     );
     if (aplicar) {
       const dados = {
@@ -194,17 +226,23 @@ async function main() {
         pontosExtraMotivo: extra == null ? null : `Planilha de gorjeta (${l.codigo}): ${l.pontosPers} pts no lugar de ${Number(funcao?.points ?? 0)}`,
         ...(vinculoNovo ? { modality: vinculoNovo } : {}),
         ...(!semRegistro && empresa ? { companyId: empresa.id } : {}),
+        ...(mudaSalario ? { baseSalary: salarioNovo } : {}),
       };
       await prisma.$transaction(async (tx) => {
         await tx.employee.update({ where: { id: emp.id }, data: dados });
         await registrarHistorico(tx, emp.id, vigencia, "script-importacao", `Importação da planilha (${l.codigo})`);
       });
-      await auditLog({ userId: null, action: "IMPORT_TIP_TEAM_MEMBER", entity: "Employee", entityId: emp.id, newValue: { ...dados, origem: arquivo } });
+      await auditLog({ userId: null, action: "IMPORT_TIP_TEAM_MEMBER", entity: "Employee", entityId: emp.id,
+        previousValue: { modality: emp.modality, companyId: emp.companyId, baseSalary: emp.baseSalary },
+        newValue: { ...dados, origem: arquivo, ...(acerto ? { acerto } : {}) } });
       gravados += 1;
     }
   }
 
   console.log(`\n${linhas.length} linhas na planilha${aplicar ? `, ${gravados} gravadas` : " (simulação — nada gravado)"}.`);
+  for (const [chave, a] of acertos) {
+    if (!acertosUsados.has(chave)) avisos.push(`acerto "${a.nome}": nome não está na planilha (não aplicado).`);
+  }
   if (avisos.length) {
     console.log(`\nConferir (${avisos.length}):`);
     for (const a of avisos) console.log(" - " + a);
