@@ -11,8 +11,9 @@ import { MONTHS, baixarCsv, hojeLocal, inputStyle, mesLocal, money, mutedStyle, 
 import { TIPO_MUDANCA, fmtDia } from "./HistoricoLinhaDoTempo";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import { RelatorioFechamentos } from "./RelatorioFechamentos";
+import { RelatorioVales } from "./RelatorioVales";
 
-type Visao = "fechamentos" | "mudancas" | "evolucao" | "reserva" | "funcoes";
+type Visao = "fechamentos" | "vales" | "mudancas" | "evolucao" | "reserva" | "funcoes";
 
 type Props = {
   comp: TipComputation | null;
@@ -34,12 +35,13 @@ export function AbaRelatorios({ comp, canEdit, onNotice, onChanged }: Props) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="barra-lista">
         <div className="barra-lista-segmento" role="group" aria-label="Relatório" style={{ marginLeft: 0 }}>
-          {([["fechamentos", "Fechamentos"], ["mudancas", "Mudanças de função e pontos"], ["evolucao", "Evolução mês a mês"], ["reserva", "Fundo de reserva"], ["funcoes", "Histórico das funções"]] as const).map(([v, l]) => (
+          {([["fechamentos", "Fechamentos"], ["vales", "Vales por período"], ["mudancas", "Mudanças de função e pontos"], ["evolucao", "Evolução mês a mês"], ["reserva", "Fundo de reserva"], ["funcoes", "Histórico das funções"]] as const).map(([v, l]) => (
             <button key={v} type="button" aria-pressed={visao === v} onClick={() => setVisao(v)}>{l}</button>
           ))}
         </div>
       </div>
       {visao === "fechamentos" && <RelatorioFechamentos onErro={erro} />}
+      {visao === "vales" && <RelatorioVales onErro={erro} />}
       {visao === "mudancas" && <RelatorioMudancas onErro={erro} />}
       {visao === "evolucao" && <RelatorioEvolucao onErro={erro} />}
       {visao === "reserva" && <FundoReserva comp={comp} canEdit={canEdit} onNotice={onNotice} onChanged={onChanged} />}

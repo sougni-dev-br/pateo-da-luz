@@ -1,9 +1,9 @@
 import { Check, ChevronLeft, ChevronRight, Lock, Maximize2, Minimize2, Plus, RefreshCw, Save, Unlock, UserPlus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
-  type TipComputation, type TipComputedParticipant, type TipRosterEmployee, type TipValeType,
-  addTipVale, closeTipPeriodApi, getTipCommission, getTipRoster, openTipPeriod,
-  refreshTipService, removeTipParticipant, removeTipVale, reopenTipPeriodApi, saveTipParticipants, syncTipParticipants, updateTipPeriod,
+  type TipComputation, type TipComputedParticipant, type TipRosterEmployee,
+  closeTipPeriodApi, getTipCommission, getTipRoster, openTipPeriod,
+  refreshTipService, removeTipParticipant, reopenTipPeriodApi, saveTipParticipants, syncTipParticipants, updateTipPeriod,
 } from "../api/client";
 import { AjusteServico } from "./gorjeta/AjusteServico";
 import { Notice, useNotice } from "../components/Notice";
@@ -15,13 +15,14 @@ import { AbaApuracao } from "./gorjeta/AbaApuracao";
 import { AbaEquipe } from "./gorjeta/AbaEquipe";
 import { AbaFuncoes } from "./gorjeta/AbaFuncoes";
 import { AbaContabilidade } from "./gorjeta/AbaContabilidade";
+import { AbaVales } from "./gorjeta/AbaVales";
 import { AbaPagamento } from "./gorjeta/AbaPagamento";
 import { AbaRelatorios } from "./gorjeta/AbaRelatorios";
 import { Pendencias } from "./gorjeta/Pendencias";
 import { ResumoApuracao } from "./gorjeta/ResumoApuracao";
 import { type LocalRow, MONTHS, inputStyle, money, mutedStyle, panelStyle, toPayload, toRows } from "./gorjeta/gorjetaUtils";
 
-type Aba = "apuracao" | "pagamento" | "contabilidade" | "equipe" | "funcoes" | "relatorios";
+type Aba = "apuracao" | "vales" | "pagamento" | "contabilidade" | "equipe" | "funcoes" | "relatorios";
 
 type Parametros = {
   start: string; end: string; pool: string; deduction: string; pointsTotal: string; diasPadrao: string;
@@ -51,6 +52,7 @@ export function FolhaGorjeta() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [aba, setAba] = useState<Aba>("apuracao");
+  const [valesPessoa, setValesPessoa] = useState<string | null>(null);
   const [comp, setComp] = useState<TipComputation | null>(null);
   const [rows, setRows] = useState<LocalRow[]>([]);
   const [params, setParams] = useState<Parametros | null>(null);
@@ -234,14 +236,7 @@ export function FolhaGorjeta() {
     try { await removeTipParticipant(p.participantId); await load(); } catch (e) { erro(e); } finally { setBusy(false); }
   }
 
-  async function lancarVale(participantId: string, vale: { type: TipValeType; amount: number; date?: string; notes?: string }) {
-    await flush();
-    try { await addTipVale(participantId, vale); await load(); } catch (e) { erro(e); }
-  }
 
-  async function apagarVale(valeId: string) {
-    try { await removeTipVale(valeId); await load(); } catch (e) { erro(e); }
-  }
 
   async function fechar() {
     await flush();
@@ -303,6 +298,7 @@ export function FolhaGorjeta() {
         onChange={(v) => setAba(v as Aba)}
         tabs={[
           { value: "apuracao", label: "Apuração" },
+          { value: "vales", label: "Vales" },
           { value: "pagamento", label: "Pagamento e envio" },
           { value: "contabilidade", label: "Contabilidade e folha" },
           { value: "equipe", label: "Equipe" },
@@ -317,6 +313,14 @@ export function FolhaGorjeta() {
           onNotice={(tone, message) => setNotice({ tone, message })}
           onChanged={() => { if (comp?.periodId && !closed) void getTipCommission(year, month).then(setComp); }}
         />
+      )}
+
+      {aba === "vales" && comp?.periodId && (
+        <AbaVales key={valesPessoa ?? "todos"} year={year} month={month} canEdit={canEdit} pessoaInicial={valesPessoa}
+          onNotice={(tone, message) => setNotice({ tone, message })} onChanged={() => void load()} />
+      )}
+      {aba === "vales" && !comp?.periodId && (
+        <div style={panelStyle}><span style={mutedStyle}>Abra o período na aba Apuração para lançar vales.</span></div>
       )}
 
       {aba === "contabilidade" && (
@@ -430,7 +434,7 @@ export function FolhaGorjeta() {
 
               {aba === "apuracao" && (
                 <AbaApuracao comp={comp} rows={rows} readonly={readonly} onRow={setRow}
-                  onRemove={(p) => void remover(p)} onAddVale={lancarVale} onRemoveVale={(id) => void apagarVale(id)}
+                  onRemove={(p) => void remover(p)} onVerVales={(id) => { setValesPessoa(id); setAba("vales"); }}
                   recibo={{
                     antesDeGravar: flush,
                     onAplicado: (c) => { aplicar(c); setNotice({ tone: "success", message: "Termo de rescisão lido: a gorjeta paga ficou como valor quitado e saiu da lista a pagar." }); },

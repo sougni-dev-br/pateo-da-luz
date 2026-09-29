@@ -21,6 +21,7 @@ import {
 import { detalheFechamento, listarFechamentos } from "./tip-fechamento.service.js";
 import { lerPdfRescisao } from "./tip-trct.service.js";
 import { tipConferenciaRouter } from "./tip-conferencia.routes.js";
+import { tipValesRouter } from "./tip-vales.routes.js";
 
 // Formata dd/mm a partir de uma data UTC.
 function fmtDay(d: Date): string {
@@ -39,6 +40,7 @@ function parseDateUTC(v: unknown): Date | null {
 export const tipCommissionRouter = Router();
 // Envio à contabilidade, conferência dos extratos, etapas e folha de líquidos.
 tipCommissionRouter.use(tipConferenciaRouter);
+tipCommissionRouter.use(tipValesRouter);
 
 // ─── Trava de período fechado ───────────────────────────────────
 // closeTipPeriod só sela o período depois de conferir que a soma dos rateios
@@ -531,59 +533,7 @@ tipCommissionRouter.delete("/participants/:id", async (request, response) => {
   response.json({ ok: true });
 });
 
-// ─── Vales (descontos internos, não vão ao holerite) ────────────────────────
-tipCommissionRouter.post("/participants/:id/vales", async (request, response) => {
-  const user = await getSessionUser(request);
-  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
-  const b = request.body as Record<string, unknown>;
-  const amount = numOrNull(b.amount);
-  if (amount == null || amount <= 0) return response.status(400).json({ message: "amount inválido." });
-  if (await barrouPorFechamento(await periodIdDoParticipante(request.params.id), response, "Lançar um vale")) return;
-  const type = ["REFEICAO", "VALE_CONSUMO", "RETIRADA_CAIXA", "ADIANTAMENTO", "OUTRO", "CREDITO"].includes(String(b.type)) ? String(b.type) : "OUTRO";
-  const vale = await prisma.tipVale.create({
-    data: {
-      id: crypto.randomUUID(),
-      participantId: request.params.id,
-      type: type as never,
-      amount,
-      date: b.date ? new Date(String(b.date)) : null,
-      notes: b.notes ? String(b.notes) : null,
-      createdById: user.id,
-    },
-  });
-  response.status(201).json(vale);
-});
-
-tipCommissionRouter.delete("/vales/:id", async (request, response) => {
-  const user = await getSessionUser(request);
-  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
-  const valeId = request.params.id;
-  // O vale é abatido do rateio (netCommission = rateio − vales). Apagar um
-  // devolve dinheiro ao participante, então precisa de trava e de rastro.
-  const antes = await prisma.tipVale.findUnique({
-    where: { id: valeId },
-    select: {
-      id: true, type: true, amount: true, date: true, notes: true,
-      participant: { select: { id: true, periodId: true, employeeId: true } },
-    },
-  });
-  if (!antes) return response.status(404).json({ message: "Vale não encontrado." });
-  if (await barrouPorFechamento(antes.participant?.periodId ?? null, response, "Apagar um vale")) return;
-  await prisma.tipVale.delete({ where: { id: valeId } });
-  await auditLog({
-    userId: user.id, action: "DELETE_TIP_VALE", entity: "TipVale", entityId: valeId,
-    previousValue: {
-      participantId: antes.participant?.id ?? null,
-      periodId: antes.participant?.periodId ?? null,
-      employeeId: antes.participant?.employeeId ?? null,
-      type: antes.type, amount: String(antes.amount),
-      date: antes.date, notes: antes.notes,
-    },
-    newValue: null,
-    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
-  });
-  response.json({ ok: true });
-});
+// Vales: em tip-vales.routes.ts (lançar, corrigir, cancelar, relatório).
 
 // ─── Fechar o período (recalcula, persiste e trava a conferência) ───────────
 tipCommissionRouter.post("/periods/:year/:month/close", async (request, response) => {

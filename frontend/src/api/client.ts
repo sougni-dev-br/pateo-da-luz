@@ -6000,8 +6000,37 @@ export function addTipVale(participantId: string, payload: { type: TipValeType; 
   });
 }
 
-export function removeTipVale(id: string) {
-  return request<{ ok: boolean }>(`/payroll/tip/vales/${id}`, { method: "DELETE" });
+/** Vale lançado: fica no banco mesmo cancelado (só deixa de descontar). */
+export type TipValeLancado = {
+  id: string; participantId: string; employeeId: string; nome: string;
+  type: TipValeType; amount: number; date: string | null; notes: string | null;
+  lancadoEm: string; lancadoPor: string | null; alteradoEm: string | null;
+  canceladoEm: string | null; canceladoPor: string | null; motivoCancelamento: string | null;
+  doFundo: boolean;
+};
+export type TipValesPeriodo = {
+  code: string; status: string;
+  vales: TipValeLancado[];
+  pessoas: Array<{ participantId: string | null; employeeId: string; nome: string; semRegistro: boolean;
+    gorjeta: number; descontos: number; creditos: number; liquida: number; pagoNaRescisao: boolean }>;
+};
+export type TipValeRelatorio = TipValeLancado & { periodo: string; competencia: string };
+
+export function getTipVales(year: number, month: number) {
+  return request<TipValesPeriodo>(`/payroll/tip/periods/${year}/${month}/vales`);
+}
+export function editarTipVale(id: string, payload: { type: TipValeType; amount: number; date?: string | null; notes?: string | null }) {
+  return request<{ ok: boolean }>(`/payroll/tip/vales/${id}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+}
+export function cancelarTipVale(id: string, motivo: string) {
+  return request<{ ok: boolean }>(`/payroll/tip/vales/${id}/cancelar`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ motivo }),
+  });
+}
+export function getTipRelatorioVales(de: string, ate: string) {
+  return request<TipValeRelatorio[]>(`/payroll/tip/reports/vales?de=${de}&ate=${ate}`);
 }
 
 export function closeTipPeriodApi(year: number, month: number) {

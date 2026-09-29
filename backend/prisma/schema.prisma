@@ -2906,10 +2906,19 @@ model TipVale {
   date          DateTime?      @db.Date
   notes         String?
   createdById   String
+  createdByName String?
   createdAt     DateTime       @default(now())
+  updatedById   String?
+  updatedAt     DateTime?
+  // Cancelar não apaga: o vale fica no histórico e nos relatórios, só deixa de descontar.
+  canceledAt     DateTime?
+  canceledById   String?
+  canceledByName String?
+  cancelReason   String?
   reserveMovement TipReserveMovement?
 
   @@index([participantId])
+  @@index([canceledAt])
 }
 
 /// Ciclo operacional de estoque: o intervalo real entre duas contagens de

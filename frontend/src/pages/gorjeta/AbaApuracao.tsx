@@ -1,17 +1,19 @@
-import { Plus, ReceiptText, Settings2, Trash2 } from "lucide-react";
-import { Fragment, type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import type { TipComputation, TipComputedParticipant, TipValeType } from "../../api/client";
-import { Button, FormField, Money, StatusBadge, Table } from "../../design-system";
+import { ReceiptText, Settings2, Trash2 } from "lucide-react";
+import { Fragment, type CSSProperties, useMemo, useState } from "react";
+import type { TipComputation, TipComputedParticipant } from "../../api/client";
+import { Money, StatusBadge, Table } from "../../design-system";
 import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { RegrasPessoa, temRegraPropria } from "./RegrasPessoa";
 import { ReciboRescisao, SeloRecibo } from "./ReciboRescisao";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
-  type LocalRow, type RowPatch, VALE_LABELS, fmtDate, inputStyle, money, mutedStyle, numInputStyle, ordenar, panelStyle, pts,
+  type LocalRow, type RowPatch, fmtDate, money, mutedStyle, numInputStyle, ordenar, panelStyle, pts,
 } from "./gorjetaUtils";
 
 type Props = {
+  /** Abre a aba Vales (filtrada na pessoa). */
+  onVerVales: (participantId: string | null) => void;
   /** Leitura do termo de rescisão (TRCT) da contabilidade. */
   recibo: { antesDeGravar: () => Promise<void>; onAplicado: (c: TipComputation) => void; onErro: (m: string) => void };
   comp: TipComputation;
@@ -19,8 +21,6 @@ type Props = {
   readonly: boolean;
   onRow: RowPatch;
   onRemove: (p: TipComputedParticipant) => void;
-  onAddVale: (participantId: string, vale: { type: TipValeType; amount: number; date?: string; notes?: string }) => Promise<void>;
-  onRemoveVale: (valeId: string) => void;
 };
 
 const num: CSSProperties = { fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
@@ -32,7 +32,6 @@ const totalTd: CSSProperties = { background: "var(--paper-soft, #f2f4f7)", fontW
 const somaPontos = (l: TipComputedParticipant[]) => l.reduce((a, p) => a + (p.kind === "PONTOS" ? p.points : 0), 0);
 const somaGorjeta = (l: TipComputedParticipant[]) => l.reduce((a, p) => a + p.rateioAmount, 0);
 
-const VALE_TYPES = Object.keys(VALE_LABELS) as TipValeType[];
 
 const SITUACAO: Record<string, number> = { MES: 0, RESCISAO: 1, RESCISAO_QUITADA: 1, FORA_DO_PERIODO: 2 };
 
@@ -86,10 +85,8 @@ function Ocorrencia({ value, escala, manual, disabled, label, onChange, desconta
   );
 }
 
-export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, onRemoveVale, recibo }: Props) {
-  const [valesDe, setValesDe] = useState<string | null>(null);
+export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales, recibo }: Props) {
   const [regrasDe, setRegrasDe] = useState<string | null>(null);
-  const [novoVale, setNovoVale] = useState<{ type: TipValeType; amount: string; date: string; notes: string }>({ type: "ADIANTAMENTO", amount: "", date: "", notes: "" });
 
   const rowPorFuncionario = useMemo(() => new Map(rows.map((r) => [r.employeeId, r])), [rows]);
   const participantes = useMemo(() => ordenar(comp.participants), [comp]);
@@ -110,24 +107,6 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
   const ordenarPor = (coluna: string) => alternar(coluna, TEXTO.has(coluna) ? "asc" : "desc");
   const th = (coluna: string) => ({ coluna, ordem, onOrdenar: () => ordenarPor(coluna) });
   const rescisoes = participantes.filter((p) => p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA");
-  const aberto = comp.participants.find((p) => p.participantId === valesDe) ?? null;
-  const painelVales = useRef<HTMLDivElement>(null);
-  const valorVale = useRef<HTMLInputElement>(null);
-  // O painel abre abaixo da tabela: rola até ele e já deixa o cursor no valor.
-  useEffect(() => {
-    if (!valesDe) return;
-    painelVales.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    valorVale.current?.focus({ preventScroll: true });
-  }, [valesDe]);
-
-  async function lancarVale() {
-    if (!aberto?.participantId) return;
-    const amount = Number(novoVale.amount.replace(",", "."));
-    if (!amount || amount <= 0) return;
-    await onAddVale(aberto.participantId, { type: novoVale.type, amount, date: novoVale.date || undefined, notes: novoVale.notes || undefined });
-    setNovoVale({ type: "ADIANTAMENTO", amount: "", date: "", notes: "" });
-  }
-
   // Agrupado: a ordem vale dentro de cada grupo. Sem agrupar: uma lista só, como no Excel.
   const grupos = agrupar ? [
     { chave: "mes", titulo: "No mês", nota: null as string | null, lista: ordenados.filter((p) => p.tipoCalculo === "MES") },
@@ -143,7 +122,6 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
     if (!r) return null;
     const fora = p.tipoCalculo === "FORA_DO_PERIODO";
     const set = (patch: Partial<LocalRow>) => onRow(p.employeeId, patch);
-    const aberto = valesDe === p.participantId;
     const saldoVales = p.creditos - p.descontos;
     return (
       <Table.Row key={p.employeeId} style={fora ? { opacity: 0.55 } : undefined}>
@@ -239,9 +217,9 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
             <RegrasPessoa comp={comp} p={p} regras={r.regras} disabled={readonly}
               onChange={(regras) => set({ regras })} onFechar={() => setRegrasDe(null)} />
           )}
-          <button type="button" onClick={() => setValesDe(aberto ? null : p.participantId)} disabled={!p.participantId}
-            aria-expanded={aberto} aria-label={`Vales e créditos de ${p.employeeName}`} title="Vales e créditos"
-            style={{ border: "none", borderRadius: 6, background: aberto ? "var(--paper-soft)" : "transparent", cursor: "pointer", color: p.vales.length ? "var(--ink)" : "var(--muted)", padding: 4, position: "relative" }}>
+          <button type="button" onClick={() => onVerVales(p.participantId)} disabled={!p.participantId}
+            aria-label={`Vales de ${p.employeeName}`} title="Ver e lançar vales na aba Vales"
+            style={{ border: "none", borderRadius: 6, background: "transparent", cursor: "pointer", color: p.vales.length ? "var(--ink)" : "var(--muted)", padding: 4, position: "relative" }}>
             <ReceiptText size={15} />
             {p.vales.length > 0 && (
               <span style={{ position: "absolute", top: -2, right: -2, fontSize: 10, lineHeight: "14px", minWidth: 14, borderRadius: 7, background: "var(--gold)", color: "#fff", textAlign: "center" }}>{p.vales.length}</span>
@@ -258,36 +236,9 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
     );
   }
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div className="barra-lista">
-        <label className="barra-lista-campo">
-          <span>Ordenar por</span>
-          <select value={ordem?.coluna ?? ""}
-            onChange={(e) => definir(e.target.value ? { coluna: e.target.value, direcao: TEXTO.has(e.target.value) ? "asc" : "desc" } : null)}>
-            <option value="">Nome (padrão)</option>
-            {OPCOES_ORDEM.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </label>
-        {ordem && (
-          <>
-            <button type="button" className="barra-lista-botao" onClick={() => definir({ coluna: ordem.coluna, direcao: ordem.direcao === "asc" ? "desc" : "asc" })}
-              title="Inverter a ordem" aria-label={ordem.direcao === "asc" ? "Crescente — inverter" : "Decrescente — inverter"}>
-              {ordem.direcao === "asc" ? "↑ A→Z / menor" : "↓ Z→A / maior"}
-            </button>
-            <button type="button" className="barra-lista-link" onClick={() => definir(null)}>limpar</button>
-          </>
-        )}
-        <SeletorColunas colunas={COLUNAS} ocultas={colunas.ocultas} alternar={colunas.alternar} mostrarTodas={colunas.mostrarTodas} />
-        <div className="barra-lista-segmento" role="group" aria-label="Visualização">
-          <button type="button" aria-pressed={agrupar} onClick={() => setAgrupar(true)}>Por situação</button>
-          <button type="button" aria-pressed={!agrupar} onClick={() => setAgrupar(false)}>Lista única</button>
-        </div>
-      </div>
-
-      <Table className="tabela-gorjeta">
-        <Table.Head>
-          <Table.Row>
+  // Cabeçalho das colunas: vem logo abaixo da faixa de cada grupo (grupo em cima, colunas embaixo).
+  const cabecalho = (chave: string) => (
+    <Table.Row key={`colunas-${chave}`} className="linha-colunas">
             <ThOrdenavel {...th("nome")} align="left" minWidth={190}>Funcionário</ThOrdenavel>
 {v("base") && (
             <ThOrdenavel {...th("base")} align="center" title="Pontos da função + ponto extra do cadastro">Base</ThOrdenavel>
@@ -320,8 +271,37 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
             <ThOrdenavel {...th("liquido")} align="center" title="Gorjeta − vales + créditos">Líquido</ThOrdenavel>
 )}
             <Table.Th aria-label="Ações"> </Table.Th>
-          </Table.Row>
-        </Table.Head>
+    </Table.Row>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="barra-lista">
+        <label className="barra-lista-campo">
+          <span>Ordenar por</span>
+          <select value={ordem?.coluna ?? ""}
+            onChange={(e) => definir(e.target.value ? { coluna: e.target.value, direcao: TEXTO.has(e.target.value) ? "asc" : "desc" } : null)}>
+            <option value="">Nome (padrão)</option>
+            {OPCOES_ORDEM.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
+        {ordem && (
+          <>
+            <button type="button" className="barra-lista-botao" onClick={() => definir({ coluna: ordem.coluna, direcao: ordem.direcao === "asc" ? "desc" : "asc" })}
+              title="Inverter a ordem" aria-label={ordem.direcao === "asc" ? "Crescente — inverter" : "Decrescente — inverter"}>
+              {ordem.direcao === "asc" ? "↑ A→Z / menor" : "↓ Z→A / maior"}
+            </button>
+            <button type="button" className="barra-lista-link" onClick={() => definir(null)}>limpar</button>
+          </>
+        )}
+        <SeletorColunas colunas={COLUNAS} ocultas={colunas.ocultas} alternar={colunas.alternar} mostrarTodas={colunas.mostrarTodas} />
+        <div className="barra-lista-segmento" role="group" aria-label="Visualização">
+          <button type="button" aria-pressed={agrupar} onClick={() => setAgrupar(true)}>Por situação</button>
+          <button type="button" aria-pressed={!agrupar} onClick={() => setAgrupar(false)}>Lista única</button>
+        </div>
+      </div>
+
+      <Table className="tabela-gorjeta">
         <Table.Body>
           {grupos.map((g) => g.lista.length > 0 && (
             <Fragment key={g.chave}>
@@ -336,6 +316,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
                   {g.nota && <div className="grupo-nota">{g.nota}</div>}
                 </Table.Td>
               </Table.Row>
+              {cabecalho(g.chave)}
               {g.lista.map(linha)}
             </Fragment>
           ))}
@@ -362,49 +343,6 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
         Ocorrências em cinza vêm da Escala; digite só para corrigir (em negrito = digitado). Pontos finais = base × trabalhados ÷ previstos + ajuste.
         O total distribuído é o mesmo do resumo acima.
       </span>
-
-      {aberto && (
-        <div ref={painelVales} style={panelStyle}>
-          <strong>Vales e créditos — {aberto.employeeName}</strong>
-          {aberto.vales.length === 0 && <span style={mutedStyle}>Nada lançado.</span>}
-          {aberto.vales.map((v) => (
-            <div key={v.id} style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              <span style={{ minWidth: 150 }}>{VALE_LABELS[v.type]}</span>
-              <span style={{ minWidth: 110, color: v.type === "CREDITO" ? "var(--success, #15803d)" : undefined }}>
-                {v.type === "CREDITO" ? "+ " : "− "}{money(v.amount)}
-              </span>
-              <span style={{ ...mutedStyle, minWidth: 60 }}>{fmtDate(v.date)}</span>
-              <span style={mutedStyle}>{v.notes}</span>
-              {!readonly && (
-                <button type="button" onClick={() => onRemoveVale(v.id)} aria-label="Remover lançamento"
-                  style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--muted)" }}>
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-          ))}
-          {!readonly && (
-            <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-              <FormField label="Tipo">
-                <select style={{ ...inputStyle, width: 170 }} value={novoVale.type} onChange={(e) => setNovoVale({ ...novoVale, type: e.target.value as TipValeType })}>
-                  {VALE_TYPES.map((t) => <option key={t} value={t}>{VALE_LABELS[t]}</option>)}
-                </select>
-              </FormField>
-              <FormField label="Valor R$">
-                <input ref={valorVale} style={{ ...inputStyle, width: 110 }} type="number" step="0.01" min="0" value={novoVale.amount} onChange={(e) => setNovoVale({ ...novoVale, amount: e.target.value })}
-                  onKeyDown={(e) => { if (e.key === "Enter") void lancarVale(); }} />
-              </FormField>
-              <FormField label="Data">
-                <input style={{ ...inputStyle, width: 150 }} type="date" value={novoVale.date} onChange={(e) => setNovoVale({ ...novoVale, date: e.target.value })} />
-              </FormField>
-              <FormField label="Descrição">
-                <input style={{ ...inputStyle, width: 200 }} value={novoVale.notes} onChange={(e) => setNovoVale({ ...novoVale, notes: e.target.value })} />
-              </FormField>
-              <Button variant="secondary" leadingIcon={<Plus size={14} />} disabled={!novoVale.amount} onClick={() => void lancarVale()}>Lançar</Button>
-            </div>
-          )}
-        </div>
-      )}
 
       {rescisoes.length > 0 && (
         <div style={panelStyle} id="rescisoes-do-periodo" tabIndex={-1}>
