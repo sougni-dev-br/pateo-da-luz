@@ -370,6 +370,16 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
     }
   }
 
+  // Quem tem a gorjeta definida pela rescisão lançada não muda a gorjeta paga aqui:
+  // a rescisão é a fonte (ajuste lá, com justificativa).
+  const rescisoes = await prisma.payrollItem.findMany({
+    where: { type: "RESCISAO", deletedAt: null, employeeId: { in: (list as Array<Record<string, unknown>>).map((x) => String(x.employeeId ?? "")) } },
+    select: { employeeId: true, details: true },
+  });
+  const gorjetaPelaRescisao = new Set(rescisoes
+    .filter((x) => (x.details as { gorjetaNaApuracao?: { participantId?: string } } | null)?.gorjetaNaApuracao)
+    .map((x) => x.employeeId));
+
   await prisma.$transaction(async (tx) => {
     for (const raw of list as Array<Record<string, unknown>>) {
       const employeeId = String(raw.employeeId ?? "");
@@ -398,11 +408,13 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
         adicionalNoturno: texto(raw.adicionalNoturno),
         justificada: Boolean(raw.justificada),
       } as const;
+      const { rescisaoValorFixo, ...semGorjetaPaga } = dados;
       await tx.tipParticipant.upsert({
         where: { periodId_employeeId: { periodId, employeeId } },
         create: { id: crypto.randomUUID(), periodId, employeeId, basePoints: basePorFuncionario.get(employeeId) ?? 0, ...dados },
         // Sem valor quitado, o recibo lido do TRCT deixa de valer.
-        update: dados.rescisaoValorFixo == null ? { ...dados, rescisaoRecibo: Prisma.DbNull } : dados,
+        update: gorjetaPelaRescisao.has(employeeId) ? semGorjetaPaga
+          : rescisaoValorFixo == null ? { ...dados, rescisaoRecibo: Prisma.DbNull } : dados,
       });
     }
   });

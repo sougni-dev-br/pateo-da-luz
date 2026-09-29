@@ -86,6 +86,8 @@ export type RescisaoContasPagar = {
   vencimento: string;
   status: "PENDING" | "PAID" | "OVERDUE";
   parcelas: number;
+  // A gorjeta paga na apuração veio desta rescisão: só muda por lá.
+  gorjetaDefinida: boolean;
 };
 
 export type ComputedParticipant = {
@@ -249,15 +251,16 @@ async function rescisoesEmContasAPagar(
         employeeId: s.employeeId, competenceYear: s.saida.getUTCFullYear(), competenceMonth: s.saida.getUTCMonth() + 1,
       })),
     },
-    select: { employeeId: true, amount: true, dueDate: true, status: true },
+    select: { employeeId: true, amount: true, dueDate: true, status: true, details: true },
     orderBy: { dueDate: "asc" },
   });
   const porPessoa = new Map<string, RescisaoContasPagar & { valor: number }>();
   for (const it of itens) {
     const status = it.status === "CANCELED" ? "PENDING" : it.status;
+    const definida = Boolean((it.details as { gorjetaNaApuracao?: unknown } | null)?.gorjetaNaApuracao);
     const atual = porPessoa.get(it.employeeId);
     if (!atual) {
-      porPessoa.set(it.employeeId, { valor: round2(Number(it.amount)), vencimento: it.dueDate.toISOString(), status, parcelas: 1 });
+      porPessoa.set(it.employeeId, { valor: round2(Number(it.amount)), vencimento: it.dueDate.toISOString(), status, parcelas: 1, gorjetaDefinida: definida });
       continue;
     }
     // Parcelado: soma, vence na primeira; paga só quando todas estão pagas.
@@ -267,6 +270,7 @@ async function rescisoesEmContasAPagar(
       vencimento: atual.vencimento,
       status: juntos.includes("OVERDUE") ? "OVERDUE" : juntos.every((s) => s === "PAID") ? "PAID" : "PENDING",
       parcelas: atual.parcelas + 1,
+      gorjetaDefinida: atual.gorjetaDefinida || definida,
     });
   }
   return porPessoa;
