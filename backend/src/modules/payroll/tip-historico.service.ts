@@ -11,6 +11,7 @@ import crypto from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { round2 } from "./vt-calc.js";
+import { apelidoDe, nomeCompleto } from "./nomes.js";
 
 type Tx = Prisma.TransactionClient;
 
@@ -114,7 +115,7 @@ export async function listarMudancas(opts: { de?: Date; ate?: Date; employeeId?:
       resultado.push({
         id: l.id,
         employeeId: l.employeeId,
-        employeeName: (l.employee.displayName || `${l.employee.firstName} ${l.employee.lastName}`).trim(),
+        employeeName: nomeCompleto(l.employee),
         validFrom: l.validFrom.toISOString(),
         tipo,
         funcaoAntes: antes?.functionName ?? null,
@@ -166,7 +167,7 @@ export async function evolucaoMensal(de: { ano: number; mes: number }, ate: { an
     for (const r of p.participants) {
       const linha = porFuncionario.get(r.employeeId) ?? {
         employeeId: r.employeeId,
-        employeeName: (r.employee.displayName || `${r.employee.firstName} ${r.employee.lastName}`).trim(),
+        employeeName: nomeCompleto(r.employee),
         meses: {},
       };
       // Em apuração ainda não há pontos finais nem valor gravados.
@@ -204,7 +205,7 @@ export async function extratoReserva() {
       amount: Number(m.amount),
       saldo,
       competencia: m.period ? `${String(m.period.competenceMonth).padStart(2, "0")}/${m.period.competenceYear}` : null,
-      employeeName: m.employee ? (m.employee.displayName || `${m.employee.firstName} ${m.employee.lastName}`).trim() : null,
+      employeeName: m.employee ? nomeCompleto(m.employee) : null,
       notes: m.notes,
       removivel: m.type === "AJUSTE",
     };

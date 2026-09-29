@@ -5669,7 +5669,10 @@ export type TipRegrasPessoa = {
 export type TipComputedParticipant = {
   participantId: string | null;
   employeeId: string;
+  /** Nome completo (o principal nas telas). */
   employeeName: string;
+  /** Apelido, mostrado embaixo do nome (null se não houver). */
+  apelido: string | null;
   companyId: string | null;
   companyName: string | null;
   functionName: string | null;
@@ -6040,7 +6043,7 @@ export function addTipVale(participantId: string, payload: { type: TipValeType; 
 
 /** Vale lançado: fica no banco mesmo cancelado (só deixa de descontar). */
 export type TipValeLancado = {
-  id: string; participantId: string; employeeId: string; nome: string;
+  id: string; participantId: string; employeeId: string; nome: string; apelido?: string | null;
   type: TipValeType; amount: number; date: string | null; notes: string | null;
   lancadoEm: string; lancadoPor: string | null; alteradoEm: string | null;
   canceladoEm: string | null; canceladoPor: string | null; motivoCancelamento: string | null;
@@ -6053,7 +6056,7 @@ export type TipValeLancado = {
 export type TipValesPeriodo = {
   code: string; status: string;
   vales: TipValeLancado[];
-  pessoas: Array<{ participantId: string | null; employeeId: string; nome: string; semRegistro: boolean;
+  pessoas: Array<{ participantId: string | null; employeeId: string; nome: string; apelido?: string | null; semRegistro: boolean;
     funcao: string | null; empresaId: string | null; empresa: string | null;
     gorjeta: number; descontos: number; creditos: number; liquida: number; pagoNaRescisao: boolean }>;
 };
@@ -6581,7 +6584,7 @@ export type TipLinhaFolha = {
 };
 export type TipFolhaLiquidos = {
   code: string; label: string; linhas: TipLinhaFolha[]; total: number; extratos: string[]; etapas: TipEtapasEstado;
-  salariosCombinados: Array<{ employeeId: string; nome: string; valor: number; motivo: string | null }>;
+  salariosCombinados: Array<{ employeeId: string; nome: string; apelido?: string | null; valor: number; motivo: string | null }>;
 };
 
 const baseTip = (year: number, month: number) => `/payroll/tip/periods/${year}/${month}`;
