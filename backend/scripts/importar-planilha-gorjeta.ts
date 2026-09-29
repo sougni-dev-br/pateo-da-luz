@@ -129,6 +129,7 @@ async function main() {
       where: { deletedAt: null },
       select: {
         id: true, firstName: true, lastName: true, displayName: true, modality: true, baseSalary: true, companyId: true,
+        participaGorjeta: true, tipoGorjeta: true, tipFunctionId: true, pontosExtra: true, pontosExtraMotivo: true,
         admissionDate: true, terminationDate: true,
       },
     }),
@@ -215,6 +216,21 @@ async function main() {
 
     const extraBruto = l.pontosPers == null ? null : l.pontosPers - Number(funcao?.points ?? 0);
     const extra = extraBruto == null || Math.abs(extraBruto) < 0.005 ? null : Math.round(extraBruto * 100) / 100;
+    const dados = {
+      participaGorjeta: true,
+      tipoGorjeta: "PONTOS" as const,
+      tipFunctionId: funcao?.id ?? null,
+      pontosExtra: extra,
+      pontosExtraMotivo: extra == null ? null : `Planilha de gorjeta (${l.codigo}): ${l.pontosPers} pts no lugar de ${Number(funcao?.points ?? 0)}`,
+      ...(vinculoNovo ? { modality: vinculoNovo } : {}),
+      ...(!semRegistro && empresa ? { companyId: empresa.id } : {}),
+      ...(mudaSalario ? { baseSalary: salarioNovo } : {}),
+    };
+    // Rodar de novo não duplica histórico nem auditoria: quem já está igual é pulado.
+    const atual: Record<string, unknown> = emp;
+    const igual = Object.entries(dados).every(([k, v]) =>
+      v == null ? atual[k] == null : typeof v === "number" ? atual[k] != null && Number(atual[k]) === v : atual[k] === v);
+    if (igual) { console.log(`IGUAL ${prefixo} → já está assim no cadastro; nada a gravar.`); continue; }
     console.log(
       `${aplicar ? "GRAVA" : "SIMULA"} ${prefixo} → função ${funcao?.name ?? "—"}` +
       `${extra != null ? `, extra ${extra > 0 ? "+" : ""}${extra} pt (planilha ${l.pontosPers})` : ""}` +
@@ -224,16 +240,6 @@ async function main() {
       `${acerto ? " [acerto do RH]" : ""}`,
     );
     if (aplicar) {
-      const dados = {
-        participaGorjeta: true,
-        tipoGorjeta: "PONTOS" as const,
-        tipFunctionId: funcao?.id ?? null,
-        pontosExtra: extra,
-        pontosExtraMotivo: extra == null ? null : `Planilha de gorjeta (${l.codigo}): ${l.pontosPers} pts no lugar de ${Number(funcao?.points ?? 0)}`,
-        ...(vinculoNovo ? { modality: vinculoNovo } : {}),
-        ...(!semRegistro && empresa ? { companyId: empresa.id } : {}),
-        ...(mudaSalario ? { baseSalary: salarioNovo } : {}),
-      };
       await prisma.$transaction(async (tx) => {
         await tx.employee.update({ where: { id: emp.id }, data: dados });
         await registrarHistorico(tx, emp.id, vigencia, "script-importacao", `Importação da planilha (${l.codigo})`);
