@@ -45,7 +45,7 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
     { chave: "fixo", label: "Cotas fixas", valor: c.fixos.valor, detalhe: `${c.fixos.pessoas} pessoas`, cor: "#8c7a5b" },
     { chave: "reserva", label: "Reserva da casa", valor: c.reserva.valor, detalhe: `${pts(c.reserva.pontos)} pts`, cor: "var(--gold)" },
     { chave: "saldo", label: estourou ? "Estouro" : "Saldo não distribuído", valor: Math.abs(comp.saldo), cor: estourou ? "var(--danger)" : "var(--warning)",
-      detalhe: estourou ? "passa do líquido" : "fica retido no fechamento", hachurado: true },
+      detalhe: estourou ? "passa do líquido" : "livre; o que sobrar vai ao fundo", hachurado: true },
   ].filter((f) => f.valor > 0.004 || f.chave === "mes" || f.chave === "saldo" || (f.chave === "resc" && c.rescisoes.pessoas > 0));
 
   const base = Math.max(comp.netPool, comp.distribuido, 0.01);
@@ -57,7 +57,7 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
       ...(temRescisao ? [["Rescisões", `− ${money(comp.rescisoes.valor)}`, undefined] as [string, string, string | undefined]] : []),
       [`Ponto (÷ ${pts(comp.pontosDisponiveis)})`, money(comp.pointValue), "var(--gold)"],
       ["Distribuído", money(comp.distribuido), undefined],
-      [estourou ? "Estouro" : "Saldo", money(Math.abs(comp.saldo)), estourou ? "var(--danger)" : "var(--warning)"],
+      [estourou ? "Estouro" : `Livre (${pts(Math.max(0, comp.pointsRemaining))} pts)`, money(Math.abs(comp.saldo)), estourou ? "var(--danger)" : "var(--warning)"],
     ];
     return (
       <section aria-label="Resumo da apuração" className="resumo-compacto">
@@ -116,6 +116,15 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
               }} />
           ))}
         </div>
+        {!estourou && comp.saldo > 0.005 && comp.status !== "CLOSED" && (
+          <div className="livre-distribuir">
+            <span>
+              <strong>Livre para distribuir: {pts(Math.max(0, comp.pointsRemaining))} pts ({money(comp.saldo)})</strong>
+              {" "}— a critério do responsável, pelo <em>Ajuste</em> de quem vai receber, na tabela abaixo.
+            </span>
+            <span>O que não for usado entra no fundo de reserva no fechamento e vai acumulando mês a mês. Fundo hoje: <strong>{money(comp.fundoReservaSaldo)}</strong>.</span>
+          </div>
+        )}
         <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
           {fatias.map((f) => (
             <div key={f.chave} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
