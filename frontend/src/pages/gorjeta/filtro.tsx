@@ -3,7 +3,7 @@
 // ela estiver aberta — e a barra sempre diz quantos aparecem, para um filtro esquecido
 // não esconder ninguém sem aviso.
 import { Search, X } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 export type FiltroLista = { chave: string; rotulo: string; opcoes: Array<{ valor: string; rotulo: string }> };
 type Estado = { texto: string; valores: Record<string, string> };
@@ -24,8 +24,11 @@ function ler(chave: string): Estado {
 export function useFiltro(tabela: string) {
   const armazenamento = `gorjeta-filtro:${tabela}`;
   const [estado, setEstado] = useState<Estado>(() => ler(armazenamento));
+  // O estado mais recente, para quem chama fora do render (efeito, limpeza ao sair da aba).
+  const atual = useRef(estado);
 
   function gravar(novo: Estado) {
+    atual.current = novo;
     setEstado(novo);
     try { window.sessionStorage.setItem(armazenamento, JSON.stringify(novo)); } catch { /* só não lembra */ }
   }
@@ -52,15 +55,28 @@ export function useFiltro(tabela: string) {
     });
   }
 
+  const setValor = (chave: string, valor: string) =>
+    gravar({ ...atual.current, valores: { ...atual.current.valores, [chave]: valor } });
+
   return {
     texto: estado.texto,
     valores: estado.valores,
     ativo,
-    setTexto: (texto: string) => gravar({ ...estado, texto }),
-    setValor: (chave: string, valor: string) => gravar({ ...estado, valores: { ...estado.valores, [chave]: valor } }),
+    setTexto: (texto: string) => gravar({ ...atual.current, texto }),
+    setValor,
+    /** Tira o valor de uma lista só se ele ainda for `valor` (o usuário pode ter trocado). */
+    limparValorSe: (chave: string, valor: string) => { if (atual.current.valores[chave] === valor) setValor(chave, ""); },
     limpar: () => gravar({ texto: "", valores: {} }),
     aplicar,
   };
+}
+
+/**
+ * Valor gravado que não está mais entre as opções (outro mês, pessoa que saiu...).
+ * Lista vazia = opções ainda carregando: não dá para saber, então não é "fora".
+ */
+export function valorForaDasOpcoes(valor: string | undefined, opcoes: FiltroLista["opcoes"]): boolean {
+  return Boolean(valor) && opcoes.length > 0 && !opcoes.some((o) => o.valor === valor);
 }
 
 type BarraProps = {
@@ -79,13 +95,20 @@ export function BarraFiltro({ filtro, listas = [], total, visiveis, placeholder 
         <input type="search" value={filtro.texto} onChange={(e) => filtro.setTexto(e.target.value)}
           placeholder={placeholder} aria-label="Filtrar a tabela" />
       </label>
-      {listas.map((l) => (
-        <select key={l.chave} value={filtro.valores[l.chave] ?? ""} onChange={(e) => filtro.setValor(l.chave, e.target.value)}
-          aria-label={l.rotulo} className={filtro.valores[l.chave] ? "barra-filtro-ativo" : undefined}>
-          <option value="">{l.rotulo}: todos</option>
-          {l.opcoes.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
-        </select>
-      ))}
+      {listas.map((l) => {
+        const valor = filtro.valores[l.chave] ?? "";
+        // Valor guardado que sumiu das opções continua filtrando: aparece como tal, em vez
+        // de o select mostrar "todos" enquanto esconde gente.
+        const fora = valorForaDasOpcoes(valor, l.opcoes);
+        return (
+          <select key={l.chave} value={valor} onChange={(e) => filtro.setValor(l.chave, e.target.value)}
+            aria-label={l.rotulo} className={valor ? "barra-filtro-ativo" : undefined}>
+            <option value="">{l.rotulo}: todos</option>
+            {fora && <option value={valor}>{l.rotulo}: (não disponível)</option>}
+            {l.opcoes.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
+          </select>
+        );
+      })}
       {filtro.ativo && (
         <span className="barra-filtro-contagem">
           {visiveis} de {total}
@@ -100,4 +123,17 @@ export function BarraFiltro({ filtro, listas = [], total, visiveis, placeholder 
 export function opcoesDe<T>(lista: T[], valor: (item: T) => string | null | undefined): FiltroLista["opcoes"] {
   const vistos = [...new Set(lista.map(valor).filter((v): v is string => Boolean(v)))];
   return vistos.sort((a, b) => a.localeCompare(b, "pt-BR")).map((v) => ({ valor: v, rotulo: v }));
+}
+
+/** "MM/AAAA" → AAAAMM, para ordenar competências no tempo (texto ordenaria 01/2027 antes de 12/2026). */
+export function chaveCompetencia(competencia: string | null | undefined): number | null {
+  const m = /^(\d{1,2})\/(\d{4})$/.exec((competencia ?? "").trim());
+  if (!m) return null;
+  const mes = Number(m[1]);
+  return mes >= 1 && mes <= 12 ? Number(m[2]) * 100 + mes : null;
+}
+
+/** Opções de competência ("MM/AAAA"), da mais recente para a mais antiga. */
+export function opcoesCompetencia<T>(lista: T[], valor: (item: T) => string | null | undefined): FiltroLista["opcoes"] {
+  return opcoesDe(lista, valor).sort((a, b) => (chaveCompetencia(b.valor) ?? -1) - (chaveCompetencia(a.valor) ?? -1));
 }

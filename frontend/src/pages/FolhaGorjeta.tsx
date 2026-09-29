@@ -21,7 +21,7 @@ import { AbaPagamento } from "./gorjeta/AbaPagamento";
 import { AbaRelatorios } from "./gorjeta/AbaRelatorios";
 import { Pendencias } from "./gorjeta/Pendencias";
 import { ResumoApuracao } from "./gorjeta/ResumoApuracao";
-import { ApelidosContext } from "./gorjeta/NomePessoa";
+import { ApelidosContext, nomeComApelido } from "./gorjeta/NomePessoa";
 import { type LocalRow, MONTHS, inputStyle, money, mutedStyle, panelStyle, toPayload, toRows } from "./gorjeta/gorjetaUtils";
 
 type Aba = "apuracao" | "vales" | "pagamento" | "contabilidade" | "equipe" | "funcoes" | "relatorios";
@@ -54,7 +54,14 @@ export function FolhaGorjeta() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [aba, setAba] = useState<Aba>("apuracao");
-  const [valesPessoa, setValesPessoa] = useState<string | null>(null);
+  // Atalho "Vales de X": um pedido por clique (n muda a cada um). Vale uma vez só —
+  // trocar de aba ou de mês descarta, para o filtro não voltar sozinho depois.
+  const [pedidoVales, setPedidoVales] = useState<{ pessoa: string; n: number } | null>(null);
+  const pedidosVales = useRef(0);
+  function trocarAba(nova: Aba) {
+    setPedidoVales(null);
+    setAba(nova);
+  }
   const { confirmar, caixa: caixaConfirmacao } = useConfirmacao();
   const [comp, setComp] = useState<TipComputation | null>(null);
   const [rows, setRows] = useState<LocalRow[]>([]);
@@ -151,6 +158,7 @@ export function FolhaGorjeta() {
     let y = year;
     if (m < 1) { m = 12; y -= 1; }
     if (m > 12) { m = 1; y += 1; }
+    setPedidoVales(null);
     setYear(y);
     setMonth(m);
   }
@@ -324,7 +332,7 @@ export function FolhaGorjeta() {
       <Tabs
         className="abas-gorjeta"
         value={aba}
-        onChange={(v) => setAba(v as Aba)}
+        onChange={(v) => trocarAba(v as Aba)}
         tabs={[
           { value: "apuracao", label: "Apuração" },
           { value: "vales", label: "Vales" },
@@ -345,14 +353,14 @@ export function FolhaGorjeta() {
       )}
 
       {aba === "vales" && comp?.periodId && (
-        <AbaVales key={valesPessoa ?? "todos"} year={year} month={month} canEdit={canEdit} pessoaInicial={valesPessoa}
+        <AbaVales year={year} month={month} canEdit={canEdit} pedidoPessoa={pedidoVales}
           onNotice={(tone, message) => setNotice({ tone, message })} onChanged={() => void load()} />
       )}
       {aba === "vales" && !comp?.periodId && (
         <div className="estado-vazio">
           <strong>Nenhum período aberto em {MONTHS[month - 1]}/{year}.</strong>
           <span>Os vales são lançados dentro da apuração do mês.</span>
-          <Button size="sm" variant="secondary" onClick={() => setAba("apuracao")}>Ir para a Apuração</Button>
+          <Button size="sm" variant="secondary" onClick={() => trocarAba("apuracao")}>Ir para a Apuração</Button>
         </div>
       )}
 
@@ -410,7 +418,7 @@ export function FolhaGorjeta() {
             <>
               <Pendencias pendencias={comp.pendencias} avisos={comp.warnings} fechado={closed} compacto={telaCheia || aba === "pagamento"}
                 onIrRescisoes={() => {
-                  setAba("apuracao");
+                  trocarAba("apuracao");
                   // Espera a aba desenhar; rola até o bloco e leva o foco para ele.
                   window.setTimeout(() => {
                     const alvo = document.getElementById("rescisoes-do-periodo");
@@ -458,7 +466,7 @@ export function FolhaGorjeta() {
                   <span className="grupo-incluir">
                     <select value={addEmpId} onChange={(e) => setAddEmpId(e.target.value)} aria-label="Incluir pessoa avulsa">
                       <option value="">Incluir pessoa avulsa…</option>
-                      {disponiveis.map((e) => <option key={e.id} value={e.id}>{(e.displayName || `${e.firstName} ${e.lastName}`).trim()}{e.isActive ? "" : " (desligado)"}</option>)}
+                      {disponiveis.map((e) => <option key={e.id} value={e.id}>{nomeComApelido(`${e.firstName} ${e.lastName}`, e.displayName)}{e.isActive ? "" : " (desligado)"}</option>)}
                     </select>
                     <Button variant="secondary" size="sm" onClick={() => void adicionar()} disabled={!addEmpId || busy} leadingIcon={<Plus size={14} />}>Incluir</Button>
                   </span>
@@ -467,7 +475,7 @@ export function FolhaGorjeta() {
 
               {aba === "apuracao" && (
                 <AbaApuracao comp={comp} rows={rows} readonly={readonly} onRow={setRow}
-                  onRemove={(p) => void remover(p)} onGorjetaReal={gravarGorjetaReal} onVerVales={(id) => { setValesPessoa(id); setAba("vales"); }}
+                  onRemove={(p) => void remover(p)} onGorjetaReal={gravarGorjetaReal} onVerVales={(id) => { pedidosVales.current += 1; setPedidoVales(id ? { pessoa: id, n: pedidosVales.current } : null); setAba("vales"); }}
                   recibo={{
                     antesDeGravar: flush,
                     onAplicado: (c) => { aplicar(c); setNotice({ tone: "success", message: "Termo de rescisão lido: a gorjeta paga ficou registrada e saiu da lista a pagar." }); },

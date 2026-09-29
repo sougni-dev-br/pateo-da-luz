@@ -12,7 +12,7 @@ import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { money, mutedStyle, panelStyle } from "./gorjetaUtils";
-import { ApelidosContext, NomePessoa, textoPessoa } from "./NomePessoa";
+import { ApelidosContext, NomePessoa, resolverApelido, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 
 type Props = {
@@ -64,7 +64,7 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
   const ord = useOrdenacao("conferencia");
   const col = useColunas("conferencia");
   const filtro = useFiltro("conferencia");
-  // O extrato só traz o nome: o apelido vem do cadastro, pelo funcionário.
+  // O apelido vem na linha; se não vier (backend antigo), sai do cadastro pelo funcionário.
   const apelidos = useContext(ApelidosContext);
   const erro = (e: unknown) => onNotice("error", (e as Error).message);
 
@@ -106,7 +106,7 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
   const fechado = dados.status === "CLOSED";
   const ok = estado.OK_CONTABILIDADE.marcada;
   const filtradas = filtro.aplicar(dados.linhas.filter((l) => !soPendentes || PENDENTE.has(l.status)),
-    (l) => [textoPessoa(l.nome, l.employeeId ? apelidos.get(l.employeeId) : null), l.nomeNoExtrato ?? "", l.empresa ?? "", l.justificativa ?? ""].join(" "),
+    (l) => [textoPessoa(l.nome, resolverApelido(apelidos, l.employeeId, l.apelido)), l.nomeNoExtrato ?? "", l.empresa ?? "", l.justificativa ?? ""].join(" "),
     { empresa: (l) => l.empresa, status: (l) => STATUS[l.status].rotulo });
   const linhas = aplicarOrdem(filtradas, ord.ordem, EXT);
   const filtrando = filtro.ativo || soPendentes;
@@ -218,7 +218,7 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
                 return (
                   <Table.Row key={l.chave} className={pend ? "linha-pendente" : undefined}>
                     <Table.Td style={{ textAlign: "left" }}>
-                      <NomePessoa nome={l.nome} employeeId={l.employeeId} />
+                      <NomePessoa nome={l.nome} employeeId={l.employeeId} apelido={l.apelido} />
                       {l.justificativa && <div style={mutedStyle}>{l.justificativa}</div>}
                       {l.status === "VINCULO_A_CONFIRMAR" && l.nomeNoExtrato && l.nomeNoExtrato !== l.nome && (
                         <div style={mutedStyle}>no extrato: {l.nomeNoExtrato}</div>

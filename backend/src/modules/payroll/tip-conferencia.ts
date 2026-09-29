@@ -41,6 +41,8 @@ export type LinhaConferencia = {
   chave: string;               // employeeId ou "extrato:<nome>"
   employeeId: string | null;
   nome: string;
+  // Apelido do cadastro (null sem vínculo, sem apelido ou igual ao nome).
+  apelido: string | null;
   empresa: string | null;
   apuracao: number | null;
   extrato: number | null;
@@ -58,11 +60,14 @@ const digitos = (t: string | null) => (t ?? "").replace(/\D/g, "");
 
 // Salário combinado vale para a pessoa, esteja ou não na apuração da gorjeta.
 export type Combinados = Map<string, number>;
+// Apelido por employeeId (só quem tem).
+export type Apelidos = Map<string, string | null>;
 
 export function conferir(
   apuracao: PessoaApurada[], extratos: ExtratoEmpresa[], aceites: Map<string, string>, combinados: Combinados = new Map(),
+  apelidos: Apelidos = new Map(),
 ): LinhaConferencia[] {
-  const saida: LinhaConferencia[] = [];
+  const saida: Array<Omit<LinhaConferencia, "apelido">> = [];
   const noExtrato = new Map<string, { linha: LinhaExtrato; empresa: string; id?: string }>();
   for (const e of extratos) for (const l of e.linhas) if (l.employeeId) noExtrato.set(l.employeeId, { linha: l, empresa: e.empresa, id: e.id });
   const cnpjsCarregados = new Set(extratos.map((e) => digitos(e.cnpj)));
@@ -110,7 +115,7 @@ export function conferir(
         apuracao: null, extrato: l.gorjeta, diferenca: null, ...aceita(chave, st) });
     }
   }
-  return saida;
+  return saida.map((l) => ({ ...l, apelido: l.employeeId ? apelidos.get(l.employeeId) ?? null : null }));
 }
 
 export type OrigemFolha = "EXTRATO" | "SALARIO_COMBINADO" | "SEM_REGISTRO";

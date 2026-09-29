@@ -53,6 +53,7 @@ describe("sugestão para a tela de rescisão", () => {
     vales: { itens: [{ codigo: "VALE-2026-00003", data: "2026-09-05", tipo: "ADIANTAMENTO", descricao: null, valor: 100 }], descontos: 100, creditos: 0, liquido: 100, entraNaRescisao: true },
     gorjeta: { periodo: "Setembro 2026", status: "OPEN" as const, pontos: 3.5, valorPonto: 147.51, gorjeta: 516.29, pendente: false, diasSalario: 20, salarioProporcional: 1466.67 },
     gorjetaObservacao: null,
+    jaPagoNaLista: null,
   };
 
   test("sem registro: salário, gorjeta e vales vêm separados; o bruto é a soma", () => {
