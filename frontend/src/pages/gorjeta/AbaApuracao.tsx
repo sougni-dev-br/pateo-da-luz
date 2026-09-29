@@ -412,7 +412,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
           <span style={mutedStyle}>
             Para cada saída, informe a <strong>gorjeta paga</strong> (digitada ou lida do termo da contabilidade) ou o serviço até a saída.
             A gorjeta paga vira pontos pelo valor do ponto do mês: se valer menos que o direito, o resto volta à apuração; se valer mais,
-            a diferença entra como extra com justificativa automática. Paga na rescisão, sai da lista a pagar.
+            a diferença entra como extra com justificativa automática. CLT: já foi paga na rescisão e sai da lista. Sem registro: não há termo; o valor vai para a lista com o salário.
           </span>
           <ReciboRescisao year={comp.year} month={comp.month} readonly={readonly}
             antesDeGravar={recibo.antesDeGravar} onAplicado={recibo.onAplicado} onErro={recibo.onErro} />
@@ -454,7 +454,8 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
                     <Table.Td>
                       {quitada ? (p.rescisaoRecibo
                         ? <SeloRecibo pago pagamento={p.rescisaoRecibo.pagamento} arquivo={p.rescisaoRecibo.arquivo} />
-                        : <StatusBadge tone="success">Paga · digitada</StatusBadge>)
+                        : p.semRegistro ? <StatusBadge tone="info" title="Sem registro: não há rescisão da contabilidade; o valor vai para a lista de pagamento com o salário">Valor manual · na lista</StatusBadge>
+                          : <StatusBadge tone="success">Paga · digitada</StatusBadge>)
                         : p.rescisaoPendente ? <StatusBadge tone="warning">Falta o valor</StatusBadge>
                         : <StatusBadge tone="info">Calculada</StatusBadge>}
                     </Table.Td>
