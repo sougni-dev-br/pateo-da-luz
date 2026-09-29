@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  calcularParticipante, calcularRateio, diasElegiveis, motivoGorjetaRealSemEfeito, type ParticipanteEntrada, type RegrasPeriodo,
+  adiantamentoDoFechado, calcularParticipante, calcularRateio, diasElegiveis, motivoGorjetaRealSemEfeito, type ParticipanteEntrada, type RegrasPeriodo,
 } from "../tip-rateio.js";
 
 // Gabarito: planilha de apuração de 28/09/2026, competência setembro (26/08 → 25/09).
@@ -449,3 +449,78 @@ describe("gorjeta real que deixou de valer", () => {
     expect(motivoGorjetaRealSemEfeito("FORA_DO_PERIODO", "PONTOS")).toContain("fora do período");
   });
 });
+
+describe("adiantamento salarial de sem registro", () => {
+  // Setembro/2026: 40% do salário base, pago em 20/09 (Folha → configurações).
+  const REGRAS: RegrasPeriodo = {
+    ...SETEMBRO, mesSalario: { start: d("2026-09-01"), end: d("2026-09-30") }, adiantamentoPercent: 40, adiantamentoDia: 20,
+  };
+  const semReg = (over: Partial<ParticipanteEntrada> = {}) =>
+    pessoa({ semRegistro: true, salarioBase: 2200, admissao: d("2026-01-01"), recebeAdiantamento: true, ...over });
+
+  test("recebe adiantamento: 40% do salário base sai do total a pagar", () => {
+    const r = calcularParticipante(REGRAS, semReg({ basePoints: 2, vales: [{ type: "VALE", amount: 100 }] }), VALOR_PONTO);
+    expect(r.salarioProporcional).toBe(2200);
+    expect(r.adiantamentoSalarial).toBe(880);
+    expect(r.comissaoLiquida).toBe(272.66); // 2 × 186,33 − 100 de vale
+    expect(r.totalAPagar).toBe(1592.66); // 2.200 − 880 + 272,66
+  });
+
+  test("recebe só no pagamento: nada é descontado", () => {
+    const r = calcularParticipante(REGRAS, semReg({ basePoints: 2, recebeAdiantamento: false }), VALOR_PONTO);
+    expect(r.adiantamentoSalarial).toBe(0);
+    expect(r.totalAPagar).toBe(round(2200 + r.comissaoLiquida));
+  });
+
+  test("CLT com a opção marcada não muda (o adiantamento dele vem do extrato)", () => {
+    const r = calcularParticipante(REGRAS, semReg({ semRegistro: false }), VALOR_PONTO);
+    expect(r.adiantamentoSalarial).toBe(0);
+  });
+
+  test("sem a regra do período (percentual ausente) ninguém recebeu adiantamento", () => {
+    const r = calcularParticipante({ ...REGRAS, adiantamentoPercent: undefined }, semReg(), VALOR_PONTO);
+    expect(r.adiantamentoSalarial).toBe(0);
+  });
+
+  test("admitido depois do dia 20 não recebeu; admitido no próprio dia 20 recebeu", () => {
+    expect(calcularParticipante(REGRAS, semReg({ admissao: d("2026-09-21") }), VALOR_PONTO).adiantamentoSalarial).toBe(0);
+    // No dia 20 recebeu, limitado ao salário de 20 a 30/09 (11 dias × 73,33).
+    expect(calcularParticipante(REGRAS, semReg({ admissao: d("2026-09-20") }), VALOR_PONTO).adiantamentoSalarial).toBe(806.63);
+  });
+
+  test("saiu antes do dia 20 não recebeu; saiu no próprio dia 20 recebeu (hora gravada não importa)", () => {
+    expect(calcularParticipante(REGRAS, semReg({ desligamento: d("2026-09-19") }), VALOR_PONTO).adiantamentoSalarial).toBe(0);
+    const noDia = calcularParticipante(REGRAS, semReg({ desligamento: new Date("2026-09-20T15:00:00.000Z") }), VALOR_PONTO);
+    expect(noDia.adiantamentoSalarial).toBe(880);
+  });
+
+  test("nunca passa do salário proporcional: desconta até zerar o salário, não a gorjeta", () => {
+    // Saiu 22/09 com 12 faltas no mês: 10 dias × 73,33 = 733,30 < 880.
+    const r = calcularParticipante(REGRAS, semReg({ basePoints: 0, desligamento: d("2026-09-22"), faltasSalario: 12 }), VALOR_PONTO);
+    expect(r.salarioProporcional).toBe(733.3);
+    expect(r.adiantamentoSalarial).toBe(733.3);
+    expect(r.totalAPagar).toBe(round(r.comissaoLiquida));
+  });
+
+  test("rescisão lançada em Contas a Pagar: total zero, como antes", () => {
+    const r = calcularParticipante(REGRAS, semReg({ desligamento: d("2026-09-22"), rescisaoLancada: true, rescisaoServicoBruto: 10000 }), VALOR_PONTO);
+    expect(r.pagoNaRescisao).toBe(true);
+    expect(r.totalAPagar).toBe(0);
+  });
+
+  test("dia 31 em mês de 30 dias vira o último dia do mês", () => {
+    const r = calcularParticipante({ ...REGRAS, adiantamentoDia: 31 }, semReg({ desligamento: d("2026-09-29") }), VALOR_PONTO);
+    expect(r.adiantamentoSalarial).toBe(0); // saiu 29/09, antes de 30/09
+  });
+
+  test("período fechado: o adiantamento sai do total gravado, que não muda", () => {
+    const base = { semRegistro: true, pagoNaRescisao: false, salarioProporcional: 2200, comissaoLiquida: 272.66 };
+    expect(adiantamentoDoFechado({ ...base, totalAPagar: 1592.66 })).toBe(880);
+    // Fechado antes do adiantamento existir: total = salário + gorjeta → zero.
+    expect(adiantamentoDoFechado({ ...base, totalAPagar: 2472.66 })).toBe(0);
+    expect(adiantamentoDoFechado({ ...base, pagoNaRescisao: true, totalAPagar: 0 })).toBe(0);
+    expect(adiantamentoDoFechado({ ...base, semRegistro: false, totalAPagar: 0 })).toBe(0);
+  });
+});
+
+const round = (v: number) => Math.round(v * 100) / 100;

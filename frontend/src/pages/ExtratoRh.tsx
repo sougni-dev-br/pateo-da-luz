@@ -47,7 +47,8 @@ export function ExtratoRh() {
   async function handleImport() {
     if (!preview || !base64) return;
     const naoEncontrados = preview.items.length - preview.matchedCount;
-    const msg = `Gerar ${preview.items.length} salário(s) no Contas a Pagar (total ${preview.totalLiquido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })})`
+    const oQue = preview.calculo === "ADIANTAMENTO" ? "adiantamento(s) (vencimento dia 20)" : "salário(s)";
+    const msg = `Gerar ${preview.items.length} ${oQue} no Contas a Pagar (total ${preview.totalLiquido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })})`
       + (naoEncontrados > 0 ? `, cadastrando automaticamente ${naoEncontrados} funcionário(s) novo(s)` : "")
       + "?";
     if (!window.confirm(msg)) return;
@@ -55,7 +56,7 @@ export function ExtratoRh() {
     try {
       const r = await importExtratoRh(base64, fileName || "extrato.pdf");
       setResult(r);
-      setNotice({ tone: "success", message: `${r.titulosGerados} salário(s) liberado(s) ao Contas a Pagar. ${r.funcionariosCadastrados} funcionário(s) cadastrado(s).` });
+      setNotice({ tone: "success", message: `${r.titulosGerados} ${r.calculo === "ADIANTAMENTO" ? "adiantamento(s)" : "salário(s)"} liberado(s) ao Contas a Pagar. ${r.funcionariosCadastrados} funcionário(s) cadastrado(s).` });
     } catch (e) {
       setNotice({ tone: "error", message: (e as Error).message });
     } finally {
@@ -90,6 +91,7 @@ export function ExtratoRh() {
       {preview && (
         <>
           <FormGrid cols={4}>
+            <SummaryCard compact label="Extrato" value={preview.calculo === "ADIANTAMENTO" ? "Adiantamento (dia 20)" : "Folha do mês"} tone={preview.calculo === "ADIANTAMENTO" ? "warning" : "neutral"} />
             <SummaryCard compact label="Empresa" value={preview.empresa || "—"} />
             <SummaryCard compact label="Competência" value={`${MONTHS[preview.competenceMonth] ?? preview.competenceMonth}/${preview.competenceYear}`} />
             <SummaryCard compact label="Total líquido" moneyValue={preview.totalLiquido} tone="success" />
@@ -140,7 +142,7 @@ export function ExtratoRh() {
 
           {result && (
             <Alert tone="success">
-              <strong>{result.titulosGerados}</strong> salário(s) liberado(s) ao Contas a Pagar (total {result.totalLiquido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })})
+              <strong>{result.titulosGerados}</strong> {result.calculo === "ADIANTAMENTO" ? "adiantamento(s)" : "salário(s)"} liberado(s) ao Contas a Pagar (total {result.totalLiquido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })})
               {result.funcionariosCadastrados > 0 ? ` · ${result.funcionariosCadastrados} funcionário(s) cadastrado(s) automaticamente` : ""}. Já aparecem na Folha de Pagamento / Contas a Pagar e no DRE (despesa de pessoal).
             </Alert>
           )}

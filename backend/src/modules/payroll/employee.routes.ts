@@ -134,6 +134,14 @@ export function lerSalarioCombinado(b: Record<string, unknown>): { erro: string 
   return { dados: { salarioCombinado: valor, salarioCombinadoMotivo: motivo } };
 }
 
+// Recebe adiantamento salarial (no dia do adiantamento) ou só no pagamento. Só é gravado
+// quando o corpo traz o campo, e só como booleano: "false" em texto não pode virar true.
+export function lerRecebeAdiantamento(b: Record<string, unknown>): { erro: string } | { dados: { recebeAdiantamento?: boolean } } {
+  if (!("recebeAdiantamento" in b)) return { dados: {} };
+  if (typeof b.recebeAdiantamento !== "boolean") return { erro: "Informe se recebe adiantamento salarial (sim ou não)." };
+  return { dados: { recebeAdiantamento: b.recebeAdiantamento } };
+}
+
 // Trajeto: lista de pernas por sentido. O corpo manda a lista inteira e ela
 // substitui a anterior — meio-termo (só remover a perna X) não existe aqui,
 // porque a ordem das pernas importa e reconciliar item a item convida a erro.
@@ -269,6 +277,8 @@ employeeRouter.post("/", async (request, response) => {
   if (existing) return response.status(400).json({ message: "Já existe um funcionário com este CPF." });
   const combinado = lerSalarioCombinado(b);
   if ("erro" in combinado) return response.status(400).json({ message: combinado.erro });
+  const adiantamento = lerRecebeAdiantamento(b);
+  if ("erro" in adiantamento) return response.status(400).json({ message: adiantamento.erro });
 
   const legs = parseLegs(b.vtLegs);
 
@@ -278,6 +288,7 @@ employeeRouter.post("/", async (request, response) => {
       cpf,
       ...buildEmployeeData(b),
       ...combinado.dados,
+      ...adiantamento.dados,
       isActive: true,
       createdById: user.id,
     },
@@ -329,6 +340,8 @@ employeeRouter.put("/:id", async (request, response) => {
   if (cpfConflict) return response.status(400).json({ message: "CPF já está em uso por outro funcionário." });
   const combinado = lerSalarioCombinado(b);
   if ("erro" in combinado) return response.status(400).json({ message: combinado.erro });
+  const adiantamento = lerRecebeAdiantamento(b);
+  if ("erro" in adiantamento) return response.status(400).json({ message: adiantamento.erro });
 
   // Trajeto só é reescrito quando o corpo traz "vtLegs". Um PUT sem o campo
   // (uma tela antiga, um script) não pode apagar o trajeto de ninguém em
@@ -348,6 +361,7 @@ employeeRouter.put("/:id", async (request, response) => {
       cpf,
       ...buildEmployeeData(b),
       ...combinado.dados,
+      ...adiantamento.dados,
       updatedById: user.id,
     },
     include: employeeInclude,
