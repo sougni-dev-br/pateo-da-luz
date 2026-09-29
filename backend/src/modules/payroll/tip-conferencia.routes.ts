@@ -9,6 +9,7 @@ import { userHasPermission } from "../security/menu-permissions.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
+import { apelidoDe, nomeCompleto } from "./nomes.js";
 import {
   type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, conferir, ehPendente, montarFolhaLiquidos,
 } from "./tip-conferencia.js";
@@ -288,7 +289,7 @@ tipConferenciaRouter.get("/periods/:year/:month/folha-liquidos", async (request,
     extratos: extratos.map((e) => e.meta.empresa),
     etapas,
     salariosCombinados: combinados.map((c) => ({
-      employeeId: c.id, nome: (c.displayName || `${c.firstName} ${c.lastName}`).trim(),
+      employeeId: c.id, nome: nomeCompleto(c), apelido: apelidoDe(c),
       valor: Number(c.salarioCombinado), motivo: c.salarioCombinadoMotivo,
     })),
   });

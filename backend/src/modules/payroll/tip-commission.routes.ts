@@ -23,6 +23,7 @@ import { detalheFechamento, listarFechamentos } from "./tip-fechamento.service.j
 import { lerPdfRescisao } from "./tip-trct.service.js";
 import { tipConferenciaRouter } from "./tip-conferencia.routes.js";
 import { tipValesRouter } from "./tip-vales.routes.js";
+import { apelidoDe, nomeCompleto } from "./nomes.js";
 
 // Formata dd/mm a partir de uma data UTC.
 function fmtDay(d: Date): string {
@@ -469,7 +470,7 @@ tipCommissionRouter.post("/extrato/preview", async (request, response) => {
       nome: f.nome, cpf: f.cpf, liquido: f.liquido, gorjeta: f.gorjeta,
       matched: Boolean(emp),
       employeeId: emp?.id ?? null,
-      employeeName: emp ? (emp.displayName || `${emp.firstName} ${emp.lastName}`).trim() : null,
+      employeeName: emp ? nomeCompleto(emp) : null,
       isActive: emp?.isActive ?? null,
     };
   });
@@ -1034,7 +1035,7 @@ tipCommissionRouter.post("/periods/:year/:month/rescisao-recibo", async (request
   if (!emp) {
     return response.status(422).json({ message: `Não achei no cadastro de funcionários de quem é o termo (${recibo.nome ?? "nome não lido"}): nem pelo CPF, nem pelo nome completo.` });
   }
-  const nome = (emp.displayName || `${emp.firstName} ${emp.lastName}`).trim();
+  const nome = nomeCompleto(emp);
 
   const periodo = await prisma.tipPeriod.findUnique({ where: { competenceYear_competenceMonth: { competenceYear: year, competenceMonth: month } } });
   if (!periodo) return response.status(404).json({ message: "Período não encontrado." });

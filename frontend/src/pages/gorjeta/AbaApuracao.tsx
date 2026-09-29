@@ -8,6 +8,8 @@ import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { RegrasPessoa, temRegraPropria } from "./RegrasPessoa";
 import { ReciboRescisao, SeloRecibo } from "./ReciboRescisao";
 import { DialogoGorjetaReal } from "./GorjetaReal";
+import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
+import { NomePessoa, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
   type LocalRow, type RowPatch, fmtDate, money, mutedStyle, numInputStyle, ordenar, panelStyle, pts,
@@ -129,7 +131,19 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
     setAgruparState(v);
     try { window.localStorage.setItem("gorjeta-agrupar", v ? "sim" : "nao"); } catch { /* só não lembra */ }
   }
-  const ordenados = useMemo(() => aplicarOrdem(participantes, ordem, EXTRATORES), [participantes, ordem]);
+  // Filtro: nome/apelido/função/empresa pelo texto; vínculo, empresa, função e situação por lista.
+  const filtro = useFiltro("apuracao");
+  const ROTULO_SITUACAO: Record<string, string> = { MES: "No mês", RESCISAO: "Desligado no período", RESCISAO_QUITADA: "Desligado no período", FORA_DO_PERIODO: "Fora do período" };
+  const listasFiltro = [
+    { chave: "vinculo", rotulo: "Vínculo", opcoes: [{ valor: "CLT", rotulo: "CLT" }, { valor: "Sem registro", rotulo: "Sem registro" }] },
+    { chave: "empresa", rotulo: "Empresa", opcoes: opcoesDe(participantes, (p) => p.companyName) },
+    { chave: "funcao", rotulo: "Função", opcoes: opcoesDe(participantes, (p) => p.functionName) },
+    { chave: "situacao", rotulo: "Situação", opcoes: ["No mês", "Desligado no período", "Fora do período"].map((x) => ({ valor: x, rotulo: x })) },
+  ];
+  const filtrados = filtro.aplicar(participantes,
+    (p) => [textoPessoa(p.employeeName, p.apelido), p.functionName ?? "", p.companyName ?? ""].join(" "),
+    { vinculo: (p) => (p.semRegistro ? "Sem registro" : "CLT"), empresa: (p) => p.companyName, funcao: (p) => p.functionName, situacao: (p) => ROTULO_SITUACAO[p.tipoCalculo] });
+  const ordenados = aplicarOrdem(filtrados, ordem, EXTRATORES);
   // Texto começa do A; número começa do maior, que é o que se costuma conferir.
   const ordenarPor = (coluna: string) => alternar(coluna, TEXTO.has(coluna) ? "asc" : "desc");
   const th = (coluna: string) => ({ coluna, ordem, onOrdenar: () => ordenarPor(coluna) });
@@ -142,7 +156,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
     { chave: "fora", titulo: "Fora do período", nota: "Saíram antes do início do período: não recebem nesta competência.",
       lista: ordenados.filter((p) => p.tipoCalculo === "FORA_DO_PERIODO") },
   ] : [{ chave: "todos", titulo: "Todos", nota: null as string | null, lista: ordenados }];
-  const totalVales = participantes.reduce((a, p) => a + p.creditos - p.descontos, 0);
+  const totalVales = filtrados.reduce((a, p) => a + p.creditos - p.descontos, 0);
 
   function linha(p: TipComputedParticipant) {
     const r = rowPorFuncionario.get(p.employeeId);
@@ -153,12 +167,11 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
     return (
       <Table.Row key={p.employeeId} style={fora ? { opacity: 0.55 } : undefined}>
         <Table.Td>
-          <div style={{ fontWeight: 500 }}>{p.employeeName}</div>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2, alignItems: "center" }}>
+          <NomePessoa nome={p.employeeName} apelido={p.apelido}>
             {p.functionName && <span style={mutedStyle}>{p.functionName}</span>}
             {p.semRegistro && <StatusBadge tone="warning">Sem registro</StatusBadge>}
             {p.terminationDate && p.tipoCalculo !== "MES" && <StatusBadge tone="neutral">Saída {fmtDate(p.terminationDate)}</StatusBadge>}
-          </div>
+          </NomePessoa>
         </Table.Td>
 {v("base") && (
         <Table.Td align="center" style={num}>
@@ -340,6 +353,8 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
         </div>
       </div>
 
+      <BarraFiltro filtro={filtro} listas={listasFiltro} total={participantes.length} visiveis={filtrados.length} />
+      {filtrados.length === 0 && <span style={mutedStyle}>Ninguém bate com o filtro.</span>}
       <Table className="tabela-gorjeta">
         <Table.Body>
           {grupos.map((g) => g.lista.length > 0 && (
@@ -360,17 +375,17 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
             </Fragment>
           ))}
           <Table.Row>
-            <Table.Td style={totalTd}>Total distribuído</Table.Td>
+            <Table.Td style={totalTd}>{filtro.ativo ? `Total do filtro (${filtrados.length} de ${participantes.length})` : "Total distribuído"}</Table.Td>
             {brancoTotal > 0 && <Table.Td colSpan={brancoTotal} style={totalTd}> </Table.Td>}
 {v("pontos") && (
-            <Table.Td align="center" style={{ ...totalTd, ...num }}>{pts(somaPontos(participantes))}</Table.Td>
+            <Table.Td align="center" style={{ ...totalTd, ...num }}>{pts(somaPontos(filtrados))}</Table.Td>
 )}
 {v("gorjeta") && (
-            <Table.Td align="center" style={{ ...totalTd, ...num }}>{money(somaGorjeta(participantes))}</Table.Td>
+            <Table.Td align="center" style={{ ...totalTd, ...num }}>{money(somaGorjeta(filtrados))}</Table.Td>
 )}
 {v("liquido") && (
             <Table.Td align="center" style={{ ...totalTd, ...num }}>
-              {money(participantes.reduce((a, p) => a + p.netCommission, 0))}
+              {money(filtrados.reduce((a, p) => a + p.netCommission, 0))}
               {totalVales !== 0 && <div style={{ ...mutedStyle, fontSize: 11, fontWeight: 400 }}>vales {money(totalVales)}</div>}
             </Table.Td>
 )}
