@@ -973,9 +973,11 @@ tipCommissionRouter.post("/periods/:year/:month/rescisao-recibo", async (request
   if (typeof b.fileBase64 !== "string" || !b.fileBase64) return response.status(400).json({ message: "Envie o PDF da rescisão." });
   const arquivo = String(b.fileName ?? "rescisao.pdf").replace(/[^\p{L}\p{N}.\-() _]/gu, "_").slice(0, 120);
 
+  const pdf = Buffer.from(b.fileBase64.replace(/^data:[^,]*,/, ""), "base64");
+  if (pdf.length > 5 * 1024 * 1024) return response.status(413).json({ message: "Arquivo grande demais para um termo de rescisão (máximo 5 MB)." });
   let lido;
   try {
-    lido = await lerPdfRescisao(Buffer.from(b.fileBase64.replace(/^data:[^,]*,/, ""), "base64"));
+    lido = await lerPdfRescisao(pdf);
   } catch (err) {
     return response.status(422).json({ message: "Não foi possível ler o PDF da rescisão. " + (err as Error).message });
   }
