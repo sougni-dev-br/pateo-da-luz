@@ -6,18 +6,24 @@ import { useEffect, useRef, useState } from "react";
 
 export type ColunaOpcional = { chave: string; rotulo: string };
 
-function ler(armazenamento: string): Set<string> {
+function ler(armazenamento: string, padraoEstreito: string[] = []): Set<string> {
   try {
-    const lista = JSON.parse(window.localStorage.getItem(armazenamento) ?? "[]") as unknown;
+    const guardado = window.localStorage.getItem(armazenamento);
+    // Nunca escolheu: no celular já começa só com o essencial.
+    if (guardado == null) {
+      const estreito = typeof window.matchMedia === "function" && window.matchMedia("(max-width: 700px)").matches;
+      return new Set(estreito ? padraoEstreito : []);
+    }
+    const lista = JSON.parse(guardado) as unknown;
     return new Set(Array.isArray(lista) ? lista.filter((x): x is string => typeof x === "string") : []);
   } catch {
     return new Set();
   }
 }
 
-export function useColunas(chave: string) {
+export function useColunas(chave: string, padraoEstreito: string[] = []) {
   const armazenamento = `gorjeta-colunas:${chave}`;
-  const [ocultas, setOcultas] = useState<Set<string>>(() => ler(armazenamento));
+  const [ocultas, setOcultas] = useState<Set<string>>(() => ler(armazenamento, padraoEstreito));
 
   function gravar(novas: Set<string>) {
     setOcultas(novas);

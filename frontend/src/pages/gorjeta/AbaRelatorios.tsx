@@ -12,6 +12,7 @@ import { TIPO_MUDANCA, fmtDia } from "./HistoricoLinhaDoTempo";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import { RelatorioFechamentos } from "./RelatorioFechamentos";
 import { RelatorioVales } from "./RelatorioVales";
+import { useConfirmacao } from "./Confirmacao";
 
 type Visao = "fechamentos" | "vales" | "mudancas" | "evolucao" | "reserva" | "funcoes";
 
@@ -261,6 +262,7 @@ const TIPO_MOV: Record<TipReservaMovimento["type"], string> = {
 };
 
 function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
+  const { confirmar, caixa } = useConfirmacao();
   const [dados, setDados] = useState<{ saldo: number; movimentos: TipReservaMovimento[] } | null>(null);
   const [ajuste, setAjuste] = useState({ valor: "", descricao: "", data: hoje() });
   const [itens, setItens] = useState<Array<{ employeeId: string; valor: string; descricao: string }>>([{ employeeId: "", valor: "", descricao: "" }]);
@@ -287,7 +289,7 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
   }
 
   async function apagarAjuste(id: string) {
-    if (!window.confirm("Apagar este ajuste do fundo?")) return;
+    if (!(await confirmar({ titulo: "Apagar este ajuste do fundo?", texto: "O saldo do fundo volta ao que era antes do ajuste. A auditoria guarda o que foi apagado.", confirmar: "Apagar ajuste", perigo: true }))) return;
     try { await deleteTipReserveAdjustment(id); await carregar(); } catch (e) { erro(e); }
   }
 
@@ -295,18 +297,23 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
     if (!comp?.periodId) return;
     const validos = itens.filter((i) => i.employeeId && Number(i.valor.replace(",", ".")) > 0);
     if (validos.length === 0) return onNotice("warning", "Escolha ao menos um funcionário e um valor.");
-    if (!window.confirm(`Distribuir ${money(totalDistribuir)} do fundo como crédito na gorjeta de ${MONTHS[comp.month - 1]}/${comp.year}?`)) return;
+    if (!(await confirmar({
+      titulo: `Distribuir ${money(totalDistribuir)} do fundo?`,
+      texto: `Vira crédito na gorjeta de ${MONTHS[comp.month - 1]}/${comp.year} de ${validos.length} pessoa(s) e sai do saldo do fundo.`,
+      confirmar: "Distribuir",
+    }))) return;
     try {
       await distributeTipReserve(comp.periodId, validos.map((i) => ({ employeeId: i.employeeId, amount: Number(i.valor.replace(",", ".")), notes: i.descricao || undefined })));
       setItens([{ employeeId: "", valor: "", descricao: "" }]);
       await carregar();
       onChanged();
-      onNotice("success", "Reserva distribuída: os créditos aparecem nos vales de cada pessoa na Apuração.");
+      onNotice("success", "Reserva distribuída: os créditos aparecem na aba Vales de cada pessoa.");
     } catch (e) { erro(e); }
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {caixa}
       <div style={{ ...panelStyle, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 24 }}>
         <div>
           <div style={mutedStyle}>Saldo do fundo de reserva</div>
@@ -328,7 +335,7 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
           <strong>Lançar ajuste <span style={{ ...mutedStyle, fontWeight: 400 }}>— saldo inicial, correção ou retirada (valor negativo)</span></strong>
           <div className="barra-lista">
             <input type="date" value={ajuste.data} onChange={(e) => setAjuste({ ...ajuste, data: e.target.value })} style={{ ...inputStyle, width: "auto" }} aria-label="Data do ajuste" />
-            <input type="number" step="0.01" value={ajuste.valor} placeholder="Valor R$" onChange={(e) => setAjuste({ ...ajuste, valor: e.target.value })} style={{ ...numInputStyle, width: 130 }} aria-label="Valor do ajuste" />
+            <input type="number" step="0.01" inputMode="decimal" value={ajuste.valor} placeholder="Valor R$" onChange={(e) => setAjuste({ ...ajuste, valor: e.target.value })} style={{ ...numInputStyle, width: 130 }} aria-label="Valor do ajuste" />
             <input value={ajuste.descricao} placeholder="Descrição (ex.: saldo guardado até set/2026)" onChange={(e) => setAjuste({ ...ajuste, descricao: e.target.value })}
               style={{ ...inputStyle, flex: "1 1 260px", width: "auto" }} aria-label="Descrição do ajuste" />
             <Button onClick={() => void lancarAjuste()} leadingIcon={<Plus size={14} />} disabled={!ajuste.valor || !ajuste.descricao.trim()}>Lançar</Button>
@@ -349,7 +356,7 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
                   <option value="">Funcionário…</option>
                   {pessoas.map((p) => <option key={p.employeeId} value={p.employeeId}>{p.employeeName}</option>)}
                 </select>
-                <input type="number" step="0.01" min="0" value={it.valor} placeholder="Valor R$"
+                <input type="number" step="0.01" inputMode="decimal" min="0" value={it.valor} placeholder="Valor R$"
                   onChange={(e) => setItens(itens.map((x, j) => (j === idx ? { ...x, valor: e.target.value } : x)))} style={{ ...numInputStyle, width: 120 }} aria-label="Valor" />
                 <input value={it.descricao} placeholder="Descrição (opcional)"
                   onChange={(e) => setItens(itens.map((x, j) => (j === idx ? { ...x, descricao: e.target.value } : x)))} style={{ ...inputStyle, flex: "1 1 200px", width: "auto" }} aria-label="Descrição" />

@@ -107,18 +107,18 @@ export function FormLancarVale({ pessoas, descricoes, pessoaInicial, ocupado, on
       )}
 
       <div className="lancar-vale-rodape">
-        <span className="lancar-vale-conta" aria-live="polite">
+        <span className="lancar-vale-conta">
           {pessoa ? (
             <>
               {pessoa.nome.split(" ")[0]}: gorjeta líquida {money(pessoa.liquida)}
               {depois != null && <> → <strong style={{ color: depois < 0 ? "var(--danger)" : undefined }}>{money(depois)}</strong> depois deste vale</>}
-              {depois != null && depois < 0 && <em> · passa da gorjeta</em>}
+              {depois != null && depois < 0 && <em role="alert"> · passa da gorjeta</em>}
             </>
           ) : "Escolha o funcionário."}
         </span>
         <label className="barra-lista-campo" title="Abre o recibo para imprimir logo depois de lançar">
           <input type="checkbox" checked={imprimir} disabled={type === "CREDITO"} onChange={(e) => setImprimir(e.target.checked)} />
-          <Printer size={13} /> Imprimir recibo ao lançar
+          <Printer size={13} /> {type === "CREDITO" ? "Crédito não tem recibo" : "Imprimir recibo ao lançar"}
         </label>
         <Button type="submit" size="sm" leadingIcon={<Plus size={14} />} disabled={ocupado || !pronto}>Lançar vale</Button>
       </div>

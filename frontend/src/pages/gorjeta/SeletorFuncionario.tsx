@@ -36,6 +36,8 @@ export function SeletorFuncionario({ pessoas, valor, onEscolher, autoFoco }: Pro
   const [aberto, setAberto] = useState(false);
   const [ativo, setAtivo] = useState(0);
   const entrada = useRef<HTMLInputElement>(null);
+  // Foco automático ao abrir a aba não abre a lista: ela abre ao digitar, clicar ou seta para baixo.
+  const focoAutomatico = useRef(Boolean(autoFoco));
   const idLista = useId();
   const escolhida = pessoas.find((p) => p.participantId === valor) ?? null;
 
@@ -83,8 +85,9 @@ export function SeletorFuncionario({ pessoas, valor, onEscolher, autoFoco }: Pro
           aria-label="Funcionário"
           value={aberto ? busca : escolhida?.nome ?? busca}
           placeholder="Digite o nome ou a função…"
-          onFocus={() => { setAberto(true); setAtivo(0); }}
-          onBlur={() => window.setTimeout(() => setAberto(false), 120)}
+          onFocus={() => { if (focoAutomatico.current) { focoAutomatico.current = false; return; } setAberto(true); setAtivo(0); }}
+          onClick={() => setAberto(true)}
+          onBlur={() => window.setTimeout(() => setAberto(false), 220)}
           onChange={(e) => { setBusca(e.target.value); setAberto(true); setAtivo(0); }}
           onKeyDown={tecla}
         />
