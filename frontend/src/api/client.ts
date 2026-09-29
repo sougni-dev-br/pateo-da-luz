@@ -6406,3 +6406,65 @@ export async function previewDocumentos(
   if (!resultado) throw new Error("A leitura terminou sem devolver o resultado.");
   return resultado;
 }
+
+// ─── Gorjeta: contabilidade, conferência dos extratos e folha de líquidos ────
+export type TipEtapa = "ENVIADO_CONTABILIDADE" | "OK_CONTABILIDADE" | "FOLHA_PAGA";
+export type TipEtapasEstado = {
+  estado: Record<TipEtapa, { marcada: boolean; em: string | null; por: string | null; obs: string | null }>;
+  historico: Array<{ etapa: string; acao: "MARCOU" | "DESMARCOU"; em: string; por: string; obs: string | null }>;
+};
+export type TipStatusConferencia =
+  | "OK" | "DIVERGE" | "ACEITA" | "SALARIO_COMBINADO"
+  | "FALTA_NO_EXTRATO" | "SO_NO_EXTRATO" | "SEM_EXTRATO_DA_EMPRESA" | "NAO_PARTICIPA";
+export type TipLinhaConferencia = {
+  chave: string; employeeId: string | null; nome: string; empresa: string | null;
+  apuracao: number | null; extrato: number | null; diferenca: number | null;
+  status: TipStatusConferencia; justificativa: string | null;
+};
+export type TipExtratoMeta = { id: string; empresa: string; cnpj: string; arquivo: string; hash: string; importadoEm: string; importadoPor: string; pessoas: number };
+export type TipConferencia = {
+  extratos: TipExtratoMeta[];
+  linhas: TipLinhaConferencia[];
+  pendentes: number;
+};
+export type TipConferenciaCompleta = TipConferencia & {
+  code: string; status: string; etapas: TipEtapasEstado; podeVerFolha: boolean;
+};
+export type TipLinhaFolha = {
+  employeeId: string | null; nome: string; grupo: string; origem: "EXTRATO" | "SALARIO_COMBINADO" | "SEM_REGISTRO";
+  valor: number; composicao: string; pix: string | null; aviso: string | null;
+};
+export type TipFolhaLiquidos = {
+  code: string; label: string; linhas: TipLinhaFolha[]; total: number; extratos: string[]; etapas: TipEtapasEstado;
+  salariosCombinados: Array<{ employeeId: string; nome: string; valor: number; motivo: string | null }>;
+};
+
+const baseTip = (year: number, month: number) => `/payroll/tip/periods/${year}/${month}`;
+const json = (method: string, body?: unknown) => ({
+  method, headers: { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+});
+
+export function getTipConferencia(year: number, month: number) {
+  return request<TipConferenciaCompleta>(`${baseTip(year, month)}/conferencia`);
+}
+export function enviarTipExtrato(year: number, month: number, fileBase64: string, fileName: string) {
+  return request<TipConferencia & { avisos: string[] }>(`${baseTip(year, month)}/extratos`, json("POST", { fileBase64, fileName }));
+}
+export function removerTipExtrato(year: number, month: number, id: string) {
+  return request<TipConferencia>(`${baseTip(year, month)}/extratos/${id}`, { method: "DELETE" });
+}
+export function aceitarTipDivergencia(year: number, month: number, chave: string, justificativa: string) {
+  return request<TipConferencia>(`${baseTip(year, month)}/conferencia/aceites`, json("PUT", { chave, justificativa }));
+}
+export function desfazerTipAceite(year: number, month: number, chave: string) {
+  return request<TipConferencia>(`${baseTip(year, month)}/conferencia/aceites?chave=${encodeURIComponent(chave)}`, { method: "DELETE" });
+}
+export function marcarTipEtapa(year: number, month: number, etapa: TipEtapa, acao: "MARCOU" | "DESMARCOU", obs?: string) {
+  return request<TipEtapasEstado>(`${baseTip(year, month)}/etapas`, json("POST", { etapa, acao, obs }));
+}
+export function getTipFolhaLiquidos(year: number, month: number) {
+  return request<TipFolhaLiquidos>(`${baseTip(year, month)}/folha-liquidos`);
+}
+export function salvarSalarioCombinado(employeeId: string, valor: number | null, motivo: string | null) {
+  return request<{ ok: boolean }>(`/payroll/tip/team/${employeeId}/salario-combinado`, json("PUT", { valor, motivo }));
+}

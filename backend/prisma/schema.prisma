@@ -2460,6 +2460,10 @@ model Employee {
   // Ponto extra (±) somado aos pontos da função, sempre com justificativa.
   pontosExtra       Decimal?           @db.Decimal(6, 2)
   pontosExtraMotivo String?
+  // Salário combinado (acima do registrado): na folha de líquidos vale
+  // (salário combinado − adiantamento salarial do extrato) + gorjeta líquida.
+  salarioCombinado       Decimal?        @db.Decimal(12, 2)
+  salarioCombinadoMotivo String?
   tipFunctionId     String?
   tipFunction       TipFunction?       @relation(fields: [tipFunctionId], references: [id])
   tipParticipations TipParticipant[]
@@ -2824,6 +2828,9 @@ model TipPeriod {
   reservaPontos    Decimal          @default(0) @db.Decimal(8, 2)
   reserveMovements TipReserveMovement[]
   closings         TipPeriodClosing[]
+  extratos         TipExtrato[]
+  aceites          TipConferenciaAceite[]
+  etapas           TipPeriodEtapa[]
   status           TipPeriodStatus  @default(OPEN)
   closedAt         DateTime?
   participants     TipParticipant[]
@@ -2936,4 +2943,55 @@ model StockCycle {
   @@index([startDate, endDate])
   @@index([status])
   @@index([closingSnapshotId])
+}
+
+// Extrato mensal de uma empresa, devolvido pela contabilidade, lido para conferir
+// a gorjeta e montar a folha de líquidos. Um por empresa (CNPJ) e período.
+model TipExtrato {
+  id              String    @id
+  periodId        String
+  period          TipPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  empresa         String
+  cnpj            String
+  competenceYear  Int
+  competenceMonth Int
+  arquivo         String
+  hash            String
+  // [{ employeeId, nome, liquido, gorjeta, adiantamento, situacao }] — sem CPF.
+  linhas          Json
+  importadoEm     DateTime  @default(now())
+  importadoPorId  String
+  importadoPor    String
+
+  @@unique([periodId, cnpj])
+}
+
+// Divergência entre apuração e extrato aceita por quem confere, com justificativa.
+model TipConferenciaAceite {
+  id            String    @id
+  periodId      String
+  period        TipPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employeeKey   String    // employeeId, ou "extrato:<nome>" quem não está no cadastro
+  justificativa String
+  porId         String
+  por           String
+  em            DateTime  @default(now())
+
+  @@unique([periodId, employeeKey])
+}
+
+// Etapas do mês depois da apuração: enviado à contabilidade, OK dado, folha paga.
+// Só acrescenta: marcar e desmarcar ficam no histórico.
+model TipPeriodEtapa {
+  id       String    @id
+  periodId String
+  period   TipPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  etapa    String    // ENVIADO_CONTABILIDADE | OK_CONTABILIDADE | FOLHA_PAGA
+  acao     String    // MARCOU | DESMARCOU
+  obs      String?
+  porId    String
+  por      String
+  em       DateTime  @default(now())
+
+  @@index([periodId, em])
 }

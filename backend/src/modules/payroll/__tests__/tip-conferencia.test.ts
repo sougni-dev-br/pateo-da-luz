@@ -1,0 +1,93 @@
+import { describe, expect, test } from "vitest";
+import { type ExtratoEmpresa, type PessoaApurada, conferir, montarFolhaLiquidos } from "../tip-conferencia.js";
+import { lerTextoExtrato } from "../rh-extract.service.js";
+
+const FREI = "46.878.233/0001-92";
+const pessoa = (over: Partial<PessoaApurada>): PessoaApurada => ({
+  employeeId: "x", nome: "X", semRegistro: false, noPeriodo: true, pagoNaRescisao: false,
+  gorjetaLiquida: 0, totalAPagar: 0, cnpjEmpresa: FREI, pix: null, ...over,
+});
+const extrato = (linhas: ExtratoEmpresa["linhas"]): ExtratoEmpresa => ({ empresa: "PATEO FREI CANECA", cnpj: FREI, linhas });
+const linha = (over: Partial<ExtratoEmpresa["linhas"][number]>) => ({
+  employeeId: null, nome: "", liquido: 0, gorjeta: null, adiantamento: null, situacao: "Trabalhando", ...over,
+});
+
+describe("conferência do extrato (agosto/2026)", () => {
+  const apuracao = [
+    pessoa({ employeeId: "analia", nome: "Analia", gorjetaLiquida: 723.07 }), // 767,87 − 44,80
+    pessoa({ employeeId: "eli", nome: "Elioenai", gorjetaLiquida: 2594.17 }),
+    pessoa({ employeeId: "taissa", nome: "Taissa", gorjetaLiquida: 280.17 }),
+    pessoa({ employeeId: "viviane", nome: "Viviane", gorjetaLiquida: 370.93, pagoNaRescisao: true }),
+    pessoa({ employeeId: "janete", nome: "Janete", gorjetaLiquida: 1037.67, semRegistro: true, totalAPagar: 1037.67, cnpjEmpresa: null }),
+  ];
+  const combinados = new Map([["eli", 5200]]);
+  const ex = extrato([
+    linha({ employeeId: "analia", nome: "ANALIA", liquido: 1526, gorjeta: 723.07, adiantamento: 860 }),
+    linha({ employeeId: "eli", nome: "ELIOENAI", liquido: 3030, gorjeta: 1328, adiantamento: 1468.8 }),
+    linha({ employeeId: "michele", nome: "MICHELE", liquido: 380, adiantamento: 980 }),
+    linha({ nome: "FULANO FORA DO CADASTRO", liquido: 500, gorjeta: 100 }),
+  ]);
+
+  test("bate pela gorjeta líquida; salário combinado não é divergência", () => {
+    const r = conferir(apuracao, [ex], new Map(), combinados);
+    const st = Object.fromEntries(r.map((l) => [l.chave, l.status]));
+    expect(st.analia).toBe("OK");
+    expect(st.eli).toBe("SALARIO_COMBINADO");
+    expect(st.taissa).toBe("FALTA_NO_EXTRATO");
+    expect(st.michele).toBe("NAO_PARTICIPA");
+    expect(st["extrato:FULANO FORA DO CADASTRO"]).toBe("SO_NO_EXTRATO");
+    expect(st.viviane).toBeUndefined(); // paga na rescisão
+    expect(st.janete).toBeUndefined();  // sem registro não vai à contabilidade
+  });
+
+  test("divergência aceita guarda a justificativa", () => {
+    const r = conferir(apuracao, [ex], new Map([["taissa", "Admitida em 18/08, registro só em setembro"]]));
+    const t = r.find((l) => l.chave === "taissa")!;
+    expect(t.status).toBe("ACEITA");
+    expect(t.justificativa).toMatch(/setembro/);
+  });
+
+  test("empresa sem extrato carregado não acusa a pessoa como faltando", () => {
+    const r = conferir([pessoa({ employeeId: "jodeni", gorjetaLiquida: 1297.08, cnpjEmpresa: "05.520.881/0001-95" })], [ex], new Map());
+    expect(r.find((l) => l.chave === "jodeni")!.status).toBe("SEM_EXTRATO_DA_EMPRESA");
+  });
+
+  test("folha de líquidos: extrato, salário combinado e sem registro", () => {
+    const f = montarFolhaLiquidos(apuracao, [ex], combinados);
+    const valor = Object.fromEntries(f.map((l) => [l.employeeId ?? l.nome, l.valor]));
+    expect(valor.analia).toBe(1526);
+    expect(valor.eli).toBe(6325.37); // (5.200 − 1.468,80) + 2.594,17
+    expect(valor.michele).toBe(380);
+    expect(valor.janete).toBe(1037.67);
+    expect(f.find((l) => l.employeeId === "eli")!.origem).toBe("SALARIO_COMBINADO");
+  });
+
+  test("salário combinado vale mesmo para quem não está na apuração da gorjeta", () => {
+    const f = montarFolhaLiquidos([], [ex], combinados);
+    expect(f.find((l) => l.employeeId === "eli")).toMatchObject({ origem: "SALARIO_COMBINADO", valor: 3731.2 }); // 5.200 − 1.468,80
+    const c = conferir([], [ex], new Map(), combinados);
+    expect(c.find((l) => l.chave === "eli")!.status).toBe("SALARIO_COMBINADO");
+  });
+
+  test("demitido com líquido zero no extrato não entra na folha", () => {
+    const f = montarFolhaLiquidos([], [extrato([linha({ employeeId: "eliezer", nome: "ELIEZER", liquido: 0, situacao: "Demitido" })])]);
+    expect(f).toEqual([]);
+  });
+});
+
+describe("leitura do extrato mensal", () => {
+  const TEXTO = `EXTRATO MENSAL
+08/2026
+PATEO FREI CANECA BAR E FORNERIA LTDA
+46.878.233/0001-92
+20 FULANO DE TAL\tEmpr.: 01/03/2025\tAdm:\t123.456.789-09\tTrabalhando CPF:\tSituação:
+1 HORAS NORMAIS 981 1.468,80 D\tP\t3.672,00\t220,00 DESC.ADIANT.SALARIAL 1.468,80
+203 GORJETA 998 501,50 D\tP\t1.328,00\t1.328,00 I.N.S.S. 10,03
+ND: 1 Proventos: 5.000,30 Líquido:\tDescontos: 1.970,30 Informativa: 400,00 Informativa Dedutora: 0 3.030,00
+NF: 1`;
+
+  test("lê gorjeta, líquido, adiantamento e situação", () => {
+    const [f] = lerTextoExtrato(TEXTO).funcionarios;
+    expect(f).toMatchObject({ nome: "FULANO DE TAL", gorjeta: 1328, liquido: 3030, adiantamento: 1468.8, situacao: "Trabalhando" });
+  });
+});

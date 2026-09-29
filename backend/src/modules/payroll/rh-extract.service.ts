@@ -14,6 +14,10 @@ export type ExtratoFuncionario = {
   cpfNorm: string;   // apenas dígitos (para casar com o cadastro)
   liquido: number;
   gorjeta: number | null;
+  // Adiantamento salarial descontado no mês (DESC.ADIANT.SALARIAL).
+  adiantamento: number | null;
+  // "Trabalhando", "Demitido", "Afastado"… como vem no extrato.
+  situacao: string | null;
 };
 
 export type ExtratoParsed = {
@@ -35,7 +39,11 @@ export function onlyDigits(s: string): string {
 export async function parseExtratoMensal(buffer: Buffer): Promise<ExtratoParsed> {
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
   const result = await parser.getText();
-  const txt = result.text ?? "";
+  return lerTextoExtrato(result.text ?? "");
+}
+
+// Leitura do texto já extraído (separada para poder testar sem PDF).
+export function lerTextoExtrato(txt: string): ExtratoParsed {
 
   // Cabeçalho (a pdf-parse embaralha rótulos/valores; captamos por padrão do valor).
   const cnpj = txt.match(/(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/)?.[1] ?? null;
@@ -60,12 +68,16 @@ export async function parseExtratoMensal(buffer: Buffer): Promise<ExtratoParsed>
       body.match(/GORJETA[\s\S]{0,60}?\bP\b[\s\S]{0,6}?([\d]{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ??
       body.match(/GORJETA[\s\S]{0,40}?([\d]{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ??
       null;
+    const adiant = body.match(/DESC\.ADIANT\.SALARIAL\s+(\d{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ?? null;
+    const situacao = body.match(/(Trabalhando|Demitid[oa]|Afastad[oa]|F[ée]rias)\s+CPF:/)?.[1] ?? null;
     funcionarios.push({
       nome,
       cpf,
       cpfNorm: onlyDigits(cpf),
       liquido: brToNumber(liq),
       gorjeta: gor ? brToNumber(gor) : null,
+      adiantamento: adiant ? brToNumber(adiant) : null,
+      situacao,
     });
   }
 

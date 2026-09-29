@@ -20,6 +20,7 @@ import {
 } from "./tip-historico.service.js";
 import { detalheFechamento, listarFechamentos } from "./tip-fechamento.service.js";
 import { lerPdfRescisao } from "./tip-trct.service.js";
+import { tipConferenciaRouter } from "./tip-conferencia.routes.js";
 
 // Formata dd/mm a partir de uma data UTC.
 function fmtDay(d: Date): string {
@@ -36,6 +37,8 @@ function parseDateUTC(v: unknown): Date | null {
 }
 
 export const tipCommissionRouter = Router();
+// Envio à contabilidade, conferência dos extratos, etapas e folha de líquidos.
+tipCommissionRouter.use(tipConferenciaRouter);
 
 // ─── Trava de período fechado ───────────────────────────────────
 // closeTipPeriod só sela o período depois de conferir que a soma dos rateios
