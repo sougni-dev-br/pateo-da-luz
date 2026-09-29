@@ -339,7 +339,7 @@ export function FolhaGorjeta() {
       {(aba === "apuracao" || aba === "pagamento") && comp && (
         <>
           {comp.periodId != null && (
-            <ResumoApuracao comp={comp} compacto={telaCheia}
+            <ResumoApuracao comp={comp} compacto={telaCheia || aba === "pagamento"}
               onAjustarServico={readonly ? undefined : () => setAjustandoServico((v) => !v)} />
           )}
           {ajustandoServico && comp.periodId != null && !readonly && (
@@ -371,15 +371,25 @@ export function FolhaGorjeta() {
             </div>
           ) : (
             <>
-              <Pendencias pendencias={comp.pendencias} avisos={comp.warnings} fechado={closed} compacto={telaCheia} />
+              <Pendencias pendencias={comp.pendencias} avisos={comp.warnings} fechado={closed} compacto={telaCheia || aba === "pagamento"}
+                onIrRescisoes={() => {
+                  setAba("apuracao");
+                  // Espera a aba desenhar; rola até o bloco e leva o foco para ele.
+                  window.setTimeout(() => {
+                    const alvo = document.getElementById("rescisoes-do-periodo");
+                    alvo?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    alvo?.focus({ preventScroll: true });
+                  }, 60);
+                }} />
 
               {aba === "apuracao" && params && !telaCheia && (
-                <details style={panelStyle}>
-                  <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+                <details className="painel-detalhes">
+                  <summary>
                     Parâmetros do período <span style={{ ...mutedStyle, fontWeight: 400 }}>
                       — {comp.diasPadrao} dias padrão; descontam: {[comp.descontaFalta && "falta", comp.descontaAtestado && "atestado", comp.descontaFerias && "férias", comp.descontaOutros && "outros"].filter(Boolean).join(", ") || "nada"}{comp.proporcionalEntrada ? "; admitido recebe proporcional" : ""}
                     </span>
                   </summary>
+                  <div className="painel-detalhes-corpo">
                   <FormGrid cols={4}>
                     <FormField label="Início"><input style={inputStyle} type="date" value={params.start} disabled={readonly} onChange={(e) => setParams({ ...params, start: e.target.value })} /></FormField>
                     <FormField label="Fim"><input style={inputStyle} type="date" value={params.end} disabled={readonly} onChange={(e) => setParams({ ...params, end: e.target.value })} /></FormField>
@@ -398,22 +408,23 @@ export function FolhaGorjeta() {
                   </div>
                   <span style={mutedStyle}>Estas são as regras do período; em cada pessoa, o botão de regras (engrenagem) permite decidir diferente. Folga normal não desconta: já está embutida nos dias padrão. Mudar as datas repuxa o serviço do faturamento (o ajuste é mantido). O ajuste do serviço fica em "Serviço arrecadado → ajustar", no resumo.</span>
                   {!readonly && <div><Button onClick={() => void salvarParametros()} disabled={busy} leadingIcon={<Save size={14} />}>Salvar parâmetros</Button></div>}
+                  </div>
                 </details>
               )}
 
               {aba === "apuracao" && !readonly && !telaCheia && (
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-                  <Button variant="secondary" onClick={() => void sincronizar()} disabled={busy} leadingIcon={<UserPlus size={14} />}
+                <div className="barra-lista">
+                  <Button variant="secondary" size="sm" onClick={() => void sincronizar()} disabled={busy} leadingIcon={<UserPlus size={14} />}
                     title="Inclui quem foi marcado na equipe e atualiza os pontos-base">
                     Atualizar do cadastro
                   </Button>
-                  <FormField label="Incluir avulso">
-                    <select style={{ ...inputStyle, minWidth: 240 }} value={addEmpId} onChange={(e) => setAddEmpId(e.target.value)}>
-                      <option value="">Selecione…</option>
+                  <span className="grupo-incluir">
+                    <select value={addEmpId} onChange={(e) => setAddEmpId(e.target.value)} aria-label="Incluir pessoa avulsa">
+                      <option value="">Incluir pessoa avulsa…</option>
                       {disponiveis.map((e) => <option key={e.id} value={e.id}>{(e.displayName || `${e.firstName} ${e.lastName}`).trim()}{e.isActive ? "" : " (desligado)"}</option>)}
                     </select>
-                  </FormField>
-                  <Button variant="secondary" onClick={() => void adicionar()} disabled={!addEmpId || busy} leadingIcon={<Plus size={14} />}>Incluir</Button>
+                    <Button variant="secondary" size="sm" onClick={() => void adicionar()} disabled={!addEmpId || busy} leadingIcon={<Plus size={14} />}>Incluir</Button>
+                  </span>
                 </div>
               )}
 

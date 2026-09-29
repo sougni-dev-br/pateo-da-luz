@@ -1,11 +1,24 @@
 import { AlertTriangle, CheckCircle2, CircleAlert } from "lucide-react";
 import { useState } from "react";
 
-type Props = { pendencias: string[]; avisos: string[]; fechado: boolean; compacto?: boolean };
+type Props = { pendencias: string[]; avisos: string[]; fechado: boolean; compacto?: boolean; onIrRescisoes?: () => void };
+
+// Várias saídas sem valor viram um item só (nome e data), no lugar da mesma frase repetida.
+const SAIDA_SEM_VALOR = /^(.+?): saiu em (\d{2}\/\d{2}) e falta o valor da rescisão\./;
+export function agrupar(pendencias: string[]) {
+  const saidas: Array<{ nome: string; dia: string }> = [];
+  const outras: string[] = [];
+  for (const p of pendencias) {
+    const m = p.match(SAIDA_SEM_VALOR);
+    if (m) saidas.push({ nome: m[1], dia: m[2] });
+    else outras.push(p);
+  }
+  return { saidas, outras };
+}
 
 // Um só painel no lugar de uma pilha de alertas: o que impede o fechamento fica
 // sempre aberto; o que é só para conferir fica recolhido, com a contagem à vista.
-export function Pendencias({ pendencias, avisos, fechado, compacto = false }: Props) {
+export function Pendencias({ pendencias, avisos, fechado, compacto = false, onIrRescisoes }: Props) {
   const [verAvisos, setVerAvisos] = useState(false);
   const [verPendencias, setVerPendencias] = useState(false);
   if (fechado) return null;
@@ -21,12 +34,14 @@ export function Pendencias({ pendencias, avisos, fechado, compacto = false }: Pr
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        {pronto
-          ? <CheckCircle2 size={18} color="var(--success)" aria-hidden />
-          : <CircleAlert size={18} color="var(--danger)" aria-hidden />}
-        <strong style={{ color: pronto ? "var(--success)" : "var(--danger)" }}>
-          {pronto ? "Pronto para fechar" : `${pendencias.length} ${pendencias.length === 1 ? "pendência impede" : "pendências impedem"} o fechamento`}
-        </strong>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          {pronto
+            ? <CheckCircle2 size={18} color="var(--success)" aria-hidden style={{ flexShrink: 0 }} />
+            : <CircleAlert size={18} color="var(--danger)" aria-hidden style={{ flexShrink: 0 }} />}
+          <strong style={{ color: pronto ? "var(--success)" : "var(--danger)" }}>
+            {pronto ? "Pronto para fechar" : `${pendencias.length} ${pendencias.length === 1 ? "pendência impede" : "pendências impedem"} o fechamento`}
+          </strong>
+        </span>
         {compacto && !pronto && (
           <button type="button" onClick={() => setVerPendencias((v) => !v)} aria-expanded={verPendencias}
             style={{ border: 0, background: "transparent", color: "var(--danger)", textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit", fontSize: 13 }}>
@@ -40,11 +55,24 @@ export function Pendencias({ pendencias, avisos, fechado, compacto = false }: Pr
           </button>
         )}
       </div>
-      {pendencias.length > 0 && (!compacto || verPendencias) && (
-        <ul style={{ margin: 0, paddingLeft: 26, display: "flex", flexDirection: "column", gap: 4, fontSize: 14 }}>
-          {pendencias.map((p) => <li key={p}>{p}</li>)}
-        </ul>
-      )}
+      {pendencias.length > 0 && (!compacto || verPendencias) && (() => {
+        const { saidas, outras } = agrupar(pendencias);
+        return (
+          <ul style={{ margin: 0, paddingLeft: 26, display: "flex", flexDirection: "column", gap: 6, fontSize: 14 }}>
+            {saidas.length > 0 && (
+              <li>
+                <strong>{saidas.length === 1 ? "1 saída" : `${saidas.length} saídas`} sem o valor da rescisão:</strong>{" "}
+                {saidas.map((x) => `${x.nome} (${x.dia})`).join(", ")}.
+                <div className="pendencia-acao">
+                  <span>Digite a gorjeta paga, leia o termo da contabilidade ou informe o serviço até a saída.</span>
+                  {onIrRescisoes && <button type="button" className="pendencia-botao" onClick={onIrRescisoes}>Ir para Rescisões do período →</button>}
+                </div>
+              </li>
+            )}
+            {outras.map((p) => <li key={p}>{p}</li>)}
+          </ul>
+        );
+      })()}
       {verAvisos && (
         <ul style={{ margin: 0, paddingLeft: 26, display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: "var(--warning)" }}>
           {avisos.map((a) => <li key={a}>{a}</li>)}

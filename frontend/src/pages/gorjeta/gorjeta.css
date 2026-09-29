@@ -598,3 +598,70 @@
   background: var(--paper); color: var(--ink); font-size: 13px;
 }
 .combinado-form { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+
+/* Resumo da apuração: a conta em cards, sem card sobrando sozinho numa linha. */
+.resumo-apuracao { container-type: inline-size; }
+.resumo-termos { display: grid; gap: 8px; align-items: stretch; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.resumo-termos > :last-child:nth-child(odd) { grid-column: span 2; }
+@container (min-width: 560px) {
+  .resumo-termos { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .resumo-termos > :last-child:nth-child(odd) { grid-column: auto; }
+  .resumo-termos[data-termos="5"] > :last-child { grid-column: span 2; }
+}
+@container (min-width: 960px) {
+  .resumo-termos[data-termos="6"] { grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1.25fr); }
+  .resumo-termos[data-termos="5"] { grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.25fr); }
+  .resumo-termos[data-termos="5"] > :last-child { grid-column: auto; }
+}
+.termo-principal { background: color-mix(in srgb, var(--gold) 7%, var(--surface, #fff)) !important; }
+
+/* Pendências agrupadas */
+.pendencia-acao { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 4px; font-size: 13px; color: var(--muted); }
+.pendencia-botao {
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); background: var(--surface, #fff); color: var(--danger);
+  border-radius: 999px; padding: 3px 12px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.pendencia-botao:hover, .pendencia-botao:focus-visible { background: color-mix(in srgb, var(--danger) 8%, var(--surface, #fff)); }
+#rescisoes-do-periodo { scroll-margin-top: 84px; }
+#rescisoes-do-periodo:focus { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* Parâmetros do período: recolhido sem espaço sobrando */
+.painel-detalhes { border: 1px solid var(--border, var(--line)); border-radius: 12px; background: var(--surface, #fff); }
+.painel-detalhes > summary { cursor: pointer; font-weight: 600; padding: 12px 16px; list-style-position: inside; }
+.painel-detalhes[open] > summary { border-bottom: 1px solid var(--line); }
+.painel-detalhes-corpo { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px 16px; }
+.grupo-incluir { display: inline-flex; align-items: center; gap: 6px; }
+.grupo-incluir select {
+  height: 34px; min-width: 240px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--paper); color: var(--ink); font: inherit; font-size: 13px;
+}
+
+/* Cabeçalho de painel: título e explicação à esquerda, ações à direita */
+.cabecalho-painel { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.cabecalho-painel-texto { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 320px; }
+.cabecalho-painel-texto > span { font-size: 12px; color: var(--muted); }
+.cabecalho-painel-acoes { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+
+/* Etapas numa linha quando cabe; lista vertical no estreito */
+.aba-contabilidade { container-type: inline-size; }
+@container (min-width: 760px) {
+  .etapas-folha { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; }
+}
+@container (max-width: 759px) {
+  .etapas-folha { grid-template-columns: 1fr !important; }
+}
+.barra-lista-botao, .seletor-colunas > button { min-height: 34px; }
+.estado-vazio {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center;
+  padding: 28px 16px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 13px;
+}
+.estado-vazio strong { color: var(--ink); font-size: 14px; }
+
+/* Totais do pagamento: 2 por linha no estreito, todos numa linha quando cabe */
+.aba-pagamento { container-type: inline-size; }
+.cards-totais { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cards-totais > :last-child:nth-child(odd) { grid-column: span 2; }
+@container (min-width: 820px) {
+  .cards-totais { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+  .cards-totais > :last-child:nth-child(odd) { grid-column: auto; }
+}
