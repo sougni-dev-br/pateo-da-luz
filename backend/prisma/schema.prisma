@@ -2915,6 +2915,12 @@ model TipVale {
   canceledById   String?
   canceledByName String?
   cancelReason   String?
+  // Número impresso no recibo (VALE-AAAA-NNNNN) e o último recibo emitido.
+  codigo            String?   @unique
+  reciboEmpresaId   String?
+  reciboImpressoEm  DateTime?
+  reciboImpressoPor String?
+  reciboImpressoes  Int       @default(0)
   reserveMovement TipReserveMovement?
 
   @@index([participantId])
@@ -3003,4 +3009,17 @@ model TipPeriodEtapa {
   em       DateTime  @default(now())
 
   @@index([periodId, em])
+}
+
+// Descrições prontas para os vales (por tipo ou para todos). Desativar não apaga.
+model TipValeDescricao {
+  id          String       @id
+  texto       String
+  tipo        TipValeType?
+  ativo       Boolean      @default(true)
+  ordem       Int          @default(0)
+  createdById String
+  createdAt   DateTime     @default(now())
+
+  @@unique([texto, tipo])
 }
