@@ -5410,6 +5410,8 @@ export type Employee = {
   subgroup: string | null;
   position: string | null;
   baseSalary: string | null;
+  salarioCombinado?: string | null;
+  salarioCombinadoMotivo?: string | null;
   shiftStart: string | null;
   shiftEnd: string | null;
   modality: EmployeeModality;
@@ -5470,6 +5472,9 @@ export type EmployeePayload = {
   subgroup?: string;
   position?: string;
   baseSalary?: string | number;
+  /** Ausente = não mexe; null = tira. */
+  salarioCombinado?: string | number | null;
+  salarioCombinadoMotivo?: string | null;
   shiftStart?: string;
   shiftEnd?: string;
   modality?: EmployeeModality;
