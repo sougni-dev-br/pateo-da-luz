@@ -146,10 +146,15 @@ export async function auditLog(input: {
   `;
 }
 
-export async function requireAdmin(request: {
-  headers: Record<string, unknown>;
-  menuAccess?: { action?: PermissionAction; permission?: ModulePermission };
-}, response: { status: (code: number) => { json: (body: unknown) => void } }) {
+// Guarda sem cargo: sessao + a permissao (modulo, acao) que o requireMenuAccess
+// ja validou, ou ADMIN (superusuario por desenho). Rota sem modulo mapeado nao
+// traz menuAccess e e NEGADA — nunca liberada por cargo, como fazia a lista do
+// requireRole.
+export async function requireMenuPermission(
+  request: { headers: Record<string, unknown>; menuAccess?: { action?: PermissionAction; permission?: ModulePermission } },
+  response: { status: (code: number) => { json: (body: unknown) => void } },
+  message = "Usuario sem permissao para executar esta acao."
+) {
   const user = await getSessionUser(request);
   if (!user) {
     response.status(401).json({ message: "Sessao obrigatoria." });
@@ -157,11 +162,18 @@ export async function requireAdmin(request: {
   }
 
   if (user.role !== "ADMIN" && (!request.menuAccess?.action || !hasPermission(request.menuAccess.permission, request.menuAccess.action))) {
-    response.status(403).json({ message: "Usuario sem permissao administrativa para esta acao." });
+    response.status(403).json({ message });
     return null;
   }
 
-  return user;
+  return user as SessionUser;
+}
+
+export async function requireAdmin(request: {
+  headers: Record<string, unknown>;
+  menuAccess?: { action?: PermissionAction; permission?: ModulePermission };
+}, response: { status: (code: number) => { json: (body: unknown) => void } }) {
+  return requireMenuPermission(request, response, "Usuario sem permissao administrativa para esta acao.");
 }
 
 export async function requireRole(
