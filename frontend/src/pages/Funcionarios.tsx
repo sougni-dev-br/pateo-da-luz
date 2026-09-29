@@ -941,7 +941,7 @@ export function Funcionarios() {
             {semSeparacao && <Alert tone="warning">Esta rescisão foi lançada antes da separação entre salário e gorjeta (bruto lançado: {moneyBr(rescInfo?.lancada?.bruto ?? 0)}). Salário e gorjeta vieram do apurado: confira antes de salvar.</Alert>}
             <FormGrid cols={2}>
               {semRegistroResc ? <>
-                <FormField label="Salário proporcional" required hint="apurado: salário ÷ 30 × dias até a saída">
+                <FormField label="Salário proporcional" required hint="apurado: diária arredondada × dias até a saída">
                   <TextField value={rescForm.salario} onChange={(e) => setRescForm({ ...rescForm, salario: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" aria-label="Salário proporcional" />
                 </FormField>
                 <FormField label="Gorjeta até a saída" required hint="apurada na gorjeta do mês">

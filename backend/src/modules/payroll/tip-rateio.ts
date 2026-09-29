@@ -175,7 +175,10 @@ function salarioSemRegistro(p: ParticipanteEntrada, elegiveis: number, corridos:
   if (!p.semRegistro || !p.salarioBase) return { dias: 0, valor: 0 };
   const base = elegiveis >= corridos ? 30 : Math.min(30, elegiveis);
   const dias = p.diasSalarioOverride ?? Math.max(0, base - p.faltas);
-  return { dias, valor: round2((p.salarioBase / 30) * dias) };
+  // Mês cheio paga o salário inteiro; proporcional é a diária arredondada × dias,
+  // como o RH faz à mão (2.200 ÷ 30 = 73,33; 9 dias = 659,97, não 660,00).
+  if (dias >= 30) return { dias, valor: round2(p.salarioBase) };
+  return { dias, valor: round2(round2(p.salarioBase / 30) * dias) };
 }
 
 export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntrada, valorPontoDoMes: number): ParticipanteCalculado {

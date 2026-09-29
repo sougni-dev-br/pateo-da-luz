@@ -48,7 +48,7 @@ export function ApuracaoRescisaoPainel({ apuracao: a, onUsar }: { apuracao: Apur
       {a.semRegistro && (
         <>
           <Linha rotulo="Salário proporcional" valor={g?.salarioProporcional ?? null} sinal="+"
-            detalhe={g ? `salário ÷ 30 × ${g.diasSalario} dias até a saída` : a.gorjetaObservacao} />
+            detalhe={g ? `diária (salário ÷ 30, arredondada) × ${g.diasSalario} dias até a saída` : a.gorjetaObservacao} />
           <Linha rotulo="Gorjeta até a saída" valor={g && !g.pendente ? g.gorjeta : null} sinal="+"
             detalhe={g
               ? (g.pendente ? a.gorjetaObservacao : `${g.periodo}: ${g.pontos.toLocaleString("pt-BR")} pts × R$ ${g.valorPonto.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`)

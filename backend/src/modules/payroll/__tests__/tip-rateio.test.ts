@@ -180,7 +180,15 @@ describe("sem registro", () => {
       semRegistro: true, salarioBase: 2300, desligamento: d("2026-09-07"), faltas: 0,
     }), VALOR_PONTO);
     expect(r.diasSalario).toBe(13); // 26/08 a 07/09
-    expect(r.salarioProporcional).toBe(996.67); // (2300/30)*13, como na aba Folha Líquidos
+    expect(r.salarioProporcional).toBe(996.71); // diária 76,67 × 13 (a diária é arredondada antes)
+  });
+
+  test("diária arredondada × dias, como o RH faz: Luiz Felipe, 02/09 a 12/09 com 2 faltas", () => {
+    const r = calcularParticipante(SETEMBRO, pessoa({
+      semRegistro: true, salarioBase: 2200, admissao: d("2026-09-02"), desligamento: d("2026-09-12"), faltas: 2, atestados: 1,
+    }), VALOR_PONTO);
+    expect(r.diasSalario).toBe(9); // 11 dias − 2 faltas; atestado é pago
+    expect(r.salarioProporcional).toBe(659.97); // 73,33 × 9
   });
 
   test("registrado não recebe salário na lista da gorjeta", () => {
@@ -248,8 +256,8 @@ describe("rescisões abatidas da apuração", () => {
     expect(r.tipoCalculo).toBe("RESCISAO_QUITADA");
     expect(r.pagoNaRescisao).toBe(false);
     expect(r.diasSalario).toBe(18); // 26/08 a 14/09 = 20 dias corridos (com folgas) − 2 faltas
-    expect(r.salarioProporcional).toBe(1320); // 2.200 ÷ 30 × 18
-    expect(r.totalAPagar).toBe(1620);
+    expect(r.salarioProporcional).toBe(1319.94); // 73,33 × 18
+    expect(r.totalAPagar).toBe(1619.94); // 1.319,94 + 300
   });
 
   test("sem registro com a rescisão já lançada em Contas a Pagar: já recebeu, sai da lista", () => {
