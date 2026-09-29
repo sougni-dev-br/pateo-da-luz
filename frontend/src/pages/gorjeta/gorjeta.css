@@ -571,3 +571,30 @@
 .nota-pontos { font-size: 11px; font-weight: 600; white-space: nowrap; }
 .nota-volta { color: var(--success); }
 .nota-extra { color: var(--warning, #b45309); cursor: help; }
+
+/* Contabilidade e folha: etapas do mês */
+.etapas-folha { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+.etapas-folha li {
+  display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--paper); min-width: 0;
+}
+.etapas-folha li > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; align-items: flex-start; }
+.etapas-folha li strong { font-size: 13px; }
+.etapas-folha li span:not(.etapas-folha-marca) { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.etapas-folha-marca {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+  border-radius: 50%; border: 1px solid var(--line); font-size: 12px; font-weight: 700; color: var(--muted);
+}
+.etapas-folha li.feita .etapas-folha-marca { background: var(--success); border-color: var(--success); color: #fff; }
+.etapas-folha li.atual { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink) inset; }
+.etapas-folha li.atual .etapas-folha-marca { border-color: var(--ink); color: var(--ink); }
+.lista-extratos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lista-extratos li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.linha-pendente > td { background: color-mix(in srgb, var(--danger) 5%, transparent); }
+.linha-grupo > td { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.aceite-form, .combinado-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.aceite-form input, .combinado-form input:not([type="number"]) {
+  flex: 1 1 220px; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--paper); color: var(--ink); font-size: 13px;
+}
+.combinado-form { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
