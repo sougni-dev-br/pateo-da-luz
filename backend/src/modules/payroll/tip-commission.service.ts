@@ -236,7 +236,8 @@ export async function computeTipCommission(
     include: {
       participants: {
         include: {
-          vales: true,
+          // Vale cancelado fica no banco e nos relatórios, mas não desconta.
+          vales: { where: { canceledAt: null } },
           employee: {
             select: {
               firstName: true, lastName: true, displayName: true, isActive: true,
