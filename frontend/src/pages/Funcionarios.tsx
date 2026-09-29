@@ -1,4 +1,4 @@
-import { Cake, FileText, Pencil, Plus, PowerOff, RefreshCw, UserCheck, UserMinus, Users, Trash2 } from "lucide-react";
+import { Cake, FileText, Pencil, Plus, PowerOff, Printer, RefreshCw, UserCheck, UserMinus, Users, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   Employee, EmployeeBirthday, EmployeeBankAccountType, EmployeeModality, TerminationInfo,
@@ -7,6 +7,7 @@ import {
   releaseTermination, saveEmployee, setEmployeeStatus, terminateEmployee
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
+import { ImpressaoAniversariantes } from "../components/pessoal/ImpressaoAniversariantes";
 import { useSession } from "../context/SessionContext";
 import {
   Alert, Button, EmptyState, FormField, FormGrid, FormSection,
@@ -140,6 +141,7 @@ export function Funcionarios() {
   // Tarifas ativas: alimentam o seletor de cada perna do trajeto.
   const [fares, setFares] = useState<VtFare[]>([]);
   const [showBirthdays, setShowBirthdays] = useState(false);
+  const [printingBirthdays, setPrintingBirthdays] = useState(false);
   const [options, setOptions] = useState<{ sectors: string[]; positions: string[] }>({ sectors: [], positions: [] });
 
   const [terminating, setTerminating] = useState<Employee | null>(null);
@@ -495,9 +497,14 @@ export function Funcionarios() {
               {birthdays.length > 0 && <StatusBadge tone="info">{birthdays.length}</StatusBadge>}
             </h2>
           </div>
-          <Button variant="secondary" onClick={() => setShowBirthdays((v) => !v)}>
-            {showBirthdays ? "Ocultar" : "Ver"}
-          </Button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button variant="secondary" onClick={() => setPrintingBirthdays(true)}>
+              <Printer size={16} /> Imprimir
+            </Button>
+            <Button variant="secondary" onClick={() => setShowBirthdays((v) => !v)}>
+              {showBirthdays ? "Ocultar" : "Ver"}
+            </Button>
+          </div>
         </div>
         {showBirthdays && (
           birthdays.length === 0
@@ -515,6 +522,10 @@ export function Funcionarios() {
             )
         )}
       </section>
+
+      {printingBirthdays && (
+        <ImpressaoAniversariantes mesInicial={currentMonth} onClose={() => setPrintingBirthdays(false)} />
+      )}
 
       {/* Formulário */}
       {showForm && (
