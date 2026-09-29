@@ -85,6 +85,25 @@ function Ocorrencia({ value, escala, manual, disabled, label, onChange, desconta
   );
 }
 
+const SITUACAO_CONTA: Record<"PENDING" | "PAID" | "OVERDUE", { rotulo: string; tom: "success" | "warning" | "neutral" }> = {
+  PAID: { rotulo: "paga", tom: "success" }, PENDING: { rotulo: "a vencer", tom: "neutral" }, OVERDUE: { rotulo: "sem baixa", tom: "warning" },
+};
+
+// A rescisão que a Folha lançou em Contas a Pagar para quem saiu no período.
+function RescisaoLancada({ r }: { r: TipComputedParticipant["rescisaoContasPagar"] }) {
+  if (!r) return <StatusBadge tone="warning" title="Lance em Folha → Rescisão">não lançada</StatusBadge>;
+  const s = SITUACAO_CONTA[r.status];
+  return (
+    <div>
+      {r.valor != null && <div style={{ fontWeight: 600 }}>{money(r.valor)}</div>}
+      <div style={mutedStyle}>
+        vence {fmtDate(r.vencimento)}{r.parcelas > 1 ? ` · ${r.parcelas} parcelas` : ""}
+      </div>
+      <StatusBadge tone={s.tom} title={r.status === "OVERDUE" ? "Vencida sem baixa em Contas a Pagar" : undefined}>{s.rotulo}</StatusBadge>
+    </div>
+  );
+}
+
 export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales, recibo }: Props) {
   const [regrasDe, setRegrasDe] = useState<string | null>(null);
 
@@ -351,7 +370,8 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
           <span style={mutedStyle}>
             Informe a <strong>gorjeta paga</strong> de cada saída (digitada ou lida do termo) ou, sem ela, o serviço até a saída.
             A gorjeta paga vira pontos pelo valor do ponto do mês: o que sobrar do direito fica livre para distribuir; o que passar vira extra automático.
-            CLT já recebeu na rescisão; sem registro recebe na lista, com o salário.
+            CLT já recebeu na rescisão. Sem registro com a rescisão lançada em Contas a Pagar também já recebeu e sai da lista do mês;
+            sem ela, recebe na lista, com o salário.
           </span>
           <ReciboRescisao year={comp.year} month={comp.month} readonly={readonly}
             antesDeGravar={recibo.antesDeGravar} onAplicado={recibo.onAplicado} onErro={recibo.onErro} />
@@ -360,6 +380,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
               <Table.Row>
                 <Table.Th minWidth={180}>Funcionário</Table.Th>
                 <Table.Th>Saída</Table.Th>
+                <Table.Th title="Rescisão lançada pela Folha em Contas a Pagar">Contas a Pagar</Table.Th>
                 <Table.Th title="Gorjeta já paga na rescisão: digite ou leia o termo">Gorjeta paga</Table.Th>
                 <Table.Th>Pontos</Table.Th>
                 <Table.Th>Situação</Table.Th>
@@ -377,6 +398,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                   <Table.Row key={p.employeeId}>
                     <Table.Td style={{ fontWeight: 500 }}>{p.employeeName}</Table.Td>
                     <Table.Td>{fmtDate(p.terminationDate)}</Table.Td>
+                    <Table.Td><RescisaoLancada r={p.rescisaoContasPagar} /></Table.Td>
                     <Table.Td>
                       <input style={{ ...numInputStyle, width: 100, fontWeight: 600 }} type="number" step="0.01" inputMode="decimal" min="0" value={r.rescisaoValorFixo}
                         disabled={readonly} aria-label={`Gorjeta paga na rescisão de ${p.employeeName}`} placeholder="R$ pago"
@@ -391,9 +413,11 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                       )}
                     </Table.Td>
                     <Table.Td>
+                      {p.semRegistro && p.pagoNaRescisao && <div style={{ marginBottom: 4 }}><StatusBadge tone="success" title="A rescisão lançada em Contas a Pagar já pagou salário e gorjeta até a saída">Paga na rescisão · fora da lista</StatusBadge></div>}
                       {quitada ? (p.rescisaoRecibo
                         ? <SeloRecibo pago pagamento={p.rescisaoRecibo.pagamento} arquivo={p.rescisaoRecibo.arquivo} />
-                        : p.semRegistro ? <StatusBadge tone="info" title="Sem registro: não há rescisão da contabilidade; o valor vai para a lista de pagamento com o salário">Valor manual · na lista</StatusBadge>
+                        : p.semRegistro ? (p.pagoNaRescisao ? <StatusBadge tone="neutral">Valor digitado</StatusBadge>
+                          : <StatusBadge tone="info" title="Sem registro e sem rescisão lançada: o valor vai para a lista de pagamento com o salário">Valor manual · na lista</StatusBadge>)
                           : <StatusBadge tone="success">Paga · digitada</StatusBadge>)
                         : p.rescisaoPendente ? <StatusBadge tone="warning">Falta o valor</StatusBadge>
                         : <StatusBadge tone="info">Calculada</StatusBadge>}
@@ -412,7 +436,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
               })}
               <Table.Row>
                 <Table.Td style={totalTd}>Total das rescisões</Table.Td>
-                <Table.Td style={totalTd}> </Table.Td>
+                <Table.Td colSpan={2} style={totalTd}> </Table.Td>
                 <Table.Td align="center" style={{ ...totalTd, ...num }}>{money(rescisoes.reduce((a, p) => a + p.rateioAmount, 0))}</Table.Td>
                 <Table.Td align="center" style={{ ...totalTd, ...num }}>{pts(rescisoes.reduce((a, p) => a + p.points, 0))}</Table.Td>
                 <Table.Td style={totalTd}>{rescisoes.some((p) => p.rescisaoPendente) ? <StatusBadge tone="warning">com pendência</StatusBadge> : " "}</Table.Td>

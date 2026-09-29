@@ -5707,6 +5707,8 @@ export type TipComputedParticipant = {
   /** Gorjeta quitada na rescisão: já paga pela contabilidade, fora da lista a pagar. */
   pagoNaRescisao: boolean;
   rescisaoRecibo: TipReciboRescisao | null;
+  /** Rescisão lançada em Contas a Pagar (valor só com permissão de Funcionários). */
+  rescisaoContasPagar: { valor: number | null; vencimento: string; status: "PENDING" | "PAID" | "OVERDUE"; parcelas: number } | null;
   rescisaoPendente: boolean;
   rateioAmount: number;
   descontos: number;
