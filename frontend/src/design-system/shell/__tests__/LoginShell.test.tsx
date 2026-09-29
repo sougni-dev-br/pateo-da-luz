@@ -72,8 +72,20 @@ describe("LoginShell", () => {
     expect(container.querySelector(".ds-login-card.foo")).not.toBeNull();
   });
 
-  test("legal padrao aparece no card", () => {
+  test("legal padrao aparece no card com o ano corrente", () => {
     render(<LoginShell>x</LoginShell>);
-    expect(screen.getByText(/Acesso restrito/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`Acesso restrito.*${new Date().getFullYear()}`))).toBeInTheDocument();
+  });
+
+  test("status offline troca o texto e o indicador do rodape", () => {
+    const { container } = render(<LoginShell status="offline">x</LoginShell>);
+    expect(screen.getByText("Servidor indisponível no momento")).toBeInTheDocument();
+    expect(container.querySelector(".ds-login-dot-offline")).not.toBeNull();
+  });
+
+  test("status verificando nao afirma que o sistema esta online", () => {
+    render(<LoginShell status="checking">x</LoginShell>);
+    expect(screen.queryByText(/Sistema online/)).toBeNull();
+    expect(screen.getByText(/Verificando conexão/)).toBeInTheDocument();
   });
 });
