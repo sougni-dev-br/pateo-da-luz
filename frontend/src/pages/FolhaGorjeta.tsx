@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   type TipComputation, type TipComputedParticipant, type TipRosterEmployee,
   closeTipPeriodApi, getTipCommission, getTipRoster, openTipPeriod,
-  refreshTipService, removeTipParticipant, reopenTipPeriodApi, saveTipParticipants, syncTipParticipants, updateTipPeriod,
+  refreshTipService, removeTipParticipant, setTipGorjetaReal, reopenTipPeriodApi, saveTipParticipants, syncTipParticipants, updateTipPeriod,
 } from "../api/client";
 import { AjusteServico } from "./gorjeta/AjusteServico";
 import { Notice, useNotice } from "../components/Notice";
@@ -231,6 +231,14 @@ export function FolhaGorjeta() {
     } catch (e) { erro(e); } finally { setBusy(false); }
   }
 
+  // Gorjeta real: grava o que está pendente antes, para o cálculo que volta estar em dia.
+  async function gravarGorjetaReal(participantId: string, valor: number | null, motivo: string) {
+    await flush();
+    const c = await setTipGorjetaReal(participantId, valor, motivo);
+    aplicar(c);
+    setNotice({ tone: "success", message: valor == null ? "Voltou à gorjeta calculada." : "Gorjeta real gravada; a diferença foi para o livre para distribuir." });
+  }
+
   async function remover(p: TipComputedParticipant) {
     if (!p.participantId) return;
     const ok = await confirmar({
@@ -454,7 +462,7 @@ export function FolhaGorjeta() {
 
               {aba === "apuracao" && (
                 <AbaApuracao comp={comp} rows={rows} readonly={readonly} onRow={setRow}
-                  onRemove={(p) => void remover(p)} onVerVales={(id) => { setValesPessoa(id); setAba("vales"); }}
+                  onRemove={(p) => void remover(p)} onGorjetaReal={gravarGorjetaReal} onVerVales={(id) => { setValesPessoa(id); setAba("vales"); }}
                   recibo={{
                     antesDeGravar: flush,
                     onAplicado: (c) => { aplicar(c); setNotice({ tone: "success", message: "Termo de rescisão lido: a gorjeta paga ficou registrada e saiu da lista a pagar." }); },

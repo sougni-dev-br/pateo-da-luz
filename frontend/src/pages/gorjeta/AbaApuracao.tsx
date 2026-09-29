@@ -1,4 +1,4 @@
-import { ReceiptText, Settings2, Trash2 } from "lucide-react";
+import { Pencil, ReceiptText, Settings2, Trash2 } from "lucide-react";
 import { Fragment, type CSSProperties, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { TipComputation, TipComputedParticipant } from "../../api/client";
@@ -7,6 +7,7 @@ import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { RegrasPessoa, temRegraPropria } from "./RegrasPessoa";
 import { ReciboRescisao, SeloRecibo } from "./ReciboRescisao";
+import { DialogoGorjetaReal } from "./GorjetaReal";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
   type LocalRow, type RowPatch, fmtDate, money, mutedStyle, numInputStyle, ordenar, panelStyle, pts,
@@ -22,6 +23,8 @@ type Props = {
   readonly: boolean;
   onRow: RowPatch;
   onRemove: (p: TipComputedParticipant) => void;
+  /** Gorjeta real no lugar da calculada (valor null volta à calculada). */
+  onGorjetaReal: (participantId: string, valor: number | null, motivo: string) => Promise<void>;
 };
 
 const num: CSSProperties = { fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
@@ -107,7 +110,8 @@ function RescisaoLancada({ r, employeeId }: { r: TipComputedParticipant["rescisa
   );
 }
 
-export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales, recibo }: Props) {
+export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales, recibo, onGorjetaReal }: Props) {
+  const [editandoReal, setEditandoReal] = useState<TipComputedParticipant | null>(null);
   const [regrasDe, setRegrasDe] = useState<string | null>(null);
 
   const rowPorFuncionario = useMemo(() => new Map(rows.map((r) => [r.employeeId, r])), [rows]);
@@ -213,7 +217,15 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
           {p.rescisaoPendente
             ? <StatusBadge tone="warning">pendente</StatusBadge>
             : <>
-                <Money value={p.rateioAmount} />
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <Money value={p.rateioAmount} />
+                  {p.gorjetaReal && <StatusBadge tone="info" title={p.gorjetaReal.motivo ?? undefined}>real</StatusBadge>}
+                  {!readonly && p.participantId && p.kind === "PONTOS" && p.tipoCalculo === "MES" && (
+                    <button type="button" className="botao-desfazer" aria-label={"Gorjeta real de " + p.employeeName} title="Digitar a gorjeta real"
+                      onClick={() => setEditandoReal(p)}><Pencil size={12} /></button>
+                  )}
+                </span>
+                {p.gorjetaReal && <div style={{ ...mutedStyle, fontSize: 11 }}>calculada <Money value={p.gorjetaCalculada} /></div>}
                 {p.tipoCalculo === "RESCISAO" && <div style={{ ...mutedStyle, fontSize: 11 }}>ponto {money(p.valorPonto)}</div>}
                 {p.tipoCalculo === "RESCISAO_QUITADA" && <div style={{ ...mutedStyle, fontSize: 11 }}>quitada</div>}
               </>}
@@ -299,6 +311,10 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {editandoReal && editandoReal.participantId && (
+        <DialogoGorjetaReal participante={editandoReal} onFechar={() => setEditandoReal(null)}
+          onSalvar={(valor, motivo) => onGorjetaReal(editandoReal.participantId!, valor, motivo)} />
+      )}
       <div className="barra-lista">
         <label className="barra-lista-campo">
           <span>Ordenar por</span>

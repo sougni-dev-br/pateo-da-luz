@@ -127,6 +127,9 @@ export type ComputedParticipant = {
   extraRescisao: number;
   // Quitada: o que o direito valia (a gorjeta que o sistema apuraria sem o valor pago).
   valorDireito: number | null;
+  // Gorjeta real digitada no lugar da calculada (null = vale a calculada).
+  gorjetaCalculada: number;
+  gorjetaReal: { valor: number; motivo: string | null; por: string | null; em: string | null } | null;
   justificativaExtra: string | null;
   tipoCalculo: TipoCalculo;
   valorPonto: number;
@@ -373,6 +376,7 @@ export async function computeTipCommission(
       // Faltas digitadas na apuração não dizem o dia: valem também para o salário.
       faltasSalario: r.faltas ?? escalaMes.get(r.employeeId)?.faltas ?? 0,
       rescisaoLancada: rescisoesLancadas.has(r.employeeId),
+      gorjetaReal: num(r.gorjetaReal),
       vales: r.vales.map((v) => ({ type: v.type, amount: Number(v.amount) })),
     };
   });
@@ -442,6 +446,10 @@ export async function computeTipCommission(
       pontosDireito: calc.pontosDireito,
       pontosDevolvidos: calc.pontosDevolvidos,
       extraRescisao: calc.extraRescisao,
+      gorjetaCalculada: calc.gorjetaCalculada,
+      gorjetaReal: r.gorjetaReal == null ? null : {
+        valor: Number(r.gorjetaReal), motivo: r.gorjetaRealMotivo, por: r.gorjetaRealPor, em: r.gorjetaRealEm?.toISOString() ?? null,
+      },
       valorDireito: calc.tipoCalculo === "RESCISAO_QUITADA"
         ? calc.valorDireito ?? round2(calc.pontosDireito * calc.valorPonto)
         : null,
@@ -515,6 +523,11 @@ export async function computeTipCommission(
   if (saiuSemRescisao.length) {
     warnings.push(`Saíram no período sem rescisão lançada em Contas a Pagar (lance em Folha → Rescisão): ${listar(saiuSemRescisao)}.`
       + (saiuSemRescisao.some((p) => p.semRegistro) ? " Sem registro sem rescisão lançada recebe salário e gorjeta na lista do mês." : ""));
+  }
+  const comReal = noPeriodo.filter((p) => p.gorjetaReal != null && p.tipoCalculo === "MES");
+  if (comReal.length) {
+    const diferenca = round2(comReal.reduce((a, p) => a + (p.gorjetaCalculada - p.rateioAmount), 0));
+    warnings.push(`Gorjeta real no lugar da calculada: ${listar(comReal)}. ${diferenca >= 0 ? "Sobram" : "Faltam"} ${brl(Math.abs(diferenca))} no livre para distribuir por isso.`);
   }
   const semAdmissao = noPeriodo.filter((p) => !p.admissionDate);
   if (semAdmissao.length) warnings.push(`Sem data de admissão (considerados no período inteiro): ${listar(semAdmissao)}.`);

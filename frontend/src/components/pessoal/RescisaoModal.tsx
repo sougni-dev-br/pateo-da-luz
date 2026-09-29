@@ -236,7 +236,7 @@ export function RescisaoModal({ funcionario, onFechar, onGravou }: Props) {
   );
 
   return (
-    <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onFechar(); }}>
+    <div className="modal-backdrop sobre-topo" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onFechar(); }}>
       <section className="panel modal-panel resc-modal" role="dialog" aria-modal="true" aria-labelledby="resc-titulo">
         <div className="section-heading" ref={topoRef}>
           <div>

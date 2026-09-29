@@ -27,7 +27,7 @@ function pessoa(over: Partial<ParticipanteEntrada> = {}): ParticipanteEntrada {
     faltas: 0, atestados: 0, ferias: 0, outrosDias: 0, diasPrevistosOverride: null,
     regras: { descontaFalta: null, descontaAtestado: null, descontaFerias: null, descontaOutros: null, proporcionalEntrada: null },
     rescisaoServicoBruto: null, rescisaoValorFixo: null,
-    semRegistro: false, salarioBase: null, diasSalarioOverride: null, rescisaoLancada: false,
+    semRegistro: false, salarioBase: null, diasSalarioOverride: null, rescisaoLancada: false, gorjetaReal: null,
     vales: [],
     ...over,
   };
@@ -385,5 +385,39 @@ describe("salário de sem registro na competência do mês civil", () => {
   test("mês civil inteiro no vínculo paga o salário cheio", () => {
     const r = calcularParticipante(SET_COM_MES, pessoa({ semRegistro: true, salarioBase: 2200, admissao: d("2026-01-01") }), VALOR_PONTO);
     expect(r.salarioProporcional).toBe(2200);
+  });
+});
+
+describe("gorjeta real digitada no lugar da calculada", () => {
+  const equipe = () => [pessoa({ basePoints: 10 }), pessoa({ basePoints: 20 }), pessoa({ basePoints: 4 })];
+
+  test("recebeu menos: os outros não mudam e a diferença vai para o livre para distribuir", () => {
+    const antes = calcularRateio(SETEMBRO, equipe());
+    const calculada = antes.linhas[2].rateio;
+    const depois = calcularRateio(SETEMBRO, [pessoa({ basePoints: 10 }), pessoa({ basePoints: 20 }), pessoa({ basePoints: 4, gorjetaReal: 500 })]);
+    expect(depois.valorPonto).toBe(antes.valorPonto);
+    expect(depois.linhas[0].rateio).toBe(antes.linhas[0].rateio);
+    expect(depois.linhas[2].rateio).toBe(500);
+    expect(depois.saldo).toBeCloseTo(antes.saldo + (calculada - 500), 2);
+    expect(depois.linhas[2].gorjetaCalculada).toBe(calculada);
+  });
+
+  test("recebeu mais: a diferença sai do livre para distribuir", () => {
+    const antes = calcularRateio(SETEMBRO, equipe());
+    const calculada = antes.linhas[2].rateio;
+    const depois = calcularRateio(SETEMBRO, [pessoa({ basePoints: 10 }), pessoa({ basePoints: 20 }), pessoa({ basePoints: 4, gorjetaReal: 900 })]);
+    expect(depois.linhas[1].rateio).toBe(antes.linhas[1].rateio);
+    expect(depois.saldo).toBeCloseTo(antes.saldo - (900 - calculada), 2);
+  });
+
+  test("o líquido (gorjeta − vales) sai da gorjeta real", () => {
+    const r = calcularParticipante(SETEMBRO, pessoa({ basePoints: 4, gorjetaReal: 500, vales: [{ type: "ADIANTAMENTO", amount: 50 }] }), VALOR_PONTO);
+    expect(r.rateio).toBe(500);
+    expect(r.comissaoLiquida).toBe(450);
+  });
+
+  test("sem valor real, nada muda", () => {
+    const r = calcularParticipante(SETEMBRO, pessoa({ basePoints: 4 }), VALOR_PONTO);
+    expect(r.gorjetaCalculada).toBe(r.rateio);
   });
 });

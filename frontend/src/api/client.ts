@@ -5710,6 +5710,10 @@ export type TipComputedParticipant = {
   rescisaoRecibo: TipReciboRescisao | null;
   /** Rescisão lançada em Contas a Pagar (valor só com permissão de Funcionários). */
   rescisaoContasPagar: { valor: number | null; vencimento: string; status: "PENDING" | "PAID" | "OVERDUE"; parcelas: number; gorjetaDefinida: boolean } | null;
+  /** O que o sistema calculou; difere de rateioAmount quando há gorjeta real. */
+  gorjetaCalculada: number;
+  /** Gorjeta real digitada no lugar da calculada (null = vale a calculada). */
+  gorjetaReal: { valor: number; motivo: string | null; por: string | null; em: string | null } | null;
   rescisaoPendente: boolean;
   rateioAmount: number;
   descontos: number;
@@ -6015,6 +6019,11 @@ export function saveTipParticipants(periodId: string, participants: TipParticipa
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ participants })
   });
+}
+
+/** Gorjeta real no lugar da calculada; valor null tira o ajuste. */
+export function setTipGorjetaReal(participantId: string, valor: number | null, motivo: string) {
+  return request<TipComputation>(`/payroll/tip/participants/${participantId}/gorjeta-real`, json("PUT", { valor, motivo }));
 }
 
 export function removeTipParticipant(id: string) {

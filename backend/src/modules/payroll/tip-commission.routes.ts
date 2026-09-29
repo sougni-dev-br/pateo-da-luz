@@ -528,6 +528,55 @@ tipCommissionRouter.post("/periods/:id/sync", async (request, response) => {
 });
 
 // Remover um participante do período.
+// Gorjeta real no lugar da calculada (valor null tira o ajuste). Os outros não mudam;
+// a diferença vai para o livre para distribuir. Justificativa obrigatória e auditoria.
+tipCommissionRouter.put("/participants/:id/gorjeta-real", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const p = await prisma.tipParticipant.findUnique({
+    where: { id: request.params.id },
+    select: {
+      id: true, periodId: true, employeeId: true, kind: true, gorjetaReal: true, gorjetaRealMotivo: true,
+      period: { select: { competenceYear: true, competenceMonth: true, periodEnd: true } },
+      employee: { select: { terminationDate: true } },
+    },
+  });
+  if (!p) return response.status(404).json({ message: "Participante não encontrado." });
+  if (await barrouPorFechamento(p.periodId, response, "Mudar a gorjeta de alguém")) return;
+  if (p.kind !== "PONTOS") return response.status(422).json({ message: "Cota fixa já é um valor: mude a cota na própria linha." });
+  const saida = p.employee.terminationDate;
+  if (saida && saida <= p.period.periodEnd) {
+    return response.status(422).json({ message: "Quem saiu no período usa a gorjeta paga em \"Rescisões do período\" (ou na própria rescisão)." });
+  }
+
+  const b = request.body as { valor?: unknown; motivo?: unknown };
+  const tirar = b.valor == null || b.valor === "";
+  const valor = tirar ? null : Number(b.valor);
+  if (valor != null && (!Number.isFinite(valor) || valor < 0 || valor > 1_000_000)) {
+    return response.status(422).json({ message: "Gorjeta real inválida (use um valor entre 0 e 1.000.000)." });
+  }
+  const motivo = typeof b.motivo === "string" ? b.motivo.trim().slice(0, 500) : "";
+  if (motivo.length < 10) return response.status(422).json({ message: "Explique por que a gorjeta real é outra (pelo menos 10 letras)." });
+
+  await prisma.tipParticipant.update({
+    where: { id: p.id },
+    data: {
+      gorjetaReal: valor == null ? null : Math.round(valor * 100) / 100,
+      gorjetaRealMotivo: valor == null ? null : motivo,
+      gorjetaRealPor: valor == null ? null : user.name,
+      gorjetaRealEm: valor == null ? null : new Date(),
+    },
+  });
+  await auditLog({
+    userId: user.id, action: valor == null ? "REMOVE_TIP_GORJETA_REAL" : "SET_TIP_GORJETA_REAL", entity: "TipParticipant", entityId: p.id,
+    previousValue: { gorjetaReal: p.gorjetaReal == null ? null : Number(p.gorjetaReal), motivo: p.gorjetaRealMotivo },
+    newValue: { gorjetaReal: valor, motivo },
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+  const computation = await computeTipCommission(p.period.competenceYear, p.period.competenceMonth, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
+  response.json(computation);
+});
+
 tipCommissionRouter.delete("/participants/:id", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
