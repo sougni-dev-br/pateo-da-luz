@@ -81,6 +81,13 @@ export type ReciboGravado = {
 export type ComputedVale = { id: string; type: string; amount: number; date: string | null; notes: string | null };
 export type Origem = "ESCALA" | "MANUAL";
 
+export type RescisaoContasPagar = {
+  valor: number | null;
+  vencimento: string;
+  status: "PENDING" | "PAID" | "OVERDUE";
+  parcelas: number;
+};
+
 export type ComputedParticipant = {
   participantId: string | null;
   employeeId: string;
@@ -126,6 +133,9 @@ export type ComputedParticipant = {
   // Gorjeta quitada na rescisão: já foi paga pela contabilidade, não entra na lista a pagar.
   pagoNaRescisao: boolean;
   rescisaoRecibo: ReciboGravado | null;
+  // Rescisão lançada em Contas a Pagar para quem saiu no período. O valor só com
+  // permissão de Funcionários; saber que existe, sempre.
+  rescisaoContasPagar: RescisaoContasPagar | null;
   rateioAmount: number;
   descontos: number;
   creditos: number;
@@ -225,6 +235,43 @@ const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", curren
 
 const fmtIso = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "—");
 
+// Rescisões lançadas pela Folha (Contas a Pagar) na competência da saída de cada um.
+// Cancelada não conta: é como se não tivesse sido lançada.
+async function rescisoesEmContasAPagar(
+  saidas: Array<{ employeeId: string; saida: Date } | null>,
+): Promise<Map<string, RescisaoContasPagar & { valor: number }>> {
+  const alvo = saidas.filter((s): s is { employeeId: string; saida: Date } => s != null);
+  if (alvo.length === 0) return new Map();
+  const itens = await prisma.payrollItem.findMany({
+    where: {
+      type: "RESCISAO", deletedAt: null, status: { not: "CANCELED" },
+      OR: alvo.map((s) => ({
+        employeeId: s.employeeId, competenceYear: s.saida.getUTCFullYear(), competenceMonth: s.saida.getUTCMonth() + 1,
+      })),
+    },
+    select: { employeeId: true, amount: true, dueDate: true, status: true },
+    orderBy: { dueDate: "asc" },
+  });
+  const porPessoa = new Map<string, RescisaoContasPagar & { valor: number }>();
+  for (const it of itens) {
+    const status = it.status === "CANCELED" ? "PENDING" : it.status;
+    const atual = porPessoa.get(it.employeeId);
+    if (!atual) {
+      porPessoa.set(it.employeeId, { valor: round2(Number(it.amount)), vencimento: it.dueDate.toISOString(), status, parcelas: 1 });
+      continue;
+    }
+    // Parcelado: soma, vence na primeira; paga só quando todas estão pagas.
+    const juntos = [atual.status, status];
+    porPessoa.set(it.employeeId, {
+      valor: round2(atual.valor + Number(it.amount)),
+      vencimento: atual.vencimento,
+      status: juntos.includes("OVERDUE") ? "OVERDUE" : juntos.every((s) => s === "PAID") ? "PAID" : "PENDING",
+      parcelas: atual.parcelas + 1,
+    });
+  }
+  return porPessoa;
+}
+
 // ─── Cálculo (sem persistir) ────────────────────────────────────────────────
 export async function computeTipCommission(
   year: number, month: number, opts: { incluirDadosPessoais?: boolean } = {},
@@ -285,6 +332,10 @@ export async function computeTipCommission(
     }
   }
 
+  const rescisoesLancadas = await rescisoesEmContasAPagar(rows.map((r) => r.employee.terminationDate
+    && r.employee.terminationDate >= start && r.employee.terminationDate <= end
+    ? { employeeId: r.employeeId, saida: r.employee.terminationDate } : null));
+
   const entradas: ParticipanteEntrada[] = rows.map((r) => {
     const e = escala.get(r.employeeId) ?? { faltas: 0, atestados: 0, ferias: 0 };
     return {
@@ -308,6 +359,7 @@ export async function computeTipCommission(
       semRegistro: r.employee.modality === "NAO_CLT",
       salarioBase: num(r.employee.baseSalary),
       diasSalarioOverride: r.diasSalarioOverride,
+      rescisaoLancada: rescisoesLancadas.has(r.employeeId),
       vales: r.vales.map((v) => ({ type: v.type, amount: Number(v.amount) })),
     };
   });
@@ -384,6 +436,10 @@ export async function computeTipCommission(
       rescisaoPendente: !closed && calc.rescisaoPendente,
       pagoNaRescisao,
       rescisaoRecibo: (r.rescisaoRecibo as ReciboGravado | null) ?? null,
+      rescisaoContasPagar: (() => {
+        const lancada = rescisoesLancadas.get(r.employeeId);
+        return lancada ? { ...lancada, valor: dadosPessoais ? lancada.valor : null } : null;
+      })(),
       rateioAmount,
       descontos: calc.descontos,
       creditos: calc.creditos,
@@ -436,6 +492,12 @@ export async function computeTipCommission(
   const semSalario = participants.filter((p, i) =>
     p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && entradas[i].salarioBase == null);
   if (semSalario.length) warnings.push(`Sem registro e sem salário no cadastro (a lista de pagamento sai só com a gorjeta): ${listar(semSalario)}.`);
+  const saiuSemRescisao = noPeriodo.filter((p) =>
+    (p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA") && !p.rescisaoContasPagar);
+  if (saiuSemRescisao.length) {
+    warnings.push(`Saíram no período sem rescisão lançada em Contas a Pagar (lance em Folha → Rescisão): ${listar(saiuSemRescisao)}.`
+      + (saiuSemRescisao.some((p) => p.semRegistro) ? " Sem registro sem rescisão lançada recebe salário e gorjeta na lista do mês." : ""));
+  }
   const semAdmissao = noPeriodo.filter((p) => !p.admissionDate);
   if (semAdmissao.length) warnings.push(`Sem data de admissão (considerados no período inteiro): ${listar(semAdmissao)}.`);
   const valesDemais = noPeriodo.filter((p) => p.descontos > 0 && p.netCommission < 0);

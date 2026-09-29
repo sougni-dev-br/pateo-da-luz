@@ -27,7 +27,7 @@ function pessoa(over: Partial<ParticipanteEntrada> = {}): ParticipanteEntrada {
     faltas: 0, atestados: 0, ferias: 0, outrosDias: 0, diasPrevistosOverride: null,
     regras: { descontaFalta: null, descontaAtestado: null, descontaFerias: null, descontaOutros: null, proporcionalEntrada: null },
     rescisaoServicoBruto: null, rescisaoValorFixo: null,
-    semRegistro: false, salarioBase: null, diasSalarioOverride: null,
+    semRegistro: false, salarioBase: null, diasSalarioOverride: null, rescisaoLancada: false,
     vales: [],
     ...over,
   };
@@ -250,6 +250,30 @@ describe("rescisões abatidas da apuração", () => {
     expect(r.diasSalario).toBe(18); // 26/08 a 14/09 = 20 dias corridos (com folgas) − 2 faltas
     expect(r.salarioProporcional).toBe(1320); // 2.200 ÷ 30 × 18
     expect(r.totalAPagar).toBe(1620);
+  });
+
+  test("sem registro com a rescisão já lançada em Contas a Pagar: já recebeu, sai da lista", () => {
+    const r = calcularParticipante(SETEMBRO, pessoa({
+      desligamento: d("2026-09-18"), semRegistro: true, salarioBase: 2200, rescisaoServicoBruto: 10000, rescisaoLancada: true,
+    }), VALOR_PONTO);
+    expect(r.tipoCalculo).toBe("RESCISAO");
+    expect(r.rateio).toBeGreaterThan(0); // a gorjeta continua medida: consome os pontos dela
+    expect(r.pagoNaRescisao).toBe(true);
+    expect(r.totalAPagar).toBe(0);
+  });
+
+  test("sem registro com gorjeta digitada e rescisão lançada: também fora da lista", () => {
+    const r = calcularParticipante(SETEMBRO, pessoa({
+      ...QUITADA, desligamento: d("2026-09-22"), semRegistro: true, salarioBase: 2200, rescisaoValorFixo: 300, rescisaoLancada: true,
+    }), VALOR_PONTO);
+    expect(r.pagoNaRescisao).toBe(true);
+    expect(r.totalAPagar).toBe(0);
+  });
+
+  test("rescisão lançada não vale para quem continua na casa", () => {
+    const r = calcularParticipante(SETEMBRO, pessoa({ semRegistro: true, salarioBase: 2200, rescisaoLancada: true }), VALOR_PONTO);
+    expect(r.pagoNaRescisao).toBe(false);
+    expect(r.totalAPagar).toBeGreaterThan(0);
   });
 
   test("a gorjeta paga não muda o valor do ponto de quem fica", () => {

@@ -64,6 +64,9 @@ export type ParticipanteEntrada = {
   semRegistro: boolean;
   salarioBase: number | null;
   diasSalarioOverride: number | null;
+  // Rescisão lançada em Contas a Pagar (Folha → rescisão). Sem registro: ela já
+  // pagou salário e gorjeta até a saída, então a pessoa sai da lista do mês.
+  rescisaoLancada: boolean;
   vales: ValeEntrada[];
 };
 
@@ -93,8 +96,8 @@ export type ParticipanteCalculado = {
   salarioProporcional: number;
   totalAPagar: number;
   rescisaoPendente: boolean;
-  // CLT com gorjeta paga: a contabilidade já pagou na rescisão. Sem registro não
-  // tem rescisão da contabilidade: o valor informado é pago na lista, com o salário.
+  // CLT com gorjeta paga: a contabilidade já pagou na rescisão. Sem registro só
+  // quando a rescisão está lançada em Contas a Pagar; sem ela, recebe na lista.
   pagoNaRescisao: boolean;
 };
 
@@ -227,7 +230,10 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
   const descontos = round2(p.vales.filter((v) => v.type !== "CREDITO").reduce((a, v) => a + v.amount, 0));
   const comissaoLiquida = round2(rateio - descontos + creditos);
   const salario = salarioSemRegistro(p, elegiveis, corridos);
-  const pagoNaRescisao = tipoCalculo === "RESCISAO_QUITADA" && !p.semRegistro;
+  const saiuNoPeriodo = tipoCalculo === "RESCISAO" || tipoCalculo === "RESCISAO_QUITADA";
+  const pagoNaRescisao = p.semRegistro
+    ? saiuNoPeriodo && p.rescisaoLancada
+    : tipoCalculo === "RESCISAO_QUITADA";
 
   return {
     tipoCalculo,
