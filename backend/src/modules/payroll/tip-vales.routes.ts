@@ -6,7 +6,8 @@
 import crypto from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { prisma } from "../../config/database.js";
-import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
+import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
+import { userHasPermission } from "../security/menu-permissions.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { saldoReserva, travarFundo } from "./tip-historico.service.js";
 
@@ -39,6 +40,16 @@ export function lerVale(b: Record<string, unknown>) {
   return { dados: { type, amount: Math.round(amount * 100) / 100, date, notes } };
 }
 
+// VALE-AAAA-NNNNN, sequência por ano (vai impresso no recibo).
+async function proximoCodigoVale(ano: number): Promise<string> {
+  const padrao = `^VALE-${ano}-(\\d+)$`;
+  const [row] = await prisma.$queryRaw<Array<{ proximo: number }>>`
+    SELECT COALESCE(MAX(SUBSTRING("codigo" FROM ${padrao})::int), 0) + 1 AS "proximo"
+    FROM "TipVale" WHERE "codigo" LIKE ${`VALE-${ano}-%`}
+  `;
+  return `VALE-${ano}-${String(Number(row?.proximo ?? 1)).padStart(5, "0")}`;
+}
+
 // Período fechado não aceita vale: mudaria a gorjeta líquida já conferida.
 async function barradoPorFechamento(periodId: string, response: Response, acao: string) {
   const p = await prisma.tipPeriod.findUnique({ where: { id: periodId }, select: { status: true, competenceMonth: true, competenceYear: true } });
@@ -53,6 +64,7 @@ function valeParaTela(v: {
   id: string; participantId: string; type: string; amount: unknown; date: Date | null; notes: string | null;
   createdAt: Date; createdByName: string | null; updatedAt: Date | null; canceledAt: Date | null; canceledByName: string | null;
   cancelReason: string | null; reserveMovement?: { id: string } | null;
+  codigo: string | null; reciboImpressoEm: Date | null; reciboImpressoes: number;
 }) {
   return {
     id: v.id, participantId: v.participantId, type: v.type, amount: Number(v.amount),
@@ -60,6 +72,7 @@ function valeParaTela(v: {
     lancadoEm: v.createdAt.toISOString(), lancadoPor: v.createdByName, alteradoEm: v.updatedAt?.toISOString() ?? null,
     canceladoEm: v.canceledAt?.toISOString() ?? null, canceladoPor: v.canceledByName, motivoCancelamento: v.cancelReason,
     doFundo: Boolean(v.reserveMovement),
+    codigo: v.codigo, reciboImpressoEm: v.reciboImpressoEm?.toISOString() ?? null, reciboImpressoes: v.reciboImpressoes,
   };
 }
 
@@ -82,6 +95,7 @@ tipValesRouter.get("/periods/:year/:month/vales", async (request: Request, respo
     vales: vales.map((v) => ({ ...valeParaTela(v), employeeId: v.participant.employeeId, nome: nomeDe(v.participant.employee) })),
     pessoas: comp.participants.filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO").map((p) => ({
       participantId: p.participantId, employeeId: p.employeeId, nome: p.employeeName, semRegistro: p.semRegistro,
+      funcao: p.functionName, empresaId: p.companyId, empresa: p.companyName,
       gorjeta: p.rateioAmount, descontos: p.descontos, creditos: p.creditos, liquida: p.netCommission, pagoNaRescisao: p.pagoNaRescisao,
     })),
   });
@@ -95,15 +109,27 @@ tipValesRouter.post("/participants/:id/vales", async (request, response) => {
   const participante = await prisma.tipParticipant.findUnique({ where: { id: request.params.id }, select: { id: true, periodId: true, employeeId: true } });
   if (!participante) return response.status(404).json({ message: "Pessoa não está na apuração." });
   if (await barradoPorFechamento(participante.periodId, response, "Lançar um vale")) return;
-  const vale = await prisma.tipVale.create({
-    data: { id: crypto.randomUUID(), participantId: participante.id, ...lido.dados, createdById: user.id, createdByName: user.name },
-  });
+  // Número do recibo: se dois lançarem no mesmo instante, o segundo pega o próximo.
+  let vale;
+  for (let tentativa = 0; ; tentativa++) {
+    try {
+      vale = await prisma.tipVale.create({
+        data: {
+          id: crypto.randomUUID(), participantId: participante.id, ...lido.dados, createdById: user.id, createdByName: user.name,
+          codigo: await proximoCodigoVale(new Date().getFullYear()),
+        },
+      });
+      break;
+    } catch (err) {
+      if ((err as { code?: string }).code !== "P2002" || tentativa >= 3) throw err;
+    }
+  }
   await auditLog({
     userId: user.id, action: "CREATE_TIP_VALE", entity: "TipVale", entityId: vale.id,
     newValue: { periodId: participante.periodId, employeeId: participante.employeeId, ...lido.dados },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
-  response.status(201).json({ id: vale.id });
+  response.status(201).json({ id: vale.id, codigo: vale.codigo });
 });
 
 // Corrigir um vale (tipo, valor, data, descrição). Crédito do fundo não se corrige aqui.
@@ -181,4 +207,95 @@ tipValesRouter.get("/reports/vales", async (request, response) => {
       periodo: p.code, competencia: `${String(p.competenceMonth).padStart(2, "0")}/${p.competenceYear}`,
     };
   }));
+});
+
+// ─── Descrições prontas ─────────────────────────────────────────────────────
+tipValesRouter.get("/vale-descricoes", async (_request, response) => {
+  const lista = await prisma.tipValeDescricao.findMany({ orderBy: [{ tipo: "asc" }, { ordem: "asc" }, { texto: "asc" }] });
+  response.json(lista.map((d) => ({ id: d.id, texto: d.texto, tipo: d.tipo, ativo: d.ativo })));
+});
+
+tipValesRouter.post("/vale-descricoes", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const b = request.body as { texto?: unknown; tipo?: unknown };
+  const texto = String(b.texto ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+  const tipoBruto = b.tipo == null || b.tipo === "" ? null : String(b.tipo);
+  if (texto.length < 3) return response.status(422).json({ message: "Escreva a descrição (pelo menos 3 letras)." });
+  if (tipoBruto && !TIPOS.includes(tipoBruto as Tipo)) return response.status(422).json({ message: "Tipo inválido." });
+  const tipo = tipoBruto as Tipo | null;
+  const existente = await prisma.tipValeDescricao.findFirst({ where: { texto: { equals: texto, mode: "insensitive" }, tipo } });
+  if (existente) {
+    // Já existia (talvez desativada): só reativa.
+    await prisma.tipValeDescricao.update({ where: { id: existente.id }, data: { ativo: true } });
+  } else {
+    const ultima = await prisma.tipValeDescricao.aggregate({ where: { tipo }, _max: { ordem: true } });
+    await prisma.tipValeDescricao.create({ data: { id: crypto.randomUUID(), texto, tipo, ordem: (ultima._max.ordem ?? 0) + 1, createdById: user.id } });
+  }
+  await auditLog({ userId: user.id, action: "CREATE_TIP_VALE_DESCRICAO", entity: "TipValeDescricao", entityId: texto, newValue: { texto, tipo } });
+  response.status(201).json({ ok: true });
+});
+
+tipValesRouter.put("/vale-descricoes/:id", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const ativo = (request.body as { ativo?: unknown }).ativo !== false;
+  const r = await prisma.tipValeDescricao.updateMany({ where: { id: request.params.id }, data: { ativo } });
+  if (r.count === 0) return response.status(404).json({ message: "Descrição não encontrada." });
+  await auditLog({ userId: user.id, action: ativo ? "REACTIVATE_TIP_VALE_DESCRICAO" : "DEACTIVATE_TIP_VALE_DESCRICAO", entity: "TipValeDescricao", entityId: request.params.id });
+  response.json({ ok: true });
+});
+
+// ─── Recibo do vale ─────────────────────────────────────────────────────────
+// Devolve o que vai impresso e registra a emissão (quem, quando, por qual empresa).
+// CPF só vai para quem pode ver Funcionários; sem isso, o recibo sai com a linha em branco.
+tipValesRouter.post("/vales/:id/recibo", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const empresaId = String((request.body as { empresaId?: unknown } | undefined)?.empresaId ?? "");
+  const vale = await prisma.tipVale.findUnique({
+    where: { id: request.params.id },
+    include: {
+      participant: {
+        select: {
+          period: { select: { code: true, label: true } },
+          employee: { select: { firstName: true, lastName: true, displayName: true, cpf: true, companyId: true, tipFunction: { select: { name: true } } } },
+        },
+      },
+    },
+  });
+  if (!vale) return response.status(404).json({ message: "Vale não encontrado." });
+  if (vale.canceledAt) return response.status(409).json({ message: "Vale cancelado não tem recibo." });
+  if (vale.type === "CREDITO") return response.status(409).json({ message: "Crédito soma à gorjeta: não há recibo de desconto." });
+  const idEmpresa = empresaId || vale.participant.employee.companyId;
+  if (!idEmpresa) return response.status(422).json({ message: "Escolha a empresa que emite o recibo." });
+  const empresa = await prisma.company.findFirst({
+    where: { id: idEmpresa, isActive: true },
+    select: { id: true, legalName: true, tradeName: true, cnpj: true, address: true, addressNumber: true, addressComplement: true, neighborhood: true, city: true, state: true },
+  });
+  if (!empresa) return response.status(422).json({ message: "Empresa não encontrada ou inativa." });
+  const podeCpf = await userHasPermission(user as SessionUser, "employees", "view");
+  const e = vale.participant.employee;
+  const atualizado = await prisma.tipVale.update({
+    where: { id: vale.id },
+    data: { reciboEmpresaId: empresa.id, reciboImpressoEm: new Date(), reciboImpressoPor: user.name, reciboImpressoes: { increment: 1 } },
+    select: { reciboImpressoes: true },
+  });
+  await auditLog({
+    userId: user.id, action: "PRINT_TIP_VALE_RECIBO", entity: "TipVale", entityId: vale.id,
+    newValue: { codigo: vale.codigo, empresa: empresa.legalName, vez: atualizado.reciboImpressoes },
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+  const endereco = [
+    [empresa.address, empresa.addressNumber].filter(Boolean).join(", "), empresa.addressComplement, empresa.neighborhood,
+    [empresa.city, empresa.state].filter(Boolean).join("/"),
+  ].filter(Boolean).join(" · ");
+  response.json({
+    codigo: vale.codigo, vez: atualizado.reciboImpressoes,
+    empresa: { razaoSocial: empresa.legalName, fantasia: empresa.tradeName, cnpj: empresa.cnpj, endereco, cidade: empresa.city },
+    funcionario: { nome: nomeDe(e), cpf: podeCpf ? e.cpf : null, funcao: e.tipFunction?.name ?? null },
+    vale: { tipo: vale.type, valor: Number(vale.amount), data: vale.date?.toISOString().slice(0, 10) ?? null, descricao: vale.notes },
+    apuracao: { codigo: vale.participant.period.code, periodo: vale.participant.period.label },
+    emitidoEm: new Date().toISOString(), emitidoPor: user.name,
+  });
 });

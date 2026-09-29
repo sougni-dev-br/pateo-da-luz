@@ -5993,7 +5993,7 @@ export function removeTipParticipant(id: string) {
 }
 
 export function addTipVale(participantId: string, payload: { type: TipValeType; amount: number; date?: string; notes?: string }) {
-  return request<{ id: string }>(`/payroll/tip/participants/${participantId}/vales`, {
+  return request<{ id: string; codigo: string | null }>(`/payroll/tip/participants/${participantId}/vales`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
@@ -6007,11 +6007,16 @@ export type TipValeLancado = {
   lancadoEm: string; lancadoPor: string | null; alteradoEm: string | null;
   canceladoEm: string | null; canceladoPor: string | null; motivoCancelamento: string | null;
   doFundo: boolean;
+  /** Número impresso no recibo (VALE-AAAA-NNNNN). */
+  codigo: string | null;
+  reciboImpressoEm: string | null;
+  reciboImpressoes: number;
 };
 export type TipValesPeriodo = {
   code: string; status: string;
   vales: TipValeLancado[];
   pessoas: Array<{ participantId: string | null; employeeId: string; nome: string; semRegistro: boolean;
+    funcao: string | null; empresaId: string | null; empresa: string | null;
     gorjeta: number; descontos: number; creditos: number; liquida: number; pagoNaRescisao: boolean }>;
 };
 export type TipValeRelatorio = TipValeLancado & { periodo: string; competencia: string };
@@ -6027,6 +6032,34 @@ export function editarTipVale(id: string, payload: { type: TipValeType; amount: 
 export function cancelarTipVale(id: string, motivo: string) {
   return request<{ ok: boolean }>(`/payroll/tip/vales/${id}/cancelar`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ motivo }),
+  });
+}
+export type TipValeDescricao = { id: string; texto: string; tipo: TipValeType | null; ativo: boolean };
+export function getTipValeDescricoes() {
+  return request<TipValeDescricao[]>("/payroll/tip/vale-descricoes");
+}
+export function criarTipValeDescricao(texto: string, tipo: TipValeType | null) {
+  return request<{ ok: boolean }>("/payroll/tip/vale-descricoes", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto, tipo }),
+  });
+}
+export function ativarTipValeDescricao(id: string, ativo: boolean) {
+  return request<{ ok: boolean }>(`/payroll/tip/vale-descricoes/${id}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ativo }),
+  });
+}
+export type TipReciboVale = {
+  codigo: string | null; vez: number;
+  empresa: { razaoSocial: string; fantasia: string; cnpj: string; endereco: string; cidade: string | null };
+  funcionario: { nome: string; cpf: string | null; funcao: string | null };
+  vale: { tipo: TipValeType; valor: number; data: string | null; descricao: string | null };
+  apuracao: { codigo: string; periodo: string };
+  emitidoEm: string; emitidoPor: string;
+};
+/** Registra a emissão e devolve o que vai impresso. */
+export function emitirReciboVale(id: string, empresaId: string | null) {
+  return request<TipReciboVale>(`/payroll/tip/vales/${id}/recibo`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ empresaId }),
   });
 }
 export function getTipRelatorioVales(de: string, ate: string) {
