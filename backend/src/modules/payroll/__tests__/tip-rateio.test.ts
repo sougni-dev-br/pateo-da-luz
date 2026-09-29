@@ -334,3 +334,30 @@ describe("rateio do período", () => {
     expect(res.linhas[1].rateio).toBe(1800);
   });
 });
+
+describe("gorjeta paga na rescisão medida pelo ponto da saída (regra A)", () => {
+  // Saída em 12/09 com o serviço até lá: valor do ponto da rescisão = 17.432,36 × 80% ÷ 100 = 139,46.
+  const saida = { desligamento: d("2026-09-12"), admissao: d("2026-09-02"), basePoints: 3.5, faltas: 2, atestados: 1, rescisaoServicoBruto: 17432.36 };
+  const equipe = [pessoa({ basePoints: 10 }), pessoa({ basePoints: 20 })];
+
+  test("pagou menos que o direito: quem fica não muda e a diferença em dinheiro volta ao saldo", () => {
+    const calculada = calcularRateio(SETEMBRO, [pessoa(saida), ...equipe]);
+    const direito = calculada.linhas[0].rateio;
+    const paga = calcularRateio(SETEMBRO, [pessoa({ ...saida, rescisaoValorFixo: 186.8 }), ...equipe]);
+    expect(paga.valorPonto).toBe(calculada.valorPonto);
+    expect(paga.linhas[1].rateio).toBe(calculada.linhas[1].rateio);
+    expect(paga.linhas[0].rateio).toBe(186.8);
+    expect(paga.saldo).toBeCloseTo(calculada.saldo + (direito - 186.8), 2);
+    expect(paga.linhas[0].pontosDevolvidos).toBeGreaterThan(0);
+    expect(paga.linhas[0].valorPonto).toBe(139.46);
+  });
+
+  test("pagou mais que o direito: a diferença sai do saldo e vira extra", () => {
+    const calculada = calcularRateio(SETEMBRO, [pessoa(saida), ...equipe]);
+    const direito = calculada.linhas[0].rateio;
+    const paga = calcularRateio(SETEMBRO, [pessoa({ ...saida, rescisaoValorFixo: 250 }), ...equipe]);
+    expect(paga.valorPonto).toBe(calculada.valorPonto);
+    expect(paga.saldo).toBeCloseTo(calculada.saldo - (250 - direito), 2);
+    expect(paga.linhas[0].extraRescisao).toBeGreaterThan(0);
+  });
+});

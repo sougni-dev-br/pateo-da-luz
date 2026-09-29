@@ -325,11 +325,12 @@ export async function computeTipCommission(
   const rows = period?.participants ?? [];
   const escala = await contarOcorrenciasDaEscala(rows.map((r) => r.employeeId), start, end);
 
-  // Serviço até o desligamento, para quem saiu dentro do período e não teve o valor digitado.
+  // Serviço até o desligamento, para quem saiu dentro do período (inclusive com a gorjeta
+  // paga: é ele que dá o valor do ponto da saída para medir o que foi pago).
   const servicoAteSaida = new Map<string, number>();
   for (const r of rows) {
     const saida = r.employee.terminationDate;
-    if (saida && saida >= start && saida <= end && r.rescisaoServicoBruto == null && r.rescisaoValorFixo == null) {
+    if (saida && saida >= start && saida <= end && r.rescisaoServicoBruto == null) {
       // Zero = faturamento ainda não importado: fica pendente em vez de pagar zero.
       const servico = await getServicePoolByRange(start, new Date(saida.getTime() + DIA_MS));
       if (servico > 0) servicoAteSaida.set(r.id, servico);
