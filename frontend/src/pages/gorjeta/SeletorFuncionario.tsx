@@ -1,4 +1,4 @@
-// Escolha do funcionário por busca: digita parte do nome (ou da função), setas
+// Escolha do funcionário por busca: digita parte do nome, do apelido ou da função, setas
 // e Enter. Mostra função, empresa e quanto ainda tem de gorjeta líquida.
 // Os usados por último aparecem primeiro.
 import { Search, X } from "lucide-react";
@@ -8,6 +8,7 @@ import { money } from "./gorjetaUtils";
 export type PessoaSelecionavel = {
   participantId: string;
   nome: string;
+  apelido?: string | null;
   funcao: string | null;
   empresa: string | null;
   semRegistro: boolean;
@@ -47,7 +48,7 @@ export function SeletorFuncionario({ pessoas, valor, onEscolher, autoFoco }: Pro
     const palavras = termo.split(/\s+/).filter(Boolean);
     const recentes = lerRecentes();
     const filtradas = pessoas.filter((p) => {
-      const texto = semAcento(`${p.nome} ${p.funcao ?? ""}`);
+      const texto = semAcento(`${p.nome} ${p.apelido ?? ""} ${p.funcao ?? ""}`);
       return palavras.every((w) => texto.includes(w));
     });
     const posicao = (p: PessoaSelecionavel) => { const i = recentes.indexOf(p.participantId); return i < 0 ? 99 : i; };
@@ -84,7 +85,7 @@ export function SeletorFuncionario({ pessoas, valor, onEscolher, autoFoco }: Pro
           aria-autocomplete="list"
           aria-label="Funcionário"
           value={aberto ? busca : escolhida?.nome ?? busca}
-          placeholder="Digite o nome ou a função…"
+          placeholder="Digite o nome, o apelido ou a função…"
           onFocus={() => { if (focoAutomatico.current) { focoAutomatico.current = false; return; } setAberto(true); setAtivo(0); }}
           onClick={() => setAberto(true)}
           onBlur={() => window.setTimeout(() => setAberto(false), 220)}
@@ -98,6 +99,7 @@ export function SeletorFuncionario({ pessoas, valor, onEscolher, autoFoco }: Pro
       </div>
       {escolhida && !aberto && (
         <span className="seletor-funcionario-resumo">
+          {escolhida.apelido && <>“{escolhida.apelido}” · </>}
           {[escolhida.funcao, escolhida.semRegistro ? "sem registro" : escolhida.empresa].filter(Boolean).join(" · ")}
           {" · "}<strong style={{ color: escolhida.liquida <= 0 ? "var(--danger)" : undefined }}>{money(escolhida.liquida)}</strong> de gorjeta líquida
         </span>
@@ -115,6 +117,7 @@ export function SeletorFuncionario({ pessoas, valor, onEscolher, autoFoco }: Pro
                 {!busca && recentes.includes(p.participantId) && <em>recente</em>}
               </span>
               <span className="seletor-funcionario-info">
+                {p.apelido && <>“{p.apelido}” · </>}
                 {[p.funcao, p.semRegistro ? "sem registro" : p.empresa].filter(Boolean).join(" · ") || "—"}
               </span>
               <span className="seletor-funcionario-valor" style={{ color: p.liquida <= 0 ? "var(--danger)" : undefined }}>{money(p.liquida)}</span>
