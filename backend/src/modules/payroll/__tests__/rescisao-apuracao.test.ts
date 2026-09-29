@@ -55,53 +55,51 @@ describe("sugestão para a tela de rescisão", () => {
     gorjetaObservacao: null,
   };
 
-  test("sem registro: bruto = salário + gorjeta; vales e VT como descontos", () => {
+  test("sem registro: salário, gorjeta e vales vêm separados; o bruto é a soma", () => {
     const s = montarSugestao({ ...base, semRegistro: true });
-    expect(s.bruto).toBe(1982.96);
-    expect(s.vtDesconto).toBe(42.4);
-    expect(s.outroDesconto).toBe(100);
-    expect(s.outroDescontoRotulo).toContain("VALE-2026-00003");
+    expect(s).toMatchObject({ salario: 1466.67, gorjeta: 516.29, vales: 100, vtDesconto: 42.4, bruto: 1982.96 });
+    expect(s.valesRotulo).toContain("VALE-2026-00003");
   });
 
-  test("CLT: bruto vem da contabilidade e os vales já saíram da gorjeta; só o VT", () => {
+  test("CLT: bruto e gorjeta vêm da contabilidade e os vales já saíram da gorjeta; só o VT", () => {
     const s = montarSugestao({ ...base, semRegistro: false, vales: { ...base.vales, entraNaRescisao: false } });
-    expect(s.bruto).toBeNull();
-    expect(s.vtDesconto).toBe(42.4);
-    expect(s.outroDesconto).toBe(0);
+    expect(s).toMatchObject({ salario: null, gorjeta: null, vales: 0, vtDesconto: 42.4, bruto: null });
   });
 
-  test("gorjeta pendente: não sugere bruto pela metade", () => {
+  test("gorjeta pendente: traz o salário, mas não inventa gorjeta nem bruto", () => {
     const s = montarSugestao({ ...base, semRegistro: true, gorjeta: { ...base.gorjeta, pendente: true } });
+    expect(s.salario).toBe(1466.67);
+    expect(s.gorjeta).toBeNull();
     expect(s.bruto).toBeNull();
   });
 
   test("crédito da aba Vales soma ao bruto em vez de sumir", () => {
     const s = montarSugestao({ ...base, semRegistro: true, vales: { ...base.vales, itens: [], descontos: 0, creditos: 50, liquido: -50 } });
-    expect(s.outroDesconto).toBe(0);
+    expect(s.vales).toBe(0);
     expect(s.bruto).toBe(2032.96);
-    expect(s.brutoComposicao).toContain("créditos");
   });
 });
 
 describe("ajuste manual contra o apurado", () => {
-  const sugestao = { bruto: 1982.96, brutoComposicao: null, vtDesconto: 42.4, outroDesconto: 100, outroDescontoRotulo: null };
+  const sugestao = { salario: 1466.67, gorjeta: 516.29, creditos: 0, vales: 100, valesRotulo: null, vtDesconto: 42.4, bruto: 1982.96 };
 
   test("igual ao apurado: nada a justificar", () => {
-    expect(divergenciasDoApurado(sugestao, { bruto: 1982.96, vtDesconto: 42.4, outroDesconto: 100 })).toEqual([]);
+    expect(divergenciasDoApurado(sugestao, { salario: 1466.67, gorjeta: 516.29, vales: 100, vtDesconto: 42.4 })).toEqual([]);
   });
 
-  test("lista cada campo mudado com o apurado, o lançado e a diferença", () => {
-    const d = divergenciasDoApurado(sugestao, { bruto: 1500, vtDesconto: 42.4, outroDesconto: 0 });
-    expect(d.map((x) => x.campo)).toEqual(["bruto", "outroDesconto"]);
-    expect(d[0]).toMatchObject({ apurado: 1982.96, lancado: 1500, diferenca: -482.96 });
+  test("aponta cada parte mudada: gorjeta e vales, com apurado, lançado e diferença", () => {
+    const d = divergenciasDoApurado(sugestao, { salario: 1466.67, gorjeta: 400, vales: 0, vtDesconto: 42.4 });
+    expect(d.map((x) => x.campo)).toEqual(["gorjeta", "vales"]);
+    expect(d[0]).toMatchObject({ apurado: 516.29, lancado: 400, diferenca: -116.29 });
   });
 
-  test("CLT: o bruto é da contabilidade e não conta como ajuste", () => {
-    const d = divergenciasDoApurado({ ...sugestao, bruto: null }, { bruto: 3095.08, vtDesconto: 42.4, outroDesconto: 100 });
-    expect(d).toEqual([]);
+  test("CLT: só o VT conta; bruto e gorjeta são da contabilidade", () => {
+    const clt = { ...sugestao, salario: null, gorjeta: null, vales: 0, bruto: null };
+    expect(divergenciasDoApurado(clt, { salario: null, gorjeta: null, vales: 0, vtDesconto: 42.4 })).toEqual([]);
+    expect(divergenciasDoApurado(clt, { salario: null, gorjeta: null, vales: 0, vtDesconto: 0 }).map((x) => x.campo)).toEqual(["vtDesconto"]);
   });
 
   test("sem apuração (sem data de saída) não cobra justificativa", () => {
-    expect(divergenciasDoApurado(null, { bruto: 1, vtDesconto: 0, outroDesconto: 0 })).toEqual([]);
+    expect(divergenciasDoApurado(null, { salario: 1, gorjeta: 1, vales: 0, vtDesconto: 0 })).toEqual([]);
   });
 });
