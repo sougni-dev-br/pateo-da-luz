@@ -1,7 +1,7 @@
 // Depois da apuração: envio à contabilidade → extratos devolvidos (conferência)
 // → OK dado → folha salarial líquidos → paga. Cada etapa fica registrada.
 import { Check, FileUp, Trash2, Undo2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useContext, useEffect, useRef, useState } from "react";
 import {
   type TipConferencia, type TipConferenciaCompleta, type TipEtapa, type TipLinhaConferencia, type TipStatusConferencia,
   aceitarTipDivergencia, confirmarTipVinculo, desfazerTipAceite, enviarTipExtrato, getTipConferencia, marcarTipEtapa, removerTipExtrato,
@@ -9,7 +9,10 @@ import {
 import { Button, StatusBadge, Table } from "../../design-system";
 import { FolhaLiquidos } from "./FolhaLiquidos";
 import "./gorjeta.css";
+import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
+import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { money, mutedStyle, panelStyle } from "./gorjetaUtils";
+import { ApelidosContext, NomePessoa, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 
 type Props = {
@@ -44,6 +47,13 @@ const EXT: Extratores<TipLinhaConferencia> = {
   nome: (l) => l.nome, empresa: (l) => l.empresa, apuracao: (l) => l.apuracao, extrato: (l) => l.extrato,
   dif: (l) => l.diferenca, status: (l) => STATUS[l.status].rotulo,
 };
+const COLUNAS: ColunaOpcional[] = [
+  { chave: "empresa", rotulo: "Empresa" }, { chave: "apuracao", rotulo: "Apuração" }, { chave: "extrato", rotulo: "Extrato" },
+  { chave: "dif", rotulo: "Diferença" },
+];
+// A Situação não se oculta: é nela que ficam aceitar, confirmar a pessoa e desfazer.
+const totalTd: CSSProperties = { fontWeight: 700, borderTop: "2px solid var(--line-strong, #c8d0da)" };
+const soma = (l: TipLinhaConferencia[], v: (x: TipLinhaConferencia) => number | null) => l.reduce((a, x) => a + (v(x) ?? 0), 0);
 
 export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
   const [dados, setDados] = useState<TipConferenciaCompleta | null>(null);
@@ -52,6 +62,10 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
   const [aceitando, setAceitando] = useState<{ chave: string; texto: string } | null>(null);
   const entrada = useRef<HTMLInputElement>(null);
   const ord = useOrdenacao("conferencia");
+  const col = useColunas("conferencia");
+  const filtro = useFiltro("conferencia");
+  // O extrato só traz o nome: o apelido vem do cadastro, pelo funcionário.
+  const apelidos = useContext(ApelidosContext);
   const erro = (e: unknown) => onNotice("error", (e as Error).message);
 
   async function carregar() {
@@ -91,8 +105,14 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
   const { estado } = dados.etapas;
   const fechado = dados.status === "CLOSED";
   const ok = estado.OK_CONTABILIDADE.marcada;
-  const linhas = aplicarOrdem(dados.linhas.filter((l) => !soPendentes || PENDENTE.has(l.status)), ord.ordem, EXT);
-  const th = (c: string) => ({ coluna: c, ordem: ord.ordem, onOrdenar: () => ord.alternar(c, c === "nome" || c === "empresa" || c === "status" ? "asc" : "desc") });
+  const filtradas = filtro.aplicar(dados.linhas.filter((l) => !soPendentes || PENDENTE.has(l.status)),
+    (l) => [textoPessoa(l.nome, l.employeeId ? apelidos.get(l.employeeId) : null), l.nomeNoExtrato ?? "", l.empresa ?? "", l.justificativa ?? ""].join(" "),
+    { empresa: (l) => l.empresa, status: (l) => STATUS[l.status].rotulo });
+  const linhas = aplicarOrdem(filtradas, ord.ordem, EXT);
+  const filtrando = filtro.ativo || soPendentes;
+  const v = col.visivel;
+  const antesDosValores = v("empresa") ? 2 : 1;
+  const th =(c: string) => ({ coluna: c, ordem: ord.ordem, onOrdenar: () => ord.alternar(c, c === "nome" || c === "empresa" || c === "status" ? "asc" : "desc") });
 
   const passos: Array<{ chave: TipEtapa | "APURADA" | "CONFERIDO"; titulo: string; feito: boolean; detalhe: string; acao?: TipEtapa }> = [
     { chave: "APURADA", titulo: "Apuração fechada", feito: fechado, detalhe: fechado ? dados.code : "feche na aba Apuração" },
@@ -172,15 +192,22 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
             <label className="barra-lista-campo" style={{ marginLeft: "auto" }}>
               <input type="checkbox" checked={soPendentes} onChange={(e) => setSoPendentes(e.target.checked)} /> Só pendências
             </label>
+            <SeletorColunas colunas={COLUNAS} ocultas={col.ocultas} alternar={col.alternar} mostrarTodas={col.mostrarTodas} />
           </div>
+          <BarraFiltro filtro={filtro} total={dados.linhas.length} visiveis={filtradas.length} placeholder="Filtrar por nome, apelido, empresa…"
+            listas={[
+              { chave: "empresa", rotulo: "Empresa", opcoes: opcoesDe(dados.linhas, (l) => l.empresa) },
+              { chave: "status", rotulo: "Situação", opcoes: opcoesDe(dados.linhas, (l) => STATUS[l.status].rotulo) },
+            ]} />
+          {filtradas.length === 0 && <span style={mutedStyle}>{soPendentes && !filtro.ativo ? "Nenhuma pendência." : "Ninguém bate com o filtro."}</span>}
           <Table className="tabela-gorjeta">
             <Table.Head>
               <Table.Row>
                 <ThOrdenavel {...th("nome")} align="left" minWidth={200}>Funcionário</ThOrdenavel>
-                <ThOrdenavel {...th("empresa")}>Empresa</ThOrdenavel>
-                <ThOrdenavel {...th("apuracao")} title="Rateio − vales + créditos">Apuração</ThOrdenavel>
-                <ThOrdenavel {...th("extrato")}>Extrato</ThOrdenavel>
-                <ThOrdenavel {...th("dif")}>Diferença</ThOrdenavel>
+                {v("empresa") && <ThOrdenavel {...th("empresa")}>Empresa</ThOrdenavel>}
+                {v("apuracao") && <ThOrdenavel {...th("apuracao")} title="Rateio − vales + créditos">Apuração</ThOrdenavel>}
+                {v("extrato") && <ThOrdenavel {...th("extrato")}>Extrato</ThOrdenavel>}
+                {v("dif") && <ThOrdenavel {...th("dif")}>Diferença</ThOrdenavel>}
                 <ThOrdenavel {...th("status")}>Situação</ThOrdenavel>
               </Table.Row>
             </Table.Head>
@@ -190,8 +217,8 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
                 const abrindo = aceitando?.chave === l.chave;
                 return (
                   <Table.Row key={l.chave} className={pend ? "linha-pendente" : undefined}>
-                    <Table.Td style={{ fontWeight: 500, textAlign: "left" }}>
-                      {l.nome}
+                    <Table.Td style={{ textAlign: "left" }}>
+                      <NomePessoa nome={l.nome} employeeId={l.employeeId} />
                       {l.justificativa && <div style={mutedStyle}>{l.justificativa}</div>}
                       {l.status === "VINCULO_A_CONFIRMAR" && l.nomeNoExtrato && l.nomeNoExtrato !== l.nome && (
                         <div style={mutedStyle}>no extrato: {l.nomeNoExtrato}</div>
@@ -209,12 +236,14 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
                         </form>
                       )}
                     </Table.Td>
-                    <Table.Td style={mutedStyle}>{l.empresa ?? "—"}</Table.Td>
-                    <Table.Td>{l.apuracao == null ? "—" : money(l.apuracao)}</Table.Td>
-                    <Table.Td>{l.extrato == null ? "—" : money(l.extrato)}</Table.Td>
-                    <Table.Td style={{ fontWeight: 600, color: l.diferenca && Math.abs(l.diferenca) >= 0.01 && pend ? "var(--danger)" : undefined }}>
-                      {l.diferenca == null || Math.abs(l.diferenca) < 0.01 ? "—" : money(l.diferenca)}
-                    </Table.Td>
+                    {v("empresa") && <Table.Td style={mutedStyle}>{l.empresa ?? "—"}</Table.Td>}
+                    {v("apuracao") && <Table.Td>{l.apuracao == null ? "—" : money(l.apuracao)}</Table.Td>}
+                    {v("extrato") && <Table.Td>{l.extrato == null ? "—" : money(l.extrato)}</Table.Td>}
+                    {v("dif") && (
+                      <Table.Td style={{ fontWeight: 600, color: l.diferenca && Math.abs(l.diferenca) >= 0.01 && pend ? "var(--danger)" : undefined }}>
+                        {l.diferenca == null || Math.abs(l.diferenca) < 0.01 ? "—" : money(l.diferenca)}
+                      </Table.Td>
+                    )}
                     <Table.Td>
                       <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                         <StatusBadge tone={STATUS[l.status].tom}>{STATUS[l.status].rotulo}</StatusBadge>
@@ -238,6 +267,15 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
                   </Table.Row>
                 );
               })}
+              <Table.Row>
+                <Table.Td colSpan={antesDosValores} style={{ ...totalTd, textAlign: "left" }}>
+                  {filtrando ? `Total do filtro (${filtradas.length} de ${dados.linhas.length})` : "Total"}
+                </Table.Td>
+                {v("apuracao") && <Table.Td style={totalTd}>{money(soma(filtradas, (l) => l.apuracao))}</Table.Td>}
+                {v("extrato") && <Table.Td style={totalTd}>{money(soma(filtradas, (l) => l.extrato))}</Table.Td>}
+                {v("dif") && <Table.Td style={totalTd}>{money(soma(filtradas, (l) => l.diferenca))}</Table.Td>}
+                <Table.Td style={totalTd}> </Table.Td>
+              </Table.Row>
             </Table.Body>
           </Table>
         </div>

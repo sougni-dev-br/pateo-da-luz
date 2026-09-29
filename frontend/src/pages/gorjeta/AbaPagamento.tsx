@@ -1,11 +1,13 @@
 import { FileText } from "lucide-react";
-import { useMemo } from "react";
+import { type CSSProperties, useMemo } from "react";
 import type { TipComputation, TipComputedParticipant } from "../../api/client";
 import { Alert, Button, Money, StatusBadge, Table } from "../../design-system";
 import { exportarContabilidade, exportarListaPagamento } from "./exportarPdf";
 import { SeloRecibo } from "./ReciboRescisao";
 import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
+import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
+import { NomePessoa, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
   type LocalRow, type RowPatch, estimarAdicionais, fmtDate, fmtHoras, inputStyle, money, mutedStyle, numInputStyle, ordenar, panelStyle, parseHoras, pts,
@@ -27,7 +29,12 @@ const EXTRATORES: Extratores<TipComputedParticipant> = {
   aPagar: (p) => p.totalAPagar,
   pix: (p) => p.pixKey,
 };
-const TEXTO = new Set(["nome", "empresa", "pix"]);
+const TEXTO = new Set(["nome", "empresa", "pix", "justificada"]);
+
+// Situação da pessoa no período, para o filtro de lista.
+const situacao = (p: TipComputedParticipant) => (p.pagoNaRescisao ? "Paga na rescisão" : p.tipoCalculo === "MES" ? "No mês" : "Desligado no período");
+const OPCOES_SITUACAO = ["No mês", "Desligado no período", "Paga na rescisão"].map((x) => ({ valor: x, rotulo: x }));
+const totalTd: CSSProperties = { fontWeight: 600 };
 
 const COLUNAS_CONTAB: ColunaOpcional[] = [
   { chave: "empresa", rotulo: "Empresa" }, { chave: "gorjeta", rotulo: "Gorjeta" }, { chave: "horaExtra", rotulo: "Hora extra" },
@@ -63,8 +70,28 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   const vc = colC.visivel;
   const vp = colP.visivel;
   const ordPag = useOrdenacao("pagamento");
-  const registradosOrd = useMemo(() => aplicarOrdem(registrados, ordContab.ordem, EXTRATORES), [registrados, ordContab.ordem]);
-  const semRegistroOrd = useMemo(() => aplicarOrdem(semRegistro, ordPag.ordem, EXTRATORES), [semRegistro, ordPag.ordem]);
+  // Cada tabela com o seu filtro, na mesma chave da ordenação e das colunas.
+  const filtroC = useFiltro("contabilidade");
+  const filtroP = useFiltro("pagamento");
+  const registradosFilt = filtroC.aplicar(registrados,
+    (p) => [textoPessoa(p.employeeName, p.apelido), p.companyName ?? "", p.functionName ?? ""].join(" "),
+    { empresa: (p) => p.companyName, situacao });
+  const semRegistroFilt = filtroP.aplicar(semRegistro,
+    (p) => [textoPessoa(p.employeeName, p.apelido), p.functionName ?? "", p.pixKey ?? ""].join(" "),
+    { situacao });
+  // Estimativa e justificada vêm do que foi digitado na tela, não da apuração.
+  const extratoresContab: Extratores<TipComputedParticipant> = {
+    ...EXTRATORES,
+    estimativa: (p) => {
+      const r = rowPorFuncionario.get(p.employeeId);
+      return r ? estimarAdicionais(p.baseSalary, parseHoras(r.horaExtra), parseHoras(r.adicionalNoturno))?.total ?? null : null;
+    },
+    justificada: (p) => (rowPorFuncionario.get(p.employeeId)?.justificada ? "Sim" : "Não"),
+  };
+  const registradosOrd = aplicarOrdem(registradosFilt, ordContab.ordem, extratoresContab);
+  const semRegistroOrd = aplicarOrdem(semRegistroFilt, ordPag.ordem, EXTRATORES);
+  // Só o que se lança de verdade: a gorjeta já paga na rescisão fica fora, como no cartão acima.
+  const aLancarFilt = registradosFilt.filter((p) => !p.pagoNaRescisao);
   const thC = (coluna: string) => ({ coluna, ordem: ordContab.ordem, onOrdenar: () => ordContab.alternar(coluna, TEXTO.has(coluna) ? "asc" : "desc") });
   const thP = (coluna: string) => ({ coluna, ordem: ordPag.ordem, onOrdenar: () => ordPag.alternar(coluna, TEXTO.has(coluna) ? "asc" : "desc") });
 
@@ -102,6 +129,12 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
             <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarContabilidade)}>PDF contabilidade</Button>
           </div>
         </div>
+        <BarraFiltro filtro={filtroC} total={registrados.length} visiveis={registradosFilt.length} placeholder="Filtrar por nome, apelido, empresa…"
+          listas={[
+            { chave: "empresa", rotulo: "Empresa", opcoes: opcoesDe(registrados, (p) => p.companyName) },
+            { chave: "situacao", rotulo: "Situação", opcoes: OPCOES_SITUACAO },
+          ]} />
+        {filtroC.ativo && registradosFilt.length === 0 && <span style={mutedStyle}>Ninguém bate com o filtro.</span>}
         <Table className="tabela-gorjeta">
           <Table.Head>
             <Table.Row>
@@ -118,7 +151,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 {vc("noturno") && (
               <ThOrdenavel {...thC("noturno")}>Ad. noturno</ThOrdenavel>
 )}
-              {veSalario && vc("estimativa") && <Table.Th>Estimativa</Table.Th>}
+              {veSalario && vc("estimativa") && <ThOrdenavel {...thC("estimativa")}>Estimativa</ThOrdenavel>}
 {vc("faltas") && (
               <ThOrdenavel {...thC("faltas")}>Faltas</ThOrdenavel>
 )}
@@ -126,7 +159,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
               <ThOrdenavel {...thC("atestados")}>Atest.</ThOrdenavel>
 )}
 {vc("justificada") && (
-              <Table.Th>Justificada</Table.Th>
+              <ThOrdenavel {...thC("justificada")}>Justificada</ThOrdenavel>
 )}
             </Table.Row>
           </Table.Head>
@@ -138,10 +171,11 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
               return (
                 <Table.Row key={p.employeeId}>
                   <Table.Td>
-                    <div style={{ fontWeight: 500 }}>{p.employeeName}</div>
-                    {p.pagoNaRescisao
-                      ? <SeloRecibo pago pagamento={p.rescisaoRecibo?.pagamento ?? null} arquivo={p.rescisaoRecibo?.arquivo} />
-                      : p.tipoCalculo !== "MES" && <span style={mutedStyle}>Rescisão {fmtDate(p.terminationDate)}</span>}
+                    <NomePessoa nome={p.employeeName} apelido={p.apelido}>
+                      {p.pagoNaRescisao
+                        ? <SeloRecibo pago pagamento={p.rescisaoRecibo?.pagamento ?? null} arquivo={p.rescisaoRecibo?.arquivo} />
+                        : p.tipoCalculo !== "MES" && <span style={mutedStyle}>Rescisão {fmtDate(p.terminationDate)}</span>}
+                    </NomePessoa>
                   </Table.Td>
 {vc("empresa") && (
                   <Table.Td>{p.companyName ?? <span style={{ color: "var(--warning, #b45309)" }}>sem empresa</span>}</Table.Td>
@@ -189,6 +223,21 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                 </Table.Row>
               );
             })}
+            <Table.Row>
+              <Table.Td style={totalTd}>{filtroC.ativo ? `Total do filtro (${registradosFilt.length} de ${registrados.length})` : "Total a lançar"}</Table.Td>
+              {vc("empresa") && <Table.Td> </Table.Td>}
+              {vc("gorjeta") && (
+                <Table.Td style={{ fontWeight: 700 }} title="Sem a gorjeta já paga nas rescisões">
+                  <Money value={aLancarFilt.reduce((a, p) => a + p.netCommission, 0)} />
+                </Table.Td>
+              )}
+              {vc("horaExtra") && <Table.Td> </Table.Td>}
+              {vc("noturno") && <Table.Td> </Table.Td>}
+              {veSalario && vc("estimativa") && <Table.Td> </Table.Td>}
+              {vc("faltas") && <Table.Td> </Table.Td>}
+              {vc("atestados") && <Table.Td> </Table.Td>}
+              {vc("justificada") && <Table.Td> </Table.Td>}
+            </Table.Row>
           </Table.Body>
         </Table>
         <span style={mutedStyle}>
@@ -207,6 +256,11 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
         {!veSalario && semRegistro.length > 0 && (
           <Alert tone="warning">Salário e PIX só aparecem para quem tem permissão de ver Funcionários.</Alert>
         )}
+        {semRegistro.length > 0 && (
+          <BarraFiltro filtro={filtroP} total={semRegistro.length} visiveis={semRegistroFilt.length} placeholder="Filtrar por nome, apelido, PIX…"
+            listas={[{ chave: "situacao", rotulo: "Situação", opcoes: OPCOES_SITUACAO.filter((o) => o.valor !== "Paga na rescisão") }]} />
+        )}
+        {filtroP.ativo && semRegistro.length > 0 && semRegistroFilt.length === 0 && <span style={mutedStyle}>Ninguém bate com o filtro.</span>}
         {semRegistro.length === 0
           ? <span style={mutedStyle}>Ninguém sem registro no período.</span>
           : (
@@ -244,8 +298,9 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                   return (
                     <Table.Row key={p.employeeId}>
                       <Table.Td>
-                        <div style={{ fontWeight: 500 }}>{p.employeeName}</div>
-                        {p.tipoCalculo !== "MES" && <span style={mutedStyle}>Saída {fmtDate(p.terminationDate)}</span>}
+                        <NomePessoa nome={p.employeeName} apelido={p.apelido}>
+                          {p.tipoCalculo !== "MES" && <span style={mutedStyle}>Saída {fmtDate(p.terminationDate)}</span>}
+                        </NomePessoa>
                       </Table.Td>
 {vp("salarioBase") && (
                       <Table.Td>{p.baseSalary != null ? money(p.baseSalary) : "—"}</Table.Td>
@@ -277,13 +332,13 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                   );
                 })}
                 <Table.Row>
-                  <Table.Td style={{ fontWeight: 600 }}>Total</Table.Td>
+                  <Table.Td style={totalTd}>{filtroP.ativo ? `Total do filtro (${semRegistroFilt.length} de ${semRegistro.length})` : "Total"}</Table.Td>
                   {vp("salarioBase") && <Table.Td> </Table.Td>}
                   {vp("dias") && <Table.Td> </Table.Td>}
-                  {vp("salario") && <Table.Td style={{ fontWeight: 600 }}><Money value={semRegistro.reduce((a, p) => a + p.salarioProporcional, 0)} /></Table.Td>}
-                  {vp("gorjeta") && <Table.Td style={{ fontWeight: 600 }}><Money value={semRegistro.reduce((a, p) => a + p.rateioAmount, 0)} /></Table.Td>}
+                  {vp("salario") && <Table.Td style={totalTd}><Money value={semRegistroFilt.reduce((a, p) => a + p.salarioProporcional, 0)} /></Table.Td>}
+                  {vp("gorjeta") && <Table.Td style={totalTd}><Money value={semRegistroFilt.reduce((a, p) => a + p.rateioAmount, 0)} /></Table.Td>}
                   {vp("vales") && <Table.Td> </Table.Td>}
-                  {vp("aPagar") && <Table.Td style={{ fontWeight: 700 }}><Money value={semRegistro.reduce((a, p) => a + p.totalAPagar, 0)} /></Table.Td>}
+                  {vp("aPagar") && <Table.Td style={{ fontWeight: 700 }}><Money value={semRegistroFilt.reduce((a, p) => a + p.totalAPagar, 0)} /></Table.Td>}
                   {vp("pix") && <Table.Td> </Table.Td>}
                 </Table.Row>
               </Table.Body>

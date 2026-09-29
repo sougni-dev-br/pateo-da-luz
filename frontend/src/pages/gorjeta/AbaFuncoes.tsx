@@ -7,6 +7,7 @@ import { type TipFunction, getTipFunctionsTable, getTipTeam, saveTipFunctions } 
 import { Alert, Button, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { useConfirmacao } from "./Confirmacao";
+import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import "./gorjeta.css";
 import { hojeLocal, inputStyle, mutedStyle, numInputStyle, panelStyle, pts } from "./gorjetaUtils";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
@@ -26,7 +27,7 @@ const valorTexto = (c: CampoFuncao, v: unknown) =>
   v == null ? "—" : c === "isActive" ? (v ? "sim" : "não") : typeof v === "number" ? pts(v) : String(v);
 
 const COLUNAS: ColunaOpcional[] = [
-  { chave: "grupo", rotulo: "Grupo" }, { chave: "min", rotulo: "Mín." }, { chave: "max", rotulo: "Máx." },
+  { chave: "grupo", rotulo: "Grupo" }, { chave: "pontos", rotulo: "Pontos" }, { chave: "min", rotulo: "Mín." }, { chave: "max", rotulo: "Máx." },
   { chave: "pessoas", rotulo: "Pessoas" }, { chave: "obs", rotulo: "Observação" }, { chave: "ativa", rotulo: "Ativa" },
 ];
 const TEXTO = new Set(["nome", "grupo", "obs"]);
@@ -48,6 +49,7 @@ export function AbaFuncoes({ canEdit, onNotice, onChanged }: Props) {
   const ord = useOrdenacao("funcoes");
   const col = useColunas("funcoes");
   const v = col.visivel;
+  const filtro = useFiltro("funcoes");
 
   async function carregar(manterRascunho: boolean) {
     try {
@@ -157,9 +159,22 @@ export function AbaFuncoes({ canEdit, onNotice, onChanged }: Props) {
   };
   const th = (c: string) => ({ coluna: c, ordem: ord.ordem, onOrdenar: () => ord.alternar(c, TEXTO.has(c) ? "asc" : "desc") });
   const comIndice = funcoes.map((f, i) => ({ f, i }));
-  // Função nova (ainda sem id) fica no fim, onde foi criada; a ordem é só de exibição.
-  const linhas = [...aplicarOrdem(comIndice.filter((x) => x.f.id), ord.ordem, extratores), ...comIndice.filter((x) => !x.f.id)];
-  const ativas = funcoes.filter((f) => f.isActive).length;
+  const salvas = comIndice.filter((x) => x.f.id);
+  const listasFiltro = [
+    { chave: "grupo", rotulo: "Grupo", opcoes: opcoesDe(funcoes, (f) => f.group) },
+    { chave: "ativa", rotulo: "Ativa", opcoes: [{ valor: "Sim", rotulo: "Sim" }, { valor: "Não", rotulo: "Não" }] },
+    { chave: "pessoas", rotulo: "Pessoas", opcoes: [{ valor: "Com pessoas", rotulo: "Com pessoas" }, { valor: "Sem pessoas", rotulo: "Sem pessoas" }] },
+  ];
+  const filtradas = filtro.aplicar(salvas,
+    ({ f }) => [f.name, f.group ?? "", f.notes ?? ""].join(" "),
+    {
+      grupo: ({ f }) => f.group, ativa: ({ f }) => (f.isActive ? "Sim" : "Não"),
+      pessoas: ({ f }) => ((f.id ? pessoasPorFuncao.get(f.id) ?? 0 : 0) > 0 ? "Com pessoas" : "Sem pessoas"),
+    });
+  // Função nova (ainda sem id) fica no fim, onde foi criada, e nunca é escondida pelo
+  // filtro (nasce sem nome). Filtro e ordem são só de exibição: o rascunho é a tabela toda.
+  const linhas = [...aplicarOrdem(filtradas, ord.ordem, extratores), ...comIndice.filter((x) => !x.f.id)];
+  const ativas = (filtro.ativo ? filtradas.map((x) => x.f) : funcoes).filter((f) => f.isActive).length;
   const off = !canEdit || salvando;
 
   // Célula alterada: destaque + valor anterior no título.
@@ -179,7 +194,9 @@ export function AbaFuncoes({ canEdit, onNotice, onChanged }: Props) {
       <div style={panelStyle}>
         <div className="barra-lista">
           <strong>Funções e pontos-base</strong>
-          <span style={mutedStyle}>{funcoes.length} funções · {ativas} ativas</span>
+          <span style={mutedStyle}>
+            {filtro.ativo ? `Total do filtro (${filtradas.length} de ${salvas.length})` : `${funcoes.length} funções`} · {ativas} ativas
+          </span>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             <SeletorColunas colunas={COLUNAS} ocultas={col.ocultas} alternar={col.alternar} mostrarTodas={col.mostrarTodas} />
             {canEdit && (
@@ -194,12 +211,18 @@ export function AbaFuncoes({ canEdit, onNotice, onChanged }: Props) {
           Os pontos da função valem para todos que estão nela; o extra de cada pessoa fica na aba Equipe. Nada é gravado até você clicar em
           “Revisar e salvar” — enquanto isso, as alterações ficam guardadas neste navegador.
         </span>
+        <BarraFiltro filtro={filtro} listas={listasFiltro} total={salvas.length} visiveis={filtradas.length}
+          placeholder="Filtrar por função, grupo, observação…" />
+        {filtro.ativo && pendente && (
+          <span style={mutedStyle}>O filtro só muda o que aparece: salvar grava todas as alterações, inclusive as de funções escondidas.</span>
+        )}
+        {filtro.ativo && filtradas.length === 0 && salvas.length > 0 && <span style={mutedStyle}>Nenhuma função bate com o filtro.</span>}
         <Table className="tabela-gorjeta">
           <Table.Head>
             <Table.Row>
               <ThOrdenavel {...th("nome")} align="left" minWidth={220}>Função / nível</ThOrdenavel>
               {v("grupo") && <ThOrdenavel {...th("grupo")}>Grupo</ThOrdenavel>}
-              <ThOrdenavel {...th("pontos")}>Pontos</ThOrdenavel>
+              {v("pontos") && <ThOrdenavel {...th("pontos")}>Pontos</ThOrdenavel>}
               {v("min") && <ThOrdenavel {...th("min")}>Mín.</ThOrdenavel>}
               {v("max") && <ThOrdenavel {...th("max")}>Máx.</ThOrdenavel>}
               {v("pessoas") && <ThOrdenavel {...th("pessoas")} title="Participantes ativos nesta função">Pessoas</ThOrdenavel>}
@@ -222,7 +245,7 @@ export function AbaFuncoes({ canEdit, onNotice, onChanged }: Props) {
                     </div>
                   </Table.Td>
                   {v("grupo") && <Table.Td {...marca(chave, "group")}><input style={{ ...inputStyle, width: 130, textAlign: "center" }} value={f.group ?? ""} disabled={off} aria-label={`Grupo de ${f.name}`} onChange={(e) => editar(i, { group: e.target.value || null })} /></Table.Td>}
-                  <Table.Td {...marca(chave, "points")}><input style={{ ...numInputStyle, width: 72, textAlign: "center", fontWeight: 700 }} type="number" step="0.5" min="0" value={f.points} disabled={off} aria-label={`Pontos de ${f.name}`} onChange={(e) => editar(i, { points: numOrNull(e.target.value) ?? 0 })} /></Table.Td>
+                  {v("pontos") && <Table.Td {...marca(chave, "points")}><input style={{ ...numInputStyle, width: 72, textAlign: "center", fontWeight: 700 }} type="number" step="0.5" min="0" value={f.points} disabled={off} aria-label={`Pontos de ${f.name}`} onChange={(e) => editar(i, { points: numOrNull(e.target.value) ?? 0 })} /></Table.Td>}
                   {v("min") && <Table.Td {...marca(chave, "minPoints")}><input style={{ ...numInputStyle, textAlign: "center" }} type="number" step="0.5" min="0" value={f.minPoints ?? ""} disabled={off} aria-label={`Mínimo de ${f.name}`} onChange={(e) => editar(i, { minPoints: numOrNull(e.target.value) })} /></Table.Td>}
                   {v("max") && <Table.Td {...marca(chave, "maxPoints")}><input style={{ ...numInputStyle, textAlign: "center" }} type="number" step="0.5" min="0" value={f.maxPoints ?? ""} disabled={off} aria-label={`Máximo de ${f.name}`} onChange={(e) => editar(i, { maxPoints: numOrNull(e.target.value) })} /></Table.Td>}
                   {v("pessoas") && <Table.Td style={{ color: pessoas ? undefined : "var(--muted)" }}>{pessoas}</Table.Td>}

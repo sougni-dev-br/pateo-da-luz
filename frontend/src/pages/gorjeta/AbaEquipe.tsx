@@ -8,6 +8,8 @@ import {
 import { HistoricoLinhaDoTempo } from "./HistoricoLinhaDoTempo";
 import { StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
+import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
+import { NomePessoa, textoPessoa } from "./NomePessoa";
 import "./gorjeta.css";
 import { hojeLocal, inputStyle, mutedStyle, panelStyle, pts } from "./gorjetaUtils";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
@@ -18,7 +20,12 @@ type Props = {
   onChanged: () => void;
 };
 
-const nome = (e: TipTeamMember) => (e.displayName || `${e.firstName} ${e.lastName}`).trim();
+// Nome completo em cima; o apelido (displayName) só aparece se for diferente dele.
+const nome = (e: TipTeamMember) => `${e.firstName} ${e.lastName}`.trim();
+const apelidoDe = (e: TipTeamMember) => {
+  const a = e.displayName?.trim();
+  return a && a.toLocaleLowerCase("pt-BR") !== nome(e).toLocaleLowerCase("pt-BR") ? a : null;
+};
 const primeiroDe = (texto: Set<string>) => (coluna: string) => (texto.has(coluna) ? "asc" as const : "desc" as const);
 
 const COLUNAS_EQUIPE: ColunaOpcional[] = [
@@ -58,6 +65,7 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
 
   const ordEquipe = useOrdenacao("equipe");
   const colEquipe = useColunas("equipe");
+  const filtro = useFiltro("equipe");
   const ve = colEquipe.visivel;
   const primeiroEquipe = primeiroDe(TEXTO_EQUIPE);
   const thE = (coluna: string) => ({ coluna, ordem: ordEquipe.ordem, onOrdenar: () => ordEquipe.alternar(coluna, primeiroEquipe(coluna)) });
@@ -94,14 +102,17 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
     return [...grupos.entries()];
   }, [funcoes]);
 
+  const nomeFuncao = (m: TipTeamMember) => (m.tipFunctionId ? funcaoPorId.get(m.tipFunctionId)?.name ?? null : null);
+  const nomeEmpresa = (m: TipTeamMember) => (m.companyId ? empresaPorId.get(m.companyId) ?? null : null);
+
   const extratoresEquipe: Extratores<TipTeamMember> = {
     nome: (m) => nome(m),
     participa: (m) => (m.participaGorjeta ? 1 : 0),
-    funcao: (m) => (m.tipFunctionId ? funcaoPorId.get(m.tipFunctionId)?.name : null),
+    funcao: nomeFuncao,
     pfuncao: (m) => pontosDaFuncao(m),
     extra: (m) => m.pontosExtra,
     base: (m) => baseDe(m),
-    empresa: (m) => (m.companyId ? empresaPorId.get(m.companyId) : null),
+    empresa: nomeEmpresa,
   };
 
   async function salvarMembro(m: TipTeamMember, patch: Partial<TipTeamMember>): Promise<boolean> {
@@ -127,10 +138,24 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
   }
 
   const visiveis = team.filter((m) => mostrarInativos || m.isActive || m.participaGorjeta);
+  const listasFiltro = [
+    { chave: "vinculo", rotulo: "Vínculo", opcoes: [{ valor: "CLT", rotulo: "CLT" }, { valor: "Sem registro", rotulo: "Sem registro" }] },
+    { chave: "empresa", rotulo: "Empresa", opcoes: opcoesDe(visiveis, nomeEmpresa) },
+    { chave: "funcao", rotulo: "Função", opcoes: opcoesDe(visiveis, nomeFuncao) },
+    { chave: "participa", rotulo: "Participa", opcoes: [{ valor: "Sim", rotulo: "Sim" }, { valor: "Não", rotulo: "Não" }] },
+    { chave: "situacao", rotulo: "Situação", opcoes: [{ valor: "Ativo", rotulo: "Ativo" }, { valor: "Desligado", rotulo: "Desligado" }] },
+  ];
+  const filtrados = filtro.aplicar(visiveis,
+    (m) => [textoPessoa(nome(m), apelidoDe(m)), nomeFuncao(m) ?? "", nomeEmpresa(m) ?? ""].join(" "),
+    {
+      vinculo: (m) => (m.modality === "NAO_CLT" ? "Sem registro" : "CLT"), empresa: nomeEmpresa, funcao: nomeFuncao,
+      participa: (m) => (m.participaGorjeta ? "Sim" : "Não"), situacao: (m) => (m.isActive ? "Ativo" : "Desligado"),
+    });
   // Sem ordenação escolhida, quem participa vem primeiro.
-  const participantesPrimeiro = [...visiveis].sort((a, b) => Number(b.participaGorjeta) - Number(a.participaGorjeta));
+  const participantesPrimeiro = [...filtrados].sort((a, b) => Number(b.participaGorjeta) - Number(a.participaGorjeta));
   const equipeOrdenada = aplicarOrdem(participantesPrimeiro, ordEquipe.ordem, extratoresEquipe);
-  const participantes = team.filter((m) => m.participaGorjeta);
+  // Com filtro, a contagem e a soma são só das linhas que aparecem.
+  const participantes = (filtro.ativo ? filtrados : team).filter((m) => m.participaGorjeta);
   const somaBase = participantes.filter((m) => m.isActive).reduce((a, m) => a + (baseDe(m) ?? 0), 0);
 
   return (
@@ -149,6 +174,7 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
           <strong>Equipe da gorjeta</strong>
           <div className="barra-lista">
             <span style={mutedStyle}>
+              {filtro.ativo && <>Total do filtro ({filtrados.length} de {visiveis.length}): </>}
               {participantes.length} participantes · <strong>{pts(somaBase)}</strong> pontos-base entre os ativos
               {salvando && " · salvando…"}
             </span>
@@ -163,6 +189,8 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
           Total = pontos da função + ponto extra. O extra é da pessoa (sobe ou desce) e sempre tem justificativa; a função não muda.
           Os pontos de cada função se editam na aba “Funções e pontos”. Sem registro recebe salário + gorjeta na lista de pagamento.
         </span>
+        <BarraFiltro filtro={filtro} listas={listasFiltro} total={visiveis.length} visiveis={filtrados.length} />
+        {filtrados.length === 0 && visiveis.length > 0 && <span style={mutedStyle}>Ninguém bate com o filtro.</span>}
         <Table className="tabela-gorjeta">
           <Table.Head>
             <Table.Row>
@@ -189,11 +217,10 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
                 <Fragment key={m.id}>
                 <Table.Row className={editando ? "linha-em-edicao" : undefined}>
                   <Table.Td>
-                    <div style={{ fontWeight: 500 }}>{nome(m)}</div>
-                    <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
+                    <NomePessoa nome={nome(m)} apelido={apelidoDe(m)} employeeId={m.id}>
                       {m.modality === "NAO_CLT" && <StatusBadge tone="warning">Sem registro</StatusBadge>}
                       {!m.isActive && <StatusBadge tone="neutral">Desligado</StatusBadge>}
-                    </div>
+                    </NomePessoa>
                   </Table.Td>
                   {ve("participa") && (
                     <Table.Td>

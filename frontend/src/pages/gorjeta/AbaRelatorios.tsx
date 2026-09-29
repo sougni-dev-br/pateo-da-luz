@@ -1,12 +1,14 @@
 import { Download, Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import {
   type TipComputation, type TipEvolucao, type TipFuncaoHistorico, type TipMudanca, type TipMudancaTipo, type TipReservaMovimento,
   addTipReserveAdjustment, deleteTipReserveAdjustment, distributeTipReserve, getTipChanges, getTipEvolution, getTipFunctionHistory, getTipReserve,
 } from "../../api/client";
 import { Button, Money, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
+import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import "./gorjeta.css";
+import { ApelidosContext, NomePessoa, textoPessoa } from "./NomePessoa";
 import { MONTHS, baixarCsv, hojeLocal, inputStyle, mesLocal, money, mutedStyle, numInputStyle, panelStyle, pts } from "./gorjetaUtils";
 import { TIPO_MUDANCA, fmtDia } from "./HistoricoLinhaDoTempo";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
@@ -27,6 +29,9 @@ const hoje = hojeLocal;
 const inicioDoAno = () => `${new Date().getFullYear()}-01-01`;
 const mesAtual = () => mesLocal();
 const mesesAtras = (n: number) => mesLocal(n);
+// Exportação sempre leva a tabela inteira; o aviso só aparece com filtro ligado.
+const avisoExportacao = <span style={{ ...mutedStyle, fontSize: 12 }}>O Excel (CSV) leva todas as linhas, sem o filtro.</span>;
+const SIM_NAO = [{ valor: "Sim", rotulo: "Sim" }, { valor: "Não", rotulo: "Não" }];
 
 export function AbaRelatorios({ comp, canEdit, onNotice, onChanged }: Props) {
   const [visao, setVisao] = useState<Visao>("fechamentos");
@@ -53,7 +58,7 @@ export function AbaRelatorios({ comp, canEdit, onNotice, onChanged }: Props) {
 
 // ─── Mudanças de função e pontos ────────────────────────────────────────────
 const COLUNAS_MUD: ColunaOpcional[] = [
-  { chave: "tipo", rotulo: "Tipo" }, { chave: "funcao", rotulo: "Função" }, { chave: "antes", rotulo: "Pontos antes" },
+  { chave: "data", rotulo: "Vigência" }, { chave: "tipo", rotulo: "Tipo" }, { chave: "funcao", rotulo: "Função" }, { chave: "antes", rotulo: "Pontos antes" },
   { chave: "depois", rotulo: "Pontos depois" }, { chave: "dif", rotulo: "Diferença" }, { chave: "motivo", rotulo: "Motivo" },
 ];
 const EXT_MUD: Extratores<TipMudanca> = {
@@ -65,12 +70,14 @@ const TEXTO_MUD = new Set(["nome", "tipo", "funcao", "motivo"]);
 function RelatorioMudancas({ onErro }: { onErro: (e: unknown) => void }) {
   const [de, setDe] = useState(inicioDoAno());
   const [ate, setAte] = useState(hoje());
-  const [filtro, setFiltro] = useState<"todas" | TipMudancaTipo>("todas");
+  const [tipo, setTipo] = useState<"todas" | TipMudancaTipo>("todas");
   const [incluirInicial, setIncluirInicial] = useState(false);
   const [dados, setDados] = useState<TipMudanca[]>([]);
   const ord = useOrdenacao("rel-mudancas");
   const col = useColunas("rel-mudancas");
   const v = col.visivel;
+  const filtro = useFiltro("relatorio-mudancas");
+  const apelidos = useContext(ApelidosContext);
   const th = (c: string) => ({ coluna: c, ordem: ord.ordem, onOrdenar: () => ord.alternar(c, TEXTO_MUD.has(c) ? "asc" : "desc") });
 
   useEffect(() => {
@@ -78,14 +85,24 @@ function RelatorioMudancas({ onErro }: { onErro: (e: unknown) => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [de, ate]);
 
-  const visiveis = dados.filter((m) => (incluirInicial || m.tipo !== "INICIAL") && (filtro === "todas" || m.tipo === filtro));
-  const linhas = aplicarOrdem(visiveis, ord.ordem, EXT_MUD);
-  const conta = (t: TipMudancaTipo) => dados.filter((m) => m.tipo === t).length;
+  const visiveis = dados.filter((m) => (incluirInicial || m.tipo !== "INICIAL") && (tipo === "todas" || m.tipo === tipo));
+  const textoMud = (m: TipMudanca) =>
+    [textoPessoa(m.employeeName, apelidos.get(m.employeeId)), m.funcaoAntes ?? "", m.funcaoDepois ?? "", m.motivo ?? ""].join(" ");
+  const camposMud = { funcao: (m: TipMudanca) => m.funcaoDepois, participa: (m: TipMudanca) => (m.participa ? "Sim" : "Não") };
+  const filtradas = filtro.aplicar(visiveis, textoMud, camposMud);
+  const listasFiltro = [
+    { chave: "funcao", rotulo: "Função", opcoes: opcoesDe(visiveis, (m) => m.funcaoDepois) },
+    { chave: "participa", rotulo: "Participa", opcoes: SIM_NAO },
+  ];
+  const linhas = aplicarOrdem(filtradas, ord.ordem, EXT_MUD);
+  // As contagens seguem o filtro de texto/lista (não o seletor de tipo, que é o que elas detalham).
+  const baseContagem = filtro.ativo ? filtro.aplicar(dados, textoMud, camposMud) : dados;
+  const conta = (t: TipMudancaTipo) => baseContagem.filter((m) => m.tipo === t).length;
 
   function exportar() {
     baixarCsv(`gorjeta-mudancas-${de}-a-${ate}.csv`, [
       ["Vigência", "Funcionário", "Tipo", "Função antes", "Função depois", "Pontos antes", "Pontos depois", "Diferença", "Motivo"],
-      ...linhas.map((m) => [fmtDia(m.validFrom), m.employeeName, TIPO_MUDANCA[m.tipo].rotulo, m.funcaoAntes, m.funcaoDepois, m.baseAntes, m.baseDepois, m.diferenca, m.motivo]),
+      ...aplicarOrdem(visiveis, ord.ordem, EXT_MUD).map((m) => [fmtDia(m.validFrom), m.employeeName, TIPO_MUDANCA[m.tipo].rotulo, m.funcaoAntes, m.funcaoDepois, m.baseAntes, m.baseDepois, m.diferenca, m.motivo]),
     ]);
   }
 
@@ -96,7 +113,7 @@ function RelatorioMudancas({ onErro }: { onErro: (e: unknown) => void }) {
         <label className="barra-lista-campo">até <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} style={{ ...inputStyle, width: "auto" }} /></label>
         <label className="barra-lista-campo">
           Tipo
-          <select value={filtro} onChange={(e) => setFiltro(e.target.value as typeof filtro)}>
+          <select value={tipo} onChange={(e) => setTipo(e.target.value as typeof tipo)}>
             <option value="todas">Todas</option>
             {(["PROMOCAO", "REDUCAO", "TROCA_DE_FUNCAO", "ENTRADA", "SAIDA"] as const).map((t) => <option key={t} value={t}>{TIPO_MUDANCA[t].rotulo}</option>)}
           </select>
@@ -106,21 +123,25 @@ function RelatorioMudancas({ onErro }: { onErro: (e: unknown) => void }) {
         </label>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <SeletorColunas colunas={COLUNAS_MUD} ocultas={col.ocultas} alternar={col.alternar} mostrarTodas={col.mostrarTodas} />
-          <Button variant="secondary" leadingIcon={<Download size={14} />} onClick={exportar} disabled={linhas.length === 0}>Excel (CSV)</Button>
+          <Button variant="secondary" leadingIcon={<Download size={14} />} onClick={exportar} disabled={visiveis.length === 0}>Excel (CSV)</Button>
         </div>
       </div>
+      <BarraFiltro filtro={filtro} listas={listasFiltro} total={visiveis.length} visiveis={filtradas.length}
+        placeholder="Filtrar por nome, apelido, função, motivo…" />
+      {filtro.ativo && avisoExportacao}
       <div className="grupo-cabecalho" style={{ position: "static" }}>
+        {filtro.ativo && <span className="grupo-chip">Total do filtro ({filtradas.length} de {visiveis.length})</span>}
         <span className="grupo-chip" style={{ color: "var(--success)" }}>{conta("PROMOCAO")} promoções</span>
         <span className="grupo-chip" style={{ color: "var(--danger)" }}>{conta("REDUCAO")} reduções</span>
         <span className="grupo-chip">{conta("TROCA_DE_FUNCAO")} trocas de função</span>
         <span className="grupo-chip">{conta("ENTRADA")} entradas · {conta("SAIDA")} saídas</span>
       </div>
-      {linhas.length === 0 ? <span style={mutedStyle}>Nenhuma mudança no período escolhido.</span> : (
+      {linhas.length === 0 ? <span style={mutedStyle}>{visiveis.length > 0 ? "Nenhuma mudança bate com o filtro." : "Nenhuma mudança no período escolhido."}</span> : (
         <Table className="tabela-gorjeta">
           <Table.Head>
             <Table.Row>
               <ThOrdenavel {...th("nome")} align="left" minWidth={200}>Funcionário</ThOrdenavel>
-              <ThOrdenavel {...th("data")}>Vigência</ThOrdenavel>
+              {v("data") && <ThOrdenavel {...th("data")}>Vigência</ThOrdenavel>}
               {v("tipo") && <ThOrdenavel {...th("tipo")}>Tipo</ThOrdenavel>}
               {v("funcao") && <ThOrdenavel {...th("funcao")}>Função</ThOrdenavel>}
               {v("antes") && <ThOrdenavel {...th("antes")}>Pontos antes</ThOrdenavel>}
@@ -132,8 +153,8 @@ function RelatorioMudancas({ onErro }: { onErro: (e: unknown) => void }) {
           <Table.Body>
             {linhas.map((m) => (
               <Table.Row key={m.id}>
-                <Table.Td style={{ fontWeight: 500 }}>{m.employeeName}</Table.Td>
-                <Table.Td>{fmtDia(m.validFrom)}</Table.Td>
+                <Table.Td style={{ textAlign: "left" }}><NomePessoa nome={m.employeeName} employeeId={m.employeeId} /></Table.Td>
+                {v("data") && <Table.Td>{fmtDia(m.validFrom)}</Table.Td>}
                 {v("tipo") && <Table.Td><StatusBadge tone={TIPO_MUDANCA[m.tipo].tom}>{TIPO_MUDANCA[m.tipo].rotulo}</StatusBadge></Table.Td>}
                 {v("funcao") && (
                   <Table.Td>
@@ -166,6 +187,10 @@ function RelatorioEvolucao({ onErro }: { onErro: (e: unknown) => void }) {
   const [ate, setAte] = useState(mesAtual());
   const [medida, setMedida] = useState<Medida>("pontos");
   const [dados, setDados] = useState<TipEvolucao | null>(null);
+  const ord = useOrdenacao("relatorio-evolucao");
+  const col = useColunas("relatorio-evolucao");
+  const filtro = useFiltro("relatorio-evolucao");
+  const apelidos = useContext(ApelidosContext);
 
   useEffect(() => {
     getTipEvolution(de, ate).then(setDados).catch(onErro);
@@ -181,6 +206,24 @@ function RelatorioEvolucao({ onErro }: { onErro: (e: unknown) => void }) {
     if (medida === "pontos") return c.pontos ?? c.base;
     return null;
   };
+
+  type LinhaEvo = TipEvolucao["linhas"][number];
+  const rotuloMes = (k: string) => `${MONTHS[Number(k.slice(5)) - 1].slice(0, 3)}/${k.slice(2, 4)}`;
+  const colunasMeses: ColunaOpcional[] = chaves.map((k) => ({ chave: k, rotulo: rotuloMes(k) }));
+  const mesesVisiveis = chaves.filter(col.visivel);
+  // Cada mês ordena pelo que está na tela (pontos, R$ ou função).
+  const extratores: Extratores<LinhaEvo> = {
+    nome: (l) => l.employeeName,
+    ...Object.fromEntries(chaves.map((k) => [k, (l: LinhaEvo) => (medida === "funcao" ? l.meses[k]?.funcao ?? null : valor(l.meses[k]))])),
+  };
+  const th = (c: string) => ({ coluna: c, ordem: ord.ordem, onOrdenar: () => ord.alternar(c, c === "nome" || medida === "funcao" ? "asc" : "desc") });
+  const todas = dados?.linhas ?? [];
+  const ultimaFuncao = (l: LinhaEvo) => [...chaves].reverse().map((k) => l.meses[k]?.funcao).find(Boolean) ?? null;
+  const listasFiltro = [{ chave: "funcao", rotulo: "Última função", opcoes: opcoesDe(todas, ultimaFuncao) }];
+  const filtradas = filtro.aplicar(todas,
+    (l) => [textoPessoa(l.employeeName, apelidos.get(l.employeeId)), ...chaves.map((k) => l.meses[k]?.funcao ?? "")].join(" "),
+    { funcao: ultimaFuncao });
+  const linhas = aplicarOrdem(filtradas, ord.ordem, extratores);
 
   function exportar() {
     if (!dados) return;
@@ -200,28 +243,41 @@ function RelatorioEvolucao({ onErro }: { onErro: (e: unknown) => void }) {
             <button key={m} type="button" aria-pressed={medida === m} onClick={() => setMedida(m)}>{l}</button>
           ))}
         </div>
-        <Button variant="secondary" leadingIcon={<Download size={14} />} onClick={exportar} disabled={!dados?.linhas.length}>Excel (CSV)</Button>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <SeletorColunas colunas={colunasMeses} ocultas={col.ocultas} alternar={col.alternar} mostrarTodas={col.mostrarTodas} />
+          <Button variant="secondary" leadingIcon={<Download size={14} />} onClick={exportar} disabled={!dados?.linhas.length}>Excel (CSV)</Button>
+        </div>
       </div>
       <span style={mutedStyle}>
         Retrato de cada competência. Verde = subiu em relação ao mês anterior; vermelho = caiu. Mês em apuração mostra os pontos-base (itálico) e ainda não tem valor.
       </span>
-      {!dados || dados.linhas.length === 0 ? <span style={mutedStyle}>Nenhuma competência no intervalo.</span> : (
+      {todas.length > 0 && (
+        <BarraFiltro filtro={filtro} listas={listasFiltro} total={todas.length} visiveis={filtradas.length}
+          placeholder="Filtrar por nome, apelido, função…" />
+      )}
+      {filtro.ativo && avisoExportacao}
+      {!dados || dados.linhas.length === 0 ? <span style={mutedStyle}>Nenhuma competência no intervalo.</span> : linhas.length === 0 ? <span style={mutedStyle}>Ninguém bate com o filtro.</span> : (
         <Table className="tabela-gorjeta">
           <Table.Head>
             <Table.Row>
-              <Table.Th minWidth={200}>Funcionário</Table.Th>
-              {dados.competencias.map((c) => (
-                <Table.Th key={`${c.ano}-${c.mes}`} title={c.status === "OPEN" ? "Em apuração" : `Ponto: ${money(c.pointValue)}`}>
-                  {MONTHS[c.mes - 1].slice(0, 3)}/{String(c.ano).slice(2)}{c.status === "OPEN" ? " •" : ""}
-                </Table.Th>
-              ))}
+              <ThOrdenavel {...th("nome")} align="left" minWidth={200}>Funcionário</ThOrdenavel>
+              {dados.competencias.map((c, i) => {
+                const k = chaves[i];
+                if (!col.visivel(k)) return null;
+                return (
+                  <ThOrdenavel key={k} {...th(k)} title={c.status === "OPEN" ? "Em apuração" : `Ponto: ${money(c.pointValue)}`}>
+                    {`${rotuloMes(k)}${c.status === "OPEN" ? " •" : ""}`}
+                  </ThOrdenavel>
+                );
+              })}
             </Table.Row>
           </Table.Head>
           <Table.Body>
-            {dados.linhas.map((l) => (
+            {linhas.map((l) => (
               <Table.Row key={l.employeeId}>
-                <Table.Td style={{ fontWeight: 500 }}>{l.employeeName}</Table.Td>
+                <Table.Td style={{ textAlign: "left" }}><NomePessoa nome={l.employeeName} employeeId={l.employeeId} /></Table.Td>
                 {chaves.map((k, i) => {
+                  if (!col.visivel(k)) return null;
                   const c = l.meses[k];
                   if (medida === "funcao") {
                     const antes = i > 0 ? l.meses[chaves[i - 1]]?.funcao : undefined;
@@ -241,10 +297,12 @@ function RelatorioEvolucao({ onErro }: { onErro: (e: unknown) => void }) {
             ))}
             {medida === "gorjeta" && (
               <Table.Row>
-                <Table.Td style={{ fontWeight: 700, background: "var(--paper-soft)" }}>Total</Table.Td>
-                {chaves.map((k) => (
+                <Table.Td style={{ fontWeight: 700, background: "var(--paper-soft)", textAlign: "left" }}>
+                  {filtro.ativo ? `Total do filtro (${filtradas.length} de ${todas.length})` : "Total"}
+                </Table.Td>
+                {mesesVisiveis.map((k) => (
                   <Table.Td key={k} style={{ fontWeight: 700, background: "var(--paper-soft)" }}>
-                    {money(dados.linhas.reduce((a, l) => a + (l.meses[k]?.gorjeta ?? 0), 0))}
+                    {money(filtradas.reduce((a, l) => a + (l.meses[k]?.gorjeta ?? 0), 0))}
                   </Table.Td>
                 ))}
               </Table.Row>
@@ -260,6 +318,14 @@ function RelatorioEvolucao({ onErro }: { onErro: (e: unknown) => void }) {
 const TIPO_MOV: Record<TipReservaMovimento["type"], string> = {
   FECHAMENTO_RESERVA: "Reserva do mês", FECHAMENTO_SALDO: "Saldo do mês", DISTRIBUICAO: "Distribuição", AJUSTE: "Ajuste",
 };
+const COLUNAS_MOV: ColunaOpcional[] = [
+  { chave: "tipo", rotulo: "Tipo" }, { chave: "competencia", rotulo: "Competência" }, { chave: "descricao", rotulo: "Descrição" }, { chave: "valor", rotulo: "Valor" }, { chave: "saldo", rotulo: "Saldo" },
+];
+const EXT_MOV: Extratores<TipReservaMovimento> = {
+  data: (m) => m.date, tipo: (m) => TIPO_MOV[m.type], competencia: (m) => m.competencia, nome: (m) => m.employeeName,
+  descricao: (m) => m.notes, valor: (m) => m.amount, saldo: (m) => m.saldo,
+};
+const TEXTO_MOV = new Set(["tipo", "competencia", "nome", "descricao"]);
 
 function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
   const { confirmar, caixa } = useConfirmacao();
@@ -267,6 +333,11 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
   const [ajuste, setAjuste] = useState({ valor: "", descricao: "", data: hoje() });
   const [itens, setItens] = useState<Array<{ employeeId: string; valor: string; descricao: string }>>([{ employeeId: "", valor: "", descricao: "" }]);
   const erro = (e: unknown) => onNotice("error", (e as Error).message);
+  const ord = useOrdenacao("relatorio-reserva");
+  const col = useColunas("relatorio-reserva");
+  const v = col.visivel;
+  const filtro = useFiltro("relatorio-reserva");
+  const th = (c: string) => ({ coluna: c, ordem: ord.ordem, onOrdenar: () => ord.alternar(c, TEXTO_MOV.has(c) ? "asc" : "desc") });
 
   const carregar = () => getTipReserve().then(setDados).catch(erro);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -276,6 +347,15 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
   const totalDistribuir = itens.reduce((a, i) => a + (Number(i.valor.replace(",", ".")) || 0), 0);
   const pessoas = (comp?.participants ?? []).filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO")
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName, "pt-BR"));
+  const movimentos = dados?.movimentos ?? [];
+  const listasFiltro = [
+    { chave: "tipo", rotulo: "Tipo", opcoes: opcoesDe(movimentos, (m) => TIPO_MOV[m.type]) },
+    { chave: "competencia", rotulo: "Competência", opcoes: opcoesDe(movimentos, (m) => m.competencia) },
+  ];
+  const movFiltrados = filtro.aplicar(movimentos,
+    (m) => [TIPO_MOV[m.type], m.competencia ?? "", m.employeeName ?? "", m.notes ?? ""].join(" "),
+    { tipo: (m) => TIPO_MOV[m.type], competencia: (m) => m.competencia });
+  const movLinhas = aplicarOrdem(movFiltrados, ord.ordem, EXT_MOV);
 
   async function lancarAjuste() {
     const valor = Number(ajuste.valor.replace(",", "."));
@@ -354,7 +434,7 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
                 <select value={it.employeeId} onChange={(e) => setItens(itens.map((x, j) => (j === idx ? { ...x, employeeId: e.target.value } : x)))}
                   style={{ ...inputStyle, width: 260 }} aria-label="Funcionário">
                   <option value="">Funcionário…</option>
-                  {pessoas.map((p) => <option key={p.employeeId} value={p.employeeId}>{p.employeeName}</option>)}
+                  {pessoas.map((p) => <option key={p.employeeId} value={p.employeeId}>{p.employeeName}{p.apelido ? ` — “${p.apelido}”` : ""}</option>)}
                 </select>
                 <input type="number" step="0.01" inputMode="decimal" min="0" value={it.valor} placeholder="Valor R$"
                   onChange={(e) => setItens(itens.map((x, j) => (j === idx ? { ...x, valor: e.target.value } : x)))} style={{ ...numInputStyle, width: 120 }} aria-label="Valor" />
@@ -376,31 +456,49 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
       </div>
 
       <div style={panelStyle}>
-        <strong>Extrato</strong>
-        {!dados || dados.movimentos.length === 0 ? <span style={mutedStyle}>Sem lançamentos ainda. A reserva entra no fundo ao fechar cada período.</span> : (
+        <div className="barra-lista">
+          <strong>Extrato</strong>
+          {movimentos.length > 0 && (
+            <div style={{ marginLeft: "auto" }}>
+              <SeletorColunas colunas={COLUNAS_MOV} ocultas={col.ocultas} alternar={col.alternar} mostrarTodas={col.mostrarTodas} />
+            </div>
+          )}
+        </div>
+        {movimentos.length > 0 && (
+          <BarraFiltro filtro={filtro} listas={listasFiltro} total={movimentos.length} visiveis={movFiltrados.length}
+            placeholder="Filtrar por funcionário, descrição, competência…" />
+        )}
+        {filtro.ativo && movFiltrados.length > 0 && (
+          <span style={mutedStyle}>
+            Total do filtro ({movFiltrados.length} de {movimentos.length}): <strong>{money(movFiltrados.reduce((a, m) => a + m.amount, 0))}</strong>.
+            A coluna Saldo continua sendo o saldo do fundo após cada lançamento.
+          </span>
+        )}
+        {!dados || movimentos.length === 0 ? <span style={mutedStyle}>Sem lançamentos ainda. A reserva entra no fundo ao fechar cada período.</span>
+          : movLinhas.length === 0 ? <span style={mutedStyle}>Nenhum lançamento bate com o filtro.</span> : (
           <Table className="tabela-gorjeta">
             <Table.Head>
               <Table.Row>
-                <Table.Th>Data</Table.Th>
-                <Table.Th>Tipo</Table.Th>
-                <Table.Th>Competência</Table.Th>
-                <Table.Th>Funcionário</Table.Th>
-                <Table.Th>Descrição</Table.Th>
-                <Table.Th>Valor</Table.Th>
-                <Table.Th>Saldo</Table.Th>
+                <ThOrdenavel {...th("data")}>Data</ThOrdenavel>
+                {v("tipo") && <ThOrdenavel {...th("tipo")}>Tipo</ThOrdenavel>}
+                {v("competencia") && <ThOrdenavel {...th("competencia")}>Competência</ThOrdenavel>}
+                <ThOrdenavel {...th("nome")} align="left">Funcionário</ThOrdenavel>
+                {v("descricao") && <ThOrdenavel {...th("descricao")}>Descrição</ThOrdenavel>}
+                {v("valor") && <ThOrdenavel {...th("valor")}>Valor</ThOrdenavel>}
+                {v("saldo") && <ThOrdenavel {...th("saldo")}>Saldo</ThOrdenavel>}
                 <Table.Th aria-label="Ações"> </Table.Th>
               </Table.Row>
             </Table.Head>
             <Table.Body>
-              {dados.movimentos.map((m) => (
+              {movLinhas.map((m) => (
                 <Table.Row key={m.id}>
                   <Table.Td>{fmtDia(m.date)}</Table.Td>
-                  <Table.Td><StatusBadge tone={m.amount < 0 ? "warning" : "success"}>{TIPO_MOV[m.type]}</StatusBadge></Table.Td>
-                  <Table.Td>{m.competencia ?? "—"}</Table.Td>
-                  <Table.Td>{m.employeeName ?? "—"}</Table.Td>
-                  <Table.Td style={{ ...mutedStyle, textAlign: "left" }}>{m.notes ?? "—"}</Table.Td>
-                  <Table.Td style={{ fontWeight: 700, color: m.amount < 0 ? "var(--danger)" : "var(--success)" }}><Money value={m.amount} /></Table.Td>
-                  <Table.Td><Money value={m.saldo} /></Table.Td>
+                  {v("tipo") && <Table.Td><StatusBadge tone={m.amount < 0 ? "warning" : "success"}>{TIPO_MOV[m.type]}</StatusBadge></Table.Td>}
+                  {v("competencia") && <Table.Td>{m.competencia ?? "—"}</Table.Td>}
+                  <Table.Td style={{ textAlign: "left" }}>{m.employeeName ? <NomePessoa nome={m.employeeName} /> : "—"}</Table.Td>
+                  {v("descricao") && <Table.Td style={{ ...mutedStyle, textAlign: "left" }}>{m.notes ?? "—"}</Table.Td>}
+                  {v("valor") && <Table.Td style={{ fontWeight: 700, color: m.amount < 0 ? "var(--danger)" : "var(--success)" }}><Money value={m.amount} /></Table.Td>}
+                  {v("saldo") && <Table.Td><Money value={m.saldo} /></Table.Td>}
                   <Table.Td>
                     {m.removivel && canEdit && (
                       <button type="button" onClick={() => void apagarAjuste(m.id)} aria-label="Apagar ajuste"
@@ -418,36 +516,65 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
 }
 
 // ─── Alterações na tabela de funções ────────────────────────────────────────
+const COLUNAS_HIST: ColunaOpcional[] = [
+  { chave: "data", rotulo: "Data" }, { chave: "antes", rotulo: "Pontos antes" }, { chave: "depois", rotulo: "Pontos depois" }, { chave: "faixa", rotulo: "Faixa" },
+];
+const EXT_HIST: Extratores<TipFuncaoHistorico> = {
+  nome: (h) => h.name, data: (h) => h.createdAt, antes: (h) => h.pointsBefore, depois: (h) => h.pointsAfter, faixa: (h) => h.minPoints ?? h.maxPoints,
+};
+const mudouDe = (h: TipFuncaoHistorico) =>
+  h.pointsBefore == null ? "Nova" : h.pointsAfter > h.pointsBefore ? "Subiu" : h.pointsAfter < h.pointsBefore ? "Desceu" : "Pontos iguais";
+
 function HistoricoFuncoes({ onErro }: { onErro: (e: unknown) => void }) {
   const [dados, setDados] = useState<TipFuncaoHistorico[]>([]);
+  const ord = useOrdenacao("relatorio-funcoes-historico");
+  const col = useColunas("relatorio-funcoes-historico");
+  const v = col.visivel;
+  const filtro = useFiltro("relatorio-funcoes-historico");
+  const th = (c: string) => ({ coluna: c, ordem: ord.ordem, onOrdenar: () => ord.alternar(c, c === "nome" ? "asc" : "desc") });
   useEffect(() => {
     getTipFunctionHistory().then(setDados).catch(onErro);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const listasFiltro = [
+    { chave: "funcao", rotulo: "Função", opcoes: opcoesDe(dados, (h) => h.name) },
+    { chave: "mudanca", rotulo: "Mudança", opcoes: ["Nova", "Subiu", "Desceu", "Pontos iguais"].map((x) => ({ valor: x, rotulo: x })) },
+  ];
+  const filtrados = filtro.aplicar(dados, (h) => h.name, { funcao: (h) => h.name, mudanca: mudouDe });
+  const linhas = aplicarOrdem(filtrados, ord.ordem, EXT_HIST);
   return (
     <div style={panelStyle}>
-      <span style={mutedStyle}>Cada vez que os pontos, o nome ou a faixa de uma função mudam. Quem estava na função ganha a linha correspondente no próprio histórico.</span>
-      {dados.length === 0 ? <span style={mutedStyle}>Nenhuma alteração registrada na tabela de funções.</span> : (
+      <div className="barra-lista">
+        <span style={{ ...mutedStyle, flex: "1 1 320px" }}>Cada vez que os pontos, o nome ou a faixa de uma função mudam. Quem estava na função ganha a linha correspondente no próprio histórico.</span>
+        {dados.length > 0 && <SeletorColunas colunas={COLUNAS_HIST} ocultas={col.ocultas} alternar={col.alternar} mostrarTodas={col.mostrarTodas} />}
+      </div>
+      {dados.length > 0 && (
+        <BarraFiltro filtro={filtro} listas={listasFiltro} total={dados.length} visiveis={filtrados.length} placeholder="Filtrar por função…" />
+      )}
+      {dados.length === 0 ? <span style={mutedStyle}>Nenhuma alteração registrada na tabela de funções.</span>
+        : linhas.length === 0 ? <span style={mutedStyle}>Nenhuma alteração bate com o filtro.</span> : (
         <Table className="tabela-gorjeta">
           <Table.Head>
             <Table.Row>
-              <Table.Th>Função</Table.Th>
-              <Table.Th>Data</Table.Th>
-              <Table.Th>Pontos antes</Table.Th>
-              <Table.Th>Pontos depois</Table.Th>
-              <Table.Th>Faixa</Table.Th>
+              <ThOrdenavel {...th("nome")} align="left">Função</ThOrdenavel>
+              {v("data") && <ThOrdenavel {...th("data")}>Data</ThOrdenavel>}
+              {v("antes") && <ThOrdenavel {...th("antes")}>Pontos antes</ThOrdenavel>}
+              {v("depois") && <ThOrdenavel {...th("depois")}>Pontos depois</ThOrdenavel>}
+              {v("faixa") && <ThOrdenavel {...th("faixa")}>Faixa</ThOrdenavel>}
             </Table.Row>
           </Table.Head>
           <Table.Body>
-            {dados.map((h) => (
+            {linhas.map((h) => (
               <Table.Row key={h.id}>
-                <Table.Td style={{ fontWeight: 500 }}>{h.name}</Table.Td>
-                <Table.Td>{new Date(h.createdAt).toLocaleDateString("pt-BR")}</Table.Td>
-                <Table.Td>{h.pointsBefore == null ? "nova" : pts(h.pointsBefore)}</Table.Td>
-                <Table.Td style={{ fontWeight: 700, color: h.pointsBefore != null && h.pointsAfter !== h.pointsBefore ? (h.pointsAfter > h.pointsBefore ? "var(--success)" : "var(--danger)") : undefined }}>
-                  {pts(h.pointsAfter)}
-                </Table.Td>
-                <Table.Td>{h.minPoints != null || h.maxPoints != null ? `${pts(h.minPoints)} a ${pts(h.maxPoints)}` : "—"}</Table.Td>
+                <Table.Td style={{ fontWeight: 500, textAlign: "left" }}>{h.name}</Table.Td>
+                {v("data") && <Table.Td>{new Date(h.createdAt).toLocaleDateString("pt-BR")}</Table.Td>}
+                {v("antes") && <Table.Td>{h.pointsBefore == null ? "nova" : pts(h.pointsBefore)}</Table.Td>}
+                {v("depois") && (
+                  <Table.Td style={{ fontWeight: 700, color: h.pointsBefore != null && h.pointsAfter !== h.pointsBefore ? (h.pointsAfter > h.pointsBefore ? "var(--success)" : "var(--danger)") : undefined }}>
+                    {pts(h.pointsAfter)}
+                  </Table.Td>
+                )}
+                {v("faixa") && <Table.Td>{h.minPoints != null || h.maxPoints != null ? `${pts(h.minPoints)} a ${pts(h.maxPoints)}` : "—"}</Table.Td>}
               </Table.Row>
             ))}
           </Table.Body>
