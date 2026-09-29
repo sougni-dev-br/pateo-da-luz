@@ -26,13 +26,16 @@ export type LinhaExtrato = {
   gorjeta: number | null;
   adiantamento: number | null;
   situacao: string | null;
+  // Como a pessoa foi achada no cadastro: CPF é seguro; NOME precisa de confirmação
+  // antes de a folha usar PIX e salário combinado do cadastro.
+  vinculo?: "CPF" | "NOME" | "CONFIRMADO";
 };
 
-export type ExtratoEmpresa = { empresa: string; cnpj: string; linhas: LinhaExtrato[] };
+export type ExtratoEmpresa = { id?: string; empresa: string; cnpj: string; linhas: LinhaExtrato[] };
 
 export type StatusConferencia =
   | "OK" | "DIVERGE" | "ACEITA" | "SALARIO_COMBINADO"
-  | "FALTA_NO_EXTRATO" | "SO_NO_EXTRATO" | "SEM_EXTRATO_DA_EMPRESA" | "NAO_PARTICIPA";
+  | "FALTA_NO_EXTRATO" | "SO_NO_EXTRATO" | "SEM_EXTRATO_DA_EMPRESA" | "NAO_PARTICIPA" | "VINCULO_A_CONFIRMAR";
 
 export type LinhaConferencia = {
   chave: string;               // employeeId ou "extrato:<nome>"
@@ -44,9 +47,12 @@ export type LinhaConferencia = {
   diferenca: number | null;
   status: StatusConferencia;
   justificativa: string | null;
+  extratoId?: string;          // de qual extrato veio (para confirmar o vínculo)
+  nomeNoExtrato?: string;      // como a pessoa está escrita no extrato
 };
 
-const PENDENTES: StatusConferencia[] = ["DIVERGE", "FALTA_NO_EXTRATO", "SO_NO_EXTRATO", "SEM_EXTRATO_DA_EMPRESA"];
+const PENDENTES: StatusConferencia[] = ["DIVERGE", "FALTA_NO_EXTRATO", "SO_NO_EXTRATO", "SEM_EXTRATO_DA_EMPRESA", "VINCULO_A_CONFIRMAR"];
+const aConfirmar = (l: LinhaExtrato) => l.vinculo === "NOME";
 export const ehPendente = (s: StatusConferencia) => PENDENTES.includes(s);
 const digitos = (t: string | null) => (t ?? "").replace(/\D/g, "");
 
@@ -57,8 +63,8 @@ export function conferir(
   apuracao: PessoaApurada[], extratos: ExtratoEmpresa[], aceites: Map<string, string>, combinados: Combinados = new Map(),
 ): LinhaConferencia[] {
   const saida: LinhaConferencia[] = [];
-  const noExtrato = new Map<string, { linha: LinhaExtrato; empresa: string }>();
-  for (const e of extratos) for (const l of e.linhas) if (l.employeeId) noExtrato.set(l.employeeId, { linha: l, empresa: e.empresa });
+  const noExtrato = new Map<string, { linha: LinhaExtrato; empresa: string; id?: string }>();
+  for (const e of extratos) for (const l of e.linhas) if (l.employeeId) noExtrato.set(l.employeeId, { linha: l, empresa: e.empresa, id: e.id });
   const cnpjsCarregados = new Set(extratos.map((e) => digitos(e.cnpj)));
   const aceita = (chave: string, status: StatusConferencia) =>
     (ehPendente(status) && aceites.has(chave) ? { status: "ACEITA" as const, justificativa: aceites.get(chave)! } : { status, justificativa: null });
@@ -76,6 +82,11 @@ export function conferir(
     }
     const valor = ex.linha.gorjeta ?? 0;
     const dif = round2(valor - p.gorjetaLiquida);
+    if (aConfirmar(ex.linha)) {
+      saida.push({ chave: p.employeeId, employeeId: p.employeeId, nome: p.nome, empresa: ex.empresa,
+        apuracao: p.gorjetaLiquida, extrato: ex.linha.gorjeta, diferenca: null, status: "VINCULO_A_CONFIRMAR", justificativa: null, extratoId: ex.id, nomeNoExtrato: ex.linha.nome });
+      continue;
+    }
     const base: StatusConferencia = combinados.has(p.employeeId) ? "SALARIO_COMBINADO" : Math.abs(dif) < 0.01 ? "OK" : "DIVERGE";
     saida.push({ chave: p.employeeId, employeeId: p.employeeId, nome: p.nome, empresa: ex.empresa,
       apuracao: p.gorjetaLiquida, extrato: valor, diferenca: dif, ...aceita(p.employeeId, base) });
@@ -88,6 +99,11 @@ export function conferir(
       if (l.employeeId && naApuracao.has(l.employeeId)) continue;
       const chave = l.employeeId ?? `extrato:${l.nome}`;
       const comGorjeta = (l.gorjeta ?? 0) > 0;
+      if (aConfirmar(l)) {
+        saida.push({ chave, employeeId: l.employeeId, nome: l.nome, empresa: e.empresa,
+          apuracao: null, extrato: l.gorjeta, diferenca: null, status: "VINCULO_A_CONFIRMAR", justificativa: null, extratoId: e.id, nomeNoExtrato: l.nome });
+        continue;
+      }
       const st: StatusConferencia = l.employeeId && combinados.has(l.employeeId) ? "SALARIO_COMBINADO"
         : comGorjeta ? "SO_NO_EXTRATO" : "NAO_PARTICIPA";
       saida.push({ chave, employeeId: l.employeeId, nome: l.nome, empresa: e.empresa,
@@ -118,8 +134,10 @@ export function montarFolhaLiquidos(apuracao: PessoaApurada[], extratos: Extrato
   const linhas: LinhaFolha[] = [];
   for (const e of extratos) {
     for (const l of e.linhas) {
-      const p = l.employeeId ? porId.get(l.employeeId) : undefined;
-      const combinado = l.employeeId ? combinados.get(l.employeeId) : undefined;
+      // Vínculo pelo nome ainda não confirmado: não usa nada do cadastro (PIX, combinado).
+      const seguro = !aConfirmar(l);
+      const p = l.employeeId && seguro ? porId.get(l.employeeId) : undefined;
+      const combinado = l.employeeId && seguro ? combinados.get(l.employeeId) : undefined;
       if (combinado != null) {
         const adiant = l.adiantamento ?? 0;
         const gorjeta = p?.noPeriodo ? p.gorjetaLiquida : 0;
@@ -132,7 +150,8 @@ export function montarFolhaLiquidos(apuracao: PessoaApurada[], extratos: Extrato
       if (l.liquido <= 0) continue;
       linhas.push({ employeeId: l.employeeId, nome: p?.nome ?? l.nome, grupo: e.empresa, origem: "EXTRATO", valor: round2(l.liquido),
         composicao: "líquido do extrato", pix: p?.pix ?? null,
-        aviso: l.employeeId ? null : "Não achado no cadastro: confira o PIX." });
+        aviso: !seguro ? "Reconhecido pelo nome: confirme a pessoa na conferência antes de pagar."
+          : l.employeeId ? null : "Não achado no cadastro: confira o PIX." });
     }
   }
   for (const p of apuracao) {

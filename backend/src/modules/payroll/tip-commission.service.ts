@@ -690,6 +690,20 @@ export async function reopenTipPeriod(year: number, month: number, usuario: { id
     if (bloqueio) throw new Error(bloqueio);
     await tx.tipReserveMovement.deleteMany({ where: { periodId: period.id, type: { in: ["FECHAMENTO_RESERVA", "FECHAMENTO_SALDO"] } } });
     await registrarReabertura(tx, period.id, usuario, texto);
+    // Reabrir pode mudar valores já enviados: as etapas marcadas (envio, OK, folha
+    // paga) são desmarcadas e a conferência tem de ser refeita.
+    const etapas = await tx.tipPeriodEtapa.findMany({ where: { periodId: period.id }, orderBy: { em: "asc" } });
+    const ultima = new Map<string, string>();
+    for (const e of etapas) ultima.set(e.etapa, e.acao);
+    for (const [etapa, acao] of ultima) {
+      if (acao !== "MARCOU") continue;
+      await tx.tipPeriodEtapa.create({
+        data: {
+          id: crypto.randomUUID(), periodId: period.id, etapa, acao: "DESMARCOU",
+          obs: `Período reaberto: ${texto}`.slice(0, 300), porId: usuario.id, por: usuario.name,
+        },
+      });
+    }
     await tx.tipPeriod.update({
       where: { competenceYear_competenceMonth: { competenceYear: year, competenceMonth: month } },
       data: { status: "OPEN", closedAt: null, updatedById: userId },

@@ -69,6 +69,19 @@ describe("conferência do extrato (agosto/2026)", () => {
     expect(c.find((l) => l.chave === "eli")!.status).toBe("SALARIO_COMBINADO");
   });
 
+  test("vínculo pelo nome fica pendente e não usa PIX nem salário combinado do cadastro até confirmar", () => {
+    const pelaNome = extrato([linha({ employeeId: "eli", nome: "ELIOENAI", liquido: 3030, gorjeta: 1328, adiantamento: 1468.8, vinculo: "NOME" })]);
+    const ap = [pessoa({ employeeId: "eli", nome: "Elioenai", gorjetaLiquida: 2594.17, pix: "chave-do-cadastro" })];
+    expect(conferir(ap, [pelaNome], new Map([["eli", "tanto faz"]]), combinados)[0].status).toBe("VINCULO_A_CONFIRMAR");
+    const f = montarFolhaLiquidos(ap, [pelaNome], combinados)[0];
+    expect(f).toMatchObject({ origem: "EXTRATO", valor: 3030, pix: null });
+    expect(f.aviso).toMatch(/confirme/i);
+
+    const confirmado = extrato([linha({ employeeId: "eli", nome: "ELIOENAI", liquido: 3030, gorjeta: 1328, adiantamento: 1468.8, vinculo: "CONFIRMADO" })]);
+    expect(conferir(ap, [confirmado], new Map(), combinados)[0].status).toBe("SALARIO_COMBINADO");
+    expect(montarFolhaLiquidos(ap, [confirmado], combinados)[0]).toMatchObject({ valor: 6325.37, pix: "chave-do-cadastro" });
+  });
+
   test("demitido com líquido zero no extrato não entra na folha", () => {
     const f = montarFolhaLiquidos([], [extrato([linha({ employeeId: "eliezer", nome: "ELIEZER", liquido: 0, situacao: "Demitido" })])]);
     expect(f).toEqual([]);

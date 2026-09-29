@@ -14,6 +14,7 @@ import {
 
 export const tipConferenciaRouter = Router();
 
+const LIMITE_PDF = 5 * 1024 * 1024;
 const ETAPAS = ["ENVIADO_CONTABILIDADE", "OK_CONTABILIDADE", "FOLHA_PAGA"] as const;
 type Etapa = (typeof ETAPAS)[number];
 
@@ -80,7 +81,7 @@ async function extratosDoPeriodo(periodId: string) {
   const extratos = await prisma.tipExtrato.findMany({ where: { periodId }, orderBy: { empresa: "asc" } });
   return extratos.map((e) => ({
     meta: { id: e.id, empresa: e.empresa, cnpj: e.cnpj, arquivo: e.arquivo, hash: e.hash, importadoEm: e.importadoEm.toISOString(), importadoPor: e.importadoPor },
-    dados: { empresa: e.empresa, cnpj: e.cnpj, linhas: e.linhas as LinhaExtrato[] } satisfies ExtratoEmpresa,
+    dados: { id: e.id, empresa: e.empresa, cnpj: e.cnpj, linhas: e.linhas as LinhaExtrato[] } satisfies ExtratoEmpresa,
   }));
 }
 
@@ -121,6 +122,7 @@ tipConferenciaRouter.post("/periods/:year/:month/extratos", async (request, resp
   const b = request.body as { fileBase64?: unknown; fileName?: unknown };
   if (typeof b.fileBase64 !== "string" || !b.fileBase64) return response.status(400).json({ message: "Envie o PDF do extrato." });
   const buffer = Buffer.from(b.fileBase64.replace(/^data:[^,]*,/, ""), "base64");
+  if (buffer.length > LIMITE_PDF) return response.status(413).json({ message: "Arquivo grande demais para um extrato (máximo 5 MB)." });
   let lido;
   try { lido = await parseExtratoMensal(buffer); } catch (err) {
     return response.status(422).json({ message: "Não foi possível ler o PDF do extrato. " + (err as Error).message });
@@ -143,23 +145,30 @@ tipConferenciaRouter.post("/periods/:year/:month/extratos", async (request, resp
   });
   const porCpf = new Map(cadastro.map((e) => [onlyDigits(e.cpf), e.id]));
   const avisos: string[] = [];
-  const achar = (nome: string, cpfNorm: string): string | null => {
+  // Vínculos já confirmados num envio anterior do mesmo extrato continuam valendo.
+  const anterior = await prisma.tipExtrato.findUnique({ where: { periodId_cnpj: { periodId: periodo.id, cnpj: lido.cnpj } }, select: { linhas: true } });
+  const confirmados = new Map(((anterior?.linhas ?? []) as LinhaExtrato[])
+    .filter((l) => l.vinculo === "CONFIRMADO" && l.employeeId).map((l) => [l.nome, l.employeeId!]));
+  type Vinculo = { employeeId: string | null; vinculo: "CPF" | "NOME" | "CONFIRMADO" | undefined };
+  const achar = (nome: string, cpfNorm: string): Vinculo => {
     const porDoc = cpfNorm ? porCpf.get(cpfNorm) : undefined;
-    if (porDoc) return porDoc;
+    if (porDoc) return { employeeId: porDoc, vinculo: "CPF" };
+    const jaConfirmado = confirmados.get(nome);
+    if (jaConfirmado) return { employeeId: jaConfirmado, vinculo: "CONFIRMADO" };
     const alvo = semAcento(nome);
     const exato = cadastro.filter((e) => semAcento(`${e.firstName} ${e.lastName}`) === alvo);
-    if (exato.length === 1) { avisos.push(`${nome}: CPF diferente do cadastro, reconhecido pelo nome.`); return exato[0].id; }
+    if (exato.length === 1) { avisos.push(`${nome}: CPF diferente do cadastro, reconhecido pelo nome — confirme.`); return { employeeId: exato[0].id, vinculo: "NOME" }; }
     // Nome do cadastro mais curto que o do extrato ("Anderson Fernandes" × "ANDERSON FERNANDES DOS SANTOS").
     const contido = cadastro.filter((e) => {
       const partes = semAcento(`${e.firstName} ${e.lastName}`).split(" ");
       return partes.length >= 2 && alvo.startsWith(partes[0] + " ") && partes.every((p) => alvo.split(" ").includes(p));
     });
-    if (contido.length === 1) { avisos.push(`${nome}: reconhecido pelo nome parcial — confira o cadastro.`); return contido[0].id; }
+    if (contido.length === 1) { avisos.push(`${nome}: reconhecido pelo nome parcial — confirme.`); return { employeeId: contido[0].id, vinculo: "NOME" }; }
     avisos.push(`${nome}: não achado no cadastro.`);
-    return null;
+    return { employeeId: null, vinculo: undefined };
   };
   const linhas: LinhaExtrato[] = lido.funcionarios.map((f) => ({
-    employeeId: achar(f.nome, f.cpfNorm), nome: f.nome, liquido: f.liquido, gorjeta: f.gorjeta,
+    ...achar(f.nome, f.cpfNorm), nome: f.nome, liquido: f.liquido, gorjeta: f.gorjeta,
     adiantamento: f.adiantamento, situacao: f.situacao,
   }));
   const arquivo = String(b.fileName ?? "extrato.pdf").replace(/[^\p{L}\p{N}.\-() _]/gu, "_").slice(0, 120);
@@ -236,6 +245,10 @@ tipConferenciaRouter.post("/periods/:year/:month/etapas", async (request, respon
   const etapa = String(b.etapa ?? "") as Etapa;
   const acao = b.acao === "DESMARCOU" ? "DESMARCOU" : "MARCOU";
   if (!ETAPAS.includes(etapa)) return response.status(400).json({ message: "Etapa desconhecida." });
+  // Dar o OK e marcar a folha como paga autorizam o pagamento: exigem "Aprovar".
+  if (etapa !== "ENVIADO_CONTABILIDADE" && !(await userHasPermission(user as SessionUser, "payroll-tips", "approve"))) {
+    return response.status(403).json({ message: "Dar o OK e marcar a folha como paga exigem a permissão de aprovar a gorjeta." });
+  }
   const { estado } = await estadoEtapas(periodo.id);
   const i = ETAPAS.indexOf(etapa);
   if (acao === "MARCOU") {
@@ -304,4 +317,32 @@ tipConferenciaRouter.put("/team/:employeeId/salario-combinado", async (request, 
     newValue: { valor, motivo }, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
   response.json({ ok: true });
+});
+
+// Confirmar (ou recusar) que a pessoa do extrato, achada pelo nome, é quem o cadastro diz.
+tipConferenciaRouter.put("/periods/:year/:month/extratos/:id/vinculo", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const periodo = await periodoDe(request, response);
+  if (!periodo) return;
+  if ((await estadoEtapas(periodo.id)).estado.OK_CONTABILIDADE.marcada) {
+    return response.status(409).json({ message: "O OK à contabilidade já foi dado. Desmarque o OK para mudar a conferência." });
+  }
+  const b = request.body as { nome?: unknown; confirma?: unknown };
+  const nome = String(b.nome ?? "");
+  const extrato = await prisma.tipExtrato.findFirst({ where: { id: request.params.id, periodId: periodo.id } });
+  if (!extrato) return response.status(404).json({ message: "Extrato não encontrado." });
+  const linhas = extrato.linhas as LinhaExtrato[];
+  const alvo = linhas.find((l) => l.nome === nome && l.vinculo === "NOME");
+  if (!alvo) return response.status(404).json({ message: "Não há vínculo a confirmar para essa pessoa." });
+  const confirma = b.confirma !== false;
+  const novas = linhas.map((l) => (l === alvo
+    ? (confirma ? { ...l, vinculo: "CONFIRMADO" as const } : { ...l, employeeId: null, vinculo: undefined })
+    : l));
+  await prisma.tipExtrato.update({ where: { id: extrato.id }, data: { linhas: novas } });
+  await auditLog({
+    userId: user.id, action: confirma ? "TIP_EXTRATO_VINCULO_CONFIRMADO" : "TIP_EXTRATO_VINCULO_RECUSADO", entity: "TipPeriod",
+    entityId: periodo.code, newValue: { empresa: extrato.empresa, nome, employeeId: confirma ? alvo.employeeId : null },
+  });
+  response.json(await montarConferencia(periodo));
 });
