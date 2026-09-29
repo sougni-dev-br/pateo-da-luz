@@ -2,6 +2,8 @@ import { Check } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 import "./LoginShell.css";
 
+export type LoginStatus = "checking" | "online" | "offline";
+
 export type LoginShellProps = {
   /** Se fornecido, o card usa <form onSubmit={onSubmit}> ao inves de <div>. */
   onSubmit?: (event: FormEvent) => void;
@@ -19,8 +21,10 @@ export type LoginShellProps = {
   showcaseDescription?: ReactNode;
   /** Lista de features com check verde. */
   showcaseFeatures?: string[];
-  /** Rodape do aside (ex.: "Sistema online"). */
+  /** Rodape do aside. Sobrescreve o texto derivado de `status`. */
   showcaseStatus?: ReactNode;
+  /** Estado real do servidor; pinta o indicador do rodape do aside. */
+  status?: LoginStatus;
   /** Chips compactos exibidos no header mobile. */
   mobileFeatures?: string[];
   /** Titulo (h1) acima do formulario. */
@@ -35,13 +39,16 @@ export type LoginShellProps = {
   cardClassName?: string;
 };
 
-const DEFAULT_FEATURES = [
-  "Financeiro em tempo real",
-  "Compras & estoque integrados",
-  "DRE gerencial automático"
-];
+// A tela de login é pública: não expõe o que o sistema faz, só identifica a casa.
+const DEFAULT_FEATURES: string[] = [];
 
-const DEFAULT_MOBILE_FEATURES = ["Financeiro", "Compras", "Estoque"];
+const DEFAULT_MOBILE_FEATURES: string[] = [];
+
+const STATUS_TEXT: Record<LoginStatus, string> = {
+  checking: "Verificando conexão com o servidor…",
+  online: "Sistema online",
+  offline: "Servidor indisponível no momento"
+};
 
 export function LoginShell({
   onSubmit,
@@ -49,15 +56,16 @@ export function LoginShell({
   brandTagline = "Desde 2003",
   brandLogoSrc = "/logo-pateo-luz.png",
   brandLogoAlt = "Pateo da Luz",
-  showcaseEyebrow = "Gestão do restaurante",
+  showcaseEyebrow = "Sistema de gestão",
   showcaseHeadline,
-  showcaseDescription = "Financeiro, compras e estoque em um único painel — do lançamento da nota ao resultado do mês.",
+  showcaseDescription = "Ambiente interno do Pateo da Luz. Acesso exclusivo à equipe autorizada.",
   showcaseFeatures = DEFAULT_FEATURES,
   showcaseStatus,
+  status = "online",
   mobileFeatures = DEFAULT_MOBILE_FEATURES,
   formTitle = "Bem-vindo de volta",
   formSubtitle = "Entre com suas credenciais para acessar o painel.",
-  legal = "Acesso restrito · Pateo da Luz © 2026",
+  legal = `Acesso restrito · Pateo da Luz © ${new Date().getFullYear()}`,
   children,
   cardClassName
 }: LoginShellProps) {
@@ -120,8 +128,8 @@ export function LoginShell({
           )}
         </div>
         <div className="ds-login-aside-foot">
-          <span className="ds-login-dot" />
-          {showcaseStatus ?? "Sistema online · sincronizado agora há pouco"}
+          <span className={`ds-login-dot ds-login-dot-${status}`} />
+          {showcaseStatus ?? STATUS_TEXT[status]}
         </div>
       </aside>
 
