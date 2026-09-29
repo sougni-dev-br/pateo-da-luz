@@ -48,12 +48,13 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
 
   return (
     <div style={panelStyle}>
-      <div className="barra-lista">
-        <strong>Folha salarial líquidos</strong>
-        <span style={mutedStyle}>{folha.linhas.length} pessoas · total {money(folha.total)}</span>
-        {!liberada && <StatusBadge tone="warning">Prévia — falta o OK à contabilidade</StatusBadge>}
-        <div style={{ marginLeft: "auto" }}>
-          <Button variant="secondary" leadingIcon={<FileText size={14} />} disabled={folha.linhas.length === 0}
+      <div className="cabecalho-painel">
+        <div className="cabecalho-painel-texto">
+          <strong>Folha salarial líquidos {!liberada && <StatusBadge tone="warning">Prévia — falta o OK à contabilidade</StatusBadge>}</strong>
+          <span>{folha.linhas.length} pessoas · total {money(folha.total)} · CLT pelo extrato, sem registro pela apuração</span>
+        </div>
+        <div className="cabecalho-painel-acoes">
+          <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} disabled={folha.linhas.length === 0}
             onClick={() => void exportarFolhaLiquidos(folha, liberada).catch((e) => onNotice("error", "Erro ao gerar o PDF: " + (e as Error).message))}>
             PDF da folha
           </Button>

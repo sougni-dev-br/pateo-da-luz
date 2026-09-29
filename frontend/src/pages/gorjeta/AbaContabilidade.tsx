@@ -108,7 +108,7 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
   const proximo = passos.findIndex((p) => !p.feito);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="aba-contabilidade" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <ol className="etapas-folha" aria-label="Etapas do mês">
         {passos.map((p, i) => (
           <li key={p.chave} className={p.feito ? "feita" : i === proximo ? "atual" : undefined}>
@@ -118,27 +118,34 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
               <span>{p.detalhe}</span>
               {canEdit && p.acao && (p.feito
                 ? <button type="button" className="barra-lista-link" disabled={ocupado} onClick={() => void etapa(p.acao!, "DESMARCOU")}>desmarcar</button>
-                : i === proximo && <Button disabled={ocupado} onClick={() => void etapa(p.acao!, "MARCOU")}>Marcar</Button>)}
+                : i === proximo && <Button size="sm" disabled={ocupado} onClick={() => void etapa(p.acao!, "MARCOU")}>Marcar como feito</Button>)}
             </div>
           </li>
         ))}
       </ol>
 
       <div style={panelStyle}>
-        <div className="barra-lista">
-          <strong>Extratos da contabilidade</strong>
-          <span style={mutedStyle}>Um por empresa. A gorjeta do extrato é conferida com a gorjeta líquida da apuração (rateio − vales).</span>
+        <div className="cabecalho-painel">
+          <div className="cabecalho-painel-texto">
+            <strong>Extratos da contabilidade</strong>
+            <span>Um por empresa. A gorjeta do extrato é conferida com a gorjeta líquida da apuração (rateio − vales).</span>
+          </div>
           {canEdit && !ok && (
-            <div style={{ marginLeft: "auto" }}>
+            <div className="cabecalho-painel-acoes">
               <input ref={entrada} type="file" accept="application/pdf" multiple hidden onChange={(e) => void enviarArquivos(e.target.files)} />
-              <Button leadingIcon={<FileUp size={14} />} disabled={ocupado} onClick={() => entrada.current?.click()}>
+              <Button size="sm" leadingIcon={<FileUp size={14} />} disabled={ocupado} onClick={() => entrada.current?.click()}>
                 {ocupado ? "Lendo…" : "Carregar extrato (PDF)"}
               </Button>
             </div>
           )}
         </div>
         {dados.extratos.length === 0
-          ? <span style={mutedStyle}>Nenhum extrato carregado para esta competência.</span>
+          ? (
+            <div className="estado-vazio">
+              <strong>Nenhum extrato carregado para esta competência.</strong>
+              <span>Quando a contabilidade devolver o extrato de cada empresa, carregue o PDF aqui: a conferência é automática.</span>
+            </div>
+          )
           : (
             <ul className="lista-extratos">
               {dados.extratos.map((x) => (

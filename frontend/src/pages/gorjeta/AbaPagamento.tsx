@@ -79,8 +79,8 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 8 }}>
+    <div className="aba-pagamento" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="cards-totais">
         {[
           { label: "Contabilidade (gorjeta dos registrados)", valor: registradosAPagar.reduce((a, p) => a + p.netCommission, 0), detalhe: `${registradosAPagar.length} pessoas · gorjeta líquida (− vales)`, cor: "var(--info)" },
           ...(pagasNaRescisao.length ? [{ label: "Já pago nas rescisões", valor: pagasNaRescisao.reduce((a, p) => a + p.rateioAmount, 0), detalhe: `${pagasNaRescisao.length} pessoa(s) · não pagar de novo`, cor: "var(--muted)" }] : []),
@@ -99,7 +99,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
           <strong>Envio à contabilidade <span style={{ ...mutedStyle, fontWeight: 400 }}>— registrados, por empresa</span></strong>
           <div className="barra-lista">
             <SeletorColunas colunas={COLUNAS_CONTAB.filter((c) => veSalario || c.chave !== "estimativa")} ocultas={colC.ocultas} alternar={colC.alternar} mostrarTodas={colC.mostrarTodas} />
-            <Button variant="secondary" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarContabilidade)}>PDF contabilidade</Button>
+            <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarContabilidade)}>PDF contabilidade</Button>
           </div>
         </div>
         <Table className="tabela-gorjeta">
@@ -201,7 +201,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
           <strong>Lista de pagamento <span style={{ ...mutedStyle, fontWeight: 400 }}>— sem registro: salário + gorjeta</span></strong>
           <div className="barra-lista">
             <SeletorColunas colunas={COLUNAS_PAG} ocultas={colP.ocultas} alternar={colP.alternar} mostrarTodas={colP.mostrarTodas} />
-            <Button variant="secondary" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarListaPagamento)}>PDF pagamento</Button>
+            <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarListaPagamento)}>PDF pagamento</Button>
           </div>
         </div>
         {!veSalario && semRegistro.length > 0 && (

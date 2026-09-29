@@ -7,7 +7,7 @@ import {
 import { Button, Money, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import "./gorjeta.css";
-import { MONTHS, baixarCsv, inputStyle, money, mutedStyle, numInputStyle, panelStyle, pts } from "./gorjetaUtils";
+import { MONTHS, baixarCsv, hojeLocal, inputStyle, mesLocal, money, mutedStyle, numInputStyle, panelStyle, pts } from "./gorjetaUtils";
 import { TIPO_MUDANCA, fmtDia } from "./HistoricoLinhaDoTempo";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import { RelatorioFechamentos } from "./RelatorioFechamentos";
@@ -21,10 +21,10 @@ type Props = {
   onChanged: () => void;
 };
 
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = hojeLocal;
 const inicioDoAno = () => `${new Date().getFullYear()}-01-01`;
-const mesAtual = () => new Date().toISOString().slice(0, 7);
-const mesesAtras = (n: number) => { const d = new Date(); d.setMonth(d.getMonth() - n); return d.toISOString().slice(0, 7); };
+const mesAtual = () => mesLocal();
+const mesesAtras = (n: number) => mesLocal(n);
 
 export function AbaRelatorios({ comp, canEdit, onNotice, onChanged }: Props) {
   const [visao, setVisao] = useState<Visao>("fechamentos");
@@ -34,7 +34,7 @@ export function AbaRelatorios({ comp, canEdit, onNotice, onChanged }: Props) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="barra-lista">
         <div className="barra-lista-segmento" role="group" aria-label="Relatório" style={{ marginLeft: 0 }}>
-          {([["fechamentos", "Fechamentos"], ["mudancas", "Mudanças de função e pontos"], ["evolucao", "Evolução mês a mês"], ["reserva", "Fundo de reserva"], ["funcoes", "Tabela de funções"]] as const).map(([v, l]) => (
+          {([["fechamentos", "Fechamentos"], ["mudancas", "Mudanças de função e pontos"], ["evolucao", "Evolução mês a mês"], ["reserva", "Fundo de reserva"], ["funcoes", "Histórico das funções"]] as const).map(([v, l]) => (
             <button key={v} type="button" aria-pressed={visao === v} onClick={() => setVisao(v)}>{l}</button>
           ))}
         </div>

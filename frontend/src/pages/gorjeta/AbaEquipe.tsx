@@ -9,7 +9,7 @@ import { HistoricoLinhaDoTempo } from "./HistoricoLinhaDoTempo";
 import { StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import "./gorjeta.css";
-import { inputStyle, mutedStyle, panelStyle, pts } from "./gorjetaUtils";
+import { hojeLocal, inputStyle, mutedStyle, panelStyle, pts } from "./gorjetaUtils";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 
 type Props = {
@@ -38,7 +38,7 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
   const [salvando, setSalvando] = useState<string | null>(null);
   const [mostrarInativos, setMostrarInativos] = useState(false);
   // Vigência e motivo das mudanças de função/pontos: vão para o histórico.
-  const [vigencia, setVigencia] = useState(() => new Date().toISOString().slice(0, 10));
+  const [vigencia, setVigencia] = useState(hojeLocal);
   const [motivo, setMotivo] = useState("");
   const [historicoDe, setHistoricoDe] = useState<TipTeamMember | null>(null);
   const [historico, setHistorico] = useState<TipMudanca[] | null>(null);
@@ -127,7 +127,9 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
   }
 
   const visiveis = team.filter((m) => mostrarInativos || m.isActive || m.participaGorjeta);
-  const equipeOrdenada = aplicarOrdem(visiveis, ordEquipe.ordem, extratoresEquipe);
+  // Sem ordenação escolhida, quem participa vem primeiro.
+  const participantesPrimeiro = [...visiveis].sort((a, b) => Number(b.participaGorjeta) - Number(a.participaGorjeta));
+  const equipeOrdenada = aplicarOrdem(participantesPrimeiro, ordEquipe.ordem, extratoresEquipe);
   const participantes = team.filter((m) => m.participaGorjeta);
   const somaBase = participantes.filter((m) => m.isActive).reduce((a, m) => a + (baseDe(m) ?? 0), 0);
 

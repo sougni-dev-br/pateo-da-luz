@@ -69,7 +69,12 @@ function ListaFechamentos({ ano, setAno, lista, onAbrir }: ListaProps) {
 
   return (
     <div style={panelStyle}>
-      <div className="barra-lista">
+      <div className="cabecalho-painel">
+        <div className="cabecalho-painel-texto">
+          <strong>Fechamentos registrados</strong>
+          <span>Cada fechamento fica gravado para sempre. Reabrir não apaga: anota o motivo e o próximo fechamento vira a versão seguinte.</span>
+        </div>
+        <div className="cabecalho-painel-acoes">
         <label className="barra-lista-campo">
           Ano
           <select value={ano} onChange={(e) => setAno(e.target.value === "todos" ? "todos" : Number(e.target.value))}>
@@ -77,9 +82,7 @@ function ListaFechamentos({ ano, setAno, lista, onAbrir }: ListaProps) {
             <option value="todos">Todos</option>
           </select>
         </label>
-        <span style={mutedStyle}>Cada fechamento fica gravado para sempre. Reabrir não apaga: anota o motivo e o próximo fechamento vira a versão seguinte.</span>
-        <div style={{ marginLeft: "auto" }}>
-          <Button variant="secondary" leadingIcon={<Download size={14} />} onClick={exportar} disabled={linhas.length === 0}>Excel (CSV)</Button>
+          <Button variant="secondary" size="sm" leadingIcon={<Download size={14} />} onClick={exportar} disabled={linhas.length === 0}>Excel (CSV)</Button>
         </div>
       </div>
       {divergentes > 0 && (
@@ -88,7 +91,10 @@ function ListaFechamentos({ ano, setAno, lista, onAbrir }: ListaProps) {
         </div>
       )}
       {lista === null ? <span style={mutedStyle}>Carregando…</span> : linhas.length === 0 ? (
-        <span style={mutedStyle}>Nenhum fechamento registrado {ano === "todos" ? "" : `em ${ano}`}.</span>
+        <div className="estado-vazio">
+          <strong>Nenhum fechamento registrado {ano === "todos" ? "" : `em ${ano}`}.</strong>
+          <span>Quando um período é fechado na aba Apuração, o retrato completo aparece aqui com o código GOR-AAAA-NNNN/vN.</span>
+        </div>
       ) : (
         <Table className="tabela-gorjeta">
           <Table.Head>

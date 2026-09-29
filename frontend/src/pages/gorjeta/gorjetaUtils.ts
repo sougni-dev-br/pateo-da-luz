@@ -153,3 +153,16 @@ export function baixarCsv(nome: string, linhas: Array<Array<string | number | nu
   a.click();
   URL.revokeObjectURL(url);
 }
+
+// Datas no fuso de quem usa (toISOString é UTC: depois das 21h em Brasília já é "amanhã").
+const doisDigitos = (n: number) => String(n).padStart(2, "0");
+export function hojeLocal(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${doisDigitos(d.getMonth() + 1)}-${doisDigitos(d.getDate())}`;
+}
+export function mesLocal(mesesAtras = 0): string {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - mesesAtras);
+  return `${d.getFullYear()}-${doisDigitos(d.getMonth() + 1)}`;
+}

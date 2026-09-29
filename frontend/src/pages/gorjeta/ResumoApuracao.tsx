@@ -14,13 +14,14 @@ const termo: CSSProperties = {
 const rotulo: CSSProperties = { fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" };
 const valor: CSSProperties = { fontSize: 18, fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
 
-function Termo({ label, children, destaque, detalhe, acao }: {
-  label: string; children: ReactNode; destaque?: string; detalhe?: ReactNode; acao?: ReactNode;
+function Termo({ label, children, destaque, detalhe, principal }: {
+  label: string; children: ReactNode; destaque?: string; detalhe?: ReactNode; principal?: boolean;
 }) {
   return (
-    <div style={{ ...termo, ...(destaque ? { borderColor: destaque, boxShadow: `inset 3px 0 0 ${destaque}` } : null) }}>
-      <span style={{ ...rotulo, display: "flex", justifyContent: "space-between", gap: 6 }}>{label}{acao}</span>
-      <span style={{ ...valor, color: destaque }}>{children}</span>
+    <div className={principal ? "termo-principal" : undefined}
+      style={{ ...termo, ...(destaque ? { borderColor: destaque, boxShadow: `inset 3px 0 0 ${destaque}` } : null) }}>
+      <span style={{ ...rotulo, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+      <span style={{ ...valor, color: destaque, ...(principal ? { fontSize: 24 } : null) }}>{children}</span>
       {detalhe && <span style={{ ...rotulo, fontSize: 11, whiteSpace: "normal" }}>{detalhe}</span>}
     </div>
   );
@@ -68,16 +69,16 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
   }
 
   return (
-    <section aria-label="Resumo da apuração" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8, alignItems: "stretch" }}>
+    <section aria-label="Resumo da apuração" className="resumo-apuracao" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div className="resumo-termos" data-termos={temRescisao ? 6 : 5}>
         <Termo label="Serviço arrecadado"
-          acao={onAjustarServico && (
-            <button type="button" className="barra-lista-link" onClick={onAjustarServico} style={{ fontSize: 11 }}>ajustar</button>
-          )}
-          detalhe={ajustado
-            ? <>faturamento {money(comp.servicoFaturamento)} <strong style={{ color: comp.ajusteServico > 0 ? "var(--success)" : "var(--danger)" }}>
-                {comp.ajusteServico > 0 ? "+" : "−"} {money(Math.abs(comp.ajusteServico))}</strong> de ajuste</>
-            : "do faturamento"}>
+          detalhe={<>
+            {ajustado
+              ? <>faturamento {money(comp.servicoFaturamento)} <strong style={{ color: comp.ajusteServico > 0 ? "var(--success)" : "var(--danger)" }}>
+                  {comp.ajusteServico > 0 ? "+" : "−"} {money(Math.abs(comp.ajusteServico))}</strong> de ajuste</>
+              : "do faturamento"}
+            {onAjustarServico && <> · <button type="button" className="barra-lista-link" onClick={onAjustarServico} style={{ fontSize: 11, padding: 0 }}>ajustar</button></>}
+          </>}>
           {money(comp.grossPool)}
         </Termo>
         <Termo label={`Retenção ${comp.deductionPercent.toLocaleString("pt-BR")}%`}>− {money(retido)}</Termo>
@@ -91,7 +92,7 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
           detalhe={temRescisao ? `${pts(comp.pointsBudget)} − ${pts(comp.rescisoes.pontos)} das rescisões` : undefined}>
           ÷ {pts(comp.pontosDisponiveis)}
         </Termo>
-        <Termo label="Valor do ponto" destaque="var(--gold)"
+        <Termo label="Valor do ponto" destaque="var(--gold)" principal
           detalhe={comp.fixedTotal > 0 ? `depois de ${money(comp.fixedTotal)} em cotas fixas` : undefined}>
           {money(comp.pointValue)}
         </Termo>
