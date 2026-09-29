@@ -46,7 +46,7 @@ export function AjusteServico({ comp, onSalvar, onAtualizarFaturamento, onFechar
         <span style={{ color: "var(--muted)" }}>+</span>
         <label className="barra-lista-campo">
           Ajuste
-          <input ref={campo} type="number" step="0.01" value={ajuste} onChange={(e) => setAjuste(e.target.value)}
+          <input ref={campo} type="number" step="0.01" inputMode="decimal" value={ajuste} onChange={(e) => setAjuste(e.target.value)}
             placeholder="0,00" style={{ ...numInputStyle, width: 130 }} aria-label="Valor do ajuste (negativo para tirar)" />
         </label>
         <span style={{ color: "var(--muted)" }}>=</span>

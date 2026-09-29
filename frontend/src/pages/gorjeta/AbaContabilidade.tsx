@@ -204,6 +204,7 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
                           <input autoFocus value={aceitando.texto} onChange={(e) => setAceitando({ chave: l.chave, texto: e.target.value })}
                             placeholder="Por que está certo assim?" aria-label={`Justificativa para ${l.nome}`} />
                           <Button type="submit" disabled={aceitando.texto.trim().length < 5}>Aceitar</Button>
+                          {aceitando.texto.trim().length < 5 && <span className="dica-minimo">faltam {5 - aceitando.texto.trim().length} letra(s)</span>}
                           <button type="button" className="barra-lista-link" onClick={() => setAceitando(null)}>cancelar</button>
                         </form>
                       )}

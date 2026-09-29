@@ -65,7 +65,7 @@ const COLUNAS: ColunaOpcional[] = [
   { chave: "base", rotulo: "Base" }, { chave: "faltas", rotulo: "Faltas" }, { chave: "atestados", rotulo: "Atestados" },
   { chave: "ferias", rotulo: "Férias" }, { chave: "outros", rotulo: "Outros dias" }, { chave: "dias", rotulo: "Dias" },
   { chave: "ajuste", rotulo: "Ajuste" }, { chave: "pontos", rotulo: "Pontos" }, { chave: "gorjeta", rotulo: "Gorjeta" },
-  { chave: "liquido", rotulo: "Líquido" },
+  { chave: "liquido", rotulo: "Gorjeta líquida" },
 ];
 // Colunas antes de "Pontos": na linha de total elas viram um espaço em branco só.
 const ANTES_DOS_PONTOS = ["base", "faltas", "atestados", "ferias", "outros", "dias", "ajuste"];
@@ -91,7 +91,8 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
   const rowPorFuncionario = useMemo(() => new Map(rows.map((r) => [r.employeeId, r])), [rows]);
   const participantes = useMemo(() => ordenar(comp.participants), [comp]);
   const { ordem, alternar, definir } = useOrdenacao("apuracao");
-  const colunas = useColunas("apuracao");
+  // No celular começa com o essencial (nome, pontos, gorjeta); o resto se liga em "Colunas".
+  const colunas = useColunas("apuracao", ["faltas", "atestados", "ferias", "outros", "dias", "ajuste", "base"]);
   const v = colunas.visivel;
   const visiveis = COLUNAS.filter((c) => v(c.chave)).length;
   const brancoTotal = ANTES_DOS_PONTOS.filter(v).length;
@@ -136,7 +137,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
 {v("base") && (
         <Table.Td align="center" style={num}>
           {p.kind === "FIXO"
-            ? <input style={{ ...numInputStyle, width: 90 }} type="number" step="0.01" value={r.fixedAmount} disabled={readonly}
+            ? <input style={{ ...numInputStyle, width: 90 }} type="number" step="0.01" inputMode="decimal" value={r.fixedAmount} disabled={readonly}
                 aria-label="Cota fixa" title="Cota fixa em R$" onChange={(e) => set({ fixedAmount: e.target.value })} />
             : pts(p.basePoints)}
         </Table.Td>
@@ -268,7 +269,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
             <ThOrdenavel {...th("gorjeta")} align="center" style={inicioBloco}>Gorjeta</ThOrdenavel>
 )}
 {v("liquido") && (
-            <ThOrdenavel {...th("liquido")} align="center" title="Gorjeta − vales + créditos">Líquido</ThOrdenavel>
+            <ThOrdenavel {...th("liquido")} align="center" title="Gorjeta − vales + créditos">Gorjeta líquida</ThOrdenavel>
 )}
             <Table.Th aria-label="Ações"> </Table.Th>
     </Table.Row>
@@ -377,7 +378,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                     <Table.Td style={{ fontWeight: 500 }}>{p.employeeName}</Table.Td>
                     <Table.Td>{fmtDate(p.terminationDate)}</Table.Td>
                     <Table.Td>
-                      <input style={{ ...numInputStyle, width: 100, fontWeight: 600 }} type="number" step="0.01" min="0" value={r.rescisaoValorFixo}
+                      <input style={{ ...numInputStyle, width: 100, fontWeight: 600 }} type="number" step="0.01" inputMode="decimal" min="0" value={r.rescisaoValorFixo}
                         disabled={readonly} aria-label={`Gorjeta paga na rescisão de ${p.employeeName}`} placeholder="R$ pago"
                         onChange={(e) => onRow(p.employeeId, { rescisaoValorFixo: e.target.value })} />
                     </Table.Td>
@@ -398,7 +399,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                         : <StatusBadge tone="info">Calculada</StatusBadge>}
                     </Table.Td>
                     <Table.Td>
-                      <input style={{ ...numInputStyle, width: 110 }} type="number" step="0.01" min="0" value={r.rescisaoServicoBruto}
+                      <input style={{ ...numInputStyle, width: 110 }} type="number" step="0.01" inputMode="decimal" min="0" value={r.rescisaoServicoBruto}
                         disabled={readonly || quitada} aria-label={`Serviço bruto até a saída de ${p.employeeName}`}
                         placeholder={p.rescisaoServicoOrigem === "FATURAMENTO" && p.rescisaoServicoBruto != null ? p.rescisaoServicoBruto.toFixed(2) : ""}
                         title="Vazio = soma do faturamento do início do período até a saída"

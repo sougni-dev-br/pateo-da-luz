@@ -16,6 +16,7 @@ import { AbaEquipe } from "./gorjeta/AbaEquipe";
 import { AbaFuncoes } from "./gorjeta/AbaFuncoes";
 import { AbaContabilidade } from "./gorjeta/AbaContabilidade";
 import { AbaVales } from "./gorjeta/AbaVales";
+import { useConfirmacao } from "./gorjeta/Confirmacao";
 import { AbaPagamento } from "./gorjeta/AbaPagamento";
 import { AbaRelatorios } from "./gorjeta/AbaRelatorios";
 import { Pendencias } from "./gorjeta/Pendencias";
@@ -53,6 +54,7 @@ export function FolhaGorjeta() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [aba, setAba] = useState<Aba>("apuracao");
   const [valesPessoa, setValesPessoa] = useState<string | null>(null);
+  const { confirmar, caixa: caixaConfirmacao } = useConfirmacao();
   const [comp, setComp] = useState<TipComputation | null>(null);
   const [rows, setRows] = useState<LocalRow[]>([]);
   const [params, setParams] = useState<Parametros | null>(null);
@@ -231,7 +233,12 @@ export function FolhaGorjeta() {
 
   async function remover(p: TipComputedParticipant) {
     if (!p.participantId) return;
-    if (!window.confirm(`Tirar ${p.employeeName} deste período?`)) return;
+    const ok = await confirmar({
+      titulo: `Tirar ${p.employeeName} deste período?`,
+      texto: "A pessoa sai da apuração deste mês (ocorrências e ajustes dela neste período são perdidos). O cadastro não muda.",
+      confirmar: "Tirar do período", perigo: true,
+    });
+    if (!ok) return;
     setBusy(true);
     try { await removeTipParticipant(p.participantId); await load(); } catch (e) { erro(e); } finally { setBusy(false); }
   }
@@ -241,8 +248,15 @@ export function FolhaGorjeta() {
   async function fechar() {
     await flush();
     if (!comp) return;
-    const saldo = comp.saldo > 0.005 ? `\n\nSaldo não distribuído de ${money(comp.saldo)} fica retido.` : "";
-    if (!window.confirm(`Fechar a gorjeta de ${MONTHS[month - 1]}/${year}? Os valores ficam gravados.${saldo}`)) return;
+    const ok = await confirmar({
+      titulo: `Fechar a gorjeta de ${MONTHS[month - 1]}/${year}?`,
+      texto: <>
+        <p>Os valores ficam gravados no registro de fechamentos ({comp.code}) e não mudam mais sem reabrir, com motivo.</p>
+        <p>Distribuído <strong>{money(comp.distribuido)}</strong> · valor do ponto <strong>{money(comp.pointValue)}</strong>{comp.saldo > 0.005 && <> · saldo de <strong>{money(comp.saldo)}</strong> vai para o fundo de reserva</>}.</p>
+      </>,
+      confirmar: "Fechar período",
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await closeTipPeriodApi(year, month);
@@ -270,6 +284,7 @@ export function FolhaGorjeta() {
   return (
     <div ref={raiz} className={telaCheia ? "gorjeta-tela-cheia" : undefined} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Notice notice={notice} />
+      {caixaConfirmacao}
 
       <div className="cabecalho-periodo">
         <div className="navegador-mes" role="group" aria-label="Competência">
@@ -294,6 +309,7 @@ export function FolhaGorjeta() {
       </div>
 
       <Tabs
+        className="abas-gorjeta"
         value={aba}
         onChange={(v) => setAba(v as Aba)}
         tabs={[
@@ -320,7 +336,11 @@ export function FolhaGorjeta() {
           onNotice={(tone, message) => setNotice({ tone, message })} onChanged={() => void load()} />
       )}
       {aba === "vales" && !comp?.periodId && (
-        <div style={panelStyle}><span style={mutedStyle}>Abra o período na aba Apuração para lançar vales.</span></div>
+        <div className="estado-vazio">
+          <strong>Nenhum período aberto em {MONTHS[month - 1]}/{year}.</strong>
+          <span>Os vales são lançados dentro da apuração do mês.</span>
+          <Button size="sm" variant="secondary" onClick={() => setAba("apuracao")}>Ir para a Apuração</Button>
+        </div>
       )}
 
       {aba === "contabilidade" && (
@@ -437,7 +457,7 @@ export function FolhaGorjeta() {
                   onRemove={(p) => void remover(p)} onVerVales={(id) => { setValesPessoa(id); setAba("vales"); }}
                   recibo={{
                     antesDeGravar: flush,
-                    onAplicado: (c) => { aplicar(c); setNotice({ tone: "success", message: "Termo de rescisão lido: a gorjeta paga ficou como valor quitado e saiu da lista a pagar." }); },
+                    onAplicado: (c) => { aplicar(c); setNotice({ tone: "success", message: "Termo de rescisão lido: a gorjeta paga ficou registrada e saiu da lista a pagar." }); },
                     onErro: (m) => setNotice({ tone: "error", message: m }),
                   }} />
               )}
@@ -458,6 +478,7 @@ export function FolhaGorjeta() {
                           placeholder="Motivo da reabertura (fica gravado no registro)" aria-label="Motivo da reabertura"
                           style={{ ...inputStyle, flex: "1 1 320px", width: "auto" }} />
                         <Button onClick={() => void reabrir()} disabled={busy || motivoReabrir.trim().length < 10} leadingIcon={<Unlock size={14} />}>Confirmar reabertura</Button>
+                        {motivoReabrir.trim().length < 10 && <span className="dica-minimo">faltam {10 - motivoReabrir.trim().length} letra(s) no motivo</span>}
                         <button type="button" className="barra-lista-link" onClick={() => { setReabrindo(false); setMotivoReabrir(""); }}>cancelar</button>
                         <span style={{ ...mutedStyle, flexBasis: "100%" }}>O fechamento atual continua guardado; fechar de novo cria a versão seguinte.</span>
                       </div>

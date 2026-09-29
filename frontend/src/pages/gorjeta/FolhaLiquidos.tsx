@@ -64,7 +64,7 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
       {editando && (
         <form className="combinado-form" onSubmit={(e) => { e.preventDefault(); void salvarCombinado(Number(editando.valor.replace(",", "."))); }}>
           <strong>Salário combinado de {editando.nome}</strong>
-          <input style={{ ...numInputStyle, width: 110 }} type="number" step="0.01" min="0" value={editando.valor} aria-label="Salário combinado"
+          <input style={{ ...numInputStyle, width: 110 }} type="number" step="0.01" inputMode="decimal" min="0" value={editando.valor} aria-label="Salário combinado"
             onChange={(e) => setEditando({ ...editando, valor: e.target.value })} placeholder="R$" />
           <input value={editando.motivo} onChange={(e) => setEditando({ ...editando, motivo: e.target.value })} aria-label="Motivo do salário combinado"
             placeholder="Motivo (ex.: salário acertado acima do registrado)" style={{ flex: "1 1 240px" }} />
