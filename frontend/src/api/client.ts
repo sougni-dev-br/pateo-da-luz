@@ -6294,10 +6294,12 @@ export type ApuracaoRescisao = {
   };
   gorjeta: {
     periodo: string; status: "OPEN" | "CLOSED"; pontos: number; valorPonto: number; gorjeta: number;
-    pendente: boolean; diasSalario: number; salarioProporcional: number;
+    /** null = oculto (sem permissão de ver Funcionários). */
+    pendente: boolean; diasSalario: number | null; salarioProporcional: number | null;
   } | null;
   gorjetaObservacao: string | null;
   sugestao: { salario: number | null; gorjeta: number | null; creditos: number; vales: number; valesRotulo: string | null; vtDesconto: number; bruto: number | null };
+  dadosPessoaisOcultos?: boolean;
 };
 
 export function getTerminationInfo(employeeId: string) {

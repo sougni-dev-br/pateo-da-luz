@@ -1,5 +1,6 @@
 import { ReceiptText, Settings2, Trash2 } from "lucide-react";
 import { Fragment, type CSSProperties, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import type { TipComputation, TipComputedParticipant } from "../../api/client";
 import { Money, StatusBadge, Table } from "../../design-system";
 import "./gorjeta.css";
@@ -86,20 +87,22 @@ function Ocorrencia({ value, escala, manual, disabled, label, onChange, desconta
 }
 
 const SITUACAO_CONTA: Record<"PENDING" | "PAID" | "OVERDUE", { rotulo: string; tom: "success" | "warning" | "neutral" }> = {
-  PAID: { rotulo: "paga", tom: "success" }, PENDING: { rotulo: "a vencer", tom: "neutral" }, OVERDUE: { rotulo: "sem baixa", tom: "warning" },
+  PAID: { rotulo: "paga", tom: "success" }, PENDING: { rotulo: "a vencer", tom: "neutral" }, OVERDUE: { rotulo: "vencida, sem baixa", tom: "warning" },
 };
 
 // A rescisão que a Folha lançou em Contas a Pagar para quem saiu no período.
-function RescisaoLancada({ r }: { r: TipComputedParticipant["rescisaoContasPagar"] }) {
-  if (!r) return <StatusBadge tone="warning" title="Lance em Folha → Rescisão">não lançada</StatusBadge>;
+function RescisaoLancada({ r, employeeId }: { r: TipComputedParticipant["rescisaoContasPagar"]; employeeId: string }) {
+  const link = <Link className="resc-link-gorjeta" to={"/pessoal/funcionarios?rescisao=" + employeeId}>{r ? "abrir rescisão" : "lançar rescisão"}</Link>;
+  if (!r) return <div><StatusBadge tone="warning">não lançada</StatusBadge><div>{link}</div></div>;
   const s = SITUACAO_CONTA[r.status];
   return (
     <div>
-      {r.valor != null && <div style={{ fontWeight: 600 }}>{money(r.valor)}</div>}
+      {r.valor != null && <div style={{ fontWeight: 600 }}><Money value={r.valor} /></div>}
       <div style={mutedStyle}>
         vence {fmtDate(r.vencimento)}{r.parcelas > 1 ? ` · ${r.parcelas} parcelas` : ""}
       </div>
-      <StatusBadge tone={s.tom} title={r.status === "OVERDUE" ? "Vencida sem baixa em Contas a Pagar" : undefined}>{s.rotulo}</StatusBadge>
+      <StatusBadge tone={s.tom}>{s.rotulo}</StatusBadge>
+      <div>{link}</div>
     </div>
   );
 }
@@ -367,12 +370,15 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
       {rescisoes.length > 0 && (
         <div style={panelStyle} id="rescisoes-do-periodo" tabIndex={-1}>
           <strong>Rescisões do período</strong>
-          <span style={mutedStyle}>
-            Informe a <strong>gorjeta paga</strong> de cada saída (digitada ou lida do termo) ou, sem ela, o serviço até a saída.
-            A gorjeta paga vira pontos pelo valor do ponto do mês: o que sobrar do direito fica livre para distribuir; o que passar vira extra automático.
-            CLT já recebeu na rescisão. Sem registro com a rescisão lançada em Contas a Pagar também já recebeu e sai da lista do mês;
-            sem ela, recebe na lista, com o salário.
-          </span>
+          <span style={mutedStyle}>Informe a <strong>gorjeta paga</strong> de cada saída (digitada, lida do termo ou vinda da rescisão lançada) ou, sem ela, o serviço até a saída.</span>
+          <details className="como-funciona">
+            <summary>Como funciona</summary>
+            <span style={mutedStyle}>
+              A gorjeta paga vira pontos pelo valor do ponto na saída. Pagou menos que o direito: a diferença volta ao livre para distribuir;
+              pagou mais: vira extra automático e sai do saldo. CLT recebe na rescisão (TRCT). Sem registro com a rescisão lançada em
+              Contas a Pagar já recebeu e sai da lista do mês; sem ela, recebe na lista, com o salário.
+            </span>
+          </details>
           <ReciboRescisao year={comp.year} month={comp.month} readonly={readonly}
             antesDeGravar={recibo.antesDeGravar} onAplicado={recibo.onAplicado} onErro={recibo.onErro} />
           <Table className="tabela-gorjeta">
@@ -398,13 +404,16 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                   <Table.Row key={p.employeeId}>
                     <Table.Td style={{ fontWeight: 500 }}>{p.employeeName}</Table.Td>
                     <Table.Td>{fmtDate(p.terminationDate)}</Table.Td>
-                    <Table.Td><RescisaoLancada r={p.rescisaoContasPagar} /></Table.Td>
+                    <Table.Td><RescisaoLancada r={p.rescisaoContasPagar} employeeId={p.employeeId} /></Table.Td>
                     <Table.Td>
                       <input style={{ ...numInputStyle, width: 100, fontWeight: 600 }} type="number" step="0.01" inputMode="decimal" min="0" value={r.rescisaoValorFixo}
                         disabled={readonly || Boolean(p.rescisaoContasPagar?.gorjetaDefinida)} aria-label={`Gorjeta paga na rescisão de ${p.employeeName}`} placeholder="R$ pago"
-                        title={p.rescisaoContasPagar?.gorjetaDefinida ? "Definida na rescisão lançada: ajuste em Funcionários → Lançar rescisão → Ajustar rescisão" : undefined}
                         onChange={(e) => onRow(p.employeeId, { rescisaoValorFixo: e.target.value })} />
-                      {p.rescisaoContasPagar?.gorjetaDefinida && <div style={mutedStyle}>definida na rescisão</div>}
+                      {p.rescisaoContasPagar?.gorjetaDefinida && (
+                        <div style={mutedStyle}>
+                          definida na rescisão · <Link className="resc-link-gorjeta" to={"/pessoal/funcionarios?rescisao=" + p.employeeId}>ajustar</Link>
+                        </div>
+                      )}
                     </Table.Td>
                     <Table.Td>
                       <div style={{ fontWeight: 600 }}>{pts(p.points)}</div>
@@ -418,7 +427,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                       {p.semRegistro && p.pagoNaRescisao && <div style={{ marginBottom: 4 }}><StatusBadge tone="success" title="A rescisão lançada em Contas a Pagar já pagou salário e gorjeta até a saída">Paga na rescisão · fora da lista</StatusBadge></div>}
                       {quitada ? (p.rescisaoRecibo
                         ? <SeloRecibo pago pagamento={p.rescisaoRecibo.pagamento} arquivo={p.rescisaoRecibo.arquivo} />
-                        : p.semRegistro ? (p.pagoNaRescisao ? <StatusBadge tone="neutral">Valor digitado</StatusBadge>
+                        : p.semRegistro ? (p.pagoNaRescisao ? null
                           : <StatusBadge tone="info" title="Sem registro e sem rescisão lançada: o valor vai para a lista de pagamento com o salário">Valor manual · na lista</StatusBadge>)
                           : <StatusBadge tone="success">Paga · digitada</StatusBadge>)
                         : p.rescisaoPendente ? <StatusBadge tone="warning">Falta o valor</StatusBadge>
