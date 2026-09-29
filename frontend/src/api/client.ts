@@ -6268,9 +6268,10 @@ export type TerminationInfo = {
   lancada: RescisaoLancada | null;
 };
 
-export type ValoresRescisaoLancada = { bruto: number; vtDesconto: number; outroDesconto: number; liquido: number };
+export type ValoresRescisaoLancada = { bruto: number; salario: number | null; gorjeta: number | null; vales: number; vtDesconto: number; outroDesconto: number; liquido: number };
 export type RescisaoLancada = ValoresRescisaoLancada & {
   outroDescontoRotulo: string | null;
+  valesRotulo: string | null;
   parcelas: Array<{ id: string; rotulo: string; valor: number; vencimento: string; paga: boolean }>;
   algumaPaga: boolean;
   notes: string | null;
@@ -6296,18 +6297,20 @@ export type ApuracaoRescisao = {
     pendente: boolean; diasSalario: number; salarioProporcional: number;
   } | null;
   gorjetaObservacao: string | null;
-  sugestao: { bruto: number | null; brutoComposicao: string | null; vtDesconto: number; outroDesconto: number; outroDescontoRotulo: string | null };
+  sugestao: { salario: number | null; gorjeta: number | null; creditos: number; vales: number; valesRotulo: string | null; vtDesconto: number; bruto: number | null };
 };
 
 export function getTerminationInfo(employeeId: string) {
   return request<TerminationInfo>(`/payroll/termination/${employeeId}`);
 }
 
-export function adjustTermination(employeeId: string, payload: { grossAmount: number; vtDiscount: number; otherDiscount: number; otherDiscountLabel?: string; notes?: string; justificativa: string }) {
+export type RescisaoPartes = { salario?: number; gorjeta?: number; valesDiscount?: number; valesLabel?: string };
+
+export function adjustTermination(employeeId: string, payload: RescisaoPartes & { grossAmount: number; vtDiscount: number; otherDiscount: number; otherDiscountLabel?: string; notes?: string; justificativa: string }) {
   return request<{ ok: boolean; lancada: RescisaoLancada }>(`/payroll/termination/${employeeId}`, json("PUT", payload));
 }
 
-export function releaseTermination(employeeId: string, payload: { grossAmount: number; vtDiscount: number; otherDiscount?: number; otherDiscountLabel?: string; dueDate?: string; installments?: number; notes?: string; ajusteJustificativa?: string }) {
+export function releaseTermination(employeeId: string, payload: RescisaoPartes & { grossAmount: number; vtDiscount: number; otherDiscount?: number; otherDiscountLabel?: string; dueDate?: string; installments?: number; notes?: string; ajusteJustificativa?: string }) {
   return request<{ id: string; amount: number; installments: number; items: Array<{ id: string; amount: number; dueDate: string; installmentNumber: number }> }>(`/payroll/termination/${employeeId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

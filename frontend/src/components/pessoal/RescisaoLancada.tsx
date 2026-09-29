@@ -1,6 +1,6 @@
 // A rescisão já lançada: valores, parcelas e o que foi ajustado à mão (com o porquê).
 import type { CSSProperties } from "react";
-import type { ApuracaoRescisao, RescisaoLancada as Lancada } from "../../api/client";
+import type { ApuracaoRescisao, RescisaoLancada as Lancada, ValoresRescisaoLancada } from "../../api/client";
 import { Button, Money, StatusBadge } from "../../design-system";
 
 const muted: CSSProperties = { fontSize: 12, color: "var(--muted)" };
@@ -10,17 +10,33 @@ const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", curr
 
 export type Divergencia = { rotulo: string; apurado: number; lancado: number; diferenca: number };
 
-// Os mesmos campos que o backend confere: bruto só para quem o sistema apura (sem registro).
-export function divergencias(sugestao: ApuracaoRescisao["sugestao"] | null | undefined, v: { bruto: number; vtDesconto: number; outroDesconto: number }): Divergencia[] {
+// Os mesmos campos que o backend confere. Salário, gorjeta e vales só para sem registro
+// (CLT: vêm da contabilidade); gorjeta pendente não conta.
+export function divergencias(
+  sugestao: ApuracaoRescisao["sugestao"] | null | undefined,
+  v: { salario: number | null; gorjeta: number | null; vales: number; vtDesconto: number },
+): Divergencia[] {
   if (!sugestao) return [];
-  const pares: Array<[string, number | null, number]> = [
-    ["Valor bruto", sugestao.bruto, v.bruto],
+  const pares: Array<[string, number | null, number | null]> = [
+    ["Salário proporcional", sugestao.salario, v.salario],
+    ["Gorjeta até a saída", sugestao.gorjeta, v.gorjeta],
+    ["Vales", sugestao.salario != null ? sugestao.vales : null, v.vales],
     ["VT a descontar", sugestao.vtDesconto, v.vtDesconto],
-    ["Outro desconto (vales)", sugestao.outroDesconto, v.outroDesconto],
   ];
   return pares
-    .filter(([, ap, la]) => ap != null && Math.abs(la - ap) >= 0.01)
-    .map(([rotulo, ap, la]) => ({ rotulo, apurado: ap!, lancado: la, diferenca: Math.round((la - ap!) * 100) / 100 }));
+    .filter(([, ap, la]) => ap != null && la != null && Math.abs(la - ap) >= 0.01)
+    .map(([rotulo, ap, la]) => ({ rotulo, apurado: ap!, lancado: la!, diferenca: Math.round((la! - ap!) * 100) / 100 }));
+}
+
+// "gorjeta R$ 516,29 → R$ 400,00; vales R$ 0,00 → R$ 50,00" — só o que mudou.
+function mudancas(antes: ValoresRescisaoLancada, depois: ValoresRescisaoLancada): string {
+  const campos: Array<[string, number | null, number | null]> = [
+    ["salário", antes.salario, depois.salario], ["gorjeta", antes.gorjeta, depois.gorjeta],
+    ["bruto", antes.bruto, depois.bruto], ["vales", antes.vales, depois.vales],
+    ["VT", antes.vtDesconto, depois.vtDesconto], ["outro desconto", antes.outroDesconto, depois.outroDesconto],
+  ];
+  const mudou = campos.filter(([, a, d]) => (a ?? 0) !== (d ?? 0));
+  return mudou.length === 0 ? "sem mudança de valores" : mudou.map(([r, a, d]) => `${r} ${a == null ? "—" : reais(a)} → ${d == null ? "—" : reais(d)}`).join("; ");
 }
 
 export function ListaDivergencias({ itens }: { itens: Divergencia[] }) {
@@ -47,7 +63,10 @@ export function RescisaoLancadaPainel({ lancada: l, onAjustar }: { lancada: Lanc
         </Button>
       </div>
       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 14, marginTop: 6 }}>
+        {l.salario != null && <span>Salário <strong><Money value={l.salario} /></strong></span>}
+        {l.gorjeta != null && <span>Gorjeta <strong><Money value={l.gorjeta} /></strong></span>}
         <span>Bruto <strong><Money value={l.bruto} /></strong></span>
+        {l.vales > 0 && <span>Vales − <strong><Money value={l.vales} /></strong></span>}
         <span>VT − <strong><Money value={l.vtDesconto} /></strong></span>
         <span>Outro − <strong><Money value={l.outroDesconto} /></strong></span>
         <span>Líquido <strong><Money value={l.liquido} /></strong></span>
@@ -75,7 +94,7 @@ export function RescisaoLancadaPainel({ lancada: l, onAjustar }: { lancada: Lanc
               <div style={muted}>{a.porNome ?? "—"} · {dataHora(a.em)}</div>
               <div>
                 Líquido {reais(a.antes.liquido)} → <strong>{reais(a.depois.liquido)}</strong>
-                <span style={muted}> (bruto {reais(a.antes.bruto)} → {reais(a.depois.bruto)}; VT {reais(a.antes.vtDesconto)} → {reais(a.depois.vtDesconto)}; outro {reais(a.antes.outroDesconto)} → {reais(a.depois.outroDesconto)})</span>
+                <span style={muted}> ({mudancas(a.antes, a.depois)})</span>
               </div>
               <div>Justificativa: “{a.justificativa}”</div>
             </div>

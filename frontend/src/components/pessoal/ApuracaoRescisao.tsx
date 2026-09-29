@@ -57,6 +57,12 @@ export function ApuracaoRescisaoPainel({ apuracao: a, onUsar }: { apuracao: Apur
         </>
       )}
 
+      {!a.semRegistro && (
+        <Linha rotulo="Gorjeta até a saída (conferir no TRCT)" valor={g && !g.pendente ? g.gorjeta : null}
+          detalhe={g
+            ? (g.pendente ? a.gorjetaObservacao : `${g.periodo}: ${g.pontos.toLocaleString("pt-BR")} pts × R$ ${g.valorPonto.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} · entra no bruto da contabilidade`)
+            : a.gorjetaObservacao} />
+      )}
       <Linha rotulo={a.semRegistro ? "Vales em aberto" : "Vales do mês (só conferência)"} sinal="−"
         valor={a.semRegistro ? a.vales.descontos : null}
         detalhe={valesDoMes.length === 0
@@ -78,7 +84,7 @@ export function ApuracaoRescisaoPainel({ apuracao: a, onUsar }: { apuracao: Apur
           <span style={{ fontWeight: 600 }}>Líquido apurado</span>
           {a.sugestao.bruto == null
             ? <StatusBadge tone="warning">falta a gorjeta até a saída</StatusBadge>
-            : <strong style={{ fontSize: 16 }}><Money value={a.sugestao.bruto - a.sugestao.vtDesconto - a.sugestao.outroDesconto} /></strong>}
+            : <strong style={{ fontSize: 16 }}><Money value={a.sugestao.bruto - a.sugestao.vtDesconto - a.sugestao.vales} /></strong>}
         </div>
       )}
     </div>
