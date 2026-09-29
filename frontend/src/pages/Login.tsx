@@ -18,7 +18,10 @@ export function Login({ onLogin }: { onLogin: (user: AppUser) => void }) {
   // Senha recusada: devolve o foco à senha, já selecionada, para redigitar sem mouse.
   // Espera o loading cair porque o campo fica desabilitado durante o envio.
   useEffect(() => {
-    if (error && !loading && !sessionConflict) passwordRef.current?.select();
+    if (!error || loading || sessionConflict) return;
+    // select() sozinho nao foca em todo navegador; o foco vem explicito antes.
+    passwordRef.current?.focus();
+    passwordRef.current?.select();
   }, [error, loading, sessionConflict]);
 
   useEffect(() => {
