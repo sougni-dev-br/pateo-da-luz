@@ -9,7 +9,8 @@
 // --acertos: decisões do RH que valem mais que a planilha, por nome da planilha:
 //   [{ "nome": "Victoria Alves dos Anjos", "vinculo": "CLT", "empresa": "Pateo Frei" },
 //    { "nome": "Janete Cristina de Oliveira", "vinculo": "sem registro" },
-//    { "nome": "Lidiane Souza Felipe", "salario": 2600 }]
+//    { "nome": "Lidiane Souza Felipe", "salario": 2600 },
+//    { "nome": "Elenice Tais", "cadastro": "Elenice Alves" }]
 //   Só aqui o importador altera salário; sem acerto, divergência de salário é só listada.
 //
 // Casa o funcionário pelo nome completo (sem acento, sem caixa, ignorando "de/da/do").
@@ -36,7 +37,8 @@ const nomeReserva = iReserva >= 0 ? args[iReserva + 1] : "Ricardo Almeida";
 const iAcertos = args.indexOf("--acertos");
 const arquivoAcertos = iAcertos >= 0 ? args[iAcertos + 1] : null;
 
-type Acerto = { nome: string; vinculo?: "CLT" | "sem registro"; empresa?: string; salario?: number };
+// cadastro: o nome como está no ERP, quando a planilha escreve diferente ("Elenice Tais" → "Elenice Alves").
+type Acerto = { nome: string; cadastro?: string; vinculo?: "CLT" | "sem registro"; empresa?: string; salario?: number };
 function lerAcertos(caminho: string | null): Acerto[] {
   if (!caminho) return [];
   const lista = JSON.parse(readFileSync(caminho, "utf8")) as Acerto[];
@@ -166,10 +168,14 @@ async function main() {
   let gravados = 0;
   const avisos: string[] = [];
   for (const l of linhas) {
-    const achado = acharFuncionario(l.nome);
-    const funcao = funcaoPorNome.get(norm(l.funcao)) ?? null;
     const acerto = acertos.get(norm(l.nome));
     if (acerto) acertosUsados.add(norm(l.nome));
+    // Nome indicado pelo RH casa como exato: foi conferido por quem conhece a pessoa.
+    const achadoCadastro = acerto?.cadastro ? acharFuncionario(acerto.cadastro) : undefined;
+    const achado = achadoCadastro && typeof achadoCadastro === "object"
+      ? { ...achadoCadastro, exato: true }
+      : achadoCadastro !== undefined ? achadoCadastro : acharFuncionario(l.nome);
+    const funcao = funcaoPorNome.get(norm(l.funcao)) ?? null;
     const semRegistro = acerto?.vinculo ? acerto.vinculo === "sem registro" : norm(l.empresa) === "s registro";
     const empresa = acerto?.vinculo ? (acerto.empresa ? acharEmpresa(acerto.empresa) : null) : acharEmpresa(l.empresa);
     if (acerto?.empresa && !empresa) throw new Error(`--acertos: empresa "${acerto.empresa}" não encontrada.`);
