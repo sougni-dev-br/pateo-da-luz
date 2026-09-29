@@ -43,18 +43,22 @@ export async function exportarContabilidade(comp: TipComputation) {
     autoTable(doc, {
       ...estilo,
       startY: y + 4,
-      head: [[empresa, "Gorjeta", "Hora extra", "Ad. noturno", "Faltas", "Atestado", "Observação"]],
+      // A contabilidade lança a gorjeta LÍQUIDA (rateio − vales + créditos), como na planilha e no extrato.
+      head: [[empresa, "Gorjeta a lançar", "Rateio", "Vales", "Hora extra", "Ad. noturno", "Faltas", "Atestado", "Observação"]],
       body: lista.map((p) => [
         p.employeeName,
+        money(p.netCommission),
         money(p.rateioAmount),
+        p.valesTotal ? money(-p.valesTotal) : "",
         p.horaExtra ?? "",
         p.adicionalNoturno ?? "",
         p.faltas ? String(p.faltas) : "",
         p.atestados ? String(p.atestados) : "",
         p.tipoCalculo === "MES" ? "" : `Rescisão ${fmtDate(p.terminationDate)}`,
       ]),
-      foot: [["Total", money(lista.reduce((a, p) => a + p.rateioAmount, 0)), "", "", "", "", ""]],
-      columnStyles: { 1: { halign: "right" }, 2: { halign: "center" }, 3: { halign: "center" }, 4: { halign: "center" }, 5: { halign: "center" } },
+      foot: [["Total", money(lista.reduce((a, p) => a + p.netCommission, 0)), money(lista.reduce((a, p) => a + p.rateioAmount, 0)),
+        money(-lista.reduce((a, p) => a + p.valesTotal, 0)), "", "", "", "", ""]],
+      columnStyles: { 1: { halign: "right", fontStyle: "bold" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "center" }, 5: { halign: "center" }, 6: { halign: "center" }, 7: { halign: "center" } },
     });
     y = finalY() + 4;
   }
@@ -71,7 +75,7 @@ export async function exportarContabilidade(comp: TipComputation) {
   }
   doc.setFontSize(8);
   doc.setTextColor(120);
-  doc.text("Gorjeta = rateio por pontos do período. Hora extra e adicional noturno em horas (h:mm).", 14, y + 4);
+  doc.text("Gorjeta a lançar = rateio por pontos − vales + créditos. Hora extra e adicional noturno em horas (h:mm).", 14, y + 4);
   doc.save(`Gorjeta_Contabilidade_${MONTHS[comp.month - 1]}_${comp.year}.pdf`);
 }
 

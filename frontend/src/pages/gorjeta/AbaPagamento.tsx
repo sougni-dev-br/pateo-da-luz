@@ -15,6 +15,7 @@ const EXTRATORES: Extratores<TipComputedParticipant> = {
   nome: (p) => p.employeeName,
   empresa: (p) => p.companyName,
   gorjeta: (p) => p.rateioAmount,
+  lancar: (p) => p.netCommission,
   horaExtra: (p) => parseHoras(p.horaExtra),
   noturno: (p) => parseHoras(p.adicionalNoturno),
   faltas: (p) => p.faltas,
@@ -81,7 +82,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 8 }}>
         {[
-          { label: "Contabilidade (gorjeta dos registrados)", valor: registradosAPagar.reduce((a, p) => a + p.rateioAmount, 0), detalhe: `${registradosAPagar.length} pessoas`, cor: "var(--info)" },
+          { label: "Contabilidade (gorjeta dos registrados)", valor: registradosAPagar.reduce((a, p) => a + p.netCommission, 0), detalhe: `${registradosAPagar.length} pessoas · gorjeta líquida (− vales)`, cor: "var(--info)" },
           ...(pagasNaRescisao.length ? [{ label: "Já pago nas rescisões", valor: pagasNaRescisao.reduce((a, p) => a + p.rateioAmount, 0), detalhe: `${pagasNaRescisao.length} pessoa(s) · não pagar de novo`, cor: "var(--muted)" }] : []),
           { label: "Lista de pagamento (salário + gorjeta)", valor: semRegistro.reduce((a, p) => a + p.totalAPagar, 0), detalhe: `${semRegistro.length} sem registro`, cor: "var(--success)" },
           { label: "Fica na casa (reserva + saldo)", valor: comp.reservaTotal + Math.max(0, comp.saldo), detalhe: "não é pago", cor: "var(--gold)" },
@@ -109,7 +110,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
               <ThOrdenavel {...thC("empresa")}>Empresa</ThOrdenavel>
 )}
 {vc("gorjeta") && (
-              <ThOrdenavel {...thC("gorjeta")} align="center">Gorjeta</ThOrdenavel>
+              <ThOrdenavel {...thC("lancar")} align="center" title="Rateio − vales + créditos: é o que a contabilidade lança">Gorjeta a lançar</ThOrdenavel>
 )}
 {vc("horaExtra") && (
               <ThOrdenavel {...thC("horaExtra")}>Hora extra</ThOrdenavel>
@@ -147,7 +148,8 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 )}
 {vc("gorjeta") && (
                   <Table.Td className={p.pagoNaRescisao ? "valor-ja-pago" : undefined} title={p.pagoNaRescisao ? "Já pago na rescisão — não entra no envio do mês" : undefined}>
-                    <Money value={p.rateioAmount} />
+                    <div style={{ fontWeight: 700 }}><Money value={p.netCommission} /></div>
+                    {p.valesTotal !== 0 && <div style={mutedStyle}>rateio {money(p.rateioAmount)} · vales {money(-p.valesTotal)}</div>}
                   </Table.Td>
 )}
 {vc("horaExtra") && (
