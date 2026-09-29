@@ -44,4 +44,7 @@
   --login-gradient-start: #100f0d;
   --login-gradient-mid: #1c1a15;
   --login-gradient-end: #2a2519;
+  --login-paper: #fbfaf7;          /* fundo quente do lado do formulario */
+  --login-placeholder: #a3aab5;    /* texto de exemplo dentro dos campos */
+  --login-status-offline: #d9534f; /* indicador vermelho legivel sobre o painel escuro */
 }
