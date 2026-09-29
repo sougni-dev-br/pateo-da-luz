@@ -119,6 +119,21 @@ function buildEmployeeData(b: Record<string, unknown>) {
   };
 }
 
+// Salário combinado: quem ganha acima do registrado (na folha sai combinado − adiantamento
+// + gorjeta). Só é gravado quando o corpo traz o campo; vazio tira. Com valor, exige motivo.
+type SalarioCombinado = { salarioCombinado?: number | null; salarioCombinadoMotivo?: string | null };
+export function lerSalarioCombinado(b: Record<string, unknown>): { erro: string } | { dados: SalarioCombinado } {
+  if (!("salarioCombinado" in b)) return { dados: {} };
+  if (b.salarioCombinado == null || b.salarioCombinado === "") {
+    return { dados: { salarioCombinado: null, salarioCombinadoMotivo: null } };
+  }
+  const valor = Number(b.salarioCombinado);
+  if (!Number.isFinite(valor) || valor <= 0 || valor > 100000) return { erro: "Salário combinado inválido." };
+  const motivo = str(b.salarioCombinadoMotivo)?.slice(0, 300) ?? null;
+  if (!motivo || motivo.length < 5) return { erro: "Explique o salário combinado (pelo menos 5 letras)." };
+  return { dados: { salarioCombinado: valor, salarioCombinadoMotivo: motivo } };
+}
+
 // Trajeto: lista de pernas por sentido. O corpo manda a lista inteira e ela
 // substitui a anterior — meio-termo (só remover a perna X) não existe aqui,
 // porque a ordem das pernas importa e reconciliar item a item convida a erro.
@@ -252,6 +267,8 @@ employeeRouter.post("/", async (request, response) => {
 
   const existing = await prisma.employee.findFirst({ where: { cpf, deletedAt: null } });
   if (existing) return response.status(400).json({ message: "Já existe um funcionário com este CPF." });
+  const combinado = lerSalarioCombinado(b);
+  if ("erro" in combinado) return response.status(400).json({ message: combinado.erro });
 
   const legs = parseLegs(b.vtLegs);
 
@@ -260,6 +277,7 @@ employeeRouter.post("/", async (request, response) => {
       id: crypto.randomUUID(),
       cpf,
       ...buildEmployeeData(b),
+      ...combinado.dados,
       isActive: true,
       createdById: user.id,
     },
@@ -309,6 +327,8 @@ employeeRouter.put("/:id", async (request, response) => {
     where: { cpf, deletedAt: null, id: { not: request.params.id } },
   });
   if (cpfConflict) return response.status(400).json({ message: "CPF já está em uso por outro funcionário." });
+  const combinado = lerSalarioCombinado(b);
+  if ("erro" in combinado) return response.status(400).json({ message: combinado.erro });
 
   // Trajeto só é reescrito quando o corpo traz "vtLegs". Um PUT sem o campo
   // (uma tela antiga, um script) não pode apagar o trajeto de ninguém em
@@ -327,6 +347,7 @@ employeeRouter.put("/:id", async (request, response) => {
     data: {
       cpf,
       ...buildEmployeeData(b),
+      ...combinado.dados,
       updatedById: user.id,
     },
     include: employeeInclude,

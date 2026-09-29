@@ -114,7 +114,7 @@ const emptyEmployee = {
   zipCode: "", address: "", addressNumber: "", addressComplement: "", neighborhood: "", city: "", state: "",
   bankName: "", bankAgency: "", bankAccount: "", bankAccountDigit: "", bankAccountType: "CONTA_CORRENTE" as EmployeeBankAccountType,
   gender: "NAO_INFORMADO" as EmployeeGender,
-  pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", shiftStart: "", shiftEnd: "",
+  pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", salarioCombinado: "", salarioCombinadoMotivo: "", shiftStart: "", shiftEnd: "",
   modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, admissionDate: "",
   vtType: "TRANSPORTE_PUBLICO" as VtType, vtPeriodicity: "QUINZENAL" as VtPeriodicity,
   vtFixedAmount: "", vtMonthlyFareId: "", notes: "",
@@ -205,6 +205,7 @@ export function Funcionarios() {
       gender: e.gender ?? "NAO_INFORMADO",
       pixKeyType: e.pixKeyType ?? "", pixKey: e.pixKey ?? "",
       sector: e.sector ?? "", subgroup: e.subgroup ?? "", position: e.position ?? "", baseSalary: moneyToMasked(e.baseSalary),
+      salarioCombinado: moneyToMasked(e.salarioCombinado ?? null), salarioCombinadoMotivo: e.salarioCombinadoMotivo ?? "",
       shiftStart: e.shiftStart ?? "", shiftEnd: e.shiftEnd ?? "",
       modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, admissionDate: toDateInput(e.admissionDate),
       vtType: e.vtType, vtPeriodicity: e.vtPeriodicity,
@@ -219,6 +220,9 @@ export function Funcionarios() {
     if (!form.firstName.trim()) return void setError("Nome é obrigatório.");
     if (!form.lastName.trim()) return void setError("Sobrenome é obrigatório.");
     if (!form.cpf.trim()) return void setError("CPF é obrigatório.");
+    if (form.modality === "CLT" && form.salarioCombinado && form.salarioCombinadoMotivo.trim().length < 5) {
+      return void setError("Explique o salário combinado (pelo menos 5 letras).");
+    }
     setSaving(true);
     setError(null);
     try {
@@ -252,6 +256,11 @@ export function Funcionarios() {
         subgroup: form.subgroup || undefined,
         position: form.position || undefined,
         baseSalary: form.baseSalary ? moneyToNumberString(form.baseSalary) : undefined,
+        // Só vale para CLT; para quem não é, o campo não vai e o gravado fica como está.
+        ...(form.modality === "CLT" ? {
+          salarioCombinado: form.salarioCombinado ? moneyToNumberString(form.salarioCombinado) : null,
+          salarioCombinadoMotivo: form.salarioCombinado ? form.salarioCombinadoMotivo.trim() : null,
+        } : {}),
         shiftStart: form.shiftStart || undefined,
         shiftEnd: form.shiftEnd || undefined,
         modality: form.modality,
@@ -634,6 +643,20 @@ export function Funcionarios() {
                 <FormField label="Modalidade">
                   <Select value={form.modality} onChange={(e) => setForm({ ...form, modality: e.target.value as EmployeeModality })} options={toOptions(MODALITY_LABELS)} />
                 </FormField>
+                {form.modality === "CLT" && (
+                  <>
+                    <FormField label="Salário combinado" hint="só para quem ganha acima do registrado; vazio = não tem">
+                      <TextField value={form.salarioCombinado} onChange={(e) => setForm({ ...form, salarioCombinado: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" aria-label="Salário combinado" />
+                    </FormField>
+                    {form.salarioCombinado && (
+                      <div className="ds-form-grid-span-all">
+                        <FormField label="Motivo do salário combinado" hint="Na folha de líquidos: (salário combinado − adiantamento do extrato) + gorjeta">
+                          <TextField value={form.salarioCombinadoMotivo} onChange={(e) => setForm({ ...form, salarioCombinadoMotivo: e.target.value })} placeholder="Ex.: salário acertado acima do registrado" maxLength={300} />
+                        </FormField>
+                      </div>
+                    )}
+                  </>
+                )}
                 <FormField label="Regime de escala">
                   <Select value={form.scheduleRegime} onChange={(e) => setForm({ ...form, scheduleRegime: e.target.value as WorkScheduleRegime })} options={toOptions(REGIME_LABELS)} />
                 </FormField>
