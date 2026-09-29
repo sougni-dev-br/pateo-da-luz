@@ -72,7 +72,6 @@ export function ReciboRescisao({ year, month, readonly, antesDeGravar, onAplicad
           <Button variant="secondary" leadingIcon={<FileUp size={14} />} disabled={ocupado} onClick={() => entrada.current?.click()}>
             {ocupado && !previa ? "Lendo…" : "Ler termo de rescisão (PDF)"}
           </Button>
-          <span style={mutedStyle}>O retorno da contabilidade já traz a gorjeta paga: ela vira o valor quitado e sai da lista a pagar.</span>
         </>
       )}
       {previa && (

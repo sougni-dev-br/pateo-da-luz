@@ -7,7 +7,7 @@ import { type TipFunction, getTipFunctionsTable, getTipTeam, saveTipFunctions } 
 import { Alert, Button, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import "./gorjeta.css";
-import { inputStyle, mutedStyle, numInputStyle, panelStyle, pts } from "./gorjetaUtils";
+import { hojeLocal, inputStyle, mutedStyle, numInputStyle, panelStyle, pts } from "./gorjetaUtils";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
   type CampoFuncao, type Diferenca, ROTULO_CAMPO, apagarRascunho, chaveDe, diferencas, gravarRascunho, lerRascunho, problemas,
@@ -19,7 +19,6 @@ type Props = {
   onChanged: () => void;
 };
 
-const hoje = () => new Date().toISOString().slice(0, 10);
 const hora = (iso: string) => new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v.replace(",", ".")));
 const valorTexto = (c: CampoFuncao, v: unknown) =>
@@ -36,7 +35,7 @@ export function AbaFuncoes({ canEdit, onNotice, onChanged }: Props) {
   const [original, setOriginal] = useState<TipFunction[]>([]);
   const [versao, setVersao] = useState("");
   const [funcoes, setFuncoes] = useState<TipFunction[]>([]);
-  const [vigencia, setVigencia] = useState(hoje());
+  const [vigencia, setVigencia] = useState(hojeLocal());
   const [motivo, setMotivo] = useState("");
   const [salvoEm, setSalvoEm] = useState<string | null>(null);
   const [aviso, setAviso] = useState<{ tom: "info" | "warning"; texto: string } | null>(null);
@@ -60,7 +59,7 @@ export function AbaFuncoes({ canEdit, onNotice, onChanged }: Props) {
       const pendentes = r ? diferencas(tabela.funcoes, r.funcoes).length : 0;
       if (r && pendentes > 0) {
         setFuncoes(r.funcoes);
-        setVigencia(r.vigencia || hoje());
+        setVigencia(r.vigencia || hojeLocal());
         setMotivo(r.motivo ?? "");
         setSalvoEm(r.salvoEm);
         setAviso(r.versao === tabela.versao
@@ -176,7 +175,7 @@ export function AbaFuncoes({ canEdit, onNotice, onChanged }: Props) {
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             <SeletorColunas colunas={COLUNAS} ocultas={col.ocultas} alternar={col.alternar} mostrarTodas={col.mostrarTodas} />
             {canEdit && (
-              <Button variant="secondary" leadingIcon={<Plus size={14} />} disabled={off}
+              <Button variant="secondary" size="sm" leadingIcon={<Plus size={14} />} disabled={off}
                 onClick={() => setFuncoes((p) => [...p, { name: "", points: 0, minPoints: null, maxPoints: null, group: null, notes: null, isActive: true }])}>
                 Nova função
               </Button>

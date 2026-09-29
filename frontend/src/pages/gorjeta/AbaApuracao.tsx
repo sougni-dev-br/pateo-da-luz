@@ -407,12 +407,12 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onAddVale, 
       )}
 
       {rescisoes.length > 0 && (
-        <div style={panelStyle}>
+        <div style={panelStyle} id="rescisoes-do-periodo" tabIndex={-1}>
           <strong>Rescisões do período</strong>
           <span style={mutedStyle}>
-            Para cada saída, informe a <strong>gorjeta paga</strong> (digitada ou lida do termo da contabilidade) ou o serviço até a saída.
-            A gorjeta paga vira pontos pelo valor do ponto do mês: se valer menos que o direito, o resto volta à apuração; se valer mais,
-            a diferença entra como extra com justificativa automática. CLT: já foi paga na rescisão e sai da lista. Sem registro: não há termo; o valor vai para a lista com o salário.
+            Informe a <strong>gorjeta paga</strong> de cada saída (digitada ou lida do termo) ou, sem ela, o serviço até a saída.
+            A gorjeta paga vira pontos pelo valor do ponto do mês: o que sobrar do direito volta à apuração; o que passar vira extra automático.
+            CLT já recebeu na rescisão; sem registro recebe na lista, com o salário.
           </span>
           <ReciboRescisao year={comp.year} month={comp.month} readonly={readonly}
             antesDeGravar={recibo.antesDeGravar} onAplicado={recibo.onAplicado} onErro={recibo.onErro} />
