@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { montarSugestao, vtAposSaida, type VtLancado } from "../rescisao-apuracao.js";
+import { divergenciasDoApurado, montarSugestao, vtAposSaida, type VtLancado } from "../rescisao-apuracao.js";
 import type { Leg } from "../vt-calc.js";
 
 const d = (s: string) => new Date(`${s}T00:00:00Z`);
@@ -80,5 +80,28 @@ describe("sugestão para a tela de rescisão", () => {
     expect(s.outroDesconto).toBe(0);
     expect(s.bruto).toBe(2032.96);
     expect(s.brutoComposicao).toContain("créditos");
+  });
+});
+
+describe("ajuste manual contra o apurado", () => {
+  const sugestao = { bruto: 1982.96, brutoComposicao: null, vtDesconto: 42.4, outroDesconto: 100, outroDescontoRotulo: null };
+
+  test("igual ao apurado: nada a justificar", () => {
+    expect(divergenciasDoApurado(sugestao, { bruto: 1982.96, vtDesconto: 42.4, outroDesconto: 100 })).toEqual([]);
+  });
+
+  test("lista cada campo mudado com o apurado, o lançado e a diferença", () => {
+    const d = divergenciasDoApurado(sugestao, { bruto: 1500, vtDesconto: 42.4, outroDesconto: 0 });
+    expect(d.map((x) => x.campo)).toEqual(["bruto", "outroDesconto"]);
+    expect(d[0]).toMatchObject({ apurado: 1982.96, lancado: 1500, diferenca: -482.96 });
+  });
+
+  test("CLT: o bruto é da contabilidade e não conta como ajuste", () => {
+    const d = divergenciasDoApurado({ ...sugestao, bruto: null }, { bruto: 3095.08, vtDesconto: 42.4, outroDesconto: 100 });
+    expect(d).toEqual([]);
+  });
+
+  test("sem apuração (sem data de saída) não cobra justificativa", () => {
+    expect(divergenciasDoApurado(null, { bruto: 1, vtDesconto: 0, outroDesconto: 0 })).toEqual([]);
   });
 });

@@ -5,7 +5,7 @@ import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { FERIAS_CATEGORY, PAYROLL_KINDS, RESCISAO_CATEGORY, computePayroll, computeStatus, generatePayroll, getOrDefaultSettings, type PayrollKind, type PayrollOverride } from "./payroll.service.js";
-import { apurarRescisao } from "./rescisao-apuracao.js";
+import { JUSTIFICATIVA_MINIMA, apurarRescisao, divergenciasDoApurado } from "./rescisao-apuracao.js";
 import { round2 } from "./vt-calc.js";
 
 export const payrollRouter = Router();
@@ -168,6 +168,7 @@ payrollRouter.get("/termination/:employeeId", async (request, response) => {
     orderBy: [{ competenceYear: "desc" }, { competenceMonth: "desc" }, { periodLabel: "asc" }],
   });
   const already = await prisma.payrollItem.findFirst({ where: { employeeId: emp.id, type: "RESCISAO", deletedAt: null } });
+  const lancada = await rescisaoLancada(emp.id);
 
   response.json({
     employee: { id: emp.id, name: `${emp.firstName} ${emp.lastName}`.trim(), terminationDate: emp.terminationDate, terminationReason: emp.terminationReason },
@@ -175,6 +176,7 @@ payrollRouter.get("/termination/:employeeId", async (request, response) => {
     alreadyReleased: Boolean(already),
     rescisaoId: already?.id ?? null,
     apuracao: await apurarRescisao(emp.id),
+    lancada,
   });
 });
 
@@ -243,10 +245,21 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   const requested = Math.trunc(numOrNull(b.installments) ?? 1);
   const n = net > 0 ? Math.max(1, Math.min(requested, 12)) : 1;
   // O que o sistema apurou na hora de lançar fica junto, para comparar com o que foi digitado.
+  // Mudou algum valor apurado: exige a justificativa e grava o antes e o depois.
   const apuracao = await apurarRescisao(emp.id).catch(() => null);
+  const divergencias = divergenciasDoApurado(apuracao?.sugestao ?? null, { bruto: gross, vtDesconto: vtDiscount, outroDesconto: otherDiscount });
+  const justificativa = typeof b.ajusteJustificativa === "string" ? b.ajusteJustificativa.trim().slice(0, 1000) : "";
+  if (divergencias.length > 0 && justificativa.length < JUSTIFICATIVA_MINIMA) {
+    return response.status(400).json({
+      message: `Você mudou ${divergencias.map((d) => d.rotulo.toLowerCase()).join(", ")} em relação ao apurado pelo sistema. Explique o ajuste (pelo menos ${JUSTIFICATIVA_MINIMA} letras).`,
+    });
+  }
   const baseDetails = {
     grossAmount: gross, vtDiscount, otherDiscount, otherDiscountLabel: (b.otherDiscountLabel as string) || null,
     apuracaoSistema: apuracao ? JSON.parse(JSON.stringify(apuracao)) : null,
+    ajusteManual: divergencias.length > 0
+      ? { divergencias, justificativa, porUserId: user.id, porNome: user.name ?? null, em: new Date().toISOString() }
+      : null,
   };
   const parcelas = splitCents(Math.round(net * 100), n).map((cents, i) => ({
     id: crypto.randomUUID(),
@@ -283,7 +296,10 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
 
   await auditLog({
     userId: user.id, action: "RELEASE_TERMINATION", entity: "PayrollItem", entityId: parcelas[0].id,
-    newValue: { employeeId: emp.id, gross, vtDiscount, otherDiscount, net, installments: n, dueDates: parcelas.map((p) => p.due.toISOString().slice(0, 10)) },
+    newValue: {
+      employeeId: emp.id, gross, vtDiscount, otherDiscount, net, installments: n, dueDates: parcelas.map((p) => p.due.toISOString().slice(0, 10)),
+      ...(divergencias.length > 0 ? { ajusteManual: { divergencias, justificativa } } : {}),
+    },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
 
@@ -293,6 +309,99 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
     installments: n,
     items: parcelas.map((p) => ({ id: p.id, amount: p.amount, dueDate: p.due.toISOString(), installmentNumber: p.number })),
   });
+});
+
+// A rescisão lançada, somada das parcelas, com o histórico de ajustes (na 1ª parcela).
+type AjusteRescisao = {
+  em: string; porUserId: string; porNome: string | null; justificativa: string;
+  antes: { bruto: number; vtDesconto: number; outroDesconto: number; liquido: number };
+  depois: { bruto: number; vtDesconto: number; outroDesconto: number; liquido: number };
+};
+async function rescisaoLancada(employeeId: string) {
+  const itens = await prisma.payrollItem.findMany({
+    where: { employeeId, type: "RESCISAO", deletedAt: null },
+    orderBy: { dueDate: "asc" },
+  });
+  if (itens.length === 0) return null;
+  const d = (itens[0].details ?? {}) as Record<string, unknown>;
+  const n = (v: unknown) => (typeof v === "number" ? v : Number(v ?? 0)) || 0;
+  return {
+    bruto: n(d.grossAmount), vtDesconto: n(d.vtDiscount), outroDesconto: n(d.otherDiscount),
+    outroDescontoRotulo: (d.otherDiscountLabel as string | null) ?? null,
+    liquido: round2(itens.reduce((a, i) => a + Number(i.amount), 0)),
+    parcelas: itens.map((i) => ({ id: i.id, rotulo: i.periodLabel, valor: Number(i.amount), vencimento: i.dueDate.toISOString(), paga: i.paymentDate != null })),
+    algumaPaga: itens.some((i) => i.paymentDate != null),
+    notes: itens[0].notes,
+    ajusteManual: (d.ajusteManual as unknown) ?? null,
+    historicoAjustes: (Array.isArray(d.historicoAjustes) ? d.historicoAjustes : []) as AjusteRescisao[],
+  };
+}
+
+// ─── RESCISÃO — ajustar a já lançada ──────────────────────────────────────────────
+// Corrige bruto/descontos de uma rescisão ainda não paga. Justificativa obrigatória;
+// o antes e o depois ficam no histórico da própria rescisão e na auditoria.
+payrollRouter.put("/termination/:employeeId", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const emp = await prisma.employee.findFirst({ where: { id: request.params.employeeId, deletedAt: null } });
+  if (!emp) return response.status(404).json({ message: "Funcionário não encontrado." });
+
+  const itens = await prisma.payrollItem.findMany({ where: { employeeId: emp.id, type: "RESCISAO", deletedAt: null }, orderBy: { dueDate: "asc" } });
+  if (itens.length === 0) return response.status(404).json({ message: "Não há rescisão lançada para ajustar." });
+  if (itens.some((i) => i.paymentDate)) {
+    return response.status(400).json({ message: "Rescisão com parcela já paga: estorne o pagamento em Contas a Pagar antes de ajustar." });
+  }
+  const primeira = itens[0];
+  if (await competenciaDeFolhaBloqueada(new Date(Date.UTC(primeira.competenceYear, primeira.competenceMonth - 1, 1)), "Ajuste de rescisao", response)) return;
+
+  const b = request.body as Record<string, unknown>;
+  const gross = numOrNull(b.grossAmount) ?? 0;
+  const vtDiscount = numOrNull(b.vtDiscount) ?? 0;
+  const otherDiscount = numOrNull(b.otherDiscount) ?? 0;
+  if (gross <= 0) return response.status(400).json({ message: "Valor da rescisão (bruto) é obrigatório." });
+  if (vtDiscount < 0 || otherDiscount < 0) return response.status(400).json({ message: "Desconto não pode ser negativo." });
+  const net = round2(gross - vtDiscount - otherDiscount);
+  if (net < 0) return response.status(400).json({ message: "Os descontos passam do bruto: o líquido ficaria negativo." });
+  const justificativa = typeof b.justificativa === "string" ? b.justificativa.trim().slice(0, 1000) : "";
+  if (justificativa.length < JUSTIFICATIVA_MINIMA) {
+    return response.status(400).json({ message: `Explique o ajuste da rescisão (pelo menos ${JUSTIFICATIVA_MINIMA} letras).` });
+  }
+
+  const atual = (await rescisaoLancada(emp.id))!;
+  const antes = { bruto: atual.bruto, vtDesconto: atual.vtDesconto, outroDesconto: atual.outroDesconto, liquido: atual.liquido };
+  const depois = { bruto: round2(gross), vtDesconto: round2(vtDiscount), outroDesconto: round2(otherDiscount), liquido: net };
+  const apuracao = await apurarRescisao(emp.id).catch(() => null);
+  const ajuste: AjusteRescisao & { divergenciasDoApurado: unknown } = {
+    em: new Date().toISOString(), porUserId: user.id, porNome: user.name ?? null, justificativa, antes, depois,
+    divergenciasDoApurado: divergenciasDoApurado(apuracao?.sugestao ?? null, { bruto: gross, vtDesconto: vtDiscount, outroDesconto: otherDiscount }),
+  };
+  // O líquido novo se reparte nas mesmas parcelas, mantendo os vencimentos.
+  const valores = splitCents(Math.round(net * 100), itens.length).map((c) => round2(c / 100));
+  const detalhes = (primeira.details ?? {}) as Record<string, unknown>;
+  await prisma.$transaction(itens.map((it, i) => prisma.payrollItem.update({
+    where: { id: it.id },
+    data: {
+      amount: valores[i],
+      updatedById: user.id,
+      ...(b.notes !== undefined && i === 0 ? { notes: (b.notes as string) || null } : {}),
+      details: (i === 0
+        ? {
+          ...detalhes,
+          grossAmount: depois.bruto, vtDiscount: depois.vtDesconto, otherDiscount: depois.outroDesconto,
+          otherDiscountLabel: b.otherDiscountLabel !== undefined ? ((b.otherDiscountLabel as string) || null) : (detalhes.otherDiscountLabel ?? null),
+          ...(itens.length > 1 ? { netTotal: net } : {}),
+          historicoAjustes: [...atual.historicoAjustes, ajuste],
+        }
+        : { ...((it.details ?? {}) as Record<string, unknown>), netTotal: net }) as Prisma.InputJsonValue,
+    },
+  })));
+
+  await auditLog({
+    userId: user.id, action: "ADJUST_TERMINATION", entity: "PayrollItem", entityId: primeira.id,
+    previousValue: antes, newValue: { ...depois, justificativa },
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+  response.json({ ok: true, lancada: await rescisaoLancada(emp.id) });
 });
 
 // ─── FÉRIAS — lançar (contabilidade manda o valor; sistema agenda + marca na escala) ──

@@ -6264,6 +6264,18 @@ export type TerminationInfo = {
   rescisaoId: string | null;
   /** O que o sistema apura sozinho (null sem data de desligamento). */
   apuracao: ApuracaoRescisao | null;
+  /** A rescisão já lançada (null se ainda não foi). */
+  lancada: RescisaoLancada | null;
+};
+
+export type ValoresRescisaoLancada = { bruto: number; vtDesconto: number; outroDesconto: number; liquido: number };
+export type RescisaoLancada = ValoresRescisaoLancada & {
+  outroDescontoRotulo: string | null;
+  parcelas: Array<{ id: string; rotulo: string; valor: number; vencimento: string; paga: boolean }>;
+  algumaPaga: boolean;
+  notes: string | null;
+  ajusteManual: { divergencias: Array<{ rotulo: string; apurado: number; lancado: number; diferenca: number }>; justificativa: string; porNome: string | null; em: string } | null;
+  historicoAjustes: Array<{ em: string; porNome: string | null; justificativa: string; antes: ValoresRescisaoLancada; depois: ValoresRescisaoLancada }>;
 };
 
 export type ApuracaoRescisao = {
@@ -6291,7 +6303,11 @@ export function getTerminationInfo(employeeId: string) {
   return request<TerminationInfo>(`/payroll/termination/${employeeId}`);
 }
 
-export function releaseTermination(employeeId: string, payload: { grossAmount: number; vtDiscount: number; otherDiscount?: number; otherDiscountLabel?: string; dueDate?: string; installments?: number; notes?: string }) {
+export function adjustTermination(employeeId: string, payload: { grossAmount: number; vtDiscount: number; otherDiscount: number; otherDiscountLabel?: string; notes?: string; justificativa: string }) {
+  return request<{ ok: boolean; lancada: RescisaoLancada }>(`/payroll/termination/${employeeId}`, json("PUT", payload));
+}
+
+export function releaseTermination(employeeId: string, payload: { grossAmount: number; vtDiscount: number; otherDiscount?: number; otherDiscountLabel?: string; dueDate?: string; installments?: number; notes?: string; ajusteJustificativa?: string }) {
   return request<{ id: string; amount: number; installments: number; items: Array<{ id: string; amount: number; dueDate: string; installmentNumber: number }> }>(`/payroll/termination/${employeeId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
