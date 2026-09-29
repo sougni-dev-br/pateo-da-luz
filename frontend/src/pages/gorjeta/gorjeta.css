@@ -812,3 +812,11 @@
   .lancar-vale-rodape .ds-button { flex: 1 1 100%; }
   .seletor-funcionario-lista li { padding: 10px 12px; }
 }
+
+/* Livre para distribuir (sobra do mês, antes de virar fundo) */
+.livre-distribuir {
+  display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; font-size: 13px; color: var(--muted);
+  border: 1px dashed color-mix(in srgb, var(--warning, #b45309) 55%, var(--line)); border-radius: 10px;
+  background: color-mix(in srgb, var(--warning, #b45309) 5%, transparent);
+}
+.livre-distribuir strong { color: var(--ink); }
