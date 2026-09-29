@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { type TipFunction, getTipFunctionsTable, getTipTeam, saveTipFunctions } from "../../api/client";
 import { Alert, Button, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
+import { useConfirmacao } from "./Confirmacao";
 import "./gorjeta.css";
 import { hojeLocal, inputStyle, mutedStyle, numInputStyle, panelStyle, pts } from "./gorjetaUtils";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
@@ -32,6 +33,7 @@ const TEXTO = new Set(["nome", "grupo", "obs"]);
 type Linha = { f: TipFunction; i: number };
 
 export function AbaFuncoes({ canEdit, onNotice, onChanged }: Props) {
+  const { confirmar, caixa } = useConfirmacao();
   const [original, setOriginal] = useState<TipFunction[]>([]);
   const [versao, setVersao] = useState("");
   const [funcoes, setFuncoes] = useState<TipFunction[]>([]);
@@ -107,8 +109,13 @@ export function AbaFuncoes({ canEdit, onNotice, onChanged }: Props) {
     const velha = original.find((f) => f.id === d.id);
     if (velha) setFuncoes((prev) => prev.map((f) => (f.id === d.id ? velha : f)));
   }
-  function descartar() {
-    if (!window.confirm(`Descartar ${difs.length} alteração(ões) não salvas?`)) return;
+  async function descartar() {
+    const ok = await confirmar({
+      titulo: `Descartar ${difs.length} alteração(ões) não salvas?`,
+      texto: "A tabela volta a ser a que está salva. O rascunho guardado neste navegador é apagado.",
+      confirmar: "Descartar", perigo: true,
+    });
+    if (!ok) return;
     setFuncoes(original);
     setRevisando(false);
     setAviso(null);
@@ -166,6 +173,7 @@ export function AbaFuncoes({ canEdit, onNotice, onChanged }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {caixa}
       {aviso && <Alert tone={aviso.tom === "warning" ? "warning" : "info"}>{aviso.texto}</Alert>}
 
       <div style={panelStyle}>
@@ -277,7 +285,7 @@ export function AbaFuncoes({ canEdit, onNotice, onChanged }: Props) {
             <input className="barra-salvar-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)}
               placeholder="Motivo (ex.: reajuste de pontos da cozinha)" aria-label="Motivo das alterações" />
             <div className="barra-salvar-acoes">
-              <button type="button" className="barra-lista-link" onClick={descartar} disabled={salvando}>Descartar</button>
+              <button type="button" className="barra-lista-link" onClick={() => void descartar()} disabled={salvando}>Descartar</button>
               {aviso?.tom === "warning" && (
                 <Button variant="secondary" onClick={() => void compararComServidor()} disabled={salvando}>Comparar com a versão salva</Button>
               )}

@@ -166,21 +166,6 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
         </div>
       )}
 
-      <div className="cards-totais">
-        {[
-          { rotulo: "Gorjeta do rateio", valor: gorjeta, detalhe: `${pessoas.length} pessoas`, cor: "var(--info)" },
-          { rotulo: "Vales (descontos)", valor: totalDescontos ? -totalDescontos : 0, detalhe: `${ativos.filter((v) => v.type !== "CREDITO").length} lançamentos`, cor: "var(--danger)" },
-          { rotulo: "Créditos", valor: totalCreditos, detalhe: "somam à gorjeta", cor: "var(--success)" },
-          { rotulo: "Gorjeta líquida", valor: liquida, detalhe: "vai para o pagamento e a contabilidade", cor: "var(--gold)" },
-        ].map((c) => (
-          <div key={c.rotulo} className="card-total" style={{ boxShadow: `inset 3px 0 0 ${c.cor}` }}>
-            <span>{c.rotulo}</span>
-            <strong>{money(c.valor)}</strong>
-            <small>{c.detalhe}</small>
-          </div>
-        ))}
-      </div>
-
       {pode && (
         <div style={panelStyle}>
           <FormLancarVale
@@ -218,6 +203,21 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
           </div>
         </form>
       )}
+
+      <div className="cards-totais">
+        {[
+          { rotulo: "Gorjeta do rateio", valor: gorjeta, detalhe: `${pessoas.length} pessoas`, cor: "var(--info)" },
+          { rotulo: "Vales (descontos)", valor: totalDescontos ? -totalDescontos : 0, detalhe: `${ativos.filter((v) => v.type !== "CREDITO").length} lançamentos`, cor: "var(--danger)" },
+          { rotulo: "Créditos", valor: totalCreditos, detalhe: "somam à gorjeta", cor: "var(--success)" },
+          { rotulo: "Gorjeta líquida", valor: liquida, detalhe: "vai para o pagamento e a contabilidade", cor: "var(--gold)" },
+        ].map((c) => (
+          <div key={c.rotulo} className="card-total" style={{ boxShadow: `inset 3px 0 0 ${c.cor}` }}>
+            <span>{c.rotulo}</span>
+            <strong>{money(c.valor)}</strong>
+            <small>{c.detalhe}</small>
+          </div>
+        ))}
+      </div>
 
       {comVales.length > 0 && (
         <div style={panelStyle}>
@@ -319,14 +319,17 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
                         <form className="aceite-form" onSubmit={(e) => { e.preventDefault(); void cancelar(); }}>
                           <input autoFocus value={cancelando.motivo} onChange={(e) => setCancelando({ id: v.id, motivo: e.target.value })}
                             placeholder="Motivo do cancelamento" aria-label="Motivo do cancelamento" />
-                          <Button type="submit" size="sm" disabled={ocupado || cancelando.motivo.trim().length < 5}>Cancelar vale</Button>
+                          <Button type="submit" size="sm" variant="danger" disabled={ocupado || cancelando.motivo.trim().length < 5}>Cancelar vale</Button>
+                          {cancelando.motivo.trim().length < 5 && (
+                            <span className="dica-minimo">faltam {5 - cancelando.motivo.trim().length} letra(s) no motivo</span>
+                          )}
                           <button type="button" className="barra-lista-link" onClick={() => setCancelando(null)}>voltar</button>
                         </form>
                       )}
                     </Table.Td>
                     <Table.Td style={{ fontWeight: 700, color: v.type === "CREDITO" ? "var(--success)" : "var(--danger)" }}>
                       {emEdicao
-                        ? <input type="number" step="0.01" min="0" value={editando.amount} onChange={(e) => setEditando({ ...editando, amount: e.target.value })} aria-label="Valor do vale" style={{ width: 100 }} />
+                        ? <input type="number" step="0.01" inputMode="decimal" min="0" value={editando.amount} onChange={(e) => setEditando({ ...editando, amount: e.target.value })} aria-label="Valor do vale" style={{ width: 100 }} />
                         : money(sinal(v))}
                     </Table.Td>
                     <Table.Td style={mutedStyle} title={v.alteradoEm ? `Corrigido em ${quando(v.alteradoEm)}` : undefined}>
@@ -353,12 +356,12 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pessoaInic
                             {!v.doFundo && (
                               <button type="button" className="botao-desfazer" aria-label={`Corrigir vale de ${v.nome}`} title="Corrigir"
                                 onClick={() => { setCancelando(null); setEditando({ id: v.id, participantId: v.participantId, type: v.type, amount: String(v.amount), date: v.date ?? "", notes: v.notes ?? "" }); }}>
-                                <Pencil size={14} />
+                                <Pencil size={14} /><span className="acao-texto">corrigir</span>
                               </button>
                             )}
                             <button type="button" className="botao-desfazer" aria-label={`Cancelar vale de ${v.nome}`} title="Cancelar (fica no histórico)"
                               onClick={() => { setEditando(null); setCancelando({ id: v.id, motivo: "" }); }}>
-                              <Ban size={14} />
+                              <Ban size={14} /><span className="acao-texto">cancelar</span>
                             </button>
                           </>
                         )}
