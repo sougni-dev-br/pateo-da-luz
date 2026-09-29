@@ -20,7 +20,12 @@ export type ExtratoFuncionario = {
   situacao: string | null;
 };
 
+// O mesmo "Extrato Mensal" da contabilidade sai em dois cálculos: a folha do mês
+// (líquido já sem o adiantamento) e o adiantamento do dia 20 ("Cálculo: Adiantamento").
+export type CalculoExtrato = "MENSAL" | "ADIANTAMENTO";
+
 export type ExtratoParsed = {
+  calculo: CalculoExtrato;
   empresa: string;
   cnpj: string | null;
   competenceYear: number;
@@ -51,6 +56,7 @@ export function lerTextoExtrato(txt: string): ExtratoParsed {
   const comp = txt.match(/EXTRATO MENSAL\s*\n?\s*(\d{2})\/(\d{4})/) ?? txt.match(/(\d{2})\/(\d{4})/);
   const competenceMonth = comp ? Number(comp[1]) : 0;
   const competenceYear = comp ? Number(comp[2]) : 0;
+  const calculo: CalculoExtrato = /C[áa]lculo:\s*Adiantamento/i.test(txt) ? "ADIANTAMENTO" : "MENSAL";
 
   // Cada funcionário vai de "<matrícula> <NOME> Empr.:" até o próximo "NF:".
   const funcionarios: ExtratoFuncionario[] = [];
@@ -68,7 +74,11 @@ export function lerTextoExtrato(txt: string): ExtratoParsed {
       body.match(/GORJETA[\s\S]{0,60}?\bP\b[\s\S]{0,6}?([\d]{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ??
       body.match(/GORJETA[\s\S]{0,40}?([\d]{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ??
       null;
-    const adiant = body.match(/DESC\.ADIANT\.SALARIAL\s+(\d{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ?? null;
+    // Na folha do mês é o desconto (DESC.ADIANT.SALARIAL); no extrato do adiantamento é o
+    // provento (980 ADIANTAMENTO SALARIAL), sem o troco do arredondamento.
+    const adiant = calculo === "ADIANTAMENTO"
+      ? body.match(/ADIANTAMENTO SALARIAL\s+P\s+(\d{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ?? null
+      : body.match(/DESC\.ADIANT\.SALARIAL\s+(\d{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ?? null;
     const situacao = body.match(/(Trabalhando|Demitid[oa]|Afastad[oa]|F[ée]rias)\s+CPF:/)?.[1] ?? null;
     funcionarios.push({
       nome,
@@ -81,7 +91,7 @@ export function lerTextoExtrato(txt: string): ExtratoParsed {
     });
   }
 
-  return { empresa, cnpj, competenceYear, competenceMonth, funcionarios };
+  return { calculo, empresa, cnpj, competenceYear, competenceMonth, funcionarios };
 }
 
 function splitName(full: string): { firstName: string; lastName: string } {
@@ -112,7 +122,27 @@ async function getFolhaDreCategoryId(): Promise<string> {
   return created.id;
 }
 
+// Antes de o importador distinguir os dois cálculos, o extrato do adiantamento entrava
+// como SALARIO ("Extrato MM/AAAA"). Reimportado, o mesmo título (mesma pessoa, mesmo
+// valor) vira ADIANTAMENTO no lugar — mantém pagamento e histórico, sem duplicar.
+async function converterAdiantamentoGravadoComoSalario(
+  employeeId: string, competenceYear: number, competenceMonth: number, mmaaaa: string, periodLabel: string, liquido: number, userId: string,
+) {
+  const antigo = await prisma.payrollItem.findFirst({
+    where: { employeeId, type: "SALARIO", competenceYear, competenceMonth, periodLabel: `Extrato ${mmaaaa}`, source: "EXTRATO_RH", deletedAt: null },
+    select: { id: true, amount: true },
+  });
+  if (!antigo || Math.abs(Number(antigo.amount) - liquido) >= 0.01) return;
+  const jaExiste = await prisma.payrollItem.findFirst({
+    where: { employeeId, type: "ADIANTAMENTO", competenceYear, competenceMonth, periodLabel },
+    select: { id: true },
+  });
+  if (jaExiste) return;
+  await prisma.payrollItem.update({ where: { id: antigo.id }, data: { type: "ADIANTAMENTO", periodLabel, updatedById: userId } });
+}
+
 export type ImportExtratoResult = {
+  calculo: CalculoExtrato;
   empresa: string;
   companyId: string;
   competenceYear: number;
@@ -156,16 +186,27 @@ export async function importExtrato(opts: {
   }
 
   const settings = await prisma.payrollSettings.findUnique({ where: { id: "singleton" } });
-  const dueDay = opts.dueDay ?? settings?.salaryDueDay ?? 5;
-  // Salário da competência vence no mês seguinte, no dia configurado.
-  let ny = competenceYear, nm = competenceMonth + 1;
-  if (nm > 12) { nm = 1; ny += 1; }
-  const dueDate = new Date(Date.UTC(ny, nm - 1, Math.min(dueDay, 28)));
+  const adiantamento = parsed.calculo === "ADIANTAMENTO";
+  const tipo = adiantamento ? "ADIANTAMENTO" as const : "SALARIO" as const;
+  let dueDate: Date;
+  if (adiantamento) {
+    // Adiantamento vence no próprio mês da competência, no dia do adiantamento (20).
+    const dia = opts.dueDay ?? settings?.advanceDueDay ?? 20;
+    dueDate = new Date(Date.UTC(competenceYear, competenceMonth - 1, Math.min(dia, 28)));
+  } else {
+    // Salário da competência vence no mês seguinte, no dia configurado.
+    const dueDay = opts.dueDay ?? settings?.salaryDueDay ?? 5;
+    let ny = competenceYear, nm = competenceMonth + 1;
+    if (nm > 12) { nm = 1; ny += 1; }
+    dueDate = new Date(Date.UTC(ny, nm - 1, Math.min(dueDay, 28)));
+  }
   const dreCategoryId = await getFolhaDreCategoryId();
 
   const allEmp = await prisma.employee.findMany({ where: { deletedAt: null }, select: { id: true, cpf: true } });
   const byCpf = new Map(allEmp.map((e) => [onlyDigits(e.cpf), e.id]));
-  const periodLabel = `Extrato ${String(competenceMonth).padStart(2, "0")}/${competenceYear}`;
+  const mmaaaa = `${String(competenceMonth).padStart(2, "0")}/${competenceYear}`;
+  const periodLabel = adiantamento ? `Adiantamento ${mmaaaa}` : `Extrato ${mmaaaa}`;
+  const details = (f: ExtratoFuncionario) => ({ calculo: parsed.calculo, liquido: f.liquido, gorjeta: f.gorjeta, adiantamento: f.adiantamento, empresa: parsed.empresa });
 
   let funcionariosCadastrados = 0;
   let titulosGerados = 0;
@@ -181,17 +222,18 @@ export async function importExtrato(opts: {
       funcionariosCadastrados += 1;
       if (f.cpfNorm) byCpf.set(f.cpfNorm, empId);
     }
+    if (adiantamento) await converterAdiantamentoGravadoComoSalario(empId, competenceYear, competenceMonth, mmaaaa, periodLabel, f.liquido, opts.userId);
     await prisma.payrollItem.upsert({
-      where: { employeeId_type_competenceYear_competenceMonth_periodLabel: { employeeId: empId, type: "SALARIO", competenceYear, competenceMonth, periodLabel } },
+      where: { employeeId_type_competenceYear_competenceMonth_periodLabel: { employeeId: empId, type: tipo, competenceYear, competenceMonth, periodLabel } },
       create: {
-        id: crypto.randomUUID(), employeeId: empId, type: "SALARIO", competenceYear, competenceMonth, periodLabel,
+        id: crypto.randomUUID(), employeeId: empId, type: tipo, competenceYear, competenceMonth, periodLabel,
         dueDate, amount: f.liquido, dreCategoryId, source: "EXTRATO_RH",
-        details: { liquido: f.liquido, gorjeta: f.gorjeta, empresa: parsed.empresa }, createdById: opts.userId,
+        details: details(f), createdById: opts.userId,
       },
       // deletedAt/deletedById limpos de proposito: a chave unica nao inclui deletedAt, entao
       // este upsert casa com um item apagado. Sem limpar, ele atualizava o valor e deixava o
       // lancamento invisivel — a importacao dizia "titulo gerado" e o salario sumia do DRE.
-      update: { amount: f.liquido, dueDate, dreCategoryId, source: "EXTRATO_RH", details: { liquido: f.liquido, gorjeta: f.gorjeta, empresa: parsed.empresa }, updatedById: opts.userId, deletedAt: null, deletedById: null },
+      update: { amount: f.liquido, dueDate, dreCategoryId, source: "EXTRATO_RH", details: details(f), updatedById: opts.userId, deletedAt: null, deletedById: null },
     });
     titulosGerados += 1;
   }
@@ -206,5 +248,5 @@ export async function importExtrato(opts: {
     },
   });
 
-  return { empresa: parsed.empresa, companyId, competenceYear, competenceMonth, totalLiquido, funcionariosCadastrados, titulosGerados, rhExtractId: rh.id };
+  return { calculo: parsed.calculo, empresa: parsed.empresa, companyId, competenceYear, competenceMonth, totalLiquido, funcionariosCadastrados, titulosGerados, rhExtractId: rh.id };
 }

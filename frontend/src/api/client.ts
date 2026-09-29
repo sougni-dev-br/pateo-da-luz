@@ -5412,6 +5412,8 @@ export type Employee = {
   baseSalary: string | null;
   salarioCombinado?: string | null;
   salarioCombinadoMotivo?: string | null;
+  /** Recebe adiantamento salarial no dia do adiantamento (sem registro: desconta da lista). */
+  recebeAdiantamento?: boolean;
   shiftStart: string | null;
   shiftEnd: string | null;
   modality: EmployeeModality;
@@ -5476,6 +5478,8 @@ export type EmployeePayload = {
   /** Ausente = não mexe; null = tira. */
   salarioCombinado?: string | number | null;
   salarioCombinadoMotivo?: string | null;
+  /** Ausente = não mexe. */
+  recebeAdiantamento?: boolean;
   shiftStart?: string;
   shiftEnd?: string;
   modality?: EmployeeModality;
@@ -5726,6 +5730,8 @@ export type TipComputedParticipant = {
   diasSalarioOverride: number | null;
   diasSalario: number;
   salarioProporcional: number;
+  /** Sem registro: adiantamento salarial já pago no mês (0 = não recebeu). null sem permissão de ver Funcionários. */
+  adiantamentoSalarial?: number | null;
   totalAPagar: number;
   /** null quando o usuário não tem permissão de ver Funcionários. */
   baseSalary: number | null;
@@ -5781,7 +5787,10 @@ export type TipComputation = {
     fixos: { valor: number; pessoas: number };
   };
   participants: TipComputedParticipant[];
-  totals: { rateio: number; vales: number; netCommission: number; salarios: number; totalAPagar: number; pagoNaRescisao: number };
+  /** Regra do adiantamento salarial (Folha → configurações): % do salário base, pago no dia. */
+  adiantamento?: { percent: number; dia: number };
+  /** adiantamentos: null sem permissão de ver Funcionários. */
+  totals: { rateio: number; vales: number; netCommission: number; salarios: number; adiantamentos?: number | null; totalAPagar: number; pagoNaRescisao: number };
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
   pendencias: string[];
   warnings: string[];
@@ -6155,7 +6164,10 @@ export type ExtratoPreviewItem = {
   nome: string; cpf: string; liquido: number; gorjeta: number | null;
   matched: boolean; employeeId: string | null; employeeName: string | null; isActive: boolean | null;
 };
+/** Folha do mês ou adiantamento do dia 20: o mesmo "Extrato Mensal" da contabilidade. */
+export type CalculoExtrato = "MENSAL" | "ADIANTAMENTO";
 export type ExtratoPreview = {
+  calculo: CalculoExtrato;
   empresa: string; cnpj: string | null;
   competenceYear: number; competenceMonth: number;
   totalLiquido: number; matchedCount: number;
@@ -6187,6 +6199,7 @@ export function previewExtratoRh(fileBase64: string) {
 }
 
 export type ImportExtratoResult = {
+  calculo: CalculoExtrato;
   empresa: string; companyId: string;
   competenceYear: number; competenceMonth: number;
   totalLiquido: number; funcionariosCadastrados: number; titulosGerados: number; rhExtractId: string;
@@ -6312,7 +6325,10 @@ export type ApuracaoRescisao = {
     pendente: boolean; diasSalario: number | null; salarioProporcional: number | null;
   } | null;
   gorjetaObservacao: string | null;
-  sugestao: { salario: number | null; gorjeta: number | null; creditos: number; vales: number; valesRotulo: string | null; vtDesconto: number; bruto: number | null };
+  /** vales inclui o adiantamento salarial já pago (a parte dele em adiantamento). */
+  sugestao: { salario: number | null; gorjeta: number | null; creditos: number; vales: number; valesRotulo: string | null; adiantamento?: number; vtDesconto: number; bruto: number | null };
+  /** Sem registro que recebe adiantamento e saiu no dia dele ou depois. valor null = oculto. */
+  adiantamento?: { valor: number | null; data: string } | null;
   dadosPessoaisOcultos?: boolean;
   /** Salário e gorjeta até a saída já pagos na lista de pagamento da gorjeta (sem registro). */
   jaPagoNaLista?: { valor: number; competencia: string } | null;

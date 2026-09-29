@@ -80,6 +80,11 @@ export function ApuracaoRescisaoPainel({ apuracao: a, aberto = false }: { apurac
               {valesDoMes.map((v) => [v.codigo ?? v.tipo, v.data ? dataBr(v.data) : null].filter(Boolean).join(" ")).join(" · ")}
               {!a.semRegistro && <div>já descontados da gorjeta enviada à contabilidade: não abatem de novo</div>}
             </>} />
+        {a.semRegistro && a.adiantamento && (
+          <Linha rotulo="Adiantamento salarial já pago" sinal="−" valor={a.adiantamento.valor}
+            detalhe={`pago em ${dataBr(a.adiantamento.data)}, antes da saída: entra no desconto de vales`
+              + (a.adiantamento.valor == null ? " (valor oculto: exige a permissão de ver Funcionários)" : "")} />
+        )}
         <Linha rotulo="VT pago para depois da saída" valor={a.vt.total} sinal="−"
           detalhe={<>
             {resumoDias(a.vt)}
