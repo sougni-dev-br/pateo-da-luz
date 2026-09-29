@@ -112,7 +112,7 @@ const emptyEmployee = {
   zipCode: "", address: "", addressNumber: "", addressComplement: "", neighborhood: "", city: "", state: "",
   bankName: "", bankAgency: "", bankAccount: "", bankAccountDigit: "", bankAccountType: "CONTA_CORRENTE" as EmployeeBankAccountType,
   gender: "NAO_INFORMADO" as EmployeeGender,
-  pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", salarioCombinado: "", salarioCombinadoMotivo: "", shiftStart: "", shiftEnd: "",
+  pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", salarioCombinado: "", salarioCombinadoMotivo: "", recebeAdiantamento: false, shiftStart: "", shiftEnd: "",
   modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, admissionDate: "",
   vtType: "TRANSPORTE_PUBLICO" as VtType, vtPeriodicity: "QUINZENAL" as VtPeriodicity,
   vtFixedAmount: "", vtMonthlyFareId: "", notes: "",
@@ -216,6 +216,7 @@ export function Funcionarios() {
       pixKeyType: e.pixKeyType ?? "", pixKey: e.pixKey ?? "",
       sector: e.sector ?? "", subgroup: e.subgroup ?? "", position: e.position ?? "", baseSalary: moneyToMasked(e.baseSalary),
       salarioCombinado: moneyToMasked(e.salarioCombinado ?? null), salarioCombinadoMotivo: e.salarioCombinadoMotivo ?? "",
+      recebeAdiantamento: e.recebeAdiantamento ?? false,
       shiftStart: e.shiftStart ?? "", shiftEnd: e.shiftEnd ?? "",
       modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, admissionDate: toDateInput(e.admissionDate),
       vtType: e.vtType, vtPeriodicity: e.vtPeriodicity,
@@ -273,6 +274,7 @@ export function Funcionarios() {
           salarioCombinado: form.salarioCombinado ? moneyToNumberString(form.salarioCombinado) : null,
           salarioCombinadoMotivo: form.salarioCombinado ? form.salarioCombinadoMotivo.trim() : null,
         } : {}),
+        recebeAdiantamento: form.recebeAdiantamento,
         shiftStart: form.shiftStart || undefined,
         shiftEnd: form.shiftEnd || undefined,
         modality: form.modality,
@@ -619,6 +621,14 @@ export function Funcionarios() {
                     )}
                   </>
                 )}
+                <FormField label="Adiantamento salarial"
+                  hint={form.modality === "NAO_CLT"
+                    ? "a lista de pagamento da gorjeta desconta o adiantamento já pago (% e dia em Folha → Configurações)"
+                    : "só informativo: o adiantamento de quem é registrado vem do extrato da contabilidade"}>
+                  <Select value={form.recebeAdiantamento ? "S" : "N"} onChange={(e) => setForm({ ...form, recebeAdiantamento: e.target.value === "S" })}
+                    aria-label="Adiantamento salarial"
+                    options={[{ value: "S", label: "Recebe adiantamento salarial" }, { value: "N", label: "Recebe só no pagamento" }]} />
+                </FormField>
                 <FormField label="Regime de escala">
                   <Select value={form.scheduleRegime} onChange={(e) => setForm({ ...form, scheduleRegime: e.target.value as WorkScheduleRegime })} options={toOptions(REGIME_LABELS)} />
                 </FormField>

@@ -475,6 +475,7 @@ tipCommissionRouter.post("/extrato/preview", async (request, response) => {
     };
   });
   response.json({
+    calculo: parsed.calculo,
     empresa: parsed.empresa, cnpj: parsed.cnpj,
     competenceYear: parsed.competenceYear, competenceMonth: parsed.competenceMonth,
     totalLiquido: Math.round(items.reduce((a, i) => a + i.liquido, 0) * 100) / 100,
@@ -990,11 +991,12 @@ tipCommissionRouter.get("/closings/:id", async (request, response) => {
   const detalhe = await detalheFechamento(request.params.id);
   if (!detalhe) return response.status(404).json({ message: "Registro de fechamento não encontrado." });
   if (await podeVerDadosPessoais(request)) return response.json(detalhe);
-  // Sem a permissão de Funcionários: some o que mistura salário (proporcional e total a pagar).
+  // Sem a permissão de Funcionários: some o que mistura salário (proporcional, adiantamento e total a pagar).
   const participants = (detalhe.participants as Array<Record<string, unknown>>).map(
-    ({ salarioProporcional: _s, totalAPagar: _t, diasSalario: _d, ...resto }) => resto,
+    ({ salarioProporcional: _s, adiantamentoSalarial: _a, totalAPagar: _t, diasSalario: _d, ...resto }) => resto,
   );
-  response.json({ ...detalhe, participants, salariosOcultos: true });
+  const { adiantamentos: _ad, ...totals } = (detalhe.totals ?? {}) as Record<string, unknown>;
+  response.json({ ...detalhe, participants, totals, salariosOcultos: true });
 });
 
 // ─── Recibo da rescisão (TRCT) que volta da contabilidade ───────────────────

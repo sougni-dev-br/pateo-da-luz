@@ -69,6 +69,8 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     vales: comp.totals.vales,
     netCommission: comp.totals.netCommission,
     salarios: comp.totals.salarios,
+    // Só quando houve adiantamento: retratos antigos continuam com o mesmo formato.
+    ...(comp.totals.adiantamentos ? { adiantamentos: comp.totals.adiantamentos, adiantamentoRegra: comp.adiantamento } : {}),
     totalAPagar: comp.totals.totalAPagar,
   };
   const participants = comp.participants.map((p) => ({
@@ -115,6 +117,7 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     liquido: p.netCommission,
     diasSalario: p.diasSalario,
     salarioProporcional: p.salarioProporcional,
+    ...(p.adiantamentoSalarial ? { adiantamentoSalarial: p.adiantamentoSalarial } : {}),
     totalAPagar: p.totalAPagar,
     horaExtra: p.horaExtra,
     adicionalNoturno: p.adicionalNoturno,

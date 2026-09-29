@@ -10,6 +10,7 @@ vi.mock("../../../config/database.js", () => ({
     payrollItem: { findMany: vi.fn() },
     tipPeriodClosing: { findFirst: vi.fn() },
     tipReserveMovement: { findMany: vi.fn(), aggregate: vi.fn() },
+    payrollSettings: { findUnique: vi.fn() },
   },
 }));
 
@@ -58,6 +59,7 @@ beforeEach(() => {
   db.payrollItem.findMany.mockResolvedValue([]);
   db.tipReserveMovement.findMany.mockResolvedValue([]);
   db.tipReserveMovement.aggregate.mockResolvedValue({ _sum: { amount: 0 } });
+  db.payrollSettings.findUnique.mockResolvedValue({ id: "singleton", advancePercent: 40, advanceDueDay: 20 });
 });
 
 describe("gorjeta real no cálculo", () => {

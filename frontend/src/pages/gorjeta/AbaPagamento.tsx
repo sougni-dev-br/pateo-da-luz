@@ -25,6 +25,7 @@ const EXTRATORES: Extratores<TipComputedParticipant> = {
   salarioBase: (p) => p.baseSalary,
   dias: (p) => p.diasSalario,
   salario: (p) => p.salarioProporcional,
+  adiantamento: (p) => p.adiantamentoSalarial ?? null,
   vales: (p) => p.creditos - p.descontos,
   aPagar: (p) => p.totalAPagar,
   pix: (p) => p.pixKey,
@@ -43,7 +44,7 @@ const COLUNAS_CONTAB: ColunaOpcional[] = [
 ];
 const COLUNAS_PAG: ColunaOpcional[] = [
   { chave: "salarioBase", rotulo: "Salário base" }, { chave: "dias", rotulo: "Dias" }, { chave: "salario", rotulo: "Salário" },
-  { chave: "gorjeta", rotulo: "Gorjeta" }, { chave: "vales", rotulo: "Vales" }, { chave: "aPagar", rotulo: "A pagar" },
+  { chave: "adiantamento", rotulo: "Adiantamento" }, { chave: "gorjeta", rotulo: "Gorjeta" }, { chave: "vales", rotulo: "Vales" }, { chave: "aPagar", rotulo: "A pagar" },
   { chave: "pix", rotulo: "PIX" },
 ];
 
@@ -95,6 +96,12 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   const thC = (coluna: string) => ({ coluna, ordem: ordContab.ordem, onOrdenar: () => ordContab.alternar(coluna, TEXTO.has(coluna) ? "asc" : "desc") });
   const thP = (coluna: string) => ({ coluna, ordem: ordPag.ordem, onOrdenar: () => ordPag.alternar(coluna, TEXTO.has(coluna) ? "asc" : "desc") });
 
+  // Adiantamento salarial já pago (sem registro que recebe no dia do adiantamento): sai do total.
+  const totalAdiantamento = semRegistroFilt.reduce((a, p) => a + (p.adiantamentoSalarial ?? 0), 0);
+  const tituloAdiantamento = comp.adiantamento
+    ? `${comp.adiantamento.percent.toLocaleString("pt-BR")}% do salário base, pago no dia ${comp.adiantamento.dia}, para quem recebe adiantamento (cadastro). Já pago: sai do total.`
+    : "Adiantamento salarial já pago: sai do total.";
+
   async function exportar(fn: (c: TipComputation) => Promise<void>) {
     try { await fn(comp); } catch (e) { onError("Erro ao gerar o PDF: " + (e as Error).message); }
   }
@@ -111,7 +118,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
         {[
           { label: "Contabilidade (gorjeta dos registrados)", valor: registradosAPagar.reduce((a, p) => a + p.netCommission, 0), detalhe: `${registradosAPagar.length} pessoas · gorjeta líquida (− vales)`, cor: "var(--info)" },
           ...(pagasNaRescisao.length ? [{ label: "Já pago nas rescisões", valor: pagasNaRescisao.reduce((a, p) => a + p.rateioAmount, 0), detalhe: `${pagasNaRescisao.length} pessoa(s) · não pagar de novo`, cor: "var(--muted)" }] : []),
-          { label: "Lista de pagamento (salário + gorjeta)", valor: semRegistro.reduce((a, p) => a + p.totalAPagar, 0), detalhe: `${semRegistro.length} sem registro`, cor: "var(--success)" },
+          { label: "Lista de pagamento (salário − adiantamento + gorjeta)", valor: semRegistro.reduce((a, p) => a + p.totalAPagar, 0), detalhe: `${semRegistro.length} sem registro`, cor: "var(--success)" },
           { label: "Fica na casa (reserva + saldo)", valor: comp.reservaTotal + Math.max(0, comp.saldo), detalhe: "não é pago", cor: "var(--gold)" },
         ].map((c) => (
           <div key={c.label} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", boxShadow: `inset 3px 0 0 ${c.cor}`, background: "var(--surface, #fff)" }}>
@@ -247,7 +254,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 
       <div style={panelStyle}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <strong>Lista de pagamento <span style={{ ...mutedStyle, fontWeight: 400 }}>— sem registro: salário + gorjeta</span></strong>
+          <strong>Lista de pagamento <span style={{ ...mutedStyle, fontWeight: 400 }}>— sem registro: salário − adiantamento + gorjeta</span></strong>
           <div className="barra-lista">
             <SeletorColunas colunas={COLUNAS_PAG} ocultas={colP.ocultas} alternar={colP.alternar} mostrarTodas={colP.mostrarTodas} />
             <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarListaPagamento)}>PDF pagamento</Button>
@@ -276,6 +283,9 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 )}
 {vp("salario") && (
                   <ThOrdenavel {...thP("salario")}>Salário</ThOrdenavel>
+)}
+{vp("adiantamento") && (
+                  <ThOrdenavel {...thP("adiantamento")} title={tituloAdiantamento}>Adiantamento</ThOrdenavel>
 )}
 {vp("gorjeta") && (
                   <ThOrdenavel {...thP("gorjeta")}>Gorjeta</ThOrdenavel>
@@ -316,6 +326,9 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 {vp("salario") && (
                       <Table.Td><Money value={p.salarioProporcional} /></Table.Td>
 )}
+{vp("adiantamento") && (
+                      <Table.Td>{p.adiantamentoSalarial ? `− ${money(p.adiantamentoSalarial)}` : "—"}</Table.Td>
+)}
 {vp("gorjeta") && (
                       <Table.Td><Money value={p.rateioAmount} /></Table.Td>
 )}
@@ -336,6 +349,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                   {vp("salarioBase") && <Table.Td> </Table.Td>}
                   {vp("dias") && <Table.Td> </Table.Td>}
                   {vp("salario") && <Table.Td style={totalTd}><Money value={semRegistroFilt.reduce((a, p) => a + p.salarioProporcional, 0)} /></Table.Td>}
+                  {vp("adiantamento") && <Table.Td style={totalTd}>{totalAdiantamento ? `− ${money(totalAdiantamento)}` : "—"}</Table.Td>}
                   {vp("gorjeta") && <Table.Td style={totalTd}><Money value={semRegistroFilt.reduce((a, p) => a + p.rateioAmount, 0)} /></Table.Td>}
                   {vp("vales") && <Table.Td> </Table.Td>}
                   {vp("aPagar") && <Table.Td style={{ fontWeight: 700 }}><Money value={semRegistroFilt.reduce((a, p) => a + p.totalAPagar, 0)} /></Table.Td>}

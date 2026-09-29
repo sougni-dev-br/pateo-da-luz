@@ -39,6 +39,10 @@ export type RegrasPeriodo = {
   // não o ciclo da gorjeta (26/08–25/09). O mês anterior já foi pago até o dia 31.
   // Ausente = usa o próprio período (compatível com o que havia antes).
   mesSalario?: { start: Date; end: Date };
+  // Adiantamento salarial de quem não tem registro (PayrollSettings): % do salário base,
+  // pago no dia do mês do salário. Ausente = ninguém recebeu adiantamento.
+  adiantamentoPercent?: number;
+  adiantamentoDia?: number;
 };
 
 export type ValeEntrada = { type: string; amount: number };
@@ -71,6 +75,8 @@ export type ParticipanteEntrada = {
   // Faltas dentro do mês do salário (as de 26 a 31 do mês anterior são daquele salário).
   // Ausente = usa as faltas do período.
   faltasSalario?: number;
+  // Cadastro: recebe adiantamento salarial (só vale para quem não tem registro).
+  recebeAdiantamento?: boolean;
   // Rescisão lançada em Contas a Pagar (Folha → rescisão). Sem registro: ela já
   // pagou salário e gorjeta até a saída, então a pessoa sai da lista do mês.
   rescisaoLancada: boolean;
@@ -111,6 +117,8 @@ export type ParticipanteCalculado = {
   comissaoLiquida: number;
   diasSalario: number;
   salarioProporcional: number;
+  // Sem registro: o que já recebeu de adiantamento salarial no mês do salário (0 = não recebeu).
+  adiantamentoSalarial: number;
   totalAPagar: number;
   rescisaoPendente: boolean;
   // CLT com gorjeta paga: a contabilidade já pagou na rescisão. Sem registro só
@@ -201,6 +209,34 @@ function salarioSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo): { di
   return { dias, valor: round2(round2(p.salarioBase / 30) * dias) };
 }
 
+// Adiantamento salarial já pago a quem não tem registro, para descontar do salário:
+//   valor = salário base × % do adiantamento, no dia do adiantamento do mês do salário.
+// Não recebeu (0) quem entrou depois desse dia ou saiu ANTES dele — quem sai no
+// próprio dia recebeu, porque o pagamento sai naquele dia. Nunca passa do salário
+// proporcional: com poucos dias no mês, desconta até zerar o salário, não a gorjeta.
+export function adiantamentoSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo, salarioProporcional: number): number {
+  const percent = regras.adiantamentoPercent ?? 0;
+  if (!p.semRegistro || !p.recebeAdiantamento || !p.salarioBase || percent <= 0 || !regras.adiantamentoDia) return 0;
+  const janela = regras.mesSalario ?? { start: regras.start, end: regras.end };
+  const ultimoDia = new Date(Date.UTC(janela.end.getUTCFullYear(), janela.end.getUTCMonth() + 1, 0)).getUTCDate();
+  const dia = new Date(Date.UTC(janela.end.getUTCFullYear(), janela.end.getUTCMonth(), Math.min(regras.adiantamentoDia, ultimoDia)));
+  if (dia < janela.start || dia > janela.end) return 0;
+  // Compara o dia civil (UTC), sem a hora gravada junto da data.
+  const soDia = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  if (p.admissao && soDia(p.admissao) > dia.getTime()) return 0;
+  if (p.desligamento && soDia(p.desligamento) < dia.getTime()) return 0;
+  return Math.max(0, Math.min(round2(salarioProporcional), round2((p.salarioBase * percent) / 100)));
+}
+
+// Período fechado não grava o adiantamento: ele é o que explica o total gravado
+// (salário + gorjeta líquida − total a pagar). Fechamentos de antes do adiantamento dão zero.
+export function adiantamentoDoFechado(g: {
+  semRegistro: boolean; pagoNaRescisao: boolean; salarioProporcional: number; comissaoLiquida: number; totalAPagar: number;
+}): number {
+  if (!g.semRegistro || g.pagoNaRescisao) return 0;
+  return Math.max(0, round2(g.salarioProporcional + g.comissaoLiquida - g.totalAPagar));
+}
+
 // Gorjeta real só substitui a calculada de quem está no mês, por pontos.
 export function gorjetaRealVale(tipoCalculo: TipoCalculo, kind: "FIXO" | "PONTOS"): boolean {
   return tipoCalculo === "MES" && kind === "PONTOS";
@@ -289,6 +325,7 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
   const descontos = round2(p.vales.filter((v) => v.type !== "CREDITO").reduce((a, v) => a + v.amount, 0));
   const comissaoLiquida = round2(rateio - descontos + creditos);
   const salario = salarioSemRegistro(p, regras);
+  const adiantamentoSalarial = adiantamentoSemRegistro(p, regras, salario.valor);
   const saiuNoPeriodo = tipoCalculo === "RESCISAO" || tipoCalculo === "RESCISAO_QUITADA";
   const pagoNaRescisao = p.semRegistro
     ? saiuNoPeriodo && p.rescisaoLancada
@@ -317,7 +354,8 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
     comissaoLiquida,
     diasSalario: salario.dias,
     salarioProporcional: salario.valor,
-    totalAPagar: pagoNaRescisao ? 0 : round2(salario.valor + comissaoLiquida),
+    adiantamentoSalarial,
+    totalAPagar: pagoNaRescisao ? 0 : round2(salario.valor - adiantamentoSalarial + comissaoLiquida),
     rescisaoPendente,
     pagoNaRescisao,
   };

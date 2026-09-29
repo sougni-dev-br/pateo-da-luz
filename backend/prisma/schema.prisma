@@ -2464,6 +2464,9 @@ model Employee {
   // (salário combinado − adiantamento salarial do extrato) + gorjeta líquida.
   salarioCombinado       Decimal?        @db.Decimal(12, 2)
   salarioCombinadoMotivo String?
+  // Recebe adiantamento salarial no dia do adiantamento (PayrollSettings). Sem
+  // registro: a lista de pagamento desconta o que já foi pago. CLT: só informativo.
+  recebeAdiantamento     Boolean         @default(false)
   tipFunctionId     String?
   tipFunction       TipFunction?       @relation(fields: [tipFunctionId], references: [id])
   tipParticipations TipParticipant[]

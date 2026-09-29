@@ -14,7 +14,8 @@ export type PessoaApurada = {
   noPeriodo: boolean;          // tipoCalculo ≠ FORA_DO_PERIODO
   pagoNaRescisao: boolean;
   gorjetaLiquida: number;      // netCommission
-  totalAPagar: number;         // sem registro: salário + gorjeta − vales
+  totalAPagar: number;         // sem registro: salário − adiantamento + gorjeta − vales
+  adiantamentoSalarial?: number; // sem registro: já pago no dia do adiantamento (0/ausente = não recebeu)
   cnpjEmpresa: string | null;  // da empresa do cadastro
   pix: string | null;
 };
@@ -132,6 +133,11 @@ export type LinhaFolha = {
 
 const reais = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// Sem registro: o adiantamento salarial já saiu no dia dele, então aparece na conta quando houve.
+function composicaoSemRegistro(p: PessoaApurada): string {
+  return (p.adiantamentoSalarial ?? 0) > 0 ? "salário − adiantamento + gorjeta − vales" : "salário + gorjeta − vales";
+}
+
 // Folha salarial líquidos: o que o banco paga. CLT pelo extrato (ou pela regra do
 // salário combinado); sem registro pelo total da apuração. Valor zero fica de fora.
 export function montarFolhaLiquidos(apuracao: PessoaApurada[], extratos: ExtratoEmpresa[], combinados: Combinados = new Map()): LinhaFolha[] {
@@ -162,7 +168,7 @@ export function montarFolhaLiquidos(apuracao: PessoaApurada[], extratos: Extrato
   for (const p of apuracao) {
     if (!p.semRegistro || !p.noPeriodo || p.totalAPagar <= 0) continue;
     linhas.push({ employeeId: p.employeeId, nome: p.nome, grupo: "Sem registro", origem: "SEM_REGISTRO", valor: round2(p.totalAPagar),
-      composicao: "salário + gorjeta − vales", pix: p.pix, aviso: null });
+      composicao: composicaoSemRegistro(p), pix: p.pix, aviso: null });
   }
   return linhas;
 }
