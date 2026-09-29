@@ -231,3 +231,35 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
   };
   return { ...base, sugestao: montarSugestao(base) };
 }
+
+// ─── A gorjeta da rescisão é a da apuração ────────────────────────────────────
+// Sem registro: a gorjeta paga na rescisão vira a "gorjeta paga" do participante no
+// período da saída. Lá ela vale pontos pelo valor do ponto do mês: abaixo do direito,
+// a sobra fica livre para distribuir; acima, vira extra automático e sai do saldo.
+// Guardamos na rescisão o que havia antes, para desfazer se ela for excluída.
+export type GorjetaNaApuracao = { participantId: string; periodo: string; anterior: number | null; aplicada: number };
+
+export async function localizarGorjetaNaApuracao(
+  employeeId: string, saida: Date | null, gorjeta: number | null,
+): Promise<{ erro: string } | { alvo: Omit<GorjetaNaApuracao, "aplicada"> | null }> {
+  if (gorjeta == null || !saida) return { alvo: null };
+  const periodo = await prisma.tipPeriod.findFirst({
+    where: { periodStart: { lte: saida }, periodEnd: { gte: saida } },
+    select: { id: true, label: true, status: true },
+  });
+  if (!periodo) return { alvo: null };
+  const p = await prisma.tipParticipant.findUnique({
+    where: { periodId_employeeId: { periodId: periodo.id, employeeId } },
+    select: { id: true, rescisaoValorFixo: true, rateioAmount: true },
+  });
+  if (!p) return { alvo: null };
+  const anterior = p.rescisaoValorFixo == null ? null : round2(Number(p.rescisaoValorFixo));
+  if (periodo.status === "CLOSED") {
+    // Fechada, a gorjeta não muda mais: só aceita o mesmo valor que foi fechado.
+    if (Math.abs(round2(Number(p.rateioAmount ?? 0)) - round2(gorjeta)) < 0.01) return { alvo: null };
+    return { erro: `A gorjeta de ${periodo.label} já está fechada com ${reaisBr(Number(p.rateioAmount ?? 0))} para esta pessoa. Reabra a gorjeta para lançar outro valor.` };
+  }
+  return { alvo: { participantId: p.id, periodo: periodo.label, anterior } };
+}
+
+const reaisBr = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });

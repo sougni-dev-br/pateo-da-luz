@@ -401,8 +401,10 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                     <Table.Td><RescisaoLancada r={p.rescisaoContasPagar} /></Table.Td>
                     <Table.Td>
                       <input style={{ ...numInputStyle, width: 100, fontWeight: 600 }} type="number" step="0.01" inputMode="decimal" min="0" value={r.rescisaoValorFixo}
-                        disabled={readonly} aria-label={`Gorjeta paga na rescisão de ${p.employeeName}`} placeholder="R$ pago"
+                        disabled={readonly || Boolean(p.rescisaoContasPagar?.gorjetaDefinida)} aria-label={`Gorjeta paga na rescisão de ${p.employeeName}`} placeholder="R$ pago"
+                        title={p.rescisaoContasPagar?.gorjetaDefinida ? "Definida na rescisão lançada: ajuste em Funcionários → Lançar rescisão → Ajustar rescisão" : undefined}
                         onChange={(e) => onRow(p.employeeId, { rescisaoValorFixo: e.target.value })} />
+                      {p.rescisaoContasPagar?.gorjetaDefinida && <div style={mutedStyle}>definida na rescisão</div>}
                     </Table.Td>
                     <Table.Td>
                       <div style={{ fontWeight: 600 }}>{pts(p.points)}</div>
