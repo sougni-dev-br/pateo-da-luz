@@ -189,7 +189,8 @@ export type TipComputation = {
   deductionPercent: number;
   netPool: number;
   fixedTotal: number;
-  // O que as rescisões levam sai da apuração do mês: em reais e em pontos.
+  // O que as rescisões levam, em reais e em pontos. Só sai da apuração do mês no
+  // modo padrão; com sobraRescisaoParaSaldo o divisor é o total de pontos.
   rescisoes: { valor: number; pontos: number };
   pontosDisponiveis: number;
   pointsPool: number;
@@ -203,6 +204,8 @@ export type TipComputation = {
   descontaFerias: boolean;
   descontaOutros: boolean;
   proporcionalEntrada: boolean;
+  // Parte de quem saiu depois da saída: true = vai para o livre; false = sobe o ponto de quem fica.
+  sobraRescisaoParaSaldo: boolean;
   distribuido: number;
   // De onde sai o distribuído: quem está no mês, quem saiu no período, a reserva e as cotas fixas.
   composicao: {
@@ -337,6 +340,7 @@ export async function computeTipCommission(
     descontaFerias: period?.descontaFerias ?? true,
     descontaOutros: period?.descontaOutros ?? false,
     proporcionalEntrada: period?.proporcionalEntrada ?? true,
+    sobraRescisaoParaSaldo: period?.sobraRescisaoParaSaldo ?? false,
     // O salário de quem não tem registro é do mês civil da competência.
     mesSalario: { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 0)) },
     adiantamentoPercent: Number(config.advancePercent),
@@ -600,6 +604,7 @@ export async function computeTipCommission(
     descontaFerias: regras.descontaFerias,
     descontaOutros: regras.descontaOutros,
     proporcionalEntrada: regras.proporcionalEntrada,
+    sobraRescisaoParaSaldo: regras.sobraRescisaoParaSaldo === true,
     distribuido, saldo,
     composicao: {
       mes: somar(participants.filter((p) => p.kind === "PONTOS" && p.tipoCalculo === "MES")),

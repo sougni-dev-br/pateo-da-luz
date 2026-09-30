@@ -30,6 +30,7 @@ type Parametros = {
   start: string; end: string; pool: string; deduction: string; pointsTotal: string; diasPadrao: string;
   descontaFalta: boolean; descontaAtestado: boolean; descontaFerias: boolean; descontaOutros: boolean;
   proporcionalEntrada: boolean;
+  sobraRescisaoParaSaldo: boolean;
   reservaPontos: string;
 };
 
@@ -39,6 +40,7 @@ function parametrosDe(c: TipComputation): Parametros {
     pool: String(c.grossPool), deduction: String(c.deductionPercent), pointsTotal: String(c.pointsBudget), diasPadrao: String(c.diasPadrao),
     descontaFalta: c.descontaFalta, descontaAtestado: c.descontaAtestado, descontaFerias: c.descontaFerias, descontaOutros: c.descontaOutros,
     proporcionalEntrada: c.proporcionalEntrada,
+    sobraRescisaoParaSaldo: c.sobraRescisaoParaSaldo === true,
     reservaPontos: String(c.reservaPontos),
   };
 }
@@ -193,6 +195,7 @@ export function FolhaGorjeta() {
         descontaFalta: params.descontaFalta, descontaAtestado: params.descontaAtestado,
         descontaFerias: params.descontaFerias, descontaOutros: params.descontaOutros,
         proporcionalEntrada: params.proporcionalEntrada,
+        sobraRescisaoParaSaldo: params.sobraRescisaoParaSaldo,
         reservaPontos: Math.max(0, Number(params.reservaPontos.replace(",", ".")) || 0),
         ...(datasMudaram ? { periodStart: params.start, periodEnd: params.end } : {}),
       });
@@ -432,6 +435,7 @@ export function FolhaGorjeta() {
                   <summary>
                     Parâmetros do período <span style={{ ...mutedStyle, fontWeight: 400 }}>
                       — {comp.diasPadrao} dias padrão; descontam: {[comp.descontaFalta && "falta", comp.descontaAtestado && "atestado", comp.descontaFerias && "férias", comp.descontaOutros && "outros"].filter(Boolean).join(", ") || "nada"}{comp.proporcionalEntrada ? "; admitido recebe proporcional" : ""}
+                      ; parte de quem saiu: {comp.sobraRescisaoParaSaldo ? "vai para o livre" : "fica com quem continua"}
                     </span>
                   </summary>
                   <div className="painel-detalhes-corpo">
@@ -451,6 +455,16 @@ export function FolhaGorjeta() {
                       </label>
                     ))}
                   </div>
+                  {/* Quem saiu recebe o mesmo nos dois modos; muda só o ponto de quem fica e o livre. */}
+                  <fieldset style={{ border: "none", margin: 0, padding: 0, display: "flex", gap: 16, flexWrap: "wrap", fontSize: 14 }}>
+                    <legend style={{ ...mutedStyle, padding: 0, marginBottom: 6 }}>Parte de quem saiu no período (o que deixou de ganhar depois da saída):</legend>
+                    {([[false, "Fica com quem continua (sobe o ponto do mês)"], [true, "Vai para o livre para distribuir"]] as const).map(([valor, label]) => (
+                      <label key={String(valor)} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <input type="radio" name="sobraRescisaoParaSaldo" checked={params.sobraRescisaoParaSaldo === valor} disabled={readonly}
+                          onChange={() => setParams({ ...params, sobraRescisaoParaSaldo: valor })} />{label}
+                      </label>
+                    ))}
+                  </fieldset>
                   <span style={mutedStyle}>Estas são as regras do período; em cada pessoa, o botão de regras (engrenagem) permite decidir diferente. Folga normal não desconta: já está embutida nos dias padrão. Mudar as datas repuxa o serviço do faturamento (o ajuste é mantido). O ajuste do serviço fica em "Serviço arrecadado → ajustar", no resumo.</span>
                   {!readonly && <div><Button onClick={() => void salvarParametros()} disabled={busy} leadingIcon={<Save size={14} />}>Salvar parâmetros</Button></div>}
                   </div>

@@ -6,16 +6,25 @@
 //   pontos finais   = apurados + ajuste do mês (acréscimo ou desconto)
 //
 // Rescisões primeiro: quem saiu no período tem valor do ponto próprio, sobre o
-// serviço arrecadado até a saída (ou o valor quitado, que não muda mais). O que
-// as rescisões levam — em reais e em pontos — sai da apuração do mês:
+// serviço arrecadado até a saída (ou o valor quitado, que não muda mais). Nos
+// dois modos quem saiu recebe o mesmo; o que muda é o ponto de quem fica.
+//
+// Modo "fica com quem continua" (padrão): o que as rescisões levam — em reais e
+// em pontos — sai da apuração do mês:
 //
 //   valor do ponto do mês = (líquido − cotas fixas − rescisões)
 //                           ÷ (pontos de referência − pontos das rescisões)
-//   rateio                = pontos finais × valor do ponto do mês
 //
-// Assim o serviço gerado depois da saída fica com quem continua. O valor do
-// ponto NÃO sobe quando alguém do mês perde pontos por falta: a diferença fica
-// como saldo (retido pela casa).
+// Assim o serviço gerado depois da saída fica com quem continua.
+//
+// Modo "vai para o livre" (sobraRescisaoParaSaldo): o ponto do mês ignora as
+// rescisões, e o que quem saiu deixou de ganhar depois da saída fica no saldo:
+//
+//   valor do ponto do mês = (líquido − cotas fixas) ÷ pontos de referência
+//
+// Em ambos: rateio = pontos finais × valor do ponto do mês. O valor do ponto
+// NÃO sobe quando alguém do mês perde pontos por falta: a diferença fica como
+// saldo (retido pela casa). Saldo = líquido − distribuído.
 
 import { round2 } from "./vt-calc.js";
 
@@ -32,6 +41,9 @@ export type RegrasPeriodo = {
   // Admitido no meio do período recebe proporcional aos dias (padrão). Desligado
   // já é proporcional pelo valor do ponto próprio (serviço até a saída).
   proporcionalEntrada: boolean;
+  // Parte de quem saiu depois da saída: false = sobe o ponto de quem fica (padrão);
+  // true = o ponto do mês não desconta as rescisões e a sobra vai para o livre.
+  sobraRescisaoParaSaldo?: boolean;
   pointsTotal: number;
   deductionPercent: number;
   netPool: number;
@@ -390,7 +402,9 @@ export function calcularRateio(regras: RegrasPeriodo, participantes: Participant
     valor: round2(previa.reduce((a, l) => a + pesoNaPrevia(l).valor, 0)),
     pontos: round2(previa.reduce((a, l) => a + pesoNaPrevia(l).pontos, 0)),
   };
-  const valorPonto = valorPontoMes(regras, totalCotasFixas, calculadas);
+  // Modo "vai para o livre": as rescisões não saem da conta do ponto do mês.
+  const paraSaldo = regras.sobraRescisaoParaSaldo === true;
+  const valorPonto = valorPontoMes(regras, totalCotasFixas, paraSaldo ? { valor: 0, pontos: 0 } : calculadas);
   // 2ª passada: quem fica e as quitadas, com o valor do ponto que sobrou.
   const linhas = participantes.map((p) => calcularParticipante(regras, p, valorPonto));
   const ehRescisao = (t: string) => t === "RESCISAO" || t === "RESCISAO_QUITADA";
@@ -404,7 +418,8 @@ export function calcularRateio(regras: RegrasPeriodo, participantes: Participant
     valorPonto: round2(valorPonto),
     valorPontoBruto: valorPonto,
     rescisoes,
-    pontosDisponiveis: round2(regras.pointsTotal - rescisoes.pontos),
+    // É o divisor do ponto do mês: no modo "vai para o livre" os pontos das rescisões não saem.
+    pontosDisponiveis: round2(paraSaldo ? regras.pointsTotal : regras.pointsTotal - rescisoes.pontos),
     totalCotasFixas,
     distribuido,
     saldo: round2(regras.netPool - distribuido),
