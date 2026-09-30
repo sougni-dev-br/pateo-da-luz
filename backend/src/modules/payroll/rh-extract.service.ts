@@ -8,7 +8,7 @@ import { prisma } from "../../config/database.js";
 import { FOLHA_CATEGORY } from "./payroll.service.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
-import { avisosDoExtrato, guardarExtrato } from "./rh-extract-store.service.js";
+import { avisosDoExtrato, guardarExtrato, preencherAdmissaoCarteira } from "./rh-extract-store.service.js";
 
 export type ExtratoFuncionario = {
   nome: string;
@@ -260,6 +260,7 @@ export async function importExtrato(opts: {
     fileName: opts.fileName, storagePath: opts.storagePath ?? null, companyId, userId: opts.userId, totalLiquido,
     employeePorCpf: byCpf,
   });
+  await preencherAdmissaoCarteira(detalhes, byCpf, opts.userId);
   const avisos = await avisosDoExtrato({
     detalhes, calculo: parsed.calculo, competenceYear, competenceMonth, incluirDadosPessoais: opts.incluirDadosPessoais ?? false,
   });

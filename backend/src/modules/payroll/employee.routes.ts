@@ -104,6 +104,8 @@ function buildEmployeeData(b: Record<string, unknown>) {
     scheduleRegime: oneOf(REGIMES, b.scheduleRegime, "SEIS_POR_UM"),
     includeInSchedule: b.includeInSchedule === undefined ? true : Boolean(b.includeInSchedule),
     admissionDate: dateOrNull(b.admissionDate),
+    // Ausente = não mexe (a importação do extrato também grava este campo).
+    ...("admissaoCarteira" in b ? { admissaoCarteira: dateOrNull(b.admissaoCarteira) } : {}),
     vtType: oneOf(VT_TYPES, b.vtType, "TRANSPORTE_PUBLICO"),
     vtPeriodicity: oneOf(VT_PERIODICITIES, b.vtPeriodicity, "QUINZENAL"),
     notes: str(b.notes),

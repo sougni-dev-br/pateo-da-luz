@@ -119,10 +119,26 @@ export async function guardarExtrato(opts: {
   return { id, atualizado: Boolean(existente) };
 }
 
+// Admissão em carteira vem do extrato: preenche só quem ainda não tem (a data que alguém
+// já gravou no cadastro não é sobrescrita; se divergir, sai no aviso).
+export async function preencherAdmissaoCarteira(detalhes: DetalhesExtrato, employeePorCpf: Map<string, string>, userId: string): Promise<number> {
+  let n = 0;
+  for (const p of detalhes.pessoas) {
+    const employeeId = p.cpfNorm ? employeePorCpf.get(p.cpfNorm) : undefined;
+    if (!employeeId || !p.admissao) continue;
+    const r = await prisma.employee.updateMany({
+      where: { id: employeeId, admissaoCarteira: null },
+      data: { admissaoCarteira: new Date(`${p.admissao}T00:00:00Z`), updatedById: userId },
+    });
+    n += r.count;
+  }
+  return n;
+}
+
 // ─── Avisos (nunca bloqueiam a importação) ──────────────────────────────────
 
 type EmpCadastro = {
-  id: string; cpf: string; baseSalary: unknown; position: string | null; admissionDate: Date | null;
+  id: string; cpf: string; baseSalary: unknown; position: string | null; admissaoCarteira: Date | null;
 };
 
 function demitidoNoMes(p: PessoaExtrato, ano: number, mes: number): boolean {
@@ -141,7 +157,7 @@ export async function avisosDoExtrato(opts: {
   if (detalhes.pessoas.length === 0) return [];
   const emps: EmpCadastro[] = await prisma.employee.findMany({
     where: { deletedAt: null },
-    select: { id: true, cpf: true, baseSalary: true, position: true, admissionDate: true },
+    select: { id: true, cpf: true, baseSalary: true, position: true, admissaoCarteira: true },
   });
   const porCpf = new Map(emps.map((e) => [soDigitos(e.cpf), e]));
   const avisos: string[] = [];
@@ -187,9 +203,11 @@ function divergenciasDoCadastro(p: PessoaExtrato, emp: EmpCadastro, comValores: 
   if (p.cargo && emp.position && semAcento(p.cargo) !== semAcento(emp.position)) {
     out.push(`${p.nome}: cargo no extrato de ${comp} é "${p.cargo}", no cadastro "${emp.position}". O cadastro não foi alterado.`);
   }
-  const admCad = emp.admissionDate ? emp.admissionDate.toISOString().slice(0, 10) : null;
+  // Compara com a admissão em carteira, não com o início real (esse pode ser antes do
+  // registro). Vazia no cadastro: a importação preenche, não é divergência.
+  const admCad = emp.admissaoCarteira ? emp.admissaoCarteira.toISOString().slice(0, 10) : null;
   if (p.admissao && admCad && p.admissao !== admCad) {
-    out.push(`${p.nome}: admissão no extrato é ${ddmmaaaa(p.admissao)}, no cadastro ${ddmmaaaa(admCad)}. O cadastro não foi alterado.`);
+    out.push(`${p.nome}: admissão em carteira no extrato é ${ddmmaaaa(p.admissao)}, no cadastro ${ddmmaaaa(admCad)}. O cadastro não foi alterado.`);
   }
   return out;
 }
