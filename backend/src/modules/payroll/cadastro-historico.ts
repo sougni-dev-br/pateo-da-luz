@@ -151,3 +151,20 @@ export function lerVigenteDesde(
   }
   return { data };
 }
+
+// Salário e vínculo alterados valendo desde um mês ANTERIOR ao atual mudam a folha, a
+// gorjeta e a rescisão de meses já calculados. Sem motivo, ninguém sabe depois por que o
+// mês passado mudou: exige pelo menos 5 letras. Mudança no próprio mês (ou futura) não.
+export const CAMPOS_RETROATIVO_EXIGE_MOTIVO: ReadonlySet<CampoHistorico> = new Set(["baseSalary", "salarioCombinado", "modality"]);
+const MIN_LETRAS_MOTIVO = 5;
+
+export function faltaMotivoRetroativo(
+  campos: readonly CampoHistorico[], vigenteDesde: Date, hojeIso: string, motivo: string | null | undefined,
+): string | null {
+  if (!campos.some((c) => CAMPOS_RETROATIVO_EXIGE_MOTIVO.has(c))) return null;
+  const mesVigencia = dia(vigenteDesde).slice(0, 7);
+  if (mesVigencia >= hojeIso.slice(0, 7)) return null;
+  const letras = (motivo ?? "").match(/\p{L}/gu)?.length ?? 0;
+  if (letras >= MIN_LETRAS_MOTIVO) return null;
+  return `Alteração valendo desde ${mesVigencia.slice(5, 7)}/${mesVigencia.slice(0, 4)} muda cálculos de meses passados: informe o motivo.`;
+}

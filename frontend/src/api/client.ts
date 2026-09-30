@@ -6255,6 +6255,8 @@ export type ImportExtratoResult = {
   /** O mesmo arquivo já estava guardado: o registro foi completado, não duplicado. */
   extratoAtualizado: boolean;
   pessoasLidas: number; pessoasConferidas: number;
+  /** Lançamentos que alguém excluiu à mão no Contas a Pagar: a reimportação não os recria (backend novo; opcional). */
+  titulosPulados?: number;
   avisos: string[];
 };
 export function importExtratoRh(fileBase64: string, fileName: string) {

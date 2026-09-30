@@ -725,7 +725,12 @@ export async function computeTipCommission(
       vales: round2(participants.reduce((a, p) => a + p.valesTotal, 0)),
       netCommission: round2(participants.reduce((a, p) => a + p.netCommission, 0)),
       salarios: round2(participants.reduce((a, p) => a + p.salarioProporcional, 0)),
-      adiantamentos: dadosPessoais ? round2(participants.reduce((a, p) => a + (p.adiantamentoSalarial ?? 0), 0)) : null,
+      // Sem quem foi pago na rescisão: o fechado grava zero para eles (adiantamentoDoFechado),
+      // e o total do aberto tem de bater com o do fechado. O valor por pessoa fica — a
+      // apuração da rescisão lê dele o adiantamento a descontar.
+      adiantamentos: dadosPessoais
+        ? round2(participants.filter((p) => !p.pagoNaRescisao).reduce((a, p) => a + (p.adiantamentoSalarial ?? 0), 0))
+        : null,
       totalAPagar: round2(participants.reduce((a, p) => a + p.totalAPagar, 0)),
       pagoNaRescisao: round2(participants.filter((p) => p.pagoNaRescisao).reduce((a, p) => a + p.rateioAmount, 0)),
     },

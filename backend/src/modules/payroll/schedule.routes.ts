@@ -333,13 +333,20 @@ scheduleRouter.post("/bulk", async (request, response) => {
   const foraDaEscala = new Map(editaveis.filter((e) => !e.includeInSchedule).map((e) => [e.id, e]));
 
   const seen = new Set<string>();
-  const entries = rawEntries
+  const doMes = rawEntries
     .map((raw) => raw as { employeeId?: unknown; day?: unknown; type?: unknown })
-    .filter((e) => typeof e.employeeId === "string" && activeIds.has(e.employeeId))
+    .filter((e) => typeof e.employeeId === "string" && activeIds.has(e.employeeId));
+  // Tipo desconhecido virava FOLGA em silêncio: uma marca de férias ou atestado mal
+  // enviada saía gravada como folga, e o VT e a gorjeta mudavam sem ninguém ver. Recusa.
+  const tipoInvalido = doMes.find((e) => !(SCHEDULE_TYPES as readonly string[]).includes(String(e.type)));
+  if (tipoInvalido) {
+    return response.status(400).json({ message: `Tipo de dia inválido na escala (dia ${String(tipoInvalido.day)}): "${String(tipoInvalido.type).slice(0, 30)}". Nada foi salvo.` });
+  }
+  const entries = doMes
     .map((e) => ({
       employeeId: String(e.employeeId),
       day: parseInt(String(e.day), 10),
-      type: (SCHEDULE_TYPES as readonly string[]).includes(String(e.type)) ? (String(e.type) as ScheduleType) : "FOLGA",
+      type: String(e.type) as ScheduleType,
     }))
     .filter((e) => {
       if (!(e.day >= 1 && e.day <= daysInMonth)) return false;

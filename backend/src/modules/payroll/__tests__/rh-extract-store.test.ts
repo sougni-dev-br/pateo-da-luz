@@ -149,3 +149,34 @@ describe("admissão em carteira", () => {
     });
   });
 });
+
+describe("guardarExtrato — CPF fora do registro", () => {
+  test("texto e lista de funcionários gravados sem CPF", async () => {
+    db.rhExtract.findFirst.mockResolvedValue(null);
+    await guardarExtrato({
+      parsed, detalhes: detalhes([pessoa()]), buffer: Buffer.from("%PDF"), sha256: "abc123",
+      texto: "1133 FULANO DE TAL\tEmpr.: 01/03/2007\tAdm:\t111.222.333-44\tTrabalhando CPF:",
+      fileName: "Extrato.pdf", companyId: "c1", userId: "u1", totalLiquido: 2450, employeePorCpf: new Map([["11122233344", "e1"]]),
+    });
+    const data = db.rhExtract.create.mock.calls[0][0].data;
+    expect(data.texto).toContain("***.***.***-**");
+    expect(JSON.stringify({ texto: data.texto, data: data.data })).not.toMatch(/11122233344|111\.222\.333-44/);
+    expect(data.data).toEqual([{ nome: "FULANO DE TAL", liquido: 2450, gorjeta: null, adiantamento: null, situacao: "Trabalhando" }]);
+  });
+});
+
+describe("avisosDoExtrato — sem permissão de ver Funcionários, sem valores", () => {
+  const sem = { calculo: "MENSAL" as const, competenceYear: 2026, competenceMonth: 8, incluirDadosPessoais: false };
+
+  test("rescisão: nome e data de saída, sem o líquido", async () => {
+    const demitido = pessoa({ demissao: "2026-08-01", liquidoRescisao: 5000, situacao: "Demitido" });
+    const [aviso] = await avisosDoExtrato({ ...sem, detalhes: detalhes([demitido]) });
+    expect(aviso).toBe("Rescisão de FULANO DE TAL no extrato, demitido em 01/08: confira se está lançada em Contas a Pagar.");
+  });
+
+  test("leitura que não fechou: sem as somas", async () => {
+    const [aviso] = await avisosDoExtrato({ ...sem, detalhes: detalhes([pessoa({ conferido: false, somaDescontos: 10, descontos: 20 })]) });
+    expect(aviso).toBe("Leitura de FULANO DE TAL não fechou (a soma das rubricas não bate com o extrato): confira no PDF.");
+    expect(aviso).not.toMatch(/R\$|\d+,\d{2}/);
+  });
+});

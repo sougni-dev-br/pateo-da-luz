@@ -30,6 +30,21 @@ export function mudouCampoComHistorico(original: CamposComHistorico | null, atua
     || original.recebeAdiantamento !== atual.recebeAdiantamento;
 }
 
+/**
+ * Data "vale a partir de" num mês anterior ao atual e mudou salário base, combinado ou
+ * vínculo: o backend recusa sem motivo (muda cálculos de meses passados). A tela só
+ * antecipa a regra. Cargo e adiantamento não entram — não mexem em valor fechado.
+ */
+export function motivoObrigatorio(
+  original: CamposComHistorico | null, atual: CamposComHistorico, vigenteDesde: string, hojeIso: string,
+): boolean {
+  if (!original || !/^\d{4}-\d{2}/.test(vigenteDesde)) return false;
+  if (vigenteDesde.slice(0, 7) >= hojeIso.slice(0, 7)) return false;
+  return dinheiro(original.baseSalary) !== dinheiro(atual.baseSalary)
+    || (atual.modality === "CLT" && dinheiro(original.salarioCombinado) !== dinheiro(atual.salarioCombinado))
+    || original.modality !== atual.modality;
+}
+
 export const ROTULO_ORIGEM: Record<string, string> = {
   CADASTRO: "Cadastro",
   EQUIPE_GORJETA: "Equipe da gorjeta",

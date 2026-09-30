@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { RhExtratoDetalhe, RhExtratoResumo } from "../../api/client";
 
@@ -8,10 +8,10 @@ vi.mock("../../api/client", () => ({
   getRhExtratoPdf: vi.fn(),
 }));
 
-import { getRhExtrato, listarRhExtratos } from "../../api/client";
+import { getRhExtrato, getRhExtratoPdf, listarRhExtratos } from "../../api/client";
 import { SessionContext, type SessionContextValue } from "../../context/SessionContext";
 import { HideValuesProvider } from "../../design-system";
-import { ExtratosGuardados } from "../ExtratosGuardados";
+import { ExtratosGuardados, abrirPdf } from "../ExtratosGuardados";
 
 const SESSAO = {
   user: null, setUser: () => undefined, hideSensitiveValues: false, toggleSensitiveValues: () => undefined,
@@ -65,11 +65,81 @@ describe("ExtratosGuardados", () => {
     expect(screen.getByText("HORAS NORMAIS")).toBeInTheDocument();
   });
 
+  test("o holerite da pessoa abre por um botão de verdade (teclado), com aria-expanded no botão e não na linha", async () => {
+    renderizar();
+    fireEvent.click(await screen.findByRole("button", { name: /Pessoas/ }));
+    const botao = await screen.findByRole("button", { name: /CICRANA DA SILVA/ });
+    expect(botao.getAttribute("aria-expanded")).toBe("false");
+    expect(botao.closest("tr")!.hasAttribute("aria-expanded")).toBe(false);
+    fireEvent.click(botao);
+    expect(botao.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("HORAS NORMAIS")).toBeInTheDocument();
+    fireEvent.click(botao);
+    expect(screen.queryByText("HORAS NORMAIS")).toBeNull();
+  });
+
+  test("alternar rápido entre extratos: a resposta atrasada do primeiro não aparece no segundo", async () => {
+    const OUTRO: RhExtratoResumo = { ...RESUMO, id: "x2", empresa: "OUTRA FICTICIA LTDA" };
+    vi.mocked(listarRhExtratos).mockResolvedValue([RESUMO, OUTRO]);
+    let soltarPrimeiro: (d: RhExtratoDetalhe) => void = () => undefined;
+    vi.mocked(getRhExtrato)
+      .mockImplementationOnce(() => new Promise((r) => { soltarPrimeiro = r; }))
+      .mockResolvedValueOnce({ ...DETALHE, id: "x2", pessoas: [{ ...DETALHE.pessoas[0], id: "p2", nome: "BELTRANO SEGUNDO" }] });
+    renderizar();
+    await screen.findByText("OUTRA FICTICIA LTDA");
+    const [b1, b2] = screen.getAllByRole("button", { name: /Pessoas/ });
+    fireEvent.click(b1);
+    fireEvent.click(b2);
+    expect(await screen.findByText("BELTRANO SEGUNDO")).toBeInTheDocument();
+    await act(async () => { soltarPrimeiro(DETALHE); });
+    expect(screen.queryByText("CICRANA DA SILVA")).toBeNull();
+    expect(screen.getByText("BELTRANO SEGUNDO")).toBeInTheDocument();
+  });
+
   test("sem permissão explica em vez de mostrar erro", async () => {
     vi.mocked(listarRhExtratos).mockRejectedValue(new Error("Os extratos do RH têm salário e descontos de cada pessoa: só quem pode ver Funcionários tem acesso."));
     const onErro = vi.fn();
     renderizar(onErro);
     expect(await screen.findByText(/só quem pode ver Funcionários/)).toBeInTheDocument();
     expect(onErro).not.toHaveBeenCalled();
+  });
+});
+
+describe("abrirPdf", () => {
+  test("download falhou: fecha a aba em branco aberta antes e repassa o erro", async () => {
+    const aba = { close: vi.fn(), location: { href: "" } };
+    const open = vi.spyOn(window, "open").mockReturnValue(aba as unknown as Window);
+    vi.mocked(getRhExtratoPdf).mockRejectedValue(new Error("PDF não encontrado"));
+    await expect(abrirPdf("x1", "Extrato.pdf")).rejects.toThrow("PDF não encontrado");
+    expect(aba.close).toHaveBeenCalled();
+    open.mockRestore();
+  });
+
+  test("pop-up bloqueado (sem aba) e download falhou: só repassa o erro", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    vi.mocked(getRhExtratoPdf).mockRejectedValue(new Error("falhou"));
+    await expect(abrirPdf("x1", "Extrato.pdf")).rejects.toThrow("falhou");
+    open.mockRestore();
+  });
+});
+
+describe("ExtratosGuardados — lista recarregada (troca de ano ou nova importação)", () => {
+  test("resposta atrasada da busca anterior não sobrescreve a lista mais nova", async () => {
+    const ANTIGO: RhExtratoResumo = { ...RESUMO, id: "velho", empresa: "LISTA ATRASADA LTDA" };
+    let soltarPrimeira: (l: RhExtratoResumo[]) => void = () => undefined;
+    vi.mocked(listarRhExtratos)
+      .mockImplementationOnce(() => new Promise((r) => { soltarPrimeira = r; }))
+      .mockResolvedValue([RESUMO]);
+    const { rerender } = renderizar();
+    // Recarregar (nova importação) dispara a segunda busca enquanto a primeira não voltou.
+    rerender(
+      <SessionContext.Provider value={SESSAO}>
+        <HideValuesProvider><ExtratosGuardados onErro={vi.fn()} recarregar={1} /></HideValuesProvider>
+      </SessionContext.Provider>,
+    );
+    expect(await screen.findByText("RESTAURANTE FICTICIO LTDA")).toBeInTheDocument();
+    await act(async () => { soltarPrimeira([ANTIGO]); });
+    await waitFor(() => expect(screen.queryByText("LISTA ATRASADA LTDA")).toBeNull());
+    expect(screen.getByText("RESTAURANTE FICTICIO LTDA")).toBeInTheDocument();
   });
 });

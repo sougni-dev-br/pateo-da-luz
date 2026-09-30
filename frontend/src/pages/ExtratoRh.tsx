@@ -1,7 +1,7 @@
 import { Banknote, CheckCircle2, FileUp, Upload } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { ExtratoPreview, ImportExtratoResult, importExtratoRh, previewExtratoRh } from "../api/client";
-import { confirmacaoImportar, resumoImportacao, textoBotaoImportar } from "./extratoRhTextos";
+import { avisosSoDaImportacao, confirmacaoImportar, resumoImportacao, textoBotaoImportar } from "./extratoRhTextos";
 import { Notice, useNotice } from "../components/Notice";
 import { Alert, Button, FormGrid, Money, StatusBadge, SummaryCard, Table } from "../design-system";
 import { ExtratosGuardados } from "./ExtratosGuardados";
@@ -21,15 +21,21 @@ export function ExtratoRh() {
   const [base64, setBase64] = useState("");
   const [preview, setPreview] = useState<ExtratoPreview | null>(null);
   const [result, setResult] = useState<ImportExtratoResult | null>(null);
+  // Avisos que só a importação trouxe (a prévia é trocada logo depois de importar).
+  const [avisosImportacao, setAvisosImportacao] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Arquivo da vez: a prévia refeita depois de importar é descartada se outro PDF foi escolhido nesse meio-tempo.
+  const arquivoDaVez = useRef(0);
   // Muda a cada importação: a lista de extratos guardados recarrega sozinha.
   const [importacoes, setImportacoes] = useState(0);
   const erroDaLista = useCallback((message: string) => setNotice({ tone: "error", message }), [setNotice]);
 
   async function handleFile(file: File) {
+    const vez = ++arquivoDaVez.current;
     setBusy(true);
     setFileName(file.name);
     setResult(null);
+    setAvisosImportacao([]);
     try {
       const b64: string = await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -37,8 +43,10 @@ export function ExtratoRh() {
         reader.onerror = () => reject(new Error("Falha ao ler o arquivo."));
         reader.readAsDataURL(file);
       });
+      if (vez !== arquivoDaVez.current) return;
       setBase64(b64);
       const p = await previewExtratoRh(b64);
+      if (vez !== arquivoDaVez.current) return;
       setPreview(p);
       setNotice({ tone: "success", message: `Extrato lido: ${p.items.length} funcionário(s), ${p.matchedCount} casaram com o cadastro.` });
     } catch (e) {
@@ -53,15 +61,30 @@ export function ExtratoRh() {
     if (!preview || !base64) return;
     if (!window.confirm(confirmacaoImportar(preview))) return;
     setImporting(true);
+    const vez = arquivoDaVez.current;
     try {
       const r = await importExtratoRh(base64, fileName || "extrato.pdf");
       setResult(r);
+      setAvisosImportacao(avisosSoDaImportacao(r, preview));
       setImportacoes((n) => n + 1);
       setNotice({ tone: "success", message: resumoImportacao(r) + (r.funcionariosCadastrados > 0 ? ` ${r.funcionariosCadastrados} funcionário(s) cadastrado(s).` : "") });
+      await refazerPrevia(vez);
     } catch (e) {
       setNotice({ tone: "error", message: (e as Error).message });
     } finally {
       setImporting(false);
+    }
+  }
+
+  // Depois de importar, a prévia antiga ainda diria "Lançar" como se nada existisse:
+  // relê o mesmo arquivo para o botão e a confirmação passarem a "Atualizar". Se a
+  // releitura falhar, some com a prévia (o resultado continua na tela).
+  async function refazerPrevia(vez: number) {
+    try {
+      const p = await previewExtratoRh(base64);
+      if (vez === arquivoDaVez.current) setPreview(p);
+    } catch {
+      if (vez === arquivoDaVez.current) setPreview(null);
     }
   }
 
@@ -153,6 +176,9 @@ export function ExtratoRh() {
             </span>
           </div>
 
+        </>
+      )}
+
           {result && (
             <Alert tone="success">
               {resumoImportacao(result)} Total {result.totalLiquido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
@@ -160,8 +186,14 @@ export function ExtratoRh() {
               {" "}{result.extratoAtualizado ? "Este arquivo já estava guardado: o registro foi completado, sem duplicar." : "O PDF e os holerites foram guardados."}
             </Alert>
           )}
-        </>
-      )}
+
+          {result && avisosImportacao.length > 0 && (
+            <Alert tone="warning" title={`${avisosImportacao.length} aviso(s) da importação`}>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {avisosImportacao.map((a, i) => <li key={i}>{a}</li>)}
+              </ul>
+            </Alert>
+          )}
 
       <ExtratosGuardados recarregar={importacoes} onErro={erroDaLista} />
     </div>

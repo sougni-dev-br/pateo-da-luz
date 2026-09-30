@@ -206,6 +206,9 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
   }
 
   // Férias que tocam este mês: os dias de férias não contam VT (funcionário não vem).
+  // Duas fontes, somadas por dia: o lançamento FERIAS da Folha (período) e a marca
+  // FERIAS na Escala. Antes só a Folha contava — quem tinha as férias marcadas só na
+  // escala (lançamento ainda não feito) recebia vale para os dias em que não vinha.
   const feriasItems = await prisma.payrollItem.findMany({
     where: {
       employeeId: { in: empIds }, type: "FERIAS", deletedAt: null,
@@ -223,6 +226,18 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
     for (let d = from.getUTCDate(); d <= to.getUTCDate(); d++) s.add(d);
     feriasByEmp.set(f.employeeId, s);
   }
+  // O aviso de "férias e salário na mesma competência" é sobre pagar em dobro: continua
+  // só para quem tem o lançamento de férias, não para a marca da escala.
+  const comFeriasNaFolha = new Set(feriasItems.map((f) => f.employeeId));
+  const feriasNaEscala = await prisma.employeeScheduleDay.findMany({
+    where: { employeeId: { in: empIds }, date: { gte: monthStart, lt: nextMonthStart }, type: "FERIAS" },
+    select: { employeeId: true, date: true },
+  });
+  for (const f of feriasNaEscala) {
+    const s = feriasByEmp.get(f.employeeId) ?? new Set<number>();
+    s.add(f.date.getUTCDate());
+    feriasByEmp.set(f.employeeId, s);
+  }
 
   const dreCats = await prisma.dRECategory.findMany({
     where: { name: { in: [FOLHA_CATEGORY, VT_CATEGORY] } },
@@ -233,10 +248,15 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
 
   const existingRows = await prisma.payrollItem.findMany({
     where: { competenceYear: year, competenceMonth: month, deletedAt: null },
-    select: { employeeId: true, type: true, periodLabel: true, amount: true, workedDays: true, freeDays: true },
+    select: { employeeId: true, type: true, periodLabel: true, amount: true, workedDays: true, freeDays: true, source: true },
   });
   const existingByKey = new Map(existingRows.map((e) => [`${e.employeeId}|${e.type}|${e.periodLabel}`, e]));
   const existsKey = new Set(existingByKey.keys());
+  // Salário/adiantamento que já veio do extrato da contabilidade (rótulo "Extrato MM/AAAA"
+  // ou "Adiantamento MM/AAAA", não "Salário"/"Adiantamento"): gerar a folha criaria o
+  // mesmo pagamento de novo, com outro rótulo. Conta como já existente e avisa.
+  const doExtrato = new Set(existingRows.filter((e) => e.source === "EXTRATO_RH").map((e) => `${e.employeeId}|${e.type}`));
+  const mmaaaa = `${String(month).padStart(2, "0")}/${year}`;
 
   const items: ComputedItem[] = [];
   const warnings: string[] = [];
@@ -249,6 +269,11 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
   if (!dreVt) {
     warnings.push(`Categoria de DRE "${VT_CATEGORY}" nao encontrada — o vale-transporte vai ficar sem categoria no DRE.`);
   }
+  const jaVeioDoExtrato = (employeeId: string, name: string, tipo: "ADIANTAMENTO" | "SALARIO") => {
+    if (!doExtrato.has(`${employeeId}|${tipo}`)) return false;
+    warnings.push(`${name}: ${tipo === "ADIANTAMENTO" ? "adiantamento" : "salário"} de ${mmaaaa} já veio do extrato da contabilidade; não gerado de novo.`);
+    return true;
+  };
 
 
   for (const emp of employees) {
@@ -439,7 +464,7 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
     // ── Adiantamento + Salário ──
     const vigente = vigentes.get(emp.id)!;
     const base = round2(Number(vigente.baseSalary ?? 0));
-    if (base > 0 && feriaDays.size > 0) {
+    if (base > 0 && comFeriasNaFolha.has(emp.id)) {
       warnings.push(`${name} tem férias e salário na mesma competência (${String(month).padStart(2, "0")}/${year}) — confira os valores para não pagar em dobro.`);
     }
     if (base > 0) {
@@ -455,7 +480,7 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
         amount: advance, workedDays: null, freeDays: null, quinzena: null,
         dreCategoryId: dreFolha?.id ?? null, dreCategoryName: dreFolha?.name ?? null,
         details: { base, percent: Number(settings.advancePercent) },
-        exists: existsKey.has(`${emp.id}|ADIANTAMENTO|Adiantamento`),
+        exists: existsKey.has(`${emp.id}|ADIANTAMENTO|Adiantamento`) || jaVeioDoExtrato(emp.id, name, "ADIANTAMENTO"),
       });
       const ny = month === 12 ? year + 1 : year;
       const nm = month === 12 ? 1 : month + 1;
@@ -466,7 +491,7 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
         dueDate: isoDate(ny, nm, Math.min(settings.salaryDueDay, nmDays)),
         amount: salary, workedDays: null, freeDays: null, quinzena: null,
         dreCategoryId: dreFolha?.id ?? null, dreCategoryName: dreFolha?.name ?? null,
-        details: { base, advance }, exists: existsKey.has(`${emp.id}|SALARIO|Salário`),
+        details: { base, advance }, exists: existsKey.has(`${emp.id}|SALARIO|Salário`) || jaVeioDoExtrato(emp.id, name, "SALARIO"),
       });
     }
   }

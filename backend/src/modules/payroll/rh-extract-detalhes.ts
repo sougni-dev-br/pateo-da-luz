@@ -73,9 +73,35 @@ function dataIso(v: string | undefined | null): string | null {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
 }
 
+// CPF em qualquer das formas que o PDF (ou quem digitou) produz: "123.456.789-01",
+// "123 456 789 01", "123. 456. 789 - 01" ou 11 dígitos seguidos. As bordas impedem
+// pegar pedaço de número maior: nada de dígito, ponto ou vírgula colado antes, nem
+// dígito, vírgula ou ".dígito" depois. Por isso valores em reais (1.234,56 ou
+// 123.456.789,01 — a vírgula não é separador de CPF), CNPJ (14 dígitos) e matrículas
+// curtas ficam intactos. Telefone com DDD (11 dígitos seguidos) também é mascarado:
+// preferível a deixar passar um CPF sem pontuação.
+const SEP_CPF = "(?: ?[.\\-] ?| )?";
+const CPF_NO_TEXTO = new RegExp(
+  `(?<![\\d.,])\\d{3}${SEP_CPF}\\d{3}${SEP_CPF}\\d{3}${SEP_CPF}\\d{2}(?![\\d,]|[.\\-]\\d)`,
+  "g",
+);
+
 // Tira do texto qualquer CPF (formatado ou só dígitos) antes de gravar.
 export function semCpf(texto: string): string {
-  return texto.replace(/\d{3}\.\d{3}\.\d{3}-\d{2}/g, "***.***.***-**");
+  return texto.replace(CPF_NO_TEXTO, "***.***.***-**");
+}
+
+// Funcionários lidos do extrato (RhExtract.data) sem cpf/cpfNorm: o CPF só serve para
+// casar com o cadastro na hora da importação e não fica guardado. Aceita o JSON cru do
+// banco (registros antigos têm os dois campos); o que não for lista volta como veio.
+export function funcionariosSemCpf(data: unknown): unknown {
+  if (!Array.isArray(data)) return data;
+  return data.map((f) => {
+    if (!f || typeof f !== "object" || Array.isArray(f)) return f;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { cpf: _cpf, cpfNorm: _cpfNorm, ...resto } = f as Record<string, unknown>;
+    return resto;
+  });
 }
 
 // Remove cabeçalho e rodapé de cada página: um bloco de pessoa pode atravessar a quebra.

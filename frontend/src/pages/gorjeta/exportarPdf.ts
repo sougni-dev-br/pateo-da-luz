@@ -1,5 +1,5 @@
 import type { TipComputation, TipComputedParticipant, TipFolhaLiquidos } from "../../api/client";
-import { MONTHS, fmtDate, money, ordenar } from "./gorjetaUtils";
+import { MONTHS, NOTA_ADIANTAMENTO_OCULTO, adiantamentoOculto, fmtDate, money, ordenar } from "./gorjetaUtils";
 
 type AutoTable = (doc: unknown, options: Record<string, unknown>) => void;
 
@@ -57,11 +57,19 @@ export async function exportarContabilidade(comp: TipComputation) {
   doc.save(`Gorjeta_Contabilidade_${MONTHS[comp.month - 1]}_${comp.year}.pdf`);
 }
 
+/** Célula do adiantamento no PDF: null = sem permissão ("oculto"); 0 = não recebe (vazio). */
+export function celulaAdiantamento(valor: number | null | undefined): string {
+  if (valor == null) return "oculto";
+  return valor ? `− ${money(valor)}` : "";
+}
+
 // Lista de pagamento dos sem registro: salário proporcional − adiantamento + gorjeta − vales + créditos.
 export async function exportarListaPagamento(comp: TipComputation) {
   const { doc, autoTable, finalY } = await novoPdf("Lista de Pagamento — Sem registro", comp);
   const lista = ordenar(comp.participants).filter((p) => p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && !p.pagoNaRescisao);
   const totalAdiantamento = lista.reduce((a, p) => a + (p.adiantamentoSalarial ?? 0), 0);
+  // Sem permissão o adiantamento vem null: "oculto", não vazio (que leria como zero).
+  const oculto = adiantamentoOculto(lista);
   autoTable(doc, {
     ...estilo,
     startY: 30,
@@ -70,14 +78,14 @@ export async function exportarListaPagamento(comp: TipComputation) {
       p.employeeName + (p.tipoCalculo === "MES" ? "" : ` (saída ${fmtDate(p.terminationDate)})`),
       String(p.diasSalario),
       money(p.salarioProporcional),
-      p.adiantamentoSalarial ? `− ${money(p.adiantamentoSalarial)}` : "",
+      celulaAdiantamento(p.adiantamentoSalarial),
       money(p.rateioAmount),
       p.descontos ? `− ${money(p.descontos)}` : "",
       p.creditos ? money(p.creditos) : "",
       money(p.totalAPagar),
       p.pixKey ?? "",
     ]),
-    foot: [["Total", "", money(lista.reduce((a, p) => a + p.salarioProporcional, 0)), totalAdiantamento ? `− ${money(totalAdiantamento)}` : "",
+    foot: [["Total", "", money(lista.reduce((a, p) => a + p.salarioProporcional, 0)), celulaAdiantamento(oculto ? null : totalAdiantamento),
       money(lista.reduce((a, p) => a + p.rateioAmount, 0)), "", "", money(lista.reduce((a, p) => a + p.totalAPagar, 0)), ""]],
     columnStyles: {
       1: { halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" },
@@ -87,7 +95,9 @@ export async function exportarListaPagamento(comp: TipComputation) {
   doc.setTextColor(120);
   doc.text("Salário calculado como registrado: salário ÷ 30 × dias (mês inteiro = 30; faltas injustificadas descontam).", 14, finalY() + 8);
   // O adiantamento já foi pago no dia dele: a lista só leva o que falta.
-  if (comp.adiantamento) {
+  if (oculto) {
+    doc.text(`Adiantamento oculto (sem permissão de ver Funcionários). ${NOTA_ADIANTAMENTO_OCULTO}`, 14, finalY() + 12);
+  } else if (comp.adiantamento) {
     const { percent, dia } = comp.adiantamento;
     doc.text(`Adiantamento = ${percent.toLocaleString("pt-BR")}% do salário base, pago no dia ${dia}, para quem recebe adiantamento (cadastro).`, 14, finalY() + 12);
   }

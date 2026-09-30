@@ -108,3 +108,18 @@ describe("adiantamento salarial no cálculo da gorjeta", () => {
     expect(comp.participants[0].adiantamentoSalarial).toBe(880);
   });
 });
+
+describe("total de adiantamentos com quem foi pago na rescisão", () => {
+  test("aberto: o total não soma quem foi pago na rescisão (o fechado grava zero para ele); o valor da pessoa fica", async () => {
+    periodo("OPEN", [participante({}, { terminationDate: d("2026-09-22") })]);
+    db.payrollItem.findMany.mockImplementation(async ({ where }: { where: { type?: string } }) => (where.type === "RESCISAO"
+      ? [{ employeeId: "e1", amount: 1500, dueDate: d("2026-10-01"), status: "PENDING", details: null }]
+      : []));
+    const comp = await computeTipCommission(2026, 9, { incluirDadosPessoais: true });
+    const p = comp.participants[0];
+    expect(p.pagoNaRescisao).toBe(true);
+    // A apuração da rescisão lê este valor para descontar o adiantamento já pago.
+    expect(p.adiantamentoSalarial).toBeGreaterThan(0);
+    expect(comp.totals.adiantamentos).toBe(0);
+  });
+});

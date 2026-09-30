@@ -87,3 +87,42 @@ describe("seção na tela", () => {
     expect(screen.getByRole("status").textContent).toMatch(/2 marcação\(ões\) de turno/);
   });
 });
+
+describe("teclado", () => {
+  test("célula editável entra no Tab e Enter/Espaço marcam como o clique", () => {
+    const onMarcar = montar(new Map([["r|2", "FALTA"]]));
+    const dia1 = screen.getByRole("button", { name: "Rita Souza, dia 1" });
+    expect(dia1).toHaveAttribute("tabindex", "0");
+    fireEvent.keyDown(dia1, { key: "Enter" });
+    expect(onMarcar).toHaveBeenLastCalledWith("r", 1, "FOLGA");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Rita Souza, dia 2: Falta" }), { key: " " });
+    expect(onMarcar).toHaveBeenLastCalledWith("r", 2, "ATESTADO");
+    fireEvent.keyDown(dia1, { key: "a" });
+    expect(onMarcar).toHaveBeenCalledTimes(2);
+  });
+
+  test("sem permissão de editar, a célula não é botão nem entra no Tab", () => {
+    montar(new Map(), { canEdit: false });
+    expect(screen.queryByRole("button", { name: /Rita Souza, dia/ })).toBeNull();
+    expect(screen.getByLabelText("Rita Souza, dia 1")).not.toHaveAttribute("tabindex");
+  });
+
+  test("férias da Folha: célula \"Fér\" sem Tab e sem teclado", () => {
+    const onMarcar = montar(new Map(), { isFerias: (_id, dia) => dia === 2 });
+    const fer = screen.getByLabelText("Rita Souza, dia 2: Férias (Folha)");
+    expect(fer.textContent).toBe("Fér");
+    expect(fer).not.toHaveAttribute("tabindex");
+    fireEvent.keyDown(fer, { key: "Enter" });
+    expect(onMarcar).not.toHaveBeenCalled();
+  });
+});
+
+describe("contagem Ocor.", () => {
+  test("não conta marca antiga em dia que mostra \"Fér\" (férias da Folha)", () => {
+    // Marca de falta no dia 2 ficou da escala, mas a Folha diz férias nesse dia: a célula mostra "Fér".
+    montar(new Map<string, ScheduleDayType>([["r|1", "FOLGA"], ["r|2", "FALTA"]]), { isFerias: (_id, dia) => dia === 2 });
+    const linha = screen.getByText("Rita Souza").closest("tr")!;
+    expect(linha.querySelector('td[title="Ocorrências marcadas no mês"]')!.textContent).toBe("1");
+    expect(screen.getByRole("button", { name: /Fora da escala/ }).textContent).toContain("1 ocorrência(s) no mês");
+  });
+});

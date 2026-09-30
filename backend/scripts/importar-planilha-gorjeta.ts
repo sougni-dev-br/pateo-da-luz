@@ -26,6 +26,7 @@ import { PrismaClient } from "@prisma/client";
 import { registrarHistorico } from "../src/modules/payroll/tip-historico.service.js";
 import { registrarAlteracoes } from "../src/modules/payroll/cadastro-historico.service.js";
 import { auditLog } from "../src/modules/security/security-utils.js";
+import { conferirDestino } from "../src/lib/destino-banco.js";
 
 const prisma = new PrismaClient();
 
@@ -48,12 +49,10 @@ const aceitarAproximados = args.includes("--aceitar-aproximados");
 const nomeReserva = opcoes.get("--reserva") ?? "Ricardo Almeida";
 const arquivoAcertos = opcoes.get("--acertos") ?? null;
 
-// Para onde vai gravar: mostra o host sempre; produção (Render) só com --producao.
-const destino = (() => { try { return new URL(process.env.DATABASE_URL ?? "").hostname || "?"; } catch { return "?"; } })();
+// Para onde vai gravar: mostra o host sempre. Sem --producao só grava em banco local
+// (localhost, 127.0.0.1, ::1, host.docker.internal); qualquer outro host exige --producao.
+const { host: destino } = conferirDestino(args, process.env.DATABASE_URL);
 console.log(`Banco de destino: ${destino}${aplicar ? " (GRAVANDO)" : " (simulação)"}`);
-if (aplicar && /render\.com$/.test(destino) && !args.includes("--producao")) {
-  throw new Error("O destino é o banco de produção: confirme com --producao junto de --aplicar.");
-}
 if (process.env.TZ !== "UTC") console.warn("Aviso: rode com TZ=UTC (as datas de produção são em UTC).");
 
 // cadastro: o nome como está no ERP, quando a planilha escreve diferente ("Elenice Tais" → "Elenice Alves").

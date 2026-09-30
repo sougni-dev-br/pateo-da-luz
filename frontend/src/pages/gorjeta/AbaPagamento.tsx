@@ -1,4 +1,4 @@
-import { FileText } from "lucide-react";
+import { FileText, Lock } from "lucide-react";
 import { type CSSProperties, useMemo } from "react";
 import type { TipComputation, TipComputedParticipant } from "../../api/client";
 import { Alert, Button, Money, StatusBadge, Table } from "../../design-system";
@@ -10,7 +10,7 @@ import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { NomePessoa, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
-  type LocalRow, type RowPatch, estimarAdicionais, fmtDate, fmtHoras, inputStyle, money, mutedStyle, numInputStyle, ordenar, panelStyle, parseHoras, pts,
+  type LocalRow, type RowPatch, NOTA_ADIANTAMENTO_OCULTO, adiantamentoOculto, estimarAdicionais, fmtDate, fmtHoras, inputStyle, money, mutedStyle, numInputStyle, ordenar, panelStyle, parseHoras, pts,
 } from "./gorjetaUtils";
 
 const EXTRATORES: Extratores<TipComputedParticipant> = {
@@ -56,6 +56,20 @@ type Props = {
   onError: (message: string) => void;
 };
 
+// Adiantamento já pago sai do total: aparece negativo pelo <Money> (respeita "ocultar valores").
+// null = sem permissão de ver Funcionários: "oculto", nunca "—" (que leria como zero).
+function CelulaAdiantamento({ valor }: { valor: number | null | undefined }) {
+  if (valor == null) {
+    return (
+      <span style={{ ...mutedStyle, display: "inline-flex", alignItems: "center", gap: 4 }}
+        title={`Sem permissão de ver o adiantamento. ${NOTA_ADIANTAMENTO_OCULTO}`}>
+        <Lock size={12} aria-hidden="true" />oculto
+      </span>
+    );
+  }
+  return valor ? <Money value={-valor} /> : <>—</>;
+}
+
 export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   const rowPorFuncionario = useMemo(() => new Map(rows.map((r) => [r.employeeId, r])), [rows]);
   const participantes = useMemo(() => ordenar(comp.participants).filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO"), [comp]);
@@ -98,7 +112,11 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 
   // Adiantamento salarial já pago (sem registro que recebe no dia do adiantamento): sai do total.
   const totalAdiantamento = semRegistroFilt.reduce((a, p) => a + (p.adiantamentoSalarial ?? 0), 0);
-  const tituloAdiantamento = comp.adiantamento
+  // Sem permissão o valor vem null: mostra "oculto" (não "—", que parece zero) e não expõe a regra.
+  const adiantOculto = adiantamentoOculto(semRegistro);
+  const tituloAdiantamento = adiantOculto
+    ? `Adiantamento salarial já pago: sai do total. Sem permissão de ver o valor; ${NOTA_ADIANTAMENTO_OCULTO}`
+    : comp.adiantamento
     ? `${comp.adiantamento.percent.toLocaleString("pt-BR")}% do salário base, pago no dia ${comp.adiantamento.dia}, para quem recebe adiantamento (cadastro). Já pago: sai do total.`
     : "Adiantamento salarial já pago: sai do total.";
 
@@ -263,6 +281,9 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
         {!veSalario && semRegistro.length > 0 && (
           <Alert tone="warning">Salário e PIX só aparecem para quem tem permissão de ver Funcionários.</Alert>
         )}
+        {adiantOculto && semRegistro.length > 0 && vp("adiantamento") && (
+          <span style={mutedStyle}>Adiantamento oculto (sem permissão): {NOTA_ADIANTAMENTO_OCULTO}</span>
+        )}
         {semRegistro.length > 0 && (
           <BarraFiltro filtro={filtroP} total={semRegistro.length} visiveis={semRegistroFilt.length} placeholder="Filtrar por nome, apelido, PIX…"
             listas={[{ chave: "situacao", rotulo: "Situação", opcoes: OPCOES_SITUACAO.filter((o) => o.valor !== "Paga na rescisão") }]} />
@@ -327,7 +348,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                       <Table.Td><Money value={p.salarioProporcional} /></Table.Td>
 )}
 {vp("adiantamento") && (
-                      <Table.Td>{p.adiantamentoSalarial ? `− ${money(p.adiantamentoSalarial)}` : "—"}</Table.Td>
+                      <Table.Td><CelulaAdiantamento valor={p.adiantamentoSalarial} /></Table.Td>
 )}
 {vp("gorjeta") && (
                       <Table.Td><Money value={p.rateioAmount} /></Table.Td>
@@ -349,7 +370,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                   {vp("salarioBase") && <Table.Td> </Table.Td>}
                   {vp("dias") && <Table.Td> </Table.Td>}
                   {vp("salario") && <Table.Td style={totalTd}><Money value={semRegistroFilt.reduce((a, p) => a + p.salarioProporcional, 0)} /></Table.Td>}
-                  {vp("adiantamento") && <Table.Td style={totalTd}>{totalAdiantamento ? `− ${money(totalAdiantamento)}` : "—"}</Table.Td>}
+                  {vp("adiantamento") && <Table.Td style={totalTd}><CelulaAdiantamento valor={adiantOculto ? null : totalAdiantamento} /></Table.Td>}
                   {vp("gorjeta") && <Table.Td style={totalTd}><Money value={semRegistroFilt.reduce((a, p) => a + p.rateioAmount, 0)} /></Table.Td>}
                   {vp("vales") && <Table.Td> </Table.Td>}
                   {vp("aPagar") && <Table.Td style={{ fontWeight: 700 }}><Money value={semRegistroFilt.reduce((a, p) => a + p.totalAPagar, 0)} /></Table.Td>}
