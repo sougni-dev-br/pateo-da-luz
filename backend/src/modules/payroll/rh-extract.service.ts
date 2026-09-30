@@ -212,6 +212,34 @@ export async function contarLancamentosExistentes(
   return contados.size;
 }
 
+// Adiantamento tirado da folha do mês: só quando o mês ainda não tem o adiantamento
+// daquela pessoa (ativo ou excluído — o excluído à mão continua excluído). Devolve se criou.
+export async function lancarAdiantamentoDaFolha(a: {
+  employeeId: string; competenceYear: number; competenceMonth: number; mmaaaa: string; valor: number;
+  diaAdiantamento: number; dreCategoryId: string | null; empresa: string; userId: string;
+}): Promise<boolean> {
+  const periodLabel = `Adiantamento ${a.mmaaaa}`;
+  const chave = { employeeId: a.employeeId, type: "ADIANTAMENTO" as const, competenceYear: a.competenceYear, competenceMonth: a.competenceMonth, periodLabel };
+  const existe = await prisma.payrollItem.findUnique({
+    where: { employeeId_type_competenceYear_competenceMonth_periodLabel: chave }, select: { id: true },
+  });
+  if (existe) return false;
+  const ultimoDia = new Date(Date.UTC(a.competenceYear, a.competenceMonth, 0)).getUTCDate();
+  await prisma.payrollItem.create({
+    data: {
+      id: crypto.randomUUID(), ...chave,
+      dueDate: new Date(Date.UTC(a.competenceYear, a.competenceMonth - 1, Math.min(a.diaAdiantamento, ultimoDia))),
+      amount: Math.round(a.valor * 100) / 100, dreCategoryId: a.dreCategoryId, source: "EXTRATO_RH",
+      details: {
+        calculo: "ADIANTAMENTO", origem: "FOLHA_DO_MES", empresa: a.empresa, adiantamentoBruto: a.valor,
+        observacao: "Tirado do desconto DESC.ADIANT.SALARIAL da folha do mês: valor bruto (antes do IRRF retido, sem o troco).",
+      },
+      createdById: a.userId,
+    },
+  });
+  return true;
+}
+
 export type ImportExtratoResult = {
   calculo: CalculoExtrato;
   // Dos títulos gravados, quantos já existiam (foram atualizados) e quantos são novos
@@ -220,6 +248,8 @@ export type ImportExtratoResult = {
   titulosNovos: number;
   // Não gravados: excluídos à mão (cada um vira aviso) e líquido zero sem lançamento.
   titulosPulados: number;
+  // Folha do mês: adiantamentos criados a partir do desconto da folha (sem o extrato do dia 20).
+  adiantamentosDaFolha: number;
   empresa: string;
   companyId: string;
   competenceYear: number;
@@ -296,6 +326,7 @@ export async function importExtrato(opts: {
   let titulosNovos = 0;
   let titulosPulados = 0;
   let zerados = 0;
+  let adiantamentosDaFolha = 0;
   const avisosDaImportacao: string[] = [];
   for (const f of parsed.funcionarios) {
     let empId = f.cpfNorm ? byCpf.get(f.cpfNorm) : undefined;
@@ -310,6 +341,14 @@ export async function importExtrato(opts: {
       if (f.cpfNorm) byCpf.set(f.cpfNorm, empId);
     }
     if (adiantamento) await converterAdiantamentoGravadoComoSalario(empId, competenceYear, competenceMonth, mmaaaa, periodLabel, f.liquido, opts.userId);
+    // Folha do mês sem o extrato do adiantamento: o desconto DESC.ADIANT.SALARIAL diz quanto
+    // foi adiantado no dia 20. Sem lançamento de adiantamento no mês, cria um a partir dele
+    // (valor bruto: antes do IRRF retido e sem o troco). O extrato do adiantamento, se vier
+    // depois, cai na mesma chave e acerta para o valor pago.
+    if (!adiantamento && (f.adiantamento ?? 0) > 0 && await lancarAdiantamentoDaFolha({
+      employeeId: empId, competenceYear, competenceMonth, mmaaaa, valor: f.adiantamento!,
+      diaAdiantamento: settings?.advanceDueDay ?? 20, dreCategoryId, empresa: parsed.empresa, userId: opts.userId,
+    })) adiantamentosDaFolha += 1;
 
     const chaveUnica = { employeeId: empId, type: tipo, competenceYear, competenceMonth, periodLabel };
     const existente = await prisma.payrollItem.findUnique({
@@ -350,6 +389,12 @@ export async function importExtrato(opts: {
   if (zerados > 0) {
     avisosDaImportacao.push(`${zerados} pessoa(s) com líquido zero no extrato: nenhum lançamento novo foi criado (ficam só no holerite guardado).`);
   }
+  if (adiantamentosDaFolha > 0) {
+    avisosDaImportacao.push(
+      `${adiantamentosDaFolha} adiantamento(s) de ${mmaaaa} lançado(s) a partir do desconto da folha (vencimento dia ${settings?.advanceDueDay ?? 20}): ` +
+      "valor bruto, antes do IRRF retido e sem o troco. Importe o extrato do adiantamento para acertar o valor pago.",
+    );
+  }
   const titulosGerados = titulosAtualizados + titulosNovos;
 
   const totalLiquido = Math.round(parsed.funcionarios.reduce((a, f) => a + f.liquido, 0) * 100) / 100;
@@ -368,7 +413,7 @@ export async function importExtrato(opts: {
 
   return {
     calculo: parsed.calculo, empresa: parsed.empresa, companyId, competenceYear, competenceMonth, totalLiquido, funcionariosCadastrados, titulosGerados,
-    titulosAtualizados, titulosNovos, titulosPulados,
+    titulosAtualizados, titulosNovos, titulosPulados, adiantamentosDaFolha,
     rhExtractId: rh.id, extratoAtualizado: rh.atualizado,
     pessoasLidas: detalhes.pessoas.length, pessoasConferidas: detalhes.pessoas.filter((p) => p.conferido).length,
     avisos: [...avisosDaImportacao, ...avisosDoPdf],

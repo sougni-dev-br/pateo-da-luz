@@ -145,3 +145,40 @@ describe("importExtrato — adiantamento gravado como salário", () => {
     expect(r.avisos[0]).toContain("(Adiantamento 09/2026) foi excluído à mão em 10/09");
   });
 });
+
+describe("folha do mês sem o extrato do adiantamento", () => {
+  const folhaComDesconto = () => extrato("Folha Mensal", "1.500,00")
+    .replace("980 ADIANTAMENTO SALARIAL P\t1.033,66\t40,00", "1 HORAS NORMAIS 981 1.033,66 D\tP\t2.533,66\t220,00 DESC.ADIANT.SALARIAL 1.033,66");
+  const chave = (args: { where: { employeeId_type_competenceYear_competenceMonth_periodLabel: { type: string } } }) =>
+    args.where.employeeId_type_competenceYear_competenceMonth_periodLabel.type;
+
+  test("cria o adiantamento a partir do desconto da folha, vencendo no dia 20", async () => {
+    textoDoPdf.atual = folhaComDesconto();
+    db.payrollItem.findUnique.mockResolvedValue(null);
+    const r = await importar();
+    const criados = db.payrollItem.create.mock.calls.map((c: [{ data: Record<string, unknown> }]) => c[0].data);
+    const adiant = criados.find((d: Record<string, unknown>) => d.type === "ADIANTAMENTO");
+    expect(adiant).toMatchObject({ amount: 1033.66, periodLabel: "Adiantamento 09/2026", source: "EXTRATO_RH" });
+    expect((adiant!.dueDate as Date).toISOString().slice(0, 10)).toBe("2026-09-20");
+    expect((adiant!.details as { origem: string }).origem).toBe("FOLHA_DO_MES");
+    expect(r.adiantamentosDaFolha).toBe(1);
+    expect(r.avisos.some((a) => a.includes("a partir do desconto da folha"))).toBe(true);
+  });
+
+  test("não cria quando o mês já tem o adiantamento (do extrato do dia 20 ou excluído à mão)", async () => {
+    textoDoPdf.atual = folhaComDesconto();
+    db.payrollItem.findUnique.mockImplementation(async (args: Parameters<typeof chave>[0]) =>
+      chave(args) === "ADIANTAMENTO" ? { id: "ja", deletedAt: null, deletedById: null } : null);
+    const r = await importar();
+    const tipos = db.payrollItem.create.mock.calls.map((c: [{ data: { type: string } }]) => c[0].data.type);
+    expect(tipos).not.toContain("ADIANTAMENTO");
+    expect(r.adiantamentosDaFolha).toBe(0);
+  });
+
+  test("o extrato do adiantamento não cria nada a partir da folha", async () => {
+    textoDoPdf.atual = extrato("Adiantamento");
+    db.payrollItem.findUnique.mockResolvedValue(null);
+    const r = await importar();
+    expect(r.adiantamentosDaFolha).toBe(0);
+  });
+});
