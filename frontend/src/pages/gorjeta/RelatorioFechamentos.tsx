@@ -259,6 +259,10 @@ function DetalheFechamento({ id, onVoltar, onErro }: { id: string; onVoltar: () 
     ["Líquido", money(num(t.netPool))],
     ["Cotas fixas", money(num(t.fixedTotal))],
     ["Rescisões", rescisoes.valor ? `${money(rescisoes.valor)} (${pts(rescisoes.pontos)} pts)` : "—"],
+    // Retrato antigo não tem o campo: até então a parte de quem saiu ficava com quem continua.
+    ...(rescisoes.valor || rescisoes.pontos
+      ? [["Parte de quem saiu", p.sobraRescisaoParaSaldo === true ? "Foi para o livre" : "Ficou com quem continua"] as [string, string]]
+      : []),
     ["Pontos disponíveis", pts(num(t.pontosDisponiveis))],
     ["Valor do ponto", money(num(t.pointValue))],
     ["Pontos da reserva", pts(num(p.reservaPontos))],

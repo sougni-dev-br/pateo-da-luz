@@ -202,6 +202,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       grossPool: true, servicoFaturamento: true, ajusteServico: true, ajusteServicoMotivo: true, deductionPercent: true,
       pointsTotal: true, periodStart: true, periodEnd: true, diasPadrao: true, reservaPontos: true,
       descontaFalta: true, descontaAtestado: true, descontaFerias: true, descontaOutros: true, proporcionalEntrada: true,
+      sobraRescisaoParaSaldo: true,
     },
   });
   const gross = numOrNull(b.grossPool);
@@ -299,6 +300,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       descontaFerias: boolOrUndefined(b.descontaFerias),
       descontaOutros: boolOrUndefined(b.descontaOutros),
       proporcionalEntrada: boolOrUndefined(b.proporcionalEntrada),
+      sobraRescisaoParaSaldo: boolOrUndefined(b.sobraRescisaoParaSaldo),
       reservaPontos: (() => { const n = numOrNull(b.reservaPontos); return n == null ? undefined : Math.max(0, n); })(),
       periodStart,
       periodEnd,
@@ -315,7 +317,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       ajusteServicoMotivo: period.ajusteServicoMotivo, deductionPercent: period.deductionPercent, pointsTotal: period.pointsTotal,
       periodStart: period.periodStart, periodEnd: period.periodEnd, diasPadrao: period.diasPadrao, reservaPontos: period.reservaPontos,
       descontaFalta: period.descontaFalta, descontaAtestado: period.descontaAtestado, descontaFerias: period.descontaFerias, descontaOutros: period.descontaOutros,
-      proporcionalEntrada: period.proporcionalEntrada,
+      proporcionalEntrada: period.proporcionalEntrada, sobraRescisaoParaSaldo: period.sobraRescisaoParaSaldo,
     },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });

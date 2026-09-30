@@ -53,6 +53,8 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     descontaFerias: comp.descontaFerias,
     descontaOutros: comp.descontaOutros,
     proporcionalEntrada: comp.proporcionalEntrada,
+    // Modo usado para a parte de quem saiu: explica o ponto do mês e o livre do retrato.
+    sobraRescisaoParaSaldo: comp.sobraRescisaoParaSaldo,
     reservaPontos: comp.reservaPontos,
   };
   const totals = {

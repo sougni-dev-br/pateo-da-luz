@@ -199,7 +199,10 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
   // Agrupado: a ordem vale dentro de cada grupo. Sem agrupar: uma lista só, como no Excel.
   const grupos = agrupar ? [
     { chave: "mes", titulo: "No mês", nota: null as string | null, lista: ordenados.filter((p) => p.tipoCalculo === "MES") },
-    { chave: "resc", titulo: "Desligados no período", nota: "Valor do ponto próprio (serviço até a saída, menos a retenção, ÷ 100). O valor e os pontos das rescisões saem antes de dividir o restante entre quem fica.",
+    { chave: "resc", titulo: "Desligados no período", nota: "Valor do ponto próprio (serviço até a saída, menos a retenção, ÷ 100). "
+      + (comp.sobraRescisaoParaSaldo
+        ? "O ponto do mês não desconta as rescisões: o que quem saiu deixou de ganhar depois da saída vai para o livre."
+        : "O valor e os pontos das rescisões saem antes de dividir o restante entre quem fica."),
       lista: ordenados.filter((p) => p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA") },
     { chave: "fora", titulo: "Fora do período", nota: "Saíram antes do início do período: não recebem nesta competência.",
       lista: ordenados.filter((p) => p.tipoCalculo === "FORA_DO_PERIODO") },

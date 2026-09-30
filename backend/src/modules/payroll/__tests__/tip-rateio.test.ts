@@ -319,6 +319,69 @@ describe("rescisões abatidas da apuração", () => {
   });
 });
 
+describe("parte de quem saiu: fica com quem continua × vai para o livre", () => {
+  const SALDO: RegrasPeriodo = { ...SETEMBRO, sobraRescisaoParaSaldo: true };
+  // Analia (rescisão calculada, 3,11 pts × R$ 80), uma quitada medida pela saída
+  // (direito 4 pts × R$ 80 = 320, pagou 160) e duas pessoas que ficam, uma com faltas.
+  const equipe = () => [
+    pessoa({ basePoints: 3.5, desligamento: d("2026-09-16"), faltas: 2, rescisaoServicoBruto: 10000 }),
+    pessoa({ desligamento: d("2026-09-25"), basePoints: 4, rescisaoServicoBruto: 10000, rescisaoValorFixo: 160 }),
+    pessoa({ basePoints: 10 }),
+    pessoa({ basePoints: 4, faltas: 13 }),
+  ];
+
+  test("sem o campo, o modo é o de sempre (fica com quem continua)", () => {
+    const padrao = calcularRateio(SETEMBRO, equipe());
+    const explicito = calcularRateio({ ...SETEMBRO, sobraRescisaoParaSaldo: false }, equipe());
+    expect(explicito).toEqual(padrao);
+  });
+
+  test("quem saiu recebe igual nos dois modos, inclusive a quitada (Regra A)", () => {
+    const fica = calcularRateio(SETEMBRO, equipe());
+    const livre = calcularRateio(SALDO, equipe());
+    expect(livre.linhas[0].rateio).toBe(248.8);
+    expect(fica.linhas[0].rateio).toBe(248.8);
+    expect(livre.linhas[1].rateio).toBe(160);
+    expect(livre.linhas[1].pontosFinais).toBe(fica.linhas[1].pontosFinais);
+    expect(livre.linhas[1].pontosDevolvidos).toBe(2);
+    expect(fica.linhas[1].pontosDevolvidos).toBe(2);
+    expect(livre.rescisoes).toEqual(fica.rescisoes);
+  });
+
+  test("no livre, o ponto do mês é (líquido − fixos) ÷ total e não desconta as rescisões", () => {
+    const fica = calcularRateio(SETEMBRO, equipe());
+    const livre = calcularRateio(SALDO, equipe());
+    // Fica: (18.632,99 − 248,80 − 320) ÷ (100 − 3,11 − 4)
+    expect(fica.valorPontoBruto).toBeCloseTo((18632.99 - 248.8 - 320) / 92.89, 6);
+    expect(fica.pontosDisponiveis).toBe(92.89);
+    expect(livre.valorPontoBruto).toBeCloseTo(186.3299, 6);
+    expect(livre.pontosDisponiveis).toBe(100);
+    expect(livre.linhas[2].rateio).toBe(1863.3);
+  });
+
+  test("quem fica recebe menos no livre e o saldo cresce exatamente pela diferença", () => {
+    const fica = calcularRateio(SETEMBRO, equipe());
+    const livre = calcularRateio(SALDO, equipe());
+    const perdaDeQuemFica = [2, 3].reduce((a, i) => a + fica.linhas[i].rateio - livre.linhas[i].rateio, 0);
+    expect(perdaDeQuemFica).toBeGreaterThan(0);
+    expect(livre.saldo - fica.saldo).toBeCloseTo(perdaDeQuemFica, 2);
+    for (const r of [fica, livre]) expect(r.distribuido + r.saldo).toBeCloseTo(SETEMBRO.netPool, 2);
+  });
+
+  test("faltas de quem fica continuam indo para o saldo no livre, sem subir o ponto", () => {
+    const livre = calcularRateio(SALDO, equipe());
+    const semFaltas = calcularRateio(SALDO, [...equipe().slice(0, 3), pessoa({ basePoints: 4 })]);
+    expect(livre.valorPonto).toBe(semFaltas.valorPonto);
+    expect(livre.saldo).toBeGreaterThan(semFaltas.saldo);
+  });
+
+  test("gorjeta real continua valendo pelo ponto do mês do modo", () => {
+    const livre = calcularRateio(SALDO, [...equipe().slice(0, 2), pessoa({ basePoints: 10, gorjetaReal: 2000 })]);
+    expect(livre.linhas[2].rateio).toBe(2000);
+    expect(livre.valorPonto).toBe(186.33);
+  });
+});
+
 describe("rateio do período", () => {
   test("valor do ponto é fixo e a sobra vira saldo", () => {
     const res = calcularRateio(SETEMBRO, [pessoa({ basePoints: 10 }), pessoa({ basePoints: 4, faltas: 13 })]);
