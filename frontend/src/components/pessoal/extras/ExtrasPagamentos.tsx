@@ -135,7 +135,7 @@ export function ExtrasPagamentos({ year, month, mesRotulo, podeAprovar, podeCanc
   return (
     <div className="stack">
       {avisoErro}
-      <section className="panel">
+      <section className="panel extras-painel-pagar">
         <div className="section-heading">
           <div>
             <PanelEyebrow>Diárias realizadas sem pagamento</PanelEyebrow>

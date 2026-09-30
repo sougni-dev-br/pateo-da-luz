@@ -116,7 +116,7 @@ export function ExtrasDiarias(p: Props) {
                     <span className={`extras-origem${d.origem === "FORA" ? " fora" : ""}`}>
                       {d.origem === "CASA" ? (d.modalidade === "CLT" ? "Casa · CLT" : "Casa · sem registro") : "De fora"}
                     </span>
-                    <div className="extras-sub">{[d.duration === "MEIA" ? "Meia diária" : "Diária", d.role].filter(Boolean).join(" · ")}</div>
+                    <div className="extras-sub">{[d.duration === "MEIA" ? "Meia diária" : "Diária", d.role].filter(Boolean).join(" · ")}{d.eventName && <span className="extras-so-celular"> · <b className="extras-evento">{d.eventName}</b></span>}</div>
                   </Table.Td>
                   <Table.Td className="extras-ocultar-celular">{d.sector}</Table.Td>
                   <Table.Td className="extras-ocultar-celular">

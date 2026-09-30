@@ -95,7 +95,7 @@ export function ExtrasPessoas({ pessoas, diarias, emRisco, mesRotulo, podeCriar,
                   <Table.Td>{celulaMes(p.id)}</Table.Td>
                   <Table.Td style={{ textAlign: "right" }}>
                     {podeCriar && (
-                      <Button variant="secondary" leadingIcon={<Plus size={14} />} onClick={() => onLancar({ tipo: "CASA", id: p.id })}>Diária</Button>
+                      <Button variant="secondary" leadingIcon={<Plus size={14} />} onClick={() => onLancar({ tipo: "CASA", id: p.id })} aria-label={`Lançar diária para ${p.nome}`}><span className="extras-rotulo-botao">Diária</span></Button>
                     )}
                   </Table.Td>
                 </Table.Row>
@@ -149,7 +149,7 @@ export function ExtrasPessoas({ pessoas, diarias, emRisco, mesRotulo, podeCriar,
                   <Table.Td>{celulaMes(p.id)}</Table.Td>
                   <Table.Td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     {podeCriar && p.ativo && (
-                      <Button variant="secondary" leadingIcon={<Plus size={14} />} onClick={() => onLancar({ tipo: "FORA", id: p.id })}>Diária</Button>
+                      <Button variant="secondary" leadingIcon={<Plus size={14} />} onClick={() => onLancar({ tipo: "FORA", id: p.id })} aria-label={`Lançar diária para ${p.nome}`}><span className="extras-rotulo-botao">Diária</span></Button>
                     )}
                     {(podeEditar || podeExcluir) && (
                       <RowMenu
