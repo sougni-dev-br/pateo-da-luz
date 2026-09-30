@@ -100,6 +100,7 @@ export type DiariaParaResumo = {
   totalAmount: number;
   sector: string;
   reason: string;
+  eventName?: string | null;
   pessoaId: string;
   pessoaNome: string;
   origem: "CASA" | "FORA";
@@ -135,9 +136,71 @@ export function resumirDiarias(lista: DiariaParaResumo[]) {
     naoCompareceu: lista.filter((d) => d.status === "NAO_COMPARECEU").length,
     porSetor: agrupar(realizadas, (d) => d.sector),
     porMotivo: agrupar(realizadas, (d) => d.reason),
+    // Só diárias com o nome do evento: "quanto custou o evento X em extras".
+    porEvento: agrupar(realizadas.filter((d) => d.eventName), (d) => d.eventName!),
     porPessoa: pessoas.map((g) => {
       const d = info.get(g.chave)!;
       return { pessoaId: g.chave, nome: d.pessoaNome, origem: d.origem, total: g.total, diarias: g.diarias };
     }),
+  };
+}
+
+// ─── Habitualidade de pessoa de fora ───────────────────────────────────────────
+// Diária frequente e regular é o principal risco de vínculo empregatício. Três
+// sinais, com limites configuráveis (PayrollSettings): dias na mesma semana
+// (seg–dom), dias em 30 dias e semanas seguidas com diária. Só AVISA.
+export type LimitesHabitualidade = { porSemana: number; em30Dias: number; semanasSeguidas: number };
+export type Habitualidade = {
+  diasUltimos30: number;
+  maiorSemana: number;
+  semanaDaMaior: string | null;
+  semanasSeguidas: number;
+  motivos: string[];
+  emRisco: boolean;
+};
+
+const DIA_MS = 86_400_000;
+const paraDia = (iso: string) => Math.floor(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / DIA_MS);
+const deDia = (n: number) => new Date(n * DIA_MS).toISOString().slice(0, 10);
+// Segunda-feira da semana (1/1/1970 foi quinta: dia 0 → deslocamento 3).
+const segunda = (n: number) => n - ((n + 3) % 7);
+const ddmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+// Avalia a pessoa olhando a partir de hoje e, se houver, do dia mais recente
+// (prevista futura) e dos dias pedidos (a diária sendo lançada). Fica o pior
+// caso: uma prevista distante não pode apagar o aviso de hoje, e a diária
+// agendada avisa antes de acontecer.
+export function avaliarHabitualidade(datas: string[], hoje: string, limites: LimitesHabitualidade, olharTambem: string[] = []): Habitualidade {
+  const dias = [...new Set(datas.map(paraDia))].sort((a, b) => a - b);
+  if (dias.length === 0) return { diasUltimos30: 0, maiorSemana: 0, semanaDaMaior: null, semanasSeguidas: 0, motivos: [], emRisco: false };
+  const refs = new Set([paraDia(hoje), dias[dias.length - 1], ...olharTambem.map(paraDia)]);
+  const avaliacoes = [...refs].sort((a, b) => b - a).map((ref) => avaliarEm(dias, ref, limites));
+  return avaliacoes.reduce((pior, a) => (a.motivos.length > pior.motivos.length || (a.motivos.length === pior.motivos.length && a.diasUltimos30 > pior.diasUltimos30) ? a : pior));
+}
+
+function avaliarEm(dias: number[], ref: number, limites: LimitesHabitualidade): Habitualidade {
+  const diasUltimos30 = dias.filter((d) => d > ref - 30 && d <= ref).length;
+
+  const porSemana = new Map<number, number>();
+  for (const d of dias) if (d > ref - 56) porSemana.set(segunda(d), (porSemana.get(segunda(d)) ?? 0) + 1);
+  let maiorSemana = 0;
+  let semanaDaMaior: number | null = null;
+  // Empate: cita a semana mais recente, a que interessa para decidir a próxima diária.
+  for (const [s, n] of porSemana) if (n > maiorSemana || (n === maiorSemana && semanaDaMaior != null && s > semanaDaMaior)) { maiorSemana = n; semanaDaMaior = s; }
+
+  const comDiaria = new Set(dias.map(segunda));
+  // A semana corrente ainda vazia não quebra a sequência (pode ter acabado de começar).
+  let inicio = segunda(ref);
+  if (!comDiaria.has(inicio)) inicio -= 7;
+  let semanasSeguidas = 0;
+  for (let s = inicio; comDiaria.has(s); s -= 7) semanasSeguidas++;
+
+  const motivos: string[] = [];
+  if (maiorSemana >= limites.porSemana && semanaDaMaior != null) motivos.push(`${maiorSemana} dias na semana de ${ddmm(deDia(semanaDaMaior))}`);
+  if (diasUltimos30 >= limites.em30Dias) motivos.push(`${diasUltimos30} dias em 30 dias`);
+  if (semanasSeguidas >= limites.semanasSeguidas) motivos.push(`${semanasSeguidas} semanas seguidas`);
+  return {
+    diasUltimos30, maiorSemana, semanaDaMaior: semanaDaMaior == null ? null : deDia(semanaDaMaior),
+    semanasSeguidas, motivos, emRisco: motivos.length > 0,
   };
 }

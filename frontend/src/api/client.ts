@@ -6759,6 +6759,7 @@ export type ExtraDiaria = {
   endTime: string | null;
   duration: ExtraDuracao;
   reason: ExtraMotivo;
+  eventName: string | null;
   coveredEmployeeId: string | null;
   coveredNome: string | null;
   baseAmount: number;
@@ -6785,6 +6786,7 @@ export type ExtraResumo = {
   naoCompareceu: number;
   porSetor: ExtraGrupo[];
   porMotivo: ExtraGrupo[];
+  porEvento: ExtraGrupo[];
   porPessoa: Array<{ pessoaId: string; nome: string; origem: ExtraOrigem; total: number; diarias: number }>;
 };
 export type ExtraDiariasMes = {
@@ -6804,6 +6806,7 @@ export type ExtraDiariaPayload = {
   endTime: string | null;
   duration: ExtraDuracao;
   reason: ExtraMotivo;
+  eventName: string | null;
   coveredEmployeeId: string | null;
   status: ExtraStatus;
   baseAmount: number;
@@ -6813,7 +6816,8 @@ export type ExtraDiariaPayload = {
   discountAmount: number;
   notes: string | null;
 };
-export type ExtraValores = { diariaValor: number; meiaDiariaValor: number };
+export type ExtraLimitesHabitualidade = { porSemana: number; em30Dias: number; semanasSeguidas: number };
+export type ExtraValores = { diariaValor: number; meiaDiariaValor: number; habitualidade?: ExtraLimitesHabitualidade };
 
 export function getExtraSettings() {
   return request<ExtraValores>("/extras/settings");
@@ -6890,7 +6894,7 @@ export type ExtraRecibo = {
   paidAmount: number | null;
   paidPaymentMethodName: string | null;
   diarias: Array<{
-    date: string; duration: ExtraDuracao; sector: string; role: string | null; startTime: string | null; endTime: string | null;
+    date: string; duration: ExtraDuracao; sector: string; role: string | null; eventName: string | null; startTime: string | null; endTime: string | null;
     baseAmount: number; transportAmount: number; bonusAmount: number; discountAmount: number; totalAmount: number;
   }>;
 };
@@ -6912,4 +6916,52 @@ export function payExtraPayment(id: string, payload: Parameters<typeof payPayrol
 }
 export function reverseExtraPayment(id: string, reason: string) {
   return request<{ id: string; status: string }>(`/extras/payments/${id}/reverse`, json("PATCH", { reason }));
+}
+
+// ─── Extras: painel por período e habitualidade ───────────────────────────────
+export type ExtraMesPainel = {
+  mes: string;
+  casa: number;
+  fora: number;
+  diferencaPaga: number;
+  total: number;
+  diarias: number;
+  // null = o usuário não pode ver Folha / Faturamento.
+  folha: number | null;
+  faturamento: number | null;
+};
+export type ExtraPainel = {
+  ate: string;
+  meses: ExtraMesPainel[];
+  verFolha: boolean;
+  verFaturamento: boolean;
+  porSetor: ExtraGrupo[];
+  porMotivo: ExtraGrupo[];
+  porEvento: ExtraGrupo[];
+  porPessoa: Array<{ pessoaId: string; nome: string; origem: ExtraOrigem; total: number; diarias: number }>;
+};
+export type ExtraAvaliacao = {
+  diasUltimos30: number;
+  maiorSemana: number;
+  semanaDaMaior: string | null;
+  semanasSeguidas: number;
+  motivos: string[];
+  emRisco: boolean;
+};
+export type ExtraHabitualidade = {
+  hoje: string;
+  limites: ExtraLimitesHabitualidade;
+  pessoas: Array<ExtraAvaliacao & { id: string; nome: string; apelido: string | null; ativo: boolean }>;
+  simulacao: (ExtraAvaliacao & { pessoa: string; data: string }) | null;
+};
+
+export function getExtraPainel(ate: string, meses: number) {
+  return request<ExtraPainel>(`/extras/painel${toQueryString({ ate, meses: String(meses) })}`);
+}
+export type ExtraEventoUsado = { nome: string; ultimo: string; diarias: number };
+export function getExtraEventos() {
+  return request<ExtraEventoUsado[]>("/extras/events");
+}
+export function getExtraHabitualidade(simular?: { pessoa: string; data: string; ignorar?: string }) {
+  return request<ExtraHabitualidade>(`/extras/habitualidade${toQueryString(simular ?? {})}`);
 }

@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  createExtraDiaria, updateExtraDiaria,
-  type ExtraDiaria, type ExtraDuracao, type ExtraMotivo, type ExtraPessoas, type ExtraStatus,
+  createExtraDiaria, getExtraEventos, getExtraHabitualidade, updateExtraDiaria,
+  type ExtraDiaria, type ExtraEventoUsado, type ExtraDuracao, type ExtraMotivo, type ExtraPessoas, type ExtraStatus,
 } from "../../../api/client";
 import { Alert, Button, FormField, FormGrid, Select, TextField, Textarea } from "../../../design-system";
 import { Janela } from "./Janela";
@@ -58,6 +58,29 @@ export function DiariaModal({ diaria, pessoas: pessoasIniciais, padrao, pessoaIn
   const [erro, setErro] = useState<string | null>(null);
   const [lancadas, setLancadas] = useState<string[]>([]);
   const [salvando, setSalvando] = useState(false);
+  const [avisoFrequencia, setAvisoFrequencia] = useState<string[]>([]);
+  const [evento, setEvento] = useState(diaria?.eventName ?? "");
+  const [eventosUsados, setEventosUsados] = useState<ExtraEventoUsado[]>([]);
+
+  // Nomes já usados viram sugestão: "Apraxia" digitado uma vez, escolhido depois.
+  useEffect(() => {
+    let vivo = true;
+    getExtraEventos().then((l) => { if (vivo) setEventosUsados(l); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [lancadas.length]);
+
+  // Pessoa de fora: simula a diária antes de salvar e avisa se, com ela, a
+  // frequência passa do limite (risco de vínculo). Só avisa, não bloqueia.
+  const conta = status === "REALIZADA" || status === "PREVISTA";
+  const foraId = escolhida?.tipo === "FORA" && conta ? escolhida.id : null;
+  useEffect(() => {
+    if (!foraId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) { setAvisoFrequencia([]); return; }
+    let vivo = true;
+    getExtraHabitualidade({ pessoa: foraId, data: date, ...(diaria ? { ignorar: diaria.id } : {}) })
+      .then((h) => { if (vivo) setAvisoFrequencia(h.simulacao?.emRisco ? h.simulacao.motivos : []); })
+      .catch(() => { if (vivo) setAvisoFrequencia([]); });
+    return () => { vivo = false; };
+  }, [foraId, date, lancadas.length, diaria]);
 
   const valorPadrao = duration === "MEIA" ? padrao.meia : padrao.inteira;
   const baseNum = paraNumero(base);
@@ -148,6 +171,7 @@ export function DiariaModal({ diaria, pessoas: pessoasIniciais, padrao, pessoaIn
       endTime: endTime || null,
       duration,
       reason,
+      eventName: MOTIVO_COBERTURA.has(reason) ? null : evento.trim() || null,
       coveredEmployeeId: MOTIVO_COBERTURA.has(reason) && covered ? covered : null,
       status,
       baseAmount: baseNum,
@@ -260,6 +284,11 @@ export function DiariaModal({ diaria, pessoas: pessoasIniciais, padrao, pessoaIn
               />
             </FormField>
           </FormGrid>
+          {avisoFrequencia.length > 0 && (
+            <Alert tone="warning" className="extras-aviso">
+              Frequência alta contando esta diária: {avisoFrequencia.join(" · ")}. Diária frequente de quem é de fora pode caracterizar vínculo. Você pode salvar mesmo assim.
+            </Alert>
+          )}
 
           <FormField label="Diária">
             <div className="extras-duracao">
@@ -305,7 +334,14 @@ export function DiariaModal({ diaria, pessoas: pessoasIniciais, padrao, pessoaIn
                     .map((p) => ({ value: p.id, label: p.apelido ? `${p.nome} (${p.apelido})` : p.nome }))}
                 />
               </FormField>
-            ) : <div />}
+            ) : (
+              <FormField label="Evento" hint={reason === "EVENTO" ? "Mostra quanto cada evento custou." : "Opcional."}>
+                <TextField value={evento} onChange={(e) => setEvento(e.target.value)} list="extras-eventos" placeholder="Ex.: Apraxia" autoComplete="off" />
+                <datalist id="extras-eventos">
+                  {eventosUsados.map((ev) => <option key={ev.nome} value={ev.nome} />)}
+                </datalist>
+              </FormField>
+            )}
           </FormGrid>
 
           <FormGrid cols={4}>

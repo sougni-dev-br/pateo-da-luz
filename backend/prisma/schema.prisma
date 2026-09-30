@@ -2581,6 +2581,11 @@ model PayrollSettings {
   /// Cada lançamento guarda o valor do dia; mudar aqui não reescreve o passado.
   diariaValor     Decimal @default(100) @db.Decimal(12, 2)
   meiaDiariaValor Decimal @default(50) @db.Decimal(12, 2)
+  /// Extras: limites do aviso de habitualidade de pessoa de fora (risco de vínculo).
+  /// Só avisam; ficam aqui porque são critério de gestão, não regra fixa.
+  extraHabitualSemana    Int @default(3)
+  extraHabitual30Dias    Int @default(8)
+  extraHabitualSemanas   Int @default(4)
   updatedById    String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -3175,6 +3180,8 @@ model ExtraShift {
   endTime           String?
   duration          ExtraShiftDuration @default(INTEIRA)
   reason            ExtraShiftReason
+  // Nome do evento do centro de convenções (ex.: "Apraxia"): custo de extras por evento.
+  eventName         String?
   coveredEmployeeId String?
   coveredEmployee   Employee?          @relation("ExtraShiftCovered", fields: [coveredEmployeeId], references: [id])
   // Valor da diária no dia do lançamento (padrão da configuração ou ajustado).

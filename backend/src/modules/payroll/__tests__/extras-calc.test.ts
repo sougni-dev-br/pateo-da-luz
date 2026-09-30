@@ -92,6 +92,17 @@ describe("resumirDiarias", () => {
     expect(r.custoCasa).toBe(200);
     expect(r.custoFora).toBe(50);
   });
+
+  it("agrupa por evento só as realizadas que têm o nome do evento", () => {
+    const r = resumirDiarias([
+      { ...base, status: "REALIZADA", totalAmount: 100, duration: "INTEIRA", eventName: "Apraxia" },
+      { ...base, status: "REALIZADA", totalAmount: 100, duration: "INTEIRA", eventName: "Apraxia" },
+      { ...base, status: "REALIZADA", totalAmount: 100, duration: "INTEIRA", eventName: "Nutrologia" },
+      { ...base, status: "PREVISTA", totalAmount: 100, duration: "INTEIRA", eventName: "Nutrologia" },
+      { ...base, status: "REALIZADA", totalAmount: 100, duration: "INTEIRA", eventName: null },
+    ]);
+    expect(r.porEvento).toEqual([{ chave: "Apraxia", total: 200, diarias: 2 }, { chave: "Nutrologia", total: 100, diarias: 1 }]);
+  });
 });
 
 describe("lerValoresDiaria — edição e limites", () => {
