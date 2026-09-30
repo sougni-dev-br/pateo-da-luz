@@ -1297,7 +1297,7 @@ export type Payable = {
   paidPaymentMethodId?: string | null;
   paidPaymentMethodName?: string | null;
   paymentNotes?: string | null;
-  sourceType?: "DIRECT" | "CARD_STATEMENT" | "LEGACY_CREDIT_CARD" | "SUPPLIER_CYCLE" | "TAX_PAYMENT" | "PAYROLL" | string | null;
+  sourceType?: "DIRECT" | "CARD_STATEMENT" | "LEGACY_CREDIT_CARD" | "SUPPLIER_CYCLE" | "TAX_PAYMENT" | "PAYROLL" | "EXTRA" | string | null;
   status: "OPEN" | "PAID" | "PAID_LATE" | "OVERDUE" | "CANCELLED" | string;
   rawValue: string | null;
   supplierId: string | null;
@@ -6619,4 +6619,218 @@ export function getTipFolhaLiquidos(year: number, month: number) {
 }
 export function salvarSalarioCombinado(employeeId: string, valor: number | null, motivo: string | null) {
   return request<{ ok: boolean }>(`/payroll/tip/team/${employeeId}/salario-combinado`, json("PUT", { valor, motivo }));
+}
+
+// ─── Extras por diária ────────────────────────────────────────────────────────
+export type ExtraOrigem = "CASA" | "FORA";
+export type ExtraDuracao = "INTEIRA" | "MEIA";
+export type ExtraMotivo = "COBERTURA_FALTA" | "COBERTURA_FOLGA" | "COBERTURA_FERIAS" | "EVENTO" | "MOVIMENTO" | "OUTRO";
+export type ExtraStatus = "PREVISTA" | "REALIZADA" | "NAO_COMPARECEU" | "CANCELADA";
+export type ExtraPixTipo = "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA";
+
+export type ExtraPessoaCasa = {
+  tipo: "CASA";
+  id: string;
+  nome: string;
+  apelido: string | null;
+  setor: string | null;
+  cargo: string | null;
+  modalidade: "CLT" | "NAO_CLT";
+  ativo: boolean;
+  desligadoEm: string | null;
+  telefone: string | null;
+};
+export type ExtraPessoaFora = {
+  tipo: "FORA";
+  id: string;
+  nome: string;
+  apelido: string | null;
+  telefone: string | null;
+  indicadoPor: string | null;
+  observacao: string | null;
+  ativo: boolean;
+  cpf: string | null;
+  pixKeyType: ExtraPixTipo | null;
+  pixKey: string | null;
+};
+export type ExtraPessoas = { podeVerDados: boolean; casa: ExtraPessoaCasa[]; fora: ExtraPessoaFora[] };
+export type ExtraPessoaForaPayload = {
+  fullName: string;
+  displayName?: string | null;
+  cpf?: string | null;
+  phone?: string | null;
+  pixKeyType?: ExtraPixTipo | null;
+  pixKey?: string | null;
+  referredBy?: string | null;
+  notes?: string | null;
+  isActive?: boolean;
+};
+
+export type ExtraDiaria = {
+  id: string;
+  date: string;
+  origem: ExtraOrigem;
+  pessoaId: string;
+  pessoaNome: string;
+  pessoaApelido: string | null;
+  modalidade: "CLT" | "NAO_CLT" | null;
+  sector: string;
+  role: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  duration: ExtraDuracao;
+  reason: ExtraMotivo;
+  coveredEmployeeId: string | null;
+  coveredNome: string | null;
+  baseAmount: number;
+  baseAdjustReason: string | null;
+  transportAmount: number;
+  bonusAmount: number;
+  discountAmount: number;
+  totalAmount: number;
+  status: ExtraStatus;
+  notes: string | null;
+  paymentId: string | null;
+  paymentCode: string | null;
+  pago: boolean;
+};
+export type ExtraGrupo = { chave: string; total: number; diarias: number };
+export type ExtraResumo = {
+  custoRealizado: number;
+  // Diferença de valor pago nos títulos do mês (já somada em custoRealizado).
+  diferencaPaga: number;
+  custoPrevisto: number;
+  custoCasa: number;
+  custoFora: number;
+  diariasRealizadas: number;
+  naoCompareceu: number;
+  porSetor: ExtraGrupo[];
+  porMotivo: ExtraGrupo[];
+  porPessoa: Array<{ pessoaId: string; nome: string; origem: ExtraOrigem; total: number; diarias: number }>;
+};
+export type ExtraDiariasMes = {
+  year: number;
+  month: number;
+  itens: ExtraDiaria[];
+  resumo: ExtraResumo;
+  padrao: { inteira: number; meia: number };
+};
+export type ExtraDiariaPayload = {
+  date: string;
+  employeeId: string | null;
+  extraWorkerId: string | null;
+  sector: string;
+  role: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  duration: ExtraDuracao;
+  reason: ExtraMotivo;
+  coveredEmployeeId: string | null;
+  status: ExtraStatus;
+  baseAmount: number;
+  baseAdjustReason: string | null;
+  transportAmount: number;
+  bonusAmount: number;
+  discountAmount: number;
+  notes: string | null;
+};
+export type ExtraValores = { diariaValor: number; meiaDiariaValor: number };
+
+export function getExtraSettings() {
+  return request<ExtraValores>("/extras/settings");
+}
+export function saveExtraSettings(valores: ExtraValores) {
+  return request<ExtraValores>("/extras/settings", json("PUT", valores));
+}
+export function getExtraPessoas(includeInactive = false) {
+  return request<ExtraPessoas>(`/extras/people${toQueryString({ includeInactive })}`);
+}
+export function createExtraPessoa(payload: ExtraPessoaForaPayload) {
+  return request<{ id: string }>("/extras/people", json("POST", payload));
+}
+export function updateExtraPessoa(id: string, payload: ExtraPessoaForaPayload) {
+  return request<{ ok: boolean }>(`/extras/people/${id}`, json("PUT", payload));
+}
+export function deleteExtraPessoa(id: string) {
+  return request<{ ok: boolean }>(`/extras/people/${id}`, { method: "DELETE" });
+}
+export function getExtraDiarias(year: number, month: number) {
+  return request<ExtraDiariasMes>(`/extras/shifts${toQueryString({ year: String(year), month: String(month) })}`);
+}
+export function createExtraDiaria(payload: ExtraDiariaPayload) {
+  return request<{ id: string }>("/extras/shifts", json("POST", payload));
+}
+export function updateExtraDiaria(id: string, payload: ExtraDiariaPayload) {
+  return request<{ ok: boolean }>(`/extras/shifts/${id}`, json("PUT", payload));
+}
+export function deleteExtraDiaria(id: string, reason: string) {
+  return request<{ ok: boolean }>(`/extras/shifts/${id}`, json("DELETE", { reason }));
+}
+
+// ─── Extras: pagamentos (títulos no Contas a Pagar) ───────────────────────────
+export type ExtraSituacaoPagamento = "OPEN" | "OVERDUE" | "PAID" | "CANCELED";
+export type ExtraPendente = {
+  id: string;
+  date: string;
+  duration: ExtraDuracao;
+  sector: string;
+  totalAmount: number;
+  origem: ExtraOrigem;
+  pessoaId: string;
+  nome: string;
+  apelido: string | null;
+};
+export type ExtraPagamento = {
+  id: string;
+  code: string;
+  origem: ExtraOrigem;
+  pessoaId: string;
+  nome: string;
+  apelido: string | null;
+  amount: number;
+  dueDate: string;
+  paymentDate: string | null;
+  paidAmount: number | null;
+  paidPaymentMethodName: string | null;
+  situacao: ExtraSituacaoPagamento;
+  cancelReason: string | null;
+  diarias: Array<{ id: string; date: string; duration: ExtraDuracao; totalAmount: number }>;
+};
+export type ExtraPagamentos = { pendentes: ExtraPendente[]; pagamentos: ExtraPagamento[] };
+export type ExtraRecibo = {
+  code: string;
+  origem: ExtraOrigem;
+  nome: string;
+  apelido: string | null;
+  cpf: string | null;
+  pixKey: string | null;
+  pixKeyType: string | null;
+  amount: number;
+  dueDate: string;
+  paymentDate: string | null;
+  paidAmount: number | null;
+  paidPaymentMethodName: string | null;
+  diarias: Array<{
+    date: string; duration: ExtraDuracao; sector: string; role: string | null; startTime: string | null; endTime: string | null;
+    baseAmount: number; transportAmount: number; bonusAmount: number; discountAmount: number; totalAmount: number;
+  }>;
+};
+
+export function getExtraPagamentos(year: number, month: number) {
+  return request<ExtraPagamentos>(`/extras/payments${toQueryString({ year: String(year), month: String(month) })}`);
+}
+export function gerarPagamentoExtras(shiftIds: string[], dueDate: string, notes: string | null) {
+  return request<{ pagamentos: Array<{ id: string; code: string; amount: number }> }>("/extras/payments", json("POST", { shiftIds, dueDate, notes }));
+}
+export function cancelarPagamentoExtra(id: string, reason: string) {
+  return request<{ ok: boolean; diariasSoltas: number }>(`/extras/payments/${id}/cancel`, json("POST", { reason }));
+}
+export function getReciboExtra(id: string) {
+  return request<ExtraRecibo>(`/extras/payments/${id}/receipt`);
+}
+export function payExtraPayment(id: string, payload: Parameters<typeof payPayrollItem>[1]) {
+  return request<{ id: string; status: string }>(`/extras/payments/${id}/pay`, json("PATCH", payload));
+}
+export function reverseExtraPayment(id: string, reason: string) {
+  return request<{ id: string; status: string }>(`/extras/payments/${id}/reverse`, json("PATCH", { reason }));
 }

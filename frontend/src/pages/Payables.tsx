@@ -4,8 +4,8 @@ import {
   AppUser, AuditLog, Company, CompanyBankAccount,
   downloadPayablesFinancialPdf, getAllBankAccounts, getCompanies,
   getPayableHistory, getPayables, getPaymentMethods, getPurchase,
-  getTaxPaymentHistory, getSuppliers, payInstallment, payPayrollItem, payTaxPayment,
-  Payable, PaymentMethod, PurchaseDetail, reverseInstallment, reversePayrollItem, reverseTaxPayment, Supplier
+  getTaxPaymentHistory, getSuppliers, payExtraPayment, payInstallment, payPayrollItem, payTaxPayment,
+  Payable, PaymentMethod, PurchaseDetail, reverseExtraPayment, reverseInstallment, reversePayrollItem, reverseTaxPayment, Supplier
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import {
@@ -48,11 +48,20 @@ function isPayroll(p: Payable) {
   return p.sourceType === "PAYROLL";
 }
 
+// Diárias de extras: mesmo fluxo de baixa da folha, rotas próprias.
+function isExtra(p: Payable) {
+  return p.sourceType === "EXTRA";
+}
+
+function payPessoal(p: Payable, payload: Parameters<typeof payPayrollItem>[1]) {
+  return isExtra(p) ? payExtraPayment(p.id, payload) : payPayrollItem(p.id, payload);
+}
+
 // Títulos "simples" (imposto e folha): baixa com data + valor, sem forma de
 // pagamento / empresa / diferença. A query de payables preenche os campos tax*
 // para folha (tipo, funcionário, competência), então a UI é reaproveitada.
 function isSimpleLedger(p: Payable) {
-  return isTaxPayment(p) || isPayroll(p);
+  return isTaxPayment(p) || isPayroll(p) || isExtra(p);
 }
 
 function dateKey(value?: string | null) {
@@ -352,7 +361,7 @@ export function Payables({ user }: PayablesProps) {
         setSelectedPayable(payable);
         setDetail(null);
         setHistoryRows(audits);
-      } else if (isPayroll(payable)) {
+      } else if (isPayroll(payable) || isExtra(payable)) {
         const audits = await getPayableHistory(payable.id);
         setSelectedPayable(payable);
         setDetail(null);
@@ -475,8 +484,8 @@ export function Payables({ user }: PayablesProps) {
       try {
         if (isTaxPayment(p)) {
           await payTaxPayment(p.id, { paymentDate: paymentForm.paidDate, paidAmount: valor, comments: paymentForm.paymentNotes || null });
-        } else if (isPayroll(p)) {
-          await payPayrollItem(p.id, { paymentDate: paymentForm.paidDate, paidAmount: valor, ...comum });
+        } else if (isPayroll(p) || isExtra(p)) {
+          await payPessoal(p, { paymentDate: paymentForm.paidDate, paidAmount: valor, ...comum });
         } else {
           await payInstallment(p.id, { paidDate: paymentForm.paidDate, paidAmount: valor, ...comum });
         }
@@ -534,8 +543,8 @@ export function Payables({ user }: PayablesProps) {
           payingCompanyId: paymentForm.payingCompanyId || null,
           companyBankAccountId: paymentForm.companyBankAccountId || null
         };
-        if (isPayroll(paying)) {
-          await payPayrollItem(paying.id, { paymentDate: paymentForm.paidDate, paidAmount, ...commonPayload });
+        if (isPayroll(paying) || isExtra(paying)) {
+          await payPessoal(paying, { paymentDate: paymentForm.paidDate, paidAmount, ...commonPayload });
         } else {
           await payInstallment(paying.id, { paidDate: paymentForm.paidDate, paidAmount, ...commonPayload });
         }
@@ -562,6 +571,8 @@ export function Payables({ user }: PayablesProps) {
         await reverseTaxPayment(reversing.id, reason);
       } else if (isPayroll(reversing)) {
         await reversePayrollItem(reversing.id, reason);
+      } else if (isExtra(reversing)) {
+        await reverseExtraPayment(reversing.id, reason);
       } else {
         await reverseInstallment(reversing.id, reason);
       }
@@ -731,7 +742,8 @@ export function Payables({ user }: PayablesProps) {
                 { value: "CARD_STATEMENT", label: "Fatura cartão" },
                 { value: "LEGACY_CREDIT_CARD", label: "Cartão legado" },
                 { value: "SUPPLIER_CYCLE", label: "Ciclo fornecedor" },
-                { value: "PAYROLL", label: "Folha de pagamento" }
+                { value: "PAYROLL", label: "Folha de pagamento" },
+                { value: "EXTRA", label: "Diárias de extras" }
               ]}
             />
           )}
@@ -889,6 +901,9 @@ export function Payables({ user }: PayablesProps) {
                       )}
                       {payable.sourceType === "PAYROLL" && (
                         <span className="source-badge source-payroll">Folha</span>
+                      )}
+                      {payable.sourceType === "EXTRA" && (
+                        <span className="source-badge source-extra">Extra</span>
                       )}
                     </>
                   )}
@@ -1052,7 +1067,7 @@ export function Payables({ user }: PayablesProps) {
                 {isSimpleLedger(paying) ? (
                   <>
                     <div><span>Tipo</span><strong>{paying.taxDocumentType ?? paying.supplierName}</strong></div>
-                    {paying.taxCompanyName && <div><span>{isPayroll(paying) ? "Funcionário" : "Empresa"}</span><strong>{paying.taxCompanyName}</strong></div>}
+                    {paying.taxCompanyName && <div><span>{isExtra(paying) ? "Pessoa" : isPayroll(paying) ? "Funcionário" : "Empresa"}</span><strong>{paying.taxCompanyName}</strong></div>}
                     {paying.taxDescription && <div><span>Descrição</span><strong>{paying.taxDescription}</strong></div>}
                     {paying.taxCompetenceDate && <div><span>Competência</span><strong>{formatDate(paying.taxCompetenceDate)}</strong></div>}
                   </>
@@ -1179,7 +1194,7 @@ export function Payables({ user }: PayablesProps) {
           <section className="panel modal-panel wide-modal">
             <div className="section-heading">
               <div>
-                <p>{isPayroll(selectedPayable) ? "Folha de pagamento" : "Imposto / Guia"}</p>
+                <p>{isExtra(selectedPayable) ? "Diária de extra" : isPayroll(selectedPayable) ? "Folha de pagamento" : "Imposto / Guia"}</p>
                 <h2>{selectedPayable.taxDocumentType ?? selectedPayable.supplierName}</h2>
               </div>
               <button className="secondary-button" type="button"
@@ -1203,7 +1218,7 @@ export function Payables({ user }: PayablesProps) {
                   </p>
                 </div>
                 <div>
-                  <h3>{isPayroll(selectedPayable) ? "Funcionário" : "Empresa"}</h3>
+                  <h3>{isExtra(selectedPayable) ? "Pessoa" : isPayroll(selectedPayable) ? "Funcionário" : "Empresa"}</h3>
                   {selectedPayable.taxCompanyName && <p>Nome: <strong>{selectedPayable.taxCompanyName}</strong></p>}
                   {selectedPayable.taxCnpj && <p>CNPJ: <strong>{selectedPayable.taxCnpj}</strong></p>}
                 </div>

@@ -6,6 +6,7 @@ import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDate } from "../../shared/utils/parse-date.js";
 import { createSupplierPositionPdf, type SupplierPositionData } from "./supplier-position-pdf.js";
 import { excludeAggregatorsWhere } from "./purchase-aggregators.js";
+import { extrasParaPayables, extrasParaPayablesPdf } from "../payroll/extras-payables.js";
 import {
   formatPaymentMethodWithInstallments,
   getPaymentMethodBaseName,
@@ -710,7 +711,12 @@ purchaseRouter.get("/payables", async (request, response) => {
     )
   }));
 
-  const allRows: Array<Record<string, unknown>> = [...purchaseMapped, ...taxRows, ...payrollRows];
+  // Pagamentos de extras (diárias): mesma regra de inclusão da folha.
+  const extraRows = includePayroll
+    ? await extrasParaPayables({ startToday, status, startDate, endDate, noDueDate })
+    : ([] as Array<Record<string, unknown>>);
+
+  const allRows: Array<Record<string, unknown>> = [...purchaseMapped, ...taxRows, ...payrollRows, ...extraRows];
   allRows.sort((a, b) => {
     const da = a["dueDate"] ? new Date(String(a["dueDate"])).getTime() : Number.MAX_SAFE_INTEGER;
     const db = b["dueDate"] ? new Date(String(b["dueDate"])).getTime() : Number.MAX_SAFE_INTEGER;
@@ -979,7 +985,11 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
       `
     : ([] as Array<Record<string, unknown>>);
 
-  const rowsCompletas = [...rows, ...taxRowsPdf, ...payrollRowsPdf].sort((a, b) => {
+  const extraRowsPdf = incluirOutrasFontes
+    ? await extrasParaPayablesPdf({ startToday, status, startDate, endDate, noDueDate: noDueDatePdf })
+    : ([] as Array<Record<string, unknown>>);
+
+  const rowsCompletas = [...rows, ...taxRowsPdf, ...payrollRowsPdf, ...extraRowsPdf].sort((a, b) => {
     const da = a.dueDate ? new Date(String(a.dueDate)).getTime() : Number.POSITIVE_INFINITY;
     const db = b.dueDate ? new Date(String(b.dueDate)).getTime() : Number.POSITIVE_INFINITY;
     if (da !== db) return da - db;
@@ -1031,6 +1041,7 @@ purchaseRouter.get("/payables/:id/history", async (request, response) => {
     WHERE (a."entity" = 'PaymentInstallment' AND a."entityId" = ${request.params.id})
        OR (a."entity" = 'PaymentInstallment' AND a."newValue"::text ILIKE ${`%${request.params.id}%`})
        OR (a."entity" = 'PayrollItem' AND a."entityId" = ${request.params.id})
+       OR (a."entity" = 'ExtraPayment' AND a."entityId" = ${request.params.id})
     ORDER BY a."createdAt" DESC
     LIMIT 80
   `;

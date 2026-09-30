@@ -46,6 +46,7 @@ export const menuCatalog = [
   { id: "schedule", label: "Escala", group: "Pessoal" },
   { id: "payroll", label: "Folha de Pagamento", group: "Pessoal" },
   { id: "payroll-tips", label: "Fechamento de Gorjetas", group: "Pessoal" },
+  { id: "extras", label: "Extras (diárias)", group: "Pessoal" },
   { id: "import", label: "Importacoes", group: "Dados" },
   { id: "catalog-imports", label: "Importar cadastros", group: "Dados" },
   { id: "payment-methods", label: "Metodos de pagamento", group: "Configuracoes" },
@@ -362,8 +363,16 @@ export async function replaceRoleMenuPermissions(role: UserRole, permissions: Pa
   );
 }
 
+// O Express roteia sem diferenciar caixa e aceita barra no fim ("/EMPLOYEES",
+// "/extras/payments/"), mas as regras abaixo comparam texto exato. Sem normalizar,
+// "/EMPLOYEES" caía em "rota não catalogada" e passava SEM checar permissão
+// (achado de 29/09/2026: funcionário, folha e extras abriam para qualquer login).
+function caminhoDaPermissao(request: Request): string {
+  return request.path.toLowerCase().replace(/\/+$/, "") || "/";
+}
+
 function menuFromRequest(request: Request): MenuId | null {
-  const path = request.path;
+  const path = caminhoDaPermissao(request);
   const method = request.method.toUpperCase();
   if (path.startsWith("/auth")) return null;
   if (path.startsWith("/users")) return "users";
@@ -377,6 +386,11 @@ function menuFromRequest(request: Request): MenuId | null {
   // Antes de /payroll: a gorjeta tem modulo proprio no controle de acesso.
   if (path.startsWith("/payroll/tip")) return "payroll-tips";
   if (path.startsWith("/payroll")) return "payroll";
+  // Baixa e estorno de pagamento de extra acontecem no Contas a Pagar: vale a
+  // permissão de quem paga, não a de quem lança diária (senão o financeiro via o
+  // botão e recebia 403, e quem só lança conseguia marcar como pago pela API).
+  if (/^\/extras\/payments\/[^/]+\/(pay|reverse)$/.test(path)) return "payables";
+  if (path.startsWith("/extras")) return "extras";
   if (path.startsWith("/products")) return "products";
   if (path.startsWith("/payment-methods")) return "payment-methods";
   if (path.startsWith("/purchase-orders")) return "purchase-orders";
@@ -448,13 +462,18 @@ function menuFromRequest(request: Request): MenuId | null {
 }
 
 function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
-  const path = request.path;
+  const path = caminhoDaPermissao(request);
   const method = request.method.toUpperCase();
 
   if (menuId === "users" && path.includes("/menu-permissions")) return "admin";
   if (menuId === "users" && path.endsWith("/password")) return "admin";
   if (menuId === "users" && method === "POST") return "create";
   if (menuId === "users" && (method === "PUT" || method === "PATCH")) return "edit";
+
+  // Valor da diária vale para todo lançamento novo: configuração do módulo, não registro do dia.
+  if (menuId === "extras" && path.startsWith("/extras/settings") && method !== "GET" && method !== "HEAD") return "admin";
+  // Gerar pagamento é aprovar as diárias: quem lança não é, necessariamente, quem aprova.
+  if (menuId === "extras" && path === "/extras/payments" && method === "POST") return "approve";
 
   if (menuId === "purchase-orders" && path.endsWith("/status")) {
     return String(request.body?.action ?? "").trim() === "APPROVE" ? "approve" : "edit";
