@@ -1,4 +1,4 @@
-import { CalendarDays, ChevronLeft, ChevronRight, Eye, EyeOff, Maximize2, Minimize2, Minus, Palette, Plus, Printer, RefreshCw, Save } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff, Maximize2, Minimize2, Minus, Palette, Plus, Printer, RefreshCw, Save } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import {
@@ -144,6 +144,15 @@ export function Escala() {
   // Modo "montar escala": o painel vira overlay de tela cheia (some o menu),
   // dando o máximo de área para enxergar o mês inteiro de uma vez.
   const [fullscreen, setFullscreen] = useState(false);
+  // A conferência das folgas lista uma linha por pessoa e empurra a escala para baixo:
+  // começa recolhida (só o título e quantos estão fora do previsto) e lembra neste navegador.
+  const [conferenciaAberta, setConferenciaAberta] = useState(() => {
+    try { return window.localStorage.getItem("escala-conferencia-aberta") === "1"; } catch { return false; }
+  });
+  const alternarConferencia = () => setConferenciaAberta((v) => {
+    try { window.localStorage.setItem("escala-conferencia-aberta", v ? "0" : "1"); } catch { /* só não lembra */ }
+    return !v;
+  });
   // Densidade: em tela cheia o que importa é caber gente na tela, então legenda
   // e os detalhes sob o nome (turno, folga-feriado) começam recolhidos.
   const [showLegend, setShowLegend] = useState(true);
@@ -783,8 +792,28 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
               </strong>
               {problemas.length === 0 ? (
                 <div style={{ marginTop: 3, fontSize: "0.92em" }}>Todo mundo bate com o previsto.</div>
+              ) : !conferenciaAberta ? (
+                <div style={{ marginTop: 3, fontSize: "0.92em" }}>
+                  <button
+                    type="button"
+                    onClick={alternarConferencia}
+                    aria-expanded={false}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: 0, border: 0, background: "transparent", font: "inherit", color: "inherit", cursor: "pointer", textDecoration: "underline" }}
+                  >
+                    <ChevronRight size={14} aria-hidden /> {problemas.length} pessoa(s) fora do previsto — ver quem
+                  </button>
+                  <span style={{ opacity: 0.85 }}> · é só conferência, nada impede salvar.</span>
+                </div>
               ) : (
                 <>
+                  <button
+                    type="button"
+                    onClick={alternarConferencia}
+                    aria-expanded
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 3, padding: 0, border: 0, background: "transparent", font: "inherit", fontSize: "0.92em", color: "inherit", cursor: "pointer", textDecoration: "underline" }}
+                  >
+                    <ChevronDown size={14} aria-hidden /> recolher ({problemas.length} pessoa(s))
+                  </button>
                   <div style={{ marginTop: 4, fontSize: "0.92em", display: "grid", gap: 2 }}>
                     {problemas.map(({ emp, v }) => (
                       <div key={emp.id}>
