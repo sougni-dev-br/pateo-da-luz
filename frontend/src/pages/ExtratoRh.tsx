@@ -1,6 +1,7 @@
 import { Banknote, CheckCircle2, FileUp, Upload } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { ExtratoPreview, ImportExtratoResult, importExtratoRh, previewExtratoRh } from "../api/client";
+import { confirmacaoImportar, resumoImportacao, textoBotaoImportar } from "./extratoRhTextos";
 import { Notice, useNotice } from "../components/Notice";
 import { Alert, Button, FormGrid, Money, StatusBadge, SummaryCard, Table } from "../design-system";
 import { ExtratosGuardados } from "./ExtratosGuardados";
@@ -50,18 +51,13 @@ export function ExtratoRh() {
 
   async function handleImport() {
     if (!preview || !base64) return;
-    const naoEncontrados = preview.items.length - preview.matchedCount;
-    const oQue = preview.calculo === "ADIANTAMENTO" ? "adiantamento(s) (vencimento dia 20)" : "salário(s)";
-    const msg = `Gerar ${preview.items.length} ${oQue} no Contas a Pagar (total ${preview.totalLiquido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })})`
-      + (naoEncontrados > 0 ? `, cadastrando automaticamente ${naoEncontrados} funcionário(s) novo(s)` : "")
-      + "?";
-    if (!window.confirm(msg)) return;
+    if (!window.confirm(confirmacaoImportar(preview))) return;
     setImporting(true);
     try {
       const r = await importExtratoRh(base64, fileName || "extrato.pdf");
       setResult(r);
       setImportacoes((n) => n + 1);
-      setNotice({ tone: "success", message: `${r.titulosGerados} ${r.calculo === "ADIANTAMENTO" ? "adiantamento(s)" : "salário(s)"} liberado(s) ao Contas a Pagar. ${r.funcionariosCadastrados} funcionário(s) cadastrado(s).` });
+      setNotice({ tone: "success", message: resumoImportacao(r) + (r.funcionariosCadastrados > 0 ? ` ${r.funcionariosCadastrados} funcionário(s) cadastrado(s).` : "") });
     } catch (e) {
       setNotice({ tone: "error", message: (e as Error).message });
     } finally {
@@ -147,16 +143,19 @@ export function ExtratoRh() {
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <Button onClick={() => void handleImport()} disabled={importing || busy} leadingIcon={<Banknote size={14} />}>
-              {importing ? "Gerando…" : "Gerar salários no Contas a Pagar"}
+              {textoBotaoImportar(preview, importing)}
             </Button>
             <span style={{ color: "var(--muted)", fontSize: 12 }}>
-              Cria os títulos de salário (líquido) por empresa, cadastra automaticamente quem falta e arquiva o extrato para rastreabilidade.
+              {preview.calculo === "ADIANTAMENTO"
+                ? "Lança o adiantamento do dia 20 de cada pessoa no Contas a Pagar, cadastra quem falta e guarda o PDF e os holerites."
+                : "Lança o salário líquido de cada pessoa no Contas a Pagar (vence no dia 5 do mês seguinte), cadastra quem falta e guarda o PDF e os holerites."}
+              {preview.lancamentosExistentes > 0 && " Quem já tem o lançamento deste extrato é atualizado, sem duplicar."}
             </span>
           </div>
 
           {result && (
             <Alert tone="success">
-              <strong>{result.titulosGerados}</strong> {result.calculo === "ADIANTAMENTO" ? "adiantamento(s)" : "salário(s)"} liberado(s) ao Contas a Pagar (total {result.totalLiquido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })})
+              {resumoImportacao(result)} Total {result.totalLiquido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
               {result.funcionariosCadastrados > 0 ? ` · ${result.funcionariosCadastrados} funcionário(s) cadastrado(s) automaticamente` : ""}. Já aparecem na Folha de Pagamento / Contas a Pagar e no DRE (despesa de pessoal).
               {" "}{result.extratoAtualizado ? "Este arquivo já estava guardado: o registro foi completado, sem duplicar." : "O PDF e os holerites foram guardados."}
             </Alert>

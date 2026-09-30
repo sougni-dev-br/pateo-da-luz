@@ -147,8 +147,29 @@ async function converterAdiantamentoGravadoComoSalario(
   await prisma.payrollItem.update({ where: { id: antigo.id }, data: { type: "ADIANTAMENTO", periodLabel, updatedById: userId } });
 }
 
+// Quantas pessoas do extrato já têm o lançamento dele no Contas a Pagar. Reimportar
+// atualiza esses (o upsert casa pela chave), não duplica — a tela precisa dizer isso.
+// No adiantamento conta também o que entrou como SALARIO antes (e vai ser convertido).
+export async function contarLancamentosExistentes(
+  employeeIds: string[], calculo: CalculoExtrato, competenceYear: number, competenceMonth: number,
+): Promise<number> {
+  if (employeeIds.length === 0) return 0;
+  const mmaaaa = `${String(competenceMonth).padStart(2, "0")}/${competenceYear}`;
+  const chaves = calculo === "ADIANTAMENTO"
+    ? [{ type: "ADIANTAMENTO" as const, periodLabel: `Adiantamento ${mmaaaa}` }, { type: "SALARIO" as const, periodLabel: `Extrato ${mmaaaa}` }]
+    : [{ type: "SALARIO" as const, periodLabel: `Extrato ${mmaaaa}` }];
+  const itens = await prisma.payrollItem.findMany({
+    where: { employeeId: { in: employeeIds }, competenceYear, competenceMonth, deletedAt: null, OR: chaves },
+    select: { employeeId: true },
+  });
+  return new Set(itens.map((i) => i.employeeId)).size;
+}
+
 export type ImportExtratoResult = {
   calculo: CalculoExtrato;
+  // Dos títulos gravados, quantos já existiam (foram atualizados) e quantos são novos.
+  titulosAtualizados: number;
+  titulosNovos: number;
   empresa: string;
   companyId: string;
   competenceYear: number;
@@ -221,6 +242,10 @@ export async function importExtrato(opts: {
   const periodLabel = adiantamento ? `Adiantamento ${mmaaaa}` : `Extrato ${mmaaaa}`;
   const details = (f: ExtratoFuncionario) => ({ calculo: parsed.calculo, liquido: f.liquido, gorjeta: f.gorjeta, adiantamento: f.adiantamento, empresa: parsed.empresa });
 
+  const jaExistiam = await contarLancamentosExistentes(
+    parsed.funcionarios.map((f) => (f.cpfNorm ? byCpf.get(f.cpfNorm) : undefined)).filter((id): id is string => Boolean(id)),
+    parsed.calculo, competenceYear, competenceMonth,
+  );
   let funcionariosCadastrados = 0;
   let titulosGerados = 0;
   for (const f of parsed.funcionarios) {
@@ -267,6 +292,7 @@ export async function importExtrato(opts: {
 
   return {
     calculo: parsed.calculo, empresa: parsed.empresa, companyId, competenceYear, competenceMonth, totalLiquido, funcionariosCadastrados, titulosGerados,
+    titulosAtualizados: Math.min(jaExistiam, titulosGerados), titulosNovos: Math.max(0, titulosGerados - jaExistiam),
     rhExtractId: rh.id, extratoAtualizado: rh.atualizado,
     pessoasLidas: detalhes.pessoas.length, pessoasConferidas: detalhes.pessoas.filter((p) => p.conferido).length, avisos,
   };
