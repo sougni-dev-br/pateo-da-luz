@@ -12,7 +12,7 @@ import {
   closeTipPeriod, computeTipCommission, ensureTipPeriod, findOverlappingPeriod,
   getServicePool, getServicePoolByRange, pontosBaseDoCadastro, reopenTipPeriod, syncParticipantsFromCadastro, tipPeriodBounds,
 } from "./tip-commission.service.js";
-import { extrairTextoPdf, importExtrato, lerTextoExtrato, onlyDigits } from "./rh-extract.service.js";
+import { contarLancamentosExistentes, extrairTextoPdf, importExtrato, lerTextoExtrato, onlyDigits } from "./rh-extract.service.js";
 import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
 import { avisosDoExtrato } from "./rh-extract-store.service.js";
 import { rhExtratosRouter } from "./rh-extratos.routes.js";
@@ -491,6 +491,10 @@ tipCommissionRouter.post("/extrato/preview", async (request, response) => {
     };
   });
   const detalhes = lerDetalhesExtrato(texto);
+  const lancamentosExistentes = await contarLancamentosExistentes(
+    items.map((i) => i.employeeId).filter((id): id is string => Boolean(id)),
+    parsed.calculo, parsed.competenceYear, parsed.competenceMonth,
+  );
   const avisos = await avisosDoExtrato({
     detalhes, calculo: parsed.calculo, competenceYear: parsed.competenceYear, competenceMonth: parsed.competenceMonth,
     incluirDadosPessoais: await podeVerDadosPessoais(request),
@@ -504,6 +508,7 @@ tipCommissionRouter.post("/extrato/preview", async (request, response) => {
     items,
     pessoasLidas: detalhes.pessoas.length,
     pessoasConferidas: detalhes.pessoas.filter((p) => p.conferido).length,
+    lancamentosExistentes,
     avisos,
   });
 });
