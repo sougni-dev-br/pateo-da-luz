@@ -6257,6 +6257,8 @@ export type ImportExtratoResult = {
   pessoasLidas: number; pessoasConferidas: number;
   /** Lançamentos que alguém excluiu à mão no Contas a Pagar: a reimportação não os recria (backend novo; opcional). */
   titulosPulados?: number;
+  /** Folha do mês: adiantamentos criados a partir do desconto da folha (sem o extrato do dia 20). */
+  adiantamentosDaFolha?: number;
   avisos: string[];
 };
 export function importExtratoRh(fileBase64: string, fileName: string) {
