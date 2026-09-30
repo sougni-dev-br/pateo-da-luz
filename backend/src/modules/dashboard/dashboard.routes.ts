@@ -478,7 +478,7 @@ dashboardRouter.get("/alerts", async (request, response) => {
   const fimDos7Dias = new Date(today.getTime() + 8 * 24 * 60 * 60 * 1000);
 
   // ── 1. Titulos vencidos (global, não filtrado por competência) ──
-  // As TRES fontes, como em Contas a Pagar. Ate 09/2026 este painel lia so
+  // Todas as fontes, como em Contas a Pagar (desde 09/2026 inclui extras). Ate 09/2026 este painel lia so
   // PaymentInstallment, entao folha e imposto vencidos nao entravam: o Dashboard
   // mostrava R$ 491.765,30 enquanto o total real era R$ 512.631,40 — 34
   // lancamentos de folha, R$ 20.866,10, invisiveis. Duas telas sobre a mesma
@@ -495,6 +495,9 @@ dashboardRouter.get("/alerts", async (request, response) => {
       SELECT "amount" FROM "PayrollItem"
        WHERE "deletedAt" IS NULL AND status NOT IN ('PAID', 'CANCELED')
          AND "dueDate" IS NOT NULL AND "dueDate" < ${today} AND "paymentDate" IS NULL
+      UNION ALL
+      SELECT "amount" FROM "ExtraPayment"
+       WHERE status = 'PENDING' AND "dueDate" < (${today})::date AND "paymentDate" IS NULL
     ) t
   `;
   const overdueCount = Number(overdueRows[0]?.cnt ?? 0);
@@ -514,6 +517,9 @@ dashboardRouter.get("/alerts", async (request, response) => {
       SELECT "amount" FROM "PayrollItem"
        WHERE "deletedAt" IS NULL AND status NOT IN ('PAID', 'CANCELED') AND "dueDate" IS NOT NULL
          AND "dueDate" >= ${today} AND "dueDate" < ${fimDos7Dias} AND "paymentDate" IS NULL
+      UNION ALL
+      SELECT "amount" FROM "ExtraPayment"
+       WHERE status = 'PENDING' AND "dueDate" >= (${today})::date AND "dueDate" < (${fimDos7Dias})::date AND "paymentDate" IS NULL
     ) t
   `;
   const dueSoonCount = Number(dueSoonRows[0]?.cnt ?? 0);

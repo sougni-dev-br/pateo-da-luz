@@ -12,6 +12,7 @@ import {
   FileCog,
   FileSpreadsheet,
   FileScan,
+  HandCoins,
   Layers,
   LogOut,
   MessageCircle,
@@ -87,6 +88,7 @@ const Funcionarios = lazy(() => import("./pages/Funcionarios").then((module) => 
 const Escala = lazy(() => import("./pages/Escala").then((module) => ({ default: module.Escala })));
 const Folha = lazy(() => import("./pages/Folha").then((module) => ({ default: module.Folha })));
 const FolhaGorjeta = lazy(() => import("./pages/FolhaGorjeta").then((module) => ({ default: module.FolhaGorjeta })));
+const Extras = lazy(() => import("./pages/Extras").then((module) => ({ default: module.Extras })));
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
 const Users = lazy(() => import("./pages/Users").then((module) => ({ default: module.Users })));
 const Dishes = lazy(() => import("./pages/Dishes").then((module) => ({ default: module.Dishes })));
@@ -169,6 +171,7 @@ const sections = [
   { id: "schedule", label: "Escala", icon: CalendarDays, showInSidebar: true, group: "Pessoal", path: "/pessoal/escala", matchers: ["/pessoal/escala"], description: "Escala mensal de folgas (6×1 / 5×2) — domingos e feriados destacados; base para o cálculo do VT" },
   { id: "payroll", label: "Folha de Pagamento", icon: WalletCards, showInSidebar: true, group: "Pessoal", path: "/pessoal/folha", matchers: ["/pessoal/folha"], description: "Geração e controle de VT (por tarifa e escala), adiantamento e salário" },
   { id: "payroll-tips", label: "Fechamento de Gorjetas", icon: WalletCards, showInSidebar: false, group: "Pessoal", path: "/pessoal/gorjeta", matchers: ["/pessoal/gorjeta"], description: "Rateio por pontos com presença e rescisões, envio à contabilidade e lista de pagamento" },
+  { id: "extras", label: "Extras (diárias)", icon: HandCoins, showInSidebar: true, group: "Pessoal", path: "/pessoal/extras", matchers: ["/pessoal/extras"], description: "Diárias da equipe da casa e de pessoas de fora: lançamento, pagamento e gasto por período" },
   { id: "import", label: "Importações", icon: FileSpreadsheet, showInSidebar: true, group: "Dados", path: "/dados/importacoes", matchers: ["/dados/importacoes"] },
   { id: "catalog-imports", label: "Importar cadastros", icon: Database, showInSidebar: false, group: "Dados", path: "/dados/importacoes/cadastros", matchers: ["/dados/importacoes/cadastros"] },
   { id: "doc-intake", label: "Leitura de documentos", icon: FileScan, showInSidebar: true, group: "Dados", path: "/dados/leitura-documentos", matchers: ["/dados/leitura-documentos"], description: "Lê nota, boleto ou fatura em PDF e monta o rascunho do lançamento para conferência" },
@@ -720,6 +723,7 @@ export function App() {
               <Route path="/pessoal/escala" element={<Escala />} />
               <Route path="/pessoal/folha" element={<Folha />} />
               <Route path="/pessoal/gorjeta" element={<FolhaGorjeta />} />
+              <Route path="/pessoal/extras" element={<Extras />} />
               <Route path="/configuracoes/pagamentos" element={<PaymentMethods />} />
               <Route path="/configuracoes/cadastros-base" element={<MasterData />} />
               <Route path="/configuracoes/usuarios" element={<Users />} />

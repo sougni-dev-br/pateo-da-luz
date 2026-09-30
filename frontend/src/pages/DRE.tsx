@@ -11,7 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { DRECategoryOptions, DRE_GROUPS } from "../components/DRECategoryOptions";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   assignDRECategory,
   bulkAssignDRECategory,
@@ -40,7 +40,7 @@ import { dataLocalIso } from "../lib/datas";
 
 type DrillRow = {
   installmentId: string;
-  purchaseId: string;
+  purchaseId: string | null;
   purchaseDate: string;
   supplierName: string;
   invoiceNumber: string | null;
@@ -55,6 +55,8 @@ type DrillRow = {
   status: string;
   dreCategoryId: string | null;
   dreCategoryName: string;
+  // "EXTRA" = diária de extra (não é parcela de compra: sem troca de categoria).
+  origem?: "EXTRA";
 };
 
 type FilterMode = "month" | "range";
@@ -621,9 +623,8 @@ export function DRE() {
                             const pyExp = py?.expenses.find((e) => e.dreCategoryId === exp.dreCategoryId);
 
                             return (
-                              <>
+                              <Fragment key={catKey}>
                                 <tr
-                                  key={catKey}
                                   className={`dre-expense-row ${isExpOpen ? "dre-expanded" : ""}`}
                                   onClick={() => toggleDrill(exp.dreCategoryId)}
                                   style={{ cursor: "pointer" }}
@@ -654,7 +655,7 @@ export function DRE() {
                                     </td>
                                   </tr>
                                 )}
-                              </>
+                              </Fragment>
                             );
                           })}
                         </>
@@ -877,9 +878,9 @@ function DrillPanel({
           <tr key={r.installmentId}>
             <td data-label="Fornecedor">
               <div>{r.supplierName}</div>
-              {r.purchaseNumber && <div className="text-muted" style={{ fontSize: "0.8em" }}>Pedido: {r.purchaseNumber}</div>}
+              {r.purchaseNumber && <div className="text-muted" style={{ fontSize: "0.8em" }}>{r.origem === "EXTRA" ? "Pagamento" : "Pedido"}: {r.purchaseNumber}</div>}
             </td>
-            <td>{r.invoiceNumber ?? "—"}{r.installment != null ? <span className="text-muted"> ({r.installment}ª parc.)</span> : null}</td>
+            <td>{r.origem === "EXTRA" ? <span className="text-muted">Diária extra</span> : <>{r.invoiceNumber ?? "—"}{r.installment != null ? <span className="text-muted"> ({r.installment}ª parc.)</span> : null}</>}</td>
             <td className="text-center">{r.dueDate ? formatDate(r.dueDate) : "—"}</td>
             <td className="text-center">{r.paidDate ? formatDate(r.paidDate) : "—"}</td>
             <td className="text-right"><Money value={r.effectiveAmount} /></td>
@@ -888,7 +889,8 @@ function DrillPanel({
                 {statusLabel(r.status)}
               </span>
             </td>
-            {canEdit && (
+            {canEdit && r.origem === "EXTRA" && <td className="text-muted">Extras / Diárias</td>}
+            {canEdit && r.origem !== "EXTRA" && (
               <td>
                 <select
                   value={r.dreCategoryId ?? ""}
