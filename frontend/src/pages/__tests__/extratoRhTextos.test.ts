@@ -50,3 +50,8 @@ describe("textos do Retorno do RH", () => {
     expect(avisosSoDaImportacao({ avisos: [excluido] }, null)).toEqual([excluido]);
   });
 });
+
+test("resumo mostra os adiantamentos tirados da folha do mês", () => {
+  expect(resumoImportacao({ calculo: "MENSAL", titulosNovos: 18, titulosAtualizados: 0, adiantamentosDaFolha: 17 }))
+    .toBe("18 salários lançado(s) no Contas a Pagar; 17 adiantamento(s) lançado(s) a partir da folha (valor bruto).");
+});
