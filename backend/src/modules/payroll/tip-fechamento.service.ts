@@ -93,6 +93,8 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     faltas: p.faltas,
     atestados: p.atestados,
     ferias: p.ferias,
+    // Só informação (não entra no cálculo). Retratos antigos não têm.
+    ...(p.folgasEscala ? { folgasEscala: p.folgasEscala } : {}),
     outrosDias: p.outrosDias,
     diasPrevistos: p.diasPrevistos,
     diasReferencia: p.diasReferencia,
