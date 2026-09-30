@@ -20,7 +20,7 @@ export function htmlRecibo(r: ExtraRecibo): string {
   const linhas = r.diarias.map((d) => `
     <tr>
       <td>${esc(dataCurta(d.date))}</td>
-      <td>${esc(d.sector)}${d.role ? ` · ${esc(d.role)}` : ""}</td>
+      <td>${esc(d.sector)}${d.role ? ` · ${esc(d.role)}` : ""}${d.eventName ? ` · ${esc(d.eventName)}` : ""}</td>
       <td>${d.startTime || d.endTime ? `${esc(d.startTime ?? "?")}–${esc(d.endTime ?? "?")}` : ""}</td>
       <td>${d.duration === "MEIA" ? "Meia" : "Inteira"}</td>
       <td class="n">${brl(d.baseAmount)}</td>

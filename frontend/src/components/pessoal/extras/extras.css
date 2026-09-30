@@ -179,9 +179,22 @@
 .extras-barra-topo { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .extras-mes { display: flex; align-items: center; gap: 6px; }
 .extras-mes-campo {
-  height: 40px; width: 176px; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px;
-  font: inherit; font-weight: 600; background: var(--surface); color: inherit;
+  position: relative; display: inline-flex; align-items: center; justify-content: space-between; gap: 10px;
+  height: 40px; min-width: 196px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface, #fff); color: var(--muted); cursor: pointer; transition: border-color 0.15s;
 }
+.extras-mes-campo > span { color: var(--text, #111); font-weight: 600; white-space: nowrap; }
+.extras-mes-campo > span::first-letter { text-transform: uppercase; }
+.extras-mes-campo > span b { font-weight: 600; color: var(--muted); }
+.extras-mes-campo:hover { border-color: var(--brand, #6b4f2a); }
+.extras-mes-campo:focus-within { border-color: var(--brand, #6b4f2a); box-shadow: 0 0 0 3px rgba(107, 79, 42, 0.15); }
+/* O campo nativo fica por cima, invisível: o toque/clique abre o seletor do sistema. */
+.extras-mes-campo input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
+.extras-mes-hoje {
+  all: unset; cursor: pointer; margin-left: 4px; padding: 6px 10px; border-radius: 999px;
+  font-size: 13px; font-weight: 700; color: var(--brand, #6b4f2a);
+}
+.extras-mes-hoje:hover, .extras-mes-hoje:focus-visible { background: rgba(107, 79, 42, 0.08); }
 .extras-acoes-topo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .extras-valor-diaria {
   display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px;
@@ -245,3 +258,56 @@
   background: transparent; color: var(--text, #111); font: inherit; font-weight: 700; text-align: left; cursor: pointer;
 }
 .extras-cadastrar-fora:hover, .extras-cadastrar-fora:focus-visible { border-color: var(--brand, #6b4f2a); outline: none; }
+
+/* ── Fase 3: gráfico mensal (paleta validada: ΔE CVD 24,7; contraste ≥ 3:1 no branco) ── */
+.extras-grafico { --serie-casa: #2a78d6; --serie-fora: #eb6834; position: relative; margin: 16px 0 12px; }
+.extras-grafico svg { display: block; overflow: visible; }
+.extras-legenda { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.extras-legenda span, .extras-dica span { display: inline-flex; align-items: center; gap: 6px; }
+.extras-legenda i, .extras-dica i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.extras-legenda i.casa, .extras-dica i.casa { background: var(--serie-casa); }
+.extras-legenda i.fora, .extras-dica i.fora { background: var(--serie-fora); }
+.extras-grafico .casa { fill: var(--serie-casa); }
+.extras-grafico .fora { fill: var(--serie-fora); }
+.extras-grade { stroke: #e7e5e4; stroke-width: 1; shape-rendering: crispEdges; }
+.extras-eixo { font-size: 11px; fill: var(--muted, #6b7280); }
+.extras-rotulo-valor { font-size: 11px; font-weight: 700; fill: var(--text, #111); }
+.extras-alvo { fill: transparent; cursor: default; outline: none; }
+.extras-coluna.ativa .extras-alvo { fill: rgba(0, 0, 0, 0.04); }
+.extras-alvo:focus-visible { stroke: var(--brand, #6b4f2a); stroke-width: 2; }
+.extras-dica {
+  position: absolute; transform: translate(-50%, -100%); pointer-events: none; z-index: 2;
+  display: grid; gap: 3px; min-width: 170px; padding: 9px 11px; border-radius: 10px;
+  background: var(--surface, #fff); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  font-size: 12px; color: var(--text, #111);
+}
+.extras-dica span { justify-content: space-between; gap: 12px; }
+.extras-dica b { font-variant-numeric: tabular-nums; }
+.extras-dica-total { border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px; }
+.extras-risco { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 700; color: #b45309; }
+.extras-config-titulo { margin: 20px 0 4px; font-size: 14px; }
+
+/* Resumo do mês: o gasto é o número principal e ganha mais espaço. */
+@media (min-width: 900px) {
+  .extras-topo .extras-resumo { grid-template-columns: 1.5fr 1fr 1fr; }
+}
+.extras-cartao-principal { --serie-casa: #2a78d6; --serie-fora: #eb6834; }
+.extras-cartao-principal .ds-summary-card-body { flex: 1; min-width: 0; }
+.extras-faltas { color: #b42318; font-weight: 600; }
+.extras-divisao { display: grid; gap: 5px; margin-top: 4px; }
+.extras-divisao-barra { display: flex; gap: 2px; height: 6px; border-radius: 999px; overflow: hidden; background: var(--border); }
+.extras-divisao-barra i { display: block; height: 100%; }
+.extras-divisao-barra i.casa, .extras-divisao-legenda i.casa { background: var(--serie-casa); }
+.extras-divisao-barra i.fora, .extras-divisao-legenda i.fora { background: var(--serie-fora); }
+.extras-divisao-legenda { display: flex; flex-wrap: wrap; column-gap: 12px; }
+.extras-divisao-legenda > span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.extras-divisao-legenda i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+@media (max-width: 640px) {
+  /* Celular: o gasto ocupa a linha toda; "A pagar" e "Previsto" lado a lado. */
+  .extras-topo .extras-resumo { grid-template-columns: 1fr 1fr; }
+  .extras-topo .extras-resumo > .extras-cartao-principal { grid-column: 1 / -1; }
+  .extras-acoes-topo > button:last-child { white-space: nowrap; }
+  .extras-topo .extras-resumo > :not(.extras-cartao-principal) .ds-summary-card-chip { display: none; }
+  .extras-topo .extras-resumo > :not(.extras-cartao-principal) .ds-summary-card-body { flex: 1; min-width: 0; }
+}
+.extras-evento { font-size: 12px; font-weight: 700; color: var(--brand, #6b4f2a); }

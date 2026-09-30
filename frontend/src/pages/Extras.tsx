@@ -1,15 +1,16 @@
-import { CalendarClock, ChevronLeft, ChevronRight, Plus, Receipt, Settings, Wallet, XCircle } from "lucide-react";
+import { AlertTriangle, CalendarClock, CalendarDays, ChevronLeft, ChevronRight, Plus, Receipt, Settings, Wallet } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  deleteExtraDiaria, deleteExtraPessoa, getExtraDiarias, getExtraPessoas, saveExtraSettings, updateExtraDiaria,
-  type ExtraDiaria, type ExtraDiariasMes, type ExtraPessoaFora, type ExtraPessoas, type ExtraStatus,
+  deleteExtraDiaria, deleteExtraPessoa, getExtraDiarias, getExtraHabitualidade, getExtraPessoas, saveExtraSettings, updateExtraDiaria,
+  type ExtraDiaria, type ExtraDiariasMes, type ExtraHabitualidade, type ExtraPessoaFora, type ExtraPessoas, type ExtraStatus,
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { DiariaModal, type PessoaEscolhida } from "../components/pessoal/extras/DiariaModal";
 import { ExtrasAnalise } from "../components/pessoal/extras/ExtrasAnalise";
 import { ExtrasDiarias, type FiltroSituacao } from "../components/pessoal/extras/ExtrasDiarias";
 import { ExtrasPagamentos } from "../components/pessoal/extras/ExtrasPagamentos";
+import { ExtrasPainel } from "../components/pessoal/extras/ExtrasPainel";
 import { ExtrasPessoas } from "../components/pessoal/extras/ExtrasPessoas";
 import { Janela } from "../components/pessoal/extras/Janela";
 import { PessoaForaModal } from "../components/pessoal/extras/PessoaForaModal";
@@ -22,14 +23,33 @@ import { maskMoney, moneyToMasked } from "../utils/format";
 
 const numero = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
-const ABAS = ["diarias", "pagamentos", "pessoas", "analise"] as const;
+const ABAS = ["diarias", "pagamentos", "pessoas", "painel"] as const;
 type Aba = (typeof ABAS)[number];
+
+// Quanto do gasto foi da equipe da casa e quanto de pessoas de fora: as mesmas
+// cores do gráfico do Painel, para a leitura ser uma só nas duas telas.
+function DivisaoCasaFora({ casa, fora }: { casa: number; fora: number }) {
+  const total = casa + fora;
+  const pctCasa = total > 0 ? (casa / total) * 100 : 0;
+  return (
+    <span className="extras-divisao" title={`Casa ${brl(casa)} · De fora ${brl(fora)}`}>
+      <span className="extras-divisao-barra" aria-hidden="true">
+        {casa > 0 && <i className="casa" style={{ width: `${pctCasa}%` }} />}
+        {fora > 0 && <i className="fora" style={{ width: `${100 - pctCasa}%` }} />}
+      </span>
+      <span className="extras-divisao-legenda">
+        <span><i className="casa" aria-hidden="true" />Casa {numero(casa)}</span>
+        <span><i className="fora" aria-hidden="true" />Fora {numero(fora)}</span>
+      </span>
+    </span>
+  );
+}
 
 // Diária gravada → corpo do PUT (para mudar só a situação sem abrir o formulário).
 function comoPayload(d: ExtraDiaria, status: ExtraStatus) {
   return {
     date: d.date, employeeId: d.origem === "CASA" ? d.pessoaId : null, extraWorkerId: d.origem === "FORA" ? d.pessoaId : null,
-    sector: d.sector, role: d.role, startTime: d.startTime, endTime: d.endTime, duration: d.duration, reason: d.reason,
+    sector: d.sector, role: d.role, startTime: d.startTime, endTime: d.endTime, duration: d.duration, reason: d.reason, eventName: d.eventName,
     coveredEmployeeId: d.coveredEmployeeId, status, baseAmount: d.baseAmount, baseAdjustReason: d.baseAdjustReason,
     transportAmount: d.transportAmount, bonusAmount: d.bonusAmount, discountAmount: d.discountAmount, notes: d.notes,
   };
@@ -47,14 +67,18 @@ export function Extras() {
   const hoje = new Date();
   const [year, setYear] = useState(hoje.getFullYear());
   const [month, setMonth] = useState(hoje.getMonth() + 1);
+  const campoMes = useRef<HTMLInputElement>(null);
   // Aba no endereço: o cartão "A pagar" e links de fora abrem direto nela.
   const [params, setParams] = useSearchParams();
-  const aba: Aba = (ABAS as readonly string[]).includes(params.get("aba") ?? "") ? (params.get("aba") as Aba) : "diarias";
+  // "analise" era o nome antigo da aba: links salvos continuam abrindo o painel.
+  const abaPedida = params.get("aba") === "analise" ? "painel" : params.get("aba") ?? "";
+  const aba: Aba = (ABAS as readonly string[]).includes(abaPedida) ? (abaPedida as Aba) : "diarias";
   const irPara = (a: Aba) => setParams(a === "diarias" ? {} : { aba: a }, { replace: true });
   const [situacao, setSituacao] = useState<FiltroSituacao>("TODAS");
 
   const [dados, setDados] = useState<ExtraDiariasMes | null>(null);
   const [pessoas, setPessoas] = useState<ExtraPessoas | null>(null);
+  const [habitualidade, setHabitualidade] = useState<ExtraHabitualidade | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
 
@@ -63,7 +87,7 @@ export function Extras() {
   const [excluindo, setExcluindo] = useState<ExtraDiaria | null>(null);
   const [motivoExclusao, setMotivoExclusao] = useState("");
   const [excluindoFora, setExcluindoFora] = useState<ExtraPessoaFora | null>(null);
-  const [configurando, setConfigurando] = useState<{ inteira: string; meia: string } | null>(null);
+  const [configurando, setConfigurando] = useState<{ inteira: string; meia: string; porSemana: string; em30Dias: string; semanasSeguidas: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
   const recarregarPessoas = useCallback(async () => {
@@ -80,8 +104,9 @@ export function Extras() {
     setCarregando(true);
     setErro(null);
     try {
-      const [d] = await Promise.all([getExtraDiarias(year, month), recarregarPessoas()]);
-      if (minha === cargaAtual.current) setDados(d);
+      // O aviso de frequência é complemento: se falhar, a tela do mês abre igual.
+      const [d, h] = await Promise.all([getExtraDiarias(year, month), getExtraHabitualidade().catch(() => null), recarregarPessoas()]);
+      if (minha === cargaAtual.current) { setDados(d); setHabitualidade(h); }
     } catch (e) {
       if (minha === cargaAtual.current) setErro(e instanceof Error ? e.message : "Não foi possível carregar os extras.");
     } finally {
@@ -131,10 +156,21 @@ export function Extras() {
     if (!configurando) return;
     const inteira = Number(configurando.inteira.replace(/\./g, "").replace(",", "."));
     const meia = Number(configurando.meia.replace(/\./g, "").replace(",", "."));
-    void executar(() => saveExtraSettings({ diariaValor: inteira, meiaDiariaValor: meia }), "Valores da diária atualizados. Valem para os próximos lançamentos.", () => setConfigurando(null));
+    const habitual = { porSemana: Number(configurando.porSemana), em30Dias: Number(configurando.em30Dias), semanasSeguidas: Number(configurando.semanasSeguidas) };
+    void executar(() => saveExtraSettings({ diariaValor: inteira, meiaDiariaValor: meia, habitualidade: habitual }), "Configuração salva. Os valores valem para os próximos lançamentos.", () => setConfigurando(null));
+  }
+
+  function abrirConfiguracao() {
+    if (!dados) return;
+    const lim = habitualidade?.limites ?? { porSemana: 3, em30Dias: 8, semanasSeguidas: 4 };
+    setConfigurando({
+      inteira: moneyToMasked(dados.padrao.inteira), meia: moneyToMasked(dados.padrao.meia),
+      porSemana: String(lim.porSemana), em30Dias: String(lim.em30Dias), semanasSeguidas: String(lim.semanasSeguidas),
+    });
   }
 
   const mesRotulo = `${MESES[month - 1]}/${year}`;
+  const noMesAtual = year === hoje.getFullYear() && month === hoje.getMonth() + 1;
   // Só mostra os dados se forem do mês escolhido: ao trocar de mês, os números
   // antigos não ficam sob o nome do mês novo enquanto a resposta não chega.
   const doMes = dados && dados.year === year && dados.month === month ? dados : null;
@@ -145,6 +181,8 @@ export function Extras() {
   const qtdPrevistas = itens.filter((d) => d.status === "PREVISTA").length;
   // O aviso só acende no dia seguinte: a diária de hoje à noite ainda não aconteceu.
   const pendentesDeConfirmar = itens.filter((d) => d.status === "PREVISTA" && d.date < hojeIso()).length;
+  const emRisco = habitualidade?.pessoas.filter((p) => p.emRisco) ?? [];
+  const idsEmRisco = new Set(emRisco.map((p) => p.id));
 
   return (
     <div className="stack">
@@ -154,23 +192,35 @@ export function Extras() {
         <div className="extras-barra-topo">
           <div className="extras-mes" role="group" aria-label="Mês">
             <Button variant="secondary" onClick={() => mudarMes(-1)} aria-label="Mês anterior"><ChevronLeft size={16} /></Button>
-            <input
-              type="month"
-              className="extras-mes-campo"
-              value={`${year}-${String(month).padStart(2, "0")}`}
-              onChange={(e) => { const [y, m] = e.target.value.split("-").map(Number); if (y && m) { setYear(y); setMonth(m); } }}
-              aria-label="Mês e ano"
-            />
+            {/* O campo nativo cortava o ano ("setembro de 202"): o texto fica num
+                rótulo nosso e o campo, invisível por cima, só abre o seletor. */}
+            <label className="extras-mes-campo">
+              <span aria-hidden="true">{MESES[month - 1]} <b>{year}</b></span>
+              <CalendarDays size={15} aria-hidden="true" />
+              <input
+                ref={campoMes}
+                type="month"
+                value={`${year}-${String(month).padStart(2, "0")}`}
+                onClick={() => { try { campoMes.current?.showPicker?.(); } catch { /* navegador sem showPicker: o toque abre o seletor */ } }}
+                onChange={(e) => { const [y, m] = e.target.value.split("-").map(Number); if (y && m) { setYear(y); setMonth(m); } }}
+                aria-label={`Mês: ${mesRotulo}. Trocar mês`}
+              />
+            </label>
             <Button variant="secondary" onClick={() => mudarMes(1)} aria-label="Próximo mês"><ChevronRight size={16} /></Button>
+            {!noMesAtual && (
+              <button type="button" className="extras-mes-hoje" onClick={() => { setYear(hoje.getFullYear()); setMonth(hoje.getMonth() + 1); }}>
+                Mês atual
+              </button>
+            )}
           </div>
           <div className="extras-acoes-topo">
             {dados && (
               podeAdministrar ? (
-                <button type="button" className="extras-valor-diaria" onClick={() => setConfigurando({ inteira: moneyToMasked(dados.padrao.inteira), meia: moneyToMasked(dados.padrao.meia) })} title="Valor da diária inteira e da meia diária. Clique para alterar." aria-label={`Valor da diária: ${brl(dados.padrao.inteira)}, meia ${brl(dados.padrao.meia)}. Alterar`}>
-                  <Settings size={14} aria-hidden="true" /> {brlCurto(dados.padrao.inteira)} · meia {brlCurto(dados.padrao.meia)}
+                <button type="button" className="extras-valor-diaria" onClick={abrirConfiguracao} title="Valor da diária inteira e da meia diária. Clique para alterar." aria-label={`Valor da diária: ${brl(dados.padrao.inteira)}, meia ${brl(dados.padrao.meia)}. Alterar`}>
+                  <Settings size={14} aria-hidden="true" /> <span className="extras-rotulo-botao">Diária</span> {brlCurto(dados.padrao.inteira)} · meia {brlCurto(dados.padrao.meia)}
                 </button>
               ) : (
-                <span className="extras-valor-diaria extras-valor-diaria--leitura">{brlCurto(dados.padrao.inteira)} · meia {brlCurto(dados.padrao.meia)}</span>
+                <span className="extras-valor-diaria extras-valor-diaria--leitura"><span className="extras-rotulo-botao">Diária</span> {brlCurto(dados.padrao.inteira)} · meia {brlCurto(dados.padrao.meia)}</span>
               )
             )}
             {podeCriar && <Button leadingIcon={<Plus size={15} />} onClick={() => setLancando({ diaria: null })} disabled={!pessoas}>Lançar diária</Button>}
@@ -181,8 +231,17 @@ export function Extras() {
 
         {r && (
           <div className="extras-resumo">
-            <SummaryCard compact label={`Gasto em ${MESES[month - 1]}`} moneyValue={r.custoRealizado} icon={<Wallet size={16} />}
-              detail={<><span>{diariasTexto(r.diariasRealizadas)}</span><span className="extras-detalhe-origem" title={`Casa ${brl(r.custoCasa)} · De fora ${brl(r.custoFora)}`}><span>Casa {numero(r.custoCasa)}</span><span>Fora {numero(r.custoFora)}</span></span>{r.diferencaPaga !== 0 && <span title="Pagamentos baixados por valor diferente do título">{r.diferencaPaga > 0 ? "+" : "−"} {numero(Math.abs(r.diferencaPaga))} de diferença paga</span>}</>} />
+            <SummaryCard compact className="extras-cartao-principal" label={`Gasto em ${MESES[month - 1]}`} moneyValue={r.custoRealizado} icon={<Wallet size={16} />}
+              detail={r.diariasRealizadas === 0 && r.naoCompareceu === 0 ? "Nenhuma diária realizada ainda" : (
+                <>
+                  <span>
+                    {diariasTexto(r.diariasRealizadas)}
+                    {r.naoCompareceu > 0 && <span className="extras-faltas"> · {r.naoCompareceu === 1 ? "1 não compareceu" : `${r.naoCompareceu} não compareceram`}</span>}
+                  </span>
+                  {r.custoRealizado > 0 && <DivisaoCasaFora casa={r.custoCasa} fora={r.custoFora} />}
+                  {r.diferencaPaga !== 0 && <span title="Pagamentos baixados por valor diferente do título">{r.diferencaPaga > 0 ? "+" : "−"} {numero(Math.abs(r.diferencaPaga))} de diferença paga</span>}
+                </>
+              )} />
             <SummaryCard
               compact className="extras-cartao-link" role="link" tabIndex={0}
               aria-label={`A pagar: ${brl(aPagar)}. Abrir pagamentos`}
@@ -190,8 +249,7 @@ export function Extras() {
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); irPara("pagamentos"); } }}
               label="A pagar" moneyValue={aPagar} tone={aPagar > 0 ? "warning" : "success"} icon={<Receipt size={16} />} detail={aPagar > 0 ? "Abrir pagamentos →" : "Tudo pago"}
             />
-            <SummaryCard compact label="Previsto" moneyValue={r.custoPrevisto} tone="info" icon={<CalendarClock size={16} />} detail={qtdPrevistas ? `${qtdPrevistas} lançamento(s)` : "Nada agendado"} />
-            <SummaryCard compact label="Não compareceu" value={String(r.naoCompareceu)} tone={r.naoCompareceu > 0 ? "danger" : "neutral"} icon={<XCircle size={16} />} detail="Chamados que faltaram" />
+            <SummaryCard compact label="Previsto" moneyValue={r.custoPrevisto} tone="info" icon={<CalendarClock size={16} />} detail={qtdPrevistas ? (qtdPrevistas === 1 ? "1 diária agendada" : `${qtdPrevistas} diárias agendadas`) : "Nada agendado"} />
           </div>
         )}
 
@@ -199,6 +257,13 @@ export function Extras() {
           <Alert tone="warning" className="extras-aviso">
             {pendentesDeConfirmar === 1 ? "1 diária prevista já chegou na data" : `${pendentesDeConfirmar} diárias previstas já chegaram na data`}: confirme se a pessoa veio para o gasto do mês ficar certo.{" "}
             <button type="button" className="extras-link-botao" onClick={() => { setSituacao("PREVISTA"); irPara("diarias"); }}>Ver e confirmar</button>
+          </Alert>
+        )}
+
+        {emRisco.length > 0 && aba !== "painel" && (
+          <Alert tone="warning" icon={<AlertTriangle size={16} />} className="extras-aviso">
+            {emRisco.length === 1 ? `${emRisco[0].nome} está` : `${emRisco.length} pessoas de fora estão`} com diárias frequentes (risco de vínculo).{" "}
+            <button type="button" className="extras-link-botao" onClick={() => irPara("painel")}>Ver frequência</button>
           </Alert>
         )}
       </section>
@@ -210,7 +275,7 @@ export function Extras() {
           { value: "diarias", label: "Diárias do mês" },
           { value: "pagamentos", label: "Pagamentos" },
           { value: "pessoas", label: "Pessoas" },
-          { value: "analise", label: "Análise" },
+          { value: "painel", label: "Painel" },
         ]}
       />
 
@@ -240,6 +305,7 @@ export function Extras() {
         <ExtrasPessoas
           pessoas={pessoas}
           diarias={itens}
+          emRisco={idsEmRisco}
           mesRotulo={MESES[month - 1]}
           podeCriar={podeCriar}
           podeEditar={podeEditar}
@@ -251,7 +317,17 @@ export function Extras() {
         />
       )}
 
-      {aba === "analise" && r && <ExtrasAnalise resumo={r} itens={itens} mesRotulo={mesRotulo} />}
+      {aba === "painel" && (
+        <>
+          <ExtrasPainel
+            ate={`${year}-${String(month).padStart(2, "0")}`}
+            habitualidade={habitualidade}
+            podeAjustarCriterios={podeAdministrar && !!dados}
+            onAjustarCriterios={abrirConfiguracao}
+          />
+          {r && <ExtrasAnalise resumo={r} itens={itens} mesRotulo={mesRotulo} />}
+        </>
+      )}
 
       {lancando && pessoas && dados && (
         <DiariaModal
@@ -310,7 +386,7 @@ export function Extras() {
       )}
 
       {configurando && (
-        <Janela eyebrow="Extras · configuração" titulo="Valor da diária" onFechar={() => setConfigurando(null)} ocupado={ocupado}>
+        <Janela eyebrow="Extras · configuração" titulo="Diária e frequência" onFechar={() => setConfigurando(null)} ocupado={ocupado}>
           <p className="extras-sub" style={{ marginTop: 0 }}>Vale para todos. Diárias já lançadas guardam o valor do dia e não mudam.</p>
           <FormGrid cols={2}>
             <FormField label="Diária inteira">
@@ -320,9 +396,22 @@ export function Extras() {
               <TextField value={configurando.meia} inputMode="numeric" onChange={(e) => setConfigurando({ ...configurando, meia: maskMoney(e.target.value) })} />
             </FormField>
           </FormGrid>
+          <h3 className="extras-config-titulo">Aviso de frequência (pessoas de fora)</h3>
+          <p className="extras-sub" style={{ marginTop: 0 }}>O aviso acende quando a pessoa atinge qualquer um destes limites. Só avisa, nunca bloqueia.</p>
+          <FormGrid cols={3}>
+            <FormField label="Dias na mesma semana" hint="1 a 7">
+              <TextField type="number" min={1} max={7} value={configurando.porSemana} onChange={(e) => setConfigurando({ ...configurando, porSemana: e.target.value })} />
+            </FormField>
+            <FormField label="Dias em 30 dias" hint="1 a 30">
+              <TextField type="number" min={1} max={30} value={configurando.em30Dias} onChange={(e) => setConfigurando({ ...configurando, em30Dias: e.target.value })} />
+            </FormField>
+            <FormField label="Semanas seguidas" hint="2 a 52">
+              <TextField type="number" min={2} max={52} value={configurando.semanasSeguidas} onChange={(e) => setConfigurando({ ...configurando, semanasSeguidas: e.target.value })} />
+            </FormField>
+          </FormGrid>
           <div className="extras-acoes">
             <Button variant="secondary" onClick={() => setConfigurando(null)} disabled={ocupado}>Cancelar</Button>
-            <Button onClick={salvarValores} disabled={ocupado}>Salvar valores</Button>
+            <Button onClick={salvarValores} disabled={ocupado}>Salvar</Button>
           </div>
         </Janela>
       )}

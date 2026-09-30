@@ -39,6 +39,13 @@ describe("resolvePermissionContext — extras", () => {
   it("mudar o valor da diária exige administrar", async () => {
     expect(await ctx("PUT", "/extras/settings")).toEqual({ menuId: "extras", action: "admin" });
     expect(await ctx("GET", "/extras/settings")).toEqual({ menuId: "extras", action: "view" });
+    expect(await ctx("PUT", "/EXTRAS/Settings/")).toEqual({ menuId: "extras", action: "admin" });
+  });
+
+  it("painel e frequência são leitura do próprio módulo", async () => {
+    expect(await ctx("GET", "/extras/painel")).toEqual({ menuId: "extras", action: "view" });
+    expect(await ctx("GET", "/EXTRAS/Painel/")).toEqual({ menuId: "extras", action: "view" });
+    expect(await ctx("GET", "/extras/habitualidade/")).toEqual({ menuId: "extras", action: "view" });
   });
 
   it("gerar pagamento é aprovar (também com barra no fim); cancelar é excluir", async () => {

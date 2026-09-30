@@ -8,6 +8,7 @@ import type { PessoaEscolhida } from "./DiariaModal";
 type Props = {
   pessoas: ExtraPessoas;
   diarias: ExtraDiaria[];
+  emRisco: Set<string>; // pessoas de fora com frequência alta (risco de vínculo)
   mesRotulo: string;
   podeCriar: boolean;
   podeEditar: boolean;
@@ -20,7 +21,7 @@ type Props = {
 
 const normaliza = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-export function ExtrasPessoas({ pessoas, diarias, mesRotulo, podeCriar, podeEditar, podeExcluir, onLancar, onNovaFora, onEditarFora, onExcluirFora }: Props) {
+export function ExtrasPessoas({ pessoas, diarias, emRisco, mesRotulo, podeCriar, podeEditar, podeExcluir, onLancar, onNovaFora, onEditarFora, onExcluirFora }: Props) {
   const [busca, setBusca] = useState("");
   const [verDesligados, setVerDesligados] = useState(false);
 
@@ -135,6 +136,7 @@ export function ExtrasPessoas({ pessoas, diarias, mesRotulo, podeCriar, podeEdit
                   <Table.Td>
                     <strong>{p.nome}</strong>
                     {!p.ativo && <> <StatusBadge tone="neutral">Inativo</StatusBadge></>}
+                    {emRisco.has(p.id) && <> <StatusBadge tone="warning">Frequência alta</StatusBadge></>}
                     {p.apelido && <div className="extras-sub">{p.apelido}</div>}
                   </Table.Td>
                   <Table.Td className="extras-ocultar-celular">{p.telefone ?? "—"}</Table.Td>

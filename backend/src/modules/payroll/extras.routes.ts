@@ -38,10 +38,22 @@ async function valoresPadrao() {
 }
 
 // ─── CONFIGURAÇÃO: valor único da diária ──────────────────────────────────────
+export async function limitesHabitualidade() {
+  const s = await getOrDefaultSettings();
+  return { porSemana: s.extraHabitualSemana, em30Dias: s.extraHabitual30Dias, semanasSeguidas: s.extraHabitualSemanas };
+}
+
 extrasRouter.get("/settings", async (_request, response) => {
   const p = await valoresPadrao();
-  response.json({ diariaValor: p.inteira, meiaDiariaValor: p.meia });
+  response.json({ diariaValor: p.inteira, meiaDiariaValor: p.meia, habitualidade: await limitesHabitualidade() });
 });
+
+// Inteiro dentro da faixa; ausente = mantém; fora da faixa = erro.
+function lerLimite(v: unknown, min: number, max: number, atual: number, nome: string): number | string {
+  if (v == null || v === "") return atual;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= min && n <= max ? n : `${nome}: use um número inteiro de ${min} a ${max}.`;
+}
 
 extrasRouter.put("/settings", async (request, response) => {
   const user = await getSessionUser(request);
@@ -55,16 +67,26 @@ extrasRouter.put("/settings", async (request, response) => {
   if (meia > inteira) return response.status(400).json({ message: "A meia diária não pode valer mais que a diária inteira." });
 
   const antes = await valoresPadrao();
+  const limAntes = await limitesHabitualidade();
+  const h = (b.habitualidade ?? {}) as Record<string, unknown>;
+  const porSemana = lerLimite(h.porSemana, 1, 7, limAntes.porSemana, "Dias na mesma semana");
+  const em30Dias = lerLimite(h.em30Dias, 1, 30, limAntes.em30Dias, "Dias em 30 dias");
+  const semanasSeguidas = lerLimite(h.semanasSeguidas, 2, 52, limAntes.semanasSeguidas, "Semanas seguidas");
+  for (const v of [porSemana, em30Dias, semanasSeguidas]) if (typeof v === "string") return response.status(400).json({ message: v });
+  const limites = { porSemana: porSemana as number, em30Dias: em30Dias as number, semanasSeguidas: semanasSeguidas as number };
   await prisma.payrollSettings.update({
     where: { id: "singleton" },
-    data: { diariaValor: inteira, meiaDiariaValor: meia, updatedById: user.id },
+    data: {
+      diariaValor: inteira, meiaDiariaValor: meia, updatedById: user.id,
+      extraHabitualSemana: limites.porSemana, extraHabitual30Dias: limites.em30Dias, extraHabitualSemanas: limites.semanasSeguidas,
+    },
   });
   await auditLog({
     userId: user.id, action: "UPDATE_EXTRAS_SETTINGS", entity: "PayrollSettings", entityId: "singleton",
-    previousValue: { diariaValor: antes.inteira, meiaDiariaValor: antes.meia },
-    newValue: { diariaValor: inteira, meiaDiariaValor: meia }, ...auditoria(request),
+    previousValue: { diariaValor: antes.inteira, meiaDiariaValor: antes.meia, habitualidade: limAntes },
+    newValue: { diariaValor: inteira, meiaDiariaValor: meia, habitualidade: limites }, ...auditoria(request),
   });
-  response.json({ diariaValor: inteira, meiaDiariaValor: meia });
+  response.json({ diariaValor: inteira, meiaDiariaValor: meia, habitualidade: limites });
 });
 
 // ─── PESSOAS: equipe da casa (do cadastro) + pessoas de fora ─────────────────
@@ -283,6 +305,7 @@ function paraTela(d: DiariaComPessoas) {
     endTime: d.endTime,
     duration: d.duration,
     reason: d.reason,
+    eventName: d.eventName,
     coveredEmployeeId: d.coveredEmployeeId,
     coveredNome: d.coveredEmployee ? (apelidoDe(d.coveredEmployee) ?? nomeCompleto(d.coveredEmployee)) : null,
     baseAmount: Number(d.baseAmount),
@@ -310,7 +333,7 @@ extrasRouter.get("/shifts", async (request, response) => {
   const itens = (await buscarDiarias(inicio, fim)).map(paraTela);
   const resumo = resumirDiarias(itens.map((i): DiariaParaResumo => ({
     status: i.status, duration: i.duration, totalAmount: i.totalAmount, sector: i.sector,
-    reason: i.reason, pessoaId: i.pessoaId, pessoaNome: i.pessoaNome, origem: i.origem,
+    reason: i.reason, eventName: i.eventName, pessoaId: i.pessoaId, pessoaNome: i.pessoaNome, origem: i.origem,
   })));
   // Diferença de valor pago nos títulos (mesma regra do DRE): entra no gasto
   // do mês para a tela e o DRE mostrarem o mesmo número.
@@ -331,7 +354,7 @@ type LeituraDiaria =
       ok: true;
       dados: {
         date: Date; employeeId: string | null; extraWorkerId: string | null; sector: string; role: string | null;
-        startTime: string | null; endTime: string | null; duration: "INTEIRA" | "MEIA"; reason: (typeof REASONS)[number];
+        startTime: string | null; endTime: string | null; duration: "INTEIRA" | "MEIA"; reason: (typeof REASONS)[number]; eventName: string | null;
         coveredEmployeeId: string | null; status: (typeof STATUSES)[number]; notes: string | null;
         baseAmount: number; baseAdjustReason: string | null; transportAmount: number; bonusAmount: number; discountAmount: number; totalAmount: number;
       };
@@ -347,11 +370,37 @@ function lerOpcao<T extends readonly string[]>(list: T, v: unknown, herdado: T[n
   return oneOf(list, v);
 }
 
+// "  apraxia  " e "Apraxia" são o mesmo evento: espaços normalizados e, se já
+// existe um nome igual ignorando maiúsculas, a grafia é a do cadastro (ver /events).
+function nomeDoEvento(v: unknown): string | null {
+  const s = typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "";
+  return s || null;
+}
+
+async function grafiaDoEvento(nome: string | null): Promise<string | null> {
+  if (!nome) return null;
+  const igual = await prisma.extraShift.findFirst({
+    where: { deletedAt: null, eventName: { equals: nome, mode: "insensitive" } },
+    orderBy: { createdAt: "asc" }, select: { eventName: true },
+  });
+  return igual?.eventName ?? nome;
+}
+
+// Nomes de evento já usados (sugestões do campo), mais recentes primeiro.
+extrasRouter.get("/events", async (_request, response) => {
+  const linhas = await prisma.$queryRaw<Array<{ nome: string; ultimo: Date; diarias: number }>>`
+    SELECT "eventName" AS nome, MAX("date") AS ultimo, COUNT(*)::int AS diarias
+    FROM "ExtraShift" WHERE "deletedAt" IS NULL AND "eventName" IS NOT NULL
+    GROUP BY "eventName" ORDER BY MAX("date") DESC LIMIT 200
+  `;
+  response.json(linhas.map((l) => ({ nome: l.nome, ultimo: ymd(l.ultimo), diarias: l.diarias })));
+});
+
 async function lerDiaria(b: Record<string, unknown>, existente?: DiariaGravada): Promise<LeituraDiaria> {
   const date = lerData(b.date);
   if (!date) return { ok: false, status: 400, erro: "Informe a data da diária." };
   const longo = campoLongoDemais(b, [
-    ["sector", "Setor", LIMITE_CURTO], ["role", "Função", LIMITE_CURTO],
+    ["sector", "Setor", LIMITE_CURTO], ["role", "Função", LIMITE_CURTO], ["eventName", "Evento", LIMITE_CURTO],
     ["baseAdjustReason", "Motivo do valor", LIMITE_LONGO], ["notes", "Observação", LIMITE_LONGO],
   ]);
   if (longo) return { ok: false, status: 400, erro: longo };
@@ -417,7 +466,7 @@ async function lerDiaria(b: Record<string, unknown>, existente?: DiariaGravada):
     ok: true,
     dados: {
       date, employeeId, extraWorkerId, sector, role: str(b.role), startTime, endTime,
-      duration, reason, coveredEmployeeId, status, notes: str(b.notes), ...valores.valores,
+      duration, reason, eventName: await grafiaDoEvento(nomeDoEvento(b.eventName)), coveredEmployeeId, status, notes: str(b.notes), ...valores.valores,
     },
   };
 }

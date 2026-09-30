@@ -44,7 +44,7 @@ export function ExtrasDiarias(p: Props) {
   const visiveis = p.itens.filter((d) =>
     (p.situacao === "TODAS" || d.status === p.situacao) &&
     (origem === "TODAS" || d.origem === origem) &&
-    (!filtro || normaliza(`${d.pessoaNome} ${d.pessoaApelido ?? ""} ${d.sector} ${d.role ?? ""}`).includes(filtro))
+    (!filtro || normaliza(`${d.pessoaNome} ${d.pessoaApelido ?? ""} ${d.sector} ${d.role ?? ""} ${d.eventName ?? ""}`).includes(filtro))
   );
   const realizadas = visiveis.filter((d) => d.status === "REALIZADA");
   const totalRealizado = realizadas.reduce((s, d) => s + d.totalAmount, 0);
@@ -56,9 +56,9 @@ export function ExtrasDiarias(p: Props) {
       <section className="panel">
         <EmptyState
           title={`Nenhuma diária em ${p.mesRotulo}`}
-          description="Lance cada extra chamado, da equipe da casa ou de fora. O gasto do mês aparece no resumo acima."
+          description="Chamou alguém para trabalhar? Lance a diária, da equipe da casa ou de uma pessoa de fora. Se ainda vai acontecer, lance como Prevista e confirme depois."
         />
-        {p.podeCriar && <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}><Button onClick={p.onLancar}>Lançar a primeira diária</Button></div>}
+        {p.podeCriar && <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}><Button onClick={p.onLancar}>Lançar diária</Button></div>}
       </section>
     );
   }
@@ -68,7 +68,7 @@ export function ExtrasDiarias(p: Props) {
       <div className="extras-filtros">
         <div className="extras-filtro-busca">
           <Search size={15} aria-hidden="true" />
-          <TextField value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar pessoa, setor ou função" aria-label="Buscar diária" />
+          <TextField value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar pessoa, setor, função ou evento" aria-label="Buscar diária" />
         </div>
         <div className="extras-chips" role="group" aria-label="Filtrar por situação">
           {SITUACOES.filter((s) => s === "TODAS" || contagem[s]).map((s) => (
@@ -121,6 +121,7 @@ export function ExtrasDiarias(p: Props) {
                   <Table.Td className="extras-ocultar-celular">{d.sector}</Table.Td>
                   <Table.Td className="extras-ocultar-celular">
                     {MOTIVO_ROTULO[d.reason]}
+                    {d.eventName && <div className="extras-evento">{d.eventName}</div>}
                     {d.coveredNome && <div className="extras-sub">cobrindo {d.coveredNome}</div>}
                   </Table.Td>
                   <Table.Td className="extras-ocultar-celular">{badge}</Table.Td>

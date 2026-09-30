@@ -338,7 +338,7 @@ extrasPagamentosRouter.get("/:id/receipt", async (request, response) => {
     paidAmount: p.paidAmount == null ? null : Number(p.paidAmount),
     paidPaymentMethodName: p.paidPaymentMethodName,
     diarias: p.shifts.map((s) => ({
-      date: ymd(s.date), duration: s.duration, sector: s.sector, role: s.role, startTime: s.startTime, endTime: s.endTime,
+      date: ymd(s.date), duration: s.duration, sector: s.sector, role: s.role, eventName: s.eventName, startTime: s.startTime, endTime: s.endTime,
       baseAmount: Number(s.baseAmount), transportAmount: Number(s.transportAmount), bonusAmount: Number(s.bonusAmount),
       discountAmount: Number(s.discountAmount), totalAmount: Number(s.totalAmount),
     })),
