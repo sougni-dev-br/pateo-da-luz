@@ -113,7 +113,7 @@ const emptyEmployee = {
   bankName: "", bankAgency: "", bankAccount: "", bankAccountDigit: "", bankAccountType: "CONTA_CORRENTE" as EmployeeBankAccountType,
   gender: "NAO_INFORMADO" as EmployeeGender,
   pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", salarioCombinado: "", salarioCombinadoMotivo: "", recebeAdiantamento: false, shiftStart: "", shiftEnd: "",
-  modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, admissionDate: "",
+  modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, admissionDate: "", admissaoCarteira: "",
   vtType: "TRANSPORTE_PUBLICO" as VtType, vtPeriodicity: "QUINZENAL" as VtPeriodicity,
   vtFixedAmount: "", vtMonthlyFareId: "", notes: "",
   vtLegs: [] as Array<{ direction: VtDirection; fareId: string }>
@@ -218,7 +218,7 @@ export function Funcionarios() {
       salarioCombinado: moneyToMasked(e.salarioCombinado ?? null), salarioCombinadoMotivo: e.salarioCombinadoMotivo ?? "",
       recebeAdiantamento: e.recebeAdiantamento ?? false,
       shiftStart: e.shiftStart ?? "", shiftEnd: e.shiftEnd ?? "",
-      modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, admissionDate: toDateInput(e.admissionDate),
+      modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, admissionDate: toDateInput(e.admissionDate), admissaoCarteira: toDateInput(e.admissaoCarteira ?? null),
       vtType: e.vtType, vtPeriodicity: e.vtPeriodicity,
       vtFixedAmount: moneyToMasked(e.vtFixedAmount), vtMonthlyFareId: e.vtMonthlyFareId ?? "", notes: e.notes ?? "",
       vtLegs: (e.vtLegs ?? []).map((l) => ({ direction: l.direction, fareId: l.fareId }))
@@ -281,6 +281,7 @@ export function Funcionarios() {
         scheduleRegime: form.scheduleRegime,
         includeInSchedule: form.includeInSchedule,
         admissionDate: form.admissionDate || undefined,
+        admissaoCarteira: form.admissaoCarteira || null,
         vtType: form.vtType,
         vtPeriodicity: form.vtPeriodicity,
         // Cada configuração de VT só é enviada quando o tipo escolhido a usa.
@@ -644,8 +645,11 @@ export function Funcionarios() {
                 <FormField label="Turno — fim">
                   <TextField type="time" value={form.shiftEnd} onChange={(e) => setForm({ ...form, shiftEnd: e.target.value })} />
                 </FormField>
-                <FormField label="Admissão">
+                <FormField label="Início do trabalho" hint="Conta para gorjeta, VT e escala">
                   <TextField type="date" value={form.admissionDate} onChange={(e) => setForm({ ...form, admissionDate: e.target.value })} />
+                </FormField>
+                <FormField label="Admissão em carteira" hint="Do extrato da contabilidade; só informativo">
+                  <TextField type="date" value={form.admissaoCarteira} onChange={(e) => setForm({ ...form, admissaoCarteira: e.target.value })} />
                 </FormField>
               </FormGrid>
             </FormSection>

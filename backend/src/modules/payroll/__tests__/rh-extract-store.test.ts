@@ -6,7 +6,7 @@ vi.mock("../../../config/database.js", () => {
   const prisma: Record<string, unknown> = {
     rhExtract: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
     rhExtractPessoa: { deleteMany: vi.fn(), create: vi.fn() },
-    employee: { findMany: vi.fn() },
+    employee: { findMany: vi.fn(), updateMany: vi.fn() },
     payrollItem: { findMany: vi.fn() },
     $transaction: vi.fn(),
   };
@@ -14,7 +14,7 @@ vi.mock("../../../config/database.js", () => {
 });
 
 import { prisma } from "../../../config/database.js";
-import { avisosDoExtrato, guardarExtrato } from "../rh-extract-store.service.js";
+import { avisosDoExtrato, guardarExtrato, preencherAdmissaoCarteira } from "../rh-extract-store.service.js";
 import type { DetalhesExtrato, PessoaExtrato } from "../rh-extract-detalhes.js";
 import type { ExtratoParsed } from "../rh-extract.service.js";
 
@@ -95,14 +95,14 @@ describe("avisosDoExtrato", () => {
   const demitido = pessoa({ demissao: "2026-08-01", liquidoRescisao: 5000, situacao: "Demitido" });
 
   test("rescisão no extrato sem título RESCISAO lançado → avisa", async () => {
-    db.employee.findMany.mockResolvedValue([{ id: "e1", cpf: "111.222.333-44", baseSalary: 2450, position: "BARMAN", admissionDate: new Date("2026-07-21T00:00:00Z") }]);
+    db.employee.findMany.mockResolvedValue([{ id: "e1", cpf: "111.222.333-44", baseSalary: 2450, position: "BARMAN", admissaoCarteira: new Date("2026-07-21T00:00:00Z") }]);
     const avisos = await avisosDoExtrato({ ...base, detalhes: detalhes([demitido]) });
     expect(avisos).toHaveLength(1);
     expect(avisos[0]).toMatch(/^Rescisão de FULANO DE TAL no extrato \(líquido R\$\s?5\.000,00, demitido em 01\/08\): confira se está lançada em Contas a Pagar\.$/);
   });
 
   test("rescisão já lançada em Contas a Pagar → não avisa", async () => {
-    db.employee.findMany.mockResolvedValue([{ id: "e1", cpf: "11122233344", baseSalary: 2450, position: "Barman", admissionDate: new Date("2026-07-21T00:00:00Z") }]);
+    db.employee.findMany.mockResolvedValue([{ id: "e1", cpf: "11122233344", baseSalary: 2450, position: "Barman", admissaoCarteira: new Date("2026-07-21T00:00:00Z") }]);
     db.payrollItem.findMany.mockResolvedValue([{ competenceYear: 2026, competenceMonth: 8 }]);
     expect(await avisosDoExtrato({ ...base, detalhes: detalhes([demitido]) })).toEqual([]);
     expect(db.payrollItem.findMany.mock.calls[0][0].where).toMatchObject({ employeeId: "e1", type: "RESCISAO", deletedAt: null });
@@ -114,12 +114,12 @@ describe("avisosDoExtrato", () => {
   });
 
   test("salário, cargo e admissão diferentes do cadastro → avisos, sem valores para quem não vê dados pessoais", async () => {
-    db.employee.findMany.mockResolvedValue([{ id: "e1", cpf: "11122233344", baseSalary: 2300, position: "Garçom", admissionDate: new Date("2025-01-01T00:00:00Z") }]);
+    db.employee.findMany.mockResolvedValue([{ id: "e1", cpf: "11122233344", baseSalary: 2300, position: "Garçom", admissaoCarteira: new Date("2025-01-01T00:00:00Z") }]);
     const com = await avisosDoExtrato({ ...base, detalhes: detalhes([pessoa()]) });
     expect(com).toHaveLength(3);
     expect(com[0]).toMatch(/salário base no extrato de 08\/2026 é R\$\s?2\.450,00, no cadastro R\$\s?2\.300,00/);
     expect(com[1]).toContain('cargo no extrato de 08/2026 é "BARMAN", no cadastro "Garçom"');
-    expect(com[2]).toContain("admissão no extrato é 21/07/2026, no cadastro 01/01/2025");
+    expect(com[2]).toContain("admissão em carteira no extrato é 21/07/2026, no cadastro 01/01/2025");
     const sem = await avisosDoExtrato({ ...base, incluirDadosPessoais: false, detalhes: detalhes([pessoa()]) });
     expect(sem[0]).toBe("FULANO DE TAL: salário base no extrato de 08/2026 difere do cadastro. O cadastro não foi alterado.");
   });
@@ -127,5 +127,23 @@ describe("avisosDoExtrato", () => {
   test("leitura que não fechou vira aviso para conferir no PDF", async () => {
     const avisos = await avisosDoExtrato({ ...base, detalhes: detalhes([pessoa({ conferido: false, somaDescontos: 10, descontos: 20 })]) });
     expect(avisos[0]).toMatch(/^Leitura de FULANO DE TAL não fechou/);
+  });
+});
+
+describe("admissão em carteira", () => {
+  test("início real diferente não é divergência: só compara com a admissão em carteira, e vazia não avisa", async () => {
+    db.employee.findMany.mockResolvedValue([{ id: "e1", cpf: "11122233344", baseSalary: 2450, position: "Barman", admissaoCarteira: null }]);
+    const avisos = await avisosDoExtrato({ detalhes: detalhes([pessoa()]), calculo: "MENSAL", competenceYear: 2026, competenceMonth: 8, incluirDadosPessoais: true });
+    expect(avisos.some((a) => a.includes("admissão"))).toBe(false);
+  });
+
+  test("a importação preenche só quem ainda não tem a admissão em carteira", async () => {
+    db.employee.updateMany.mockResolvedValue({ count: 1 });
+    const n = await preencherAdmissaoCarteira(detalhes([pessoa()]), new Map([["11122233344", "e1"]]), "u1");
+    expect(n).toBe(1);
+    expect(db.employee.updateMany).toHaveBeenCalledWith({
+      where: { id: "e1", admissaoCarteira: null },
+      data: { admissaoCarteira: new Date("2026-07-21T00:00:00Z"), updatedById: "u1" },
+    });
   });
 });

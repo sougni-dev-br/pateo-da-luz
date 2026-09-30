@@ -5424,6 +5424,7 @@ export type Employee = {
   scheduleRegime: WorkScheduleRegime;
   includeInSchedule: boolean;
   admissionDate: string | null;
+  admissaoCarteira?: string | null;
   vtType: VtType;
   vtPeriodicity: VtPeriodicity;
   vtFixedAmount: string | null;
@@ -5490,6 +5491,8 @@ export type EmployeePayload = {
   scheduleRegime?: WorkScheduleRegime;
   includeInSchedule?: boolean;
   admissionDate?: string;
+  /** Registro em carteira (do extrato); null limpa, ausente preserva. */
+  admissaoCarteira?: string | null;
   vtType?: VtType;
   vtPeriodicity?: VtPeriodicity;
   /** null limpa o valor; ausente preserva o que esta gravado. */
