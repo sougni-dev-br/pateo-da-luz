@@ -2434,6 +2434,10 @@ model Employee {
   scheduleRegime    WorkScheduleRegime @default(SEIS_POR_UM)
   includeInSchedule Boolean            @default(true)
   admissionDate     DateTime?
+  // Data de registro na carteira (vem do extrato da contabilidade). Pode ser depois do
+  // início real (admissionDate): quem começa sem registro, em teste ou recebendo seguro.
+  // Só informativo: gorjeta, VT e escala contam pelo admissionDate.
+  admissaoCarteira  DateTime?          @db.Date
   // Vale-transporte. TRANSPORTE_PUBLICO calcula pelas pernas (vtLegs) × escala;
   // BILHETE_MENSAL usa uma tarifa de base MENSAL; AUXILIO_COMBUSTIVEL usa o valor fixo.
   vtType            VtType             @default(TRANSPORTE_PUBLICO)
