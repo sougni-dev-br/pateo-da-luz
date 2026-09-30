@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type { ScheduleDayMeta, ScheduleDayType, ScheduleEmployee } from "../../api/client";
 import {
   COLORS, DOW_LETTERS, MARCAS_OCORRENCIA, type MarcaOcorrencia, dataCurta, dateMs, fullName, keyOf,
@@ -11,6 +12,15 @@ import {
 // leem da escala (falta, atestado, férias e folga), na mesma tabela e do mesmo jeito.
 
 const MARCA_POR_TIPO = new Map(MARCAS_OCORRENCIA.map((m) => [m.tipo as ScheduleDayType, m]));
+
+// Ocupa espaço e é usada pouco: começa recolhida, e lembra (neste navegador) se ficou aberta.
+const CHAVE_ABERTA = "escala-so-ocorrencias-aberta";
+function lerAberta(): boolean {
+  try { return window.localStorage.getItem(CHAVE_ABERTA) === "1"; } catch { return false; }
+}
+function gravarAberta(v: boolean) {
+  try { window.localStorage.setItem(CHAVE_ABERTA, v ? "1" : "0"); } catch { /* só não lembra */ }
+}
 
 type Props = {
   employees: ScheduleEmployee[];
@@ -31,6 +41,8 @@ type Props = {
 
 export function SoOcorrencias({ employees, days, year, month, marks, isFerias, canEdit, onMarcar, descartadas, nameCol, countCol, cell, compacto }: Props) {
   const [pincel, setPincel] = useState<MarcaOcorrencia | null>(null);
+  const [aberta, setAberta] = useState(lerAberta);
+  const alternar = () => setAberta((v) => { gravarAberta(!v); return !v; });
 
   const nomeStyle: CSSProperties = {
     position: "sticky", left: 0, zIndex: 2, background: "var(--surface)",
@@ -46,9 +58,32 @@ export function SoOcorrencias({ employees, days, year, month, marks, isFerias, c
     return days.filter((d) => MARCA_POR_TIPO.has(marks.get(keyOf(emp.id, d.day)) as ScheduleDayType)).length;
   }
 
+  const totalOcorrencias = employees.reduce((a, e) => a + ocorrenciasNoMes(e), 0);
+  const semNenhuma = employees.filter((e) => ocorrenciasNoMes(e) === 0).length;
+
   return (
     <section aria-labelledby="so-ocorrencias-titulo" style={{ marginTop: 18 }}>
-      <h3 id="so-ocorrencias-titulo" style={{ margin: "0 0 4px", fontSize: 14 }}>Fora da escala — só ocorrências</h3>
+      <h3 id="so-ocorrencias-titulo" style={{ margin: "0 0 4px", fontSize: 14 }}>
+        <button
+          type="button"
+          onClick={alternar}
+          aria-expanded={aberta}
+          aria-controls="so-ocorrencias-conteudo"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 6px", margin: "0 0 0 -6px",
+            border: 0, borderRadius: 6, background: "transparent", font: "inherit", fontWeight: 600, cursor: "pointer", color: "inherit",
+          }}
+        >
+          {aberta ? <ChevronDown size={16} aria-hidden /> : <ChevronRight size={16} aria-hidden />}
+          Fora da escala — só ocorrências
+          <span style={{ fontWeight: 400, fontSize: 12, color: "var(--muted)" }}>
+            · {employees.length} pessoa(s) · {totalOcorrencias} ocorrência(s) no mês
+            {semNenhuma > 0 && <> · <span style={{ color: "#b45309" }}>{semNenhuma} sem nenhuma marca</span></>}
+          </span>
+        </button>
+      </h3>
+      {aberta && (
+      <div id="so-ocorrencias-conteudo">
       <p style={{ margin: "0 0 8px", fontSize: 12, color: "var(--muted)", maxWidth: 760 }}>
         Quem está com “Entra na escala” desligado no cadastro. Aqui não há turno: marque só falta, atestado, férias e folga —
         valem para a gorjeta e o VT como na escala acima. Não entram na conferência de descanso nem saem no mural.
@@ -174,6 +209,8 @@ export function SoOcorrencias({ employees, days, year, month, marks, isFerias, c
           </tbody>
         </table>
       </div>
+      </div>
+      )}
     </section>
   );
 }
