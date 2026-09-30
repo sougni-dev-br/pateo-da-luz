@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 vi.mock("../../../config/database.js", () => ({
   prisma: {
     tipPeriod: { findUnique: vi.fn() },
-    employeeScheduleDay: { groupBy: vi.fn() },
+    employeeScheduleDay: { groupBy: vi.fn(), findMany: vi.fn() },
     revenueEntry: { aggregate: vi.fn() },
     payrollItem: { findMany: vi.fn() },
     tipPeriodClosing: { findFirst: vi.fn() },
@@ -55,6 +55,7 @@ function periodo(participants: unknown[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   db.employeeScheduleDay.groupBy.mockResolvedValue([]);
+  db.employeeScheduleDay.findMany.mockResolvedValue([]);
   db.revenueEntry.aggregate.mockResolvedValue({ _sum: { serviceAmount: 10000 } });
   db.payrollItem.findMany.mockResolvedValue([]);
   db.tipReserveMovement.findMany.mockResolvedValue([]);
