@@ -104,3 +104,28 @@ NF: 1`;
     expect(f).toMatchObject({ nome: "FULANO DE TAL", gorjeta: 1328, liquido: 3030, adiantamento: 1468.8, situacao: "Trabalhando" });
   });
 });
+
+describe("apelido na conferência", () => {
+  test("cada linha com vínculo leva o apelido do mapa; sem vínculo, null", () => {
+    const r = conferir(
+      [pessoa({ employeeId: "a", nome: "Ana Paula", gorjetaLiquida: 10 })],
+      [extrato([linha({ employeeId: "a", nome: "ANA PAULA", gorjeta: 10 }), linha({ nome: "SEM CADASTRO", gorjeta: 5 })])],
+      new Map(), new Map(), new Map([["a", "Aninha"]]),
+    );
+    expect(r.map((l) => [l.chave, l.apelido])).toEqual([["a", "Aninha"], ["extrato:SEM CADASTRO", null]]);
+  });
+});
+
+describe("folha de líquidos: sem registro com adiantamento salarial", () => {
+  test("a composição mostra o adiantamento quando houve; sem ele, fica como antes", () => {
+    const f = montarFolhaLiquidos([
+      pessoa({ employeeId: "com", nome: "Com", semRegistro: true, totalAPagar: 1592.66, adiantamentoSalarial: 880, cnpjEmpresa: null }),
+      pessoa({ employeeId: "sem", nome: "Sem", semRegistro: true, totalAPagar: 2472.66, adiantamentoSalarial: 0, cnpjEmpresa: null }),
+      pessoa({ employeeId: "antigo", nome: "Antigo", semRegistro: true, totalAPagar: 100, cnpjEmpresa: null }),
+    ], []);
+    const por = Object.fromEntries(f.map((l) => [l.employeeId, l]));
+    expect(por.com).toMatchObject({ valor: 1592.66, composicao: "salário − adiantamento + gorjeta − vales" });
+    expect(por.sem.composicao).toBe("salário + gorjeta − vales");
+    expect(por.antigo.composicao).toBe("salário + gorjeta − vales");
+  });
+});

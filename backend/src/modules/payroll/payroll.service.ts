@@ -422,9 +422,12 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
       warnings.push(`${name} tem férias e salário na mesma competência (${String(month).padStart(2, "0")}/${year}) — confira os valores para não pagar em dobro.`);
     }
     if (base > 0) {
-      const advance = round2((base * Number(settings.advancePercent)) / 100);
+      // Sem registro não recebe adiantamento (salvo marcado no cadastro): o salário
+      // sai inteiro no pagamento, sem a parcela do dia 20.
+      const temAdiantamento = emp.modality !== "NAO_CLT" || emp.recebeAdiantamento;
+      const advance = temAdiantamento ? round2((base * Number(settings.advancePercent)) / 100) : 0;
       const salary = round2(base - advance);
-      items.push({
+      if (temAdiantamento) items.push({
         employeeId: emp.id, employeeName: name, employeeDisplayName: emp.displayName, sector: emp.sector, type: "ADIANTAMENTO",
         periodLabel: "Adiantamento", periodStart: null, periodEnd: null,
         dueDate: isoDate(year, month, Math.min(settings.advanceDueDay, daysInMonth)),
