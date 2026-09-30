@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 // permissão da Gorjeta, gorjeta já paga na lista fechada e o que vaza sem ver Funcionários.
 vi.mock("../../../config/database.js", () => {
   const prisma: Record<string, unknown> = {
+    // Sem histórico do cadastro: vale o valor atual.
+    employeeHistorico: { findMany: vi.fn(async () => []) },
     employee: { findFirst: vi.fn() },
     payrollItem: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     dRECategory: { findFirst: vi.fn() },

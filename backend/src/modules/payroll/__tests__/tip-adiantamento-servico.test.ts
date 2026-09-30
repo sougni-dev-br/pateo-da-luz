@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 // muda um período fechado.
 vi.mock("../../../config/database.js", () => ({
   prisma: {
+    // Sem histórico do cadastro: vale o valor atual.
+    employeeHistorico: { findMany: vi.fn(async () => []) },
     tipPeriod: { findUnique: vi.fn() },
     employeeScheduleDay: { groupBy: vi.fn(), findMany: vi.fn() },
     revenueEntry: { aggregate: vi.fn() },

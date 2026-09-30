@@ -7,6 +7,9 @@ import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
+import { hojeEmSaoPaulo } from "./extras-comum.js";
+import { cadastroVigenteEm, diaDeReferencia, lerVigenteDesde } from "./cadastro-historico.js";
+import { carregarHistorico, registrarAlteracoes } from "./cadastro-historico.service.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
@@ -83,10 +86,32 @@ async function extratosDoPeriodo(periodId: string) {
   }));
 }
 
-async function combinadosDe(extratos: Array<{ dados: ExtratoEmpresa }>): Promise<Combinados> {
+// Salário combinado VIGENTE no mês da competência (não o de hoje): quem teve o combinado
+// mudado depois continua com o daquele mês. Sem ids = todos com combinado ou histórico dele.
+async function combinadosVigentes(ano: number, mes: number, ids: string[] | null) {
+  const comHistorico = ids ? [] : (await prisma.employeeHistorico.findMany({
+    where: { campo: "salarioCombinado" }, select: { employeeId: true }, distinct: ["employeeId"],
+  })).map((h) => h.employeeId);
+  const lista = await prisma.employee.findMany({
+    where: ids
+      ? { id: { in: ids } }
+      : { deletedAt: null, OR: [{ salarioCombinado: { not: null } }, { id: { in: comHistorico } }] },
+    select: { id: true, firstName: true, lastName: true, displayName: true, salarioCombinado: true, salarioCombinadoMotivo: true, terminationDate: true },
+  });
+  const historico = await carregarHistorico(lista.map((e) => e.id));
+  return lista
+    .map((e) => {
+      const vigente = cadastroVigenteEm({ salarioCombinado: e.salarioCombinado == null ? null : Number(e.salarioCombinado) },
+        historico.get(e.id) ?? [], diaDeReferencia(ano, mes, e.terminationDate));
+      return { ...e, salarioCombinado: vigente.salarioCombinado as number | null };
+    })
+    .filter((e) => e.salarioCombinado != null);
+}
+
+async function combinadosDe(extratos: Array<{ dados: ExtratoEmpresa }>, ano: number, mes: number): Promise<Combinados> {
   const ids = extratos.flatMap((e) => e.dados.linhas.map((l) => l.employeeId)).filter((x): x is string => Boolean(x));
-  const lista = await prisma.employee.findMany({ where: { id: { in: ids }, salarioCombinado: { not: null } }, select: { id: true, salarioCombinado: true } });
-  return new Map(lista.map((e) => [e.id, Number(e.salarioCombinado)]));
+  if (ids.length === 0) return new Map();
+  return new Map((await combinadosVigentes(ano, mes, ids)).map((e) => [e.id, Number(e.salarioCombinado)]));
 }
 
 // Apelido de quem está na apuração ou no extrato, numa consulta só (sem CPF nem salário).
@@ -107,7 +132,7 @@ async function montarConferencia(periodo: { id: string; competenceYear: number; 
     prisma.tipConferenciaAceite.findMany({ where: { periodId: periodo.id } }),
   ]);
   const linhas = conferir(pessoas, extratos.map((e) => e.dados), new Map(aceites.map((a) => [a.employeeKey, a.justificativa])),
-    await combinadosDe(extratos), await apelidosDe(pessoas, extratos));
+    await combinadosDe(extratos, periodo.competenceYear, periodo.competenceMonth), await apelidosDe(pessoas, extratos));
   return {
     extratos: extratos.map((e) => ({ ...e.meta, pessoas: e.dados.linhas.length })),
     linhas,
@@ -294,11 +319,9 @@ tipConferenciaRouter.get("/periods/:year/:month/folha-liquidos", async (request,
     extratosDoPeriodo(periodo.id),
     estadoEtapas(periodo.id),
   ]);
-  const linhas = montarFolhaLiquidos(pessoas, extratos.map((e) => e.dados), await combinadosDe(extratos));
-  const combinados = await prisma.employee.findMany({
-    where: { salarioCombinado: { not: null }, deletedAt: null },
-    select: { id: true, firstName: true, lastName: true, displayName: true, salarioCombinado: true, salarioCombinadoMotivo: true },
-  });
+  const linhas = montarFolhaLiquidos(pessoas, extratos.map((e) => e.dados),
+    await combinadosDe(extratos, periodo.competenceYear, periodo.competenceMonth));
+  const combinados = await combinadosVigentes(periodo.competenceYear, periodo.competenceMonth, null);
   response.json({
     code: periodo.code, label: periodo.label, linhas,
     total: Math.round(linhas.reduce((a, l) => a + l.valor, 0) * 100) / 100,
@@ -321,9 +344,18 @@ tipConferenciaRouter.put("/team/:employeeId/salario-combinado", async (request, 
   if (valor != null && (!Number.isFinite(valor) || valor <= 0 || valor > 100000)) return response.status(422).json({ message: "Salário combinado inválido." });
   const motivo = b.motivo ? String(b.motivo).trim().slice(0, 300) : null;
   if (valor != null && (!motivo || motivo.length < 5)) return response.status(422).json({ message: "Explique o salário combinado (pelo menos 5 letras)." });
-  const antes = await prisma.employee.findFirst({ where: { id: request.params.employeeId, deletedAt: null }, select: { id: true, salarioCombinado: true, salarioCombinadoMotivo: true } });
+  const antes = await prisma.employee.findFirst({ where: { id: request.params.employeeId, deletedAt: null }, select: { id: true, salarioCombinado: true, salarioCombinadoMotivo: true, admissionDate: true } });
   if (!antes) return response.status(404).json({ message: "Funcionário não encontrado." });
-  await prisma.employee.update({ where: { id: antes.id }, data: { salarioCombinado: valor, salarioCombinadoMotivo: valor == null ? null : motivo, updatedById: user.id } });
+  // "Vale a partir de" (padrão hoje): a folha de líquidos de um mês passado usa o combinado daquele mês.
+  const vigencia = lerVigenteDesde((request.body as { vigenteDesde?: unknown }).vigenteDesde, hojeEmSaoPaulo(), antes.admissionDate);
+  if ("erro" in vigencia) return response.status(422).json({ message: vigencia.erro });
+  await prisma.$transaction(async (tx) => {
+    await tx.employee.update({ where: { id: antes.id }, data: { salarioCombinado: valor, salarioCombinadoMotivo: valor == null ? null : motivo, updatedById: user.id } });
+    await registrarAlteracoes(tx, {
+      employeeId: antes.id, antes, depois: { salarioCombinado: valor }, vigenteDesde: vigencia.data,
+      motivo, origem: "CONFERENCIA_GORJETA", usuario: { id: user.id, nome: user.name },
+    });
+  });
   await auditLog({
     userId: user.id, action: "UPDATE_SALARIO_COMBINADO", entity: "Employee", entityId: antes.id,
     previousValue: { valor: antes.salarioCombinado == null ? null : Number(antes.salarioCombinado), motivo: antes.salarioCombinadoMotivo },
