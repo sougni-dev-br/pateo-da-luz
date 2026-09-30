@@ -7,6 +7,8 @@ import { PDFParse } from "pdf-parse";
 import { prisma } from "../../config/database.js";
 import { FOLHA_CATEGORY } from "./payroll.service.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
+import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
+import { avisosDoExtrato, guardarExtrato } from "./rh-extract-store.service.js";
 
 export type ExtratoFuncionario = {
   nome: string;
@@ -41,10 +43,14 @@ export function onlyDigits(s: string): string {
   return (s ?? "").replace(/\D/g, "");
 }
 
-export async function parseExtratoMensal(buffer: Buffer): Promise<ExtratoParsed> {
+export async function extrairTextoPdf(buffer: Buffer): Promise<string> {
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
   const result = await parser.getText();
-  return lerTextoExtrato(result.text ?? "");
+  return result.text ?? "";
+}
+
+export async function parseExtratoMensal(buffer: Buffer): Promise<ExtratoParsed> {
+  return lerTextoExtrato(await extrairTextoPdf(buffer));
 }
 
 // Leitura do texto já extraído (separada para poder testar sem PDF).
@@ -151,14 +157,21 @@ export type ImportExtratoResult = {
   funcionariosCadastrados: number;
   titulosGerados: number;
   rhExtractId: string;
+  // O mesmo arquivo já estava guardado: o registro foi completado, não duplicado.
+  extratoAtualizado: boolean;
+  pessoasLidas: number;
+  pessoasConferidas: number;
+  avisos: string[];
 };
 
 // Importa o extrato: casa/cria empresa e funcionários, gera os salários no Contas a Pagar
 // (PayrollItem SALARIO, com vínculo ao DRE) e registra o extrato para rastreabilidade.
 export async function importExtrato(opts: {
   buffer: Buffer; userId: string; fileName: string; storagePath?: string; sha256?: string; dueDay?: number;
+  incluirDadosPessoais?: boolean;
 }): Promise<ImportExtratoResult> {
-  const parsed = await parseExtratoMensal(opts.buffer);
+  const texto = await extrairTextoPdf(opts.buffer);
+  const parsed = lerTextoExtrato(texto);
   if (parsed.funcionarios.length === 0) throw new Error("Nenhum funcionário lido do extrato.");
   const { competenceYear, competenceMonth } = parsed;
   if (!competenceYear || !competenceMonth) throw new Error("Competência não identificada no extrato.");
@@ -239,14 +252,21 @@ export async function importExtrato(opts: {
   }
 
   const totalLiquido = Math.round(parsed.funcionarios.reduce((a, f) => a + f.liquido, 0) * 100) / 100;
-  const rh = await prisma.rhExtract.create({
-    data: {
-      id: crypto.randomUUID(), competenceYear, competenceMonth, empresa: parsed.empresa, cnpj: parsed.cnpj,
-      companyId, totalLiquido, headcount: parsed.funcionarios.length,
-      fileName: opts.fileName, storagePath: opts.storagePath ?? null, sha256: opts.sha256 ?? null,
-      data: parsed.funcionarios as unknown as object, importedById: opts.userId,
-    },
+  // O PDF, o texto e o holerite de cada pessoa vão para o banco (o disco do servidor é efêmero).
+  const detalhes = lerDetalhesExtrato(texto);
+  const rh = await guardarExtrato({
+    parsed, detalhes, buffer: opts.buffer, texto,
+    sha256: opts.sha256 ?? crypto.createHash("sha256").update(opts.buffer).digest("hex"),
+    fileName: opts.fileName, storagePath: opts.storagePath ?? null, companyId, userId: opts.userId, totalLiquido,
+    employeePorCpf: byCpf,
+  });
+  const avisos = await avisosDoExtrato({
+    detalhes, calculo: parsed.calculo, competenceYear, competenceMonth, incluirDadosPessoais: opts.incluirDadosPessoais ?? false,
   });
 
-  return { calculo: parsed.calculo, empresa: parsed.empresa, companyId, competenceYear, competenceMonth, totalLiquido, funcionariosCadastrados, titulosGerados, rhExtractId: rh.id };
+  return {
+    calculo: parsed.calculo, empresa: parsed.empresa, companyId, competenceYear, competenceMonth, totalLiquido, funcionariosCadastrados, titulosGerados,
+    rhExtractId: rh.id, extratoAtualizado: rh.atualizado,
+    pessoasLidas: detalhes.pessoas.length, pessoasConferidas: detalhes.pessoas.filter((p) => p.conferido).length, avisos,
+  };
 }
