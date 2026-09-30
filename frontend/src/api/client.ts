@@ -136,7 +136,7 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUE
   throw lastError ?? new Error(NETWORK_ERROR_MESSAGE);
 }
 
-async function download(path: string, filename: string, timeoutMs = REQUEST_TIMEOUT_MS) {
+async function fetchBlob(path: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Blob> {
   const token = sessionToken();
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -184,7 +184,11 @@ async function download(path: string, filename: string, timeoutMs = REQUEST_TIME
     throw lastError ?? new Error("Backend nao encontrado.");
   }
 
-  const blob = await response.blob();
+  return response.blob();
+}
+
+async function download(path: string, filename: string, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const blob = await fetchBlob(path, timeoutMs);
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -5412,12 +5416,15 @@ export type Employee = {
   baseSalary: string | null;
   salarioCombinado?: string | null;
   salarioCombinadoMotivo?: string | null;
+  /** Recebe adiantamento salarial no dia do adiantamento (sem registro: desconta da lista). */
+  recebeAdiantamento?: boolean;
   shiftStart: string | null;
   shiftEnd: string | null;
   modality: EmployeeModality;
   scheduleRegime: WorkScheduleRegime;
   includeInSchedule: boolean;
   admissionDate: string | null;
+  admissaoCarteira?: string | null;
   vtType: VtType;
   vtPeriodicity: VtPeriodicity;
   vtFixedAmount: string | null;
@@ -5476,12 +5483,16 @@ export type EmployeePayload = {
   /** Ausente = não mexe; null = tira. */
   salarioCombinado?: string | number | null;
   salarioCombinadoMotivo?: string | null;
+  /** Ausente = não mexe. */
+  recebeAdiantamento?: boolean;
   shiftStart?: string;
   shiftEnd?: string;
   modality?: EmployeeModality;
   scheduleRegime?: WorkScheduleRegime;
   includeInSchedule?: boolean;
   admissionDate?: string;
+  /** Registro em carteira (do extrato); null limpa, ausente preserva. */
+  admissaoCarteira?: string | null;
   vtType?: VtType;
   vtPeriodicity?: VtPeriodicity;
   /** null limpa o valor; ausente preserva o que esta gravado. */
@@ -5726,6 +5737,8 @@ export type TipComputedParticipant = {
   diasSalarioOverride: number | null;
   diasSalario: number;
   salarioProporcional: number;
+  /** Sem registro: adiantamento salarial já pago no mês (0 = não recebeu). null sem permissão de ver Funcionários. */
+  adiantamentoSalarial?: number | null;
   totalAPagar: number;
   /** null quando o usuário não tem permissão de ver Funcionários. */
   baseSalary: number | null;
@@ -5781,7 +5794,10 @@ export type TipComputation = {
     fixos: { valor: number; pessoas: number };
   };
   participants: TipComputedParticipant[];
-  totals: { rateio: number; vales: number; netCommission: number; salarios: number; totalAPagar: number; pagoNaRescisao: number };
+  /** Regra do adiantamento salarial (Folha → configurações): % do salário base, pago no dia. */
+  adiantamento?: { percent: number; dia: number };
+  /** adiantamentos: null sem permissão de ver Funcionários. */
+  totals: { rateio: number; vales: number; netCommission: number; salarios: number; adiantamentos?: number | null; totalAPagar: number; pagoNaRescisao: number };
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
   pendencias: string[];
   warnings: string[];
@@ -5886,17 +5902,19 @@ export type TipMudanca = {
   id: string; employeeId: string; employeeName: string; validFrom: string; tipo: TipMudancaTipo;
   funcaoAntes: string | null; funcaoDepois: string | null; baseAntes: number | null; baseDepois: number | null;
   diferenca: number | null; participa: boolean; motivo: string | null; registradoEm: string;
+  apelido?: string | null;
 };
 export type TipEvolucao = {
   competencias: Array<{ ano: number; mes: number; status: "OPEN" | "CLOSED"; pointValue: number }>;
   linhas: Array<{
-    employeeId: string; employeeName: string;
+    employeeId: string; employeeName: string; apelido?: string | null;
     meses: Record<string, { funcao: string | null; base: number | null; pontos: number | null; gorjeta: number | null } | undefined>;
   }>;
 };
 export type TipReservaMovimento = {
   id: string; date: string; type: "FECHAMENTO_RESERVA" | "FECHAMENTO_SALDO" | "DISTRIBUICAO" | "AJUSTE";
   amount: number; saldo: number; competencia: string | null; employeeName: string | null; notes: string | null; removivel: boolean;
+  employeeId?: string | null; apelido?: string | null;
 };
 export type TipFuncaoHistorico = {
   id: string; tipFunctionId: string; name: string; pointsBefore: number | null; pointsAfter: number;
@@ -6153,11 +6171,20 @@ export type ExtratoPreviewItem = {
   nome: string; cpf: string; liquido: number; gorjeta: number | null;
   matched: boolean; employeeId: string | null; employeeName: string | null; isActive: boolean | null;
 };
+/** Folha do mês ou adiantamento do dia 20: o mesmo "Extrato Mensal" da contabilidade. */
+export type CalculoExtrato = "MENSAL" | "ADIANTAMENTO";
 export type ExtratoPreview = {
+  calculo: CalculoExtrato;
   empresa: string; cnpj: string | null;
   competenceYear: number; competenceMonth: number;
   totalLiquido: number; matchedCount: number;
   items: ExtratoPreviewItem[];
+  /** Pessoas lidas por inteiro (holerite) e quantas tiveram as somas conferidas. */
+  pessoasLidas: number; pessoasConferidas: number;
+  /** Quantas pessoas do extrato já têm o lançamento dele no Contas a Pagar (reimportar atualiza, não duplica). */
+  lancamentosExistentes: number;
+  /** Rescisão não lançada, cadastro divergente, leitura que não fechou. Não bloqueiam. */
+  avisos: string[];
 };
 export type TipReciboRescisao = {
   fonte: "TRCT"; arquivo: string; hash: string; gorjeta: number; liquido: number | null;
@@ -6185,9 +6212,16 @@ export function previewExtratoRh(fileBase64: string) {
 }
 
 export type ImportExtratoResult = {
+  calculo: CalculoExtrato;
   empresa: string; companyId: string;
   competenceYear: number; competenceMonth: number;
   totalLiquido: number; funcionariosCadastrados: number; titulosGerados: number; rhExtractId: string;
+  /** Dos títulos gravados: quantos já existiam (atualizados) e quantos são novos. */
+  titulosAtualizados: number; titulosNovos: number;
+  /** O mesmo arquivo já estava guardado: o registro foi completado, não duplicado. */
+  extratoAtualizado: boolean;
+  pessoasLidas: number; pessoasConferidas: number;
+  avisos: string[];
 };
 export function importExtratoRh(fileBase64: string, fileName: string) {
   return request<ImportExtratoResult>("/payroll/tip/extrato/import", {
@@ -6195,6 +6229,45 @@ export function importExtratoRh(fileBase64: string, fileName: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fileBase64, fileName }),
   });
+}
+
+// ─── Extratos do RH guardados (PDF + holerite por pessoa) ─────────────────────
+export type RhExtratoResumo = {
+  id: string; competenceYear: number; competenceMonth: number; calculo: CalculoExtrato;
+  empresa: string; cnpj: string | null; emissao: string | null; fileName: string; headcount: number;
+  totalLiquido: number | null; totalProventos: number | null; totalDescontos: number | null;
+  pessoas: number; naoConferidas: number;
+  /** Falso = registro anterior ao armazenamento completo (sem pessoas guardadas). */
+  detalhado: boolean;
+  todasConferidas: boolean; temArquivo: boolean;
+  importadoEm: string; atualizadoEm: string | null;
+};
+export type RhExtratoRubrica = { codigo: string; descricao: string; tipo: "P" | "D"; referencia: number | null; valor: number };
+export type RhExtratoPessoa = {
+  id: string; employeeId: string | null; employeeName: string | null;
+  matricula: string; nome: string; situacao: string | null; vinculo: string | null; horasMes: number | null;
+  cargoCodigo: string | null; cargo: string | null; cbo: string | null; salarioBase: number | null;
+  admissao: string | null; demissao: string | null; demissaoMotivo: string | null;
+  proventos: number; descontos: number; liquido: number;
+  baseInss: number | null; baseFgts: number | null; baseIrrf: number | null; valorFgts: number | null;
+  liquidoRescisao: number | null; conferido: boolean;
+  rubricas: RhExtratoRubrica[];
+};
+export type RhExtratoDetalhe = {
+  id: string; competenceYear: number; competenceMonth: number; calculo: CalculoExtrato;
+  empresa: string; cnpj: string | null; emissao: string | null; fileName: string;
+  totalLiquido: number | null; totalProventos: number | null; totalDescontos: number | null;
+  pessoas: RhExtratoPessoa[];
+};
+export function listarRhExtratos(ano?: number) {
+  return request<RhExtratoResumo[]>(`/payroll/tip/extratos${ano ? `?ano=${ano}` : ""}`);
+}
+export function getRhExtrato(id: string) {
+  return request<RhExtratoDetalhe>(`/payroll/tip/extratos/${encodeURIComponent(id)}`);
+}
+/** O PDF original guardado no banco. */
+export function getRhExtratoPdf(id: string) {
+  return fetchBlob(`/payroll/tip/extratos/${encodeURIComponent(id)}/arquivo`);
 }
 
 export function getPayroll(year: number, month: number) {
@@ -6310,8 +6383,13 @@ export type ApuracaoRescisao = {
     pendente: boolean; diasSalario: number | null; salarioProporcional: number | null;
   } | null;
   gorjetaObservacao: string | null;
-  sugestao: { salario: number | null; gorjeta: number | null; creditos: number; vales: number; valesRotulo: string | null; vtDesconto: number; bruto: number | null };
+  /** vales inclui o adiantamento salarial já pago (a parte dele em adiantamento). */
+  sugestao: { salario: number | null; gorjeta: number | null; creditos: number; vales: number; valesRotulo: string | null; adiantamento?: number; vtDesconto: number; bruto: number | null };
+  /** Sem registro que recebe adiantamento e saiu no dia dele ou depois. valor null = oculto. */
+  adiantamento?: { valor: number | null; data: string } | null;
   dadosPessoaisOcultos?: boolean;
+  /** Salário e gorjeta até a saída já pagos na lista de pagamento da gorjeta (sem registro). */
+  jaPagoNaLista?: { valor: number; competencia: string } | null;
 };
 
 export function getTerminationInfo(employeeId: string) {
@@ -6568,6 +6646,7 @@ export type TipLinhaConferencia = {
   apuracao: number | null; extrato: number | null; diferenca: number | null;
   status: TipStatusConferencia; justificativa: string | null;
   extratoId?: string; nomeNoExtrato?: string;
+  apelido?: string | null;
 };
 export type TipExtratoMeta = { id: string; empresa: string; cnpj: string; arquivo: string; hash: string; importadoEm: string; importadoPor: string; pessoas: number };
 export type TipConferencia = {

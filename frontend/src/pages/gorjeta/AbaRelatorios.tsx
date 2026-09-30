@@ -6,9 +6,10 @@ import {
 } from "../../api/client";
 import { Button, Money, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
-import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
+import { BarraFiltro, chaveCompetencia, opcoesCompetencia, opcoesDe, useFiltro } from "./filtro";
+import { type ItemDistribuicao, problemaDoItem, resumirDistribuicao, valorDoItem } from "./reservaDistribuicao";
 import "./gorjeta.css";
-import { ApelidosContext, NomePessoa, textoPessoa } from "./NomePessoa";
+import { ApelidosContext, NomePessoa, nomeComApelido, resolverApelido, textoPessoa } from "./NomePessoa";
 import { MONTHS, baixarCsv, hojeLocal, inputStyle, mesLocal, money, mutedStyle, numInputStyle, panelStyle, pts } from "./gorjetaUtils";
 import { TIPO_MUDANCA, fmtDia } from "./HistoricoLinhaDoTempo";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
@@ -87,7 +88,7 @@ function RelatorioMudancas({ onErro }: { onErro: (e: unknown) => void }) {
 
   const visiveis = dados.filter((m) => (incluirInicial || m.tipo !== "INICIAL") && (tipo === "todas" || m.tipo === tipo));
   const textoMud = (m: TipMudanca) =>
-    [textoPessoa(m.employeeName, apelidos.get(m.employeeId)), m.funcaoAntes ?? "", m.funcaoDepois ?? "", m.motivo ?? ""].join(" ");
+    [textoPessoa(m.employeeName, resolverApelido(apelidos, m.employeeId, m.apelido)), m.funcaoAntes ?? "", m.funcaoDepois ?? "", m.motivo ?? ""].join(" ");
   const camposMud = { funcao: (m: TipMudanca) => m.funcaoDepois, participa: (m: TipMudanca) => (m.participa ? "Sim" : "Não") };
   const filtradas = filtro.aplicar(visiveis, textoMud, camposMud);
   const listasFiltro = [
@@ -153,7 +154,7 @@ function RelatorioMudancas({ onErro }: { onErro: (e: unknown) => void }) {
           <Table.Body>
             {linhas.map((m) => (
               <Table.Row key={m.id}>
-                <Table.Td style={{ textAlign: "left" }}><NomePessoa nome={m.employeeName} employeeId={m.employeeId} /></Table.Td>
+                <Table.Td style={{ textAlign: "left" }}><NomePessoa nome={m.employeeName} employeeId={m.employeeId} apelido={m.apelido} /></Table.Td>
                 {v("data") && <Table.Td>{fmtDia(m.validFrom)}</Table.Td>}
                 {v("tipo") && <Table.Td><StatusBadge tone={TIPO_MUDANCA[m.tipo].tom}>{TIPO_MUDANCA[m.tipo].rotulo}</StatusBadge></Table.Td>}
                 {v("funcao") && (
@@ -221,7 +222,7 @@ function RelatorioEvolucao({ onErro }: { onErro: (e: unknown) => void }) {
   const ultimaFuncao = (l: LinhaEvo) => [...chaves].reverse().map((k) => l.meses[k]?.funcao).find(Boolean) ?? null;
   const listasFiltro = [{ chave: "funcao", rotulo: "Última função", opcoes: opcoesDe(todas, ultimaFuncao) }];
   const filtradas = filtro.aplicar(todas,
-    (l) => [textoPessoa(l.employeeName, apelidos.get(l.employeeId)), ...chaves.map((k) => l.meses[k]?.funcao ?? "")].join(" "),
+    (l) => [textoPessoa(l.employeeName, resolverApelido(apelidos, l.employeeId, l.apelido)), ...chaves.map((k) => l.meses[k]?.funcao ?? "")].join(" "),
     { funcao: ultimaFuncao });
   const linhas = aplicarOrdem(filtradas, ord.ordem, extratores);
 
@@ -275,7 +276,7 @@ function RelatorioEvolucao({ onErro }: { onErro: (e: unknown) => void }) {
           <Table.Body>
             {linhas.map((l) => (
               <Table.Row key={l.employeeId}>
-                <Table.Td style={{ textAlign: "left" }}><NomePessoa nome={l.employeeName} employeeId={l.employeeId} /></Table.Td>
+                <Table.Td style={{ textAlign: "left" }}><NomePessoa nome={l.employeeName} employeeId={l.employeeId} apelido={l.apelido} /></Table.Td>
                 {chaves.map((k, i) => {
                   if (!col.visivel(k)) return null;
                   const c = l.meses[k];
@@ -321,18 +322,22 @@ const TIPO_MOV: Record<TipReservaMovimento["type"], string> = {
 const COLUNAS_MOV: ColunaOpcional[] = [
   { chave: "tipo", rotulo: "Tipo" }, { chave: "competencia", rotulo: "Competência" }, { chave: "descricao", rotulo: "Descrição" }, { chave: "valor", rotulo: "Valor" }, { chave: "saldo", rotulo: "Saldo" },
 ];
+// Competência vem "MM/AAAA": ordena pelo tempo (AAAAMM), não pelo texto.
 const EXT_MOV: Extratores<TipReservaMovimento> = {
-  data: (m) => m.date, tipo: (m) => TIPO_MOV[m.type], competencia: (m) => m.competencia, nome: (m) => m.employeeName,
+  data: (m) => m.date, tipo: (m) => TIPO_MOV[m.type], competencia: (m) => chaveCompetencia(m.competencia), nome: (m) => m.employeeName,
   descricao: (m) => m.notes, valor: (m) => m.amount, saldo: (m) => m.saldo,
 };
-const TEXTO_MOV = new Set(["tipo", "competencia", "nome", "descricao"]);
+const TEXTO_MOV = new Set(["tipo", "nome", "descricao"]);
 
 function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
   const { confirmar, caixa } = useConfirmacao();
   const [dados, setDados] = useState<{ saldo: number; movimentos: TipReservaMovimento[] } | null>(null);
   const [ajuste, setAjuste] = useState({ valor: "", descricao: "", data: hoje() });
-  const [itens, setItens] = useState<Array<{ employeeId: string; valor: string; descricao: string }>>([{ employeeId: "", valor: "", descricao: "" }]);
+  const [itens, setItens] = useState<ItemDistribuicao[]>([{ employeeId: "", valor: "", descricao: "" }]);
+  // Gravando: segura os botões para um clique duplo não lançar duas vezes.
+  const [ocupado, setOcupado] = useState(false);
   const erro = (e: unknown) => onNotice("error", (e as Error).message);
+  const apelidos = useContext(ApelidosContext);
   const ord = useOrdenacao("relatorio-reserva");
   const col = useColunas("relatorio-reserva");
   const v = col.visivel;
@@ -344,51 +349,60 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
   useEffect(() => { void carregar(); }, []);
 
   const podeDistribuir = canEdit && comp?.periodId != null && comp.status === "OPEN";
-  const totalDistribuir = itens.reduce((a, i) => a + (Number(i.valor.replace(",", ".")) || 0), 0);
+  // Só as linhas que serão enviadas entram no total; as outras aparecem marcadas.
+  const { validos, total: totalDistribuir, foraDaConta } = resumirDistribuicao(itens);
   const pessoas = (comp?.participants ?? []).filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO")
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName, "pt-BR"));
   const movimentos = dados?.movimentos ?? [];
   const listasFiltro = [
     { chave: "tipo", rotulo: "Tipo", opcoes: opcoesDe(movimentos, (m) => TIPO_MOV[m.type]) },
-    { chave: "competencia", rotulo: "Competência", opcoes: opcoesDe(movimentos, (m) => m.competencia) },
+    { chave: "competencia", rotulo: "Competência", opcoes: opcoesCompetencia(movimentos, (m) => m.competencia) },
   ];
   const movFiltrados = filtro.aplicar(movimentos,
-    (m) => [TIPO_MOV[m.type], m.competencia ?? "", m.employeeName ?? "", m.notes ?? ""].join(" "),
+    (m) => [TIPO_MOV[m.type], m.competencia ?? "",
+      m.employeeName ? textoPessoa(m.employeeName, resolverApelido(apelidos, m.employeeId, m.apelido)) : "", m.notes ?? ""].join(" "),
     { tipo: (m) => TIPO_MOV[m.type], competencia: (m) => m.competencia });
   const movLinhas = aplicarOrdem(movFiltrados, ord.ordem, EXT_MOV);
 
   async function lancarAjuste() {
+    if (ocupado) return;
     const valor = Number(ajuste.valor.replace(",", "."));
     if (!valor) return onNotice("warning", "Informe o valor do ajuste (negativo para retirar).");
+    setOcupado(true);
     try {
       await addTipReserveAdjustment({ amount: valor, notes: ajuste.descricao, date: ajuste.data });
       setAjuste({ valor: "", descricao: "", data: hoje() });
       await carregar();
       onNotice("success", "Ajuste lançado no fundo.");
-    } catch (e) { erro(e); }
+    } catch (e) { erro(e); } finally { setOcupado(false); }
   }
 
   async function apagarAjuste(id: string) {
+    if (ocupado) return;
     if (!(await confirmar({ titulo: "Apagar este ajuste do fundo?", texto: "O saldo do fundo volta ao que era antes do ajuste. A auditoria guarda o que foi apagado.", confirmar: "Apagar ajuste", perigo: true }))) return;
-    try { await deleteTipReserveAdjustment(id); await carregar(); } catch (e) { erro(e); }
+    setOcupado(true);
+    try { await deleteTipReserveAdjustment(id); await carregar(); } catch (e) { erro(e); } finally { setOcupado(false); }
   }
 
   async function distribuir() {
-    if (!comp?.periodId) return;
-    const validos = itens.filter((i) => i.employeeId && Number(i.valor.replace(",", ".")) > 0);
-    if (validos.length === 0) return onNotice("warning", "Escolha ao menos um funcionário e um valor.");
+    if (!comp?.periodId || ocupado) return;
+    // O que se confirma é exatamente o que se envia: as mesmas linhas e o mesmo total.
+    const enviar = validos.map((i) => ({ employeeId: i.employeeId, amount: valorDoItem(i.valor), notes: i.descricao.trim() || undefined }));
+    if (enviar.length === 0) return onNotice("warning", "Escolha ao menos um funcionário e um valor.");
+    const fora = foraDaConta > 0 ? ` ${foraDaConta} linha(s) com problema ficam de fora.` : "";
     if (!(await confirmar({
       titulo: `Distribuir ${money(totalDistribuir)} do fundo?`,
-      texto: `Vira crédito na gorjeta de ${MONTHS[comp.month - 1]}/${comp.year} de ${validos.length} pessoa(s) e sai do saldo do fundo.`,
+      texto: `Vira crédito na gorjeta de ${MONTHS[comp.month - 1]}/${comp.year} de ${enviar.length} pessoa(s) e sai do saldo do fundo.${fora}`,
       confirmar: "Distribuir",
     }))) return;
+    setOcupado(true);
     try {
-      await distributeTipReserve(comp.periodId, validos.map((i) => ({ employeeId: i.employeeId, amount: Number(i.valor.replace(",", ".")), notes: i.descricao || undefined })));
+      await distributeTipReserve(comp.periodId, enviar);
       setItens([{ employeeId: "", valor: "", descricao: "" }]);
       await carregar();
       onChanged();
       onNotice("success", "Reserva distribuída: os créditos aparecem na aba Vales de cada pessoa.");
-    } catch (e) { erro(e); }
+    } catch (e) { erro(e); } finally { setOcupado(false); }
   }
 
   return (
@@ -418,7 +432,7 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
             <input type="number" step="0.01" inputMode="decimal" value={ajuste.valor} placeholder="Valor R$" onChange={(e) => setAjuste({ ...ajuste, valor: e.target.value })} style={{ ...numInputStyle, width: 130 }} aria-label="Valor do ajuste" />
             <input value={ajuste.descricao} placeholder="Descrição (ex.: saldo guardado até set/2026)" onChange={(e) => setAjuste({ ...ajuste, descricao: e.target.value })}
               style={{ ...inputStyle, flex: "1 1 260px", width: "auto" }} aria-label="Descrição do ajuste" />
-            <Button onClick={() => void lancarAjuste()} leadingIcon={<Plus size={14} />} disabled={!ajuste.valor || !ajuste.descricao.trim()}>Lançar</Button>
+            <Button onClick={() => void lancarAjuste()} leadingIcon={<Plus size={14} />} disabled={ocupado || !ajuste.valor || !ajuste.descricao.trim()}>{ocupado ? "Gravando…" : "Lançar"}</Button>
           </div>
         </div>
       )}
@@ -429,27 +443,42 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
           <span style={mutedStyle}>Abra (ou reabra) a competência na Apuração para distribuir; o período fechado não recebe créditos.</span>
         ) : (
           <>
-            {itens.map((it, idx) => (
-              <div key={idx} className="barra-lista">
-                <select value={it.employeeId} onChange={(e) => setItens(itens.map((x, j) => (j === idx ? { ...x, employeeId: e.target.value } : x)))}
-                  style={{ ...inputStyle, width: 260 }} aria-label="Funcionário">
-                  <option value="">Funcionário…</option>
-                  {pessoas.map((p) => <option key={p.employeeId} value={p.employeeId}>{p.employeeName}{p.apelido ? ` — “${p.apelido}”` : ""}</option>)}
-                </select>
-                <input type="number" step="0.01" inputMode="decimal" min="0" value={it.valor} placeholder="Valor R$"
-                  onChange={(e) => setItens(itens.map((x, j) => (j === idx ? { ...x, valor: e.target.value } : x)))} style={{ ...numInputStyle, width: 120 }} aria-label="Valor" />
-                <input value={it.descricao} placeholder="Descrição (opcional)"
-                  onChange={(e) => setItens(itens.map((x, j) => (j === idx ? { ...x, descricao: e.target.value } : x)))} style={{ ...inputStyle, flex: "1 1 200px", width: "auto" }} aria-label="Descrição" />
-                {itens.length > 1 && (
-                  <button type="button" onClick={() => setItens(itens.filter((_, j) => j !== idx))} aria-label="Remover linha"
-                    style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--muted)" }}><Trash2 size={15} /></button>
-                )}
-              </div>
-            ))}
+            {itens.map((it, idx) => {
+              // A linha única ainda em branco não é problema: é o formulário esperando.
+              const problema = itens.length === 1 && !it.employeeId && !it.valor.trim() ? null : problemaDoItem(it);
+              const nomeLinha = pessoas.find((p) => p.employeeId === it.employeeId)?.employeeName;
+              return (
+                <div key={idx} className="barra-lista">
+                  <select value={it.employeeId} onChange={(e) => setItens(itens.map((x, j) => (j === idx ? { ...x, employeeId: e.target.value } : x)))}
+                    style={{ ...inputStyle, width: 260 }} aria-label={`Funcionário da linha ${idx + 1}`} aria-invalid={problema ? true : undefined} disabled={ocupado}>
+                    <option value="">Funcionário…</option>
+                    {pessoas.map((p) => <option key={p.employeeId} value={p.employeeId}>{nomeComApelido(p.employeeName, p.apelido)}</option>)}
+                  </select>
+                  <input type="number" step="0.01" inputMode="decimal" min="0" value={it.valor} placeholder="Valor R$" disabled={ocupado}
+                    onChange={(e) => setItens(itens.map((x, j) => (j === idx ? { ...x, valor: e.target.value } : x)))} style={{ ...numInputStyle, width: 120 }}
+                    aria-label={nomeLinha ? `Valor para ${nomeLinha}` : `Valor da linha ${idx + 1}`} aria-invalid={problema ? true : undefined} />
+                  <input value={it.descricao} placeholder="Descrição (opcional)" disabled={ocupado}
+                    onChange={(e) => setItens(itens.map((x, j) => (j === idx ? { ...x, descricao: e.target.value } : x)))} style={{ ...inputStyle, flex: "1 1 200px", width: "auto" }}
+                    aria-label={nomeLinha ? `Descrição para ${nomeLinha}` : `Descrição da linha ${idx + 1}`} />
+                  {itens.length > 1 && (
+                    <button type="button" onClick={() => setItens(itens.filter((_, j) => j !== idx))} aria-label={`Remover linha ${idx + 1}`} disabled={ocupado}
+                      style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--muted)" }}><Trash2 size={15} /></button>
+                  )}
+                  {problema && <StatusBadge tone="warning" title="Esta linha não entra no total nem é enviada">{problema}</StatusBadge>}
+                </div>
+              );
+            })}
             <div className="barra-lista">
-              <Button variant="secondary" leadingIcon={<Plus size={14} />} onClick={() => setItens([...itens, { employeeId: "", valor: "", descricao: "" }])}>Mais uma pessoa</Button>
-              <span style={{ marginLeft: "auto" }}>Total: <strong>{money(totalDistribuir)}</strong> de {money(dados?.saldo ?? 0)}</span>
-              <Button onClick={() => void distribuir()} disabled={totalDistribuir <= 0 || totalDistribuir > (dados?.saldo ?? 0) + 0.005}>Distribuir</Button>
+              <Button variant="secondary" leadingIcon={<Plus size={14} />} disabled={ocupado} onClick={() => setItens([...itens, { employeeId: "", valor: "", descricao: "" }])}>Mais uma pessoa</Button>
+              <span style={{ marginLeft: "auto" }}>
+                Total: <strong>{money(totalDistribuir)}</strong> de {money(dados?.saldo ?? 0)}
+                {validos.length > 0 && foraDaConta > 0 && (
+                  <span style={{ ...mutedStyle, display: "block", fontSize: 12 }}>{validos.length} pessoa(s); {foraDaConta} linha(s) marcada(s) ficam de fora</span>
+                )}
+              </span>
+              <Button onClick={() => void distribuir()} disabled={ocupado || totalDistribuir <= 0 || totalDistribuir > (dados?.saldo ?? 0) + 0.005}>
+                {ocupado ? "Gravando…" : "Distribuir"}
+              </Button>
             </div>
           </>
         )}
@@ -466,7 +495,7 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
         </div>
         {movimentos.length > 0 && (
           <BarraFiltro filtro={filtro} listas={listasFiltro} total={movimentos.length} visiveis={movFiltrados.length}
-            placeholder="Filtrar por funcionário, descrição, competência…" />
+            placeholder="Filtrar por funcionário, apelido, descrição, competência…" />
         )}
         {filtro.ativo && movFiltrados.length > 0 && (
           <span style={mutedStyle}>
@@ -495,13 +524,13 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
                   <Table.Td>{fmtDia(m.date)}</Table.Td>
                   {v("tipo") && <Table.Td><StatusBadge tone={m.amount < 0 ? "warning" : "success"}>{TIPO_MOV[m.type]}</StatusBadge></Table.Td>}
                   {v("competencia") && <Table.Td>{m.competencia ?? "—"}</Table.Td>}
-                  <Table.Td style={{ textAlign: "left" }}>{m.employeeName ? <NomePessoa nome={m.employeeName} /> : "—"}</Table.Td>
+                  <Table.Td style={{ textAlign: "left" }}>{m.employeeName ? <NomePessoa nome={m.employeeName} employeeId={m.employeeId} apelido={m.apelido} /> : "—"}</Table.Td>
                   {v("descricao") && <Table.Td style={{ ...mutedStyle, textAlign: "left" }}>{m.notes ?? "—"}</Table.Td>}
                   {v("valor") && <Table.Td style={{ fontWeight: 700, color: m.amount < 0 ? "var(--danger)" : "var(--success)" }}><Money value={m.amount} /></Table.Td>}
                   {v("saldo") && <Table.Td><Money value={m.saldo} /></Table.Td>}
                   <Table.Td>
                     {m.removivel && canEdit && (
-                      <button type="button" onClick={() => void apagarAjuste(m.id)} aria-label="Apagar ajuste"
+                      <button type="button" onClick={() => void apagarAjuste(m.id)} aria-label="Apagar ajuste" disabled={ocupado}
                         style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--muted)" }}><Trash2 size={14} /></button>
                     )}
                   </Table.Td>

@@ -364,9 +364,9 @@ export async function replaceRoleMenuPermissions(role: UserRole, permissions: Pa
 }
 
 // O Express roteia sem diferenciar caixa e aceita barra no fim ("/EMPLOYEES",
-// "/extras/payments/"), mas as regras abaixo comparam texto exato. Sem normalizar,
+// "/payroll/"), mas as regras abaixo comparam texto exato. Sem normalizar,
 // "/EMPLOYEES" caía em "rota não catalogada" e passava SEM checar permissão
-// (achado de 29/09/2026: funcionário, folha e extras abriam para qualquer login).
+// (achado de 29/09/2026: funcionário, folha e demais módulos abriam para qualquer login).
 function caminhoDaPermissao(request: Request): string {
   return request.path.toLowerCase().replace(/\/+$/, "") || "/";
 }

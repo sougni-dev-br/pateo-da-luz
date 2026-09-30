@@ -11,7 +11,7 @@ import { computeTipCommission } from "./tip-commission.service.js";
 import { onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import {
-  type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, conferir, ehPendente, montarFolhaLiquidos,
+  type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, conferir, ehPendente, montarFolhaLiquidos,
 } from "./tip-conferencia.js";
 
 export const tipConferenciaRouter = Router();
@@ -67,6 +67,7 @@ async function pessoasApuradas(year: number, month: number, comPix: boolean): Pr
       pagoNaRescisao: p.pagoNaRescisao,
       gorjetaLiquida: p.netCommission,
       totalAPagar: p.totalAPagar,
+      adiantamentoSalarial: p.adiantamentoSalarial ?? 0,
       cnpjEmpresa: e?.company?.cnpj ?? null,
       pix: comPix ? p.pixKey : null,
     };
@@ -88,13 +89,25 @@ async function combinadosDe(extratos: Array<{ dados: ExtratoEmpresa }>): Promise
   return new Map(lista.map((e) => [e.id, Number(e.salarioCombinado)]));
 }
 
+// Apelido de quem está na apuração ou no extrato, numa consulta só (sem CPF nem salário).
+async function apelidosDe(pessoas: PessoaApurada[], extratos: Array<{ dados: ExtratoEmpresa }>): Promise<Apelidos> {
+  const ids = [...new Set([
+    ...pessoas.map((p) => p.employeeId),
+    ...extratos.flatMap((e) => e.dados.linhas.map((l) => l.employeeId)).filter((x): x is string => Boolean(x)),
+  ])];
+  if (ids.length === 0) return new Map();
+  const lista = await prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, firstName: true, lastName: true, displayName: true } });
+  return new Map(lista.map((e) => [e.id, apelidoDe(e)]));
+}
+
 async function montarConferencia(periodo: { id: string; competenceYear: number; competenceMonth: number }) {
   const [pessoas, extratos, aceites] = await Promise.all([
     pessoasApuradas(periodo.competenceYear, periodo.competenceMonth, false),
     extratosDoPeriodo(periodo.id),
     prisma.tipConferenciaAceite.findMany({ where: { periodId: periodo.id } }),
   ]);
-  const linhas = conferir(pessoas, extratos.map((e) => e.dados), new Map(aceites.map((a) => [a.employeeKey, a.justificativa])), await combinadosDe(extratos));
+  const linhas = conferir(pessoas, extratos.map((e) => e.dados), new Map(aceites.map((a) => [a.employeeKey, a.justificativa])),
+    await combinadosDe(extratos), await apelidosDe(pessoas, extratos));
   return {
     extratos: extratos.map((e) => ({ ...e.meta, pessoas: e.dados.linhas.length })),
     linhas,
@@ -123,6 +136,9 @@ tipConferenciaRouter.post("/periods/:year/:month/extratos", async (request, resp
   let lido;
   try { lido = await parseExtratoMensal(buffer); } catch (err) {
     return response.status(422).json({ message: "Não foi possível ler o PDF do extrato. " + (err as Error).message });
+  }
+  if (lido.calculo === "ADIANTAMENTO") {
+    return response.status(422).json({ message: "Este é o extrato do ADIANTAMENTO (dia 20). A conferência da gorjeta usa o extrato da folha do mês; o do adiantamento sobe em Folha de Pagamento → Retorno do RH." });
   }
   if (!lido.cnpj || lido.funcionarios.length === 0) {
     return response.status(422).json({ message: "Não achei empresa ou funcionários no arquivo. Confira se é o Extrato Mensal da contabilidade." });

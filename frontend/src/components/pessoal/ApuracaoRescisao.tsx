@@ -3,7 +3,7 @@
 // formulário é a fonte; aqui é a conta, para quem quer conferir.
 import type { ReactNode } from "react";
 import type { ApuracaoRescisao as Apuracao } from "../../api/client";
-import { Money, StatusBadge } from "../../design-system";
+import { Alert, Money, StatusBadge } from "../../design-system";
 import { dataBr } from "./rescisaoFormato";
 import "./rescisao.css";
 
@@ -27,11 +27,25 @@ function resumoDias(a: Apuracao["vt"]): string {
   return `${dataBr(a.dias[0].data)} a ${dataBr(a.dias[a.dias.length - 1].data)} · ${a.dias.length} dia(s) · ${lancamentos}${semBaixa}`;
 }
 
+// Fica fora do quadro recolhido: é o que impede pagar duas vezes a mesma pessoa.
+export function AvisoJaPagoNaLista({ jaPago }: { jaPago: Apuracao["jaPagoNaLista"] }) {
+  if (!jaPago) return null;
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <Alert tone="warning">
+        Já pago na lista de pagamento da gorjeta de {jaPago.competencia}: <Money value={jaPago.valor} /> de salário e gorjeta. Não lance de novo aqui.
+      </Alert>
+    </div>
+  );
+}
+
 export function ApuracaoRescisaoPainel({ apuracao: a, aberto = false }: { apuracao: Apuracao; aberto?: boolean }) {
   const g = a.gorjeta;
   const valesDoMes = a.vales.itens.filter((v) => v.tipo !== "CREDITO");
   const liquido = a.sugestao.bruto == null ? null : a.sugestao.bruto - a.sugestao.vtDesconto - a.sugestao.vales;
   return (
+    <>
+    <AvisoJaPagoNaLista jaPago={a.jaPagoNaLista} />
     <details className="resc-como" open={aberto}>
       <summary>
         <span>
@@ -66,6 +80,11 @@ export function ApuracaoRescisaoPainel({ apuracao: a, aberto = false }: { apurac
               {valesDoMes.map((v) => [v.codigo ?? v.tipo, v.data ? dataBr(v.data) : null].filter(Boolean).join(" ")).join(" · ")}
               {!a.semRegistro && <div>já descontados da gorjeta enviada à contabilidade: não abatem de novo</div>}
             </>} />
+        {a.semRegistro && a.adiantamento && (
+          <Linha rotulo="Adiantamento salarial já pago" sinal="−" valor={a.adiantamento.valor}
+            detalhe={`pago em ${dataBr(a.adiantamento.data)}, antes da saída: entra no desconto de vales`
+              + (a.adiantamento.valor == null ? " (valor oculto: exige a permissão de ver Funcionários)" : "")} />
+        )}
         <Linha rotulo="VT pago para depois da saída" valor={a.vt.total} sinal="−"
           detalhe={<>
             {resumoDias(a.vt)}
@@ -80,5 +99,6 @@ export function ApuracaoRescisaoPainel({ apuracao: a, aberto = false }: { apurac
         )}
       </div>
     </details>
+    </>
   );
 }

@@ -14,7 +14,8 @@ export type PessoaApurada = {
   noPeriodo: boolean;          // tipoCalculo ≠ FORA_DO_PERIODO
   pagoNaRescisao: boolean;
   gorjetaLiquida: number;      // netCommission
-  totalAPagar: number;         // sem registro: salário + gorjeta − vales
+  totalAPagar: number;         // sem registro: salário − adiantamento + gorjeta − vales
+  adiantamentoSalarial?: number; // sem registro: já pago no dia do adiantamento (0/ausente = não recebeu)
   cnpjEmpresa: string | null;  // da empresa do cadastro
   pix: string | null;
 };
@@ -41,6 +42,8 @@ export type LinhaConferencia = {
   chave: string;               // employeeId ou "extrato:<nome>"
   employeeId: string | null;
   nome: string;
+  // Apelido do cadastro (null sem vínculo, sem apelido ou igual ao nome).
+  apelido: string | null;
   empresa: string | null;
   apuracao: number | null;
   extrato: number | null;
@@ -58,11 +61,14 @@ const digitos = (t: string | null) => (t ?? "").replace(/\D/g, "");
 
 // Salário combinado vale para a pessoa, esteja ou não na apuração da gorjeta.
 export type Combinados = Map<string, number>;
+// Apelido por employeeId (só quem tem).
+export type Apelidos = Map<string, string | null>;
 
 export function conferir(
   apuracao: PessoaApurada[], extratos: ExtratoEmpresa[], aceites: Map<string, string>, combinados: Combinados = new Map(),
+  apelidos: Apelidos = new Map(),
 ): LinhaConferencia[] {
-  const saida: LinhaConferencia[] = [];
+  const saida: Array<Omit<LinhaConferencia, "apelido">> = [];
   const noExtrato = new Map<string, { linha: LinhaExtrato; empresa: string; id?: string }>();
   for (const e of extratos) for (const l of e.linhas) if (l.employeeId) noExtrato.set(l.employeeId, { linha: l, empresa: e.empresa, id: e.id });
   const cnpjsCarregados = new Set(extratos.map((e) => digitos(e.cnpj)));
@@ -110,7 +116,7 @@ export function conferir(
         apuracao: null, extrato: l.gorjeta, diferenca: null, ...aceita(chave, st) });
     }
   }
-  return saida;
+  return saida.map((l) => ({ ...l, apelido: l.employeeId ? apelidos.get(l.employeeId) ?? null : null }));
 }
 
 export type OrigemFolha = "EXTRATO" | "SALARIO_COMBINADO" | "SEM_REGISTRO";
@@ -126,6 +132,11 @@ export type LinhaFolha = {
 };
 
 const reais = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Sem registro: o adiantamento salarial já saiu no dia dele, então aparece na conta quando houve.
+function composicaoSemRegistro(p: PessoaApurada): string {
+  return (p.adiantamentoSalarial ?? 0) > 0 ? "salário − adiantamento + gorjeta − vales" : "salário + gorjeta − vales";
+}
 
 // Folha salarial líquidos: o que o banco paga. CLT pelo extrato (ou pela regra do
 // salário combinado); sem registro pelo total da apuração. Valor zero fica de fora.
@@ -157,7 +168,7 @@ export function montarFolhaLiquidos(apuracao: PessoaApurada[], extratos: Extrato
   for (const p of apuracao) {
     if (!p.semRegistro || !p.noPeriodo || p.totalAPagar <= 0) continue;
     linhas.push({ employeeId: p.employeeId, nome: p.nome, grupo: "Sem registro", origem: "SEM_REGISTRO", valor: round2(p.totalAPagar),
-      composicao: "salário + gorjeta − vales", pix: p.pix, aviso: null });
+      composicao: composicaoSemRegistro(p), pix: p.pix, aviso: null });
   }
   return linhas;
 }

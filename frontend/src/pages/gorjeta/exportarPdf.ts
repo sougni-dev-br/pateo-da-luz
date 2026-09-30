@@ -25,85 +25,72 @@ const estilo = {
   margin: { left: 14, right: 14 },
 };
 
-// Envio à contabilidade: só quem é registrado, agrupado por empresa. Os sem
-// registro não vão para a contabilidade — vão para a lista de pagamento.
+// Envio à contabilidade: só quem é registrado, numa tabela só, por empresa e depois
+// por nome. Os sem registro não vão para a contabilidade — vão para a lista de
+// pagamento — e quem já recebeu a gorjeta na rescisão não entra de novo.
 export async function exportarContabilidade(comp: TipComputation) {
   const { doc, autoTable, finalY } = await novoPdf("Fechamento de Gorjetas — Envio à Contabilidade", comp);
-  const noPeriodo = ordenar(comp.participants).filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO");
-  // Quem já recebeu a gorjeta na rescisão não entra de novo no envio do mês.
-  const registrados = noPeriodo.filter((p) => !p.semRegistro && !p.pagoNaRescisao);
-  const pagas = noPeriodo.filter((p) => p.pagoNaRescisao);
-  const grupos = new Map<string, TipComputedParticipant[]>();
-  for (const p of registrados) {
-    const k = p.companyName || "Sem empresa";
-    grupos.set(k, [...(grupos.get(k) ?? []), p]);
-  }
-  let y = 26;
-  for (const [empresa, lista] of grupos) {
-    autoTable(doc, {
-      ...estilo,
-      startY: y + 4,
-      // A contabilidade lança a gorjeta LÍQUIDA (rateio − vales + créditos), como na planilha e no extrato.
-      head: [[empresa, "Gorjeta a lançar", "Rateio", "Vales", "Hora extra", "Ad. noturno", "Faltas", "Atestado", "Observação"]],
-      body: lista.map((p) => [
-        p.employeeName,
-        money(p.netCommission),
-        money(p.rateioAmount),
-        p.valesTotal ? money(-p.valesTotal) : "",
-        p.horaExtra ?? "",
-        p.adicionalNoturno ?? "",
-        p.faltas ? String(p.faltas) : "",
-        p.atestados ? String(p.atestados) : "",
-        p.tipoCalculo === "MES" ? "" : `Rescisão ${fmtDate(p.terminationDate)}`,
-      ]),
-      foot: [["Total", money(lista.reduce((a, p) => a + p.netCommission, 0)), money(lista.reduce((a, p) => a + p.rateioAmount, 0)),
-        money(-lista.reduce((a, p) => a + p.valesTotal, 0)), "", "", "", "", ""]],
-      columnStyles: { 1: { halign: "right", fontStyle: "bold" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "center" }, 5: { halign: "center" }, 6: { halign: "center" }, 7: { halign: "center" } },
-    });
-    y = finalY() + 4;
-  }
-  if (pagas.length) {
-    autoTable(doc, {
-      ...estilo,
-      startY: y + 4,
-      head: [["Já pagas na rescisão — informativo, NÃO lançar de novo", "Gorjeta", "Saída", "Pagamento"]],
-      body: pagas.map((p) => [p.employeeName, money(p.rateioAmount), fmtDate(p.terminationDate), fmtDate(p.rescisaoRecibo?.pagamento ?? null)]),
-      headStyles: { fillColor: [140, 140, 140], textColor: 255 },
-      columnStyles: { 1: { halign: "right" }, 2: { halign: "center" }, 3: { halign: "center" } },
-    });
-    y = finalY() + 4;
-  }
-  doc.setFontSize(8);
-  doc.setTextColor(120);
-  doc.text("Gorjeta a lançar = rateio por pontos − vales + créditos. Hora extra e adicional noturno em horas (h:mm).", 14, y + 4);
-  doc.save(`Gorjeta_Contabilidade_${MONTHS[comp.month - 1]}_${comp.year}.pdf`);
-}
-
-// Lista de pagamento dos sem registro: salário proporcional + gorjeta − vales + créditos.
-export async function exportarListaPagamento(comp: TipComputation) {
-  const { doc, autoTable, finalY } = await novoPdf("Lista de Pagamento — Sem registro", comp);
-  const lista = ordenar(comp.participants).filter((p) => p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && !p.pagoNaRescisao);
+  const empresa = (p: TipComputedParticipant) => p.companyName || "Sem empresa";
+  const lista = comp.participants
+    .filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO" && !p.semRegistro && !p.pagoNaRescisao)
+    .sort((a, b) => empresa(a).localeCompare(empresa(b), "pt-BR") || a.employeeName.localeCompare(b.employeeName, "pt-BR"));
   autoTable(doc, {
     ...estilo,
     startY: 30,
-    head: [["Funcionário", "Dias", "Salário", "Gorjeta", "Vales", "Créditos", "A pagar", "PIX"]],
+    // A contabilidade lança a gorjeta LÍQUIDA (rateio − vales + créditos), como na planilha e no extrato.
+    head: [["Funcionário", "Empresa", "Gorjeta", "Hora extra", "Ad. noturno", "Faltas", "Atestados"]],
+    body: lista.map((p) => [
+      p.employeeName + (p.tipoCalculo === "MES" ? "" : ` (saída ${fmtDate(p.terminationDate)})`),
+      empresa(p),
+      money(p.netCommission),
+      p.horaExtra ?? "",
+      p.adicionalNoturno ?? "",
+      p.faltas ? String(p.faltas) : "",
+      p.atestados ? String(p.atestados) : "",
+    ]),
+    foot: [["Total", "", money(lista.reduce((a, p) => a + p.netCommission, 0)), "", "", "", ""]],
+    columnStyles: { 2: { halign: "right", fontStyle: "bold" }, 3: { halign: "center" }, 4: { halign: "center" }, 5: { halign: "center" }, 6: { halign: "center" } },
+  });
+  doc.setFontSize(8);
+  doc.setTextColor(120);
+  doc.text("Gorjeta = rateio por pontos − vales + créditos. Hora extra e adicional noturno em horas (h:mm).", 14, finalY() + 8);
+  doc.save(`Gorjeta_Contabilidade_${MONTHS[comp.month - 1]}_${comp.year}.pdf`);
+}
+
+// Lista de pagamento dos sem registro: salário proporcional − adiantamento + gorjeta − vales + créditos.
+export async function exportarListaPagamento(comp: TipComputation) {
+  const { doc, autoTable, finalY } = await novoPdf("Lista de Pagamento — Sem registro", comp);
+  const lista = ordenar(comp.participants).filter((p) => p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && !p.pagoNaRescisao);
+  const totalAdiantamento = lista.reduce((a, p) => a + (p.adiantamentoSalarial ?? 0), 0);
+  autoTable(doc, {
+    ...estilo,
+    startY: 30,
+    head: [["Funcionário", "Dias", "Salário", "Adiantamento", "Gorjeta", "Vales", "Créditos", "A pagar", "PIX"]],
     body: lista.map((p) => [
       p.employeeName + (p.tipoCalculo === "MES" ? "" : ` (saída ${fmtDate(p.terminationDate)})`),
       String(p.diasSalario),
       money(p.salarioProporcional),
+      p.adiantamentoSalarial ? `− ${money(p.adiantamentoSalarial)}` : "",
       money(p.rateioAmount),
       p.descontos ? `− ${money(p.descontos)}` : "",
       p.creditos ? money(p.creditos) : "",
       money(p.totalAPagar),
       p.pixKey ?? "",
     ]),
-    foot: [["Total", "", money(lista.reduce((a, p) => a + p.salarioProporcional, 0)), money(lista.reduce((a, p) => a + p.rateioAmount, 0)),
-      "", "", money(lista.reduce((a, p) => a + p.totalAPagar, 0)), ""]],
-    columnStyles: { 1: { halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } },
+    foot: [["Total", "", money(lista.reduce((a, p) => a + p.salarioProporcional, 0)), totalAdiantamento ? `− ${money(totalAdiantamento)}` : "",
+      money(lista.reduce((a, p) => a + p.rateioAmount, 0)), "", "", money(lista.reduce((a, p) => a + p.totalAPagar, 0)), ""]],
+    columnStyles: {
+      1: { halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" },
+    },
   });
   doc.setFontSize(8);
   doc.setTextColor(120);
   doc.text("Salário calculado como registrado: salário ÷ 30 × dias (mês inteiro = 30; faltas injustificadas descontam).", 14, finalY() + 8);
+  // O adiantamento já foi pago no dia dele: a lista só leva o que falta.
+  if (comp.adiantamento) {
+    const { percent, dia } = comp.adiantamento;
+    doc.text(`Adiantamento = ${percent.toLocaleString("pt-BR")}% do salário base, pago no dia ${dia}, para quem recebe adiantamento (cadastro).`, 14, finalY() + 12);
+  }
   doc.save(`Gorjeta_Pagamento_${MONTHS[comp.month - 1]}_${comp.year}.pdf`);
 }
 
@@ -136,6 +123,6 @@ export async function exportarFolhaLiquidos(folha: TipFolhaLiquidos, liberada: b
   doc.text(`Total geral: ${money(folha.total)}`, 14, y + 8);
   doc.setFontSize(8);
   doc.setTextColor(120);
-  doc.text("CLT: líquido do extrato da contabilidade. * (salário combinado − adiantamento) + gorjeta. Sem registro: salário ÷ 30 × dias + gorjeta − vales.", 14, y + 14);
+  doc.text("CLT: líquido do extrato da contabilidade. * (salário combinado − adiantamento) + gorjeta. Sem registro: salário ÷ 30 × dias − adiantamento (quem recebe) + gorjeta − vales.", 14, y + 14);
   doc.save(`Folha_Liquidos_${folha.code}.pdf`);
 }

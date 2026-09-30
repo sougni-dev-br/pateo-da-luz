@@ -11,10 +11,11 @@
 
 import crypto from "node:crypto";
 import { prisma } from "../../config/database.js";
+import { getOrDefaultSettings } from "./payroll.service.js";
 import { round2 } from "./vt-calc.js";
 import { motivoParaNaoRetirar, saldoReserva, travarFundo } from "./tip-historico.service.js";
 import { proximoCodigoApuracao, registrarFechamento, registrarReabertura } from "./tip-fechamento.service.js";
-import { calcularRateio, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
+import { adiantamentoDoFechado, calcularRateio, motivoGorjetaRealSemEfeito, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
@@ -130,7 +131,8 @@ export type ComputedParticipant = {
   extraRescisao: number;
   // Quitada: o que o direito valia (a gorjeta que o sistema apuraria sem o valor pago).
   valorDireito: number | null;
-  // Gorjeta real digitada no lugar da calculada (null = vale a calculada).
+  // Gorjeta real digitada no lugar da calculada (null = vale a calculada). Gravada mas
+  // sem efeito (virou fixo, saiu, ficou fora do período) também sai null, com aviso.
   gorjetaCalculada: number;
   gorjetaReal: { valor: number; motivo: string | null; por: string | null; em: string | null } | null;
   justificativaExtra: string | null;
@@ -154,6 +156,9 @@ export type ComputedParticipant = {
   diasSalarioOverride: number | null;
   diasSalario: number;
   salarioProporcional: number;
+  // Sem registro: adiantamento salarial já pago no mês do salário, descontado do total.
+  // Deriva do salário: null sem a permissão de Funcionários.
+  adiantamentoSalarial: number | null;
   totalAPagar: number;
   // Só com permissão de Funcionários (ficha com salário e PIX).
   baseSalary: number | null;
@@ -212,7 +217,10 @@ export type TipComputation = {
   reservaPontos: number;
   fundoReservaSaldo: number;
   participants: ComputedParticipant[];
-  totals: { rateio: number; vales: number; netCommission: number; salarios: number; totalAPagar: number; pagoNaRescisao: number };
+  // Regra do adiantamento salarial (Folha → configurações), para explicar a lista.
+  adiantamento: { percent: number; dia: number };
+  // adiantamentos: null sem a permissão de Funcionários.
+  totals: { rateio: number; vales: number; netCommission: number; salarios: number; adiantamentos: number | null; totalAPagar: number; pagoNaRescisao: number };
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
   pendencias: string[];
   warnings: string[];
@@ -301,7 +309,7 @@ export async function computeTipCommission(
             select: {
               firstName: true, lastName: true, displayName: true, isActive: true,
               companyId: true, company: { select: { tradeName: true } },
-              modality: true, baseSalary: true, pixKeyType: true, pixKey: true,
+              modality: true, baseSalary: true, pixKeyType: true, pixKey: true, recebeAdiantamento: true,
               admissionDate: true, terminationDate: true,
               pontosExtra: true, tipFunction: { select: { name: true, points: true, minPoints: true, maxPoints: true } },
             },
@@ -320,6 +328,7 @@ export async function computeTipCommission(
   const deductionPercent = period ? Number(period.deductionPercent) : 20;
   const netPool = round2(grossPool * (1 - deductionPercent / 100));
   const pointsBudget = period ? Number(period.pointsTotal) : 100;
+  const config = await getOrDefaultSettings();
   const regras: RegrasPeriodo = {
     start, end, netPool, deductionPercent, pointsTotal: pointsBudget,
     diasPadrao: period?.diasPadrao ?? 26,
@@ -330,6 +339,8 @@ export async function computeTipCommission(
     proporcionalEntrada: period?.proporcionalEntrada ?? true,
     // O salário de quem não tem registro é do mês civil da competência.
     mesSalario: { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 0)) },
+    adiantamentoPercent: Number(config.advancePercent),
+    adiantamentoDia: config.advanceDueDay,
   };
 
   const rows = period?.participants ?? [];
@@ -378,6 +389,7 @@ export async function computeTipCommission(
       diasSalarioOverride: r.diasSalarioOverride,
       // Faltas digitadas na apuração não dizem o dia: valem também para o salário.
       faltasSalario: r.faltas ?? escalaMes.get(r.employeeId)?.faltas ?? 0,
+      recebeAdiantamento: r.employee.recebeAdiantamento,
       rescisaoLancada: rescisoesLancadas.has(r.employeeId),
       gorjetaReal: num(r.gorjetaReal),
       vales: r.vales.map((v) => ({ type: v.type, amount: Number(v.amount) })),
@@ -417,6 +429,9 @@ export async function computeTipCommission(
     // depois não muda uma lista que já foi paga.
     const totalAPagar = closed ? Number(r.totalAPagar) : calc.pagoNaRescisao ? 0 : calc.totalAPagar;
     const pagoNaRescisao = closed ? calc.pagoNaRescisao && totalAPagar === 0 : calc.pagoNaRescisao;
+    const adiantamentoSalarial = closed
+      ? adiantamentoDoFechado({ semRegistro: ent.semRegistro, pagoNaRescisao, salarioProporcional, comissaoLiquida: netCommission, totalAPagar })
+      : calc.adiantamentoSalarial;
     return {
       participantId: r.id,
       employeeId: r.employeeId,
@@ -451,7 +466,7 @@ export async function computeTipCommission(
       pontosDevolvidos: calc.pontosDevolvidos,
       extraRescisao: calc.extraRescisao,
       gorjetaCalculada: calc.gorjetaCalculada,
-      gorjetaReal: r.gorjetaReal == null ? null : {
+      gorjetaReal: r.gorjetaReal == null || !calc.gorjetaRealAplicada ? null : {
         valor: Number(r.gorjetaReal), motivo: r.gorjetaRealMotivo, por: r.gorjetaRealPor, em: r.gorjetaRealEm?.toISOString() ?? null,
       },
       valorDireito: calc.tipoCalculo === "RESCISAO_QUITADA"
@@ -478,6 +493,7 @@ export async function computeTipCommission(
       diasSalarioOverride: r.diasSalarioOverride,
       diasSalario: calc.diasSalario,
       salarioProporcional,
+      adiantamentoSalarial: dadosPessoais ? adiantamentoSalarial : null,
       totalAPagar,
       baseSalary: dadosPessoais ? ent.salarioBase : null,
       pixKeyType: dadosPessoais ? r.employee.pixKeyType : null,
@@ -533,6 +549,13 @@ export async function computeTipCommission(
     const diferenca = round2(comReal.reduce((a, p) => a + (p.gorjetaCalculada - p.rateioAmount), 0));
     warnings.push(`Gorjeta real no lugar da calculada: ${listar(comReal)}. ${diferenca >= 0 ? "Sobram" : "Faltam"} ${brl(Math.abs(diferenca))} no livre para distribuir por isso.`);
   }
+  // Gorjeta real gravada que o cálculo não usa mais: ninguém vê o valor, mas ele
+  // volta a valer se a situação mudar de novo. Quem fecha precisa rever.
+  rows.forEach((r, i) => {
+    if (r.gorjetaReal == null || rateio.linhas[i].gorjetaRealAplicada) return;
+    const motivo = motivoGorjetaRealSemEfeito(rateio.linhas[i].tipoCalculo, r.kind);
+    warnings.push(`A gorjeta real de ${nomeCompleto(r.employee)} (${brl(Number(r.gorjetaReal))}) não vale mais porque ${motivo}. Reveja: apague-a ou ajuste o cadastro.`);
+  });
   const semAdmissao = noPeriodo.filter((p) => !p.admissionDate);
   if (semAdmissao.length) warnings.push(`Sem data de admissão (considerados no período inteiro): ${listar(semAdmissao)}.`);
   const valesDemais = noPeriodo.filter((p) => p.descontos > 0 && p.netCommission < 0);
@@ -591,11 +614,13 @@ export async function computeTipCommission(
     reservaPontos,
     fundoReservaSaldo,
     participants,
+    adiantamento: { percent: regras.adiantamentoPercent ?? 0, dia: regras.adiantamentoDia ?? 0 },
     totals: {
       rateio: distribuido,
       vales: round2(participants.reduce((a, p) => a + p.valesTotal, 0)),
       netCommission: round2(participants.reduce((a, p) => a + p.netCommission, 0)),
       salarios: round2(participants.reduce((a, p) => a + p.salarioProporcional, 0)),
+      adiantamentos: dadosPessoais ? round2(participants.reduce((a, p) => a + (p.adiantamentoSalarial ?? 0), 0)) : null,
       totalAPagar: round2(participants.reduce((a, p) => a + p.totalAPagar, 0)),
       pagoNaRescisao: round2(participants.filter((p) => p.pagoNaRescisao).reduce((a, p) => a + p.rateioAmount, 0)),
     },
@@ -699,7 +724,9 @@ export async function syncParticipantsFromCadastro(periodId: string): Promise<{ 
 // faturamento, para o período fechado não mudar se essas fontes mudarem depois.
 export async function closeTipPeriod(year: number, month: number, usuario: { id: string; name: string }) {
   const userId = usuario.id;
-  const comp = await computeTipCommission(year, month);
+  // Com os dados pessoais: o retrato do fechamento guarda o adiantamento salarial.
+  // Nada deste cálculo volta ao navegador (a resposta é recalculada no fim).
+  const comp = await computeTipCommission(year, month, { incluirDadosPessoais: true });
   if (!comp.periodId) throw new Error("Período não encontrado.");
   if (!comp.check.ok) {
     throw new Error(comp.pendencias[0] ?? "As cotas fixas passam do líquido do período.");

@@ -2434,6 +2434,10 @@ model Employee {
   scheduleRegime    WorkScheduleRegime @default(SEIS_POR_UM)
   includeInSchedule Boolean            @default(true)
   admissionDate     DateTime?
+  // Data de registro na carteira (vem do extrato da contabilidade). Pode ser depois do
+  // início real (admissionDate): quem começa sem registro, em teste ou recebendo seguro.
+  // Só informativo: gorjeta, VT e escala contam pelo admissionDate.
+  admissaoCarteira  DateTime?          @db.Date
   // Vale-transporte. TRANSPORTE_PUBLICO calcula pelas pernas (vtLegs) × escala;
   // BILHETE_MENSAL usa uma tarifa de base MENSAL; AUXILIO_COMBUSTIVEL usa o valor fixo.
   vtType            VtType             @default(TRANSPORTE_PUBLICO)
@@ -2464,6 +2468,9 @@ model Employee {
   // (salário combinado − adiantamento salarial do extrato) + gorjeta líquida.
   salarioCombinado       Decimal?        @db.Decimal(12, 2)
   salarioCombinadoMotivo String?
+  // Recebe adiantamento salarial no dia do adiantamento (PayrollSettings). Sem
+  // registro: a lista de pagamento desconta o que já foi pago. CLT: só informativo.
+  recebeAdiantamento     Boolean         @default(false)
   tipFunctionId     String?
   tipFunction       TipFunction?       @relation(fields: [tipFunctionId], references: [id])
   tipParticipations TipParticipant[]
@@ -2473,6 +2480,7 @@ model Employee {
   extraShifts        ExtraShift[]        @relation("ExtraShiftEmployee")
   extraShiftsCovered ExtraShift[]        @relation("ExtraShiftCovered")
   extraPayments      ExtraPayment[]
+  rhExtractPessoas  RhExtractPessoa[]
   // Auditoria / soft delete
   createdById       String
   updatedById       String?
@@ -2592,11 +2600,75 @@ model RhExtract {
   storagePath     String?
   sha256          String?
   data            Json     // funcionários lidos (nome, cpf, líquido, gorjeta)
+  // "MENSAL" (folha do mês) ou "ADIANTAMENTO". Registros anteriores a esta coluna ficaram MENSAL.
+  calculo         String   @default("MENSAL")
+  // O PDF inteiro. O disco do Render é apagado a cada deploy: o banco é o armazenamento
+  // permanente; storagePath fica só como histórico.
+  arquivo         Bytes?
+  texto           String?  // texto completo extraído do PDF
+  emissao         DateTime? @db.Date
+  totalProventos  Decimal? @db.Decimal(14, 2)
+  totalDescontos  Decimal? @db.Decimal(14, 2)
   importedById    String
   createdAt       DateTime @default(now())
+  updatedAt       DateTime? @updatedAt
+  pessoas         RhExtractPessoa[]
 
   @@index([competenceYear, competenceMonth])
   @@index([companyId])
+  // Índice comum, não unique: produção pode já ter o mesmo arquivo importado duas vezes.
+  // O dedupe por sha256 é feito na importação.
+  @@index([sha256])
+}
+
+// Uma pessoa do extrato (cabeçalho e rodapé do holerite). Sem CPF: o vínculo é o employeeId.
+model RhExtractPessoa {
+  id              String    @id @default(cuid())
+  rhExtractId     String
+  rhExtract       RhExtract @relation(fields: [rhExtractId], references: [id], onDelete: Cascade)
+  employeeId      String?
+  employee        Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  matricula       String
+  nome            String
+  situacao        String?
+  vinculo         String?
+  horasMes        Decimal?  @db.Decimal(8, 2)
+  cargoCodigo     String?
+  cargo           String?
+  cbo             String?
+  salarioBase     Decimal?  @db.Decimal(12, 2)
+  admissao        DateTime? @db.Date
+  demissao        DateTime? @db.Date
+  demissaoMotivo  String?
+  proventos       Decimal   @db.Decimal(12, 2)
+  descontos       Decimal   @db.Decimal(12, 2)
+  liquido         Decimal   @db.Decimal(12, 2)
+  baseInss        Decimal?  @db.Decimal(12, 2)
+  baseFgts        Decimal?  @db.Decimal(12, 2)
+  baseIrrf        Decimal?  @db.Decimal(12, 2)
+  valorFgts       Decimal?  @db.Decimal(12, 2)
+  liquidoRescisao Decimal?  @db.Decimal(12, 2)
+  // Rubricas P somam os Proventos e D os Descontos. Falso = leitura a conferir no PDF.
+  conferido       Boolean   @default(false)
+  texto           String    // bloco bruto da pessoa, sem o CPF
+  rubricas        RhExtractRubrica[]
+
+  @@index([rhExtractId])
+  @@index([employeeId])
+}
+
+model RhExtractRubrica {
+  id         String          @id @default(cuid())
+  pessoaId   String
+  pessoa     RhExtractPessoa @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+  codigo     String
+  descricao  String
+  tipo       String          // "P" provento | "D" desconto
+  referencia Decimal?        @db.Decimal(12, 2)
+  valor      Decimal         @db.Decimal(12, 2)
+
+  @@index([pessoaId])
+  @@index([codigo])
 }
 
 enum PayrollItemType {

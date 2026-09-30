@@ -7,6 +7,8 @@ import { PDFParse } from "pdf-parse";
 import { prisma } from "../../config/database.js";
 import { FOLHA_CATEGORY } from "./payroll.service.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
+import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
+import { avisosDoExtrato, guardarExtrato, preencherAdmissaoCarteira } from "./rh-extract-store.service.js";
 
 export type ExtratoFuncionario = {
   nome: string;
@@ -20,7 +22,12 @@ export type ExtratoFuncionario = {
   situacao: string | null;
 };
 
+// O mesmo "Extrato Mensal" da contabilidade sai em dois cálculos: a folha do mês
+// (líquido já sem o adiantamento) e o adiantamento do dia 20 ("Cálculo: Adiantamento").
+export type CalculoExtrato = "MENSAL" | "ADIANTAMENTO";
+
 export type ExtratoParsed = {
+  calculo: CalculoExtrato;
   empresa: string;
   cnpj: string | null;
   competenceYear: number;
@@ -36,10 +43,14 @@ export function onlyDigits(s: string): string {
   return (s ?? "").replace(/\D/g, "");
 }
 
-export async function parseExtratoMensal(buffer: Buffer): Promise<ExtratoParsed> {
+export async function extrairTextoPdf(buffer: Buffer): Promise<string> {
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
   const result = await parser.getText();
-  return lerTextoExtrato(result.text ?? "");
+  return result.text ?? "";
+}
+
+export async function parseExtratoMensal(buffer: Buffer): Promise<ExtratoParsed> {
+  return lerTextoExtrato(await extrairTextoPdf(buffer));
 }
 
 // Leitura do texto já extraído (separada para poder testar sem PDF).
@@ -51,6 +62,7 @@ export function lerTextoExtrato(txt: string): ExtratoParsed {
   const comp = txt.match(/EXTRATO MENSAL\s*\n?\s*(\d{2})\/(\d{4})/) ?? txt.match(/(\d{2})\/(\d{4})/);
   const competenceMonth = comp ? Number(comp[1]) : 0;
   const competenceYear = comp ? Number(comp[2]) : 0;
+  const calculo: CalculoExtrato = /C[áa]lculo:\s*Adiantamento/i.test(txt) ? "ADIANTAMENTO" : "MENSAL";
 
   // Cada funcionário vai de "<matrícula> <NOME> Empr.:" até o próximo "NF:".
   const funcionarios: ExtratoFuncionario[] = [];
@@ -68,7 +80,11 @@ export function lerTextoExtrato(txt: string): ExtratoParsed {
       body.match(/GORJETA[\s\S]{0,60}?\bP\b[\s\S]{0,6}?([\d]{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ??
       body.match(/GORJETA[\s\S]{0,40}?([\d]{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ??
       null;
-    const adiant = body.match(/DESC\.ADIANT\.SALARIAL\s+(\d{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ?? null;
+    // Na folha do mês é o desconto (DESC.ADIANT.SALARIAL); no extrato do adiantamento é o
+    // provento (980 ADIANTAMENTO SALARIAL), sem o troco do arredondamento.
+    const adiant = calculo === "ADIANTAMENTO"
+      ? body.match(/ADIANTAMENTO SALARIAL\s+P\s+(\d{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ?? null
+      : body.match(/DESC\.ADIANT\.SALARIAL\s+(\d{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ?? null;
     const situacao = body.match(/(Trabalhando|Demitid[oa]|Afastad[oa]|F[ée]rias)\s+CPF:/)?.[1] ?? null;
     funcionarios.push({
       nome,
@@ -81,7 +97,7 @@ export function lerTextoExtrato(txt: string): ExtratoParsed {
     });
   }
 
-  return { empresa, cnpj, competenceYear, competenceMonth, funcionarios };
+  return { calculo, empresa, cnpj, competenceYear, competenceMonth, funcionarios };
 }
 
 function splitName(full: string): { firstName: string; lastName: string } {
@@ -112,7 +128,48 @@ async function getFolhaDreCategoryId(): Promise<string> {
   return created.id;
 }
 
+// Antes de o importador distinguir os dois cálculos, o extrato do adiantamento entrava
+// como SALARIO ("Extrato MM/AAAA"). Reimportado, o mesmo título (mesma pessoa, mesmo
+// valor) vira ADIANTAMENTO no lugar — mantém pagamento e histórico, sem duplicar.
+async function converterAdiantamentoGravadoComoSalario(
+  employeeId: string, competenceYear: number, competenceMonth: number, mmaaaa: string, periodLabel: string, liquido: number, userId: string,
+) {
+  const antigo = await prisma.payrollItem.findFirst({
+    where: { employeeId, type: "SALARIO", competenceYear, competenceMonth, periodLabel: `Extrato ${mmaaaa}`, source: "EXTRATO_RH", deletedAt: null },
+    select: { id: true, amount: true },
+  });
+  if (!antigo || Math.abs(Number(antigo.amount) - liquido) >= 0.01) return;
+  const jaExiste = await prisma.payrollItem.findFirst({
+    where: { employeeId, type: "ADIANTAMENTO", competenceYear, competenceMonth, periodLabel },
+    select: { id: true },
+  });
+  if (jaExiste) return;
+  await prisma.payrollItem.update({ where: { id: antigo.id }, data: { type: "ADIANTAMENTO", periodLabel, updatedById: userId } });
+}
+
+// Quantas pessoas do extrato já têm o lançamento dele no Contas a Pagar. Reimportar
+// atualiza esses (o upsert casa pela chave), não duplica — a tela precisa dizer isso.
+// No adiantamento conta também o que entrou como SALARIO antes (e vai ser convertido).
+export async function contarLancamentosExistentes(
+  employeeIds: string[], calculo: CalculoExtrato, competenceYear: number, competenceMonth: number,
+): Promise<number> {
+  if (employeeIds.length === 0) return 0;
+  const mmaaaa = `${String(competenceMonth).padStart(2, "0")}/${competenceYear}`;
+  const chaves = calculo === "ADIANTAMENTO"
+    ? [{ type: "ADIANTAMENTO" as const, periodLabel: `Adiantamento ${mmaaaa}` }, { type: "SALARIO" as const, periodLabel: `Extrato ${mmaaaa}` }]
+    : [{ type: "SALARIO" as const, periodLabel: `Extrato ${mmaaaa}` }];
+  const itens = await prisma.payrollItem.findMany({
+    where: { employeeId: { in: employeeIds }, competenceYear, competenceMonth, deletedAt: null, OR: chaves },
+    select: { employeeId: true },
+  });
+  return new Set(itens.map((i) => i.employeeId)).size;
+}
+
 export type ImportExtratoResult = {
+  calculo: CalculoExtrato;
+  // Dos títulos gravados, quantos já existiam (foram atualizados) e quantos são novos.
+  titulosAtualizados: number;
+  titulosNovos: number;
   empresa: string;
   companyId: string;
   competenceYear: number;
@@ -121,14 +178,21 @@ export type ImportExtratoResult = {
   funcionariosCadastrados: number;
   titulosGerados: number;
   rhExtractId: string;
+  // O mesmo arquivo já estava guardado: o registro foi completado, não duplicado.
+  extratoAtualizado: boolean;
+  pessoasLidas: number;
+  pessoasConferidas: number;
+  avisos: string[];
 };
 
 // Importa o extrato: casa/cria empresa e funcionários, gera os salários no Contas a Pagar
 // (PayrollItem SALARIO, com vínculo ao DRE) e registra o extrato para rastreabilidade.
 export async function importExtrato(opts: {
   buffer: Buffer; userId: string; fileName: string; storagePath?: string; sha256?: string; dueDay?: number;
+  incluirDadosPessoais?: boolean;
 }): Promise<ImportExtratoResult> {
-  const parsed = await parseExtratoMensal(opts.buffer);
+  const texto = await extrairTextoPdf(opts.buffer);
+  const parsed = lerTextoExtrato(texto);
   if (parsed.funcionarios.length === 0) throw new Error("Nenhum funcionário lido do extrato.");
   const { competenceYear, competenceMonth } = parsed;
   if (!competenceYear || !competenceMonth) throw new Error("Competência não identificada no extrato.");
@@ -156,17 +220,32 @@ export async function importExtrato(opts: {
   }
 
   const settings = await prisma.payrollSettings.findUnique({ where: { id: "singleton" } });
-  const dueDay = opts.dueDay ?? settings?.salaryDueDay ?? 5;
-  // Salário da competência vence no mês seguinte, no dia configurado.
-  let ny = competenceYear, nm = competenceMonth + 1;
-  if (nm > 12) { nm = 1; ny += 1; }
-  const dueDate = new Date(Date.UTC(ny, nm - 1, Math.min(dueDay, 28)));
+  const adiantamento = parsed.calculo === "ADIANTAMENTO";
+  const tipo = adiantamento ? "ADIANTAMENTO" as const : "SALARIO" as const;
+  let dueDate: Date;
+  if (adiantamento) {
+    // Adiantamento vence no próprio mês da competência, no dia do adiantamento (20).
+    const dia = opts.dueDay ?? settings?.advanceDueDay ?? 20;
+    dueDate = new Date(Date.UTC(competenceYear, competenceMonth - 1, Math.min(dia, 28)));
+  } else {
+    // Salário da competência vence no mês seguinte, no dia configurado.
+    const dueDay = opts.dueDay ?? settings?.salaryDueDay ?? 5;
+    let ny = competenceYear, nm = competenceMonth + 1;
+    if (nm > 12) { nm = 1; ny += 1; }
+    dueDate = new Date(Date.UTC(ny, nm - 1, Math.min(dueDay, 28)));
+  }
   const dreCategoryId = await getFolhaDreCategoryId();
 
   const allEmp = await prisma.employee.findMany({ where: { deletedAt: null }, select: { id: true, cpf: true } });
   const byCpf = new Map(allEmp.map((e) => [onlyDigits(e.cpf), e.id]));
-  const periodLabel = `Extrato ${String(competenceMonth).padStart(2, "0")}/${competenceYear}`;
+  const mmaaaa = `${String(competenceMonth).padStart(2, "0")}/${competenceYear}`;
+  const periodLabel = adiantamento ? `Adiantamento ${mmaaaa}` : `Extrato ${mmaaaa}`;
+  const details = (f: ExtratoFuncionario) => ({ calculo: parsed.calculo, liquido: f.liquido, gorjeta: f.gorjeta, adiantamento: f.adiantamento, empresa: parsed.empresa });
 
+  const jaExistiam = await contarLancamentosExistentes(
+    parsed.funcionarios.map((f) => (f.cpfNorm ? byCpf.get(f.cpfNorm) : undefined)).filter((id): id is string => Boolean(id)),
+    parsed.calculo, competenceYear, competenceMonth,
+  );
   let funcionariosCadastrados = 0;
   let titulosGerados = 0;
   for (const f of parsed.funcionarios) {
@@ -181,30 +260,40 @@ export async function importExtrato(opts: {
       funcionariosCadastrados += 1;
       if (f.cpfNorm) byCpf.set(f.cpfNorm, empId);
     }
+    if (adiantamento) await converterAdiantamentoGravadoComoSalario(empId, competenceYear, competenceMonth, mmaaaa, periodLabel, f.liquido, opts.userId);
     await prisma.payrollItem.upsert({
-      where: { employeeId_type_competenceYear_competenceMonth_periodLabel: { employeeId: empId, type: "SALARIO", competenceYear, competenceMonth, periodLabel } },
+      where: { employeeId_type_competenceYear_competenceMonth_periodLabel: { employeeId: empId, type: tipo, competenceYear, competenceMonth, periodLabel } },
       create: {
-        id: crypto.randomUUID(), employeeId: empId, type: "SALARIO", competenceYear, competenceMonth, periodLabel,
+        id: crypto.randomUUID(), employeeId: empId, type: tipo, competenceYear, competenceMonth, periodLabel,
         dueDate, amount: f.liquido, dreCategoryId, source: "EXTRATO_RH",
-        details: { liquido: f.liquido, gorjeta: f.gorjeta, empresa: parsed.empresa }, createdById: opts.userId,
+        details: details(f), createdById: opts.userId,
       },
       // deletedAt/deletedById limpos de proposito: a chave unica nao inclui deletedAt, entao
       // este upsert casa com um item apagado. Sem limpar, ele atualizava o valor e deixava o
       // lancamento invisivel — a importacao dizia "titulo gerado" e o salario sumia do DRE.
-      update: { amount: f.liquido, dueDate, dreCategoryId, source: "EXTRATO_RH", details: { liquido: f.liquido, gorjeta: f.gorjeta, empresa: parsed.empresa }, updatedById: opts.userId, deletedAt: null, deletedById: null },
+      update: { amount: f.liquido, dueDate, dreCategoryId, source: "EXTRATO_RH", details: details(f), updatedById: opts.userId, deletedAt: null, deletedById: null },
     });
     titulosGerados += 1;
   }
 
   const totalLiquido = Math.round(parsed.funcionarios.reduce((a, f) => a + f.liquido, 0) * 100) / 100;
-  const rh = await prisma.rhExtract.create({
-    data: {
-      id: crypto.randomUUID(), competenceYear, competenceMonth, empresa: parsed.empresa, cnpj: parsed.cnpj,
-      companyId, totalLiquido, headcount: parsed.funcionarios.length,
-      fileName: opts.fileName, storagePath: opts.storagePath ?? null, sha256: opts.sha256 ?? null,
-      data: parsed.funcionarios as unknown as object, importedById: opts.userId,
-    },
+  // O PDF, o texto e o holerite de cada pessoa vão para o banco (o disco do servidor é efêmero).
+  const detalhes = lerDetalhesExtrato(texto);
+  const rh = await guardarExtrato({
+    parsed, detalhes, buffer: opts.buffer, texto,
+    sha256: opts.sha256 ?? crypto.createHash("sha256").update(opts.buffer).digest("hex"),
+    fileName: opts.fileName, storagePath: opts.storagePath ?? null, companyId, userId: opts.userId, totalLiquido,
+    employeePorCpf: byCpf,
+  });
+  await preencherAdmissaoCarteira(detalhes, byCpf, opts.userId);
+  const avisos = await avisosDoExtrato({
+    detalhes, calculo: parsed.calculo, competenceYear, competenceMonth, incluirDadosPessoais: opts.incluirDadosPessoais ?? false,
   });
 
-  return { empresa: parsed.empresa, companyId, competenceYear, competenceMonth, totalLiquido, funcionariosCadastrados, titulosGerados, rhExtractId: rh.id };
+  return {
+    calculo: parsed.calculo, empresa: parsed.empresa, companyId, competenceYear, competenceMonth, totalLiquido, funcionariosCadastrados, titulosGerados,
+    titulosAtualizados: Math.min(jaExistiam, titulosGerados), titulosNovos: Math.max(0, titulosGerados - jaExistiam),
+    rhExtractId: rh.id, extratoAtualizado: rh.atualizado,
+    pessoasLidas: detalhes.pessoas.length, pessoasConferidas: detalhes.pessoas.filter((p) => p.conferido).length, avisos,
+  };
 }

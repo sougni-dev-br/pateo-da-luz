@@ -5,10 +5,14 @@ import { createContext, type ReactNode, useContext } from "react";
 
 export const ApelidosContext = createContext<ReadonlyMap<string, string>>(new Map());
 
-export function useApelido(employeeId: string | null | undefined, apelido?: string | null): string | null {
-  const mapa = useContext(ApelidosContext);
+/** O apelido que veio na linha vale (mesmo null); sem ele, o do mapa pelo funcionário. */
+export function resolverApelido(mapa: ReadonlyMap<string, string>, employeeId: string | null | undefined, apelido?: string | null): string | null {
   if (apelido !== undefined) return apelido;
   return employeeId ? mapa.get(employeeId) ?? null : null;
+}
+
+export function useApelido(employeeId: string | null | undefined, apelido?: string | null): string | null {
+  return resolverApelido(useContext(ApelidosContext), employeeId, apelido);
 }
 
 type Props = {
@@ -37,3 +41,14 @@ export function NomePessoa({ nome, employeeId, apelido, children }: Props) {
 
 /** Texto de busca de uma pessoa: nome e apelido juntos. */
 export const textoPessoa = (nome: string, apelido?: string | null) => `${nome} ${apelido ?? ""}`;
+
+/**
+ * Nome numa linha só (opções de select): "Luiz Felipe Cardoso Silva (Luiz)". Sem apelido,
+ * ou apelido igual ao nome, fica só o nome — nunca só o apelido.
+ */
+export function nomeComApelido(nome: string, apelido?: string | null): string {
+  const n = nome.replace(/\s+/g, " ").trim();
+  const a = (apelido ?? "").trim();
+  if (!a || a.toLowerCase() === n.toLowerCase()) return n || a;
+  return n ? `${n} (${a})` : a;
+}

@@ -2,13 +2,13 @@
 // completo (parâmetros, cada pessoa, totais, fundo) com um código próprio e um
 // SHA-256 do conteúdo. O banco não deixa apagar nem alterar; reabrir fica anotado.
 import { ArrowLeft, Download, ShieldAlert, ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { type TipFechamentoDetalhe, type TipFechamentoResumo, getTipClosing, getTipClosings } from "../../api/client";
 import { Button, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { MONTHS, baixarCsv, fmtDate, money, mutedStyle, panelStyle, pts } from "./gorjetaUtils";
-import { NomePessoa, textoPessoa } from "./NomePessoa";
+import { ApelidosContext, NomePessoa, resolverApelido, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 
 const dataHora = (iso: string | null) => (iso ? new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—");
@@ -187,6 +187,8 @@ const COLUNAS_PESSOA: ColunaOpcional[] = [
 const SITUACAO_PESSOA: Record<string, string> = {
   MES: "No mês", RESCISAO: "Desligado no período", RESCISAO_QUITADA: "Desligado no período", FORA_DO_PERIODO: "Fora do período",
 };
+// undefined = o retrato não tem o campo (fechamento antigo): aí vale o apelido do cadastro.
+const apelidoDoRetrato = (p: Pessoa) => ("apelido" in p ? texto(p.apelido) : undefined);
 const situacaoPessoa = (p: Pessoa) => SITUACAO_PESSOA[texto(p.tipoCalculo) ?? "MES"] ?? "No mês";
 const soma = (l: Pessoa[], f: (p: Pessoa) => number | null) => l.reduce((a, p) => a + (f(p) ?? 0), 0);
 const EXT_PESSOA: Extratores<Pessoa> = {
@@ -203,6 +205,7 @@ function DetalheFechamento({ id, onVoltar, onErro }: { id: string; onVoltar: () 
   const col = useColunas("fechamento-detalhe");
   const v = col.visivel;
   const filtro = useFiltro("fechamento-detalhe");
+  const apelidos = useContext(ApelidosContext);
   const th = (c: string) => ({ coluna: c, ordem: ord.ordem, onOrdenar: () => ord.alternar(c, TEXTO_PESSOA.has(c) ? "asc" : "desc") });
 
   useEffect(() => {
@@ -223,7 +226,7 @@ function DetalheFechamento({ id, onVoltar, onErro }: { id: string; onVoltar: () 
     { chave: "situacao", rotulo: "Situação", opcoes: opcoesDe(todas, situacaoPessoa) },
   ];
   const filtradas = filtro.aplicar(todas,
-    (x) => [textoPessoa(texto(x.nome) ?? "", texto(x.apelido)), texto(x.funcao) ?? "", texto(x.empresa) ?? ""].join(" "),
+    (x) => [textoPessoa(texto(x.nome) ?? "", resolverApelido(apelidos, texto(x.employeeId), apelidoDoRetrato(x))), texto(x.funcao) ?? "", texto(x.empresa) ?? ""].join(" "),
     {
       vinculo: (x) => (x.semRegistro === true ? "Sem registro" : "CLT"), empresa: (x) => texto(x.empresa),
       funcao: (x) => texto(x.funcao), situacao: situacaoPessoa,
@@ -298,7 +301,7 @@ function DetalheFechamento({ id, onVoltar, onErro }: { id: string; onVoltar: () 
         </div>
         <span style={mutedStyle}>Nomes como foram gravados no fechamento.</span>
         <BarraFiltro filtro={filtro} listas={listasFiltro} total={todas.length} visiveis={filtradas.length}
-          placeholder="Filtrar por nome, função, empresa…" />
+          placeholder="Filtrar por nome, apelido, função, empresa…" />
         {filtro.ativo && avisoExportacao}
         {filtro.ativo && filtradas.length === 0 && <span style={mutedStyle}>Ninguém bate com o filtro.</span>}
         <Table className="tabela-gorjeta">
@@ -324,8 +327,8 @@ function DetalheFechamento({ id, onVoltar, onErro }: { id: string; onVoltar: () 
               return (
                 <Table.Row key={texto(x.employeeId) ?? i}>
                   <Table.Td style={{ textAlign: "left" }}>
-                    {/* Apelido só se o retrato o tiver gravado; nada vem do cadastro de hoje. */}
-                    <NomePessoa nome={texto(x.nome) ?? "—"} apelido={texto(x.apelido)}>
+                    {/* Apelido gravado no retrato vale; retrato antigo, sem o campo, usa o do cadastro. */}
+                    <NomePessoa nome={texto(x.nome) ?? "—"} employeeId={texto(x.employeeId)} apelido={apelidoDoRetrato(x)}>
                       {x.semRegistro === true && <StatusBadge tone="warning">Sem registro</StatusBadge>}
                       {texto(x.desligamento) && <StatusBadge tone="neutral">Saída {fmtDate(texto(x.desligamento))}</StatusBadge>}
                     </NomePessoa>
