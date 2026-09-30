@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { ScheduleDayMeta, ScheduleDayType, ScheduleEmployee } from "../../../api/client";
 import { MARCAS_OCORRENCIA, TIPOS_OCORRENCIA, proximaOcorrencia } from "../marcas";
 import { SoOcorrencias } from "../SoOcorrencias";
@@ -21,6 +21,23 @@ function montar(marks = new Map<string, ScheduleDayType>(), over: Partial<Parame
   return onMarcar;
 }
 
+// Por padrão a seção começa recolhida; os testes da tela abrem (lembrado no navegador).
+beforeEach(() => window.localStorage.setItem("escala-so-ocorrencias-aberta", "1"));
+
+describe("recolher", () => {
+  test("recolhida mostra só o título com o resumo; o clique abre e lembra", () => {
+    window.localStorage.removeItem("escala-so-ocorrencias-aberta");
+    montar(new Map([["r|2", "FALTA" as ScheduleDayType]]));
+    const botao = screen.getByRole("button", { name: /Fora da escala — só ocorrências/ });
+    expect(botao).toHaveAttribute("aria-expanded", "false");
+    expect(botao.textContent).toContain("1 pessoa(s) · 1 ocorrência(s) no mês");
+    expect(screen.queryByRole("table")).toBeNull();
+    fireEvent.click(botao);
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(window.localStorage.getItem("escala-so-ocorrencias-aberta")).toBe("1");
+  });
+});
+
 describe("tipos permitidos", () => {
   test("só falta, atestado, férias e as três folgas — nunca turno ou evento", () => {
     expect([...TIPOS_OCORRENCIA].sort()).toEqual(["ATESTADO", "FALTA", "FERIAS", "FOLGA", "FOLGA_BANCO_HORAS", "FOLGA_FERIADO"]);
@@ -41,7 +58,7 @@ describe("tipos permitidos", () => {
 describe("seção na tela", () => {
   test("título, legenda e paleta sem turno", () => {
     montar();
-    expect(screen.getByRole("heading", { name: "Fora da escala — só ocorrências" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /^Fora da escala — só ocorrências/ })).toBeTruthy();
     expect(screen.getByText(/valem para a gorjeta e o VT/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Turno/ })).toBeNull();
     expect(screen.getByRole("button", { name: /Férias/ })).toBeTruthy();
