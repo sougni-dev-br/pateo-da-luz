@@ -78,6 +78,7 @@ export type Mudanca = {
   id: string;
   employeeId: string;
   employeeName: string;
+  apelido: string | null;
   validFrom: string;
   tipo: "INICIAL" | "PROMOCAO" | "REDUCAO" | "TROCA_DE_FUNCAO" | "ENTRADA" | "SAIDA" | "OUTRA";
   funcaoAntes: string | null;
@@ -116,6 +117,7 @@ export async function listarMudancas(opts: { de?: Date; ate?: Date; employeeId?:
         id: l.id,
         employeeId: l.employeeId,
         employeeName: nomeCompleto(l.employee),
+        apelido: apelidoDe(l.employee),
         validFrom: l.validFrom.toISOString(),
         tipo,
         funcaoAntes: antes?.functionName ?? null,
@@ -138,6 +140,7 @@ export type Evolucao = {
   linhas: Array<{
     employeeId: string;
     employeeName: string;
+    apelido: string | null;
     meses: Record<string, { funcao: string | null; base: number | null; pontos: number | null; gorjeta: number | null } | undefined>;
   }>;
 };
@@ -168,6 +171,7 @@ export async function evolucaoMensal(de: { ano: number; mes: number }, ate: { an
       const linha = porFuncionario.get(r.employeeId) ?? {
         employeeId: r.employeeId,
         employeeName: nomeCompleto(r.employee),
+        apelido: apelidoDe(r.employee),
         meses: {},
       };
       // Em apuração ainda não há pontos finais nem valor gravados.
@@ -205,7 +209,9 @@ export async function extratoReserva() {
       amount: Number(m.amount),
       saldo,
       competencia: m.period ? `${String(m.period.competenceMonth).padStart(2, "0")}/${m.period.competenceYear}` : null,
+      employeeId: m.employeeId ?? null,
       employeeName: m.employee ? nomeCompleto(m.employee) : null,
+      apelido: m.employee ? apelidoDe(m.employee) : null,
       notes: m.notes,
       removivel: m.type === "AJUSTE",
     };

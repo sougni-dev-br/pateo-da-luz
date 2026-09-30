@@ -51,7 +51,9 @@ describe("sem permissão de ver Funcionários", () => {
       vales: { itens: [{ codigo: "VALE-1", data: null, tipo: "OUTRO", descricao: "pessoal", valor: 20 }], descontos: 20, creditos: 0, liquido: 20, entraNaRescisao: true },
       gorjeta: { periodo: "x", status: "OPEN" as const, pontos: 1, valorPonto: 1, gorjeta: 100, pendente: false, diasSalario: 9, salarioProporcional: 659.97 },
       gorjetaObservacao: null,
-      sugestao: { salario: 659.97, gorjeta: 100, creditos: 0, vales: 20, valesRotulo: "VALE-1", vtDesconto: 0, bruto: 759.97 },
+      jaPagoNaLista: null,
+      adiantamento: null,
+      sugestao: { salario: 659.97, gorjeta: 100, creditos: 0, vales: 20, valesRotulo: "VALE-1", adiantamento: 0, vtDesconto: 0, bruto: 759.97 },
     } satisfies ApuracaoRescisao;
     const r = semDadosPessoais(a)!;
     expect(r.sugestao.salario).toBeNull();
