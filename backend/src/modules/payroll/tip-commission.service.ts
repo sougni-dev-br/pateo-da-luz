@@ -109,6 +109,11 @@ export type ComputedParticipant = {
   basePoints: number;
   pointsAdjustment: number;
   fixedAmount: number | null;
+  // O que está na Escala agora, digitado ou não: para quem confere ver a diferença.
+  escala: { faltas: number; atestados: number; ferias: number };
+  // Folgas da Escala no período. Só informação: a folga normal já está nos dias padrão
+  // e nada disto entra no cálculo. Fechado, vem do retrato (null se o retrato é antigo).
+  folgasEscala: FolgasEscala | null;
   // Presença (valor efetivo + de onde veio)
   faltas: number; faltasOrigem: Origem;
   atestados: number; atestadosOrigem: Origem;
@@ -229,25 +234,49 @@ export type TipComputation = {
   warnings: string[];
 };
 
-type ScheduleCounts = { faltas: number; atestados: number; ferias: number };
+export type FolgasEscala = { total: number; folga: number; feriado: number; bancoHoras: number };
+type ScheduleCounts = { faltas: number; atestados: number; ferias: number; folgas: FolgasEscala };
 
-// Contagem de FALTA/ATESTADO/FERIAS da Escala no intervalo, por funcionário.
+const semOcorrencias = (): ScheduleCounts => ({ faltas: 0, atestados: 0, ferias: 0, folgas: { total: 0, folga: 0, feriado: 0, bancoHoras: 0 } });
+
+// Contagem das ocorrências da Escala no intervalo, por funcionário — inclusive de quem
+// está fora da escala (seção "só ocorrências"): a consulta não olha o cadastro.
 async function contarOcorrenciasDaEscala(employeeIds: string[], start: Date, end: Date): Promise<Map<string, ScheduleCounts>> {
   const map = new Map<string, ScheduleCounts>();
   if (employeeIds.length === 0) return map;
   const grupos = await prisma.employeeScheduleDay.groupBy({
     by: ["employeeId", "type"],
-    where: { employeeId: { in: employeeIds }, date: { gte: start, lte: end }, type: { in: ["FALTA", "ATESTADO", "FERIAS"] } },
+    where: {
+      employeeId: { in: employeeIds }, date: { gte: start, lte: end },
+      type: { in: ["FALTA", "ATESTADO", "FERIAS", "FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS"] },
+    },
     _count: { _all: true },
   });
   for (const g of grupos) {
-    const c = map.get(g.employeeId) ?? { faltas: 0, atestados: 0, ferias: 0 };
-    if (g.type === "FALTA") c.faltas += g._count._all;
-    if (g.type === "ATESTADO") c.atestados += g._count._all;
-    if (g.type === "FERIAS") c.ferias += g._count._all;
+    const c = map.get(g.employeeId) ?? semOcorrencias();
+    const n = g._count._all;
+    if (g.type === "FALTA") c.faltas += n;
+    if (g.type === "ATESTADO") c.atestados += n;
+    if (g.type === "FERIAS") c.ferias += n;
+    if (g.type === "FOLGA") c.folgas.folga += n;
+    if (g.type === "FOLGA_FERIADO") c.folgas.feriado += n;
+    if (g.type === "FOLGA_BANCO_HORAS") c.folgas.bancoHoras += n;
+    c.folgas.total = c.folgas.folga + c.folgas.feriado + c.folgas.bancoHoras;
     map.set(g.employeeId, c);
   }
   return map;
+}
+
+// Folgas gravadas no retrato do fechamento, por funcionário. Retrato antigo não tem.
+function folgasDoRetrato(participantes: unknown): Map<string, FolgasEscala> {
+  const mapa = new Map<string, FolgasEscala>();
+  if (!Array.isArray(participantes)) return mapa;
+  for (const p of participantes as Array<{ employeeId?: unknown; folgasEscala?: unknown }>) {
+    const f = p.folgasEscala as Partial<FolgasEscala> | undefined;
+    if (typeof p.employeeId !== "string" || !f || typeof f.total !== "number") continue;
+    mapa.set(p.employeeId, { total: f.total, folga: Number(f.folga ?? 0), feriado: Number(f.feriado ?? 0), bancoHoras: Number(f.bancoHoras ?? 0) });
+  }
+  return mapa;
 }
 
 const num = (v: unknown): number | null => (v == null ? null : Number(v));
@@ -369,7 +398,7 @@ export async function computeTipCommission(
     ? { employeeId: r.employeeId, saida: r.employee.terminationDate } : null));
 
   const entradas: ParticipanteEntrada[] = rows.map((r) => {
-    const e = escala.get(r.employeeId) ?? { faltas: 0, atestados: 0, ferias: 0 };
+    const e = escala.get(r.employeeId) ?? semOcorrencias();
     return {
       kind: r.kind,
       basePoints: Number(r.basePoints ?? r.points ?? 0),
@@ -405,9 +434,10 @@ export async function computeTipCommission(
   const registro = period && closed
     ? await prisma.tipPeriodClosing.findFirst({
       where: { periodId: period.id, reopenedAt: null }, orderBy: { version: "desc" },
-      select: { id: true, code: true, version: true, closedAt: true, closedByName: true },
+      select: { id: true, code: true, version: true, closedAt: true, closedByName: true, participants: true },
     })
     : null;
+  const folgasFechadas = registro ? folgasDoRetrato(registro.participants) : null;
 
   // Reserva da casa: pontos do período × valor do ponto do mês. Fechado, vale o
   // que entrou no fundo naquele fechamento.
@@ -436,6 +466,7 @@ export async function computeTipCommission(
     const adiantamentoSalarial = closed
       ? adiantamentoDoFechado({ semRegistro: ent.semRegistro, pagoNaRescisao, salarioProporcional, comissaoLiquida: netCommission, totalAPagar })
       : calc.adiantamentoSalarial;
+    const naEscala = escala.get(r.employeeId) ?? semOcorrencias();
     return {
       participantId: r.id,
       employeeId: r.employeeId,
@@ -452,6 +483,9 @@ export async function computeTipCommission(
       basePoints: ent.basePoints,
       pointsAdjustment: ent.ajuste,
       fixedAmount: ent.fixedAmount,
+      escala: { faltas: naEscala.faltas, atestados: naEscala.atestados, ferias: naEscala.ferias },
+      // Fechado: o que o retrato guardou (mudar a escala depois não reescreve o fechado).
+      folgasEscala: closed ? folgasFechadas?.get(r.employeeId) ?? null : naEscala.folgas,
       faltas: ent.faltas, faltasOrigem: r.faltas == null ? "ESCALA" : "MANUAL",
       atestados: ent.atestados, atestadosOrigem: r.atestados == null ? "ESCALA" : "MANUAL",
       ferias: ent.ferias, feriasOrigem: r.ferias == null ? "ESCALA" : "MANUAL",
@@ -584,7 +618,9 @@ export async function computeTipCommission(
     year, month, label,
     periodId: period?.id ?? null,
     code: period?.code ?? null,
-    fechamento: registro ? { ...registro, closedAt: registro.closedAt.toISOString() } : null,
+    fechamento: registro
+      ? { id: registro.id, code: registro.code, version: registro.version, closedAt: registro.closedAt.toISOString(), closedByName: registro.closedByName }
+      : null,
     status: period?.status ?? null,
     periodStart: start.toISOString(),
     periodEnd: end.toISOString(),

@@ -10,57 +10,15 @@ import { useSession } from "../context/SessionContext";
 import { Alert, Button, EmptyState, PanelEyebrow } from "../design-system";
 import { useNavigationGuard } from "../lib/navigationGuard";
 import { hasPermission } from "../lib/permissions";
+import {
+  COLORS, DOW_LETTERS, MARCAS, MARCA_POR_TIPO, TIPOS_OCORRENCIA, type MarcaCelula, dataCurta, dateMs, fullName, keyOf, withinEmployment,
+} from "./escala/marcas";
+import { SoOcorrencias } from "./escala/SoOcorrencias";
 
-const DOW_LETTERS = ["D", "S", "T", "Q", "Q", "S", "S"];
 const PRINT_DOW = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const REGIME_SHORT: Record<string, string> = { SEIS_POR_UM: "6×1", CINCO_POR_DOIS: "5×2" };
 
-// Paleta única da escala — MESMAS cores na tela e no mural impresso.
-const COLORS = {
-  folga: "#1f2937",     // escuro
-  // FF e FBH vivem na MESMA família da folga de propósito: no mural as três
-  // significam a mesma coisa — essa pessoa não trabalha hoje. Cor nova só para
-  // elas aumentaria o que precisa ser decorado sem ganho de leitura; a distinção
-  // fica nas letras, que quem precisa do detalhe lê de perto.
-  folgaFeriado: "#334155",  // cinza um tom acima
-  folgaBanco: "#475569",    // cinza dois tons acima
-  falta: "#b91c1c",     // vermelho forte — X de falta (longe do salmao do domingo)
-  atestado: "#7c3aed",  // violeta — AT de atestado (nao confunde com ferias azul)
-  turno: "#ea580c",     // laranja vibrante (distinto da folga)
-  // UMA cor por evento — a MESMA no cabeçalho da data e na coluna inteira,
-  // igual domingo/feriado. Dois tons para o mesmo evento gerava dupla leitura.
-  // Intensidade média/clara: pinta a coluna sem sufocar as marcas F/T.
-  eventoPequeno: "#2dd4bf", // teal
-  eventoMedio: "#fbbf24",   // âmbar
-  eventoGrande: "#e879f9",  // magenta (longe do salmão do domingo)
-  ferias: "#2563eb",    // azul
-  domingo: "#ff8a8a",   // vermelho/rosa
-  feriado: "#8fd14f",   // verde
-};
-
-// Catálogo das marcas da célula. Fonte ÚNICA para a paleta, a legenda, o
-// desenho da célula e a impressão — antes cada um desses lugares repetia a
-// própria lista, e bastava esquecer um para a marca sumir de algum canto.
-type MarcaCelula = "FOLGA" | "FOLGA_FERIADO" | "FOLGA_BANCO_HORAS" | "TURNO" | "FALTA" | "ATESTADO";
-const MARCAS: Array<{
-  tipo: MarcaCelula;
-  letra: string;
-  nome: string;
-  cor: string;
-  /** Sai na escala impressa do mural? Falta e atestado NÃO saem. */
-  noMural: boolean;
-  /** Texto do title na célula. */
-  ajuda: string;
-}> = [
-  { tipo: "FOLGA", letra: "F", nome: "Folga", cor: COLORS.folga, noMural: true, ajuda: "Folga" },
-  { tipo: "FOLGA_FERIADO", letra: "FF", nome: "Folga de feriado", cor: COLORS.folgaFeriado, noMural: true, ajuda: "Folga de feriado — debita o saldo de feriado trabalhado" },
-  { tipo: "FOLGA_BANCO_HORAS", letra: "FBH", nome: "Folga banco de horas", cor: COLORS.folgaBanco, noMural: true, ajuda: "Folga do banco de horas" },
-  { tipo: "TURNO", letra: "T", nome: "Turno / cobertura", cor: COLORS.turno, noMural: true, ajuda: "Turno estendido (cobertura)" },
-  { tipo: "FALTA", letra: "X", nome: "Falta", cor: COLORS.falta, noMural: false, ajuda: "Falta — desconta no próximo VT" },
-  { tipo: "ATESTADO", letra: "AT", nome: "Atestado", cor: COLORS.atestado, noMural: false, ajuda: "Atestado médico — desconta no próximo VT" },
-];
-const MARCA_POR_TIPO = new Map(MARCAS.map((m) => [m.tipo, m]));
 // Folga de qualquer origem: não trabalha, não paga condução.
 const FOLGAS: MarcaCelula[] = ["FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS"];
 
@@ -127,9 +85,6 @@ function semanasDoMes(year: number, month: number, filtro?: (dia: number) => boo
 
 const UNSAVED_CONFIRM = "Você tem alterações não salvas na escala. Sair sem salvar vai descartá-las. Deseja continuar?";
 
-function keyOf(employeeId: string, day: number) {
-  return `${employeeId}|${day}`;
-}
 // Escapa texto livre antes de entrar no HTML do mural. Nome, setor e praça são
 // digitados à mão no cadastro e vão parar num document.write — sem isto, um "<"
 // no nome de alguém quebra a folha impressa, e um <script> executa.
@@ -141,32 +96,9 @@ function escapeHtml(v: unknown): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
-function fullName(e: { firstName: string; lastName: string; displayName?: string | null }) {
-  return e.displayName?.trim() || `${e.firstName} ${e.lastName}`.trim();
-}
-function dateMs(year: number, month: number, day: number) {
-  return Date.UTC(year, month - 1, day);
-}
-function withinEmployment(e: ScheduleEmployee, year: number, month: number, day: number) {
-  const t = dateMs(year, month, day);
-  if (e.admissionDate) {
-    const a = new Date(e.admissionDate).getTime();
-    if (!isNaN(a) && t < a) return false;
-  }
-  if (e.terminationDate) {
-    const term = new Date(e.terminationDate).getTime();
-    if (!isNaN(term) && t > term) return false;
-  }
-  return true;
-}
 function desligado(e: ScheduleEmployee): boolean {
   return !e.isActive && !!e.terminationDate;
 }
-function dataCurta(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
 // Desligados que NÃO saem no mural deste mês. A escolha é do mês impresso, não
 // do cadastro: a pessoa continua na tela (as folgas dela contam para o VT e a
 // rescisão), só deixa de ir para a parede. Para tirá-la da escala de vez, o
@@ -206,6 +138,9 @@ export function Escala() {
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [comp, setComp] = useState<Map<string, number>>(new Map());
+  // Turno/evento de quando a pessoa ainda estava na escala: não vale na seção "só
+  // ocorrências" (o servidor recusaria o salvamento inteiro), então sai ao carregar.
+  const [descartadas, setDescartadas] = useState(0);
   // Modo "montar escala": o painel vira overlay de tela cheia (some o menu),
   // dando o máximo de área para enxergar o mês inteiro de uma vez.
   const [fullscreen, setFullscreen] = useState(false);
@@ -245,7 +180,13 @@ export function Escala() {
       const d = await getSchedule(year, month);
       setData(d);
       const m = new Map<string, ScheduleDayType>();
-      d.entries.forEach((e) => m.set(keyOf(e.employeeId, e.day), e.type));
+      const soOcorrencias = new Set(d.employees.filter((e) => e.somenteOcorrencias).map((e) => e.id));
+      let foraDoPermitido = 0;
+      d.entries.forEach((e) => {
+        if (soOcorrencias.has(e.employeeId) && !TIPOS_OCORRENCIA.has(e.type)) { foraDoPermitido += 1; return; }
+        m.set(keyOf(e.employeeId, e.day), e.type);
+      });
+      setDescartadas(foraDoPermitido);
       setMarks(m);
       const de = new Map<number, EventSize>();
       d.dateEvents.forEach((e) => de.set(e.day, e.size));
@@ -294,6 +235,11 @@ export function Escala() {
   // Blindagem: confirma antes de sair da tela pelo menu com edições não salvas.
   useNavigationGuard(dirty, UNSAVED_CONFIRM);
 
+  // Quem está fora da escala vai para a seção "só ocorrências": fica fora do mural, da
+  // conferência de descanso e dos agrupamentos por setor.
+  const naEscala = useMemo(() => (data?.employees ?? []).filter((e) => !e.somenteOcorrencias), [data]);
+  const foraDaEscala = useMemo(() => (data?.employees ?? []).filter((e) => e.somenteOcorrencias), [data]);
+
   // Agrupamento em 2 níveis: setor (ordem canônica) → praça/subgrupo (ordem
   // canônica) → funcionários. Setores/subgrupos fora da lista canônica vão ao
   // fim, na ordem de aparição. Sem subgrupo = funcionários direto sob o setor.
@@ -301,7 +247,7 @@ export function Escala() {
     if (!data) return [];
     const bySector = new Map<string, Map<string, ScheduleEmployee[]>>();
     const seen: string[] = [];
-    for (const emp of data.employees) {
+    for (const emp of naEscala) {
       const sector = emp.sector || "Sem setor";
       const sub = emp.subgroup || "";
       if (!bySector.has(sector)) { bySector.set(sector, new Map()); seen.push(sector); }
@@ -326,7 +272,7 @@ export function Escala() {
         subs: orderedKeys.map((k) => ({ subgroup: k || null, employees: subsMap.get(k)! })),
       };
     });
-  }, [data]);
+  }, [data, naEscala]);
 
   // Dias de férias (vindos do backend como PayrollItem FERIAS) — sombreados, read-only.
   const feriasSet = useMemo(() => {
@@ -362,6 +308,18 @@ export function Escala() {
       if (!cur) next.set(k, "FOLGA");
       else if (cur === "FOLGA") next.set(k, "TURNO");
       else next.delete(k);
+      return next;
+    });
+    setDirty(true);
+  }
+
+  // Seção "só ocorrências": a própria seção decide a próxima marca (sem turno).
+  function marcarOcorrencia(employeeId: string, day: number, tipo: ScheduleDayType | null) {
+    if (!canEdit) return;
+    setMarks((prev) => {
+      const next = new Map(prev);
+      if (tipo) next.set(keyOf(employeeId, day), tipo);
+      else next.delete(keyOf(employeeId, day));
       return next;
     });
     setDirty(true);
@@ -421,6 +379,7 @@ export function Escala() {
           + (ausencias ? `, incluindo ${ausencias} que vão descontar no próximo VT.` : "."),
       });
       setDirty(false);
+      setDescartadas(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar escala.");
     } finally {
@@ -602,11 +561,11 @@ export function Escala() {
   // avisa enquanto a escala é montada, não só depois de salvar.
   const problemas = useMemo(() => {
     if (!data) return [] as Array<{ emp: ScheduleEmployee; v: ReturnType<typeof validacao> }>;
-    return data.employees
+    return naEscala
       .map((emp) => ({ emp, v: validacao(emp) }))
       .filter((x) => x.v.excede || x.v.diferenca !== 0 || x.v.excedeDomingo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, marks, feriasSet, borderByKey, year, month]);
+  }, [data, naEscala, marks, feriasSet, borderByKey, year, month]);
 
   // Impressão para o mural: HTML autocontido, sem qualquer info de gratuidade
   // (domingo/feriado aparecem só como destaque neutro). Impresso via iframe.
@@ -820,7 +779,7 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
             <Alert tone={problemas.length > 0 ? "warning" : "info"}>
               <strong>
                 {MONTHS[month - 1]} tem {semanasDoMes(year, month)} semanas — prevê {semanasDoMes(year, month)} folga(s) por pessoa no 6×1
-                {data.employees.some((e) => e.scheduleRegime === "CINCO_POR_DOIS") && ` e ${semanasDoMes(year, month) * 2} no 5×2`}.
+                {naEscala.some((e) => e.scheduleRegime === "CINCO_POR_DOIS") && ` e ${semanasDoMes(year, month) * 2} no 5×2`}.
               </strong>
               {problemas.length === 0 ? (
                 <div style={{ marginTop: 3, fontSize: "0.92em" }}>Todo mundo bate com o previsto.</div>
@@ -921,7 +880,7 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
           />
         )}
 
-        {!loading && data && data.employees.length > 0 && (
+        {!loading && data && naEscala.length > 0 && (
           <div style={{
             overflow: "auto",
             // Em tela cheia o topo da grade muda conforme a legenda esteja
@@ -1101,6 +1060,24 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
               </tbody>
             </table>
           </div>
+        )}
+
+        {!loading && data && foraDaEscala.length > 0 && (
+          <SoOcorrencias
+            employees={foraDaEscala}
+            days={data.days}
+            year={year}
+            month={month}
+            marks={marks}
+            isFerias={isFerias}
+            canEdit={canEdit}
+            onMarcar={marcarOcorrencia}
+            descartadas={descartadas}
+            nameCol={NAME_COL}
+            countCol={TRAB_COL}
+            cell={CELL}
+            compacto={!showDetails}
+          />
         )}
 
         {dirty && (

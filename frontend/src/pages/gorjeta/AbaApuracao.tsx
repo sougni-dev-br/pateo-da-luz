@@ -52,6 +52,7 @@ const EXTRATORES: Extratores<TipComputedParticipant> = {
   atestados: (p) => p.atestados,
   ferias: (p) => p.ferias,
   outros: (p) => p.outrosDias,
+  folgas: (p) => p.folgasEscala?.total ?? null,
   dias: (p) => p.diasComputados,
   ajuste: (p) => p.pointsAdjustment,
   pontos: (p) => (p.kind === "PONTOS" ? p.points : null),
@@ -62,7 +63,7 @@ const EXTRATORES: Extratores<TipComputedParticipant> = {
 
 const OPCOES_ORDEM: Array<[string, string]> = [
   ["nome", "Nome"], ["funcao", "Função"], ["empresa", "Empresa"], ["situacao", "Situação"], ["base", "Pontos-base"],
-  ["faltas", "Faltas"], ["atestados", "Atestados"], ["ferias", "Férias"], ["outros", "Outros dias"], ["dias", "Dias trabalhados"],
+  ["faltas", "Faltas"], ["atestados", "Atestados"], ["ferias", "Férias"], ["outros", "Outros dias"], ["folgas", "Folgas (escala)"], ["dias", "Dias trabalhados"],
   ["ajuste", "Ajuste"], ["pontos", "Pontos finais"], ["gorjeta", "Gorjeta"], ["vales", "Vales"], ["liquido", "Líquido"],
 ];
 const TEXTO = new Set(["nome", "funcao", "empresa", "situacao"]);
@@ -70,7 +71,8 @@ const TEXTO = new Set(["nome", "funcao", "empresa", "situacao"]);
 // "Gorjeta" não se oculta: tem o lápis da gorjeta real, e é a coluna que a tabela existe para mostrar.
 const COLUNAS: ColunaOpcional[] = [
   { chave: "base", rotulo: "Base" }, { chave: "faltas", rotulo: "Faltas" }, { chave: "atestados", rotulo: "Atestados" },
-  { chave: "ferias", rotulo: "Férias" }, { chave: "outros", rotulo: "Outros dias" }, { chave: "dias", rotulo: "Dias" },
+  { chave: "ferias", rotulo: "Férias" }, { chave: "outros", rotulo: "Outros dias" }, { chave: "folgas", rotulo: "Folgas (escala)" },
+  { chave: "dias", rotulo: "Dias" },
   { chave: "ajuste", rotulo: "Ajuste" }, { chave: "pontos", rotulo: "Pontos" },
   { chave: "liquido", rotulo: "Gorjeta líquida" },
 ];
@@ -106,12 +108,15 @@ const EXT_RESC: Extratores<TipComputedParticipant> = {
   calculada: (p) => (p.tipoCalculo === "RESCISAO_QUITADA" || p.rescisaoPendente ? null : p.rateioAmount),
 };
 // Colunas antes de "Pontos": na linha de total elas viram um espaço em branco só.
-const ANTES_DOS_PONTOS = ["base", "faltas", "atestados", "ferias", "outros", "dias", "ajuste"];
+const ANTES_DOS_PONTOS = ["base", "faltas", "atestados", "ferias", "outros", "folgas", "dias", "ajuste"];
 
-function Ocorrencia({ value, escala, manual, disabled, label, onChange, desconta = true }: {
-  value: string; escala: number; manual: boolean; disabled: boolean; label: string; onChange: (v: string) => void; desconta?: boolean;
+// Digitado diferente do que está na Escala: o número da escala aparece embaixo, para
+// quem confere perceber a diferença sem abrir a Escala.
+export function Ocorrencia({ value, escala, naEscala, manual, disabled, label, onChange, desconta = true }: {
+  value: string; escala: number; naEscala?: number; manual: boolean; disabled: boolean; label: string; onChange: (v: string) => void; desconta?: boolean;
 }) {
-  return (
+  const diverge = manual && naEscala != null && Number(value) !== naEscala;
+  const campo = (
     <input
       style={{ ...numInputStyle, width: 40, textAlign: "center", fontWeight: manual ? 700 : 400,
         textDecoration: desconta ? undefined : "line-through", color: desconta ? undefined : "var(--muted)" }}
@@ -120,6 +125,26 @@ function Ocorrencia({ value, escala, manual, disabled, label, onChange, desconta
       title={(manual ? "Digitado — apague para voltar a usar a Escala" : "Vazio = usa a Escala") + (desconta ? "" : ". Não desconta para esta pessoa.")}
       onChange={(e) => onChange(e.target.value)}
     />
+  );
+  if (!diverge) return campo;
+  return (
+    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
+      {campo}
+      <span style={{ fontSize: 10, color: "var(--warning)", whiteSpace: "nowrap" }} title="O valor digitado é o que vale; a Escala tem outro número">
+        escala: {naEscala}
+      </span>
+    </span>
+  );
+}
+
+// Folgas da Escala: só informação. A folga normal já está nos dias padrão, então não desconta.
+function FolgasEscala({ f }: { f: TipComputedParticipant["folgasEscala"] }) {
+  if (f == null) return <span style={mutedStyle} title="Fechado antes de a apuração guardar as folgas">—</span>;
+  const partes = [`${f.folga} folga(s)`, f.feriado ? `${f.feriado} de feriado` : null, f.bancoHoras ? `${f.bancoHoras} de banco de horas` : null].filter(Boolean);
+  return (
+    <span style={{ ...mutedStyle, fontVariantNumeric: "tabular-nums" }} title={`${partes.join(" · ")} — só informação, não entra no cálculo`}>
+      {f.total}
+    </span>
   );
 }
 
@@ -152,7 +177,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
   const participantes = useMemo(() => ordenar(comp.participants), [comp]);
   const { ordem, alternar, definir } = useOrdenacao("apuracao");
   // No celular começa com o essencial (nome, pontos, gorjeta); o resto se liga em "Colunas".
-  const colunas = useColunas("apuracao", ["faltas", "atestados", "ferias", "outros", "dias", "ajuste", "base"]);
+  const colunas = useColunas("apuracao", ["faltas", "atestados", "ferias", "outros", "folgas", "dias", "ajuste", "base"]);
   // Quem já tinha ocultado "Gorjeta" antes de ela virar fixa volta a vê-la.
   const v = (c: string) => c === "gorjeta" || colunas.visivel(c);
   const visiveis = COLUNAS.filter((c) => v(c.chave)).length + 1;
@@ -233,16 +258,19 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
         </Table.Td>
 )}
 {v("faltas") && (
-        <Table.Td align="center" style={inicioBloco}><Ocorrencia label={`Faltas de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaFalta} value={r.faltas} escala={p.faltasOrigem === "ESCALA" ? p.faltas : 0} manual={r.faltas !== ""} disabled={readonly} onChange={(v) => set({ faltas: v })} /></Table.Td>
+        <Table.Td align="center" style={inicioBloco}><Ocorrencia label={`Faltas de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaFalta} value={r.faltas} escala={p.faltasOrigem === "ESCALA" ? p.faltas : 0} naEscala={p.escala?.faltas} manual={r.faltas !== ""} disabled={readonly} onChange={(v) => set({ faltas: v })} /></Table.Td>
 )}
 {v("atestados") && (
-        <Table.Td align="center"><Ocorrencia label={`Atestados de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaAtestado} value={r.atestados} escala={p.atestadosOrigem === "ESCALA" ? p.atestados : 0} manual={r.atestados !== ""} disabled={readonly} onChange={(v) => set({ atestados: v })} /></Table.Td>
+        <Table.Td align="center"><Ocorrencia label={`Atestados de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaAtestado} value={r.atestados} escala={p.atestadosOrigem === "ESCALA" ? p.atestados : 0} naEscala={p.escala?.atestados} manual={r.atestados !== ""} disabled={readonly} onChange={(v) => set({ atestados: v })} /></Table.Td>
 )}
 {v("ferias") && (
-        <Table.Td align="center"><Ocorrencia label={`Férias de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaFerias} value={r.ferias} escala={p.feriasOrigem === "ESCALA" ? p.ferias : 0} manual={r.ferias !== ""} disabled={readonly} onChange={(v) => set({ ferias: v })} /></Table.Td>
+        <Table.Td align="center"><Ocorrencia label={`Férias de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaFerias} value={r.ferias} escala={p.feriasOrigem === "ESCALA" ? p.ferias : 0} naEscala={p.escala?.ferias} manual={r.ferias !== ""} disabled={readonly} onChange={(v) => set({ ferias: v })} /></Table.Td>
 )}
 {v("outros") && (
         <Table.Td align="center"><Ocorrencia label={`Outros dias de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaOutros} value={r.outrosDias} escala={0} manual={r.outrosDias !== ""} disabled={readonly} onChange={(v) => set({ outrosDias: v })} /></Table.Td>
+)}
+{v("folgas") && (
+        <Table.Td align="center"><FolgasEscala f={p.folgasEscala ?? null} /></Table.Td>
 )}
 {v("dias") && (
         <Table.Td align="center" title={`Presença ${(p.fatorPresenca * 100).toFixed(0)}% · ${p.diasElegiveis} dias corridos no vínculo${p.diasReferencia !== p.diasPrevistos ? ` · proporcional: ${p.diasComputados} de ${p.diasReferencia} dias do período` : ""}`}>
@@ -354,6 +382,9 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
 {v("outros") && (
             <ThOrdenavel {...th("outros")} align="center">Outros</ThOrdenavel>
 )}
+{v("folgas") && (
+            <ThOrdenavel {...th("folgas")} align="center" title="Folgas marcadas na Escala no período (F, FF e FBH) — só informação, não entra no cálculo">Folgas</ThOrdenavel>
+)}
 {v("dias") && (
             <ThOrdenavel {...th("dias")} align="center" title="Dias trabalhados / previstos (26 no mês cheio)">Dias</ThOrdenavel>
 )}
@@ -445,7 +476,8 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
         </Table.Body>
       </Table>
       <span style={mutedStyle}>
-        Ocorrências em cinza vêm da Escala; digite só para corrigir (em negrito = digitado). Pontos finais = base × trabalhados ÷ previstos + ajuste.
+        Ocorrências em cinza vêm da Escala; digite só para corrigir (em negrito = digitado; "escala: N" embaixo = a Escala tem outro número).
+        Folgas da Escala só aparecem: a folga normal já está nos dias padrão. Pontos finais = base × trabalhados ÷ previstos + ajuste.
         O total distribuído é o mesmo do resumo acima.
       </span>
 
