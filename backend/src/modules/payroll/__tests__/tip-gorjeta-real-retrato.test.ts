@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 // o retrato do fechamento) quando entra no cálculo; gravada sem efeito vira aviso.
 vi.mock("../../../config/database.js", () => ({
   prisma: {
+    // Sem histórico do cadastro: vale o valor atual.
+    employeeHistorico: { findMany: vi.fn(async () => []) },
     tipPeriod: { findUnique: vi.fn() },
     employeeScheduleDay: { groupBy: vi.fn(), findMany: vi.fn() },
     revenueEntry: { aggregate: vi.fn() },

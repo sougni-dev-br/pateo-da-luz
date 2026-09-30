@@ -10,6 +10,8 @@ import {
 import { Notice, useNotice } from "../components/Notice";
 import { ImpressaoAniversariantes } from "../components/pessoal/ImpressaoAniversariantes";
 import { RescisaoModal } from "../components/pessoal/RescisaoModal";
+import { HistoricoCadastro } from "../components/pessoal/HistoricoCadastro";
+import { mudouCampoComHistorico, type CamposComHistorico } from "../components/pessoal/historicoCadastroFormato";
 import { useSession } from "../context/SessionContext";
 import {
   Alert, Button, EmptyState, FormField, FormGrid, FormSection,
@@ -116,8 +118,17 @@ const emptyEmployee = {
   modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, admissionDate: "", admissaoCarteira: "",
   vtType: "TRANSPORTE_PUBLICO" as VtType, vtPeriodicity: "QUINZENAL" as VtPeriodicity,
   vtFixedAmount: "", vtMonthlyFareId: "", notes: "",
-  vtLegs: [] as Array<{ direction: VtDirection; fareId: string }>
+  vtLegs: [] as Array<{ direction: VtDirection; fareId: string }>,
+  // Histórico do cadastro: a partir de quando vale a mudança de salário, vínculo ou cargo.
+  vigenteDesde: "", motivoAlteracao: ""
 };
+
+// Um ano à frente é o limite do backend para "vale a partir de".
+function umAnoAFrente(): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + 1);
+  return hojeLocalIso(d);
+}
 
 export function Funcionarios() {
   const { user } = useSession();
@@ -133,6 +144,8 @@ export function Funcionarios() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyEmployee);
   const [saving, setSaving] = useState(false);
+  // Os campos com histórico como vieram do banco: mudou algum, a ficha pede "vale a partir de".
+  const [original, setOriginal] = useState<CamposComHistorico | null>(null);
 
   const [birthdays, setBirthdays] = useState<EmployeeBirthday[]>([]);
   // Tarifas ativas: alimentam o seletor de cada perna do trajeto.
@@ -197,6 +210,7 @@ export function Funcionarios() {
 
   function openNew() {
     setForm(emptyEmployee);
+    setOriginal(null);
     setShowForm(true);
     setMotivoCombinadoTocado(false);
     setError(null);
@@ -221,7 +235,12 @@ export function Funcionarios() {
       modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, admissionDate: toDateInput(e.admissionDate), admissaoCarteira: toDateInput(e.admissaoCarteira ?? null),
       vtType: e.vtType, vtPeriodicity: e.vtPeriodicity,
       vtFixedAmount: moneyToMasked(e.vtFixedAmount), vtMonthlyFareId: e.vtMonthlyFareId ?? "", notes: e.notes ?? "",
-      vtLegs: (e.vtLegs ?? []).map((l) => ({ direction: l.direction, fareId: l.fareId }))
+      vtLegs: (e.vtLegs ?? []).map((l) => ({ direction: l.direction, fareId: l.fareId })),
+      vigenteDesde: hojeLocalIso(), motivoAlteracao: ""
+    });
+    setOriginal({
+      baseSalary: moneyToMasked(e.baseSalary), salarioCombinado: moneyToMasked(e.salarioCombinado ?? null),
+      modality: e.modality, position: e.position ?? "", recebeAdiantamento: e.recebeAdiantamento ?? false,
     });
     setShowForm(true);
     setMotivoCombinadoTocado(false);
@@ -293,7 +312,8 @@ export function Funcionarios() {
         vtFixedAmount: form.vtType === "AUXILIO_COMBUSTIVEL"
           ? (form.vtFixedAmount ? moneyToNumberString(form.vtFixedAmount) : null)
           : undefined,
-        notes: form.notes || undefined
+        notes: form.notes || undefined,
+        ...(pedeVigencia ? { vigenteDesde: form.vigenteDesde || undefined, motivoAlteracao: form.motivoAlteracao.trim() || undefined } : {})
       });
       setNotice({ tone: "success", message: form.id ? "Funcionário atualizado." : "Funcionário cadastrado." });
       setShowForm(false);
@@ -370,6 +390,7 @@ export function Funcionarios() {
     }
   }
 
+  const pedeVigencia = Boolean(form.id) && mudouCampoComHistorico(original, form);
   const isPublicVt = form.vtType === "TRANSPORTE_PUBLICO";
   const isFuelVt = form.vtType === "AUXILIO_COMBUSTIVEL";
   const isMonthlyPass = form.vtType === "BILHETE_MENSAL";
@@ -652,6 +673,23 @@ export function Funcionarios() {
                   <TextField type="date" value={form.admissaoCarteira} onChange={(e) => setForm({ ...form, admissaoCarteira: e.target.value })} />
                 </FormField>
               </FormGrid>
+              {pedeVigencia && (
+                <div className="stack" style={{ gap: 8, marginTop: 12 }}>
+                  <Alert tone="info">
+                    Salário, vínculo, cargo ou adiantamento mudou. Gorjeta, folha e rescisão de meses anteriores continuam com o valor que valia na época; o novo vale a partir da data abaixo.
+                  </Alert>
+                  <FormGrid cols={2}>
+                    <FormField label="Vale a partir de" required hint="aumento retroativo: a data em que passou a valer">
+                      <TextField type="date" value={form.vigenteDesde} min={form.admissionDate || undefined} max={umAnoAFrente()}
+                        onChange={(e) => setForm({ ...form, vigenteDesde: e.target.value })} aria-label="Vale a partir de" />
+                    </FormField>
+                    <FormField label="Motivo (opcional)">
+                      <TextField value={form.motivoAlteracao} onChange={(e) => setForm({ ...form, motivoAlteracao: e.target.value })}
+                        placeholder="Ex.: aumento combinado, efetivação" maxLength={300} aria-label="Motivo da alteração" />
+                    </FormField>
+                  </FormGrid>
+                </div>
+              )}
             </FormSection>
 
             <FormSection title="Vale-transporte">
@@ -732,6 +770,8 @@ export function Funcionarios() {
                 </FormField>
               </FormGrid>
             </FormSection>
+
+            {form.id && <HistoricoCadastro employeeId={form.id} />}
 
             <div className="form-actions">
               <Button variant="secondary" onClick={() => setShowForm(false)}>Cancelar</Button>

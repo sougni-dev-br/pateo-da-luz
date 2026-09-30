@@ -24,6 +24,7 @@ import { readFileSync } from "node:fs";
 import ExcelJS from "exceljs";
 import { PrismaClient } from "@prisma/client";
 import { registrarHistorico } from "../src/modules/payroll/tip-historico.service.js";
+import { registrarAlteracoes } from "../src/modules/payroll/cadastro-historico.service.js";
 import { auditLog } from "../src/modules/security/security-utils.js";
 
 const prisma = new PrismaClient();
@@ -261,6 +262,12 @@ async function main() {
       await prisma.$transaction(async (tx) => {
         await tx.employee.update({ where: { id: emp.id }, data: dados });
         await registrarHistorico(tx, emp.id, vigencia, "script-importacao", `Importação da planilha (${l.codigo})`);
+        // Vínculo, empresa e salário também no histórico do cadastro, com a mesma vigência.
+        await registrarAlteracoes(tx, {
+          employeeId: emp.id, antes: atual, depois: dados, vigenteDesde: vigencia,
+          motivo: `Importação da planilha (${l.codigo})${acerto ? " — acerto do RH" : ""}`,
+          origem: "IMPORTADOR_PLANILHA", usuario: { id: null, nome: "script-importacao" },
+        });
       });
       await auditLog({ userId: null, action: "IMPORT_TIP_TEAM_MEMBER", entity: "Employee", entityId: emp.id,
         previousValue: { modality: emp.modality, companyId: emp.companyId, baseSalary: emp.baseSalary },

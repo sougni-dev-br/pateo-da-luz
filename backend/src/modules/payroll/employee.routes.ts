@@ -3,6 +3,10 @@ import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
+import { podeVerDadosPessoais } from "./dados-pessoais.js";
+import { hojeEmSaoPaulo } from "./extras-comum.js";
+import { CAMPOS_SALARIO, ROTULO_CAMPO, alteracoes, lerVigenteDesde, type CampoHistorico } from "./cadastro-historico.js";
+import { registrarAlteracoes } from "./cadastro-historico.service.js";
 
 export const employeeRouter = Router();
 
@@ -144,6 +148,18 @@ export function lerRecebeAdiantamento(b: Record<string, unknown>): { erro: strin
   return { dados: { recebeAdiantamento: b.recebeAdiantamento } };
 }
 
+// Salário, vínculo, cargo etc. mudaram: a data a partir da qual vale ("vigenteDesde",
+// padrão hoje em São Paulo) e o motivo vão para o histórico do cadastro. Sem mudança
+// nesses campos a data nem é conferida.
+export function lerVigencia(
+  b: Record<string, unknown>, antes: Record<string, unknown>, depois: Record<string, unknown>, admissao: Date | null, hojeIso = hojeEmSaoPaulo(),
+): { erro: string } | { vigenteDesde: Date | null; motivo: string | null } {
+  if (alteracoes(antes, depois).length === 0) return { vigenteDesde: null, motivo: null };
+  const lido = lerVigenteDesde(b.vigenteDesde, hojeIso, admissao);
+  if ("erro" in lido) return lido;
+  return { vigenteDesde: lido.data, motivo: str(b.motivoAlteracao)?.slice(0, 300) ?? null };
+}
+
 // Trajeto: lista de pernas por sentido. O corpo manda a lista inteira e ela
 // substitui a anterior — meio-termo (só remover a perna X) não existe aqui,
 // porque a ordem das pernas importa e reconciliar item a item convida a erro.
@@ -251,6 +267,40 @@ employeeRouter.get("/options", async (_request, response) => {
   });
 });
 
+// ─── HISTÓRICO DO CADASTRO ─────────────────────────────────────────────────────────
+// Mais recente primeiro. Salário só com a permissão de ver Funcionários: sem ela, a
+// linha de salário aparece como "alterado", sem os valores.
+employeeRouter.get("/:id/historico", async (request, response) => {
+  const employee = await prisma.employee.findFirst({ where: { id: request.params.id }, select: { id: true } });
+  if (!employee) return response.status(404).json({ message: "Funcionário não encontrado." });
+  const verSalario = await podeVerDadosPessoais(request);
+  const linhas = await prisma.employeeHistorico.findMany({
+    where: { employeeId: employee.id },
+    orderBy: [{ vigenteDesde: "desc" }, { createdAt: "desc" }],
+  });
+  const empresaIds = [...new Set(linhas.filter((l) => l.campo === "companyId").flatMap((l) => [l.valorAnterior, l.valorNovo]).filter((x): x is string => Boolean(x)))];
+  const empresas = empresaIds.length
+    ? new Map((await prisma.company.findMany({ where: { id: { in: empresaIds } }, select: { id: true, tradeName: true } })).map((c) => [c.id, c.tradeName]))
+    : new Map<string, string>();
+  const mostrar = (campo: string, v: string | null) => (campo === "companyId" && v ? empresas.get(v) ?? v : v);
+  return response.json(linhas.map((l) => {
+    const oculto = CAMPOS_SALARIO.has(l.campo as CampoHistorico) && !verSalario;
+    return {
+      id: l.id,
+      campo: l.campo,
+      rotulo: ROTULO_CAMPO[l.campo as CampoHistorico] ?? l.campo,
+      valorAnterior: oculto ? null : mostrar(l.campo, l.valorAnterior),
+      valorNovo: oculto ? null : mostrar(l.campo, l.valorNovo),
+      oculto,
+      vigenteDesde: l.vigenteDesde.toISOString().slice(0, 10),
+      motivo: l.motivo,
+      origem: l.origem,
+      criadoPorNome: l.criadoPorNome,
+      createdAt: l.createdAt.toISOString(),
+    };
+  }));
+});
+
 // ─── GET ONE ─────────────────────────────────────────────────────────────────────
 employeeRouter.get("/:id", async (request, response) => {
   const employee = await prisma.employee.findFirst({ where: { id: request.params.id, deletedAt: null }, include: employeeInclude });
@@ -344,6 +394,9 @@ employeeRouter.put("/:id", async (request, response) => {
   if ("erro" in combinado) return response.status(400).json({ message: combinado.erro });
   const adiantamento = lerRecebeAdiantamento(b);
   if ("erro" in adiantamento) return response.status(400).json({ message: adiantamento.erro });
+  const dados = { cpf, ...buildEmployeeData(b), ...combinado.dados, ...adiantamento.dados };
+  const vigencia = lerVigencia(b, existing, dados, dados.admissionDate ?? existing.admissionDate);
+  if ("erro" in vigencia) return response.status(400).json({ message: vigencia.erro });
 
   // Trajeto só é reescrito quando o corpo traz "vtLegs". Um PUT sem o campo
   // (uma tela antiga, um script) não pode apagar o trajeto de ninguém em
@@ -357,16 +410,19 @@ employeeRouter.put("/:id", async (request, response) => {
     }
   }
 
-  const updated = await prisma.employee.update({
-    where: { id: request.params.id },
-    data: {
-      cpf,
-      ...buildEmployeeData(b),
-      ...combinado.dados,
-      ...adiantamento.dados,
-      updatedById: user.id,
-    },
-    include: employeeInclude,
+  const updated = await prisma.$transaction(async (tx) => {
+    const atualizado = await tx.employee.update({
+      where: { id: request.params.id },
+      data: { ...dados, updatedById: user.id },
+      include: employeeInclude,
+    });
+    if (vigencia.vigenteDesde) {
+      await registrarAlteracoes(tx, {
+        employeeId: atualizado.id, antes: existing, depois: dados, vigenteDesde: vigencia.vigenteDesde,
+        motivo: vigencia.motivo, origem: "CADASTRO", usuario: { id: user.id, nome: user.name },
+      });
+    }
+    return atualizado;
   });
 
   await auditLog({

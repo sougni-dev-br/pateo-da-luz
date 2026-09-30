@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
+import { diaDeReferencia } from "./cadastro-historico.js";
+import { cadastrosVigentes } from "./cadastro-historico.service.js";
 import { computeVtForPeriod, costOfCalendarDay, describeLegs, eveOf, round2, vtPeriods, type Fare, type Leg } from "./vt-calc.js";
 
 // Nomes das categorias de DRE que a folha usa. O vinculo e por NOME, com acento:
@@ -105,6 +107,15 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
     },
   });
   const empIds = employees.map((e) => e.id);
+  // Salário, vínculo e adiantamento VIGENTES no mês da competência (último dia do mês, ou
+  // a saída se foi antes): gerar a folha de um mês passado não usa o aumento de depois.
+  const vigentes = await cadastrosVigentes(
+    employees.map((e) => ({
+      id: e.id, terminationDate: e.terminationDate, modality: e.modality as string,
+      baseSalary: e.baseSalary == null ? null : Number(e.baseSalary), recebeAdiantamento: e.recebeAdiantamento,
+    })),
+    (e) => diaDeReferencia(year, month, e.terminationDate),
+  );
 
   const monthStart = new Date(Date.UTC(year, month - 1, 1));
   const nextMonthStart = new Date(Date.UTC(year, month, 1));
@@ -426,14 +437,15 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
     }
 
     // ── Adiantamento + Salário ──
-    const base = round2(Number(emp.baseSalary ?? 0));
+    const vigente = vigentes.get(emp.id)!;
+    const base = round2(Number(vigente.baseSalary ?? 0));
     if (base > 0 && feriaDays.size > 0) {
       warnings.push(`${name} tem férias e salário na mesma competência (${String(month).padStart(2, "0")}/${year}) — confira os valores para não pagar em dobro.`);
     }
     if (base > 0) {
       // Sem registro não recebe adiantamento (salvo marcado no cadastro): o salário
       // sai inteiro no pagamento, sem a parcela do dia 20.
-      const temAdiantamento = emp.modality !== "NAO_CLT" || emp.recebeAdiantamento;
+      const temAdiantamento = vigente.modality !== "NAO_CLT" || vigente.recebeAdiantamento;
       const advance = temAdiantamento ? round2((base * Number(settings.advancePercent)) / 100) : 0;
       const salary = round2(base - advance);
       if (temAdiantamento) items.push({

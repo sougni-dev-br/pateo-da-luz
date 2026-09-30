@@ -272,7 +272,8 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   const apurado = await apurarOuResponder(emp.id, response);
   if (!apurado) return;
   const { apuracao } = apurado;
-  const lido = lerValoresRescisao(b, emp.modality === "NAO_CLT", apuracao?.sugestao.creditos ?? 0);
+  // Vínculo vigente na saída (a apuração já leu o histórico do cadastro).
+  const lido = lerValoresRescisao(b, apuracao?.semRegistro ?? emp.modality === "NAO_CLT", apuracao?.sugestao.creditos ?? 0);
   if ("erro" in lido) return response.status(400).json({ message: lido.erro });
   const { gross, vtDiscount, otherDiscount, net } = lido;
 
@@ -586,7 +587,7 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
   const { apuracao } = apurado;
   // Créditos: os que entraram no lançamento; recalcular mudaria o bruto sem ninguém ver.
   const creditosLancados = (primeira.details as { creditos?: unknown } | null)?.creditos;
-  const lido = lerValoresRescisao(b, emp.modality === "NAO_CLT", typeof creditosLancados === "number" ? creditosLancados : apuracao?.sugestao.creditos ?? 0);
+  const lido = lerValoresRescisao(b, apuracao?.semRegistro ?? emp.modality === "NAO_CLT", typeof creditosLancados === "number" ? creditosLancados : apuracao?.sugestao.creditos ?? 0);
   if ("erro" in lido) return response.status(400).json({ message: lido.erro });
   const { gross, vtDiscount, otherDiscount, net } = lido;
   const justificativa = typeof b.justificativa === "string" ? b.justificativa.trim().slice(0, 1000) : "";

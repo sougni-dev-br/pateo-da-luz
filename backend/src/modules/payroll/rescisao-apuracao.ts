@@ -6,6 +6,7 @@
 // vales já foram descontados da gorjeta enviada a ela —, então aqui só entra o VT.
 import { prisma } from "../../config/database.js";
 import { computeTipCommission } from "./tip-commission.service.js";
+import { semRegistroEm } from "./cadastro-historico.service.js";
 import { costOfCalendarDay, round2, type Leg } from "./vt-calc.js";
 
 const isoDia = (d: Date) => d.toISOString().slice(0, 10);
@@ -192,7 +193,8 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
   });
   if (!emp?.terminationDate) return null;
   const saida = emp.terminationDate;
-  const semRegistro = emp.modality === "NAO_CLT";
+  // Vínculo vigente na saída (quem virou CLT depois de sair sem registro continua sem registro aqui).
+  const semRegistro = await semRegistroEm(emp.id, emp.modality, saida);
 
   // VT: só quinzenas que cobrem algo depois da saída (início até o fim do mês seguinte).
   const vtItens = await prisma.payrollItem.findMany({
@@ -321,7 +323,8 @@ export async function localizarGorjetaNaApuracao(
   const anterior = p.rescisaoValorFixo == null ? null : round2(Number(p.rescisaoValorFixo));
   // Já pago na lista fechada: a apuração não muda. O que for lançado aqui além do zero
   // apurado já passou pela divergência com justificativa.
-  if (jaPagoNaListaFechada({ status: periodo.status, semRegistro: p.employee.modality === "NAO_CLT", totalAPagar: Number(p.totalAPagar ?? 0) })) {
+  const semRegistro = await semRegistroEm(employeeId, p.employee.modality, saida);
+  if (jaPagoNaListaFechada({ status: periodo.status, semRegistro, totalAPagar: Number(p.totalAPagar ?? 0) })) {
     return { alvo: null };
   }
   if (periodo.status === "CLOSED") {

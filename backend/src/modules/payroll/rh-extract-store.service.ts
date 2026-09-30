@@ -3,6 +3,8 @@
 // extrato completo permite dar (rescisão não lançada, cadastro divergente).
 import crypto from "node:crypto";
 import { prisma } from "../../config/database.js";
+import { diaDeReferencia } from "./cadastro-historico.js";
+import { cadastrosVigentes } from "./cadastro-historico.service.js";
 import type { CalculoExtrato, ExtratoParsed } from "./rh-extract.service.js";
 import type { DetalhesExtrato, PessoaExtrato } from "./rh-extract-detalhes.js";
 
@@ -155,10 +157,17 @@ export async function avisosDoExtrato(opts: {
 }): Promise<string[]> {
   const { detalhes, competenceYear: ano, competenceMonth: mes } = opts;
   if (detalhes.pessoas.length === 0) return [];
-  const emps: EmpCadastro[] = await prisma.employee.findMany({
+  const atuais = await prisma.employee.findMany({
     where: { deletedAt: null },
     select: { id: true, cpf: true, baseSalary: true, position: true, admissaoCarteira: true },
   });
+  // Compara com o salário e o cargo VIGENTES no mês do extrato, não com os de hoje:
+  // um aumento lançado depois não vira divergência num extrato antigo.
+  const vigentes = await cadastrosVigentes(
+    atuais.map((e) => ({ ...e, baseSalary: e.baseSalary == null ? null : Number(e.baseSalary) })),
+    () => diaDeReferencia(ano, mes, null),
+  );
+  const emps: EmpCadastro[] = atuais.map((e) => vigentes.get(e.id) ?? e);
   const porCpf = new Map(emps.map((e) => [soDigitos(e.cpf), e]));
   const avisos: string[] = [];
 

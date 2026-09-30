@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 // antigos, sem sha256), regravação das pessoas e avisos de rescisão/cadastro divergente.
 vi.mock("../../../config/database.js", () => {
   const prisma: Record<string, unknown> = {
+    // Sem histórico do cadastro: vale o valor atual.
+    employeeHistorico: { findMany: vi.fn(async () => []) },
     rhExtract: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
     rhExtractPessoa: { deleteMany: vi.fn(), create: vi.fn() },
     employee: { findMany: vi.fn(), updateMany: vi.fn() },

@@ -17,6 +17,8 @@ import { motivoParaNaoRetirar, saldoReserva, travarFundo } from "./tip-historico
 import { proximoCodigoApuracao, registrarFechamento, registrarReabertura } from "./tip-fechamento.service.js";
 import { adiantamentoDoFechado, calcularRateio, motivoGorjetaRealSemEfeito, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
+import { diaDeReferencia } from "./cadastro-historico.js";
+import { cadastrosVigentes } from "./cadastro-historico.service.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
@@ -433,6 +435,26 @@ export async function computeTipCommission(
     }
   }
 
+  // Vínculo, salário, adiantamento e empresa VIGENTES no mês do salário (Opção A): o último
+  // dia do mês civil da competência, ou o dia da saída se saiu antes. Um aumento de outubro
+  // não muda a gorjeta de setembro aberta ou reaberta.
+  const vigentes = await cadastrosVigentes(
+    rows.map((r) => ({
+      id: r.employeeId, terminationDate: r.employee.terminationDate,
+      modality: r.employee.modality as string, baseSalary: num(r.employee.baseSalary),
+      recebeAdiantamento: r.employee.recebeAdiantamento, companyId: r.employee.companyId,
+    })),
+    (e) => diaDeReferencia(year, month, e.terminationDate),
+  );
+  const vigenteDe = (r: (typeof rows)[number]) => vigentes.get(r.employeeId)!;
+  // Empresa do mês diferente da de hoje: o nome vem do cadastro de empresas.
+  const outrasEmpresas = [...new Set(rows
+    .filter((r) => vigenteDe(r).companyId && vigenteDe(r).companyId !== r.employee.companyId)
+    .map((r) => vigenteDe(r).companyId!))];
+  const nomeEmpresa = new Map(outrasEmpresas.length
+    ? (await prisma.company.findMany({ where: { id: { in: outrasEmpresas } }, select: { id: true, tradeName: true } })).map((c) => [c.id, c.tradeName])
+    : []);
+
   const rescisoesLancadas = await rescisoesEmContasAPagar(rows.map((r) => r.employee.terminationDate
     && r.employee.terminationDate >= start && r.employee.terminationDate <= end
     ? { employeeId: r.employeeId, saida: r.employee.terminationDate } : null));
@@ -457,12 +479,12 @@ export async function computeTipCommission(
       },
       rescisaoServicoBruto: num(r.rescisaoServicoBruto) ?? servicoAteSaida.get(r.id) ?? null,
       rescisaoValorFixo: num(r.rescisaoValorFixo),
-      semRegistro: r.employee.modality === "NAO_CLT",
-      salarioBase: num(r.employee.baseSalary),
+      semRegistro: vigenteDe(r).modality === "NAO_CLT",
+      salarioBase: vigenteDe(r).baseSalary,
       diasSalarioOverride: r.diasSalarioOverride,
       // Faltas digitadas na apuração não dizem o dia: valem também para o salário.
       faltasSalario: r.faltas ?? escalaMes.get(r.employeeId)?.faltas ?? 0,
-      recebeAdiantamento: r.employee.recebeAdiantamento,
+      recebeAdiantamento: vigenteDe(r).recebeAdiantamento,
       rescisaoLancada: rescisoesLancadas.has(r.employeeId),
       gorjetaReal: num(r.gorjetaReal),
       vales: r.vales.map((v) => ({ type: v.type, amount: Number(v.amount) })),
@@ -512,8 +534,10 @@ export async function computeTipCommission(
       employeeId: r.employeeId,
       employeeName: nomeCompleto(r.employee),
       apelido: apelidoDe(r.employee),
-      companyId: r.employee.companyId ?? null,
-      companyName: r.employee.company?.tradeName ?? null,
+      companyId: vigenteDe(r).companyId ?? null,
+      companyName: vigenteDe(r).companyId === r.employee.companyId
+        ? r.employee.company?.tradeName ?? null
+        : nomeEmpresa.get(vigenteDe(r).companyId ?? "") ?? null,
       functionName: closed ? (r.functionName ?? r.employee.tipFunction?.name ?? null) : (r.employee.tipFunction?.name ?? null),
       isActive: r.employee.isActive,
       semRegistro: ent.semRegistro,

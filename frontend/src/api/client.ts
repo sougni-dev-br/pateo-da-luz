@@ -5500,7 +5500,32 @@ export type EmployeePayload = {
   vtMonthlyFareId?: string | null;
   vtLegs?: Array<{ direction: VtDirection; fareId: string }>;
   notes?: string;
+  /** Salário, vínculo, cargo etc. mudaram: a partir de quando vale (AAAA-MM-DD; padrão hoje). */
+  vigenteDesde?: string;
+  /** Motivo da alteração, para o histórico do cadastro. */
+  motivoAlteracao?: string;
 };
+
+export type CampoHistoricoCadastro = "baseSalary" | "salarioCombinado" | "modality" | "companyId" | "position" | "recebeAdiantamento";
+
+/** Uma alteração do cadastro. Sem permissão de ver Funcionários, salário vem com oculto=true e sem valores. */
+export type EmployeeHistoricoLinha = {
+  id: string;
+  campo: CampoHistoricoCadastro;
+  rotulo: string;
+  valorAnterior: string | null;
+  valorNovo: string | null;
+  oculto: boolean;
+  vigenteDesde: string;
+  motivo: string | null;
+  origem: string;
+  criadoPorNome: string | null;
+  createdAt: string;
+};
+
+export function getEmployeeHistorico(id: string) {
+  return request<EmployeeHistoricoLinha[]>(`/employees/${id}/historico`);
+}
 
 export function getEmployees(params: { search?: string; sector?: string; includeInactive?: boolean } = {}) {
   return request<Employee[]>(`/employees${toQueryString(params)}`);
