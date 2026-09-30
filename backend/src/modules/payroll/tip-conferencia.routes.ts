@@ -8,7 +8,7 @@ import { auditLog, getSessionUser, requestIp, type SessionUser } from "../securi
 import { userHasPermission } from "../security/menu-permissions.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { hojeEmSaoPaulo } from "./extras-comum.js";
-import { cadastroVigenteEm, diaDeReferencia, lerVigenteDesde } from "./cadastro-historico.js";
+import { alteracoes, cadastroVigenteEm, diaDeReferencia, faltaMotivoRetroativo, lerVigenteDesde } from "./cadastro-historico.js";
 import { carregarHistorico, registrarAlteracoes } from "./cadastro-historico.service.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
@@ -347,8 +347,13 @@ tipConferenciaRouter.put("/team/:employeeId/salario-combinado", async (request, 
   const antes = await prisma.employee.findFirst({ where: { id: request.params.employeeId, deletedAt: null }, select: { id: true, salarioCombinado: true, salarioCombinadoMotivo: true, admissionDate: true } });
   if (!antes) return response.status(404).json({ message: "Funcionário não encontrado." });
   // "Vale a partir de" (padrão hoje): a folha de líquidos de um mês passado usa o combinado daquele mês.
-  const vigencia = lerVigenteDesde((request.body as { vigenteDesde?: unknown }).vigenteDesde, hojeEmSaoPaulo(), antes.admissionDate);
+  const hojeIso = hojeEmSaoPaulo();
+  const vigencia = lerVigenteDesde((request.body as { vigenteDesde?: unknown }).vigenteDesde, hojeIso, antes.admissionDate);
   if ("erro" in vigencia) return response.status(422).json({ message: vigencia.erro });
+  // Tirar ou mudar o combinado valendo desde um mês passado muda a folha de líquidos já feita.
+  const mudou = alteracoes(antes, { salarioCombinado: valor }).map((a) => a.campo);
+  const faltaMotivo = faltaMotivoRetroativo(mudou, vigencia.data, hojeIso, motivo);
+  if (faltaMotivo) return response.status(400).json({ message: faltaMotivo });
   await prisma.$transaction(async (tx) => {
     await tx.employee.update({ where: { id: antes.id }, data: { salarioCombinado: valor, salarioCombinadoMotivo: valor == null ? null : motivo, updatedById: user.id } });
     await registrarAlteracoes(tx, {

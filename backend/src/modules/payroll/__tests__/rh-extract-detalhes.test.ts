@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { lerDetalhesExtrato, lerRubrica } from "../rh-extract-detalhes.js";
+import { funcionariosSemCpf, lerDetalhesExtrato, lerRubrica, semCpf } from "../rh-extract-detalhes.js";
 import { lerTextoExtrato } from "../rh-extract.service.js";
 
 // Folha mensal no formato que a pdf-parse devolve, com nomes, CPFs e valores fictícios.
@@ -145,5 +145,49 @@ describe("lerDetalhesExtrato — CPF", () => {
   test("a leitura antiga (Contas a Pagar) continua igual: só Empr., sem o pró-labore", () => {
     const antiga = lerTextoExtrato(FOLHA);
     expect(antiga.funcionarios.map((f) => f.nome)).toEqual(["FULANO DE TAL", "CICRANA DA SILVA"]);
+  });
+});
+
+describe("semCpf — formatos", () => {
+  const MASCARA = "***.***.***-**";
+  test.each([
+    ["formatado", "CPF: 111.222.333-44 Situação", `CPF: ${MASCARA} Situação`],
+    ["com espaços em volta da pontuação", "CPF 111. 222. 333 - 44.", `CPF ${MASCARA}.`],
+    ["só com espaços", "cpf 111 222 333 44 fim", `cpf ${MASCARA} fim`],
+    ["11 dígitos seguidos", "Adm:\t11122233344\tTrabalhando", `Adm:\t${MASCARA}\tTrabalhando`],
+    ["pontuação parcial", "111.222.33344", MASCARA],
+    ["colado no fim da linha", "x 11122233344\ny", `x ${MASCARA}\ny`],
+  ])("%s", (_nome, entrada, saida) => {
+    expect(semCpf(entrada)).toBe(saida);
+  });
+
+  test.each([
+    ["valor em reais", "Proventos: 1.234,56 Descontos: 12.345.678,90"],
+    ["valor grande com pontos de milhar", "Total 123.456.789,01"],
+    ["CNPJ formatado", "05.520.881/0001-95"],
+    ["CNPJ só dígitos (14)", "05520881000195"],
+    ["matrícula e código de rubrica", "1133 FULANO DE TAL 980 ADIANTAMENTO SALARIAL P 1.033,66"],
+    ["12 dígitos seguidos", "111222333444"],
+    ["data e horas", "Emissão: 28/08/2026 Horas: 10:57:55"],
+  ])("não mexe em %s", (_nome, texto) => {
+    expect(semCpf(texto)).toBe(texto);
+  });
+
+  test("vários CPFs no mesmo texto", () => {
+    expect(semCpf("111.222.333-44 e 55566677788")).toBe(`${MASCARA} e ${MASCARA}`);
+  });
+});
+
+describe("funcionariosSemCpf", () => {
+  test("tira cpf e cpfNorm e mantém o resto", () => {
+    const antes = [{ nome: "FULANO", cpf: "111.222.333-44", cpfNorm: "11122233344", liquido: 10 }];
+    expect(funcionariosSemCpf(antes)).toEqual([{ nome: "FULANO", liquido: 10 }]);
+    expect(antes[0].cpf).toBe("111.222.333-44");
+  });
+
+  test("o que não é lista volta como veio; já limpo fica igual", () => {
+    expect(funcionariosSemCpf(null)).toBeNull();
+    expect(funcionariosSemCpf({ a: 1 })).toEqual({ a: 1 });
+    expect(funcionariosSemCpf([{ nome: "X" }])).toEqual([{ nome: "X" }]);
   });
 });

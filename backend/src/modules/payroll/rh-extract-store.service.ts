@@ -6,7 +6,7 @@ import { prisma } from "../../config/database.js";
 import { diaDeReferencia } from "./cadastro-historico.js";
 import { cadastrosVigentes } from "./cadastro-historico.service.js";
 import type { CalculoExtrato, ExtratoParsed } from "./rh-extract.service.js";
-import type { DetalhesExtrato, PessoaExtrato } from "./rh-extract-detalhes.js";
+import { funcionariosSemCpf, semCpf, type DetalhesExtrato, type PessoaExtrato } from "./rh-extract-detalhes.js";
 
 const dataOuNull = (iso: string | null) => (iso ? new Date(`${iso}T00:00:00Z`) : null);
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -85,11 +85,14 @@ export async function guardarExtrato(opts: {
     sha256: opts.sha256, competenceYear: parsed.competenceYear, competenceMonth: parsed.competenceMonth,
     cnpj: parsed.cnpj, headcount: parsed.funcionarios.length, totalLiquido: opts.totalLiquido,
   });
+  // O CPF só serve para casar com o cadastro durante a importação: não vai para o
+  // registro (nem no texto, nem na lista de funcionários). O PDF em "arquivo" continua
+  // com ele — é o documento original, servido só a quem pode ver Funcionários.
   const comum = {
     competenceYear: parsed.competenceYear, competenceMonth: parsed.competenceMonth, empresa: parsed.empresa, cnpj: parsed.cnpj,
     companyId: opts.companyId, totalLiquido: opts.totalLiquido, headcount: parsed.funcionarios.length,
-    fileName: opts.fileName, sha256: opts.sha256, data: parsed.funcionarios as unknown as object,
-    calculo: parsed.calculo, arquivo: opts.buffer, texto: opts.texto, emissao: dataOuNull(detalhes.emissao),
+    fileName: opts.fileName, sha256: opts.sha256, data: funcionariosSemCpf(parsed.funcionarios) as object,
+    calculo: parsed.calculo, arquivo: opts.buffer, texto: semCpf(opts.texto), emissao: dataOuNull(detalhes.emissao),
     totalProventos: detalhes.totalProventos, totalDescontos: detalhes.totalDescontos,
   };
 
@@ -152,7 +155,7 @@ export async function avisosDoExtrato(opts: {
   calculo: CalculoExtrato;
   competenceYear: number;
   competenceMonth: number;
-  // Sem ver Funcionários, os avisos não trazem salário nem valores do cadastro.
+  // Sem ver Funcionários, os avisos não trazem salário, líquido nem valores do cadastro.
   incluirDadosPessoais: boolean;
 }): Promise<string[]> {
   const { detalhes, competenceYear: ano, competenceMonth: mes } = opts;
@@ -175,14 +178,18 @@ export async function avisosDoExtrato(opts: {
     const emp = p.cpfNorm ? porCpf.get(p.cpfNorm) : undefined;
 
     if (!p.conferido) {
-      avisos.push(`Leitura de ${p.nome} não fechou (rubricas somam ${brl(p.somaProventos)} / ${brl(p.somaDescontos)}; extrato diz ${brl(p.proventos)} / ${brl(p.descontos)}): confira no PDF.`);
+      avisos.push(opts.incluirDadosPessoais
+        ? `Leitura de ${p.nome} não fechou (rubricas somam ${brl(p.somaProventos)} / ${brl(p.somaDescontos)}; extrato diz ${brl(p.proventos)} / ${brl(p.descontos)}): confira no PDF.`
+        : `Leitura de ${p.nome} não fechou (a soma das rubricas não bate com o extrato): confira no PDF.`);
     }
 
     const rescisao = (p.liquidoRescisao ?? 0) > 0 || demitidoNoMes(p, ano, mes);
     if (rescisao && !(emp && await temRescisaoLancada(emp.id, p, ano, mes))) {
       const liq = p.liquidoRescisao ?? p.liquido;
       const quando = p.demissao ? `, demitido em ${ddmm(p.demissao)}` : "";
-      avisos.push(`Rescisão de ${p.nome} no extrato (líquido ${brl(liq)}${quando}): confira se está lançada em Contas a Pagar.`);
+      avisos.push(opts.incluirDadosPessoais
+        ? `Rescisão de ${p.nome} no extrato (líquido ${brl(liq)}${quando}): confira se está lançada em Contas a Pagar.`
+        : `Rescisão de ${p.nome} no extrato${quando}: confira se está lançada em Contas a Pagar.`);
     }
 
     if (emp) avisos.push(...divergenciasDoCadastro(p, emp, opts.incluirDadosPessoais, `${String(mes).padStart(2, "0")}/${ano}`));

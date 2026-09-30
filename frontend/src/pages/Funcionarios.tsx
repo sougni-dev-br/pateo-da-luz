@@ -11,7 +11,7 @@ import { Notice, useNotice } from "../components/Notice";
 import { ImpressaoAniversariantes } from "../components/pessoal/ImpressaoAniversariantes";
 import { RescisaoModal } from "../components/pessoal/RescisaoModal";
 import { HistoricoCadastro } from "../components/pessoal/HistoricoCadastro";
-import { mudouCampoComHistorico, type CamposComHistorico } from "../components/pessoal/historicoCadastroFormato";
+import { motivoObrigatorio, mudouCampoComHistorico, type CamposComHistorico } from "../components/pessoal/historicoCadastroFormato";
 import { useSession } from "../context/SessionContext";
 import {
   Alert, Button, EmptyState, FormField, FormGrid, FormSection,
@@ -161,6 +161,8 @@ export function Funcionarios() {
 
   const [rescinding, setRescinding] = useState<Employee | null>(null);
   const [motivoCombinadoTocado, setMotivoCombinadoTocado] = useState(false);
+  // Motivo da alteração retroativa: só acusa o campo vazio depois de tentar salvar.
+  const [motivoRetroTocado, setMotivoRetroTocado] = useState(false);
   // Atalho da gorjeta: /pessoal/funcionarios?rescisao=<id> abre a rescisão da pessoa.
   const [searchParams, setSearchParams] = useSearchParams();
   const rescisaoPedida = searchParams.get("rescisao");
@@ -213,6 +215,7 @@ export function Funcionarios() {
     setOriginal(null);
     setShowForm(true);
     setMotivoCombinadoTocado(false);
+    setMotivoRetroTocado(false);
     setError(null);
   }
 
@@ -244,6 +247,7 @@ export function Funcionarios() {
     });
     setShowForm(true);
     setMotivoCombinadoTocado(false);
+    setMotivoRetroTocado(false);
     setError(null);
   }
 
@@ -254,6 +258,10 @@ export function Funcionarios() {
     if (form.modality === "CLT" && form.salarioCombinado && form.salarioCombinadoMotivo.trim().length < 5) {
       setMotivoCombinadoTocado(true);
       return void setError("Explique o salário combinado (pelo menos 5 letras) — campo na seção Trabalho.");
+    }
+    if (exigeMotivo && !form.motivoAlteracao.trim()) {
+      setMotivoRetroTocado(true);
+      return void setError("Alteração com data retroativa muda cálculos de meses passados: informe o motivo — campo na seção Trabalho.");
     }
     setSaving(true);
     setError(null);
@@ -391,6 +399,8 @@ export function Funcionarios() {
   }
 
   const pedeVigencia = Boolean(form.id) && mudouCampoComHistorico(original, form);
+  // Regra do backend (o PUT responde 400 sem motivo); a tela só antecipa.
+  const exigeMotivo = pedeVigencia && motivoObrigatorio(original, form, form.vigenteDesde, hojeLocalIso());
   const isPublicVt = form.vtType === "TRANSPORTE_PUBLICO";
   const isFuelVt = form.vtType === "AUXILIO_COMBUSTIVEL";
   const isMonthlyPass = form.vtType === "BILHETE_MENSAL";
@@ -683,7 +693,8 @@ export function Funcionarios() {
                       <TextField type="date" value={form.vigenteDesde} min={form.admissionDate || undefined} max={umAnoAFrente()}
                         onChange={(e) => setForm({ ...form, vigenteDesde: e.target.value })} aria-label="Vale a partir de" />
                     </FormField>
-                    <FormField label="Motivo (opcional)">
+                    <FormField label={exigeMotivo ? "Motivo (obrigatório para data retroativa)" : "Motivo (opcional)"} required={exigeMotivo}
+                      error={exigeMotivo && motivoRetroTocado && !form.motivoAlteracao.trim() ? "Informe o motivo: a data é de um mês anterior." : undefined}>
                       <TextField value={form.motivoAlteracao} onChange={(e) => setForm({ ...form, motivoAlteracao: e.target.value })}
                         placeholder="Ex.: aumento combinado, efetivação" maxLength={300} aria-label="Motivo da alteração" />
                     </FormField>
@@ -771,7 +782,7 @@ export function Funcionarios() {
               </FormGrid>
             </FormSection>
 
-            {form.id && <HistoricoCadastro employeeId={form.id} />}
+            {form.id && <HistoricoCadastro key={form.id} employeeId={form.id} />}
 
             <div className="form-actions">
               <Button variant="secondary" onClick={() => setShowForm(false)}>Cancelar</Button>

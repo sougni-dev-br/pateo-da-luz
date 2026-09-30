@@ -82,9 +82,33 @@ describe("salvar o cadastro grava o histórico", () => {
     expect(db.employeeHistorico.createMany).not.toHaveBeenCalled();
   });
 
-  test("vale a partir de informado (aumento retroativo)", async () => {
-    await request(app).put("/employees/e1").send(corpo({ baseSalary: "2500", vigenteDesde: "2026-08-01" }));
-    expect(linhasGravadas()[0]).toMatchObject({ campo: "baseSalary", vigenteDesde: new Date("2026-08-01T00:00:00Z") });
+  test("vale a partir de informado (aumento retroativo, com motivo)", async () => {
+    const r = await request(app).put("/employees/e1").send(corpo({ baseSalary: "2500", vigenteDesde: "2026-08-01", motivoAlteracao: "Dissídio de agosto" }));
+    expect(r.status).toBe(200);
+    expect(linhasGravadas()[0]).toMatchObject({ campo: "baseSalary", vigenteDesde: new Date("2026-08-01T00:00:00Z"), motivo: "Dissídio de agosto" });
+  });
+
+  test.each([
+    ["salário base", { baseSalary: "2500" }],
+    ["vínculo", { modality: "CLT" }],
+    ["salário combinado", { salarioCombinado: 3000, salarioCombinadoMotivo: "Combinado na entrevista" }],
+  ])("%s valendo desde mês passado sem motivo: 400 e nada gravado", async (_nome, mudanca) => {
+    const r = await request(app).put("/employees/e1").send(corpo({ ...mudanca, vigenteDesde: "2026-08-15" }));
+    expect(r.status).toBe(400);
+    expect(r.body.message).toBe("Alteração valendo desde 08/2026 muda cálculos de meses passados: informe o motivo.");
+    expect(db.employee.update).not.toHaveBeenCalled();
+    expect(db.employeeHistorico.createMany).not.toHaveBeenCalled();
+  });
+
+  test("motivo com menos de 5 letras (números e espaços não contam) não serve", async () => {
+    const r = await request(app).put("/employees/e1").send(corpo({ baseSalary: "2500", vigenteDesde: "2026-08-01", motivoAlteracao: "ok 2026 !!" }));
+    expect(r.status).toBe(400);
+  });
+
+  test("retroativo dentro do mês atual, cargo retroativo ou data futura: motivo não é exigido", async () => {
+    expect((await request(app).put("/employees/e1").send(corpo({ baseSalary: "2500", vigenteDesde: "2026-09-01" }))).status).toBe(200);
+    expect((await request(app).put("/employees/e1").send(corpo({ position: "Líder", vigenteDesde: "2026-07-01" }))).status).toBe(200);
+    expect((await request(app).put("/employees/e1").send(corpo({ baseSalary: "2500", vigenteDesde: "2026-10-01" }))).status).toBe(200);
   });
 
   test("data antes da admissão é recusada e nada é gravado", async () => {
@@ -123,13 +147,22 @@ describe("GET /employees/:id/historico", () => {
   test("sem ver Funcionários: a linha de salário fica, sem os valores", async () => {
     vi.mocked(podeVerDadosPessoais).mockResolvedValue(false);
     const r = await request(app).get("/employees/e1/historico");
-    expect(r.body[1]).toMatchObject({ campo: "baseSalary", valorAnterior: null, valorNovo: null, oculto: true });
+    expect(r.body[1]).toMatchObject({ campo: "baseSalary", valorAnterior: null, valorNovo: null, oculto: true, motivo: null });
     expect(JSON.stringify(r.body)).not.toContain("2200");
+    expect(JSON.stringify(r.body)).not.toContain("Aumento");
     expect(r.body[0]).toMatchObject({ valorNovo: "Pateo Frei", oculto: false });
   });
 
   test("funcionário inexistente: 404", async () => {
     db.employee.findFirst.mockResolvedValue(null);
     expect((await request(app).get("/employees/x/historico")).status).toBe(404);
+  });
+});
+
+describe("PATCH /employees/:id/terminate — data padrão", () => {
+  test("sem data, o desligamento é hoje em São Paulo (não o dia em UTC)", async () => {
+    const r = await request(app).patch("/employees/e1/terminate").send({});
+    expect(r.status).toBe(200);
+    expect(db.employee.update.mock.calls[0][0].data.terminationDate).toEqual(new Date("2026-09-30T00:00:00Z"));
   });
 });

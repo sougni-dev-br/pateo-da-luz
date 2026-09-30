@@ -143,6 +143,15 @@ describe("POST /schedule/bulk — só ocorrências", () => {
     expect(db.employeeScheduleDay.deleteMany.mock.calls[0][0].where.employeeId.in).toEqual(["dentro", "fora"]);
   });
 
+  test.each([["desconhecido", "FERIADO"], ["ausente", undefined], ["minúsculo", "ferias"]])("tipo de dia %s: 400 e nada gravado (antes virava FOLGA)", async (_nome, tipo) => {
+    db.employee.findMany.mockResolvedValue([funcionario("dentro", true)]);
+    const res = await salvar([{ employeeId: "dentro", day: 3, type: "TURNO" }, { employeeId: "dentro", day: 5, type: tipo }]);
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain("dia 5");
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(db.employeeScheduleDay.deleteMany).not.toHaveBeenCalled();
+  });
+
   test("turno continua valendo para quem está na escala", async () => {
     db.employee.findMany.mockResolvedValue([funcionario("dentro", true)]);
     const res = await salvar([{ employeeId: "dentro", day: 3, type: "TURNO" }]);

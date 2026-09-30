@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { confirmacaoImportar, resumoImportacao, textoBotaoImportar } from "../extratoRhTextos";
+import { avisosSoDaImportacao, confirmacaoImportar, resumoImportacao, textoBotaoImportar } from "../extratoRhTextos";
 
 const item = { nome: "FULANO", cpf: "•••.•••.•••-44", liquido: 1000, gorjeta: null, matched: true, employeeId: "e", employeeName: "Fulano", isActive: true };
 const previa = (over: Record<string, unknown> = {}) => ({
@@ -30,5 +30,23 @@ describe("textos do Retorno do RH", () => {
   test("resumo depois de importar separa lançados de atualizados", () => {
     expect(resumoImportacao({ calculo: "ADIANTAMENTO", titulosNovos: 0, titulosAtualizados: 14 })).toBe("14 já lançado(s) e atualizado(s), sem duplicar.");
     expect(resumoImportacao({ calculo: "MENSAL", titulosNovos: 2, titulosAtualizados: 1 })).toBe("2 salários lançado(s) no Contas a Pagar; 1 já lançado(s) e atualizado(s), sem duplicar.");
+  });
+
+  test("resumo conta os excluídos à mão que a reimportação não recriou", () => {
+    expect(resumoImportacao({ calculo: "MENSAL", titulosNovos: 0, titulosAtualizados: 2, titulosPulados: 1 }))
+      .toBe("2 já lançado(s) e atualizado(s), sem duplicar; 1 excluído(s) à mão, não recriado(s).");
+    expect(resumoImportacao({ calculo: "ADIANTAMENTO", titulosNovos: 0, titulosAtualizados: 0, titulosPulados: 3 }))
+      .toBe("3 excluído(s) à mão, não recriado(s).");
+  });
+
+  test("backend antigo (sem titulosPulados) ou zero: nada muda no resumo", () => {
+    expect(resumoImportacao({ calculo: "MENSAL", titulosNovos: 1, titulosAtualizados: 0 })).not.toMatch(/excluído/);
+    expect(resumoImportacao({ calculo: "MENSAL", titulosNovos: 1, titulosAtualizados: 0, titulosPulados: 0 })).not.toMatch(/excluído/);
+  });
+
+  test("avisos da importação: só os que a prévia não mostrou", () => {
+    const excluido = "Lançamento de FULANO foi excluído à mão no Contas a Pagar e não foi recriado.";
+    expect(avisosSoDaImportacao({ avisos: ["Holerite X não conferido", excluido] }, { avisos: ["Holerite X não conferido"] })).toEqual([excluido]);
+    expect(avisosSoDaImportacao({ avisos: [excluido] }, null)).toEqual([excluido]);
   });
 });

@@ -13,10 +13,11 @@ import {
   closeTipPeriod, computeTipCommission, ensureTipPeriod, findOverlappingPeriod,
   getServicePool, getServicePoolByRange, pontosBaseDoCadastro, reopenTipPeriod, syncParticipantsFromCadastro, tipPeriodBounds,
 } from "./tip-commission.service.js";
-import { contarLancamentosExistentes, extrairTextoPdf, importExtrato, lerTextoExtrato, onlyDigits } from "./rh-extract.service.js";
+import { contarLancamentosExistentes, extrairTextoPdf, importExtrato, lerTextoExtrato, onlyDigits, type ImportExtratoResult } from "./rh-extract.service.js";
 import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
 import { avisosDoExtrato } from "./rh-extract-store.service.js";
 import { rhExtratosRouter } from "./rh-extratos.routes.js";
+import { hojeEmSaoPaulo } from "./extras-comum.js";
 import {
   distribuirReserva, evolucaoMensal, extratoReserva, lancarAjusteReserva, listarMudancas, motivoParaNaoRetirar, mudouSituacao,
   registrarHistorico, saldoReserva, travarFundo,
@@ -114,9 +115,11 @@ function textoOuNull(v: unknown): string | null {
   return v != null && String(v).trim() !== "" ? String(v).trim() : null;
 }
 
-function hojeUTC(): Date {
-  const d = new Date();
-  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+// Hoje do operador (São Paulo) à meia-noite UTC, como as datas @db.Date. Antes usava a
+// data local do servidor (UTC no Render): das 21h às 24h em São Paulo já era "amanhã",
+// e a vigência padrão de uma função ou de uma mudança na equipe caía no dia seguinte.
+function hojeSaoPaulo(): Date {
+  return new Date(`${hojeEmSaoPaulo()}T00:00:00.000Z`);
 }
 
 function boolOrNull(v: unknown): boolean | null {
@@ -495,7 +498,7 @@ tipCommissionRouter.post("/extrato/preview", async (request, response) => {
   });
   const detalhes = lerDetalhesExtrato(texto);
   const lancamentosExistentes = await contarLancamentosExistentes(
-    items.map((i) => i.employeeId).filter((id): id is string => Boolean(id)),
+    items.flatMap((i) => (i.employeeId ? [{ employeeId: i.employeeId, liquido: i.liquido }] : [])),
     parsed.calculo, parsed.competenceYear, parsed.competenceMonth,
   );
   const avisos = await avisosDoExtrato({
@@ -516,6 +519,16 @@ tipCommissionRouter.post("/extrato/preview", async (request, response) => {
   });
 });
 
+export function resumoDaImportacao(r: ImportExtratoResult) {
+  return {
+    rhExtractId: r.rhExtractId, calculo: r.calculo, competenceYear: r.competenceYear, competenceMonth: r.competenceMonth,
+    companyId: r.companyId, empresa: r.empresa,
+    titulosGerados: r.titulosGerados, titulosNovos: r.titulosNovos, titulosAtualizados: r.titulosAtualizados, titulosPulados: r.titulosPulados,
+    pessoasLidas: r.pessoasLidas, pessoasConferidas: r.pessoasConferidas, funcionariosCadastrados: r.funcionariosCadastrados,
+    extratoAtualizado: r.extratoAtualizado,
+  };
+}
+
 // Importar o Extrato: gera os salários no Contas a Pagar + rastreabilidade (arquivo).
 tipCommissionRouter.post("/extrato/import", async (request, response) => {
   const user = await getSessionUser(request);
@@ -534,9 +547,11 @@ tipCommissionRouter.post("/extrato/import", async (request, response) => {
       dueDay: numOrNull(b.dueDay) ?? undefined,
       incluirDadosPessoais: await podeVerDadosPessoais(request),
     });
+    // Só contadores e ids: a auditoria é lida por quem não vê Funcionários, e os avisos
+    // e o total trazem nomes com valores (rescisão, salário divergente).
     await auditLog({
       userId: user.id, action: "IMPORT_RH_EXTRATO", entity: "RhExtract", entityId: result.rhExtractId,
-      newValue: result, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+      newValue: resumoDaImportacao(result), ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
     });
     response.status(201).json(result);
   } catch (err) {
@@ -766,7 +781,7 @@ tipCommissionRouter.put("/functions", async (request, response) => {
     });
   }
   const antesPorId = new Map(antes.map((a) => [a.id, a]));
-  const vigencia = parseDateUTC(b.validFrom) ?? hojeUTC();
+  const vigencia = parseDateUTC(b.validFrom) ?? hojeSaoPaulo();
   const motivo = textoOuNull((request.body as Record<string, unknown>).reason);
   await prisma.$transaction(async (tx) => {
     for (const f of limpas) {
@@ -876,7 +891,7 @@ tipCommissionRouter.put("/team/:employeeId", async (request, response) => {
   const extraRetirado = extra == null && antes.pontosExtra != null
     ? `Ponto extra retirado (era ${Number(antes.pontosExtra) > 0 ? "+" : ""}${Number(antes.pontosExtra)}: ${antes.pontosExtraMotivo ?? "sem justificativa"})`
     : null;
-  const vigencia = parseDateUTC(b.validFrom) ?? hojeUTC();
+  const vigencia = parseDateUTC(b.validFrom) ?? hojeSaoPaulo();
   const depois = await prisma.$transaction(async (tx) => {
     const atualizado = await tx.employee.update({
     where: { id: antes.id },
@@ -958,7 +973,7 @@ tipCommissionRouter.post("/reserve/adjustments", async (request, response) => {
   const notes = textoOuNull(b.notes);
   if (amount == null || amount === 0) return response.status(422).json({ message: "Informe um valor diferente de zero." });
   if (!notes) return response.status(422).json({ message: "Descreva o ajuste (ex.: saldo inicial guardado até set/2026)." });
-  const mov = await lancarAjusteReserva(amount, parseDateUTC(b.date) ?? hojeUTC(), notes, user.id);
+  const mov = await lancarAjusteReserva(amount, parseDateUTC(b.date) ?? hojeSaoPaulo(), notes, user.id);
   await auditLog({
     userId: user.id, action: "TIP_RESERVE_ADJUSTMENT", entity: "TipReserveMovement", entityId: mov.id,
     newValue: { amount, notes }, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
