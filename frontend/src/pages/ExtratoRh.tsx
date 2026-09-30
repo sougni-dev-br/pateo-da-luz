@@ -1,8 +1,9 @@
 import { Banknote, CheckCircle2, FileUp, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ExtratoPreview, ImportExtratoResult, importExtratoRh, previewExtratoRh } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { Alert, Button, FormGrid, Money, StatusBadge, SummaryCard, Table } from "../design-system";
+import { ExtratosGuardados } from "./ExtratosGuardados";
 
 const MONTHS = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
@@ -20,6 +21,9 @@ export function ExtratoRh() {
   const [preview, setPreview] = useState<ExtratoPreview | null>(null);
   const [result, setResult] = useState<ImportExtratoResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Muda a cada importação: a lista de extratos guardados recarrega sozinha.
+  const [importacoes, setImportacoes] = useState(0);
+  const erroDaLista = useCallback((message: string) => setNotice({ tone: "error", message }), [setNotice]);
 
   async function handleFile(file: File) {
     setBusy(true);
@@ -56,6 +60,7 @@ export function ExtratoRh() {
     try {
       const r = await importExtratoRh(base64, fileName || "extrato.pdf");
       setResult(r);
+      setImportacoes((n) => n + 1);
       setNotice({ tone: "success", message: `${r.titulosGerados} ${r.calculo === "ADIANTAMENTO" ? "adiantamento(s)" : "salário(s)"} liberado(s) ao Contas a Pagar. ${r.funcionariosCadastrados} funcionário(s) cadastrado(s).` });
     } catch (e) {
       setNotice({ tone: "error", message: (e as Error).message });
@@ -71,7 +76,7 @@ export function ExtratoRh() {
       <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
         <strong>Retorno do RH — Extrato Mensal</strong>
         <span style={{ color: "var(--muted)", fontSize: 13 }}>
-          Suba o PDF do Extrato Mensal que o RH devolve. O sistema lê o líquido de cada funcionário e confere com o cadastro. (A geração dos títulos no Contas a Pagar é a próxima etapa.)
+          Suba o PDF do Extrato Mensal que o RH devolve. O sistema lê o holerite de cada funcionário, confere com o cadastro e, ao gerar os títulos no Contas a Pagar, guarda o PDF e os detalhes em "Extratos guardados".
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input
@@ -96,7 +101,16 @@ export function ExtratoRh() {
             <SummaryCard compact label="Competência" value={`${MONTHS[preview.competenceMonth] ?? preview.competenceMonth}/${preview.competenceYear}`} />
             <SummaryCard compact label="Total líquido" moneyValue={preview.totalLiquido} tone="success" />
             <SummaryCard compact label="Casaram no cadastro" value={`${preview.matchedCount} de ${preview.items.length}`} tone={preview.matchedCount === preview.items.length ? "success" : "warning"} />
+            <SummaryCard compact label="Holerites conferidos" value={`${preview.pessoasConferidas} de ${preview.pessoasLidas}`} tone={preview.pessoasConferidas === preview.pessoasLidas ? "success" : "warning"} />
           </FormGrid>
+
+          {preview.avisos.length > 0 && (
+            <Alert tone="warning" title={`${preview.avisos.length} aviso(s) do extrato — nada foi bloqueado`}>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {preview.avisos.map((a, i) => <li key={i}>{a}</li>)}
+              </ul>
+            </Alert>
+          )}
 
           {preview.matchedCount < preview.items.length && (
             <Alert tone="warning">
@@ -144,10 +158,13 @@ export function ExtratoRh() {
             <Alert tone="success">
               <strong>{result.titulosGerados}</strong> {result.calculo === "ADIANTAMENTO" ? "adiantamento(s)" : "salário(s)"} liberado(s) ao Contas a Pagar (total {result.totalLiquido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })})
               {result.funcionariosCadastrados > 0 ? ` · ${result.funcionariosCadastrados} funcionário(s) cadastrado(s) automaticamente` : ""}. Já aparecem na Folha de Pagamento / Contas a Pagar e no DRE (despesa de pessoal).
+              {" "}{result.extratoAtualizado ? "Este arquivo já estava guardado: o registro foi completado, sem duplicar." : "O PDF e os holerites foram guardados."}
             </Alert>
           )}
         </>
       )}
+
+      <ExtratosGuardados recarregar={importacoes} onErro={erroDaLista} />
     </div>
   );
 }
