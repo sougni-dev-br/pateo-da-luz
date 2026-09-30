@@ -12,9 +12,10 @@ import {
   closeTipPeriod, computeTipCommission, ensureTipPeriod, findOverlappingPeriod,
   getServicePool, getServicePoolByRange, pontosBaseDoCadastro, reopenTipPeriod, syncParticipantsFromCadastro, tipPeriodBounds,
 } from "./tip-commission.service.js";
-import fs from "node:fs";
-import path from "node:path";
-import { importExtrato, onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
+import { extrairTextoPdf, importExtrato, lerTextoExtrato, onlyDigits } from "./rh-extract.service.js";
+import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
+import { avisosDoExtrato } from "./rh-extract-store.service.js";
+import { rhExtratosRouter } from "./rh-extratos.routes.js";
 import {
   distribuirReserva, evolucaoMensal, extratoReserva, lancarAjusteReserva, listarMudancas, motivoParaNaoRetirar, mudouSituacao,
   registrarHistorico, saldoReserva, travarFundo,
@@ -43,6 +44,8 @@ export const tipCommissionRouter = Router();
 // Envio à contabilidade, conferência dos extratos, etapas e folha de líquidos.
 tipCommissionRouter.use(tipConferenciaRouter);
 tipCommissionRouter.use(tipValesRouter);
+// Extratos do RH guardados (PDF + holerite por pessoa) para consulta e relatórios.
+tipCommissionRouter.use(rhExtratosRouter);
 
 // ─── Trava de período fechado ───────────────────────────────────
 // closeTipPeriod só sela o período depois de conferir que a soma dos rateios
@@ -442,17 +445,29 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
 });
 
 // ─── Extrato Mensal do RH: leitura + conferência (não gera nada, só lê) ──────
+const LIMITE_PDF_EXTRATO = 5 * 1024 * 1024;
+
+// PDF do corpo da requisição (base64). O arquivo vai para o banco e volta como
+// application/pdf: por isso só entra o que começa como PDF e cabe em 5 MB.
+function pdfDoCorpo(fileBase64: unknown): { buffer: Buffer } | { status: number; message: string } {
+  if (typeof fileBase64 !== "string" || !fileBase64) return { status: 400, message: "Envie o PDF do extrato (fileBase64)." };
+  const buffer = Buffer.from(fileBase64.replace(/^data:[^,]*,/, ""), "base64");
+  if (buffer.length > LIMITE_PDF_EXTRATO) return { status: 413, message: "Arquivo grande demais para um extrato (máximo 5 MB)." };
+  if (buffer.subarray(0, 5).toString("latin1") !== "%PDF-") return { status: 422, message: "O arquivo enviado não é um PDF." };
+  return { buffer };
+}
+
 tipCommissionRouter.post("/extrato/preview", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
   const b = request.body as { fileBase64?: unknown };
-  if (typeof b.fileBase64 !== "string" || !b.fileBase64) {
-    return response.status(400).json({ message: "Envie o PDF do extrato (fileBase64)." });
-  }
+  const pdf = pdfDoCorpo(b.fileBase64);
+  if (!("buffer" in pdf)) return response.status(pdf.status).json({ message: pdf.message });
   let parsed;
+  let texto: string;
   try {
-    const base64 = b.fileBase64.replace(/^data:[^,]*,/, "");
-    parsed = await parseExtratoMensal(Buffer.from(base64, "base64"));
+    texto = await extrairTextoPdf(pdf.buffer);
+    parsed = lerTextoExtrato(texto);
   } catch (err) {
     return response.status(422).json({ message: "Não foi possível ler o PDF do extrato. " + (err as Error).message });
   }
@@ -467,12 +482,18 @@ tipCommissionRouter.post("/extrato/preview", async (request, response) => {
   const items = parsed.funcionarios.map((f) => {
     const emp = f.cpfNorm ? byCpf.get(f.cpfNorm) : undefined;
     return {
-      nome: f.nome, cpf: f.cpf, liquido: f.liquido, gorjeta: f.gorjeta,
+      // Só os dois últimos dígitos: bastam para conferir quem é, sem expor o CPF na tela.
+      nome: f.nome, cpf: f.cpfNorm ? `•••.•••.•••-${f.cpfNorm.slice(-2)}` : "", liquido: f.liquido, gorjeta: f.gorjeta,
       matched: Boolean(emp),
       employeeId: emp?.id ?? null,
       employeeName: emp ? nomeCompleto(emp) : null,
       isActive: emp?.isActive ?? null,
     };
+  });
+  const detalhes = lerDetalhesExtrato(texto);
+  const avisos = await avisosDoExtrato({
+    detalhes, calculo: parsed.calculo, competenceYear: parsed.competenceYear, competenceMonth: parsed.competenceMonth,
+    incluirDadosPessoais: await podeVerDadosPessoais(request),
   });
   response.json({
     calculo: parsed.calculo,
@@ -481,6 +502,9 @@ tipCommissionRouter.post("/extrato/preview", async (request, response) => {
     totalLiquido: Math.round(items.reduce((a, i) => a + i.liquido, 0) * 100) / 100,
     matchedCount: items.filter((i) => i.matched).length,
     items,
+    pessoasLidas: detalhes.pessoas.length,
+    pessoasConferidas: detalhes.pessoas.filter((p) => p.conferido).length,
+    avisos,
   });
 });
 
@@ -489,22 +513,18 @@ tipCommissionRouter.post("/extrato/import", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
   const b = request.body as { fileBase64?: unknown; fileName?: unknown; dueDay?: unknown };
-  if (typeof b.fileBase64 !== "string" || !b.fileBase64) {
-    return response.status(400).json({ message: "Envie o PDF do extrato (fileBase64)." });
-  }
+  const pdf = pdfDoCorpo(b.fileBase64);
+  if (!("buffer" in pdf)) return response.status(pdf.status).json({ message: pdf.message });
   try {
-    const base64 = b.fileBase64.replace(/^data:[^,]*,/, "");
-    const buffer = Buffer.from(base64, "base64");
+    const { buffer } = pdf;
     const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
-    // Guarda o PDF para rastreabilidade.
-    const dir = path.resolve("uploads", "rh-extratos");
-    fs.mkdirSync(dir, { recursive: true });
-    const safeName = String(b.fileName ?? "extrato.pdf").replace(/[^\w.\-() ]/g, "_");
-    const storagePath = path.join(dir, `${Date.now()}-${sha256.slice(0, 8)}-${safeName}`);
-    fs.writeFileSync(storagePath, buffer);
+    // O PDF vai para o banco (RhExtract.arquivo). Antes ia para uploads/ no disco,
+    // que o Render apaga a cada deploy — o arquivo se perdia.
+    const safeName = String(b.fileName ?? "extrato.pdf").replace(/[^\w.\-() ]/g, "_").slice(0, 200);
     const result = await importExtrato({
-      buffer, userId: user.id, fileName: safeName, storagePath, sha256,
+      buffer, userId: user.id, fileName: safeName, sha256,
       dueDay: numOrNull(b.dueDay) ?? undefined,
+      incluirDadosPessoais: await podeVerDadosPessoais(request),
     });
     await auditLog({
       userId: user.id, action: "IMPORT_RH_EXTRATO", entity: "RhExtract", entityId: result.rhExtractId,

@@ -136,7 +136,7 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUE
   throw lastError ?? new Error(NETWORK_ERROR_MESSAGE);
 }
 
-async function download(path: string, filename: string, timeoutMs = REQUEST_TIMEOUT_MS) {
+async function fetchBlob(path: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Blob> {
   const token = sessionToken();
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -184,7 +184,11 @@ async function download(path: string, filename: string, timeoutMs = REQUEST_TIME
     throw lastError ?? new Error("Backend nao encontrado.");
   }
 
-  const blob = await response.blob();
+  return response.blob();
+}
+
+async function download(path: string, filename: string, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const blob = await fetchBlob(path, timeoutMs);
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -6172,6 +6176,10 @@ export type ExtratoPreview = {
   competenceYear: number; competenceMonth: number;
   totalLiquido: number; matchedCount: number;
   items: ExtratoPreviewItem[];
+  /** Pessoas lidas por inteiro (holerite) e quantas tiveram as somas conferidas. */
+  pessoasLidas: number; pessoasConferidas: number;
+  /** Rescisão não lançada, cadastro divergente, leitura que não fechou. Não bloqueiam. */
+  avisos: string[];
 };
 export type TipReciboRescisao = {
   fonte: "TRCT"; arquivo: string; hash: string; gorjeta: number; liquido: number | null;
@@ -6203,6 +6211,10 @@ export type ImportExtratoResult = {
   empresa: string; companyId: string;
   competenceYear: number; competenceMonth: number;
   totalLiquido: number; funcionariosCadastrados: number; titulosGerados: number; rhExtractId: string;
+  /** O mesmo arquivo já estava guardado: o registro foi completado, não duplicado. */
+  extratoAtualizado: boolean;
+  pessoasLidas: number; pessoasConferidas: number;
+  avisos: string[];
 };
 export function importExtratoRh(fileBase64: string, fileName: string) {
   return request<ImportExtratoResult>("/payroll/tip/extrato/import", {
@@ -6210,6 +6222,45 @@ export function importExtratoRh(fileBase64: string, fileName: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fileBase64, fileName }),
   });
+}
+
+// ─── Extratos do RH guardados (PDF + holerite por pessoa) ─────────────────────
+export type RhExtratoResumo = {
+  id: string; competenceYear: number; competenceMonth: number; calculo: CalculoExtrato;
+  empresa: string; cnpj: string | null; emissao: string | null; fileName: string; headcount: number;
+  totalLiquido: number | null; totalProventos: number | null; totalDescontos: number | null;
+  pessoas: number; naoConferidas: number;
+  /** Falso = registro anterior ao armazenamento completo (sem pessoas guardadas). */
+  detalhado: boolean;
+  todasConferidas: boolean; temArquivo: boolean;
+  importadoEm: string; atualizadoEm: string | null;
+};
+export type RhExtratoRubrica = { codigo: string; descricao: string; tipo: "P" | "D"; referencia: number | null; valor: number };
+export type RhExtratoPessoa = {
+  id: string; employeeId: string | null; employeeName: string | null;
+  matricula: string; nome: string; situacao: string | null; vinculo: string | null; horasMes: number | null;
+  cargoCodigo: string | null; cargo: string | null; cbo: string | null; salarioBase: number | null;
+  admissao: string | null; demissao: string | null; demissaoMotivo: string | null;
+  proventos: number; descontos: number; liquido: number;
+  baseInss: number | null; baseFgts: number | null; baseIrrf: number | null; valorFgts: number | null;
+  liquidoRescisao: number | null; conferido: boolean;
+  rubricas: RhExtratoRubrica[];
+};
+export type RhExtratoDetalhe = {
+  id: string; competenceYear: number; competenceMonth: number; calculo: CalculoExtrato;
+  empresa: string; cnpj: string | null; emissao: string | null; fileName: string;
+  totalLiquido: number | null; totalProventos: number | null; totalDescontos: number | null;
+  pessoas: RhExtratoPessoa[];
+};
+export function listarRhExtratos(ano?: number) {
+  return request<RhExtratoResumo[]>(`/payroll/tip/extratos${ano ? `?ano=${ano}` : ""}`);
+}
+export function getRhExtrato(id: string) {
+  return request<RhExtratoDetalhe>(`/payroll/tip/extratos/${encodeURIComponent(id)}`);
+}
+/** O PDF original guardado no banco. */
+export function getRhExtratoPdf(id: string) {
+  return fetchBlob(`/payroll/tip/extratos/${encodeURIComponent(id)}/arquivo`);
 }
 
 export function getPayroll(year: number, month: number) {
