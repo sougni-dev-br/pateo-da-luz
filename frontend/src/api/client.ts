@@ -6181,6 +6181,8 @@ export type ExtratoPreview = {
   items: ExtratoPreviewItem[];
   /** Pessoas lidas por inteiro (holerite) e quantas tiveram as somas conferidas. */
   pessoasLidas: number; pessoasConferidas: number;
+  /** Quantas pessoas do extrato já têm o lançamento dele no Contas a Pagar (reimportar atualiza, não duplica). */
+  lancamentosExistentes: number;
   /** Rescisão não lançada, cadastro divergente, leitura que não fechou. Não bloqueiam. */
   avisos: string[];
 };
@@ -6214,6 +6216,8 @@ export type ImportExtratoResult = {
   empresa: string; companyId: string;
   competenceYear: number; competenceMonth: number;
   totalLiquido: number; funcionariosCadastrados: number; titulosGerados: number; rhExtractId: string;
+  /** Dos títulos gravados: quantos já existiam (atualizados) e quantos são novos. */
+  titulosAtualizados: number; titulosNovos: number;
   /** O mesmo arquivo já estava guardado: o registro foi completado, não duplicado. */
   extratoAtualizado: boolean;
   pessoasLidas: number; pessoasConferidas: number;
