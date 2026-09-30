@@ -5782,6 +5782,8 @@ export type TipComputation = {
   descontaFerias: boolean;
   descontaOutros: boolean;
   proporcionalEntrada: boolean;
+  /** Parte de quem saiu depois da saída: true = vai para o livre; false = sobe o ponto de quem fica. */
+  sobraRescisaoParaSaldo: boolean;
   distribuido: number;
   saldo: number;
   reservaTotal: number;
@@ -5848,6 +5850,7 @@ export type TipPeriodPayload = {
   grossPool?: number; deductionPercent?: number; pointsTotal?: number; periodStart?: string; periodEnd?: string;
   diasPadrao?: number; descontaFalta?: boolean; descontaAtestado?: boolean; descontaFerias?: boolean; descontaOutros?: boolean;
   proporcionalEntrada?: boolean;
+  sobraRescisaoParaSaldo?: boolean;
   reservaPontos?: number;
   ajusteServico?: number;
   ajusteServicoMotivo?: string | null;

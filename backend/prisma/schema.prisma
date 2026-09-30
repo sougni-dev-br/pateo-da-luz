@@ -2894,6 +2894,9 @@ model TipPeriod {
   descontaOutros   Boolean          @default(false)
   // Admitido no meio do período recebe proporcional aos dias.
   proporcionalEntrada Boolean       @default(true)
+  // Parte de quem saiu depois da saída: false = sobe o ponto de quem fica;
+  // true = o ponto do mês não desconta as rescisões e a sobra vai para o livre.
+  sobraRescisaoParaSaldo Boolean    @default(false)
   // Parte do líquido que ficou sem distribuir no fechamento.
   saldoRetido      Decimal          @default(0) @db.Decimal(14, 2)
   // Pontos que vão para o fundo de reserva da gorjeta (valor = pontos × valor do ponto).
