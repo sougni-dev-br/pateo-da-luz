@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 vi.mock("../../../config/database.js", () => ({
   prisma: {
     tipPeriod: { findUnique: vi.fn() },
-    employeeScheduleDay: { groupBy: vi.fn() },
+    employeeScheduleDay: { groupBy: vi.fn(), findMany: vi.fn() },
     revenueEntry: { aggregate: vi.fn() },
     payrollItem: { findMany: vi.fn() },
     tipPeriodClosing: { findFirst: vi.fn() },
@@ -56,6 +56,7 @@ const grupo = (employeeId: string, type: string, n: number) => ({ employeeId, ty
 beforeEach(() => {
   vi.clearAllMocks();
   db.employeeScheduleDay.groupBy.mockResolvedValue([]);
+  db.employeeScheduleDay.findMany.mockResolvedValue([]);
   db.revenueEntry.aggregate.mockResolvedValue({ _sum: { serviceAmount: 10000 } });
   db.payrollItem.findMany.mockResolvedValue([]);
   db.tipPeriodClosing.findFirst.mockResolvedValue(null);
@@ -93,11 +94,23 @@ describe("folgas da escala na apuração", () => {
 
   test("valor digitado prevalece, e o da escala vem junto para a tela mostrar a diferença", async () => {
     periodo([participante("a", { faltas: 1, atestados: null, ferias: 0 })]);
-    db.employeeScheduleDay.groupBy.mockResolvedValue([grupo("a", "FALTA", 3), grupo("a", "ATESTADO", 2), grupo("a", "FERIAS", 5)]);
+    db.employeeScheduleDay.groupBy.mockResolvedValue([grupo("a", "FALTA", 3), grupo("a", "ATESTADO", 2)]);
+    // Férias são lidas por data (para juntar com as da Folha sem repetir dia).
+    db.employeeScheduleDay.findMany.mockResolvedValue(["01", "02", "03", "04", "05"].map((dd) => ({ employeeId: "a", date: d(`2026-09-${dd}`) })));
     const comp = await computeTipCommission(2026, 9);
     const p = comp.participants[0];
     expect(p).toMatchObject({ faltas: 1, faltasOrigem: "MANUAL", atestados: 2, atestadosOrigem: "ESCALA", ferias: 0, feriasOrigem: "MANUAL" });
     expect(p.escala).toEqual({ faltas: 3, atestados: 2, ferias: 5 });
+  });
+
+  test("férias lançadas na Folha contam na gorjeta, somadas às da escala sem repetir o dia", async () => {
+    periodo([participante("a")]);
+    // Escala marcou 30/08 e 31/08; a Folha lançou de 30/08 a 03/09 (5 dias, 2 em comum).
+    db.employeeScheduleDay.findMany.mockResolvedValue([{ employeeId: "a", date: d("2026-08-30") }, { employeeId: "a", date: d("2026-08-31") }]);
+    db.payrollItem.findMany.mockImplementation(async (args: { where?: { type?: string } }) =>
+      args?.where?.type === "FERIAS" ? [{ employeeId: "a", periodStart: d("2026-08-30"), periodEnd: d("2026-09-03") }] : []);
+    const comp = await computeTipCommission(2026, 9);
+    expect(comp.participants[0]).toMatchObject({ ferias: 5, feriasOrigem: "ESCALA" });
   });
 
   test("fechado: folgas vêm do retrato, não da escala atual; retrato antigo dá null", async () => {

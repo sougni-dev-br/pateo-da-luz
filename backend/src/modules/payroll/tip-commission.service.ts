@@ -257,14 +257,54 @@ async function contarOcorrenciasDaEscala(employeeIds: string[], start: Date, end
     const n = g._count._all;
     if (g.type === "FALTA") c.faltas += n;
     if (g.type === "ATESTADO") c.atestados += n;
-    if (g.type === "FERIAS") c.ferias += n;
     if (g.type === "FOLGA") c.folgas.folga += n;
     if (g.type === "FOLGA_FERIADO") c.folgas.feriado += n;
     if (g.type === "FOLGA_BANCO_HORAS") c.folgas.bancoHoras += n;
     c.folgas.total = c.folgas.folga + c.folgas.feriado + c.folgas.bancoHoras;
     map.set(g.employeeId, c);
   }
+  // Férias: a rotina da Folha grava só o período (PayrollItem FERIAS) — a escala apenas
+  // sombreia esses dias, sem marcar. Conta a união dos dias das duas fontes, sem repetir.
+  for (const [employeeId, dias] of await diasDeFerias(employeeIds, start, end)) {
+    const c = map.get(employeeId) ?? semOcorrencias();
+    c.ferias = dias.size;
+    map.set(employeeId, c);
+  }
   return map;
+}
+
+const chaveDia = (d: Date) => d.toISOString().slice(0, 10);
+
+export async function diasDeFerias(employeeIds: string[], start: Date, end: Date): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  const add = (employeeId: string, dia: string) => {
+    const s = out.get(employeeId) ?? new Set<string>();
+    s.add(dia);
+    out.set(employeeId, s);
+  };
+  const [marcas, lancadas] = await Promise.all([
+    prisma.employeeScheduleDay.findMany({
+      where: { employeeId: { in: employeeIds }, date: { gte: start, lte: end }, type: "FERIAS" },
+      select: { employeeId: true, date: true },
+    }),
+    prisma.payrollItem.findMany({
+      where: {
+        employeeId: { in: employeeIds }, type: "FERIAS", deletedAt: null, status: { not: "CANCELED" },
+        periodStart: { lte: end }, periodEnd: { gte: start },
+      },
+      select: { employeeId: true, periodStart: true, periodEnd: true },
+    }),
+  ]);
+  for (const m of marcas) add(m.employeeId, chaveDia(m.date));
+  const inicioDia = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+  const fimDia = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
+  for (const f of lancadas) {
+    if (!f.periodStart || !f.periodEnd) continue;
+    const de = Math.max(inicioDia, Date.UTC(f.periodStart.getUTCFullYear(), f.periodStart.getUTCMonth(), f.periodStart.getUTCDate()));
+    const ate = Math.min(fimDia, Date.UTC(f.periodEnd.getUTCFullYear(), f.periodEnd.getUTCMonth(), f.periodEnd.getUTCDate()));
+    for (let t = de; t <= ate; t += 86_400_000) add(f.employeeId, chaveDia(new Date(t)));
+  }
+  return out;
 }
 
 // Folgas gravadas no retrato do fechamento, por funcionário. Retrato antigo não tem.

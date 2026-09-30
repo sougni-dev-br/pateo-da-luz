@@ -313,6 +313,15 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
           folgaDays: new Set([...folgaDays, ...faltaDays]), feriasDays: feriaDays,
           admissionMs, terminationMs,
         });
+        // Fora da escala, dia sem marca conta como trabalhado: sem nenhuma folga marcada na
+        // seção "só ocorrências", o vale sai pago para todos os dias, folgas inclusive.
+        const semFolgaMarcada = ![...folgaDays].some((d) => d >= p.startDay && d <= p.endDay);
+        if (!emp.includeInSchedule && semFolgaMarcada && r.workedDays > 0) {
+          warnings.push(
+            `${name} está fora da escala e não tem folga marcada em ${p.label}: o vale sai para ${r.workedDays} dia(s), ` +
+            `como se não tivesse folga. Marque as folgas em Escala → "Fora da escala — só ocorrências" antes de gerar.`
+          );
+        }
 
         // Acerto das faltas já pagas, em ordem de data (as mais antigas primeiro).
         //
