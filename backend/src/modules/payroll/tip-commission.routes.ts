@@ -8,6 +8,7 @@ import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
+import { registrarAlteracoes } from "./cadastro-historico.service.js";
 import {
   closeTipPeriod, computeTipCommission, ensureTipPeriod, findOverlappingPeriod,
   getServicePool, getServicePoolByRange, pontosBaseDoCadastro, reopenTipPeriod, syncParticipantsFromCadastro, tipPeriodBounds,
@@ -895,6 +896,11 @@ tipCommissionRouter.put("/team/:employeeId", async (request, response) => {
     },
     });
     if (registrar) await registrarHistorico(tx, antes.id, vigencia, user.id, textoOuNull(b.reason) ?? (extraMudou ? motivoExtra ?? extraRetirado : null));
+    // Empresa também tem histórico no cadastro (a exportação à contabilidade agrupa por ela).
+    await registrarAlteracoes(tx, {
+      employeeId: antes.id, antes: { companyId: antes.companyId }, depois: { companyId }, vigenteDesde: vigencia,
+      motivo: textoOuNull(b.reason), origem: "EQUIPE_GORJETA", usuario: { id: user.id, nome: user.name },
+    });
     return atualizado;
   });
   await auditLog({

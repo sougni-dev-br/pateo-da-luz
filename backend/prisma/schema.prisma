@@ -2475,6 +2475,7 @@ model Employee {
   tipFunction       TipFunction?       @relation(fields: [tipFunctionId], references: [id])
   tipParticipations TipParticipant[]
   tipHistory        EmployeeTipHistory[]
+  historicoCadastro EmployeeHistorico[]
   tipReserveMovements TipReserveMovement[]
   // Extras por diária: as que a pessoa trabalhou e as que cobriram a ausência dela.
   extraShifts        ExtraShift[]        @relation("ExtraShiftEmployee")
@@ -2805,6 +2806,29 @@ model EmployeeTipHistory {
 
   @@index([employeeId, validFrom])
   @@index([validFrom])
+}
+
+// Histórico do cadastro: salário, vínculo, empresa, cargo etc. com a data a partir da
+// qual valem. Cálculo de mês passado usa o valor VIGENTE naquele mês, não o atual.
+// Valores em texto ("2200.00", "NAO_CLT", "true"); nunca guarda CPF.
+model EmployeeHistorico {
+  id            String   @id
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id])
+  campo         String   // baseSalary | salarioCombinado | modality | companyId | position | recebeAdiantamento
+  valorAnterior String?
+  valorNovo     String?
+  vigenteDesde  DateTime @db.Date
+  motivo        String?
+  origem        String   // CADASTRO | EQUIPE_GORJETA | CONFERENCIA_GORJETA | IMPORTADOR_PLANILHA | BACKFILL
+  // Backfill: id do AuditLog de onde a linha veio (rodar de novo não duplica).
+  origemRef     String?
+  criadoPorId   String?
+  criadoPorNome String?
+  createdAt     DateTime @default(now())
+
+  @@unique([origemRef, campo])
+  @@index([employeeId, campo, vigenteDesde])
 }
 
 // Mudanças na tabela de funções (nome, pontos, faixa).

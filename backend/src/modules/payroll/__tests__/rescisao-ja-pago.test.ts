@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 // pode sugerir salário e gorjeta de novo (pagaria duas vezes sem aviso).
 vi.mock("../../../config/database.js", () => ({
   prisma: {
+    // Sem histórico do cadastro: vale o valor atual.
+    employeeHistorico: { findMany: vi.fn(async () => []) },
     employee: { findFirst: vi.fn() },
     payrollItem: { findMany: vi.fn() },
     tipPeriod: { findFirst: vi.fn() },

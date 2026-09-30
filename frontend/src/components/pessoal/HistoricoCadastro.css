@@ -1,0 +1,29 @@
+/* Histórico do cadastro na ficha do funcionário: linha do tempo, mais recente em cima. */
+.historico-cadastro {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--border);
+  display: grid;
+  gap: 12px;
+}
+.historico-cadastro__item { position: relative; font-size: 14px; }
+/* Marca na linha do tempo. */
+.historico-cadastro__item::before {
+  content: "";
+  position: absolute;
+  left: -20px;
+  top: 5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--gold);
+}
+.historico-cadastro__data { font-size: 12px; color: var(--muted); }
+.historico-cadastro__mudanca { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.historico-cadastro__mudanca > strong::after { content: ":"; }
+.historico-cadastro__oculto { color: var(--muted); font-style: italic; }
+.historico-cadastro__motivo { color: inherit; }
+.historico-cadastro__meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.historico-cadastro__vazio { color: var(--muted); font-size: 14px; }
