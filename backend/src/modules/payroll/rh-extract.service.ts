@@ -131,6 +131,9 @@ async function getFolhaDreCategoryId(): Promise<string> {
 // Antes de o importador distinguir os dois cálculos, o extrato do adiantamento entrava
 // como SALARIO ("Extrato MM/AAAA"). Reimportado, o mesmo título (mesma pessoa, mesmo
 // valor) vira ADIANTAMENTO no lugar — mantém pagamento e histórico, sem duplicar.
+// Só converte o SALARIO ativo (deletedAt null): excluído, à mão ou não, fica como está.
+// E não converte se a chave do adiantamento já estiver ocupada, nem por item excluído —
+// a chave única não inclui deletedAt, e o adiantamento excluído à mão continua excluído.
 async function converterAdiantamentoGravadoComoSalario(
   employeeId: string, competenceYear: number, competenceMonth: number, mmaaaa: string, periodLabel: string, liquido: number, userId: string,
 ) {
@@ -138,7 +141,7 @@ async function converterAdiantamentoGravadoComoSalario(
     where: { employeeId, type: "SALARIO", competenceYear, competenceMonth, periodLabel: `Extrato ${mmaaaa}`, source: "EXTRATO_RH", deletedAt: null },
     select: { id: true, amount: true },
   });
-  if (!antigo || Math.abs(Number(antigo.amount) - liquido) >= 0.01) return;
+  if (!antigo || !mesmoValor(Number(antigo.amount), liquido)) return;
   const jaExiste = await prisma.payrollItem.findFirst({
     where: { employeeId, type: "ADIANTAMENTO", competenceYear, competenceMonth, periodLabel },
     select: { id: true },
@@ -147,29 +150,76 @@ async function converterAdiantamentoGravadoComoSalario(
   await prisma.payrollItem.update({ where: { id: antigo.id }, data: { type: "ADIANTAMENTO", periodLabel, updatedById: userId } });
 }
 
+const mesmoValor = (a: number, b: number) => Math.abs(a - b) < 0.01;
+const ehZero = (v: number) => Math.abs(v) < 0.005;
+
+// Excluído À MÃO = alguém apagou pela tela (deletedById preenchido). Reimportar o extrato
+// não pode desfazer essa decisão em silêncio: o lançamento fica excluído e a importação
+// avisa. Excluído SEM deletedById é o caso legado (exclusões de antes de o sistema gravar
+// quem excluiu): esse continua sendo restaurado. Não dá para saber se foi decisão de
+// alguém, e o upsert casa com ele de qualquer jeito (a chave única não inclui deletedAt)
+// — sem restaurar, atualizaria um item invisível: a importação diria "título gerado" e o
+// salário sumiria do DRE.
+type SituacaoDaChave = { deletedAt: Date | null; deletedById: string | null };
+export function excluidoAMao(item: SituacaoDaChave | null | undefined): boolean {
+  return Boolean(item?.deletedAt && item.deletedById);
+}
+
+const ddmmEmSaoPaulo = (d: Date) =>
+  new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" }).format(d);
+
+export function avisoExcluidoAMao(nome: string, calculo: CalculoExtrato, mmaaaa: string, deletedAt: Date): string {
+  const tipo = calculo === "ADIANTAMENTO" ? "Adiantamento" : "Salário";
+  return `Lançamento de ${nome} (${tipo} ${mmaaaa}) foi excluído à mão em ${ddmmEmSaoPaulo(deletedAt)} e não foi recriado; se precisar, restaure pela Folha.`;
+}
+
+function chaveDoExtrato(calculo: CalculoExtrato, mmaaaa: string) {
+  return calculo === "ADIANTAMENTO"
+    ? { type: "ADIANTAMENTO" as const, periodLabel: `Adiantamento ${mmaaaa}` }
+    : { type: "SALARIO" as const, periodLabel: `Extrato ${mmaaaa}` };
+}
+
 // Quantas pessoas do extrato já têm o lançamento dele no Contas a Pagar. Reimportar
 // atualiza esses (o upsert casa pela chave), não duplica — a tela precisa dizer isso.
-// No adiantamento conta também o que entrou como SALARIO antes (e vai ser convertido).
+// Não conta o que a importação vai PULAR (excluído à mão) nem o excluído legado, que
+// volta como novo. No adiantamento conta também o SALARIO "Extrato" gravado antes que
+// vai ser convertido — só o ativo e de mesmo valor, o mesmo critério da conversão.
 export async function contarLancamentosExistentes(
-  employeeIds: string[], calculo: CalculoExtrato, competenceYear: number, competenceMonth: number,
+  pessoas: Array<{ employeeId: string; liquido: number }>, calculo: CalculoExtrato, competenceYear: number, competenceMonth: number,
 ): Promise<number> {
-  if (employeeIds.length === 0) return 0;
+  if (pessoas.length === 0) return 0;
   const mmaaaa = `${String(competenceMonth).padStart(2, "0")}/${competenceYear}`;
-  const chaves = calculo === "ADIANTAMENTO"
-    ? [{ type: "ADIANTAMENTO" as const, periodLabel: `Adiantamento ${mmaaaa}` }, { type: "SALARIO" as const, periodLabel: `Extrato ${mmaaaa}` }]
-    : [{ type: "SALARIO" as const, periodLabel: `Extrato ${mmaaaa}` }];
+  const chave = chaveDoExtrato(calculo, mmaaaa);
+  const salarioAntigo = { type: "SALARIO" as const, periodLabel: `Extrato ${mmaaaa}` };
+  const chaves = calculo === "ADIANTAMENTO" ? [chave, salarioAntigo] : [chave];
   const itens = await prisma.payrollItem.findMany({
-    where: { employeeId: { in: employeeIds }, competenceYear, competenceMonth, deletedAt: null, OR: chaves },
-    select: { employeeId: true },
+    where: { employeeId: { in: [...new Set(pessoas.map((p) => p.employeeId))] }, competenceYear, competenceMonth, OR: chaves },
+    select: { employeeId: true, type: true, periodLabel: true, amount: true, source: true, deletedAt: true },
   });
-  return new Set(itens.map((i) => i.employeeId)).size;
+  const contados = new Set<string>();
+  for (const p of pessoas) {
+    const doEmp = itens.filter((i) => i.employeeId === p.employeeId);
+    const principal = doEmp.find((i) => i.type === chave.type && i.periodLabel === chave.periodLabel);
+    if (principal) {
+      if (principal.deletedAt == null) contados.add(p.employeeId);
+      continue;
+    }
+    const vaiConverter = calculo === "ADIANTAMENTO" && doEmp.some((i) =>
+      i.type === "SALARIO" && i.periodLabel === salarioAntigo.periodLabel && i.source === "EXTRATO_RH"
+      && i.deletedAt == null && mesmoValor(Number(i.amount), p.liquido));
+    if (vaiConverter) contados.add(p.employeeId);
+  }
+  return contados.size;
 }
 
 export type ImportExtratoResult = {
   calculo: CalculoExtrato;
-  // Dos títulos gravados, quantos já existiam (foram atualizados) e quantos são novos.
+  // Dos títulos gravados, quantos já existiam (foram atualizados) e quantos são novos
+  // (criados, ou excluídos antigos sem autor restaurados).
   titulosAtualizados: number;
   titulosNovos: number;
+  // Não gravados: excluídos à mão (cada um vira aviso) e líquido zero sem lançamento.
+  titulosPulados: number;
   empresa: string;
   companyId: string;
   competenceYear: number;
@@ -221,7 +271,6 @@ export async function importExtrato(opts: {
 
   const settings = await prisma.payrollSettings.findUnique({ where: { id: "singleton" } });
   const adiantamento = parsed.calculo === "ADIANTAMENTO";
-  const tipo = adiantamento ? "ADIANTAMENTO" as const : "SALARIO" as const;
   let dueDate: Date;
   if (adiantamento) {
     // Adiantamento vence no próprio mês da competência, no dia do adiantamento (20).
@@ -239,15 +288,15 @@ export async function importExtrato(opts: {
   const allEmp = await prisma.employee.findMany({ where: { deletedAt: null }, select: { id: true, cpf: true } });
   const byCpf = new Map(allEmp.map((e) => [onlyDigits(e.cpf), e.id]));
   const mmaaaa = `${String(competenceMonth).padStart(2, "0")}/${competenceYear}`;
-  const periodLabel = adiantamento ? `Adiantamento ${mmaaaa}` : `Extrato ${mmaaaa}`;
+  const { type: tipo, periodLabel } = chaveDoExtrato(parsed.calculo, mmaaaa);
   const details = (f: ExtratoFuncionario) => ({ calculo: parsed.calculo, liquido: f.liquido, gorjeta: f.gorjeta, adiantamento: f.adiantamento, empresa: parsed.empresa });
 
-  const jaExistiam = await contarLancamentosExistentes(
-    parsed.funcionarios.map((f) => (f.cpfNorm ? byCpf.get(f.cpfNorm) : undefined)).filter((id): id is string => Boolean(id)),
-    parsed.calculo, competenceYear, competenceMonth,
-  );
   let funcionariosCadastrados = 0;
-  let titulosGerados = 0;
+  let titulosAtualizados = 0;
+  let titulosNovos = 0;
+  let titulosPulados = 0;
+  let zerados = 0;
+  const avisosDaImportacao: string[] = [];
   for (const f of parsed.funcionarios) {
     let empId = f.cpfNorm ? byCpf.get(f.cpfNorm) : undefined;
     if (!empId) {
@@ -261,20 +310,47 @@ export async function importExtrato(opts: {
       if (f.cpfNorm) byCpf.set(f.cpfNorm, empId);
     }
     if (adiantamento) await converterAdiantamentoGravadoComoSalario(empId, competenceYear, competenceMonth, mmaaaa, periodLabel, f.liquido, opts.userId);
-    await prisma.payrollItem.upsert({
-      where: { employeeId_type_competenceYear_competenceMonth_periodLabel: { employeeId: empId, type: tipo, competenceYear, competenceMonth, periodLabel } },
-      create: {
-        id: crypto.randomUUID(), employeeId: empId, type: tipo, competenceYear, competenceMonth, periodLabel,
-        dueDate, amount: f.liquido, dreCategoryId, source: "EXTRATO_RH",
-        details: details(f), createdById: opts.userId,
-      },
-      // deletedAt/deletedById limpos de proposito: a chave unica nao inclui deletedAt, entao
-      // este upsert casa com um item apagado. Sem limpar, ele atualizava o valor e deixava o
-      // lancamento invisivel — a importacao dizia "titulo gerado" e o salario sumia do DRE.
-      update: { amount: f.liquido, dueDate, dreCategoryId, source: "EXTRATO_RH", details: details(f), updatedById: opts.userId, deletedAt: null, deletedById: null },
+
+    const chaveUnica = { employeeId: empId, type: tipo, competenceYear, competenceMonth, periodLabel };
+    const existente = await prisma.payrollItem.findUnique({
+      where: { employeeId_type_competenceYear_competenceMonth_periodLabel: chaveUnica },
+      select: { id: true, deletedAt: true, deletedById: true },
     });
-    titulosGerados += 1;
+    if (existente && excluidoAMao(existente)) {
+      titulosPulados += 1;
+      avisosDaImportacao.push(avisoExcluidoAMao(f.nome, parsed.calculo, mmaaaa, existente.deletedAt!));
+      continue;
+    }
+    const ativo = Boolean(existente && existente.deletedAt == null);
+    // Líquido zero não vira lançamento novo (nem restaura um excluído): fica só no
+    // holerite guardado. O lançamento que já está ativo não é apagado: segue sendo
+    // atualizado com o valor do extrato, como sempre (inclusive para zero).
+    if (!ativo && ehZero(f.liquido)) {
+      titulosPulados += 1;
+      zerados += 1;
+      continue;
+    }
+    if (existente) {
+      await prisma.payrollItem.update({
+        where: { id: existente.id },
+        // deletedAt/deletedById limpos de propósito: aqui só chega o ativo ou o excluído
+        // legado (sem autor), que volta a aparecer — ver excluidoAMao.
+        data: { amount: f.liquido, dueDate, dreCategoryId, source: "EXTRATO_RH", details: details(f), updatedById: opts.userId, deletedAt: null, deletedById: null },
+      });
+    } else {
+      await prisma.payrollItem.create({
+        data: {
+          id: crypto.randomUUID(), ...chaveUnica, dueDate, amount: f.liquido, dreCategoryId, source: "EXTRATO_RH",
+          details: details(f), createdById: opts.userId,
+        },
+      });
+    }
+    if (ativo) titulosAtualizados += 1; else titulosNovos += 1;
   }
+  if (zerados > 0) {
+    avisosDaImportacao.push(`${zerados} pessoa(s) com líquido zero no extrato: nenhum lançamento novo foi criado (ficam só no holerite guardado).`);
+  }
+  const titulosGerados = titulosAtualizados + titulosNovos;
 
   const totalLiquido = Math.round(parsed.funcionarios.reduce((a, f) => a + f.liquido, 0) * 100) / 100;
   // O PDF, o texto e o holerite de cada pessoa vão para o banco (o disco do servidor é efêmero).
@@ -286,14 +362,15 @@ export async function importExtrato(opts: {
     employeePorCpf: byCpf,
   });
   await preencherAdmissaoCarteira(detalhes, byCpf, opts.userId);
-  const avisos = await avisosDoExtrato({
+  const avisosDoPdf = await avisosDoExtrato({
     detalhes, calculo: parsed.calculo, competenceYear, competenceMonth, incluirDadosPessoais: opts.incluirDadosPessoais ?? false,
   });
 
   return {
     calculo: parsed.calculo, empresa: parsed.empresa, companyId, competenceYear, competenceMonth, totalLiquido, funcionariosCadastrados, titulosGerados,
-    titulosAtualizados: Math.min(jaExistiam, titulosGerados), titulosNovos: Math.max(0, titulosGerados - jaExistiam),
+    titulosAtualizados, titulosNovos, titulosPulados,
     rhExtractId: rh.id, extratoAtualizado: rh.atualizado,
-    pessoasLidas: detalhes.pessoas.length, pessoasConferidas: detalhes.pessoas.filter((p) => p.conferido).length, avisos,
+    pessoasLidas: detalhes.pessoas.length, pessoasConferidas: detalhes.pessoas.filter((p) => p.conferido).length,
+    avisos: [...avisosDaImportacao, ...avisosDoPdf],
   };
 }

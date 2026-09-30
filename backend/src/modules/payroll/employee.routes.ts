@@ -5,7 +5,7 @@ import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { hojeEmSaoPaulo } from "./extras-comum.js";
-import { CAMPOS_SALARIO, ROTULO_CAMPO, alteracoes, lerVigenteDesde, type CampoHistorico } from "./cadastro-historico.js";
+import { CAMPOS_SALARIO, ROTULO_CAMPO, alteracoes, faltaMotivoRetroativo, lerVigenteDesde, type CampoHistorico } from "./cadastro-historico.js";
 import { registrarAlteracoes } from "./cadastro-historico.service.js";
 
 export const employeeRouter = Router();
@@ -154,10 +154,14 @@ export function lerRecebeAdiantamento(b: Record<string, unknown>): { erro: strin
 export function lerVigencia(
   b: Record<string, unknown>, antes: Record<string, unknown>, depois: Record<string, unknown>, admissao: Date | null, hojeIso = hojeEmSaoPaulo(),
 ): { erro: string } | { vigenteDesde: Date | null; motivo: string | null } {
-  if (alteracoes(antes, depois).length === 0) return { vigenteDesde: null, motivo: null };
+  const mudancas = alteracoes(antes, depois);
+  if (mudancas.length === 0) return { vigenteDesde: null, motivo: null };
   const lido = lerVigenteDesde(b.vigenteDesde, hojeIso, admissao);
   if ("erro" in lido) return lido;
-  return { vigenteDesde: lido.data, motivo: str(b.motivoAlteracao)?.slice(0, 300) ?? null };
+  const motivo = str(b.motivoAlteracao)?.slice(0, 300) ?? null;
+  const falta = faltaMotivoRetroativo(mudancas.map((m) => m.campo), lido.data, hojeIso, motivo);
+  if (falta) return { erro: falta };
+  return { vigenteDesde: lido.data, motivo };
 }
 
 // Trajeto: lista de pernas por sentido. O corpo manda a lista inteira e ela
@@ -293,7 +297,8 @@ employeeRouter.get("/:id/historico", async (request, response) => {
       valorNovo: oculto ? null : mostrar(l.campo, l.valorNovo),
       oculto,
       vigenteDesde: l.vigenteDesde.toISOString().slice(0, 10),
-      motivo: l.motivo,
+      // O motivo de um aumento costuma citar o valor ("de 2.200 para 2.500"): oculto também.
+      motivo: oculto ? null : l.motivo,
       origem: l.origem,
       criadoPorNome: l.criadoPorNome,
       createdAt: l.createdAt.toISOString(),
@@ -478,13 +483,11 @@ employeeRouter.patch("/:id/terminate", async (request, response) => {
   if (!existing) return response.status(404).json({ message: "Funcionário não encontrado." });
 
   const b = request.body as Record<string, unknown>;
-  // Meia-noite UTC do dia de hoje, nao o instante atual: o calculo do VT compara
-  // dia a dia em UTC, e um desligamento gravado as 22h de Brasilia viraria o dia
-  // SEGUINTE em UTC — pagando um dia de vale que a pessoa nao vai usar.
-  // Meia-noite UTC do dia de hoje, não o instante atual: o cálculo do VT compara
-  // dia a dia em UTC, e um desligamento gravado às 22h de Brasília viraria o dia
-  // SEGUINTE em UTC — pagando um dia de vale que a pessoa não vai usar.
-  const hojeUtc = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z");
+  // Meia-noite UTC do dia de HOJE EM SÃO PAULO, não o instante atual: o cálculo do VT
+  // compara dia a dia em UTC. Antes o "hoje" era o dia em UTC, e um desligamento
+  // gravado às 22h de Brasília já caía no dia SEGUINTE — pagando um dia de vale que a
+  // pessoa não vai usar (justamente o que este comentário dizia evitar).
+  const hojeUtc = new Date(`${hojeEmSaoPaulo()}T00:00:00.000Z`);
   const terminationDate = dateOrNull(b.terminationDate) ?? hojeUtc;
   const terminationReason = str(b.terminationReason);
 

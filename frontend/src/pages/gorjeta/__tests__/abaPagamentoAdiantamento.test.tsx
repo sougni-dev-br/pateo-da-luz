@@ -5,7 +5,8 @@ import type { ReactElement } from "react";
 import { HideValuesProvider } from "../../../design-system";
 import { SessionContext, type SessionContextValue } from "../../../context/SessionContext";
 import { AbaPagamento } from "../AbaPagamento";
-import { toRows } from "../gorjetaUtils";
+import { celulaAdiantamento } from "../exportarPdf";
+import { adiantamentoOculto, toRows } from "../gorjetaUtils";
 
 beforeEach(() => { window.localStorage.clear(); window.sessionStorage.clear(); });
 
@@ -36,10 +37,10 @@ function comp(participants: TipComputedParticipant[]): TipComputation {
 
 // Money lê o contexto de ocultar valores, que lê a sessão.
 const SESSAO = { user: null, setUser: () => undefined, hideSensitiveValues: false, toggleSensitiveValues: () => undefined, canAccessSection: () => true, hasPermission: () => true } as unknown as SessionContextValue;
-const render = (ui: ReactElement) => renderRaw(<SessionContext.Provider value={SESSAO}><HideValuesProvider>{ui}</HideValuesProvider></SessionContext.Provider>);
+const render = (ui: ReactElement, sessao: SessionContextValue = SESSAO) => renderRaw(<SessionContext.Provider value={sessao}><HideValuesProvider>{ui}</HideValuesProvider></SessionContext.Provider>);
 
 describe("lista de pagamento: coluna Adiantamento", () => {
-  test("mostra o adiantamento com sinal de menos, traço para quem não recebe e o total", () => {
+  test("mostra o adiantamento negativo (pelo Money), traço para quem não recebe e o total", () => {
     const c = comp([
       pessoa({ employeeId: "a", employeeName: "Ana Adiantada", adiantamentoSalarial: 880, totalAPagar: 1620 }),
       pessoa({ employeeId: "b", employeeName: "Bia Sem Adiantamento" }),
@@ -48,16 +49,46 @@ describe("lista de pagamento: coluna Adiantamento", () => {
     const th = screen.getByRole("columnheader", { name: /Adiantamento/ });
     expect(th.getAttribute("title")).toContain("40% do salário base, pago no dia 20");
     const ana = screen.getByText("Ana Adiantada").closest("tr")!;
-    expect(within(ana).getByText(/− R\$\s*880,00/)).toBeTruthy();
+    expect(within(ana).getByText("880,00")).toBeTruthy();
+    expect(within(ana).getByText(/–/)).toBeTruthy();
     const bia = screen.getByText("Bia Sem Adiantamento").closest("tr")!;
     expect(within(bia).getAllByText("—").length).toBeGreaterThan(0);
     const total = screen.getByText("Total").closest("tr")!;
-    expect(within(total).getByText(/− R\$\s*880,00/)).toBeTruthy();
+    expect(within(total).getByText("880,00")).toBeTruthy();
+    expect(screen.queryByText(/Adiantamento oculto/)).toBeNull();
   });
 
-  test("sem a permissão de Funcionários (adiantamento null) não quebra: fica o traço", () => {
+  test("respeita \"ocultar valores\": o adiantamento some como as outras colunas", () => {
+    const c = comp([pessoa({ employeeId: "a", employeeName: "Ana Adiantada", adiantamentoSalarial: 880, totalAPagar: 1620 })]);
+    render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />, { ...SESSAO, hideSensitiveValues: true } as SessionContextValue);
+    const ana = screen.getByText("Ana Adiantada").closest("tr")!;
+    expect(within(ana).queryByText("880,00")).toBeNull();
+    expect(within(ana).getAllByLabelText("valor oculto").length).toBeGreaterThan(0);
+  });
+
+  test("sem a permissão de Funcionários (adiantamento null): \"oculto\", nota do A pagar e sem a regra no título", () => {
     const c = comp([pessoa({ employeeId: "a", employeeName: "Ana", adiantamentoSalarial: null, baseSalary: null })]);
     render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />);
-    expect(screen.queryByText(/− R\$\s*880/)).toBeNull();
+    const ana = screen.getByText("Ana").closest("tr")!;
+    expect(within(ana).getByText("oculto")).toBeTruthy();
+    const total = screen.getByText("Total").closest("tr")!;
+    expect(within(total).getByText("oculto")).toBeTruthy();
+    expect(screen.getByText(/A pagar já considera o adiantamento/)).toBeTruthy();
+    const th = screen.getByRole("columnheader", { name: /Adiantamento/ });
+    expect(th.getAttribute("title")).not.toContain("40%");
+    expect(th.getAttribute("title")).not.toContain("dia 20");
+  });
+});
+
+describe("adiantamento oculto (regra compartilhada pela tela e pelo PDF)", () => {
+  test("null em alguém = sem permissão; 0 = não recebe", () => {
+    expect(adiantamentoOculto([{ adiantamentoSalarial: 0 }, { adiantamentoSalarial: 880 }])).toBe(false);
+    expect(adiantamentoOculto([{ adiantamentoSalarial: null }])).toBe(true);
+    expect(adiantamentoOculto([])).toBe(false);
+  });
+  test("célula do PDF: \"oculto\" sem permissão, vazio para zero, negativo para valor", () => {
+    expect(celulaAdiantamento(null)).toBe("oculto");
+    expect(celulaAdiantamento(0)).toBe("");
+    expect(celulaAdiantamento(880)).toMatch(/^− R\$\s*880,00$/);
   });
 });

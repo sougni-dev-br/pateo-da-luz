@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, FileText } from "lucide-react";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { type CSSProperties, Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   getRhExtrato, getRhExtratoPdf, listarRhExtratos,
   type RhExtratoDetalhe, type RhExtratoPessoa, type RhExtratoResumo,
@@ -15,10 +15,17 @@ const dataBr = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5
 const num = (v: number | null) => (v == null ? "—" : v.toLocaleString("pt-BR", { maximumFractionDigits: 2 }));
 
 // Abre o PDF numa aba nova. A aba é aberta antes do download: depois de um await o
-// navegador trata a abertura como pop-up e bloqueia.
-async function abrirPdf(id: string, fileName: string) {
+// navegador trata a abertura como pop-up e bloqueia. Se o download falhar, fecha a
+// aba em branco que ficou aberta.
+export async function abrirPdf(id: string, fileName: string) {
   const aba = window.open("", "_blank");
-  const blob = await getRhExtratoPdf(id);
+  let blob: Blob;
+  try {
+    blob = await getRhExtratoPdf(id);
+  } catch (e) {
+    aba?.close();
+    throw e;
+  }
   const url = URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
   if (aba) {
     aba.location.href = url;
@@ -44,31 +51,47 @@ export function ExtratosGuardados({ recarregar = 0, onErro }: Props) {
   const [detalhe, setDetalhe] = useState<RhExtratoDetalhe | null>(null);
   const [carregando, setCarregando] = useState(false);
   const [semPermissao, setSemPermissao] = useState<string | null>(null);
+  // Número da requisição da vez: resposta atrasada (outro ano, outro extrato) é descartada.
+  const pedidoLista = useRef(0);
+  const pedidoDetalhe = useRef(0);
 
   const carregar = useCallback(async () => {
+    const vez = ++pedidoLista.current;
     setCarregando(true);
     try {
-      setLista(await listarRhExtratos(ano));
+      const r = await listarRhExtratos(ano);
+      if (vez !== pedidoLista.current) return;
+      setLista(r);
       setSemPermissao(null);
     } catch (e) {
+      if (vez !== pedidoLista.current) return;
       const msg = (e as Error).message;
       // 403: quem não vê Funcionários não vê salário nem holerite — explica em vez de dar erro.
       if (/só quem pode ver Funcionários/.test(msg)) setSemPermissao(msg); else onErro(msg);
       setLista([]);
     } finally {
-      setCarregando(false);
+      if (vez === pedidoLista.current) setCarregando(false);
     }
   }, [ano, onErro]);
 
   useEffect(() => { void carregar(); }, [carregar, recarregar]);
 
+  function fecharDetalhe() {
+    pedidoDetalhe.current++;
+    setAberto(null);
+    setDetalhe(null);
+  }
+
   async function alternar(id: string) {
-    if (aberto === id) { setAberto(null); setDetalhe(null); return; }
+    if (aberto === id) return fecharDetalhe();
+    const vez = ++pedidoDetalhe.current;
     setAberto(id);
     setDetalhe(null);
     try {
-      setDetalhe(await getRhExtrato(id));
+      const d = await getRhExtrato(id);
+      if (vez === pedidoDetalhe.current) setDetalhe(d);
     } catch (e) {
+      if (vez !== pedidoDetalhe.current) return;
       setAberto(null);
       onErro((e as Error).message);
     }
@@ -96,7 +119,7 @@ export function ExtratosGuardados({ recarregar = 0, onErro }: Props) {
             label="Ano"
             value={String(ano)}
             options={ANOS.map((a) => ({ value: String(a), label: String(a) }))}
-            onChange={(ev) => { setAno(Number(ev.target.value)); setAberto(null); setDetalhe(null); }}
+            onChange={(ev) => { setAno(Number(ev.target.value)); fecharDetalhe(); }}
           />
         </div>
       </div>
@@ -176,8 +199,15 @@ export function ExtratosGuardados({ recarregar = 0, onErro }: Props) {
   );
 }
 
+// Botão "invisível": o nome abre o holerite pelo teclado sem mudar o visual da linha.
+const botaoNome: CSSProperties = {
+  display: "flex", alignItems: "center", gap: 6, fontWeight: 500, background: "none", border: 0, padding: 0,
+  font: "inherit", color: "inherit", cursor: "pointer", textAlign: "left",
+};
+
 function PessoasDoExtrato({ detalhe }: { detalhe: RhExtratoDetalhe }) {
   const [expandida, setExpandida] = useState<string | null>(null);
+  const alternarPessoa = (id: string) => setExpandida((atual) => (atual === id ? null : id));
   return (
     <Table>
       <Table.Head>
@@ -194,16 +224,14 @@ function PessoasDoExtrato({ detalhe }: { detalhe: RhExtratoDetalhe }) {
       <Table.Body>
         {detalhe.pessoas.map((p) => (
           <Fragment key={p.id}>
-            <Table.Row
-              onClick={() => setExpandida(expandida === p.id ? null : p.id)}
-              style={{ cursor: "pointer" }}
-              aria-expanded={expandida === p.id}
-            >
+            {/* Clique em qualquer ponto da linha abre (mouse); o botão do nome é o controle acessível. */}
+            <Table.Row onClick={() => alternarPessoa(p.id)} style={{ cursor: "pointer" }}>
               <Table.Td>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 500 }}>
-                  {expandida === p.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <button type="button" style={botaoNome} aria-expanded={expandida === p.id} aria-controls={`rubricas-${p.id}`}
+                  onClick={(ev) => { ev.stopPropagation(); alternarPessoa(p.id); }}>
+                  {expandida === p.id ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
                   {p.nome}
-                </div>
+                </button>
                 <div style={{ color: "var(--muted)", fontSize: 12, marginLeft: 20 }}>
                   {p.cargo ?? "—"}{p.vinculo ? ` · ${p.vinculo}` : ""} · admissão {dataBr(p.admissao)}
                   {p.demissao ? ` · demitido em ${dataBr(p.demissao)}` : ""}
@@ -227,7 +255,7 @@ function PessoasDoExtrato({ detalhe }: { detalhe: RhExtratoDetalhe }) {
               </Table.Td>
             </Table.Row>
             {expandida === p.id && (
-              <Table.Row>
+              <Table.Row id={`rubricas-${p.id}`}>
                 <Table.Td colSpan={7}><RubricasDaPessoa pessoa={p} /></Table.Td>
               </Table.Row>
             )}

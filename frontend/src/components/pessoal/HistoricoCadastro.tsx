@@ -18,7 +18,10 @@ export function HistoricoCadastro({ employeeId }: Props) {
   const [erro, setErro] = useState<string | null>(null);
 
   useEffect(() => {
+    // Trocou de ficha: some o histórico da pessoa anterior na hora (não espera o fetch)
+    // e a resposta atrasada de outra pessoa é descartada pelo `vivo` do cleanup.
     let vivo = true;
+    setLinhas(null);
     setErro(null);
     getEmployeeHistorico(employeeId)
       .then((r) => { if (vivo) setLinhas(r); })

@@ -54,8 +54,13 @@ export function SoOcorrencias({ employees, days, year, month, marks, isFerias, c
     borderLeft: "1px solid var(--border)", borderTop: "1px solid var(--border)",
   };
 
+  // Conta o que a célula mostra: dia com férias da Folha ("Fér") e dia fora do vínculo
+  // escondem a marca antiga da escala, então não entram na contagem.
   function ocorrenciasNoMes(emp: ScheduleEmployee): number {
-    return days.filter((d) => MARCA_POR_TIPO.has(marks.get(keyOf(emp.id, d.day)) as ScheduleDayType)).length;
+    return days.filter((d) =>
+      withinEmployment(emp, year, month, d.day)
+      && !isFerias(emp.id, d.day)
+      && MARCA_POR_TIPO.has(marks.get(keyOf(emp.id, d.day)) as ScheduleDayType)).length;
   }
 
   const totalOcorrencias = employees.reduce((a, e) => a + ocorrenciasNoMes(e), 0);
@@ -186,12 +191,19 @@ export function SoOcorrencias({ employees, days, year, month, marks, isFerias, c
                     : feriasFolha ? "Férias (gerenciado na Folha)"
                       : marca ? marca.ajuda
                         : d.holidayName ?? (d.isSunday ? "Domingo" : undefined);
+                  const marcar = () => onMarcar(emp.id, d.day, proximaOcorrencia(marks.get(keyOf(emp.id, d.day)), pincel));
                   return (
                     <td
                       key={d.day}
-                      onClick={clicavel ? () => onMarcar(emp.id, d.day, proximaOcorrencia(marks.get(keyOf(emp.id, d.day)), pincel)) : undefined}
+                      onClick={clicavel ? marcar : undefined}
+                      // Teclado: a célula editável entra no Tab e responde a Enter/Espaço como o clique.
+                      role={clicavel ? "button" : undefined}
+                      tabIndex={clicavel ? 0 : undefined}
+                      onKeyDown={clicavel ? (ev) => {
+                        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); marcar(); }
+                      } : undefined}
                       title={title}
-                      aria-label={`${fullName(emp)}, dia ${d.day}${marca ? `: ${marca.nome}` : ""}`}
+                      aria-label={`${fullName(emp)}, dia ${d.day}${feriasFolha ? ": Férias (Folha)" : marca ? `: ${marca.nome}` : ""}`}
                       style={{
                         minWidth: cell, width: cell, height: compacto ? 26 : 34, textAlign: "center",
                         borderLeft: "1px solid var(--border)", borderTop: "1px solid var(--border)",

@@ -62,3 +62,20 @@ describe("PUT /team/:id/salario-combinado", () => {
     expect(db.employee.update).not.toHaveBeenCalled();
   });
 });
+
+describe("PUT /team/:id/salario-combinado — vigência de mês passado", () => {
+  const url = "/payroll/tip/team/e1/salario-combinado";
+
+  test("tirar o combinado valendo desde mês passado sem motivo: 400 e nada gravado", async () => {
+    db.employee.findFirst.mockResolvedValue({ id: "e1", salarioCombinado: 5200, salarioCombinadoMotivo: "acima do registrado", admissionDate: new Date("2025-01-01T00:00:00Z") });
+    const r = await request(app).put(url).send({ valor: null, vigenteDesde: "2026-08-01" });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toBe("Alteração valendo desde 08/2026 muda cálculos de meses passados: informe o motivo.");
+    expect(db.employee.update).not.toHaveBeenCalled();
+  });
+
+  test("com motivo, o retroativo passa", async () => {
+    const r = await request(app).put(url).send({ valor: 5200, motivo: "acima do registrado", vigenteDesde: "2026-08-01" });
+    expect(r.status).toBe(200);
+  });
+});

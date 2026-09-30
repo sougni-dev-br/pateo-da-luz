@@ -103,6 +103,13 @@ export function toLocalRow(p: TipComputedParticipant): LocalRow {
   };
 }
 
+// Sem a permissão de ver Funcionários o backend manda o adiantamento como null (com
+// permissão vem sempre número, 0 para quem não recebe). Oculto ≠ zero: o A pagar já o descontou.
+export function adiantamentoOculto(lista: Pick<TipComputedParticipant, "adiantamentoSalarial">[]): boolean {
+  return lista.some((p) => p.adiantamentoSalarial == null);
+}
+export const NOTA_ADIANTAMENTO_OCULTO = "A pagar já considera o adiantamento.";
+
 // Ordem da planilha: quem está no mês primeiro, por nome; desligados no fim.
 export function ordenar(list: TipComputedParticipant[]): TipComputedParticipant[] {
   const peso = (p: TipComputedParticipant) => (p.tipoCalculo === "MES" ? 0 : p.tipoCalculo === "FORA_DO_PERIODO" ? 2 : 1);

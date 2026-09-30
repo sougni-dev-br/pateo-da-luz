@@ -10,17 +10,16 @@
 import { PrismaClient } from "@prisma/client";
 import { executarBackfill } from "../src/modules/payroll/cadastro-historico-backfill.js";
 import { CAMPOS_SALARIO, ROTULO_CAMPO, type CampoHistorico } from "../src/modules/payroll/cadastro-historico.js";
+import { conferirDestino } from "../src/lib/destino-banco.js";
 
 const prisma = new PrismaClient();
 const args = process.argv.slice(2);
 const aplicar = args.includes("--aplicar");
 
-// Para onde vai gravar: mostra o host sempre; produção (Render) só com --producao.
-const destino = (() => { try { return new URL(process.env.DATABASE_URL ?? "").hostname || "?"; } catch { return "?"; } })();
+// Para onde vai gravar: mostra o host sempre. Sem --producao só grava em banco local
+// (localhost, 127.0.0.1, ::1, host.docker.internal); qualquer outro host exige --producao.
+const { host: destino } = conferirDestino(args, process.env.DATABASE_URL);
 console.log(`Banco de destino: ${destino}${aplicar ? " (GRAVANDO)" : " (simulação)"}`);
-if (aplicar && /render\.com$/.test(destino) && !args.includes("--producao")) {
-  throw new Error("O destino é o banco de produção: confirme com --producao junto de --aplicar.");
-}
 
 const dia = (d: Date) => d.toISOString().slice(0, 10).split("-").reverse().join("/");
 const valor = (campo: string, v: string | null, empresas: Map<string, string>) => {

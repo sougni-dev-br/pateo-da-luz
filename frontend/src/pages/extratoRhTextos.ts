@@ -35,9 +35,18 @@ export function confirmacaoImportar(p: Previa): string {
   return `${partes} (total ${reais(p.totalLiquido)})?${cadastro}`;
 }
 
-export function resumoImportacao(r: Pick<ImportExtratoResult, "calculo" | "titulosNovos" | "titulosAtualizados">): string {
+export function resumoImportacao(r: Pick<ImportExtratoResult, "calculo" | "titulosNovos" | "titulosAtualizados" | "titulosPulados">): string {
   const partes: string[] = [];
+  const pulados = r.titulosPulados ?? 0;
   if (r.titulosNovos > 0) partes.push(`${r.titulosNovos} ${tipo(r.calculo, r.titulosNovos)} lançado(s) no Contas a Pagar`);
   if (r.titulosAtualizados > 0) partes.push(`${r.titulosAtualizados} já lançado(s) e atualizado(s), sem duplicar`);
+  // Excluído à mão no Contas a Pagar fica excluído: a reimportação não traz de volta.
+  if (pulados > 0) partes.push(`${pulados} excluído(s) à mão, não recriado(s)`);
   return (partes.length ? partes.join("; ") : "Nenhum lançamento") + ".";
+}
+
+/** Avisos que só a importação trouxe (ex.: lançamento excluído à mão e não recriado); os da prévia já estão na tela. */
+export function avisosSoDaImportacao(r: Pick<ImportExtratoResult, "avisos">, previa: Pick<ExtratoPreview, "avisos"> | null): string[] {
+  const jaMostrados = new Set(previa?.avisos ?? []);
+  return (r.avisos ?? []).filter((a) => !jaMostrados.has(a));
 }
