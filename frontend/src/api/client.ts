@@ -5540,6 +5540,8 @@ export type ScheduleEmployee = {
   holidayCompBalance: number;
   /** A parte do saldo lancada a mao (o resto vem da escala). */
   holidayCompManual?: number;
+  /** "Entra na escala" desligado: sem turno, só falta/atestado/férias/folga. */
+  somenteOcorrencias?: boolean;
 };
 export type ScheduleEntry = { employeeId: string; day: number; type: ScheduleDayType };
 export type ScheduleVacationDay = { employeeId: string; day: number };
@@ -5695,6 +5697,10 @@ export type TipComputedParticipant = {
   basePoints: number;
   pointsAdjustment: number;
   fixedAmount: number | null;
+  /** O que está na Escala agora, mesmo quando o valor foi digitado. */
+  escala?: { faltas: number; atestados: number; ferias: number };
+  /** Folgas da Escala no período — só informação, fora do cálculo. null = retrato antigo. */
+  folgasEscala?: { total: number; folga: number; feriado: number; bancoHoras: number } | null;
   faltas: number; faltasOrigem: TipOrigem;
   atestados: number; atestadosOrigem: TipOrigem;
   ferias: number; feriasOrigem: TipOrigem;

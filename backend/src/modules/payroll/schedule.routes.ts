@@ -96,8 +96,12 @@ async function domingosAnteriores(
   return out;
 }
 
+// Fora da escala (só ocorrências) não ganha crédito automático: lá "sem marca" não
+// quer dizer "trabalhou", e uma falta marcada no mês faria cada feriado dele
+// virar feriado trabalhado. Continua com o ajuste manual, e a folga de feriado
+// marcada debita normalmente.
 async function saldosDeFolgaFeriado(
-  employees: Array<{ id: string; holidayCompBalance: number; admissionDate: Date | null; terminationDate: Date | null }>,
+  employees: Array<{ id: string; holidayCompBalance: number; admissionDate: Date | null; terminationDate: Date | null; includeInSchedule: boolean }>,
 ): Promise<Map<string, number>> {
   const ids = employees.map((e) => e.id);
   const saldos = new Map<string, number>();
@@ -142,7 +146,7 @@ async function saldosDeFolgaFeriado(
 
   for (const emp of employees) {
     let trabalhados = 0;
-    for (const f of feriados) {
+    for (const f of emp.includeInSchedule ? feriados : []) {
       if (!mesesComEscala.has(`${emp.id}|${f.getUTCFullYear()}-${f.getUTCMonth()}`)) continue;
       if (emp.admissionDate && f < emp.admissionDate) continue;
       if (emp.terminationDate && f > emp.terminationDate) continue;
@@ -154,23 +158,31 @@ async function saldosDeFolgaFeriado(
   return saldos;
 }
 
-// ─── Quem entra na escala de um mês ─────────────────────────────────────────────
+// ─── Quem aparece na escala de um mês ───────────────────────────────────────────
 //
-// Ativos com "Entra na escala" ligado E os desligados cujo desligamento cai
-// dentro do mês ou depois dele. O desligamento grava isActive=false no mesmo
-// instante, e filtrar só por isActive fazia a pessoa sumir da escala no dia em
-// que era lançado — levando junto as folgas do mês e os meses anteriores, que
-// ela trabalhou de verdade e alimentam o VT e a rescisão.
+// Ativos E os desligados cujo desligamento cai dentro do mês ou depois dele. O
+// desligamento grava isActive=false no mesmo instante, e filtrar só por isActive
+// fazia a pessoa sumir da escala no dia em que era lançado — levando junto as
+// folgas do mês e os meses anteriores, que ela trabalhou de verdade e alimentam
+// o VT e a rescisão.
+//
+// Quem tem "Entra na escala" desligado também vem, marcado como "só
+// ocorrências": não tem turno nem entra na conta de descanso, mas falta,
+// atestado, férias e folga dele precisam ser marcados em algum lugar para a
+// gorjeta e o VT lerem igual aos demais.
 //
 // Inativo SEM data de desligamento (o "Inativar" simples) continua fora: não há
 // data para saber até quando ele conta.
 function empregadosDaEscala(monthStart: Date): Prisma.EmployeeWhereInput {
   return {
     deletedAt: null,
-    includeInSchedule: true,
     OR: [{ isActive: true }, { isActive: false, terminationDate: { gte: monthStart } }],
   };
 }
+
+// O que se marca para quem está fora da escala. Turno e evento não existem para
+// quem não tem escala: aceitar seria inventar um dia trabalhado que ninguém montou.
+const TIPOS_SO_OCORRENCIA: readonly ScheduleType[] = ["FALTA", "ATESTADO", "FERIAS", "FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS"];
 
 // Marcação depois do desligamento não existe: a pessoa já saiu. Sobra de folga
 // planejada antes do desligamento seria lida pelo mural e por quem somar a
@@ -200,11 +212,14 @@ scheduleRouter.get("/", async (request, response) => {
     select: {
       id: true, firstName: true, lastName: true, displayName: true, sector: true, subgroup: true, position: true,
       shiftStart: true, shiftEnd: true, scheduleRegime: true, admissionDate: true, terminationDate: true, gender: true,
-      holidayCompBalance: true, isActive: true,
+      holidayCompBalance: true, isActive: true, includeInSchedule: true,
     },
     orderBy: [{ sector: "asc" }, { firstName: "asc" }, { lastName: "asc" }],
   });
   const empIds = employees.map((e) => e.id);
+  // Só quem monta escala entra no histórico de domingos: para quem está fora não há
+  // descanso a validar.
+  const idsNaEscala = employees.filter((e) => e.includeInSchedule).map((e) => e.id);
   const desligamentoPorId = new Map(employees.map((e) => [e.id, e.terminationDate]));
 
   const rows = await prisma.employeeScheduleDay.findMany({
@@ -264,10 +279,12 @@ scheduleRouter.get("/", async (request, response) => {
 
   const cfg = await prisma.payrollSettings.findUnique({ where: { id: "singleton" }, select: { dsrDomingoMulherSemanas: true, dsrDomingoGeralSemanas: true } });
   const regraDomingo = { mulher: cfg?.dsrDomingoMulherSemanas ?? 2, geral: cfg?.dsrDomingoGeralSemanas ?? 3 };
-  const sundayHistory = await domingosAnteriores(empIds, monthStart);
+  const sundayHistory = await domingosAnteriores(idsNaEscala, monthStart);
   const saldos = await saldosDeFolgaFeriado(employees);
-  const employeesComSaldo = employees.map((e) => ({
+  const employeesComSaldo = employees.map(({ includeInSchedule, ...e }) => ({
     ...e,
+    /** Fora da escala: a tela mostra numa seção à parte, sem turno. */
+    somenteOcorrencias: !includeInSchedule,
     holidayCompBalance: saldos.get(e.id) ?? e.holidayCompBalance,
     /** A parte lançada à mão, para a tela poder explicar de onde vem o saldo. */
     holidayCompManual: e.holidayCompBalance,
@@ -304,16 +321,16 @@ scheduleRouter.post("/bulk", async (request, response) => {
   const monthStart = new Date(Date.UTC(year, month - 1, 1));
   const nextMonthStart = new Date(Date.UTC(year, month, 1));
 
-  // Quem este salvamento pode reescrever: todos os ativos (como sempre foi) e
-  // os desligados que a tela mostra neste mês. Desligado com "Entra na escala"
-  // desligado fica de fora — não aparece na tela, então não manda marcação, e
-  // incluí-lo aqui apagaria as folgas dele em silêncio.
+  // Quem este salvamento pode reescrever: exatamente quem a tela mostra neste mês
+  // (inclusive a seção "só ocorrências"). Quem não aparece não manda marcação, e
+  // incluí-lo aqui apagaria as marcações dele em silêncio.
   const editaveis = await prisma.employee.findMany({
-    where: { OR: [{ deletedAt: null, isActive: true }, empregadosDaEscala(monthStart)] },
-    select: { id: true, terminationDate: true },
+    where: empregadosDaEscala(monthStart),
+    select: { id: true, terminationDate: true, includeInSchedule: true, firstName: true, lastName: true, displayName: true },
   });
   const activeIds = new Set(editaveis.map((e) => e.id));
   const desligamentoPorId = new Map(editaveis.map((e) => [e.id, e.terminationDate]));
+  const foraDaEscala = new Map(editaveis.filter((e) => !e.includeInSchedule).map((e) => [e.id, e]));
 
   const seen = new Set<string>();
   const entries = rawEntries
@@ -332,6 +349,17 @@ scheduleRouter.post("/bulk", async (request, response) => {
       seen.add(k);
       return true;
     });
+
+  // Recusa inteira em vez de descartar: sumir com a marcação em silêncio faria quem
+  // marcou achar que salvou.
+  const invalida = entries.find((e) => foraDaEscala.has(e.employeeId) && !TIPOS_SO_OCORRENCIA.includes(e.type));
+  if (invalida) {
+    const emp = foraDaEscala.get(invalida.employeeId)!;
+    const nome = emp.displayName?.trim() || `${emp.firstName} ${emp.lastName}`.trim();
+    return response.status(400).json({
+      message: `${nome} está fora da escala (só ocorrências): no dia ${invalida.day} só dá para marcar falta, atestado, férias ou folga — turno e evento não.`,
+    });
+  }
 
   await prisma.$transaction(async (tx) => {
     await tx.employeeScheduleDay.deleteMany({
