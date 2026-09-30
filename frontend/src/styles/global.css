@@ -5656,6 +5656,11 @@ td:nth-child(n+3):not(:last-child) {
   color: #be123c;
 }
 
+.source-badge.source-extra {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
 /* Chips de atalho rápido */
 .payables-chips {
   display: flex;
