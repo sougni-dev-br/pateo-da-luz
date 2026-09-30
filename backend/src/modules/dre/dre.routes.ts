@@ -3,6 +3,8 @@ import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { auditLog, requireRole } from "../security/security-utils.js";
+import { FERIAS_CATEGORY, FOLHA_CATEGORY, RESCISAO_CATEGORY, VT_CATEGORY } from "../payroll/payroll.service.js";
+import { custoExtrasSql } from "../payroll/extras-custo.js";
 import { createDrePdf, type DreSummary } from "./dre-pdf.js";
 import {
   CATEGORIAS_CMV_GERENCIAL,
@@ -70,6 +72,7 @@ const SEED_CATEGORIES = [
   { name: "INSS",                 dreGroup: "PESSOAL",           sortOrder: 17 },
   { name: "FGTS",                 dreGroup: "PESSOAL",           sortOrder: 18 },
   { name: "Prêmios / Gratificações", dreGroup: "PESSOAL",        sortOrder: 19 },
+  { name: "Extras / Diárias",     dreGroup: "PESSOAL",           sortOrder: 20 },
   // VALE_TRANSPORTE
   { name: "Vale-Transporte",      dreGroup: "VALE_TRANSPORTE",   sortOrder: 21 },
   // LOCACAO
@@ -244,9 +247,13 @@ function buildExpenseGroups(expenses: ExpenseItem[]): ExpenseGroup[] {
     .filter((group) => group.lines.length > 0);
 }
 
+// Diária é data pura; from/to vêm no fuso do servidor. Comparar como DATA, com
+// os mesmos campos locais, não perde o dia 1º nem invade o mês seguinte.
+const diaLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
   // Todas as queries são independentes entre si — rodam em paralelo
-  const [revenueRows, snapInitialValue, snapFinalValue, comprasCmv, comprasGerenciais, expenseRows, managerialExpenseRows, taxExpenseRows, payrollExpenseRows] = await Promise.all([
+  const [revenueRows, snapInitialValue, snapFinalValue, comprasCmv, comprasGerenciais, expenseRows, managerialExpenseRows, taxExpenseRows, payrollExpenseRows, extrasExpenseRows] = await Promise.all([
     // ── Receita por canal ──
     prisma.$queryRaw<Array<{
       channel: string;
@@ -477,6 +484,30 @@ async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
         AND MAKE_DATE(pit."competenceYear", pit."competenceMonth", 1) <= ${to}
       GROUP BY pit."dreCategoryId", dc.name, dc."sortOrder", dc."dreGroup"
     `,
+    // ── Extras (diárias) por competência = data do trabalho ──
+    // Só diária REALIZADA custa, mesmo antes de paga. Diferença de valor pago
+    // (baixa acima/abaixo do título) também entra — ver extras-custo.ts.
+    prisma.$queryRaw<Array<{
+      dreCategory: string | null;
+      dreCategoryName: string | null;
+      dreSortOrder: number | null;
+      dreGroup: string | null;
+      total: string;
+      count: number;
+    }>>`
+      SELECT
+        dc.id                        AS "dreCategory",
+        COALESCE(dc.name, 'Extras / Diárias') AS "dreCategoryName",
+        dc."sortOrder"               AS "dreSortOrder",
+        COALESCE(dc."dreGroup", 'PESSOAL') AS "dreGroup",
+        SUM(c.valor)::text           AS total,
+        COUNT(*) FILTER (WHERE c.diaria)::int AS count
+      FROM (${custoExtrasSql}) c
+      LEFT JOIN "DRECategory" dc ON dc.name = 'Extras / Diárias'
+      WHERE c.dia >= ${diaLocal(from)}::date
+        AND c.dia <= ${diaLocal(to)}::date
+      GROUP BY dc.id, dc.name, dc."sortOrder", dc."dreGroup"
+    `,
   ]);
 
   // ── Agregar receita ──
@@ -497,7 +528,7 @@ async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
   const estoqueFinal = Number(snapFinalValue[0]?.totalValue ?? 0);
   const compras = comprasCmv;
   const buildExpenseSummary = (rows: typeof expenseRows) => {
-    const allExpenseRows = [...rows, ...taxExpenseRows, ...payrollExpenseRows];
+    const allExpenseRows = [...rows, ...taxExpenseRows, ...payrollExpenseRows, ...extrasExpenseRows];
     const expenseByCategory = new Map<string, { dreCategoryId: string | null; dreCategoryName: string; dreGroup: string; sortOrder: number; total: number; count: number }>();
     for (const r of allExpenseRows) {
       const key = r.dreCategory ?? "__none__";
@@ -718,7 +749,75 @@ dreRouter.get("/expense-drill", async (request, response) => {
     `;
   }
 
-  response.json(rows.map((r) => ({
+  // Diárias de extras não são parcela de compra: entram no detalhamento da
+  // categoria delas, marcadas com a origem (a tela não oferece trocar categoria).
+  const extras = dreCategoryId
+    ? await prisma.$queryRaw<Array<{ id: string; date: Date; nome: string; code: string | null; paymentDate: Date | null; total: string; categoria: string }>>`
+        SELECT s.id, s."date",
+               CASE WHEN s."employeeId" IS NOT NULL THEN CONCAT(e."firstName", ' ', e."lastName") ELSE w."fullName" END AS nome,
+               ep."code" AS code, ep."paymentDate" AS "paymentDate", s."totalAmount"::text AS total, dc.name AS categoria
+        FROM "ExtraShift" s
+        JOIN "DRECategory" dc ON dc.id = ${dreCategoryId} AND dc.name = 'Extras / Diárias'
+        LEFT JOIN "Employee" e ON e.id = s."employeeId"
+        LEFT JOIN "ExtraWorker" w ON w.id = s."extraWorkerId"
+        LEFT JOIN "ExtraPayment" ep ON ep.id = s."paymentId" AND ep.status <> 'CANCELED'
+        WHERE s."deletedAt" IS NULL AND s.status = 'REALIZADA'
+          AND s."date" >= ${diaLocal(range.from)}::date AND s."date" <= ${diaLocal(range.to)}::date
+        ORDER BY s."date" ASC
+        LIMIT 500
+      `
+    : [];
+  // Diferença de valor pago num título de extra (mesma regra do DRE).
+  const diferencas = dreCategoryId
+    ? await prisma.$queryRaw<Array<{ id: string; dia: Date; nome: string; code: string; paymentDate: Date; valor: string; categoria: string }>>`
+        SELECT c.ref AS id, c.dia, c.codigo AS code, ep."paymentDate" AS "paymentDate", c.valor::text AS valor, dc.name AS categoria,
+               CASE WHEN ep."employeeId" IS NOT NULL THEN CONCAT(e."firstName", ' ', e."lastName") ELSE w."fullName" END AS nome
+        FROM (${custoExtrasSql}) c
+        JOIN "DRECategory" dc ON dc.id = ${dreCategoryId} AND dc.name = 'Extras / Diárias'
+        JOIN "ExtraPayment" ep ON ep.id = c.ref
+        LEFT JOIN "Employee" e ON e.id = ep."employeeId"
+        LEFT JOIN "ExtraWorker" w ON w.id = ep."extraWorkerId"
+        WHERE NOT c.diaria AND c.dia >= ${diaLocal(range.from)}::date AND c.dia <= ${diaLocal(range.to)}::date
+      `
+    : [];
+
+  response.json([...extras.map((x) => ({
+    installmentId: x.id,
+    purchaseId: null,
+    purchaseDate: x.date,
+    supplierName: x.nome,
+    invoiceNumber: null,
+    purchaseNumber: x.code,
+    expenseType: "Diária extra",
+    installment: null,
+    dueDate: x.date,
+    paidDate: x.paymentDate,
+    amount: Number(x.total),
+    paidAmount: null,
+    effectiveAmount: Number(x.total),
+    status: x.paymentDate ? "PAID" : "OPEN",
+    dreCategoryId,
+    dreCategoryName: x.categoria,
+    origem: "EXTRA",
+  })), ...diferencas.map((x) => ({
+    installmentId: `dif-${x.id}`,
+    purchaseId: null,
+    purchaseDate: x.dia,
+    supplierName: `${x.nome} — diferença paga`,
+    invoiceNumber: null,
+    purchaseNumber: x.code,
+    expenseType: "Diferença de pagamento de extra",
+    installment: null,
+    dueDate: x.dia,
+    paidDate: x.paymentDate,
+    amount: Number(x.valor),
+    paidAmount: null,
+    effectiveAmount: Number(x.valor),
+    status: "PAID",
+    dreCategoryId,
+    dreCategoryName: x.categoria,
+    origem: "EXTRA",
+  })), ...rows.map((r) => ({
     installmentId: r.installmentId,
     purchaseId: r.purchaseId,
     purchaseDate: r.purchaseDate,
@@ -735,7 +834,7 @@ dreRouter.get("/expense-drill", async (request, response) => {
     status: r.status,
     dreCategoryId: r.dreCategory,
     dreCategoryName: r.dreCategoryName ?? "Não categorizada"
-  })));
+  }))]);
 });
 
 // Atribuir dreCategory a uma parcela
@@ -1068,6 +1167,8 @@ dreRouter.post("/categories", async (request, response) => {
   response.json(row);
 });
 
+const NOMES_USADOS_PELO_SISTEMA = [FOLHA_CATEGORY, VT_CATEGORY, RESCISAO_CATEGORY, FERIAS_CATEGORY, "Extras / Diárias"];
+
 dreRouter.put("/categories/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -1075,6 +1176,14 @@ dreRouter.put("/categories/:id", async (request, response) => {
   const name = String(request.body.name ?? "").trim();
   if (!name) {
     response.status(400).json({ message: "Nome é obrigatório." });
+    return;
+  }
+
+  // Folha e extras acham estas categorias PELO NOME. Renomear jogaria o custo
+  // em "Não categorizadas" sem aviso e esvaziaria o detalhamento.
+  const atual = await prisma.dRECategory.findUnique({ where: { id: request.params.id }, select: { name: true } });
+  if (atual && NOMES_USADOS_PELO_SISTEMA.includes(atual.name) && atual.name !== name) {
+    response.status(400).json({ message: `"${atual.name}" é usada pela folha e pelos extras e não pode ser renomeada. Grupo, ordem e observação podem mudar.` });
     return;
   }
 
