@@ -5416,6 +5416,8 @@ export type Employee = {
   baseSalary: string | null;
   salarioCombinado?: string | null;
   salarioCombinadoMotivo?: string | null;
+  /** Teto do IR para a gorjeta informada à contabilidade (CLT): o envio leva teto − salário registrado. */
+  tetoIrGorjeta?: string | null;
   /** Recebe adiantamento salarial no dia do adiantamento (sem registro: desconta da lista). */
   recebeAdiantamento?: boolean;
   /** Sem registro: recebe por quinzena (metade do salário base no dia 15; a lista do dia 30 desconta). */
@@ -5485,6 +5487,8 @@ export type EmployeePayload = {
   /** Ausente = não mexe; null = tira. */
   salarioCombinado?: string | number | null;
   salarioCombinadoMotivo?: string | null;
+  /** Ausente = não mexe; null = tira. Só CLT (sem registro: 400). */
+  tetoIrGorjeta?: string | number | null;
   /** Ausente = não mexe. */
   recebeAdiantamento?: boolean;
   /** Ausente = não mexe. Junto com recebeAdiantamento=true, o backend recusa (400). */
@@ -5510,7 +5514,7 @@ export type EmployeePayload = {
   motivoAlteracao?: string;
 };
 
-export type CampoHistoricoCadastro = "baseSalary" | "salarioCombinado" | "modality" | "companyId" | "position" | "recebeAdiantamento" | "pagamentoQuinzenal";
+export type CampoHistoricoCadastro = "baseSalary" | "salarioCombinado" | "tetoIrGorjeta" | "modality" | "companyId" | "position" | "recebeAdiantamento" | "pagamentoQuinzenal";
 
 /** Uma alteração do cadastro. Sem permissão de ver Funcionários, salário vem com oculto=true e sem valores. */
 export type EmployeeHistoricoLinha = {
@@ -5771,6 +5775,15 @@ export type TipComputedParticipant = {
   creditos: number;
   valesTotal: number;
   netCommission: number;
+  /**
+   * Gorjeta enviada à contabilidade. Com teto do IR (CLT): teto − salário registrado do mês;
+   * sem teto: = netCommission. Com teto e sem permissão de ver Funcionários vem null (o valor
+   * revelaria o salário). Ausente = backend antigo (vale netCommission).
+   */
+  gorjetaInformada?: number | null;
+  gorjetaInformadaPeloTeto?: boolean;
+  /** Teto do IR vigente no mês: só com permissão de ver Funcionários. */
+  tetoIrGorjeta?: number | null;
   diasSalarioOverride: number | null;
   diasSalario: number;
   salarioProporcional: number;
@@ -6841,6 +6854,8 @@ export type TipLinhaConferencia = {
   status: TipStatusConferencia; justificativa: string | null;
   extratoId?: string; nomeNoExtrato?: string;
   apelido?: string | null;
+  /** A apuração é a gorjeta informada pelo teto do IR (sem permissão, apuração e diferença vêm null). */
+  peloTeto?: boolean;
 };
 export type TipExtratoMeta = { id: string; empresa: string; cnpj: string; arquivo: string; hash: string; importadoEm: string; importadoPor: string; pessoas: number };
 export type TipConferencia = {

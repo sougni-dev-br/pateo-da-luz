@@ -6,19 +6,21 @@
 // (decisão do Eli, "Opção A", 30/09/2026).
 
 export const CAMPOS_HISTORICO = [
-  "baseSalary", "salarioCombinado", "modality", "companyId", "position", "recebeAdiantamento", "pagamentoQuinzenal",
+  "baseSalary", "salarioCombinado", "tetoIrGorjeta", "modality", "companyId", "position", "recebeAdiantamento", "pagamentoQuinzenal",
 ] as const;
 export type CampoHistorico = (typeof CAMPOS_HISTORICO)[number];
 
 // Sim/não do cadastro: gravados no histórico como "true"/"false".
 const CAMPOS_BOOLEANOS: ReadonlySet<CampoHistorico> = new Set(["recebeAdiantamento", "pagamentoQuinzenal"]);
 
-// Salário só aparece para quem pode ver Funcionários.
-export const CAMPOS_SALARIO: ReadonlySet<CampoHistorico> = new Set(["baseSalary", "salarioCombinado"]);
+// Salário (e o teto do IR, que com o salário dá a gorjeta informada) só para quem pode ver Funcionários.
+export const CAMPOS_SALARIO: ReadonlySet<CampoHistorico> = new Set(["baseSalary", "salarioCombinado", "tetoIrGorjeta"]);
+const CAMPOS_DINHEIRO: ReadonlySet<CampoHistorico> = CAMPOS_SALARIO;
 
 export const ROTULO_CAMPO: Record<CampoHistorico, string> = {
   baseSalary: "Salário base",
   salarioCombinado: "Salário combinado",
+  tetoIrGorjeta: "Teto do IR para a gorjeta informada",
   modality: "Vínculo",
   companyId: "Empresa",
   position: "Cargo",
@@ -40,7 +42,7 @@ export type Alteracao = { campo: CampoHistorico; valorAnterior: string | null; v
 // igual), booleano "true"/"false", vazio vira null.
 export function serializar(campo: CampoHistorico, valor: unknown): string | null {
   if (valor == null || valor === "") return null;
-  if (campo === "baseSalary" || campo === "salarioCombinado") {
+  if (CAMPOS_DINHEIRO.has(campo)) {
     const n = Number(valor);
     return Number.isFinite(n) ? n.toFixed(2) : null;
   }
@@ -52,6 +54,7 @@ export function serializar(campo: CampoHistorico, valor: unknown): string | null
 export type ValorCadastro = {
   baseSalary: number | null;
   salarioCombinado: number | null;
+  tetoIrGorjeta: number | null;
   modality: string;
   companyId: string | null;
   position: string | null;
@@ -61,7 +64,7 @@ export type ValorCadastro = {
 
 // Texto do histórico de volta ao tipo do cadastro.
 export function desserializar<C extends CampoHistorico>(campo: C, texto: string | null): ValorCadastro[C] {
-  if (campo === "baseSalary" || campo === "salarioCombinado") return (texto == null ? null : Number(texto)) as ValorCadastro[C];
+  if (CAMPOS_DINHEIRO.has(campo)) return (texto == null ? null : Number(texto)) as ValorCadastro[C];
   if (CAMPOS_BOOLEANOS.has(campo)) return (texto === "true") as ValorCadastro[C];
   if (campo === "modality") return (texto ?? "CLT") as ValorCadastro[C];
   return texto as ValorCadastro[C];
@@ -160,7 +163,7 @@ export function lerVigenteDesde(
 // Salário e vínculo alterados valendo desde um mês ANTERIOR ao atual mudam a folha, a
 // gorjeta e a rescisão de meses já calculados. Sem motivo, ninguém sabe depois por que o
 // mês passado mudou: exige pelo menos 5 letras. Mudança no próprio mês (ou futura) não.
-export const CAMPOS_RETROATIVO_EXIGE_MOTIVO: ReadonlySet<CampoHistorico> = new Set(["baseSalary", "salarioCombinado", "modality"]);
+export const CAMPOS_RETROATIVO_EXIGE_MOTIVO: ReadonlySet<CampoHistorico> = new Set(["baseSalary", "salarioCombinado", "tetoIrGorjeta", "modality"]);
 const MIN_LETRAS_MOTIVO = 5;
 
 export function faltaMotivoRetroativo(

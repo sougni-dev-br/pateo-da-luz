@@ -108,7 +108,7 @@ const emptyEmployee = {
   zipCode: "", address: "", addressNumber: "", addressComplement: "", neighborhood: "", city: "", state: "",
   bankName: "", bankAgency: "", bankAccount: "", bankAccountDigit: "", bankAccountType: "CONTA_CORRENTE" as EmployeeBankAccountType,
   gender: "NAO_INFORMADO" as EmployeeGender,
-  pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", salarioCombinado: "", salarioCombinadoMotivo: "", recebeAdiantamento: false, pagamentoQuinzenal: false, shiftStart: "", shiftEnd: "",
+  pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", salarioCombinado: "", salarioCombinadoMotivo: "", tetoIrGorjeta: "", recebeAdiantamento: false, pagamentoQuinzenal: false, shiftStart: "", shiftEnd: "",
   modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, admissionDate: "", admissaoCarteira: "",
   vtType: "TRANSPORTE_PUBLICO" as VtType, vtPeriodicity: "QUINZENAL" as VtPeriodicity,
   vtFixedAmount: "", vtMonthlyFareId: "", notes: "",
@@ -221,6 +221,7 @@ export function Funcionarios() {
       pixKeyType: e.pixKeyType ?? "", pixKey: e.pixKey ?? "",
       sector: e.sector ?? "", subgroup: e.subgroup ?? "", position: e.position ?? "", baseSalary: moneyToMasked(e.baseSalary),
       salarioCombinado: moneyToMasked(e.salarioCombinado ?? null), salarioCombinadoMotivo: e.salarioCombinadoMotivo ?? "",
+      tetoIrGorjeta: moneyToMasked(e.tetoIrGorjeta ?? null),
       recebeAdiantamento: e.recebeAdiantamento ?? false, pagamentoQuinzenal: e.pagamentoQuinzenal ?? false,
       shiftStart: e.shiftStart ?? "", shiftEnd: e.shiftEnd ?? "",
       modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, admissionDate: toDateInput(e.admissionDate), admissaoCarteira: toDateInput(e.admissaoCarteira ?? null),
@@ -231,6 +232,7 @@ export function Funcionarios() {
     });
     setOriginal({
       baseSalary: moneyToMasked(e.baseSalary), salarioCombinado: moneyToMasked(e.salarioCombinado ?? null),
+      tetoIrGorjeta: moneyToMasked(e.tetoIrGorjeta ?? null),
       modality: e.modality, position: e.position ?? "", recebeAdiantamento: e.recebeAdiantamento ?? false,
       pagamentoQuinzenal: e.pagamentoQuinzenal ?? false,
     });
@@ -289,6 +291,7 @@ export function Funcionarios() {
         ...(form.modality === "CLT" ? {
           salarioCombinado: form.salarioCombinado ? moneyToNumberString(form.salarioCombinado) : null,
           salarioCombinadoMotivo: form.salarioCombinado ? form.salarioCombinadoMotivo.trim() : null,
+          tetoIrGorjeta: form.tetoIrGorjeta ? moneyToNumberString(form.tetoIrGorjeta) : null,
         } : {}),
         recebeAdiantamento: form.recebeAdiantamento,
         pagamentoQuinzenal: form.pagamentoQuinzenal,
@@ -640,6 +643,10 @@ export function Funcionarios() {
                         </FormField>
                       </div>
                     )}
+                    <FormField label="Teto do IR para a gorjeta informada"
+                      hint="A gorjeta enviada à contabilidade será o teto menos o salário registrado. A pessoa continua recebendo a gorjeta dos pontos. Vazio = envia a gorjeta dos pontos">
+                      <TextField value={form.tetoIrGorjeta} onChange={(e) => setForm({ ...form, tetoIrGorjeta: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" aria-label="Teto do IR para a gorjeta informada" />
+                    </FormField>
                   </>
                 )}
                 {form.modality === "NAO_CLT" ? (

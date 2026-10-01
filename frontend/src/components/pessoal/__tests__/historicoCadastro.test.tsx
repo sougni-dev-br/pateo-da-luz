@@ -12,7 +12,7 @@ vi.mock("../../../api/client", async (importOriginal) => ({
 
 import { getEmployeeHistorico } from "../../../api/client";
 import { HistoricoCadastro } from "../HistoricoCadastro";
-import { motivoObrigatorio, mudouCampoComHistorico, type CamposComHistorico } from "../historicoCadastroFormato";
+import { ehDinheiro, motivoObrigatorio, mudouCampoComHistorico, type CamposComHistorico } from "../historicoCadastroFormato";
 
 const SESSAO = { user: null, setUser: () => undefined, hideSensitiveValues: false, toggleSensitiveValues: () => undefined, canAccessSection: () => true, hasPermission: () => true } as unknown as SessionContextValue;
 const envolver = (ui: ReactElement) => <SessionContext.Provider value={SESSAO}><HideValuesProvider>{ui}</HideValuesProvider></SessionContext.Provider>;
@@ -132,5 +132,21 @@ describe("motivo obrigatório para data retroativa (antecipa o 400 do backend)",
     expect(motivoObrigatorio(naoClt, { ...naoClt, salarioCombinado: "3.000,00" }, "2026-08-01", HOJE)).toBe(false);
     expect(motivoObrigatorio(original, { ...original, baseSalary: "2.500,00" }, "", HOJE)).toBe(false);
     expect(motivoObrigatorio(null, original, "2026-08-01", HOJE)).toBe(false);
+  });
+});
+
+describe("teto do IR para a gorjeta informada na ficha", () => {
+  const original: CamposComHistorico = { baseSalary: "3.672,00", salarioCombinado: "5.200,00", tetoIrGorjeta: "", modality: "CLT", position: "Gerente", recebeAdiantamento: true };
+  test("pôr o teto pede \"vale a partir de\"; retroativo exige motivo", () => {
+    expect(mudouCampoComHistorico(original, { ...original, tetoIrGorjeta: "5.000,00" })).toBe(true);
+    expect(motivoObrigatorio(original, { ...original, tetoIrGorjeta: "5.000,00" }, "2026-09-01", "2026-10-01")).toBe(true);
+    expect(motivoObrigatorio(original, { ...original, tetoIrGorjeta: "5.000,00" }, "2026-10-01", "2026-10-01")).toBe(false);
+  });
+  test("sem registro: o teto não vai ao backend, não conta como mudança", () => {
+    const sr = { ...original, modality: "NAO_CLT" as const };
+    expect(mudouCampoComHistorico(sr, { ...sr, tetoIrGorjeta: "5.000,00" })).toBe(false);
+  });
+  test("é dinheiro no histórico", () => {
+    expect(ehDinheiro({ campo: "tetoIrGorjeta" })).toBe(true);
   });
 });

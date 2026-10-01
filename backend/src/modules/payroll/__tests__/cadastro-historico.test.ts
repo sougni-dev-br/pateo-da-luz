@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
-  alteracoes, cadastroVigenteEm, diaDeReferencia, lerVigenteDesde, serializar, valorVigenteEm, type LinhaHistorico,
+  CAMPOS_HISTORICO, CAMPOS_SALARIO, ROTULO_CAMPO, alteracoes, cadastroVigenteEm, diaDeReferencia, faltaMotivoRetroativo, lerVigenteDesde,
+  serializar, valorVigenteEm, type LinhaHistorico,
 } from "../cadastro-historico.js";
 
 const d = (s: string) => new Date(`${s}T00:00:00.000Z`);
@@ -107,5 +108,25 @@ describe("dia de referência do salário do mês", () => {
   });
   test("saiu depois do mês: o fim do mês", () => {
     expect(diaDeReferencia(2026, 9, d("2026-10-03"))).toEqual(d("2026-09-30"));
+  });
+});
+
+describe("teto do IR para a gorjeta informada", () => {
+  test("é rastreado como dinheiro, com rótulo, e sensível como salário", () => {
+    expect(CAMPOS_HISTORICO).toContain("tetoIrGorjeta");
+    expect(ROTULO_CAMPO.tetoIrGorjeta).toBe("Teto do IR para a gorjeta informada");
+    expect(CAMPOS_SALARIO.has("tetoIrGorjeta")).toBe(true);
+    expect(serializar("tetoIrGorjeta", "5000")).toBe("5000.00");
+    expect(alteracoes({ tetoIrGorjeta: null }, { tetoIrGorjeta: 5000 })).toEqual([{ campo: "tetoIrGorjeta", valorAnterior: null, valorNovo: "5000.00" }]);
+  });
+  test("vigente no mês pelo histórico (posto em outubro: setembro sem teto)", () => {
+    const linhas = [linha("tetoIrGorjeta", null, "5000.00", "2026-10-01")];
+    expect(cadastroVigenteEm({ tetoIrGorjeta: 5000 }, linhas, d("2026-09-30")).tetoIrGorjeta).toBeNull();
+    expect(cadastroVigenteEm({ tetoIrGorjeta: 5000 }, linhas, d("2026-10-31")).tetoIrGorjeta).toBe(5000);
+  });
+  test("pôr ou tirar valendo desde um mês passado exige motivo", () => {
+    expect(faltaMotivoRetroativo(["tetoIrGorjeta"], d("2026-08-01"), "2026-10-01", null)).toMatch(/informe o motivo/);
+    expect(faltaMotivoRetroativo(["tetoIrGorjeta"], d("2026-08-01"), "2026-10-01", "Teto combinado com a contabilidade")).toBeNull();
+    expect(faltaMotivoRetroativo(["tetoIrGorjeta"], d("2026-10-01"), "2026-10-01", null)).toBeNull();
   });
 });

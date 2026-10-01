@@ -20,6 +20,7 @@ import { minutosValidos, parseHoras } from "./hora-extra.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { diaDeReferencia } from "./cadastro-historico.js";
 import { cadastrosVigentes } from "./cadastro-historico.service.js";
+import { gorjetaInformada } from "./gorjeta-informada.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
@@ -163,6 +164,13 @@ export type ComputedParticipant = {
   creditos: number;
   valesTotal: number;      // descontos − créditos
   netCommission: number;   // rateio − descontos + créditos
+  // Gorjeta que vai à contabilidade (envio): com teto do IR (CLT), teto − salário registrado
+  // vigentes no mês; sem teto, = netCommission. A pessoa recebe netCommission do mesmo jeito.
+  // Com teto e sem a permissão de Funcionários vem null (o valor revelaria o salário): só o indicador.
+  gorjetaInformada: number | null;
+  gorjetaInformadaPeloTeto: boolean;
+  // Teto do IR vigente no mês: só com a permissão de Funcionários.
+  tetoIrGorjeta: number | null;
   diasSalarioOverride: number | null;
   diasSalario: number;
   salarioProporcional: number;
@@ -423,7 +431,7 @@ export async function computeTipCommission(
             select: {
               firstName: true, lastName: true, displayName: true, isActive: true,
               companyId: true, company: { select: { tradeName: true } },
-              modality: true, baseSalary: true, pixKeyType: true, pixKey: true, recebeAdiantamento: true,
+              modality: true, baseSalary: true, tetoIrGorjeta: true, pixKeyType: true, pixKey: true, recebeAdiantamento: true,
               pagamentoQuinzenal: true, admissionDate: true, terminationDate: true,
               pontosExtra: true, tipFunction: { select: { name: true, points: true, minPoints: true, maxPoints: true } },
             },
@@ -481,7 +489,7 @@ export async function computeTipCommission(
   const vigentes = await cadastrosVigentes(
     rows.map((r) => ({
       id: r.employeeId, terminationDate: r.employee.terminationDate,
-      modality: r.employee.modality as string, baseSalary: num(r.employee.baseSalary),
+      modality: r.employee.modality as string, baseSalary: num(r.employee.baseSalary), tetoIrGorjeta: num(r.employee.tetoIrGorjeta),
       recebeAdiantamento: r.employee.recebeAdiantamento, pagamentoQuinzenal: r.employee.pagamentoQuinzenal,
       companyId: r.employee.companyId,
     })),
@@ -589,6 +597,10 @@ export async function computeTipCommission(
       })
       : calc.adiantamentoSalarial;
     const naEscala = escala.get(r.employeeId) ?? semOcorrencias();
+    // Teto do IR só vale para quem é CLT no mês e tem salário registrado para descontar.
+    const teto = ent.semRegistro ? null : vigenteDe(r).tetoIrGorjeta;
+    const peloTeto = teto != null && ent.salarioBase != null;
+    const informada = gorjetaInformada(peloTeto ? teto : null, ent.salarioBase, netCommission);
     return {
       participantId: r.id,
       employeeId: r.employeeId,
@@ -653,6 +665,9 @@ export async function computeTipCommission(
       creditos: calc.creditos,
       valesTotal: round2(calc.descontos - calc.creditos),
       netCommission,
+      gorjetaInformada: peloTeto && !dadosPessoais ? null : informada,
+      gorjetaInformadaPeloTeto: peloTeto,
+      tetoIrGorjeta: dadosPessoais ? teto : null,
       diasSalarioOverride: r.diasSalarioOverride,
       diasSalario: calc.diasSalario,
       salarioProporcional,
@@ -701,6 +716,14 @@ export async function computeTipCommission(
         : " Reduza pontos ou ajustes."));
   }
 
+  // Teto do IR sem salário registrado no mês: não dá para calcular a gorjeta informada.
+  const tetoSemSalario = naGorjeta.filter((p) => {
+    const i = rows.findIndex((r) => r.employeeId === p.employeeId);
+    return !p.semRegistro && vigenteDe(rows[i]).tetoIrGorjeta != null && entradas[i].salarioBase == null;
+  });
+  if (tetoSemSalario.length) {
+    warnings.push(`${listar(tetoSemSalario)}: tem teto do IR para a gorjeta, mas está sem salário registrado no mês. O envio à contabilidade leva a gorjeta do rateio; preencha o salário no cadastro.`);
+  }
   const semBase = naGorjeta.filter((p) => p.kind === "PONTOS" && p.basePoints <= 0);
   if (semBase.length) warnings.push(`Sem pontos-base (defina a função em "Equipe e funções"): ${listar(semBase)}.`);
   const semSalario = participants.filter((p, i) =>

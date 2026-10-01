@@ -140,6 +140,19 @@ export function lerSalarioCombinado(b: Record<string, unknown>): { erro: string 
   return { dados: { salarioCombinado: valor, salarioCombinadoMotivo: motivo } };
 }
 
+// Teto do IR para a gorjeta informada (CLT): o envio à contabilidade leva teto − salário
+// registrado; a pessoa continua recebendo a gorjeta dos pontos. Só é gravado quando o corpo
+// traz o campo; vazio tira. Sem registro não tem (a gorjeta dele não vai à contabilidade).
+export const ERRO_TETO_SO_CLT = "O teto do IR para a gorjeta só vale para quem é CLT.";
+export function lerTetoIrGorjeta(b: Record<string, unknown>, modality: string): { erro: string } | { dados: { tetoIrGorjeta?: number | null } } {
+  if (!("tetoIrGorjeta" in b)) return { dados: {} };
+  if (b.tetoIrGorjeta == null || b.tetoIrGorjeta === "") return { dados: { tetoIrGorjeta: null } };
+  const valor = Number(b.tetoIrGorjeta);
+  if (!Number.isFinite(valor) || valor <= 0 || valor > 100000) return { erro: "Teto do IR para a gorjeta inválido." };
+  if (modality !== "CLT") return { erro: ERRO_TETO_SO_CLT };
+  return { dados: { tetoIrGorjeta: Math.round(valor * 100) / 100 } };
+}
+
 // Recebe adiantamento salarial (no dia do adiantamento) ou só no pagamento. Só é gravado
 // quando o corpo traz o campo, e só como booleano: "false" em texto não pode virar true.
 export function lerRecebeAdiantamento(b: Record<string, unknown>): { erro: string } | { dados: { recebeAdiantamento?: boolean } } {
@@ -361,6 +374,9 @@ employeeRouter.post("/", async (request, response) => {
   if ("erro" in combinado) return response.status(400).json({ message: combinado.erro });
   const adiantamento = lerFormaPagamento(b);
   if ("erro" in adiantamento) return response.status(400).json({ message: adiantamento.erro });
+  const teto = lerTetoIrGorjeta(b, buildEmployeeData(b).modality);
+  if ("erro" in teto) return response.status(400).json({ message: teto.erro });
+  if ("tetoIrGorjeta" in teto.dados && !(await podeVerDadosPessoais(request))) return response.status(403).json({ message: "Exige permissão de ver Funcionários." });
 
   const legs = parseLegs(b.vtLegs);
 
@@ -371,6 +387,7 @@ employeeRouter.post("/", async (request, response) => {
       ...buildEmployeeData(b),
       ...combinado.dados,
       ...adiantamento.dados,
+      ...teto.dados,
       isActive: true,
       createdById: user.id,
     },
@@ -424,7 +441,12 @@ employeeRouter.put("/:id", async (request, response) => {
   if ("erro" in combinado) return response.status(400).json({ message: combinado.erro });
   const adiantamento = lerFormaPagamento(b, existing);
   if ("erro" in adiantamento) return response.status(400).json({ message: adiantamento.erro });
-  const dados = { cpf, ...buildEmployeeData(b), ...combinado.dados, ...adiantamento.dados };
+  const base = buildEmployeeData(b);
+  const teto = lerTetoIrGorjeta(b, base.modality);
+  if ("erro" in teto) return response.status(400).json({ message: teto.erro });
+  // O teto com o salário dá a gorjeta informada: mexer nele exige ver salários.
+  if ("tetoIrGorjeta" in teto.dados && !(await podeVerDadosPessoais(request))) return response.status(403).json({ message: "Exige permissão de ver Funcionários." });
+  const dados = { cpf, ...base, ...combinado.dados, ...adiantamento.dados, ...teto.dados };
   const vigencia = lerVigencia(b, existing, dados, dados.admissionDate ?? existing.admissionDate);
   if ("erro" in vigencia) return response.status(400).json({ message: vigencia.erro });
 

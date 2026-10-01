@@ -3,6 +3,7 @@ import { type CSSProperties, useMemo } from "react";
 import type { TipComputation, TipComputedParticipant } from "../../api/client";
 import { Alert, Button, Money, StatusBadge, Table } from "../../design-system";
 import { exportarContabilidade, exportarListaPagamento } from "./exportarPdf";
+import { NOTA_TETO_OCULTO, gorjetaEnviada } from "./envioContabilidade";
 import { SeloRecibo } from "./ReciboRescisao";
 import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
@@ -19,7 +20,7 @@ const EXTRATORES: Extratores<TipComputedParticipant> = {
   nome: (p) => p.employeeName,
   empresa: (p) => p.companyName,
   gorjeta: (p) => p.rateioAmount,
-  lancar: (p) => p.netCommission,
+  lancar: (p) => gorjetaEnviada(p),
   horaExtra: (p) => parseHoras(p.horaExtra),
   noturno: (p) => parseHoras(p.adicionalNoturno),
   faltas: (p) => p.faltas,
@@ -78,6 +79,30 @@ function CelulaAdiantamento({ valor, oculto = `Sem permissão de ver o adiantame
   return valor ? <Money value={-valor} /> : <>—</>;
 }
 
+// Soma do que vai à contabilidade; null se alguém pelo teto está oculto (o total seria parcial).
+function somaEnviada(lista: TipComputedParticipant[]): number | null {
+  const valores = lista.map(gorjetaEnviada);
+  return valores.some((v) => v == null) ? null : valores.reduce<number>((a, v) => a + (v ?? 0), 0);
+}
+
+// Gorjeta a lançar: a informada. Pelo teto do IR, selo com a gorjeta real (só na tela, nunca no PDF).
+function CelulaGorjetaEnviada({ p }: { p: TipComputedParticipant }) {
+  const valor = gorjetaEnviada(p);
+  if (valor == null) {
+    return <span style={mutedStyle} title={NOTA_TETO_OCULTO}>— <span className="selo-teto-ir">pelo teto do IR</span></span>;
+  }
+  return (
+    <>
+      <div style={{ fontWeight: 700 }}><Money value={valor} /></div>
+      {p.gorjetaInformadaPeloTeto && (
+        <div title={`gorjeta real ${money(p.netCommission)}; a diferença ele recebe na lista de pagamento`}>
+          <StatusBadge tone="info">pelo teto do IR</StatusBadge>
+        </div>
+      )}
+    </>
+  );
+}
+
 // Hora extra + noturno já somados ao A pagar. null = sem permissão (deriva do salário): "oculto".
 function CelulaValorHoraExtra({ valor, titulo }: { valor: number | null; titulo?: string }) {
   if (valor == null) {
@@ -131,6 +156,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   const semRegistroOrd = aplicarOrdem(semRegistroFilt, ordPag.ordem, EXTRATORES);
   // Só o que se lança de verdade: a gorjeta já paga na rescisão fica fora, como no cartão acima.
   const aLancarFilt = registradosFilt.filter((p) => !p.pagoNaRescisao);
+  const totalALancar = somaEnviada(aLancarFilt);
   const thC = (coluna: string) => ({ coluna, ordem: ordContab.ordem, onOrdenar: () => ordContab.alternar(coluna, TEXTO.has(coluna) ? "asc" : "desc") });
   const thP = (coluna: string) => ({ coluna, ordem: ordPag.ordem, onOrdenar: () => ordPag.alternar(coluna, TEXTO.has(coluna) ? "asc" : "desc") });
 
@@ -175,14 +201,14 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
     <div className="aba-pagamento" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="cards-totais">
         {[
-          { label: "Contabilidade (gorjeta dos registrados)", valor: registradosAPagar.reduce((a, p) => a + p.netCommission, 0), detalhe: `${registradosAPagar.length} pessoas · gorjeta líquida (− vales)`, cor: "var(--info)" },
+          { label: "Contabilidade (gorjeta dos registrados)", valor: somaEnviada(registradosAPagar), detalhe: `${registradosAPagar.length} pessoas · gorjeta líquida (− vales)`, cor: "var(--info)" },
           ...(pagasNaRescisao.length ? [{ label: "Já pago nas rescisões", valor: pagasNaRescisao.reduce((a, p) => a + p.rateioAmount, 0), detalhe: `${pagasNaRescisao.length} pessoa(s) · não pagar de novo`, cor: "var(--muted)" }] : []),
           { label: `Lista de pagamento (${formula})`, valor: semRegistro.reduce((a, p) => a + p.totalAPagar, 0), detalhe: `${semRegistro.length} sem registro`, cor: "var(--success)" },
           { label: "Fica na casa (reserva + saldo)", valor: comp.reservaTotal + Math.max(0, comp.saldo), detalhe: "não é pago", cor: "var(--gold)" },
         ].map((c) => (
           <div key={c.label} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", boxShadow: `inset 3px 0 0 ${c.cor}`, background: "var(--surface, #fff)" }}>
             <div style={mutedStyle}>{c.label}</div>
-            <div style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money(c.valor)}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: "tabular-nums" }} title={c.valor == null ? NOTA_TETO_OCULTO : undefined}>{money(c.valor)}</div>
             <div style={{ ...mutedStyle, fontSize: 11 }}>{c.detalhe}</div>
           </div>
         ))}
@@ -209,7 +235,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
               <ThOrdenavel {...thC("empresa")}>Empresa</ThOrdenavel>
 )}
 {vc("gorjeta") && (
-              <ThOrdenavel {...thC("lancar")} align="center" title="Rateio − vales + créditos: é o que a contabilidade lança">Gorjeta a lançar</ThOrdenavel>
+              <ThOrdenavel {...thC("lancar")} align="center" title="Rateio − vales + créditos (com teto do IR: teto − salário registrado): é o que a contabilidade lança">Gorjeta a lançar</ThOrdenavel>
 )}
 {vc("horaExtra") && (
               <ThOrdenavel {...thC("horaExtra")}>Hora extra</ThOrdenavel>
@@ -248,7 +274,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 )}
 {vc("gorjeta") && (
                   <Table.Td className={p.pagoNaRescisao ? "valor-ja-pago" : undefined} title={p.pagoNaRescisao ? "Já pago na rescisão — não entra no envio do mês" : undefined}>
-                    <div style={{ fontWeight: 700 }}><Money value={p.netCommission} /></div>
+                    <CelulaGorjetaEnviada p={p} />
                     {p.valesTotal !== 0 && <div style={mutedStyle}>rateio {money(p.rateioAmount)} · vales {money(-p.valesTotal)}</div>}
                   </Table.Td>
 )}
@@ -293,8 +319,8 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
               <Table.Td style={totalTd}>{filtroC.ativo ? `Total do filtro (${registradosFilt.length} de ${registrados.length})` : "Total a lançar"}</Table.Td>
               {vc("empresa") && <Table.Td> </Table.Td>}
               {vc("gorjeta") && (
-                <Table.Td style={{ fontWeight: 700 }} title="Sem a gorjeta já paga nas rescisões">
-                  <Money value={aLancarFilt.reduce((a, p) => a + p.netCommission, 0)} />
+                <Table.Td style={{ fontWeight: 700 }} title={totalALancar == null ? NOTA_TETO_OCULTO : "Sem a gorjeta já paga nas rescisões"}>
+                  {totalALancar == null ? "—" : <Money value={totalALancar} />}
                 </Table.Td>
               )}
               {vc("horaExtra") && <Table.Td> </Table.Td>}

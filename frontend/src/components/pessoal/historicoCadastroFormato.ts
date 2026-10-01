@@ -6,6 +6,8 @@ import type { EmployeeHistoricoLinha, EmployeeModality } from "../../api/client"
 export type CamposComHistorico = {
   baseSalary: string;
   salarioCombinado: string;
+  /** Teto do IR para a gorjeta informada (só CLT). Ausente = vazio. */
+  tetoIrGorjeta?: string;
   modality: EmployeeModality;
   position: string;
   recebeAdiantamento: boolean;
@@ -27,6 +29,7 @@ export function mudouCampoComHistorico(original: CamposComHistorico | null, atua
   return dinheiro(original.baseSalary) !== dinheiro(atual.baseSalary)
     // O combinado só vai ao backend para CLT; para quem não é, fica como está.
     || (atual.modality === "CLT" && dinheiro(original.salarioCombinado) !== dinheiro(atual.salarioCombinado))
+    || (atual.modality === "CLT" && dinheiro(original.tetoIrGorjeta ?? "") !== dinheiro(atual.tetoIrGorjeta ?? ""))
     || original.modality !== atual.modality
     || original.position.trim() !== atual.position.trim()
     || original.recebeAdiantamento !== atual.recebeAdiantamento
@@ -45,6 +48,7 @@ export function motivoObrigatorio(
   if (vigenteDesde.slice(0, 7) >= hojeIso.slice(0, 7)) return false;
   return dinheiro(original.baseSalary) !== dinheiro(atual.baseSalary)
     || (atual.modality === "CLT" && dinheiro(original.salarioCombinado) !== dinheiro(atual.salarioCombinado))
+    || (atual.modality === "CLT" && dinheiro(original.tetoIrGorjeta ?? "") !== dinheiro(atual.tetoIrGorjeta ?? ""))
     || original.modality !== atual.modality;
 }
 
@@ -56,7 +60,7 @@ export const ROTULO_ORIGEM: Record<string, string> = {
   BACKFILL: "Reconstruído da auditoria",
 };
 
-export const ehDinheiro = (l: Pick<EmployeeHistoricoLinha, "campo">) => l.campo === "baseSalary" || l.campo === "salarioCombinado";
+export const ehDinheiro = (l: Pick<EmployeeHistoricoLinha, "campo">) => l.campo === "baseSalary" || l.campo === "salarioCombinado" || l.campo === "tetoIrGorjeta";
 
 /** Texto de um valor que não é dinheiro (dinheiro vai pelo <Money>, que respeita "ocultar valores"). */
 export function textoDoValor(campo: EmployeeHistoricoLinha["campo"], v: string | null): string {

@@ -15,7 +15,7 @@ import { onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { minutosValidos } from "./hora-extra.js";
 import {
-  type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, conferir, ehPendente, montarFolhaLiquidos,
+  type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, conferir, ehPendente, esconderTeto, montarFolhaLiquidos,
 } from "./tip-conferencia.js";
 
 export const tipConferenciaRouter = Router();
@@ -53,8 +53,10 @@ async function estadoEtapas(periodId: string) {
 }
 
 // Pessoas da apuração com o que a conferência e a folha precisam (PIX só com permissão).
+// A gorjeta informada pelo teto do IR é calculada sempre (a conferência compara por ela);
+// quem não pode ver salário não recebe o valor — montarConferencia o esconde.
 async function pessoasApuradas(year: number, month: number, comPix: boolean): Promise<PessoaApurada[]> {
-  const comp = await computeTipCommission(year, month, { incluirDadosPessoais: comPix });
+  const comp = await computeTipCommission(year, month, { incluirDadosPessoais: true });
   const ids = comp.participants.map((p) => p.employeeId);
   const cadastro = await prisma.employee.findMany({
     where: { id: { in: ids } },
@@ -70,10 +72,12 @@ async function pessoasApuradas(year: number, month: number, comPix: boolean): Pr
       noPeriodo: p.tipoCalculo !== "FORA_DO_PERIODO",
       pagoNaRescisao: p.pagoNaRescisao,
       gorjetaLiquida: p.netCommission,
+      gorjetaInformada: p.gorjetaInformada ?? p.netCommission,
+      peloTeto: p.gorjetaInformadaPeloTeto,
       totalAPagar: p.totalAPagar,
-      adiantamentoSalarial: p.adiantamentoSalarial ?? 0,
-      primeiraQuinzena: p.primeiraQuinzena ?? 0,
-      // Sem a permissão o valor vem null; dizer que há hora extra (sem o valor) não expõe o salário.
+      // Derivam do salário: só saem daqui na folha (que exige a permissão).
+      adiantamentoSalarial: comPix ? p.adiantamentoSalarial ?? 0 : 0,
+      primeiraQuinzena: comPix ? p.primeiraQuinzena ?? 0 : 0,
       comHoraExtra: p.semRegistro && (p.valorHoraExtra != null
         ? (p.valorHoraExtra + (p.valorAdicionalNoturno ?? 0)) > 0
         : minutosValidos(p.horaExtra) + minutosValidos(p.adicionalNoturno) > 0),
@@ -131,14 +135,14 @@ async function apelidosDe(pessoas: PessoaApurada[], extratos: Array<{ dados: Ext
   return new Map(lista.map((e) => [e.id, apelidoDe(e)]));
 }
 
-async function montarConferencia(periodo: { id: string; competenceYear: number; competenceMonth: number }) {
+async function montarConferencia(periodo: { id: string; competenceYear: number; competenceMonth: number }, veDados: boolean) {
   const [pessoas, extratos, aceites] = await Promise.all([
     pessoasApuradas(periodo.competenceYear, periodo.competenceMonth, false),
     extratosDoPeriodo(periodo.id),
     prisma.tipConferenciaAceite.findMany({ where: { periodId: periodo.id } }),
   ]);
-  const linhas = conferir(pessoas, extratos.map((e) => e.dados), new Map(aceites.map((a) => [a.employeeKey, a.justificativa])),
-    await combinadosDe(extratos, periodo.competenceYear, periodo.competenceMonth), await apelidosDe(pessoas, extratos));
+  const linhas = esconderTeto(conferir(pessoas, extratos.map((e) => e.dados), new Map(aceites.map((a) => [a.employeeKey, a.justificativa])),
+    await combinadosDe(extratos, periodo.competenceYear, periodo.competenceMonth), await apelidosDe(pessoas, extratos)), veDados);
   return {
     extratos: extratos.map((e) => ({ ...e.meta, pessoas: e.dados.linhas.length })),
     linhas,
@@ -149,8 +153,9 @@ async function montarConferencia(periodo: { id: string; competenceYear: number; 
 tipConferenciaRouter.get("/periods/:year/:month/conferencia", async (request, response) => {
   const periodo = await periodoDe(request, response);
   if (!periodo) return;
-  const [conf, etapas] = await Promise.all([montarConferencia(periodo), estadoEtapas(periodo.id)]);
-  response.json({ code: periodo.code, status: periodo.status, ...conf, etapas, podeVerFolha: await podeVerDadosPessoais(request) });
+  const veDados = await podeVerDadosPessoais(request);
+  const [conf, etapas] = await Promise.all([montarConferencia(periodo, veDados), estadoEtapas(periodo.id)]);
+  response.json({ code: periodo.code, status: periodo.status, ...conf, etapas, podeVerFolha: veDados });
 });
 
 // Extrato de uma empresa: lê o PDF, confere a competência, casa cada pessoa com o
@@ -231,7 +236,7 @@ tipConferenciaRouter.post("/periods/:year/:month/extratos", async (request, resp
     newValue: { empresa: lido.empresa, cnpj: lido.cnpj, arquivo, hash, pessoas: linhas.length },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
-  response.json({ ...(await montarConferencia(periodo)), avisos });
+  response.json({ ...(await montarConferencia(periodo, await podeVerDadosPessoais(request))), avisos });
 });
 
 tipConferenciaRouter.delete("/periods/:year/:month/extratos/:id", async (request, response) => {
@@ -245,7 +250,7 @@ tipConferenciaRouter.delete("/periods/:year/:month/extratos/:id", async (request
   const r = await prisma.tipExtrato.deleteMany({ where: { id: request.params.id, periodId: periodo.id } });
   if (r.count === 0) return response.status(404).json({ message: "Extrato não encontrado." });
   await auditLog({ userId: user.id, action: "TIP_EXTRATO_REMOVIDO", entity: "TipPeriod", entityId: periodo.code, newValue: { id: request.params.id } });
-  response.json(await montarConferencia(periodo));
+  response.json(await montarConferencia(periodo, await podeVerDadosPessoais(request)));
 });
 
 // Aceitar uma divergência (com justificativa) ou desfazer o aceite.
@@ -265,7 +270,7 @@ tipConferenciaRouter.put("/periods/:year/:month/conferencia/aceites", async (req
     update: { justificativa, porId: user.id, por: user.name, em: new Date() },
   });
   await auditLog({ userId: user.id, action: "TIP_CONFERENCIA_ACEITE", entity: "TipPeriod", entityId: periodo.code, newValue: { chave, justificativa } });
-  response.json(await montarConferencia(periodo));
+  response.json(await montarConferencia(periodo, await podeVerDadosPessoais(request)));
 });
 
 tipConferenciaRouter.delete("/periods/:year/:month/conferencia/aceites", async (request, response) => {
@@ -276,7 +281,7 @@ tipConferenciaRouter.delete("/periods/:year/:month/conferencia/aceites", async (
   const chave = String((request.query as Record<string, unknown>).chave ?? "");
   await prisma.tipConferenciaAceite.deleteMany({ where: { periodId: periodo.id, employeeKey: chave } });
   await auditLog({ userId: user.id, action: "TIP_CONFERENCIA_ACEITE_DESFEITO", entity: "TipPeriod", entityId: periodo.code, newValue: { chave } });
-  response.json(await montarConferencia(periodo));
+  response.json(await montarConferencia(periodo, await podeVerDadosPessoais(request)));
 });
 
 // Marcar/desmarcar uma etapa. Cada etapa exige a anterior; o OK exige a conferência sem pendência.
@@ -299,7 +304,7 @@ tipConferenciaRouter.post("/periods/:year/:month/etapas", async (request, respon
     if (periodo.status !== "CLOSED") return response.status(409).json({ message: "Feche o período da gorjeta antes: os valores enviados não podem mudar depois." });
     if (i > 0 && !estado[ETAPAS[i - 1]].marcada) return response.status(409).json({ message: "Marque a etapa anterior primeiro." });
     if (etapa === "OK_CONTABILIDADE") {
-      const conf = await montarConferencia(periodo);
+      const conf = await montarConferencia(periodo, await podeVerDadosPessoais(request));
       if (conf.extratos.length === 0) return response.status(409).json({ message: "Carregue o extrato de cada empresa antes de dar o OK." });
       if (conf.pendentes > 0) return response.status(409).json({ message: `Ainda há ${conf.pendentes} divergência(s) na conferência. Corrija ou aceite com justificativa.` });
     }
@@ -400,5 +405,5 @@ tipConferenciaRouter.put("/periods/:year/:month/extratos/:id/vinculo", async (re
     userId: user.id, action: confirma ? "TIP_EXTRATO_VINCULO_CONFIRMADO" : "TIP_EXTRATO_VINCULO_RECUSADO", entity: "TipPeriod",
     entityId: periodo.code, newValue: { empresa: extrato.empresa, nome, employeeId: confirma ? alvo.employeeId : null },
   });
-  response.json(await montarConferencia(periodo));
+  response.json(await montarConferencia(periodo, await podeVerDadosPessoais(request)));
 });
