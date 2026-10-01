@@ -294,11 +294,12 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
     });
   }
   // A gorjeta lançada aqui passa a ser a gorjeta paga na apuração do mês (sem registro).
-  const loc = await localizarGorjetaNaApuracao(emp.id, emp.terminationDate, lido.componentes.gorjeta);
+  // Saída depois do ciclo, no mês do salário: só a parte dos dias depois do ciclo.
+  const loc = await localizarGorjetaNaApuracao(emp.id, emp.terminationDate, lido.componentes.gorjeta, apuracao);
   if ("erro" in loc) return response.status(400).json({ message: loc.erro });
-  const gorjetaNaApuracao: GorjetaNaApuracao | null = loc.alvo ? { ...loc.alvo, aplicada: lido.componentes.gorjeta! } : null;
+  const gorjetaNaApuracao: GorjetaNaApuracao | null = loc.alvo;
   // Gravar a gorjeta paga na apuração é editar a Gorjeta: exige a permissão de lá.
-  const mudaGorjeta = gorjetaMudaApuracao(loc.alvo, lido.componentes.gorjeta);
+  const mudaGorjeta = gorjetaMudaApuracao(loc.alvo, loc.alvo?.aplicada ?? null);
   if (mudaGorjeta && !(await podeEditarGorjeta(user))) {
     return response.status(403).json({ message: MSG_SEM_PERMISSAO_GORJETA });
   }
@@ -619,16 +620,16 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
   // O líquido novo se reparte nas mesmas parcelas, mantendo os vencimentos.
   const valores = splitCents(Math.round(net * 100), itens.length).map((c) => round2(c / 100));
   const detalhes = (primeira.details ?? {}) as Record<string, unknown>;
-  const loc = await localizarGorjetaNaApuracao(emp.id, emp.terminationDate, lido.componentes.gorjeta);
+  const loc = await localizarGorjetaNaApuracao(emp.id, emp.terminationDate, lido.componentes.gorjeta, apuracao);
   if ("erro" in loc) return response.status(400).json({ message: loc.erro });
   const jaAplicada = detalhes.gorjetaNaApuracao as GorjetaNaApuracao | null | undefined;
   // O "anterior" é o de antes da PRIMEIRA aplicação: é para ele que a exclusão volta.
   const gorjetaNaApuracao: GorjetaNaApuracao | null = loc.alvo
-    ? { ...loc.alvo, anterior: jaAplicada?.participantId === loc.alvo.participantId ? jaAplicada.anterior : loc.alvo.anterior, aplicada: lido.componentes.gorjeta! }
+    ? { ...loc.alvo, anterior: jaAplicada?.participantId === loc.alvo.participantId ? jaAplicada.anterior : loc.alvo.anterior }
     : jaAplicada ?? null;
   // Gravar outra gorjeta paga na apuração é editar a Gorjeta: exige a permissão de lá.
   // Mesmo valor já gravado não muda a apuração e não é regravado.
-  const mudaGorjeta = gorjetaMudaApuracao(loc.alvo, lido.componentes.gorjeta);
+  const mudaGorjeta = gorjetaMudaApuracao(loc.alvo, loc.alvo?.aplicada ?? null);
   if (mudaGorjeta && !(await podeEditarGorjeta(user))) {
     return response.status(403).json({ message: MSG_SEM_PERMISSAO_GORJETA });
   }

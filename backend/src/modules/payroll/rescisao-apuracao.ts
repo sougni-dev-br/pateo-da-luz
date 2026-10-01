@@ -95,8 +95,18 @@ export type ApuracaoRescisao = {
   // (a pessoa sai dela com a rescisão lançada), então entra aqui, nos créditos.
   // Ausente nas apurações gravadas antes desta versão.
   horaExtra?: HoraExtraRescisao | null;
+  // Sem registro que saiu depois do fim do ciclo, ainda no mês do salário ("tudo na
+  // rescisão"): de onde veio cada parte da gorjeta — [0] o ciclo do mês, [1] os dias depois
+  // dele (período seguinte). Ausente/null nos demais casos e nas apurações antigas.
+  gorjetaPartes?: GorjetaParte[] | null;
   sugestao: SugestaoRescisao;
   dadosPessoaisOcultos?: boolean;
+};
+
+// valor = o que entra na rescisão (0 = já pago na lista fechada; null = não apurado:
+// período inexistente, pessoa fora dele ou serviço pendente).
+export type GorjetaParte = {
+  periodo: string; competencia: string; dias: string; valor: number | null; pendente: boolean; jaPagoNaLista: boolean;
 };
 
 export type JaPagoNaLista = { valor: number | null; competencia: string };
@@ -250,79 +260,16 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
       : legs.length === 0 ? "Sem trajeto cadastrado: não dá para saber o custo de cada dia."
         : null;
 
-  // Gorjeta e vales: o período da gorjeta que contém a saída.
+  // Gorjeta e vales: o período da gorjeta que contém a saída — ou, para sem registro que
+  // saiu depois do ciclo no mês do salário, o do mês mais o seguinte ("tudo na rescisão").
   const periodo = await prisma.tipPeriod.findFirst({
     where: { periodStart: { lte: saida }, periodEnd: { gte: saida } },
     select: { id: true, competenceYear: true, competenceMonth: true },
   });
-  let gorjeta: GorjetaAteSaida | null = null;
-  let gorjetaObservacao: string | null = null;
-  let valesItens: ValeAberto[] = [];
-  let descontos = 0;
-  let creditos = 0;
-  let jaPagoNaLista: JaPagoNaLista | null = null;
-  let adiantamento: AdiantamentoPago | null = null;
-  let primeiraQuinzena: AdiantamentoPago | null = null;
-  let horaExtra: HoraExtraRescisao | null = null;
-  if (!periodo) {
-    gorjetaObservacao = "Não há período de gorjeta aberto que contenha a data de saída.";
-  } else {
-    const comp = await computeTipCommission(periodo.competenceYear, periodo.competenceMonth, { incluirDadosPessoais: true });
-    const p = comp.participants.find((x) => x.employeeId === employeeId);
-    if (!p) {
-      gorjetaObservacao = `Não está na gorjeta de ${comp.label}.`;
-    } else {
-      gorjeta = {
-        periodo: comp.label,
-        status: comp.status === "CLOSED" ? "CLOSED" : "OPEN",
-        // Já quitada (a rescisão gravou a gorjeta paga): o apurado continua sendo o
-        // direito, não o valor pago — senão a comparação com o lançado some.
-        pontos: p.tipoCalculo === "RESCISAO_QUITADA" ? p.pontosDireito : p.points,
-        valorPonto: p.valorPonto,
-        gorjeta: p.tipoCalculo === "RESCISAO_QUITADA" ? p.valorDireito ?? p.rateioAmount : p.rateioAmount,
-        pendente: p.rescisaoPendente,
-        diasSalario: p.diasSalario, salarioProporcional: p.salarioProporcional,
-      };
-      if (p.rescisaoPendente) gorjetaObservacao = "A gorjeta até a saída está pendente: falta o serviço até a saída (faturamento).";
-      if (jaPagoNaListaFechada({ status: comp.status, semRegistro, totalAPagar: p.totalAPagar })) {
-        jaPagoNaLista = {
-          valor: round2(p.totalAPagar),
-          competencia: `${String(periodo.competenceMonth).padStart(2, "0")}/${periodo.competenceYear}`,
-        };
-        gorjetaObservacao = observacaoJaPago(jaPagoNaLista);
-      }
-      // O cálculo da gorjeta já decide se houve adiantamento (sem registro, cadastro,
-      // saída no dia do adiantamento ou depois, no mês do salário do período).
-      if (semRegistro && (p.adiantamentoSalarial ?? 0) > 0 && !jaPagoNaLista) {
-        const { competenceYear: ano, competenceMonth: mes } = periodo;
-        const ultimo = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
-        adiantamento = { valor: p.adiantamentoSalarial, data: isoDia(new Date(Date.UTC(ano, mes - 1, Math.min(comp.adiantamento.dia, ultimo)))) };
-      }
-      // 1ª quinzena: o cálculo da gorjeta já decide se saiu (sem registro, por quinzena no
-      // cadastro vigente, no vínculo no dia 15 do mês do salário do período).
-      if (semRegistro && (p.primeiraQuinzena ?? 0) > 0 && !jaPagoNaLista) {
-        const { competenceYear: ano, competenceMonth: mes } = periodo;
-        primeiraQuinzena = { valor: p.primeiraQuinzena, data: isoDia(new Date(Date.UTC(ano, mes - 1, DIA_PRIMEIRA_QUINZENA))) };
-      }
-      // Hora extra e noturno do período da saída (o cálculo da gorjeta já aplicou a regra).
-      const valorHoraExtra = round2((p.valorHoraExtra ?? 0) + (p.valorAdicionalNoturno ?? 0));
-      if (semRegistro && valorHoraExtra > 0 && !jaPagoNaLista) {
-        horaExtra = { horaExtra: p.horaExtra ?? null, adicionalNoturno: p.adicionalNoturno ?? null, valor: valorHoraExtra };
-      }
-      descontos = p.descontos;
-      creditos = p.creditos;
-      if (p.participantId) {
-        const vales = await prisma.tipVale.findMany({
-          where: { participantId: p.participantId, canceledAt: null },
-          select: { codigo: true, date: true, type: true, notes: true, amount: true },
-          orderBy: { date: "asc" },
-        });
-        valesItens = vales.map((v) => ({
-          codigo: v.codigo, data: v.date ? isoDia(v.date) : null, tipo: v.type, descricao: v.notes, valor: round2(Number(v.amount)),
-        }));
-      }
-    }
-  }
+  const periodoMes = semRegistro ? await periodoDoMesDoSalarioAntesDaSaida(saida, periodo) : null;
+  const g = (periodoMes && await gorjetaTudoNaRescisao(employeeId, saida, periodoMes, periodo))
+    ?? await gorjetaDoPeriodoDaSaida(employeeId, semRegistro, periodo);
+  const { valesItens, descontos, creditos } = g;
 
   const base = {
     saida: isoDia(saida),
@@ -332,14 +279,205 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
       itens: valesItens, descontos, creditos, liquido: round2(descontos - creditos),
       entraNaRescisao: semRegistro,
     },
-    gorjeta,
-    gorjetaObservacao,
-    jaPagoNaLista,
-    adiantamento,
-    primeiraQuinzena,
-    horaExtra,
+    gorjeta: g.gorjeta,
+    gorjetaObservacao: g.gorjetaObservacao,
+    jaPagoNaLista: g.jaPagoNaLista,
+    adiantamento: g.adiantamento,
+    primeiraQuinzena: g.primeiraQuinzena,
+    horaExtra: g.horaExtra,
+    ...(g.gorjetaPartes ? { gorjetaPartes: g.gorjetaPartes } : {}),
   };
   return { ...base, sugestao: montarSugestao(base) };
+}
+
+type PeriodoDaGorjeta = { id: string; competenceYear: number; competenceMonth: number };
+const competenciaDe = (p: { competenceYear: number; competenceMonth: number }) =>
+  `${String(p.competenceMonth).padStart(2, "0")}/${p.competenceYear}`;
+
+// O que a apuração tira da gorjeta (de um ou dois períodos).
+type GorjetaApurada = {
+  gorjeta: GorjetaAteSaida | null;
+  gorjetaObservacao: string | null;
+  jaPagoNaLista: JaPagoNaLista | null;
+  adiantamento: AdiantamentoPago | null;
+  primeiraQuinzena: AdiantamentoPago | null;
+  horaExtra: HoraExtraRescisao | null;
+  valesItens: ValeAberto[];
+  descontos: number;
+  creditos: number;
+  gorjetaPartes?: GorjetaParte[];
+};
+
+// O participante num período de gorjeta, na forma da rescisão. parte = null: não está nele.
+type ParteDoPeriodo = Omit<GorjetaApurada, "gorjetaObservacao" | "gorjetaPartes"> & { gorjeta: GorjetaAteSaida };
+async function lerGorjetaDoPeriodo(
+  employeeId: string, semRegistro: boolean, periodo: PeriodoDaGorjeta,
+): Promise<{ label: string; parte: ParteDoPeriodo | null }> {
+  const comp = await computeTipCommission(periodo.competenceYear, periodo.competenceMonth, { incluirDadosPessoais: true });
+  const p = comp.participants.find((x) => x.employeeId === employeeId);
+  if (!p) return { label: comp.label, parte: null };
+  const gorjeta: GorjetaAteSaida = {
+    periodo: comp.label,
+    status: comp.status === "CLOSED" ? "CLOSED" : "OPEN",
+    // Já quitada (a rescisão gravou a gorjeta paga): o apurado continua sendo o
+    // direito, não o valor pago — senão a comparação com o lançado some.
+    pontos: p.tipoCalculo === "RESCISAO_QUITADA" ? p.pontosDireito : p.points,
+    valorPonto: p.valorPonto,
+    gorjeta: p.tipoCalculo === "RESCISAO_QUITADA" ? p.valorDireito ?? p.rateioAmount : p.rateioAmount,
+    pendente: p.rescisaoPendente,
+    diasSalario: p.diasSalario, salarioProporcional: p.salarioProporcional,
+  };
+  const jaPagoNaLista: JaPagoNaLista | null = jaPagoNaListaFechada({ status: comp.status, semRegistro, totalAPagar: p.totalAPagar })
+    ? { valor: round2(p.totalAPagar), competencia: competenciaDe(periodo) }
+    : null;
+  const { competenceYear: ano, competenceMonth: mes } = periodo;
+  // O cálculo da gorjeta já decide se houve adiantamento (sem registro, cadastro,
+  // saída no dia do adiantamento ou depois, no mês do salário do período).
+  let adiantamento: AdiantamentoPago | null = null;
+  if (semRegistro && (p.adiantamentoSalarial ?? 0) > 0 && !jaPagoNaLista) {
+    const ultimo = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+    adiantamento = { valor: p.adiantamentoSalarial, data: isoDia(new Date(Date.UTC(ano, mes - 1, Math.min(comp.adiantamento.dia, ultimo)))) };
+  }
+  // 1ª quinzena: o cálculo da gorjeta já decide se saiu (sem registro, por quinzena no
+  // cadastro vigente, no vínculo no dia 15 do mês do salário do período).
+  const primeiraQuinzena: AdiantamentoPago | null = semRegistro && (p.primeiraQuinzena ?? 0) > 0 && !jaPagoNaLista
+    ? { valor: p.primeiraQuinzena, data: isoDia(new Date(Date.UTC(ano, mes - 1, DIA_PRIMEIRA_QUINZENA))) }
+    : null;
+  // Hora extra e noturno do período (o cálculo da gorjeta já aplicou a regra).
+  const valorHoraExtra = round2((p.valorHoraExtra ?? 0) + (p.valorAdicionalNoturno ?? 0));
+  const horaExtra: HoraExtraRescisao | null = semRegistro && valorHoraExtra > 0 && !jaPagoNaLista
+    ? { horaExtra: p.horaExtra ?? null, adicionalNoturno: p.adicionalNoturno ?? null, valor: valorHoraExtra }
+    : null;
+  let valesItens: ValeAberto[] = [];
+  if (p.participantId) {
+    const vales = await prisma.tipVale.findMany({
+      where: { participantId: p.participantId, canceledAt: null },
+      select: { codigo: true, date: true, type: true, notes: true, amount: true },
+      orderBy: { date: "asc" },
+    });
+    valesItens = vales.map((v) => ({
+      codigo: v.codigo, data: v.date ? isoDia(v.date) : null, tipo: v.type, descricao: v.notes, valor: round2(Number(v.amount)),
+    }));
+  }
+  return {
+    label: comp.label,
+    parte: {
+      gorjeta, jaPagoNaLista, adiantamento, primeiraQuinzena, horaExtra, valesItens,
+      descontos: p.descontos, creditos: p.creditos,
+    },
+  };
+}
+
+const SEM_GORJETA: Omit<GorjetaApurada, "gorjetaObservacao"> = {
+  gorjeta: null, jaPagoNaLista: null, adiantamento: null, primeiraQuinzena: null, horaExtra: null,
+  valesItens: [], descontos: 0, creditos: 0,
+};
+
+// Regra de sempre: o período da gorjeta que contém a saída.
+async function gorjetaDoPeriodoDaSaida(
+  employeeId: string, semRegistro: boolean, periodo: PeriodoDaGorjeta | null,
+): Promise<GorjetaApurada> {
+  if (!periodo) return { ...SEM_GORJETA, gorjetaObservacao: "Não há período de gorjeta aberto que contenha a data de saída." };
+  const { label, parte } = await lerGorjetaDoPeriodo(employeeId, semRegistro, periodo);
+  if (!parte) return { ...SEM_GORJETA, gorjetaObservacao: `Não está na gorjeta de ${label}.` };
+  const gorjetaObservacao = parte.jaPagoNaLista
+    ? observacaoJaPago(parte.jaPagoNaLista)
+    : parte.gorjeta.pendente ? "A gorjeta até a saída está pendente: falta o serviço até a saída (faturamento)." : null;
+  return { ...parte, gorjetaObservacao };
+}
+
+// Sem registro que saiu depois do fim do ciclo, ainda no mês do salário: o período cuja
+// competência é o mês da saída e cujo ciclo terminou antes dela (ciclo de setembro até
+// 25/09, saída em 29/09). null = não é o caso (saiu dentro do ciclo, ou não há o período).
+async function periodoDoMesDoSalarioAntesDaSaida(saida: Date, periodoDaSaida: PeriodoDaGorjeta | null) {
+  const ano = saida.getUTCFullYear();
+  const mes = saida.getUTCMonth() + 1;
+  if (periodoDaSaida && periodoDaSaida.competenceYear === ano && periodoDaSaida.competenceMonth === mes) return null;
+  const p = await prisma.tipPeriod.findFirst({
+    where: { competenceYear: ano, competenceMonth: mes },
+    select: { id: true, competenceYear: true, competenceMonth: true, periodStart: true, periodEnd: true },
+  });
+  if (!p?.periodEnd || !p.periodStart || !(p.periodEnd < saida)) return null;
+  return p;
+}
+
+const umDiaDepois = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
+const intervaloBr = (a: Date, b: Date) => `${ddmm(isoDia(a))} a ${ddmm(isoDia(b))}`;
+
+function somarHoraExtra(a: HoraExtraRescisao | null, b: HoraExtraRescisao | null): HoraExtraRescisao | null {
+  if (!a || !b) return a ?? b;
+  const juntar = (x: string | null, y: string | null) => [x, y].filter(Boolean).join(" + ") || null;
+  return {
+    horaExtra: juntar(a.horaExtra, b.horaExtra), adicionalNoturno: juntar(a.adicionalNoturno, b.adicionalNoturno),
+    valor: round2((a.valor ?? 0) + (b.valor ?? 0)),
+  };
+}
+
+// "Tudo na rescisão" (decisão do Eli, 01/10/2026): a rescisão paga o mês inteiro (período do
+// mês: salário, gorjeta do ciclo, vales, adiantamento, quinzena, hora extra) e os dias depois
+// do ciclo (período seguinte, que contém a saída: gorjeta e vales). Salário, adiantamento e
+// quinzena do seguinte são de outro mês do salário: não entram. Parte já paga na lista
+// fechada não entra. null = a pessoa não está no período do mês: segue a regra de sempre.
+async function gorjetaTudoNaRescisao(
+  employeeId: string, saida: Date,
+  periodoMes: PeriodoDaGorjeta & { periodStart: Date; periodEnd: Date }, periodoSeguinte: PeriodoDaGorjeta | null,
+): Promise<GorjetaApurada | null> {
+  const mes = await lerGorjetaDoPeriodo(employeeId, true, periodoMes);
+  const m = mes.parte;
+  if (!m) return null;
+  const seg = periodoSeguinte ? await lerGorjetaDoPeriodo(employeeId, true, periodoSeguinte) : null;
+  const s = seg?.parte ?? null;
+  const contaMes = !m.jaPagoNaLista;
+  const contaSeg = s != null && !s.jaPagoNaLista;
+  const pendenteSeg = contaSeg && s.gorjeta.pendente;
+  const gorjetaMes = contaMes ? m.gorjeta.gorjeta : 0;
+  const gorjetaSeg = s && !pendenteSeg ? (contaSeg ? s.gorjeta.gorjeta : 0) : null;
+
+  const competenciaMes = competenciaDe(periodoMes);
+  const competenciaSeg = periodoSeguinte
+    ? competenciaDe(periodoSeguinte)
+    : competenciaDe({ competenceYear: periodoMes.competenceMonth === 12 ? periodoMes.competenceYear + 1 : periodoMes.competenceYear, competenceMonth: periodoMes.competenceMonth % 12 + 1 });
+  const diasSeg = intervaloBr(umDiaDepois(periodoMes.periodEnd), saida);
+  const gorjetaPartes: GorjetaParte[] = [
+    { periodo: mes.label, competencia: competenciaMes, dias: intervaloBr(periodoMes.periodStart, periodoMes.periodEnd), valor: round2(gorjetaMes), pendente: false, jaPagoNaLista: !contaMes },
+    { periodo: seg?.label ?? `Gorjeta de ${competenciaSeg}`, competencia: competenciaSeg, dias: diasSeg, valor: gorjetaSeg == null ? null : round2(gorjetaSeg), pendente: pendenteSeg, jaPagoNaLista: s != null && !contaSeg },
+  ];
+
+  const observacoes = [
+    `Saiu em ${ddmm(isoDia(saida))}, depois do fim do ciclo (${ddmm(isoDia(periodoMes.periodEnd))}), ainda no mês do salário: `
+      + `a rescisão paga o mês inteiro (${mes.label}) e a gorjeta de ${diasSeg}; lançada a rescisão, a lista de ${competenciaMes} não paga nada.`,
+  ];
+  if (!contaMes) observacoes.push(`A parte do mês já foi paga na lista de pagamento da gorjeta de ${competenciaMes} (fechada): entra só a gorjeta de ${diasSeg}.`);
+  if (!periodoSeguinte) observacoes.push(`A gorjeta de ${diasSeg} ainda não pode ser apurada: o período de gorjeta de ${competenciaSeg} não existe. Lance depois ou ajuste.`);
+  else if (!s) observacoes.push(`A gorjeta de ${diasSeg} ainda não pode ser apurada: ela não está no período de gorjeta de ${competenciaSeg}. Lance depois ou ajuste.`);
+  else if (!contaSeg) observacoes.push(`A gorjeta de ${diasSeg} já foi paga na lista de pagamento da gorjeta de ${competenciaSeg} (fechada).`);
+  else if (pendenteSeg) observacoes.push(`A gorjeta de ${diasSeg} está pendente: falta o serviço até a saída (faturamento).`);
+
+  const valesMes = contaMes ? m : SEM_GORJETA;
+  const valesSeg = contaSeg ? s : SEM_GORJETA;
+  return {
+    gorjeta: {
+      periodo: s ? `${mes.label} + ${seg!.label}` : mes.label,
+      status: m.gorjeta.status === "CLOSED" && (!s || s.gorjeta.status === "CLOSED") ? "CLOSED" : "OPEN",
+      pontos: round2((contaMes ? m.gorjeta.pontos : 0) + (contaSeg ? s.gorjeta.pontos : 0)),
+      valorPonto: m.gorjeta.valorPonto,
+      gorjeta: round2(gorjetaMes + (gorjetaSeg ?? 0)),
+      pendente: pendenteSeg,
+      diasSalario: contaMes ? m.gorjeta.diasSalario : 0,
+      salarioProporcional: contaMes ? m.gorjeta.salarioProporcional : 0,
+    },
+    gorjetaObservacao: observacoes.join(" "),
+    // A parte do mês já paga não bloqueia a rescisão: a de outubro ainda é dela.
+    jaPagoNaLista: null,
+    adiantamento: m.adiantamento,
+    primeiraQuinzena: m.primeiraQuinzena,
+    // Hora extra digitada no período seguinte (dias depois do ciclo) também é da rescisão.
+    horaExtra: somarHoraExtra(m.horaExtra, contaSeg ? s.horaExtra : null),
+    valesItens: [...valesMes.valesItens, ...valesSeg.valesItens],
+    descontos: round2(valesMes.descontos + valesSeg.descontos),
+    creditos: round2(valesMes.creditos + valesSeg.creditos),
+    gorjetaPartes,
+  };
 }
 
 // ─── A gorjeta da rescisão é a da apuração ────────────────────────────────────
@@ -349,10 +487,17 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
 // Guardamos na rescisão o que havia antes, para desfazer se ela for excluída.
 export type GorjetaNaApuracao = { participantId: string; periodo: string; anterior: number | null; aplicada: number };
 
+//
+// "Tudo na rescisão" (apuração com gorjetaPartes): o período que contém a saída é o seguinte
+// ao do mês. A gorjeta do ciclo do mês fica onde está (o participante do mês já está pago na
+// rescisão); no seguinte vai só a parte dos dias depois do ciclo: lançada − ciclo (mínimo 0).
 export async function localizarGorjetaNaApuracao(
   employeeId: string, saida: Date | null, gorjeta: number | null,
-): Promise<{ erro: string } | { alvo: Omit<GorjetaNaApuracao, "aplicada"> | null }> {
+  apuracao?: Pick<ApuracaoRescisao, "gorjetaPartes"> | null,
+): Promise<{ erro: string } | { alvo: GorjetaNaApuracao | null }> {
   if (gorjeta == null || !saida) return { alvo: null };
+  const cicloDoMes = apuracao?.gorjetaPartes?.length ? apuracao.gorjetaPartes[0].valor ?? 0 : null;
+  const aplicada = cicloDoMes == null ? round2(gorjeta) : Math.max(0, round2(gorjeta - cicloDoMes));
   const periodo = await prisma.tipPeriod.findFirst({
     where: { periodStart: { lte: saida }, periodEnd: { gte: saida } },
     select: { id: true, label: true, status: true },
@@ -372,10 +517,11 @@ export async function localizarGorjetaNaApuracao(
   }
   if (periodo.status === "CLOSED") {
     // Fechada, a gorjeta não muda mais: só aceita o mesmo valor que foi fechado.
-    if (Math.abs(round2(Number(p.rateioAmount ?? 0)) - round2(gorjeta)) < 0.01) return { alvo: null };
-    return { erro: `A gorjeta de ${periodo.label} já está fechada com ${reaisBr(Number(p.rateioAmount ?? 0))} para esta pessoa. Reabra a gorjeta para lançar outro valor.` };
+    if (Math.abs(round2(Number(p.rateioAmount ?? 0)) - aplicada) < 0.01) return { alvo: null };
+    const parte = cicloDoMes == null ? "" : ` (só os dias depois do ciclo; a gorjeta lançada menos a do ciclo do mês dá ${reaisBr(aplicada)})`;
+    return { erro: `A gorjeta de ${periodo.label} já está fechada com ${reaisBr(Number(p.rateioAmount ?? 0))} para esta pessoa${parte}. Reabra a gorjeta para lançar outro valor.` };
   }
-  return { alvo: { participantId: p.id, periodo: periodo.label, anterior } };
+  return { alvo: { participantId: p.id, periodo: periodo.label, anterior, aplicada } };
 }
 
 const reaisBr = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });

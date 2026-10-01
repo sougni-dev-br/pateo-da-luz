@@ -2,10 +2,31 @@
 // vales em aberto, salário proporcional e gorjeta até a saída. Fica recolhido — o
 // formulário é a fonte; aqui é a conta, para quem quer conferir.
 import type { ReactNode } from "react";
-import type { ApuracaoRescisao as Apuracao } from "../../api/client";
+import type { ApuracaoRescisao as ApuracaoBase } from "../../api/client";
 import { Alert, Money, StatusBadge } from "../../design-system";
 import { dataBr } from "./rescisaoFormato";
 import "./rescisao.css";
+
+// Sem registro que saiu depois do fim do ciclo, ainda no mês do salário ("tudo na rescisão"):
+// a gorjeta vem do ciclo do mês e dos dias depois dele (período seguinte).
+type GorjetaParte = {
+  periodo: string; competencia: string; dias: string; valor: number | null; pendente: boolean; jaPagoNaLista: boolean;
+};
+type Apuracao = ApuracaoBase & { gorjetaPartes?: GorjetaParte[] | null };
+
+function detalheDasPartes(partes: GorjetaParte[], observacao: string | null): ReactNode {
+  return (
+    <>
+      {partes.map((p) => (
+        <div key={p.competencia}>
+          {p.periodo} ({p.dias}):{" "}
+          {p.jaPagoNaLista ? "já paga na lista fechada" : p.pendente ? "pendente" : p.valor == null ? "não apurada" : <Money value={p.valor} />}
+        </div>
+      ))}
+      {observacao && <div>{observacao}</div>}
+    </>
+  );
+}
 
 function Linha({ rotulo, detalhe, valor, sinal }: { rotulo: string; detalhe?: ReactNode; valor: number | null; sinal?: "+" | "−" }) {
   return (
@@ -62,9 +83,11 @@ export function ApuracaoRescisaoPainel({ apuracao: a, aberto = false }: { apurac
             <Linha rotulo="Salário proporcional" valor={g?.salarioProporcional ?? null} sinal="+"
               detalhe={g && g.diasSalario != null ? `diária (salário ÷ 30, arredondada) × ${g.diasSalario} dias do mês até a saída` : a.gorjetaObservacao} />
             <Linha rotulo="Gorjeta até a saída" valor={g && !g.pendente ? g.gorjeta : null} sinal="+"
-              detalhe={g
-                ? (g.pendente ? a.gorjetaObservacao : `${g.periodo}: ${g.pontos.toLocaleString("pt-BR")} pts × valor do ponto na saída`)
-                : a.gorjetaObservacao} />
+              detalhe={a.gorjetaPartes?.length
+                ? detalheDasPartes(a.gorjetaPartes, a.gorjetaObservacao)
+                : g
+                  ? (g.pendente ? a.gorjetaObservacao : `${g.periodo}: ${g.pontos.toLocaleString("pt-BR")} pts × valor do ponto na saída`)
+                  : a.gorjetaObservacao} />
             {a.vales.creditos > 0 && <Linha rotulo="Créditos (aba Vales)" valor={a.vales.creditos} sinal="+" />}
             {a.horaExtra && (
               <Linha rotulo="Hora extra e adicional noturno" valor={a.horaExtra.valor} sinal="+"

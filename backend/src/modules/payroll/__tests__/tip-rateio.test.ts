@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   adiantamentoDoFechado, calcularParticipante, calcularRateio, diasElegiveis, motivoGorjetaRealSemEfeito, type ParticipanteEntrada, type RegrasPeriodo,
 } from "../tip-rateio.js";
+import { round2 } from "../vt-calc.js";
 
 // Gabarito: planilha de apuração de 28/09/2026, competência setembro (26/08 → 25/09).
 const d = (s: string) => new Date(`${s}T00:00:00.000Z`);
@@ -609,5 +610,55 @@ describe("saiu depois do fim do ciclo, com o termo de rescisão já importado no
     const r = calcularParticipante(SETEMBRO, { ...luiz, rescisaoValorFixo: null }, 222.35);
     expect(r.pagoNaRescisao).toBe(false);
     expect(r.totalAPagar).toBe(489.29);
+  });
+});
+
+describe("sem registro que saiu depois do fim do ciclo, no mês do salário: tudo na rescisão", () => {
+  // Ciclo de setembro 26/08→25/09; salário de setembro 01/09→30/09. Saiu em 29/09: a
+  // rescisão paga o mês inteiro (salário, gorjeta do ciclo, vales...) e a lista não paga nada.
+  const SET_COM_MES: RegrasPeriodo = { ...SETEMBRO, mesSalario: { start: d("2026-09-01"), end: d("2026-09-30") } };
+  const ana = pessoa({
+    semRegistro: true, salarioBase: 2200, desligamento: d("2026-09-29"), rescisaoLancada: true,
+    vales: [{ type: "ADIANTAMENTO", amount: 50 }],
+  });
+
+  test("com a rescisão lançada: MES, pago na rescisão, nada na lista, mas tudo calculado", () => {
+    const r = calcularParticipante(SET_COM_MES, ana, VALOR_PONTO);
+    expect(r.tipoCalculo).toBe("MES");
+    expect(r.pagoNaRescisao).toBe(true);
+    expect(r.totalAPagar).toBe(0);
+    expect(r.pontosFinais).toBe(4);
+    expect(r.rateio).toBe(745.32);
+    expect(r.descontos).toBe(50);
+    expect(r.diasSalario).toBe(29); // 01/09 a 29/09
+    expect(r.salarioProporcional).toBe(2126.57); // 73,33 × 29
+  });
+
+  test("sem a rescisão lançada: a lista paga como hoje", () => {
+    const r = calcularParticipante(SET_COM_MES, { ...ana, rescisaoLancada: false }, VALOR_PONTO);
+    expect(r.pagoNaRescisao).toBe(false);
+    expect(r.totalAPagar).toBe(round2(2126.57 + 745.32 - 50));
+  });
+
+  test("saiu em 02/10 (fora do mês do salário): a lista de setembro paga normalmente", () => {
+    const r = calcularParticipante(SET_COM_MES, { ...ana, desligamento: d("2026-10-02") }, VALOR_PONTO);
+    expect(r.tipoCalculo).toBe("MES");
+    expect(r.pagoNaRescisao).toBe(false);
+    expect(r.salarioProporcional).toBe(2200);
+    expect(r.totalAPagar).toBe(round2(2200 + 745.32 - 50));
+  });
+
+  test("registrado (CLT) que sai em 29/09 com rescisão lançada: inalterado (paga na lista)", () => {
+    const r = calcularParticipante(SET_COM_MES, { ...ana, semRegistro: false }, VALOR_PONTO);
+    expect(r.pagoNaRescisao).toBe(false);
+    expect(r.totalAPagar).toBe(round2(745.32 - 50));
+  });
+
+  test("fora da gorjeta (só salário): mesma regra", () => {
+    const r = calcularParticipante(SET_COM_MES, { ...ana, foraDaGorjeta: true }, VALOR_PONTO);
+    expect(r.tipoCalculo).toBe("MES");
+    expect(r.pagoNaRescisao).toBe(true);
+    expect(r.totalAPagar).toBe(0);
+    expect(r.salarioProporcional).toBe(2126.57);
   });
 });
