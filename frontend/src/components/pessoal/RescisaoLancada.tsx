@@ -27,6 +27,7 @@ function Mudancas({ antes, depois }: { antes: ValoresRescisaoLancada; depois: Va
     ["salário", antes.salario, depois.salario], ["gorjeta", antes.gorjeta, depois.gorjeta],
     ["bruto", antes.bruto, depois.bruto], ["vales", antes.vales, depois.vales],
     ["VT", antes.vtDesconto, depois.vtDesconto], ["outro desconto", antes.outroDesconto, depois.outroDesconto],
+    ["verbas opcionais", antes.verbasOpcionaisTotal ?? null, depois.verbasOpcionaisTotal ?? null],
   ];
   const mudou = campos.filter(([, a, d]) => centavosDiferentes(a, d));
   if (mudou.length === 0) return <>só descrição ou observação</>;
@@ -76,6 +77,24 @@ export function RescisaoLancadaPainel({ lancada: l, ajustando, onAjustar }: { la
       <Parte rotulo={l.valesRotulo ? `Vales (${l.valesRotulo})` : "Vales"} valor={l.vales} desconto />
       <Parte rotulo="VT" valor={l.vtDesconto} desconto />
       <Parte rotulo={l.outroDescontoRotulo ? `Outro desconto (${l.outroDescontoRotulo})` : "Outro desconto"} valor={l.outroDesconto} desconto />
+      {l.verbasOpcionais && l.verbasOpcionais.itens.length > 0 && (
+        <>
+          {l.verbasOpcionais.itens.map((v) => (
+            <div key={v.tipo} className="resc-linha">
+              <span>
+                {v.tipo === "LIVRE" ? `Valor livre: ${v.rotulo}` : v.rotulo}
+                {v.memoria && <span className="resc-detalhe" style={{ display: "block" }}>{v.memoria}</span>}
+              </span>
+              <strong>{v.valor == null ? <span className="resc-detalhe">valor oculto</span> : <Money value={v.valor} />}</strong>
+            </div>
+          ))}
+          {l.verbasOpcionais.por && (
+            <div className="resc-detalhe">
+              Verbas opcionais (decisão da empresa) marcadas por {l.verbasOpcionais.por.nome ?? "—"} em {dataHora(l.verbasOpcionais.por.em)}; já estão no bruto.
+            </div>
+          )}
+        </>
+      )}
       {(l.quitadaSemValor?.saldoDevedorPerdoado ?? 0) > 0 && (
         <Parte rotulo="Saldo devedor perdoado (os descontos passaram do bruto)" valor={l.quitadaSemValor!.saldoDevedorPerdoado} />
       )}
