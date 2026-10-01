@@ -13,6 +13,8 @@ export type CamposComHistorico = {
   recebeAdiantamento: boolean;
   /** Ausente = não recebe por quinzena. */
   pagamentoQuinzenal?: boolean;
+  /** Entra na gorjeta em (AAAA-MM-DD). Ausente ou "" = vazio (em teste). */
+  inicioGorjeta?: string;
 };
 
 // "2.200,00" e "2200" são o mesmo salário: compara o número, não o texto da máscara.
@@ -33,7 +35,20 @@ export function mudouCampoComHistorico(original: CamposComHistorico | null, atua
     || original.modality !== atual.modality
     || original.position.trim() !== atual.position.trim()
     || original.recebeAdiantamento !== atual.recebeAdiantamento
-    || (original.pagamentoQuinzenal ?? false) !== (atual.pagamentoQuinzenal ?? false);
+    || (original.pagamentoQuinzenal ?? false) !== (atual.pagamentoQuinzenal ?? false)
+    || (original.inicioGorjeta ?? "") !== (atual.inicioGorjeta ?? "");
+}
+
+/**
+ * A entrada na gorjeta mudou e a data mais antiga (a de antes ou a nova) é de um mês
+ * anterior ao atual: muda gorjetas já calculadas, o backend exige motivo.
+ */
+function entradaGorjetaRetroativa(original: CamposComHistorico, atual: CamposComHistorico, hojeIso: string): boolean {
+  const antes = original.inicioGorjeta ?? "";
+  const depois = atual.inicioGorjeta ?? "";
+  if (antes === depois) return false;
+  const datas = [antes, depois].filter((d) => /^\d{4}-\d{2}/.test(d)).sort();
+  return datas.length > 0 && datas[0].slice(0, 7) < hojeIso.slice(0, 7);
 }
 
 /**
@@ -44,7 +59,9 @@ export function mudouCampoComHistorico(original: CamposComHistorico | null, atua
 export function motivoObrigatorio(
   original: CamposComHistorico | null, atual: CamposComHistorico, vigenteDesde: string, hojeIso: string,
 ): boolean {
-  if (!original || !/^\d{4}-\d{2}/.test(vigenteDesde)) return false;
+  if (!original) return false;
+  if (entradaGorjetaRetroativa(original, atual, hojeIso)) return true;
+  if (!/^\d{4}-\d{2}/.test(vigenteDesde)) return false;
   if (vigenteDesde.slice(0, 7) >= hojeIso.slice(0, 7)) return false;
   return dinheiro(original.baseSalary) !== dinheiro(atual.baseSalary)
     || (atual.modality === "CLT" && dinheiro(original.salarioCombinado) !== dinheiro(atual.salarioCombinado))
@@ -68,6 +85,7 @@ export function textoDoValor(campo: EmployeeHistoricoLinha["campo"], v: string |
   if (campo === "modality") return v === "NAO_CLT" ? "Sem registro" : "CLT";
   if (campo === "recebeAdiantamento") return v === "true" ? "Recebe adiantamento" : "Só no pagamento";
   if (campo === "pagamentoQuinzenal") return v === "true" ? "Recebe por quinzena" : "Não recebe por quinzena";
+  if (campo === "inicioGorjeta") return /^\d{4}-\d{2}-\d{2}/.test(v) ? diaBr(v) : v;
   return v;
 }
 

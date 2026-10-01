@@ -5,7 +5,7 @@ import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { hojeEmSaoPaulo } from "./extras-comum.js";
-import { CAMPOS_SALARIO, ROTULO_CAMPO, alteracoes, faltaMotivoRetroativo, lerVigenteDesde, type CampoHistorico } from "./cadastro-historico.js";
+import { CAMPOS_SALARIO, ROTULO_CAMPO, alteracoes, faltaMotivoEntradaGorjeta, faltaMotivoRetroativo, lerVigenteDesde, type CampoHistorico } from "./cadastro-historico.js";
 import { registrarAlteracoes } from "./cadastro-historico.service.js";
 
 export const employeeRouter = Router();
@@ -110,6 +110,8 @@ function buildEmployeeData(b: Record<string, unknown>) {
     admissionDate: dateOrNull(b.admissionDate),
     // Ausente = não mexe (a importação do extrato também grava este campo).
     ...("admissaoCarteira" in b ? { admissaoCarteira: dateOrNull(b.admissaoCarteira) } : {}),
+    // Entra na gorjeta em: vazio = em teste (ou fora da gorjeta). Ausente = não mexe.
+    ...("inicioGorjeta" in b ? { inicioGorjeta: dateOrNull(b.inicioGorjeta) } : {}),
     vtType: oneOf(VT_TYPES, b.vtType, "TRANSPORTE_PUBLICO"),
     vtPeriodicity: oneOf(VT_PERIODICITIES, b.vtPeriodicity, "QUINZENAL"),
     notes: str(b.notes),
@@ -189,6 +191,14 @@ export function lerFormaPagamento(
 // Salário, vínculo, cargo etc. mudaram: a data a partir da qual vale ("vigenteDesde",
 // padrão hoje em São Paulo) e o motivo vão para o histórico do cadastro. Sem mudança
 // nesses campos a data nem é conferida.
+// A gorjeta não começa antes do trabalho: "Entra na gorjeta em" não pode ser antes da admissão.
+function entradaAntesDaAdmissao(inicio: Date | null | undefined, admissao: Date | null | undefined): string | null {
+  if (!inicio || !admissao) return null;
+  const dia = (d: Date) => d.toISOString().slice(0, 10);
+  if (dia(inicio) >= dia(admissao)) return null;
+  return `"Entra na gorjeta em" não pode ser antes da admissão (${dia(admissao).split("-").reverse().join("/")}).`;
+}
+
 export function lerVigencia(
   b: Record<string, unknown>, antes: Record<string, unknown>, depois: Record<string, unknown>, admissao: Date | null, hojeIso = hojeEmSaoPaulo(),
 ): { erro: string } | { vigenteDesde: Date | null; motivo: string | null } {
@@ -197,7 +207,8 @@ export function lerVigencia(
   const lido = lerVigenteDesde(b.vigenteDesde, hojeIso, admissao);
   if ("erro" in lido) return lido;
   const motivo = str(b.motivoAlteracao)?.slice(0, 300) ?? null;
-  const falta = faltaMotivoRetroativo(mudancas.map((m) => m.campo), lido.data, hojeIso, motivo);
+  const falta = faltaMotivoRetroativo(mudancas.map((m) => m.campo), lido.data, hojeIso, motivo)
+    ?? faltaMotivoEntradaGorjeta(mudancas.find((m) => m.campo === "inicioGorjeta"), hojeIso, motivo);
   if (falta) return { erro: falta };
   return { vigenteDesde: lido.data, motivo };
 }
@@ -378,6 +389,10 @@ employeeRouter.post("/", async (request, response) => {
   if ("erro" in teto) return response.status(400).json({ message: teto.erro });
   if ("tetoIrGorjeta" in teto.dados && !(await podeVerDadosPessoais(request))) return response.status(403).json({ message: "Exige permissão de ver Funcionários." });
 
+  const novo = buildEmployeeData(b);
+  const erroEntrada = entradaAntesDaAdmissao(novo.inicioGorjeta, novo.admissionDate);
+  if (erroEntrada) return response.status(400).json({ message: erroEntrada });
+
   const legs = parseLegs(b.vtLegs);
 
   const created = await prisma.employee.create({
@@ -447,6 +462,8 @@ employeeRouter.put("/:id", async (request, response) => {
   // O teto com o salário dá a gorjeta informada: mexer nele exige ver salários.
   if ("tetoIrGorjeta" in teto.dados && !(await podeVerDadosPessoais(request))) return response.status(403).json({ message: "Exige permissão de ver Funcionários." });
   const dados = { cpf, ...base, ...combinado.dados, ...adiantamento.dados, ...teto.dados };
+  const erroEntrada = entradaAntesDaAdmissao(dados.inicioGorjeta, dados.admissionDate ?? existing.admissionDate);
+  if (erroEntrada) return response.status(400).json({ message: erroEntrada });
   const vigencia = lerVigencia(b, existing, dados, dados.admissionDate ?? existing.admissionDate);
   if ("erro" in vigencia) return response.status(400).json({ message: vigencia.erro });
 

@@ -110,6 +110,8 @@ const emptyEmployee = {
   gender: "NAO_INFORMADO" as EmployeeGender,
   pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", salarioCombinado: "", salarioCombinadoMotivo: "", tetoIrGorjeta: "", recebeAdiantamento: false, pagamentoQuinzenal: false, shiftStart: "", shiftEnd: "",
   modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, admissionDate: "", admissaoCarteira: "",
+  // Entra na gorjeta em: cadastro novo nasce vazio (em teste).
+  inicioGorjeta: "",
   vtType: "TRANSPORTE_PUBLICO" as VtType, vtPeriodicity: "QUINZENAL" as VtPeriodicity,
   vtFixedAmount: "", vtMonthlyFareId: "", notes: "",
   vtLegs: [] as Array<{ direction: VtDirection; fareId: string }>,
@@ -225,6 +227,7 @@ export function Funcionarios() {
       recebeAdiantamento: e.recebeAdiantamento ?? false, pagamentoQuinzenal: e.pagamentoQuinzenal ?? false,
       shiftStart: e.shiftStart ?? "", shiftEnd: e.shiftEnd ?? "",
       modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, admissionDate: toDateInput(e.admissionDate), admissaoCarteira: toDateInput(e.admissaoCarteira ?? null),
+      inicioGorjeta: toDateInput(e.inicioGorjeta ?? null),
       vtType: e.vtType, vtPeriodicity: e.vtPeriodicity,
       vtFixedAmount: moneyToMasked(e.vtFixedAmount), vtMonthlyFareId: e.vtMonthlyFareId ?? "", notes: e.notes ?? "",
       vtLegs: (e.vtLegs ?? []).map((l) => ({ direction: l.direction, fareId: l.fareId })),
@@ -235,6 +238,7 @@ export function Funcionarios() {
       tetoIrGorjeta: moneyToMasked(e.tetoIrGorjeta ?? null),
       modality: e.modality, position: e.position ?? "", recebeAdiantamento: e.recebeAdiantamento ?? false,
       pagamentoQuinzenal: e.pagamentoQuinzenal ?? false,
+      inicioGorjeta: toDateInput(e.inicioGorjeta ?? null),
     });
     setShowForm(true);
     setMotivoCombinadoTocado(false);
@@ -302,6 +306,7 @@ export function Funcionarios() {
         includeInSchedule: form.includeInSchedule,
         admissionDate: form.admissionDate || undefined,
         admissaoCarteira: form.admissaoCarteira || null,
+        inicioGorjeta: form.inicioGorjeta || null,
         vtType: form.vtType,
         vtPeriodicity: form.vtPeriodicity,
         // Cada configuração de VT só é enviada quando o tipo escolhido a usa.
@@ -686,11 +691,15 @@ export function Funcionarios() {
                 <FormField label="Admissão em carteira" hint="Do extrato da contabilidade; só informativo">
                   <TextField type="date" value={form.admissaoCarteira} onChange={(e) => setForm({ ...form, admissaoCarteira: e.target.value })} />
                 </FormField>
+                <FormField label="Entra na gorjeta em" hint="Vazio = em teste ou fora da gorjeta. Os dias de teste do sem registro são pagos como salário.">
+                  <TextField type="date" value={form.inicioGorjeta} min={form.admissionDate || undefined} aria-label="Entra na gorjeta em"
+                    onChange={(e) => setForm({ ...form, inicioGorjeta: e.target.value })} />
+                </FormField>
               </FormGrid>
               {pedeVigencia && (
                 <div className="stack" style={{ gap: 8, marginTop: 12 }}>
                   <Alert tone="info">
-                    Salário, vínculo, cargo ou adiantamento mudou. Gorjeta, folha e rescisão de meses anteriores continuam com o valor que valia na época; o novo vale a partir da data abaixo.
+                    Salário, vínculo, cargo, adiantamento ou entrada na gorjeta mudou. Gorjeta, folha e rescisão de meses anteriores continuam com o valor que valia na época; o novo vale a partir da data abaixo.
                   </Alert>
                   <FormGrid cols={2}>
                     <FormField label="Vale a partir de" required hint="aumento retroativo: a data em que passou a valer">

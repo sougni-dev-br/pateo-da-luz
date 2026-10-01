@@ -7,11 +7,14 @@
 
 export const CAMPOS_HISTORICO = [
   "baseSalary", "salarioCombinado", "tetoIrGorjeta", "modality", "companyId", "position", "recebeAdiantamento", "pagamentoQuinzenal",
+  "inicioGorjeta",
 ] as const;
 export type CampoHistorico = (typeof CAMPOS_HISTORICO)[number];
 
 // Sim/não do cadastro: gravados no histórico como "true"/"false".
 const CAMPOS_BOOLEANOS: ReadonlySet<CampoHistorico> = new Set(["recebeAdiantamento", "pagamentoQuinzenal"]);
+// Datas do cadastro: gravadas como o dia, AAAA-MM-DD.
+const CAMPOS_DATA: ReadonlySet<CampoHistorico> = new Set(["inicioGorjeta"]);
 
 // Salário (e o teto do IR, que com o salário dá a gorjeta informada) só para quem pode ver Funcionários.
 export const CAMPOS_SALARIO: ReadonlySet<CampoHistorico> = new Set(["baseSalary", "salarioCombinado", "tetoIrGorjeta"]);
@@ -26,6 +29,7 @@ export const ROTULO_CAMPO: Record<CampoHistorico, string> = {
   position: "Cargo",
   recebeAdiantamento: "Adiantamento salarial",
   pagamentoQuinzenal: "Pagamento por quinzena",
+  inicioGorjeta: "Entrada na gorjeta",
 };
 
 export type LinhaHistorico = {
@@ -47,6 +51,10 @@ export function serializar(campo: CampoHistorico, valor: unknown): string | null
     return Number.isFinite(n) ? n.toFixed(2) : null;
   }
   if (CAMPOS_BOOLEANOS.has(campo)) return valor === true || valor === "true" ? "true" : "false";
+  if (CAMPOS_DATA.has(campo)) {
+    const data = valor instanceof Date ? valor : new Date(String(valor));
+    return isNaN(data.getTime()) ? null : data.toISOString().slice(0, 10);
+  }
   const s = String(valor).trim();
   return s === "" ? null : s;
 }
@@ -60,6 +68,8 @@ export type ValorCadastro = {
   position: string | null;
   recebeAdiantamento: boolean;
   pagamentoQuinzenal: boolean;
+  // AAAA-MM-DD (como no histórico).
+  inicioGorjeta: string | null;
 };
 
 // Texto do histórico de volta ao tipo do cadastro.
@@ -165,6 +175,7 @@ export function lerVigenteDesde(
 // mês passado mudou: exige pelo menos 5 letras. Mudança no próprio mês (ou futura) não.
 export const CAMPOS_RETROATIVO_EXIGE_MOTIVO: ReadonlySet<CampoHistorico> = new Set(["baseSalary", "salarioCombinado", "tetoIrGorjeta", "modality"]);
 const MIN_LETRAS_MOTIVO = 5;
+const temMotivo = (motivo: string | null | undefined) => ((motivo ?? "").match(/\p{L}/gu)?.length ?? 0) >= MIN_LETRAS_MOTIVO;
 
 export function faltaMotivoRetroativo(
   campos: readonly CampoHistorico[], vigenteDesde: Date, hojeIso: string, motivo: string | null | undefined,
@@ -172,7 +183,20 @@ export function faltaMotivoRetroativo(
   if (!campos.some((c) => CAMPOS_RETROATIVO_EXIGE_MOTIVO.has(c))) return null;
   const mesVigencia = dia(vigenteDesde).slice(0, 7);
   if (mesVigencia >= hojeIso.slice(0, 7)) return null;
-  const letras = (motivo ?? "").match(/\p{L}/gu)?.length ?? 0;
-  if (letras >= MIN_LETRAS_MOTIVO) return null;
+  if (temMotivo(motivo)) return null;
   return `Alteração valendo desde ${mesVigencia.slice(5, 7)}/${mesVigencia.slice(0, 4)} muda cálculos de meses passados: informe o motivo.`;
+}
+
+// Entrada na gorjeta: a própria data diz desde quando a gorjeta muda. Pôr (ou tirar) uma
+// entrada num mês anterior ao atual muda gorjetas já calculadas: exige motivo, como o
+// salário retroativo. Vale o mês mais antigo entre a data de antes e a nova.
+export function faltaMotivoEntradaGorjeta(
+  alteracao: Alteracao | undefined, hojeIso: string, motivo: string | null | undefined,
+): string | null {
+  if (!alteracao || alteracao.campo !== "inicioGorjeta") return null;
+  const datas = [alteracao.valorAnterior, alteracao.valorNovo].filter((x): x is string => x != null).sort();
+  if (datas.length === 0) return null;
+  const mes = datas[0].slice(0, 7);
+  if (mes >= hojeIso.slice(0, 7) || temMotivo(motivo)) return null;
+  return `Entrada na gorjeta em ${mes.slice(5, 7)}/${mes.slice(0, 4)} muda a gorjeta de meses passados: informe o motivo.`;
 }
