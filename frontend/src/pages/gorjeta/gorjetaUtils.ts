@@ -110,6 +110,19 @@ export function adiantamentoOculto(lista: Pick<TipComputedParticipant, "adiantam
 }
 export const NOTA_ADIANTAMENTO_OCULTO = "A pagar já considera o adiantamento.";
 
+// 1ª quinzena (sem registro que recebe por quinzena, paga no dia 15). Mesma regra do
+// adiantamento: null = sem permissão (é metade do salário), "oculto", nunca zero. Ausente
+// (backend antigo) = ninguém recebe por quinzena. A coluna só aparece quando alguém recebe
+// ou quando o valor está oculto (aí não dá para saber quem recebe).
+export function quinzenaOculta(lista: Pick<TipComputedParticipant, "primeiraQuinzena">[]): boolean {
+  return lista.some((p) => p.primeiraQuinzena === null);
+}
+export function mostraQuinzena(lista: Pick<TipComputedParticipant, "primeiraQuinzena">[]): boolean {
+  return quinzenaOculta(lista) || lista.some((p) => (p.primeiraQuinzena ?? 0) > 0);
+}
+export const NOTA_QUINZENA_OCULTA = "A pagar já considera a 1ª quinzena.";
+export const REGRA_QUINZENA = "1ª quinzena = metade do salário base, paga no dia 15 a quem recebe por quinzena (cadastro). Já paga: sai do total (acerto do dia 30).";
+
 // Hora extra + adicional noturno de quem não tem registro (vem do backend, já no A pagar).
 // null = sem permissão de ver Funcionários (deriva do salário): "oculto", nunca zero.
 export function valorHoraExtraTotal(p: Pick<TipComputedParticipant, "valorHoraExtra" | "valorAdicionalNoturno">): number | null {

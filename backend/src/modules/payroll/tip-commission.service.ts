@@ -169,6 +169,9 @@ export type ComputedParticipant = {
   // Sem registro: adiantamento salarial já pago no mês do salário, descontado do total.
   // Deriva do salário: null sem a permissão de Funcionários.
   adiantamentoSalarial: number | null;
+  // Sem registro que recebe por quinzena: a 1ª quinzena já paga no dia 15, descontada do
+  // total (acerto do dia 30). Metade do salário base: null sem a permissão de Funcionários.
+  primeiraQuinzena: number | null;
   // Sem registro: hora extra (+50%) e adicional noturno, já somados no total a pagar.
   // CLT = 0 (só informativo, vai à contabilidade). Derivam do salário: null sem a permissão.
   valorHoraExtra: number | null;
@@ -239,6 +242,8 @@ export type TipComputation = {
   // adiantamentos e horasExtrasSemRegistro (hora extra + noturno da lista): null sem a permissão de Funcionários.
   totals: {
     rateio: number; vales: number; netCommission: number; salarios: number; adiantamentos: number | null;
+    // 1ª quinzena já paga (sem registro por quinzena): null sem a permissão de Funcionários.
+    primeirasQuinzenas: number | null;
     horasExtrasSemRegistro: number | null; totalAPagar: number; pagoNaRescisao: number;
   };
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
@@ -331,6 +336,18 @@ function folgasDoRetrato(participantes: unknown): Map<string, FolgasEscala> {
   return mapa;
 }
 
+// 1ª quinzena gravada no retrato do fechamento. Retrato sem o campo (antes desta versão,
+// ou quem não recebe por quinzena) = zero: o total gravado não descontou quinzena.
+function quinzenasDoRetrato(participantes: unknown): Map<string, number> {
+  const mapa = new Map<string, number>();
+  if (!Array.isArray(participantes)) return mapa;
+  for (const p of participantes as Array<{ employeeId?: unknown; primeiraQuinzena?: unknown }>) {
+    if (typeof p.employeeId !== "string") continue;
+    mapa.set(p.employeeId, Number(p.primeiraQuinzena ?? 0) || 0);
+  }
+  return mapa;
+}
+
 // Hora extra e noturno gravados no retrato do fechamento. Retrato sem os campos (antes
 // desta versão, ou sem horas) = zero: o total gravado não tinha hora extra.
 type AdicionaisFechados = { valorHoraExtra: number; valorAdicionalNoturno: number };
@@ -407,7 +424,7 @@ export async function computeTipCommission(
               firstName: true, lastName: true, displayName: true, isActive: true,
               companyId: true, company: { select: { tradeName: true } },
               modality: true, baseSalary: true, pixKeyType: true, pixKey: true, recebeAdiantamento: true,
-              admissionDate: true, terminationDate: true,
+              pagamentoQuinzenal: true, admissionDate: true, terminationDate: true,
               pontosExtra: true, tipFunction: { select: { name: true, points: true, minPoints: true, maxPoints: true } },
             },
           },
@@ -465,7 +482,8 @@ export async function computeTipCommission(
     rows.map((r) => ({
       id: r.employeeId, terminationDate: r.employee.terminationDate,
       modality: r.employee.modality as string, baseSalary: num(r.employee.baseSalary),
-      recebeAdiantamento: r.employee.recebeAdiantamento, companyId: r.employee.companyId,
+      recebeAdiantamento: r.employee.recebeAdiantamento, pagamentoQuinzenal: r.employee.pagamentoQuinzenal,
+      companyId: r.employee.companyId,
     })),
     (e) => diaDeReferencia(year, month, e.terminationDate),
   );
@@ -508,6 +526,7 @@ export async function computeTipCommission(
       // Faltas digitadas na apuração não dizem o dia: valem também para o salário.
       faltasSalario: r.faltas ?? escalaMes.get(r.employeeId)?.faltas ?? 0,
       recebeAdiantamento: vigenteDe(r).recebeAdiantamento,
+      pagamentoQuinzenal: vigenteDe(r).pagamentoQuinzenal,
       rescisaoLancada: rescisoesLancadas.has(r.employeeId),
       gorjetaReal: num(r.gorjetaReal),
       horaExtraMin: minutosValidos(r.horaExtra),
@@ -527,6 +546,7 @@ export async function computeTipCommission(
     : null;
   const folgasFechadas = registro ? folgasDoRetrato(registro.participants) : null;
   const adicionaisFechados = registro ? adicionaisDoRetrato(registro.participants) : null;
+  const quinzenasFechadas = registro ? quinzenasDoRetrato(registro.participants) : null;
 
   // Reserva da casa: pontos do período × valor do ponto do mês. Fechado, vale o
   // que entrou no fundo naquele fechamento.
@@ -556,10 +576,12 @@ export async function computeTipCommission(
     const adicionais = closed
       ? adicionaisFechados?.get(r.employeeId) ?? { valorHoraExtra: 0, valorAdicionalNoturno: 0 }
       : { valorHoraExtra: calc.valorHoraExtra, valorAdicionalNoturno: calc.valorAdicionalNoturno };
+    // Fechado: a 1ª quinzena que o retrato gravou (não recalcula pelo salário de hoje).
+    const primeiraQuinzena = closed ? quinzenasFechadas?.get(r.employeeId) ?? 0 : calc.primeiraQuinzena;
     const adiantamentoSalarial = closed
       ? adiantamentoDoFechado({
         semRegistro: ent.semRegistro, pagoNaRescisao, salarioProporcional, comissaoLiquida: netCommission, totalAPagar,
-        adicionais: adicionais.valorHoraExtra + adicionais.valorAdicionalNoturno,
+        adicionais: adicionais.valorHoraExtra + adicionais.valorAdicionalNoturno, primeiraQuinzena,
       })
       : calc.adiantamentoSalarial;
     const naEscala = escala.get(r.employeeId) ?? semOcorrencias();
@@ -631,6 +653,7 @@ export async function computeTipCommission(
       diasSalario: calc.diasSalario,
       salarioProporcional,
       adiantamentoSalarial: dadosPessoais ? adiantamentoSalarial : null,
+      primeiraQuinzena: dadosPessoais ? primeiraQuinzena : null,
       valorHoraExtra: dadosPessoais ? adicionais.valorHoraExtra : null,
       valorAdicionalNoturno: dadosPessoais ? adicionais.valorAdicionalNoturno : null,
       totalAPagar,
@@ -787,6 +810,10 @@ export async function computeTipCommission(
       // apuração da rescisão lê dele o adiantamento a descontar.
       adiantamentos: dadosPessoais
         ? round2(participants.filter((p) => !p.pagoNaRescisao).reduce((a, p) => a + (p.adiantamentoSalarial ?? 0), 0))
+        : null,
+      // Idem: quem foi pago na rescisão tem a 1ª quinzena descontada lá, não na lista.
+      primeirasQuinzenas: dadosPessoais
+        ? round2(participants.filter((p) => !p.pagoNaRescisao).reduce((a, p) => a + (p.primeiraQuinzena ?? 0), 0))
         : null,
       // Só o que a lista paga: sem quem saiu com a rescisão lançada (recebe lá).
       horasExtrasSemRegistro: dadosPessoais

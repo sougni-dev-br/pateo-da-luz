@@ -74,6 +74,7 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     // Só quando houve adiantamento: retratos antigos continuam com o mesmo formato.
     ...(comp.totals.adiantamentos ? { adiantamentos: comp.totals.adiantamentos, adiantamentoRegra: comp.adiantamento } : {}),
     // Idem para a hora extra e o noturno de quem não tem registro (já no total a pagar).
+    ...(comp.totals.primeirasQuinzenas ? { primeirasQuinzenas: comp.totals.primeirasQuinzenas } : {}),
     ...(comp.totals.horasExtrasSemRegistro ? { horasExtrasSemRegistro: comp.totals.horasExtrasSemRegistro } : {}),
     totalAPagar: comp.totals.totalAPagar,
   };
@@ -126,6 +127,9 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     diasSalario: p.diasSalario,
     salarioProporcional: p.salarioProporcional,
     ...(p.adiantamentoSalarial ? { adiantamentoSalarial: p.adiantamentoSalarial } : {}),
+    // 1ª quinzena já paga (sem registro por quinzena). É dela que o período fechado lê o
+    // valor descontado do total; sem quinzena, o retrato não muda.
+    ...(p.primeiraQuinzena ? { primeiraQuinzena: p.primeiraQuinzena } : {}),
     // Valor da hora extra e do noturno que entrou no total (sem registro). É dele que o
     // período fechado lê o valor e explica o adiantamento; sem horas, o retrato não muda.
     ...(p.valorHoraExtra || p.valorAdicionalNoturno

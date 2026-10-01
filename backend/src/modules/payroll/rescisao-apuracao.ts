@@ -7,6 +7,7 @@
 import { prisma } from "../../config/database.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { semRegistroEm } from "./cadastro-historico.service.js";
+import { DIA_PRIMEIRA_QUINZENA } from "./tip-rateio.js";
 import { costOfCalendarDay, round2, type Leg } from "./vt-calc.js";
 
 const isoDia = (d: Date) => d.toISOString().slice(0, 10);
@@ -86,6 +87,10 @@ export type ApuracaoRescisao = {
   // Sem registro que recebe adiantamento e saiu no dia do adiantamento ou depois: o
   // que já recebeu no mês desconta na rescisão. valor = null quando oculto.
   adiantamento: AdiantamentoPago | null;
+  // Sem registro que recebe por quinzena e saiu no dia 15 ou depois: a 1ª quinzena já paga
+  // desconta na rescisão, como o adiantamento. valor = null quando oculto. Ausente nas
+  // apurações gravadas antes desta versão.
+  primeiraQuinzena?: AdiantamentoPago | null;
   // Sem registro com horas digitadas na gorjeta do período da saída: a lista não paga
   // (a pessoa sai dela com a rescisão lançada), então entra aqui, nos créditos.
   // Ausente nas apurações gravadas antes desta versão.
@@ -120,10 +125,12 @@ export type SugestaoRescisao = {
   // Créditos da aba Vales + a hora extra e o noturno (a parte dela em horaExtra).
   creditos: number;
   horaExtra: number;
-  // Vales da aba Vales + o adiantamento salarial já pago (a parte dele em adiantamento).
+  // Vales da aba Vales + o adiantamento salarial e a 1ª quinzena já pagos (a parte de cada
+  // um em adiantamento e primeiraQuinzena).
   vales: number;
   valesRotulo: string | null;
   adiantamento: number;
+  primeiraQuinzena: number;
   vtDesconto: number;
   bruto: number | null;
 };
@@ -131,9 +138,12 @@ export type SugestaoRescisao = {
 const ddmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 
 // "VALE-2026-00012, Adiantamento salarial 20/09": o que compõe o desconto de vales.
-export function rotuloVales(itens: ValeAberto[], adiantamento: AdiantamentoPago | null): string | null {
+export function rotuloVales(
+  itens: ValeAberto[], adiantamento: AdiantamentoPago | null, primeiraQuinzena: AdiantamentoPago | null = null,
+): string | null {
   const partes = itens.filter((v) => v.tipo !== "CREDITO").map((v) => v.codigo ?? v.descricao ?? v.tipo);
   if (adiantamento && (adiantamento.valor ?? 0) > 0) partes.push(`Adiantamento salarial ${ddmm(adiantamento.data)}`);
+  if (primeiraQuinzena && (primeiraQuinzena.valor ?? 0) > 0) partes.push(`1ª quinzena ${ddmm(primeiraQuinzena.data)}`);
   return partes.length > 0 ? partes.join(", ") : null;
 }
 
@@ -141,12 +151,12 @@ export function rotuloVales(itens: ValeAberto[], adiantamento: AdiantamentoPago 
 export function montarSugestao(a: Omit<ApuracaoRescisao, "sugestao">): SugestaoRescisao {
   const vtDesconto = a.vt.total;
   if (!a.semRegistro) {
-    return { salario: null, gorjeta: null, creditos: 0, horaExtra: 0, vales: 0, valesRotulo: null, adiantamento: 0, vtDesconto, bruto: null };
+    return { salario: null, gorjeta: null, creditos: 0, horaExtra: 0, vales: 0, valesRotulo: null, adiantamento: 0, primeiraQuinzena: 0, vtDesconto, bruto: null };
   }
   // Já pago na lista fechada: salário, gorjeta, vales e créditos já entraram nela. O
   // apurado vira zero, e qualquer valor lançado aqui cai na divergência com justificativa.
   if (a.jaPagoNaLista) {
-    return { salario: 0, gorjeta: 0, creditos: 0, horaExtra: 0, vales: 0, valesRotulo: null, adiantamento: 0, vtDesconto, bruto: 0 };
+    return { salario: 0, gorjeta: 0, creditos: 0, horaExtra: 0, vales: 0, valesRotulo: null, adiantamento: 0, primeiraQuinzena: 0, vtDesconto, bruto: 0 };
   }
   const g = a.gorjeta;
   const salario = g ? g.salarioProporcional : null;
@@ -155,13 +165,15 @@ export function montarSugestao(a: Omit<ApuracaoRescisao, "sugestao">): SugestaoR
   // ao que a pessoa recebe. Vão juntos em "créditos", que entra no bruto da rescisão.
   const horaExtra = round2(a.horaExtra?.valor ?? 0);
   const creditos = round2(a.vales.creditos + horaExtra);
-  // O adiantamento salarial já pago no mês entra no desconto, junto dos vales.
+  // O adiantamento salarial e a 1ª quinzena já pagos no mês entram no desconto, junto dos vales.
   const adiantamento = round2(a.adiantamento?.valor ?? 0);
-  const vales = round2(a.vales.descontos + adiantamento);
+  const primeiraQuinzena = round2(a.primeiraQuinzena?.valor ?? 0);
+  const vales = round2(a.vales.descontos + adiantamento + primeiraQuinzena);
   return {
     salario, gorjeta, creditos, horaExtra, vales,
-    valesRotulo: vales > 0 ? rotuloVales(a.vales.itens, a.adiantamento) : null,
+    valesRotulo: vales > 0 ? rotuloVales(a.vales.itens, a.adiantamento, a.primeiraQuinzena ?? null) : null,
     adiantamento,
+    primeiraQuinzena,
     vtDesconto,
     bruto: salario != null && gorjeta != null ? round2(salario + gorjeta + creditos) : null,
   };
@@ -244,6 +256,7 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
   let creditos = 0;
   let jaPagoNaLista: JaPagoNaLista | null = null;
   let adiantamento: AdiantamentoPago | null = null;
+  let primeiraQuinzena: AdiantamentoPago | null = null;
   let horaExtra: HoraExtraRescisao | null = null;
   if (!periodo) {
     gorjetaObservacao = "Não há período de gorjeta aberto que contenha a data de saída.";
@@ -279,6 +292,12 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
         const ultimo = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
         adiantamento = { valor: p.adiantamentoSalarial, data: isoDia(new Date(Date.UTC(ano, mes - 1, Math.min(comp.adiantamento.dia, ultimo)))) };
       }
+      // 1ª quinzena: o cálculo da gorjeta já decide se saiu (sem registro, por quinzena no
+      // cadastro vigente, no vínculo no dia 15 do mês do salário do período).
+      if (semRegistro && (p.primeiraQuinzena ?? 0) > 0 && !jaPagoNaLista) {
+        const { competenceYear: ano, competenceMonth: mes } = periodo;
+        primeiraQuinzena = { valor: p.primeiraQuinzena, data: isoDia(new Date(Date.UTC(ano, mes - 1, DIA_PRIMEIRA_QUINZENA))) };
+      }
       // Hora extra e noturno do período da saída (o cálculo da gorjeta já aplicou a regra).
       const valorHoraExtra = round2((p.valorHoraExtra ?? 0) + (p.valorAdicionalNoturno ?? 0));
       if (semRegistro && valorHoraExtra > 0 && !jaPagoNaLista) {
@@ -311,6 +330,7 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
     gorjetaObservacao,
     jaPagoNaLista,
     adiantamento,
+    primeiraQuinzena,
     horaExtra,
   };
   return { ...base, sugestao: montarSugestao(base) };
@@ -367,15 +387,17 @@ export function semDadosPessoais(a: ApuracaoRescisao | null): ApuracaoRescisao |
     ...a,
     gorjeta: a.gorjeta ? { ...a.gorjeta, salarioProporcional: null, diasSalario: null } : null,
     vales: { ...a.vales, itens: a.vales.itens.map((v) => ({ ...v, descricao: null })) },
-    // O adiantamento é % do salário: sai do desconto sugerido e da apuração.
-    // A hora extra (salário ÷ 220) também: sai dos créditos sugeridos e da apuração.
+    // O adiantamento é % do salário e a 1ª quinzena é metade dele: saem do desconto
+    // sugerido e da apuração. A hora extra (salário ÷ 220) também: sai dos créditos.
     sugestao: {
-      ...a.sugestao, salario: null, bruto: null, adiantamento: 0,
-      vales: round2(a.sugestao.vales - a.sugestao.adiantamento),
-      valesRotulo: a.sugestao.adiantamento > 0 ? rotuloVales(a.vales.itens, null) : a.sugestao.valesRotulo,
+      ...a.sugestao, salario: null, bruto: null, adiantamento: 0, primeiraQuinzena: 0,
+      vales: round2(a.sugestao.vales - a.sugestao.adiantamento - (a.sugestao.primeiraQuinzena ?? 0)),
+      valesRotulo: a.sugestao.adiantamento > 0 || (a.sugestao.primeiraQuinzena ?? 0) > 0
+        ? rotuloVales(a.vales.itens, null) : a.sugestao.valesRotulo,
       creditos: round2(a.sugestao.creditos - (a.sugestao.horaExtra ?? 0)), horaExtra: 0,
     },
     adiantamento: a.adiantamento ? { ...a.adiantamento, valor: null } : null,
+    primeiraQuinzena: a.primeiraQuinzena ? { ...a.primeiraQuinzena, valor: null } : a.primeiraQuinzena,
     horaExtra: a.horaExtra ? { ...a.horaExtra, valor: null } : a.horaExtra,
     // O total pago na lista inclui o salário: some o valor, fica o aviso.
     ...(a.jaPagoNaLista ? ocultarJaPago(a.jaPagoNaLista) : {}),

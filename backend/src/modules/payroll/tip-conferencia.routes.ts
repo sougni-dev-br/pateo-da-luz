@@ -72,6 +72,7 @@ async function pessoasApuradas(year: number, month: number, comPix: boolean): Pr
       gorjetaLiquida: p.netCommission,
       totalAPagar: p.totalAPagar,
       adiantamentoSalarial: p.adiantamentoSalarial ?? 0,
+      primeiraQuinzena: p.primeiraQuinzena ?? 0,
       // Sem a permissão o valor vem null; dizer que há hora extra (sem o valor) não expõe o salário.
       comHoraExtra: p.semRegistro && (p.valorHoraExtra != null
         ? (p.valorHoraExtra + (p.valorAdicionalNoturno ?? 0)) > 0
