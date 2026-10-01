@@ -496,8 +496,12 @@ export async function computeTipCommission(
     ? (await prisma.company.findMany({ where: { id: { in: outrasEmpresas } }, select: { id: true, tradeName: true } })).map((c) => [c.id, c.tradeName])
     : []);
 
+  // Sem registro que sai depois do ciclo, ainda no mês do salário (ex.: 29/09 no ciclo que
+  // fecha em 25/09), também conta: com a rescisão lançada, ela paga o mês inteiro.
+  const fimDaBusca = (r: (typeof rows)[number]) =>
+    vigenteDe(r).modality === "NAO_CLT" && regras.mesSalario!.end > end ? regras.mesSalario!.end : end;
   const rescisoesLancadas = await rescisoesEmContasAPagar(rows.map((r) => r.employee.terminationDate
-    && r.employee.terminationDate >= start && r.employee.terminationDate <= end
+    && r.employee.terminationDate >= start && r.employee.terminationDate <= fimDaBusca(r)
     ? { employeeId: r.employeeId, saida: r.employee.terminationDate } : null));
 
   const entradas: ParticipanteEntrada[] = rows.map((r) => {
@@ -727,6 +731,12 @@ export async function computeTipCommission(
     if (Math.abs(termo - p.netCommission) > 0.05) {
       warnings.push(`${p.employeeName}: o termo de rescisão pagou ${brl(termo)} de gorjeta, mas a gorjeta do mês menos os vales dá ${brl(p.netCommission)}. A lista não paga nada a ele; confira a diferença com a contabilidade.`);
     }
+  }
+  // Sem registro que saiu depois do ciclo, no mês do salário, com a rescisão lançada: a
+  // rescisão paga o mês inteiro (decisão do Eli, "tudo na rescisão"); a lista não paga nada.
+  const mesNaRescisao = noPeriodo.filter((p) => p.semRegistro && p.tipoCalculo === "MES" && p.pagoNaRescisao);
+  if (mesNaRescisao.length) {
+    warnings.push(`Saíram depois do fim do ciclo, ainda no mês do salário, com a rescisão lançada: salário, gorjeta do ciclo, vales e hora extra do mês vão na rescisão, não nesta lista: ${listar(mesNaRescisao)}.`);
   }
   const comReal = naGorjeta.filter((p) => p.gorjetaReal != null && p.tipoCalculo === "MES");
   if (comReal.length) {

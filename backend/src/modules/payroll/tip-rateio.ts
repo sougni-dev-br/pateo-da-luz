@@ -322,6 +322,16 @@ export function motivoGorjetaRealSemEfeito(tipoCalculo: TipoCalculo, kind: "FIXO
   return "passou a receber cota fixa";
 }
 
+// Sem registro que saiu DEPOIS do fim do ciclo, ainda dentro do mês do salário (ciclo até
+// 25/09, saída em 29/09), com a rescisão lançada: decisão do Eli (01/10/2026), "tudo na
+// rescisão". Ela paga o mês inteiro — salário, gorjeta do ciclo, vales, adiantamento,
+// quinzena, hora extra — mais a gorjeta dos dias depois do ciclo (período seguinte). A
+// lista do mês não paga nada; os valores seguem calculados porque a rescisão lê daqui.
+export function saiuAposCicloNoMesDoSalario(p: ParticipanteEntrada, regras: RegrasPeriodo): boolean {
+  if (!p.semRegistro || !p.rescisaoLancada || !p.desligamento || !regras.mesSalario) return false;
+  return p.desligamento > regras.end && p.desligamento <= regras.mesSalario.end;
+}
+
 // Fora da gorjeta: nada de rateio nem de pontos. Está no período pelo vínculo no mês do
 // salário (o ciclo da gorjeta não importa): sem vínculo no mês, fica fora do período.
 // Salário, adiantamento, hora extra e vales seguem a regra de qualquer sem registro.
@@ -335,8 +345,10 @@ function calcularForaDaGorjeta(regras: RegrasPeriodo, p: ParticipanteEntrada): P
   const salario = salarioSemRegistro(p, regras);
   const { adiantamentoSalarial, primeiraQuinzena } = pagoAntesDoAcerto(p, regras, salario.valor);
   const { valorHoraExtra, valorAdicionalNoturno } = adicionaisSemRegistro(p);
-  // Saiu dentro do ciclo com a rescisão lançada: recebeu tudo lá, como os demais sem registro.
-  const pagoNaRescisao = p.semRegistro && p.rescisaoLancada && p.desligamento != null && p.desligamento <= regras.end;
+  // Saiu dentro do ciclo (ou depois dele, no mês do salário) com a rescisão lançada:
+  // recebeu tudo lá, como os demais sem registro.
+  const pagoNaRescisao = (p.semRegistro && p.rescisaoLancada && p.desligamento != null && p.desligamento <= regras.end)
+    || (tipoCalculo === "MES" && saiuAposCicloNoMesDoSalario(p, regras));
   return {
     tipoCalculo, foraDaGorjeta: true,
     diasElegiveis: elegiveis, diasPrevistos: 0, diasReferencia: 0, diasComputados: 0, fatorPresenca: 0,
@@ -437,7 +449,7 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
   const termoPagouOMes = !p.semRegistro && tipoCalculo === "MES" && p.rescisaoValorFixo != null
     && p.desligamento != null && p.desligamento > regras.end;
   const pagoNaRescisao = p.semRegistro
-    ? saiuNoPeriodo && p.rescisaoLancada
+    ? (saiuNoPeriodo && p.rescisaoLancada) || (tipoCalculo === "MES" && saiuAposCicloNoMesDoSalario(p, regras))
     : tipoCalculo === "RESCISAO_QUITADA" || termoPagouOMes;
 
   return {
