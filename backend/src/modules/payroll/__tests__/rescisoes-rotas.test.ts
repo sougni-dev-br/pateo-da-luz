@@ -76,6 +76,34 @@ describe("GET /payroll/rescisoes", () => {
   });
 });
 
+describe("GET /payroll/rescisoes — quitada no termo", () => {
+  test("o termo gravado na rescisão quitada aparece como o termo da pessoa (sem CPF)", async () => {
+    db.employee.findMany
+      .mockResolvedValueOnce([pessoa({ modality: "CLT", terminationDate: d("2026-09-03") })])
+      .mockResolvedValueOnce([]);
+    db.payrollItem.findMany.mockResolvedValueOnce([{
+      id: "q1", employeeId: "e1", amount: 0, paymentDate: d("2026-09-11"), dueDate: d("2026-09-11"),
+      details: { quitadaNoTermo: true, em: "2026-10-01T12:00:00.000Z", termo: { arquivo: "trct.pdf", hash: "abc", afastamento: "2026-09-03", pagamento: "2026-09-11", totalBruto: 812.4, liquido: 0, gorjeta: null } },
+    }]);
+
+    const r = await request(app).get("/payroll/rescisoes");
+
+    const p = r.body.pessoas[0];
+    expect(p.rescisao).toMatchObject({ parcelas: 1, pagas: 1, liquido: 0, quitadaNoTermo: { itemId: "q1" } });
+    expect(p.termo).toEqual({ arquivo: "trct.pdf", importadoEm: "2026-10-01T12:00:00.000Z", gorjeta: null, liquido: 0, pagamento: "2026-09-11" });
+  });
+
+  test("detalhe da pessoa com a rescisão quitada", async () => {
+    db.employee.findFirst.mockResolvedValue(pessoa({ modality: "CLT", terminationDate: d("2026-09-03") }));
+    db.payrollItem.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "q1", amount: 0, paymentDate: d("2026-09-11"), dueDate: d("2026-09-11"), details: { quitadaNoTermo: true, termo: { arquivo: "t.pdf", liquido: 0, pagamento: "2026-09-11" } } }]);
+    const r = await request(app).get("/payroll/rescisoes/e1");
+    expect(r.body.pessoa.rescisao.quitadaNoTermo).toEqual({ itemId: "q1" });
+    expect(r.body.pessoa.termo).toMatchObject({ arquivo: "t.pdf", liquido: 0, pagamento: "2026-09-11" });
+  });
+});
+
 describe("GET /payroll/rescisoes/:employeeId", () => {
   test("404 para quem não existe", async () => {
     db.employee.findFirst.mockResolvedValue(null);

@@ -14,6 +14,8 @@ import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { round2 } from "./vt-calc.js";
 import { duplicadosDe, pagamentosEmDuplicidade, resumoItem, rotuloLivre, rotuloTipo, competenciaDe } from "./folha-duplicidade.js";
 import { CAMPOS_TRAVA, dataBr, folhaLancamentoRouter, nomeDe } from "./folha-lancamento.routes.js";
+import { RecusaRescisao, travarRescisao } from "./rescisao-trava.js";
+import { ehQuitadaNoTermo } from "./rescisao-quitada.js";
 
 export const payrollRouter = Router();
 // Lançamento manual (POST /) e conferência do lote antes da baixa (POST /pay-check).
@@ -44,23 +46,14 @@ function clampInt(v: unknown, min: number, max: number): number | undefined {
 // Rescisão na lista de Contas a Pagar, sem a permissão de ver Funcionários: o details
 // guarda salário, apuração e histórico de ajustes. Sai só o que a lista usa (lista
 // branca). Os outros tipos ficam como estão.
-const DETALHES_RESCISAO_NA_LISTA = ["grupoRescisao", "installmentNumber", "installmentTotal", "valesLabel", "otherDiscountLabel"] as const;
+const DETALHES_RESCISAO_NA_LISTA = ["grupoRescisao", "installmentNumber", "installmentTotal", "valesLabel", "otherDiscountLabel", "quitadaNoTermo"] as const;
 export function detalhesNaLista(type: string, details: unknown, podeVer: boolean): unknown {
   if (podeVer || type !== "RESCISAO" || details == null || typeof details !== "object") return details;
   const d = details as Record<string, unknown>;
   return Object.fromEntries(DETALHES_RESCISAO_NA_LISTA.filter((k) => d[k] !== undefined).map((k) => [k, d[k]]));
 }
 
-// Recusa com status HTTP, lançada de dentro de uma transação para desfazê-la inteira.
-export class RecusaRescisao extends Error {
-  constructor(public readonly status: number, message: string) { super(message); }
-}
-
-// Uma rescisão por funcionário de cada vez: lançar, ajustar, excluir e restaurar
-// esperam umas pelas outras (trava da transação, solta no commit/rollback).
-async function travarRescisao(tx: Prisma.TransactionClient, employeeId: string) {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rescisao:${employeeId}`}))`;
-}
+export { RecusaRescisao } from "./rescisao-trava.js";
 
 const MSG_SEM_PERMISSAO_GORJETA = "Para lançar a gorjeta na apuração é preciso permissão de edição na Gorjeta.";
 const podeEditarGorjeta = (user: { id: string; role: string }) => userHasPermission(user as SessionUser, "payroll-tips", "edit");
@@ -914,6 +907,10 @@ payrollRouter.patch("/:id/reverse", async (request, response) => {
   const existing = await prisma.payrollItem.findFirst({ where: { id: request.params.id, deletedAt: null } });
   if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
   if (!existing.paymentDate) return response.status(400).json({ message: "Este lançamento ainda não foi pago." });
+  // Quitada no termo não saiu do caixa: não há baixa a estornar. Desfazer = excluir.
+  if (existing.type === "RESCISAO" && ehQuitadaNoTermo(existing.details)) {
+    return response.status(400).json({ message: "Rescisão quitada no termo não teve pagamento a estornar: para desfazer, exclua o registro (RH → Rescisões)." });
+  }
 
   // Estornar tira a despesa do mês em que ela foi paga. Trava na data do
   // pagamento ORIGINAL, que é o mês que seria alterado — mesmo critério do
@@ -991,7 +988,9 @@ payrollRouter.patch("/:id/restore", async (request, response) => {
         where: { id: existing.id },
         data: { deletedAt: null, deletedById: null, status: computeStatus(existing.dueDate, existing.paymentDate), updatedById: user.id },
       });
-      const restaurada = existing.type === "RESCISAO" ? await refazerGorjetaDaRescisao(tx, existing, podeGorjeta) : null;
+      // Quitada no termo nunca mexeu na gorjeta: nada a relançar (e o vínculo das irmãs não é dela).
+      const restaurada = existing.type === "RESCISAO" && !ehQuitadaNoTermo(existing.details)
+        ? await refazerGorjetaDaRescisao(tx, existing, podeGorjeta) : null;
       return { updated: item, gorjetaRestaurada: restaurada };
     });
   } catch (err) {
@@ -1107,7 +1106,9 @@ payrollRouter.delete("/:id", async (request, response) => {
   // carimbadas como "já descontadas" e elas nunca mais voltariam ao cálculo.
   // Parcela de rescisão já paga: excluir apagaria a despesa e desfaria a gorjeta de algo
   // que já saiu do caixa. Estorna primeiro.
-  if (existing.type === "RESCISAO" && existing.paymentDate) {
+  // Quitada no termo (R$ 0,00): a "baixa" é só o registro, nada saiu do caixa — exclui direto.
+  const quitadaNoTermo = existing.type === "RESCISAO" && ehQuitadaNoTermo(existing.details);
+  if (existing.type === "RESCISAO" && existing.paymentDate && !quitadaNoTermo) {
     return response.status(400).json({ message: "Parcela de rescisão já paga: estorne o pagamento em Contas a Pagar antes de excluir." });
   }
 
@@ -1124,7 +1125,7 @@ payrollRouter.delete("/:id", async (request, response) => {
       let desfeita = null;
       if (existing.type === "RESCISAO") {
         const restantes = await tx.payrollItem.count({ where: { employeeId: existing.employeeId, type: "RESCISAO", deletedAt: null, status: { not: "CANCELED" } } });
-        if (restantes === 0) desfeita = await desfazerGorjetaDaRescisao(tx, existing.employeeId, existing.details, podeGorjeta);
+        if (restantes === 0 && !quitadaNoTermo) desfeita = await desfazerGorjetaDaRescisao(tx, existing.employeeId, existing.details, podeGorjeta);
       }
       return { faltasLiberadas: liberadas, gorjetaDesfeita: desfeita };
     });

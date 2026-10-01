@@ -1,7 +1,7 @@
 // Situação de cada rescisão na lista de RH → Rescisões e o próximo passo de quem cuida.
 import type { RescisaoResumo } from "../../../api/client";
 
-export type Situacao = "FALTA_LANCAR" | "TERMO_IMPORTADO" | "LANCADA" | "PAGA_EM_PARTE" | "PAGA";
+export type Situacao = "FALTA_LANCAR" | "TERMO_IMPORTADO" | "LANCADA" | "PAGA_EM_PARTE" | "PAGA" | "QUITADA_NO_TERMO";
 export type TomSituacao = "warning" | "info" | "success" | "neutral";
 
 export type SituacaoRescisao = {
@@ -19,6 +19,7 @@ const ROTULO: Record<Situacao, string> = {
   LANCADA: "Lançada",
   PAGA_EM_PARTE: "Paga em parte",
   PAGA: "Paga",
+  QUITADA_NO_TERMO: "Quitada no termo",
 };
 const TOM: Record<Situacao, TomSituacao> = {
   FALTA_LANCAR: "warning",
@@ -26,6 +27,7 @@ const TOM: Record<Situacao, TomSituacao> = {
   LANCADA: "info",
   PAGA_EM_PARTE: "warning",
   PAGA: "success",
+  QUITADA_NO_TERMO: "success",
 };
 
 const diaMes = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
@@ -49,6 +51,8 @@ function proximoPasso(situacao: Situacao, r: Entrada): string {
     }
     case "PAGA":
       return clt && !r.termo ? IMPORTAR_TERMO : "Concluída";
+    case "QUITADA_NO_TERMO":
+      return "Concluída — nada a pagar (líquido zero no termo)";
   }
 }
 
@@ -56,9 +60,10 @@ export function situacaoRescisao(r: Entrada, hojeIso: string): SituacaoRescisao 
   const l = r.rescisao;
   const situacao: Situacao = !l
     ? (!r.semRegistro && r.termo ? "TERMO_IMPORTADO" : "FALTA_LANCAR")
-    : l.pagas >= l.parcelas ? "PAGA"
-      : l.pagas > 0 ? "PAGA_EM_PARTE"
-        : "LANCADA";
+    : l.quitadaNoTermo ? "QUITADA_NO_TERMO"
+      : l.pagas >= l.parcelas ? "PAGA"
+        : l.pagas > 0 ? "PAGA_EM_PARTE"
+          : "LANCADA";
   const saindo = r.saida != null && r.saida > hojeIso;
   const passo = proximoPasso(situacao, r);
   return {

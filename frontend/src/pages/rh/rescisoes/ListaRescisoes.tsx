@@ -14,6 +14,7 @@ export const FILTROS: Array<{ id: FiltroSituacao; rotulo: string; tom: "warning"
   { id: "LANCADA", rotulo: "Lançada", tom: "info" },
   { id: "PAGA_EM_PARTE", rotulo: "Paga em parte", tom: "warning" },
   { id: "PAGA", rotulo: "Paga", tom: "success" },
+  { id: "QUITADA_NO_TERMO", rotulo: "Quitada no termo", tom: "success" },
 ];
 
 export type LinhaRescisao = { pessoa: RescisaoResumo; situacao: SituacaoRescisao };

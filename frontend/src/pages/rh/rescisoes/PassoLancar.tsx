@@ -9,11 +9,24 @@ type Props = {
   funcionario: FuncionarioDaRescisao;
   termo: TermoRescisaoResumo | null;
   pendenciasParaAcao: number;
+  /** Registrada como quitada no termo (líquido zero): nada a lançar. */
+  quitadaNoTermo?: boolean;
   onPasso: (n: NumeroPasso) => void;
   onGravou: () => void;
 };
 
-export function PassoLancar({ funcionario, termo, pendenciasParaAcao, onPasso, onGravou }: Props) {
+export function PassoLancar({ funcionario, termo, pendenciasParaAcao, quitadaNoTermo, onPasso, onGravou }: Props) {
+  if (quitadaNoTermo) {
+    return (
+      <section className="rr-corpo" aria-labelledby="rr-p4">
+        <h3 id="rr-p4">4. Conferir e lançar</h3>
+        <Alert tone="success">
+          Quitada no termo: o líquido do termo é zero, não há o que lançar nem pagar. Para desfazer, volte ao passo 2.{" "}
+          <Button size="sm" variant="secondary" onClick={() => onPasso(2)}>Ver o passo 2</Button>
+        </Alert>
+      </section>
+    );
+  }
   return (
     <section className="rr-corpo" aria-labelledby="rr-p4">
       <h3 id="rr-p4">4. Conferir e lançar</h3>

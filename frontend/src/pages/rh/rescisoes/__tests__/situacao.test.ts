@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { RescisaoResumo } from "../../../../api/client";
 import { situacaoRescisao } from "../situacao";
+import { FILTROS, contarPorSituacao, linhasDaLista } from "../ListaRescisoes";
 
 const base: RescisaoResumo = {
   employeeId: "e1", nome: "Ana Silva", apelido: null, empresa: "Pateo", semRegistro: true,
@@ -71,5 +72,29 @@ describe("situacaoRescisao", () => {
   test("sem data de saída: primeiro registrar o desligamento", () => {
     const s = situacaoRescisao({ ...base, saida: null }, HOJE);
     expect(s.proximoPasso).toMatch(/data de saída/i);
+  });
+});
+
+describe("quitada no termo", () => {
+  const quitada = { parcelas: 1, pagas: 1, liquido: 0, valorPago: 0, proximoVencimento: null, quitadaNoTermo: { itemId: "q1" } };
+
+  test("CLT com termo de líquido zero registrado: quitada no termo, concluída", () => {
+    const s = situacaoRescisao({ ...base, semRegistro: false, rescisao: quitada, termo: { ...termo, liquido: 0, gorjeta: null } }, HOJE);
+    expect(s.situacao).toBe("QUITADA_NO_TERMO");
+    expect(s.rotulo).toBe("Quitada no termo");
+    expect(s.tom).toBe("success");
+    expect(s.proximoPasso).toBe("Concluída — nada a pagar (líquido zero no termo)");
+  });
+
+  test("não pede o termo de novo mesmo sem termo na gorjeta", () => {
+    const s = situacaoRescisao({ ...base, semRegistro: false, rescisao: quitada, termo: null }, HOJE);
+    expect(s.situacao).toBe("QUITADA_NO_TERMO");
+    expect(s.proximoPasso).not.toMatch(/importar/i);
+  });
+
+  test("o filtro da lista tem a situação nova e conta quem está nela", () => {
+    expect(FILTROS.map((f) => f.id)).toContain("QUITADA_NO_TERMO");
+    const linhas = linhasDaLista([{ ...base, semRegistro: false, rescisao: quitada }, base], HOJE);
+    expect(contarPorSituacao(linhas)).toMatchObject({ TODAS: 2, QUITADA_NO_TERMO: 1, FALTA_LANCAR: 1 });
   });
 });

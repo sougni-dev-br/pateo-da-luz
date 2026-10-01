@@ -136,6 +136,18 @@ describe("pendenciasDaRescisao", () => {
     expect(l[1]).toMatchObject({ tom: "aviso", acao: { tipo: "link", para: "/rh/retorno" } });
   });
 
+  test("CLT quitada no termo: não pede termo nem gorjeta para lançar; o resto continua", () => {
+    const quitada = { parcelas: 1, pagas: 1, liquido: 0, valorPago: 0, proximoVencimento: null, quitadaNoTermo: { itemId: "q1" } };
+    const l = pendenciasDaRescisao({
+      detalhe: detalhe(
+        { periodoGorjeta: null, itensAposSaida: [item({})], extratoDoMes: { competencia: "09/2026", importado: false, pessoaNoExtrato: false } },
+        { semRegistro: false, rescisao: quitada, termo: null },
+      ),
+      apuracao: apuracao({ semRegistro: false, gorjeta: null, gorjetaObservacao: "Fora da apuração." }),
+    });
+    expect(ids(l)).toEqual(["folha-i1", "extrato"]);
+  });
+
   test("sem registro não pede extrato nem termo", () => {
     const l = pendenciasDaRescisao({ detalhe: detalhe({ extratoDoMes: { competencia: "09/2026", importado: false, pessoaNoExtrato: false } }), apuracao: apuracao() });
     expect(l).toEqual([]);
