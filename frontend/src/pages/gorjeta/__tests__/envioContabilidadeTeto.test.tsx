@@ -27,6 +27,7 @@ vi.mock("jspdf", () => ({
     addPage() {}
     setPage() {}
     getNumberOfPages() { return 1; }
+    getTextWidth(t: string) { return t.length * 1.5; }
     text(t: string | string[]) { textos.push(Array.isArray(t) ? t.join(" ") : t); }
     save() {}
   },
@@ -93,7 +94,7 @@ describe("PDF do envio à contabilidade", () => {
   test("leva a gorjeta informada e o total por ela, sem nada do teto", async () => {
     await exportarContabilidade(comp([eli(), ana]));
     const t = tabelas[0] as { body: string[][]; foot: string[][] };
-    const linhaEli = t.body.find((l) => l[0].startsWith("ELIOENAI"))!;
+    const linhaEli = t.body.find((l) => l[0].startsWith("Elioenai"))!;
     expect(linhaEli[1]).toMatch(/1\.328,00/);
     expect(t.foot[0][1]).toMatch(/1\.828,00/);
     expect(textos.join(" ")).toMatch(/Total geral de gorjetas/);

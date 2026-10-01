@@ -54,9 +54,25 @@ export function textoPdf(s: string): string {
   return s.replace(/−/g, "-").replace(/[‐-–]/g, "-").replace(/ /g, " ");
 }
 
-/** Nome no envio: em maiúsculas, como na folha da contabilidade. */
-export const nomeNoEnvio = (nome: string) => textoPdf(nome.trim().toLocaleUpperCase("pt-BR"));
+const PARTICULAS = new Set(["da", "de", "di", "do", "du", "das", "dos", "e"]);
+
+/** Nome no envio como nome próprio ("Maria Jose Silva de Freitas"), venha em maiúsculas ou não. */
+export const nomeNoEnvio = (nome: string) =>
+  textoPdf(nome.trim().toLocaleLowerCase("pt-BR").split(/\s+/)
+    .map((p, i) => (i > 0 && PARTICULAS.has(p) ? p : p.charAt(0).toLocaleUpperCase("pt-BR") + p.slice(1)))
+    .join(" "));
 
 /** Célula de quantidade (horas h:mm ou dias): vazio vira traço discreto. */
 export const celulaOuTraco = (v: string | number | null | undefined) =>
   v == null || v === "" || v === 0 ? "-" : textoPdf(String(v));
+
+/** Totais do resumo do envio: horas extras e noturnas somadas (minutos), faltas e atestados (dias). */
+export function totaisDoEnvio(linhas: LinhaEnvio[], minutos: (t: string | null | undefined) => number | null) {
+  const soma = (f: (l: LinhaEnvio) => number) => linhas.reduce((a, l) => a + f(l), 0);
+  return {
+    minutosHoraExtra: soma((l) => Math.max(0, minutos(l.pessoa.horaExtra) ?? 0)),
+    minutosNoturno: soma((l) => Math.max(0, minutos(l.pessoa.adicionalNoturno) ?? 0)),
+    faltas: soma((l) => l.pessoa.faltas ?? 0),
+    atestados: soma((l) => l.pessoa.atestados ?? 0),
+  };
+}
