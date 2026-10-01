@@ -11,7 +11,7 @@ import { hojeLocalIso } from "../../lib/datas";
 import { maskMoney, moneyToMasked } from "../../utils/format";
 import { ApuracaoRescisaoPainel } from "./ApuracaoRescisao";
 import { ListaDivergencias, RescisaoLancadaPainel } from "./RescisaoLancada";
-import { type Campo, centavosDiferentes, dataBr, dicaValesRescisao, divergencias } from "./rescisaoFormato";
+import { type Campo, centavosDiferentes, dataBr, dicaValesRescisao, divergencias, quitacaoDoLiquido } from "./rescisaoFormato";
 import "./rescisao.css";
 
 const PARCELAS = Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: i === 0 ? "À vista (1×)" : `${i + 1}×` }));
@@ -102,6 +102,9 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
   const liquido = Math.round((bruto - (valores.vales ?? 0) - (valores.vtDesconto ?? 0) - outro) * 100) / 100;
 
   const editavel = !info?.alreadyReleased || ajustando;
+  // Líquido zero ou negativo: lança como quitada (nada a pagar; o negativo é perdoado).
+  const quitacao = !ajustando && !info?.alreadyReleased ? quitacaoDoLiquido(liquido) : null;
+  const liquidoZerado = Math.round(liquido * 100) <= 0;
   const difs = ajustando ? [] : divergencias(sugestao, valores);
   const precisaJustificar = ajustando || difs.length > 0;
   const semSeparacao = ajustando && semRegistro && lancada?.salario == null;
@@ -150,20 +153,27 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
 
   async function liberar() {
     setMsg(null);
-    if (bruto <= 0) {
+    const descontos = (valores.vales ?? 0) + (valores.vtDesconto ?? 0) + outro;
+    if (bruto <= 0 && descontos <= 0) {
       return avisar({ tom: "error", texto: semRegistro ? "Informe o salário e a gorjeta da rescisão." : "Informe o valor bruto que a contabilidade enviou." });
     }
     if (!justificativaValida()) return;
     setBusy(true);
     try {
       const r = await releaseTermination(funcionario.id, {
-        ...partes(), dueDate: form.dueDate || undefined, installments: nParcelas, notes: form.notes || undefined,
+        ...partes(), dueDate: form.dueDate || undefined, installments: quitacao ? 1 : nParcelas, notes: form.notes || undefined,
         ajusteJustificativa: difs.length > 0 ? just.trim() : undefined,
       });
       await carregar();
       setJust("");
       onGravou();
-      avisar({ tom: "success", texto: `Rescisão liberada para Contas a Pagar: líquido ${reais(r.amount)}${r.installments > 1 ? ` em ${r.installments} parcelas` : ""}.` });
+      const perdoado = r.saldoDevedorPerdoado ?? 0;
+      avisar({
+        tom: "success",
+        texto: r.quitadaSemValor
+          ? `Rescisão lançada como quitada: ${perdoado > 0 ? `saldo devedor de ${reais(perdoado)} perdoado, ` : ""}nada a pagar.`
+          : `Rescisão liberada para Contas a Pagar: líquido ${reais(r.amount)}${r.installments > 1 ? ` em ${r.installments} parcelas` : ""}.`,
+      });
     } catch (err) {
       avisar({ tom: "error", texto: err instanceof Error ? err.message : "Não consegui liberar a rescisão." });
     } finally {
@@ -264,6 +274,11 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
             {editavel && (
               <>
                 {ajustando && <div style={{ marginBottom: 12 }}><Alert tone="info">Ajustando a rescisão lançada: o líquido novo se reparte nas mesmas parcelas, com os mesmos vencimentos.</Alert></div>}
+                {ajustando && liquidoZerado && (
+                  <div style={{ marginBottom: 12 }}>
+                    <Alert tone="warning">Com esse ajuste o líquido fica zero ou negativo: o ajuste não quita a rescisão. Exclua a rescisão e lance de novo, que ela fica quitada.</Alert>
+                  </div>
+                )}
                 {semSeparacao && (
                   <div style={{ marginBottom: 12 }}>
                     <Alert tone="warning">Lançada antes da separação entre salário e gorjeta (bruto lançado: <Money value={lancada?.bruto ?? 0} />). Salário e gorjeta vieram do apurado: confira antes de salvar.</Alert>
@@ -287,7 +302,8 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
                   <FormField label="Descrição do outro desconto">
                     <TextField value={form.otherDiscountLabel} onChange={(e) => setForm({ ...form, otherDiscountLabel: e.target.value })} placeholder="Ex.: adiantamento em aberto" />
                   </FormField>
-                  {!ajustando && (
+                  {/* Quitada: não há título a pagar — sem vencimento nem parcelas (paga na saída). */}
+                  {!ajustando && !quitacao && (
                     <>
                       <FormField label={nParcelas > 1 ? "Vencimento da 1ª parcela" : "Vencimento"}>
                         <TextField type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
@@ -303,6 +319,12 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
                     </FormField>
                   </div>
                 </FormGrid>
+
+                {quitacao && (
+                  <div style={{ marginTop: 12 }}>
+                    <Alert tone="info">{quitacao.mensagem}</Alert>
+                  </div>
+                )}
 
                 {parcelas.length > 0 && (
                   <div className="resc-quadro" style={{ marginTop: 12 }}>
@@ -336,8 +358,10 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
         <div className="resc-rodape">
           {editavel ? (
             <div className="resc-rodape-valor">
-              <span className="resc-detalhe">Líquido a pagar{precisaJustificar && !ajustando ? " · precisa justificar" : ""}</span>
-              <strong><Money value={liquido} /></strong>
+              <span className="resc-detalhe">
+                {quitacao ? "Nada a pagar · quitada" : "Líquido a pagar"}{precisaJustificar && !ajustando ? " · precisa justificar" : ""}
+              </span>
+              <strong><Money value={quitacao ? 0 : liquido} /></strong>
               <span className="resc-detalhe">
                 bruto <Money value={bruto} />{creditos > 0 && <> (com <Money value={creditos} /> de créditos{(sugestao?.horaExtra ?? 0) > 0 && " e hora extra"})</>}
                 {(valores.vales ?? 0) > 0 && <> − vales <Money value={valores.vales} /></>}
@@ -350,10 +374,12 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
             {ajustando ? (
               <>
                 <Button variant="secondary" onClick={() => { setAjustando(false); setJustErro(null); }} disabled={busy}>Desistir do ajuste</Button>
-                <Button onClick={() => void salvarAjuste()} disabled={busy || nadaMudou}>{busy ? "Salvando…" : "Salvar ajuste"}</Button>
+                <Button onClick={() => void salvarAjuste()} disabled={busy || nadaMudou || liquidoZerado}>{busy ? "Salvando…" : "Salvar ajuste"}</Button>
               </>
             ) : !info.alreadyReleased ? (
-              <Button onClick={() => void liberar()} disabled={busy || carregando}>{busy ? "Liberando…" : "Liberar para Contas a Pagar"}</Button>
+              <Button onClick={() => void liberar()} disabled={busy || carregando}>
+                {busy ? "Lançando…" : quitacao ? "Lançar como quitada" : "Liberar para Contas a Pagar"}
+              </Button>
             ) : null}
           </div>
         </div>

@@ -44,3 +44,18 @@ export function dicaValesRescisao(sugestao: Pick<ApuracaoRescisao["sugestao"], "
   ].filter(Boolean);
   return pagos.length ? `aba Vales da gorjeta + ${pagos.join(" + ")} já pago no mês` : "lançados na aba Vales da gorjeta";
 }
+
+export type QuitacaoDoLiquido = { perdoado: number; mensagem: string };
+
+/**
+ * Líquido zero ou negativo (regra do Eli, 01/10/2026): a rescisão é lançada como quitada,
+ * nada a pagar; se negativo, o saldo devedor é perdoado. null = líquido a pagar (normal).
+ */
+export function quitacaoDoLiquido(liquido: number): QuitacaoDoLiquido | null {
+  const centavos = Math.round(liquido * 100);
+  if (centavos > 0) return null;
+  if (centavos === 0) return { perdoado: 0, mensagem: "Líquido zero: a rescisão fica quitada, nada a pagar." };
+  const perdoado = -centavos / 100;
+  const valor = perdoado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return { perdoado, mensagem: `Os descontos passam do bruto em ${valor}: o saldo devedor é perdoado e a rescisão fica quitada.` };
+}

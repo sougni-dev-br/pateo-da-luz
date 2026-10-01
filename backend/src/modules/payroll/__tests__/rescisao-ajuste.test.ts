@@ -31,6 +31,27 @@ describe("leitura dos valores da rescisão (auditoria)", () => {
     const r = lerValoresRescisao({ grossAmount: 3095.08, salario: 1, gorjeta: 1, valesDiscount: 50, vtDiscount: 10 }, false, 0);
     expect(r).toMatchObject({ gross: 3095.08, net: 3085.08, componentes: { salario: null, gorjeta: null, vales: 0 } });
   });
+  test("líquido zero: aceito, nada perdoado", () => {
+    const r = lerValoresRescisao({ salario: 500, gorjeta: 100, valesDiscount: 600 }, true, 0);
+    expect(r).toMatchObject({ gross: 600, net: 0, saldoDevedorPerdoado: 0 });
+  });
+  test("líquido negativo: o saldo devedor é perdoado e o líquido fica zero", () => {
+    const r = lerValoresRescisao({ salario: 500, gorjeta: 100, valesDiscount: 700, vtDiscount: 30.5, otherDiscount: 10 }, true, 0);
+    expect(r).toMatchObject({ gross: 600, net: 0, saldoDevedorPerdoado: 140.5 });
+  });
+  test("líquido positivo: nada perdoado", () => {
+    const r = lerValoresRescisao({ salario: 500, gorjeta: 100, valesDiscount: 50 }, true, 0);
+    expect(r).toMatchObject({ net: 550, saldoDevedorPerdoado: 0 });
+  });
+  test("bruto zero com desconto: aceito, todo o desconto vira perdoado", () => {
+    expect(lerValoresRescisao({ salario: 0, gorjeta: 0, valesDiscount: 80 }, true, 0)).toMatchObject({ gross: 0, net: 0, saldoDevedorPerdoado: 80 });
+    expect(lerValoresRescisao({ grossAmount: 0, otherDiscount: 25 }, false, 0)).toMatchObject({ gross: 0, net: 0, saldoDevedorPerdoado: 25 });
+  });
+  test("bruto e descontos todos zero: nada a lançar", () => {
+    const erro = { erro: "Bruto e descontos estão zerados: não há rescisão a lançar." };
+    expect(lerValoresRescisao({ salario: 0, gorjeta: 0 }, true, 0)).toEqual(erro);
+    expect(lerValoresRescisao({}, false, 0)).toEqual(erro);
+  });
   test("número inválido, infinito, negativo ou absurdo é recusado", () => {
     for (const v of ["abc", "Infinity", -1, 1e21]) {
       expect(lerValoresRescisao({ grossAmount: 100, vtDiscount: v }, false, 0)).toHaveProperty("erro");

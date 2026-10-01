@@ -98,3 +98,36 @@ describe("quitada no termo", () => {
     expect(contarPorSituacao(linhas)).toMatchObject({ TODAS: 2, QUITADA_NO_TERMO: 1, FALTA_LANCAR: 1 });
   });
 });
+
+describe("quitada sem valor (líquido zero ou saldo devedor perdoado)", () => {
+  const quitada = (perdoado: number) => ({
+    parcelas: 1, pagas: 1, liquido: 0, valorPago: 0, proximoVencimento: null, quitadaNoTermo: null,
+    quitadaSemValor: { itemId: "z1", saldoDevedorPerdoado: perdoado },
+  });
+
+  test("líquido zero: Quitada, concluída, nada a pagar", () => {
+    const s = situacaoRescisao({ ...base, rescisao: quitada(0) }, HOJE);
+    expect(s.situacao).toBe("QUITADA");
+    expect(s.rotulo).toBe("Quitada");
+    expect(s.tom).toBe("success");
+    expect(s.proximoPasso).toBe("Concluída — nada a pagar");
+  });
+
+  test("saldo perdoado: o próximo passo diz quanto foi perdoado", () => {
+    const s = situacaoRescisao({ ...base, rescisao: quitada(153.23) }, HOJE);
+    expect(s.situacao).toBe("QUITADA");
+    expect(s.proximoPasso.replace(/\s/g, " ")).toBe("Concluída — saldo devedor de R$ 153,23 perdoado");
+  });
+
+  test("CLT quitada sem valor não pede o termo de novo", () => {
+    const s = situacaoRescisao({ ...base, semRegistro: false, rescisao: quitada(0), termo: null }, HOJE);
+    expect(s.situacao).toBe("QUITADA");
+    expect(s.proximoPasso).not.toMatch(/importar/i);
+  });
+
+  test("o filtro da lista tem a situação e conta quem está nela", () => {
+    expect(FILTROS.find((f) => f.id === "QUITADA")).toMatchObject({ rotulo: "Quitada", tom: "success" });
+    const linhas = linhasDaLista([{ ...base, rescisao: quitada(10) }, base], HOJE);
+    expect(contarPorSituacao(linhas)).toMatchObject({ TODAS: 2, QUITADA: 1, FALTA_LANCAR: 1 });
+  });
+});

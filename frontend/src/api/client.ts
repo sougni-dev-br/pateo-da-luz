@@ -6450,6 +6450,8 @@ export type RescisaoLancada = ValoresRescisaoLancada & {
   valesRotulo: string | null;
   parcelas: Array<{ id: string; rotulo: string; valor: number; vencimento: string; paga: boolean }>;
   algumaPaga: boolean;
+  /** Quitada sem valor (líquido zero ou saldo devedor perdoado): nada a pagar nem a estornar. */
+  quitadaSemValor?: { saldoDevedorPerdoado: number } | null;
   notes: string | null;
   ajusteManual: { divergencias: Array<{ rotulo: string; apurado: number; lancado: number; diferenca: number }>; justificativa: string; porNome: string | null; em: string } | null;
   historicoAjustes: Array<{ em: string; porNome: string | null; justificativa: string; antes: ValoresRescisaoLancada; depois: ValoresRescisaoLancada }>;
@@ -6512,6 +6514,8 @@ export type RescisaoResumo = {
     parcelas: number; pagas: number; liquido: number; valorPago: number; proximoVencimento: string | null;
     /** Registrada como quitada no termo (líquido zero, nada a pagar): o lançamento, para desfazer. */
     quitadaNoTermo?: { itemId: string } | null;
+    /** Quitada sem valor (líquido zero ou saldo devedor perdoado): o lançamento e o perdoado. */
+    quitadaSemValor?: { itemId: string; saldoDevedorPerdoado: number } | null;
   } | null;
   termo: TermoRescisaoResumo | null;
 };
@@ -6564,7 +6568,7 @@ export function adjustTermination(employeeId: string, payload: RescisaoPartes & 
 }
 
 export function releaseTermination(employeeId: string, payload: RescisaoPartes & { grossAmount: number; vtDiscount: number; otherDiscount?: number; otherDiscountLabel?: string; dueDate?: string; installments?: number; notes?: string; ajusteJustificativa?: string }) {
-  return request<{ id: string; amount: number; installments: number; items: Array<{ id: string; amount: number; dueDate: string; installmentNumber: number }> }>(`/payroll/termination/${employeeId}`, {
+  return request<{ id: string; amount: number; installments: number; items: Array<{ id: string; amount: number; dueDate: string; installmentNumber: number }>; quitadaSemValor?: boolean; saldoDevedorPerdoado?: number }>(`/payroll/termination/${employeeId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)

@@ -693,8 +693,10 @@ purchaseRouter.get("/payables", async (request, response) => {
         LEFT JOIN "PaymentMethod" ppm ON ppm."id" = pit."paidPaymentMethodId"
         WHERE pit."deletedAt" IS NULL
           AND pit."status" != 'CANCELED'
-          -- Rescisão quitada no termo (líquido zero): registro de RH, não é título a pagar.
+          -- Rescisão quitada (no termo, ou sem valor: líquido zero / saldo perdoado): registro
+          -- de RH, não é título a pagar.
           AND COALESCE((pit."details"->>'quitadaNoTermo')::boolean, false) = false
+          AND COALESCE((pit."details"->>'quitadaSemValor')::boolean, false) = false
           AND ${noDueDate ? Prisma.sql`pit."dueDate" IS NULL` : Prisma.sql`true`}
           AND ${!noDueDate && startDate ? Prisma.sql`pit."dueDate" >= ${startDate}` : Prisma.sql`true`}
           AND ${!noDueDate && endDate ? Prisma.sql`pit."dueDate" < ${endDate}` : Prisma.sql`true`}
@@ -980,6 +982,7 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
         LEFT JOIN "PaymentMethod" ppm ON ppm."id" = pit."paidPaymentMethodId"
         WHERE pit."deletedAt" IS NULL
           AND COALESCE((pit."details"->>'quitadaNoTermo')::boolean, false) = false
+          AND COALESCE((pit."details"->>'quitadaSemValor')::boolean, false) = false
           AND ${noDueDatePdf ? Prisma.sql`pit."dueDate" IS NULL` : Prisma.sql`true`}
           AND ${!noDueDatePdf && startDate ? Prisma.sql`pit."dueDate" >= ${startDate}` : Prisma.sql`true`}
           AND ${!noDueDatePdf && endDate ? Prisma.sql`pit."dueDate" <= ${endDate}` : Prisma.sql`true`}

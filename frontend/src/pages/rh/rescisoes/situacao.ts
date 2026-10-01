@@ -1,7 +1,7 @@
 // Situação de cada rescisão na lista de RH → Rescisões e o próximo passo de quem cuida.
 import type { RescisaoResumo } from "../../../api/client";
 
-export type Situacao = "FALTA_LANCAR" | "TERMO_IMPORTADO" | "LANCADA" | "PAGA_EM_PARTE" | "PAGA" | "QUITADA_NO_TERMO";
+export type Situacao = "FALTA_LANCAR" | "TERMO_IMPORTADO" | "LANCADA" | "PAGA_EM_PARTE" | "PAGA" | "QUITADA_NO_TERMO" | "QUITADA";
 export type TomSituacao = "warning" | "info" | "success" | "neutral";
 
 export type SituacaoRescisao = {
@@ -20,6 +20,7 @@ const ROTULO: Record<Situacao, string> = {
   PAGA_EM_PARTE: "Paga em parte",
   PAGA: "Paga",
   QUITADA_NO_TERMO: "Quitada no termo",
+  QUITADA: "Quitada",
 };
 const TOM: Record<Situacao, TomSituacao> = {
   FALTA_LANCAR: "warning",
@@ -28,9 +29,11 @@ const TOM: Record<Situacao, TomSituacao> = {
   PAGA_EM_PARTE: "warning",
   PAGA: "success",
   QUITADA_NO_TERMO: "success",
+  QUITADA: "success",
 };
 
 const diaMes = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const IMPORTAR_TERMO = "Importar o termo (TRCT) na gorjeta do mês da saída";
 
 type Entrada = Pick<RescisaoResumo, "semRegistro" | "saida" | "rescisao" | "termo">;
@@ -53,6 +56,10 @@ function proximoPasso(situacao: Situacao, r: Entrada): string {
       return clt && !r.termo ? IMPORTAR_TERMO : "Concluída";
     case "QUITADA_NO_TERMO":
       return "Concluída — nada a pagar (líquido zero no termo)";
+    case "QUITADA": {
+      const perdoado = r.rescisao?.quitadaSemValor?.saldoDevedorPerdoado ?? 0;
+      return perdoado > 0 ? `Concluída — saldo devedor de ${reais(perdoado)} perdoado` : "Concluída — nada a pagar";
+    }
   }
 }
 
@@ -61,6 +68,7 @@ export function situacaoRescisao(r: Entrada, hojeIso: string): SituacaoRescisao 
   const situacao: Situacao = !l
     ? (!r.semRegistro && r.termo ? "TERMO_IMPORTADO" : "FALTA_LANCAR")
     : l.quitadaNoTermo ? "QUITADA_NO_TERMO"
+      : l.quitadaSemValor ? "QUITADA"
       : l.pagas >= l.parcelas ? "PAGA"
         : l.pagas > 0 ? "PAGA_EM_PARTE"
           : "LANCADA";

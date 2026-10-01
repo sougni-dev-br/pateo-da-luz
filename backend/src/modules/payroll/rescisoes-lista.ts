@@ -1,6 +1,6 @@
 // Regras puras da tela RH → Rescisões: quem aparece na lista, o resumo das parcelas
 // lançadas e os lançamentos da Folha que vencem depois da saída (candidatos a excluir).
-import { ehQuitadaNoTermo } from "./rescisao-quitada.js";
+import { ehQuitadaNoTermo, ehQuitadaSemValor } from "./rescisao-quitada.js";
 import { round2 } from "./vt-calc.js";
 
 const DIAS_NA_LISTA = 90;
@@ -18,12 +18,20 @@ export type ResumoRescisaoLancada = {
   proximoVencimento: string | null;
   /** Registrada como quitada no termo (líquido zero): o lançamento, para poder desfazer. */
   quitadaNoTermo: { itemId: string } | null;
+  /** Quitada sem valor (líquido zero ou saldo devedor perdoado), com o perdoado. */
+  quitadaSemValor: { itemId: string; saldoDevedorPerdoado: number } | null;
 };
+
+function perdoadoDe(details: unknown): number {
+  const v = Number((details as { saldoDevedorPerdoado?: unknown } | null)?.saldoDevedorPerdoado ?? 0);
+  return Number.isFinite(v) && v > 0 ? round2(v) : 0;
+}
 
 export function resumoDaRescisao(itens: ParcelaRescisao[]): ResumoRescisaoLancada | null {
   if (itens.length === 0) return null;
   const valor = (i: ParcelaRescisao) => Number(i.amount) || 0;
   const quitada = itens.find((i) => ehQuitadaNoTermo(i.details));
+  const semValor = itens.find((i) => ehQuitadaSemValor(i.details));
   const pagas = itens.filter((i) => i.paymentDate != null);
   const abertas = itens.filter((i) => i.paymentDate == null).sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
   return {
@@ -33,6 +41,7 @@ export function resumoDaRescisao(itens: ParcelaRescisao[]): ResumoRescisaoLancad
     valorPago: round2(pagas.reduce((a, i) => a + valor(i), 0)),
     proximoVencimento: abertas[0] ? isoDia(abertas[0].dueDate) : null,
     quitadaNoTermo: quitada?.id ? { itemId: quitada.id } : null,
+    quitadaSemValor: semValor?.id ? { itemId: semValor.id, saldoDevedorPerdoado: perdoadoDe(semValor.details) } : null,
   };
 }
 

@@ -148,6 +148,23 @@ describe("pendenciasDaRescisao", () => {
     expect(ids(l)).toEqual(["folha-i1", "extrato"]);
   });
 
+  test("quitada sem valor: concluída, não pede termo nem gorjeta; o resto continua", () => {
+    const quitada = {
+      parcelas: 1, pagas: 1, liquido: 0, valorPago: 0, proximoVencimento: null, quitadaNoTermo: null,
+      quitadaSemValor: { itemId: "z1", saldoDevedorPerdoado: 50 },
+    };
+    const semRegistro = pendenciasDaRescisao({
+      detalhe: detalhe({ periodoGorjeta: null, itensAposSaida: [item({})] }, { rescisao: quitada }),
+      apuracao: apuracao({ gorjeta: null, gorjetaObservacao: "Fora da apuração." }),
+    });
+    expect(ids(semRegistro)).toEqual(["folha-i1"]);
+    const clt = pendenciasDaRescisao({
+      detalhe: detalhe({ periodoGorjeta: null }, { semRegistro: false, rescisao: quitada, termo: null }),
+      apuracao: apuracao({ semRegistro: false, gorjeta: null }),
+    });
+    expect(ids(clt)).not.toContain("termo");
+  });
+
   test("sem registro não pede extrato nem termo", () => {
     const l = pendenciasDaRescisao({ detalhe: detalhe({ extratoDoMes: { competencia: "09/2026", importado: false, pessoaNoExtrato: false } }), apuracao: apuracao() });
     expect(l).toEqual([]);

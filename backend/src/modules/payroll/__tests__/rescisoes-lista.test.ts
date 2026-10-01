@@ -14,7 +14,7 @@ describe("resumoDaRescisao", () => {
       { amount: "250.10", paymentDate: null, dueDate: d("2026-11-20") },
       { amount: 250.1, paymentDate: null, dueDate: d("2026-10-20") },
     ]);
-    expect(r).toEqual({ parcelas: 3, pagas: 1, liquido: 1000.2, valorPago: 500, proximoVencimento: "2026-10-20", quitadaNoTermo: null });
+    expect(r).toEqual({ parcelas: 3, pagas: 1, liquido: 1000.2, valorPago: 500, proximoVencimento: "2026-10-20", quitadaNoTermo: null, quitadaSemValor: null });
   });
 
   test("quitada no termo: marca a rescisão com o lançamento (para poder desfazer)", () => {
@@ -22,6 +22,15 @@ describe("resumoDaRescisao", () => {
       { id: "q1", amount: 0, paymentDate: d("2026-09-11"), dueDate: d("2026-09-11"), details: { quitadaNoTermo: true } },
     ]);
     expect(r).toMatchObject({ parcelas: 1, pagas: 1, liquido: 0, quitadaNoTermo: { itemId: "q1" } });
+  });
+
+  test("quitada sem valor (líquido zero ou saldo perdoado): marca com o lançamento e o perdoado", () => {
+    const r = resumoDaRescisao([
+      { id: "z1", amount: 0, paymentDate: d("2026-09-12"), dueDate: d("2026-09-12"), details: { quitadaSemValor: true, saldoDevedorPerdoado: 153.23 } },
+    ]);
+    expect(r).toMatchObject({ parcelas: 1, pagas: 1, liquido: 0, quitadaNoTermo: null, quitadaSemValor: { itemId: "z1", saldoDevedorPerdoado: 153.23 } });
+    const zero = resumoDaRescisao([{ id: "z2", amount: 0, paymentDate: d("2026-09-12"), dueDate: d("2026-09-12"), details: { quitadaSemValor: true } }]);
+    expect(zero?.quitadaSemValor).toEqual({ itemId: "z2", saldoDevedorPerdoado: 0 });
   });
 
   test("rescisão normal não é quitada no termo", () => {
