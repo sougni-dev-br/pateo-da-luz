@@ -15,7 +15,7 @@ import { round2 } from "./vt-calc.js";
 import { duplicadosDe, pagamentosEmDuplicidade, resumoItem, rotuloLivre, rotuloTipo, competenciaDe } from "./folha-duplicidade.js";
 import { CAMPOS_TRAVA, dataBr, folhaLancamentoRouter, nomeDe } from "./folha-lancamento.routes.js";
 import { RecusaRescisao, travarRescisao } from "./rescisao-trava.js";
-import { ehQuitadaNoTermo } from "./rescisao-quitada.js";
+import { ehQuitadaNoTermo, ehQuitadaSemValor, ehRescisaoQuitada } from "./rescisao-quitada.js";
 
 export const payrollRouter = Router();
 // Lançamento manual (POST /) e conferência do lote antes da baixa (POST /pay-check).
@@ -46,7 +46,7 @@ function clampInt(v: unknown, min: number, max: number): number | undefined {
 // Rescisão na lista de Contas a Pagar, sem a permissão de ver Funcionários: o details
 // guarda salário, apuração e histórico de ajustes. Sai só o que a lista usa (lista
 // branca). Os outros tipos ficam como estão.
-const DETALHES_RESCISAO_NA_LISTA = ["grupoRescisao", "installmentNumber", "installmentTotal", "valesLabel", "otherDiscountLabel", "quitadaNoTermo"] as const;
+const DETALHES_RESCISAO_NA_LISTA = ["grupoRescisao", "installmentNumber", "installmentTotal", "valesLabel", "otherDiscountLabel", "quitadaNoTermo", "quitadaSemValor", "saldoDevedorPerdoado"] as const;
 export function detalhesNaLista(type: string, details: unknown, podeVer: boolean): unknown {
   if (podeVer || type !== "RESCISAO" || details == null || typeof details !== "object") return details;
   const d = details as Record<string, unknown>;
@@ -272,11 +272,18 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   // Vínculo vigente na saída (a apuração já leu o histórico do cadastro).
   const lido = lerValoresRescisao(b, apuracao?.semRegistro ?? emp.modality === "NAO_CLT", apuracao?.sugestao.creditos ?? 0);
   if ("erro" in lido) return response.status(400).json({ message: lido.erro });
-  const { gross, vtDiscount, otherDiscount, net } = lido;
+  const { gross, vtDiscount, otherDiscount, net, saldoDevedorPerdoado } = lido;
 
   const firstDue = b.dueDate ? new Date(String(b.dueDate)) : new Date();
   const term = emp.terminationDate ? new Date(emp.terminationDate) : new Date();
   const dre = await prisma.dRECategory.findFirst({ where: { name: RESCISAO_CATEGORY } });
+
+  // Líquido zero (ou negativo, já perdoado): nada a pagar. Vira um R$ 0,00 já pago na
+  // saída, fora do Contas a Pagar — senão ficaria um título que a baixa (valor > 0) nunca
+  // aceita e a rescisão nunca concluiria.
+  const quitadaSemValor = net === 0;
+  const pagamentoQuitada = emp.terminationDate ? new Date(emp.terminationDate) : firstDue;
+  if (quitadaSemValor && await competenciaDeFolhaBloqueada(pagamentoQuitada, "Rescisao quitada sem valor", response)) return;
 
   // Parcelamento (acordo/art. 484-A): 1 = título único; N = N títulos mensais em Contas a
   // Pagar. Só parcela quando há líquido positivo a dividir.
@@ -313,12 +320,13 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
     ajusteManual: divergencias.length > 0
       ? { divergencias, justificativa, porUserId: user.id, porNome: user.name ?? null, em: new Date().toISOString() }
       : null,
+    ...(quitadaSemValor ? { quitadaSemValor: true, saldoDevedorPerdoado } : {}),
   };
   const parcelas = splitCents(Math.round(net * 100), n).map((cents, i) => ({
     id: crypto.randomUUID(),
     number: i + 1,
     amount: round2(cents / 100),
-    due: addMonthsUTC(firstDue, i),
+    due: quitadaSemValor ? pagamentoQuitada : addMonthsUTC(firstDue, i),
   }));
   const dadosParcelas: Prisma.PayrollItemUncheckedCreateInput[] = parcelas.map((p) => ({
     id: p.id,
@@ -326,10 +334,11 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
     type: "RESCISAO",
     competenceYear: term.getUTCFullYear(),
     competenceMonth: term.getUTCMonth() + 1,
-    periodLabel: n > 1 ? `Parcela ${p.number}/${n}` : "Rescisão",
+    periodLabel: quitadaSemValor ? "Rescisão (quitada)" : n > 1 ? `Parcela ${p.number}/${n}` : "Rescisão",
     dueDate: p.due,
     amount: p.amount,
-    status: computeStatus(p.due, null),
+    status: quitadaSemValor ? "PAID" : computeStatus(p.due, null),
+    ...(quitadaSemValor ? { paymentDate: pagamentoQuitada, paidAmount: 0 } : {}),
     dreCategoryId: dre?.id ?? null,
     source: "MANUAL",
     notes: textoLimitado(b.notes, 1000),
@@ -367,6 +376,7 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
     newValue: {
       employeeId: emp.id, gross, vtDiscount, otherDiscount, net, installments: n, dueDates: parcelas.map((p) => p.due.toISOString().slice(0, 10)),
       ...(divergencias.length > 0 ? { ajusteManual: { divergencias, justificativa } } : {}),
+      ...(quitadaSemValor ? { quitadaSemValor: true, saldoDevedorPerdoado } : {}),
     },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
@@ -375,6 +385,8 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
     id: parcelas[0].id,
     amount: net,
     installments: n,
+    quitadaSemValor,
+    saldoDevedorPerdoado,
     items: parcelas.map((p) => ({ id: p.id, amount: p.amount, dueDate: p.due.toISOString(), installmentNumber: p.number })),
   });
 });
@@ -391,7 +403,7 @@ export function textoLimitado(v: unknown, max: number): string | null {
 
 export function lerValoresRescisao(b: Record<string, unknown>, semRegistro: boolean, creditosApurados: number):
   | { erro: string }
-  | { gross: number; vtDiscount: number; otherDiscount: number; net: number; creditos: number; componentes: ValoresRescisao } {
+  | { gross: number; vtDiscount: number; otherDiscount: number; net: number; saldoDevedorPerdoado: number; creditos: number; componentes: ValoresRescisao } {
   // Número de verdade, finito e dentro do razoável; ausente = null.
   let invalido = false;
   const valor = (v: unknown): number | null => {
@@ -412,11 +424,16 @@ export function lerValoresRescisao(b: Record<string, unknown>, semRegistro: bool
   if (semRegistro && (salario == null || gorjeta == null)) return { erro: "Informe o salário proporcional e a gorjeta da rescisão." };
   const creditos = semRegistro ? round2(creditosApurados) : 0;
   const gross = semRegistro ? round2((salario ?? 0) + (gorjeta ?? 0) + creditos) : brutoInformado ?? 0;
-  if (gross <= 0) return { erro: "Valor da rescisão (bruto) é obrigatório." };
-  const net = round2(gross - vtDiscount - vales - otherDiscount);
-  if (net < 0) return { erro: "Os descontos passam do bruto: o líquido ficaria negativo." };
+  if (gross <= 0 && vtDiscount + vales + otherDiscount <= 0) {
+    return { erro: "Bruto e descontos estão zerados: não há rescisão a lançar." };
+  }
+  // Descontos que passam do bruto: o saldo devedor é perdoado (regra do Eli, 01/10/2026)
+  // e a rescisão fica quitada com líquido zero — nunca vira cobrança da pessoa.
+  const liquidoBruto = round2(gross - vtDiscount - vales - otherDiscount);
+  const saldoDevedorPerdoado = Math.max(0, round2(-liquidoBruto));
+  const net = Math.max(0, liquidoBruto);
   return {
-    gross, vtDiscount, otherDiscount, net, creditos,
+    gross, vtDiscount, otherDiscount, net, saldoDevedorPerdoado, creditos,
     componentes: { salario, gorjeta, vales, vtDesconto: vtDiscount },
   };
 }
@@ -556,6 +573,8 @@ async function rescisaoLancada(employeeId: string) {
     liquido: round2(itens.reduce((a, i) => a + Number(i.amount), 0)),
     parcelas: itens.map((i) => ({ id: i.id, rotulo: i.periodLabel, valor: Number(i.amount), vencimento: i.dueDate.toISOString(), paga: i.paymentDate != null })),
     algumaPaga: itens.some((i) => i.paymentDate != null),
+    // Quitada sem valor (líquido zero ou saldo devedor perdoado): nada a pagar nem a estornar.
+    quitadaSemValor: ehQuitadaSemValor(d) ? { saldoDevedorPerdoado: n(d.saldoDevedorPerdoado) } : null,
     notes: itens[0].notes,
     ajusteManual: (d.ajusteManual as unknown) ?? null,
     historicoAjustes: (Array.isArray(d.historicoAjustes) ? d.historicoAjustes : []) as AjusteRescisao[],
@@ -573,6 +592,11 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
 
   const itens = await prisma.payrollItem.findMany({ where: { employeeId: emp.id, type: "RESCISAO", deletedAt: null, status: { not: "CANCELED" } }, orderBy: { dueDate: "asc" } });
   if (itens.length === 0) return response.status(404).json({ message: "Não há rescisão lançada para ajustar." });
+  const quitada = itens.find((i) => ehRescisaoQuitada(i.details));
+  if (quitada) {
+    const tipo = ehQuitadaNoTermo(quitada.details) ? "no termo" : "sem valor";
+    return response.status(400).json({ message: `Rescisão quitada ${tipo} não se ajusta: para corrigir, exclua e lance de novo (RH → Rescisões).` });
+  }
   if (itens.some((i) => i.paymentDate)) {
     return response.status(400).json({ message: "Rescisão com parcela já paga: estorne o pagamento em Contas a Pagar antes de ajustar." });
   }
@@ -588,6 +612,10 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
   const lido = lerValoresRescisao(b, apuracao?.semRegistro ?? emp.modality === "NAO_CLT", typeof creditosLancados === "number" ? creditosLancados : apuracao?.sugestao.creditos ?? 0);
   if ("erro" in lido) return response.status(400).json({ message: lido.erro });
   const { gross, vtDiscount, otherDiscount, net } = lido;
+  // Ajustar não vira quitação: um título em aberto de R$ 0,00 nunca baixaria.
+  if (net === 0) {
+    return response.status(400).json({ message: "Com esse ajuste o líquido fica zero (ou o saldo devedor seria perdoado): exclua esta rescisão e lance de novo, que ela fica quitada." });
+  }
   const justificativa = typeof b.justificativa === "string" ? b.justificativa.trim().slice(0, 1000) : "";
   if (justificativa.length < JUSTIFICATIVA_MINIMA) {
     return response.status(400).json({ message: `Explique o ajuste da rescisão (pelo menos ${JUSTIFICATIVA_MINIMA} letras).` });
@@ -911,6 +939,9 @@ payrollRouter.patch("/:id/reverse", async (request, response) => {
   if (existing.type === "RESCISAO" && ehQuitadaNoTermo(existing.details)) {
     return response.status(400).json({ message: "Rescisão quitada no termo não teve pagamento a estornar: para desfazer, exclua o registro (RH → Rescisões)." });
   }
+  if (existing.type === "RESCISAO" && ehQuitadaSemValor(existing.details)) {
+    return response.status(400).json({ message: "Rescisão quitada sem valor: não houve pagamento a estornar; para refazer, exclua." });
+  }
 
   // Estornar tira a despesa do mês em que ela foi paga. Trava na data do
   // pagamento ORIGINAL, que é o mês que seria alterado — mesmo critério do
@@ -1106,9 +1137,12 @@ payrollRouter.delete("/:id", async (request, response) => {
   // carimbadas como "já descontadas" e elas nunca mais voltariam ao cálculo.
   // Parcela de rescisão já paga: excluir apagaria a despesa e desfaria a gorjeta de algo
   // que já saiu do caixa. Estorna primeiro.
-  // Quitada no termo (R$ 0,00): a "baixa" é só o registro, nada saiu do caixa — exclui direto.
+  // Quitada (no termo ou sem valor, R$ 0,00): a "baixa" é só o registro, nada saiu do
+  // caixa — exclui direto. Só a do termo não mexe na gorjeta; a sem valor gravou a gorjeta
+  // na apuração e a exclusão desfaz como numa rescisão normal.
   const quitadaNoTermo = existing.type === "RESCISAO" && ehQuitadaNoTermo(existing.details);
-  if (existing.type === "RESCISAO" && existing.paymentDate && !quitadaNoTermo) {
+  const quitada = existing.type === "RESCISAO" && ehRescisaoQuitada(existing.details);
+  if (existing.type === "RESCISAO" && existing.paymentDate && !quitada) {
     return response.status(400).json({ message: "Parcela de rescisão já paga: estorne o pagamento em Contas a Pagar antes de excluir." });
   }
 

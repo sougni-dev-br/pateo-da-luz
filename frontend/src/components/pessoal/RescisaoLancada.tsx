@@ -59,6 +59,8 @@ export function RescisaoLancadaPainel({ lancada: l, ajustando, onAjustar }: { la
         <span className="resc-detalhe" style={{ textTransform: "uppercase", letterSpacing: "0.05em" }}>Rescisão lançada</span>
         {ajustando
           ? <StatusBadge tone="info">em ajuste</StatusBadge>
+          : l.quitadaSemValor
+            ? <StatusBadge tone="success">quitada: nada a pagar</StatusBadge>
           : l.algumaPaga
             ? <StatusBadge tone="warning">parcela paga: para ajustar, estorne em Contas a Pagar</StatusBadge>
             : <Button size="sm" variant="secondary" onClick={onAjustar}>Ajustar rescisão</Button>}
@@ -74,6 +76,9 @@ export function RescisaoLancadaPainel({ lancada: l, ajustando, onAjustar }: { la
       <Parte rotulo={l.valesRotulo ? `Vales (${l.valesRotulo})` : "Vales"} valor={l.vales} desconto />
       <Parte rotulo="VT" valor={l.vtDesconto} desconto />
       <Parte rotulo={l.outroDescontoRotulo ? `Outro desconto (${l.outroDescontoRotulo})` : "Outro desconto"} valor={l.outroDesconto} desconto />
+      {(l.quitadaSemValor?.saldoDevedorPerdoado ?? 0) > 0 && (
+        <Parte rotulo="Saldo devedor perdoado (os descontos passaram do bruto)" valor={l.quitadaSemValor!.saldoDevedorPerdoado} />
+      )}
 
       <div style={{ marginTop: 8 }}>
         {l.parcelas.map((p) => (
