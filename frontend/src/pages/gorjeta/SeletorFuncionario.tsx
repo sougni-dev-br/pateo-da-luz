@@ -12,6 +12,8 @@ export type PessoaSelecionavel = {
   funcao: string | null;
   empresa: string | null;
   semRegistro: boolean;
+  /** Não participa da gorjeta: o vale sai do salário (mostra "só salário" no lugar do valor). */
+  foraDaGorjeta?: boolean;
   liquida: number;
 };
 
@@ -101,7 +103,9 @@ export function SeletorFuncionario({ pessoas, valor, onEscolher, autoFoco }: Pro
         <span className="seletor-funcionario-resumo">
           {escolhida.apelido && <>“{escolhida.apelido}” · </>}
           {[escolhida.funcao, escolhida.semRegistro ? "sem registro" : escolhida.empresa].filter(Boolean).join(" · ")}
-          {" · "}<strong style={{ color: escolhida.liquida <= 0 ? "var(--danger)" : undefined }}>{money(escolhida.liquida)}</strong> de gorjeta líquida
+          {escolhida.foraDaGorjeta
+            ? <>{" · "}fora da gorjeta: o vale sai do salário</>
+            : <>{" · "}<strong style={{ color: escolhida.liquida <= 0 ? "var(--danger)" : undefined }}>{money(escolhida.liquida)}</strong> de gorjeta líquida</>}
         </span>
       )}
       {aberto && (
@@ -120,7 +124,9 @@ export function SeletorFuncionario({ pessoas, valor, onEscolher, autoFoco }: Pro
                 {p.apelido && <>“{p.apelido}” · </>}
                 {[p.funcao, p.semRegistro ? "sem registro" : p.empresa].filter(Boolean).join(" · ") || "—"}
               </span>
-              <span className="seletor-funcionario-valor" style={{ color: p.liquida <= 0 ? "var(--danger)" : undefined }}>{money(p.liquida)}</span>
+              {p.foraDaGorjeta
+                ? <span className="seletor-funcionario-valor" title="Não participa da gorjeta: o vale sai do salário">só salário</span>
+                : <span className="seletor-funcionario-valor" style={{ color: p.liquida <= 0 ? "var(--danger)" : undefined }}>{money(p.liquida)}</span>}
             </li>
           ))}
         </ul>

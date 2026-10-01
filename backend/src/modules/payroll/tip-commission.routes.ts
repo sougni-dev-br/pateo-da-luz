@@ -574,9 +574,9 @@ tipCommissionRouter.post("/periods/:id/sync", async (request, response) => {
   const period = await prisma.tipPeriod.findUnique({ where: { id: periodId } });
   if (!period) return response.status(404).json({ message: "Período não encontrado." });
   if (await barrouPorFechamento(periodId, response, "Recarregar os participantes")) return;
-  const { added, elegiveis, atualizados } = await syncParticipantsFromCadastro(periodId);
+  const { added, elegiveis, atualizados, removidos } = await syncParticipantsFromCadastro(periodId);
   const computation = await computeTipCommission(period.competenceYear, period.competenceMonth, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
-  response.json({ added, elegiveis, atualizados, computation });
+  response.json({ added, elegiveis, atualizados, removidos, computation });
 });
 
 // Remover um participante do período.
@@ -588,13 +588,14 @@ tipCommissionRouter.put("/participants/:id/gorjeta-real", async (request, respon
   const p = await prisma.tipParticipant.findUnique({
     where: { id: request.params.id },
     select: {
-      id: true, periodId: true, employeeId: true, kind: true, gorjetaReal: true, gorjetaRealMotivo: true,
+      id: true, periodId: true, employeeId: true, kind: true, foraDaGorjeta: true, gorjetaReal: true, gorjetaRealMotivo: true,
       period: { select: { competenceYear: true, competenceMonth: true, periodEnd: true } },
       employee: { select: { terminationDate: true } },
     },
   });
   if (!p) return response.status(404).json({ message: "Participante não encontrado." });
   if (await barrouPorFechamento(p.periodId, response, "Mudar a gorjeta de alguém")) return;
+  if (p.foraDaGorjeta) return response.status(422).json({ message: "Esta pessoa não participa da gorjeta: está na lista só pelo salário." });
   if (p.kind !== "PONTOS") return response.status(422).json({ message: "Cota fixa já é um valor: mude a cota na própria linha." });
   const saida = p.employee.terminationDate;
   if (saida && saida <= p.period.periodEnd) {

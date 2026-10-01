@@ -174,7 +174,10 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
   const [regrasDe, setRegrasDe] = useState<string | null>(null);
 
   const rowPorFuncionario = useMemo(() => new Map(rows.map((r) => [r.employeeId, r])), [rows]);
-  const participantes = useMemo(() => ordenar(comp.participants), [comp]);
+  // Quem não participa da gorjeta (sem registro só pelo salário) não entra no rateio:
+  // fica fora da tabela e das somas, numa seção à parte no fim.
+  const participantes = useMemo(() => ordenar(comp.participants).filter((p) => !p.foraDaGorjeta), [comp]);
+  const soSalario = useMemo(() => ordenar(comp.participants).filter((p) => p.foraDaGorjeta), [comp]);
   const { ordem, alternar, definir } = useOrdenacao("apuracao");
   // No celular começa com o essencial (nome, pontos, gorjeta); o resto se liga em "Colunas".
   const colunas = useColunas("apuracao", ["faltas", "atestados", "ferias", "outros", "folgas", "dias", "ajuste", "base"]);
@@ -480,6 +483,31 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
         Folgas da Escala só aparecem: a folga normal já está nos dias padrão. Pontos finais = base × trabalhados ÷ previstos + ajuste.
         O total distribuído é o mesmo do resumo acima.
       </span>
+
+      {soSalario.length > 0 && (
+        <details className="como-funciona" data-testid="fora-da-gorjeta">
+          <summary>Fora da gorjeta — só salário ({soSalario.length})</summary>
+          <span style={mutedStyle}>
+            Sem registro que não participa da gorjeta: não tem pontos nem entra no rateio (o valor do ponto e o livre não mudam).
+            Recebe o salário do mês, com hora extra e vales, na Lista de pagamento.
+          </span>
+          <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+            {soSalario.map((p) => (
+              <li key={p.employeeId} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <NomePessoa nome={p.employeeName} apelido={p.apelido}>
+                  {p.functionName && <span style={mutedStyle}>{p.functionName}</span>}
+                  {p.admissionDate && <span style={mutedStyle}>admissão {fmtDate(p.admissionDate)}</span>}
+                  {p.terminationDate && <span style={mutedStyle}>saída {fmtDate(p.terminationDate)}</span>}
+                </NomePessoa>
+                <button type="button" className="barra-lista-link" onClick={() => onVerVales(p.participantId)} disabled={!p.participantId}
+                  aria-label={`Vales de ${p.employeeName}`}>
+                  {p.vales.length ? `${p.vales.length} vale(s)` : "vales"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {rescisoes.length > 0 && (
         <div style={panelStyle} id="rescisoes-do-periodo" tabIndex={-1}>

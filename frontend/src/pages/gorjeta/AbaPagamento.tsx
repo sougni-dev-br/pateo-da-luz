@@ -92,7 +92,8 @@ const somaHoras = (lista: Array<string | undefined>) => lista.reduce((a, t) => a
 export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   const rowPorFuncionario = useMemo(() => new Map(rows.map((r) => [r.employeeId, r])), [rows]);
   const participantes = useMemo(() => ordenar(comp.participants).filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO"), [comp]);
-  const registrados = participantes.filter((p) => !p.semRegistro);
+  // Quem só está pelo salário não vai à contabilidade (não tem gorjeta a lançar).
+  const registrados = participantes.filter((p) => !p.semRegistro && !p.foraDaGorjeta);
   const semRegistro = participantes.filter((p) => p.semRegistro);
   // Gorjeta já paga dentro da rescisão (termo da contabilidade): aparece, mas não soma no que falta pagar.
   const registradosAPagar = registrados.filter((p) => !p.pagoNaRescisao);
@@ -366,6 +367,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                     <Table.Row key={p.employeeId}>
                       <Table.Td>
                         <NomePessoa nome={p.employeeName} apelido={p.apelido}>
+                          {p.foraDaGorjeta && <StatusBadge tone="neutral" title="Não participa da gorjeta: recebe só o salário (com hora extra e vales)">fora da gorjeta</StatusBadge>}
                           {p.tipoCalculo !== "MES" && <span style={mutedStyle}>Saída {fmtDate(p.terminationDate)}</span>}
                         </NomePessoa>
                       </Table.Td>
@@ -387,7 +389,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                       <Table.Td><CelulaAdiantamento valor={p.adiantamentoSalarial} /></Table.Td>
 )}
 {vp("gorjeta") && (
-                      <Table.Td><Money value={p.rateioAmount} /></Table.Td>
+                      <Table.Td>{p.foraDaGorjeta ? <span style={mutedStyle} title="não participa da gorjeta">—</span> : <Money value={p.rateioAmount} />}</Table.Td>
 )}
 {vp("vales") && (
                       <Table.Td>{p.descontos || p.creditos ? money(p.creditos - p.descontos) : "—"}</Table.Td>

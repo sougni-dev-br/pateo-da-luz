@@ -99,6 +99,9 @@ export type ParticipanteEntrada = {
   // registro (o CLT recebe pela contabilidade). Ausente = nenhuma.
   horaExtraMin?: number;
   adicionalNoturnoMin?: number;
+  // Sem registro que não participa da gorjeta: está na lista só pelo salário. Não entra
+  // no rateio (pontos e gorjeta zero, fora do ponto do mês e das cotas); vales descontam.
+  foraDaGorjeta?: boolean;
   vales: ValeEntrada[];
 };
 
@@ -106,6 +109,8 @@ export type TipoCalculo = "MES" | "RESCISAO" | "RESCISAO_QUITADA" | "FORA_DO_PER
 
 export type ParticipanteCalculado = {
   tipoCalculo: TipoCalculo;
+  // Não participa da gorjeta (só salário): rateio e pontos zero.
+  foraDaGorjeta: boolean;
   diasElegiveis: number;
   diasPrevistos: number;
   // Base da proporção: 26 no mês cheio; menos para quem saiu (até a saída).
@@ -265,20 +270,52 @@ function adicionaisSemRegistro(p: ParticipanteEntrada) {
   return valoresAdicionais(p.salarioBase, p.horaExtraMin ?? 0, p.adicionalNoturnoMin ?? 0);
 }
 
-// Gorjeta real só substitui a calculada de quem está no mês, por pontos.
-export function gorjetaRealVale(tipoCalculo: TipoCalculo, kind: "FIXO" | "PONTOS"): boolean {
-  return tipoCalculo === "MES" && kind === "PONTOS";
+// Gorjeta real só substitui a calculada de quem está no mês, por pontos (e participa).
+export function gorjetaRealVale(tipoCalculo: TipoCalculo, kind: "FIXO" | "PONTOS", foraDaGorjeta = false): boolean {
+  return !foraDaGorjeta && tipoCalculo === "MES" && kind === "PONTOS";
 }
 
 // Por que uma gorjeta real gravada deixou de valer (null = vale). Vira aviso na apuração.
-export function motivoGorjetaRealSemEfeito(tipoCalculo: TipoCalculo, kind: "FIXO" | "PONTOS"): string | null {
+export function motivoGorjetaRealSemEfeito(tipoCalculo: TipoCalculo, kind: "FIXO" | "PONTOS", foraDaGorjeta = false): string | null {
+  if (foraDaGorjeta) return "a pessoa não participa mais da gorjeta (só recebe o salário)";
   if (gorjetaRealVale(tipoCalculo, kind)) return null;
   if (tipoCalculo === "FORA_DO_PERIODO") return "ficou fora do período (admissão ou saída mudou)";
   if (tipoCalculo === "RESCISAO" || tipoCalculo === "RESCISAO_QUITADA") return "saiu no período e a gorjeta passou a vir da rescisão";
   return "passou a receber cota fixa";
 }
 
+// Fora da gorjeta: nada de rateio nem de pontos. Está no período pelo vínculo no mês do
+// salário (o ciclo da gorjeta não importa): sem vínculo no mês, fica fora do período.
+// Salário, adiantamento, hora extra e vales seguem a regra de qualquer sem registro.
+function calcularForaDaGorjeta(regras: RegrasPeriodo, p: ParticipanteEntrada): ParticipanteCalculado {
+  const janela = regras.mesSalario ?? { start: regras.start, end: regras.end };
+  const elegiveis = diasElegiveis(janela, p.admissao, p.desligamento);
+  const tipoCalculo: TipoCalculo = elegiveis === 0 ? "FORA_DO_PERIODO" : "MES";
+  const creditos = round2(p.vales.filter((v) => v.type === "CREDITO").reduce((a, v) => a + v.amount, 0));
+  const descontos = round2(p.vales.filter((v) => v.type !== "CREDITO").reduce((a, v) => a + v.amount, 0));
+  const comissaoLiquida = round2(creditos - descontos);
+  const salario = salarioSemRegistro(p, regras);
+  const adiantamentoSalarial = adiantamentoSemRegistro(p, regras, salario.valor);
+  const { valorHoraExtra, valorAdicionalNoturno } = adicionaisSemRegistro(p);
+  // Saiu dentro do ciclo com a rescisão lançada: recebeu tudo lá, como os demais sem registro.
+  const pagoNaRescisao = p.semRegistro && p.rescisaoLancada && p.desligamento != null && p.desligamento <= regras.end;
+  return {
+    tipoCalculo, foraDaGorjeta: true,
+    diasElegiveis: elegiveis, diasPrevistos: 0, diasReferencia: 0, diasComputados: 0, fatorPresenca: 0,
+    pontosApurados: 0, pontosFinais: 0, pontosDireito: 0, pontosDevolvidos: 0, extraRescisao: 0,
+    justificativaExtra: null, valorDireito: null, gorjetaCalculada: 0, gorjetaRealAplicada: false,
+    valorPonto: 0, rateio: 0, descontos, creditos, comissaoLiquida,
+    diasSalario: salario.dias, salarioProporcional: salario.valor, adiantamentoSalarial,
+    valorHoraExtra, valorAdicionalNoturno,
+    totalAPagar: pagoNaRescisao ? 0
+      : round2(salario.valor - adiantamentoSalarial + comissaoLiquida + valorHoraExtra + valorAdicionalNoturno),
+    rescisaoPendente: false,
+    pagoNaRescisao,
+  };
+}
+
 export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntrada, valorPontoDoMes: number): ParticipanteCalculado {
+  if (p.foraDaGorjeta) return calcularForaDaGorjeta(regras, p);
   const { elegiveis, previstos, referencia, computados, fator } = presenca(regras, p);
 
   const desligadoNoPeriodo = p.desligamento != null && p.desligamento <= regras.end;
@@ -362,6 +399,7 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
 
   return {
     tipoCalculo,
+    foraDaGorjeta: false,
     diasElegiveis: elegiveis,
     diasPrevistos: previstos,
     diasReferencia: referencia,
@@ -409,7 +447,7 @@ export type ResumoRateio = {
 
 export function calcularRateio(regras: RegrasPeriodo, participantes: ParticipanteEntrada[]): ResumoRateio {
   const totalCotasFixas = round2(
-    participantes.filter((p) => p.kind === "FIXO").reduce((a, p) => a + (p.fixedAmount ?? 0), 0),
+    participantes.filter((p) => p.kind === "FIXO" && !p.foraDaGorjeta).reduce((a, p) => a + (p.fixedAmount ?? 0), 0),
   );
   // 1ª passada: as rescisões pelo serviço até a saída não dependem do ponto do mês —
   // as calculadas e as quitadas medidas pela saída. As quitadas sem esse serviço ficam fora.

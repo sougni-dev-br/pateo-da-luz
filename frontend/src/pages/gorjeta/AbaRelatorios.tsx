@@ -351,7 +351,8 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
   const podeDistribuir = canEdit && comp?.periodId != null && comp.status === "OPEN";
   // Só as linhas que serão enviadas entram no total; as outras aparecem marcadas.
   const { validos, total: totalDistribuir, foraDaConta } = resumirDistribuicao(itens);
-  const pessoas = (comp?.participants ?? []).filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO")
+  // Fundo da gorjeta: só para quem participa dela.
+  const pessoas = (comp?.participants ?? []).filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO" && !p.foraDaGorjeta)
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName, "pt-BR"));
   const movimentos = dados?.movimentos ?? [];
   const listasFiltro = [
