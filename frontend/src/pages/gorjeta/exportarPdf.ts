@@ -3,6 +3,7 @@ import {
   MONTHS, NOTA_ADIANTAMENTO_OCULTO, NOTA_HORA_EXTRA_OCULTA, NOTA_QUINZENA_OCULTA, REGRA_HORA_EXTRA, REGRA_QUINZENA, adiantamentoOculto, fmtDate, fmtHoras,
   money, mostraQuinzena, ordenar, parseHoras, quinzenaOculta, valorHoraExtraTotal,
 } from "./gorjetaUtils";
+import { NOTA_TETO_OCULTO, montarEnvioContabilidade } from "./envioContabilidade";
 
 type AutoTable = (doc: unknown, options: Record<string, unknown>) => void;
 
@@ -29,29 +30,28 @@ const estilo = {
 };
 
 // Envio à contabilidade: só quem é registrado, numa tabela só, por empresa e depois
-// por nome. Os sem registro não vão para a contabilidade — vão para a lista de
-// pagamento — e quem já recebeu a gorjeta na rescisão não entra de novo.
+// por nome (regras em envioContabilidade.ts). A coluna Gorjeta é a INFORMADA: com teto do
+// IR, teto − salário registrado. É o documento que vai à contabilidade: nada nele fala do teto.
 export async function exportarContabilidade(comp: TipComputation) {
+  const envio = montarEnvioContabilidade(comp);
+  // Sem permissão o valor pelo teto vem oculto: o PDF sairia com buraco (ou com a gorjeta errada).
+  if (envio.ocultos > 0) throw new Error(`${NOTA_TETO_OCULTO} Peça a quem tem a permissão para gerar o PDF.`);
   const { doc, autoTable, finalY } = await novoPdf("Fechamento de Gorjetas — Envio à Contabilidade", comp);
-  const empresa = (p: TipComputedParticipant) => p.companyName || "Sem empresa";
-  const lista = comp.participants
-    .filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO" && !p.semRegistro && !p.pagoNaRescisao && !p.foraDaGorjeta)
-    .sort((a, b) => empresa(a).localeCompare(empresa(b), "pt-BR") || a.employeeName.localeCompare(b.employeeName, "pt-BR"));
   autoTable(doc, {
     ...estilo,
     startY: 30,
     // A contabilidade lança a gorjeta LÍQUIDA (rateio − vales + créditos), como na planilha e no extrato.
     head: [["Funcionário", "Empresa", "Gorjeta", "Hora extra", "Ad. noturno", "Faltas", "Atestados"]],
-    body: lista.map((p) => [
+    body: envio.linhas.map(({ pessoa: p, empresa, gorjeta }) => [
       p.employeeName + (p.tipoCalculo === "MES" ? "" : ` (saída ${fmtDate(p.terminationDate)})`),
-      empresa(p),
-      money(p.netCommission),
+      empresa,
+      money(gorjeta),
       p.horaExtra ?? "",
       p.adicionalNoturno ?? "",
       p.faltas ? String(p.faltas) : "",
       p.atestados ? String(p.atestados) : "",
     ]),
-    foot: [["Total", "", money(lista.reduce((a, p) => a + p.netCommission, 0)), "", "", "", ""]],
+    foot: [["Total", "", money(envio.total), "", "", "", ""]],
     columnStyles: { 2: { halign: "right", fontStyle: "bold" }, 3: { halign: "center" }, 4: { halign: "center" }, 5: { halign: "center" }, 6: { halign: "center" } },
   });
   doc.setFontSize(8);
