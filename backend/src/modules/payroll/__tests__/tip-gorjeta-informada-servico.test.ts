@@ -22,6 +22,7 @@ vi.mock("../../../config/database.js", () => ({
 
 import { prisma } from "../../../config/database.js";
 import { computeTipCommission } from "../tip-commission.service.js";
+import { montarRetrato } from "../tip-fechamento.service.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = prisma as any;
@@ -131,5 +132,67 @@ describe("gorjeta informada à contabilidade", () => {
     expect(comp.participants[0].gorjetaInformadaPeloTeto).toBe(false);
     expect(comp.participants[0].gorjetaInformada).toBe(comp.participants[0].netCommission);
     expect(comp.warnings.join(" ")).toMatch(/teto do IR.*sem salário registrado/i);
+  });
+});
+
+// O fechamento guarda a gorjeta informada (e se foi pelo teto): um teto ou salário mudado
+// depois, com data retroativa, não muda o que foi enviado de um mês FECHADO. Reabrir recalcula.
+describe("gorjeta informada no período fechado", () => {
+  function fechado(retrato: unknown[] | null, status: "CLOSED" | "OPEN" = "CLOSED") {
+    db.tipPeriod.findUnique.mockResolvedValue({
+      id: "per1", code: "GOR-2026-0009", label: "Gorjeta 26/08–25/09", status,
+      periodStart: d("2026-08-26"), periodEnd: d("2026-09-25"),
+      grossPool: 20000, servicoFaturamento: 20000, ajusteServico: 0, ajusteServicoMotivo: null, deductionPercent: 20, pointsTotal: 100,
+      diasPadrao: 26, descontaFalta: true, descontaAtestado: true, descontaFerias: true, descontaOutros: false, proporcionalEntrada: true,
+      reservaPontos: 0, participants: [participante()],
+    });
+    db.tipPeriodClosing.findFirst.mockResolvedValue(retrato == null ? null
+      : { id: "c1", code: "GOR-2026-0009/v1", version: 1, closedAt: d("2026-09-30"), closedByName: "Eli", participants: retrato });
+  }
+  // Salário mudado depois do fechamento, valendo desde 01/09: o recálculo daria 5.000 − 3.800 = 1.200.
+  const salarioRetroativo = () => db.employeeHistorico.findMany.mockResolvedValue([h("baseSalary", "3672.00", "3800.00", "2026-09-01")]);
+  const calcular = async (dadosPessoais = true) => (await computeTipCommission(2026, 9, { incluirDadosPessoais: dadosPessoais })).participants[0];
+
+  test("fechado pelo teto: vale o valor gravado, não o recálculo", async () => {
+    fechado([{ employeeId: "e1", gorjetaInformada: 1328, gorjetaInformadaPeloTeto: true, tetoIrGorjeta: 5000 }]);
+    salarioRetroativo();
+    expect(await calcular()).toMatchObject({ gorjetaInformada: 1328, gorjetaInformadaPeloTeto: true, tetoIrGorjeta: 5000 });
+  });
+
+  test("fechado sem teto e teto posto depois com data retroativa: continua sem teto", async () => {
+    fechado([{ employeeId: "e1", gorjetaInformada: 777.77 }]);
+    const p = await calcular();
+    expect(p).toMatchObject({ gorjetaInformada: 777.77, gorjetaInformadaPeloTeto: false, tetoIrGorjeta: null });
+  });
+
+  test("fechado, sem permissão de ver Funcionários: pelo teto continua sem o valor", async () => {
+    fechado([{ employeeId: "e1", gorjetaInformada: 1328, gorjetaInformadaPeloTeto: true, tetoIrGorjeta: 5000 }]);
+    expect(await calcular(false)).toMatchObject({ gorjetaInformada: null, gorjetaInformadaPeloTeto: true, tetoIrGorjeta: null });
+  });
+
+  test("reaberto: volta a recalcular pelo cadastro", async () => {
+    fechado(null, "OPEN");
+    salarioRetroativo();
+    expect(await calcular()).toMatchObject({ gorjetaInformada: 1200, gorjetaInformadaPeloTeto: true });
+  });
+
+  test("retrato antigo (sem o campo): recalcula, como antes", async () => {
+    fechado([{ employeeId: "e1" }]);
+    salarioRetroativo();
+    expect(await calcular()).toMatchObject({ gorjetaInformada: 1200, gorjetaInformadaPeloTeto: true });
+  });
+
+  test("o retrato do fechamento guarda a gorjeta informada e o teto de quem é CLT", async () => {
+    periodoSetembro([participante()]);
+    const comp = await computeTipCommission(2026, 9, { incluirDadosPessoais: true });
+    expect(montarRetrato(comp, []).participants[0]).toMatchObject({ gorjetaInformada: 1328, gorjetaInformadaPeloTeto: true, tetoIrGorjeta: 5000 });
+  });
+
+  test("CLT sem teto: guarda a informada (a líquida), sem o indicador de teto", async () => {
+    periodoSetembro([participante({ tetoIrGorjeta: null })]);
+    const comp = await computeTipCommission(2026, 9, { incluirDadosPessoais: true });
+    const p = montarRetrato(comp, []).participants[0];
+    expect(p.gorjetaInformada).toBe(comp.participants[0].netCommission);
+    expect(p).not.toHaveProperty("gorjetaInformadaPeloTeto");
   });
 });

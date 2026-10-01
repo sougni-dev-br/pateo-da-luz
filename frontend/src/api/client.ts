@@ -1317,6 +1317,18 @@ export type Payable = {
   taxCnpj?: string | null;
   taxCompetenceDate?: string | null;
   taxDreCategoryName?: string | null;
+  /** Folha: salário de quem tem salário combinado (só para quem pode ver salários). */
+  salarioComposicao?: SalarioComposicao | null;
+};
+
+export type SalarioComposicao = {
+  tipo: "SALARIO_COMBINADO" | "PENDENTE_GORJETA";
+  liquidoExtrato: number;
+  complemento: number;
+  total: number;
+  combinado: number | null;
+  adiantamento: number | null;
+  gorjetaIntegral: number | null;
 };
 
 export type SmallExpenseReportRow = {
@@ -6904,6 +6916,17 @@ export function marcarTipEtapa(year: number, month: number, etapa: TipEtapa, aca
 }
 export function getTipFolhaLiquidos(year: number, month: number) {
   return request<TipFolhaLiquidos>(`${baseTip(year, month)}/folha-liquidos`);
+}
+export type SincronizacaoSalariosCombinados = {
+  competencia: string;
+  alterados: Array<{ payrollItemId: string; employeeId: string; nome: string; antes: number; depois: number; pendenteGorjeta: boolean }>;
+  semMudanca: number;
+  pagosIgnorados: number;
+  avisos: string[];
+};
+/** Recalcula o salário (não pago) de quem tem salário combinado no Contas a Pagar com o valor integral. */
+export function sincronizarSalariosCombinados(year: number, month: number) {
+  return request<SincronizacaoSalariosCombinados>(`${baseTip(year, month)}/salarios-combinados/sincronizar`, json("POST"));
 }
 export function salvarSalarioCombinado(employeeId: string, valor: number | null, motivo: string | null) {
   return request<{ ok: boolean }>(`/payroll/tip/team/${employeeId}/salario-combinado`, json("PUT", { valor, motivo }));
