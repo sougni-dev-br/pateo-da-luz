@@ -5770,6 +5770,9 @@ export type TipComputedParticipant = {
   salarioProporcional: number;
   /** Sem registro: adiantamento salarial já pago no mês (0 = não recebeu). null sem permissão de ver Funcionários. */
   adiantamentoSalarial?: number | null;
+  /** Sem registro: hora extra (+50%) e adicional noturno, já no total a pagar. CLT = 0. null sem permissão de ver Funcionários. */
+  valorHoraExtra?: number | null;
+  valorAdicionalNoturno?: number | null;
   totalAPagar: number;
   /** null quando o usuário não tem permissão de ver Funcionários. */
   baseSalary: number | null;
@@ -5829,8 +5832,11 @@ export type TipComputation = {
   participants: TipComputedParticipant[];
   /** Regra do adiantamento salarial (Folha → configurações): % do salário base, pago no dia. */
   adiantamento?: { percent: number; dia: number };
-  /** adiantamentos: null sem permissão de ver Funcionários. */
-  totals: { rateio: number; vales: number; netCommission: number; salarios: number; adiantamentos?: number | null; totalAPagar: number; pagoNaRescisao: number };
+  /** adiantamentos e horasExtrasSemRegistro (hora extra + noturno da lista): null sem permissão de ver Funcionários. */
+  totals: {
+    rateio: number; vales: number; netCommission: number; salarios: number; adiantamentos?: number | null;
+    horasExtrasSemRegistro?: number | null; totalAPagar: number; pagoNaRescisao: number;
+  };
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
   pendencias: string[];
   warnings: string[];
@@ -6422,9 +6428,15 @@ export type ApuracaoRescisao = {
   } | null;
   gorjetaObservacao: string | null;
   /** vales inclui o adiantamento salarial já pago (a parte dele em adiantamento). */
-  sugestao: { salario: number | null; gorjeta: number | null; creditos: number; vales: number; valesRotulo: string | null; adiantamento?: number; vtDesconto: number; bruto: number | null };
+  /** creditos inclui a hora extra e o adicional noturno (a parte deles em horaExtra). */
+  sugestao: {
+    salario: number | null; gorjeta: number | null; creditos: number; horaExtra?: number; vales: number; valesRotulo: string | null;
+    adiantamento?: number; vtDesconto: number; bruto: number | null;
+  };
   /** Sem registro que recebe adiantamento e saiu no dia dele ou depois. valor null = oculto. */
   adiantamento?: { valor: number | null; data: string } | null;
+  /** Sem registro com horas na gorjeta do período da saída: entra nos créditos. valor (HE + noturno) null = oculto. */
+  horaExtra?: { horaExtra: string | null; adicionalNoturno: string | null; valor: number | null } | null;
   dadosPessoaisOcultos?: boolean;
   /** Salário e gorjeta até a saída já pagos na lista de pagamento da gorjeta (sem registro). */
   jaPagoNaLista?: { valor: number; competencia: string } | null;

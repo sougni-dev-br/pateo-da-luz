@@ -1,12 +1,14 @@
 import type { TipComputation, TipComputedParticipant, TipFolhaLiquidos } from "../../api/client";
-import { MONTHS, NOTA_ADIANTAMENTO_OCULTO, adiantamentoOculto, fmtDate, money, ordenar } from "./gorjetaUtils";
+import {
+  MONTHS, NOTA_ADIANTAMENTO_OCULTO, NOTA_HORA_EXTRA_OCULTA, REGRA_HORA_EXTRA, adiantamentoOculto, fmtDate, fmtHoras, money, ordenar, parseHoras, valorHoraExtraTotal,
+} from "./gorjetaUtils";
 
 type AutoTable = (doc: unknown, options: Record<string, unknown>) => void;
 
-async function novoPdf(titulo: string, comp: TipComputation) {
+async function novoPdf(titulo: string, comp: TipComputation, orientacao: "portrait" | "landscape" = "portrait") {
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default as unknown as AutoTable;
-  const doc = new jsPDF();
+  const doc = new jsPDF({ orientation: orientacao });
   doc.setFontSize(14);
   doc.text(titulo, 14, 16);
   doc.setFontSize(10);
@@ -63,32 +65,61 @@ export function celulaAdiantamento(valor: number | null | undefined): string {
   return valor ? `− ${money(valor)}` : "";
 }
 
-// Lista de pagamento dos sem registro: salário proporcional − adiantamento + gorjeta − vales + créditos.
+/** Célula do valor da hora extra + noturno no PDF: null = sem permissão ("oculto"); 0 = sem horas (vazio). */
+export function celulaValorHoraExtra(valor: number | null): string {
+  if (valor == null) return "oculto";
+  return valor ? money(valor) : "";
+}
+
+// Horas do período em h:mm (vazio sem horas). O texto ilegível sai como foi digitado.
+const celulaHoras = (texto: string | null) => {
+  const min = parseHoras(texto);
+  return min == null ? texto ?? "" : min > 0 ? fmtHoras(min) : "";
+};
+
+/** Linha da lista de pagamento no PDF (exportada para o teste). */
+export function linhaListaPagamento(p: TipComputedParticipant): string[] {
+  return [
+    p.employeeName + (p.tipoCalculo === "MES" ? "" : ` (saída ${fmtDate(p.terminationDate)})`),
+    String(p.diasSalario),
+    money(p.salarioProporcional),
+    celulaAdiantamento(p.adiantamentoSalarial),
+    money(p.rateioAmount),
+    p.descontos ? `− ${money(p.descontos)}` : "",
+    p.creditos ? money(p.creditos) : "",
+    celulaHoras(p.horaExtra),
+    celulaHoras(p.adicionalNoturno),
+    celulaValorHoraExtra(valorHoraExtraTotal(p)),
+    money(p.totalAPagar),
+    p.pixKey ?? "",
+  ];
+}
+
+// Lista de pagamento dos sem registro: salário proporcional − adiantamento + gorjeta − vales
+// + créditos + hora extra/noturno. Em paisagem: são 12 colunas.
 export async function exportarListaPagamento(comp: TipComputation) {
-  const { doc, autoTable, finalY } = await novoPdf("Lista de Pagamento — Sem registro", comp);
+  const { doc, autoTable, finalY } = await novoPdf("Lista de Pagamento — Sem registro", comp, "landscape");
   const lista = ordenar(comp.participants).filter((p) => p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && !p.pagoNaRescisao);
   const totalAdiantamento = lista.reduce((a, p) => a + (p.adiantamentoSalarial ?? 0), 0);
-  // Sem permissão o adiantamento vem null: "oculto", não vazio (que leria como zero).
+  // Sem permissão o adiantamento e a hora extra vêm null: "oculto", não vazio (que leria como zero).
   const oculto = adiantamentoOculto(lista);
+  const heOculta = lista.some((p) => valorHoraExtraTotal(p) == null);
+  const totalHoras = (campo: "horaExtra" | "adicionalNoturno") => {
+    const min = lista.reduce((a, p) => a + Math.max(0, parseHoras(p[campo]) ?? 0), 0);
+    return min > 0 ? fmtHoras(min) : "";
+  };
   autoTable(doc, {
     ...estilo,
     startY: 30,
-    head: [["Funcionário", "Dias", "Salário", "Adiantamento", "Gorjeta", "Vales", "Créditos", "A pagar", "PIX"]],
-    body: lista.map((p) => [
-      p.employeeName + (p.tipoCalculo === "MES" ? "" : ` (saída ${fmtDate(p.terminationDate)})`),
-      String(p.diasSalario),
-      money(p.salarioProporcional),
-      celulaAdiantamento(p.adiantamentoSalarial),
-      money(p.rateioAmount),
-      p.descontos ? `− ${money(p.descontos)}` : "",
-      p.creditos ? money(p.creditos) : "",
-      money(p.totalAPagar),
-      p.pixKey ?? "",
-    ]),
+    head: [["Funcionário", "Dias", "Salário", "Adiantamento", "Gorjeta", "Vales", "Créditos", "HE", "Ad. noturno", "Valor HE/AN", "A pagar", "PIX"]],
+    body: lista.map(linhaListaPagamento),
     foot: [["Total", "", money(lista.reduce((a, p) => a + p.salarioProporcional, 0)), celulaAdiantamento(oculto ? null : totalAdiantamento),
-      money(lista.reduce((a, p) => a + p.rateioAmount, 0)), "", "", money(lista.reduce((a, p) => a + p.totalAPagar, 0)), ""]],
+      money(lista.reduce((a, p) => a + p.rateioAmount, 0)), "", "", totalHoras("horaExtra"), totalHoras("adicionalNoturno"),
+      celulaValorHoraExtra(heOculta ? null : lista.reduce((a, p) => a + (valorHoraExtraTotal(p) ?? 0), 0)),
+      money(lista.reduce((a, p) => a + p.totalAPagar, 0)), ""]],
     columnStyles: {
-      1: { halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" },
+      1: { halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" },
+      7: { halign: "center" }, 8: { halign: "center" }, 9: { halign: "right" }, 10: { halign: "right" },
     },
   });
   doc.setFontSize(8);
@@ -101,6 +132,7 @@ export async function exportarListaPagamento(comp: TipComputation) {
     const { percent, dia } = comp.adiantamento;
     doc.text(`Adiantamento = ${percent.toLocaleString("pt-BR")}% do salário base, pago no dia ${dia}, para quem recebe adiantamento (cadastro).`, 14, finalY() + 12);
   }
+  doc.text(`Horas em h:mm. ${REGRA_HORA_EXTRA}${heOculta ? ` Valor oculto (sem permissão). ${NOTA_HORA_EXTRA_OCULTA}` : ""}`, 14, finalY() + 16);
   doc.save(`Gorjeta_Pagamento_${MONTHS[comp.month - 1]}_${comp.year}.pdf`);
 }
 
@@ -133,6 +165,6 @@ export async function exportarFolhaLiquidos(folha: TipFolhaLiquidos, liberada: b
   doc.text(`Total geral: ${money(folha.total)}`, 14, y + 8);
   doc.setFontSize(8);
   doc.setTextColor(120);
-  doc.text("CLT: líquido do extrato da contabilidade. * (salário combinado − adiantamento) + gorjeta. Sem registro: salário ÷ 30 × dias − adiantamento (quem recebe) + gorjeta − vales.", 14, y + 14);
+  doc.text("CLT: líquido do extrato da contabilidade. * (salário combinado − adiantamento) + gorjeta. Sem registro: salário ÷ 30 × dias − adiantamento (quem recebe) + gorjeta − vales + hora extra/noturno.", 14, y + 14);
   doc.save(`Folha_Liquidos_${folha.code}.pdf`);
 }

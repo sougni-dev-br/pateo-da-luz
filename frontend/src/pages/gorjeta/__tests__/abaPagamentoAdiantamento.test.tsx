@@ -67,12 +67,13 @@ describe("lista de pagamento: coluna Adiantamento", () => {
   });
 
   test("sem a permissão de Funcionários (adiantamento null): \"oculto\", nota do A pagar e sem a regra no título", () => {
-    const c = comp([pessoa({ employeeId: "a", employeeName: "Ana", adiantamentoSalarial: null, baseSalary: null })]);
+    const c = comp([pessoa({ employeeId: "a", employeeName: "Ana", adiantamentoSalarial: null, valorHoraExtra: null, baseSalary: null })]);
     render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />);
     const ana = screen.getByText("Ana").closest("tr")!;
-    expect(within(ana).getByText("oculto")).toBeTruthy();
+    // Adiantamento e valor da hora extra: os dois derivam do salário.
+    expect(within(ana).getAllByText("oculto").length).toBe(2);
     const total = screen.getByText("Total").closest("tr")!;
-    expect(within(total).getByText("oculto")).toBeTruthy();
+    expect(within(total).getAllByText("oculto").length).toBe(2);
     expect(screen.getByText(/A pagar já considera o adiantamento/)).toBeTruthy();
     const th = screen.getByRole("columnheader", { name: /Adiantamento/ });
     expect(th.getAttribute("title")).not.toContain("40%");

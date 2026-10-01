@@ -348,7 +348,7 @@ export function RescisaoModal({ funcionario, onFechar, onGravou }: Props) {
               <span className="resc-detalhe">Líquido a pagar{precisaJustificar && !ajustando ? " · precisa justificar" : ""}</span>
               <strong><Money value={liquido} /></strong>
               <span className="resc-detalhe">
-                bruto <Money value={bruto} />{creditos > 0 && <> (com <Money value={creditos} /> de créditos)</>}
+                bruto <Money value={bruto} />{creditos > 0 && <> (com <Money value={creditos} /> de créditos{(sugestao?.horaExtra ?? 0) > 0 && " e hora extra"})</>}
                 {(valores.vales ?? 0) > 0 && <> − vales <Money value={valores.vales} /></>}
                 {(valores.vtDesconto ?? 0) > 0 && <> − VT <Money value={valores.vtDesconto} /></>}
                 {outro > 0 && <> − outro <Money value={outro} /></>}

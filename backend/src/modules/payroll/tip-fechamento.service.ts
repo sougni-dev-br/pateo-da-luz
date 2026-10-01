@@ -73,6 +73,8 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     salarios: comp.totals.salarios,
     // Só quando houve adiantamento: retratos antigos continuam com o mesmo formato.
     ...(comp.totals.adiantamentos ? { adiantamentos: comp.totals.adiantamentos, adiantamentoRegra: comp.adiantamento } : {}),
+    // Idem para a hora extra e o noturno de quem não tem registro (já no total a pagar).
+    ...(comp.totals.horasExtrasSemRegistro ? { horasExtrasSemRegistro: comp.totals.horasExtrasSemRegistro } : {}),
     totalAPagar: comp.totals.totalAPagar,
   };
   const participants = comp.participants.map((p) => ({
@@ -122,6 +124,11 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     diasSalario: p.diasSalario,
     salarioProporcional: p.salarioProporcional,
     ...(p.adiantamentoSalarial ? { adiantamentoSalarial: p.adiantamentoSalarial } : {}),
+    // Valor da hora extra e do noturno que entrou no total (sem registro). É dele que o
+    // período fechado lê o valor e explica o adiantamento; sem horas, o retrato não muda.
+    ...(p.valorHoraExtra || p.valorAdicionalNoturno
+      ? { valorHoraExtra: p.valorHoraExtra ?? 0, valorAdicionalNoturno: p.valorAdicionalNoturno ?? 0 }
+      : {}),
     totalAPagar: p.totalAPagar,
     horaExtra: p.horaExtra,
     adicionalNoturno: p.adicionalNoturno,

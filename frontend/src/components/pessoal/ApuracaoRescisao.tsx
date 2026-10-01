@@ -66,6 +66,12 @@ export function ApuracaoRescisaoPainel({ apuracao: a, aberto = false }: { apurac
                 ? (g.pendente ? a.gorjetaObservacao : `${g.periodo}: ${g.pontos.toLocaleString("pt-BR")} pts × valor do ponto na saída`)
                 : a.gorjetaObservacao} />
             {a.vales.creditos > 0 && <Linha rotulo="Créditos (aba Vales)" valor={a.vales.creditos} sinal="+" />}
+            {a.horaExtra && (
+              <Linha rotulo="Hora extra e adicional noturno" valor={a.horaExtra.valor} sinal="+"
+                detalhe={`${[a.horaExtra.horaExtra && `HE ${a.horaExtra.horaExtra}`, a.horaExtra.adicionalNoturno && `noturno ${a.horaExtra.adicionalNoturno}`].filter(Boolean).join(" · ")}`
+                  + " na gorjeta do mês da saída: salário ÷ 220 × 1,5; noturno 20% sobre a hora de 52,5 min. Entra nos créditos"
+                  + (a.horaExtra.valor == null ? " (valor oculto: exige a permissão de ver Funcionários)" : "")} />
+            )}
           </>
         )}
         {!a.semRegistro && (
