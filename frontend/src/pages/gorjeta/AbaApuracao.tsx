@@ -7,6 +7,7 @@ import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { RegrasPessoa, temRegraPropria } from "./RegrasPessoa";
 import { ReciboRescisao, SeloRecibo } from "./ReciboRescisao";
+import { linkRescisao } from "../rh/rotasRh";
 import { DialogoGorjetaReal } from "./GorjetaReal";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { NomePessoa, textoPessoa } from "./NomePessoa";
@@ -154,7 +155,7 @@ const SITUACAO_CONTA: Record<"PENDING" | "PAID" | "OVERDUE", { rotulo: string; t
 
 // A rescisão que a Folha lançou em Contas a Pagar para quem saiu no período.
 function RescisaoLancada({ r, employeeId }: { r: TipComputedParticipant["rescisaoContasPagar"]; employeeId: string }) {
-  const link = <Link className="resc-link-gorjeta" to={"/pessoal/funcionarios?rescisao=" + employeeId}>{r ? "abrir rescisão" : "lançar rescisão"}</Link>;
+  const link = <Link className="resc-link-gorjeta" to={linkRescisao(employeeId)}>{r ? "abrir rescisão" : "lançar rescisão"}</Link>;
   if (!r) return <div><StatusBadge tone="warning">não lançada</StatusBadge><div>{link}</div></div>;
   const s = SITUACAO_CONTA[r.status];
   return (
@@ -558,7 +559,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                       </NomePessoa>
                       {/* Com "Contas a Pagar" oculta, o atalho para a rescisão continua aqui. */}
                       {!vr("contas") && (
-                        <Link className="resc-link-gorjeta" to={"/pessoal/funcionarios?rescisao=" + p.employeeId}>
+                        <Link className="resc-link-gorjeta" to={linkRescisao(p.employeeId)}>
                           {p.rescisaoContasPagar ? "abrir rescisão" : "lançar rescisão"}
                         </Link>
                       )}
@@ -571,7 +572,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                         onChange={(e) => onRow(p.employeeId, { rescisaoValorFixo: e.target.value })} />
                       {p.rescisaoContasPagar?.gorjetaDefinida && (
                         <div style={mutedStyle}>
-                          definida na rescisão · <Link className="resc-link-gorjeta" to={"/pessoal/funcionarios?rescisao=" + p.employeeId}>ajustar</Link>
+                          definida na rescisão · <Link className="resc-link-gorjeta" to={linkRescisao(p.employeeId)}>ajustar</Link>
                         </div>
                       )}
                     </Table.Td>

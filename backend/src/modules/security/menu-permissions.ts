@@ -42,11 +42,11 @@ export const menuCatalog = [
   { id: "requisitions", label: "Requisições", group: "Estoque" },
   { id: "suppliers", label: "Fornecedores", group: "Cadastros" },
   { id: "companies", label: "Empresas", group: "Cadastros" },
-  { id: "employees", label: "Funcionarios", group: "Pessoal" },
-  { id: "schedule", label: "Escala", group: "Pessoal" },
-  { id: "payroll", label: "Folha de Pagamento", group: "Pessoal" },
-  { id: "payroll-tips", label: "Fechamento de Gorjetas", group: "Pessoal" },
-  { id: "extras", label: "Extras (diárias)", group: "Pessoal" },
+  { id: "employees", label: "Funcionarios", group: "RH" },
+  { id: "schedule", label: "Escala", group: "RH" },
+  { id: "payroll", label: "Folha e VT (inclui Rescisões)", group: "RH" },
+  { id: "payroll-tips", label: "Apuração de gorjeta (inclui Retorno do RH)", group: "RH" },
+  { id: "extras", label: "Extras (diárias)", group: "RH" },
   { id: "import", label: "Importacoes", group: "Dados" },
   { id: "catalog-imports", label: "Importar cadastros", group: "Dados" },
   { id: "payment-methods", label: "Metodos de pagamento", group: "Configuracoes" },
@@ -155,6 +155,20 @@ export function permissionToAccessLevel(permission: Partial<ModulePermission> | 
 
 export function isMenuId(value: string): value is MenuId {
   return menuIds.has(value);
+}
+
+// Itens do menu lateral que não são módulo próprio no catálogo: herdam a permissão do
+// módulo que a tela opera (o mesmo permissionId do frontend). Servem para o favorito
+// ser aceito e conferido pela permissão certa.
+const MENUS_AUXILIARES: Record<string, MenuId> = {
+  rescisoes: "payroll",
+  "rh-retorno": "payroll-tips",
+};
+
+/** Módulo que autoriza um item de menu favoritado (o próprio, ou o herdado), ou null se não existe. */
+export function menuDoFavorito(chave: string): MenuId | null {
+  if (isMenuId(chave)) return chave;
+  return MENUS_AUXILIARES[chave] ?? null;
 }
 
 export function hasModulePermission(permission: Partial<ModulePermission> | null | undefined, action: PermissionAction) {

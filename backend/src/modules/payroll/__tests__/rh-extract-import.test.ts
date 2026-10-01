@@ -61,6 +61,7 @@ beforeEach(() => {
   db.payrollItem.findUnique.mockResolvedValue(null);
   db.payrollItem.update.mockResolvedValue({});
   db.payrollItem.create.mockResolvedValue({});
+  db.payrollItem.findMany.mockResolvedValue([]);
 });
 
 describe("importExtrato — lançamento excluído", () => {
@@ -179,6 +180,53 @@ describe("folha do mês sem o extrato do adiantamento", () => {
     textoDoPdf.atual = extrato("Adiantamento");
     db.payrollItem.findUnique.mockResolvedValue(null);
     const r = await importar();
+    expect(r.adiantamentosDaFolha).toBe(0);
+  });
+});
+
+// Travas de duplicidade e de saída também na importação: o extrato não cria o segundo
+// pagamento do mês (o gerado pela folha ou lançado à mão, com outro rótulo) nem paga
+// competência depois do desligamento.
+describe("importExtrato — travas de duplicidade e de saída", () => {
+  const salarioGerado = { id: "g1", employeeId: "e1", type: "SALARIO", competenceYear: 2026, competenceMonth: 9, periodLabel: "Salário", amount: 1000, status: "PENDING", deletedAt: null, paymentDate: null, details: null, periodStart: null, dueDate: new Date("2026-10-05T00:00:00Z") };
+
+  test("já existe o salário de setembro com outro rótulo: não cria, pula e avisa", async () => {
+    db.payrollItem.findMany.mockResolvedValue([salarioGerado]);
+    const r = await importar();
+    expect(db.payrollItem.create).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ titulosNovos: 0, titulosPulados: 1 });
+    expect(r.avisos.some((a) => a.includes("FULANO DE TAL") && a.includes('"Salário"') && a.includes("não criou outro"))).toBe(true);
+  });
+
+  test("o já existente é um complemento: o extrato cria o dele normalmente", async () => {
+    db.payrollItem.findMany.mockResolvedValue([{ ...salarioGerado, details: { complemento: { motivo: "diferença de horas" } } }]);
+    const r = await importar();
+    expect(db.payrollItem.create).toHaveBeenCalledTimes(1);
+    expect(r.titulosNovos).toBe(1);
+  });
+
+  test("pessoa que saiu em agosto: extrato de setembro não cria nada e avisa", async () => {
+    db.employee.findMany.mockResolvedValue([{ id: "e1", cpf: "111.222.333-44", terminationDate: new Date("2026-08-20T00:00:00Z") }]);
+    const r = await importar();
+    expect(db.payrollItem.create).not.toHaveBeenCalled();
+    expect(db.payrollItem.update).not.toHaveBeenCalled();
+    expect(r.titulosPulados).toBe(1);
+    expect(r.avisos.some((a) => a.includes("saiu em 20/08/2026"))).toBe(true);
+  });
+
+  test("saiu no próprio mês do extrato: lança normalmente", async () => {
+    db.employee.findMany.mockResolvedValue([{ id: "e1", cpf: "111.222.333-44", terminationDate: new Date("2026-09-10T00:00:00Z") }]);
+    expect((await importar()).titulosNovos).toBe(1);
+  });
+
+  test("adiantamento da folha não é criado quando já existe um adiantamento do mês com outro rótulo", async () => {
+    textoDoPdf.atual = extrato("Folha Mensal", "1.500,00")
+      .replace("980 ADIANTAMENTO SALARIAL P\t1.033,66\t40,00", "1 HORAS NORMAIS 981 1.033,66 D\tP\t2.533,66\t220,00 DESC.ADIANT.SALARIAL 1.033,66");
+    db.payrollItem.findMany.mockImplementation(async ({ where }: { where: { type: string } }) =>
+      where.type === "ADIANTAMENTO" ? [{ ...salarioGerado, id: "a1", type: "ADIANTAMENTO", periodLabel: "Adiantamento" }] : []);
+    const r = await importar();
+    const tipos = db.payrollItem.create.mock.calls.map((c: [{ data: { type: string } }]) => c[0].data.type);
+    expect(tipos).not.toContain("ADIANTAMENTO");
     expect(r.adiantamentosDaFolha).toBe(0);
   });
 });

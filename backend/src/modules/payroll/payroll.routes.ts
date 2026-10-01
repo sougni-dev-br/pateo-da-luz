@@ -12,8 +12,12 @@ import {
 } from "./rescisao-apuracao.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { round2 } from "./vt-calc.js";
+import { duplicadosDe, pagamentosEmDuplicidade, resumoItem, rotuloLivre, rotuloTipo, competenciaDe } from "./folha-duplicidade.js";
+import { CAMPOS_TRAVA, dataBr, folhaLancamentoRouter, nomeDe } from "./folha-lancamento.routes.js";
 
 export const payrollRouter = Router();
+// Lançamento manual (POST /) e conferência do lote antes da baixa (POST /pay-check).
+payrollRouter.use(folhaLancamentoRouter);
 
 function parseYearMonth(q: { year?: unknown; month?: unknown }) {
   const now = new Date();
@@ -723,6 +727,19 @@ payrollRouter.post("/vacation", async (request, response) => {
   // A competencia das ferias e o mes de INICIO, que e o que vai para o PayrollItem.
   if (await competenciaDeFolhaBloqueada(start, "Lancamento de ferias", response)) return;
 
+  // As mesmas férias (mesma pessoa e mesmo início) já lançadas: recusa. Outro período no
+  // mesmo mês é legítimo e ganha rótulo próprio (a chave única inclui o rótulo, até de excluído).
+  const competenciaFerias = { employeeId: emp.id, type: "FERIAS", competenceYear: start.getUTCFullYear(), competenceMonth: start.getUTCMonth() + 1 } as const;
+  const feriasDoMes = await prisma.payrollItem.findMany({ where: competenciaFerias, select: CAMPOS_TRAVA });
+  const feriasRepetidas = duplicadosDe({ ...competenciaFerias, periodStart: start }, feriasDoMes);
+  if (feriasRepetidas.length > 0) {
+    return response.status(409).json({
+      code: "DUPLICIDADE",
+      message: `Estas férias de ${nomeDe(emp)} (início ${dataBr(start)}) já estão lançadas.`,
+      existentes: feriasRepetidas.map(resumoItem),
+    });
+  }
+
   const item = await prisma.payrollItem.create({
     data: {
       id: crypto.randomUUID(),
@@ -730,7 +747,7 @@ payrollRouter.post("/vacation", async (request, response) => {
       type: "FERIAS",
       competenceYear: start.getUTCFullYear(),
       competenceMonth: start.getUTCMonth() + 1,
-      periodLabel: "Férias",
+      periodLabel: rotuloLivre("Férias", feriasDoMes.map((f) => f.periodLabel)),
       periodStart: start,
       periodEnd: end,
       dueDate,
@@ -829,6 +846,32 @@ payrollRouter.patch("/:id/pay", async (request, response) => {
     const owned = await prisma.companyBankAccount.findFirst({ where: { id: companyBankAccountId, companyId: payingCompanyId, isActive: true } });
     if (!owned) return response.status(400).json({ message: "Conta bancária não pertence à empresa selecionada ou está inativa." });
   }
+  // 5. Baixa em duplicidade: o mesmo pagamento (pessoa + tipo + competência, + quinzena no
+  //    VT) já pago em OUTRO item. Parcela da mesma rescisão e complemento não contam.
+  //    Só passa com a confirmação explícita, que fica na auditoria.
+  const outrosPagos = await prisma.payrollItem.findMany({
+    where: {
+      employeeId: existing.employeeId, type: existing.type, competenceYear: existing.competenceYear, competenceMonth: existing.competenceMonth,
+      deletedAt: null, paymentDate: { not: null }, id: { not: existing.id },
+    },
+    select: CAMPOS_TRAVA,
+  });
+  const jaPagos = pagamentosEmDuplicidade(existing, outrosPagos);
+  const confirmaDuplicidade = b.confirmaDuplicidade === true;
+  if (jaPagos.length > 0 && !confirmaDuplicidade) {
+    const emp = await prisma.employee.findFirst({ where: { id: existing.employeeId }, select: { firstName: true, lastName: true } });
+    const pessoa = nomeDe(emp);
+    const p = jaPagos[0];
+    const valor = Number(p.paidAmount ?? p.amount).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    return response.status(409).json({
+      code: "BAIXA_DUPLICADA",
+      message: `Já foi pago ${rotuloTipo(existing.type).toLowerCase()} ${competenciaDe(existing)} de ${pessoa} em ${dataBr(p.paymentDate)} (${valor}). Baixar mesmo assim?`,
+      pessoa,
+      item: resumoItem(existing),
+      jaPagos: jaPagos.map(resumoItem),
+    });
+  }
+
   const method = paidPaymentMethodId ? await prisma.paymentMethod.findUnique({ where: { id: paidPaymentMethodId } }) : null;
   const paidPaymentMethodName = method?.name ?? paidPaymentMethodNameInput;
 
@@ -847,6 +890,13 @@ payrollRouter.patch("/:id/pay", async (request, response) => {
     userId: user.id, action: "PAY_PAYROLL_ITEM", entity: "PayrollItem", entityId: updated.id,
     previousValue: existing, newValue: updated, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
+  if (jaPagos.length > 0) {
+    await auditLog({
+      userId: user.id, action: "BAIXA_FOLHA_DUPLICIDADE_CONFIRMADA", entity: "PayrollItem", entityId: updated.id,
+      newValue: { item: resumoItem(existing), jaPagos: jaPagos.map(resumoItem) },
+      ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+    });
+  }
 
   response.json({ id: updated.id, status: updated.status });
 });
@@ -909,6 +959,23 @@ payrollRouter.patch("/:id/restore", async (request, response) => {
     "Restauracao de lancamento de folha",
     response
   )) return;
+
+  // Restaurar com o mesmo pagamento já vivo em outro item criaria a duplicidade que a
+  // folha trava em todo o resto. Rescisão tem a regra própria (recusarSeOutraRescisaoViva).
+  if (existing.type !== "RESCISAO") {
+    const vivos = await prisma.payrollItem.findMany({
+      where: { employeeId: existing.employeeId, type: existing.type, competenceYear: existing.competenceYear, competenceMonth: existing.competenceMonth, deletedAt: null, id: { not: existing.id } },
+      select: CAMPOS_TRAVA,
+    });
+    const duplicados = duplicadosDe(existing, vivos);
+    if (duplicados.length > 0) {
+      return response.status(409).json({
+        code: "DUPLICIDADE",
+        message: `Já existe outro ${rotuloTipo(existing.type).toLowerCase()} de ${competenciaDe(existing)} desta pessoa. Exclua o outro antes de restaurar este.`,
+        existentes: duplicados.map(resumoItem),
+      });
+    }
+  }
 
   // Relançar a gorjeta na apuração é editar a Gorjeta: a permissão é lida antes da transação.
   const podeGorjeta = existing.type === "RESCISAO" ? await podeEditarGorjeta(user) : false;
