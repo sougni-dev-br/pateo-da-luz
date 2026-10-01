@@ -69,7 +69,7 @@ export function DiariaModal({ diaria, pessoas: pessoasIniciais, padrao, pessoaIn
     return () => { vivo = false; };
   }, [lancadas.length]);
 
-  // Pessoa de fora: simula a diária antes de salvar e avisa se, com ela, a
+  // Freelancer: simula a diária antes de salvar e avisa se, com ela, a
   // frequência passa do limite (risco de vínculo). Só avisa, não bloqueia.
   const conta = status === "REALIZADA" || status === "PREVISTA";
   const foraId = escolhida?.tipo === "FORA" && conta ? escolhida.id : null;
@@ -212,12 +212,12 @@ export function DiariaModal({ diaria, pessoas: pessoasIniciais, padrao, pessoaIn
                 <div>
                   <strong>{escolhidaInfo.nome}</strong>
                   <span className={`extras-origem${escolhida?.tipo === "FORA" ? " fora" : ""}`}>
-                    {escolhida?.tipo === "CASA" ? "Equipe da casa" : "De fora"}
+                    {escolhida?.tipo === "CASA" ? "Equipe da casa" : "Freelancer"}
                   </span>
                   <div className="extras-sub">
                     {escolhidaInfo.tipo === "CASA"
                       ? [escolhidaInfo.setor, escolhidaInfo.cargo, escolhidaInfo.modalidade === "CLT" ? "CLT" : "Sem registro", escolhidaInfo.ativo ? null : "desligado"].filter(Boolean).join(" · ")
-                      : [escolhidaInfo.apelido, escolhidaInfo.indicadoPor ? `indicação de ${escolhidaInfo.indicadoPor}` : null].filter(Boolean).join(" · ") || "Pessoa de fora"}
+                      : [escolhidaInfo.apelido, escolhidaInfo.indicadoPor ? `indicação de ${escolhidaInfo.indicadoPor}` : null].filter(Boolean).join(" · ") || "Freelancer"}
                   </div>
                 </div>
                 <Button variant="secondary" onClick={() => setEscolhida(null)}>Trocar</Button>
@@ -252,7 +252,7 @@ export function DiariaModal({ diaria, pessoas: pessoasIniciais, padrao, pessoaIn
                       </span>
                     </button>
                   ))}
-                  <div className="grupo">De fora · indicação</div>
+                  <div className="grupo">Freelancers</div>
                   {foraLista.map((p) => (
                     <button key={p.id} type="button" role="option" aria-selected={false} onClick={() => escolher({ tipo: "FORA", id: p.id })}>
                       <span>
@@ -265,7 +265,7 @@ export function DiariaModal({ diaria, pessoas: pessoasIniciais, padrao, pessoaIn
                 </div>
                 {podeCadastrarPessoa && (
                   <button type="button" className="extras-cadastrar-fora" onClick={() => setNovaPessoa(busca.trim())}>
-                    + Cadastrar pessoa de fora{busca.trim() ? ` "${busca.trim()}"` : ""}
+                    + Cadastrar freelancer{busca.trim() ? ` "${busca.trim()}"` : ""}
                   </button>
                 )}
               </div>
@@ -286,7 +286,7 @@ export function DiariaModal({ diaria, pessoas: pessoasIniciais, padrao, pessoaIn
           </FormGrid>
           {avisoFrequencia.length > 0 && (
             <Alert tone="warning" className="extras-aviso">
-              Frequência alta contando esta diária: {avisoFrequencia.join(" · ")}. Diária frequente de quem é de fora pode caracterizar vínculo. Você pode salvar mesmo assim.
+              Frequência alta contando esta diária: {avisoFrequencia.join(" · ")}. Diária frequente de freelancer pode caracterizar vínculo. Você pode salvar mesmo assim.
             </Alert>
           )}
 

@@ -55,7 +55,7 @@ export function PessoaForaModal({ pessoa, podeVerDados, nomeInicial = "", onFech
   }
 
   return (
-    <Janela eyebrow="Extras · pessoa de fora" titulo={pessoa ? "Editar cadastro" : "Nova pessoa de fora"} onFechar={onFechar} ocupado={salvando}>
+    <Janela eyebrow="Extras · freelancer" titulo={pessoa ? "Editar cadastro" : "Novo freelancer"} onFechar={onFechar} ocupado={salvando}>
         <p className="extras-sub" style={{ marginTop: 0 }}>
           Só para quem não é da casa. Funcionário (CLT ou sem registro) já vem do cadastro de Funcionários.
         </p>
