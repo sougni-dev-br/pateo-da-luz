@@ -244,18 +244,19 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
       sundayAmount: l.fare.sundayAmount == null ? null : round2(Number(l.fare.sundayAmount)),
     },
   }));
-  // Bilhete mensal fica com a pessoa: a parte do mês depois da saída não se desconta (regra do Eli, 01/10/2026).
-  const bilheteMensal = emp.vtType === "BILHETE_MENSAL";
-  const vt = bilheteMensal
+  // Bilhete mensal e ajuda de custo ficam com a pessoa: a parte do mês depois da saída
+  // não se desconta (regra do Eli, 01/10/2026).
+  const ficaComAPessoa = emp.vtType === "BILHETE_MENSAL" || emp.vtType === "AUXILIO_COMBUSTIVEL";
+  const vt = ficaComAPessoa
     ? { total: 0, dias: [], semDetalhe: [] }
     : vtAposSaida(
       vtItens.map((i) => ({ periodLabel: i.periodLabel, periodStart: i.periodStart, details: i.details, pago: i.paymentDate != null })),
       saida, legs,
     );
-  const vtObservacao = bilheteMensal
-    ? "Bilhete mensal: fica com a pessoa, não se desconta na rescisão."
+  const vtObservacao = ficaComAPessoa
+    ? `${emp.vtType === "BILHETE_MENSAL" ? "Bilhete mensal" : "Ajuda de custo"}: fica com a pessoa, não se desconta na rescisão.`
     : emp.vtType !== "TRANSPORTE_PUBLICO"
-    ? "Ajuda de custo: não há dias pagos para calcular; confira à mão."
+    ? "Sem VT no cadastro."
     : vtItens.length === 0 ? "Nenhuma quinzena de VT lançada cobrindo dias depois da saída."
       : legs.length === 0 ? "Sem trajeto cadastrado: não dá para saber o custo de cada dia."
         : null;
