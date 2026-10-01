@@ -91,6 +91,11 @@ export function ApuracaoRescisaoPainel({ apuracao: a, aberto = false }: { apurac
             detalhe={`pago em ${dataBr(a.adiantamento.data)}, antes da saída: entra no desconto de vales`
               + (a.adiantamento.valor == null ? " (valor oculto: exige a permissão de ver Funcionários)" : "")} />
         )}
+        {a.semRegistro && a.primeiraQuinzena && (
+          <Linha rotulo="1ª quinzena já paga" sinal="−" valor={a.primeiraQuinzena.valor}
+            detalhe={`metade do salário base, paga em ${dataBr(a.primeiraQuinzena.data)} (recebe por quinzena): entra no desconto de vales`
+              + (a.primeiraQuinzena.valor == null ? " (valor oculto: exige a permissão de ver Funcionários)" : "")} />
+        )}
         <Linha rotulo="VT pago para depois da saída" valor={a.vt.total} sinal="−"
           detalhe={<>
             {resumoDias(a.vt)}

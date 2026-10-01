@@ -10,8 +10,9 @@ import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { NomePessoa, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
-  type LocalRow, type RowPatch, NOTA_ADIANTAMENTO_OCULTO, NOTA_HORA_EXTRA_OCULTA, REGRA_HORA_EXTRA, adiantamentoOculto, estimarAdicionais, fmtDate, fmtHoras,
-  inputStyle, money, mutedStyle, numInputStyle, ordenar, panelStyle, parseHoras, pts, valorHoraExtraTotal,
+  type LocalRow, type RowPatch, NOTA_ADIANTAMENTO_OCULTO, NOTA_HORA_EXTRA_OCULTA, NOTA_QUINZENA_OCULTA, REGRA_HORA_EXTRA, REGRA_QUINZENA,
+  adiantamentoOculto, estimarAdicionais, fmtDate, fmtHoras, inputStyle, money, mostraQuinzena, mutedStyle, numInputStyle, ordenar, panelStyle,
+  parseHoras, pts, quinzenaOculta, valorHoraExtraTotal,
 } from "./gorjetaUtils";
 
 const EXTRATORES: Extratores<TipComputedParticipant> = {
@@ -27,6 +28,7 @@ const EXTRATORES: Extratores<TipComputedParticipant> = {
   dias: (p) => p.diasSalario,
   salario: (p) => p.salarioProporcional,
   adiantamento: (p) => p.adiantamentoSalarial ?? null,
+  quinzena: (p) => p.primeiraQuinzena ?? null,
   valorHe: (p) => valorHoraExtraTotal(p),
   vales: (p) => p.creditos - p.descontos,
   aPagar: (p) => p.totalAPagar,
@@ -46,7 +48,7 @@ const COLUNAS_CONTAB: ColunaOpcional[] = [
 ];
 const COLUNAS_PAG: ColunaOpcional[] = [
   { chave: "salarioBase", rotulo: "Salário base" }, { chave: "dias", rotulo: "Dias" }, { chave: "salario", rotulo: "Salário" },
-  { chave: "adiantamento", rotulo: "Adiantamento" }, { chave: "gorjeta", rotulo: "Gorjeta" }, { chave: "vales", rotulo: "Vales" },
+  { chave: "adiantamento", rotulo: "Adiantamento" }, { chave: "quinzena", rotulo: "1ª quinzena (15)" }, { chave: "gorjeta", rotulo: "Gorjeta" }, { chave: "vales", rotulo: "Vales" },
   { chave: "horaExtra", rotulo: "Hora extra" }, { chave: "noturno", rotulo: "Ad. noturno" }, { chave: "valorHe", rotulo: "Valor HE/noturno" },
   { chave: "aPagar", rotulo: "A pagar" },
   { chave: "pix", rotulo: "PIX" },
@@ -60,13 +62,15 @@ type Props = {
   onError: (message: string) => void;
 };
 
-// Adiantamento já pago sai do total: aparece negativo pelo <Money> (respeita "ocultar valores").
-// null = sem permissão de ver Funcionários: "oculto", nunca "—" (que leria como zero).
-function CelulaAdiantamento({ valor }: { valor: number | null | undefined }) {
+// Adiantamento (ou 1ª quinzena) já pago sai do total: aparece negativo pelo <Money> (respeita
+// "ocultar valores"). null = sem permissão de ver Funcionários: "oculto", nunca "—" (que leria como zero).
+function CelulaAdiantamento({ valor, oculto = `Sem permissão de ver o adiantamento. ${NOTA_ADIANTAMENTO_OCULTO}` }: {
+  valor: number | null | undefined; oculto?: string;
+}) {
   if (valor == null) {
     return (
       <span style={{ ...mutedStyle, display: "inline-flex", alignItems: "center", gap: 4 }}
-        title={`Sem permissão de ver o adiantamento. ${NOTA_ADIANTAMENTO_OCULTO}`}>
+        title={oculto}>
         <Lock size={12} aria-hidden="true" />oculto
       </span>
     );
@@ -139,6 +143,15 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
     : comp.adiantamento
     ? `${comp.adiantamento.percent.toLocaleString("pt-BR")}% do salário base, pago no dia ${comp.adiantamento.dia}, para quem recebe adiantamento (cadastro). Já pago: sai do total.`
     : "Adiantamento salarial já pago: sai do total.";
+  // 1ª quinzena (sem registro por quinzena): coluna só quando alguém recebe, ou oculta sem permissão.
+  const comQuinzena = mostraQuinzena(semRegistro);
+  const qOculta = quinzenaOculta(semRegistro);
+  // Quem foi pago na rescisão tem a quinzena descontada lá (o total a pagar dele é zero).
+  const totalQuinzena = semRegistroFilt.filter((p) => !p.pagoNaRescisao).reduce((a, p) => a + (p.primeiraQuinzena ?? 0), 0);
+  const tituloQuinzena = qOculta ? `1ª quinzena já paga: sai do total. Sem permissão de ver o valor; ${NOTA_QUINZENA_OCULTA}` : REGRA_QUINZENA;
+  const vq = comQuinzena && vp("quinzena");
+  // O resumo do topo e o título da lista dizem o que sai do salário.
+  const formula = `salário − adiantamento${comQuinzena ? " − 1ª quinzena" : ""} + gorjeta + hora extra`;
   // Hora extra e noturno (sem registro): o total não leva quem foi pago na rescisão (recebe lá).
   const heOculta = semRegistro.some((p) => valorHoraExtraTotal(p) == null);
   const totalValorHe = semRegistroFilt.filter((p) => !p.pagoNaRescisao).reduce((a, p) => a + (valorHoraExtraTotal(p) ?? 0), 0);
@@ -164,7 +177,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
         {[
           { label: "Contabilidade (gorjeta dos registrados)", valor: registradosAPagar.reduce((a, p) => a + p.netCommission, 0), detalhe: `${registradosAPagar.length} pessoas · gorjeta líquida (− vales)`, cor: "var(--info)" },
           ...(pagasNaRescisao.length ? [{ label: "Já pago nas rescisões", valor: pagasNaRescisao.reduce((a, p) => a + p.rateioAmount, 0), detalhe: `${pagasNaRescisao.length} pessoa(s) · não pagar de novo`, cor: "var(--muted)" }] : []),
-          { label: "Lista de pagamento (salário − adiantamento + gorjeta + hora extra)", valor: semRegistro.reduce((a, p) => a + p.totalAPagar, 0), detalhe: `${semRegistro.length} sem registro`, cor: "var(--success)" },
+          { label: `Lista de pagamento (${formula})`, valor: semRegistro.reduce((a, p) => a + p.totalAPagar, 0), detalhe: `${semRegistro.length} sem registro`, cor: "var(--success)" },
           { label: "Fica na casa (reserva + saldo)", valor: comp.reservaTotal + Math.max(0, comp.saldo), detalhe: "não é pago", cor: "var(--gold)" },
         ].map((c) => (
           <div key={c.label} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", boxShadow: `inset 3px 0 0 ${c.cor}`, background: "var(--surface, #fff)" }}>
@@ -300,9 +313,9 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 
       <div style={panelStyle}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <strong>Lista de pagamento <span style={{ ...mutedStyle, fontWeight: 400 }}>— sem registro: salário − adiantamento + gorjeta + hora extra</span></strong>
+          <strong>Lista de pagamento <span style={{ ...mutedStyle, fontWeight: 400 }}>— sem registro: {formula}</span></strong>
           <div className="barra-lista">
-            <SeletorColunas colunas={COLUNAS_PAG} ocultas={colP.ocultas} alternar={colP.alternar} mostrarTodas={colP.mostrarTodas} />
+            <SeletorColunas colunas={COLUNAS_PAG.filter((c) => comQuinzena || c.chave !== "quinzena")} ocultas={colP.ocultas} alternar={colP.alternar} mostrarTodas={colP.mostrarTodas} />
             <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarListaPagamento)}>PDF pagamento</Button>
           </div>
         </div>
@@ -311,6 +324,9 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
         )}
         {adiantOculto && semRegistro.length > 0 && vp("adiantamento") && (
           <span style={mutedStyle}>Adiantamento oculto (sem permissão): {NOTA_ADIANTAMENTO_OCULTO}</span>
+        )}
+        {qOculta && semRegistro.length > 0 && vq && (
+          <span style={mutedStyle}>1ª quinzena oculta (sem permissão): {NOTA_QUINZENA_OCULTA}</span>
         )}
         {semRegistro.length > 0 && (
           <BarraFiltro filtro={filtroP} total={semRegistro.length} visiveis={semRegistroFilt.length} placeholder="Filtrar por nome, apelido, PIX…"
@@ -335,6 +351,9 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 )}
 {vp("adiantamento") && (
                   <ThOrdenavel {...thP("adiantamento")} title={tituloAdiantamento}>Adiantamento</ThOrdenavel>
+)}
+{vq && (
+                  <ThOrdenavel {...thP("quinzena")} title={tituloQuinzena}>1ª quinzena (15)</ThOrdenavel>
 )}
 {vp("gorjeta") && (
                   <ThOrdenavel {...thP("gorjeta")}>Gorjeta</ThOrdenavel>
@@ -388,6 +407,10 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 {vp("adiantamento") && (
                       <Table.Td><CelulaAdiantamento valor={p.adiantamentoSalarial} /></Table.Td>
 )}
+{vq && (
+                      <Table.Td><CelulaAdiantamento valor={p.primeiraQuinzena === undefined ? 0 : p.primeiraQuinzena}
+                        oculto={`Sem permissão de ver a 1ª quinzena. ${NOTA_QUINZENA_OCULTA}`} /></Table.Td>
+)}
 {vp("gorjeta") && (
                       <Table.Td>{p.foraDaGorjeta ? <span style={mutedStyle} title="não participa da gorjeta">—</span> : <Money value={p.rateioAmount} />}</Table.Td>
 )}
@@ -428,6 +451,11 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                   {vp("dias") && <Table.Td> </Table.Td>}
                   {vp("salario") && <Table.Td style={totalTd}><Money value={semRegistroFilt.reduce((a, p) => a + p.salarioProporcional, 0)} /></Table.Td>}
                   {vp("adiantamento") && <Table.Td style={totalTd}><CelulaAdiantamento valor={adiantOculto ? null : totalAdiantamento} /></Table.Td>}
+                  {vq && (
+                    <Table.Td style={totalTd} title="Sem quem foi pago na rescisão">
+                      <CelulaAdiantamento valor={qOculta ? null : totalQuinzena} oculto={`Sem permissão de ver a 1ª quinzena. ${NOTA_QUINZENA_OCULTA}`} />
+                    </Table.Td>
+                  )}
                   {vp("gorjeta") && <Table.Td style={totalTd}><Money value={semRegistroFilt.reduce((a, p) => a + p.rateioAmount, 0)} /></Table.Td>}
                   {vp("vales") && <Table.Td> </Table.Td>}
                   {vp("horaExtra") && <Table.Td style={totalTd}>{fmtHoras(horasDe("horaExtra") || null)}</Table.Td>}

@@ -12,6 +12,7 @@ import { ImpressaoAniversariantes } from "../components/pessoal/ImpressaoAnivers
 import { RescisaoModal } from "../components/pessoal/RescisaoModal";
 import { HistoricoCadastro } from "../components/pessoal/HistoricoCadastro";
 import { motivoObrigatorio, mudouCampoComHistorico, type CamposComHistorico } from "../components/pessoal/historicoCadastroFormato";
+import { type FormaPagamento, OPCOES_FORMA_PAGAMENTO, camposDaForma, dicaFormaPagamento, formaPagamentoDe } from "../components/pessoal/formaPagamento";
 import { useSession } from "../context/SessionContext";
 import {
   Alert, Button, EmptyState, FormField, FormGrid, FormSection,
@@ -114,7 +115,7 @@ const emptyEmployee = {
   zipCode: "", address: "", addressNumber: "", addressComplement: "", neighborhood: "", city: "", state: "",
   bankName: "", bankAgency: "", bankAccount: "", bankAccountDigit: "", bankAccountType: "CONTA_CORRENTE" as EmployeeBankAccountType,
   gender: "NAO_INFORMADO" as EmployeeGender,
-  pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", salarioCombinado: "", salarioCombinadoMotivo: "", recebeAdiantamento: false, shiftStart: "", shiftEnd: "",
+  pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", salarioCombinado: "", salarioCombinadoMotivo: "", recebeAdiantamento: false, pagamentoQuinzenal: false, shiftStart: "", shiftEnd: "",
   modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, admissionDate: "", admissaoCarteira: "",
   vtType: "TRANSPORTE_PUBLICO" as VtType, vtPeriodicity: "QUINZENAL" as VtPeriodicity,
   vtFixedAmount: "", vtMonthlyFareId: "", notes: "",
@@ -233,7 +234,7 @@ export function Funcionarios() {
       pixKeyType: e.pixKeyType ?? "", pixKey: e.pixKey ?? "",
       sector: e.sector ?? "", subgroup: e.subgroup ?? "", position: e.position ?? "", baseSalary: moneyToMasked(e.baseSalary),
       salarioCombinado: moneyToMasked(e.salarioCombinado ?? null), salarioCombinadoMotivo: e.salarioCombinadoMotivo ?? "",
-      recebeAdiantamento: e.recebeAdiantamento ?? false,
+      recebeAdiantamento: e.recebeAdiantamento ?? false, pagamentoQuinzenal: e.pagamentoQuinzenal ?? false,
       shiftStart: e.shiftStart ?? "", shiftEnd: e.shiftEnd ?? "",
       modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, admissionDate: toDateInput(e.admissionDate), admissaoCarteira: toDateInput(e.admissaoCarteira ?? null),
       vtType: e.vtType, vtPeriodicity: e.vtPeriodicity,
@@ -244,6 +245,7 @@ export function Funcionarios() {
     setOriginal({
       baseSalary: moneyToMasked(e.baseSalary), salarioCombinado: moneyToMasked(e.salarioCombinado ?? null),
       modality: e.modality, position: e.position ?? "", recebeAdiantamento: e.recebeAdiantamento ?? false,
+      pagamentoQuinzenal: e.pagamentoQuinzenal ?? false,
     });
     setShowForm(true);
     setMotivoCombinadoTocado(false);
@@ -302,6 +304,7 @@ export function Funcionarios() {
           salarioCombinadoMotivo: form.salarioCombinado ? form.salarioCombinadoMotivo.trim() : null,
         } : {}),
         recebeAdiantamento: form.recebeAdiantamento,
+        pagamentoQuinzenal: form.pagamentoQuinzenal,
         shiftStart: form.shiftStart || undefined,
         shiftEnd: form.shiftEnd || undefined,
         modality: form.modality,
@@ -653,14 +656,22 @@ export function Funcionarios() {
                     )}
                   </>
                 )}
-                <FormField label="Adiantamento salarial"
-                  hint={form.modality === "NAO_CLT"
-                    ? "a lista de pagamento da gorjeta desconta o adiantamento já pago (% e dia em Folha → Configurações)"
-                    : "só informativo: o adiantamento de quem é registrado vem do extrato da contabilidade"}>
-                  <Select value={form.recebeAdiantamento ? "S" : "N"} onChange={(e) => setForm({ ...form, recebeAdiantamento: e.target.value === "S" })}
-                    aria-label="Adiantamento salarial"
-                    options={[{ value: "S", label: "Recebe adiantamento salarial" }, { value: "N", label: "Recebe só no pagamento" }]} />
-                </FormField>
+                {form.modality === "NAO_CLT" ? (
+                  <FormField label="Forma de pagamento" hint={dicaFormaPagamento(formaPagamentoDe(form))}>
+                    <Select value={formaPagamentoDe(form)}
+                      onChange={(e) => setForm({ ...form, ...camposDaForma(e.target.value as FormaPagamento) })}
+                      aria-label="Forma de pagamento" options={OPCOES_FORMA_PAGAMENTO} />
+                  </FormField>
+                ) : (
+                  <FormField label="Adiantamento salarial"
+                    hint="só informativo: o adiantamento de quem é registrado vem do extrato da contabilidade">
+                    {/* Registrado não recebe por quinzena: escolher aqui desmarca a quinzena (o backend recusa as duas). */}
+                    <Select value={form.recebeAdiantamento ? "S" : "N"}
+                      onChange={(e) => setForm({ ...form, recebeAdiantamento: e.target.value === "S", pagamentoQuinzenal: false })}
+                      aria-label="Adiantamento salarial"
+                      options={[{ value: "S", label: "Recebe adiantamento salarial" }, { value: "N", label: "Recebe só no pagamento" }]} />
+                  </FormField>
+                )}
                 <FormField label="Regime de escala">
                   <Select value={form.scheduleRegime} onChange={(e) => setForm({ ...form, scheduleRegime: e.target.value as WorkScheduleRegime })} options={toOptions(REGIME_LABELS)} />
                 </FormField>

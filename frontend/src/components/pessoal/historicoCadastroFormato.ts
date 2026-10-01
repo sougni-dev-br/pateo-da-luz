@@ -9,6 +9,8 @@ export type CamposComHistorico = {
   modality: EmployeeModality;
   position: string;
   recebeAdiantamento: boolean;
+  /** Ausente = não recebe por quinzena. */
+  pagamentoQuinzenal?: boolean;
 };
 
 // "2.200,00" e "2200" são o mesmo salário: compara o número, não o texto da máscara.
@@ -19,7 +21,7 @@ function dinheiro(v: string): number | null {
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
 }
 
-/** Mudou salário, combinado, vínculo, cargo ou adiantamento: a ficha pede "vale a partir de". */
+/** Mudou salário, combinado, vínculo, cargo ou forma de pagamento: a ficha pede "vale a partir de". */
 export function mudouCampoComHistorico(original: CamposComHistorico | null, atual: CamposComHistorico): boolean {
   if (!original) return false;
   return dinheiro(original.baseSalary) !== dinheiro(atual.baseSalary)
@@ -27,7 +29,8 @@ export function mudouCampoComHistorico(original: CamposComHistorico | null, atua
     || (atual.modality === "CLT" && dinheiro(original.salarioCombinado) !== dinheiro(atual.salarioCombinado))
     || original.modality !== atual.modality
     || original.position.trim() !== atual.position.trim()
-    || original.recebeAdiantamento !== atual.recebeAdiantamento;
+    || original.recebeAdiantamento !== atual.recebeAdiantamento
+    || (original.pagamentoQuinzenal ?? false) !== (atual.pagamentoQuinzenal ?? false);
 }
 
 /**
@@ -60,6 +63,7 @@ export function textoDoValor(campo: EmployeeHistoricoLinha["campo"], v: string |
   if (v == null || v === "") return "vazio";
   if (campo === "modality") return v === "NAO_CLT" ? "Sem registro" : "CLT";
   if (campo === "recebeAdiantamento") return v === "true" ? "Recebe adiantamento" : "Só no pagamento";
+  if (campo === "pagamentoQuinzenal") return v === "true" ? "Recebe por quinzena" : "Não recebe por quinzena";
   return v;
 }
 

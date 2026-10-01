@@ -6,9 +6,12 @@
 // (decisão do Eli, "Opção A", 30/09/2026).
 
 export const CAMPOS_HISTORICO = [
-  "baseSalary", "salarioCombinado", "modality", "companyId", "position", "recebeAdiantamento",
+  "baseSalary", "salarioCombinado", "modality", "companyId", "position", "recebeAdiantamento", "pagamentoQuinzenal",
 ] as const;
 export type CampoHistorico = (typeof CAMPOS_HISTORICO)[number];
+
+// Sim/não do cadastro: gravados no histórico como "true"/"false".
+const CAMPOS_BOOLEANOS: ReadonlySet<CampoHistorico> = new Set(["recebeAdiantamento", "pagamentoQuinzenal"]);
 
 // Salário só aparece para quem pode ver Funcionários.
 export const CAMPOS_SALARIO: ReadonlySet<CampoHistorico> = new Set(["baseSalary", "salarioCombinado"]);
@@ -20,6 +23,7 @@ export const ROTULO_CAMPO: Record<CampoHistorico, string> = {
   companyId: "Empresa",
   position: "Cargo",
   recebeAdiantamento: "Adiantamento salarial",
+  pagamentoQuinzenal: "Pagamento por quinzena",
 };
 
 export type LinhaHistorico = {
@@ -40,7 +44,7 @@ export function serializar(campo: CampoHistorico, valor: unknown): string | null
     const n = Number(valor);
     return Number.isFinite(n) ? n.toFixed(2) : null;
   }
-  if (campo === "recebeAdiantamento") return valor === true || valor === "true" ? "true" : "false";
+  if (CAMPOS_BOOLEANOS.has(campo)) return valor === true || valor === "true" ? "true" : "false";
   const s = String(valor).trim();
   return s === "" ? null : s;
 }
@@ -52,12 +56,13 @@ export type ValorCadastro = {
   companyId: string | null;
   position: string | null;
   recebeAdiantamento: boolean;
+  pagamentoQuinzenal: boolean;
 };
 
 // Texto do histórico de volta ao tipo do cadastro.
 export function desserializar<C extends CampoHistorico>(campo: C, texto: string | null): ValorCadastro[C] {
   if (campo === "baseSalary" || campo === "salarioCombinado") return (texto == null ? null : Number(texto)) as ValorCadastro[C];
-  if (campo === "recebeAdiantamento") return (texto === "true") as ValorCadastro[C];
+  if (CAMPOS_BOOLEANOS.has(campo)) return (texto === "true") as ValorCadastro[C];
   if (campo === "modality") return (texto ?? "CLT") as ValorCadastro[C];
   return texto as ValorCadastro[C];
 }

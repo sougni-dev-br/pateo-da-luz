@@ -10,7 +10,7 @@ import { hojeLocalIso } from "../../lib/datas";
 import { maskMoney, moneyToMasked } from "../../utils/format";
 import { ApuracaoRescisaoPainel } from "./ApuracaoRescisao";
 import { ListaDivergencias, RescisaoLancadaPainel } from "./RescisaoLancada";
-import { type Campo, centavosDiferentes, dataBr, divergencias } from "./rescisaoFormato";
+import { type Campo, centavosDiferentes, dataBr, dicaValesRescisao, divergencias } from "./rescisaoFormato";
 import "./rescisao.css";
 
 const PARCELAS = Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: i === 0 ? "À vista (1×)" : `${i + 1}×` }));
@@ -284,7 +284,7 @@ export function RescisaoModal({ funcionario, onFechar, onGravou }: Props) {
                     <>
                       <div>{campoDinheiro("salario", "Salário proporcional", { obrigatorio: true })}<Apurado campo="salario" valor={sugestao?.salario} /></div>
                       <div>{campoDinheiro("gorjeta", "Gorjeta até a saída", { obrigatorio: true })}<Apurado campo="gorjeta" valor={sugestao?.gorjeta} semApurado={apuracao?.gorjetaObservacao ?? "sem valor apurado: digite a gorjeta paga"} /></div>
-                      <div>{campoDinheiro("valesDiscount", "Vales a descontar", { dica: (sugestao?.adiantamento ?? 0) > 0 ? "aba Vales da gorjeta + adiantamento salarial já pago no mês" : "lançados na aba Vales da gorjeta" })}<Apurado campo="vales" valor={sugestao?.vales} /></div>
+                      <div>{campoDinheiro("valesDiscount", "Vales a descontar", { dica: dicaValesRescisao(sugestao) })}<Apurado campo="vales" valor={sugestao?.vales} /></div>
                       <FormField label="Quais vales (códigos)">
                         <TextField value={form.valesLabel} onChange={(e) => setForm({ ...form, valesLabel: e.target.value })} placeholder="Ex.: VALE-2026-00012" />
                       </FormField>

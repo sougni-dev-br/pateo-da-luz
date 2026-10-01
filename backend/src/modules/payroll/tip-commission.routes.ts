@@ -1047,11 +1047,12 @@ tipCommissionRouter.get("/closings/:id", async (request, response) => {
   const detalhe = await detalheFechamento(request.params.id);
   if (!detalhe) return response.status(404).json({ message: "Registro de fechamento não encontrado." });
   if (await podeVerDadosPessoais(request)) return response.json(detalhe);
-  // Sem a permissão de Funcionários: some o que mistura salário (proporcional, adiantamento e total a pagar).
+  // Sem a permissão de Funcionários: some o que mistura salário (proporcional, adiantamento,
+  // 1ª quinzena e total a pagar).
   const participants = (detalhe.participants as Array<Record<string, unknown>>).map(
-    ({ salarioProporcional: _s, adiantamentoSalarial: _a, totalAPagar: _t, diasSalario: _d, ...resto }) => resto,
+    ({ salarioProporcional: _s, adiantamentoSalarial: _a, primeiraQuinzena: _q, totalAPagar: _t, diasSalario: _d, ...resto }) => resto,
   );
-  const { adiantamentos: _ad, ...totals } = (detalhe.totals ?? {}) as Record<string, unknown>;
+  const { adiantamentos: _ad, primeirasQuinzenas: _pq, ...totals } = (detalhe.totals ?? {}) as Record<string, unknown>;
   response.json({ ...detalhe, participants, totals, salariosOcultos: true });
 });
 

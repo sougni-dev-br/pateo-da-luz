@@ -2471,6 +2471,10 @@ model Employee {
   // Recebe adiantamento salarial no dia do adiantamento (PayrollSettings). Sem
   // registro: a lista de pagamento desconta o que já foi pago. CLT: só informativo.
   recebeAdiantamento     Boolean         @default(false)
+  // Sem registro que recebe por quinzena: metade do salário base no dia 15 (1ª quinzena)
+  // e o acerto no dia 30 pela lista de pagamento, que desconta a 1ª quinzena. O cadastro
+  // recusa as duas formas juntas (quinzena e adiantamento).
+  pagamentoQuinzenal     Boolean         @default(false)
   tipFunctionId     String?
   tipFunction       TipFunction?       @relation(fields: [tipFunctionId], references: [id])
   tipParticipations TipParticipant[]
@@ -2815,7 +2819,7 @@ model EmployeeHistorico {
   id            String   @id
   employeeId    String
   employee      Employee @relation(fields: [employeeId], references: [id])
-  campo         String   // baseSalary | salarioCombinado | modality | companyId | position | recebeAdiantamento
+  campo         String   // baseSalary | salarioCombinado | modality | companyId | position | recebeAdiantamento | pagamentoQuinzenal
   valorAnterior String?
   valorNovo     String?
   vigenteDesde  DateTime @db.Date
