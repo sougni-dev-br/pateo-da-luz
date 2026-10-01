@@ -110,6 +110,15 @@ export function adiantamentoOculto(lista: Pick<TipComputedParticipant, "adiantam
 }
 export const NOTA_ADIANTAMENTO_OCULTO = "A pagar já considera o adiantamento.";
 
+// Hora extra + adicional noturno de quem não tem registro (vem do backend, já no A pagar).
+// null = sem permissão de ver Funcionários (deriva do salário): "oculto", nunca zero.
+export function valorHoraExtraTotal(p: Pick<TipComputedParticipant, "valorHoraExtra" | "valorAdicionalNoturno">): number | null {
+  if (p.valorHoraExtra == null) return null;
+  return Math.round((p.valorHoraExtra + (p.valorAdicionalNoturno ?? 0)) * 100) / 100;
+}
+export const REGRA_HORA_EXTRA = "Hora extra = salário ÷ 220 × 1,5; adicional noturno = 20% sobre a hora noturna de 52,5 min.";
+export const NOTA_HORA_EXTRA_OCULTA = "A pagar já considera a hora extra.";
+
 // Ordem da planilha: quem está no mês primeiro, por nome; desligados no fim.
 export function ordenar(list: TipComputedParticipant[]): TipComputedParticipant[] {
   const peso = (p: TipComputedParticipant) => (p.tipoCalculo === "MES" ? 0 : p.tipoCalculo === "FORA_DO_PERIODO" ? 2 : 1);

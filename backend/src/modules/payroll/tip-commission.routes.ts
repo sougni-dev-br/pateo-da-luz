@@ -27,6 +27,7 @@ import { lerPdfRescisao } from "./tip-trct.service.js";
 import { tipConferenciaRouter } from "./tip-conferencia.routes.js";
 import { tipValesRouter } from "./tip-vales.routes.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
+import { normalizarHorasDigitadas } from "./hora-extra.js";
 
 // Formata dd/mm a partir de uma data UTC.
 function fmtDay(d: Date): string {
@@ -385,6 +386,12 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
     const ajuste = numOrNull(raw.pointsAdjustment);
     if (ajuste != null && Math.abs(ajuste) > 100) {
       return response.status(422).json({ message: `Ajuste de pontos ${ajuste} fora do razoável (máximo ±100).` });
+    }
+    // Hora extra paga na lista de quem não tem registro: grava em h:mm e barra o absurdo.
+    for (const [campo, rotulo] of [["horaExtra", "Hora extra"], ["adicionalNoturno", "Adicional noturno"]] as const) {
+      const horas = normalizarHorasDigitadas(raw[campo], rotulo);
+      if ("erro" in horas) return response.status(422).json({ message: horas.erro });
+      raw[campo] = horas.texto;
     }
   }
 
