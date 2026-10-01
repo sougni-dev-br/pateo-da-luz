@@ -135,7 +135,7 @@ export function ExtrasPagamentos({ year, month, mesRotulo, podeAprovar, podeCanc
   return (
     <div className="stack">
       {avisoErro}
-      <section className="panel">
+      <section className="panel extras-painel-pagar">
         <div className="section-heading">
           <div>
             <PanelEyebrow>Diárias realizadas sem pagamento</PanelEyebrow>
@@ -173,7 +173,7 @@ export function ExtrasPagamentos({ year, month, mesRotulo, podeAprovar, podeCanc
                         disabled={!podeAprovar}
                       />
                       <strong>{g.nome}</strong>
-                      <span className={`extras-origem${g.origem === "FORA" ? " fora" : ""}`}>{g.origem === "CASA" ? "Casa" : "De fora"}</span>
+                      <span className={`extras-origem${g.origem === "FORA" ? " fora" : ""}`}>{g.origem === "CASA" ? "Equipe" : "Freelancer"}</span>
                       <span className="extras-sub">{diariasTexto(g.diarias.reduce((s, d) => s + (d.duration === "MEIA" ? 0.5 : 1), 0))}</span>
                       <span className="extras-num" style={{ marginLeft: "auto", fontWeight: 700 }}><Money value={g.total} /></span>
                     </label>

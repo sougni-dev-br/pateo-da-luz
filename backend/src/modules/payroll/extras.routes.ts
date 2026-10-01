@@ -407,14 +407,14 @@ async function lerDiaria(b: Record<string, unknown>, existente?: DiariaGravada):
 
   const employeeId = str(b.employeeId);
   const extraWorkerId = str(b.extraWorkerId);
-  if (Boolean(employeeId) === Boolean(extraWorkerId)) return { ok: false, status: 400, erro: "Escolha uma pessoa: da equipe da casa ou de fora." };
+  if (Boolean(employeeId) === Boolean(extraWorkerId)) return { ok: false, status: 400, erro: "Escolha uma pessoa: da equipe da casa ou freelancer." };
 
   if (employeeId) {
     const e = await prisma.employee.findFirst({ where: { id: employeeId, deletedAt: null }, select: { id: true } });
     if (!e) return { ok: false, status: 400, erro: "Funcionário não encontrado." };
   } else {
     const w = await prisma.extraWorker.findFirst({ where: { id: extraWorkerId!, deletedAt: null }, select: { id: true } });
-    if (!w) return { ok: false, status: 400, erro: "Pessoa de fora não encontrada." };
+    if (!w) return { ok: false, status: 400, erro: "Freelancer não encontrado." };
   }
 
   const sector = str(b.sector);
