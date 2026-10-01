@@ -14,9 +14,20 @@ const textos: string[] = [];
 vi.mock("jspdf", () => ({
   jsPDF: class {
     lastAutoTable = { finalY: 50 };
+    internal = { pageSize: { getWidth: () => 210, getHeight: () => 297 } };
+    setFont() {}
     setFontSize() {}
     setTextColor() {}
-    text(t: string) { textos.push(t); }
+    setDrawColor() {}
+    setFillColor() {}
+    setLineWidth() {}
+    line() {}
+    rect() {}
+    roundedRect() {}
+    addPage() {}
+    setPage() {}
+    getNumberOfPages() { return 1; }
+    text(t: string | string[]) { textos.push(Array.isArray(t) ? t.join(" ") : t); }
     save() {}
   },
 }));
@@ -82,9 +93,11 @@ describe("PDF do envio à contabilidade", () => {
   test("leva a gorjeta informada e o total por ela, sem nada do teto", async () => {
     await exportarContabilidade(comp([eli(), ana]));
     const t = tabelas[0] as { body: string[][]; foot: string[][] };
-    const linhaEli = t.body.find((l) => l[0].startsWith("Elioenai"))!;
-    expect(linhaEli[2]).toMatch(/1\.328,00/);
-    expect(t.foot[0][2]).toMatch(/1\.828,00/);
+    const linhaEli = t.body.find((l) => l[0].startsWith("ELIOENAI"))!;
+    expect(linhaEli[1]).toMatch(/1\.328,00/);
+    expect(t.foot[0][1]).toMatch(/1\.828,00/);
+    expect(textos.join(" ")).toMatch(/Total geral de gorjetas/);
+    expect(textos.join(" ")).toMatch(/1\.828,00/);
     const tudo = JSON.stringify(t) + textos.join(" ");
     expect(tudo).not.toMatch(/teto|2\.223,54|5\.000/i);
   });
