@@ -12,6 +12,10 @@ import { maskMoney, moneyToMasked } from "../../utils/format";
 import { ApuracaoRescisaoPainel } from "./ApuracaoRescisao";
 import { ListaDivergencias, RescisaoLancadaPainel } from "./RescisaoLancada";
 import { type Campo, centavosDiferentes, dataBr, dicaValesRescisao, divergencias, quitacaoDoLiquido } from "./rescisaoFormato";
+import { VerbasOpcionaisRescisao } from "./VerbasOpcionaisRescisao";
+import {
+  ESTADO_VERBAS_VAZIO, type EstadoVerbas, erroValorLivre, escolhaParaEnviar, estadoDasLancadas, mesmaEscolha, totalVerbasEscolhidas,
+} from "./verbasOpcionais";
 import "./rescisao.css";
 
 const PARCELAS = Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: i === 0 ? "À vista (1×)" : `${i + 1}×` }));
@@ -50,6 +54,9 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
   const [just, setJust] = useState("");
   const [justErro, setJustErro] = useState<string | null>(null);
   const [msg, setMsg] = useState<Mensagem>(null);
+  // Verbas opcionais (sem registro): sempre desmarcadas ao abrir — decisão da empresa.
+  const [verbas, setVerbas] = useState<EstadoVerbas>(ESTADO_VERBAS_VAZIO);
+  const [livreErro, setLivreErro] = useState<string | null>(null);
   const justRef = useRef<HTMLDivElement>(null);
   const topoRef = useRef<HTMLDivElement>(null);
 
@@ -76,6 +83,7 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
       setInfo(i);
       // Já abre preenchido com o que o sistema apurou; quem lança confere e ajusta.
       if (i.apuracao && !i.alreadyReleased) aplicarApuracao(i.apuracao);
+      if (!i.alreadyReleased) setVerbas(ESTADO_VERBAS_VAZIO);
     } catch (err) {
       setErroCarga(err instanceof Error ? err.message : "Não consegui carregar a apuração da rescisão.");
     } finally {
@@ -91,7 +99,9 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
   }
 
   const creditos = semRegistro ? (sugestao?.creditos ?? 0) : 0;
-  const bruto = semRegistro ? Math.round((numero(form.salario) + numero(form.gorjeta) + creditos) * 100) / 100 : numero(form.grossAmount);
+  // Verbas marcadas somam no bruto mostrado; ao lançar, o servidor recalcula.
+  const extras = semRegistro ? totalVerbasEscolhidas(apuracao?.verbasOpcionais?.calculo, verbas, numero) : { total: 0, oculto: false };
+  const bruto = semRegistro ? Math.round((numero(form.salario) + numero(form.gorjeta) + creditos + extras.total) * 100) / 100 : numero(form.grossAmount);
   const valores: Record<Campo, number | null> = {
     salario: semRegistro ? numero(form.salario) : null,
     gorjeta: semRegistro ? numero(form.gorjeta) : null,
@@ -115,7 +125,8 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
       && !centavosDiferentes(lancada.gorjeta, valores.gorjeta) && !centavosDiferentes(lancada.vales, valores.vales)
       && !centavosDiferentes(lancada.vtDesconto, valores.vtDesconto) && !centavosDiferentes(lancada.outroDesconto, outro)
       && txt(lancada.outroDescontoRotulo) === txt(form.otherDiscountLabel) && txt(lancada.valesRotulo) === txt(form.valesLabel)
-      && txt(lancada.notes) === txt(form.notes);
+      && txt(lancada.notes) === txt(form.notes)
+      && mesmaEscolha(verbas, estadoDasLancadas(lancada.verbasOpcionais), numero);
   })();
 
   // Prévia do parcelamento — mesma conta de centavos do backend (a 1ª absorve o resto).
@@ -132,6 +143,13 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
     });
   })();
 
+  // Valor livre marcado sem valor ou sem descrição: mostra o erro no campo e não envia.
+  function verbasValidas(): boolean {
+    const erro = semRegistro ? erroValorLivre(verbas, numero) : null;
+    setLivreErro(erro);
+    return erro == null;
+  }
+
   // Justificativa curta: em vez de botão cinza sem explicação, mostra o que falta no campo.
   function justificativaValida(): boolean {
     if (!precisaJustificar) return true;
@@ -145,7 +163,10 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
 
   const partes = () => ({
     grossAmount: bruto,
-    ...(semRegistro ? { salario: valores.salario ?? 0, gorjeta: valores.gorjeta ?? 0, valesDiscount: valores.vales ?? 0, valesLabel: form.valesLabel } : {}),
+    ...(semRegistro ? {
+      salario: valores.salario ?? 0, gorjeta: valores.gorjeta ?? 0, valesDiscount: valores.vales ?? 0, valesLabel: form.valesLabel,
+      verbasOpcionais: escolhaParaEnviar(verbas, numero),
+    } : {}),
     vtDiscount: valores.vtDesconto ?? 0,
     otherDiscount: outro,
     otherDiscountLabel: form.otherDiscountLabel,
@@ -157,6 +178,7 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
     if (bruto <= 0 && descontos <= 0) {
       return avisar({ tom: "error", texto: semRegistro ? "Informe o salário e a gorjeta da rescisão." : "Informe o valor bruto que a contabilidade enviou." });
     }
+    if (!verbasValidas()) return;
     if (!justificativaValida()) return;
     setBusy(true);
     try {
@@ -193,6 +215,8 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
       otherDiscount: lancada.outroDesconto > 0 ? mascarar(lancada.outroDesconto) : "", otherDiscountLabel: lancada.outroDescontoRotulo ?? "",
       notes: lancada.notes ?? "",
     }));
+    setVerbas(estadoDasLancadas(lancada.verbasOpcionais));
+    setLivreErro(null);
     setJust("");
     setJustErro(null);
     setMsg(null);
@@ -201,6 +225,7 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
 
   async function salvarAjuste() {
     setMsg(null);
+    if (!verbasValidas()) return;
     if (!justificativaValida()) return;
     const antes = lancada?.liquido ?? 0;
     setBusy(true);
@@ -320,6 +345,11 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
                   </div>
                 </FormGrid>
 
+                {semRegistro && (
+                  <VerbasOpcionaisRescisao verbas={apuracao?.verbasOpcionais} estado={verbas} erroLivre={livreErro}
+                    onChange={(e) => { setVerbas(e); setLivreErro(null); }} />
+                )}
+
                 {quitacao && (
                   <div style={{ marginTop: 12 }}>
                     <Alert tone="info">{quitacao.mensagem}</Alert>
@@ -364,6 +394,8 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
               <strong><Money value={quitacao ? 0 : liquido} /></strong>
               <span className="resc-detalhe">
                 bruto <Money value={bruto} />{creditos > 0 && <> (com <Money value={creditos} /> de créditos{(sugestao?.horaExtra ?? 0) > 0 && " e hora extra"})</>}
+                {extras.total > 0 && <> (com <Money value={extras.total} /> de verbas opcionais)</>}
+                {extras.oculto && <> (+ verbas com valor oculto, calculadas ao lançar)</>}
                 {(valores.vales ?? 0) > 0 && <> − vales <Money value={valores.vales} /></>}
                 {(valores.vtDesconto ?? 0) > 0 && <> − VT <Money value={valores.vtDesconto} /></>}
                 {outro > 0 && <> − outro <Money value={outro} /></>}

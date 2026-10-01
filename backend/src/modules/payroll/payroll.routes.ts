@@ -15,6 +15,9 @@ import { round2 } from "./vt-calc.js";
 import { duplicadosDe, pagamentosEmDuplicidade, resumoItem, rotuloLivre, rotuloTipo, competenciaDe } from "./folha-duplicidade.js";
 import { CAMPOS_TRAVA, dataBr, folhaLancamentoRouter, nomeDe } from "./folha-lancamento.routes.js";
 import { RecusaRescisao, travarRescisao } from "./rescisao-trava.js";
+import {
+  type VerbaMarcada, algumaMarcada, aplicarVerbasOpcionais, calculoCompleto, lerEscolhaVerbas,
+} from "./rescisao-verbas-opcionais.js";
 import { ehQuitadaNoTermo, ehQuitadaSemValor, ehRescisaoQuitada } from "./rescisao-quitada.js";
 
 export const payrollRouter = Router();
@@ -270,7 +273,12 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   if (!apurado) return;
   const { apuracao } = apurado;
   // Vínculo vigente na saída (a apuração já leu o histórico do cadastro).
-  const lido = lerValoresRescisao(b, apuracao?.semRegistro ?? emp.modality === "NAO_CLT", apuracao?.sugestao.creditos ?? 0);
+  const semRegistroNaSaida = apuracao?.semRegistro ?? emp.modality === "NAO_CLT";
+  // Férias, 13º, aviso e valor livre: só o que foi marcado, recalculado aqui.
+  const vo = verbasDoCorpo(b, semRegistroNaSaida, apuracao);
+  if ("erro" in vo) return response.status(400).json({ message: vo.erro });
+  const verbas = vo.verbas ?? null;
+  const lido = lerValoresRescisao(b, semRegistroNaSaida, apuracao?.sugestao.creditos ?? 0, verbas?.total ?? 0);
   if ("erro" in lido) return response.status(400).json({ message: lido.erro });
   const { gross, vtDiscount, otherDiscount, net, saldoDevedorPerdoado } = lido;
 
@@ -321,6 +329,8 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
       ? { divergencias, justificativa, porUserId: user.id, porNome: user.name ?? null, em: new Date().toISOString() }
       : null,
     ...(quitadaSemValor ? { quitadaSemValor: true, saldoDevedorPerdoado } : {}),
+    // Verbas opcionais marcadas (decisão da empresa) e quem marcou.
+    ...(verbas ? { verbasOpcionais: verbas, verbasOpcionaisPor: { userId: user.id, nome: user.name ?? null, em: new Date().toISOString() } } : {}),
   };
   const parcelas = splitCents(Math.round(net * 100), n).map((cents, i) => ({
     id: crypto.randomUUID(),
@@ -377,6 +387,7 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
       employeeId: emp.id, gross, vtDiscount, otherDiscount, net, installments: n, dueDates: parcelas.map((p) => p.due.toISOString().slice(0, 10)),
       ...(divergencias.length > 0 ? { ajusteManual: { divergencias, justificativa } } : {}),
       ...(quitadaSemValor ? { quitadaSemValor: true, saldoDevedorPerdoado } : {}),
+      ...(verbas ? { verbasOpcionais: verbas } : {}),
     },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
@@ -401,7 +412,9 @@ export function textoLimitado(v: unknown, max: number): string | null {
   return typeof v === "string" && v.trim() !== "" ? v.trim().slice(0, max) : null;
 }
 
-export function lerValoresRescisao(b: Record<string, unknown>, semRegistro: boolean, creditosApurados: number):
+// verbasOpcionais: o total das verbas opcionais marcadas (já recalculado no servidor), só
+// para sem registro — soma no bruto antes de comparar com os descontos.
+export function lerValoresRescisao(b: Record<string, unknown>, semRegistro: boolean, creditosApurados: number, verbasOpcionais = 0):
   | { erro: string }
   | { gross: number; vtDiscount: number; otherDiscount: number; net: number; saldoDevedorPerdoado: number; creditos: number; componentes: ValoresRescisao } {
   // Número de verdade, finito e dentro do razoável; ausente = null.
@@ -423,7 +436,7 @@ export function lerValoresRescisao(b: Record<string, unknown>, semRegistro: bool
   // lançar sem passar pela comparação com o apurado (e sem justificativa).
   if (semRegistro && (salario == null || gorjeta == null)) return { erro: "Informe o salário proporcional e a gorjeta da rescisão." };
   const creditos = semRegistro ? round2(creditosApurados) : 0;
-  const gross = semRegistro ? round2((salario ?? 0) + (gorjeta ?? 0) + creditos) : brutoInformado ?? 0;
+  const gross = semRegistro ? round2((salario ?? 0) + (gorjeta ?? 0) + creditos + round2(verbasOpcionais)) : brutoInformado ?? 0;
   if (gross <= 0 && vtDiscount + vales + otherDiscount <= 0) {
     return { erro: "Bruto e descontos estão zerados: não há rescisão a lançar." };
   }
@@ -437,6 +450,30 @@ export function lerValoresRescisao(b: Record<string, unknown>, semRegistro: bool
     componentes: { salario, gorjeta, vales, vtDesconto: vtDiscount },
   };
 }
+
+export type VerbasGravadas = { itens: VerbaMarcada[]; total: number };
+
+// O que o corpo marcou nas verbas opcionais, recalculado com a apuração do servidor (o
+// valor vindo da tela não vale para férias, 13º e aviso). verbas: undefined = o corpo não
+// mandou (o ajuste mantém as gravadas); null = nada marcado. CLT: recusa o que vier marcado.
+export function verbasDoCorpo(
+  b: Record<string, unknown>, semRegistro: boolean,
+  apuracao: { verbasOpcionais?: { calculo: Parameters<typeof calculoCompleto>[0] } | null } | null,
+): { erro: string } | { verbas: VerbasGravadas | null | undefined } {
+  if (b.verbasOpcionais === undefined) return { verbas: undefined };
+  const lida = lerEscolhaVerbas(b.verbasOpcionais);
+  if ("erro" in lida) return lida;
+  if (!algumaMarcada(lida.escolha)) return { verbas: null };
+  if (!semRegistro) {
+    return { erro: "Férias, 13º, aviso prévio e valor livre são verbas opcionais só para quem não tem registro: na CLT elas vêm no termo da contabilidade." };
+  }
+  const r = aplicarVerbasOpcionais(calculoCompleto(apuracao?.verbasOpcionais?.calculo), lida.escolha);
+  return "erro" in r ? r : { verbas: r };
+}
+
+// "AVISO:2200:|LIVRE:100:Acordo": para saber se a escolha mudou no ajuste.
+const assinaturaVerbas = (v: VerbasGravadas | null | undefined) =>
+  (v?.itens ?? []).map((i) => `${i.tipo}:${round2(i.valor)}:${i.descricao ?? ""}`).join("|");
 
 type Tx = Prisma.TransactionClient;
 const gorjetaDe = (details: unknown) =>
@@ -525,11 +562,16 @@ async function apurarOuResponder(employeeId: string, response: { status: (c: num
 type Lancada = NonNullable<Awaited<ReturnType<typeof rescisaoLancada>>>;
 export function lancadaVisivel(l: Lancada | null, podeVer: boolean): Lancada | null {
   if (!l || podeVer) return l;
-  const semSalario = <T extends { salario?: number | null }>(v: T) => ({ ...v, salario: null });
+  const semSalario = <T extends { salario?: number | null }>(v: T) => ({ ...v, salario: null, verbasOpcionaisTotal: null });
   const ajuste = l.ajusteManual as { divergencias?: Array<{ campo?: string }> } | null;
   return {
     ...l,
     salario: null,
+    // Férias, 13º e aviso revelam o salário: valor, memória e total saem; o valor livre fica.
+    verbasOpcionais: l.verbasOpcionais ? {
+      ...l.verbasOpcionais, total: null,
+      itens: l.verbasOpcionais.itens.map((i) => (i.tipo === "LIVRE" ? i : { ...i, valor: null, memoria: "valor oculto: exige a permissão de ver Funcionários" })),
+    } : null,
     ajusteManual: ajuste ? { ...ajuste, divergencias: (ajuste.divergencias ?? []).filter((d) => d.campo !== "salario") } : null,
     // divergenciasDoApurado traz o salário apurado e o lançado: sai inteiro (a tela não o usa).
     historicoAjustes: l.historicoAjustes.map((h) => {
@@ -548,13 +590,27 @@ type AjusteRescisao = {
 type ValoresLancados = {
   bruto: number; salario: number | null; gorjeta: number | null; vales: number;
   vtDesconto: number; outroDesconto: number; liquido: number;
+  // Total das verbas opcionais (ausente nos ajustes gravados antes delas).
+  verbasOpcionaisTotal?: number | null;
 };
 
 // Algum valor da rescisão mudou (centavo a centavo)?
 export function valoresMudaram(antes: ValoresLancados, depois: ValoresLancados): boolean {
-  const campos: Array<keyof ValoresLancados> = ["bruto", "salario", "gorjeta", "vales", "vtDesconto", "outroDesconto", "liquido"];
+  const campos: Array<keyof ValoresLancados> = ["bruto", "salario", "gorjeta", "vales", "vtDesconto", "outroDesconto", "liquido", "verbasOpcionaisTotal"];
   return campos.some((c) => Math.round(Math.abs((antes[c] ?? 0) - (depois[c] ?? 0)) * 100) >= 1);
 }
+// As verbas opcionais gravadas na rescisão e quem marcou. valor/total null = oculto.
+type VerbasLancadas = {
+  itens: Array<Omit<VerbaMarcada, "valor" | "memoria"> & { valor: number | null; memoria: string | null }>;
+  total: number | null;
+  por: { userId: string; nome: string | null; em: string } | null;
+};
+function verbasLancadas(d: Record<string, unknown>): VerbasLancadas | null {
+  const v = d.verbasOpcionais as VerbasGravadas | null | undefined;
+  if (!v || !Array.isArray(v.itens) || v.itens.length === 0) return null;
+  return { itens: v.itens, total: v.total, por: (d.verbasOpcionaisPor as VerbasLancadas["por"]) ?? null };
+}
+
 async function rescisaoLancada(employeeId: string) {
   const itens = await prisma.payrollItem.findMany({
     where: { employeeId, type: "RESCISAO", deletedAt: null, status: { not: "CANCELED" } },
@@ -577,6 +633,7 @@ async function rescisaoLancada(employeeId: string) {
     quitadaSemValor: ehQuitadaSemValor(d) ? { saldoDevedorPerdoado: n(d.saldoDevedorPerdoado) } : null,
     notes: itens[0].notes,
     ajusteManual: (d.ajusteManual as unknown) ?? null,
+    verbasOpcionais: verbasLancadas(d),
     historicoAjustes: (Array.isArray(d.historicoAjustes) ? d.historicoAjustes : []) as AjusteRescisao[],
   };
 }
@@ -609,7 +666,15 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
   const { apuracao } = apurado;
   // Créditos: os que entraram no lançamento; recalcular mudaria o bruto sem ninguém ver.
   const creditosLancados = (primeira.details as { creditos?: unknown } | null)?.creditos;
-  const lido = lerValoresRescisao(b, apuracao?.semRegistro ?? emp.modality === "NAO_CLT", typeof creditosLancados === "number" ? creditosLancados : apuracao?.sugestao.creditos ?? 0);
+  const semRegistroNaSaida = apuracao?.semRegistro ?? emp.modality === "NAO_CLT";
+  // Verbas opcionais: as marcadas no ajuste (recalculadas aqui) ou, se o corpo não mandou,
+  // as já gravadas, como estão.
+  const vo = verbasDoCorpo(b, semRegistroNaSaida, apuracao);
+  if ("erro" in vo) return response.status(400).json({ message: vo.erro });
+  const verbasGravadas = ((primeira.details as { verbasOpcionais?: VerbasGravadas | null } | null)?.verbasOpcionais) ?? null;
+  const verbas = vo.verbas === undefined ? verbasGravadas : vo.verbas;
+  const mudouVerbas = assinaturaVerbas(verbas) !== assinaturaVerbas(verbasGravadas);
+  const lido = lerValoresRescisao(b, semRegistroNaSaida, typeof creditosLancados === "number" ? creditosLancados : apuracao?.sugestao.creditos ?? 0, verbas?.total ?? 0);
   if ("erro" in lido) return response.status(400).json({ message: lido.erro });
   const { gross, vtDiscount, otherDiscount, net } = lido;
   // Ajustar não vira quitação: um título em aberto de R$ 0,00 nunca baixaria.
@@ -625,16 +690,18 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
   const antes: ValoresLancados = {
     bruto: atual.bruto, salario: atual.salario, gorjeta: atual.gorjeta, vales: atual.vales,
     vtDesconto: atual.vtDesconto, outroDesconto: atual.outroDesconto, liquido: atual.liquido,
+    verbasOpcionaisTotal: verbasGravadas?.total ?? 0,
   };
   const depois: ValoresLancados = {
     bruto: round2(gross), salario: lido.componentes.salario, gorjeta: lido.componentes.gorjeta, vales: lido.componentes.vales,
     vtDesconto: round2(vtDiscount), outroDesconto: round2(otherDiscount), liquido: net,
+    verbasOpcionaisTotal: verbas?.total ?? 0,
   };
   // Ajuste sem nada mudado só enche o histórico: recusa.
   const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const mudouTexto = (campo: string, atualValor: string | null) =>
     b[campo] !== undefined && texto(b[campo]) !== (atualValor ?? "").trim();
-  if (!valoresMudaram(antes, depois) && !mudouTexto("otherDiscountLabel", atual.outroDescontoRotulo)
+  if (!valoresMudaram(antes, depois) && !mudouVerbas && !mudouTexto("otherDiscountLabel", atual.outroDescontoRotulo)
     && !mudouTexto("valesLabel", atual.valesRotulo) && !mudouTexto("notes", atual.notes)) {
     return response.status(400).json({ message: "Nada mudou em relação à rescisão lançada: não há o que ajustar." });
   }
@@ -670,6 +737,10 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
       // A auditoria guarda todos; aqui ficam os últimos, para a rescisão não crescer sem fim.
       historicoAjustes: [...atual.historicoAjustes, ajuste].slice(-MAX_HISTORICO),
       gorjetaNaApuracao,
+      verbasOpcionais: verbas,
+      verbasOpcionaisPor: mudouVerbas
+        ? { userId: user.id, nome: user.name ?? null, em: new Date().toISOString() }
+        : (detalhes.verbasOpcionaisPor ?? null),
     }
     : { ...((it.details ?? {}) as Record<string, unknown>), netTotal: net, gorjetaNaApuracao }) as Prisma.InputJsonValue;
   // Dois ajustes ao mesmo tempo: o segundo leria o histórico velho e apagaria o do
@@ -714,7 +785,7 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
 
   await auditLog({
     userId: user.id, action: "ADJUST_TERMINATION", entity: "PayrollItem", entityId: primeira.id,
-    previousValue: antes, newValue: { ...depois, justificativa },
+    previousValue: antes, newValue: { ...depois, justificativa, ...(mudouVerbas ? { verbasOpcionais: verbas } : {}) },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
   response.json({ ok: true, lancada: lancadaVisivel(await rescisaoLancada(emp.id), await podeVerDadosPessoais(request)) });

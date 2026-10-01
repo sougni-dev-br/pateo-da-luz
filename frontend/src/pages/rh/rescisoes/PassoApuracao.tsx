@@ -4,6 +4,8 @@
 import { useState } from "react";
 import { type ApuracaoRescisao, type DetalheRescisao, type TerminationInfo, deletePayrollItem } from "../../../api/client";
 import { ApuracaoRescisaoPainel } from "../../../components/pessoal/ApuracaoRescisao";
+import { VerbasOpcionaisRescisao } from "../../../components/pessoal/VerbasOpcionaisRescisao";
+import { ESTADO_VERBAS_VAZIO } from "../../../components/pessoal/verbasOpcionais";
 import { useSession } from "../../../context/SessionContext";
 import { Alert, Button, FormField, Money, Textarea } from "../../../design-system";
 import { hasPermission } from "../../../lib/permissions";
@@ -188,6 +190,8 @@ export function PassoApuracao({ detalhe, info, carregando, onMudou, onLancarNorm
         <>
           <p className="rr-ajuda">Sem registro não passa pela contabilidade: tudo é pago na rescisão, com os descontos do mês. Os valores preenchem o passo 4.</p>
           <DestaqueSemRegistro a={a} />
+          {/* Só leitura: a escolha (desmarcada por padrão) é feita no passo 4. */}
+          <VerbasOpcionaisRescisao verbas={a.verbasOpcionais} estado={ESTADO_VERBAS_VAZIO} />
           <ApuracaoRescisaoPainel apuracao={a} aberto />
         </>
       )}

@@ -95,3 +95,36 @@
 
 /* Acima do cabeçalho de celular (z 70), abaixo da gaveta do menu (80+). */
 .modal-backdrop.sobre-topo { z-index: 75; }
+
+/* Verbas opcionais (decisão da empresa): férias, 13º, aviso e valor livre de sem registro. */
+.resc-verbas {
+  border: 1px dashed var(--border-strong, var(--border));
+  border-radius: 10px;
+  padding: 10px 14px 12px;
+  margin: 12px 0;
+  min-width: 0;
+}
+.resc-verbas > legend { font-weight: 600; font-size: 14px; padding: 0 6px; }
+.resc-verba {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  align-items: baseline;
+  padding: 7px 8px;
+  border-radius: 8px;
+  transition: background-color var(--duration-fast, 150ms) ease;
+}
+.resc-verba + .resc-verba { border-top: 1px solid var(--border); border-top-left-radius: 0; border-top-right-radius: 0; }
+.resc-verba--marcada { background: color-mix(in srgb, var(--success, #15803d) 9%, transparent); }
+.resc-verba-rotulo { display: flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer; }
+.resc-verba-rotulo input { width: 16px; height: 16px; accent-color: var(--brand, #6b4f2a); flex: none; }
+.resc-verba-rotulo input:disabled + span { color: var(--muted); }
+.resc-verba-rotulo:has(input:disabled) { cursor: default; }
+.resc-verba-valor { white-space: nowrap; font-size: 14px; }
+.resc-verba-detalhe { grid-column: 1 / -1; padding-left: 24px; }
+.resc-verba-livre { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 8px 12px; padding: 4px 8px 0 32px; }
+@media (max-width: 560px) {
+  .resc-verba-rotulo input { width: 22px; height: 22px; }
+  .resc-verba-livre { grid-template-columns: 1fr; padding-left: 8px; }
+  .resc-verba-detalhe { padding-left: 0; }
+}
