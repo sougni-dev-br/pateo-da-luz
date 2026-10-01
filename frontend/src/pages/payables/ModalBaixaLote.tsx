@@ -1,5 +1,7 @@
-import { CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { useEffect, useRef } from "react";
 import type { Company, Payable } from "../../api/client";
+import { descreverSuspeito, type SuspeitoLote } from "../../lib/folha-duplicidade";
 import { Notice, type NoticeState } from "../../components/Notice";
 import { Alert, Button, Money } from "../../design-system";
 import { formatDate } from "../../utils/format";
@@ -20,13 +22,23 @@ type Props = {
   notice: NoticeState | null;
   ocupado: boolean;
   resultado: ResultadoLote | null;
+  /** Títulos da folha que parecem pagamento em duplicidade (conferidos antes de baixar). */
+  suspeitos?: SuspeitoLote[] | null;
+  onTirarSuspeitos?: () => void;
+  onBaixarMesmoAssim?: () => void;
   onFechar: () => void;
   onFecharResultado: () => void;
   onConfirmar: () => void;
 };
 
-export function ModalBaixaLote({ selecionados, total, form, onCampo, onEmpresa, formas, companies, notice, ocupado, resultado, onFechar, onFecharResultado, onConfirmar }: Props) {
+export function ModalBaixaLote({ selecionados, total, form, onCampo, onEmpresa, formas, companies, notice, ocupado, resultado, suspeitos, onTirarSuspeitos, onBaixarMesmoAssim, onFechar, onFecharResultado, onConfirmar }: Props) {
   const temNaoImposto = selecionados.some((p) => !isTaxPayment(p));
+  // Os suspeitos aparecem no pé da janela, fora da vista: rola até eles.
+  const blocoSuspeitos = useRef<HTMLDivElement>(null);
+  const haSuspeitos = Boolean(suspeitos && suspeitos.length > 0);
+  useEffect(() => {
+    if (haSuspeitos) blocoSuspeitos.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+  }, [haSuspeitos]);
 
   return (
     <Janela eyebrow="Baixa em lote" titulo={`Baixar ${selecionados.length} título(s)`} onFechar={onFechar} ocupado={ocupado}>
@@ -102,12 +114,30 @@ export function ModalBaixaLote({ selecionados, total, form, onCampo, onEmpresa, 
             ))}
           </ul>
 
-          <div className="modal-actions">
-            <Button variant="secondary" onClick={onFechar} disabled={ocupado}>Cancelar</Button>
-            <Button leadingIcon={<CheckCircle2 size={16} />} onClick={onConfirmar} disabled={ocupado}>
-              {ocupado ? "Baixando…" : `Confirmar baixa de ${selecionados.length}`}
-            </Button>
-          </div>
+          {suspeitos && suspeitos.length > 0 ? (
+            <div ref={blocoSuspeitos} role="alert">
+              <Alert tone="warning">
+                Nada foi baixado ainda: {suspeitos.length} título(s) parecem pagamento em duplicidade.
+                Tire-os do lote ou confirme que é para baixar mesmo assim (a confirmação fica na auditoria).
+              </Alert>
+              <ul className="pg-lote-erros" aria-label="Títulos suspeitos de duplicidade">
+                {suspeitos.map((s) => <li key={s.item.id ?? ""}>{descreverSuspeito(s)}</li>)}
+              </ul>
+              <div className="modal-actions">
+                <Button variant="secondary" onClick={onTirarSuspeitos} disabled={ocupado}>{suspeitos.length === 1 ? "Tirar este do lote" : `Tirar os ${suspeitos.length} do lote`}</Button>
+                <Button leadingIcon={<AlertTriangle size={16} />} onClick={onBaixarMesmoAssim} disabled={ocupado}>
+                  {ocupado ? "Baixando…" : "Baixar mesmo assim"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="modal-actions">
+              <Button variant="secondary" onClick={onFechar} disabled={ocupado}>Cancelar</Button>
+              <Button leadingIcon={<CheckCircle2 size={16} />} onClick={onConfirmar} disabled={ocupado}>
+                {ocupado ? "Baixando…" : `Confirmar baixa de ${selecionados.length}`}
+              </Button>
+            </div>
+          )}
         </>
       )}
     </Janela>

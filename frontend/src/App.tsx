@@ -7,9 +7,12 @@ import {
   ChefHat,
   ClipboardCheck,
   ClipboardList,
+  Coins,
   CreditCard,
   Database,
   FileCog,
+  FileInput,
+  FileSignature,
   FileSpreadsheet,
   FileScan,
   HandCoins,
@@ -55,6 +58,7 @@ import { ForcedPasswordChange } from "./pages/ForcedPasswordChange";
 import type { ImportTab } from "./pages/ImportsHub";
 import { Login } from "./pages/Login";
 import { isLocal } from "./utils/env";
+import { ROTAS_RH, rotaNovaDe } from "./pages/rh/rotasRh";
 
 const Audit = lazy(() => import("./pages/Audit").then((module) => ({ default: module.Audit })));
 const CatalogImports = lazy(() => import("./pages/CatalogImports").then((module) => ({ default: module.CatalogImports })));
@@ -88,6 +92,8 @@ const Funcionarios = lazy(() => import("./pages/Funcionarios").then((module) => 
 const Escala = lazy(() => import("./pages/Escala").then((module) => ({ default: module.Escala })));
 const Folha = lazy(() => import("./pages/Folha").then((module) => ({ default: module.Folha })));
 const FolhaGorjeta = lazy(() => import("./pages/FolhaGorjeta").then((module) => ({ default: module.FolhaGorjeta })));
+const ExtratoRh = lazy(() => import("./pages/ExtratoRh").then((module) => ({ default: module.ExtratoRh })));
+const Rescisoes = lazy(() => import("./pages/rh/Rescisoes").then((module) => ({ default: module.Rescisoes })));
 const Extras = lazy(() => import("./pages/Extras").then((module) => ({ default: module.Extras })));
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
 const Users = lazy(() => import("./pages/Users").then((module) => ({ default: module.Users })));
@@ -167,11 +173,21 @@ const sections = [
   { id: "supplier-cycles", label: "Ciclos de fornecedor", icon: RefreshCw, showInSidebar: true, group: "Financeiro", path: "/financeiro/ciclos-fornecedor", matchers: ["/financeiro/ciclos-fornecedor"], description: "Agrupa compras por fornecedor para pagamento consolidado" },
   { id: "suppliers", label: "Fornecedores", icon: Truck, showInSidebar: true, group: "Cadastros", path: "/cadastros/fornecedores", matchers: ["/cadastros/fornecedores"], description: "Cadastro utilizado em compras, pagamentos e relatórios financeiros" },
   { id: "companies", label: "Empresas", icon: Building2, showInSidebar: true, group: "Cadastros", path: "/cadastros/empresas", matchers: ["/cadastros/empresas"] },
-  { id: "employees", label: "Funcionários", icon: UsersIcon, showInSidebar: true, group: "Pessoal", path: "/pessoal/funcionarios", matchers: ["/pessoal/funcionarios"], description: "Cadastro de funcionários — base para escala, VT e folha de pagamento" },
-  { id: "schedule", label: "Escala", icon: CalendarDays, showInSidebar: true, group: "Pessoal", path: "/pessoal/escala", matchers: ["/pessoal/escala"], description: "Escala mensal de folgas (6×1 / 5×2) — domingos e feriados destacados; base para o cálculo do VT" },
-  { id: "payroll", label: "Folha de Pagamento", icon: WalletCards, showInSidebar: true, group: "Pessoal", path: "/pessoal/folha", matchers: ["/pessoal/folha"], description: "Geração e controle de VT (por tarifa e escala), adiantamento e salário" },
-  { id: "payroll-tips", label: "Fechamento de Gorjetas", icon: WalletCards, showInSidebar: false, group: "Pessoal", path: "/pessoal/gorjeta", matchers: ["/pessoal/gorjeta"], description: "Rateio por pontos com presença e rescisões, envio à contabilidade e lista de pagamento" },
-  { id: "extras", label: "Extras (diárias)", icon: HandCoins, showInSidebar: true, group: "Pessoal", path: "/pessoal/extras", matchers: ["/pessoal/extras"], description: "Diárias da equipe da casa e de freelancers: lançamento, pagamento e gasto por período" },
+  // Grupo RH (01/10/2026): rotinas de pessoal separadas no menu, cada uma com a
+  // permissão que já tinha. Os endereços antigos (/pessoal/...) ficam nos matchers só
+  // até o <Navigate> levar para o novo — sem isso o guard não acharia a seção e mandaria
+  // para a primeira tela permitida antes do redirecionamento.
+  { id: "employees", label: "Funcionários", icon: UsersIcon, showInSidebar: true, group: "RH", path: ROTAS_RH.funcionarios, matchers: [ROTAS_RH.funcionarios, "/pessoal", "/pessoal/funcionarios"], description: "Cadastro de funcionários — base para escala, VT e folha de pagamento" },
+  { id: "schedule", label: "Escala", icon: CalendarDays, showInSidebar: true, group: "RH", path: ROTAS_RH.escala, matchers: [ROTAS_RH.escala, "/pessoal/escala"], description: "Escala mensal de folgas (6×1 / 5×2) — domingos e feriados destacados; base para o cálculo do VT" },
+  { id: "payroll-tips", label: "Apuração de gorjeta", icon: Coins, showInSidebar: true, group: "RH", path: ROTAS_RH.gorjeta, matchers: [ROTAS_RH.gorjeta, "/pessoal/gorjeta"], description: "Rateio por pontos com presença e rescisões, envio à contabilidade e lista de pagamento" },
+  // A rescisão é lançada nas rotas /payroll/termination (módulo da Folha): quem lança
+  // a rescisão hoje é quem pode abrir esta tela.
+  { id: "rescisoes", label: "Rescisões", icon: FileSignature, showInSidebar: true, group: "RH", path: ROTAS_RH.rescisoes, matchers: [ROTAS_RH.rescisoes], permissionId: "payroll", description: "Quem saiu ou está saindo, a situação de cada rescisão e o passo a passo para lançar" },
+  { id: "payroll", label: "Folha e VT", icon: WalletCards, showInSidebar: true, group: "RH", path: ROTAS_RH.folha, matchers: [ROTAS_RH.folha, "/pessoal/folha"], description: "Geração e controle de VT (por tarifa e escala), adiantamento e salário" },
+  // O Retorno do RH lê e importa o extrato pelas rotas /payroll/tip/extrato*, que o
+  // backend autoriza pelo módulo da Gorjeta — por isso herda "payroll-tips".
+  { id: "rh-retorno", label: "Retorno do RH", icon: FileInput, showInSidebar: true, group: "RH", path: ROTAS_RH.retorno, matchers: [ROTAS_RH.retorno], permissionId: "payroll-tips", description: "Extrato da contabilidade (folha do mês e adiantamento): confere, lança no Contas a Pagar e guarda o PDF" },
+  { id: "extras", label: "Extras (diárias)", icon: HandCoins, showInSidebar: true, group: "RH", path: ROTAS_RH.extras, matchers: [ROTAS_RH.extras, "/pessoal/extras"], description: "Diárias da equipe da casa e de freelancers: lançamento, pagamento e gasto por período" },
   { id: "import", label: "Importações", icon: FileSpreadsheet, showInSidebar: true, group: "Dados", path: "/dados/importacoes", matchers: ["/dados/importacoes"] },
   { id: "catalog-imports", label: "Importar cadastros", icon: Database, showInSidebar: false, group: "Dados", path: "/dados/importacoes/cadastros", matchers: ["/dados/importacoes/cadastros"] },
   { id: "doc-intake", label: "Leitura de documentos", icon: FileScan, showInSidebar: true, group: "Dados", path: "/dados/leitura-documentos", matchers: ["/dados/leitura-documentos"], description: "Lê nota, boleto ou fatura em PDF e monta o rascunho do lançamento para conferência" },
@@ -251,6 +267,12 @@ function InventoryRouteView({ user, initialView, onOpenProducts, onOpenPurchaseO
       onCloseCountSessionRoute={() => navigate("/estoque/contagens")}
     />
   );
+}
+
+// Endereços antigos do grupo Pessoal: leva para o equivalente em /rh, com a busca.
+function RedirecionaPessoal({ fallback }: { fallback: string }) {
+  const { pathname, search } = useLocation();
+  return <Navigate to={rotaNovaDe(pathname, search) ?? fallback} replace />;
 }
 
 export function App() {
@@ -719,11 +741,14 @@ export function App() {
               <Route path="/estoque/produtos" element={<Products />} />
               <Route path="/cadastros/fornecedores" element={<Suppliers onOpenPurchases={() => handleNavigate("purchases")} />} />
               <Route path="/cadastros/empresas" element={<Companies />} />
-              <Route path="/pessoal/funcionarios" element={<Funcionarios />} />
-              <Route path="/pessoal/escala" element={<Escala />} />
-              <Route path="/pessoal/folha" element={<Folha />} />
-              <Route path="/pessoal/gorjeta" element={<FolhaGorjeta />} />
-              <Route path="/pessoal/extras" element={<Extras />} />
+              <Route path={ROTAS_RH.funcionarios} element={<Funcionarios />} />
+              <Route path={ROTAS_RH.escala} element={<Escala />} />
+              <Route path={ROTAS_RH.gorjeta} element={<FolhaGorjeta />} />
+              <Route path={ROTAS_RH.rescisoes} element={<Rescisoes />} />
+              <Route path={ROTAS_RH.folha} element={<Folha />} />
+              <Route path={ROTAS_RH.retorno} element={<ExtratoRh />} />
+              <Route path={ROTAS_RH.extras} element={<Extras />} />
+              <Route path="/pessoal/*" element={<RedirecionaPessoal fallback={fallbackSection.path} />} />
               <Route path="/configuracoes/pagamentos" element={<PaymentMethods />} />
               <Route path="/configuracoes/cadastros-base" element={<MasterData />} />
               <Route path="/configuracoes/usuarios" element={<Users />} />

@@ -1,6 +1,6 @@
 import type { Request } from "express";
 import { describe, expect, it } from "vitest";
-import { resolvePermissionContext } from "../menu-permissions.js";
+import { menuDoFavorito, resolvePermissionContext } from "../menu-permissions.js";
 
 const ctx = (method: string, path: string) =>
   resolvePermissionContext({ method, path, body: {}, query: {} } as unknown as Request);
@@ -22,6 +22,11 @@ describe("resolvePermissionContext — caminho normalizado", () => {
   it("caminho normal continua igual", async () => {
     expect(await ctx("GET", "/employees")).toEqual({ menuId: "employees", action: "view" });
     expect(await ctx("POST", "/employees")).toEqual({ menuId: "employees", action: "create" });
+  });
+
+  it("RH → Rescisões fica sob a Folha (o módulo que lança a rescisão)", async () => {
+    expect(await ctx("GET", "/payroll/rescisoes")).toEqual({ menuId: "payroll", action: "view" });
+    expect(await ctx("GET", "/payroll/rescisoes/abc")).toEqual({ menuId: "payroll", action: "view" });
   });
 
   it("rota fora do catálogo continua sem contexto", async () => {
@@ -57,5 +62,18 @@ describe("resolvePermissionContext — extras", () => {
   it("baixa e estorno pedem a permissão do Contas a Pagar", async () => {
     expect(await ctx("PATCH", "/extras/payments/abc/pay")).toEqual({ menuId: "payables", action: "edit" });
     expect(await ctx("PATCH", "/EXTRAS/payments/abc/reverse")).toEqual({ menuId: "payables", action: "delete" });
+  });
+});
+
+describe("menuDoFavorito — itens do menu que herdam permissão", () => {
+  it("módulo do catálogo é ele mesmo", () => {
+    expect(menuDoFavorito("payroll")).toBe("payroll");
+  });
+  it("Rescisões e Retorno do RH herdam a Folha e a Gorjeta", () => {
+    expect(menuDoFavorito("rescisoes")).toBe("payroll");
+    expect(menuDoFavorito("rh-retorno")).toBe("payroll-tips");
+  });
+  it("chave inventada não vale", () => {
+    expect(menuDoFavorito("qualquer")).toBeNull();
   });
 });

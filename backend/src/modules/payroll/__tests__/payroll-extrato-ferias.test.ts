@@ -75,8 +75,22 @@ describe("salário/adiantamento que já veio do extrato", () => {
     expect(items.find((i) => i.type === "SALARIO")?.exists).toBe(false);
   });
 
-  test("lançamento de outra origem com o mesmo tipo não bloqueia (ex.: manual)", async () => {
+  // Trava de duplicidade: o salário já lançado à mão (outro rótulo) é o mesmo pagamento.
+  test("salário lançado à mão com outro rótulo: vem como existente e avisa", async () => {
     lancamentos = [{ employeeId: "e1", type: "SALARIO", periodLabel: "Acerto", amount: 100, source: "MANUAL" }];
+    const { items, warnings } = await computePayroll(2026, 9);
+    expect(items.find((i) => i.type === "SALARIO")?.exists).toBe(true);
+    expect(warnings).toContain('Ana Silva: salário de 09/2026 já lançado como "Acerto"; não gerado de novo.');
+  });
+
+  test("complemento lançado à mão não bloqueia o salário do mês", async () => {
+    lancamentos = [{ employeeId: "e1", type: "SALARIO", periodLabel: "Salário (complemento)", amount: 100, source: "MANUAL", details: { complemento: { motivo: "diferença de horas" } } }];
+    const { items } = await computePayroll(2026, 9);
+    expect(items.find((i) => i.type === "SALARIO")?.exists).toBe(false);
+  });
+
+  test("lançamento cancelado não bloqueia", async () => {
+    lancamentos = [{ employeeId: "e1", type: "SALARIO", periodLabel: "Acerto", amount: 100, source: "MANUAL", status: "CANCELED" }];
     const { items } = await computePayroll(2026, 9);
     expect(items.find((i) => i.type === "SALARIO")?.exists).toBe(false);
   });
@@ -91,6 +105,35 @@ describe("salário/adiantamento que já veio do extrato", () => {
     const r = await generatePayroll(2026, 9, "u1", "FOLHA");
     expect(tx.payrollItem.upsert).not.toHaveBeenCalled();
     expect(r).toMatchObject({ created: 0, skipped: 2 });
+  });
+});
+
+describe("nada depois da saída", () => {
+  const saiu = (data: string) => emp({
+    terminationDate: d(data), vtType: "BILHETE_MENSAL", vtMonthlyFare: { id: "m1", name: "Mensal", amount: 250 },
+  });
+
+  test("saiu em 29/09: outubro não gera salário, adiantamento nem VT, e avisa", async () => {
+    db.employee.findMany.mockResolvedValue([saiu("2026-09-29")]);
+    const { items, warnings } = await computePayroll(2026, 10);
+    expect(items).toEqual([]);
+    expect(warnings.filter((w) => w.includes("saiu em 29/09/2026"))).toHaveLength(3);
+  });
+
+  test("o mês da própria saída continua: salário, adiantamento e bilhete mensal", async () => {
+    db.employee.findMany.mockResolvedValue([saiu("2026-09-29")]);
+    const { items } = await computePayroll(2026, 9);
+    expect(items.map((i) => i.type).sort()).toEqual(["ADIANTAMENTO", "SALARIO", "VALE_TRANSPORTE"]);
+  });
+
+  test("generatePayroll não grava o que é depois da saída e devolve o aviso", async () => {
+    db.employee.findMany.mockResolvedValue([saiu("2026-09-29")]);
+    const tx = { payrollItem: { upsert: vi.fn(), findUnique: vi.fn() }, vtFaltaDeduction: { createMany: vi.fn() } };
+    db.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+    const r = await generatePayroll(2026, 10, "u1", "ALL");
+    expect(tx.payrollItem.upsert).not.toHaveBeenCalled();
+    expect(r.created).toBe(0);
+    expect(r.avisos.some((a) => a.includes("saiu em 29/09/2026"))).toBe(true);
   });
 });
 

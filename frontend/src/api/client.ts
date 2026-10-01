@@ -6345,7 +6345,7 @@ export type PayrollKind = "ALL" | "VT" | "VT_Q1" | "VT_Q2" | "FOLHA";
 export type PayrollOverride = { employeeId: string; type: PayrollItemType; periodLabel: string; amount: number };
 
 export function generatePayroll(year: number, month: number, kind: PayrollKind = "ALL", overrides: PayrollOverride[] = []) {
-  return request<{ year: number; month: number; kind: PayrollKind; created: number; skipped: number; ajustados: number }>("/payroll/generate", {
+  return request<{ year: number; month: number; kind: PayrollKind; created: number; skipped: number; ajustados: number; avisos?: string[] }>("/payroll/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ year, month, kind, overrides })
@@ -6361,11 +6361,47 @@ export function payPayrollItem(id: string, payload: {
   differenceReason?: string | null;
   payingCompanyId?: string | null;
   companyBankAccountId?: string | null;
+  /** Baixa mesmo já havendo o mesmo pagamento pago (409 BAIXA_DUPLICADA confirmado). */
+  confirmaDuplicidade?: boolean;
 }) {
   return request<{ id: string; status: string }>(`/payroll/${id}/pay`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
+  });
+}
+
+// Lançamento manual na Folha. 409 DUPLICIDADE (já existe) ou APOS_SAIDA (depois do
+// desligamento) voltam como ApiError com o corpo; reenviar com complemento/confirmaAposSaida.
+export type LancamentoManualFolha = {
+  employeeId: string;
+  type: "SALARIO" | "ADIANTAMENTO" | "VALE_TRANSPORTE";
+  competenceYear: number;
+  competenceMonth: number;
+  /** Só VT: 1, 2 ou null (mês inteiro). */
+  quinzena?: 1 | 2 | null;
+  amount: number;
+  dueDate?: string;
+  notes?: string;
+  complemento?: boolean;
+  motivoComplemento?: string;
+  confirmaAposSaida?: boolean;
+  motivoAposSaida?: string;
+};
+export function createPayrollItemManual(payload: LancamentoManualFolha) {
+  return request<{ id: string; periodLabel: string; amount: number }>("/payroll", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+// Confere o lote antes de baixar: o que já tem o mesmo pagamento pago e os repetidos no próprio lote.
+export function checkPayrollPayBatch(ids: string[]) {
+  return request<{ suspeitos: import("../lib/folha-duplicidade").SuspeitoLote[] }>("/payroll/pay-check", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids })
   });
 }
 
@@ -6453,10 +6489,49 @@ export type ApuracaoRescisao = {
   dadosPessoaisOcultos?: boolean;
   /** Salário e gorjeta até a saída já pagos na lista de pagamento da gorjeta (sem registro). */
   jaPagoNaLista?: { valor: number; competencia: string } | null;
+  /**
+   * Sem registro que saiu depois do fim do ciclo, ainda no mês do salário: [0] o ciclo do
+   * mês, [1] os dias depois dele. valor null = não apurado (período inexistente, fora dele
+   * ou serviço pendente).
+   */
+  gorjetaPartes?: Array<{ periodo: string; competencia: string; dias: string; valor: number | null; pendente: boolean; jaPagoNaLista: boolean }> | null;
 };
 
 export function getTerminationInfo(employeeId: string) {
   return request<TerminationInfo>(`/payroll/termination/${employeeId}`);
+}
+
+// ─── RH → Rescisões ─────────────────────────────────────────────────────────────
+/** Termo de rescisão (TRCT) lido na gorjeta do período da saída. */
+export type TermoRescisaoResumo = { arquivo: string | null; importadoEm: string | null; gorjeta: number | null; liquido: number | null; pagamento: string | null };
+export type RescisaoResumo = {
+  employeeId: string; nome: string; apelido: string | null; empresa: string | null; semRegistro: boolean;
+  /** aaaa-mm-dd; null = ainda sem data de saída. */
+  saida: string | null; motivo: string | null;
+  rescisao: { parcelas: number; pagas: number; liquido: number; valorPago: number; proximoVencimento: string | null } | null;
+  termo: TermoRescisaoResumo | null;
+};
+export type PessoaAtiva = { employeeId: string; nome: string; apelido: string | null; empresa: string | null; semRegistro: boolean };
+export type ListaRescisoes = { hoje: string; pessoas: RescisaoResumo[]; ativos: PessoaAtiva[] };
+/** Lançamento da Folha ainda não pago que vence depois da saída. */
+export type ItemFolhaAposSaida = {
+  id: string; tipo: PayrollItemType; rotulo: string; competencia: string; valor: number; vencimento: string;
+  /** Bilhete mensal e ajuda de custo ficam com a pessoa no mês da saída; null = VT por trajeto (ou não é VT). */
+  ficaComAPessoa: "BILHETE_MENSAL" | "AJUDA_DE_CUSTO" | null;
+};
+export type DetalheRescisao = {
+  pessoa: RescisaoResumo;
+  itensAposSaida: ItemFolhaAposSaida[];
+  periodoGorjeta: { year: number; month: number; label: string; fechado: boolean; participa: boolean } | null;
+  extratoDoMes: { competencia: string; importado: boolean; pessoaNoExtrato: boolean } | null;
+};
+
+export function getRescisoes() {
+  return request<ListaRescisoes>("/payroll/rescisoes");
+}
+
+export function getRescisaoDetalhe(employeeId: string) {
+  return request<DetalheRescisao>(`/payroll/rescisoes/${encodeURIComponent(employeeId)}`);
 }
 
 export type RescisaoPartes = { salario?: number; gorjeta?: number; valesDiscount?: number; valesLabel?: string };

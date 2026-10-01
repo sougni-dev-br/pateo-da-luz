@@ -15,6 +15,8 @@ type Props = {
   antesDeGravar: () => Promise<void>;
   onAplicado: (c: TipComputation) => void;
   onErro: (mensagem: string) => void;
+  /** Quando a tela é de uma pessoa só (RH → Rescisões): recusa aplicar o termo de outra. */
+  esperado?: { employeeId: string; nome: string };
 };
 
 const diaCompleto = (iso: string | null) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—");
@@ -26,7 +28,7 @@ const lerComoBase64 = (arquivo: File) => new Promise<string>((ok, falha) => {
   leitor.readAsDataURL(arquivo);
 });
 
-export function ReciboRescisao({ year, month, readonly, antesDeGravar, onAplicado, onErro }: Props) {
+export function ReciboRescisao({ year, month, readonly, antesDeGravar, onAplicado, onErro, esperado }: Props) {
   const entrada = useRef<HTMLInputElement>(null);
   const [previa, setPrevia] = useState<TipReciboPrevia | null>(null);
   const [conteudo, setConteudo] = useState<{ base64: string; nome: string } | null>(null);
@@ -47,6 +49,8 @@ export function ReciboRescisao({ year, month, readonly, antesDeGravar, onAplicad
       if (entrada.current) entrada.current.value = "";
     }
   }
+
+  const deOutraPessoa = Boolean(esperado && previa && previa.employeeId !== esperado.employeeId);
 
   async function aplicar() {
     if (!conteudo) return;
@@ -87,13 +91,18 @@ export function ReciboRescisao({ year, month, readonly, antesDeGravar, onAplicad
             <div><dt>Pagamento da rescisão</dt><dd>{diaCompleto(previa.pagamento)}</dd></div>
             <div><dt>Líquido da rescisão</dt><dd>{money(previa.liquido)}</dd></div>
           </dl>
+          {deOutraPessoa && (
+            <ul className="recibo-divergencias">
+              <li>Este termo é de {previa.nome}, não de {esperado?.nome}. Escolha o PDF certo.</li>
+            </ul>
+          )}
           {previa.divergencias.length > 0 && (
             <ul className="recibo-divergencias">
               {previa.divergencias.map((d) => <li key={d}>{d}</li>)}
             </ul>
           )}
           <div className="barra-lista">
-            <Button leadingIcon={<Check size={14} />} disabled={ocupado || previa.gorjeta == null} onClick={() => void aplicar()}>
+            <Button leadingIcon={<Check size={14} />} disabled={ocupado || previa.gorjeta == null || deOutraPessoa} onClick={() => void aplicar()}>
               {ocupado ? "Gravando…" : `Usar ${money(previa.gorjeta)} como gorjeta quitada`}
             </Button>
             <Button variant="secondary" leadingIcon={<X size={14} />} disabled={ocupado} onClick={() => { setPrevia(null); setConteudo(null); }}>Cancelar</Button>

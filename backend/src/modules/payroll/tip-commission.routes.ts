@@ -409,7 +409,7 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
     const novo = numOrNull(raw.rescisaoValorFixo);
     const antes = atual.rescisaoValorFixo == null ? null : Number(atual.rescisaoValorFixo);
     if ((novo == null) !== (antes == null) || (novo != null && antes != null && Math.round(Math.abs(novo - antes) * 100) >= 1)) {
-      return response.status(409).json({ message: "Esta gorjeta paga veio da rescisão lançada: ajuste em Funcionários → Lançar rescisão → Ajustar rescisão." });
+      return response.status(409).json({ message: "Esta gorjeta paga veio da rescisão lançada: ajuste em RH → Rescisões → Ajustar rescisão." });
     }
   }
 
@@ -1132,7 +1132,7 @@ tipCommissionRouter.post("/periods/:year/:month/rescisao-recibo", async (request
   }
   if (await barrouPorFechamento(periodo.id, response, "Lançar o recibo da rescisão")) return;
   if ((await participantesTravadosPelaRescisao([participante.employeeId])).has(participante.id)) {
-    return response.status(409).json({ message: "A gorjeta paga desta pessoa veio da rescisão lançada: ajuste pela rescisão (Funcionários → Lançar rescisão)." });
+    return response.status(409).json({ message: "A gorjeta paga desta pessoa veio da rescisão lançada: ajuste pela rescisão (RH → Rescisões)." });
   }
   const gravado = {
     fonte: "TRCT", arquivo, hash, gorjeta: recibo.gorjeta, liquido: recibo.liquido,

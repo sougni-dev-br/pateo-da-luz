@@ -744,7 +744,7 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
       >
         <div className="section-heading" style={fullscreen ? { marginBottom: 8 } : undefined}>
           <div>
-            {!fullscreen && <PanelEyebrow>Pessoal</PanelEyebrow>}
+            {!fullscreen && <PanelEyebrow>RH</PanelEyebrow>}
             <h2 style={{ display: "flex", alignItems: "center", gap: 8, ...(fullscreen ? { fontSize: 15, margin: 0 } : null) }}>
               <CalendarDays size={fullscreen ? 15 : 18} /> Escala mensal
             </h2>

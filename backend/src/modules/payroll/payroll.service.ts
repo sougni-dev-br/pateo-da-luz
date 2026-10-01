@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { diaDeReferencia } from "./cadastro-historico.js";
 import { cadastrosVigentes } from "./cadastro-historico.service.js";
+import { aposSaida, duplicadosDe, ehComplemento, rotuloTipo, type ItemFolha } from "./folha-duplicidade.js";
 import { computeVtForPeriod, costOfCalendarDay, describeLegs, eveOf, round2, vtPeriods, type Fare, type Leg } from "./vt-calc.js";
 
 // Nomes das categorias de DRE que a folha usa. O vinculo e por NOME, com acento:
@@ -248,7 +249,10 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
 
   const existingRows = await prisma.payrollItem.findMany({
     where: { competenceYear: year, competenceMonth: month, deletedAt: null },
-    select: { employeeId: true, type: true, periodLabel: true, amount: true, workedDays: true, freeDays: true, source: true },
+    select: {
+      id: true, employeeId: true, type: true, periodLabel: true, amount: true, workedDays: true, freeDays: true, source: true,
+      periodStart: true, details: true, status: true,
+    },
   });
   const existingByKey = new Map(existingRows.map((e) => [`${e.employeeId}|${e.type}|${e.periodLabel}`, e]));
   const existsKey = new Set(existingByKey.keys());
@@ -496,7 +500,47 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
     }
   }
 
-  return { year, month, settings, items, warnings };
+  return { year, month, settings, items: travarDuplicidadeESaida(items, existingRows, employees, year, month, warnings), warnings };
+}
+
+// Duas travas antes de qualquer item virar lançamento:
+// 1. Depois da saída: salário/adiantamento/VT cujo período começa depois do desligamento
+//    não é gerado (sai da lista, com aviso). O mês da saída continua.
+// 2. Mesmo pagamento já lançado com OUTRO rótulo (manual, extrato antigo): vem como
+//    existente e avisa — gerar criaria o segundo pagamento da mesma coisa.
+//    Complemento (details.complemento) não conta: é pagamento a mais, de propósito.
+function travarDuplicidadeESaida(
+  items: ComputedItem[],
+  existentes: Array<{ id?: string; employeeId: string; type: string; periodLabel: string; periodStart?: Date | null; details?: unknown; status?: string | null }>,
+  employees: Array<{ id: string; terminationDate: Date | null }>,
+  year: number, month: number, warnings: string[],
+): ComputedItem[] {
+  const saidaDe = new Map(employees.map((e) => [e.id, e.terminationDate]));
+  const mmaaaa = `${String(month).padStart(2, "0")}/${year}`;
+  const vivosSemComplemento = existentes
+    .map((e) => ({ ...e, competenceYear: year, competenceMonth: month }))
+    .filter((e) => !ehComplemento(e.details));
+  const comoItem = (i: ComputedItem): ItemFolha => ({
+    employeeId: i.employeeId, type: i.type, competenceYear: year, competenceMonth: month, periodStart: i.periodStart,
+  });
+  const ficam: ComputedItem[] = [];
+  for (const i of items) {
+    const saida = saidaDe.get(i.employeeId) ?? null;
+    if (aposSaida(comoItem(i), saida)) {
+      warnings.push(`${i.employeeName}: ${i.periodLabel} de ${mmaaaa} não gerado — saiu em ${saida!.toISOString().slice(0, 10).split("-").reverse().join("/")}.`);
+      continue;
+    }
+    if (!i.exists) {
+      const dup = duplicadosDe(comoItem(i), vivosSemComplemento)[0];
+      if (dup) {
+        warnings.push(`${i.employeeName}: ${rotuloTipo(i.type).toLowerCase()} de ${mmaaaa} já lançado como "${dup.periodLabel}"; não gerado de novo.`);
+        ficam.push({ ...i, exists: true });
+        continue;
+      }
+    }
+    ficam.push(i);
+  }
+  return ficam;
 }
 
 // Persiste os itens ainda não existentes.
@@ -509,7 +553,7 @@ const overrideKey = (o: { employeeId: string; type: string; periodLabel: string 
 export async function generatePayroll(
   year: number, month: number, userId: string, kind: PayrollKind = "ALL", overrides: PayrollOverride[] = []
 ) {
-  const { items } = await computePayroll(year, month, KIND_QUINZENA[kind]);
+  const { items, warnings } = await computePayroll(year, month, KIND_QUINZENA[kind]);
 
   // VT e folha (adiantamento + salário) são coisas distintas: periodicidade,
   // categoria no DRE e momento de fechamento diferentes. Por isso dá para
@@ -619,5 +663,7 @@ export async function generatePayroll(
     }
   });
 
-  return { year, month, kind, created: toCreate.length, skipped: escopo.length - toCreate.length, ajustados };
+  // Os avisos voltam no resultado: o que foi pulado (depois da saída, já lançado) não
+  // pode sumir em silêncio só porque a geração "deu certo".
+  return { year, month, kind, created: toCreate.length, skipped: escopo.length - toCreate.length, ajustados, avisos: warnings };
 }

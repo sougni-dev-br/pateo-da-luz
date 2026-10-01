@@ -1,6 +1,6 @@
 import { Cake, FileText, Pencil, Plus, PowerOff, Printer, RefreshCw, UserCheck, UserMinus, Users, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Employee, EmployeeBirthday, EmployeeBankAccountType, EmployeeModality,
   EmployeeGender, VtDirection, VtFare, VtPeriodicity, VtType, WorkScheduleRegime,
@@ -9,8 +9,9 @@ import {
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { ImpressaoAniversariantes } from "../components/pessoal/ImpressaoAniversariantes";
-import { RescisaoModal } from "../components/pessoal/RescisaoModal";
 import { HistoricoCadastro } from "../components/pessoal/HistoricoCadastro";
+import { TIPOS_DESLIGAMENTO, motivoDoDesligamento } from "../components/pessoal/desligamento";
+import { linkRescisao } from "./rh/rotasRh";
 import { motivoObrigatorio, mudouCampoComHistorico, type CamposComHistorico } from "../components/pessoal/historicoCadastroFormato";
 import { type FormaPagamento, OPCOES_FORMA_PAGAMENTO, camposDaForma, dicaFormaPagamento, formaPagamentoDe } from "../components/pessoal/formaPagamento";
 import { useSession } from "../context/SessionContext";
@@ -44,14 +45,6 @@ const ACCOUNT_TYPE_LABELS: Record<EmployeeBankAccountType, string> = {
 const PIX_TYPE_LABELS: Record<string, string> = {
   "": "—", CPF: "CPF", EMAIL: "E-mail", TELEFONE: "Telefone", ALEATORIA: "Aleatória"
 };
-// Tipos de desligamento (rótulo canônico salvo em terminationReason + observação opcional).
-const TERMINATION_TYPES = [
-  "Pedido de demissão",
-  "Dispensa sem justa causa",
-  "Dispensa com justa causa",
-  "Fim de contrato (experiência/prazo)",
-  "Acordo (art. 484-A)"
-];
 // Sugestões iniciais dos comboboxes. O usuário pode escolher uma ou digitar
 // qualquer valor novo — os valores já usados vêm do backend e se somam aqui.
 const DEFAULT_SECTORS = ["Cozinha", "Salão/Bar", "Pizzaria", "Buffet/Pia/Deliv", "Administrativo"];
@@ -160,22 +153,16 @@ export function Funcionarios() {
   const [terminationError, setTerminationError] = useState<string | null>(null);
   const [terminatingBusy, setTerminatingBusy] = useState(false);
 
-  const [rescinding, setRescinding] = useState<Employee | null>(null);
+  const navigate = useNavigate();
   const [motivoCombinadoTocado, setMotivoCombinadoTocado] = useState(false);
   // Motivo da alteração retroativa: só acusa o campo vazio depois de tentar salvar.
   const [motivoRetroTocado, setMotivoRetroTocado] = useState(false);
-  // Atalho da gorjeta: /pessoal/funcionarios?rescisao=<id> abre a rescisão da pessoa.
-  const [searchParams, setSearchParams] = useSearchParams();
+  // Atalho antigo ?rescisao=<id>: a rescisão agora é a tela RH → Rescisões.
+  const [searchParams] = useSearchParams();
   const rescisaoPedida = searchParams.get("rescisao");
   useEffect(() => {
-    if (!rescisaoPedida) return;
-    let vivo = true;
-    getEmployees({ includeInactive: true })
-      .then((todos) => { const e = todos.find((x) => x.id === rescisaoPedida); if (vivo && e) setRescinding(e); })
-      .catch(() => undefined)
-      .finally(() => { if (vivo) setSearchParams((p) => { p.delete("rescisao"); return p; }, { replace: true }); });
-    return () => { vivo = false; };
-  }, [rescisaoPedida, setSearchParams]);
+    if (rescisaoPedida) navigate(linkRescisao(rescisaoPedida), { replace: true });
+  }, [rescisaoPedida, navigate]);
 
   const [deletingEmp, setDeletingEmp] = useState<Employee | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
@@ -357,8 +344,7 @@ export function Funcionarios() {
     if (!terminating) return;
     if (!terminationForm.terminationDate) { setTerminationError("Informe a data do desligamento."); return; }
     if (!terminationForm.terminationType) { setTerminationError("Selecione o tipo de desligamento."); return; }
-    const note = terminationForm.terminationNote.trim();
-    const reason = note ? `${terminationForm.terminationType} — ${note}` : terminationForm.terminationType;
+    const reason = motivoDoDesligamento(terminationForm.terminationType, terminationForm.terminationNote);
     setTerminationError(null);
     setTerminatingBusy(true);
     try {
@@ -374,7 +360,7 @@ export function Funcionarios() {
   }
 
   function openRescisao(e: Employee) {
-    setRescinding(e);
+    navigate(linkRescisao(e.id));
   }
 
 
@@ -477,7 +463,7 @@ export function Funcionarios() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <PanelEyebrow>Pessoal</PanelEyebrow>
+            <PanelEyebrow>RH</PanelEyebrow>
             <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Cake size={18} /> Aniversariantes de {MONTHS[currentMonth - 1]}
               {birthdays.length > 0 && <StatusBadge tone="info">{birthdays.length}</StatusBadge>}
@@ -824,7 +810,7 @@ export function Funcionarios() {
                   value={terminationForm.terminationType}
                   onChange={(e) => setTerminationForm({ ...terminationForm, terminationType: e.target.value })}
                   placeholder="Selecione o tipo"
-                  options={TERMINATION_TYPES.map((t) => ({ value: t, label: t }))}
+                  options={TIPOS_DESLIGAMENTO.map((t) => ({ value: t, label: t }))}
                 />
               </FormField>
               <div className="ds-form-grid-span-all">
@@ -841,8 +827,6 @@ export function Funcionarios() {
         </div>
       )}
 
-      {/* Janela da rescisão */}
-      {rescinding && <RescisaoModal funcionario={rescinding} onFechar={() => setRescinding(null)} onGravou={() => void loadEmployees()} />}
 
       {/* Modal de exclusão de funcionário — exige justificativa (auditoria) */}
       {deletingEmp && (
@@ -956,7 +940,7 @@ export function Funcionarios() {
                           label={`Mais ações — ${fullName(e)}`}
                           items={[
                             ...(e.isActive ? [{ label: "Registrar desligamento", icon: <UserMinus size={15} />, onClick: () => openTerminate(e) }] : []),
-                            ...(!e.isActive && e.terminationDate ? [{ label: "Lançar rescisão", icon: <FileText size={15} />, onClick: () => openRescisao(e) }] : []),
+                            ...(!e.isActive && e.terminationDate ? [{ label: "Rescisão (passo a passo)", icon: <FileText size={15} />, onClick: () => openRescisao(e) }] : []),
                             { label: e.isActive ? "Inativar" : "Reativar", icon: <PowerOff size={15} />, tone: e.isActive ? "danger" as const : "default" as const, onClick: () => handleToggleStatus(e) },
                             { label: "Excluir", icon: <Trash2 size={15} />, tone: "danger" as const, onClick: () => openDelete(e) }
                           ]}

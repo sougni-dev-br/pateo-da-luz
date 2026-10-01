@@ -12,7 +12,7 @@ import {
   getUserMenuOverrides,
   getUserModuleOverrides,
   hasModulePermission,
-  isMenuId,
+  menuDoFavorito,
   menuCatalog,
   normalizePermission,
   permissionActions,
@@ -504,13 +504,14 @@ authRouter.post("/menu-favorites/:menuKey", async (request, response) => {
   }
 
   const menuKey = request.params.menuKey;
-  if (!isMenuId(menuKey)) {
+  const menuId = menuDoFavorito(menuKey);
+  if (!menuId) {
     response.status(400).json({ message: "Menu invalido." });
     return;
   }
 
   const permissions = await getEffectiveModulePermissions(user as SessionUser);
-  if (!hasModulePermission(permissions[menuKey], "view")) {
+  if (!hasModulePermission(permissions[menuId], "view")) {
     response.status(403).json({ message: "Sem acesso a este menu." });
     return;
   }

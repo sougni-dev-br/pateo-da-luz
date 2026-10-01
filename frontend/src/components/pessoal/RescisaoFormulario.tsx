@@ -1,11 +1,12 @@
-// Janela da rescisão: abre com o que o sistema apurou, deixa ajustar com justificativa
-// e, depois de liberar, continua aberta mostrando o que foi gravado.
+// Formulário da rescisão (passo 4 de RH → Rescisões): abre com o que o sistema apurou,
+// deixa ajustar com justificativa e, depois de liberar, continua mostrando o que foi
+// gravado. Era a janela aberta por Funcionários; a lógica é a mesma.
 import { useEffect, useRef, useState } from "react";
 import {
-  type ApuracaoRescisao, type Employee, type TerminationInfo,
+  type ApuracaoRescisao, type TerminationInfo,
   adjustTermination, getTerminationInfo, releaseTermination,
 } from "../../api/client";
-import { Alert, Button, FormField, FormGrid, Money, PanelEyebrow, Select, Textarea, TextField } from "../../design-system";
+import { Alert, Button, FormField, FormGrid, Money, Select, Textarea, TextField } from "../../design-system";
 import { hojeLocalIso } from "../../lib/datas";
 import { maskMoney, moneyToMasked } from "../../utils/format";
 import { ApuracaoRescisaoPainel } from "./ApuracaoRescisao";
@@ -31,9 +32,15 @@ const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", curr
 
 type Mensagem = { tom: "success" | "error"; texto: string } | null;
 
-type Props = { funcionario: Employee; onFechar: () => void; onGravou: () => void };
+export type FuncionarioDaRescisao = { id: string; nome: string; semRegistro: boolean };
+type Props = {
+  funcionario: FuncionarioDaRescisao;
+  onGravou: () => void;
+  /** Mostra o quadro "Como o sistema chegou nesses valores" (recolhido). */
+  mostrarApuracao?: boolean;
+};
 
-export function RescisaoModal({ funcionario, onFechar, onGravou }: Props) {
+export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = true }: Props) {
   const [info, setInfo] = useState<TerminationInfo | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
@@ -43,12 +50,10 @@ export function RescisaoModal({ funcionario, onFechar, onGravou }: Props) {
   const [just, setJust] = useState("");
   const [justErro, setJustErro] = useState<string | null>(null);
   const [msg, setMsg] = useState<Mensagem>(null);
-  const tituloRef = useRef<HTMLHeadingElement>(null);
   const justRef = useRef<HTMLDivElement>(null);
   const topoRef = useRef<HTMLDivElement>(null);
 
-  const semRegistro = funcionario.modality === "NAO_CLT";
-  const nome = `${funcionario.firstName} ${funcionario.lastName}`.trim();
+  const semRegistro = funcionario.semRegistro;
   const apuracao = info?.apuracao ?? null;
   const sugestao = apuracao?.sugestao ?? null;
   const lancada = info?.lancada ?? null;
@@ -78,14 +83,7 @@ export function RescisaoModal({ funcionario, onFechar, onGravou }: Props) {
     }
   }
 
-  useEffect(() => { void carregar(); tituloRef.current?.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Esc fecha (menos no meio de uma gravação).
-  useEffect(() => {
-    const tecla = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) onFechar(); };
-    window.addEventListener("keydown", tecla);
-    return () => window.removeEventListener("keydown", tecla);
-  }, [busy, onFechar]);
+  useEffect(() => { void carregar(); }, [funcionario.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function avisar(m: Mensagem) {
     setMsg(m);
@@ -236,16 +234,8 @@ export function RescisaoModal({ funcionario, onFechar, onGravou }: Props) {
   );
 
   return (
-    <div className="modal-backdrop sobre-topo" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onFechar(); }}>
-      <section className="panel modal-panel resc-modal" role="dialog" aria-modal="true" aria-labelledby="resc-titulo">
-        <div className="section-heading" ref={topoRef}>
-          <div>
-            <PanelEyebrow>{semRegistro ? "Rescisão · sem registro, apurada aqui" : "Rescisão · CLT, bruto da contabilidade"}</PanelEyebrow>
-            <h2 id="resc-titulo" ref={tituloRef} tabIndex={-1}>{nome}</h2>
-          </div>
-          <Button variant="secondary" onClick={onFechar} disabled={busy}>Fechar</Button>
-        </div>
-
+    <div className="resc-form">
+        <div ref={topoRef} className="resc-form-topo" />
         {msg && <div style={{ marginBottom: 12 }}><Alert tone={msg.tom}>{msg.texto}</Alert></div>}
 
         {carregando && <p className="resc-detalhe">Apurando salário, gorjeta, vales e VT…</p>}
@@ -261,7 +251,7 @@ export function RescisaoModal({ funcionario, onFechar, onGravou }: Props) {
           <>
             {lancada && <RescisaoLancadaPainel lancada={lancada} ajustando={ajustando} onAjustar={iniciarAjuste} />}
 
-            {apuracao && <ApuracaoRescisaoPainel apuracao={apuracao} />}
+            {apuracao && mostrarApuracao && <ApuracaoRescisaoPainel apuracao={apuracao} />}
 
             {!apuracao && !info.alreadyReleased && (
               <div className="resc-quadro">
@@ -342,8 +332,9 @@ export function RescisaoModal({ funcionario, onFechar, onGravou }: Props) {
           </>
         )}
 
+        {(editavel || ajustando) && !carregando && !erroCarga && info && (
         <div className="resc-rodape">
-          {editavel && !carregando && !erroCarga && info ? (
+          {editavel ? (
             <div className="resc-rodape-valor">
               <span className="resc-detalhe">Líquido a pagar{precisaJustificar && !ajustando ? " · precisa justificar" : ""}</span>
               <strong><Money value={liquido} /></strong>
@@ -361,17 +352,12 @@ export function RescisaoModal({ funcionario, onFechar, onGravou }: Props) {
                 <Button variant="secondary" onClick={() => { setAjustando(false); setJustErro(null); }} disabled={busy}>Desistir do ajuste</Button>
                 <Button onClick={() => void salvarAjuste()} disabled={busy || nadaMudou}>{busy ? "Salvando…" : "Salvar ajuste"}</Button>
               </>
-            ) : info && !info.alreadyReleased && !erroCarga ? (
-              <>
-                <Button variant="secondary" onClick={onFechar} disabled={busy}>Cancelar</Button>
-                <Button onClick={() => void liberar()} disabled={busy || carregando}>{busy ? "Liberando…" : "Liberar para Contas a Pagar"}</Button>
-              </>
-            ) : (
-              <Button variant="secondary" onClick={onFechar} disabled={busy}>Fechar</Button>
-            )}
+            ) : !info.alreadyReleased ? (
+              <Button onClick={() => void liberar()} disabled={busy || carregando}>{busy ? "Liberando…" : "Liberar para Contas a Pagar"}</Button>
+            ) : null}
           </div>
         </div>
-      </section>
+        )}
     </div>
   );
 }
