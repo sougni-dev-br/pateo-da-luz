@@ -6,7 +6,9 @@
 // vales já foram descontados da gorjeta enviada a ela —, então aqui só entra o VT.
 import { prisma } from "../../config/database.js";
 import { computeTipCommission } from "./tip-commission.service.js";
-import { semRegistroEm } from "./cadastro-historico.service.js";
+import { carregarHistorico, semRegistroEm } from "./cadastro-historico.service.js";
+import { serializar, valorVigenteEm } from "./cadastro-historico.js";
+import { type VerbasOpcionaisApuracao, calcularVerbasOpcionais, ocultarValoresVerbas } from "./rescisao-verbas-opcionais.js";
 import { DIA_PRIMEIRA_QUINZENA } from "./tip-rateio.js";
 import { costOfCalendarDay, round2, type Leg } from "./vt-calc.js";
 
@@ -99,6 +101,10 @@ export type ApuracaoRescisao = {
   // rescisão"): de onde veio cada parte da gorjeta — [0] o ciclo do mês, [1] os dias depois
   // dele (período seguinte). Ausente/null nos demais casos e nas apurações antigas.
   gorjetaPartes?: GorjetaParte[] | null;
+  // Sem registro: férias proporcionais + 1/3, 13º e aviso prévio calculados, FORA do bruto
+  // sugerido — só entram se alguém marcar (decisão da empresa). Ausente/null para CLT e
+  // nas apurações gravadas antes desta versão.
+  verbasOpcionais?: VerbasOpcionaisApuracao | null;
   sugestao: SugestaoRescisao;
   dadosPessoaisOcultos?: boolean;
 };
@@ -219,14 +225,19 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
   const emp = await prisma.employee.findFirst({
     where: { id: employeeId, deletedAt: null },
     select: {
-      id: true, modality: true, terminationDate: true, vtType: true,
+      id: true, modality: true, terminationDate: true, vtType: true, baseSalary: true, admissionDate: true,
       vtLegs: { include: { fare: true }, orderBy: [{ direction: "asc" }, { sortOrder: "asc" }] },
     },
   });
   if (!emp?.terminationDate) return null;
   const saida = emp.terminationDate;
-  // Vínculo vigente na saída (quem virou CLT depois de sair sem registro continua sem registro aqui).
-  const semRegistro = await semRegistroEm(emp.id, emp.modality, saida);
+  // Vínculo e salário vigentes na saída (quem virou CLT depois de sair sem registro continua
+  // sem registro aqui). Um carregamento do histórico do cadastro serve aos dois.
+  const historico = (await carregarHistorico([emp.id])).get(emp.id) ?? [];
+  const vigente = (campo: "modality" | "baseSalary", atual: unknown) =>
+    valorVigenteEm(historico.filter((l) => l.campo === campo), serializar(campo, atual), saida);
+  const semRegistro = vigente("modality", emp.modality) === "NAO_CLT";
+  const salarioNaSaida = vigente("baseSalary", emp.baseSalary == null ? null : Number(emp.baseSalary));
 
   // VT: só quinzenas que cobrem algo depois da saída (início até o fim do mês seguinte).
   const vtItens = await prisma.payrollItem.findMany({
@@ -287,8 +298,27 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
     primeiraQuinzena: g.primeiraQuinzena,
     horaExtra: g.horaExtra,
     ...(g.gorjetaPartes ? { gorjetaPartes: g.gorjetaPartes } : {}),
+    verbasOpcionais: semRegistro
+      ? await verbasDaSaida(employeeId, salarioNaSaida == null ? null : Number(salarioNaSaida), emp.admissionDate, saida)
+      : null,
   };
   return { ...base, sugestao: montarSugestao(base) };
+}
+
+// Férias, 13º e aviso de sem registro, sobre o salário base vigente na saída. Os lançamentos
+// de FÉRIAS só servem para avisar de período completo sem férias registradas.
+async function verbasDaSaida(employeeId: string, salario: number | null, inicio: Date | null, saida: Date): Promise<VerbasOpcionaisApuracao> {
+  if (!inicio) return { calculo: null, observacao: "Sem data de início (admissão) no cadastro: não dá para calcular férias, 13º e aviso. Use o valor livre se for o caso." };
+  if (salario == null || !(salario > 0)) return { calculo: null, observacao: "Sem salário base vigente na saída no cadastro: não dá para calcular férias, 13º e aviso. Use o valor livre se for o caso." };
+  const ferias = await prisma.payrollItem.findMany({
+    where: { employeeId, type: "FERIAS", deletedAt: null, status: { not: "CANCELED" }, periodStart: { not: null } },
+    select: { periodStart: true },
+  });
+  const calculo = calcularVerbasOpcionais({
+    salarioBase: salario, inicio, saida,
+    feriasRegistradas: ferias.map((f) => f.periodStart).filter((x): x is Date => x instanceof Date),
+  });
+  return { calculo, observacao: null };
 }
 
 type PeriodoDaGorjeta = { id: string; competenceYear: number; competenceMonth: number };
@@ -554,6 +584,7 @@ export function semDadosPessoais(a: ApuracaoRescisao | null): ApuracaoRescisao |
     horaExtra: a.horaExtra ? { ...a.horaExtra, valor: null } : a.horaExtra,
     // O total pago na lista inclui o salário: some o valor, fica o aviso.
     ...(a.jaPagoNaLista ? ocultarJaPago(a.jaPagoNaLista) : {}),
+    ...(a.verbasOpcionais ? { verbasOpcionais: ocultarValoresVerbas(a.verbasOpcionais) } : {}),
     dadosPessoaisOcultos: true,
   };
 }

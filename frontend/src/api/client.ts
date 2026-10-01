@@ -6444,7 +6444,7 @@ export type TerminationInfo = {
   lancada: RescisaoLancada | null;
 };
 
-export type ValoresRescisaoLancada = { bruto: number; salario: number | null; gorjeta: number | null; vales: number; vtDesconto: number; outroDesconto: number; liquido: number };
+export type ValoresRescisaoLancada = { bruto: number; salario: number | null; gorjeta: number | null; vales: number; vtDesconto: number; outroDesconto: number; liquido: number; verbasOpcionaisTotal?: number | null };
 export type RescisaoLancada = ValoresRescisaoLancada & {
   outroDescontoRotulo: string | null;
   valesRotulo: string | null;
@@ -6455,6 +6455,33 @@ export type RescisaoLancada = ValoresRescisaoLancada & {
   notes: string | null;
   ajusteManual: { divergencias: Array<{ rotulo: string; apurado: number; lancado: number; diferenca: number }>; justificativa: string; porNome: string | null; em: string } | null;
   historicoAjustes: Array<{ em: string; porNome: string | null; justificativa: string; antes: ValoresRescisaoLancada; depois: ValoresRescisaoLancada }>;
+  /** Verbas opcionais marcadas (sem registro) e quem marcou. valor/total null = oculto (sem ver Funcionários). */
+  verbasOpcionais?: VerbasOpcionaisLancadas | null;
+};
+
+export type TipoVerbaOpcional = "FERIAS" | "DECIMO_TERCEIRO" | "AVISO" | "LIVRE";
+export type VerbaOpcionalLancada = {
+  tipo: TipoVerbaOpcional; rotulo: string; valor: number | null; memoria: string | null;
+  avos?: number; dias?: number; terco?: number; descricao?: string;
+};
+export type VerbasOpcionaisLancadas = {
+  itens: VerbaOpcionalLancada[]; total: number | null;
+  por: { userId: string; nome: string | null; em: string } | null;
+};
+/** Cálculo das verbas opcionais de sem registro (fora do bruto sugerido). valor null = oculto. */
+export type CalculoVerbasOpcionais = {
+  base: number | null;
+  inicio: string;
+  ferias: { avos: number; inicioAquisitivo: string; ferias: number | null; terco: number | null; valor: number | null; memoria: string };
+  decimoTerceiro: { avos: number; desde: string; valor: number | null; memoria: string };
+  aviso: { dias: number; anos: number; valor: number | null; memoria: string };
+  avisoFeriasVencidas: string | null;
+};
+export type VerbasOpcionaisApuracao = { calculo: CalculoVerbasOpcionais | null; observacao: string | null };
+/** O que a tela marcou; o servidor recalcula férias, 13º e aviso. */
+export type EscolhaVerbasOpcionais = {
+  ferias: boolean; decimoTerceiro: boolean; aviso: boolean;
+  livre: { valor: number; descricao: string } | null;
 };
 
 export type ApuracaoRescisao = {
@@ -6497,6 +6524,8 @@ export type ApuracaoRescisao = {
    * ou serviço pendente).
    */
   gorjetaPartes?: Array<{ periodo: string; competencia: string; dias: string; valor: number | null; pendente: boolean; jaPagoNaLista: boolean }> | null;
+  /** Sem registro: férias + 1/3, 13º e aviso calculados, fora do bruto sugerido (só entram se marcados). */
+  verbasOpcionais?: VerbasOpcionaisApuracao | null;
 };
 
 export function getTerminationInfo(employeeId: string) {
@@ -6561,7 +6590,7 @@ export function registrarTermoSemValor(employeeId: string, fileBase64: string, f
   );
 }
 
-export type RescisaoPartes = { salario?: number; gorjeta?: number; valesDiscount?: number; valesLabel?: string };
+export type RescisaoPartes = { salario?: number; gorjeta?: number; valesDiscount?: number; valesLabel?: string; verbasOpcionais?: EscolhaVerbasOpcionais };
 
 export function adjustTermination(employeeId: string, payload: RescisaoPartes & { grossAmount: number; vtDiscount: number; otherDiscount: number; otherDiscountLabel?: string; notes?: string; justificativa: string }) {
   return request<{ ok: boolean; lancada: RescisaoLancada }>(`/payroll/termination/${employeeId}`, json("PUT", payload));
