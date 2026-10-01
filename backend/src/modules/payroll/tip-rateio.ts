@@ -66,6 +66,10 @@ export type ParticipanteEntrada = {
   ajuste: number;
   fixedAmount: number | null;
   admissao: Date | null;
+  // Entra na gorjeta em (cadastro): a presença na gorjeta conta daqui, não da admissão.
+  // O salário de quem não tem registro continua desde a admissão (os dias de teste são
+  // pagos). Ausente ou null = desde a admissão.
+  inicioGorjeta?: Date | null;
   desligamento: Date | null;
   faltas: number;
   atestados: number;
@@ -170,6 +174,20 @@ export function diasElegiveis(regras: Pick<RegrasPeriodo, "start" | "end">, admi
   return fim < inicio ? 0 : diasEntre(inicio, fim);
 }
 
+// Participa da gorjeta no cadastro, mas ainda não entrou neste período: sem a data de
+// entrada (em teste) ou com ela depois do fim do ciclo. Sem registro em teste fica no
+// período só pelo salário (foraDaGorjeta); CLT em teste fica fora do rateio.
+export function emTesteNaGorjeta(e: { participaGorjeta: boolean; inicioGorjeta: Date | null }, fimDoCiclo: Date): boolean {
+  if (!e.participaGorjeta) return false;
+  return e.inicioGorjeta == null || e.inicioGorjeta > fimDoCiclo;
+}
+
+// Início do vínculo com a gorjeta: o mais tarde entre a admissão e a entrada na gorjeta.
+function inicioNaGorjeta(p: ParticipanteEntrada): Date | null {
+  if (!p.inicioGorjeta) return p.admissao;
+  return p.admissao && p.admissao > p.inicioGorjeta ? p.admissao : p.inicioGorjeta;
+}
+
 // Valor do ponto de quem fica: o líquido e os pontos que sobram depois das rescisões.
 export function valorPontoMes(
   regras: RegrasPeriodo, totalCotasFixas: number, rescisoes: { valor: number; pontos: number } = { valor: 0, pontos: 0 },
@@ -207,7 +225,7 @@ function presenca(regras: RegrasPeriodo, p: ParticipanteEntrada) {
   const r = regraEfetiva(regras, p);
   const corridos = diasEntre(regras.start, regras.end);
   const proporcao = (dias: number) => (corridos > 0 ? Math.round(regras.diasPadrao * (dias / corridos)) : 0);
-  const elegiveis = diasElegiveis(regras, p.admissao, p.desligamento);
+  const elegiveis = diasElegiveis(regras, inicioNaGorjeta(p), p.desligamento);
   const previstos = p.diasPrevistosOverride ?? proporcao(elegiveis);
   const ateSaida = elegiveis > 0 ? diasElegiveis(regras, null, p.desligamento) : 0;
   const referencia = p.diasPrevistosOverride != null || !r.proporcionalEntrada

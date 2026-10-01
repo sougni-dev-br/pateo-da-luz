@@ -845,7 +845,7 @@ tipCommissionRouter.get("/team", async (_request, response) => {
     select: {
       id: true, firstName: true, lastName: true, displayName: true, isActive: true,
       sector: true, position: true, modality: true, admissionDate: true, terminationDate: true,
-      companyId: true, participaGorjeta: true, tipoGorjeta: true, cotaFixaGorjeta: true,
+      companyId: true, participaGorjeta: true, inicioGorjeta: true, tipoGorjeta: true, cotaFixaGorjeta: true,
       pontosExtra: true, pontosExtraMotivo: true, tipFunctionId: true,
     },
     orderBy: [{ isActive: "desc" }, { firstName: "asc" }, { lastName: "asc" }],

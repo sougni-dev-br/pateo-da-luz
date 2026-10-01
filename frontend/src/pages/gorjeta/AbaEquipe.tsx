@@ -10,6 +10,7 @@ import { StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { NomePessoa, textoPessoa } from "./NomePessoa";
+import { emTesteNaGorjeta } from "./emTesteNaGorjeta";
 import "./gorjeta.css";
 import { hojeLocal, inputStyle, mutedStyle, panelStyle, pts } from "./gorjetaUtils";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
@@ -220,6 +221,11 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
                     <NomePessoa nome={nome(m)} apelido={apelidoDe(m)} employeeId={m.id}>
                       {m.modality === "NAO_CLT" && <StatusBadge tone="warning">Sem registro</StatusBadge>}
                       {!m.isActive && <StatusBadge tone="neutral">Desligado</StatusBadge>}
+                      {emTesteNaGorjeta(m, hojeLocal()) && (
+                        <StatusBadge tone="info" title="Participa, mas ainda não entrou na gorjeta. Preencha 'Entra na gorjeta em' no cadastro do funcionário.">
+                          em teste (fora da gorjeta)
+                        </StatusBadge>
+                      )}
                     </NomePessoa>
                   </Table.Td>
                   {ve("participa") && (

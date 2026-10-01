@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  CAMPOS_HISTORICO, CAMPOS_SALARIO, ROTULO_CAMPO, alteracoes, cadastroVigenteEm, diaDeReferencia, faltaMotivoRetroativo, lerVigenteDesde,
+  CAMPOS_HISTORICO, CAMPOS_SALARIO, ROTULO_CAMPO, alteracoes, cadastroVigenteEm, diaDeReferencia, faltaMotivoEntradaGorjeta, faltaMotivoRetroativo, lerVigenteDesde,
   serializar, valorVigenteEm, type LinhaHistorico,
 } from "../cadastro-historico.js";
 
@@ -128,5 +128,37 @@ describe("teto do IR para a gorjeta informada", () => {
     expect(faltaMotivoRetroativo(["tetoIrGorjeta"], d("2026-08-01"), "2026-10-01", null)).toMatch(/informe o motivo/);
     expect(faltaMotivoRetroativo(["tetoIrGorjeta"], d("2026-08-01"), "2026-10-01", "Teto combinado com a contabilidade")).toBeNull();
     expect(faltaMotivoRetroativo(["tetoIrGorjeta"], d("2026-10-01"), "2026-10-01", null)).toBeNull();
+  });
+});
+
+describe("entrada na gorjeta no histórico", () => {
+  test("é rastreada, com rótulo próprio, e grava o dia (AAAA-MM-DD)", () => {
+    expect(CAMPOS_HISTORICO).toContain("inicioGorjeta");
+    expect(ROTULO_CAMPO.inicioGorjeta).toBe("Entrada na gorjeta");
+    expect(serializar("inicioGorjeta", d("2026-09-10"))).toBe("2026-09-10");
+    expect(serializar("inicioGorjeta", "2026-09-10T00:00:00.000Z")).toBe("2026-09-10");
+    expect(serializar("inicioGorjeta", null)).toBeNull();
+  });
+
+  test("mudança da data vira uma linha; a mesma data não", () => {
+    expect(alteracoes({ inicioGorjeta: null }, { inicioGorjeta: d("2026-09-10") })).toEqual([
+      { campo: "inicioGorjeta", valorAnterior: null, valorNovo: "2026-09-10" },
+    ]);
+    expect(alteracoes({ inicioGorjeta: d("2026-09-10") }, { inicioGorjeta: new Date("2026-09-10T00:00:00Z") })).toEqual([]);
+  });
+
+  const HOJE = "2026-10-01";
+  const entrada = (de: string | null, para: string | null) => ({ campo: "inicioGorjeta" as const, valorAnterior: de, valorNovo: para });
+  test("entrada num mês passado (ou tirar uma de mês passado) exige motivo", () => {
+    expect(faltaMotivoEntradaGorjeta(entrada(null, "2026-09-10"), HOJE, null))
+      .toBe("Entrada na gorjeta em 09/2026 muda a gorjeta de meses passados: informe o motivo.");
+    expect(faltaMotivoEntradaGorjeta(entrada("2026-08-01", null), HOJE, "")).toMatch(/08\/2026/);
+    expect(faltaMotivoEntradaGorjeta(entrada(null, "2026-09-10"), HOJE, "Efetivada após o teste")).toBeNull();
+  });
+
+  test("entrada no mês atual ou futuro não exige motivo; sem mudança, nada", () => {
+    expect(faltaMotivoEntradaGorjeta(entrada(null, "2026-10-05"), HOJE, null)).toBeNull();
+    expect(faltaMotivoEntradaGorjeta(entrada("2026-10-20", "2026-11-01"), HOJE, null)).toBeNull();
+    expect(faltaMotivoEntradaGorjeta(undefined, HOJE, null)).toBeNull();
   });
 });

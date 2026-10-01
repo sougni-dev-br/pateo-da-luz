@@ -5441,6 +5441,8 @@ export type Employee = {
   includeInSchedule: boolean;
   admissionDate: string | null;
   admissaoCarteira?: string | null;
+  /** Entra na gorjeta em. Vazio = em teste (ou fora da gorjeta). */
+  inicioGorjeta?: string | null;
   vtType: VtType;
   vtPeriodicity: VtPeriodicity;
   vtFixedAmount: string | null;
@@ -5513,6 +5515,8 @@ export type EmployeePayload = {
   admissionDate?: string;
   /** Registro em carteira (do extrato); null limpa, ausente preserva. */
   admissaoCarteira?: string | null;
+  /** Entra na gorjeta em (AAAA-MM-DD); null = em teste/fora; ausente preserva. */
+  inicioGorjeta?: string | null;
   vtType?: VtType;
   vtPeriodicity?: VtPeriodicity;
   /** null limpa o valor; ausente preserva o que esta gravado. */
@@ -5526,7 +5530,7 @@ export type EmployeePayload = {
   motivoAlteracao?: string;
 };
 
-export type CampoHistoricoCadastro = "baseSalary" | "salarioCombinado" | "tetoIrGorjeta" | "modality" | "companyId" | "position" | "recebeAdiantamento" | "pagamentoQuinzenal";
+export type CampoHistoricoCadastro = "baseSalary" | "salarioCombinado" | "tetoIrGorjeta" | "modality" | "companyId" | "position" | "recebeAdiantamento" | "pagamentoQuinzenal" | "inicioGorjeta";
 
 /** Uma alteração do cadastro. Sem permissão de ver Funcionários, salário vem com oculto=true e sem valores. */
 export type EmployeeHistoricoLinha = {
@@ -5956,6 +5960,8 @@ export type TipTeamMember = {
   terminationDate: string | null;
   companyId: string | null;
   participaGorjeta: boolean;
+  /** Entra na gorjeta em (do cadastro). Vazio ou futura = em teste, fora do rateio. */
+  inicioGorjeta?: string | null;
   tipoGorjeta: TipParticipantKind;
   cotaFixaGorjeta: number | null;
   /** Ponto extra (±) somado aos pontos da função. */

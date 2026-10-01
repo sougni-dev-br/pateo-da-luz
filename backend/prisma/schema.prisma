@@ -2459,6 +2459,10 @@ model Employee {
   companyId         String?
   company           Company?           @relation(fields: [companyId], references: [id])
   participaGorjeta  Boolean            @default(false)
+  // Entra na gorjeta em: quem é contratado começa em teste; se fica, o dono decide quando
+  // entra no rateio. Vazio = ainda não entrou (em teste ou fora). Sem registro em teste
+  // recebe só o salário dos dias (desde a admissão); CLT em teste fica fora do rateio.
+  inicioGorjeta     DateTime?          @db.Date
   tipoGorjeta       TipParticipantKind @default(PONTOS)
   cotaFixaGorjeta   Decimal?           @db.Decimal(14, 2)
   // Ponto extra (±) somado aos pontos da função, sempre com justificativa.
