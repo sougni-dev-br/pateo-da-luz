@@ -99,8 +99,8 @@ export function ExtrasPainel({ ate, habitualidade, podeAjustarCriterios, onAjust
                 <Table.Row>
                   <Table.Th>Mês</Table.Th>
                   <Table.Th className="extras-ocultar-celular" style={{ textAlign: "right" }}>Diárias</Table.Th>
-                  <Table.Th className="extras-ocultar-celular" style={{ textAlign: "right" }}>Casa</Table.Th>
-                  <Table.Th className="extras-ocultar-celular" style={{ textAlign: "right" }}>Fora</Table.Th>
+                  <Table.Th className="extras-ocultar-celular" style={{ textAlign: "right" }}>Equipe</Table.Th>
+                  <Table.Th className="extras-ocultar-celular" style={{ textAlign: "right" }}>Freelancers</Table.Th>
                   <Table.Th style={{ textAlign: "right" }}>Total</Table.Th>
                   {dados.verFolha && <Table.Th style={{ textAlign: "right" }} title="Extras ÷ (extras + folha do mês)">% pessoal</Table.Th>}
                   {dados.verFaturamento && <Table.Th style={{ textAlign: "right" }} title="Extras ÷ faturamento bruto do mês">% fatur.</Table.Th>}
@@ -132,7 +132,7 @@ export function ExtrasPainel({ ate, habitualidade, podeAjustarCriterios, onAjust
               <Quebra titulo="Por setor no período" grupos={dados.porSetor} />
               {dados.porEvento.length > 0 && <Quebra titulo="Por evento no período" grupos={dados.porEvento} />}
               <Quebra titulo="Por motivo no período" grupos={dados.porMotivo} rotulo={(c) => MOTIVO_ROTULO[c as ExtraMotivo] ?? c} />
-              <Quebra titulo="Quem mais trabalhou" grupos={dados.porPessoa.map((p) => ({ chave: p.origem === "FORA" ? `${p.nome} (de fora)` : p.nome, total: p.total, diarias: p.diarias }))} />
+              <Quebra titulo="Quem mais trabalhou" grupos={dados.porPessoa.map((p) => ({ chave: p.origem === "FORA" ? `${p.nome} (freelancer)` : p.nome, total: p.total, diarias: p.diarias }))} />
             </div>
           </>
         ))}
@@ -142,7 +142,7 @@ export function ExtrasPainel({ ate, habitualidade, podeAjustarCriterios, onAjust
         <div className="section-heading">
           <div>
             <PanelEyebrow>Risco de vínculo empregatício</PanelEyebrow>
-            <h2>Frequência das pessoas de fora</h2>
+            <h2>Frequência dos freelancers</h2>
           </div>
           {podeAjustarCriterios && <Button variant="secondary" size="sm" leadingIcon={<Settings size={14} />} onClick={onAjustarCriterios}>Ajustar critérios</Button>}
         </div>
@@ -155,12 +155,12 @@ export function ExtrasPainel({ ate, habitualidade, podeAjustarCriterios, onAjust
         {!habitualidade ? (
           <p className="extras-sub">Carregando…</p>
         ) : habitualidade.pessoas.length === 0 ? (
-          <EmptyState title="Nenhuma pessoa de fora nos últimos 90 dias" description="Quando houver diárias de pessoas de fora, a frequência de cada uma aparece aqui." />
+          <EmptyState title="Nenhum freelancer nos últimos 90 dias" description="Quando houver diárias de freelancers, a frequência de cada um aparece aqui." />
         ) : (
           <>
             {emRisco.length > 0 && (
               <Alert tone="warning" icon={<AlertTriangle size={16} />} className="extras-aviso">
-                {emRisco.length === 1 ? "1 pessoa de fora está" : `${emRisco.length} pessoas de fora estão`} com frequência alta. Avalie espaçar as diárias ou registrar.
+                {emRisco.length === 1 ? "1 freelancer está" : `${emRisco.length} freelancers estão`} com frequência alta. Avalie espaçar as diárias ou registrar.
               </Alert>
             )}
             <Table className="extras-tabela">
