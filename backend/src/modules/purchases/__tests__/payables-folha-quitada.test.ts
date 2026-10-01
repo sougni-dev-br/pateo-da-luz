@@ -2,7 +2,8 @@ import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-// Contas a Pagar: a rescisão quitada no termo (líquido zero, nada a pagar) não é título.
+// Contas a Pagar: a rescisão quitada (no termo, ou sem valor: líquido zero ou saldo devedor
+// perdoado) não é título.
 // Fica fora da lista e do relatório em PDF — as duas consultas da Folha.
 vi.mock("../../../config/database.js", () => ({ prisma: { $queryRaw: vi.fn() } }));
 vi.mock("../../security/security-utils.js", () => ({
@@ -35,6 +36,7 @@ describe("Contas a Pagar sem a rescisão quitada no termo", () => {
     const folha = sqlDaFolha();
     expect(folha).toHaveLength(1);
     expect(folha[0]).toContain("quitadaNoTermo");
+    expect(folha[0]).toContain("quitadaSemValor");
   });
 
   test("o relatório em PDF também", async () => {
@@ -42,5 +44,6 @@ describe("Contas a Pagar sem a rescisão quitada no termo", () => {
     const folha = sqlDaFolha();
     expect(folha).toHaveLength(1);
     expect(folha[0]).toContain("quitadaNoTermo");
+    expect(folha[0]).toContain("quitadaSemValor");
   });
 });

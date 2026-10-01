@@ -28,6 +28,19 @@ export function ehQuitadaNoTermo(details: unknown): boolean {
   return details != null && typeof details === "object" && (details as { quitadaNoTermo?: unknown }).quitadaNoTermo === true;
 }
 
+// Rescisão "quitada sem valor": calculada aqui (sem termo), com líquido zero ou negativo
+// (regra do Eli, 01/10/2026: o saldo devedor é perdoado). Também é um R$ 0,00 já pago e
+// fora do Contas a Pagar, mas — ao contrário da do termo — grava a gorjeta na apuração,
+// então excluir continua desfazendo a gorjeta. Por isso a marca é outra.
+export function ehQuitadaSemValor(details: unknown): boolean {
+  return details != null && typeof details === "object" && (details as { quitadaSemValor?: unknown }).quitadaSemValor === true;
+}
+
+/** Quitada de qualquer jeito (no termo ou sem valor): nada a pagar nem a estornar. */
+export function ehRescisaoQuitada(details: unknown): boolean {
+  return ehQuitadaNoTermo(details) || ehQuitadaSemValor(details);
+}
+
 function casar(recibo: ReciboRescisao, pessoa: PessoaDoTermo): AvaliacaoTermo["casadoPor"] {
   if (recibo.cpfDigitos && digitos(pessoa.cpf) === recibo.cpfDigitos) return "CPF";
   if (recibo.nome && semAcento(recibo.nome) === semAcento(`${pessoa.firstName} ${pessoa.lastName}`)) return "NOME";

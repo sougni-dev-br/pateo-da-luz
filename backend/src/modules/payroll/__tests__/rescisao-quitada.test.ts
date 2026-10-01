@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { avaliarTermoSemValor, ehQuitadaNoTermo } from "../rescisao-quitada.js";
+import { avaliarTermoSemValor, ehQuitadaNoTermo, ehQuitadaSemValor, ehRescisaoQuitada } from "../rescisao-quitada.js";
 import type { ReciboRescisao } from "../tip-trct.service.js";
 
 // Termo com líquido zero (faltas zeraram a rescisão): o caso da Michele e do Vagner.
@@ -84,5 +84,21 @@ describe("ehQuitadaNoTermo", () => {
     expect(ehQuitadaNoTermo({ quitadaNoTermo: "true" })).toBe(false);
     expect(ehQuitadaNoTermo({ grupoRescisao: "g" })).toBe(false);
     expect(ehQuitadaNoTermo(null)).toBe(false);
+  });
+});
+
+describe("ehQuitadaSemValor / ehRescisaoQuitada", () => {
+  test("quitada sem valor: só com a marca própria (não se confunde com a do termo)", () => {
+    expect(ehQuitadaSemValor({ quitadaSemValor: true })).toBe(true);
+    expect(ehQuitadaSemValor({ quitadaSemValor: "true" })).toBe(false);
+    expect(ehQuitadaSemValor({ quitadaNoTermo: true })).toBe(false);
+    expect(ehQuitadaSemValor(null)).toBe(false);
+    expect(ehQuitadaNoTermo({ quitadaSemValor: true })).toBe(false);
+  });
+  test("rescisão quitada: qualquer das duas marcas", () => {
+    expect(ehRescisaoQuitada({ quitadaNoTermo: true })).toBe(true);
+    expect(ehRescisaoQuitada({ quitadaSemValor: true })).toBe(true);
+    expect(ehRescisaoQuitada({ grupoRescisao: "g" })).toBe(false);
+    expect(ehRescisaoQuitada(undefined)).toBe(false);
   });
 });
