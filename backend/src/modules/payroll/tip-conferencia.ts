@@ -8,6 +8,8 @@
 // (teto − salário registrado): o extrato tem de bater com ela, com ou sem salário
 // combinado. Na folha de líquidos ele continua recebendo a gorjeta real.
 
+import { valorIntegralCombinado } from "./salario-combinado-folha.js";
+
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
 export type PessoaApurada = {
@@ -175,7 +177,7 @@ export function montarFolhaLiquidos(apuracao: PessoaApurada[], extratos: Extrato
       if (combinado != null) {
         const adiant = l.adiantamento ?? 0;
         const gorjeta = p?.noPeriodo ? p.gorjetaLiquida : 0;
-        const valor = round2(combinado - adiant + gorjeta);
+        const valor = valorIntegralCombinado({ combinado, adiantamento: adiant, gorjeta });
         linhas.push({ employeeId: l.employeeId, nome: p?.nome ?? l.nome, grupo: e.empresa, origem: "SALARIO_COMBINADO", valor,
           composicao: `(${reais(combinado)} − adiant. ${reais(adiant)}) + gorjeta ${reais(gorjeta)}`,
           pix: p?.pix ?? null, aviso: l.adiantamento == null ? "Adiantamento não lido no extrato: considerado zero." : null });

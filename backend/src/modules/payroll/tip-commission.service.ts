@@ -344,6 +344,20 @@ function folgasDoRetrato(participantes: unknown): Map<string, FolgasEscala> {
   return mapa;
 }
 
+// Gorjeta informada à contabilidade gravada no retrato do fechamento (CLT). Retrato sem o
+// campo (antes desta versão) fica fora do mapa: o período fechado recalcula, como antes.
+type InformadaFechada = { informada: number; peloTeto: boolean; teto: number | null };
+function informadasDoRetrato(participantes: unknown): Map<string, InformadaFechada> {
+  const mapa = new Map<string, InformadaFechada>();
+  if (!Array.isArray(participantes)) return mapa;
+  for (const p of participantes as Array<{ employeeId?: unknown; gorjetaInformada?: unknown; gorjetaInformadaPeloTeto?: unknown; tetoIrGorjeta?: unknown }>) {
+    if (typeof p.employeeId !== "string" || typeof p.gorjetaInformada !== "number") continue;
+    const peloTeto = p.gorjetaInformadaPeloTeto === true;
+    mapa.set(p.employeeId, { informada: p.gorjetaInformada, peloTeto, teto: peloTeto && typeof p.tetoIrGorjeta === "number" ? p.tetoIrGorjeta : null });
+  }
+  return mapa;
+}
+
 // 1ª quinzena gravada no retrato do fechamento. Retrato sem o campo (antes desta versão,
 // ou quem não recebe por quinzena) = zero: o total gravado não descontou quinzena.
 function quinzenasDoRetrato(participantes: unknown): Map<string, number> {
@@ -559,6 +573,7 @@ export async function computeTipCommission(
   const folgasFechadas = registro ? folgasDoRetrato(registro.participants) : null;
   const adicionaisFechados = registro ? adicionaisDoRetrato(registro.participants) : null;
   const quinzenasFechadas = registro ? quinzenasDoRetrato(registro.participants) : null;
+  const informadasFechadas = registro ? informadasDoRetrato(registro.participants) : null;
 
   // Reserva da casa: pontos do período × valor do ponto do mês. Fechado, vale o
   // que entrou no fundo naquele fechamento.
@@ -598,9 +613,11 @@ export async function computeTipCommission(
       : calc.adiantamentoSalarial;
     const naEscala = escala.get(r.employeeId) ?? semOcorrencias();
     // Teto do IR só vale para quem é CLT no mês e tem salário registrado para descontar.
-    const teto = ent.semRegistro ? null : vigenteDe(r).tetoIrGorjeta;
-    const peloTeto = teto != null && ent.salarioBase != null;
-    const informada = gorjetaInformada(peloTeto ? teto : null, ent.salarioBase, netCommission);
+    // Fechado: vale o que o fechamento gravou (o que foi enviado), não o cadastro de hoje.
+    const fechada = closed ? informadasFechadas?.get(r.employeeId) : undefined;
+    const teto = fechada ? fechada.teto : ent.semRegistro ? null : vigenteDe(r).tetoIrGorjeta;
+    const peloTeto = fechada ? fechada.peloTeto : teto != null && ent.salarioBase != null;
+    const informada = fechada ? fechada.informada : gorjetaInformada(peloTeto ? teto : null, ent.salarioBase, netCommission);
     return {
       participantId: r.id,
       employeeId: r.employeeId,

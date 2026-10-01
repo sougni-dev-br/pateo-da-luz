@@ -124,6 +124,12 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     descontos: p.descontos,
     creditos: p.creditos,
     liquido: p.netCommission,
+    // O que foi enviado à contabilidade (CLT): um teto ou salário mudado depois, com data
+    // retroativa, não muda o envio de um mês fechado. Retratos antigos não têm.
+    ...(!p.semRegistro && p.gorjetaInformada != null ? {
+      gorjetaInformada: p.gorjetaInformada,
+      ...(p.gorjetaInformadaPeloTeto ? { gorjetaInformadaPeloTeto: true, tetoIrGorjeta: p.tetoIrGorjeta } : {}),
+    } : {}),
     diasSalario: p.diasSalario,
     salarioProporcional: p.salarioProporcional,
     ...(p.adiantamentoSalarial ? { adiantamentoSalarial: p.adiantamentoSalarial } : {}),

@@ -10,6 +10,8 @@ import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
 import { avisosDoExtrato, guardarExtrato, preencherAdmissaoCarteira } from "./rh-extract-store.service.js";
 import { aposSaida, duplicadosDe, ehComplemento } from "./folha-duplicidade.js";
+import { avisoGorjetaPendente, gorjetasDaCompetencia, mapaCombinados } from "./salario-combinado.service.js";
+import { type GorjetaDaApuracao, salarioDaFolha } from "./salario-combinado-folha.js";
 
 export type ExtratoFuncionario = {
   nome: string;
@@ -342,13 +344,37 @@ export async function importExtrato(opts: {
   const { type: tipo, periodLabel } = chaveDoExtrato(parsed.calculo, mmaaaa);
   const details = (f: ExtratoFuncionario) => ({ calculo: parsed.calculo, liquido: f.liquido, gorjeta: f.gorjeta, adiantamento: f.adiantamento, empresa: parsed.empresa });
 
+  // Salário combinado vigente na competência (folha do mês): o SALARIO vai pelo valor integral.
+  const combinados = adiantamento ? new Map<string, number>() : await mapaCombinados(competenceYear, competenceMonth,
+    parsed.funcionarios.map((f) => (f.cpfNorm ? byCpf.get(f.cpfNorm) : undefined)).filter((x): x is string => Boolean(x)));
+  const avisosDaImportacao: string[] = [];
+  // Gorjeta da competência: só calculada se alguém tiver combinado, e uma vez.
+  let gorjetas: Map<string, GorjetaDaApuracao> | null | undefined;
+  const gorjetaDe = async (employeeId: string) => {
+    if (gorjetas === undefined) {
+      try { gorjetas = await gorjetasDaCompetencia(competenceYear, competenceMonth); } catch (err) {
+        gorjetas = null;
+        avisosDaImportacao.push(`Não foi possível calcular a gorjeta de ${mmaaaa} para os salários combinados: ${(err as Error).message}`);
+      }
+    }
+    return gorjetas?.get(employeeId) ?? null;
+  };
+  // Valor e detalhes do lançamento: o líquido do extrato, ou o integral de quem tem combinado.
+  const lancamento = async (f: ExtratoFuncionario, empId: string) => {
+    const combinado = combinados.get(empId);
+    if (combinado == null) return { valor: f.liquido, detalhes: details(f) };
+    const calc = salarioDaFolha({ liquidoExtrato: f.liquido, adiantamento: f.adiantamento, combinado, gorjeta: await gorjetaDe(empId) });
+    if (calc.pendenteGorjeta) avisosDaImportacao.push(avisoGorjetaPendente(f.nome));
+    if (calc.aviso) avisosDaImportacao.push(`Salário combinado de ${f.nome}: ${calc.aviso}.`);
+    return { valor: calc.valor, detalhes: { ...details(f), ...calc.detalhes } };
+  };
+
   let funcionariosCadastrados = 0;
   let titulosAtualizados = 0;
   let titulosNovos = 0;
   let titulosPulados = 0;
   let zerados = 0;
   let adiantamentosDaFolha = 0;
-  const avisosDaImportacao: string[] = [];
   for (const f of parsed.funcionarios) {
     let empId = f.cpfNorm ? byCpf.get(f.cpfNorm) : undefined;
     if (!empId) {
@@ -408,18 +434,19 @@ export async function importExtrato(opts: {
       );
       continue;
     }
+    const { valor, detalhes } = await lancamento(f, empId);
     if (existente) {
       await prisma.payrollItem.update({
         where: { id: existente.id },
         // deletedAt/deletedById limpos de propósito: aqui só chega o ativo ou o excluído
         // legado (sem autor), que volta a aparecer — ver excluidoAMao.
-        data: { amount: f.liquido, dueDate, dreCategoryId, source: "EXTRATO_RH", details: details(f), updatedById: opts.userId, deletedAt: null, deletedById: null },
+        data: { amount: valor, dueDate, dreCategoryId, source: "EXTRATO_RH", details: detalhes, updatedById: opts.userId, deletedAt: null, deletedById: null },
       });
     } else {
       await prisma.payrollItem.create({
         data: {
-          id: crypto.randomUUID(), ...chaveUnica, dueDate, amount: f.liquido, dreCategoryId, source: "EXTRATO_RH",
-          details: details(f), createdById: opts.userId,
+          id: crypto.randomUUID(), ...chaveUnica, dueDate, amount: valor, dreCategoryId, source: "EXTRATO_RH",
+          details: detalhes, createdById: opts.userId,
         },
       });
     }

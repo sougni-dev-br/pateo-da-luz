@@ -2,7 +2,7 @@
 // Registrada em app.ts como:  app.use("/payroll/tip", tipCommissionRouter);
 
 import crypto from "node:crypto";
-import { Router, type Response } from "express";
+import { Router, type Request, type Response } from "express";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
@@ -26,6 +26,7 @@ import { detalheFechamento, listarFechamentos } from "./tip-fechamento.service.j
 import { lerPdfRescisao } from "./tip-trct.service.js";
 import { pdfDoCorpo } from "./pdf-corpo.js";
 import { tipConferenciaRouter } from "./tip-conferencia.routes.js";
+import { sincronizarSalariosCombinados } from "./salario-combinado.service.js";
 import { tipValesRouter } from "./tip-vales.routes.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { normalizarHorasDigitadas } from "./hora-extra.js";
@@ -660,6 +661,17 @@ tipCommissionRouter.delete("/participants/:id", async (request, response) => {
 
 // Vales: em tip-vales.routes.ts (lançar, corrigir, cancelar, relatório).
 
+// Depois do fechamento gravado: falha aqui (ex.: mês travado) não desfaz o fechamento,
+// vira aviso. Quem não vê Funcionários recebe só quantos salários mudaram.
+async function sincronizarAposFechar(request: Request, year: number, month: number, usuario: { id: string; name: string }) {
+  try {
+    const r = await sincronizarSalariosCombinados(year, month, usuario);
+    return { atualizados: r.alterados.length, detalhes: (await podeVerDadosPessoais(request)) ? r : null, erro: null };
+  } catch (err) {
+    return { atualizados: 0, detalhes: null, erro: (err as Error).message };
+  }
+}
+
 // ─── Fechar o período (recalcula, persiste e trava a conferência) ───────────
 tipCommissionRouter.post("/periods/:year/:month/close", async (request, response) => {
   const user = await getSessionUser(request);
@@ -672,7 +684,8 @@ tipCommissionRouter.post("/periods/:year/:month/close", async (request, response
       userId: user.id, action: "CLOSE_TIP_PERIOD", entity: "TipPeriod", entityId: result.code ?? `${year}-${month}`,
       newValue: { registro: result.fechamento?.code ?? null, ...result.totals }, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
     });
-    response.json(result);
+    // Fechado o mês, o salário de quem tem salário combinado passa ao valor integral.
+    response.json({ ...result, salariosCombinados: await sincronizarAposFechar(request, year, month, { id: user.id, name: user.name }) });
   } catch (err) {
     response.status(422).json({ message: (err as Error).message });
   }
@@ -1041,8 +1054,13 @@ tipCommissionRouter.get("/closings/:id", async (request, response) => {
   if (await podeVerDadosPessoais(request)) return response.json(detalhe);
   // Sem a permissão de Funcionários: some o que mistura salário (proporcional, adiantamento,
   // 1ª quinzena e total a pagar).
+  // A gorjeta informada pelo teto (teto − salário) e o teto também revelam o salário.
   const participants = (detalhe.participants as Array<Record<string, unknown>>).map(
-    ({ salarioProporcional: _s, adiantamentoSalarial: _a, primeiraQuinzena: _q, totalAPagar: _t, diasSalario: _d, ...resto }) => resto,
+    ({ salarioProporcional: _s, adiantamentoSalarial: _a, primeiraQuinzena: _q, totalAPagar: _t, diasSalario: _d, tetoIrGorjeta: _teto, ...resto }) => {
+      if (resto.gorjetaInformadaPeloTeto !== true) return resto;
+      const { gorjetaInformada: _gi, ...semInformada } = resto;
+      return semInformada;
+    },
   );
   const { adiantamentos: _ad, primeirasQuinzenas: _pq, ...totals } = (detalhe.totals ?? {}) as Record<string, unknown>;
   response.json({ ...detalhe, participants, totals, salariosOcultos: true });

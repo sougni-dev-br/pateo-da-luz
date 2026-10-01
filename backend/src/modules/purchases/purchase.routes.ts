@@ -13,7 +13,9 @@ import {
   paymentMethodAllowsInstallments
 } from "../../shared/utils/payment-methods.js";
 import { createPayablesFinancialPdf, type PayablesFinancialPdfRow } from "./payables-financial-pdf.js";
-import { auditLog, requestIp, requireAdmin, requireRole } from "../security/security-utils.js";
+import { auditLog, requestIp, requireAdmin, requireRole, type SessionUser } from "../security/security-utils.js";
+import { userHasPermission } from "../security/menu-permissions.js";
+import { composicaoParaTela } from "../payroll/salario-combinado-folha.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
@@ -471,6 +473,15 @@ purchaseRouter.get("/", async (request, response) => {
   );
 });
 
+// Salário de quem tem salário combinado: a composição (líquido do extrato + diferença do
+// combinado) só para quem pode ver salários (Funcionários). Os detalhes crus do lançamento
+// nunca saem na lista.
+async function comComposicaoDoSalario(linhas: Array<Record<string, unknown>>, user: { id: string; role: string }) {
+  const comComposicao = linhas.map((l) => composicaoParaTela(l.payrollDetails, Number(l.amount ?? 0)));
+  const veSalarios = comComposicao.some(Boolean) && await userHasPermission(user as SessionUser, "employees", "view");
+  return linhas.map(({ payrollDetails: _detalhes, ...resto }, i) => ({ ...resto, salarioComposicao: veSalarios ? comComposicao[i] : null }));
+}
+
 purchaseRouter.get("/payables", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
   if (!user) return;
@@ -686,7 +697,8 @@ purchaseRouter.get("/payables", async (request, response) => {
           CONCAT(e."firstName", ' ', e."lastName") AS "taxCompanyName",
           NULL::text AS "taxCnpj",
           MAKE_DATE(pit."competenceYear", pit."competenceMonth", 1) AS "taxCompetenceDate",
-          dc."name" AS "taxDreCategoryName"
+          dc."name" AS "taxDreCategoryName",
+          pit."details" AS "payrollDetails"
         FROM "PayrollItem" pit
         JOIN "Employee" e ON e."id" = pit."employeeId"
         LEFT JOIN "DRECategory" dc ON dc."id" = pit."dreCategoryId"
@@ -720,7 +732,7 @@ purchaseRouter.get("/payables", async (request, response) => {
     ? await extrasParaPayables({ startToday, status, startDate, endDate, noDueDate })
     : ([] as Array<Record<string, unknown>>);
 
-  const allRows: Array<Record<string, unknown>> = [...purchaseMapped, ...taxRows, ...payrollRows, ...extraRows];
+  const allRows: Array<Record<string, unknown>> = [...purchaseMapped, ...taxRows, ...await comComposicaoDoSalario(payrollRows, user), ...extraRows];
   allRows.sort((a, b) => {
     const da = a["dueDate"] ? new Date(String(a["dueDate"])).getTime() : Number.MAX_SAFE_INTEGER;
     const db = b["dueDate"] ? new Date(String(b["dueDate"])).getTime() : Number.MAX_SAFE_INTEGER;

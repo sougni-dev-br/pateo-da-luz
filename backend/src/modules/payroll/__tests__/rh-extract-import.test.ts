@@ -15,6 +15,11 @@ vi.mock("../rh-extract-store.service.js", () => ({
   preencherAdmissaoCarteira: vi.fn(async () => 0),
   avisosDoExtrato: vi.fn(async () => ["aviso do PDF"]),
 }));
+vi.mock("../salario-combinado.service.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../salario-combinado.service.js")>()),
+  mapaCombinados: vi.fn(async () => new Map()),
+  gorjetasDaCompetencia: vi.fn(async () => null),
+}));
 vi.mock("../../../config/database.js", () => ({
   prisma: {
     company: { findMany: vi.fn(), create: vi.fn() },
@@ -27,6 +32,7 @@ vi.mock("../../../config/database.js", () => ({
 
 import { prisma } from "../../../config/database.js";
 import { importExtrato } from "../rh-extract.service.js";
+import { gorjetasDaCompetencia, mapaCombinados } from "../salario-combinado.service.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = prisma as any;
@@ -62,6 +68,8 @@ beforeEach(() => {
   db.payrollItem.update.mockResolvedValue({});
   db.payrollItem.create.mockResolvedValue({});
   db.payrollItem.findMany.mockResolvedValue([]);
+  vi.mocked(mapaCombinados).mockResolvedValue(new Map());
+  vi.mocked(gorjetasDaCompetencia).mockResolvedValue(null);
 });
 
 describe("importExtrato — lançamento excluído", () => {
@@ -228,5 +236,92 @@ describe("importExtrato — travas de duplicidade e de saída", () => {
     const tipos = db.payrollItem.create.mock.calls.map((c: [{ data: { type: string } }]) => c[0].data.type);
     expect(tipos).not.toContain("ADIANTAMENTO");
     expect(r.adiantamentosDaFolha).toBe(0);
+  });
+});
+
+// Regra do dono: quem tem salário combinado recebe no dia 5 o valor INTEGRAL,
+// (combinado − adiantamento) + gorjeta dos pontos — não só o líquido do extrato.
+describe("importExtrato — salário combinado", () => {
+  // Líquido 3.030,00 e desconto do adiantamento de 1.468,80 (setembro do caso real).
+  const folhaDoCombinado = () => extrato("Folha Mensal", "3.030,00")
+    .replace("980 ADIANTAMENTO SALARIAL P	1.033,66	40,00", "1 HORAS NORMAIS 981 1.033,66 D	P	3.672,00	220,00 DESC.ADIANT.SALARIAL 1.468,80");
+  const salarioCriado = () => db.payrollItem.create.mock.calls.map((c: [{ data: Record<string, unknown> }]) => c[0].data)
+    .find((d: Record<string, unknown>) => d.type === "SALARIO");
+
+  beforeEach(() => {
+    textoDoPdf.atual = folhaDoCombinado();
+    vi.mocked(mapaCombinados).mockResolvedValue(new Map([["e1", 5200]]));
+    vi.mocked(gorjetasDaCompetencia).mockResolvedValue(new Map([["e1", { noPeriodo: true, gorjetaLiquida: 2223.54 }]]));
+  });
+
+  test("com combinado e gorjeta apurada: lança o valor integral e guarda a composição", async () => {
+    await importar();
+    expect(mapaCombinados).toHaveBeenCalledWith(2026, 9, ["e1"]);
+    expect(gorjetasDaCompetencia).toHaveBeenCalledWith(2026, 9);
+    const sal = salarioCriado();
+    expect(sal.amount).toBe(5954.74);
+    expect(sal.details).toMatchObject({
+      liquido: 3030, liquidoExtrato: 3030, combinado: 5200, adiantamento: 1468.8, gorjetaIntegral: 2223.54,
+      complemento: 2924.74, origemValor: "SALARIO_COMBINADO",
+    });
+    expect(typeof (sal.details as { composicao: string }).composicao).toBe("string");
+  });
+
+  test("sem combinado: o líquido do extrato, como sempre, sem calcular gorjeta", async () => {
+    vi.mocked(mapaCombinados).mockResolvedValue(new Map());
+    await importar();
+    const sal = salarioCriado();
+    expect(sal.amount).toBe(3030);
+    expect(sal.details).not.toHaveProperty("origemValor");
+    expect(sal.details).not.toHaveProperty("pendenteGorjeta");
+    expect(gorjetasDaCompetencia).not.toHaveBeenCalled();
+  });
+
+  test("sem apuração da gorjeta: lança o líquido, marca pendente e avisa", async () => {
+    vi.mocked(gorjetasDaCompetencia).mockResolvedValue(null);
+    const r = await importar();
+    const sal = salarioCriado();
+    expect(sal.amount).toBe(3030);
+    expect(sal.details).toMatchObject({ pendenteGorjeta: true, combinado: 5200, liquidoExtrato: 3030 });
+    expect(r.avisos).toContain("Salário combinado de FULANO DE TAL: gorjeta do mês ainda não apurada; lançado o líquido do extrato. Será atualizado ao fechar a gorjeta.");
+  });
+
+  test("pessoa fora da apuração: também fica pendente", async () => {
+    vi.mocked(gorjetasDaCompetencia).mockResolvedValue(new Map([["outro", { noPeriodo: true, gorjetaLiquida: 1 }]]));
+    await importar();
+    expect(salarioCriado().details).toMatchObject({ pendenteGorjeta: true });
+  });
+
+  test("erro ao calcular a gorjeta: fica pendente e o erro vira aviso (não some)", async () => {
+    vi.mocked(gorjetasDaCompetencia).mockRejectedValue(new Error("faturamento indisponível"));
+    const r = await importar();
+    expect(salarioCriado().amount).toBe(3030);
+    expect(r.avisos.some((a) => a.includes("faturamento indisponível"))).toBe(true);
+  });
+
+  test("reimportação: atualiza o lançamento ativo para o valor integral", async () => {
+    db.payrollItem.findUnique.mockImplementation(async (args: { where: { employeeId_type_competenceYear_competenceMonth_periodLabel: { type: string } } }) =>
+      args.where.employeeId_type_competenceYear_competenceMonth_periodLabel.type === "SALARIO" ? { id: "p1", deletedAt: null, deletedById: null } : { id: "a1", deletedAt: null, deletedById: null });
+    const r = await importar();
+    const upd = db.payrollItem.update.mock.calls.find((c: [{ where: { id: string } }]) => c[0].where.id === "p1")[0];
+    expect(upd.data.amount).toBe(5954.74);
+    expect(upd.data.details).toMatchObject({ origemValor: "SALARIO_COMBINADO" });
+    expect(r.titulosAtualizados).toBe(1);
+  });
+
+  test("reimportação não ressuscita o salário excluído à mão", async () => {
+    db.payrollItem.findUnique.mockImplementation(async (args: { where: { employeeId_type_competenceYear_competenceMonth_periodLabel: { type: string } } }) =>
+      args.where.employeeId_type_competenceYear_competenceMonth_periodLabel.type === "SALARIO"
+        ? { id: "p1", deletedAt: new Date("2026-09-15T15:00:00Z"), deletedById: "u9" } : { id: "a1", deletedAt: null, deletedById: null });
+    const r = await importar();
+    expect(db.payrollItem.update).not.toHaveBeenCalled();
+    expect(salarioCriado()).toBeUndefined();
+    expect(r.titulosPulados).toBe(1);
+  });
+
+  test("extrato do adiantamento: não olha salário combinado", async () => {
+    textoDoPdf.atual = extrato("Adiantamento");
+    await importar();
+    expect(mapaCombinados).not.toHaveBeenCalled();
   });
 });
