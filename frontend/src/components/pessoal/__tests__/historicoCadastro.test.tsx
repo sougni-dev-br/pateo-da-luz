@@ -12,7 +12,7 @@ vi.mock("../../../api/client", async (importOriginal) => ({
 
 import { getEmployeeHistorico } from "../../../api/client";
 import { HistoricoCadastro } from "../HistoricoCadastro";
-import { ehDinheiro, motivoObrigatorio, mudouCampoComHistorico, type CamposComHistorico } from "../historicoCadastroFormato";
+import { ehDinheiro, motivoObrigatorio, mudouCampoComHistorico, textoDoValor, type CamposComHistorico } from "../historicoCadastroFormato";
 
 const SESSAO = { user: null, setUser: () => undefined, hideSensitiveValues: false, toggleSensitiveValues: () => undefined, canAccessSection: () => true, hasPermission: () => true } as unknown as SessionContextValue;
 const envolver = (ui: ReactElement) => <SessionContext.Provider value={SESSAO}><HideValuesProvider>{ui}</HideValuesProvider></SessionContext.Provider>;
@@ -148,5 +148,27 @@ describe("teto do IR para a gorjeta informada na ficha", () => {
   });
   test("é dinheiro no histórico", () => {
     expect(ehDinheiro({ campo: "tetoIrGorjeta" })).toBe(true);
+  });
+});
+
+describe("entrada na gorjeta na ficha", () => {
+  const original: CamposComHistorico = { baseSalary: "2.200,00", salarioCombinado: "", modality: "NAO_CLT", position: "Garçom", recebeAdiantamento: false, inicioGorjeta: "" };
+  const HOJE = "2026-10-01";
+
+  test("pôr, trocar ou tirar a data pede \"vale a partir de\"", () => {
+    expect(mudouCampoComHistorico(original, { ...original, inicioGorjeta: "2026-10-05" })).toBe(true);
+    expect(mudouCampoComHistorico({ ...original, inicioGorjeta: "2026-10-05" }, original)).toBe(true);
+    expect(mudouCampoComHistorico(original, { ...original })).toBe(false);
+  });
+
+  test("a própria data num mês passado exige motivo (mesmo com \"vale a partir de\" hoje)", () => {
+    expect(motivoObrigatorio(original, { ...original, inicioGorjeta: "2026-09-10" }, HOJE, HOJE)).toBe(true);
+    expect(motivoObrigatorio({ ...original, inicioGorjeta: "2026-08-01" }, original, HOJE, HOJE)).toBe(true);
+    expect(motivoObrigatorio(original, { ...original, inicioGorjeta: "2026-10-05" }, HOJE, HOJE)).toBe(false);
+  });
+
+  test("no histórico aparece como dia (dd/mm/aaaa) ou \"vazio\"", () => {
+    expect(textoDoValor("inicioGorjeta", "2026-09-10")).toBe("10/09/2026");
+    expect(textoDoValor("inicioGorjeta", null)).toBe("vazio");
   });
 });

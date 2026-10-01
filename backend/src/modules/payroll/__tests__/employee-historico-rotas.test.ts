@@ -187,3 +187,34 @@ describe("forma de pagamento do sem registro (quinzena × adiantamento)", () => 
     expect(db.employeeHistorico.createMany).not.toHaveBeenCalled();
   });
 });
+
+describe("entrada na gorjeta (Entra na gorjeta em)", () => {
+  test("preencher grava o cadastro e uma linha no histórico", async () => {
+    const r = await request(app).put("/employees/e1").send(corpo({ inicioGorjeta: "2026-10-05" }));
+    expect(r.status).toBe(200);
+    expect(db.employee.update.mock.calls[0][0].data.inicioGorjeta).toEqual(new Date("2026-10-05T00:00:00Z"));
+    expect(linhasGravadas()).toEqual([expect.objectContaining({ campo: "inicioGorjeta", valorAnterior: null, valorNovo: "2026-10-05" })]);
+  });
+
+  test("retroativa (mês passado) sem motivo: 400 e nada gravado; com motivo, grava", async () => {
+    let r = await request(app).put("/employees/e1").send(corpo({ inicioGorjeta: "2026-08-10" }));
+    expect(r.status).toBe(400);
+    expect(r.body.message).toBe("Entrada na gorjeta em 08/2026 muda a gorjeta de meses passados: informe o motivo.");
+    expect(db.employee.update).not.toHaveBeenCalled();
+    r = await request(app).put("/employees/e1").send(corpo({ inicioGorjeta: "2026-08-10", motivoAlteracao: "Ficou depois do teste" }));
+    expect(r.status).toBe(200);
+    expect(linhasGravadas()[0]).toMatchObject({ campo: "inicioGorjeta", valorNovo: "2026-08-10", motivo: "Ficou depois do teste" });
+  });
+
+  test("antes da admissão é recusada", async () => {
+    const r = await request(app).put("/employees/e1").send(corpo({ inicioGorjeta: "2025-02-01", motivoAlteracao: "qualquer motivo" }));
+    expect(r.status).toBe(400);
+    expect(r.body.message).toBe("\"Entra na gorjeta em\" não pode ser antes da admissão (01/03/2025).");
+  });
+
+  test("corpo sem o campo (tela antiga, importação) não mexe na data", async () => {
+    const r = await request(app).put("/employees/e1").send(corpo());
+    expect(r.status).toBe(200);
+    expect(db.employee.update.mock.calls[0][0].data).not.toHaveProperty("inicioGorjeta");
+  });
+});

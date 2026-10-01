@@ -218,6 +218,8 @@ describe("computeTipCommission com quem está fora da gorjeta", () => {
 type Emp = {
   id: string; participaGorjeta: boolean; modality: "CLT" | "NAO_CLT"; isActive?: boolean;
   admissionDate: Date | null; terminationDate: Date | null; deletedAt?: Date | null;
+  // Ausente = entrou na gorjeta na admissão (o backfill da migration).
+  inicioGorjeta?: Date | null;
 };
 
 // O banco de mentira aplica o filtro de vínculo no mês que o serviço manda.
@@ -236,6 +238,8 @@ function cadastro(emps: Emp[]) {
       })
       .map((e) => ({
         id: e.id, modality: e.modality, terminationDate: e.terminationDate,
+        admissionDate: e.admissionDate, isActive: e.isActive ?? true, participaGorjeta: e.participaGorjeta,
+        inicioGorjeta: e.inicioGorjeta === undefined ? (e.participaGorjeta ? e.admissionDate ?? d("2025-01-01") : null) : e.inicioGorjeta,
         tipoGorjeta: "PONTOS", pontosExtra: null, cotaFixaGorjeta: null, tipFunction: { points: 3, name: "Salão" },
       }));
   });
@@ -250,7 +254,7 @@ function noPeriodo(lista: Array<{ id: string; employeeId: string; foraDaGorjeta:
 
 describe("syncParticipantsFromCadastro com quem não participa", () => {
   beforeEach(() => {
-    db.tipPeriod.findUniqueOrThrow.mockResolvedValue({ periodStart: d("2026-08-26"), competenceYear: 2026, competenceMonth: 9 });
+    db.tipPeriod.findUniqueOrThrow.mockResolvedValue({ periodStart: d("2026-08-26"), periodEnd: d("2026-09-25"), competenceYear: 2026, competenceMonth: 9 });
   });
 
   test("traz o sem registro ativo no mês como fora da gorjeta; deixa de fora CLT, inativo e quem não tem vínculo no mês", async () => {
@@ -321,5 +325,110 @@ describe("syncParticipantsFromCadastro com quem não participa", () => {
     await syncParticipantsFromCadastro("per1");
     const criados = db.tipParticipant.createMany.mock.calls[0]?.[0].data ?? [];
     expect(criados).toEqual([expect.objectContaining({ employeeId: "carmelita", foraDaGorjeta: true })]);
+  });
+});
+
+// ─── Entrada na gorjeta (em teste) ───────────────────────────────────────────
+describe("syncParticipantsFromCadastro com quem está em teste", () => {
+  beforeEach(() => {
+    db.tipPeriod.findUniqueOrThrow.mockResolvedValue({ periodStart: d("2026-08-26"), periodEnd: d("2026-09-25"), competenceYear: 2026, competenceMonth: 9 });
+  });
+  const criados = () => (db.tipParticipant.createMany.mock.calls[0]?.[0].data ?? []) as Array<{ employeeId: string; foraDaGorjeta?: boolean; basePoints: number | null }>;
+
+  test("sem registro sem a data de entrada: entra só pelo salário; CLT em teste fica fora", async () => {
+    cadastro([
+      { id: "teste-sr", participaGorjeta: true, modality: "NAO_CLT", admissionDate: d("2026-09-15"), terminationDate: null, inicioGorjeta: null },
+      { id: "teste-clt", participaGorjeta: true, modality: "CLT", admissionDate: d("2026-09-15"), terminationDate: null, inicioGorjeta: null },
+      { id: "efetivo", participaGorjeta: true, modality: "NAO_CLT", admissionDate: d("2025-01-01"), terminationDate: null },
+    ]);
+    noPeriodo([]);
+    const r = await syncParticipantsFromCadastro("per1");
+    expect(criados().map((c) => c.employeeId).sort()).toEqual(["efetivo", "teste-sr"]);
+    expect(criados().find((c) => c.employeeId === "teste-sr")).toMatchObject({ foraDaGorjeta: true, basePoints: 0 });
+    expect(criados().find((c) => c.employeeId === "efetivo")?.foraDaGorjeta).toBeUndefined();
+    expect(r.added).toBe(2);
+  });
+
+  test("entrada depois do fim do ciclo: ainda em teste neste período", async () => {
+    cadastro([{ id: "sr", participaGorjeta: true, modality: "NAO_CLT", admissionDate: d("2026-09-15"), terminationDate: null, inicioGorjeta: d("2026-09-26") }]);
+    noPeriodo([]);
+    await syncParticipantsFromCadastro("per1");
+    expect(criados()).toEqual([expect.objectContaining({ employeeId: "sr", foraDaGorjeta: true })]);
+  });
+
+  test("entrada no meio do ciclo: participante normal (um só), com os pontos da função", async () => {
+    cadastro([{ id: "sr", participaGorjeta: true, modality: "NAO_CLT", admissionDate: d("2026-09-01"), terminationDate: null, inicioGorjeta: d("2026-09-10") }]);
+    noPeriodo([{ id: "tp9", employeeId: "sr", foraDaGorjeta: true, basePoints: 0 }]);
+    await syncParticipantsFromCadastro("per1");
+    expect(db.tipParticipant.update).toHaveBeenCalledWith({
+      where: { id: "tp9" }, data: expect.objectContaining({ foraDaGorjeta: false, basePoints: 3 }),
+    });
+    expect(db.tipParticipant.createMany).not.toHaveBeenCalled();
+  });
+
+  test("voltou para teste (data apagada): sem registro fica só pelo salário; CLT sai do rateio, a não ser que tenha vale", async () => {
+    cadastro([
+      { id: "sr", participaGorjeta: true, modality: "NAO_CLT", admissionDate: d("2026-09-01"), terminationDate: null, inicioGorjeta: null },
+      { id: "clt", participaGorjeta: true, modality: "CLT", admissionDate: d("2026-09-01"), terminationDate: null, inicioGorjeta: null },
+      { id: "clt-vale", participaGorjeta: true, modality: "CLT", admissionDate: d("2026-09-01"), terminationDate: null, inicioGorjeta: null },
+    ]);
+    noPeriodo([
+      { id: "tpS", employeeId: "sr", foraDaGorjeta: false },
+      { id: "tpC", employeeId: "clt", foraDaGorjeta: false },
+      { id: "tpV", employeeId: "clt-vale", foraDaGorjeta: false, vales: 1 },
+    ]);
+    const r = await syncParticipantsFromCadastro("per1");
+    expect(db.tipParticipant.update).toHaveBeenCalledWith({ where: { id: "tpS" }, data: { foraDaGorjeta: true } });
+    expect(db.tipParticipant.update).toHaveBeenCalledWith({ where: { id: "tpV" }, data: { foraDaGorjeta: true } });
+    expect(db.tipParticipant.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ["tpC"] }, foraDaGorjeta: true } });
+    expect(r.removidos).toBe(1);
+  });
+
+  test("sem registro em teste sem vínculo no mês do salário não entra", async () => {
+    cadastro([{ id: "sr", participaGorjeta: true, modality: "NAO_CLT", admissionDate: d("2026-10-03"), terminationDate: null, inicioGorjeta: null }]);
+    noPeriodo([]);
+    await syncParticipantsFromCadastro("per1");
+    expect(db.tipParticipant.createMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("computeTipCommission com quem está em teste", () => {
+  const emTeste = (over: Record<string, unknown> = {}, emp: Record<string, unknown> = {}) => participante(
+    { id: "tp9", employeeId: "e9", basePoints: 4, ...over },
+    {
+      firstName: "Teste", lastName: "Novo", modality: "NAO_CLT", baseSalary: 2300, admissionDate: d("2026-09-23"),
+      participaGorjeta: true, inicioGorjeta: null, ...emp,
+    },
+  );
+
+  test("participante normal sem recarregar, com o cadastro em teste: só salário, gorjeta zero e aviso", async () => {
+    periodo("OPEN", [participante(), emTeste()]);
+    const comp = await computeTipCommission(2026, 9, { incluirDadosPessoais: true });
+    const t = comp.participants.find((p) => p.employeeId === "e9")!;
+    expect(t).toMatchObject({ foraDaGorjeta: true, rateioAmount: 0, points: 0, salarioProporcional: 613.36, totalAPagar: 613.36 });
+    expect(comp.warnings).toContain("Teste Novo está em teste (fora da gorjeta desde a admissão em 23/09). Para incluir, preencha 'Entra na gorjeta em' no cadastro.");
+  });
+
+  test("entrada depois do ciclo também avisa, com a data", async () => {
+    periodo("OPEN", [emTeste({ foraDaGorjeta: true, basePoints: 0 }, { inicioGorjeta: d("2026-09-28") })]);
+    const comp = await computeTipCommission(2026, 9);
+    expect(comp.warnings.join(" ")).toContain("Teste Novo está em teste (fora da gorjeta desde a admissão em 23/09; a entrada na gorjeta (28/09) é depois deste ciclo)");
+  });
+
+  test("entrada no meio do ciclo: gorjeta proporcional desde a entrada, salário desde a admissão", async () => {
+    periodo("OPEN", [participante(), emTeste({}, { admissionDate: d("2026-09-01"), inicioGorjeta: d("2026-09-10") })]);
+    const comp = await computeTipCommission(2026, 9, { incluirDadosPessoais: true });
+    const t = comp.participants.find((p) => p.employeeId === "e9")!;
+    expect(t.foraDaGorjeta).toBe(false);
+    expect(t.points).toBeGreaterThan(0);
+    expect(t.points).toBeLessThan(4);
+    expect(t.salarioProporcional).toBe(2300);
+    expect(comp.warnings.join(" ")).not.toContain("está em teste");
+  });
+
+  test("fechado não muda: segue o que o período gravou", async () => {
+    periodo("CLOSED", [emTeste({ rateioAmount: 400, netCommission: 400, totalAPagar: 1013.36, salarioProporcional: 613.36, points: 4 })]);
+    const comp = await computeTipCommission(2026, 9, { incluirDadosPessoais: true });
+    expect(comp.participants[0]).toMatchObject({ foraDaGorjeta: false, rateioAmount: 400, totalAPagar: 1013.36 });
   });
 });
