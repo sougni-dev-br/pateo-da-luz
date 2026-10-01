@@ -127,7 +127,7 @@ export function AssistenteRescisao({ employeeId, passo, lista, onEscolher, onPas
         <PassoFuncionario lista={lista} detalhe={detalhe} carregando={carregando} onEscolher={onEscolher} onGravou={mudou} onContinuar={() => onPasso(2)} />
       )}
       {passo === 2 && detalhe && (
-        <PassoApuracao detalhe={detalhe} info={info} carregando={carregando} onMudou={mudou} />
+        <PassoApuracao detalhe={detalhe} info={info} carregando={carregando} onMudou={mudou} onLancarNormal={() => onPasso(4)} />
       )}
       {passo === 3 && detalhe && (
         <PassoPendencias pendencias={pendencias} onMudou={mudou} onPasso={onPasso} />
@@ -138,6 +138,7 @@ export function AssistenteRescisao({ employeeId, passo, lista, onEscolher, onPas
           funcionario={{ id: pessoa.employeeId, nome: pessoa.nome, semRegistro: info?.apuracao?.semRegistro ?? pessoa.semRegistro }}
           termo={pessoa.termo}
           pendenciasParaAcao={paraAcao}
+          quitadaNoTermo={Boolean(pessoa.rescisao?.quitadaNoTermo)}
           onPasso={onPasso}
           onGravou={mudou}
         />

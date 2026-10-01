@@ -6508,7 +6508,11 @@ export type RescisaoResumo = {
   employeeId: string; nome: string; apelido: string | null; empresa: string | null; semRegistro: boolean;
   /** aaaa-mm-dd; null = ainda sem data de saída. */
   saida: string | null; motivo: string | null;
-  rescisao: { parcelas: number; pagas: number; liquido: number; valorPago: number; proximoVencimento: string | null } | null;
+  rescisao: {
+    parcelas: number; pagas: number; liquido: number; valorPago: number; proximoVencimento: string | null;
+    /** Registrada como quitada no termo (líquido zero, nada a pagar): o lançamento, para desfazer. */
+    quitadaNoTermo?: { itemId: string } | null;
+  } | null;
   termo: TermoRescisaoResumo | null;
 };
 export type PessoaAtiva = { employeeId: string; nome: string; apelido: string | null; empresa: string | null; semRegistro: boolean };
@@ -6532,6 +6536,25 @@ export function getRescisoes() {
 
 export function getRescisaoDetalhe(employeeId: string) {
   return request<DetalheRescisao>(`/payroll/rescisoes/${encodeURIComponent(employeeId)}`);
+}
+
+/** Prévia do termo (TRCT) para registrar a rescisão como quitada no termo (líquido zero). */
+export type TermoSemValorPrevia = {
+  employeeId: string; nome: string; nomeNoTermo: string | null; arquivo: string; hash: string;
+  admissao: string | null; afastamento: string | null; pagamento: string | null;
+  liquido: number | null; totalBruto: number | null; gorjeta: number | null;
+  /** Avisos para conferir (não impedem quitar). */
+  divergencias: string[];
+  podeQuitar: boolean;
+  /** Por que não dá para marcar como quitada (null = dá). */
+  recusa: string | null;
+};
+/** Lê o termo; com aplicar=true registra a rescisão de R$ 0,00 paga na data do termo (fora do Contas a Pagar). */
+export function registrarTermoSemValor(employeeId: string, fileBase64: string, fileName: string, aplicar: boolean) {
+  return request<{ previa: TermoSemValorPrevia; aplicado: boolean; item?: { id: string; competencia: string; pagamento: string } }>(
+    `/payroll/rescisoes/${encodeURIComponent(employeeId)}/termo-sem-valor`,
+    json("POST", { fileBase64, fileName, aplicar }),
+  );
 }
 
 export type RescisaoPartes = { salario?: number; gorjeta?: number; valesDiscount?: number; valesLabel?: string };
