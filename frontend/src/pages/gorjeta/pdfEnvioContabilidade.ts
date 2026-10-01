@@ -4,7 +4,7 @@
 import { getCompanies, type Company, type TipComputation } from "../../api/client";
 import { MONTHS, fmtDate, fmtHoras, money, parseHoras } from "./gorjetaUtils";
 import {
-  NOTA_TETO_OCULTO, agruparEnvioPorEmpresa, celulaOuTraco, montarEnvioContabilidade, nomeNoEnvio, textoPdf, totaisDoEnvio,
+  NOTA_TETO_OCULTO, agruparEnvioPorEmpresa, celulaOuTraco, montarEnvioContabilidade, entraNaImpressao, nomeNoEnvio, textoPdf, totaisDoEnvio,
 } from "./envioContabilidade";
 
 type Doc = {
@@ -43,7 +43,9 @@ async function empresasPorId(): Promise<Map<string, Company>> {
 export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
   const envio = montarEnvioContabilidade(comp);
   if (envio.ocultos > 0) throw new Error(`${NOTA_TETO_OCULTO} Peça a quem tem a permissão para gerar o PDF.`);
-  const grupos = agruparEnvioPorEmpresa(envio.linhas);
+  // Quem tem gorjeta zero e nada mais a pagar não vai para o papel.
+  const linhas = envio.linhas.filter((l) => entraNaImpressao(l, parseHoras));
+  const grupos = agruparEnvioPorEmpresa(linhas);
   const empresas = await empresasPorId();
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default as unknown as AutoTable;
@@ -85,11 +87,11 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
   doc.text(selo, W - M - largSelo / 2, 20.9, { align: "center" });
 
   // ── Resumo ──────────────────────────────────────────────────
-  const t = totaisDoEnvio(envio.linhas, parseHoras);
+  const t = totaisDoEnvio(linhas, parseHoras);
   const horas = (min: number) => (min > 0 ? fmtHoras(min) : "0:00");
   const caixas: Array<[string, string, number]> = [
     ["Total de gorjetas", reais(envio.total ?? 0), 1.5],
-    ["Funcionários", String(envio.linhas.length), 0.8],
+    ["Funcionários", String(linhas.length), 0.8],
     ["Hora extra / noturno", `${horas(t.minutosHoraExtra)}  /  ${horas(t.minutosNoturno)}`, 1.2],
     ["Faltas / atestados", `${t.faltas}  /  ${t.atestados}`, 1],
   ];

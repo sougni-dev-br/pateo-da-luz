@@ -30,3 +30,14 @@ test("totais do resumo somam horas (h:mm), faltas e atestados", async () => {
   expect(totaisDoEnvio([l("15:13", null, 0, 0), l("24:27", "5:06", 1, 2)], parseHoras))
     .toEqual({ minutosHoraExtra: 39 * 60 + 40, minutosNoturno: 306, faltas: 1, atestados: 2 });
 });
+
+test("impressão: gorjeta zero sem hora extra sai; com hora extra ou noturno fica", async () => {
+  const { entraNaImpressao } = await import("../envioContabilidade");
+  const { parseHoras } = await import("../gorjetaUtils");
+  const l = (gorjeta: number, horaExtra: string | null = null, adicionalNoturno: string | null = null): LinhaEnvio =>
+    ({ pessoa: { horaExtra, adicionalNoturno, faltas: 2 } as LinhaEnvio["pessoa"], empresa: "X", gorjeta, peloTeto: false });
+  expect(entraNaImpressao(l(0), parseHoras)).toBe(false);
+  expect(entraNaImpressao(l(0, "2:30"), parseHoras)).toBe(true);
+  expect(entraNaImpressao(l(0, null, "0:28"), parseHoras)).toBe(true);
+  expect(entraNaImpressao(l(745.32), parseHoras)).toBe(true);
+});
