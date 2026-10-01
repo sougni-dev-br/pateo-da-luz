@@ -431,9 +431,14 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
   const { adiantamentoSalarial, primeiraQuinzena } = pagoAntesDoAcerto(p, regras, salario.valor);
   const { valorHoraExtra, valorAdicionalNoturno } = adicionaisSemRegistro(p);
   const saiuNoPeriodo = tipoCalculo === "RESCISAO" || tipoCalculo === "RESCISAO_QUITADA";
+  // Saiu depois do fim do ciclo, antes da folha dele: o termo de rescisão importado neste
+  // período já pagou a gorjeta do mês (com os vales descontados). Pontos e vales ficam;
+  // a lista só não paga de novo.
+  const termoPagouOMes = !p.semRegistro && tipoCalculo === "MES" && p.rescisaoValorFixo != null
+    && p.desligamento != null && p.desligamento > regras.end;
   const pagoNaRescisao = p.semRegistro
     ? saiuNoPeriodo && p.rescisaoLancada
-    : tipoCalculo === "RESCISAO_QUITADA";
+    : tipoCalculo === "RESCISAO_QUITADA" || termoPagouOMes;
 
   return {
     tipoCalculo,

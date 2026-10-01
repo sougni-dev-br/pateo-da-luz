@@ -719,6 +719,15 @@ export async function computeTipCommission(
     warnings.push(`Saíram no período sem rescisão lançada em Contas a Pagar (lance em Folha → Rescisão): ${listar(saiuSemRescisao)}.`
       + (saiuSemRescisao.some((p) => p.semRegistro) ? " Sem registro sem rescisão lançada recebe salário e gorjeta na lista do mês." : ""));
   }
+  // Saiu depois do ciclo com o termo importado aqui: a lista não paga; o termo deve bater
+  // com a gorjeta do mês menos os vales.
+  const termoDoMes = naGorjeta.filter((p) => p.tipoCalculo === "MES" && p.pagoNaRescisao && !p.semRegistro);
+  for (const p of termoDoMes) {
+    const termo = p.rescisaoValorFixo ?? 0;
+    if (Math.abs(termo - p.netCommission) > 0.05) {
+      warnings.push(`${p.employeeName}: o termo de rescisão pagou ${brl(termo)} de gorjeta, mas a gorjeta do mês menos os vales dá ${brl(p.netCommission)}. A lista não paga nada a ele; confira a diferença com a contabilidade.`);
+    }
+  }
   const comReal = naGorjeta.filter((p) => p.gorjetaReal != null && p.tipoCalculo === "MES");
   if (comReal.length) {
     const diferenca = round2(comReal.reduce((a, p) => a + (p.gorjetaCalculada - p.rateioAmount), 0));
