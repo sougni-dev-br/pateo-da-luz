@@ -8,8 +8,9 @@ import { auditLog, getSessionUser, requestIp, type SessionUser } from "../securi
 import { userHasPermission } from "../security/menu-permissions.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { hojeEmSaoPaulo } from "./extras-comum.js";
-import { alteracoes, cadastroVigenteEm, diaDeReferencia, faltaMotivoRetroativo, lerVigenteDesde } from "./cadastro-historico.js";
-import { carregarHistorico, registrarAlteracoes } from "./cadastro-historico.service.js";
+import { alteracoes, faltaMotivoRetroativo, lerVigenteDesde } from "./cadastro-historico.js";
+import { registrarAlteracoes } from "./cadastro-historico.service.js";
+import { combinadosVigentes, mapaCombinados, sincronizarSalariosCombinados } from "./salario-combinado.service.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
@@ -96,32 +97,9 @@ async function extratosDoPeriodo(periodId: string) {
   }));
 }
 
-// Salário combinado VIGENTE no mês da competência (não o de hoje): quem teve o combinado
-// mudado depois continua com o daquele mês. Sem ids = todos com combinado ou histórico dele.
-async function combinadosVigentes(ano: number, mes: number, ids: string[] | null) {
-  const comHistorico = ids ? [] : (await prisma.employeeHistorico.findMany({
-    where: { campo: "salarioCombinado" }, select: { employeeId: true }, distinct: ["employeeId"],
-  })).map((h) => h.employeeId);
-  const lista = await prisma.employee.findMany({
-    where: ids
-      ? { id: { in: ids } }
-      : { deletedAt: null, OR: [{ salarioCombinado: { not: null } }, { id: { in: comHistorico } }] },
-    select: { id: true, firstName: true, lastName: true, displayName: true, salarioCombinado: true, salarioCombinadoMotivo: true, terminationDate: true },
-  });
-  const historico = await carregarHistorico(lista.map((e) => e.id));
-  return lista
-    .map((e) => {
-      const vigente = cadastroVigenteEm({ salarioCombinado: e.salarioCombinado == null ? null : Number(e.salarioCombinado) },
-        historico.get(e.id) ?? [], diaDeReferencia(ano, mes, e.terminationDate));
-      return { ...e, salarioCombinado: vigente.salarioCombinado as number | null };
-    })
-    .filter((e) => e.salarioCombinado != null);
-}
-
 async function combinadosDe(extratos: Array<{ dados: ExtratoEmpresa }>, ano: number, mes: number): Promise<Combinados> {
   const ids = extratos.flatMap((e) => e.dados.linhas.map((l) => l.employeeId)).filter((x): x is string => Boolean(x));
-  if (ids.length === 0) return new Map();
-  return new Map((await combinadosVigentes(ano, mes, ids)).map((e) => [e.id, Number(e.salarioCombinado)]));
+  return mapaCombinados(ano, mes, ids);
 }
 
 // Apelido de quem está na apuração ou no extrato, numa consulta só (sem CPF nem salário).
@@ -343,6 +321,31 @@ tipConferenciaRouter.get("/periods/:year/:month/folha-liquidos", async (request,
       valor: Number(c.salarioCombinado), motivo: c.salarioCombinadoMotivo,
     })),
   });
+});
+
+// Recalcula o SALARIO não pago de quem tem salário combinado na competência com o valor
+// integral ((combinado − adiantamento) + gorjeta). O fechamento da gorjeta já chama sozinho;
+// aqui é o botão para depois de um extrato reimportado ou de um combinado mudado.
+// Mostra salários: exige editar a gorjeta E ver Funcionários.
+tipConferenciaRouter.post("/periods/:year/:month/salarios-combinados/sincronizar", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  if (!(await userHasPermission(user as SessionUser, "payroll-tips", "edit"))) {
+    return response.status(403).json({ message: "Atualizar os salários exige a permissão de editar a gorjeta." });
+  }
+  if (!(await podeVerDadosPessoais(request))) {
+    return response.status(403).json({ message: "Os salários combinados exigem permissão de ver Funcionários." });
+  }
+  const year = parseInt(request.params.year, 10);
+  const month = parseInt(request.params.month, 10);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return response.status(400).json({ message: "Competência inválida." });
+  }
+  try {
+    response.json(await sincronizarSalariosCombinados(year, month, { id: user.id, name: user.name }));
+  } catch (err) {
+    response.status(409).json({ message: (err as Error).message });
+  }
 });
 
 // Salário combinado de uma pessoa (null tira). Dado sensível: exige a permissão de Funcionários.

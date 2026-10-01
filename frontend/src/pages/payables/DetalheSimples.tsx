@@ -1,5 +1,5 @@
 import { Trash2 } from "lucide-react";
-import type { AuditLog, Payable } from "../../api/client";
+import type { AuditLog, Payable, SalarioComposicao } from "../../api/client";
 import { Notice, type NoticeState } from "../../components/Notice";
 import { Button, Money } from "../../design-system";
 import { formatDate } from "../../utils/format";
@@ -21,6 +21,31 @@ type Props = {
 };
 
 const MIN_MOTIVO = 3;
+
+/** Salário de quem tem salário combinado: de onde vem o valor integral (só chega a quem vê salários). */
+function ComposicaoSalario({ c }: { c: SalarioComposicao }) {
+  return (
+    <section className="modal-section">
+      <h3 className="modal-section-title">Salário combinado</h3>
+      {c.tipo === "PENDENTE_GORJETA" ? (
+        <p className="pg-nota">
+          Gorjeta do mês ainda não apurada: lançado só o líquido do extrato. Será atualizado ao fechar a gorjeta.
+        </p>
+      ) : (
+        <>
+          <p className="pg-texto">
+            Líquido do extrato <Money value={c.liquidoExtrato} /> + diferença do salário combinado <Money value={c.complemento} /> = <strong><Money value={c.total} /></strong>
+          </p>
+          {c.combinado != null && (
+            <p className="pg-nota">
+              (<Money value={c.combinado} /> − adiantamento <Money value={c.adiantamento ?? 0} />) + gorjeta <Money value={c.gorjetaIntegral ?? 0} /> = <Money value={c.total} />
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
 
 /** Imposto, lançamento da Folha ou diária de extra. */
 export function DetalheSimples({ titulo, historico, notice, excluirMotivo, excluindo, onMotivo, onExcluir, onFechar }: Props) {
@@ -49,6 +74,8 @@ export function DetalheSimples({ titulo, historico, notice, excluirMotivo, exclu
           {titulo.taxDreCategoryName && <Campo rotulo="Categoria DRE">{titulo.taxDreCategoryName}</Campo>}
         </dl>
       </section>
+
+      {titulo.salarioComposicao && <ComposicaoSalario c={titulo.salarioComposicao} />}
 
       {titulo.paymentNotes && (
         <section className="modal-section">
