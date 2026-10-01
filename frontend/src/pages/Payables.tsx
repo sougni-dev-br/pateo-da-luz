@@ -1,4 +1,4 @@
-﻿import { Building2, CheckCircle2, Eye, FileText, History, Receipt, RefreshCw, RotateCcw, Search, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   AppUser, AuditLog, Company, CompanyBankAccount,
@@ -8,122 +8,51 @@ import {
   Payable, PaymentMethod, PurchaseDetail, reverseExtraPayment, reverseInstallment, reversePayrollItem, reverseTaxPayment, Supplier
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
-import {
-  Button,
-  EmptyState,
-  IconButton,
-  Money,
-  PanelEyebrow,
-  Alert,
-  Select,
-  StatusBadge as DsStatusBadge,
-  SummaryCard
-} from "../design-system";
-import type { StatusTone } from "../design-system";
+import { Button, EmptyState, IconButton, Money, PanelEyebrow } from "../design-system";
 import { hasPermission } from "../lib/permissions";
-import { formatDate, formatNumber } from "../utils/format";
+import { formatDate } from "../utils/format";
 import { currentMonthPeriod, periodForPreset, PeriodPreset, PeriodState } from "../utils/period";
-
-const statusLabels: Record<string, string> = {
-  OPEN: "Em aberto",
-  PAID: "Pago",
-  PAID_LATE: "Pago c/ atraso",
-  OVERDUE: "Vencido",
-  CANCELLED: "Cancelado"
-};
-
-const statusTones: Record<string, StatusTone> = {
-  OPEN: "warning",
-  PAID: "success",
-  PAID_LATE: "warning",
-  OVERDUE: "danger",
-  CANCELLED: "neutral"
-};
-
-function isTaxPayment(p: Payable) {
-  return p.sourceType === "TAX_PAYMENT";
-}
-
-function isPayroll(p: Payable) {
-  return p.sourceType === "PAYROLL";
-}
-
-// Diárias de extras: mesmo fluxo de baixa da folha, rotas próprias.
-function isExtra(p: Payable) {
-  return p.sourceType === "EXTRA";
-}
+import { DetalheSimples } from "./payables/DetalheSimples";
+import { DetalheTitulo } from "./payables/DetalheTitulo";
+import { ListaTitulos } from "./payables/ListaTitulos";
+import { ModalBaixa, type FormBaixa } from "./payables/ModalBaixa";
+import { ModalBaixaLote, type ResultadoLote } from "./payables/ModalBaixaLote";
+import { ModalEstorno, ModalHistorico } from "./payables/ModalEstorno";
+import { PainelFiltros } from "./payables/PainelFiltros";
+import { ResumoKpis, type CartaoResumo } from "./payables/ResumoKpis";
+import {
+  addDaysKey, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dateKey,
+  isExtra, isPayroll, isSimpleLedger, isTaxPayment, minDateKey, rotuloPeriodo, somarValores, todayKey,
+  type FiltrosPagar
+} from "./payables/regras";
+import "./payables/payables.css";
 
 function payPessoal(p: Payable, payload: Parameters<typeof payPayrollItem>[1]) {
   return isExtra(p) ? payExtraPayment(p.id, payload) : payPayrollItem(p.id, payload);
 }
 
-// Títulos "simples" (imposto e folha): baixa com data + valor, sem forma de
-// pagamento / empresa / diferença. A query de payables preenche os campos tax*
-// para folha (tipo, funcionário, competência), então a UI é reaproveitada.
-function isSimpleLedger(p: Payable) {
-  return isTaxPayment(p) || isPayroll(p) || isExtra(p);
-}
+// Filtros avançados começam recolhidos; a escolha fica neste navegador.
+const CHAVE_FILTROS_ABERTOS = "contas-a-pagar-filtros-abertos";
 
-// Rótulos que a query de payables grava em taxDocumentType para a Folha.
-const TIPOS_FOLHA = ["Vale-transporte", "Adiantamento", "Salário", "Rescisão", "Férias"] as const;
+const MODOS_VISTA = [
+  { key: "open", label: "Em aberto" },
+  { key: "paid", label: "Baixados" },
+  { key: "all", label: "Todos" }
+] as const;
 
-/** Sub-tipo "PAYROLL:Vale-transporte" filtra só aquele tipo dentro da Folha. */
-function combinaSubtipo(p: Payable, subtipo: string) {
-  const [sourceType, tipoFolha] = subtipo.split(":");
-  if (p.sourceType !== sourceType) return false;
-  return !tipoFolha || p.taxDocumentType === tipoFolha;
-}
+const ATALHOS = [
+  { key: "overdue", label: "Vencidos" },
+  { key: "today", label: "Hoje" },
+  { key: "next7", label: "Próx. 7 dias" },
+  { key: "boleto", label: "Boleto" },
+  { key: "cartao", label: "Cartão" },
+  { key: "noduedate", label: "Sem vencimento" }
+] as const;
 
-function dateKey(value?: string | null) {
-  if (!value) return "";
-  return String(value).slice(0, 10);
-}
-
-function todayKey() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
-// Data de baixa sugerida: o vencimento quando ja passou, hoje quando ainda esta por vir.
-// Chaves no formato YYYY-MM-DD comparam corretamente como string.
-function minDateKey(dueKey: string, todayK: string) {
-  if (!dueKey) return todayK;
-  return dueKey < todayK ? dueKey : todayK;
-}
-
-function addDaysKey(days: number) {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function basePaymentName(name: string): string {
-  return name.trim().replace(/\s+\d+[Xx]$/, "").toUpperCase().trim();
-}
-
-function inferTotalInstallments(methodName: string | null): number {
-  if (!methodName) return 1;
-  // Matches "BOLETO 2X", "BOLETO / 2x", "PIX / 1x" etc.
-  const m = methodName.match(/[/ ]+(\d+)[Xx]$/);
-  return m ? parseInt(m[1], 10) : 1;
-}
-
-function formatInstallment(num: number | null, total?: number | null, methodName?: string | null): string {
-  if (num == null) return "";
-  const inferred = inferTotalInstallments(methodName ?? null);
-  const t = Math.max(total ?? inferred, num); // denominator always >= numerator
-  return `${num}/${t}`;
-}
-
-function payableAlertStatus(payable: Payable): "overdue" | "today" | "tomorrow" | "" {
-  if (!["OPEN", "OVERDUE"].includes(payable.status)) return "";
-  const due = dateKey(payable.dueDate);
-  if (!due) return "";
-  if (due < todayKey()) return "overdue";
-  if (due === todayKey()) return "today";
-  if (due === addDaysKey(1)) return "tomorrow";
-  return "";
-}
+const FORM_VAZIO: FormBaixa = {
+  paidDate: todayKey(), paidAmount: "", paidPaymentMethod: "",
+  paymentNotes: "", differenceReason: "", payingCompanyId: "", companyBankAccountId: ""
+};
 
 type PayablesProps = { user: AppUser };
 
@@ -142,34 +71,45 @@ export function Payables({ user }: PayablesProps) {
   const [excluindo, setExcluindo] = useState(false);
   const [historyOnly, setHistoryOnly] = useState<Payable | null>(null);
   const [paying, setPaying] = useState<Payable | null>(null);
+  const [salvandoBaixa, setSalvandoBaixa] = useState(false);
   // Baixa em lote: um pagamento cobrindo vários títulos (ex.: o VT de toda a
   // equipe numa quinzena). Cada título continua recebendo a sua própria baixa.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchBusy, setBatchBusy] = useState(false);
-  const [batchResult, setBatchResult] = useState<{ ok: number; erros: Array<{ nome: string; motivo: string }> } | null>(null);
+  const [batchResult, setBatchResult] = useState<ResultadoLote | null>(null);
   const [reversing, setReversing] = useState<Payable | null>(null);
   const [reverseReason, setReverseReason] = useState("");
-  const [paymentForm, setPaymentForm] = useState({
-    paidDate: todayKey(), paidAmount: "", paidPaymentMethod: "",
-    paymentNotes: "", differenceReason: "", payingCompanyId: "", companyBankAccountId: ""
-  });
+  const [estornando, setEstornando] = useState(false);
+  const [paymentForm, setPaymentForm] = useState<FormBaixa>(FORM_VAZIO);
   // Le o filtro da URL na abertura. Sem isto o alerta do Dashboard levava para
   // esta tela com os filtros padrao, e as parcelas sem vencimento continuavam
   // enterradas — o link existia mas nao resolvia nada.
   const filtroInicialSemVencimento = typeof window !== "undefined"
     && new URLSearchParams(window.location.search).get("noDueDate") === "1";
-  const [filters, setFilters] = useState({ filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", origin: "all", noDueDate: filtroInicialSemVencimento });
+  const [filters, setFilters] = useState<FiltrosPagar>({ filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", origin: "all", noDueDate: filtroInicialSemVencimento });
   const [viewMode, setViewMode] = useState<"open" | "paid" | "all">("open");
   const [activeChip, setActiveChip] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [period, setPeriod] = useState(currentMonthPeriod());
   const [loading, setLoading] = useState(false);
+  const [erroCarga, setErroCarga] = useState<string | null>(null);
+  const [filtrosAbertos, setFiltrosAbertos] = useState(() => {
+    try { return window.localStorage.getItem(CHAVE_FILTROS_ABERTOS) === "1"; } catch { return false; }
+  });
   const canManage = hasPermission(user, "payables", "edit");
   const { notice, setNotice } = useNotice();
 
+  function alternarFiltros() {
+    setFiltrosAbertos((aberto) => {
+      try { window.localStorage.setItem(CHAVE_FILTROS_ABERTOS, aberto ? "0" : "1"); } catch { /* só não lembra */ }
+      return !aberto;
+    });
+  }
+
   async function load(filterOverride?: typeof filters, periodOverride?: typeof period) {
     setLoading(true);
+    setErroCarga(null);
     setPayables([]);
     const activeFilters = filterOverride ?? filters;
     const activePeriod = periodOverride ?? period;
@@ -193,7 +133,9 @@ export function Payables({ user }: PayablesProps) {
       setPaymentMethods(methodRows);
       setCompanies(companyRows.filter((c) => c.isActive));
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao carregar contas a pagar." });
+      const message = error instanceof Error ? error.message : "Erro ao carregar contas a pagar.";
+      setErroCarga(message);
+      setNotice({ tone: "error", message });
     } finally {
       setLoading(false);
     }
@@ -236,7 +178,11 @@ export function Payables({ user }: PayablesProps) {
     );
   }, [payables, searchQuery, filters.sourceType, activeChip, viewMode]);
 
-  const activeFilterCount = [filters.supplierId, filters.paymentMethodId, filters.status, filters.sourceType, filters.origin !== "all" ? filters.origin : ""].filter(Boolean).length + (activeChip === "noduedate" ? 1 : 0);
+  const hoje = todayKey();
+  const grupos = useMemo(() => agruparPorVencimento(displayedPayables, hoje), [displayedPayables, hoje]);
+  const totalExibido = useMemo(() => somarValores(displayedPayables), [displayedPayables]);
+
+  const activeFilterCount = contarFiltrosAtivos(filters, activeChip);
 
   const effectivePaymentOptions = useMemo(() => {
     const seen = new Map<string, { id: string; label: string }>();
@@ -275,6 +221,37 @@ export function Payables({ user }: PayablesProps) {
       setPeriod(p);
       void load(undefined, p);
     }
+  }
+
+  function alterarDataPersonalizada(campo: "startDate" | "endDate", valor: string) {
+    const p = { ...period, [campo]: valor };
+    setPeriod(p);
+    void load(undefined, p);
+  }
+
+  function alterarFiltros(u: FiltrosPagar) {
+    setFilters(u);
+    void load(u);
+  }
+
+  function alterarStatus(v: string) {
+    const u = { ...filters, status: v };
+    if (v === "PAID" || v === "PAID_LATE") setViewMode("paid");
+    else if (v === "OPEN" || v === "OVERDUE") setViewMode("open");
+    else if (v === "") setViewMode("all");
+    setFilters(u);
+    void load(u);
+  }
+
+  function alterarTipo(origin: string) {
+    const impostos = origin === "taxes";
+    alterarFiltros({
+      ...filters,
+      origin,
+      supplierId: impostos ? "" : filters.supplierId,
+      paymentMethodId: impostos ? "" : filters.paymentMethodId,
+      sourceType: impostos ? "" : filters.sourceType
+    });
   }
 
   function applyChip(key: string) {
@@ -318,7 +295,7 @@ export function Payables({ user }: PayablesProps) {
     }
   }
 
-  function applyCardFilter(type: "open" | "overdue" | "paidMonth" | "paidToday" | "next7" | "next30") {
+  function applyCardFilter(type: CartaoResumo) {
     setActiveChip(null);
     // Sincroniza viewMode com o card clicado para não ocultar resultados
     setViewMode(type === "paidMonth" || type === "paidToday" ? "paid" : "open");
@@ -365,6 +342,10 @@ export function Payables({ user }: PayablesProps) {
       return { paidPaymentMethodId: paymentForm.paidPaymentMethod.replace("id:", ""), paidPaymentMethodName: null };
     }
     return { paidPaymentMethodId: null, paidPaymentMethodName: paymentForm.paidPaymentMethod.replace("name:", "") };
+  }
+
+  function alterarCampo<K extends keyof FormBaixa>(campo: K, valor: FormBaixa[K]) {
+    setPaymentForm((prev) => ({ ...prev, [campo]: valor }));
   }
 
   async function openTitle(payable: Payable) {
@@ -468,6 +449,15 @@ export function Payables({ user }: PayablesProps) {
   function toggleTodos() {
     setSelectedIds((prev) => (prev.size === selecionaveis.length ? new Set() : new Set(selecionaveis.map((p) => p.id))));
   }
+  function alternarGrupo(ids: string[], marcar: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (marcar) next.add(id); else next.delete(id);
+      }
+      return next;
+    });
+  }
 
   async function submitBatch() {
     if (selecionados.length === 0) return;
@@ -530,6 +520,7 @@ export function Payables({ user }: PayablesProps) {
       return;
     }
 
+    setSalvandoBaixa(true);
     try {
       if (isTaxPayment(paying)) {
         await payTaxPayment(paying.id, {
@@ -567,6 +558,8 @@ export function Payables({ user }: PayablesProps) {
       await load();
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao registrar baixa." });
+    } finally {
+      setSalvandoBaixa(false);
     }
   }
 
@@ -579,6 +572,7 @@ export function Payables({ user }: PayablesProps) {
     if (!reversing) return;
     const reason = reverseReason.trim();
     if (!reason) { setNotice({ tone: "error", message: "Informe o motivo da reversão." }); return; }
+    setEstornando(true);
     try {
       if (isTaxPayment(reversing)) {
         await reverseTaxPayment(reversing.id, reason);
@@ -594,6 +588,8 @@ export function Payables({ user }: PayablesProps) {
       await load();
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao estornar pagamento." });
+    } finally {
+      setEstornando(false);
     }
   }
 
@@ -601,6 +597,12 @@ export function Payables({ user }: PayablesProps) {
     setSelectedPayable(null);
     setHistoryRows([]);
     setExcluirMotivo(null);
+  }
+
+  function fecharDetalheCompra() {
+    setDetail(null);
+    setSelectedPayable(null);
+    setHistoryRows([]);
   }
 
   async function submitExcluirFolha() {
@@ -635,958 +637,242 @@ export function Payables({ user }: PayablesProps) {
     }
   }
 
-  const paymentOriginalAmount = Number(paying?.amount ?? 0);
-  const paymentPaidAmount = Number(paymentForm.paidAmount || 0);
-  const paymentDifference = Number((paymentPaidAmount - paymentOriginalAmount).toFixed(2));
-  const paymentDiscount = paymentDifference < 0 ? Math.abs(paymentDifference) : 0;
-  const paymentSurcharge = paymentDifference > 0 ? paymentDifference : 0;
+  const temFiltroOuBusca = activeFilterCount > 0 || Boolean(searchQuery) || Boolean(activeChip);
+  const descricaoPeriodo = filters.noDueDate
+    ? "Sem vencimento"
+    : `${rotuloPeriodo(period.preset)} · ${formatDate(period.startDate)} a ${formatDate(period.endDate)}`;
+  const todosMarcados = selecionaveis.length > 0 && selectedIds.size === selecionaveis.length;
 
   return (
-    <section className="panel">
+    <section className="panel pg-tela">
       <Notice notice={notice} />
 
-      {/* ── Cabeçalho ───────────────────────────────────────────── */}
-      <div className="section-heading">
+      {/* ── Topo: título da seção e ações ───────────────────────── */}
+      <div className="pg-topo">
         <PanelEyebrow>Resumo financeiro</PanelEyebrow>
-        <div className="actions-cell">
-          <Button variant="secondary" leadingIcon={<FileText size={16} />} onClick={handleFinancialPdf}>
+        <div className="pg-topo-acoes">
+          <Button variant="secondary" size="sm" leadingIcon={<FileText size={15} />} onClick={handleFinancialPdf}>
             PDF financeiro
           </Button>
-          <IconButton icon={<RefreshCw size={16} />} label="Atualizar" onClick={() => load()} />
+          <IconButton icon={<RefreshCw size={16} />} label="Atualizar" size="sm" onClick={() => load()} disabled={loading} />
         </div>
       </div>
 
-      {/* ── Resumo compacto (cards clicáveis filtram a lista) ───── */}
-      <div className="kpi-counters-grid payables-kpi-grid">
-        <SummaryCard label="Em aberto" moneyValue={totals.open} tone="warning" className="payables-kpi-clickable" onClick={() => applyCardFilter("open")} />
-        <SummaryCard label="Vencido" moneyValue={totals.overdue} tone="danger" className="payables-kpi-clickable" onClick={() => applyCardFilter("overdue")} />
-        <SummaryCard label="Pago no mês" moneyValue={totals.paidMonth} tone="success" className="payables-kpi-clickable" onClick={() => applyCardFilter("paidMonth")} />
-        <SummaryCard label="Pago hoje" moneyValue={totals.paidToday} tone="success" className="payables-kpi-clickable" onClick={() => applyCardFilter("paidToday")} />
-        <SummaryCard label="Próx. 7 dias" moneyValue={totals.next7} tone="info" className="payables-kpi-clickable" onClick={() => applyCardFilter("next7")} />
-        <SummaryCard label="Próx. 30 dias" moneyValue={totals.next30} tone="info" className="payables-kpi-clickable" onClick={() => applyCardFilter("next30")} />
-      </div>
+      {/* ── Totais (clicáveis: filtram a lista) ─────────────────── */}
+      <ResumoKpis totais={totals} onCartao={applyCardFilter} />
 
-      {/* ── Filtros ──────────────────────────────────────────────── */}
-      <div className="payables-filters">
-        <div className="payables-search-row">
-          <div className="payables-search-wrap">
-            <Search size={15} />
-            <input
-              type="text"
-              placeholder="Buscar por fornecedor, NF, pedido ou valor…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            {searchQuery && (
-              <button type="button" onClick={() => setSearchQuery("")} aria-label="Limpar busca">
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          <div className="payables-filter-actions">
-            {(activeFilterCount > 0 || searchQuery || activeChip) && (
-              <button className="secondary-button" type="button" onClick={clearFilters}>
-                <X size={14} /> Limpar
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="payables-filter-row">
-          <Select
-            label="Período de vencimento"
-            value={period.preset}
-            onChange={(e) => handlePeriodChange(e.target.value)}
-            options={[
-              { value: "overdue", label: "Vencidos" },
-              { value: "today", label: "Vence hoje" },
-              { value: "next7", label: "Próximos 7 dias" },
-              { value: "next15", label: "Próximos 15 dias" },
-              { value: "next30", label: "Próximos 30 dias" },
-              { value: "currentMonth", label: "Mês atual" },
-              { value: "nextMonth", label: "Mês seguinte" },
-              { value: "currentYear", label: "Ano atual" },
-              { value: "paidMonth", label: "Pago no mês" },
-              { value: "custom", label: "Período personalizado" }
-            ]}
+      {/* ── Busca + filtros ─────────────────────────────────────── */}
+      <div className="pg-barra">
+        <div className="pg-busca">
+          <Search size={16} aria-hidden="true" />
+          <input
+            type="search"
+            aria-label="Buscar títulos"
+            placeholder="Buscar fornecedor, funcionário, NF, pedido ou valor…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
           />
-          {period.preset === "custom" && (
-            <>
-              <label>
-                Data inicial
-                <input type="date" value={period.startDate} onChange={(e) => { const p = { ...period, startDate: e.target.value }; setPeriod(p); void load(undefined, p); }} />
-              </label>
-              <label>
-                Data final
-                <input type="date" value={period.endDate} onChange={(e) => { const p = { ...period, endDate: e.target.value }; setPeriod(p); void load(undefined, p); }} />
-              </label>
-            </>
-          )}
-          <Select
-            label="Fornecedor"
-            value={filters.supplierId}
-            onChange={(e) => { const u = { ...filters, supplierId: e.target.value }; setFilters(u); void load(u); }}
-            placeholder="Todos"
-            options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
-          />
-          <Select
-            label="Forma de pagamento"
-            value={filters.paymentMethodId}
-            onChange={(e) => { const u = { ...filters, paymentMethodId: e.target.value }; setFilters(u); void load(u); }}
-            placeholder="Todas"
-            options={effectivePaymentOptions.map((o) => ({ value: o.id, label: o.label }))}
-          />
-          <Select
-            label="Status"
-            value={filters.status}
-            onChange={(e) => {
-              const v = e.target.value;
-              const u = { ...filters, status: v };
-              if (v === "PAID" || v === "PAID_LATE") setViewMode("paid");
-              else if (v === "OPEN" || v === "OVERDUE") setViewMode("open");
-              else if (v === "") setViewMode("all");
-              setFilters(u);
-              void load(u);
-            }}
-            placeholder="Todos"
-            options={[
-              { value: "OPEN", label: "Em aberto" },
-              { value: "OVERDUE", label: "Vencido" },
-              { value: "PAID", label: "Pago" },
-              { value: "PAID_LATE", label: "Pago com atraso" },
-              { value: "CANCELLED", label: "Cancelado" }
-            ]}
-          />
-          <Select
-            label="Tipo"
-            value={filters.origin}
-            onChange={(e) => { const u = { ...filters, origin: e.target.value, supplierId: e.target.value === "taxes" ? "" : filters.supplierId, paymentMethodId: e.target.value === "taxes" ? "" : filters.paymentMethodId, sourceType: e.target.value === "taxes" ? "" : filters.sourceType }; setFilters(u); void load(u); }}
-            options={[
-              { value: "all", label: "Todos" },
-              { value: "purchases", label: "Compras" },
-              { value: "taxes", label: "Impostos" }
-            ]}
-          />
-          {filters.origin !== "taxes" && (
-            <Select
-              label="Sub-tipo"
-              value={filters.sourceType}
-              onChange={(e) => { const u = { ...filters, sourceType: e.target.value }; setFilters(u); void load(u); }}
-              placeholder="Todos"
-              options={[
-                { value: "DIRECT", label: "Título normal" },
-                { value: "CARD_STATEMENT", label: "Fatura cartão" },
-                { value: "LEGACY_CREDIT_CARD", label: "Cartão legado" },
-                { value: "SUPPLIER_CYCLE", label: "Ciclo fornecedor" },
-                { value: "PAYROLL", label: "Folha de pagamento (tudo)" },
-                ...TIPOS_FOLHA.map((t) => ({ value: `PAYROLL:${t}`, label: `Folha · ${t}` })),
-                { value: "EXTRA", label: "Diárias de extras" }
-              ]}
-            />
+          {searchQuery && (
+            <button type="button" className="pg-busca-limpar" onClick={() => setSearchQuery("")} aria-label="Limpar busca">
+              <X size={14} />
+            </button>
           )}
         </div>
-
-        {(activeFilterCount > 0 || searchQuery) && (
-          <p className="payables-filter-badge">
-            {activeFilterCount > 0 && <span>{activeFilterCount} filtro{activeFilterCount > 1 ? "s" : ""} ativo{activeFilterCount > 1 ? "s" : ""}</span>}
-            {searchQuery && <span>busca: "{searchQuery}"</span>}
-          </p>
+        <button
+          type="button"
+          className={`pg-botao-filtros${activeFilterCount > 0 ? " pg-botao-filtros--ativo" : ""}`}
+          aria-expanded={filtrosAbertos}
+          aria-controls="pg-filtros-avancados"
+          onClick={alternarFiltros}
+        >
+          <SlidersHorizontal size={15} aria-hidden="true" />
+          Filtros
+          {activeFilterCount > 0 && <span className="pg-contador" aria-label={`${activeFilterCount} ativos`}>{activeFilterCount}</span>}
+        </button>
+        {temFiltroOuBusca && (
+          <button type="button" className="pg-link" onClick={clearFilters}>Limpar</button>
         )}
       </div>
 
-      {/* ── Toggle Em aberto / Baixados / Todos ─────────────────── */}
-      <div className="payables-chips" style={{ marginBottom: 6 }}>
-        {([
-          { key: "open", label: "Em aberto" },
-          { key: "paid", label: "Baixados" },
-          { key: "all", label: "Todos" },
-        ] as const).map((mode) => (
-          <button
-            key={mode.key}
-            type="button"
-            className={`payables-chip${viewMode === mode.key ? " payables-chip-active" : ""}`}
-            onClick={() => setViewMode(mode.key)}
-          >
-            {mode.label}
-          </button>
-        ))}
+      {filtrosAbertos && (
+        <PainelFiltros
+          id="pg-filtros-avancados"
+          filtros={filters}
+          periodo={period}
+          fornecedores={suppliers}
+          formas={effectivePaymentOptions}
+          onPeriodo={handlePeriodChange}
+          onData={alterarDataPersonalizada}
+          onFiltros={alterarFiltros}
+          onStatus={alterarStatus}
+          onTipo={alterarTipo}
+        />
+      )}
+
+      <div className="pg-vistas">
+        <div className="pg-segmento" role="group" aria-label="Situação dos títulos">
+          {MODOS_VISTA.map((mode) => (
+            <button key={mode.key} type="button" aria-pressed={viewMode === mode.key} onClick={() => setViewMode(mode.key)}>
+              {mode.label}
+            </button>
+          ))}
+        </div>
+        <div className="pg-atalhos" role="group" aria-label="Atalhos">
+          {ATALHOS.map((chip) => (
+            <button
+              key={chip.key}
+              type="button"
+              className="pg-chip"
+              aria-pressed={activeChip === chip.key}
+              onClick={() => applyChip(chip.key)}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* ── Chips de atalho ──────────────────────────────────────── */}
-      <div className="payables-chips">
-        {([
-          { key: "overdue", label: "Vencidos" },
-          { key: "today", label: "Hoje" },
-          { key: "next7", label: "Próx. 7 dias" },
-          { key: "boleto", label: "Boleto" },
-          { key: "cartao", label: "Cartão" },
-          { key: "noduedate", label: "Sem vencimento" },
-        ] as const).map((chip) => (
-          <button
-            key={chip.key}
-            type="button"
-            className={`payables-chip${activeChip === chip.key ? " payables-chip-active" : ""}`}
-            onClick={() => applyChip(chip.key)}
-          >
-            {chip.label}
-          </button>
-        ))}
+      {/* ── Resumo do que está na tela ──────────────────────────── */}
+      <div className="pg-resultado" aria-live="polite">
+        {canManage && selecionaveis.length > 0 && !loading && (
+          <input
+            type="checkbox"
+            className="pg-check"
+            checked={todosMarcados}
+            ref={(el) => { if (el) el.indeterminate = selectedIds.size > 0 && !todosMarcados; }}
+            onChange={toggleTodos}
+            aria-label={`Selecionar todos em aberto (${selecionaveis.length})`}
+            title={`Selecionar todos em aberto (${selecionaveis.length})`}
+          />
+        )}
+        <span className="pg-resultado-qtd">
+          {loading ? "Carregando…" : `${displayedPayables.length} ${displayedPayables.length === 1 ? "título" : "títulos"}`}
+        </span>
+        {!loading && displayedPayables.length > 0 && (
+          <strong className="pg-num"><Money value={totalExibido} /></strong>
+        )}
+        <span className="pg-resultado-periodo">{descricaoPeriodo}</span>
       </div>
 
       {/* ── Lista de títulos ─────────────────────────────────────── */}
       {loading ? (
-        <div className="empty-state">Carregando contas…</div>
+        <div className="pg-carregando" role="status" aria-label="Carregando contas">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="pg-esqueleto" />)}
+        </div>
+      ) : erroCarga ? (
+        <div className="pg-erro" role="alert">
+          <AlertTriangle size={20} aria-hidden="true" />
+          <div>
+            <strong>Não foi possível carregar as contas a pagar.</strong>
+            <p>{erroCarga}</p>
+          </div>
+          <Button variant="secondary" size="sm" leadingIcon={<RefreshCw size={14} />} onClick={() => load()}>Tentar de novo</Button>
+        </div>
+      ) : displayedPayables.length === 0 ? (
+        <EmptyState
+          title={searchQuery
+            ? `Nenhum título encontrado para "${searchQuery}".`
+            : viewMode === "open"
+              ? "Nada em aberto neste período."
+              : "Nenhum título neste período."}
+          description={temFiltroOuBusca ? "Ajuste a busca ou limpe os filtros." : "Mude o período em Filtros ou veja os baixados."}
+        />
       ) : (
-        <div className="payables-list">
-          {canManage && selecionaveis.length > 0 && (
-            <div style={{
-              display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-              padding: "8px 12px", marginBottom: 8, borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: selecionados.length > 0 ? "var(--gold-tint, #fdf1d6)" : "var(--surface-2)"
-            }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={selectedIds.size > 0 && selectedIds.size === selecionaveis.length}
-                  ref={(el) => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < selecionaveis.length; }}
-                  onChange={toggleTodos}
-                  style={{ width: 16, height: 16, cursor: "pointer" }}
-                />
-                Selecionar todos em aberto ({selecionaveis.length})
-              </label>
-              {selecionados.length > 0 && (
-                <>
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>
-                    {selecionados.length} selecionado(s) · <Money value={totalSelecionado} />
-                  </span>
-                  <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                    <Button variant="secondary" size="sm" onClick={() => setSelectedIds(new Set())}>Limpar</Button>
-                    <Button size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={() => { setBatchResult(null); setBatchOpen(true); }}>
-                      Baixar selecionados
-                    </Button>
-                  </span>
-                </>
-              )}
-            </div>
-          )}
-          {displayedPayables.map((payable) => {
-            const alert = payableAlertStatus(payable);
-            return (
-              <div className={`payable-row-item${alert ? ` ${alert}` : ""}`} key={payable.id}>
-                {podeSelecionar(payable) ? (
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(payable.id)}
-                    onChange={() => toggleSelecionado(payable.id)}
-                    aria-label={`Selecionar ${payable.supplierName ?? payable.taxDocumentType ?? "título"} para baixa em lote`}
-                    style={{ alignSelf: "center", width: 16, height: 16, cursor: "pointer", flex: "0 0 auto" }}
-                  />
-                ) : (
-                  <span style={{ width: 16, flex: "0 0 auto" }} />
-                )}
-                <DsStatusBadge className="pr-status" tone={statusTones[payable.status] ?? "neutral"}>
-                  {statusLabels[payable.status] ?? payable.status}
-                </DsStatusBadge>
+        <ListaTitulos
+          grupos={grupos}
+          hoje={hoje}
+          podeGerir={canManage}
+          podeSelecionar={podeSelecionar}
+          selecionados={selectedIds}
+          onAlternar={toggleSelecionado}
+          onAlternarGrupo={alternarGrupo}
+          onVer={openTitle}
+          onBaixar={startPayment}
+          onEstornar={openReverse}
+          onHistorico={openHistory}
+        />
+      )}
 
-                <div className="pr-supplier">
-                  {isTaxPayment(payable) ? (
-                    <>
-                      <strong title={payable.taxDocumentType ?? payable.supplierName}>{payable.taxDocumentType ?? payable.supplierName}</strong>
-                      <small>{payable.taxCompanyName ?? ""}{payable.taxDescription ? ` · ${payable.taxDescription}` : ""}</small>
-                    </>
-                  ) : (
-                    <>
-                      <strong title={payable.supplierName}>{payable.supplierName}</strong>
-                      <small>
-                        {payable.invoiceNumber ? `NF ${payable.invoiceNumber}` : "Sem NF"}
-                        {payable.purchaseNumber ? ` · Ped. ${payable.purchaseNumber}` : ""}
-                      </small>
-                    </>
-                  )}
-                </div>
-
-                <div className="pr-due">
-                  <span className="pr-label">Vencimento</span>
-                  <strong>{formatDate(payable.dueDate)}</strong>
-                </div>
-
-                <div className="pr-amount">
-                  <span className="pr-label">Valor</span>
-                  <strong><Money value={Number(payable.amount ?? 0)} /></strong>
-                </div>
-
-                <div className="pr-meta">
-                  {isTaxPayment(payable) ? (
-                    <>
-                      <span className="source-badge source-tax-payment"><Receipt size={11} /> Imposto</span>
-                      {payable.taxCompetenceDate && <span>Comp.: {formatDate(payable.taxCompetenceDate)}</span>}
-                      {payable.taxDreCategoryName && <span>{payable.taxDreCategoryName}</span>}
-                    </>
-                  ) : (
-                    <>
-                      {payable.installment != null && <span>Parcela: {formatInstallment(payable.installment, payable.totalInstallments, payable.paymentMethodName)}</span>}
-                      {payable.paymentMethodName && <span>{payable.paymentMethodName}</span>}
-                      {payable.sourceType === "CARD_STATEMENT" && (
-                        <span className="source-badge source-card-statement">Fatura cartão</span>
-                      )}
-                      {payable.sourceType === "LEGACY_CREDIT_CARD" && (
-                        <span className="source-badge source-legacy">Cartão legado</span>
-                      )}
-                      {payable.sourceType === "SUPPLIER_CYCLE" && (
-                        <span className="source-badge source-supplier-cycle">Ciclo fornecedor</span>
-                      )}
-                      {payable.sourceType === "PAYROLL" && (
-                        <span className="source-badge source-payroll">{payable.taxDocumentType ? `Folha · ${payable.taxDocumentType}` : "Folha"}</span>
-                      )}
-                      {payable.sourceType === "EXTRA" && (
-                        <span className="source-badge source-extra">Extra</span>
-                      )}
-                    </>
-                  )}
-                  {(payable.paymentNotes ?? payable.notes) && (
-                    <span className="pr-notes" title={payable.paymentNotes ?? payable.notes ?? ""}>
-                      {payable.paymentNotes ?? payable.notes}
-                    </span>
-                  )}
-                </div>
-
-                <div className="pr-actions">
-                  <IconButton icon={<Eye size={16} />} label="Ver título" size="sm" onClick={() => openTitle(payable)} />
-                  {canManage && ["OPEN", "OVERDUE"].includes(payable.status) && (
-                    <Button size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={() => startPayment(payable)}>
-                      Baixar
-                    </Button>
-                  )}
-                  {canManage && ["PAID", "PAID_LATE"].includes(payable.status) && (
-                    <Button variant="secondary" size="sm" leadingIcon={<RotateCcw size={14} />} onClick={() => openReverse(payable)}>
-                      Estornar
-                    </Button>
-                  )}
-                  <IconButton icon={<History size={16} />} label="Histórico" size="sm" onClick={() => openHistory(payable)} />
-                </div>
-              </div>
-            );
-          })}
-          {displayedPayables.length === 0 && (
-            <EmptyState
-              title={searchQuery
-                ? `Nenhum título encontrado para "${searchQuery}".`
-                : "Conta a pagar não encontrada para este período."}
-              description="Ajuste o período ou os filtros acima."
-            />
-          )}
+      {/* ── Barra da seleção (fica presa embaixo enquanto houver seleção) ── */}
+      {canManage && selecionados.length > 0 && (
+        <div className="pg-selecao" role="region" aria-label="Títulos selecionados">
+          <span className="pg-selecao-info">
+            <strong>{selecionados.length}</strong> selecionado(s) · <strong className="pg-num"><Money value={totalSelecionado} /></strong>
+          </span>
+          <span className="pg-selecao-acoes">
+            <Button variant="secondary" size="sm" onClick={() => setSelectedIds(new Set())}>Limpar</Button>
+            <Button size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={() => { setBatchResult(null); setBatchOpen(true); }}>
+              Baixar selecionados
+            </Button>
+          </span>
         </div>
       )}
 
-      {/* ── Modal: Baixa em lote ─────────────────────────────────── */}
       {batchOpen && (
-        <div className="modal-backdrop">
-          <section className="panel modal-panel payment-modal">
-            <div className="section-heading">
-              <div>
-                <p>Baixa financeira</p>
-                <h2>Baixar {selecionados.length} título(s) em lote</h2>
-              </div>
-              <button className="secondary-button" type="button" onClick={() => setBatchOpen(false)} disabled={batchBusy}>
-                <X size={16} /> Fechar
-              </button>
-            </div>
-
-            <Notice notice={notice} />
-
-            {batchResult && batchResult.erros.length > 0 ? (
-              <>
-                <Alert tone="warning">
-                  {batchResult.ok} baixado(s) com sucesso, {batchResult.erros.length} falhou(ram). Os que falharam continuam em aberto.
-                </Alert>
-                <ul style={{ fontSize: 13, margin: "10px 0 0", paddingLeft: 18 }}>
-                  {batchResult.erros.map((e, idx) => (
-                    <li key={idx} style={{ marginBottom: 4 }}><strong>{e.nome}</strong> — {e.motivo}</li>
-                  ))}
-                </ul>
-                <div className="modal-actions" style={{ marginTop: 14 }}>
-                  <Button onClick={() => { setBatchOpen(false); setBatchResult(null); }}>Fechar</Button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="pay-ctx">
-                  <div className="pay-ctx-row">
-                    <div><span>Títulos</span><strong>{selecionados.length}</strong></div>
-                    <div><span>Total</span><strong className="pay-ctx-amount"><Money value={totalSelecionado} /></strong></div>
-                  </div>
-                </div>
-
-                <p style={{ fontSize: 13, color: "var(--muted)", margin: "10px 0" }}>
-                  Cada título recebe a baixa pelo <strong>seu próprio valor</strong>, com os mesmos dados abaixo.
-                  Para pagar valor diferente do original (desconto ou juros), baixe aquele título individualmente.
-                </p>
-
-                <div className="form-grid">
-                  <label>
-                    Data do pagamento *
-                    <input type="date" value={paymentForm.paidDate}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, paidDate: e.target.value })} />
-                  </label>
-                  {selecionados.some((p) => !isTaxPayment(p)) && (
-                    <label>
-                      Forma de pagamento *
-                      <select value={paymentForm.paidPaymentMethod}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, paidPaymentMethod: e.target.value })}>
-                        <option value="">Selecione</option>
-                        {effectivePaymentOptions.map((opt) => (
-                          <option key={opt.id} value={`id:${opt.id}`}>{opt.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  <label>
-                    Observação
-                    <input value={paymentForm.paymentNotes}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, paymentNotes: e.target.value })} />
-                  </label>
-                  {selecionados.some((p) => !isTaxPayment(p)) && companies.length > 0 && (
-                    <label>
-                      Empresa pagadora
-                      <select value={paymentForm.payingCompanyId}
-                        onChange={(e) => void handleCompanyChange(e.target.value)}>
-                        <option value="">Selecione…</option>
-                        {companies.map((c) => <option key={c.id} value={c.id}>{c.tradeName}</option>)}
-                      </select>
-                    </label>
-                  )}
-                </div>
-
-                <div style={{ maxHeight: 180, overflow: "auto", border: "1px solid var(--border)", borderRadius: 8, padding: 8, marginTop: 12, fontSize: 13 }}>
-                  {selecionados.map((p) => (
-                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0" }}>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {p.supplierName ?? p.taxDocumentType}
-                        {p.taxDescription ? ` · ${p.taxDescription}` : ""}
-                      </span>
-                      <strong style={{ whiteSpace: "nowrap" }}><Money value={Number(p.amount ?? 0)} /></strong>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="modal-actions" style={{ marginTop: 14 }}>
-                  <Button variant="secondary" onClick={() => setBatchOpen(false)} disabled={batchBusy}>Cancelar</Button>
-                  <Button onClick={submitBatch} disabled={batchBusy}>
-                    {batchBusy ? "Baixando..." : `Confirmar baixa de ${selecionados.length}`}
-                  </Button>
-                </div>
-              </>
-            )}
-          </section>
-        </div>
+        <ModalBaixaLote
+          selecionados={selecionados}
+          total={totalSelecionado}
+          form={paymentForm}
+          onCampo={alterarCampo}
+          onEmpresa={(id) => void handleCompanyChange(id)}
+          formas={effectivePaymentOptions}
+          companies={companies}
+          notice={notice}
+          ocupado={batchBusy}
+          resultado={batchResult}
+          onFechar={() => setBatchOpen(false)}
+          onFecharResultado={() => { setBatchOpen(false); setBatchResult(null); }}
+          onConfirmar={() => void submitBatch()}
+        />
       )}
 
-      {/* ── Modal: Baixa financeira ──────────────────────────────── */}
       {paying && (
-        <div className="modal-backdrop">
-          <section className="panel modal-panel payment-modal">
-            <div className="section-heading">
-              <div>
-                <p>Baixa financeira</p>
-                <h2>Confirmar baixa</h2>
-              </div>
-              <button className="secondary-button" type="button" onClick={() => setPaying(null)}>
-                <X size={16} /> Fechar
-              </button>
-            </div>
-
-            <Notice notice={notice} />
-
-            {/* Contexto do título */}
-            <div className="pay-ctx">
-              <div className="pay-ctx-row">
-                {isSimpleLedger(paying) ? (
-                  <>
-                    <div><span>Tipo</span><strong>{paying.taxDocumentType ?? paying.supplierName}</strong></div>
-                    {paying.taxCompanyName && <div><span>{isExtra(paying) ? "Pessoa" : isPayroll(paying) ? "Funcionário" : "Empresa"}</span><strong>{paying.taxCompanyName}</strong></div>}
-                    {paying.taxDescription && <div><span>Descrição</span><strong>{paying.taxDescription}</strong></div>}
-                    {paying.taxCompetenceDate && <div><span>Competência</span><strong>{formatDate(paying.taxCompetenceDate)}</strong></div>}
-                  </>
-                ) : (
-                  <>
-                    <div><span>Fornecedor</span><strong>{paying.supplierName}</strong></div>
-                    {paying.invoiceNumber && <div><span>NF</span><strong>{paying.invoiceNumber}</strong></div>}
-                    {paying.purchaseNumber && <div><span>Pedido</span><strong>{paying.purchaseNumber}</strong></div>}
-                    {paying.installment != null && <div><span>Parcela</span><strong>{formatInstallment(paying.installment, paying.totalInstallments, paying.paymentMethodName)}</strong></div>}
-                  </>
-                )}
-                <div><span>Vencimento</span><strong>{formatDate(paying.dueDate)}</strong></div>
-                <div><span>Valor original</span><strong className="pay-ctx-amount"><Money value={paymentOriginalAmount} /></strong></div>
-              </div>
-            </div>
-
-            {/* Campos da baixa */}
-            <div className="form-grid payment-grid">
-              <label>
-                Data do pagamento *
-                <input type="date" value={paymentForm.paidDate}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, paidDate: e.target.value })} />
-              </label>
-              <label>
-                Valor pago *
-                <input type="number" min="0.01" step="0.01" inputMode="decimal" value={paymentForm.paidAmount}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, paidAmount: e.target.value })} />
-              </label>
-              {!isTaxPayment(paying) && (
-                <label>
-                  Forma de pagamento *
-                  <select value={paymentForm.paidPaymentMethod}
-                    onChange={(e) => setPaymentForm({ ...paymentForm, paidPaymentMethod: e.target.value })}>
-                    <option value="">Selecione</option>
-                    {effectivePaymentOptions.map((opt) => (
-                      <option key={opt.id} value={`id:${opt.id}`}>{opt.label}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <label>
-                Observação
-                <input value={paymentForm.paymentNotes}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, paymentNotes: e.target.value })} />
-              </label>
-              {!isTaxPayment(paying) && companies.length > 0 && (
-                <label>
-                  Empresa pagadora
-                  <select value={paymentForm.payingCompanyId}
-                    onChange={(e) => void handleCompanyChange(e.target.value)}>
-                    <option value="">Selecione…</option>
-                    {companies.map((c) => <option key={c.id} value={c.id}>{c.tradeName}</option>)}
-                  </select>
-                </label>
-              )}
-              {!isTaxPayment(paying) && paymentForm.payingCompanyId && (
-                <label>
-                  Conta bancária
-                  <select value={paymentForm.companyBankAccountId}
-                    onChange={(e) => setPaymentForm({ ...paymentForm, companyBankAccountId: e.target.value })}>
-                    <option value="">Selecione…</option>
-                    {bankAccounts.map((ba) => <option key={ba.id} value={ba.id}>{ba.name}</option>)}
-                  </select>
-                </label>
-              )}
-            </div>
-
-            {/* Resumo de diferença — compras e folha */}
-            {!isTaxPayment(paying) && paymentPaidAmount > 0 && (
-              <div className="pay-diff">
-                {Math.abs(paymentDifference) <= 0.009 ? (
-                  <span className="pay-diff-equal">Sem diferença em relação ao valor original</span>
-                ) : paymentDifference < 0 ? (
-                  <span className="pay-diff-discount">Desconto: <Money value={paymentDiscount} /></span>
-                ) : (
-                  <span className="pay-diff-surcharge">Juros / acréscimo: <Money value={paymentSurcharge} /></span>
-                )}
-              </div>
-            )}
-
-            {/* Justificativa da diferença — compras e folha */}
-            {!isTaxPayment(paying) && Math.abs(paymentDifference) > 0.009 && (
-              <label className="pay-diff-reason">
-                Justificativa da diferença *
-                <input
-                  value={paymentForm.differenceReason}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, differenceReason: e.target.value })}
-                  placeholder="Informe o motivo do desconto ou acréscimo"
-                />
-              </label>
-            )}
-
-            {/* Frase de confirmação */}
-            <p className="pay-confirm-phrase">
-              {isSimpleLedger(paying) ? (
-                <>Você está baixando <strong>{paying.taxDocumentType ?? paying.supplierName}</strong> no valor de{" "}<strong><Money value={paymentPaidAmount > 0 ? paymentPaidAmount : paymentOriginalAmount} /></strong>.</>
-              ) : (
-                <>
-                  Você está baixando{paying.installment != null ? ` a parcela ${formatInstallment(paying.installment, paying.totalInstallments, paying.paymentMethodName)}` : ""}
-                  {paying.invoiceNumber
-                    ? ` da NF ${paying.invoiceNumber}`
-                    : paying.purchaseNumber
-                      ? ` do pedido ${paying.purchaseNumber}`
-                      : ""}
-                  {" "}no valor de{" "}
-                  <strong><Money value={paymentPaidAmount > 0 ? paymentPaidAmount : paymentOriginalAmount} /></strong>.
-                </>
-              )}
-            </p>
-
-            <div className="modal-actions">
-              <button className="secondary-button" type="button" onClick={() => setPaying(null)}>Cancelar</button>
-              <button className="primary-button" type="button" onClick={submitPayment}>
-                <CheckCircle2 size={16} /> Confirmar baixa
-              </button>
-            </div>
-          </section>
-        </div>
+        <ModalBaixa
+          paying={paying}
+          form={paymentForm}
+          onCampo={alterarCampo}
+          onEmpresa={(id) => void handleCompanyChange(id)}
+          formas={effectivePaymentOptions}
+          companies={companies}
+          bankAccounts={bankAccounts}
+          notice={notice}
+          enviando={salvandoBaixa}
+          onFechar={() => setPaying(null)}
+          onConfirmar={() => void submitPayment()}
+        />
       )}
 
-      {/* ── Modal: Ver imposto / folha ───────────────────────────── */}
       {!detail && selectedPayable && isSimpleLedger(selectedPayable) && (
-        <div className="modal-backdrop">
-          <section className="panel modal-panel wide-modal">
-            <div className="section-heading">
-              <div>
-                <p>{isExtra(selectedPayable) ? "Diária de extra" : isPayroll(selectedPayable) ? "Folha de pagamento" : "Imposto / Guia"}</p>
-                <h2>{selectedPayable.taxDocumentType ?? selectedPayable.supplierName}</h2>
-              </div>
-              <button className="secondary-button" type="button" onClick={fecharDetalheSimples}>
-                <X size={16} /> Fechar
-              </button>
-            </div>
-
-            <div className="modal-section">
-              <p className="modal-section-title">Detalhes</p>
-              <div className="summary-columns">
-                <div>
-                  <h3>Identificação</h3>
-                  {selectedPayable.taxDocumentType && <p>Tipo: <strong>{selectedPayable.taxDocumentType}</strong></p>}
-                  {selectedPayable.taxDescription && <p>Descrição: <strong>{selectedPayable.taxDescription}</strong></p>}
-                  {selectedPayable.taxDreCategoryName && <p>Categoria DRE: <strong>{selectedPayable.taxDreCategoryName}</strong></p>}
-                  <p>
-                    <DsStatusBadge tone={statusTones[selectedPayable.status] ?? "neutral"}>
-                      {statusLabels[selectedPayable.status] ?? selectedPayable.status}
-                    </DsStatusBadge>
-                  </p>
-                </div>
-                <div>
-                  <h3>{isExtra(selectedPayable) ? "Pessoa" : isPayroll(selectedPayable) ? "Funcionário" : "Empresa"}</h3>
-                  {selectedPayable.taxCompanyName && <p>Nome: <strong>{selectedPayable.taxCompanyName}</strong></p>}
-                  {selectedPayable.taxCnpj && <p>CNPJ: <strong>{selectedPayable.taxCnpj}</strong></p>}
-                </div>
-                <div>
-                  <h3>Datas e valores</h3>
-                  {selectedPayable.taxCompetenceDate && <p>Competência: <strong>{formatDate(selectedPayable.taxCompetenceDate)}</strong></p>}
-                  <p>Vencimento: <strong>{formatDate(selectedPayable.dueDate)}</strong></p>
-                  <p>Valor: <strong><Money value={selectedPayable.amount ?? 0} /></strong></p>
-                  {selectedPayable.paidDate && <p>Pago em: <strong>{formatDate(selectedPayable.paidDate)}</strong></p>}
-                  {selectedPayable.paidAmount && <p>Valor pago: <strong><Money value={selectedPayable.paidAmount} /></strong></p>}
-                </div>
-              </div>
-            </div>
-
-            {selectedPayable.paymentNotes && (
-              <div className="modal-section">
-                <p className="modal-section-title">Observações</p>
-                <p>{selectedPayable.paymentNotes}</p>
-              </div>
-            )}
-
-            {isPayroll(selectedPayable) && (selectedPayable.status === "OPEN" || selectedPayable.status === "OVERDUE") && (
-              <div className="modal-section">
-                <p className="modal-section-title">Não vai ser pago?</p>
-                {excluirMotivo === null ? (
-                  <button className="secondary-button" type="button" onClick={() => setExcluirMotivo("")}>
-                    <X size={16} /> Excluir lançamento
-                  </button>
-                ) : (
-                  <>
-                    <Notice notice={notice} />
-                    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>Motivo da exclusão *</span>
-                      <textarea
-                        rows={2}
-                        style={{ resize: "vertical", fontSize: "0.9rem" }}
-                        placeholder="Ex.: desligado antes do mês, VT não pago"
-                        value={excluirMotivo}
-                        onChange={(e) => setExcluirMotivo(e.target.value)}
-                        autoFocus
-                      />
-                    </label>
-                    <div className="modal-actions" style={{ marginTop: 12 }}>
-                      <button className="secondary-button" type="button" onClick={() => setExcluirMotivo(null)} disabled={excluindo}>Cancelar</button>
-                      <button
-                        className="primary-button danger"
-                        type="button"
-                        disabled={excluirMotivo.trim().length < 3 || excluindo}
-                        onClick={() => void submitExcluirFolha()}
-                      >
-                        <X size={16} /> {excluindo ? "Excluindo…" : "Confirmar exclusão"}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {historyRows.length > 0 && (
-              <div className="modal-section">
-                <p className="modal-section-title">Histórico</p>
-                <div className="table-wrap">
-                  <table>
-                    <thead><tr><th>Data</th><th>Usuário</th><th>Ação</th></tr></thead>
-                    <tbody>
-                      {historyRows.map((a) => (
-                        <tr key={a.id}>
-                          <td>{formatDate(a.createdAt)}</td>
-                          <td>{a.userName ?? "-"}</td>
-                          <td>{a.action}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </section>
-        </div>
+        <DetalheSimples
+          titulo={selectedPayable}
+          historico={historyRows}
+          notice={notice}
+          excluirMotivo={excluirMotivo}
+          excluindo={excluindo}
+          onMotivo={setExcluirMotivo}
+          onExcluir={() => void submitExcluirFolha()}
+          onFechar={fecharDetalheSimples}
+        />
       )}
 
-      {/* ── Modal: Ver título ────────────────────────────────────── */}
       {detail && selectedPayable && (
-        <div className="modal-backdrop">
-          <section className="panel modal-panel wide-modal">
-            <div className="section-heading">
-              <div>
-                <p>Somente leitura</p>
-                <h2>{selectedPayable.supplierName}</h2>
-              </div>
-              <button className="secondary-button" type="button"
-                onClick={() => { setDetail(null); setSelectedPayable(null); setHistoryRows([]); }}>
-                <X size={16} /> Fechar
-              </button>
-            </div>
-
-            {/* Seção 1: Resumo */}
-            <div className="modal-section">
-              <p className="modal-section-title">Resumo do título</p>
-              <div className="summary-columns">
-                <div>
-                  <h3>Identificação</h3>
-                  {selectedPayable.invoiceNumber && <p>NF: <strong>{selectedPayable.invoiceNumber}</strong></p>}
-                  {selectedPayable.purchaseNumber && <p>Pedido: <strong>{selectedPayable.purchaseNumber}</strong></p>}
-                  {selectedPayable.installment != null && <p>Parcela: <strong>{formatInstallment(selectedPayable.installment, selectedPayable.totalInstallments, selectedPayable.paymentMethodName)}</strong></p>}
-                  <p>
-                    <DsStatusBadge tone={statusTones[selectedPayable.status] ?? "neutral"}>
-                      {statusLabels[selectedPayable.status] ?? selectedPayable.status}
-                    </DsStatusBadge>
-                  </p>
-                </div>
-                <div>
-                  <h3>Valores</h3>
-                  <p>Vencimento: <strong>{formatDate(selectedPayable.dueDate)}</strong></p>
-                  <p>Valor original: <strong><Money value={selectedPayable.amount ?? 0} /></strong></p>
-                  {["PAID", "PAID_LATE"].includes(selectedPayable.status) && selectedPayable.paidDate && (
-                    <>
-                      <p>Pago em: <strong>{formatDate(selectedPayable.paidDate)}</strong></p>
-                      <p>Valor pago: <strong><Money value={selectedPayable.paidAmount ?? 0} /></strong></p>
-                    </>
-                  )}
-                </div>
-                <div>
-                  <h3>Compra</h3>
-                  <p>Data: <strong>{formatDate(detail.purchaseDate)}</strong></p>
-                  <p>Forma: <strong>{detail.paymentMethodName ?? detail.paymentMethod ?? "-"}</strong></p>
-                  <p>Total NF: <strong><Money value={detail.totalAmount} /></strong></p>
-                </div>
-              </div>
-            </div>
-
-            {/* Seção 2: Itens */}
-            <div className="modal-section">
-              <p className="modal-section-title">Itens da compra</p>
-              <div className="table-wrap modal-table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Código</th><th>Produto</th><th>Categoria</th>
-                      <th>Unidade</th><th>Qtd.</th><th>Unit.</th><th>Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.items.map((item) => (
-                      <tr key={item.id}>
-                        <td>{item.rawProductCode ?? item.productCode ?? "-"}</td>
-                        <td>{item.rawProductName ?? item.productName}</td>
-                        <td>{item.rawCategory ?? item.categoryName ?? "-"}</td>
-                        <td>{item.unit ?? "-"}</td>
-                        <td>{formatNumber(Number(item.quantity))}</td>
-                        <td><Money value={item.unitPrice} /></td>
-                        <td><Money value={item.totalPrice} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Seção 3: Parcelas */}
-            <div className="modal-section">
-              <p className="modal-section-title">Parcelas</p>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Forma</th><th>Vencimento</th><th>Parcela</th>
-                      <th>Valor</th><th>Pago em</th><th>Valor pago</th><th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.installments.map((inst) => (
-                      <tr key={inst.id}>
-                        <td>{inst.paymentMethodName ?? detail.paymentMethodName ?? "-"}</td>
-                        <td>{formatDate(inst.dueDate)}</td>
-                        <td>{inst.installment != null ? formatInstallment(inst.installment, inst.totalInstallments, inst.paymentMethodName) : "-"}</td>
-                        <td><Money value={inst.amount ?? 0} /></td>
-                        <td>{formatDate(inst.paidDate)}</td>
-                        <td><Money value={inst.paidAmount ?? 0} /></td>
-                        <td>
-                          <DsStatusBadge tone={statusTones[inst.status ?? "OPEN"] ?? "neutral"}>
-                            {statusLabels[inst.status ?? "OPEN"] ?? inst.status}
-                          </DsStatusBadge>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Seção 4: Histórico de baixas */}
-            {historyRows.some((a) => a.action.includes("PAY") || a.action.includes("REVERSE")) && (
-              <div className="modal-section">
-                <p className="modal-section-title">Histórico de baixas</p>
-                <div className="table-wrap">
-                  <table>
-                    <thead><tr><th>Data</th><th>Usuário</th><th>Ação</th></tr></thead>
-                    <tbody>
-                      {historyRows
-                        .filter((a) => a.action.includes("PAY") || a.action.includes("REVERSE"))
-                        .map((a) => (
-                          <tr key={a.id}>
-                            <td>{formatDate(a.createdAt)}</td>
-                            <td>{a.userName ?? "-"}</td>
-                            <td>{a.action}</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Seção 5: Auditoria completa (colapsável) */}
-            <details className="modal-section modal-section-audit">
-              <summary className="modal-section-title modal-section-summary">
-                Auditoria completa
-              </summary>
-              <div className="table-wrap" style={{ marginTop: 10 }}>
-                <table>
-                  <thead><tr><th>Data</th><th>Usuário</th><th>Ação</th></tr></thead>
-                  <tbody>
-                    {[...historyRows, ...detail.audits].map((a) => (
-                      <tr key={a.id}>
-                        <td>{formatDate(a.createdAt)}</td>
-                        <td>{a.userName ?? "-"}</td>
-                        <td>{a.action}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </details>
-          </section>
-        </div>
+        <DetalheTitulo titulo={selectedPayable} compra={detail} historico={historyRows} onFechar={fecharDetalheCompra} />
       )}
 
-      {/* ── Modal: Reversão com motivo ──────────────────────────── */}
       {reversing && (
-        <div className="modal-backdrop">
-          <section className="panel modal-panel" style={{ maxWidth: 480 }}>
-            <div className="section-heading">
-              <div>
-                <p>Estorno de pagamento</p>
-                <h2>
-                  {isTaxPayment(reversing)
-                    ? (reversing.taxDocumentType ?? reversing.supplierName)
-                    : reversing.supplierName}
-                </h2>
-              </div>
-              <button className="secondary-button" type="button" onClick={() => setReversing(null)}>
-                <X size={16} /> Fechar
-              </button>
-            </div>
-
-            <Notice notice={notice} />
-
-            <div className="pay-ctx" style={{ marginBottom: 16 }}>
-              <div className="pay-ctx-row">
-                {isTaxPayment(reversing) ? (
-                  <>
-                    {reversing.taxCompanyName && <div><span>Empresa</span><strong>{reversing.taxCompanyName}</strong></div>}
-                    {reversing.taxCompetenceDate && <div><span>Competência</span><strong>{formatDate(reversing.taxCompetenceDate)}</strong></div>}
-                  </>
-                ) : (
-                  <>
-                    {reversing.invoiceNumber && <div><span>NF</span><strong>{reversing.invoiceNumber}</strong></div>}
-                    {reversing.installment != null && <div><span>Parcela</span><strong>{formatInstallment(reversing.installment, reversing.totalInstallments, reversing.paymentMethodName)}</strong></div>}
-                  </>
-                )}
-                <div><span>Valor pago</span><strong><Money value={reversing.paidAmount ?? reversing.amount ?? 0} /></strong></div>
-                <div><span>Data pagto.</span><strong>{formatDate(reversing.paidDate)}</strong></div>
-              </div>
-            </div>
-
-            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>Motivo da reversão *</span>
-              <textarea
-                rows={3}
-                style={{ resize: "vertical", fontSize: "0.9rem" }}
-                placeholder="Descreva o motivo do estorno..."
-                value={reverseReason}
-                onChange={(e) => setReverseReason(e.target.value)}
-                autoFocus
-              />
-            </label>
-
-            <div className="modal-actions" style={{ marginTop: 16 }}>
-              <button className="secondary-button" type="button" onClick={() => setReversing(null)}>Cancelar</button>
-              <button
-                className="primary-button danger"
-                type="button"
-                disabled={!reverseReason.trim()}
-                onClick={() => void submitReverse()}
-              >
-                <RotateCcw size={16} /> Confirmar estorno
-              </button>
-            </div>
-          </section>
-        </div>
+        <ModalEstorno
+          titulo={reversing}
+          motivo={reverseReason}
+          onMotivo={setReverseReason}
+          notice={notice}
+          enviando={estornando}
+          onFechar={() => setReversing(null)}
+          onConfirmar={() => void submitReverse()}
+        />
       )}
 
-      {/* ── Modal: Histórico ─────────────────────────────────────── */}
       {historyOnly && (
-        <div className="modal-backdrop">
-          <section className="panel modal-panel">
-            <div className="section-heading">
-              <div>
-                <p>Auditoria</p>
-                <h2>Histórico — {historyOnly.supplierName}</h2>
-              </div>
-              <button className="secondary-button" type="button" onClick={() => setHistoryOnly(null)}>
-                <X size={16} /> Fechar
-              </button>
-            </div>
-            <div className="subsection table-wrap">
-              <table>
-                <thead><tr><th>Data</th><th>Usuário</th><th>Ação</th></tr></thead>
-                <tbody>
-                  {historyRows.map((a) => (
-                    <tr key={a.id}>
-                      <td>{formatDate(a.createdAt)}</td>
-                      <td>{a.userName ?? "-"}</td>
-                      <td>{a.action}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </div>
+        <ModalHistorico titulo={historyOnly} linhas={historyRows} onFechar={() => setHistoryOnly(null)} />
       )}
     </section>
   );

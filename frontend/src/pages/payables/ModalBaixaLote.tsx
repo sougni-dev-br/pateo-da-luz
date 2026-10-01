@@ -1,0 +1,115 @@
+import { CheckCircle2 } from "lucide-react";
+import type { Company, Payable } from "../../api/client";
+import { Notice, type NoticeState } from "../../components/Notice";
+import { Alert, Button, Money } from "../../design-system";
+import { formatDate } from "../../utils/format";
+import { Janela } from "./Janela";
+import type { FormBaixa, OpcaoForma } from "./ModalBaixa";
+import { favorecidoDoTitulo, isTaxPayment, valorDoTitulo } from "./regras";
+
+export type ResultadoLote = { ok: number; erros: Array<{ nome: string; motivo: string }> };
+
+type Props = {
+  selecionados: Payable[];
+  total: number;
+  form: FormBaixa;
+  onCampo: <K extends keyof FormBaixa>(campo: K, valor: FormBaixa[K]) => void;
+  onEmpresa: (companyId: string) => void;
+  formas: OpcaoForma[];
+  companies: Company[];
+  notice: NoticeState | null;
+  ocupado: boolean;
+  resultado: ResultadoLote | null;
+  onFechar: () => void;
+  onFecharResultado: () => void;
+  onConfirmar: () => void;
+};
+
+export function ModalBaixaLote({ selecionados, total, form, onCampo, onEmpresa, formas, companies, notice, ocupado, resultado, onFechar, onFecharResultado, onConfirmar }: Props) {
+  const temNaoImposto = selecionados.some((p) => !isTaxPayment(p));
+
+  return (
+    <Janela eyebrow="Baixa em lote" titulo={`Baixar ${selecionados.length} título(s)`} onFechar={onFechar} ocupado={ocupado}>
+      <Notice notice={notice} />
+
+      {resultado && resultado.erros.length > 0 ? (
+        <>
+          <Alert tone="warning">
+            {resultado.ok} baixado(s) com sucesso, {resultado.erros.length} falhou(ram). Os que falharam continuam em aberto.
+          </Alert>
+          <ul className="pg-lote-erros">
+            {resultado.erros.map((e, idx) => (
+              <li key={idx}><strong>{e.nome}</strong> — {e.motivo}</li>
+            ))}
+          </ul>
+          <div className="modal-actions">
+            <Button onClick={onFecharResultado}>Fechar</Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="pay-ctx">
+            <div className="pay-ctx-row">
+              <div><span>Títulos</span><strong>{selecionados.length}</strong></div>
+              <div className="pg-ctx-valor"><span>Total</span><strong className="pay-ctx-amount"><Money value={total} /></strong></div>
+            </div>
+          </div>
+
+          <p className="pg-nota">
+            Cada título recebe a baixa pelo <strong>seu próprio valor</strong>, com os mesmos dados abaixo.
+            Para pagar valor diferente do original (desconto ou juros), baixe aquele título individualmente.
+          </p>
+
+          <div className="form-grid">
+            <label>
+              Data do pagamento *
+              <input type="date" value={form.paidDate} onChange={(e) => onCampo("paidDate", e.target.value)} />
+            </label>
+            {temNaoImposto && (
+              <label>
+                Forma de pagamento *
+                <select value={form.paidPaymentMethod} onChange={(e) => onCampo("paidPaymentMethod", e.target.value)}>
+                  <option value="">Selecione</option>
+                  {formas.map((opt) => <option key={opt.id} value={`id:${opt.id}`}>{opt.label}</option>)}
+                </select>
+              </label>
+            )}
+            <label>
+              Observação
+              <input value={form.paymentNotes} onChange={(e) => onCampo("paymentNotes", e.target.value)} />
+            </label>
+            {temNaoImposto && companies.length > 0 && (
+              <label>
+                Empresa pagadora
+                <select value={form.payingCompanyId} onChange={(e) => onEmpresa(e.target.value)}>
+                  <option value="">Selecione…</option>
+                  {companies.map((c) => <option key={c.id} value={c.id}>{c.tradeName}</option>)}
+                </select>
+              </label>
+            )}
+          </div>
+
+          <ul className="pg-lote-lista" aria-label="Títulos selecionados">
+            {selecionados.map((p) => (
+              <li key={p.id}>
+                <span className="pg-lote-nome">
+                  {favorecidoDoTitulo(p)}
+                  {p.taxDescription ? ` · ${p.taxDescription}` : ""}
+                </span>
+                <span className="pg-lote-venc">{formatDate(p.dueDate)}</span>
+                <strong className="pg-num"><Money value={valorDoTitulo(p)} /></strong>
+              </li>
+            ))}
+          </ul>
+
+          <div className="modal-actions">
+            <Button variant="secondary" onClick={onFechar} disabled={ocupado}>Cancelar</Button>
+            <Button leadingIcon={<CheckCircle2 size={16} />} onClick={onConfirmar} disabled={ocupado}>
+              {ocupado ? "Baixando…" : `Confirmar baixa de ${selecionados.length}`}
+            </Button>
+          </div>
+        </>
+      )}
+    </Janela>
+  );
+}
