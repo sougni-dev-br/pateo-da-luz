@@ -8,7 +8,7 @@ import type { PessoaEscolhida } from "./DiariaModal";
 type Props = {
   pessoas: ExtraPessoas;
   diarias: ExtraDiaria[];
-  emRisco: Set<string>; // pessoas de fora com frequência alta (risco de vínculo)
+  emRisco: Set<string>; // freelancers com frequência alta (risco de vínculo)
   mesRotulo: string;
   podeCriar: boolean;
   podeEditar: boolean;
@@ -108,15 +108,15 @@ export function ExtrasPessoas({ pessoas, diarias, emRisco, mesRotulo, podeCriar,
       <section className="panel">
         <div className="section-heading">
           <div>
-            <PanelEyebrow>Indicação</PanelEyebrow>
-            <h2>Pessoas de fora</h2>
+            <PanelEyebrow>Por diária</PanelEyebrow>
+            <h2>Freelancers</h2>
           </div>
-          {podeCriar && <Button leadingIcon={<Plus size={14} />} onClick={onNovaFora}>Nova pessoa de fora</Button>}
+          {podeCriar && <Button leadingIcon={<Plus size={14} />} onClick={onNovaFora}>Novo freelancer</Button>}
         </div>
         {fora.length === 0 ? (
           <EmptyState
-            title="Nenhuma pessoa de fora cadastrada"
-            description="Cadastre aqui quem vem por indicação e não é funcionário. Também dá para cadastrar na hora de lançar a diária."
+            title="Nenhum freelancer cadastrado"
+            description="Cadastre aqui quem trabalha por diária e não é funcionário. Também dá para cadastrar na hora de lançar a diária."
           />
         ) : (
           <Table className="extras-tabela">

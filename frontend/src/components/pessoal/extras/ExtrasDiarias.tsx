@@ -56,7 +56,7 @@ export function ExtrasDiarias(p: Props) {
       <section className="panel">
         <EmptyState
           title={`Nenhuma diária em ${p.mesRotulo}`}
-          description="Chamou alguém para trabalhar? Lance a diária, da equipe da casa ou de uma pessoa de fora. Se ainda vai acontecer, lance como Prevista e confirme depois."
+          description="Chamou alguém para trabalhar? Lance a diária, da equipe da casa ou de um freelancer. Se ainda vai acontecer, lance como Prevista e confirme depois."
         />
         {p.podeCriar && <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}><Button onClick={p.onLancar}>Lançar diária</Button></div>}
       </section>
@@ -80,7 +80,7 @@ export function ExtrasDiarias(p: Props) {
         <div className="extras-chips" role="group" aria-label="Filtrar por origem">
           {(["TODAS", "CASA", "FORA"] as Origem[]).map((o) => (
             <button key={o} type="button" className="extras-chip" aria-pressed={origem === o} onClick={() => setOrigem(o)}>
-              {o === "TODAS" ? "Casa e fora" : o === "CASA" ? "Casa" : "De fora"}
+              {o === "TODAS" ? "Todos" : o === "CASA" ? "Equipe" : "Freelancers"}
             </button>
           ))}
         </div>
@@ -114,7 +114,7 @@ export function ExtrasDiarias(p: Props) {
                   <Table.Td>
                     <strong>{d.pessoaNome}</strong>
                     <span className={`extras-origem${d.origem === "FORA" ? " fora" : ""}`}>
-                      {d.origem === "CASA" ? (d.modalidade === "CLT" ? "Casa · CLT" : "Casa · sem registro") : "De fora"}
+                      {d.origem === "CASA" ? (d.modalidade === "CLT" ? "Equipe · CLT" : "Equipe · sem registro") : "Freelancer"}
                     </span>
                     <div className="extras-sub">{[d.duration === "MEIA" ? "Meia diária" : "Diária", d.role].filter(Boolean).join(" · ")}{d.eventName && <span className="extras-so-celular"> · <b className="extras-evento">{d.eventName}</b></span>}</div>
                   </Table.Td>
