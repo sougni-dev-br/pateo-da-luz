@@ -14,8 +14,19 @@ describe("PDF do envio à contabilidade", () => {
     expect(textoPdf("rateio − vales – créditos")).toBe("rateio - vales - créditos");
   });
 
-  test("nomes saem em maiúsculas e células vazias viram traço", () => {
-    expect(nomeNoEnvio(" Elioenai Ferreira da Silva ")).toBe("ELIOENAI FERREIRA DA SILVA");
+  test("nomes saem como nome próprio e células vazias viram traço", () => {
+    expect(nomeNoEnvio(" ELIOENAI FERREIRA DA SILVA ")).toBe("Elioenai Ferreira da Silva");
+    expect(nomeNoEnvio("maria  jose silva de freitas")).toBe("Maria Jose Silva de Freitas");
+    expect(nomeNoEnvio("JULIANA MENDES GONÇALVES")).toBe("Juliana Mendes Gonçalves");
     expect([celulaOuTraco(""), celulaOuTraco(null), celulaOuTraco(0), celulaOuTraco("15:13"), celulaOuTraco(2)]).toEqual(["-", "-", "-", "15:13", "2"]);
   });
+});
+
+test("totais do resumo somam horas (h:mm), faltas e atestados", async () => {
+  const { totaisDoEnvio } = await import("../envioContabilidade");
+  const { parseHoras } = await import("../gorjetaUtils");
+  const l = (horaExtra: string | null, adicionalNoturno: string | null, faltas: number, atestados: number): LinhaEnvio =>
+    ({ pessoa: { horaExtra, adicionalNoturno, faltas, atestados } as LinhaEnvio["pessoa"], empresa: "X", gorjeta: 0, peloTeto: false });
+  expect(totaisDoEnvio([l("15:13", null, 0, 0), l("24:27", "5:06", 1, 2)], parseHoras))
+    .toEqual({ minutosHoraExtra: 39 * 60 + 40, minutosNoturno: 306, faltas: 1, atestados: 2 });
 });
