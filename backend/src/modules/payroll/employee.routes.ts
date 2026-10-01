@@ -7,6 +7,7 @@ import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { hojeEmSaoPaulo } from "./extras-comum.js";
 import { CAMPOS_SALARIO, ROTULO_CAMPO, alteracoes, faltaMotivoEntradaGorjeta, faltaMotivoRetroativo, lerVigenteDesde, type CampoHistorico } from "./cadastro-historico.js";
 import { registrarAlteracoes } from "./cadastro-historico.service.js";
+import { lerFichaDoFuncionario } from "./ficha-registro.service.js";
 
 export const employeeRouter = Router();
 
@@ -124,7 +125,26 @@ function buildEmployeeData(b: Record<string, unknown>) {
     // mesmo modo de falha que sumiu com 5 vales em julho.
     ...("vtMonthlyFareId" in b ? { vtMonthlyFareId: str(b.vtMonthlyFareId) } : {}),
     ...("vtFixedAmount" in b ? { vtFixedAmount: numOrNull(b.vtFixedAmount) } : {}),
+    ...lerCamposFicha(b),
   };
+}
+
+// Documentos e contrato da ficha de registro. Ausente = não mexe: tela antiga aberta em outro
+// computador, ao salvar, não apaga o que a importação da ficha preencheu.
+const FICHA_TEXTO = [
+  "registroNumero", "matriculaEsocial", "nomeMae", "nomePai", "estadoCivil", "nacionalidade", "naturalidade",
+  "racaCor", "escolaridade", "rgOrgaoEmissor", "tituloEleitor", "tituloZona", "tituloSecao",
+  "ctpsNumero", "ctpsSerie", "ctpsUf", "cbo", "jornadaInicio", "jornadaFim", "intervaloInicio", "intervaloFim",
+] as const;
+const FICHA_DATA = ["rgDataEmissao", "ctpsDataEmissao", "fgtsDataOpcao"] as const;
+
+export function lerCamposFicha(b: Record<string, unknown>): Record<string, string | Date | boolean | null> {
+  const out: Record<string, string | Date | boolean | null> = {};
+  for (const c of FICHA_TEXTO) if (c in b) out[c] = str(b[c])?.slice(0, 120) ?? null;
+  for (const c of FICHA_DATA) if (c in b) out[c] = dateOrNull(b[c]);
+  if ("ctpsUf" in out && out.ctpsUf) out.ctpsUf = String(out.ctpsUf).toUpperCase().slice(0, 2);
+  if ("possuiDeficiencia" in b) out.possuiDeficiencia = typeof b.possuiDeficiencia === "boolean" ? b.possuiDeficiencia : null;
+  return out;
 }
 
 // Salário combinado: quem ganha acima do registrado (na folha sai combinado − adiantamento
@@ -353,6 +373,17 @@ employeeRouter.get("/:id/historico", async (request, response) => {
       createdAt: l.createdAt.toISOString(),
     };
   }));
+});
+
+// ─── FICHA DE REGISTRO (dependentes, férias, carteira) ────────────────────────────
+// Salário da carteira só com a permissão de ver Funcionários, como no histórico do cadastro.
+employeeRouter.get("/:id/ficha", async (request, response) => {
+  const employee = await prisma.employee.findFirst({
+    where: { id: request.params.id, deletedAt: null },
+    select: { id: true, admissaoCarteira: true, terminationDate: true },
+  });
+  if (!employee) return response.status(404).json({ message: "Funcionário não encontrado." });
+  return response.json(await lerFichaDoFuncionario(employee, await podeVerDadosPessoais(request)));
 });
 
 // ─── GET ONE ─────────────────────────────────────────────────────────────────────

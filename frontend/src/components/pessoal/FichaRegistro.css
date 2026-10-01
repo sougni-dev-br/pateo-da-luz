@@ -1,0 +1,37 @@
+/* Ficha de registro (consulta): três blocos lado a lado no desktop, empilhados no celular. */
+.ficha-registro {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr) minmax(0, 1.2fr);
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .ficha-registro { grid-template-columns: minmax(0, 1fr); }
+}
+.ficha-registro__titulo {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ficha-registro__lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 14px; }
+.ficha-registro__lista--ferias { gap: 10px; max-height: 420px; overflow-y: auto; padding-right: 4px; }
+.ficha-registro__ferias {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 2px;
+}
+.ficha-registro__ferias-topo { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ficha-registro__detalhe { font-size: 12px; color: var(--muted); }
+.ficha-registro__cbo { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+/* Pares de campos curtos (zona/seção, série/UF, início/fim) dentro de um FormField. */
+.documentos-registro__par { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.documentos-registro__resumo { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+/* Carteira de quem tem anos de casa (20+ anotações): rola dentro do bloco, como as férias. A folga
+   à esquerda é das marcas da linha do tempo, que ficam fora da lista e seriam cortadas. */
+.ficha-registro__rolagem { max-height: 420px; overflow-y: auto; padding-left: 8px; }
