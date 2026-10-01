@@ -587,3 +587,27 @@ describe("adiantamento salarial de sem registro", () => {
 });
 
 const round = (v: number) => Math.round(v * 100) / 100;
+
+describe("saiu depois do fim do ciclo, com o termo de rescisão já importado no período", () => {
+  // Luiz Moreno: ciclo 26/08→25/09, saída 29/09. O termo pagou R$ 489,30 de gorjeta =
+  // a gorjeta do mês (689,30) menos os vales (200). A lista não pode pagar de novo.
+  const luiz = pessoa({
+    basePoints: 3.1, desligamento: d("2026-09-29"), rescisaoValorFixo: 489.3,
+    vales: [{ type: "ADIANTAMENTO", amount: 100 }, { type: "ADIANTAMENTO", amount: 100 }],
+  } as Partial<ParticipanteEntrada>);
+
+  test("gorjeta do mês e vales calculados normalmente, mas nada a pagar na lista", () => {
+    const r = calcularParticipante(SETEMBRO, luiz, 222.35);
+    expect(r.tipoCalculo).toBe("MES");
+    expect(r.rateio).toBe(689.29);
+    expect(r.comissaoLiquida).toBe(489.29);
+    expect(r.pagoNaRescisao).toBe(true);
+    expect(r.totalAPagar).toBe(0);
+  });
+
+  test("sem o termo importado, continua a pagar na lista", () => {
+    const r = calcularParticipante(SETEMBRO, { ...luiz, rescisaoValorFixo: null }, 222.35);
+    expect(r.pagoNaRescisao).toBe(false);
+    expect(r.totalAPagar).toBe(489.29);
+  });
+});
