@@ -205,7 +205,7 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
               <Table.Row>
                 <ThOrdenavel {...th("nome")} align="left" minWidth={200}>Funcionário</ThOrdenavel>
                 {v("empresa") && <ThOrdenavel {...th("empresa")}>Empresa</ThOrdenavel>}
-                {v("apuracao") && <ThOrdenavel {...th("apuracao")} title="Rateio − vales + créditos">Apuração</ThOrdenavel>}
+                {v("apuracao") && <ThOrdenavel {...th("apuracao")} title="Rateio − vales + créditos (com teto do IR: a gorjeta informada)">Apuração</ThOrdenavel>}
                 {v("extrato") && <ThOrdenavel {...th("extrato")}>Extrato</ThOrdenavel>}
                 {v("dif") && <ThOrdenavel {...th("dif")}>Diferença</ThOrdenavel>}
                 <ThOrdenavel {...th("status")}>Situação</ThOrdenavel>
@@ -237,7 +237,14 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
                       )}
                     </Table.Td>
                     {v("empresa") && <Table.Td style={mutedStyle}>{l.empresa ?? "—"}</Table.Td>}
-                    {v("apuracao") && <Table.Td>{l.apuracao == null ? "—" : money(l.apuracao)}</Table.Td>}
+                    {v("apuracao") && (
+                      <Table.Td title={l.peloTeto ? (l.apuracao == null
+                        ? "Gorjeta informada pelo teto do IR (teto − salário registrado): o valor exige permissão de ver Funcionários."
+                        : "Gorjeta informada pelo teto do IR: teto − salário registrado. A pessoa recebe a gorjeta dos pontos na folha.") : undefined}>
+                        {l.apuracao == null ? "—" : money(l.apuracao)}
+                        {l.peloTeto && <div style={{ fontSize: 11, color: "var(--muted)" }}>pelo teto do IR</div>}
+                      </Table.Td>
+                    )}
                     {v("extrato") && <Table.Td>{l.extrato == null ? "—" : money(l.extrato)}</Table.Td>}
                     {v("dif") && (
                       <Table.Td style={{ fontWeight: 600, color: l.diferenca && Math.abs(l.diferenca) >= 0.01 && pend ? "var(--danger)" : undefined }}>

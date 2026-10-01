@@ -2468,6 +2468,9 @@ model Employee {
   // (salário combinado − adiantamento salarial do extrato) + gorjeta líquida.
   salarioCombinado       Decimal?        @db.Decimal(12, 2)
   salarioCombinadoMotivo String?
+  // Teto do IR para a gorjeta informada (CLT): o envio à contabilidade leva
+  // teto − salário registrado; a pessoa continua recebendo a gorjeta dos pontos.
+  tetoIrGorjeta          Decimal?        @db.Decimal(12, 2)
   // Recebe adiantamento salarial no dia do adiantamento (PayrollSettings). Sem
   // registro: a lista de pagamento desconta o que já foi pago. CLT: só informativo.
   recebeAdiantamento     Boolean         @default(false)
@@ -2819,7 +2822,7 @@ model EmployeeHistorico {
   id            String   @id
   employeeId    String
   employee      Employee @relation(fields: [employeeId], references: [id])
-  campo         String   // baseSalary | salarioCombinado | modality | companyId | position | recebeAdiantamento | pagamentoQuinzenal
+  campo         String   // baseSalary | salarioCombinado | tetoIrGorjeta | modality | companyId | position | recebeAdiantamento | pagamentoQuinzenal
   valorAnterior String?
   valorNovo     String?
   vigenteDesde  DateTime @db.Date

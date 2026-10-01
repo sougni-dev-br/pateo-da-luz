@@ -4,6 +4,9 @@
 // A contabilidade lança a gorjeta LÍQUIDA (rateio − vales + créditos). Para quem
 // tem salário combinado, a gorjeta do extrato completa o salário e não precisa
 // bater com a apuração; o líquido dele na folha é (combinado − adiantamento) + gorjeta.
+// Quem tem teto do IR para a gorjeta (CLT) vai à contabilidade com a gorjeta INFORMADA
+// (teto − salário registrado): o extrato tem de bater com ela, com ou sem salário
+// combinado. Na folha de líquidos ele continua recebendo a gorjeta real.
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -14,6 +17,8 @@ export type PessoaApurada = {
   noPeriodo: boolean;          // tipoCalculo ≠ FORA_DO_PERIODO
   pagoNaRescisao: boolean;
   gorjetaLiquida: number;      // netCommission
+  gorjetaInformada?: number;   // o que foi enviado à contabilidade (= gorjetaLiquida sem teto)
+  peloTeto?: boolean;          // gorjeta informada pelo teto do IR
   totalAPagar: number;         // sem registro: salário − adiantamento − 1ª quinzena + gorjeta − vales + hora extra/noturno
   adiantamentoSalarial?: number; // sem registro: já pago no dia do adiantamento (0/ausente = não recebeu)
   primeiraQuinzena?: number;   // sem registro por quinzena: já pago no dia 15 (0/ausente = não recebeu)
@@ -54,6 +59,7 @@ export type LinhaConferencia = {
   justificativa: string | null;
   extratoId?: string;          // de qual extrato veio (para confirmar o vínculo)
   nomeNoExtrato?: string;      // como a pessoa está escrita no extrato
+  peloTeto?: boolean;          // a apuração é a gorjeta informada pelo teto do IR
 };
 
 const PENDENTES: StatusConferencia[] = ["DIVERGE", "FALTA_NO_EXTRATO", "SO_NO_EXTRATO", "SEM_EXTRATO_DA_EMPRESA", "VINCULO_A_CONFIRMAR"];
@@ -80,24 +86,28 @@ export function conferir(
   // CLT da apuração: a gorjeta líquida tem de aparecer no extrato da empresa.
   const clt = apuracao.filter((p) => p.noPeriodo && !p.semRegistro && !p.pagoNaRescisao);
   for (const p of clt) {
+    // O que foi enviado à contabilidade: com teto, a gorjeta informada; sem, a líquida.
+    const teto = p.peloTeto && p.gorjetaInformada != null ? { peloTeto: true } : {};
+    const enviada = teto.peloTeto ? p.gorjetaInformada! : p.gorjetaLiquida;
     const ex = noExtrato.get(p.employeeId);
     if (!ex) {
       const semExtrato = !p.cnpjEmpresa || !cnpjsCarregados.has(digitos(p.cnpjEmpresa));
       const st = semExtrato ? "SEM_EXTRATO_DA_EMPRESA" : "FALTA_NO_EXTRATO";
       saida.push({ chave: p.employeeId, employeeId: p.employeeId, nome: p.nome, empresa: null,
-        apuracao: p.gorjetaLiquida, extrato: null, diferenca: null, ...aceita(p.employeeId, st) });
+        apuracao: enviada, extrato: null, diferenca: null, ...aceita(p.employeeId, st), ...teto });
       continue;
     }
     const valor = ex.linha.gorjeta ?? 0;
-    const dif = round2(valor - p.gorjetaLiquida);
+    const dif = round2(valor - enviada);
     if (aConfirmar(ex.linha)) {
       saida.push({ chave: p.employeeId, employeeId: p.employeeId, nome: p.nome, empresa: ex.empresa,
-        apuracao: p.gorjetaLiquida, extrato: ex.linha.gorjeta, diferenca: null, status: "VINCULO_A_CONFIRMAR", justificativa: null, extratoId: ex.id, nomeNoExtrato: ex.linha.nome });
+        apuracao: enviada, extrato: ex.linha.gorjeta, diferenca: null, status: "VINCULO_A_CONFIRMAR", justificativa: null, extratoId: ex.id, nomeNoExtrato: ex.linha.nome, ...teto });
       continue;
     }
-    const base: StatusConferencia = combinados.has(p.employeeId) ? "SALARIO_COMBINADO" : Math.abs(dif) < 0.01 ? "OK" : "DIVERGE";
+    // Com teto a gorjeta do extrato é conhecida e confere, mesmo com salário combinado.
+    const base: StatusConferencia = !teto.peloTeto && combinados.has(p.employeeId) ? "SALARIO_COMBINADO" : Math.abs(dif) < 0.01 ? "OK" : "DIVERGE";
     saida.push({ chave: p.employeeId, employeeId: p.employeeId, nome: p.nome, empresa: ex.empresa,
-      apuracao: p.gorjetaLiquida, extrato: valor, diferenca: dif, ...aceita(p.employeeId, base) });
+      apuracao: enviada, extrato: valor, diferenca: dif, ...aceita(p.employeeId, base), ...teto });
   }
 
   // No extrato e fora da apuração: com gorjeta é divergência; sem gorjeta, só não participa.
@@ -119,6 +129,12 @@ export function conferir(
     }
   }
   return saida.map((l) => ({ ...l, apelido: l.employeeId ? apelidos.get(l.employeeId) ?? null : null }));
+}
+
+// Sem a permissão de Funcionários, a gorjeta informada pelo teto (teto − salário) não vai
+// para a tela: a linha mantém o status (bate ou não) sem o valor da apuração nem a diferença.
+export function esconderTeto<T extends { peloTeto?: boolean; apuracao: number | null; diferenca: number | null }>(linhas: T[], veDados: boolean): T[] {
+  return veDados ? linhas : linhas.map((l) => (l.peloTeto ? { ...l, apuracao: null, diferenca: null } : l));
 }
 
 export type OrigemFolha = "EXTRATO" | "SALARIO_COMBINADO" | "SEM_REGISTRO";

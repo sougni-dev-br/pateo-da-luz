@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { type ExtratoEmpresa, type PessoaApurada, conferir, montarFolhaLiquidos } from "../tip-conferencia.js";
+import { type ExtratoEmpresa, type PessoaApurada, conferir, esconderTeto, montarFolhaLiquidos } from "../tip-conferencia.js";
 import { lerTextoExtrato } from "../rh-extract.service.js";
 
 const FREI = "46.878.233/0001-92";
@@ -127,5 +127,58 @@ describe("folha de líquidos: sem registro com adiantamento salarial", () => {
     expect(por.com).toMatchObject({ valor: 1592.66, composicao: "salário − adiantamento + gorjeta − vales" });
     expect(por.sem.composicao).toBe("salário + gorjeta − vales");
     expect(por.antigo.composicao).toBe("salário + gorjeta − vales");
+  });
+});
+
+describe("conferência pela gorjeta informada (teto do IR)", () => {
+  const eli = (over: Partial<PessoaApurada> = {}) =>
+    pessoa({ employeeId: "eli", nome: "Elioenai", gorjetaLiquida: 2223.54, gorjetaInformada: 1328, peloTeto: true, ...over });
+  const combinados = new Map([["eli", 5200]]);
+  const comGorjeta = (gorjeta: number) => extrato([linha({ employeeId: "eli", nome: "ELIOENAI", liquido: 3030, gorjeta, adiantamento: 1468.8 })]);
+
+  test("extrato com a gorjeta informada: OK, comparando com ela (não com a do rateio)", () => {
+    const [l] = conferir([eli()], [comGorjeta(1328)], new Map(), combinados);
+    expect(l).toMatchObject({ status: "OK", apuracao: 1328, extrato: 1328, diferenca: 0, peloTeto: true });
+  });
+
+  test("contabilidade lançou outro valor: diverge, mesmo com salário combinado", () => {
+    const [l] = conferir([eli()], [comGorjeta(2223.54)], new Map(), combinados);
+    expect(l).toMatchObject({ status: "DIVERGE", apuracao: 1328, diferenca: 895.54 });
+  });
+
+  test("divergência pelo teto pode ser aceita com justificativa", () => {
+    const [l] = conferir([eli()], [comGorjeta(1300)], new Map([["eli", "Contabilidade arredondou"]]), combinados);
+    expect(l).toMatchObject({ status: "ACEITA", justificativa: "Contabilidade arredondou" });
+  });
+
+  test("sem teto continua como antes: salário combinado não confere a gorjeta", () => {
+    const [l] = conferir([eli({ peloTeto: false, gorjetaInformada: 2223.54 })], [comGorjeta(1328)], new Map(), combinados);
+    expect(l.status).toBe("SALARIO_COMBINADO");
+    expect(l.apuracao).toBe(2223.54);
+  });
+
+  test("faltando no extrato: a apuração mostra a gorjeta informada", () => {
+    const [l] = conferir([eli()], [extrato([])], new Map(), combinados);
+    expect(l).toMatchObject({ status: "FALTA_NO_EXTRATO", apuracao: 1328, peloTeto: true });
+  });
+
+  test("a folha de líquidos continua pagando a gorjeta real", () => {
+    const f = montarFolhaLiquidos([eli()], [comGorjeta(1328)], combinados);
+    expect(f[0]).toMatchObject({ origem: "SALARIO_COMBINADO", valor: 5954.74 }); // 5.200 − 1.468,80 + 2.223,54
+  });
+});
+
+describe("conferência sem permissão de ver Funcionários", () => {
+  test("a linha pelo teto mantém o status, sem o valor da apuração nem a diferença", () => {
+    const linhas = conferir(
+      [pessoa({ employeeId: "eli", nome: "Elioenai", gorjetaLiquida: 2223.54, gorjetaInformada: 1328, peloTeto: true }),
+        pessoa({ employeeId: "ana", nome: "Ana", gorjetaLiquida: 500 })],
+      [extrato([linha({ employeeId: "eli", nome: "ELIOENAI", gorjeta: 1300 }), linha({ employeeId: "ana", nome: "ANA", gorjeta: 500 })])],
+      new Map());
+    const sem = esconderTeto(linhas, false);
+    expect(sem.find((l) => l.chave === "eli")).toMatchObject({ status: "DIVERGE", apuracao: null, diferenca: null, extrato: 1300, peloTeto: true });
+    expect(sem.find((l) => l.chave === "ana")).toMatchObject({ status: "OK", apuracao: 500, diferenca: 0 });
+    expect(JSON.stringify(sem)).not.toContain("1328");
+    expect(esconderTeto(linhas, true)).toEqual(linhas);
   });
 });
