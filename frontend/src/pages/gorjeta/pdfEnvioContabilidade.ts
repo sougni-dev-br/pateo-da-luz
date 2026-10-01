@@ -2,15 +2,15 @@
 // Um bloco por empresa (razão social e CNPJ), subtotal de cada uma, total geral, legenda,
 // campo de conferência e rodapé com emissão e página. Nada aqui fala do teto do IR.
 import { getCompanies, type Company, type TipComputation } from "../../api/client";
-import { MONTHS, fmtDate, money } from "./gorjetaUtils";
+import { MONTHS, fmtDate, fmtHoras, money, parseHoras } from "./gorjetaUtils";
 import {
-  NOTA_TETO_OCULTO, agruparEnvioPorEmpresa, celulaOuTraco, montarEnvioContabilidade, nomeNoEnvio, textoPdf,
+  NOTA_TETO_OCULTO, agruparEnvioPorEmpresa, celulaOuTraco, montarEnvioContabilidade, nomeNoEnvio, textoPdf, totaisDoEnvio,
 } from "./envioContabilidade";
 
 type Doc = {
   setFont: (f: string, s?: string) => void; setFontSize: (n: number) => void;
   setTextColor: (...c: number[]) => void; setDrawColor: (...c: number[]) => void; setFillColor: (...c: number[]) => void;
-  setLineWidth: (n: number) => void; text: (t: string | string[], x: number, y: number, o?: Record<string, unknown>) => void;
+  setLineWidth: (n: number) => void; getTextWidth: (t: string) => number; text: (t: string | string[], x: number, y: number, o?: Record<string, unknown>) => void;
   line: (x1: number, y1: number, x2: number, y2: number) => void;
   rect: (x: number, y: number, w: number, h: number, s?: string) => void;
   roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, s?: string) => void;
@@ -69,30 +69,39 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
   doc.setTextColor(...CINZA);
   doc.text(textoPdf(`Competência ${competencia}   |   Ciclo da gorjeta: ${fmtDate(comp.periodStart)} a ${fmtDate(comp.periodEnd)}`), M, 27.5);
 
+  // Código e situação em selo no canto: fechado (verde) ou prévia (âmbar).
   const fechado = comp.status === "CLOSED" && comp.fechamento;
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(...CINZA);
   if (comp.code) doc.text(comp.code, W - M, 13, { align: "right" });
+  const selo = fechado ? textoPdf(`FECHADO EM ${fmtDate(comp.fechamento!.closedAt)}`) : "PRÉVIA - GORJETA EM ABERTO";
   doc.setFont("helvetica", "bold");
-  if (fechado) {
-    doc.setTextColor(46, 110, 64);
-    doc.text(textoPdf(`Fechado em ${fmtDate(comp.fechamento!.closedAt)}`), W - M, 21, { align: "right" });
-  } else {
-    doc.setTextColor(176, 98, 18);
-    doc.text("PRÉVIA - gorjeta ainda em aberto", W - M, 21, { align: "right" });
-  }
+  doc.setFontSize(7.5);
+  const largSelo = doc.getTextWidth(selo) + 7;
+  if (fechado) doc.setFillColor(228, 242, 232); else doc.setFillColor(253, 238, 220);
+  doc.roundedRect(W - M - largSelo, 16.5, largSelo, 6.5, 3.2, 3.2, "F");
+  if (fechado) doc.setTextColor(36, 104, 58); else doc.setTextColor(166, 88, 10);
+  doc.text(selo, W - M - largSelo / 2, 20.9, { align: "center" });
 
   // ── Resumo ──────────────────────────────────────────────────
-  const caixas: Array<[string, string]> = [
-    ["Total de gorjetas", reais(envio.total ?? 0)],
-    ["Funcionários", String(envio.linhas.length)],
-    ["Empresas", String(grupos.length)],
+  const t = totaisDoEnvio(envio.linhas, parseHoras);
+  const horas = (min: number) => (min > 0 ? fmtHoras(min) : "0:00");
+  const caixas: Array<[string, string, number]> = [
+    ["Total de gorjetas", reais(envio.total ?? 0), 1.5],
+    ["Funcionários", String(envio.linhas.length), 0.8],
+    ["Hora extra / noturno", `${horas(t.minutosHoraExtra)}  /  ${horas(t.minutosNoturno)}`, 1.2],
+    ["Faltas / atestados", `${t.faltas}  /  ${t.atestados}`, 1],
   ];
   const yResumo = 33;
-  const gap = 4;
-  const larg = (W - 2 * M - gap * (caixas.length - 1)) / caixas.length;
-  caixas.forEach(([rotulo, valor], i) => {
-    const x = M + i * (larg + gap);
+  const gap = 3.5;
+  const pesos = caixas.reduce((a, c) => a + c[2], 0);
+  const util = W - 2 * M - gap * (caixas.length - 1);
+  let xCaixa = M;
+  caixas.forEach(([rotulo, valor, peso], i) => {
+    const x = xCaixa;
+    const larg = (util * peso) / pesos;
+    xCaixa += larg + gap;
     doc.setFillColor(...BEGE);
     doc.roundedRect(x, yResumo, larg, 15, 2, 2, "F");
     doc.setFont("helvetica", "normal");
@@ -100,7 +109,7 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
     doc.setTextColor(...CINZA);
     doc.text(rotulo.toUpperCase(), x + 4, yResumo + 5.5);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(i === 0 ? 13 : 12);
+    doc.setFontSize(i === 0 ? 13 : 11.5);
     doc.setTextColor(...(i === 0 ? MARROM : TINTA));
     doc.text(valor, x + 4, yResumo + 12);
   });
@@ -154,6 +163,13 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
         if (d.section === "body" && d.column.index > 1 && d.cell.text.join("") === "-") d.cell.styles.textColor = [190, 182, 170];
       },
       didDrawCell: (d: { section: string; row: { index: number }; cell: { x: number; y: number; width: number; height: number } }) => {
+        // Linha marrom separa o subtotal das pessoas.
+        if (d.section === "foot") {
+          doc.setDrawColor(...MARROM);
+          doc.setLineWidth(0.4);
+          doc.line(d.cell.x, d.cell.y, d.cell.x + d.cell.width, d.cell.y);
+          return;
+        }
         if (d.section !== "body") return;
         doc.setDrawColor(...LINHA);
         doc.setLineWidth(0.2);
@@ -182,12 +198,18 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
     "Hora extra e adicional noturno em horas (h:mm). Faltas e atestados em dias. \"-\" = nada no período.",
   ].forEach((l, i) => doc.text(textoPdf(l), M, y + i * 4.2));
 
+  // Assinatura de quem confere; a data é a do dia, preenchida pelo sistema.
   y += 16;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(...TINTA);
+  doc.text(emitido.toLocaleDateString("pt-BR"), M + 105 + (W - M - (M + 105)) / 2, y - 1.5, { align: "center" });
   doc.setDrawColor(...CINZA);
   doc.setLineWidth(0.3);
   doc.line(M, y, M + 85, y);
   doc.line(M + 105, y, W - M, y);
   doc.setFontSize(7.5);
+  doc.setTextColor(...CINZA);
   doc.text("Conferido por (contabilidade)", M, y + 4);
   doc.text("Data", M + 105, y + 4);
 
