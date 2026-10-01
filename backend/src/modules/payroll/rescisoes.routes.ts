@@ -8,8 +8,12 @@ import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { hojeEmSaoPaulo } from "./extras-comum.js";
 import { entraNaLista, itensDaFolhaAposSaida, resumoDaRescisao, type ResumoRescisaoLancada } from "./rescisoes-lista.js";
+import { ehQuitadaNoTermo } from "./rescisao-quitada.js";
+import { rescisaoQuitadaRouter } from "./rescisao-quitada.routes.js";
 
 export const rescisoesRouter = Router();
+// POST /:employeeId/termo-sem-valor — rescisão quitada no termo (líquido zero).
+rescisoesRouter.use(rescisaoQuitadaRouter);
 
 const isoDia = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 const nomeDe = (e: { firstName: string; lastName: string }) => `${e.firstName} ${e.lastName}`.trim();
@@ -26,6 +30,16 @@ function termoDe(recibo: unknown): TermoResumo | null {
     liquido: typeof r.liquido === "number" ? r.liquido : null,
     pagamento: typeof r.pagamento === "string" ? r.pagamento : null,
   };
+}
+
+// Rescisão quitada no termo: o termo fica no próprio lançamento (details.termo), não na
+// gorjeta. Vira o termo da pessoa quando a gorjeta não tem um.
+function termoDaQuitada(parcelas: Array<{ details?: unknown }>): TermoResumo | null {
+  const q = parcelas.find((p) => ehQuitadaNoTermo(p.details));
+  if (!q) return null;
+  const d = q.details as { termo?: unknown; em?: unknown };
+  const t = termoDe(d.termo);
+  return t ? { ...t, importadoEm: t.importadoEm ?? (typeof d.em === "string" ? d.em : null) } : null;
 }
 
 const SELECT_PESSOA = {
@@ -55,7 +69,7 @@ rescisoesRouter.get("/", async (_request, response) => {
   const [parcelas, participacoes, ativos] = await Promise.all([
     prisma.payrollItem.findMany({
       where: { ...RESCISAO_VIVA, employeeId: { in: ids } },
-      select: { employeeId: true, amount: true, paymentDate: true, dueDate: true },
+      select: { id: true, employeeId: true, amount: true, paymentDate: true, dueDate: true, details: true },
     }),
     prisma.tipParticipant.findMany({
       where: { employeeId: { in: ids } },
@@ -68,13 +82,16 @@ rescisoesRouter.get("/", async (_request, response) => {
     }),
   ]);
 
-  const resumos = new Map<string, ResumoRescisaoLancada | null>(
-    ids.map((id) => [id, resumoDaRescisao(parcelas.filter((p) => p.employeeId === id))]),
-  );
+  const parcelasDe = (id: string) => parcelas.filter((p) => p.employeeId === id);
+  const resumos = new Map<string, ResumoRescisaoLancada | null>(ids.map((id) => [id, resumoDaRescisao(parcelasDe(id))]));
   const termos = new Map<string, ReturnType<typeof termoDe>>();
   for (const p of participacoes) {
     const t = termoDe(p.rescisaoRecibo);
     if (t) termos.set(p.employeeId, t);
+  }
+  for (const id of ids) {
+    const t = termos.has(id) ? null : termoDaQuitada(parcelasDe(id));
+    if (t) termos.set(id, t);
   }
 
   const pessoas = candidatos
@@ -116,7 +133,7 @@ rescisoesRouter.get("/:employeeId", async (request, response) => {
         amount: true, dueDate: true, paymentDate: true, details: true,
       },
     }),
-    prisma.payrollItem.findMany({ where: { ...RESCISAO_VIVA, employeeId: emp.id }, select: { amount: true, paymentDate: true, dueDate: true } }),
+    prisma.payrollItem.findMany({ where: { ...RESCISAO_VIVA, employeeId: emp.id }, select: { id: true, amount: true, paymentDate: true, dueDate: true, details: true } }),
   ]);
 
   // O período de gorjeta que contém a saída: é nele que o termo (TRCT) é lido.
@@ -146,7 +163,7 @@ rescisoesRouter.get("/:employeeId", async (request, response) => {
       employeeId: emp.id, nome: nomeDe(emp), apelido: emp.displayName, empresa: emp.company?.tradeName ?? null,
       semRegistro: emp.modality === "NAO_CLT", saida: isoDia(saida), motivo: emp.terminationReason,
       rescisao: resumoDaRescisao(parcelas),
-      termo: termoDe(participante?.rescisaoRecibo),
+      termo: termoDe(participante?.rescisaoRecibo) ?? termoDaQuitada(parcelas),
     },
     itensAposSaida: itensDaFolhaAposSaida(itens, saida),
     periodoGorjeta: periodo

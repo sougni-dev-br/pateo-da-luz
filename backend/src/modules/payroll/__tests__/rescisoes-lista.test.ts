@@ -14,7 +14,19 @@ describe("resumoDaRescisao", () => {
       { amount: "250.10", paymentDate: null, dueDate: d("2026-11-20") },
       { amount: 250.1, paymentDate: null, dueDate: d("2026-10-20") },
     ]);
-    expect(r).toEqual({ parcelas: 3, pagas: 1, liquido: 1000.2, valorPago: 500, proximoVencimento: "2026-10-20" });
+    expect(r).toEqual({ parcelas: 3, pagas: 1, liquido: 1000.2, valorPago: 500, proximoVencimento: "2026-10-20", quitadaNoTermo: null });
+  });
+
+  test("quitada no termo: marca a rescisão com o lançamento (para poder desfazer)", () => {
+    const r = resumoDaRescisao([
+      { id: "q1", amount: 0, paymentDate: d("2026-09-11"), dueDate: d("2026-09-11"), details: { quitadaNoTermo: true } },
+    ]);
+    expect(r).toMatchObject({ parcelas: 1, pagas: 1, liquido: 0, quitadaNoTermo: { itemId: "q1" } });
+  });
+
+  test("rescisão normal não é quitada no termo", () => {
+    const r = resumoDaRescisao([{ id: "r1", amount: 10, paymentDate: null, dueDate: d("2026-09-11"), details: { grupoRescisao: "g" } }]);
+    expect(r?.quitadaNoTermo).toBeNull();
   });
 
   test("tudo pago: sem próximo vencimento", () => {

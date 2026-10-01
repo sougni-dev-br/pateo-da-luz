@@ -117,7 +117,7 @@ function pendenciasDosVales(a: ApuracaoRescisao): Pendencia[] {
 
 function pendenciasDoRegistrado(detalhe: DetalheRescisao): Pendencia[] {
   const lista: Pendencia[] = [];
-  if (!detalhe.pessoa.termo) {
+  if (!detalhe.pessoa.termo && !detalhe.pessoa.rescisao?.quitadaNoTermo) {
     lista.push({
       id: "termo", tom: "acao", titulo: "Termo de rescisão (TRCT) ainda não importado",
       oQueFazer: "Importe o PDF da contabilidade no passo 2: a gorjeta do termo vira a gorjeta quitada e a lista do mês marca \"pago na rescisão\".",
@@ -155,8 +155,10 @@ export function pendenciasDaRescisao(entrada: { detalhe: DetalheRescisao; apurac
     });
   }
   lista.push(...detalhe.itensAposSaida.map((i) => pendenciaDoItem(i, saida)));
+  // Quitada no termo (líquido zero): não há o que lançar — nem termo, nem gorjeta a digitar.
+  const quitada = Boolean(detalhe.pessoa.rescisao?.quitadaNoTermo);
   if (a) {
-    lista.push(...pendenciasDosVales(a), ...pendenciasDaGorjeta(a, detalhe));
+    lista.push(...pendenciasDosVales(a), ...(quitada ? [] : pendenciasDaGorjeta(a, detalhe)));
     if (a.vt.semDetalhe.length > 0) {
       lista.push({
         id: "vt-sem-detalhe", tom: "aviso", titulo: "VT sem a lista de dias pagos",

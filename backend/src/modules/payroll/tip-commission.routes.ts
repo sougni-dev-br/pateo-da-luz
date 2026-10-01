@@ -24,6 +24,7 @@ import {
 } from "./tip-historico.service.js";
 import { detalheFechamento, listarFechamentos } from "./tip-fechamento.service.js";
 import { lerPdfRescisao } from "./tip-trct.service.js";
+import { pdfDoCorpo } from "./pdf-corpo.js";
 import { tipConferenciaRouter } from "./tip-conferencia.routes.js";
 import { tipValesRouter } from "./tip-vales.routes.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
@@ -458,17 +459,8 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
 });
 
 // ─── Extrato Mensal do RH: leitura + conferência (não gera nada, só lê) ──────
-const LIMITE_PDF_EXTRATO = 5 * 1024 * 1024;
-
-// PDF do corpo da requisição (base64). O arquivo vai para o banco e volta como
-// application/pdf: por isso só entra o que começa como PDF e cabe em 5 MB.
-function pdfDoCorpo(fileBase64: unknown): { buffer: Buffer } | { status: number; message: string } {
-  if (typeof fileBase64 !== "string" || !fileBase64) return { status: 400, message: "Envie o PDF do extrato (fileBase64)." };
-  const buffer = Buffer.from(fileBase64.replace(/^data:[^,]*,/, ""), "base64");
-  if (buffer.length > LIMITE_PDF_EXTRATO) return { status: 413, message: "Arquivo grande demais para um extrato (máximo 5 MB)." };
-  if (buffer.subarray(0, 5).toString("latin1") !== "%PDF-") return { status: 422, message: "O arquivo enviado não é um PDF." };
-  return { buffer };
-}
+// PDF do corpo da requisição (pdfDoCorpo): o arquivo vai para o banco e volta como
+// application/pdf — por isso só entra o que começa como PDF e cabe em 5 MB.
 
 tipCommissionRouter.post("/extrato/preview", async (request, response) => {
   const user = await getSessionUser(request);

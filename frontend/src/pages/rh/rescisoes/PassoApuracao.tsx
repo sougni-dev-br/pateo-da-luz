@@ -2,17 +2,18 @@
 // adiantamento/quinzena e VT, calculados aqui. CLT: o bruto vem do termo (TRCT) da
 // contabilidade — importa-se o PDF e o sistema mostra o que ele trouxe.
 import { useState } from "react";
-import type { ApuracaoRescisao, DetalheRescisao, TerminationInfo } from "../../../api/client";
+import { type ApuracaoRescisao, type DetalheRescisao, type TerminationInfo, deletePayrollItem } from "../../../api/client";
 import { ApuracaoRescisaoPainel } from "../../../components/pessoal/ApuracaoRescisao";
 import { useSession } from "../../../context/SessionContext";
-import { Alert, Money } from "../../../design-system";
+import { Alert, Button, FormField, Money, Textarea } from "../../../design-system";
 import { hasPermission } from "../../../lib/permissions";
 import { ReciboRescisao } from "../../gorjeta/ReciboRescisao";
 import "../../gorjeta/gorjeta.css";
+import { TermoSemValor } from "./TermoSemValor";
 
 const dataBr = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "—");
 
-type Props = { detalhe: DetalheRescisao; info: TerminationInfo | null; carregando: boolean; onMudou: () => void };
+type Props = { detalhe: DetalheRescisao; info: TerminationInfo | null; carregando: boolean; onMudou: () => void; onLancarNormal: () => void };
 
 function DestaqueSemRegistro({ a }: { a: ApuracaoRescisao }) {
   const s = a.sugestao;
@@ -29,15 +30,112 @@ function DestaqueSemRegistro({ a }: { a: ApuracaoRescisao }) {
   );
 }
 
-function TermoCLT({ detalhe, onMudou }: { detalhe: DetalheRescisao; onMudou: () => void }) {
+const MOTIVO_MINIMO = 3;
+
+// Rescisão já registrada como quitada no termo: o que ficou gravado e como desfazer.
+function QuitadaNoTermo({ detalhe, itemId, onMudou }: { detalhe: DetalheRescisao; itemId: string; onMudou: () => void }) {
+  const { user } = useSession();
+  const podeExcluir = hasPermission(user, "payroll", "delete");
+  const [desfazendo, setDesfazendo] = useState(false);
+  const [motivo, setMotivo] = useState("");
+  const [erro, setErro] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  const termo = detalhe.pessoa.termo;
+
+  async function desfazer() {
+    if (motivo.trim().length < MOTIVO_MINIMO) { setErro(`Explique em pelo menos ${MOTIVO_MINIMO} letras.`); return; }
+    setOcupado(true);
+    setErro(null);
+    try {
+      await deletePayrollItem(itemId, motivo.trim());
+      setDesfazendo(false);
+      onMudou();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não consegui desfazer.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <div className="resc-quadro resc-quadro--ok">
+      <strong>Rescisão quitada no termo: nada a pagar</strong>
+      <dl className="rr-termo" style={{ marginTop: 8 }}>
+        <div><dt>Líquido no termo</dt><dd><Money value={0} /></dd></div>
+        <div><dt>Pagamento da rescisão</dt><dd>{dataBr(termo?.pagamento ?? null)}</dd></div>
+        <div><dt>Arquivo</dt><dd>{termo?.arquivo ?? "—"}{termo?.importadoEm ? ` · registrado em ${dataBr(termo.importadoEm)}` : ""}</dd></div>
+      </dl>
+      <p className="rr-ajuda" style={{ marginTop: 8 }}>
+        O termo da contabilidade fechou com líquido zero. A rescisão fica registrada na Folha com <Money value={0} />, paga na data do termo, e não aparece no Contas a Pagar.
+      </p>
+      {!desfazendo && (
+        <Button size="sm" variant="secondary" disabled={!podeExcluir} onClick={() => setDesfazendo(true)}
+          title={podeExcluir ? undefined : "Desfazer exige a permissão de excluir na Folha"}>
+          Desfazer (excluir o registro)
+        </Button>
+      )}
+      {desfazendo && (
+        <div className="rr-pendencia-confirmar">
+          <FormField label="Motivo (fica na auditoria)" required error={erro ?? undefined}>
+            <Textarea rows={2} value={motivo} onChange={(e) => { setMotivo(e.target.value); setErro(null); }} autoFocus />
+          </FormField>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Button size="sm" variant="danger" onClick={() => void desfazer()} disabled={ocupado}>{ocupado ? "Desfazendo…" : "Confirmar: desfazer"}</Button>
+            <Button size="sm" variant="secondary" onClick={() => { setDesfazendo(false); setErro(null); }} disabled={ocupado}>Voltar</Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Termo com líquido zero (sem gorjeta, ou a pessoa fora da apuração): registra como quitada.
+function QuadroTermoZero({ detalhe, titulo, texto, onMudou, onLancarNormal }: {
+  detalhe: DetalheRescisao; titulo: string; texto: string; onMudou: () => void; onLancarNormal: () => void;
+}) {
+  return (
+    <div className="resc-quadro">
+      <strong>{titulo}</strong>
+      <p className="rr-ajuda" style={{ margin: "4px 0 8px" }}>{texto}</p>
+      <TermoSemValor employeeId={detalhe.pessoa.employeeId} nome={detalhe.pessoa.nome} onQuitou={onMudou} onLancarNormal={onLancarNormal} />
+    </div>
+  );
+}
+
+const TEXTO_TERMO_ZERO = "Envie o PDF do termo da contabilidade. Se o líquido for zero (as faltas e os descontos consumiram tudo), a rescisão fica quitada no termo: sem nada a pagar e fora do Contas a Pagar. Com líquido a pagar, lance a rescisão normal no passo 4. O arquivo não é guardado.";
+
+function TermoCLT({ detalhe, onMudou, onLancarNormal }: { detalhe: DetalheRescisao; onMudou: () => void; onLancarNormal: () => void }) {
   const { user } = useSession();
   const podeGorjeta = hasPermission(user, "payroll-tips", "edit");
   const [erro, setErro] = useState<string | null>(null);
   const termo = detalhe.pessoa.termo;
   const periodo = detalhe.periodoGorjeta;
+  const rescisao = detalhe.pessoa.rescisao;
+
+  if (rescisao?.quitadaNoTermo) {
+    return <QuitadaNoTermo detalhe={detalhe} itemId={rescisao.quitadaNoTermo.itemId} onMudou={onMudou} />;
+  }
+  // Ainda sem rescisão lançada: dá para registrar como quitada no termo.
+  const termoZero = (titulo: string) => (rescisao ? null : (
+    <QuadroTermoZero detalhe={detalhe} titulo={titulo} texto={TEXTO_TERMO_ZERO} onMudou={onMudou} onLancarNormal={onLancarNormal} />
+  ));
+
+  if (!periodo || !periodo.participa) {
+    return (
+      <>
+        <p className="rr-ajuda" style={{ margin: 0 }}>
+          {periodo
+            ? `${detalhe.pessoa.nome} não está na apuração de gorjeta de ${periodo.label}: o termo não tem gorjeta a importar lá.`
+            : "Não há período de gorjeta com a data de saída: o termo não tem gorjeta a importar."}
+        </p>
+        {termoZero("Enviar o termo de rescisão (TRCT)") ?? <Alert tone="info">A rescisão já foi lançada: confira no passo 4.</Alert>}
+      </>
+    );
+  }
 
   if (termo) {
     return (
+      <>
       <div className="resc-quadro resc-quadro--ok">
         <strong>O termo (TRCT) já foi importado</strong>
         <dl className="rr-termo" style={{ marginTop: 8 }}>
@@ -48,12 +146,12 @@ function TermoCLT({ detalhe, onMudou }: { detalhe: DetalheRescisao; onMudou: () 
         </dl>
         <p className="rr-ajuda" style={{ marginTop: 8 }}>A lista de pagamento da gorjeta do mês já marca &quot;pago na rescisão&quot;. O bruto do termo é o que se lança no passo 4.</p>
       </div>
+      {termo.liquido === 0 && termoZero("Líquido zero no termo: nada a lançar")}
+      </>
     );
   }
-  if (!periodo) {
-    return <Alert tone="warning">Não há período de gorjeta com a data de saída: abra o período em Apuração de gorjeta para poder ler o termo.</Alert>;
-  }
   return (
+    <>
     <div className="resc-quadro">
       <strong>Importar o termo de rescisão (TRCT)</strong>
       <p className="rr-ajuda" style={{ margin: "4px 0 8px" }}>
@@ -73,10 +171,12 @@ function TermoCLT({ detalhe, onMudou }: { detalhe: DetalheRescisao; onMudou: () 
         esperado={{ employeeId: detalhe.pessoa.employeeId, nome: detalhe.pessoa.nome }}
       />
     </div>
+    {termoZero("O termo veio sem gorjeta e com líquido zero?")}
+    </>
   );
 }
 
-export function PassoApuracao({ detalhe, info, carregando, onMudou }: Props) {
+export function PassoApuracao({ detalhe, info, carregando, onMudou, onLancarNormal }: Props) {
   const a = info?.apuracao ?? null;
   const semRegistro = a?.semRegistro ?? detalhe.pessoa.semRegistro;
   return (
@@ -94,7 +194,7 @@ export function PassoApuracao({ detalhe, info, carregando, onMudou }: Props) {
       {a && !semRegistro && (
         <>
           <p className="rr-ajuda">CLT: o bruto (com a gorjeta) vem do termo da contabilidade. Aqui fica o que conferir nele e o VT a descontar.</p>
-          <TermoCLT detalhe={detalhe} onMudou={onMudou} />
+          <TermoCLT detalhe={detalhe} onMudou={onMudou} onLancarNormal={onLancarNormal} />
           <ApuracaoRescisaoPainel apuracao={a} aberto />
         </>
       )}
