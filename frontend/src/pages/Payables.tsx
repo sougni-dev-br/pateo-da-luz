@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AppUser, AuditLog, Company, CompanyBankAccount,
-  downloadPayablesFinancialPdf, getAllBankAccounts, getCompanies,
+  downloadPayablesFinancialPdf, deletePayrollItem, getAllBankAccounts, getCompanies,
   getPayableHistory, getPayables, getPaymentMethods, getPurchase,
   getTaxPaymentHistory, getSuppliers, payExtraPayment, payInstallment, payPayrollItem, payTaxPayment,
   Payable, PaymentMethod, PurchaseDetail, reverseExtraPayment, reverseInstallment, reversePayrollItem, reverseTaxPayment, Supplier
@@ -62,6 +62,16 @@ function payPessoal(p: Payable, payload: Parameters<typeof payPayrollItem>[1]) {
 // para folha (tipo, funcionário, competência), então a UI é reaproveitada.
 function isSimpleLedger(p: Payable) {
   return isTaxPayment(p) || isPayroll(p) || isExtra(p);
+}
+
+// Rótulos que a query de payables grava em taxDocumentType para a Folha.
+const TIPOS_FOLHA = ["Vale-transporte", "Adiantamento", "Salário", "Rescisão", "Férias"] as const;
+
+/** Sub-tipo "PAYROLL:Vale-transporte" filtra só aquele tipo dentro da Folha. */
+function combinaSubtipo(p: Payable, subtipo: string) {
+  const [sourceType, tipoFolha] = subtipo.split(":");
+  if (p.sourceType !== sourceType) return false;
+  return !tipoFolha || p.taxDocumentType === tipoFolha;
 }
 
 function dateKey(value?: string | null) {
@@ -127,6 +137,9 @@ export function Payables({ user }: PayablesProps) {
   const [detail, setDetail] = useState<PurchaseDetail | null>(null);
   const [selectedPayable, setSelectedPayable] = useState<Payable | null>(null);
   const [historyRows, setHistoryRows] = useState<AuditLog[]>([]);
+  // Exclusão de lançamento da Folha não pago (ex.: VT que não vai ser pago); null = formulário fechado.
+  const [excluirMotivo, setExcluirMotivo] = useState<string | null>(null);
+  const [excluindo, setExcluindo] = useState(false);
   const [historyOnly, setHistoryOnly] = useState<Payable | null>(null);
   const [paying, setPaying] = useState<Payable | null>(null);
   // Baixa em lote: um pagamento cobrindo vários títulos (ex.: o VT de toda a
@@ -208,7 +221,7 @@ export function Payables({ user }: PayablesProps) {
     if (viewMode === "open") result = result.filter((p) => p.status === "OPEN" || p.status === "OVERDUE");
     else if (viewMode === "paid") result = result.filter((p) => p.status === "PAID" || p.status === "PAID_LATE");
     if (activeChip === "noduedate") result = result.filter((p) => !p.dueDate);
-    if (filters.sourceType) result = result.filter((p) => p.sourceType === filters.sourceType);
+    if (filters.sourceType) result = result.filter((p) => combinaSubtipo(p, filters.sourceType));
     if (!searchQuery.trim()) return result;
     const q = searchQuery.toLowerCase().trim();
     return result.filter((p) =>
@@ -584,6 +597,29 @@ export function Payables({ user }: PayablesProps) {
     }
   }
 
+  function fecharDetalheSimples() {
+    setSelectedPayable(null);
+    setHistoryRows([]);
+    setExcluirMotivo(null);
+  }
+
+  async function submitExcluirFolha() {
+    if (!selectedPayable || excluirMotivo === null) return;
+    const reason = excluirMotivo.trim();
+    if (reason.length < 3) { setNotice({ tone: "error", message: "Informe o motivo da exclusão (mín. 3 letras)." }); return; }
+    setExcluindo(true);
+    try {
+      await deletePayrollItem(selectedPayable.id, reason);
+      setNotice({ tone: "success", message: `Lançamento excluído: ${selectedPayable.taxDocumentType ?? "Folha"} de ${selectedPayable.taxCompanyName ?? selectedPayable.supplierName}.` });
+      fecharDetalheSimples();
+      await load();
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao excluir o lançamento." });
+    } finally {
+      setExcluindo(false);
+    }
+  }
+
   async function handleFinancialPdf() {
     try {
       await downloadPayablesFinancialPdf({
@@ -742,7 +778,8 @@ export function Payables({ user }: PayablesProps) {
                 { value: "CARD_STATEMENT", label: "Fatura cartão" },
                 { value: "LEGACY_CREDIT_CARD", label: "Cartão legado" },
                 { value: "SUPPLIER_CYCLE", label: "Ciclo fornecedor" },
-                { value: "PAYROLL", label: "Folha de pagamento" },
+                { value: "PAYROLL", label: "Folha de pagamento (tudo)" },
+                ...TIPOS_FOLHA.map((t) => ({ value: `PAYROLL:${t}`, label: `Folha · ${t}` })),
                 { value: "EXTRA", label: "Diárias de extras" }
               ]}
             />
@@ -900,7 +937,7 @@ export function Payables({ user }: PayablesProps) {
                         <span className="source-badge source-supplier-cycle">Ciclo fornecedor</span>
                       )}
                       {payable.sourceType === "PAYROLL" && (
-                        <span className="source-badge source-payroll">Folha</span>
+                        <span className="source-badge source-payroll">{payable.taxDocumentType ? `Folha · ${payable.taxDocumentType}` : "Folha"}</span>
                       )}
                       {payable.sourceType === "EXTRA" && (
                         <span className="source-badge source-extra">Extra</span>
@@ -1197,8 +1234,7 @@ export function Payables({ user }: PayablesProps) {
                 <p>{isExtra(selectedPayable) ? "Diária de extra" : isPayroll(selectedPayable) ? "Folha de pagamento" : "Imposto / Guia"}</p>
                 <h2>{selectedPayable.taxDocumentType ?? selectedPayable.supplierName}</h2>
               </div>
-              <button className="secondary-button" type="button"
-                onClick={() => { setSelectedPayable(null); setHistoryRows([]); }}>
+              <button className="secondary-button" type="button" onClick={fecharDetalheSimples}>
                 <X size={16} /> Fechar
               </button>
             </div>
@@ -1237,6 +1273,43 @@ export function Payables({ user }: PayablesProps) {
               <div className="modal-section">
                 <p className="modal-section-title">Observações</p>
                 <p>{selectedPayable.paymentNotes}</p>
+              </div>
+            )}
+
+            {isPayroll(selectedPayable) && (selectedPayable.status === "OPEN" || selectedPayable.status === "OVERDUE") && (
+              <div className="modal-section">
+                <p className="modal-section-title">Não vai ser pago?</p>
+                {excluirMotivo === null ? (
+                  <button className="secondary-button" type="button" onClick={() => setExcluirMotivo("")}>
+                    <X size={16} /> Excluir lançamento
+                  </button>
+                ) : (
+                  <>
+                    <Notice notice={notice} />
+                    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>Motivo da exclusão *</span>
+                      <textarea
+                        rows={2}
+                        style={{ resize: "vertical", fontSize: "0.9rem" }}
+                        placeholder="Ex.: desligado antes do mês, VT não pago"
+                        value={excluirMotivo}
+                        onChange={(e) => setExcluirMotivo(e.target.value)}
+                        autoFocus
+                      />
+                    </label>
+                    <div className="modal-actions" style={{ marginTop: 12 }}>
+                      <button className="secondary-button" type="button" onClick={() => setExcluirMotivo(null)} disabled={excluindo}>Cancelar</button>
+                      <button
+                        className="primary-button danger"
+                        type="button"
+                        disabled={excluirMotivo.trim().length < 3 || excluindo}
+                        onClick={() => void submitExcluirFolha()}
+                      >
+                        <X size={16} /> {excluindo ? "Excluindo…" : "Confirmar exclusão"}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
