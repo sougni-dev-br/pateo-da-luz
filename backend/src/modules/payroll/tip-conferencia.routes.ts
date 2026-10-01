@@ -13,6 +13,7 @@ import { carregarHistorico, registrarAlteracoes } from "./cadastro-historico.ser
 import { computeTipCommission } from "./tip-commission.service.js";
 import { onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
+import { minutosValidos } from "./hora-extra.js";
 import {
   type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, conferir, ehPendente, montarFolhaLiquidos,
 } from "./tip-conferencia.js";
@@ -71,6 +72,10 @@ async function pessoasApuradas(year: number, month: number, comPix: boolean): Pr
       gorjetaLiquida: p.netCommission,
       totalAPagar: p.totalAPagar,
       adiantamentoSalarial: p.adiantamentoSalarial ?? 0,
+      // Sem a permissão o valor vem null; dizer que há hora extra (sem o valor) não expõe o salário.
+      comHoraExtra: p.semRegistro && (p.valorHoraExtra != null
+        ? (p.valorHoraExtra + (p.valorAdicionalNoturno ?? 0)) > 0
+        : minutosValidos(p.horaExtra) + minutosValidos(p.adicionalNoturno) > 0),
       cnpjEmpresa: e?.company?.cnpj ?? null,
       pix: comPix ? p.pixKey : null,
     };

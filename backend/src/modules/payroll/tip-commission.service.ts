@@ -16,6 +16,7 @@ import { round2 } from "./vt-calc.js";
 import { motivoParaNaoRetirar, saldoReserva, travarFundo } from "./tip-historico.service.js";
 import { proximoCodigoApuracao, registrarFechamento, registrarReabertura } from "./tip-fechamento.service.js";
 import { adiantamentoDoFechado, calcularRateio, motivoGorjetaRealSemEfeito, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
+import { minutosValidos, parseHoras } from "./hora-extra.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { diaDeReferencia } from "./cadastro-historico.js";
 import { cadastrosVigentes } from "./cadastro-historico.service.js";
@@ -166,6 +167,10 @@ export type ComputedParticipant = {
   // Sem registro: adiantamento salarial já pago no mês do salário, descontado do total.
   // Deriva do salário: null sem a permissão de Funcionários.
   adiantamentoSalarial: number | null;
+  // Sem registro: hora extra (+50%) e adicional noturno, já somados no total a pagar.
+  // CLT = 0 (só informativo, vai à contabilidade). Derivam do salário: null sem a permissão.
+  valorHoraExtra: number | null;
+  valorAdicionalNoturno: number | null;
   totalAPagar: number;
   // Só com permissão de Funcionários (ficha com salário e PIX).
   baseSalary: number | null;
@@ -229,8 +234,11 @@ export type TipComputation = {
   participants: ComputedParticipant[];
   // Regra do adiantamento salarial (Folha → configurações), para explicar a lista.
   adiantamento: { percent: number; dia: number };
-  // adiantamentos: null sem a permissão de Funcionários.
-  totals: { rateio: number; vales: number; netCommission: number; salarios: number; adiantamentos: number | null; totalAPagar: number; pagoNaRescisao: number };
+  // adiantamentos e horasExtrasSemRegistro (hora extra + noturno da lista): null sem a permissão de Funcionários.
+  totals: {
+    rateio: number; vales: number; netCommission: number; salarios: number; adiantamentos: number | null;
+    horasExtrasSemRegistro: number | null; totalAPagar: number; pagoNaRescisao: number;
+  };
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
   pendencias: string[];
   warnings: string[];
@@ -317,6 +325,19 @@ function folgasDoRetrato(participantes: unknown): Map<string, FolgasEscala> {
     const f = p.folgasEscala as Partial<FolgasEscala> | undefined;
     if (typeof p.employeeId !== "string" || !f || typeof f.total !== "number") continue;
     mapa.set(p.employeeId, { total: f.total, folga: Number(f.folga ?? 0), feriado: Number(f.feriado ?? 0), bancoHoras: Number(f.bancoHoras ?? 0) });
+  }
+  return mapa;
+}
+
+// Hora extra e noturno gravados no retrato do fechamento. Retrato sem os campos (antes
+// desta versão, ou sem horas) = zero: o total gravado não tinha hora extra.
+type AdicionaisFechados = { valorHoraExtra: number; valorAdicionalNoturno: number };
+function adicionaisDoRetrato(participantes: unknown): Map<string, AdicionaisFechados> {
+  const mapa = new Map<string, AdicionaisFechados>();
+  if (!Array.isArray(participantes)) return mapa;
+  for (const p of participantes as Array<{ employeeId?: unknown; valorHoraExtra?: unknown; valorAdicionalNoturno?: unknown }>) {
+    if (typeof p.employeeId !== "string") continue;
+    mapa.set(p.employeeId, { valorHoraExtra: Number(p.valorHoraExtra ?? 0) || 0, valorAdicionalNoturno: Number(p.valorAdicionalNoturno ?? 0) || 0 });
   }
   return mapa;
 }
@@ -487,6 +508,8 @@ export async function computeTipCommission(
       recebeAdiantamento: vigenteDe(r).recebeAdiantamento,
       rescisaoLancada: rescisoesLancadas.has(r.employeeId),
       gorjetaReal: num(r.gorjetaReal),
+      horaExtraMin: minutosValidos(r.horaExtra),
+      adicionalNoturnoMin: minutosValidos(r.adicionalNoturno),
       vales: r.vales.map((v) => ({ type: v.type, amount: Number(v.amount) })),
     };
   });
@@ -500,6 +523,7 @@ export async function computeTipCommission(
     })
     : null;
   const folgasFechadas = registro ? folgasDoRetrato(registro.participants) : null;
+  const adicionaisFechados = registro ? adicionaisDoRetrato(registro.participants) : null;
 
   // Reserva da casa: pontos do período × valor do ponto do mês. Fechado, vale o
   // que entrou no fundo naquele fechamento.
@@ -525,8 +549,15 @@ export async function computeTipCommission(
     // depois não muda uma lista que já foi paga.
     const totalAPagar = closed ? Number(r.totalAPagar) : calc.pagoNaRescisao ? 0 : calc.totalAPagar;
     const pagoNaRescisao = closed ? calc.pagoNaRescisao && totalAPagar === 0 : calc.pagoNaRescisao;
+    // Fechado: a hora extra que entrou no total gravado (retrato); não recalcula pelo salário de hoje.
+    const adicionais = closed
+      ? adicionaisFechados?.get(r.employeeId) ?? { valorHoraExtra: 0, valorAdicionalNoturno: 0 }
+      : { valorHoraExtra: calc.valorHoraExtra, valorAdicionalNoturno: calc.valorAdicionalNoturno };
     const adiantamentoSalarial = closed
-      ? adiantamentoDoFechado({ semRegistro: ent.semRegistro, pagoNaRescisao, salarioProporcional, comissaoLiquida: netCommission, totalAPagar })
+      ? adiantamentoDoFechado({
+        semRegistro: ent.semRegistro, pagoNaRescisao, salarioProporcional, comissaoLiquida: netCommission, totalAPagar,
+        adicionais: adicionais.valorHoraExtra + adicionais.valorAdicionalNoturno,
+      })
       : calc.adiantamentoSalarial;
     const naEscala = escala.get(r.employeeId) ?? semOcorrencias();
     return {
@@ -596,6 +627,8 @@ export async function computeTipCommission(
       diasSalario: calc.diasSalario,
       salarioProporcional,
       adiantamentoSalarial: dadosPessoais ? adiantamentoSalarial : null,
+      valorHoraExtra: dadosPessoais ? adicionais.valorHoraExtra : null,
+      valorAdicionalNoturno: dadosPessoais ? adicionais.valorAdicionalNoturno : null,
       totalAPagar,
       baseSalary: dadosPessoais ? ent.salarioBase : null,
       pixKeyType: dadosPessoais ? r.employee.pixKeyType : null,
@@ -640,6 +673,14 @@ export async function computeTipCommission(
   const semSalario = participants.filter((p, i) =>
     p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && entradas[i].salarioBase == null);
   if (semSalario.length) warnings.push(`Sem registro e sem salário no cadastro (a lista de pagamento sai só com a gorjeta): ${listar(semSalario)}.`);
+  // Texto de horas que a conta não entende vira zero: quem fecha precisa ver.
+  const ilegivel = (t: string | null) => t != null && t.trim() !== "" && (parseHoras(t) == null || parseHoras(t)! < 0);
+  const horasIlegiveis = noPeriodo.filter((p) => ilegivel(p.horaExtra) || ilegivel(p.adicionalNoturno));
+  if (horasIlegiveis.length) warnings.push(`Hora extra ou adicional noturno ilegível (use h:mm, ex.: 7:30): ${listar(horasIlegiveis)}. Contado como zero.`);
+  // Sem registro com rescisão lançada sai da lista: a hora extra é paga na rescisão.
+  const heNaRescisao = noPeriodo.filter((p) => p.semRegistro && p.pagoNaRescisao
+    && (minutosValidos(p.horaExtra) > 0 || minutosValidos(p.adicionalNoturno) > 0));
+  if (heNaRescisao.length) warnings.push(`Hora extra ou adicional noturno de quem tem a rescisão lançada não entra na lista (é paga na rescisão; confira lá): ${listar(heNaRescisao)}.`);
   const saiuSemRescisao = noPeriodo.filter((p) =>
     (p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA") && !p.rescisaoContasPagar);
   if (saiuSemRescisao.length) {
@@ -730,6 +771,11 @@ export async function computeTipCommission(
       // apuração da rescisão lê dele o adiantamento a descontar.
       adiantamentos: dadosPessoais
         ? round2(participants.filter((p) => !p.pagoNaRescisao).reduce((a, p) => a + (p.adiantamentoSalarial ?? 0), 0))
+        : null,
+      // Só o que a lista paga: sem quem saiu com a rescisão lançada (recebe lá).
+      horasExtrasSemRegistro: dadosPessoais
+        ? round2(participants.filter((p) => p.semRegistro && !p.pagoNaRescisao && p.tipoCalculo !== "FORA_DO_PERIODO")
+          .reduce((a, p) => a + (p.valorHoraExtra ?? 0) + (p.valorAdicionalNoturno ?? 0), 0))
         : null,
       totalAPagar: round2(participants.reduce((a, p) => a + p.totalAPagar, 0)),
       pagoNaRescisao: round2(participants.filter((p) => p.pagoNaRescisao).reduce((a, p) => a + p.rateioAmount, 0)),

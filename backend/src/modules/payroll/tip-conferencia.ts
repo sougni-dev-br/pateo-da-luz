@@ -14,8 +14,9 @@ export type PessoaApurada = {
   noPeriodo: boolean;          // tipoCalculo ≠ FORA_DO_PERIODO
   pagoNaRescisao: boolean;
   gorjetaLiquida: number;      // netCommission
-  totalAPagar: number;         // sem registro: salário − adiantamento + gorjeta − vales
+  totalAPagar: number;         // sem registro: salário − adiantamento + gorjeta − vales + hora extra/noturno
   adiantamentoSalarial?: number; // sem registro: já pago no dia do adiantamento (0/ausente = não recebeu)
+  comHoraExtra?: boolean;      // sem registro: o total leva hora extra ou adicional noturno
   cnpjEmpresa: string | null;  // da empresa do cadastro
   pix: string | null;
 };
@@ -133,9 +134,11 @@ export type LinhaFolha = {
 
 const reais = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// Sem registro: o adiantamento salarial já saiu no dia dele, então aparece na conta quando houve.
-function composicaoSemRegistro(p: PessoaApurada): string {
-  return (p.adiantamentoSalarial ?? 0) > 0 ? "salário − adiantamento + gorjeta − vales" : "salário + gorjeta − vales";
+// Sem registro: o adiantamento salarial já saiu no dia dele, então aparece na conta quando
+// houve; a hora extra e o noturno, quando há horas no período.
+export function composicaoSemRegistro(p: PessoaApurada): string {
+  const salario = (p.adiantamentoSalarial ?? 0) > 0 ? "salário − adiantamento" : "salário";
+  return `${salario} + gorjeta − vales${p.comHoraExtra ? " + hora extra/noturno" : ""}`;
 }
 
 // Folha salarial líquidos: o que o banco paga. CLT pelo extrato (ou pela regra do
