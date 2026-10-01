@@ -3,7 +3,7 @@ import {
   MONTHS, NOTA_ADIANTAMENTO_OCULTO, NOTA_HORA_EXTRA_OCULTA, NOTA_QUINZENA_OCULTA, REGRA_HORA_EXTRA, REGRA_QUINZENA, adiantamentoOculto, fmtDate, fmtHoras,
   money, mostraQuinzena, ordenar, parseHoras, quinzenaOculta, valorHoraExtraTotal,
 } from "./gorjetaUtils";
-import { NOTA_TETO_OCULTO, montarEnvioContabilidade } from "./envioContabilidade";
+import { gerarPdfEnvioContabilidade } from "./pdfEnvioContabilidade";
 
 type AutoTable = (doc: unknown, options: Record<string, unknown>) => void;
 
@@ -29,35 +29,9 @@ const estilo = {
   margin: { left: 14, right: 14 },
 };
 
-// Envio à contabilidade: só quem é registrado, numa tabela só, por empresa e depois
-// por nome (regras em envioContabilidade.ts). A coluna Gorjeta é a INFORMADA: com teto do
-// IR, teto − salário registrado. É o documento que vai à contabilidade: nada nele fala do teto.
+// Envio à contabilidade: o PDF que vai ao escritório (layout em pdfEnvioContabilidade.ts).
 export async function exportarContabilidade(comp: TipComputation) {
-  const envio = montarEnvioContabilidade(comp);
-  // Sem permissão o valor pelo teto vem oculto: o PDF sairia com buraco (ou com a gorjeta errada).
-  if (envio.ocultos > 0) throw new Error(`${NOTA_TETO_OCULTO} Peça a quem tem a permissão para gerar o PDF.`);
-  const { doc, autoTable, finalY } = await novoPdf("Fechamento de Gorjetas — Envio à Contabilidade", comp);
-  autoTable(doc, {
-    ...estilo,
-    startY: 30,
-    // A contabilidade lança a gorjeta LÍQUIDA (rateio − vales + créditos), como na planilha e no extrato.
-    head: [["Funcionário", "Empresa", "Gorjeta", "Hora extra", "Ad. noturno", "Faltas", "Atestados"]],
-    body: envio.linhas.map(({ pessoa: p, empresa, gorjeta }) => [
-      p.employeeName + (p.tipoCalculo === "MES" ? "" : ` (saída ${fmtDate(p.terminationDate)})`),
-      empresa,
-      money(gorjeta),
-      p.horaExtra ?? "",
-      p.adicionalNoturno ?? "",
-      p.faltas ? String(p.faltas) : "",
-      p.atestados ? String(p.atestados) : "",
-    ]),
-    foot: [["Total", "", money(envio.total), "", "", "", ""]],
-    columnStyles: { 2: { halign: "right", fontStyle: "bold" }, 3: { halign: "center" }, 4: { halign: "center" }, 5: { halign: "center" }, 6: { halign: "center" } },
-  });
-  doc.setFontSize(8);
-  doc.setTextColor(120);
-  doc.text("Gorjeta = rateio por pontos − vales + créditos. Hora extra e adicional noturno em horas (h:mm).", 14, finalY() + 8);
-  doc.save(`Gorjeta_Contabilidade_${MONTHS[comp.month - 1]}_${comp.year}.pdf`);
+  await gerarPdfEnvioContabilidade(comp);
 }
 
 /** Célula do adiantamento no PDF: null = sem permissão ("oculto"); 0 = não recebe (vazio). */

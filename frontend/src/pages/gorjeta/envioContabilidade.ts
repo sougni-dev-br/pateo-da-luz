@@ -33,3 +33,30 @@ export function montarEnvioContabilidade(comp: TipComputation): { linhas: LinhaE
   const total = ocultos ? null : Math.round(linhas.reduce((a, l) => a + (l.gorjeta ?? 0), 0) * 100) / 100;
   return { linhas, total, ocultos };
 }
+
+export type GrupoEnvio = { companyId: string | null; empresa: string; linhas: LinhaEnvio[]; subtotal: number };
+
+/** Linhas do envio separadas por empresa (na ordem do envio), com o subtotal de cada uma. */
+export function agruparEnvioPorEmpresa(linhas: LinhaEnvio[]): GrupoEnvio[] {
+  const grupos: GrupoEnvio[] = [];
+  for (const l of linhas) {
+    let g = grupos.find((x) => x.empresa === l.empresa);
+    if (!g) { g = { companyId: l.pessoa.companyId, empresa: l.empresa, linhas: [], subtotal: 0 }; grupos.push(g); }
+    g.linhas.push(l);
+    g.subtotal = Math.round((g.subtotal + (l.gorjeta ?? 0)) * 100) / 100;
+  }
+  return grupos;
+}
+
+// A fonte padrão do PDF (Helvetica, WinAnsi) não tem o sinal de menos "−" nem alguns traços:
+// eles saem embaralhados. Tudo que vai para o PDF passa por aqui.
+export function textoPdf(s: string): string {
+  return s.replace(/−/g, "-").replace(/[‐-–]/g, "-").replace(/ /g, " ");
+}
+
+/** Nome no envio: em maiúsculas, como na folha da contabilidade. */
+export const nomeNoEnvio = (nome: string) => textoPdf(nome.trim().toLocaleUpperCase("pt-BR"));
+
+/** Célula de quantidade (horas h:mm ou dias): vazio vira traço discreto. */
+export const celulaOuTraco = (v: string | number | null | undefined) =>
+  v == null || v === "" || v === 0 ? "-" : textoPdf(String(v));
