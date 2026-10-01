@@ -96,6 +96,8 @@ tipValesRouter.get("/periods/:year/:month/vales", async (request: Request, respo
     vales: vales.map((v) => ({ ...valeParaTela(v), employeeId: v.participant.employeeId, nome: nomeDe(v.participant.employee), apelido: apelidoDe(v.participant.employee) })),
     pessoas: comp.participants.filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO").map((p) => ({
       participantId: p.participantId, employeeId: p.employeeId, nome: p.employeeName, apelido: p.apelido, semRegistro: p.semRegistro,
+      // Só salário: o vale desconta do salário na lista de pagamento.
+      foraDaGorjeta: p.foraDaGorjeta,
       funcao: p.functionName, empresaId: p.companyId, empresa: p.companyName,
       gorjeta: p.rateioAmount, descontos: p.descontos, creditos: p.creditos, liquida: p.netCommission, pagoNaRescisao: p.pagoNaRescisao,
     })),

@@ -106,6 +106,8 @@ export type ComputedParticipant = {
   functionName: string | null;
   isActive: boolean;
   semRegistro: boolean;
+  // Sem registro que não participa da gorjeta: está só pelo salário (gorjeta e pontos zero).
+  foraDaGorjeta: boolean;
   admissionDate: string | null;
   terminationDate: string | null;
   kind: "FIXO" | "PONTOS";
@@ -434,7 +436,7 @@ export async function computeTipCommission(
     proporcionalEntrada: period?.proporcionalEntrada ?? true,
     sobraRescisaoParaSaldo: period?.sobraRescisaoParaSaldo ?? false,
     // O salário de quem não tem registro é do mês civil da competência.
-    mesSalario: { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 0)) },
+    mesSalario: mesDoSalario(year, month),
     adiantamentoPercent: Number(config.advancePercent),
     adiantamentoDia: config.advanceDueDay,
   };
@@ -510,6 +512,7 @@ export async function computeTipCommission(
       gorjetaReal: num(r.gorjetaReal),
       horaExtraMin: minutosValidos(r.horaExtra),
       adicionalNoturnoMin: minutosValidos(r.adicionalNoturno),
+      foraDaGorjeta: r.foraDaGorjeta,
       vales: r.vales.map((v) => ({ type: v.type, amount: Number(v.amount) })),
     };
   });
@@ -572,6 +575,7 @@ export async function computeTipCommission(
       functionName: closed ? (r.functionName ?? r.employee.tipFunction?.name ?? null) : (r.employee.tipFunction?.name ?? null),
       isActive: r.employee.isActive,
       semRegistro: ent.semRegistro,
+      foraDaGorjeta: r.foraDaGorjeta,
       admissionDate: r.employee.admissionDate?.toISOString() ?? null,
       terminationDate: r.employee.terminationDate?.toISOString() ?? null,
       kind: r.kind,
@@ -652,6 +656,8 @@ export async function computeTipCommission(
   const pendencias: string[] = [];
   const warnings: string[] = [];
   const noPeriodo = participants.filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO");
+  // Avisos da gorjeta (pontos, rescisão, gorjeta real) não valem para quem só recebe salário.
+  const naGorjeta = noPeriodo.filter((p) => !p.foraDaGorjeta);
   // Um aviso por tipo de problema, com os nomes juntos — um por pessoa afoga a tela.
   const listar = (lista: ComputedParticipant[]) => lista.map((p) => p.employeeName).join(", ");
 
@@ -668,7 +674,7 @@ export async function computeTipCommission(
         : " Reduza pontos ou ajustes."));
   }
 
-  const semBase = noPeriodo.filter((p) => p.kind === "PONTOS" && p.basePoints <= 0);
+  const semBase = naGorjeta.filter((p) => p.kind === "PONTOS" && p.basePoints <= 0);
   if (semBase.length) warnings.push(`Sem pontos-base (defina a função em "Equipe e funções"): ${listar(semBase)}.`);
   const semSalario = participants.filter((p, i) =>
     p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && entradas[i].salarioBase == null);
@@ -681,13 +687,16 @@ export async function computeTipCommission(
   const heNaRescisao = noPeriodo.filter((p) => p.semRegistro && p.pagoNaRescisao
     && (minutosValidos(p.horaExtra) > 0 || minutosValidos(p.adicionalNoturno) > 0));
   if (heNaRescisao.length) warnings.push(`Hora extra ou adicional noturno de quem tem a rescisão lançada não entra na lista (é paga na rescisão; confira lá): ${listar(heNaRescisao)}.`);
-  const saiuSemRescisao = noPeriodo.filter((p) =>
-    (p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA") && !p.rescisaoContasPagar);
+  // Quem só recebe salário também: sem a rescisão lançada, o salário sai na lista.
+  const saiuNoCiclo = (p: ComputedParticipant) => p.terminationDate != null && new Date(p.terminationDate) <= end;
+  const saiuSemRescisao = noPeriodo.filter((p) => !p.rescisaoContasPagar && (p.foraDaGorjeta
+    ? saiuNoCiclo(p)
+    : p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA"));
   if (saiuSemRescisao.length) {
     warnings.push(`Saíram no período sem rescisão lançada em Contas a Pagar (lance em Folha → Rescisão): ${listar(saiuSemRescisao)}.`
       + (saiuSemRescisao.some((p) => p.semRegistro) ? " Sem registro sem rescisão lançada recebe salário e gorjeta na lista do mês." : ""));
   }
-  const comReal = noPeriodo.filter((p) => p.gorjetaReal != null && p.tipoCalculo === "MES");
+  const comReal = naGorjeta.filter((p) => p.gorjetaReal != null && p.tipoCalculo === "MES");
   if (comReal.length) {
     const diferenca = round2(comReal.reduce((a, p) => a + (p.gorjetaCalculada - p.rateioAmount), 0));
     warnings.push(`Gorjeta real no lugar da calculada: ${listar(comReal)}. ${diferenca >= 0 ? "Sobram" : "Faltam"} ${brl(Math.abs(diferenca))} no livre para distribuir por isso.`);
@@ -696,15 +705,22 @@ export async function computeTipCommission(
   // volta a valer se a situação mudar de novo. Quem fecha precisa rever.
   rows.forEach((r, i) => {
     if (r.gorjetaReal == null || rateio.linhas[i].gorjetaRealAplicada) return;
-    const motivo = motivoGorjetaRealSemEfeito(rateio.linhas[i].tipoCalculo, r.kind);
+    const motivo = motivoGorjetaRealSemEfeito(rateio.linhas[i].tipoCalculo, r.kind, r.foraDaGorjeta);
     warnings.push(`A gorjeta real de ${nomeCompleto(r.employee)} (${brl(Number(r.gorjetaReal))}) não vale mais porque ${motivo}. Reveja: apague-a ou ajuste o cadastro.`);
   });
   const semAdmissao = noPeriodo.filter((p) => !p.admissionDate);
   if (semAdmissao.length) warnings.push(`Sem data de admissão (considerados no período inteiro): ${listar(semAdmissao)}.`);
-  const valesDemais = noPeriodo.filter((p) => p.descontos > 0 && p.netCommission < 0);
+  const valesDemais = naGorjeta.filter((p) => p.descontos > 0 && p.netCommission < 0);
   if (valesDemais.length) warnings.push(`Vales maiores que a gorjeta: ${listar(valesDemais)}.`);
+  // Fora da gorjeta os vales descontam do salário: avisa quando passam do que há a pagar.
+  const valesAlemDoSalario = noPeriodo.filter((p) => p.foraDaGorjeta && !p.pagoNaRescisao && p.descontos > 0 && p.totalAPagar < 0);
+  // Estava só pelo salário e deixou de ser sem registro: o vale lançado o segura no período.
+  const foraSemDireito = participants.filter((p) => p.foraDaGorjeta && (!p.semRegistro || p.tipoCalculo === "FORA_DO_PERIODO"));
+  if (foraSemDireito.length) warnings.push(`Não participam da gorjeta e não têm salário a receber neste mês, mas seguem no período por causa de vale lançado: ${listar(foraSemDireito)}. Cancele o vale (ou lance no mês certo) e recarregue os participantes.`);
+  if (valesAlemDoSalario.length) warnings.push(`Vales maiores que o salário a pagar (não participam da gorjeta): ${listar(valesAlemDoSalario)}.`);
   for (const r of rows) {
     const fn = r.employee.tipFunction;
+    if (r.foraDaGorjeta) continue;
     if (r.employee.pontosExtra == null || !fn) continue;
     const pontos = pontosBaseDoCadastro(r.employee);
     const min = num(fn.minPoints);
@@ -748,13 +764,13 @@ export async function computeTipCommission(
     sobraRescisaoParaSaldo: regras.sobraRescisaoParaSaldo === true,
     distribuido, saldo,
     composicao: {
-      mes: somar(participants.filter((p) => p.kind === "PONTOS" && p.tipoCalculo === "MES")),
+      mes: somar(participants.filter((p) => p.kind === "PONTOS" && p.tipoCalculo === "MES" && !p.foraDaGorjeta)),
       rescisoes: {
         ...somar(participants.filter((p) => p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA")),
         pendentes: participants.filter((p) => p.rescisaoPendente).length,
       },
       reserva: { valor: reservaValor, pontos: reservaPontos },
-      fixos: (({ valor, pessoas }) => ({ valor, pessoas }))(somar(participants.filter((p) => p.kind === "FIXO" && p.tipoCalculo === "MES"))),
+      fixos: (({ valor, pessoas }) => ({ valor, pessoas }))(somar(participants.filter((p) => p.kind === "FIXO" && p.tipoCalculo === "MES" && !p.foraDaGorjeta))),
     },
     reservaTotal: reservaValor,
     reservaPontos,
@@ -830,12 +846,50 @@ export async function ensureTipPeriod(year: number, month: number, userId: strin
   return period;
 }
 
+// Mês civil do salário de quem não tem registro: a competência 09 paga 01 a 30/09
+// (o mesmo intervalo de regras.mesSalario no cálculo).
+export function mesDoSalario(year: number, month: number): { start: Date; end: Date } {
+  return { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 0)) };
+}
+
+// Sem registro que não participa da gorjeta e tem vínculo no mês do salário: entra no
+// período só para receber o salário na lista de pagamento (foraDaGorjeta).
+async function semRegistroSoSalario(year: number, month: number): Promise<Array<{ id: string; tipFunction: { name: string } | null }>> {
+  const mes = mesDoSalario(year, month);
+  const candidatos = await prisma.employee.findMany({
+    where: {
+      participaGorjeta: false, deletedAt: null,
+      // Vínculo no mês: admitido até o último dia e não desligado antes do primeiro.
+      AND: [
+        { OR: [{ admissionDate: null }, { admissionDate: { lte: mes.end } }] },
+        { OR: [{ terminationDate: null }, { terminationDate: { gte: mes.start } }] },
+        // Inativo sem data de saída não é vínculo: não ganha salário do mês inteiro.
+        { OR: [{ isActive: true }, { terminationDate: { not: null } }] },
+      ],
+    },
+    select: { id: true, modality: true, terminationDate: true, tipFunction: { select: { name: true } } },
+  });
+  // Vínculo vigente no mês (como o cálculo faz): quem virou CLT depois ainda era sem registro.
+  const vigentes = await cadastrosVigentes(
+    candidatos.map((c) => ({ id: c.id, modality: c.modality as string, terminationDate: c.terminationDate })),
+    (c) => diaDeReferencia(year, month, c.terminationDate),
+  );
+  return candidatos.filter((c) => vigentes.get(c.id)?.modality === "NAO_CLT");
+}
+
 // Traz para o período quem participa da gorjeta no cadastro e ainda não está nele
 // (inclusive desligados, que recebem pela rescisão). Também atualiza os pontos-base
 // de quem já está, porque a base vem sempre do cadastro — o ajuste do mês é que se
-// edita no período. Não remove ninguém.
-export async function syncParticipantsFromCadastro(periodId: string): Promise<{ added: number; elegiveis: number; atualizados: number }> {
-  const periodo = await prisma.tipPeriod.findUniqueOrThrow({ where: { id: periodId }, select: { periodStart: true } });
+// edita no período. Não remove quem participa.
+//
+// Sem registro que não participa entra como "fora da gorjeta" (só salário). Se passar a
+// participar, vira participante normal com os pontos da função; se deixar de participar,
+// vira fora da gorjeta. Quem estava só pelo salário e deixou de ter direito (virou CLT,
+// saiu antes do mês) sai do período — a não ser que tenha vale lançado.
+export async function syncParticipantsFromCadastro(periodId: string): Promise<{ added: number; elegiveis: number; atualizados: number; removidos: number }> {
+  const periodo = await prisma.tipPeriod.findUniqueOrThrow({
+    where: { id: periodId }, select: { periodStart: true, competenceYear: true, competenceMonth: true },
+  });
   const elegiveis = await prisma.employee.findMany({
     where: {
       participaGorjeta: true, deletedAt: null,
@@ -844,35 +898,78 @@ export async function syncParticipantsFromCadastro(periodId: string): Promise<{ 
     },
     select: { id: true, tipoGorjeta: true, pontosExtra: true, cotaFixaGorjeta: true, tipFunction: { select: { points: true, name: true } } },
   });
-  const existing = await prisma.tipParticipant.findMany({ where: { periodId }, select: { id: true, employeeId: true, basePoints: true, functionName: true } });
+  const soSalario = await semRegistroSoSalario(periodo.competenceYear, periodo.competenceMonth);
+  const existing = await prisma.tipParticipant.findMany({
+    where: { periodId },
+    select: { id: true, employeeId: true, kind: true, basePoints: true, functionName: true, foraDaGorjeta: true, _count: { select: { vales: true } } },
+  });
   const byEmp = new Map(existing.map((e) => [e.employeeId, e]));
   const toAdd = elegiveis.filter((e) => !byEmp.has(e.id));
-  if (toAdd.length > 0) {
+  const soSalarioNovos = soSalario.filter((e) => !byEmp.has(e.id));
+  if (toAdd.length > 0 || soSalarioNovos.length > 0) {
     await prisma.tipParticipant.createMany({
-      data: toAdd.map((e) => ({
-        id: crypto.randomUUID(),
-        periodId,
-        employeeId: e.id,
-        kind: e.tipoGorjeta,
-        basePoints: e.tipoGorjeta === "PONTOS" ? pontosBaseDoCadastro(e) : null,
-        functionName: e.tipFunction?.name ?? null,
-        fixedAmount: e.tipoGorjeta === "FIXO" ? (e.cotaFixaGorjeta ?? 0) : null,
-      })),
+      data: [
+        ...toAdd.map((e) => ({
+          id: crypto.randomUUID(),
+          periodId,
+          employeeId: e.id,
+          kind: e.tipoGorjeta,
+          basePoints: e.tipoGorjeta === "PONTOS" ? pontosBaseDoCadastro(e) : null,
+          functionName: e.tipFunction?.name ?? null,
+          fixedAmount: e.tipoGorjeta === "FIXO" ? (e.cotaFixaGorjeta ?? 0) : null,
+        })),
+        ...soSalarioNovos.map((e) => ({
+          id: crypto.randomUUID(),
+          periodId,
+          employeeId: e.id,
+          kind: "PONTOS" as const,
+          basePoints: 0,
+          functionName: e.tipFunction?.name ?? null,
+          foraDaGorjeta: true,
+        })),
+      ],
       skipDuplicates: true,
     });
   }
   let atualizados = 0;
   for (const e of elegiveis) {
     const atual = byEmp.get(e.id);
-    if (!atual || e.tipoGorjeta !== "PONTOS") continue;
-    const base = pontosBaseDoCadastro(e);
+    if (!atual) continue;
     const funcao = e.tipFunction?.name ?? null;
+    // Passou a participar: sai do "só salário" com os pontos (ou a cota) do cadastro.
+    if (atual.foraDaGorjeta) {
+      await prisma.tipParticipant.update({
+        where: { id: atual.id },
+        data: {
+          foraDaGorjeta: false, kind: e.tipoGorjeta, functionName: funcao,
+          basePoints: e.tipoGorjeta === "PONTOS" ? pontosBaseDoCadastro(e) : null,
+          fixedAmount: e.tipoGorjeta === "FIXO" ? (e.cotaFixaGorjeta ?? 0) : null,
+        },
+      });
+      atualizados += 1;
+      continue;
+    }
+    if (e.tipoGorjeta !== "PONTOS") continue;
+    const base = pontosBaseDoCadastro(e);
     if (Number(atual.basePoints ?? -1) !== base || atual.functionName !== funcao) {
       await prisma.tipParticipant.update({ where: { id: atual.id }, data: { basePoints: base, functionName: funcao } });
       atualizados += 1;
     }
   }
-  return { added: toAdd.length, elegiveis: elegiveis.length, atualizados };
+  // Deixou de participar (sem registro no mês): fica só pelo salário.
+  for (const e of soSalario) {
+    const atual = byEmp.get(e.id);
+    if (!atual || atual.foraDaGorjeta) continue;
+    await prisma.tipParticipant.update({ where: { id: atual.id }, data: { foraDaGorjeta: true } });
+    atualizados += 1;
+  }
+  // Estava só pelo salário e não tem mais direito a nada aqui: sai, se não tiver vale.
+  const continua = new Set([...elegiveis.map((e) => e.id), ...soSalario.map((e) => e.id)]);
+  const semDireito = existing.filter((x) => x.foraDaGorjeta && !continua.has(x.employeeId) && x._count.vales === 0);
+  if (semDireito.length > 0) {
+    await prisma.tipParticipant.deleteMany({ where: { id: { in: semDireito.map((x) => x.id) }, foraDaGorjeta: true } });
+  }
+  return { added: toAdd.length + soSalarioNovos.length, elegiveis: elegiveis.length + soSalario.length, atualizados, removidos: semDireito.length };
 }
 
 // ─── Fechar: recalcula, grava os valores e trava ─────────────────────────────

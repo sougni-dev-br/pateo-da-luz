@@ -85,6 +85,8 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     funcao: p.functionName,
     empresa: p.companyName,
     semRegistro: p.semRegistro,
+    // Só salário, fora do rateio. Só quando é: retratos antigos continuam com o mesmo formato.
+    ...(p.foraDaGorjeta ? { foraDaGorjeta: true } : {}),
     admissao: p.admissionDate?.slice(0, 10) ?? null,
     desligamento: p.terminationDate?.slice(0, 10) ?? null,
     tipo: p.kind,

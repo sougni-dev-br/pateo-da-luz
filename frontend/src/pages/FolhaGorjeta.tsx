@@ -233,12 +233,13 @@ export function FolhaGorjeta() {
     setBusy(true);
     try {
       const id = await ensurePeriod();
-      const { added, elegiveis, atualizados, computation } = await syncTipParticipants(id);
+      const { added, elegiveis, atualizados, removidos, computation } = await syncTipParticipants(id);
       aplicar(computation);
+      const saiu = removidos ? ` ${removidos} saiu(íram): só recebia(m) salário e deixou(aram) de ter direito.` : "";
       setNotice(
         elegiveis === 0
           ? { tone: "warning", message: "Ninguém está marcado como participante. Marque a equipe na aba \"Equipe e funções\"." }
-          : { tone: "success", message: `${added} incluído(s) e ${atualizados} com pontos-base atualizados do cadastro.` },
+          : { tone: "success", message: `${added} incluído(s) e ${atualizados} atualizado(s) do cadastro.${saiu}` },
       );
     } catch (e) { erro(e); } finally { setBusy(false); }
   }
