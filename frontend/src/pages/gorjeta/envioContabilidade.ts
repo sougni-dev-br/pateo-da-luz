@@ -76,3 +76,7 @@ export function totaisDoEnvio(linhas: LinhaEnvio[], minutos: (t: string | null |
     atestados: soma((l) => l.pessoa.atestados ?? 0),
   };
 }
+
+/** Na impressão não entra quem tem gorjeta zero e nada mais a pagar (hora extra ou noturno mantêm a linha). */
+export const entraNaImpressao = (l: LinhaEnvio, minutos: (t: string | null | undefined) => number | null) =>
+  (l.gorjeta ?? 0) > 0 || (minutos(l.pessoa.horaExtra) ?? 0) > 0 || (minutos(l.pessoa.adicionalNoturno) ?? 0) > 0;
