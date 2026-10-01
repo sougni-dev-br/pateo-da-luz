@@ -26,20 +26,20 @@ const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julh
 const ABAS = ["diarias", "pagamentos", "pessoas", "painel"] as const;
 type Aba = (typeof ABAS)[number];
 
-// Quanto do gasto foi da equipe da casa e quanto de pessoas de fora: as mesmas
+// Quanto do gasto foi da equipe da casa e quanto de freelancers: as mesmas
 // cores do gráfico do Painel, para a leitura ser uma só nas duas telas.
 function DivisaoCasaFora({ casa, fora }: { casa: number; fora: number }) {
   const total = casa + fora;
   const pctCasa = total > 0 ? (casa / total) * 100 : 0;
   return (
-    <span className="extras-divisao" title={`Casa ${brl(casa)} · De fora ${brl(fora)}`}>
+    <span className="extras-divisao" title={`Equipe da casa ${brl(casa)} · Freelancers ${brl(fora)}`}>
       <span className="extras-divisao-barra" aria-hidden="true">
         {casa > 0 && <i className="casa" style={{ width: `${pctCasa}%` }} />}
         {fora > 0 && <i className="fora" style={{ width: `${100 - pctCasa}%` }} />}
       </span>
       <span className="extras-divisao-legenda">
-        <span><i className="casa" aria-hidden="true" />Casa {numero(casa)}</span>
-        <span><i className="fora" aria-hidden="true" />Fora {numero(fora)}</span>
+        <span><i className="casa" aria-hidden="true" />Equipe {numero(casa)}</span>
+        <span><i className="fora" aria-hidden="true" />Freelancers {numero(fora)}</span>
       </span>
     </span>
   );
@@ -262,7 +262,7 @@ export function Extras() {
 
         {emRisco.length > 0 && aba !== "painel" && (
           <Alert tone="warning" icon={<AlertTriangle size={16} />} className="extras-aviso">
-            {emRisco.length === 1 ? `${emRisco[0].nome} está` : `${emRisco.length} pessoas de fora estão`} com diárias frequentes (risco de vínculo).{" "}
+            {emRisco.length === 1 ? `${emRisco[0].nome} está` : `${emRisco.length} freelancers estão`} com diárias frequentes (risco de vínculo).{" "}
             <button type="button" className="extras-link-botao" onClick={() => irPara("painel")}>Ver frequência</button>
           </Alert>
         )}
@@ -396,7 +396,7 @@ export function Extras() {
               <TextField value={configurando.meia} inputMode="numeric" onChange={(e) => setConfigurando({ ...configurando, meia: maskMoney(e.target.value) })} />
             </FormField>
           </FormGrid>
-          <h3 className="extras-config-titulo">Aviso de frequência (pessoas de fora)</h3>
+          <h3 className="extras-config-titulo">Aviso de frequência (freelancers)</h3>
           <p className="extras-sub" style={{ marginTop: 0 }}>O aviso acende quando a pessoa atinge qualquer um destes limites. Só avisa, nunca bloqueia.</p>
           <FormGrid cols={3}>
             <FormField label="Dias na mesma semana" hint="1 a 7">

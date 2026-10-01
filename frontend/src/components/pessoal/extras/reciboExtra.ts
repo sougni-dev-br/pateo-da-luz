@@ -5,7 +5,7 @@ import { PIX_ROTULO, brl, dataCurta } from "./extrasRotulos";
 const esc = (s: string | null | undefined) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-// CPF pode vir só com dígitos (cadastro de fora grava assim); no recibo, formatado.
+// CPF pode vir só com dígitos (cadastro de freelancer grava assim); no recibo, formatado.
 const cpfFormatado = (cpf: string) => {
   const d = cpf.replace(/\D/g, "");
   return d.length === 11 ? d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4") : cpf;
@@ -61,7 +61,7 @@ export function htmlRecibo(r: ExtraRecibo): string {
 <div class="dados">
   <div><span>Nome:</span> <strong>${esc(r.nome)}</strong></div>
   <div><span>CPF:</span> ${r.cpf ? esc(cpfFormatado(r.cpf)) : "______________________"}</div>
-  <div><span>Vínculo:</span> ${r.origem === "CASA" ? "Equipe da casa" : "Extra (de fora)"}</div>
+  <div><span>Vínculo:</span> ${r.origem === "CASA" ? "Equipe da casa" : "Freelancer (diária)"}</div>
   <div><span>PIX:</span> ${pix || "______________________"}</div>
 </div>
 <table>

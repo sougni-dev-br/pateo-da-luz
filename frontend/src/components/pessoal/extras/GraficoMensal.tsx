@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ExtraMesPainel } from "../../../api/client";
 import { brl, diariasTexto } from "./extrasRotulos";
 
-// Colunas empilhadas por mês: equipe da casa (baixo) e pessoas de fora (cima).
+// Colunas empilhadas por mês: equipe da casa (baixo) e freelancers (cima).
 // Regras: coluna ≤ 24px, 2px de superfície entre segmentos, topo arredondado
 // (4px) e base reta, grade fina, legenda sempre visível, rótulo só no último
 // mês; o resto vai na dica (mouse/teclado) e na tabela abaixo.
@@ -61,7 +61,7 @@ export function GraficoMensal({ meses }: { meses: ExtraMesPainel[] }) {
     <div className="extras-grafico" ref={caixa}>
       <div className="extras-legenda" aria-hidden="true">
         <span><i className="casa" /> Equipe da casa</span>
-        <span><i className="fora" /> Pessoas de fora</span>
+        <span><i className="fora" /> Freelancers</span>
       </div>
       <svg width={largura} height={ALTURA} role="group" aria-label={`Gasto com extras por mês, de ${rotuloMes(meses[0]?.mes ?? "")} a ${rotuloMes(meses[ultimo]?.mes ?? "")}. Valores na tabela abaixo.`}>
         {ticks.map((t) => (
@@ -94,7 +94,7 @@ export function GraficoMensal({ meses }: { meses: ExtraMesPainel[] }) {
               <rect
                 x={MARGEM.esquerda + banda * i} y={MARGEM.topo} width={banda} height={areaH}
                 className="extras-alvo" tabIndex={0} role="img"
-                aria-label={`${rotuloMes(mes.mes)}: casa ${brl(mes.casa)}, fora ${brl(mes.fora)}, total ${brl(mes.total)}`}
+                aria-label={`${rotuloMes(mes.mes)}: equipe da casa ${brl(mes.casa)}, freelancers ${brl(mes.fora)}, total ${brl(mes.total)}`}
                 onMouseEnter={() => setAtivo(i)} onMouseLeave={() => setAtivo(null)}
                 onFocus={() => setAtivo(i)} onBlur={() => setAtivo(null)}
               />
@@ -109,7 +109,7 @@ export function GraficoMensal({ meses }: { meses: ExtraMesPainel[] }) {
         >
           <strong>{rotuloMes(m.mes)}</strong>
           <span><i className="casa" /> Casa <b>{brl(m.casa)}</b></span>
-          <span><i className="fora" /> Fora <b>{brl(m.fora)}</b></span>
+          <span><i className="fora" /> Freelancers <b>{brl(m.fora)}</b></span>
           {m.diferencaPaga !== 0 && <span>Diferença paga <b>{brl(m.diferencaPaga)}</b></span>}
           <span className="extras-dica-total">Total <b>{brl(m.total)}</b></span>
           <small className="extras-sub">{m.diarias ? diariasTexto(m.diarias) : "Nenhuma diária"}</small>
