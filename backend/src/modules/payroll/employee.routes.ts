@@ -148,6 +148,31 @@ export function lerRecebeAdiantamento(b: Record<string, unknown>): { erro: strin
   return { dados: { recebeAdiantamento: b.recebeAdiantamento } };
 }
 
+type FormaPagamento = { recebeAdiantamento?: boolean; pagamentoQuinzenal?: boolean };
+export const ERRO_DUAS_FORMAS_PAGAMENTO =
+  "Escolha uma forma de pagamento só: adiantamento no dia do adiantamento OU por quinzena (dias 15 e 30). As duas juntas descontariam duas vezes.";
+
+// Forma de pagamento do sem registro: só no pagamento, adiantamento ou quinzena. Cada campo
+// só é gravado quando o corpo o traz, e só como booleano. Adiantamento e quinzena juntos são
+// recusados olhando o que vai ficar gravado (o que veio no corpo, senão o cadastro atual):
+// marcar a quinzena em quem já recebe adiantamento, sem desmarcar o adiantamento, também cai.
+export function lerFormaPagamento(
+  b: Record<string, unknown>, atual: FormaPagamento | null = null,
+): { erro: string } | { dados: FormaPagamento } {
+  const adiantamento = lerRecebeAdiantamento(b);
+  if ("erro" in adiantamento) return adiantamento;
+  let quinzena: FormaPagamento = {};
+  if ("pagamentoQuinzenal" in b) {
+    if (typeof b.pagamentoQuinzenal !== "boolean") return { erro: "Informe se recebe por quinzena (sim ou não)." };
+    quinzena = { pagamentoQuinzenal: b.pagamentoQuinzenal };
+  }
+  const dados = { ...adiantamento.dados, ...quinzena };
+  const ficaAdiantamento = dados.recebeAdiantamento ?? atual?.recebeAdiantamento ?? false;
+  const ficaQuinzena = dados.pagamentoQuinzenal ?? atual?.pagamentoQuinzenal ?? false;
+  if (ficaAdiantamento && ficaQuinzena) return { erro: ERRO_DUAS_FORMAS_PAGAMENTO };
+  return { dados };
+}
+
 // Salário, vínculo, cargo etc. mudaram: a data a partir da qual vale ("vigenteDesde",
 // padrão hoje em São Paulo) e o motivo vão para o histórico do cadastro. Sem mudança
 // nesses campos a data nem é conferida.
@@ -334,7 +359,7 @@ employeeRouter.post("/", async (request, response) => {
   if (existing) return response.status(400).json({ message: "Já existe um funcionário com este CPF." });
   const combinado = lerSalarioCombinado(b);
   if ("erro" in combinado) return response.status(400).json({ message: combinado.erro });
-  const adiantamento = lerRecebeAdiantamento(b);
+  const adiantamento = lerFormaPagamento(b);
   if ("erro" in adiantamento) return response.status(400).json({ message: adiantamento.erro });
 
   const legs = parseLegs(b.vtLegs);
@@ -397,7 +422,7 @@ employeeRouter.put("/:id", async (request, response) => {
   if (cpfConflict) return response.status(400).json({ message: "CPF já está em uso por outro funcionário." });
   const combinado = lerSalarioCombinado(b);
   if ("erro" in combinado) return response.status(400).json({ message: combinado.erro });
-  const adiantamento = lerRecebeAdiantamento(b);
+  const adiantamento = lerFormaPagamento(b, existing);
   if ("erro" in adiantamento) return response.status(400).json({ message: adiantamento.erro });
   const dados = { cpf, ...buildEmployeeData(b), ...combinado.dados, ...adiantamento.dados };
   const vigencia = lerVigencia(b, existing, dados, dados.admissionDate ?? existing.admissionDate);

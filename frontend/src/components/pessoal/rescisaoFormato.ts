@@ -35,3 +35,12 @@ export function divergencias(
       diferenca: Math.round((v[c]! - apurado[c]!) * 100) / 100,
     }));
 }
+
+/** O que compõe os "Vales a descontar" sugeridos: aba Vales + o que já saiu no mês (adiantamento, 1ª quinzena). */
+export function dicaValesRescisao(sugestao: Pick<ApuracaoRescisao["sugestao"], "adiantamento" | "primeiraQuinzena"> | null | undefined): string {
+  const pagos = [
+    (sugestao?.adiantamento ?? 0) > 0 ? "adiantamento salarial" : null,
+    (sugestao?.primeiraQuinzena ?? 0) > 0 ? "1ª quinzena" : null,
+  ].filter(Boolean);
+  return pagos.length ? `aba Vales da gorjeta + ${pagos.join(" + ")} já pago no mês` : "lançados na aba Vales da gorjeta";
+}

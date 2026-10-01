@@ -166,3 +166,24 @@ describe("PATCH /employees/:id/terminate — data padrão", () => {
     expect(db.employee.update.mock.calls[0][0].data.terminationDate).toEqual(new Date("2026-09-30T00:00:00Z"));
   });
 });
+
+describe("forma de pagamento do sem registro (quinzena × adiantamento)", () => {
+  test("passar a receber por quinzena grava o cadastro e uma linha no histórico", async () => {
+    db.employee.findFirst.mockImplementation(async (q: { where: { id?: unknown } }) =>
+      (typeof q.where.id === "string" ? { ...existente, pagamentoQuinzenal: false } : null));
+    const r = await request(app).put("/employees/e1").send(corpo({ pagamentoQuinzenal: true }));
+    expect(r.status).toBe(200);
+    expect(db.employee.update.mock.calls[0][0].data).toMatchObject({ pagamentoQuinzenal: true, recebeAdiantamento: false });
+    expect(linhasGravadas()).toEqual([
+      expect.objectContaining({ campo: "pagamentoQuinzenal", valorAnterior: "false", valorNovo: "true", origem: "CADASTRO" }),
+    ]);
+  });
+
+  test("quinzena e adiantamento juntos: 400 com mensagem clara, nada gravado", async () => {
+    const r = await request(app).put("/employees/e1").send(corpo({ pagamentoQuinzenal: true, recebeAdiantamento: true }));
+    expect(r.status).toBe(400);
+    expect(r.body.message).toContain("Escolha uma forma de pagamento só");
+    expect(db.employee.update).not.toHaveBeenCalled();
+    expect(db.employeeHistorico.createMany).not.toHaveBeenCalled();
+  });
+});

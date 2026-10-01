@@ -5418,6 +5418,8 @@ export type Employee = {
   salarioCombinadoMotivo?: string | null;
   /** Recebe adiantamento salarial no dia do adiantamento (sem registro: desconta da lista). */
   recebeAdiantamento?: boolean;
+  /** Sem registro: recebe por quinzena (metade do salário base no dia 15; a lista do dia 30 desconta). */
+  pagamentoQuinzenal?: boolean;
   shiftStart: string | null;
   shiftEnd: string | null;
   modality: EmployeeModality;
@@ -5485,6 +5487,8 @@ export type EmployeePayload = {
   salarioCombinadoMotivo?: string | null;
   /** Ausente = não mexe. */
   recebeAdiantamento?: boolean;
+  /** Ausente = não mexe. Junto com recebeAdiantamento=true, o backend recusa (400). */
+  pagamentoQuinzenal?: boolean;
   shiftStart?: string;
   shiftEnd?: string;
   modality?: EmployeeModality;
@@ -5506,7 +5510,7 @@ export type EmployeePayload = {
   motivoAlteracao?: string;
 };
 
-export type CampoHistoricoCadastro = "baseSalary" | "salarioCombinado" | "modality" | "companyId" | "position" | "recebeAdiantamento";
+export type CampoHistoricoCadastro = "baseSalary" | "salarioCombinado" | "modality" | "companyId" | "position" | "recebeAdiantamento" | "pagamentoQuinzenal";
 
 /** Uma alteração do cadastro. Sem permissão de ver Funcionários, salário vem com oculto=true e sem valores. */
 export type EmployeeHistoricoLinha = {
@@ -5772,6 +5776,8 @@ export type TipComputedParticipant = {
   salarioProporcional: number;
   /** Sem registro: adiantamento salarial já pago no mês (0 = não recebeu). null sem permissão de ver Funcionários. */
   adiantamentoSalarial?: number | null;
+  /** Sem registro por quinzena: 1ª quinzena já paga no dia 15 (0 = não recebeu). null sem permissão de ver Funcionários. */
+  primeiraQuinzena?: number | null;
   /** Sem registro: hora extra (+50%) e adicional noturno, já no total a pagar. CLT = 0. null sem permissão de ver Funcionários. */
   valorHoraExtra?: number | null;
   valorAdicionalNoturno?: number | null;
@@ -5834,9 +5840,10 @@ export type TipComputation = {
   participants: TipComputedParticipant[];
   /** Regra do adiantamento salarial (Folha → configurações): % do salário base, pago no dia. */
   adiantamento?: { percent: number; dia: number };
-  /** adiantamentos e horasExtrasSemRegistro (hora extra + noturno da lista): null sem permissão de ver Funcionários. */
+  /** adiantamentos, primeirasQuinzenas e horasExtrasSemRegistro (hora extra + noturno da lista): null sem permissão de ver Funcionários. */
   totals: {
     rateio: number; vales: number; netCommission: number; salarios: number; adiantamentos?: number | null;
+    primeirasQuinzenas?: number | null;
     horasExtrasSemRegistro?: number | null; totalAPagar: number; pagoNaRescisao: number;
   };
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
@@ -6431,14 +6438,16 @@ export type ApuracaoRescisao = {
     pendente: boolean; diasSalario: number | null; salarioProporcional: number | null;
   } | null;
   gorjetaObservacao: string | null;
-  /** vales inclui o adiantamento salarial já pago (a parte dele em adiantamento). */
+  /** vales inclui o adiantamento salarial e a 1ª quinzena já pagos (a parte de cada um em adiantamento e primeiraQuinzena). */
   /** creditos inclui a hora extra e o adicional noturno (a parte deles em horaExtra). */
   sugestao: {
     salario: number | null; gorjeta: number | null; creditos: number; horaExtra?: number; vales: number; valesRotulo: string | null;
-    adiantamento?: number; vtDesconto: number; bruto: number | null;
+    adiantamento?: number; primeiraQuinzena?: number; vtDesconto: number; bruto: number | null;
   };
   /** Sem registro que recebe adiantamento e saiu no dia dele ou depois. valor null = oculto. */
   adiantamento?: { valor: number | null; data: string } | null;
+  /** Sem registro que recebe por quinzena e saiu no dia 15 ou depois. valor null = oculto. */
+  primeiraQuinzena?: { valor: number | null; data: string } | null;
   /** Sem registro com horas na gorjeta do período da saída: entra nos créditos. valor (HE + noturno) null = oculto. */
   horaExtra?: { horaExtra: string | null; adicionalNoturno: string | null; valor: number | null } | null;
   dadosPessoaisOcultos?: boolean;

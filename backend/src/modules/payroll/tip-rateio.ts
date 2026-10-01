@@ -90,6 +90,9 @@ export type ParticipanteEntrada = {
   faltasSalario?: number;
   // Cadastro: recebe adiantamento salarial (só vale para quem não tem registro).
   recebeAdiantamento?: boolean;
+  // Cadastro: recebe por quinzena — metade do salário base no dia 15 (só sem registro).
+  // Prevalece sobre recebeAdiantamento: as duas juntas não descontam duas vezes.
+  pagamentoQuinzenal?: boolean;
   // Rescisão lançada em Contas a Pagar (Folha → rescisão). Sem registro: ela já
   // pagou salário e gorjeta até a saída, então a pessoa sai da lista do mês.
   rescisaoLancada: boolean;
@@ -141,6 +144,8 @@ export type ParticipanteCalculado = {
   salarioProporcional: number;
   // Sem registro: o que já recebeu de adiantamento salarial no mês do salário (0 = não recebeu).
   adiantamentoSalarial: number;
+  // Sem registro que recebe por quinzena: a 1ª quinzena já paga no dia 15 (0 = não recebeu).
+  primeiraQuinzena: number;
   // Sem registro: hora extra (+50%) e adicional noturno pagos na lista. CLT = 0.
   valorHoraExtra: number;
   valorAdicionalNoturno: number;
@@ -239,29 +244,62 @@ function salarioSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo): { di
 // Não recebeu (0) quem entrou depois desse dia ou saiu ANTES dele — quem sai no
 // próprio dia recebeu, porque o pagamento sai naquele dia. Nunca passa do salário
 // proporcional: com poucos dias no mês, desconta até zerar o salário, não a gorjeta.
+// Quem recebe por quinzena não recebe adiantamento: a quinzena prevalece (o cadastro já
+// recusa as duas juntas; isto protege o histórico e quem gravou por fora da tela).
 export function adiantamentoSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo, salarioProporcional: number): number {
   const percent = regras.adiantamentoPercent ?? 0;
-  if (!p.semRegistro || !p.recebeAdiantamento || !p.salarioBase || percent <= 0 || !regras.adiantamentoDia) return 0;
-  const janela = regras.mesSalario ?? { start: regras.start, end: regras.end };
-  const ultimoDia = new Date(Date.UTC(janela.end.getUTCFullYear(), janela.end.getUTCMonth() + 1, 0)).getUTCDate();
-  const dia = new Date(Date.UTC(janela.end.getUTCFullYear(), janela.end.getUTCMonth(), Math.min(regras.adiantamentoDia, ultimoDia)));
-  if (dia < janela.start || dia > janela.end) return 0;
-  // Compara o dia civil (UTC), sem a hora gravada junto da data.
-  const soDia = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-  if (p.admissao && soDia(p.admissao) > dia.getTime()) return 0;
-  if (p.desligamento && soDia(p.desligamento) < dia.getTime()) return 0;
+  if (!p.semRegistro || !p.recebeAdiantamento || p.pagamentoQuinzenal || !p.salarioBase || percent <= 0 || !regras.adiantamentoDia) return 0;
+  if (!vinculadoNoDia(p, regras, regras.adiantamentoDia)) return 0;
   return Math.max(0, Math.min(round2(salarioProporcional), round2((p.salarioBase * percent) / 100)));
 }
 
+// Dia do mês em que sai a 1ª quinzena de quem recebe por quinzena (a 2ª é o acerto do dia 30).
+export const DIA_PRIMEIRA_QUINZENA = 15;
+
+// 1ª quinzena já paga a quem não tem registro e recebe por quinzena, para descontar do acerto:
+//   valor = metade do salário base (o vigente no mês do salário), paga no dia 15.
+// Mesma regra de datas do adiantamento: não recebeu quem entrou depois do dia 15 ou saiu
+// ANTES dele (quem sai no dia 15 recebeu). Nunca passa do salário proporcional do mês.
+export function primeiraQuinzenaSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo, salarioProporcional: number): number {
+  if (!p.semRegistro || !p.pagamentoQuinzenal || !p.salarioBase) return 0;
+  if (!vinculadoNoDia(p, regras, DIA_PRIMEIRA_QUINZENA)) return 0;
+  return Math.max(0, Math.min(round2(salarioProporcional), round2(p.salarioBase / 2)));
+}
+
+// A pessoa estava no vínculo no dia X do mês do salário (o pagamento daquele dia saiu para ela)?
+// Fora quem entrou depois do dia ou saiu ANTES dele — quem sai no próprio dia recebeu.
+function vinculadoNoDia(p: ParticipanteEntrada, regras: RegrasPeriodo, diaDoMes: number): boolean {
+  const janela = regras.mesSalario ?? { start: regras.start, end: regras.end };
+  const ultimoDia = new Date(Date.UTC(janela.end.getUTCFullYear(), janela.end.getUTCMonth() + 1, 0)).getUTCDate();
+  const dia = new Date(Date.UTC(janela.end.getUTCFullYear(), janela.end.getUTCMonth(), Math.min(diaDoMes, ultimoDia)));
+  if (dia < janela.start || dia > janela.end) return false;
+  // Compara o dia civil (UTC), sem a hora gravada junto da data.
+  const soDia = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  if (p.admissao && soDia(p.admissao) > dia.getTime()) return false;
+  if (p.desligamento && soDia(p.desligamento) < dia.getTime()) return false;
+  return true;
+}
+
+// O que já saiu antes do acerto (adiantamento ou 1ª quinzena), somado, nunca passa do salário
+// proporcional: com poucos dias no mês, desconta até zerar o salário, não a gorjeta.
+function pagoAntesDoAcerto(p: ParticipanteEntrada, regras: RegrasPeriodo, salarioProporcional: number) {
+  const adiantamentoSalarial = adiantamentoSemRegistro(p, regras, salarioProporcional);
+  const primeiraQuinzena = Math.min(
+    primeiraQuinzenaSemRegistro(p, regras, salarioProporcional),
+    Math.max(0, round2(salarioProporcional - adiantamentoSalarial)),
+  );
+  return { adiantamentoSalarial, primeiraQuinzena };
+}
+
 // Período fechado não grava o adiantamento: ele é o que explica o total gravado
-// (salário + gorjeta líquida + hora extra/noturno − total a pagar). Fechamentos de antes
-// do adiantamento dão zero. A hora extra vem do retrato (ausente = zero).
+// (salário + gorjeta líquida + hora extra/noturno − 1ª quinzena − total a pagar). Fechamentos
+// de antes do adiantamento dão zero. A hora extra e a 1ª quinzena vêm do retrato (ausente = zero).
 export function adiantamentoDoFechado(g: {
   semRegistro: boolean; pagoNaRescisao: boolean; salarioProporcional: number; comissaoLiquida: number; totalAPagar: number;
-  adicionais?: number;
+  adicionais?: number; primeiraQuinzena?: number;
 }): number {
   if (!g.semRegistro || g.pagoNaRescisao) return 0;
-  return Math.max(0, round2(g.salarioProporcional + g.comissaoLiquida + (g.adicionais ?? 0) - g.totalAPagar));
+  return Math.max(0, round2(g.salarioProporcional + g.comissaoLiquida + (g.adicionais ?? 0) - (g.primeiraQuinzena ?? 0) - g.totalAPagar));
 }
 
 // Hora extra e adicional noturno a pagar na lista: só quem não tem registro.
@@ -295,7 +333,7 @@ function calcularForaDaGorjeta(regras: RegrasPeriodo, p: ParticipanteEntrada): P
   const descontos = round2(p.vales.filter((v) => v.type !== "CREDITO").reduce((a, v) => a + v.amount, 0));
   const comissaoLiquida = round2(creditos - descontos);
   const salario = salarioSemRegistro(p, regras);
-  const adiantamentoSalarial = adiantamentoSemRegistro(p, regras, salario.valor);
+  const { adiantamentoSalarial, primeiraQuinzena } = pagoAntesDoAcerto(p, regras, salario.valor);
   const { valorHoraExtra, valorAdicionalNoturno } = adicionaisSemRegistro(p);
   // Saiu dentro do ciclo com a rescisão lançada: recebeu tudo lá, como os demais sem registro.
   const pagoNaRescisao = p.semRegistro && p.rescisaoLancada && p.desligamento != null && p.desligamento <= regras.end;
@@ -305,10 +343,10 @@ function calcularForaDaGorjeta(regras: RegrasPeriodo, p: ParticipanteEntrada): P
     pontosApurados: 0, pontosFinais: 0, pontosDireito: 0, pontosDevolvidos: 0, extraRescisao: 0,
     justificativaExtra: null, valorDireito: null, gorjetaCalculada: 0, gorjetaRealAplicada: false,
     valorPonto: 0, rateio: 0, descontos, creditos, comissaoLiquida,
-    diasSalario: salario.dias, salarioProporcional: salario.valor, adiantamentoSalarial,
+    diasSalario: salario.dias, salarioProporcional: salario.valor, adiantamentoSalarial, primeiraQuinzena,
     valorHoraExtra, valorAdicionalNoturno,
     totalAPagar: pagoNaRescisao ? 0
-      : round2(salario.valor - adiantamentoSalarial + comissaoLiquida + valorHoraExtra + valorAdicionalNoturno),
+      : round2(salario.valor - adiantamentoSalarial - primeiraQuinzena + comissaoLiquida + valorHoraExtra + valorAdicionalNoturno),
     rescisaoPendente: false,
     pagoNaRescisao,
   };
@@ -390,7 +428,7 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
   const descontos = round2(p.vales.filter((v) => v.type !== "CREDITO").reduce((a, v) => a + v.amount, 0));
   const comissaoLiquida = round2(rateio - descontos + creditos);
   const salario = salarioSemRegistro(p, regras);
-  const adiantamentoSalarial = adiantamentoSemRegistro(p, regras, salario.valor);
+  const { adiantamentoSalarial, primeiraQuinzena } = pagoAntesDoAcerto(p, regras, salario.valor);
   const { valorHoraExtra, valorAdicionalNoturno } = adicionaisSemRegistro(p);
   const saiuNoPeriodo = tipoCalculo === "RESCISAO" || tipoCalculo === "RESCISAO_QUITADA";
   const pagoNaRescisao = p.semRegistro
@@ -422,11 +460,12 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
     diasSalario: salario.dias,
     salarioProporcional: salario.valor,
     adiantamentoSalarial,
+    primeiraQuinzena,
     valorHoraExtra,
     valorAdicionalNoturno,
     // Quem foi pago na rescisão recebe a hora extra lá (apuração da rescisão).
     totalAPagar: pagoNaRescisao ? 0
-      : round2(salario.valor - adiantamentoSalarial + comissaoLiquida + valorHoraExtra + valorAdicionalNoturno),
+      : round2(salario.valor - adiantamentoSalarial - primeiraQuinzena + comissaoLiquida + valorHoraExtra + valorAdicionalNoturno),
     rescisaoPendente,
     pagoNaRescisao,
   };
