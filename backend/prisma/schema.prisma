@@ -2493,6 +2493,37 @@ model Employee {
   extraShiftsCovered ExtraShift[]        @relation("ExtraShiftCovered")
   extraPayments      ExtraPayment[]
   rhExtractPessoas  RhExtractPessoa[]
+  // Ficha de registro de empregado (contabilidade): documentos e contrato em carteira.
+  // Só consulta — nenhum cálculo lê estes campos. Jornada é a do contrato; o turno real
+  // da escala continua em shiftStart/shiftEnd.
+  registroNumero    String?
+  matriculaEsocial  String?
+  nomeMae           String?
+  nomePai           String?
+  estadoCivil       String?
+  nacionalidade     String?
+  naturalidade      String?
+  racaCor           String?
+  escolaridade      String?
+  possuiDeficiencia Boolean?
+  rgDataEmissao     DateTime?          @db.Date
+  rgOrgaoEmissor    String?
+  tituloEleitor     String?
+  tituloZona        String?
+  tituloSecao       String?
+  ctpsNumero        String?
+  ctpsSerie         String?
+  ctpsUf            String?
+  ctpsDataEmissao   DateTime?          @db.Date
+  cbo               String?
+  jornadaInicio     String?
+  jornadaFim        String?
+  intervaloInicio   String?
+  intervaloFim      String?
+  fgtsDataOpcao     DateTime?          @db.Date
+  dependentes       EmployeeDependente[]
+  feriasRegistradas EmployeeFerias[]
+  anotacoesCarteira EmployeeAnotacaoCarteira[]
   // Auditoria / soft delete
   createdById       String
   updatedById       String?
@@ -2840,6 +2871,59 @@ model EmployeeHistorico {
 
   @@unique([origemRef, campo])
   @@index([employeeId, campo, vigenteDesde])
+}
+
+// Ficha de registro de empregado: dependentes (os "beneficiários" da ficha), férias e a
+// carteira (admissão, aumentos, mudança de cargo). Só consulta. origem FICHA_REGISTRO = veio
+// da importação, que apaga e regrava as dela a cada importação (a ficha é cumulativa).
+model EmployeeDependente {
+  id             String    @id @default(cuid())
+  employeeId     String
+  employee       Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  nome           String
+  parentesco     String?
+  dataNascimento DateTime? @db.Date
+  origem         String    @default("CADASTRO") // CADASTRO | FICHA_REGISTRO
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([employeeId])
+}
+
+model EmployeeFerias {
+  id               String    @id @default(cuid())
+  employeeId       String
+  employee         Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  aquisitivoInicio DateTime  @db.Date
+  aquisitivoFim    DateTime  @db.Date
+  gozoInicio       DateTime? @db.Date
+  gozoFim          DateTime? @db.Date
+  abonoInicio      DateTime? @db.Date
+  abonoFim         DateTime? @db.Date
+  origem           String    @default("FICHA_REGISTRO")
+  createdAt        DateTime  @default(now())
+
+  @@index([employeeId, aquisitivoInicio])
+}
+
+// Anotações da carteira. Não é o histórico do cadastro (EmployeeHistorico): aquele alimenta
+// o cálculo de mês passado; este é o registro da contabilidade, para consulta.
+model EmployeeAnotacaoCarteira {
+  id                    String   @id @default(cuid())
+  employeeId            String
+  employee              Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  tipo                  String   // ADMISSAO | SALARIO | CARGO
+  data                  DateTime @db.Date
+  salario               Decimal? @db.Decimal(12, 2)
+  retroativoCompetencia String?  // "MM/AAAA"
+  cargoAnterior         String?
+  cboAnterior           String?
+  cargo                 String?
+  cbo                   String?
+  origem                String   @default("FICHA_REGISTRO")
+  createdAt             DateTime @default(now())
+
+  @@index([employeeId, data])
 }
 
 // Mudanças na tabela de funções (nome, pontos, faixa).

@@ -5456,7 +5456,7 @@ export type Employee = {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
-};
+} & Partial<EmployeeFichaCampos>;
 
 export type EmployeeBirthday = {
   id: string;
@@ -5528,7 +5528,7 @@ export type EmployeePayload = {
   vigenteDesde?: string;
   /** Motivo da alteração, para o histórico do cadastro. */
   motivoAlteracao?: string;
-};
+} & Partial<EmployeeFichaCampos>;
 
 export type CampoHistoricoCadastro = "baseSalary" | "salarioCombinado" | "tetoIrGorjeta" | "modality" | "companyId" | "position" | "recebeAdiantamento" | "pagamentoQuinzenal" | "inicioGorjeta";
 
@@ -5549,6 +5549,42 @@ export type EmployeeHistoricoLinha = {
 
 export function getEmployeeHistorico(id: string) {
   return request<EmployeeHistoricoLinha[]>(`/employees/${id}/historico`);
+}
+
+/** Documentos e contrato da ficha de registro da contabilidade. Datas em "AAAA-MM-DD". Só consulta. */
+export type EmployeeFichaCampos = {
+  registroNumero: string | null; matriculaEsocial: string | null;
+  nomeMae: string | null; nomePai: string | null;
+  estadoCivil: string | null; nacionalidade: string | null; naturalidade: string | null;
+  racaCor: string | null; escolaridade: string | null; possuiDeficiencia: boolean | null;
+  rgDataEmissao: string | null; rgOrgaoEmissor: string | null;
+  tituloEleitor: string | null; tituloZona: string | null; tituloSecao: string | null;
+  ctpsNumero: string | null; ctpsSerie: string | null; ctpsUf: string | null; ctpsDataEmissao: string | null;
+  cbo: string | null;
+  jornadaInicio: string | null; jornadaFim: string | null; intervaloInicio: string | null; intervaloFim: string | null;
+  fgtsDataOpcao: string | null;
+};
+
+export type StatusFerias = "EM_AQUISICAO" | "QUITADO" | "A_GOZAR" | "PRAZO_VENCIDO" | "CONTRATO_ENCERRADO";
+export type EmployeeFichaFerias = {
+  aquisitivoInicio: string; aquisitivoFim: string; concessivoFim: string;
+  diasGozados: number; diasAbono: number; status: StatusFerias;
+  gozos: { inicio: string; fim: string; abonoInicio: string | null; abonoFim: string | null }[];
+};
+/** Sem permissão de ver Funcionários, salarioOculto=true e o salário da carteira vem null. */
+export type EmployeeFicha = {
+  dependentes: { id: string; nome: string; parentesco: string | null; dataNascimento: string | null }[];
+  ferias: EmployeeFichaFerias[];
+  salarioOculto: boolean;
+  carteira: {
+    id: string; tipo: "ADMISSAO" | "SALARIO" | "CARGO"; data: string;
+    salario: number | null; retroativoCompetencia: string | null;
+    cargoAnterior: string | null; cboAnterior: string | null; cargo: string | null; cbo: string | null;
+  }[];
+};
+
+export function getEmployeeFicha(id: string) {
+  return request<EmployeeFicha>(`/employees/${id}/ficha`);
 }
 
 export function getEmployees(params: { search?: string; sector?: string; includeInactive?: boolean } = {}) {
