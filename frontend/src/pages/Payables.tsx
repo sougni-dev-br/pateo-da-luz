@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, FileText, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
-  AppUser, AuditLog, Company, CompanyBankAccount,
+  AppUser, AuditLog, Company, CompanyBankAccount, checkPayrollPayBatch,
   downloadPayablesFinancialPdf, deletePayrollItem, getAllBankAccounts, getCompanies,
   getPayableHistory, getPayables, getPaymentMethods, getPurchase,
   getTaxPaymentHistory, getSuppliers, payExtraPayment, payInstallment, payPayrollItem, payTaxPayment,
@@ -25,6 +25,8 @@ import {
   isExtra, isPayroll, isSimpleLedger, isTaxPayment, minDateKey, rotuloPeriodo, somarValores, todayKey,
   type FiltrosPagar
 } from "./payables/regras";
+import { ConfirmaBaixaDuplicada } from "./payables/ConfirmaBaixaDuplicada";
+import { recusaDaFolha, type RecusaFolha, type SuspeitoLote } from "../lib/folha-duplicidade";
 import "./payables/payables.css";
 
 function payPessoal(p: Payable, payload: Parameters<typeof payPayrollItem>[1]) {
@@ -78,6 +80,10 @@ export function Payables({ user }: PayablesProps) {
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchResult, setBatchResult] = useState<ResultadoLote | null>(null);
+  // Travas de baixa em duplicidade da folha: a recusa da baixa individual (409) e os
+  // suspeitos do lote, conferidos antes de baixar qualquer título.
+  const [baixaDuplicada, setBaixaDuplicada] = useState<RecusaFolha | null>(null);
+  const [suspeitosLote, setSuspeitosLote] = useState<SuspeitoLote[] | null>(null);
   const [reversing, setReversing] = useState<Payable | null>(null);
   const [reverseReason, setReverseReason] = useState("");
   const [estornando, setEstornando] = useState(false);
@@ -459,7 +465,36 @@ export function Payables({ user }: PayablesProps) {
     });
   }
 
-  async function submitBatch() {
+  // Antes de baixar QUALQUER título do lote, a folha confere tudo de uma vez: o que já
+  // tem o mesmo pagamento pago e o que se repete dentro do próprio lote. Havendo
+  // suspeito, nada é baixado: a pessoa confirma ou tira os itens. Devolve se pode seguir.
+  async function conferirLoteDaFolha(): Promise<boolean> {
+    const idsFolha = selecionados.filter((p) => isPayroll(p)).map((p) => p.id);
+    if (idsFolha.length === 0) return true;
+    try {
+      const { suspeitos } = await checkPayrollPayBatch(idsFolha);
+      if (suspeitos.length === 0) return true;
+      setSuspeitosLote(suspeitos);
+      return false;
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Não consegui conferir o lote antes de baixar." });
+      return false;
+    }
+  }
+
+  function tirarSuspeitosDoLote() {
+    const fora = new Set((suspeitosLote ?? []).map((s) => s.item.id));
+    const ficam = [...selectedIds].filter((id) => !fora.has(id));
+    setSelectedIds(new Set(ficam));
+    setSuspeitosLote(null);
+    // Lote ficou vazio: não há o que baixar, a janela fecha.
+    if (ficam.length === 0) {
+      setBatchOpen(false);
+      setNotice({ tone: "info", message: "Os títulos suspeitos saíram do lote; nada foi baixado." });
+    }
+  }
+
+  async function submitBatch(confirmaSuspeitos = false) {
     if (selecionados.length === 0) return;
     if (!paymentForm.paidDate) { setNotice({ tone: "error", message: "Data do pagamento é obrigatória." }); return; }
     // Impostos usam fluxo simples; os demais exigem forma de pagamento.
@@ -469,6 +504,10 @@ export function Payables({ user }: PayablesProps) {
     }
 
     setBatchBusy(true);
+    if (!confirmaSuspeitos && !(await conferirLoteDaFolha())) { setBatchBusy(false); return; }
+    // Só os suspeitos que a pessoa viu e confirmou vão com a confirmação.
+    const confirmados = new Set(confirmaSuspeitos ? (suspeitosLote ?? []).map((s) => s.item.id) : []);
+    setSuspeitosLote(null);
     const erros: Array<{ nome: string; motivo: string }> = [];
     let ok = 0;
     const comum = {
@@ -488,7 +527,7 @@ export function Payables({ user }: PayablesProps) {
         if (isTaxPayment(p)) {
           await payTaxPayment(p.id, { paymentDate: paymentForm.paidDate, paidAmount: valor, comments: paymentForm.paymentNotes || null });
         } else if (isPayroll(p) || isExtra(p)) {
-          await payPessoal(p, { paymentDate: paymentForm.paidDate, paidAmount: valor, ...comum });
+          await payPessoal(p, { paymentDate: paymentForm.paidDate, paidAmount: valor, ...comum, ...(confirmados.has(p.id) ? { confirmaDuplicidade: true } : {}) });
         } else {
           await payInstallment(p.id, { paidDate: paymentForm.paidDate, paidAmount: valor, ...comum });
         }
@@ -508,8 +547,9 @@ export function Payables({ user }: PayablesProps) {
     }
   }
 
-  async function submitPayment() {
+  async function submitPayment(confirmaDuplicidade = false) {
     if (!paying) return;
+    setBaixaDuplicada(null);
     if (!paymentForm.paidDate) {
       setNotice({ tone: "error", message: "Data do pagamento é obrigatória." });
       return;
@@ -548,7 +588,7 @@ export function Payables({ user }: PayablesProps) {
           companyBankAccountId: paymentForm.companyBankAccountId || null
         };
         if (isPayroll(paying) || isExtra(paying)) {
-          await payPessoal(paying, { paymentDate: paymentForm.paidDate, paidAmount, ...commonPayload });
+          await payPessoal(paying, { paymentDate: paymentForm.paidDate, paidAmount, ...commonPayload, ...(confirmaDuplicidade ? { confirmaDuplicidade: true } : {}) });
         } else {
           await payInstallment(paying.id, { paidDate: paymentForm.paidDate, paidAmount, ...commonPayload });
         }
@@ -557,7 +597,10 @@ export function Payables({ user }: PayablesProps) {
       setPaying(null);
       await load();
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao registrar baixa." });
+      // Mesmo pagamento já pago em outro título da folha: pergunta antes de baixar de novo.
+      const duplicada = recusaDaFolha(error, "BAIXA_DUPLICADA");
+      if (duplicada) setBaixaDuplicada(duplicada);
+      else setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao registrar baixa." });
     } finally {
       setSalvandoBaixa(false);
     }
@@ -820,7 +863,10 @@ export function Payables({ user }: PayablesProps) {
           notice={notice}
           ocupado={batchBusy}
           resultado={batchResult}
-          onFechar={() => setBatchOpen(false)}
+          suspeitos={suspeitosLote}
+          onTirarSuspeitos={tirarSuspeitosDoLote}
+          onBaixarMesmoAssim={() => void submitBatch(true)}
+          onFechar={() => { setBatchOpen(false); setSuspeitosLote(null); }}
           onFecharResultado={() => { setBatchOpen(false); setBatchResult(null); }}
           onConfirmar={() => void submitBatch()}
         />
@@ -837,8 +883,17 @@ export function Payables({ user }: PayablesProps) {
           bankAccounts={bankAccounts}
           notice={notice}
           enviando={salvandoBaixa}
-          onFechar={() => setPaying(null)}
+          onFechar={() => { setPaying(null); setBaixaDuplicada(null); }}
           onConfirmar={() => void submitPayment()}
+        />
+      )}
+
+      {paying && baixaDuplicada && (
+        <ConfirmaBaixaDuplicada
+          recusa={baixaDuplicada}
+          enviando={salvandoBaixa}
+          onCancelar={() => setBaixaDuplicada(null)}
+          onConfirmar={() => void submitPayment(true)}
         />
       )}
 

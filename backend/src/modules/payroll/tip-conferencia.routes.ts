@@ -169,7 +169,7 @@ tipConferenciaRouter.post("/periods/:year/:month/extratos", async (request, resp
     return response.status(422).json({ message: "Não foi possível ler o PDF do extrato. " + (err as Error).message });
   }
   if (lido.calculo === "ADIANTAMENTO") {
-    return response.status(422).json({ message: "Este é o extrato do ADIANTAMENTO (dia 20). A conferência da gorjeta usa o extrato da folha do mês; o do adiantamento sobe em Folha de Pagamento → Retorno do RH." });
+    return response.status(422).json({ message: "Este é o extrato do ADIANTAMENTO (dia 20). A conferência da gorjeta usa o extrato da folha do mês; o do adiantamento sobe em RH → Retorno do RH." });
   }
   if (!lido.cnpj || lido.funcionarios.length === 0) {
     return response.status(422).json({ message: "Não achei empresa ou funcionários no arquivo. Confira se é o Extrato Mensal da contabilidade." });

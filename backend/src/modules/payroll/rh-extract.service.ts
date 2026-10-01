@@ -9,6 +9,7 @@ import { FOLHA_CATEGORY } from "./payroll.service.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
 import { avisosDoExtrato, guardarExtrato, preencherAdmissaoCarteira } from "./rh-extract-store.service.js";
+import { aposSaida, duplicadosDe, ehComplemento } from "./folha-duplicidade.js";
 
 export type ExtratoFuncionario = {
   nome: string;
@@ -212,6 +213,23 @@ export async function contarLancamentosExistentes(
   return contados.size;
 }
 
+// O mesmo pagamento (pessoa + tipo + competência) já vivo com OUTRO rótulo: o gerado pela
+// folha ("Salário"), o lançado à mão. A chave única inclui o rótulo e não pega esse caso.
+// Complemento não conta (é pagamento a mais, de propósito).
+async function outroDoMesmoPagamento(chave: { employeeId: string; type: "SALARIO" | "ADIANTAMENTO"; competenceYear: number; competenceMonth: number; periodLabel: string }) {
+  const vivos = await prisma.payrollItem.findMany({
+    where: {
+      employeeId: chave.employeeId, type: chave.type, competenceYear: chave.competenceYear, competenceMonth: chave.competenceMonth,
+      deletedAt: null, status: { not: "CANCELED" }, NOT: { periodLabel: chave.periodLabel },
+    },
+    select: { id: true, employeeId: true, type: true, competenceYear: true, competenceMonth: true, periodLabel: true, periodStart: true, details: true, status: true, deletedAt: true, paymentDate: true, amount: true },
+  });
+  return duplicadosDe(chave, vivos.filter((v) => !ehComplemento(v.details)))[0] ?? null;
+}
+
+const brl = (v: unknown) => Number(v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const ddmmaaaa = (d: Date) => d.toISOString().slice(0, 10).split("-").reverse().join("/");
+
 // Adiantamento tirado da folha do mês: só quando o mês ainda não tem o adiantamento
 // daquela pessoa (ativo ou excluído — o excluído à mão continua excluído). Devolve se criou.
 export async function lancarAdiantamentoDaFolha(a: {
@@ -224,6 +242,8 @@ export async function lancarAdiantamentoDaFolha(a: {
     where: { employeeId_type_competenceYear_competenceMonth_periodLabel: chave }, select: { id: true },
   });
   if (existe) return false;
+  // Adiantamento do mês já lançado com outro rótulo (gerado pela folha, à mão): é o mesmo.
+  if (await outroDoMesmoPagamento({ employeeId: a.employeeId, type: "ADIANTAMENTO", competenceYear: a.competenceYear, competenceMonth: a.competenceMonth, periodLabel })) return false;
   const ultimoDia = new Date(Date.UTC(a.competenceYear, a.competenceMonth, 0)).getUTCDate();
   await prisma.payrollItem.create({
     data: {
@@ -315,8 +335,9 @@ export async function importExtrato(opts: {
   }
   const dreCategoryId = await getFolhaDreCategoryId();
 
-  const allEmp = await prisma.employee.findMany({ where: { deletedAt: null }, select: { id: true, cpf: true } });
+  const allEmp = await prisma.employee.findMany({ where: { deletedAt: null }, select: { id: true, cpf: true, terminationDate: true } });
   const byCpf = new Map(allEmp.map((e) => [onlyDigits(e.cpf), e.id]));
+  const saidaDe = new Map(allEmp.map((e) => [e.id, e.terminationDate ?? null]));
   const mmaaaa = `${String(competenceMonth).padStart(2, "0")}/${competenceYear}`;
   const { type: tipo, periodLabel } = chaveDoExtrato(parsed.calculo, mmaaaa);
   const details = (f: ExtratoFuncionario) => ({ calculo: parsed.calculo, liquido: f.liquido, gorjeta: f.gorjeta, adiantamento: f.adiantamento, empresa: parsed.empresa });
@@ -339,6 +360,13 @@ export async function importExtrato(opts: {
       empId = emp.id;
       funcionariosCadastrados += 1;
       if (f.cpfNorm) byCpf.set(f.cpfNorm, empId);
+    }
+    // Competência depois do desligamento: nada é lançado (o holerite fica guardado).
+    const saida = saidaDe.get(empId) ?? null;
+    if (aposSaida({ employeeId: empId, type: tipo, competenceYear, competenceMonth }, saida)) {
+      titulosPulados += 1;
+      avisosDaImportacao.push(`${f.nome} saiu em ${ddmmaaaa(saida!)}: ${tipo === "ADIANTAMENTO" ? "adiantamento" : "salário"} de ${mmaaaa} não lançado (competência depois da saída).`);
+      continue;
     }
     if (adiantamento) await converterAdiantamentoGravadoComoSalario(empId, competenceYear, competenceMonth, mmaaaa, periodLabel, f.liquido, opts.userId);
     // Folha do mês sem o extrato do adiantamento: o desconto DESC.ADIANT.SALARIAL diz quanto
@@ -367,6 +395,17 @@ export async function importExtrato(opts: {
     if (!ativo && ehZero(f.liquido)) {
       titulosPulados += 1;
       zerados += 1;
+      continue;
+    }
+    // Ia criar (ou restaurar) o lançamento do extrato, mas o mesmo pagamento já existe com
+    // outro rótulo: não cria o segundo. Avisa com os dois valores para conferir à mão.
+    const jaLancado = ativo ? null : await outroDoMesmoPagamento(chaveUnica);
+    if (jaLancado) {
+      titulosPulados += 1;
+      avisosDaImportacao.push(
+        `${f.nome}: ${tipo === "ADIANTAMENTO" ? "adiantamento" : "salário"} de ${mmaaaa} já está na Folha como "${jaLancado.periodLabel}" ` +
+        `(${brl(jaLancado.amount)}, ${jaLancado.paymentDate ? "pago" : "em aberto"}); o extrato (${brl(f.liquido)}) não criou outro. Confira o valor à mão.`,
+      );
       continue;
     }
     if (existente) {

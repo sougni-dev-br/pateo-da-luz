@@ -590,7 +590,7 @@ function mockResponseFor(url: string): unknown {
     ];
   }
 
-  // Folha de pagamento (/pessoal/folha — página Folha).
+  // Folha de pagamento (/rh/folha — página Folha).
   if (path.endsWith("/payroll/settings")) return { id: "singleton", vtSecondPeriodStartDay: 16, advancePercent: "40", advanceDueDay: 20, salaryDueDay: 5 };
   if (path.includes("/payroll/preview")) {
     const p = currentPeriod();
@@ -632,7 +632,7 @@ function mockResponseFor(url: string): unknown {
     return { year: p.year, month: p.month, items, summary: { total: sum(() => true), vt: sum((i) => i.type === "VALE_TRANSPORTE"), advance: sum((i) => i.type === "ADIANTAMENTO"), salary: sum((i) => i.type === "SALARIO"), ferias: sum((i) => i.type === "FERIAS"), paid: 0, pending: sum(() => true), overdue: 0, count: items.length } };
   }
 
-  // Escala mensal (/pessoal/escala — página Escala).
+  // Escala mensal (/rh/escala — página Escala).
   if (path.includes("/schedule/bulk")) return { ok: true, year: new Date().getFullYear(), month: new Date().getMonth() + 1, count: 0 };
   if (path.startsWith("/schedule")) {
     const now = new Date();
@@ -700,7 +700,7 @@ function mockResponseFor(url: string): unknown {
     };
   }
 
-  // Funcionários (/pessoal/funcionarios — página Funcionarios): lista + aniversariantes.
+  // Funcionários (/rh/funcionarios — página Funcionarios): lista + aniversariantes.
   if (path.match(/\/employees\/[^/]+\/holiday-comp$/)) return { id: "emp-x", holidayCompBalance: 1 };
   if (path.match(/\/employees\/[^/]+\/restore$/)) return { id: "emp-mock", isActive: false };
   if (path.endsWith("/employees/options")) return { sectors: ["Cozinha", "Salão/Bar", "Pizzaria"], positions: ["Cozinheiro", "Garçom", "Gerente de salão"] };

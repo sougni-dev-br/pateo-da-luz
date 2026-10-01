@@ -1,5 +1,5 @@
 import { Banknote, Bus, Check, ChevronLeft, ChevronRight, Clock, Coins, Palmtree, Pencil, Printer, RefreshCw, Settings, Trash2, Wallet, Wand2 } from "lucide-react";
-import { type CSSProperties, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Employee, PayrollComputedItem, PayrollItemType, PayrollKind, PayrollList, PayrollListItem, PayrollOverride, PayrollPreview, PayrollSettings,
   VtFare, VtFareBasis,
@@ -13,21 +13,10 @@ import {
 } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { maskMoney, moneyToMasked } from "../utils/format";
-import { FolhaGorjeta } from "./FolhaGorjeta";
-import { ExtratoRh } from "./ExtratoRh";
+import { LancamentoManualModal } from "./folha/LancamentoManualModal";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
-// Estilo das abas (Folha de Pagamento / Fechamento de Gorjetas).
-function tabButtonStyle(active: boolean): CSSProperties {
-  return {
-    padding: "8px 16px", border: "none", background: "transparent", cursor: "pointer",
-    font: "inherit", fontWeight: active ? 700 : 500,
-    color: active ? "var(--text, #111)" : "var(--muted)",
-    borderBottom: active ? "2px solid var(--brand, #6b4f2a)" : "2px solid transparent",
-    marginBottom: -1,
-  };
-}
 const TYPE_LABELS: Record<PayrollItemType, string> = { ADIANTAMENTO: "Adiantamento", SALARIO: "Salário", VALE_TRANSPORTE: "Vale-transporte", RESCISAO: "Rescisão", FERIAS: "Férias" };
 const TYPE_TONE: Record<PayrollItemType, "info" | "warning" | "neutral" | "danger"> = { VALE_TRANSPORTE: "info", ADIANTAMENTO: "warning", SALARIO: "neutral", RESCISAO: "danger", FERIAS: "info" };
 
@@ -109,7 +98,6 @@ export function Folha() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [tab, setTab] = useState<"folha" | "gorjeta" | "extrato">("folha");
   const [list, setList] = useState<PayrollList | null>(null);
   const [preview, setPreview] = useState<PayrollPreview | null>(null);
   // Escopo da prévia (VT ou folha) e valores ajustados à mão antes de gerar.
@@ -128,6 +116,8 @@ export function Folha() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  // Lançamento à mão (salário/adiantamento/VT), com as travas de duplicidade e de saída.
+  const [showManual, setShowManual] = useState(false);
   const [showVacation, setShowVacation] = useState(false);
   const [vacBusy, setVacBusy] = useState(false);
   const [vacError, setVacError] = useState<string | null>(null);
@@ -357,7 +347,12 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
         : kind === "VT" ? "Vale-transporte gerado"
         : kind === "FOLHA" ? "Folha gerada" : "VT + folha gerados";
       const comAjuste = res.ajustados > 0 ? ` · ${res.ajustados} com valor ajustado` : "";
-      setNotice({ tone: "success", message: `${oque} — ${res.created} lançamento(s) criado(s), ${res.skipped} já existiam${comAjuste}.` });
+      // O que a geração pulou de propósito (depois da saída, já lançado) aparece junto.
+      const pulados = (res.avisos ?? []).filter((a) => a.includes("não gerado"));
+      setNotice({
+        tone: pulados.length > 0 ? "warning" : "success",
+        message: `${oque} — ${res.created} lançamento(s) criado(s), ${res.skipped} já existiam${comAjuste}.${pulados.length > 0 ? ` Pulados: ${pulados.join(" ")}` : ""}`,
+      });
       setPreview(null);
       await load();
     } catch (err) {
@@ -558,20 +553,11 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
     <div className="stack">
       <Notice notice={notice} />
 
-      <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--border)" }}>
-        <button type="button" onClick={() => setTab("folha")} style={tabButtonStyle(tab === "folha")}>Folha de Pagamento</button>
-        <button type="button" onClick={() => setTab("gorjeta")} style={tabButtonStyle(tab === "gorjeta")}>Fechamento de Gorjetas</button>
-        <button type="button" onClick={() => setTab("extrato")} style={tabButtonStyle(tab === "extrato")}>Retorno do RH</button>
-      </div>
-
-      {tab === "gorjeta" && <FolhaGorjeta />}
-      {tab === "extrato" && <ExtratoRh />}
-
-      {tab === "folha" && (<>
+      {/* Apuração de gorjeta e Retorno do RH eram abas daqui: agora são itens próprios do menu RH. */}
       <section className="panel">
         <div className="section-heading">
           <div>
-            <PanelEyebrow>Pessoal</PanelEyebrow>
+            <PanelEyebrow>RH</PanelEyebrow>
             <h2>Folha de pagamento</h2>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -587,6 +573,7 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
             <Button variant="secondary" onClick={load} aria-label="Recarregar"><RefreshCw size={15} /></Button>
             <Button variant="secondary" leadingIcon={<Settings size={14} />} onClick={() => setShowSettings((v) => !v)}>Configurações</Button>
             {canEdit && <Button variant="secondary" leadingIcon={<Palmtree size={14} />} onClick={openVacation}>Lançar férias</Button>}
+            {canEdit && <Button variant="secondary" leadingIcon={<Coins size={14} />} onClick={() => setShowManual(true)}>Lançar à mão</Button>}
             {canEdit && <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => handlePreview("VT")} disabled={busy}>Prever VT</Button>}
             {canEdit && <Button leadingIcon={<Wand2 size={14} />} onClick={() => handlePreview("FOLHA")} disabled={busy}>Prever folha</Button>}
           </div>
@@ -1028,6 +1015,16 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
         </div>
       )}
 
+      {showManual && (
+        <LancamentoManualModal
+          employees={employees}
+          year={year}
+          month={month}
+          onFechar={() => setShowManual(false)}
+          onLancado={(mensagem) => { setShowManual(false); setNotice({ tone: "success", message: mensagem }); void load(); }}
+        />
+      )}
+
       {/* Modal de férias — contabilidade envia o valor */}
       {showVacation && (
         <div className="modal-backdrop">
@@ -1158,7 +1155,6 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
           </section>
         </div>
       )}
-      </>)}
     </div>
   );
 }
