@@ -27,3 +27,11 @@ test("bilhete mensal: nada a descontar, sem pedir conferência manual", async ()
   expect(a.vt).toMatchObject({ total: 0, dias: [], semDetalhe: [], observacao: "Bilhete mensal: fica com a pessoa, não se desconta na rescisão." });
   expect(a.sugestao.vtDesconto).toBe(0);
 });
+
+test("ajuda de custo: mesmo tratamento do bilhete mensal", async () => {
+  db.employee.findFirst.mockResolvedValue({ id: "e1", modality: "CLT", terminationDate: new Date("2026-09-29T00:00:00Z"), vtType: "AUXILIO_COMBUSTIVEL", vtLegs: [] });
+  db.payrollItem.findMany.mockResolvedValue([{ periodLabel: "Ajuda de custo 09/2026", periodStart: new Date("2026-09-01T00:00:00Z"), details: { gross: 300 }, paymentDate: null }]);
+  const a = (await apurarRescisao("e1"))!;
+  expect(a.vt).toMatchObject({ total: 0, semDetalhe: [], observacao: "Ajuda de custo: fica com a pessoa, não se desconta na rescisão." });
+  expect(a.sugestao.vtDesconto).toBe(0);
+});
