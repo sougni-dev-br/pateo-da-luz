@@ -272,7 +272,7 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pedidoPess
         <div style={panelStyle}>
           <FormLancarVale key={pedidoPessoa?.n ?? 0}
             pessoas={pessoas.filter((p) => p.participantId).map((p) => ({
-              participantId: p.participantId!, nome: p.nome, apelido: p.apelido, funcao: p.funcao, empresa: p.empresa, semRegistro: p.semRegistro, liquida: p.liquida,
+              participantId: p.participantId!, nome: p.nome, apelido: p.apelido, funcao: p.funcao, empresa: p.empresa, semRegistro: p.semRegistro, foraDaGorjeta: p.foraDaGorjeta, liquida: p.liquida,
             }))}
             descricoes={descricoes} pessoaInicial={pedidoPessoa?.pessoa ?? ""} ocupado={ocupado}
             onLancar={lancar} onDescricoesMudaram={() => void carregarDescricoes()} onErro={erro} />
@@ -350,7 +350,9 @@ export function AbaVales({ year, month, canEdit, onNotice, onChanged, pedidoPess
                     onClick={() => filtro.setValor("pessoa", pessoaFiltrada === p.participantId ? "" : p.participantId ?? "")}>
                     <Table.Td>
                       <NomePessoa nome={p.nome} apelido={p.apelido} employeeId={p.employeeId}>
-                        {p.liquida < 0 && <span style={{ ...mutedStyle, color: "var(--danger)" }}>vales maiores que a gorjeta</span>}
+                        {p.foraDaGorjeta
+                          ? <span style={mutedStyle} title="Não participa da gorjeta: os vales descontam do salário na Lista de pagamento">fora da gorjeta · desconta do salário</span>
+                          : p.liquida < 0 && <span style={{ ...mutedStyle, color: "var(--danger)" }}>vales maiores que a gorjeta</span>}
                       </NomePessoa>
                     </Table.Td>
                     {vp("gorjeta") && <Table.Td>{money(p.gorjeta)}</Table.Td>}

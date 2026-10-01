@@ -5716,6 +5716,8 @@ export type TipComputedParticipant = {
   functionName: string | null;
   isActive: boolean;
   semRegistro: boolean;
+  /** Sem registro que não participa da gorjeta: está só pelo salário (gorjeta e pontos zero). Ausente = participa. */
+  foraDaGorjeta?: boolean;
   admissionDate: string | null;
   terminationDate: string | null;
   kind: TipParticipantKind;
@@ -6115,6 +6117,8 @@ export type TipValesPeriodo = {
   code: string; status: string;
   vales: TipValeLancado[];
   pessoas: Array<{ participantId: string | null; employeeId: string; nome: string; apelido?: string | null; semRegistro: boolean;
+    /** Não participa da gorjeta: o vale desconta do salário na lista de pagamento. */
+    foraDaGorjeta?: boolean;
     funcao: string | null; empresaId: string | null; empresa: string | null;
     gorjeta: number; descontos: number; creditos: number; liquida: number; pagoNaRescisao: boolean }>;
 };
@@ -6204,7 +6208,7 @@ export function getTipClosing(id: string) {
 // elegiveis = quantos funcionarios tem participaGorjeta no cadastro. Serve para a
 // tela distinguir "ja estao todos" de "nao ha ninguem marcado".
 export function syncTipParticipants(periodId: string) {
-  return request<{ added: number; elegiveis: number; atualizados: number; computation: TipComputation }>(`/payroll/tip/periods/${periodId}/sync`, { method: "POST" });
+  return request<{ added: number; elegiveis: number; atualizados: number; removidos?: number; computation: TipComputation }>(`/payroll/tip/periods/${periodId}/sync`, { method: "POST" });
 }
 
 export type ExtratoPreviewItem = {

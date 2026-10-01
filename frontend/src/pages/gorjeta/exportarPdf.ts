@@ -34,7 +34,7 @@ export async function exportarContabilidade(comp: TipComputation) {
   const { doc, autoTable, finalY } = await novoPdf("Fechamento de Gorjetas — Envio à Contabilidade", comp);
   const empresa = (p: TipComputedParticipant) => p.companyName || "Sem empresa";
   const lista = comp.participants
-    .filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO" && !p.semRegistro && !p.pagoNaRescisao)
+    .filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO" && !p.semRegistro && !p.pagoNaRescisao && !p.foraDaGorjeta)
     .sort((a, b) => empresa(a).localeCompare(empresa(b), "pt-BR") || a.employeeName.localeCompare(b.employeeName, "pt-BR"));
   autoTable(doc, {
     ...estilo,
@@ -80,11 +80,12 @@ const celulaHoras = (texto: string | null) => {
 /** Linha da lista de pagamento no PDF (exportada para o teste). */
 export function linhaListaPagamento(p: TipComputedParticipant): string[] {
   return [
-    p.employeeName + (p.tipoCalculo === "MES" ? "" : ` (saída ${fmtDate(p.terminationDate)})`),
+    p.employeeName + (p.foraDaGorjeta ? " (fora da gorjeta)" : "") + (p.tipoCalculo === "MES" ? "" : ` (saída ${fmtDate(p.terminationDate)})`),
     String(p.diasSalario),
     money(p.salarioProporcional),
     celulaAdiantamento(p.adiantamentoSalarial),
-    money(p.rateioAmount),
+    // Não participa da gorjeta: traço, não "R$ 0,00" (que leria como gorjeta zerada).
+    p.foraDaGorjeta ? "—" : money(p.rateioAmount),
     p.descontos ? `− ${money(p.descontos)}` : "",
     p.creditos ? money(p.creditos) : "",
     celulaHoras(p.horaExtra),

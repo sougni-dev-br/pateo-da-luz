@@ -226,6 +226,13 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
                     <Table.Td>
                       <input type="checkbox" checked={m.participaGorjeta} disabled={off} aria-label={`${nome(m)} participa da gorjeta`}
                         onChange={(e) => void salvarMembro(m, { participaGorjeta: e.target.checked })} />
+                      {/* Sem registro fora da gorjeta continua na Lista de pagamento, só com o salário. */}
+                      {!m.participaGorjeta && m.modality === "NAO_CLT" && m.isActive && (
+                        <span style={{ ...mutedStyle, marginLeft: 6, whiteSpace: "nowrap" }}
+                          title="Não entra no rateio. Recebe o salário (com hora extra e vales) na Lista de pagamento.">
+                          não participa · só salário
+                        </span>
+                      )}
                     </Table.Td>
                   )}
                   {ve("funcao") && (

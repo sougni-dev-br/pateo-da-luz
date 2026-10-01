@@ -3001,6 +3001,9 @@ model TipParticipant {
   rateioAmount  Decimal            @default(0) @db.Decimal(14, 2)
   valesTotal    Decimal            @default(0) @db.Decimal(14, 2)
   netCommission Decimal            @default(0) @db.Decimal(14, 2)
+  // Sem registro que não participa da gorjeta: está no período só para receber o salário
+  // (e ter vales) na lista de pagamento. Não entra no rateio: pontos e gorjeta zero.
+  foraDaGorjeta Boolean            @default(false)
   // Dados informados para o RH/contabilidade (por competência) — vão no PDF de envio.
   horaExtra        String?         // texto livre (ex.: "1,05")
   adicionalNoturno String?         // texto livre (ex.: "2,10")
