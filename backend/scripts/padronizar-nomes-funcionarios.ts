@@ -30,6 +30,7 @@ async function main() {
     orderBy: { firstName: "asc" },
   });
   let pessoas = 0;
+  const falhas: string[] = [];
   for (const e of emps) {
     const atual = e as unknown as Record<Campo, string | null>;
     const dados: Partial<Record<Campo, string | null>> = {};
@@ -39,7 +40,11 @@ async function main() {
       const v = nomeProprio(atual[c], { continuacao: c === "lastName" });
       return c === "firstName" || c === "lastName" ? acentosDoNomeCompleto(v, completo) : v;
     };
-    for (const c of NOMES) { const v = novo(c); if (v !== atual[c]) dados[c] = v; }
+    for (const c of NOMES) {
+      const v = novo(c);
+      // Nome e sobrenome são obrigatórios: nunca trocar por vazio.
+      if (v !== atual[c] && !(v == null && (c === "firstName" || c === "lastName"))) dados[c] = v;
+    }
     for (const c of CIDADES) { const v = cidadeProprio(atual[c]); if (v !== atual[c]) dados[c] = v; }
     const deps = e.dependentes.filter((d) => nomeProprio(d.nome) !== d.nome);
     const cargos = e.anotacoesCarteira.filter((a) => nomeProprio(a.cargo) !== a.cargo || nomeProprio(a.cargoAnterior) !== a.cargoAnterior);
@@ -52,14 +57,28 @@ async function main() {
     if (cargos.length) console.log(`  carteira: ${cargos.length} cargo(s) no padrão`);
     if (!aplicar) continue;
 
-    await prisma.$transaction(async (tx) => {
-      if (Object.keys(dados).length) await tx.employee.update({ where: { id: e.id }, data: dados });
-      for (const d of deps) await tx.employeeDependente.update({ where: { id: d.id }, data: { nome: nomeProprio(d.nome)! } });
-      for (const a of cargos) await tx.employeeAnotacaoCarteira.update({ where: { id: a.id }, data: { cargo: nomeProprio(a.cargo), cargoAnterior: nomeProprio(a.cargoAnterior) } });
-    });
+    // Erro numa pessoa não para as outras; cada uma é uma transação e rodar de novo é seguro.
+    try {
+      await prisma.$transaction(async (tx) => {
+        if (Object.keys(dados).length) await tx.employee.update({ where: { id: e.id }, data: dados });
+        for (const d of deps) await tx.employeeDependente.update({ where: { id: d.id }, data: { nome: nomeProprio(d.nome) ?? d.nome } });
+        for (const a of cargos) await tx.employeeAnotacaoCarteira.update({ where: { id: a.id }, data: { cargo: nomeProprio(a.cargo), cargoAnterior: nomeProprio(a.cargoAnterior) } });
+      });
+    } catch (err) {
+      falhas.push(`${atual.firstName} ${atual.lastName}: ${err instanceof Error ? err.message : err}`);
+      continue;
+    }
+    // Antes e depois de cada campo no log: a padronização é a única cópia do valor antigo.
     await auditLog({ userId: null, action: "PADRONIZAR_NOMES_FUNCIONARIO", entity: "Employee", entityId: e.id,
-      newValue: { campos: Object.keys(dados), dependentes: deps.length, cargosCarteira: cargos.length } });
+      previousValue: {
+        ...Object.fromEntries(Object.keys(dados).map((c) => [c, atual[c as Campo]])),
+        dependentes: deps.map((d) => d.nome),
+        cargosCarteira: cargos.map((a) => ({ id: a.id, cargo: a.cargo, cargoAnterior: a.cargoAnterior })),
+      },
+      newValue: { ...dados, dependentes: deps.map((d) => nomeProprio(d.nome) ?? d.nome), cargosCarteira: cargos.length } });
   }
+  if (falhas.length) { console.log(`
+Com erro (não gravados): ${falhas.join("; ")}`); process.exitCode = 1; }
   console.log(`\n${pessoas} de ${emps.length} cadastro(s) ${aplicar ? "padronizado(s)" : "a padronizar (simulação; para gravar, --aplicar)"}.`);
 }
 

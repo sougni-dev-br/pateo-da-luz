@@ -156,6 +156,29 @@ describe("lerFichasRegistro", () => {
     expect(isoDeBr("1/2/2026")).toBeNull();
   });
 
+  test("nº de ficha repetido (duas empresas): a continuação vai para a ficha logo antes dela", () => {
+    const outraEmpresaMesmoNumero = FICHA_CURTA.replace("000020", "001500").replace(/FULANA DE TAL/g, "BELTRANA DE TAL");
+    const fichas = lerFichasRegistro(outraEmpresaMesmoNumero + FICHA_LONGA);
+    expect(fichas.map((f) => f.nome)).toEqual(["BELTRANA DE TAL", "FULANO ANTIGO"]);
+    expect(fichas[0].salarios.map((s) => s.vigencia)).toEqual(["2026-04-01", "2026-06-01"]);
+    expect(fichas[1].salarios.map((s) => s.vigencia)).toEqual(["2015-05-01", "2022-05-01", "2024-06-01"]);
+  });
+
+  test("continuação com nome diferente da ficha anterior é erro, não mistura pessoas", () => {
+    const trocada = FICHA_LONGA.replace(/\nFULANO ANTIGO\n(\s+ALTERAÇÕES SALARIAIS)/, "\nOUTRA PESSOA\n$1");
+    expect(() => lerFichasRegistro(trocada)).toThrow(/é de "OUTRA PESSOA"/);
+  });
+
+  test("cargos em ordem de data mesmo com página fora de ordem: o atual é o mais recente", () => {
+    const comCargoAntigoNoFim = FICHA_LONGA.replace(
+      "                                         ALTERAÇÕES SALARIAIS",
+      "01/01/2016 - Cargo: 141500 AUXILIAR Para: 141515 SUPERVISOR DE TURNO\n                                         ALTERAÇÕES SALARIAIS",
+    );
+    const [f] = lerFichasRegistro(comCargoAntigoNoFim);
+    expect(f.cargos.map((c) => c.data)).toEqual(["2016-01-01", "2019-09-01"]);
+    expect(f.cargos.at(-1)).toMatchObject({ paraCargo: "COORDENADOR" });
+  });
+
   test("continuação sem a ficha principal antes é erro, não ficha órfã", () => {
     const soContinuacao = FICHA_LONGA.slice(FICHA_LONGA.indexOf("REGISTRO DE EMPREGADO  "));
     expect(() => lerFichasRegistro(soContinuacao)).toThrow(/sem a ficha principal/);

@@ -74,7 +74,12 @@ describe("seção Documentos e contrato em carteira", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ver e editar" }));
     fireEvent.change(screen.getByLabelText("Nome da mãe"), { target: { value: "M" } });
     expect(onChange).toHaveBeenLastCalledWith({ ...valor, nomeMae: "M" });
-    expect(screen.getByRole("button", { name: "Recolher" }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: "Recolher" }).hasAttribute("aria-expanded")).toBe(false);
+    // Campos em par têm nome próprio para o leitor de tela.
+    for (const rotulo of ["Zona do título", "Seção do título", "Série da CTPS", "UF da CTPS", "Jornada: início", "Jornada: fim", "Intervalo: início", "Intervalo: fim"]) {
+      expect(screen.getByLabelText(rotulo)).toBeTruthy();
+    }
+    expect(screen.getByRole("group", { name: "Jornada do contrato" })).toBeTruthy();
   });
 
   test("nada preenchido: o resumo diz isso", () => {

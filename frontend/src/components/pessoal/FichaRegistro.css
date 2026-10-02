@@ -30,7 +30,10 @@
 .ficha-registro__cbo { font-size: 12px; color: var(--muted); white-space: nowrap; }
 
 /* Pares de campos curtos (zona/seção, série/UF, início/fim) dentro de um FormField. */
-.documentos-registro__par { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.documentos-registro__par { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+/* No WebKit (iPhone) campo de data/hora tem largura mínima própria e estoura a coluna. */
+.documentos-registro__par > * { min-width: 0; }
+.documentos-registro__par input { min-width: 0; width: 100%; box-sizing: border-box; }
 .documentos-registro__resumo { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
 /* Carteira de quem tem anos de casa (20+ anotações): rola dentro do bloco, como as férias. A folga
    à esquerda é das marcas da linha do tempo, que ficam fora da lista e seriam cortadas. */
