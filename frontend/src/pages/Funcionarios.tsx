@@ -1,10 +1,10 @@
 import { Cake, FileText, Pencil, Plus, PowerOff, Printer, RefreshCw, UserCheck, UserMinus, Users, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Employee, EmployeeBirthday, EmployeeBankAccountType, EmployeeModality,
   EmployeeGender, VtDirection, VtFare, VtPeriodicity, VtType, WorkScheduleRegime,
-  deleteEmployee, getEmployeeBirthdays, getEmployeeOptions, getEmployees, getVtFares,
+  deleteEmployee, getEmployee, getEmployeeBirthdays, getEmployeeOptions, getEmployees, getVtFares,
   saveEmployee, setEmployeeStatus, terminateEmployee
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
@@ -167,8 +167,10 @@ export function Funcionarios() {
   // Motivo da alteração retroativa: só acusa o campo vazio depois de tentar salvar.
   const [motivoRetroTocado, setMotivoRetroTocado] = useState(false);
   // Atalho antigo ?rescisao=<id>: a rescisão agora é a tela RH → Rescisões.
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const rescisaoPedida = searchParams.get("rescisao");
+  // Vindo da ficha cadastral concluída: abre o cadastro da pessoa direto.
+  const funcionarioPedido = searchParams.get("funcionario");
   useEffect(() => {
     if (rescisaoPedida) navigate(linkRescisao(rescisaoPedida), { replace: true });
   }, [rescisaoPedida, navigate]);
@@ -197,6 +199,19 @@ export function Funcionarios() {
   }
 
   useEffect(() => { void loadEmployees(); }, [search, includeInactive]);
+  const abertoPelaUrl = useRef<string | null>(null);
+  useEffect(() => {
+    if (!funcionarioPedido || abertoPelaUrl.current === funcionarioPedido || loading) return;
+    abertoPelaUrl.current = funcionarioPedido;
+    // Fora da lista atual (inativo, ou filtrado pela busca): busca o cadastro direto pelo id.
+    const daLista = employees.find((x) => x.id === funcionarioPedido);
+    (daLista ? Promise.resolve(daLista) : getEmployee(funcionarioPedido))
+      .then((alvo) => openEdit(alvo))
+      .catch(() => setError("Funcionário da ficha não encontrado (pode ter sido excluído)."));
+    // Tira o parâmetro do endereço: recarregar a página não reabre o cadastro.
+    setSearchParams((atual) => { const p = new URLSearchParams(atual); p.delete("funcionario"); return p; }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [funcionarioPedido, employees, loading]);
   useEffect(() => { getEmployeeBirthdays(currentMonth).then(setBirthdays).catch(() => setBirthdays([])); }, [currentMonth]);
   useEffect(() => { loadOptions(); }, []);
   // Inclui INATIVAS de proposito: se o trajeto de alguem aponta para uma tarifa
