@@ -12,7 +12,7 @@ import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { money, mutedStyle, panelStyle } from "./gorjetaUtils";
-import { ApelidosContext, NomePessoa, resolverApelido, textoPessoa } from "./NomePessoa";
+import { ApelidosContext, NomePessoa, nomeProprio, resolverApelido, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 
 type Props = {
@@ -229,7 +229,7 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
                 return (
                   <Table.Row key={l.chave} className={pend ? "linha-pendente" : undefined}>
                     <Table.Td style={{ textAlign: "left" }}>
-                      <NomePessoa nome={l.nome} employeeId={l.employeeId} apelido={l.apelido} />
+                      <NomePessoa nome={nomeProprio(l.nome)} employeeId={l.employeeId} apelido={l.apelido} />
                       {l.justificativa && <div style={mutedStyle}>{l.justificativa}</div>}
                       {l.status === "VINCULO_A_CONFIRMAR" && l.nomeNoExtrato && l.nomeNoExtrato !== l.nome && (
                         <div style={mutedStyle}>no extrato: {l.nomeNoExtrato}</div>
@@ -254,6 +254,7 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
                         : "Gorjeta informada pelo teto do IR: teto − salário registrado. A pessoa recebe a gorjeta dos pontos na folha.") : undefined}>
                         {l.apuracao == null ? "—" : money(l.apuracao)}
                         {l.peloTeto && <div style={{ fontSize: 11, color: "var(--muted)" }}>pelo teto do IR</div>}
+                        {l.naRescisao && <div style={{ fontSize: 11, color: "var(--muted)" }}>paga na rescisão</div>}
                       </Table.Td>
                     )}
                     {v("extrato") && <Table.Td title={l.peloTeto && l.extrato == null ? OCULTO_TETO : undefined}>{l.extrato == null ? "—" : money(l.extrato)}</Table.Td>}

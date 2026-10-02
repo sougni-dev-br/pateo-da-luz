@@ -15,7 +15,7 @@ const linha = (over: Partial<ExtratoEmpresa["linhas"][number]>) => ({
 describe("conferência do extrato (agosto/2026)", () => {
   const apuracao = [
     pessoa({ employeeId: "analia", nome: "Analia", gorjetaLiquida: 723.07 }), // 767,87 − 44,80
-    pessoa({ employeeId: "eli", nome: "Elioenai", gorjetaLiquida: 2594.17 }),
+    pessoa({ employeeId: "eli", nome: "Teodoro", gorjetaLiquida: 2594.17 }),
     pessoa({ employeeId: "taissa", nome: "Taissa", gorjetaLiquida: 280.17 }),
     pessoa({ employeeId: "viviane", nome: "Viviane", gorjetaLiquida: 370.93, pagoNaRescisao: true }),
     pessoa({ employeeId: "janete", nome: "Janete", gorjetaLiquida: 1037.67, semRegistro: true, totalAPagar: 1037.67, cnpjEmpresa: null }),
@@ -23,7 +23,7 @@ describe("conferência do extrato (agosto/2026)", () => {
   const combinados = new Map([["eli", 5200]]);
   const ex = extrato([
     linha({ employeeId: "analia", nome: "ANALIA", liquido: 1526, gorjeta: 723.07, adiantamento: 860 }),
-    linha({ employeeId: "eli", nome: "ELIOENAI", liquido: 3030, gorjeta: 1328, adiantamento: 1468.8 }),
+    linha({ employeeId: "eli", nome: "TEODORO", liquido: 3030, gorjeta: 1328, adiantamento: 1468.8 }),
     linha({ employeeId: "michele", nome: "MICHELE", liquido: 380, adiantamento: 980 }),
     linha({ nome: "FULANO FORA DO CADASTRO", liquido: 500, gorjeta: 100 }),
   ]);
@@ -70,14 +70,14 @@ describe("conferência do extrato (agosto/2026)", () => {
   });
 
   test("vínculo pelo nome fica pendente e não usa PIX nem salário combinado do cadastro até confirmar", () => {
-    const pelaNome = extrato([linha({ employeeId: "eli", nome: "ELIOENAI", liquido: 3030, gorjeta: 1328, adiantamento: 1468.8, vinculo: "NOME" })]);
-    const ap = [pessoa({ employeeId: "eli", nome: "Elioenai", gorjetaLiquida: 2594.17, pix: "chave-do-cadastro" })];
+    const pelaNome = extrato([linha({ employeeId: "eli", nome: "TEODORO", liquido: 3030, gorjeta: 1328, adiantamento: 1468.8, vinculo: "NOME" })]);
+    const ap = [pessoa({ employeeId: "eli", nome: "Teodoro", gorjetaLiquida: 2594.17, pix: "chave-do-cadastro" })];
     expect(conferir(ap, [pelaNome], new Map([["eli", "tanto faz"]]), combinados)[0].status).toBe("VINCULO_A_CONFIRMAR");
     const f = montarFolhaLiquidos(ap, [pelaNome], combinados)[0];
     expect(f).toMatchObject({ origem: "EXTRATO", valor: 3030, pix: null });
     expect(f.aviso).toMatch(/confirme/i);
 
-    const confirmado = extrato([linha({ employeeId: "eli", nome: "ELIOENAI", liquido: 3030, gorjeta: 1328, adiantamento: 1468.8, vinculo: "CONFIRMADO" })]);
+    const confirmado = extrato([linha({ employeeId: "eli", nome: "TEODORO", liquido: 3030, gorjeta: 1328, adiantamento: 1468.8, vinculo: "CONFIRMADO" })]);
     expect(conferir(ap, [confirmado], new Map(), combinados)[0].status).toBe("SALARIO_COMBINADO");
     expect(montarFolhaLiquidos(ap, [confirmado], combinados)[0]).toMatchObject({ valor: 6325.37, pix: "chave-do-cadastro" });
   });
@@ -132,9 +132,9 @@ describe("folha de líquidos: sem registro com adiantamento salarial", () => {
 
 describe("conferência pela gorjeta informada (teto do IR)", () => {
   const eli = (over: Partial<PessoaApurada> = {}) =>
-    pessoa({ employeeId: "eli", nome: "Elioenai", gorjetaLiquida: 2223.54, gorjetaInformada: 1328, peloTeto: true, ...over });
+    pessoa({ employeeId: "eli", nome: "Teodoro", gorjetaLiquida: 2223.54, gorjetaInformada: 1328, peloTeto: true, ...over });
   const combinados = new Map([["eli", 5200]]);
-  const comGorjeta = (gorjeta: number) => extrato([linha({ employeeId: "eli", nome: "ELIOENAI", liquido: 3030, gorjeta, adiantamento: 1468.8 })]);
+  const comGorjeta = (gorjeta: number) => extrato([linha({ employeeId: "eli", nome: "TEODORO", liquido: 3030, gorjeta, adiantamento: 1468.8 })]);
 
   test("extrato com a gorjeta informada: OK, comparando com ela (não com a do rateio)", () => {
     const [l] = conferir([eli()], [comGorjeta(1328)], new Map(), combinados);
@@ -171,9 +171,9 @@ describe("conferência pela gorjeta informada (teto do IR)", () => {
 describe("conferência sem permissão de ver Funcionários", () => {
   test("a linha pelo teto mantém o status, sem o valor da apuração nem a diferença", () => {
     const linhas = conferir(
-      [pessoa({ employeeId: "eli", nome: "Elioenai", gorjetaLiquida: 2223.54, gorjetaInformada: 1328, peloTeto: true }),
+      [pessoa({ employeeId: "eli", nome: "Teodoro", gorjetaLiquida: 2223.54, gorjetaInformada: 1328, peloTeto: true }),
         pessoa({ employeeId: "ana", nome: "Ana", gorjetaLiquida: 500 })],
-      [extrato([linha({ employeeId: "eli", nome: "ELIOENAI", gorjeta: 1300 }), linha({ employeeId: "ana", nome: "ANA", gorjeta: 500 })])],
+      [extrato([linha({ employeeId: "eli", nome: "TEODORO", gorjeta: 1300 }), linha({ employeeId: "ana", nome: "ANA", gorjeta: 500 })])],
       new Map());
     const sem = esconderTeto(linhas, false);
     // Auditoria 01/10: o extrato de quem é pelo teto também sai (com "OK", ele É o teto − salário).
@@ -182,5 +182,26 @@ describe("conferência sem permissão de ver Funcionários", () => {
     expect(JSON.stringify(sem)).not.toContain("1328");
     expect(JSON.stringify(sem)).not.toContain("1300");
     expect(esconderTeto(linhas, true)).toEqual(linhas);
+  });
+});
+
+describe("gorjeta paga na rescisão que aparece no extrato", () => {
+  const apuracao = [pessoa({ employeeId: "viviane", nome: "Viviane", gorjetaLiquida: 370.93, pagoNaRescisao: true })];
+
+  test("confere com a apuração em vez de acusar \"só no extrato\"", () => {
+    const r = conferir(apuracao, [extrato([linha({ employeeId: "viviane", nome: "VIVIANE", gorjeta: 370.93 })])], new Map());
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ chave: "viviane", nome: "Viviane", status: "OK", apuracao: 370.93, extrato: 370.93, diferenca: 0, naRescisao: true });
+  });
+
+  test("valor diferente do da apuração é divergência", () => {
+    const r = conferir(apuracao, [extrato([linha({ employeeId: "viviane", nome: "VIVIANE", gorjeta: 400 })])], new Map());
+    expect(r[0]).toMatchObject({ status: "DIVERGE", diferenca: 29.07, naRescisao: true });
+  });
+
+  test("sem registro pago na rescisão continua fora da conferência", () => {
+    const sr = [pessoa({ employeeId: "sr", nome: "Sr", gorjetaLiquida: 100, pagoNaRescisao: true, semRegistro: true })];
+    const r = conferir(sr, [extrato([linha({ employeeId: "sr", nome: "SR", gorjeta: 100 })])], new Map());
+    expect(r[0].status).toBe("SO_NO_EXTRATO");
   });
 });

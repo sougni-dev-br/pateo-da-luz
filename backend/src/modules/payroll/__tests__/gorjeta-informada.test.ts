@@ -6,7 +6,7 @@ import { gorjetaInformada } from "../gorjeta-informada.js";
 // informa mais gorjeta do que a pessoa teve); sem teto, a gorjeta do rateio. A pessoa
 // continua recebendo a gorjeta real na lista de pagamento — isso não passa por aqui.
 describe("gorjetaInformada", () => {
-  it("com teto: teto − salário registrado (setembro do Elioenai: 5.000 − 3.672; real 2.223,54)", () => {
+  it("com teto: teto − salário registrado (setembro do Teodoro: 5.000 − 3.672; real 2.223,54)", () => {
     expect(gorjetaInformada(5000, 3672, 2223.54)).toBe(1328);
   });
 
