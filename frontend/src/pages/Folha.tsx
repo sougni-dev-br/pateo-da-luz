@@ -1,4 +1,4 @@
-import { Banknote, Bus, Check, ChevronLeft, ChevronRight, Clock, Coins, Palmtree, Pencil, Printer, RefreshCw, Settings, Trash2, Wallet, Wand2 } from "lucide-react";
+import { Banknote, Bus, Check, ChevronLeft, ChevronRight, Clock, Coins, Palmtree, Pencil, Printer, RefreshCw, Settings, Trash2, UserMinus, Wallet, Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   Employee, PayrollComputedItem, PayrollItemType, PayrollKind, PayrollList, PayrollListItem, PayrollOverride, PayrollPreview, PayrollSettings,
@@ -13,6 +13,7 @@ import {
 } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { maskMoney, moneyToMasked } from "../utils/format";
+import { AfastamentoModal } from "./folha/AfastamentoModal";
 import { LancamentoManualModal } from "./folha/LancamentoManualModal";
 import { adiantamentosSrAGerar, quinzenasSrAGerar } from "./folha/semRegistro";
 
@@ -120,6 +121,8 @@ export function Folha() {
   // Lançamento à mão (salário/adiantamento/VT), com as travas de duplicidade e de saída.
   const [showManual, setShowManual] = useState(false);
   const [showVacation, setShowVacation] = useState(false);
+  // Afastamento não remunerado: dias na Escala, sem lançamento (não é despesa).
+  const [showAfastamento, setShowAfastamento] = useState(false);
   const [vacBusy, setVacBusy] = useState(false);
   const [vacError, setVacError] = useState<string | null>(null);
   const emptyVacForm = { employeeId: "", startDate: "", endDate: "", amount: "", dueDate: "", notes: "" };
@@ -583,6 +586,7 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
             <Button variant="secondary" onClick={load} aria-label="Recarregar"><RefreshCw size={15} /></Button>
             <Button variant="secondary" leadingIcon={<Settings size={14} />} onClick={() => setShowSettings((v) => !v)}>Configurações</Button>
             {canEdit && <Button variant="secondary" leadingIcon={<Palmtree size={14} />} onClick={openVacation}>Lançar férias</Button>}
+            {canEdit && <Button variant="secondary" leadingIcon={<UserMinus size={14} />} onClick={() => setShowAfastamento(true)}>Lançar afastamento</Button>}
             {canEdit && <Button variant="secondary" leadingIcon={<Coins size={14} />} onClick={() => setShowManual(true)}>Lançar à mão</Button>}
             {canEdit && <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => handlePreview("VT")} disabled={busy}>Prever VT</Button>}
             {canEdit && <Button leadingIcon={<Wand2 size={14} />} onClick={() => handlePreview("FOLHA")} disabled={busy}>Prever folha</Button>}
@@ -1042,6 +1046,16 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
           month={month}
           onFechar={() => setShowManual(false)}
           onLancado={(mensagem) => { setShowManual(false); setNotice({ tone: "success", message: mensagem }); void load(); }}
+        />
+      )}
+
+      {showAfastamento && (
+        <AfastamentoModal
+          employees={employees}
+          year={year}
+          month={month}
+          onFechar={() => setShowAfastamento(false)}
+          onAlterado={(mensagem) => setNotice({ tone: "success", message: mensagem })}
         />
       )}
 

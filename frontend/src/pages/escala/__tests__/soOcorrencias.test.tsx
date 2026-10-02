@@ -39,8 +39,8 @@ describe("recolher", () => {
 });
 
 describe("tipos permitidos", () => {
-  test("só falta, atestado, férias e as três folgas — nunca turno ou evento", () => {
-    expect([...TIPOS_OCORRENCIA].sort()).toEqual(["ATESTADO", "FALTA", "FERIAS", "FOLGA", "FOLGA_BANCO_HORAS", "FOLGA_FERIADO"]);
+  test("só falta, atestado, férias, afastamento e as três folgas — nunca turno ou evento", () => {
+    expect([...TIPOS_OCORRENCIA].sort()).toEqual(["AFASTAMENTO", "ATESTADO", "FALTA", "FERIAS", "FOLGA", "FOLGA_BANCO_HORAS", "FOLGA_FERIADO"]);
     expect(MARCAS_OCORRENCIA.map((m) => m.tipo)).not.toContain("TURNO");
   });
 
@@ -113,6 +113,19 @@ describe("teclado", () => {
     expect(fer.textContent).toBe("Fér");
     expect(fer).not.toHaveAttribute("tabindex");
     fireEvent.keyDown(fer, { key: "Enter" });
+    expect(onMarcar).not.toHaveBeenCalled();
+  });
+});
+
+describe("afastamento não remunerado (lançado pela Folha)", () => {
+  test("aparece como AF, mas a célula não é editável e não há pincel de afastamento", () => {
+    const onMarcar = montar(new Map<string, ScheduleDayType>([["r|2", "AFASTAMENTO"]]));
+    expect(screen.queryByRole("button", { name: /Afastamento/ })).toBeNull();
+    const af = screen.getByLabelText("Rita Souza, dia 2: Afastamento não remunerado");
+    expect(af.textContent).toBe("AF");
+    expect(af).not.toHaveAttribute("tabindex");
+    fireEvent.click(af);
+    fireEvent.keyDown(af, { key: "Enter" });
     expect(onMarcar).not.toHaveBeenCalled();
   });
 });

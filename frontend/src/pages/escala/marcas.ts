@@ -24,6 +24,9 @@ export const COLORS = {
   eventoMedio: "#fbbf24",   // âmbar
   eventoGrande: "#e879f9",  // magenta (longe do salmão do domingo)
   ferias: "#2563eb",    // azul
+  // Afastamento não remunerado: marrom/âmbar escuro — fora do trabalho como férias, mas
+  // sem nada a ver com descanso pago; longe do azul das férias e do violeta do atestado.
+  afastamento: "#92400e",
   domingo: "#ff8a8a",   // vermelho/rosa
   feriado: "#8fd14f",   // verde
 };
@@ -42,7 +45,7 @@ export type Marca<T extends ScheduleDayType = ScheduleDayType> = {
 // Catálogo das marcas da célula. Fonte ÚNICA para a paleta, a legenda, o
 // desenho da célula e a impressão — antes cada um desses lugares repetia a
 // própria lista, e bastava esquecer um para a marca sumir de algum canto.
-export type MarcaCelula = "FOLGA" | "FOLGA_FERIADO" | "FOLGA_BANCO_HORAS" | "TURNO" | "FALTA" | "ATESTADO";
+export type MarcaCelula = "FOLGA" | "FOLGA_FERIADO" | "FOLGA_BANCO_HORAS" | "TURNO" | "FALTA" | "ATESTADO" | "AFASTAMENTO";
 export const MARCAS: Array<Marca<MarcaCelula>> = [
   { tipo: "FOLGA", letra: "F", nome: "Folga", cor: COLORS.folga, noMural: true, ajuda: "Folga" },
   { tipo: "FOLGA_FERIADO", letra: "FF", nome: "Folga de feriado", cor: COLORS.folgaFeriado, noMural: true, ajuda: "Folga de feriado — debita o saldo de feriado trabalhado" },
@@ -50,17 +53,37 @@ export const MARCAS: Array<Marca<MarcaCelula>> = [
   { tipo: "TURNO", letra: "T", nome: "Turno / cobertura", cor: COLORS.turno, noMural: true, ajuda: "Turno estendido (cobertura)" },
   { tipo: "FALTA", letra: "X", nome: "Falta", cor: COLORS.falta, noMural: false, ajuda: "Falta — desconta no próximo VT" },
   { tipo: "ATESTADO", letra: "AT", nome: "Atestado", cor: COLORS.atestado, noMural: false, ajuda: "Atestado médico — desconta no próximo VT" },
+  // Sai no mural: a equipe precisa saber que a pessoa não vem (o motivo nunca sai).
+  {
+    tipo: "AFASTAMENTO", letra: "AF", nome: "Afastamento não remunerado", cor: COLORS.afastamento, noMural: true,
+    ajuda: "Afastamento não remunerado — sem salário nem VT; na gorjeta segue a regra do fechamento. Lança, edita e exclui em Folha → Lançar afastamento",
+  },
 ];
 export const MARCA_POR_TIPO = new Map(MARCAS.map((m) => [m.tipo, m]));
 
 // Quem está fora da escala só recebe ocorrências: sem turno, e com férias marcáveis
 // aqui (na escala normal as férias vêm da Folha). Mesmas cores e letras da escala.
-export type MarcaOcorrencia = "FOLGA" | "FOLGA_FERIADO" | "FOLGA_BANCO_HORAS" | "FALTA" | "ATESTADO" | "FERIAS";
+export type MarcaOcorrencia = "FOLGA" | "FOLGA_FERIADO" | "FOLGA_BANCO_HORAS" | "FALTA" | "ATESTADO" | "AFASTAMENTO" | "FERIAS";
 export const MARCAS_OCORRENCIA: Array<Marca<MarcaOcorrencia>> = [
   ...MARCAS.filter((m): m is Marca<Exclude<MarcaCelula, "TURNO">> => m.tipo !== "TURNO"),
   { tipo: "FERIAS", letra: "Fér", nome: "Férias", cor: COLORS.ferias, noMural: false, ajuda: "Férias — contam na gorjeta; o VT de férias continua vindo da Folha" },
 ];
 export const TIPOS_OCORRENCIA = new Set<ScheduleDayType>(MARCAS_OCORRENCIA.map((m) => m.tipo));
+
+// Afastamento não remunerado só nasce, muda e sai pela Folha (intervalo, motivo, trava de período
+// e auditoria): na escala ele aparece, mas não vai para o pincel nem se edita na célula.
+const SO_PELA_FOLHA = new Set<ScheduleDayType>(["AFASTAMENTO"]);
+export function editavelNaEscala(tipo: ScheduleDayType | undefined): boolean {
+  return tipo == null || !SO_PELA_FOLHA.has(tipo);
+}
+export const MARCAS_PINCEL = MARCAS.filter((m) => editavelNaEscala(m.tipo));
+export const MARCAS_OCORRENCIA_PINCEL = MARCAS_OCORRENCIA.filter((m) => editavelNaEscala(m.tipo));
+
+// Marca de dia em que a pessoa não trabalha (folgas, falta, atestado, férias, afastamento).
+const NAO_TRABALHADOS = new Set<ScheduleDayType>(["FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS", "FALTA", "ATESTADO", "FERIAS", "AFASTAMENTO"]);
+export function ehDiaNaoTrabalhado(tipo: ScheduleDayType | undefined): boolean {
+  return tipo != null && NAO_TRABALHADOS.has(tipo);
+}
 
 export function keyOf(employeeId: string, day: number) {
   return `${employeeId}|${day}`;

@@ -5620,7 +5620,7 @@ export function getEmployeeOptions() {
 }
 
 // ─── Escala mensal ──────────────────────────────────────────────────────────────
-export type ScheduleDayType = "FOLGA" | "FOLGA_FERIADO" | "FOLGA_BANCO_HORAS" | "TURNO" | "EVENTO" | "FERIAS" | "FALTA" | "ATESTADO";
+export type ScheduleDayType = "FOLGA" | "FOLGA_FERIADO" | "FOLGA_BANCO_HORAS" | "TURNO" | "EVENTO" | "FERIAS" | "FALTA" | "ATESTADO" | "AFASTAMENTO";
 export type ScheduleDayMeta = { day: number; dow: number; isSunday: boolean; isHoliday: boolean; holidayName: string | null };
 export type ScheduleEmployee = {
   id: string;
@@ -5780,6 +5780,8 @@ export type TipRegrasPessoa = {
   descontaFerias: boolean | null;
   descontaOutros: boolean | null;
   proporcionalEntrada: boolean | null;
+  /** Afastamento não remunerado desconta na gorjeta. Ausente/null = regra do período. */
+  descontaAfastamento?: boolean | null;
 };
 
 export type TipComputedParticipant = {
@@ -5803,19 +5805,21 @@ export type TipComputedParticipant = {
   pointsAdjustment: number;
   fixedAmount: number | null;
   /** O que está na Escala agora, mesmo quando o valor foi digitado. */
-  escala?: { faltas: number; atestados: number; ferias: number };
+  escala?: { faltas: number; atestados: number; ferias: number; afastamento?: number };
   /** Folgas da Escala no período — só informação, fora do cálculo. null = retrato antigo. */
   folgasEscala?: { total: number; folga: number; feriado: number; bancoHoras: number } | null;
   faltas: number; faltasOrigem: TipOrigem;
   atestados: number; atestadosOrigem: TipOrigem;
   ferias: number; feriasOrigem: TipOrigem;
+  /** Afastamento não remunerado: dias da Escala no ciclo (não se digita). Ausente = backend antigo. */
+  afastamento?: number; afastamentoOrigem?: "ESCALA";
   outrosDias: number;
   diasPrevistosOverride: number | null;
   diasElegiveis: number;
   diasReferencia: number;
   /** Decisão de quem fecha para esta pessoa; null = regra do período. */
   regras: TipRegrasPessoa;
-  regrasEfetivas: { descontaFalta: boolean; descontaAtestado: boolean; descontaFerias: boolean; descontaOutros: boolean; proporcionalEntrada: boolean };
+  regrasEfetivas: { descontaFalta: boolean; descontaAtestado: boolean; descontaFerias: boolean; descontaOutros: boolean; proporcionalEntrada: boolean; descontaAfastamento?: boolean };
   diasPrevistos: number;
   diasComputados: number;
   fatorPresenca: number;
@@ -5908,6 +5912,8 @@ export type TipComputation = {
   descontaAtestado: boolean;
   descontaFerias: boolean;
   descontaOutros: boolean;
+  /** Afastamento não remunerado desconta na gorjeta (regra do período). Ausente = backend antigo (desconta). */
+  descontaAfastamento?: boolean;
   proporcionalEntrada: boolean;
   /** Parte de quem saiu depois da saída: true = vai para o livre; false = sobe o ponto de quem fica. */
   sobraRescisaoParaSaldo: boolean;
@@ -5970,6 +5976,7 @@ export type TipParticipantInput = {
   descontaFerias?: boolean | null;
   descontaOutros?: boolean | null;
   proporcionalEntrada?: boolean | null;
+  descontaAfastamento?: boolean | null;
   rescisaoServicoBruto?: number | null;
   rescisaoValorFixo?: number | null;
   horaExtra?: string | null;
@@ -5980,6 +5987,7 @@ export type TipParticipantInput = {
 export type TipPeriodPayload = {
   grossPool?: number; deductionPercent?: number; pointsTotal?: number; periodStart?: string; periodEnd?: string;
   diasPadrao?: number; descontaFalta?: boolean; descontaAtestado?: boolean; descontaFerias?: boolean; descontaOutros?: boolean;
+  descontaAfastamento?: boolean;
   proporcionalEntrada?: boolean;
   sobraRescisaoParaSaldo?: boolean;
   reservaPontos?: number;
@@ -6725,6 +6733,36 @@ export function releaseVacation(payload: { employeeId: string; startDate: string
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
+}
+
+// ─── Afastamento não remunerado (dias AFASTAMENTO na Escala, sem lançamento) ───
+export type Afastamento = { employeeId: string; employeeName: string; inicio: string; fim: string; dias: number; motivo: string | null };
+export type AfastamentoPayload = { employeeId: string; inicio: string; fim: string; motivo: string };
+export type AfastamentoGravado = { employeeId: string; inicio: string; fim: string; dias: number; motivo: string; substituidas: number; avisos: string[] };
+
+export function getAfastamentos(year: number, month: number) {
+  return request<{ year: number; month: number; afastamentos: Afastamento[] }>(`/payroll/afastamentos?year=${year}&month=${month}`);
+}
+
+export function lancarAfastamento(payload: AfastamentoPayload) {
+  return request<AfastamentoGravado>("/payroll/afastamentos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function editarAfastamento(payload: AfastamentoPayload & { inicioAtual: string; fimAtual: string }) {
+  return request<AfastamentoGravado>("/payroll/afastamentos", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function excluirAfastamento(a: { employeeId: string; inicio: string; fim: string }) {
+  const q = new URLSearchParams({ employeeId: a.employeeId, inicio: a.inicio, fim: a.fim });
+  return request<{ ok: boolean; dias: number; avisos: string[] }>(`/payroll/afastamentos?${q.toString()}`, { method: "DELETE" });
 }
 
 export function saveEmployee(payload: EmployeePayload) {

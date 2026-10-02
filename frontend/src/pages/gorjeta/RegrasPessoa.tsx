@@ -9,6 +9,8 @@ const ITENS: Array<{ chave: Chave; rotulo: string; periodo: (c: TipComputation) 
   { chave: "descontaFalta", rotulo: "Descontar faltas", periodo: (c) => c.descontaFalta },
   { chave: "descontaAtestado", rotulo: "Descontar atestados", periodo: (c) => c.descontaAtestado },
   { chave: "descontaFerias", rotulo: "Descontar férias", periodo: (c) => c.descontaFerias },
+  // Gorjeta integral para quem está afastado é decisão de quem fecha; o salário desconta sempre.
+  { chave: "descontaAfastamento", rotulo: "Descontar afastamento não remunerado", periodo: (c) => c.descontaAfastamento !== false },
   { chave: "descontaOutros", rotulo: "Descontar outros dias", periodo: (c) => c.descontaOutros },
   { chave: "proporcionalEntrada", rotulo: "Admitido no período: proporcional", periodo: (c) => c.proporcionalEntrada },
 ];
@@ -46,7 +48,7 @@ export function RegrasPessoa({ comp, p, regras, disabled, onChange, onFechar }: 
     };
   }, []);
 
-  const valor = (v: boolean | null) => (v == null ? "" : v ? "sim" : "nao");
+  const valor = (v: boolean | null | undefined) => (v == null ? "" : v ? "sim" : "nao");
 
   return (
     <div ref={caixa} className="regras-pessoa" role="dialog" aria-label={`Regras de presença de ${p.employeeName}`}>
@@ -69,7 +71,7 @@ export function RegrasPessoa({ comp, p, regras, disabled, onChange, onFechar }: 
         {p.diasComputados} dias de {p.diasReferencia} → {pts(p.pontosApurados)} pts de {pts(p.basePoints)}.
         {temRegraPropria(regras) && (
           <> <button type="button" className="barra-lista-link" disabled={disabled}
-            onClick={() => onChange({ descontaFalta: null, descontaAtestado: null, descontaFerias: null, descontaOutros: null, proporcionalEntrada: null })}>
+            onClick={() => onChange({ descontaFalta: null, descontaAtestado: null, descontaFerias: null, descontaOutros: null, proporcionalEntrada: null, descontaAfastamento: null })}>
             voltar ao padrão
           </button></>
         )}
