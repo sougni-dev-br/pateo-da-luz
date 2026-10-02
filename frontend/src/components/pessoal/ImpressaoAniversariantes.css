@@ -244,6 +244,9 @@
   .aniv-modelos { grid-template-columns: 1fr; }
   .aniv-base { flex-direction: column; align-items: stretch; }
   .aniv-topo { flex-direction: column; }
+  /* Quatro formas de nome não cabem lado a lado no celular: colunas iguais na largura toda. */
+  .aniv-segmentado { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: 100%; box-sizing: border-box; }
+  .aniv-segmentado button { padding: 6px 4px; line-height: 1.2; }
 }
 
 /* Cópia usada pela impressora: fora da tela, mas medível (o ajuste de tamanho precisa medir). */
