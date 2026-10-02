@@ -645,11 +645,25 @@ export async function generatePayroll(
     && (!folhaGeral || !ehDeSemRegistro(i))
     && (!soSemRegistro || (ehDeSemRegistro(i) && !ehPrimeiraQuinzena(i)))
     && (!soQuinzena || ehPrimeiraQuinzena(i)));
-  const toCreate = escopo.filter((i) => !i.exists);
+  const ajustes = new Map(overrides.map((o) => [overrideKey(o), round2(Number(o.amount))]));
+  // VT de R$ 0,00 (trajeto ou tarifa faltando) virava título vencido no Contas a Pagar,
+  // inclusive de quem já tinha saído: em 07/2026 foram quatro. O aviso do cálculo fica;
+  // o título não nasce. Ajuste manual com valor conta como valor.
+  const vtZerado = (i: ComputedItem) => {
+    if (i.type !== "VALE_TRANSPORTE") return false;
+    const ajustado = ajustes.get(overrideKey(i));
+    return (ajustado != null && ajustado > 0 ? ajustado : i.amount) <= 0;
+  };
+  const toCreate = escopo.filter((i) => {
+    if (i.exists) return false;
+    if (vtZerado(i)) {
+      warnings.push(`${i.employeeName}: ${i.periodLabel} de ${String(month).padStart(2, "0")}/${year} não gerado — vale de R$ 0,00.`);
+      return false;
+    }
+    return true;
+  });
   // 1ª quinzena já lançada e sem baixa, com outro valor (salário mudou): atualiza. Paga não muda.
   const toUpdate = escopo.filter((i) => i.exists && i.desatualizado && i.existingId && ehPrimeiraQuinzena(i));
-
-  const ajustes = new Map(overrides.map((o) => [overrideKey(o), round2(Number(o.amount))]));
   let ajustados = 0;
 
   await prisma.$transaction(async (tx) => {
