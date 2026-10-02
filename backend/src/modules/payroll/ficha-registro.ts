@@ -154,6 +154,11 @@ export function planoDaFicha(atual: CadastroAtual, f: FichaRegistro): PlanoFicha
     const valor = novos[campo];
     if (valor == null || comErro.has(campo)) continue;
     if (atual[campo] == null) Object.assign(dados, { [campo]: valor });
+    // Nome completo criado pelo extrato da contabilidade vem sem acento ("Joao"): a ficha pode
+    // trocar pela mesma grafia acentuada ("João") — é o mesmo nome, não uma divergência.
+    else if (campo === "nomeCompleto" && typeof valor === "string" && typeof atual.nomeCompleto === "string"
+      && semAcento(valor) === semAcento(atual.nomeCompleto) && valor !== atual.nomeCompleto
+      && /[̀-ͯ]/.test(valor.normalize("NFD"))) Object.assign(dados, { nomeCompleto: valor });
     else if (!igual(atual[campo], valor)) avisos.push(`${campo}: cadastro "${mostrar(atual[campo])}" × ficha "${mostrar(valor)}" (mantido o do cadastro)`);
   }
 
