@@ -107,8 +107,19 @@ describe("salvar o cadastro com os campos da ficha", () => {
       nomeCompleto: " ANA SILVA DE TAL ", nomeMae: "  MARIA DE TAL  ", nomePai: "", ctpsUf: "sp", rgDataEmissao: "2016-01-15", possuiDeficiencia: false, cbo: "513210",
     }));
     expect(r.status).toBe(200);
-    expect(gravado()).toMatchObject({ nomeCompleto: "ANA SILVA DE TAL", nomeMae: "MARIA DE TAL", nomePai: null, ctpsUf: "SP", possuiDeficiencia: false, cbo: "513210" });
+    expect(gravado()).toMatchObject({ nomeCompleto: "Ana Silva de Tal", nomeMae: "Maria de Tal", nomePai: null, ctpsUf: "SP", possuiDeficiencia: false, cbo: "513210" });
     expect(gravado().rgDataEmissao).toEqual(d("2016-01-15"));
+  });
+
+  test("nome, endereço e filiação são gravados como nome próprio; cidade da lista com acento", async () => {
+    await request(app).put("/employees/e1").send(corpo({
+      firstName: "ANA", lastName: "SILVA DE TAL", address: "RUA DAS FLORES", neighborhood: "JARDIM TESTE", city: "SAO PAULO",
+      nomeMae: "MARIA DE TAL", naturalidade: "CARAPICUIBA - SP", displayName: "ANINHA",
+    }));
+    expect(gravado()).toMatchObject({
+      firstName: "Ana", lastName: "Silva de Tal", address: "Rua das Flores", neighborhood: "Jardim Teste", city: "São Paulo",
+      nomeMae: "Maria de Tal", naturalidade: "Carapicuíba - SP", displayName: "ANINHA",
+    });
   });
 
   test("deficiência que não é sim/não vira null, não true", async () => {

@@ -8,6 +8,7 @@
 // carteira vai para tabela própria (EmployeeAnotacaoCarteira), que só é consultada.
 
 import type { FichaFerias, FichaRegistro } from "./ficha-registro-parser.js";
+import { cidadeProprio, nomeProprio } from "../../shared/utils/nome-proprio.js";
 
 export const ORIGEM_FICHA = "FICHA_REGISTRO";
 
@@ -67,13 +68,19 @@ export type EnderecoQuebrado = {
   neighborhood: string | null; city: string | null; state: string | null;
 };
 
+// Endereço no padrão do cadastro: nome próprio, cidade da lista com acento, UF em maiúsculas.
+const padraoEndereco = (e: EnderecoQuebrado): EnderecoQuebrado => ({
+  address: nomeProprio(e.address)!, addressNumber: e.addressNumber, addressComplement: nomeProprio(e.addressComplement),
+  neighborhood: nomeProprio(e.neighborhood), city: cidadeProprio(e.city), state: e.state?.toUpperCase() ?? null,
+});
+
 // "Rua PAIM, 235, AP 1307, BELA VISTA, SAO PAULO, SP" → logradouro, número, complemento, bairro,
 // cidade, UF. Sem complemento são 5 partes. Formato inesperado fica inteiro no logradouro.
 export function quebrarEndereco(endereco: string): EnderecoQuebrado {
   const p = endereco.split(",").map((s) => s.trim()).filter(Boolean);
-  if (p.length === 5) return { address: p[0], addressNumber: p[1], addressComplement: null, neighborhood: p[2], city: p[3], state: p[4] };
-  if (p.length === 6) return { address: p[0], addressNumber: p[1], addressComplement: p[2], neighborhood: p[3], city: p[4], state: p[5] };
-  return { address: endereco, addressNumber: null, addressComplement: null, neighborhood: null, city: null, state: null };
+  if (p.length === 5) return padraoEndereco({ address: p[0], addressNumber: p[1], addressComplement: null, neighborhood: p[2], city: p[3], state: p[4] });
+  if (p.length === 6) return padraoEndereco({ address: p[0], addressNumber: p[1], addressComplement: p[2], neighborhood: p[3], city: p[4], state: p[5] });
+  return { address: nomeProprio(endereco)!, addressNumber: null, addressComplement: null, neighborhood: null, city: null, state: null };
 }
 
 function cargoAtual(f: FichaRegistro): { cargo: string; cbo: string } {
@@ -83,9 +90,9 @@ function cargoAtual(f: FichaRegistro): { cargo: string; cbo: string } {
 
 function camposDaFicha(f: FichaRegistro): CamposFicha {
   return {
-    nomeCompleto: f.nome, registroNumero: f.registro, matriculaEsocial: f.matriculaEsocial,
-    nomeMae: f.mae, nomePai: f.pai,
-    estadoCivil: f.estadoCivil, nacionalidade: f.nacionalidade, naturalidade: f.naturalidade,
+    nomeCompleto: nomeProprio(f.nome), registroNumero: f.registro, matriculaEsocial: f.matriculaEsocial,
+    nomeMae: nomeProprio(f.mae), nomePai: nomeProprio(f.pai),
+    estadoCivil: f.estadoCivil, nacionalidade: nomeProprio(f.nacionalidade), naturalidade: cidadeProprio(f.naturalidade),
     racaCor: f.racaCor, escolaridade: f.escolaridade, possuiDeficiencia: f.possuiDeficiencia,
     rgDataEmissao: dia(f.rgEmissao), rgOrgaoEmissor: f.rgOrgao,
     tituloEleitor: f.tituloEleitor, tituloZona: f.tituloZona, tituloSecao: f.tituloSecao,
@@ -125,9 +132,9 @@ function errosDaFicha(f: FichaRegistro): { campos: Set<keyof CamposFicha>; aviso
 function linhasDeCarteira(f: FichaRegistro): Anotacao[] {
   const vazio = { salario: null, retroativoCompetencia: null, cargoAnterior: null, cboAnterior: null, cargo: null, cbo: null };
   return [
-    { ...vazio, tipo: "ADMISSAO" as const, data: dia(f.dataAdmissao)!, salario: f.salarioAdmissao, cargo: f.cargoAdmissao, cbo: f.cboAdmissao },
+    { ...vazio, tipo: "ADMISSAO" as const, data: dia(f.dataAdmissao)!, salario: f.salarioAdmissao, cargo: nomeProprio(f.cargoAdmissao), cbo: f.cboAdmissao },
     ...f.salarios.map((s) => ({ ...vazio, tipo: "SALARIO" as const, data: dia(s.vigencia)!, salario: s.valor, retroativoCompetencia: s.retroativoCompetencia })),
-    ...f.cargos.map((c) => ({ ...vazio, tipo: "CARGO" as const, data: dia(c.data)!, cargoAnterior: c.deCargo, cboAnterior: c.deCbo, cargo: c.paraCargo, cbo: c.paraCbo })),
+    ...f.cargos.map((c) => ({ ...vazio, tipo: "CARGO" as const, data: dia(c.data)!, cargoAnterior: nomeProprio(c.deCargo), cboAnterior: c.deCbo, cargo: nomeProprio(c.paraCargo), cbo: c.paraCbo })),
   ].sort((a, b) => a.data.getTime() - b.data.getTime());
 }
 
@@ -184,7 +191,7 @@ export function planoDaFicha(atual: CadastroAtual, f: FichaRegistro): PlanoFicha
   if (!igual(atual.admissaoCarteira, dia(f.dataAdmissao))) avisos.push(`admissão em carteira: cadastro ${iso(atual.admissaoCarteira) ?? "vazio"} × ficha ${f.dataAdmissao} (não alterado)`);
   if (f.empregador.cnpj && atual.company?.cnpj !== f.empregador.cnpj) avisos.push(`empresa: cadastro ${atual.company?.cnpj ?? "sem empresa"} × ficha ${f.empregador.cnpj} (não alterado)`);
 
-  return { dados, avisos, dependentes: f.beneficiarios, ferias: f.ferias.map(linhaDeFerias), anotacoes: linhasDeCarteira(f) };
+  return { dados, avisos, dependentes: f.beneficiarios.map((n) => nomeProprio(n)!), ferias: f.ferias.map(linhaDeFerias), anotacoes: linhasDeCarteira(f) };
 }
 
 // ─── Resumo de férias por período aquisitivo ─────────────────────────────────────
