@@ -1,5 +1,5 @@
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { AlertTriangle, CalendarClock, CalendarDays, CheckCircle2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { Company, Payable } from "../../api/client";
 import { descreverSuspeito, type SuspeitoLote } from "../../lib/folha-duplicidade";
 import { Notice, type NoticeState } from "../../components/Notice";
@@ -7,7 +7,7 @@ import { Alert, Button, Money } from "../../design-system";
 import { formatDate } from "../../utils/format";
 import { Janela } from "./Janela";
 import type { FormBaixa, OpcaoForma } from "./ModalBaixa";
-import { avisoDataDoLote, dataDaBaixaNoLote, favorecidoDoTitulo, isTaxPayment, todayKey, valorDoTitulo } from "./regras";
+import { avisoDataDoLote, dataDaBaixaNoLote, favorecidoDoTitulo, isTaxPayment, resumoDatasDoLote, todayKey, valorDoTitulo } from "./regras";
 
 export type ResultadoLote = { ok: number; erros: Array<{ nome: string; motivo: string }> };
 
@@ -43,11 +43,33 @@ export function ModalBaixaLote({ selecionados, total, form, onCampo, usarVencime
     if (haSuspeitos) blocoSuspeitos.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
   }, [haSuspeitos]);
 
+  // A falta da forma aparece ao lado do campo: o aviso geral fica no topo, fora da vista.
+  const campoForma = useRef<HTMLSelectElement>(null);
+  const [faltaForma, setFaltaForma] = useState(false);
+  function confirmar() {
+    if (temNaoImposto && !form.paidPaymentMethod) {
+      setFaltaForma(true);
+      campoForma.current?.focus();
+      return;
+    }
+    onConfirmar();
+  }
+
   // Depois de enviar a seleção é limpa: o título conta o que foi enviado, não o que sobrou selecionado.
   const quantidade = resultado ? resultado.ok + resultado.erros.length : selecionados.length;
   const hoje = todayKey();
   // Baixar com a data de hoje títulos vencidos há semanas costuma ser engano (a data real é outra).
   const avisoData = avisoDataDoLote(selecionados, form.paidDate, usarVencimento, hoje);
+  const datas = resumoDatasDoLote(selecionados, hoje);
+  // No vencimento, a data única só vale para quem ainda não venceu; sem nenhum, o campo some.
+  // Data apagada continua à vista: a baixa exige a data e sem o campo não haveria como corrigir.
+  const mostraDataUnica = !usarVencimento || datas.aVencer > 0 || !form.paidDate;
+  const dataUnicaTexto = form.paidDate ? formatDate(form.paidDate) : "sem data";
+  const quandoNoRodape = !usarVencimento
+    ? `em ${dataUnicaTexto}`
+    : datas.aVencer > 0
+      ? `vencidos no vencimento · ${datas.aVencer} em ${dataUnicaTexto}`
+      : "no vencimento de cada título";
 
   return (
     <Janela eyebrow="Baixa em lote" titulo={`Baixar ${quantidade} título(s)`} onFechar={onFechar} ocupado={ocupado}>
@@ -69,78 +91,116 @@ export function ModalBaixaLote({ selecionados, total, form, onCampo, usarVencime
         </>
       ) : (
         <>
-          <div className="pay-ctx">
-            <div className="pay-ctx-row">
-              <div><span>Títulos</span><strong>{selecionados.length}</strong></div>
-              <div className="pg-ctx-valor"><span>Total</span><strong className="pay-ctx-amount"><Money value={total} /></strong></div>
+          <div className="pg-lote-resumo">
+            <div>
+              <span>Total do lote</span>
+              <strong className="pg-lote-total"><Money value={total} /></strong>
+            </div>
+            <div className="pg-lote-resumo-meta">
+              <span>{selecionados.length} título(s)</span>
+              {datas.primeiro && (
+                <span className="pg-tnum">
+                  {datas.primeiro === datas.ultimo
+                    ? `vencimento ${formatDate(datas.primeiro)}`
+                    : `vencimentos de ${formatDate(datas.primeiro)} a ${formatDate(datas.ultimo)}`}
+                </span>
+              )}
+              {datas.vencidos > 0 && <span className="pg-lote-vencidos">{datas.vencidos} vencido(s)</span>}
             </div>
           </div>
 
-          <p className="pg-nota">
-            Cada título recebe a baixa pelo <strong>seu próprio valor</strong>, com os mesmos dados abaixo.
-            Para pagar valor diferente do original (desconto ou juros), baixe aquele título individualmente.
-          </p>
-
-          <div className="form-grid">
-            <label>
-              {usarVencimento ? "Data dos títulos não vencidos *" : "Data do pagamento *"}
-              <input type="date" value={form.paidDate} onChange={(e) => onCampo("paidDate", e.target.value)} />
-            </label>
+          <fieldset className="pg-lote-sec">
+            <legend>Quando foi pago?</legend>
             {onUsarVencimento && (
-              <label className="checkbox-label">
-                <input type="checkbox" checked={usarVencimento} onChange={(e) => onUsarVencimento(e.target.checked)} />
-                Usar a data de vencimento de cada título
+              <div className="pg-lote-opcoes">
+                <label className="pg-lote-opcao">
+                  <input type="radio" name="lote-data" checked={usarVencimento} onChange={() => onUsarVencimento(true)} />
+                  <CalendarClock size={18} aria-hidden />
+                  <span>
+                    <strong>No vencimento de cada título</strong>
+                    <small>Cada vencido é baixado na data em que venceu.</small>
+                  </span>
+                </label>
+                <label className="pg-lote-opcao">
+                  <input type="radio" name="lote-data" checked={!usarVencimento} onChange={() => onUsarVencimento(false)} />
+                  <CalendarDays size={18} aria-hidden />
+                  <span>
+                    <strong>Numa data só</strong>
+                    <small>Todos recebem a mesma data de pagamento.</small>
+                  </span>
+                </label>
+              </div>
+            )}
+            {mostraDataUnica && (
+              <label className="pg-lote-data">
+                {usarVencimento && datas.aVencer > 0 ? `Data dos ${datas.aVencer} que ainda não venceram *` : "Data do pagamento *"}
+                <input type="date" value={form.paidDate} onChange={(e) => onCampo("paidDate", e.target.value)} />
               </label>
             )}
-            {temNaoImposto && (
-              <label>
-                Forma de pagamento *
-                <select value={form.paidPaymentMethod} onChange={(e) => onCampo("paidPaymentMethod", e.target.value)}>
-                  <option value="">Selecione</option>
-                  {formas.map((opt) => <option key={opt.id} value={`id:${opt.id}`}>{opt.label}</option>)}
-                </select>
+            {avisoData && <Alert tone="warning" role="alert">{avisoData}</Alert>}
+          </fieldset>
+
+          <fieldset className="pg-lote-sec">
+            <legend>Como foi pago?</legend>
+            <div className="form-grid">
+              {temNaoImposto && (
+                <div className="pg-lote-campo">
+                  <label>
+                    Forma de pagamento *
+                    <select
+                      ref={campoForma}
+                      value={form.paidPaymentMethod}
+                      aria-invalid={faltaForma || undefined}
+                      aria-describedby={faltaForma ? "lote-falta-forma" : undefined}
+                      onChange={(e) => { setFaltaForma(false); onCampo("paidPaymentMethod", e.target.value); }}
+                    >
+                      <option value="">Selecione</option>
+                      {formas.map((opt) => <option key={opt.id} value={`id:${opt.id}`}>{opt.label}</option>)}
+                    </select>
+                  </label>
+                  {faltaForma && <span id="lote-falta-forma" className="pg-lote-erro-campo" role="alert">Escolha a forma de pagamento.</span>}
+                </div>
+              )}
+              {temNaoImposto && companies.length > 0 && (
+                <label>
+                  Empresa pagadora
+                  <select value={form.payingCompanyId} onChange={(e) => onEmpresa(e.target.value)}>
+                    <option value="">Selecione…</option>
+                    {companies.map((c) => <option key={c.id} value={c.id}>{c.tradeName}</option>)}
+                  </select>
+                </label>
+              )}
+              <label className="full-width">
+                Observação
+                <input value={form.paymentNotes} onChange={(e) => onCampo("paymentNotes", e.target.value)} />
               </label>
-            )}
-            <label>
-              Observação
-              <input value={form.paymentNotes} onChange={(e) => onCampo("paymentNotes", e.target.value)} />
-            </label>
-            {temNaoImposto && companies.length > 0 && (
-              <label>
-                Empresa pagadora
-                <select value={form.payingCompanyId} onChange={(e) => onEmpresa(e.target.value)}>
-                  <option value="">Selecione…</option>
-                  {companies.map((c) => <option key={c.id} value={c.id}>{c.tradeName}</option>)}
-                </select>
-              </label>
-            )}
+            </div>
+          </fieldset>
+
+          <div className="pg-lote-sec">
+            <div className="pg-lote-lista-topo">
+              <span>Títulos do lote</span>
+              <small>Cada um baixa pelo próprio valor. Para desconto ou juros, baixe o título sozinho.</small>
+            </div>
+            <ul className="pg-lote-lista" aria-label="Títulos selecionados">
+              {selecionados.map((p) => (
+                <li key={p.id}>
+                  <span className="pg-lote-nome">
+                    {favorecidoDoTitulo(p)}
+                    {p.taxDescription ? ` · ${p.taxDescription}` : ""}
+                  </span>
+                  <span className="pg-lote-venc">
+                    {formatDate(p.dueDate)}
+                    {usarVencimento ? ` · baixa em ${formatDate(dataDaBaixaNoLote(p, true, form.paidDate, hoje))}` : ""}
+                  </span>
+                  <strong className="pg-num"><Money value={valorDoTitulo(p)} /></strong>
+                </li>
+              ))}
+            </ul>
           </div>
 
-          {avisoData && <Alert tone="warning" role="alert">{avisoData}</Alert>}
-          {usarVencimento && (
-            <p className="pg-nota">
-              Cada título vencido é baixado na data em que venceu; os que ainda vão vencer ficam com a data acima.
-            </p>
-          )}
-
-          <ul className="pg-lote-lista" aria-label="Títulos selecionados">
-            {selecionados.map((p) => (
-              <li key={p.id}>
-                <span className="pg-lote-nome">
-                  {favorecidoDoTitulo(p)}
-                  {p.taxDescription ? ` · ${p.taxDescription}` : ""}
-                </span>
-                <span className="pg-lote-venc">
-                  {formatDate(p.dueDate)}
-                  {usarVencimento ? ` · baixa em ${formatDate(dataDaBaixaNoLote(p, true, form.paidDate, hoje))}` : ""}
-                </span>
-                <strong className="pg-num"><Money value={valorDoTitulo(p)} /></strong>
-              </li>
-            ))}
-          </ul>
-
           {suspeitos && suspeitos.length > 0 ? (
-            <div ref={blocoSuspeitos} role="alert">
+            <div ref={blocoSuspeitos} role="alert" className="pg-lote-suspeitos">
               <Alert tone="warning">
                 Nada foi baixado ainda: {suspeitos.length} título(s) parecem pagamento em duplicidade.
                 Tire-os do lote ou confirme que é para baixar mesmo assim (a confirmação fica na auditoria).
@@ -156,11 +216,17 @@ export function ModalBaixaLote({ selecionados, total, form, onCampo, usarVencime
               </div>
             </div>
           ) : (
-            <div className="modal-actions">
-              <Button variant="secondary" onClick={onFechar} disabled={ocupado}>Cancelar</Button>
-              <Button leadingIcon={<CheckCircle2 size={16} />} onClick={onConfirmar} disabled={ocupado}>
-                {ocupado ? "Baixando…" : `Confirmar baixa de ${selecionados.length}`}
-              </Button>
+            <div className="pg-lote-rodape">
+              <span className="pg-lote-rodape-resumo">
+                <Money value={total} />
+                <small>{quandoNoRodape}</small>
+              </span>
+              <div className="modal-actions">
+                <Button variant="secondary" onClick={onFechar} disabled={ocupado}>Cancelar</Button>
+                <Button leadingIcon={<CheckCircle2 size={16} />} onClick={confirmar} disabled={ocupado}>
+                  {ocupado ? "Baixando…" : `Confirmar baixa de ${selecionados.length}`}
+                </Button>
+              </div>
             </div>
           )}
         </>
