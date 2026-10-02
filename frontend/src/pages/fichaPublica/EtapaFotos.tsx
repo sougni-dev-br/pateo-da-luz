@@ -13,6 +13,7 @@ type Props = {
 };
 
 const DICAS: Record<string, string> = {
+  FOTO_PESSOA: "Rosto de frente, com fundo claro e boa luz. Sem boné, chapéu ou óculos escuros.",
   DOC_FOTO: "Frente e verso. Pode ser RG ou CNH.",
   COMPROVANTE_ENDERECO: "Conta de luz, água, internet ou telefone dos últimos 3 meses.",
   CTPS: "Página da foto e a de qualificação civil. Na carteira digital, um print da tela.",
@@ -67,8 +68,9 @@ function Slot({ codigo, tipo, rotulo, obrigatorio, arquivos, onEstado }: {
   }
 
   const feito = arquivos.length > 0;
+  const selfie = tipo === "FOTO_PESSOA";
   return (
-    <section className={`fp-slot${feito ? " fp-slot--feito" : ""}`} aria-labelledby={`slot-${tipo}`}>
+    <section className={`fp-slot${feito ? " fp-slot--feito" : ""}${selfie ? " fp-slot--selfie" : ""}`} aria-labelledby={`slot-${tipo}`}>
       <header className="fp-slot-topo">
         <span className="fp-slot-marca" aria-hidden="true">{feito ? <Check size={16} /> : null}</span>
         <div>
@@ -92,13 +94,13 @@ function Slot({ codigo, tipo, rotulo, obrigatorio, arquivos, onEstado }: {
       <div className="fp-slot-acoes">
         <button type="button" className="fp-botao fp-botao--secundario" onClick={() => camera.current?.click()} disabled={enviando}>
           {enviando ? <Loader2 size={18} className="fp-girando" aria-hidden="true" /> : <Camera size={18} aria-hidden="true" />}
-          {enviando ? "Enviando…" : feito ? "Tirar outra foto" : "Tirar foto"}
+          {enviando ? "Enviando…" : selfie ? (feito ? "Tirar outra selfie" : "Tirar selfie") : feito ? "Tirar outra foto" : "Tirar foto"}
         </button>
         <button type="button" className="fp-botao fp-botao--linha" onClick={() => galeria.current?.click()} disabled={enviando}>
-          <ImagePlus size={18} aria-hidden="true" /> Escolher arquivo
+          <ImagePlus size={18} aria-hidden="true" /> {selfie ? "Escolher da galeria" : "Escolher arquivo"}
         </button>
-        <input ref={camera} type="file" accept="image/*" capture="environment" hidden onChange={(e) => enviar(e.target.files)} />
-        <input ref={galeria} type="file" accept="image/*,application/pdf" multiple hidden onChange={(e) => enviar(e.target.files)} />
+        <input ref={camera} type="file" accept="image/*" capture={selfie ? "user" : "environment"} hidden onChange={(e) => enviar(e.target.files)} />
+        <input ref={galeria} type="file" accept={selfie ? "image/*" : "image/*,application/pdf"} multiple={!selfie} hidden onChange={(e) => enviar(e.target.files)} />
       </div>
       {erro && <p className="fp-erro" role="alert">{erro}</p>}
     </section>

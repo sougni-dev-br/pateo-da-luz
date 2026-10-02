@@ -4,11 +4,13 @@ import { ArrowLeft, Ban, CheckCircle2, Link2, Printer, RotateCcw, Save } from "l
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  getArquivoFichaCadastral,
   cancelarFichaCadastral, concluirFichaCadastral, devolverFichaCadastral, getFichaCadastral, novoLinkFichaCadastral,
   salvarEmpresaFichaCadastral, type FichaCadastralDetalhe as Detalhe, type FichaCadastralEmpresa, type FichaCadastralLink,
 } from "../../../api/client";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import { Dialog } from "../../../components/ui/Dialog";
+import { useToast } from "../../../components/ui";
 import { useSession } from "../../../context/SessionContext";
 import { Alert, Button, StatusBadge, Textarea } from "../../../design-system";
 import { ROTAS_RH } from "../rotasRh";
@@ -23,6 +25,7 @@ type Props = { id: string; onVoltar: () => void };
 export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
   const navigate = useNavigate();
   const { hasPermission } = useSession();
+  const { toast } = useToast();
   const [ficha, setFicha] = useState<Detalhe | null>(null);
   const [empresa, setEmpresa] = useState<FichaCadastralEmpresa>({});
   const [erro, setErro] = useState<string | null>(null);
@@ -51,6 +54,19 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
       .catch((e) => setErro(e instanceof Error ? e.message : "Não foi possível abrir a ficha."));
   }, [id]);
   useEffect(carregar, [carregar]);
+
+  // Foto da pessoa para a ficha impressa (baixada uma vez por ficha/arquivo).
+  const fotoId = ficha?.arquivos.find((a) => a.tipo === "FOTO_PESSOA")?.id ?? null;
+  const [fotoUrl, setFotoUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!fotoId) { setFotoUrl(null); return undefined; }
+    let ativo = true;
+    let criada: string | null = null;
+    getArquivoFichaCadastral(id, fotoId)
+      .then((blob) => { if (!ativo) return; criada = URL.createObjectURL(blob); setFotoUrl(criada); })
+      .catch(() => { if (ativo) setFotoUrl(null); });
+    return () => { ativo = false; if (criada) URL.revokeObjectURL(criada); };
+  }, [id, fotoId]);
 
   if (erro && !ficha) return <div className="stack"><Button variant="secondary" leadingIcon={<ArrowLeft size={16} />} onClick={onVoltar}>Voltar</Button><Alert tone="error">{erro}</Alert></div>;
   if (!ficha) return <p className="fc-carregando">Carregando…</p>;
@@ -81,7 +97,19 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
     }
   }
 
-  const salvarEmpresa = () => agir(() => salvarEmpresaFichaCadastral(id, empresa), "Parte da empresa salva.");
+  // Salvar fica no fim da página: a confirmação aparece onde a pessoa está olhando (toast).
+  async function salvarEmpresa() {
+    setOcupado(true);
+    try {
+      await salvarEmpresaFichaCadastral(id, empresa);
+      toast("Parte da empresa salva.", "success");
+      carregar();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Não foi possível salvar.", "error", 6000);
+    } finally {
+      setOcupado(false);
+    }
+  }
 
   async function concluir() {
     setConfirmar(null);
@@ -128,10 +156,20 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
           {(aberta || finalizada) && hasPermission("employee-forms", "delete") && <Button variant="danger" leadingIcon={<Ban size={16} />} disabled={ocupado} onClick={() => setConfirmar("cancelar")}>Cancelar ficha</Button>}
           {finalizada && podeConcluir && <Button leadingIcon={<CheckCircle2 size={16} />} disabled={ocupado} onClick={() => setConfirmar("concluir")}>
             {ficha.tipo === "ADMISSAO" ? "Criar funcionário" : "Gravar no cadastro"}</Button>}
-          {ficha.status === "CONCLUIDA" && ficha.funcionario && <Button variant="secondary" onClick={() => navigate(ROTAS_RH.funcionarios)}>Abrir Funcionários</Button>}
+          {ficha.status === "CONCLUIDA" && ficha.funcionario && (
+            <Button variant="secondary" onClick={() => navigate(`${ROTAS_RH.funcionarios}?funcionario=${encodeURIComponent(ficha.funcionario!.id)}`)}>Abrir o cadastro</Button>
+          )}
         </div>
         {erro && <Alert tone="error">{erro}</Alert>}
         {aviso && <Alert tone="success">{aviso}</Alert>}
+        {finalizada && (
+          <ol className="fc-roteiro" aria-label="Próximos passos">
+            <li>Confira os dados e as fotos{ficha.tipo === "ATUALIZACAO" ? " e marque o que muda no cadastro" : ""}.</li>
+            <li>Complete a <a href="#fc-empresa">parte da empresa</a> e salve.</li>
+            <li>Imprima a ficha, colha as assinaturas e envie à contabilidade.</li>
+            <li>Clique em <strong>{ficha.tipo === "ADMISSAO" ? "Criar funcionário" : "Gravar no cadastro"}</strong>.</li>
+          </ol>
+        )}
         {aberta && ficha.falta.length > 0 && (
           <Alert tone="info" title="A pessoa ainda não finalizou">Falta: {ficha.falta.join(", ")}.</Alert>
         )}
@@ -167,7 +205,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
                   <label>
                     <input type="checkbox" checked={escolhidos.has("filhos")} onChange={() => alternar("filhos")} />
                     <span className="fc-dif-rotulo">Filhos</span>
-                    <span className="fc-dif-de">{ficha.filhosAlterados.length ? "dados no cadastro" : "—"}</span>
+                    <span className="fc-dif-de fc-dif-de--neutro">{ficha.filhosNovos.length && !ficha.filhosAlterados.length ? "—" : "como está no cadastro"}</span>
                     <span className="fc-dif-seta" aria-hidden="true">→</span>
                     <span className="fc-dif-para">
                       {ficha.filhosNovos.length > 0 && <span className="fc-dif-linha">Incluir: {ficha.filhosNovos.map((f) => f.nome).join(", ")}</span>}
@@ -189,7 +227,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
       )}
 
       <section className="panel">
-        <h2 className="fc-secao-titulo">Fotos dos documentos <small>({ficha.arquivos.length})</small></h2>
+        <h2 className="fc-secao-titulo">Foto e documentos <small>({ficha.arquivos.length})</small></h2>
         <DocumentosFicha fichaId={ficha.id} arquivos={ficha.arquivos} tipos={ficha.opcoes.tiposArquivo} />
       </section>
 
@@ -200,13 +238,13 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
 
       <section className="panel">
         <div className="fc-secao-topo">
-          <h2 className="fc-secao-titulo">Parte da empresa</h2>
+          <h2 className="fc-secao-titulo" id="fc-empresa">Parte da empresa</h2>
           {podeEditar && <Button variant="secondary" size="sm" leadingIcon={<Save size={15} />} disabled={ocupado} onClick={salvarEmpresa}>Salvar</Button>}
         </div>
         <EmpresaFicha ficha={ficha} valor={empresa} onChange={setEmpresa} somenteLeitura={!podeEditar} />
       </section>
 
-      <FichaImpressao ficha={ficha} empresa={empresa} />
+      <FichaImpressao ficha={ficha} empresa={empresa} fotoUrl={fotoUrl} />
 
       {link && <LinkFicha aberto onFechar={() => setLink(null)} nome={nome} tipo={ficha.tipo} codigo={link.codigo} expiraEm={link.expiraEm}
         celular={typeof ficha.dados.telefone === "string" ? ficha.dados.telefone : null} />}

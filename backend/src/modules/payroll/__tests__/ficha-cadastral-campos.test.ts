@@ -53,11 +53,11 @@ describe("faltaParaFinalizar", () => {
   const lida = () => (lerDadosPessoa(COMPLETA) as { dados: Record<string, never> }).dados;
 
   test("completa com os documentos obrigatórios não falta nada", () => {
-    expect(faltaParaFinalizar(lida(), ["DOC_FOTO", "COMPROVANTE_ENDERECO"], true)).toEqual([]);
+    expect(faltaParaFinalizar(lida(), ["FOTO_PESSOA", "DOC_FOTO", "COMPROVANTE_ENDERECO"], true)).toEqual([]);
   });
 
   test("admissão sem fotos pede as obrigatórias; atualização não", () => {
-    expect(faltaParaFinalizar(lida(), [], true)).toEqual(["Foto: Documento com foto (RG ou CNH)", "Foto: Comprovante de endereço"]);
+    expect(faltaParaFinalizar(lida(), [], true)).toEqual(["Sua foto (rosto)", "Foto: Documento com foto (RG ou CNH)", "Foto: Comprovante de endereço"]);
     expect(faltaParaFinalizar(lida(), [], false)).toEqual([]);
   });
 

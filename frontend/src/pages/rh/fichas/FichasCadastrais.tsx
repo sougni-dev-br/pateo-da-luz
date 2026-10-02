@@ -12,6 +12,24 @@ import { LinkFicha } from "./LinkFicha";
 import { ROTA_FICHAS, dataBr, rotaFicha, situacao } from "./fichaFormato";
 import "./fichas.css";
 
+const PASSOS: Array<[string, string]> = [
+  ["Gere o link", "e envie pelo WhatsApp"],
+  ["A pessoa preenche", "e manda as fotos dos documentos"],
+  ["Confira", "e complete a parte da empresa"],
+  ["Imprima, assine", "e conclua: vira o cadastro"],
+];
+
+// O que dizer na lista sobre o andamento de cada ficha.
+function andamento(f: FichaCadastralResumo): string {
+  if (f.status === "FINALIZADA") return `Enviada em ${dataBr(f.finalizadaEm)}`;
+  if (f.status === "CONCLUIDA") return `Concluída em ${dataBr(f.concluidaEm)}`;
+  if (f.status === "CANCELADA") return `Cancelada em ${dataBr(f.canceladaEm)}`;
+  if (f.vencida) return `Link venceu em ${dataBr(f.expiraEm)}`;
+  const prazo = `link vale até ${dataBr(f.expiraEm)}`;
+  if (f.status === "PREENCHENDO") return `Em preenchimento · ${prazo}`;
+  return f.primeiroAcessoEm ? `Abriu em ${dataBr(f.primeiroAcessoEm)} · ${prazo}` : `Ainda não abriu · ${prazo}`;
+}
+
 const FILTROS = [
   { value: "ABERTAS", label: "Em andamento" },
   { value: "CONCLUIDA", label: "Concluídas" },
@@ -80,12 +98,11 @@ export function FichasCadastrais() {
   return (
     <div className="stack fc">
       <section className="panel fc-topo">
-        <div className="fc-topo-texto">
-          <p className="fc-descricao">
-            Mande o link pelo WhatsApp: a pessoa preenche a ficha e manda as fotos dos documentos pelo celular.
-            Quando ela finalizar, confira aqui, complete a parte da empresa, imprima para assinar e conclua.
-          </p>
-        </div>
+        <ol className="fc-passos" aria-label="Como funciona">
+          {PASSOS.map(([titulo, texto], i) => (
+            <li key={titulo}><span className="fc-passo-num" aria-hidden="true">{i + 1}</span><span><strong>{titulo}</strong>{texto}</span></li>
+          ))}
+        </ol>
         {podeCriar && <Button leadingIcon={<Plus size={16} />} onClick={() => setNovaAberta(true)}>Nova ficha de admissão</Button>}
       </section>
 
@@ -111,12 +128,7 @@ export function FichasCadastrais() {
                     </span>
                     <span className="fc-item-meta">
                       {f.arquivos > 0 && <span className="fc-item-anexos" title="Arquivos enviados"><Paperclip size={14} aria-hidden="true" /> {f.arquivos}</span>}
-                      <span className="fc-item-quando">
-                        {f.status === "FINALIZADA" ? `Finalizada em ${dataBr(f.finalizadaEm)}`
-                          : f.status === "CONCLUIDA" ? `Concluída em ${dataBr(f.concluidaEm)}`
-                          : f.status === "CANCELADA" ? `Cancelada em ${dataBr(f.canceladaEm)}`
-                          : f.primeiroAcessoEm ? `Aberta em ${dataBr(f.primeiroAcessoEm)}` : "Ainda não abriu"}
-                      </span>
+                      <span className="fc-item-quando">{andamento(f)}</span>
                       <StatusBadge tone={s.tom}>{s.rotulo}</StatusBadge>
                       <ChevronRight size={18} aria-hidden="true" className="fc-item-seta" />
                     </span>

@@ -8,6 +8,8 @@ export type Campo = {
   nome: string; rotulo: string; tipo: TipoCampo; obrigatorio?: boolean; dica?: string;
   lista?: keyof Pick<Opcoes, "estadosCivis" | "racasCores" | "escolaridades" | "ufs">;
   largura?: "inteira" | "meia" | "terco"; autoComplete?: string; padrao?: string;
+  /** Subtítulo mostrado antes deste campo (abre um grupo dentro da etapa). */
+  grupo?: string;
 };
 export type Etapa = { id: string; titulo: string; resumo: string; campos: Campo[] };
 
@@ -15,7 +17,7 @@ export const ETAPAS: Etapa[] = [
   {
     id: "voce", titulo: "Sobre você", resumo: "Nome, nascimento e família de origem",
     campos: [
-      { nome: "nomeCompleto", rotulo: "Nome completo", tipo: "texto", obrigatorio: true, dica: "Como está no seu documento, sem abreviar.", autoComplete: "name" },
+      { grupo: "Identificação", nome: "nomeCompleto", rotulo: "Nome completo", tipo: "texto", obrigatorio: true, dica: "Como está no seu documento, sem abreviar.", autoComplete: "name" },
       { nome: "dataNascimento", rotulo: "Data de nascimento", tipo: "data", obrigatorio: true, largura: "meia", autoComplete: "bday" },
       { nome: "cpf", rotulo: "CPF", tipo: "cpf", obrigatorio: true, largura: "meia" },
       { nome: "sexo", rotulo: "Sexo", tipo: "sexo", obrigatorio: true },
@@ -24,23 +26,23 @@ export const ETAPAS: Etapa[] = [
       { nome: "escolaridade", rotulo: "Escolaridade", tipo: "lista", lista: "escolaridades", obrigatorio: true },
       { nome: "nacionalidade", rotulo: "Nacionalidade", tipo: "texto", largura: "meia", padrao: "Brasileira" },
       { nome: "naturalidade", rotulo: "Cidade onde nasceu", tipo: "texto", largura: "meia", dica: "Ex.: Recife/PE" },
-      { nome: "nomeMae", rotulo: "Nome da mãe", tipo: "texto", obrigatorio: true },
+      { grupo: "Filiação", nome: "nomeMae", rotulo: "Nome da mãe", tipo: "texto", obrigatorio: true },
       { nome: "nomePai", rotulo: "Nome do pai", tipo: "texto", dica: "Deixe em branco se não consta no documento." },
-      { nome: "possuiDeficiencia", rotulo: "Você é pessoa com deficiência?", tipo: "simnao" },
+      { grupo: "Acessibilidade", nome: "possuiDeficiencia", rotulo: "Você é pessoa com deficiência?", tipo: "simnao" },
     ],
   },
   {
     id: "documentos", titulo: "Documentos", resumo: "RG, carteira de trabalho, PIS e título",
     campos: [
-      { nome: "rg", rotulo: "RG (número)", tipo: "texto", obrigatorio: true, largura: "meia" },
+      { grupo: "RG", nome: "rg", rotulo: "RG (número)", tipo: "texto", obrigatorio: true, largura: "meia" },
       { nome: "rgOrgaoEmissor", rotulo: "Órgão emissor", tipo: "texto", largura: "meia", dica: "Ex.: SSP" },
       { nome: "rgUf", rotulo: "Estado do RG", tipo: "lista", lista: "ufs", largura: "meia" },
       { nome: "rgDataEmissao", rotulo: "Data de emissão do RG", tipo: "data", largura: "meia" },
-      { nome: "ctpsNumero", rotulo: "Carteira de trabalho (número)", tipo: "texto", largura: "meia", dica: "Na carteira digital, é o número do CPF." },
+      { grupo: "Carteira de trabalho e PIS", nome: "ctpsNumero", rotulo: "Carteira de trabalho (número)", tipo: "texto", largura: "meia", dica: "Na carteira digital, é o número do CPF." },
       { nome: "ctpsSerie", rotulo: "Série", tipo: "texto", largura: "terco" },
       { nome: "ctpsUf", rotulo: "Estado", tipo: "lista", lista: "ufs", largura: "terco" },
       { nome: "pis", rotulo: "PIS / NIS", tipo: "pis", dica: "Está na carteira de trabalho ou no app Carteira de Trabalho Digital." },
-      { nome: "tituloEleitor", rotulo: "Título de eleitor", tipo: "titulo", largura: "meia" },
+      { grupo: "Título de eleitor", nome: "tituloEleitor", rotulo: "Título de eleitor", tipo: "titulo", largura: "meia" },
       { nome: "tituloZona", rotulo: "Zona", tipo: "texto", largura: "terco" },
       { nome: "tituloSecao", rotulo: "Seção", tipo: "texto", largura: "terco" },
     ],
@@ -48,14 +50,14 @@ export const ETAPAS: Etapa[] = [
   {
     id: "endereco", titulo: "Endereço e contato", resumo: "Onde você mora e como falar com você",
     campos: [
-      { nome: "cep", rotulo: "CEP", tipo: "cep", obrigatorio: true, largura: "meia", autoComplete: "postal-code" },
+      { grupo: "Endereço", nome: "cep", rotulo: "CEP", tipo: "cep", obrigatorio: true, largura: "meia", autoComplete: "postal-code" },
       { nome: "endereco", rotulo: "Rua / Avenida", tipo: "texto", obrigatorio: true, autoComplete: "address-line1" },
       { nome: "numero", rotulo: "Número", tipo: "texto", obrigatorio: true, largura: "meia" },
       { nome: "complemento", rotulo: "Complemento", tipo: "texto", largura: "meia", dica: "Apto, bloco, casa…" },
       { nome: "bairro", rotulo: "Bairro", tipo: "texto", obrigatorio: true },
       { nome: "cidade", rotulo: "Cidade", tipo: "texto", obrigatorio: true, largura: "meia", autoComplete: "address-level2" },
       { nome: "uf", rotulo: "Estado", tipo: "lista", lista: "ufs", obrigatorio: true, largura: "meia" },
-      { nome: "telefone", rotulo: "Celular", tipo: "telefone", obrigatorio: true, largura: "meia", autoComplete: "tel" },
+      { grupo: "Contato", nome: "telefone", rotulo: "Celular", tipo: "telefone", obrigatorio: true, largura: "meia", autoComplete: "tel" },
       { nome: "email", rotulo: "E-mail", tipo: "email", largura: "meia", autoComplete: "email" },
     ],
   },
@@ -63,12 +65,12 @@ export const ETAPAS: Etapa[] = [
   {
     id: "transporte", titulo: "Transporte e pagamento", resumo: "Vale-transporte e chave PIX",
     campos: [
-      { nome: "usaVt", rotulo: "Vai precisar de vale-transporte?", tipo: "simnao", obrigatorio: true },
+      { grupo: "Vale-transporte", nome: "usaVt", rotulo: "Vai precisar de vale-transporte?", tipo: "simnao", obrigatorio: true },
       { nome: "vtTrajeto", rotulo: "Quais conduções você pega (ida e volta)?", tipo: "texto", dica: "Ex.: ônibus 875A até a estação, depois metrô linha 4." },
-      { nome: "pixChave", rotulo: "Chave PIX para receber", tipo: "texto", dica: "CPF, celular, e-mail ou chave aleatória." },
+      { grupo: "Pagamento", nome: "pixChave", rotulo: "Chave PIX para receber o salário", tipo: "texto", dica: "CPF, celular, e-mail ou chave aleatória." },
     ],
   },
-  { id: "fotos", titulo: "Fotos dos documentos", resumo: "Tire foto ou envie o arquivo", campos: [] },
+  { id: "fotos", titulo: "Fotos", resumo: "Sua foto e as dos documentos — tire na hora ou envie da galeria", campos: [] },
   { id: "revisao", titulo: "Revisar e enviar", resumo: "Confira e envie para o RH", campos: [] },
 ];
 

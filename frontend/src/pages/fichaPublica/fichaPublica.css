@@ -33,8 +33,6 @@
 
 .fp-corpo { max-width: 640px; margin: 0 auto; padding: 16px 16px 112px; }
 
-.fp-boasvindas h1 { font-family: Georgia, "Times New Roman", serif; font-size: 1.6rem; font-weight: 400; margin: 6px 0 6px; }
-.fp-boasvindas p { margin: 0 0 16px; color: var(--fp-suave); }
 
 /* Progresso: barra fina + bolinhas numeradas (voltar tocando numa já feita). */
 .fp-progresso { margin: 4px 0 14px; }
@@ -192,3 +190,38 @@ select.fp-entrada {
   .fp-progresso-barra span, .fp-botao, .fp-entrada, .fp-escolha { transition: none; }
 }
 fieldset.fp-campo:focus { outline: none; }
+
+/* Carta de apresentação (primeira tela do link) */
+.fp-carta {
+  background: var(--fp-cartao); border: 1px solid var(--fp-linha); border-radius: var(--fp-raio);
+  padding: 24px 20px 22px; margin-top: 8px; box-shadow: 0 1px 0 rgba(22, 21, 18, 0.03), 0 10px 30px -22px rgba(22, 21, 18, 0.35);
+  border-top: 3px solid var(--fp-ouro);
+}
+.fp-carta-selo {
+  display: inline-block; margin: 0 0 10px; padding: 3px 10px; border-radius: 99px; background: var(--fp-ouro-fundo);
+  color: var(--fp-ouro-escuro); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+}
+.fp-carta-titulo { font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: 1.55rem; line-height: 1.2; margin: 0 0 16px; }
+.fp-carta-texto { color: var(--fp-tinta); font-size: 0.97rem; }
+.fp-carta-texto p { margin: 0 0 10px; }
+.fp-carta-assinatura { margin-top: 14px !important; color: var(--fp-suave); font-size: 0.9rem; font-style: italic; }
+.fp-carta-bloco { margin-top: 18px; padding: 14px 16px; border-radius: 12px; background: var(--fp-papel); border: 1px solid var(--fp-linha); }
+.fp-carta-bloco h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 0.95rem; color: var(--fp-ouro-escuro); }
+.fp-carta-lista { margin: 0; padding-left: 20px; font-size: 0.92rem; }
+.fp-carta-lista li { margin: 4px 0; }
+.fp-carta-fatos { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.fp-carta-fatos li { display: flex; gap: 12px; align-items: flex-start; font-size: 0.88rem; color: var(--fp-suave); }
+.fp-carta-fatos svg { flex: none; margin-top: 2px; color: var(--fp-ouro-escuro); }
+.fp-carta-fatos strong { display: block; color: var(--fp-tinta); font-size: 0.93rem; }
+.fp-carta-botao { width: 100%; margin-top: 22px; }
+.fp-carta-rodape { margin: 12px 0 0; text-align: center; font-size: 0.82rem; color: var(--fp-suave); }
+.fp-nota { margin: 0 0 12px; padding: 10px 14px; border-radius: 12px; background: var(--fp-ouro-fundo); font-size: 0.9rem; }
+
+.fp-grupo {
+  grid-column: span 6; margin: 10px 0 -4px; padding-top: 14px; border-top: 1px solid var(--fp-linha);
+  font-size: 0.74rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fp-ouro-escuro);
+}
+.fp-grade > .fp-grupo:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
+/* Sua foto: miniatura em formato 3x4 */
+.fp-slot--selfie .fp-miniatura { width: 48px; height: 64px; border-radius: 6px; }

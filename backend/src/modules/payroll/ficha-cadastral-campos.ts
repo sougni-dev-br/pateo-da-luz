@@ -16,6 +16,8 @@ export const UFS = [
 ] as const;
 
 export const TIPOS_ARQUIVO = {
+  // Foto da própria pessoa (rosto, estilo 3x4): vai na ficha impressa e identifica o cadastro.
+  FOTO_PESSOA: "Sua foto",
   DOC_FOTO: "Documento com foto (RG ou CNH)",
   CPF: "CPF",
   CTPS: "Carteira de trabalho",
@@ -29,7 +31,7 @@ export const TIPOS_ARQUIVO = {
 } as const;
 export type TipoArquivo = keyof typeof TIPOS_ARQUIVO;
 /** Sem estes a admissão não finaliza. Na atualização nenhum é obrigatório. */
-export const ARQUIVOS_OBRIGATORIOS_ADMISSAO: TipoArquivo[] = ["DOC_FOTO", "COMPROVANTE_ENDERECO"];
+export const ARQUIVOS_OBRIGATORIOS_ADMISSAO: TipoArquivo[] = ["FOTO_PESSOA", "DOC_FOTO", "COMPROVANTE_ENDERECO"];
 
 // Texto livre: nome do campo → tamanho máximo.
 const TEXTO: Record<string, number> = {
@@ -165,7 +167,9 @@ export function faltaParaFinalizar(dados: DadosPessoa, tiposArquivo: string[], e
   // Na atualização o trajeto já está no cadastro (pernas do VT): só a admissão precisa contar.
   if (exigeArquivos && dados.usaVt === true && !dados.vtTrajeto) falta.push(ROTULOS.vtTrajeto);
   if (exigeArquivos) {
-    for (const t of ARQUIVOS_OBRIGATORIOS_ADMISSAO) if (!tiposArquivo.includes(t)) falta.push(`Foto: ${TIPOS_ARQUIVO[t]}`);
+    for (const t of ARQUIVOS_OBRIGATORIOS_ADMISSAO) {
+      if (!tiposArquivo.includes(t)) falta.push(t === "FOTO_PESSOA" ? "Sua foto (rosto)" : `Foto: ${TIPOS_ARQUIVO[t]}`);
+    }
   }
   return [...new Set(falta)];
 }

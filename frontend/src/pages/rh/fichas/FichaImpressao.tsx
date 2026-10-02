@@ -25,7 +25,7 @@ function Linha({ celulas }: { celulas: Celula[] }) {
 const marca = (sim: boolean | null | undefined, rotulo: string) => `(${sim ? "X" : " "}) ${rotulo}`;
 const dinheiro = (v: unknown) => (v == null || v === "" ? "" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 
-export function FichaImpressao({ ficha, empresa }: { ficha: FichaCadastralDetalhe; empresa: FichaCadastralEmpresa }) {
+export function FichaImpressao({ ficha, empresa, fotoUrl }: { ficha: FichaCadastralDetalhe; empresa: FichaCadastralEmpresa; fotoUrl?: string | null }) {
   const d = ficha.dados;
   const v = (campo: string) => valorLegivel(campo, d[campo]);
   const firma = ficha.empresas.find((e) => e.id === empresa.companyId);
@@ -38,7 +38,11 @@ export function FichaImpressao({ ficha, empresa }: { ficha: FichaCadastralDetalh
   return createPortal(
     <div className="fi-raiz" aria-hidden="true">
       <article className="fi-folha">
-        <h1 className="fi-titulo">FICHA CADASTRAL DE EMPREGADO</h1>
+        <header className="fi-cabecalho">
+          <h1 className="fi-titulo">FICHA CADASTRAL DE EMPREGADO</h1>
+          {/* Espaço da foto 3x4: a que a pessoa mandou pelo link, ou em branco para colar a impressa. */}
+          <div className="fi-foto">{fotoUrl ? <img src={fotoUrl} alt="" /> : <span>FOTO 3x4</span>}</div>
+        </header>
 
         <h2 className="fi-secao">1. Empresa</h2>
         <Linha celulas={[{ rotulo: "Nome da empresa", valor: firma?.legalName, span: 8 }, { rotulo: "CNPJ", valor: firma ? formatarCnpj(firma.cnpj) : "", span: 4 }]} />
