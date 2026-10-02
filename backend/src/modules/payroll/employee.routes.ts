@@ -132,7 +132,7 @@ function buildEmployeeData(b: Record<string, unknown>) {
 // Documentos e contrato da ficha de registro. Ausente = não mexe: tela antiga aberta em outro
 // computador, ao salvar, não apaga o que a importação da ficha preencheu.
 const FICHA_TEXTO = [
-  "registroNumero", "matriculaEsocial", "nomeMae", "nomePai", "estadoCivil", "nacionalidade", "naturalidade",
+  "nomeCompleto", "registroNumero", "matriculaEsocial", "nomeMae", "nomePai", "estadoCivil", "nacionalidade", "naturalidade",
   "racaCor", "escolaridade", "rgOrgaoEmissor", "tituloEleitor", "tituloZona", "tituloSecao",
   "ctpsNumero", "ctpsSerie", "ctpsUf", "cbo", "jornadaInicio", "jornadaFim", "intervaloInicio", "intervaloFim",
 ] as const;

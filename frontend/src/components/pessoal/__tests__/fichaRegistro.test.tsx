@@ -96,6 +96,12 @@ describe("campos da ficha no formulário", () => {
     });
   });
 
+  test("nome completo vai e volta como os outros campos da ficha", () => {
+    const original = fichaFormDe({ nomeCompleto: "ANA SILVA DE TAL" } as unknown as Employee);
+    expect(original.nomeCompleto).toBe("ANA SILVA DE TAL");
+    expect(fichaParaSalvar({ ...original, nomeCompleto: "ANA SILVA DE TAL SOUZA" }, original)).toEqual({ nomeCompleto: "ANA SILVA DE TAL SOUZA" });
+  });
+
   test("ficha aberta ANTES da importação e salva depois não manda os campos importados (não os apaga)", () => {
     const abertaVazia = fichaFormVazio;
     const enviado = fichaParaSalvar({ ...abertaVazia, estadoCivil: "Casado" }, abertaVazia);

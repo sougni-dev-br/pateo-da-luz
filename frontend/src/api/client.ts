@@ -5553,6 +5553,8 @@ export function getEmployeeHistorico(id: string) {
 
 /** Documentos e contrato da ficha de registro da contabilidade. Datas em "AAAA-MM-DD". Só consulta. */
 export type EmployeeFichaCampos = {
+  /** Nome como está na carteira; Nome + Sobrenome podem ser mais curtos. */
+  nomeCompleto: string | null;
   registroNumero: string | null; matriculaEsocial: string | null;
   nomeMae: string | null; nomePai: string | null;
   estadoCivil: string | null; nacionalidade: string | null; naturalidade: string | null;

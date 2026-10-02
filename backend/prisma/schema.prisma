@@ -2496,6 +2496,9 @@ model Employee {
   // Ficha de registro de empregado (contabilidade): documentos e contrato em carteira.
   // Só consulta — nenhum cálculo lê estes campos. Jornada é a do contrato; o turno real
   // da escala continua em shiftStart/shiftEnd.
+  // Nome como está na carteira/ficha ("ANDERSON FERNANDES DOS SANTOS"); Nome + Sobrenome
+  // seguem como o restaurante chama a pessoa e podem ser mais curtos.
+  nomeCompleto      String?
   registroNumero    String?
   matriculaEsocial  String?
   nomeMae           String?

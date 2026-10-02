@@ -104,10 +104,10 @@ describe("salvar o cadastro com os campos da ficha", () => {
 
   test("campos enviados são gravados: texto aparado, vazio vira null, data e UF normalizadas", async () => {
     const r = await request(app).put("/employees/e1").send(corpo({
-      nomeMae: "  MARIA DE TAL  ", nomePai: "", ctpsUf: "sp", rgDataEmissao: "2016-01-15", possuiDeficiencia: false, cbo: "513210",
+      nomeCompleto: " ANA SILVA DE TAL ", nomeMae: "  MARIA DE TAL  ", nomePai: "", ctpsUf: "sp", rgDataEmissao: "2016-01-15", possuiDeficiencia: false, cbo: "513210",
     }));
     expect(r.status).toBe(200);
-    expect(gravado()).toMatchObject({ nomeMae: "MARIA DE TAL", nomePai: null, ctpsUf: "SP", possuiDeficiencia: false, cbo: "513210" });
+    expect(gravado()).toMatchObject({ nomeCompleto: "ANA SILVA DE TAL", nomeMae: "MARIA DE TAL", nomePai: null, ctpsUf: "SP", possuiDeficiencia: false, cbo: "513210" });
     expect(gravado().rgDataEmissao).toEqual(d("2016-01-15"));
   });
 
