@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 // Fechar a gorjeta lança os acertos da lista de pagamento no Contas a Pagar; e há uma rota
 // para fazer o mesmo à mão (botão na aba da lista de pagamento), com a permissão da Folha.
-vi.mock("../../../config/database.js", () => ({ prisma: {} }));
+vi.mock("../../../config/database.js", () => ({ prisma: { tipPeriod: { findUnique: vi.fn(async () => ({ status: "CLOSED" })) } } }));
 vi.mock("../../security/security-utils.js", () => ({
   getSessionUser: vi.fn(), auditLog: vi.fn(async () => undefined), requestIp: vi.fn(() => "127.0.0.1"),
 }));
@@ -116,6 +116,15 @@ describe("POST /periods/:ano/:mes/acertos-lista (botão)", () => {
   test("sem sessão: 401", async () => {
     vi.mocked(getSessionUser).mockResolvedValue(null as never);
     expect((await request(app).post(url)).status).toBe(401);
+  });
+
+  test("apuração ainda aberta: 409 e nada é lançado", async () => {
+    const { prisma } = await import("../../../config/database.js");
+    vi.mocked((prisma as unknown as { tipPeriod: { findUnique: ReturnType<typeof vi.fn> } }).tipPeriod.findUnique).mockResolvedValueOnce({ status: "OPEN" });
+    const r = await request(app).post(url);
+    expect(r.status).toBe(409);
+    expect(r.body.message).toMatch(/aberta/);
+    expect(lancarAcertosDaLista).not.toHaveBeenCalled();
   });
 
   test("competência inválida: 400", async () => {

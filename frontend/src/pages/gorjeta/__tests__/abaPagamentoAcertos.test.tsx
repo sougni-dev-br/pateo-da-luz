@@ -90,6 +90,15 @@ describe("lançar os acertos da lista no Contas a Pagar", () => {
     await waitFor(() => expect(onError).toHaveBeenCalledWith(expect.stringContaining("Mês 09/2026 fechado")));
   });
 
+  test("apuração aberta: botão desabilitado, com o motivo, e nada é lançado", () => {
+    const aberta = comp([pessoa({})], { status: "OPEN" });
+    render(<AbaPagamento comp={aberta} rows={toRows(aberta)} readonly onRow={vi.fn()} onError={vi.fn()} />, sessao("ADMIN"));
+    const botao = screen.getByRole("button", BOTAO);
+    expect(botao).toBeDisabled();
+    expect(botao.getAttribute("title")).toMatch(/Feche a apuração antes/);
+    expect(lancarAcertosLista).not.toHaveBeenCalled();
+  });
+
   test("sem a permissão de editar a Folha, sem período ou sem ninguém sem registro: sem o botão", () => {
     const c = comp([pessoa({})]);
     const { unmount } = render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />, sessao(null));

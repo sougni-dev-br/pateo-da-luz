@@ -727,8 +727,9 @@ tipCommissionRouter.post("/periods/:year/:month/close", async (request, response
 });
 
 // ─── Lançar os acertos da lista de pagamento no Contas a Pagar (botão) ─────
-// Período aberto ou fechado: aberto lança o valor de agora (lançar de novo atualiza o que não
-// foi pago); fechado, o valor gravado no fechamento.
+// Só com a apuração fechada: com ela aberta os valores são parciais (o mês ainda corre) e
+// virariam títulos que alguém pode pagar. O fechamento já lança sozinho; o botão serve para
+// atualizar depois (vencimento, valor ainda não pago). Regra do dono, 02/10/2026.
 tipCommissionRouter.post("/periods/:year/:month/acertos-lista", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
@@ -739,6 +740,14 @@ tipCommissionRouter.post("/periods/:year/:month/acertos-lista", async (request, 
   const month = parseInt(request.params.month, 10);
   if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
     return response.status(400).json({ message: "Competência inválida." });
+  }
+  const periodo = await prisma.tipPeriod.findUnique({
+    where: { competenceYear_competenceMonth: { competenceYear: year, competenceMonth: month } }, select: { status: true },
+  });
+  if (periodo?.status !== "CLOSED") {
+    return response.status(409).json({
+      message: `A apuração de ${String(month).padStart(2, "0")}/${year} ainda está aberta: feche a apuração antes de lançar os acertos (o fechamento já lança).`,
+    });
   }
   try {
     const r = await lancarAcertosDaLista(year, month, { id: user.id, name: user.name });
