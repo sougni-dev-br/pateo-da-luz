@@ -3,8 +3,10 @@ import crypto from "node:crypto";
 import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDate } from "../../shared/utils/parse-date.js";
-import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
+import { auditLog, getSessionUser, requestIp, requireRole, type SessionUser } from "../security/security-utils.js";
+import { userHasPermission } from "../security/menu-permissions.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
+import { employeeFullName, employeeToSupplierDraft, onlyDigits } from "./employee-supplier.js";
 
 export const supplierRouter = Router();
 
@@ -180,6 +182,54 @@ supplierRouter.get("/", async (request, response) => {
       ORDER BY "name" ASC`;
   }
   response.json(suppliers);
+});
+
+// Funcionários para reaproveitar como fornecedor (reembolsos). Traz CPF e PIX: além de
+// criar fornecedor, exige poder ver Funcionários (mesma regra de podeVerDadosPessoais).
+supplierRouter.get("/employee-options", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) {
+    response.status(401).json({ message: "Sessao obrigatoria." });
+    return;
+  }
+  const [canCreate, canSeeEmployees] = await Promise.all([
+    userHasPermission(user as SessionUser, "suppliers", "create"),
+    userHasPermission(user as SessionUser, "employees", "view")
+  ]);
+  if (!canCreate || !canSeeEmployees) {
+    response.status(403).json({ message: "Reaproveitar funcionário exige criar Fornecedores e ver Funcionários." });
+    return;
+  }
+
+  const employees = await prisma.employee.findMany({
+    where: { deletedAt: null },
+    orderBy: [{ isActive: "desc" }, { firstName: "asc" }, { lastName: "asc" }],
+    select: {
+      id: true, firstName: true, lastName: true, cpf: true, phone: true, email: true, position: true, isActive: true,
+      bankName: true, bankAgency: true, bankAccount: true, bankAccountDigit: true, bankAccountType: true,
+      pixKeyType: true, pixKey: true
+    }
+  });
+  const cpfs = [...new Set(employees.map((e) => onlyDigits(e.cpf)).filter((d) => d.length > 0))];
+  const existing = cpfs.length === 0 ? [] : await prisma.$queryRaw<Array<{ id: string; name: string; isActive: boolean; digits: string }>>`
+    SELECT "id", "name", "isActive", regexp_replace(COALESCE("document", ''), '[^0-9]', '', 'g') AS "digits"
+    FROM "Supplier"
+    WHERE regexp_replace(COALESCE("document", ''), '[^0-9]', '', 'g') = ANY(${cpfs})
+    ORDER BY "isActive" DESC, "name" ASC
+  `;
+  const supplierByCpf = new Map<string, { id: string; name: string; isActive: boolean }>();
+  for (const s of existing) {
+    if (!supplierByCpf.has(s.digits)) supplierByCpf.set(s.digits, { id: s.id, name: s.name, isActive: s.isActive });
+  }
+
+  response.json(employees.map((employee) => ({
+    employeeId: employee.id,
+    name: employeeFullName(employee),
+    position: employee.position,
+    isActive: employee.isActive,
+    draft: employeeToSupplierDraft(employee),
+    existingSupplier: supplierByCpf.get(onlyDigits(employee.cpf)) ?? null
+  })));
 });
 
 supplierRouter.post("/", async (request, response) => {
