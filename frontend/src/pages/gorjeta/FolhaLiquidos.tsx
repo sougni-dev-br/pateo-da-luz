@@ -11,7 +11,7 @@ import { Button, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { exportarFolhaLiquidos } from "./exportarPdf";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
-import { money, mutedStyle, panelStyle } from "./gorjetaUtils";
+import { fmtDate, money, mutedStyle, panelStyle } from "./gorjetaUtils";
 import { ApelidosContext, NomePessoa, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 
@@ -185,6 +185,12 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
           </Table.Row>
         </Table.Body>
       </Table>
+      {(folha.jaPagos?.length ?? 0) > 0 && (
+        <div style={{ ...mutedStyle, fontSize: 13, marginTop: 10 }} aria-label="Já pagos">
+          <strong>Já pagos (fora desta lista e do total):</strong>{" "}
+          {folha.jaPagos!.map((p) => `${p.nome} ${money(p.valor)} em ${fmtDate(p.pagoEm)}`).join(" · ")}
+        </div>
+      )}
     </div>
   );
 }
