@@ -9,23 +9,23 @@ const pessoa = (firstName: string, lastName: string, displayName: string | null 
 
 describe("nome na impressão de aniversariantes", () => {
   test("nome e sobrenome: o Nome inteiro + o último sobrenome", () => {
-    expect(nomeParaExibir(pessoa("[nome omitido]", "Souza Lima"), "PRENOME_SOBRENOME")).toBe("[nome omitido] Lima");
-    expect(nomeParaExibir(pessoa("Ana", "Batista da Silva"), "PRENOME_SOBRENOME")).toBe("Ana Silva");
+    expect(nomeParaExibir(pessoa("Ana Beatriz", "Souza Lima"), "PRENOME_SOBRENOME")).toBe("Ana Beatriz Lima");
+    expect(nomeParaExibir(pessoa("Ana", "Moura da Silva"), "PRENOME_SOBRENOME")).toBe("Ana Silva");
     expect(nomeParaExibir(pessoa("Bruno", ""), "PRENOME_SOBRENOME")).toBe("Bruno");
   });
 
   test("agnome acompanha o sobrenome de antes", () => {
-    expect(ultimoSobrenome("[nome omitido] Sobrinho")).toBe("[nome omitido]");
-    expect(ultimoSobrenome("[nome omitido] [nome omitido]")).toBe("[nome omitido]");
+    expect(ultimoSobrenome("Rocha Prado Sobrinho")).toBe("Prado Sobrinho");
+    expect(ultimoSobrenome("Lopes dos Reis Neto")).toBe("Reis Neto");
     expect(ultimoSobrenome("Costa Júnior")).toBe("Costa Júnior");
     expect(ultimoSobrenome("Neto")).toBe("Neto");
   });
 
   test("as outras formas continuam como eram", () => {
-    const p = pessoa("[nome omitido]", "Souza Lima", "Cida");
-    expect(nomeParaExibir(p, "APELIDO")).toBe("Cida");
-    expect(nomeParaExibir(p, "PRIMEIRO")).toBe("Maria");
-    expect(nomeParaExibir(p, "COMPLETO")).toBe("[nome omitido] Souza Lima");
+    const p = pessoa("Ana Beatriz", "Souza Lima", "Bia");
+    expect(nomeParaExibir(p, "APELIDO")).toBe("Bia");
+    expect(nomeParaExibir(p, "PRIMEIRO")).toBe("Ana");
+    expect(nomeParaExibir(p, "COMPLETO")).toBe("Ana Beatriz Souza Lima");
   });
 });
 

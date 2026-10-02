@@ -56,7 +56,7 @@ export function textoPdf(s: string): string {
 
 const PARTICULAS = new Set(["da", "de", "di", "do", "du", "das", "dos", "e"]);
 
-/** Nome no envio como nome próprio ("Maria Jose Silva de Freitas"), venha em maiúsculas ou não. */
+/** Nome no envio como nome próprio ("Fulana Rosa Lima de Tal"), venha em maiúsculas ou não. */
 export const nomeNoEnvio = (nome: string) =>
   textoPdf(nome.trim().toLocaleLowerCase("pt-BR").split(/\s+/)
     .map((p, i) => (i > 0 && PARTICULAS.has(p) ? p : p.charAt(0).toLocaleUpperCase("pt-BR") + p.slice(1)))
