@@ -48,7 +48,8 @@ test("modo Pateo: uma lista só, em ordem alfabética, com a empresa curta", asy
   expect(tabelas[0].head[0]).toEqual(["Funcionário", "Empresa", "Líquido", "Dados bancários", "Pago"]);
   expect(tabelas[0].body.map((r) => r[0])).toEqual(["Álvaro Fictício", "Bruno Fictício", "Zuleica de Tal"]);
   expect(tabelas[0].body.map((r) => r[1])).toEqual(["Sem registro", "Empresa Ficticia", "Outra Ficticia"]);
-  expect(tabelas[0].foot[0]).toEqual(["Total", "", "R$ 600,00", "", ""]);
+  // Lista única: sem linha de total na tabela (o total vem na faixa logo abaixo).
+  expect(tabelas[0].foot).toEqual([]);
 });
 
 test("nome curto da empresa: até a atividade ou o tipo societário", () => {

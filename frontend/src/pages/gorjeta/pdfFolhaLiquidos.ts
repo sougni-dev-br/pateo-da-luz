@@ -35,7 +35,8 @@ export const COLUNAS_OPCIONAIS_PDF: Array<{ chave: ColunaOpcionalPdf; rotulo: st
 type Coluna = "nome" | "valor" | ColunaOpcionalPdf;
 const TITULO: Record<Coluna, string> = { nome: "Funcionário", empresa: "Empresa", valor: "Líquido", banco: "Dados bancários", pago: "Pago" };
 
-type Bloco = { titulo: string; subtitulo: string; comEmpresa: boolean; rotuloSubtotal: string };
+/** rotuloSubtotal null: sem linha de subtotal (lista única, o total já vem na faixa logo abaixo). */
+type Bloco = { titulo: string; subtitulo: string; comEmpresa: boolean; rotuloSubtotal: string | null };
 
 /** As colunas de um bloco, na ordem: o líquido sempre logo depois do nome (e da empresa). */
 export function colunasDoBloco(comEmpresa: boolean, ocultas: ReadonlySet<string>): Coluna[] {
@@ -116,9 +117,10 @@ export async function gerarPdfFolhaLiquidos(
     };
     const ESTILO: Record<Coluna, Record<string, unknown>> = {
       nome: { cellWidth: "auto" },
-      empresa: { cellWidth: 26, fontSize: 8, textColor: [...CINZA] },
+      // Largo o bastante para "Pateo Frei Caneca" numa linha só.
+      empresa: { cellWidth: 34, fontSize: 8, textColor: [...CINZA] },
       valor: { cellWidth: 28, halign: "right", fontStyle: "bold" },
-      banco: { cellWidth: comEmpresa ? 64 : 72, fontSize: 8 },
+      banco: { cellWidth: comEmpresa ? 54 : 72, fontSize: 8 },
       pago: { cellWidth: 12, halign: "center" },
     };
     if (y > H - 60) { doc.addPage(); y = 20; }
@@ -143,7 +145,7 @@ export async function gerarPdfFolhaLiquidos(
       alternateRowStyles: { fillColor: [...LISTRA] },
       head: [cols.map((c) => TITULO[c])],
       body: lista.map((l) => cols.map((c) => celula(c, l))),
-      foot: [cols.map((c) => (c === "nome" ? textoPdf(bloco.rotuloSubtotal) : c === "valor" ? reais(soma(lista)) : ""))],
+      foot: bloco.rotuloSubtotal == null ? [] : [cols.map((c) => (c === "nome" ? textoPdf(bloco.rotuloSubtotal!) : c === "valor" ? reais(soma(lista)) : ""))],
       columnStyles: Object.fromEntries(cols.map((c, i) => [i, ESTILO[c]])),
       didParseCell: (d: { section: string; row: { index: number }; column: { index: number }; cell: Celula }) => {
         if (d.section === "head" && d.column.index === C.valor) d.cell.styles.halign = "right";
@@ -155,7 +157,9 @@ export async function gerarPdfFolhaLiquidos(
         // Aviso da linha (pago a menos, acerto ajustado, vínculo a confirmar) vai embaixo do nome, em cinza.
         if (d.column.index === 0 && l.aviso) {
           d.cell.styles.valign = "top";
-          d.cell.styles.minCellHeight = 7.4 + doc.splitTextToSize(textoPdf(l.aviso), larguraAviso).length * 3.2;
+          // As linhas do aviso contam na fonte em que ele é desenhado (7,2), não na da tabela.
+          doc.setFontSize(7.2);
+          d.cell.styles.minCellHeight = 7.4 + doc.splitTextToSize(textoPdf(l.aviso), larguraAviso).length * 3;
         }
       },
       didDrawCell: (d: { section: string; row: { index: number }; column: { index: number }; cell: CelulaDesenho }) => {
@@ -189,7 +193,7 @@ export async function gerarPdfFolhaLiquidos(
 
   if (opcoes.modo === "alfabetica") {
     desenharBloco(ordemAlfabetica(folha.linhas), {
-      titulo: "Todos os funcionários", subtitulo: "em ordem alfabética", comEmpresa: true, rotuloSubtotal: "Total",
+      titulo: "Todos os funcionários", subtitulo: "em ordem alfabética", comEmpresa: true, rotuloSubtotal: null,
     });
   } else {
     for (const grupo of [...new Set(folha.linhas.map((l) => l.grupo))]) {
@@ -201,7 +205,10 @@ export async function gerarPdfFolhaLiquidos(
     }
   }
 
-  if (y > H - 60) { doc.addPage(); y = 20; }
+  // O fechamento (total, regras, já pagos e assinatura) vai inteiro para a página seguinte só se não couber.
+  const jaPagosQtd = (folha.jaPagos ?? []).length;
+  const fechamento = 14 + REGRAS.length * 3.8 + (jaPagosQtd > 0 ? 7 + jaPagosQtd * 4 : 0) + 24;
+  if (y + fechamento > H - 16) { doc.addPage(); y = 20; }
   faixaTotal(doc, y, `Total a pagar   (${plural(folha.linhas.length, "pessoa", "pessoas")})`, reais(folha.total));
   y += 14;
 
