@@ -22,7 +22,7 @@ import { PainelFiltros } from "./payables/PainelFiltros";
 import { ResumoKpis, type CartaoResumo } from "./payables/ResumoKpis";
 import {
   addDaysKey, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dateKey,
-  isExtra, isPayroll, isSimpleLedger, isTaxPayment, minDateKey, rotuloPeriodo, somarValores, todayKey,
+  isExtra, isPayroll, isSimpleLedger, isTaxPayment, juntarVencidosAnteriores, minDateKey, rotuloPeriodo, somarValores, todayKey,
   type FiltrosPagar
 } from "./payables/regras";
 import { ConfirmaBaixaDuplicada } from "./payables/ConfirmaBaixaDuplicada";
@@ -132,16 +132,27 @@ export function Payables({ user }: PayablesProps) {
       const dateParams = noDueDateFlag
         ? { noDueDate: true as const }
         : periodFilters;
-      const [payableRows, allRows, supplierRows, methodRows, companyRows] = await Promise.all([
-        getPayables({ ...apiFilters, ...dateParams, origin: origin as "all" | "purchases" | "taxes" }),
-        getPayables({ ...periodFilters, origin: origin as "all" | "purchases" | "taxes" }),
+      const orig = origin as "all" | "purchases" | "taxes";
+      // Vencido não pago aparece sempre, mesmo de antes do período (ex.: rescisão que
+      // venceu no mês passado com a tela em "Mês atual"). Só quando o status pedido
+      // admite vencidos.
+      const buscaVencidos = !noDueDateFlag && Boolean(activePeriod.startDate)
+        && (!activeFilters.status || activeFilters.status === "OVERDUE");
+      const vencidosAntes = (extra: Record<string, string | undefined>) => buscaVencidos
+        ? getPayables({ ...extra, status: "OVERDUE", endDate: activePeriod.startDate, origin: orig })
+        : Promise.resolve([] as Awaited<ReturnType<typeof getPayables>>);
+      const [periodoRows, periodoAllRows, vencidosRows, vencidosAllRows, supplierRows, methodRows, companyRows] = await Promise.all([
+        getPayables({ ...apiFilters, ...dateParams, origin: orig }),
+        getPayables({ ...periodFilters, origin: orig }),
+        vencidosAntes(apiFilters),
+        vencidosAntes({}),
         suppliers.length ? Promise.resolve(suppliers) : getSuppliers(),
         paymentMethods.length ? Promise.resolve(paymentMethods) : getPaymentMethods(),
         companies.length ? Promise.resolve(companies) : getCompanies().catch(() => [] as Company[])
       ]);
       if (!atual()) return;
-      setPayables(payableRows);
-      setAllPayables(allRows);
+      setPayables(juntarVencidosAnteriores(periodoRows, vencidosRows));
+      setAllPayables(juntarVencidosAnteriores(periodoAllRows, vencidosAllRows));
       setSuppliers(supplierRows);
       setPaymentMethods(methodRows);
       setCompanies(companyRows.filter((c) => c.isActive));

@@ -282,3 +282,14 @@ export const OPCOES_PERIODO = [
 export function rotuloPeriodo(preset: string): string {
   return OPCOES_PERIODO.find((o) => o.value === preset)?.label ?? "Período";
 }
+
+/**
+ * Vencido não pago fica sempre à vista: o período escolhido vale para o que ainda vai vencer,
+ * mas o que venceu antes do início dele e não foi pago entra na lista (grupo "Vencidos").
+ * Junta sem repetir (mesmo título nas duas buscas).
+ */
+export function juntarVencidosAnteriores(doPeriodo: Payable[], vencidosAntes: Payable[]): Payable[] {
+  const chave = (p: Payable) => `${p.sourceType ?? ""}:${p.id}`;
+  const vistos = new Set(doPeriodo.map(chave));
+  return [...vencidosAntes.filter((p) => !vistos.has(chave(p)) && estaEmAberto(p)), ...doPeriodo];
+}
