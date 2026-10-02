@@ -24,6 +24,14 @@ describe("forma prevista do título", () => {
     expect(formaPrevistaDoTitulo(t(null, "BOLETO 3X"), METODOS, FORMAS)).toBe("id:m-boleto");
     expect(formaPrevistaDoTitulo(t(null, "PIX / 1x"), METODOS, FORMAS)).toBe("id:m-pix");
   });
+  test("folha, extras e lote da folha: PIX, como é paga a folha", () => {
+    for (const sourceType of ["PAYROLL", "EXTRA", "FOLHA_LOTE"]) {
+      expect(formaPrevistaDoTitulo({ ...t(null), sourceType } as Payable, METODOS, FORMAS)).toBe("id:m-pix");
+    }
+  });
+  test("compra sem forma não vira PIX", () => {
+    expect(formaPrevistaDoTitulo({ ...t(null), sourceType: "DIRECT" } as Payable, METODOS, FORMAS)).toBe("");
+  });
   test("sem forma ou forma que não existe mais: vazio", () => {
     expect(formaPrevistaDoTitulo(t(null), METODOS, FORMAS)).toBe("");
     expect(formaPrevistaDoTitulo(t(null, "CHEQUE"), METODOS, FORMAS)).toBe("");
