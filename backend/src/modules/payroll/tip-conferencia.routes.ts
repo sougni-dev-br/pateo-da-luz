@@ -16,7 +16,7 @@ import { onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { minutosValidos } from "./hora-extra.js";
 import {
-  type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, conferir, ehPendente, esconderTeto, montarFolhaLiquidos,
+  type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, conferir, ehPendente, esconderTeto, montarFolhaLiquidos, separarJaPagos,
 } from "./tip-conferencia.js";
 
 export const tipConferenciaRouter = Router();
@@ -308,11 +308,24 @@ tipConferenciaRouter.get("/periods/:year/:month/folha-liquidos", async (request,
     extratosDoPeriodo(periodo.id),
     estadoEtapas(periodo.id),
   ]);
-  const linhas = montarFolhaLiquidos(pessoas, extratos.map((e) => e.dados),
+  const todas = montarFolhaLiquidos(pessoas, extratos.map((e) => e.dados),
     await combinadosDe(extratos, periodo.competenceYear, periodo.competenceMonth));
+  // Salário da competência já baixado no Contas a Pagar: sai da lista do banco.
+  const ids = todas.flatMap((l) => (l.employeeId ? [l.employeeId] : []));
+  const salariosPagos = ids.length === 0 ? [] : await prisma.payrollItem.findMany({
+    where: {
+      employeeId: { in: ids }, type: "SALARIO", competenceYear: periodo.competenceYear, competenceMonth: periodo.competenceMonth,
+      deletedAt: null, status: { not: "CANCELED" }, paymentDate: { not: null },
+    },
+    select: { employeeId: true, paidAmount: true, amount: true, paymentDate: true },
+  });
+  const pagos = new Map(salariosPagos.map((s) => [s.employeeId, {
+    valor: Number(s.paidAmount ?? s.amount), pagoEm: s.paymentDate!.toISOString().slice(0, 10),
+  }]));
+  const { linhas, jaPagos } = separarJaPagos(todas, pagos);
   const combinados = await combinadosVigentes(periodo.competenceYear, periodo.competenceMonth, null);
   response.json({
-    code: periodo.code, label: periodo.label, linhas,
+    code: periodo.code, label: periodo.label, linhas, jaPagos,
     total: Math.round(linhas.reduce((a, l) => a + l.valor, 0) * 100) / 100,
     extratos: extratos.map((e) => e.meta.empresa),
     etapas,

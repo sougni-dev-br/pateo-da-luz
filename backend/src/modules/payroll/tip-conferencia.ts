@@ -199,3 +199,23 @@ export function montarFolhaLiquidos(apuracao: PessoaApurada[], extratos: Extrato
   }
   return linhas;
 }
+
+export type JaPagoFolha = { employeeId: string; nome: string; grupo: string; valor: number; pagoEm: string };
+
+/**
+ * Quem já teve o salário da competência baixado no Contas a Pagar (ex.: acerto de quem recebe
+ * por quinzena, pago no dia 30) sai da folha de líquidos e do total: a lista é o que ainda
+ * falta o banco pagar. Volta como "já pagos", com o valor e a data da baixa.
+ */
+export function separarJaPagos(
+  linhas: LinhaFolha[], pagos: Map<string, { valor: number; pagoEm: string }>,
+): { linhas: LinhaFolha[]; jaPagos: JaPagoFolha[] } {
+  const jaPagos: JaPagoFolha[] = [];
+  const restantes = linhas.filter((l) => {
+    const p = l.employeeId ? pagos.get(l.employeeId) : undefined;
+    if (!p) return true;
+    jaPagos.push({ employeeId: l.employeeId!, nome: l.nome, grupo: l.grupo, valor: p.valor, pagoEm: p.pagoEm });
+    return false;
+  });
+  return { linhas: restantes, jaPagos };
+}
