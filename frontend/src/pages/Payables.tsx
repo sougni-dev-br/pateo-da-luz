@@ -22,7 +22,7 @@ import { ModalEstorno, ModalHistorico } from "./payables/ModalEstorno";
 import { PainelFiltros } from "./payables/PainelFiltros";
 import { ResumoKpis, type CartaoResumo } from "./payables/ResumoKpis";
 import {
-  addDaysKey, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dataDaBaixaNoLote, dateKey, formaDaBaixaNoLote, formaPrevistaDoTitulo, payloadDaForma,
+  addDaysKey, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dataDaBaixaNoLote, dateKey, empresaDaBaixaNoLote, formaDaBaixaNoLote, formaPrevistaDoTitulo, payloadDaForma,
   isExtra, isFolhaLote, isPayroll, isSimpleLedger, isTaxPayment, juntarVencidosAnteriores, minDateKey, periodoPuxaVencidosAnteriores, rotuloPeriodo, somarValores, todayKey,
   type FiltrosPagar
 } from "./payables/regras";
@@ -112,6 +112,7 @@ export function Payables({ user }: PayablesProps) {
   // Baixa em lote: cada título vencido baixado na própria data de vencimento (em vez da data única).
   const [loteUsarVencimento, setLoteUsarVencimento] = useState(false);
   const [loteUsarFormaDoTitulo, setLoteUsarFormaDoTitulo] = useState(false);
+  const [loteUsarEmpresaDoTitulo, setLoteUsarEmpresaDoTitulo] = useState(false);
   const [filtrosAbertos, setFiltrosAbertos] = useState(() => {
     try { return window.localStorage.getItem(CHAVE_FILTROS_ABERTOS) === "1"; } catch { return false; }
   });
@@ -468,6 +469,7 @@ export function Payables({ user }: PayablesProps) {
     setPaymentForm(formVazio());
     setLoteUsarVencimento(false);
     setLoteUsarFormaDoTitulo(false);
+    setLoteUsarEmpresaDoTitulo(false);
     setBatchResult(null);
     setSuspeitosLote(null);
     setBatchOpen(true);
@@ -567,9 +569,25 @@ export function Payables({ user }: PayablesProps) {
     let ok = 0;
     const comum = {
       paymentNotes: paymentForm.paymentNotes || null,
-      differenceReason: null,
-      payingCompanyId: paymentForm.payingCompanyId || null,
-      companyBankAccountId: paymentForm.companyBankAccountId || null
+      differenceReason: null
+    };
+    // Empresa pagadora: a do lançamento de cada título ou a única. A conta é a primeira da
+    // empresa, como na escolha manual; a da empresa única é a que o formulário já trouxe.
+    const empresaDe = (p: Payable) => empresaDaBaixaNoLote(loteUsarEmpresaDoTitulo, p.companyId, paymentForm.payingCompanyId);
+    const contaDaEmpresa = new Map<string, string | null>();
+    // Conta da empresa única ainda chegando (escolhida há pouco): busca abaixo, como as demais.
+    if (paymentForm.payingCompanyId && paymentForm.companyBankAccountId) contaDaEmpresa.set(paymentForm.payingCompanyId, paymentForm.companyBankAccountId);
+    for (const id of new Set(selecionados.filter((p) => !isTaxPayment(p)).map(empresaDe).filter(Boolean))) {
+      if (contaDaEmpresa.has(id)) continue;
+      try {
+        contaDaEmpresa.set(id, (await getAllBankAccounts(id))[0]?.id ?? null);
+      } catch {
+        contaDaEmpresa.set(id, null);
+      }
+    }
+    const pagadora = (p: Payable) => {
+      const id = empresaDe(p);
+      return { payingCompanyId: id || null, companyBankAccountId: id ? contaDaEmpresa.get(id) ?? null : null };
     };
 
     // Sequencial de propósito: cada título gera a sua baixa e o seu registro de
@@ -584,9 +602,9 @@ export function Payables({ user }: PayablesProps) {
         if (isTaxPayment(p)) {
           await payTaxPayment(p.id, { paymentDate: dataBaixa, paidAmount: valor, comments: paymentForm.paymentNotes || null });
         } else if (isPayroll(p) || isExtra(p) || isFolhaLote(p)) {
-          await payPessoal(p, { paymentDate: dataBaixa, paidAmount: valor, ...forma, ...comum, ...(confirmados.has(p.id) ? { confirmaDuplicidade: true } : {}) });
+          await payPessoal(p, { paymentDate: dataBaixa, paidAmount: valor, ...forma, ...comum, ...pagadora(p), ...(confirmados.has(p.id) ? { confirmaDuplicidade: true } : {}) });
         } else {
-          await payInstallment(p.id, { paidDate: dataBaixa, paidAmount: valor, ...forma, ...comum });
+          await payInstallment(p.id, { paidDate: dataBaixa, paidAmount: valor, ...forma, ...comum, ...pagadora(p) });
         }
         ok += 1;
       } catch (error) {
@@ -958,6 +976,8 @@ export function Payables({ user }: PayablesProps) {
           usarFormaDoTitulo={loteUsarFormaDoTitulo}
           onUsarFormaDoTitulo={setLoteUsarFormaDoTitulo}
           formaPrevista={formaPrevista}
+          usarEmpresaDoTitulo={loteUsarEmpresaDoTitulo}
+          onUsarEmpresaDoTitulo={setLoteUsarEmpresaDoTitulo}
           onEmpresa={(id) => void handleCompanyChange(id)}
           formas={effectivePaymentOptions}
           companies={companies}

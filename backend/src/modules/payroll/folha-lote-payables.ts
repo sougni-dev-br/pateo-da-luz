@@ -72,6 +72,8 @@ export function lotesParaPayables(f: FiltroLotes) {
       NULL::text AS "purchaseNumber",
       NULL::text AS "invoiceNumber",
       NULL::timestamp AS "purchaseDate",
+      -- Lote de CNPJ: a empresa dona do CNPJ (baixa em lote pela empresa de cada título).
+      (SELECT co."id" FROM "Company" co WHERE regexp_replace(co."cnpj", '[^0-9]', '', 'g') = fl."grupo" LIMIT 1) AS "companyId",
       CONCAT('Folha · lote · ', ${qtdPessoas}, ' pessoa(s)') AS "notes",
       'Folha · lote' AS "taxDocumentType",
       CONCAT(${qtdPessoas}, ' pessoa(s)') AS "taxDescription",

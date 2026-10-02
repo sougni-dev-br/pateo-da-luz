@@ -556,6 +556,8 @@ purchaseRouter.get("/payables", async (request, response) => {
           p."purchaseNumber",
           p."invoiceNumber",
           p."purchaseDate",
+          -- Empresa em que o título foi lançado (a baixa em lote pode pagar por ela).
+          p."companyId",
           p."rawRow"->>'notes' AS "notes",
           NULL::text AS "taxDocumentType",
           NULL::text AS "taxDescription",
@@ -703,6 +705,7 @@ purchaseRouter.get("/payables", async (request, response) => {
           NULL::text AS "purchaseNumber",
           NULL::text AS "invoiceNumber",
           NULL::timestamp AS "purchaseDate",
+          e."companyId",
           CONCAT(${payrollTypeLabel}, ' · ', pit."periodLabel") AS "notes",
           ${payrollTypeLabel} AS "taxDocumentType",
           pit."periodLabel" AS "taxDescription",

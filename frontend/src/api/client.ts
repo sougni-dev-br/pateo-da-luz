@@ -1311,6 +1311,8 @@ export type Payable = {
   purchaseNumber: string | null;
   invoiceNumber: string | null;
   purchaseDate: string | null;
+  /** Empresa em que o título foi lançado (compra: empresa faturada; folha: empresa do funcionário). */
+  companyId?: string | null;
   notes: string | null;
   // Campos exclusivos de TaxPayment (presentes quando sourceType === "TAX_PAYMENT")
   taxDocumentType?: string | null;

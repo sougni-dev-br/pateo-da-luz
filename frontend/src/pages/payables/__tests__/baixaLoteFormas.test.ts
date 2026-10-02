@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Payable } from "../../../api/client";
-import { formaDaBaixaNoLote, formaPrevistaDoTitulo, payloadDaForma } from "../regras";
+import { empresaDaBaixaNoLote, formaDaBaixaNoLote, formaPrevistaDoTitulo, payloadDaForma } from "../regras";
 
 // Dados fictícios.
 const METODOS = [
@@ -44,5 +44,16 @@ describe("payload da forma", () => {
   test("id vai como id; nome vai como nome", () => {
     expect(payloadDaForma("id:m-pix")).toEqual({ paidPaymentMethodId: "m-pix", paidPaymentMethodName: null });
     expect(payloadDaForma("name:DINHEIRO")).toEqual({ paidPaymentMethodId: null, paidPaymentMethodName: "DINHEIRO" });
+  });
+});
+
+describe("empresa pagadora no lote", () => {
+  test("com a opção, a empresa do lançamento; sem ela, a empresa única", () => {
+    expect(empresaDaBaixaNoLote(true, "emp2", "emp1")).toBe("emp2");
+    expect(empresaDaBaixaNoLote(true, null, "emp1")).toBe("emp1");
+    expect(empresaDaBaixaNoLote(true, undefined, "")).toBe("");
+  });
+  test("sem a opção, sempre a empresa única", () => {
+    expect(empresaDaBaixaNoLote(false, "emp2", "emp1")).toBe("emp1");
   });
 });

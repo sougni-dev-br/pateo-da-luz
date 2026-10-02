@@ -123,6 +123,11 @@ export function formaDaBaixaNoLote(usarFormaDoTitulo: boolean, prevista: string,
   return usarFormaDoTitulo && prevista ? prevista : formaUnica;
 }
 
+/** Empresa pagadora de cada título no lote: a do lançamento (quando pedida e conhecida) ou a empresa única. */
+export function empresaDaBaixaNoLote(usarEmpresaDoTitulo: boolean, empresaDoTitulo: string | null | undefined, empresaUnica: string): string {
+  return usarEmpresaDoTitulo && empresaDoTitulo ? empresaDoTitulo : empresaUnica;
+}
+
 /** Valor do select de forma ("id:..." ou "name:...") no formato que a API de baixa espera. */
 export function payloadDaForma(valor: string): { paidPaymentMethodId: string | null; paidPaymentMethodName: string | null } {
   if (valor.startsWith("id:")) return { paidPaymentMethodId: valor.replace("id:", ""), paidPaymentMethodName: null };

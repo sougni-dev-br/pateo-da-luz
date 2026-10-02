@@ -1,4 +1,4 @@
-import { AlertTriangle, CalendarClock, CalendarDays, CheckCircle2, ListChecks, Wallet } from "lucide-react";
+import { AlertTriangle, Building, Building2, CalendarClock, CalendarDays, CheckCircle2, ListChecks, Wallet } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Company, Payable } from "../../api/client";
 import { descreverSuspeito, type SuspeitoLote } from "../../lib/folha-duplicidade";
@@ -7,7 +7,7 @@ import { Alert, Button, Money } from "../../design-system";
 import { formatDate } from "../../utils/format";
 import { Janela } from "./Janela";
 import type { FormBaixa, OpcaoForma } from "./ModalBaixa";
-import { avisoDataDoLote, dataDaBaixaNoLote, favorecidoDoTitulo, formaDaBaixaNoLote, isTaxPayment, resumoDatasDoLote, todayKey, valorDoTitulo } from "./regras";
+import { avisoDataDoLote, dataDaBaixaNoLote, empresaDaBaixaNoLote, favorecidoDoTitulo, formaDaBaixaNoLote, isTaxPayment, resumoDatasDoLote, todayKey, valorDoTitulo } from "./regras";
 
 export type ResultadoLote = { ok: number; erros: Array<{ nome: string; motivo: string }> };
 
@@ -24,6 +24,9 @@ type Props = {
   onUsarFormaDoTitulo?: (usar: boolean) => void;
   /** Forma prevista do título como valor do select ("id:..."), ou "" quando não há. */
   formaPrevista?: (p: Payable) => string;
+  /** Cada título é pago pela empresa em que foi lançado (os sem empresa, pela empresa única). */
+  usarEmpresaDoTitulo?: boolean;
+  onUsarEmpresaDoTitulo?: (usar: boolean) => void;
   onEmpresa: (companyId: string) => void;
   formas: OpcaoForma[];
   companies: Company[];
@@ -56,7 +59,7 @@ function OpcaoCartao({ nome, marcada, onMarcar, icone, titulo, descricao }: Opca
 
 const semFormaPrevista = () => "";
 
-export function ModalBaixaLote({ selecionados, total, form, onCampo, usarVencimento = false, onUsarVencimento, usarFormaDoTitulo = false, onUsarFormaDoTitulo, formaPrevista = semFormaPrevista, onEmpresa, formas, companies, notice, ocupado, resultado, suspeitos, onTirarSuspeitos, onBaixarMesmoAssim, onFechar, onFecharResultado, onConfirmar }: Props) {
+export function ModalBaixaLote({ selecionados, total, form, onCampo, usarVencimento = false, onUsarVencimento, usarFormaDoTitulo = false, onUsarFormaDoTitulo, formaPrevista = semFormaPrevista, usarEmpresaDoTitulo = false, onUsarEmpresaDoTitulo, onEmpresa, formas, companies, notice, ocupado, resultado, suspeitos, onTirarSuspeitos, onBaixarMesmoAssim, onFechar, onFecharResultado, onConfirmar }: Props) {
   const temNaoImposto = selecionados.some((p) => !isTaxPayment(p));
   // Imposto não leva forma: só os demais contam para a forma de cada título.
   const comForma = selecionados.filter((p) => !isTaxPayment(p));
@@ -72,6 +75,17 @@ export function ModalBaixaLote({ selecionados, total, form, onCampo, usarVencime
         return m.set(nome, (m.get(nome) ?? 0) + 1);
       }, new Map<string, number>())].sort((a, b) => b[1] - a[1])
     : [];
+  // Empresa pagadora: a do lançamento de cada título ou uma só (imposto não leva empresa).
+  const nomeEmpresa = (id: string) => companies.find((c) => c.id === id)?.tradeName ?? "";
+  const semEmpresa = comForma.filter((p) => !p.companyId).length;
+  const empresaDoItem = (p: Payable) => empresaDaBaixaNoLote(usarEmpresaDoTitulo, p.companyId, form.payingCompanyId);
+  const porEmpresa = usarEmpresaDoTitulo
+    ? [...comForma.reduce((m, p) => {
+        const nome = (p.companyId && nomeEmpresa(p.companyId)) || "sem empresa lançada";
+        return m.set(nome, (m.get(nome) ?? 0) + 1);
+      }, new Map<string, number>())].sort((a, b) => b[1] - a[1])
+    : [];
+  const mostraEmpresaUnica = !usarEmpresaDoTitulo || semEmpresa > 0;
   // Os suspeitos aparecem no pé da janela, fora da vista: rola até eles.
   const blocoSuspeitos = useRef<HTMLDivElement>(null);
   const haSuspeitos = Boolean(suspeitos && suspeitos.length > 0);
@@ -198,21 +212,42 @@ export function ModalBaixaLote({ selecionados, total, form, onCampo, usarVencime
                   {faltaForma && <span id="lote-falta-forma" className="pg-lote-erro-campo" role="alert">Escolha a forma de pagamento.</span>}
                 </div>
               )}
-              {temNaoImposto && companies.length > 0 && (
-                <label>
-                  Empresa pagadora
-                  <select value={form.payingCompanyId} onChange={(e) => onEmpresa(e.target.value)}>
-                    <option value="">Selecione…</option>
-                    {companies.map((c) => <option key={c.id} value={c.id}>{c.tradeName}</option>)}
-                  </select>
-                </label>
-              )}
               <label className="full-width">
                 Observação
                 <input value={form.paymentNotes} onChange={(e) => onCampo("paymentNotes", e.target.value)} />
               </label>
             </div>
           </fieldset>
+
+          {temNaoImposto && companies.length > 0 && (
+            <fieldset className="pg-lote-sec">
+              <legend>Por qual empresa foi pago?</legend>
+              {onUsarEmpresaDoTitulo && (
+                <div className="pg-lote-opcoes">
+                  <OpcaoCartao nome="lote-empresa" marcada={usarEmpresaDoTitulo} onMarcar={() => onUsarEmpresaDoTitulo(true)} icone={<Building2 size={18} aria-hidden />}
+                    titulo="A empresa de cada título" descricao="Cada um é pago pela empresa em que foi lançado." />
+                  <OpcaoCartao nome="lote-empresa" marcada={!usarEmpresaDoTitulo} onMarcar={() => onUsarEmpresaDoTitulo(false)} icone={<Building size={18} aria-hidden />}
+                    titulo="Uma empresa só" descricao="Todos saem da mesma empresa pagadora." />
+                </div>
+              )}
+              {porEmpresa.length > 0 && (
+                <p className="pg-lote-formas" aria-label="Títulos por empresa pagadora">
+                  {porEmpresa.map(([nome, n]) => <span key={nome}>{nome} <strong>{n}</strong></span>)}
+                </p>
+              )}
+              {mostraEmpresaUnica && (
+                <div className="form-grid">
+                  <label>
+                    {usarEmpresaDoTitulo ? `Empresa dos ${semEmpresa} sem empresa lançada` : "Empresa pagadora"}
+                    <select value={form.payingCompanyId} onChange={(e) => onEmpresa(e.target.value)}>
+                      <option value="">Selecione…</option>
+                      {companies.map((c) => <option key={c.id} value={c.id}>{c.tradeName}</option>)}
+                    </select>
+                  </label>
+                </div>
+              )}
+            </fieldset>
+          )}
 
           <div className="pg-lote-sec">
             <div className="pg-lote-lista-topo">
@@ -230,6 +265,7 @@ export function ModalBaixaLote({ selecionados, total, form, onCampo, usarVencime
                     {formatDate(p.dueDate)}
                     {usarVencimento ? ` · baixa em ${formatDate(dataDaBaixaNoLote(p, true, form.paidDate, hoje))}` : ""}
                     {usarFormaDoTitulo && !isTaxPayment(p) ? ` · ${rotuloForma(formaDoItem(p)) || "sem forma"}` : ""}
+                    {usarEmpresaDoTitulo && !isTaxPayment(p) ? ` · ${nomeEmpresa(empresaDoItem(p)) || "sem empresa"}` : ""}
                   </span>
                   <strong className="pg-num"><Money value={valorDoTitulo(p)} /></strong>
                 </li>
@@ -257,7 +293,7 @@ export function ModalBaixaLote({ selecionados, total, form, onCampo, usarVencime
             <div className="pg-lote-rodape">
               <span className="pg-lote-rodape-resumo">
                 <Money value={total} />
-                <small>{quandoNoRodape}{usarFormaDoTitulo && temNaoImposto ? " · forma de cada título" : ""}</small>
+                <small>{quandoNoRodape}{usarFormaDoTitulo && temNaoImposto ? " · forma de cada título" : ""}{usarEmpresaDoTitulo && temNaoImposto ? " · empresa de cada título" : ""}</small>
               </span>
               <div className="modal-actions">
                 <Button variant="secondary" onClick={onFechar} disabled={ocupado}>Cancelar</Button>
