@@ -142,14 +142,15 @@ async function getFolhaDreCategoryId(): Promise<string> {
 // Antes de o importador distinguir os dois cálculos, o extrato do adiantamento entrava
 // como SALARIO ("Extrato MM/AAAA"). Reimportado, o mesmo título (mesma pessoa, mesmo
 // valor) vira ADIANTAMENTO no lugar — mantém pagamento e histórico, sem duplicar.
-// Só converte o SALARIO ativo (deletedAt null): excluído, à mão ou não, fica como está.
+// Só converte o SALARIO ativo (deletedAt null) e fora de lote de pagamento: excluído, à mão
+// ou não, fica como está; o que está num lote é salário de fato.
 // E não converte se a chave do adiantamento já estiver ocupada, nem por item excluído —
 // a chave única não inclui deletedAt, e o adiantamento excluído à mão continua excluído.
 async function converterAdiantamentoGravadoComoSalario(
   employeeId: string, competenceYear: number, competenceMonth: number, mmaaaa: string, periodLabel: string, liquido: number, userId: string,
 ) {
   const antigo = await prisma.payrollItem.findFirst({
-    where: { employeeId, type: "SALARIO", competenceYear, competenceMonth, periodLabel: `Extrato ${mmaaaa}`, source: "EXTRATO_RH", deletedAt: null },
+    where: { employeeId, type: "SALARIO", competenceYear, competenceMonth, periodLabel: `Extrato ${mmaaaa}`, source: "EXTRATO_RH", deletedAt: null, folhaLoteId: null },
     select: { id: true, amount: true },
   });
   if (!antigo || !mesmoValor(Number(antigo.amount), liquido)) return;

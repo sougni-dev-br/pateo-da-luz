@@ -6,6 +6,7 @@ import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDate } from "../../shared/utils/parse-date.js";
 import { createSupplierPositionPdf, type SupplierPositionData } from "./supplier-position-pdf.js";
 import { excludeAggregatorsWhere } from "./purchase-aggregators.js";
+import { lotesParaPayables, lotesParaPayablesPdf } from "../payroll/folha-lote-payables.js";
 import { extrasParaPayables, extrasParaPayablesPdf } from "../payroll/extras-payables.js";
 import { LIMITE_POR_ORIGEM } from "./payables-limite.js";
 import {
@@ -716,6 +717,8 @@ purchaseRouter.get("/payables", async (request, response) => {
         LEFT JOIN "PaymentMethod" ppm ON ppm."id" = pit."paidPaymentMethodId"
         WHERE pit."deletedAt" IS NULL
           AND pit."status" != 'CANCELED'
+          -- Membro de lote de pagamento da folha: aparece dentro do título do lote.
+          AND pit."folhaLoteId" IS NULL
           -- Rescisão quitada (no termo, ou sem valor: líquido zero / saldo perdoado): registro
           -- de RH, não é título a pagar.
           AND COALESCE((pit."details"->>'quitadaNoTermo')::boolean, false) = false
@@ -743,7 +746,12 @@ purchaseRouter.get("/payables", async (request, response) => {
     ? await extrasParaPayables({ startToday, status, startDate, endDate, noDueDate })
     : ([] as Array<Record<string, unknown>>);
 
-  const allRows: Array<Record<string, unknown>> = [...purchaseMapped, ...taxRows, ...await comComposicaoDoSalario(payrollRows, user), ...extraRows];
+  // Títulos do lote de pagamento da folha (um por empresa): mesma regra de inclusão da folha.
+  const loteRows = includePayroll
+    ? await lotesParaPayables({ startToday, status, startDate, endDate, noDueDate })
+    : ([] as Array<Record<string, unknown>>);
+
+  const allRows: Array<Record<string, unknown>> = [...purchaseMapped, ...taxRows, ...await comComposicaoDoSalario(payrollRows, user), ...extraRows, ...loteRows];
   allRows.sort((a, b) => {
     const da = a["dueDate"] ? new Date(String(a["dueDate"])).getTime() : Number.MAX_SAFE_INTEGER;
     const db = b["dueDate"] ? new Date(String(b["dueDate"])).getTime() : Number.MAX_SAFE_INTEGER;
@@ -753,7 +761,7 @@ purchaseRouter.get("/payables", async (request, response) => {
 
   // Sem corte final: cortar escondia em silêncio o que vence depois do 500º título (ex.: rescisões
   // de setembro com "Ano atual"). Se alguma origem bater no limite de segurança, a tela é avisada.
-  const truncado = [purchaseMapped, taxRows, payrollRows, extraRows].some((l) => l.length >= LIMITE_POR_ORIGEM);
+  const truncado = [purchaseMapped, taxRows, payrollRows, extraRows, loteRows].some((l) => l.length >= LIMITE_POR_ORIGEM);
   if (truncado) response.setHeader("X-Payables-Truncado", "1");
   response.json(allRows);
 });
@@ -1009,6 +1017,7 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
         JOIN "Employee" e ON e."id" = pit."employeeId"
         LEFT JOIN "PaymentMethod" ppm ON ppm."id" = pit."paidPaymentMethodId"
         WHERE pit."deletedAt" IS NULL
+          AND pit."folhaLoteId" IS NULL
           AND COALESCE((pit."details"->>'quitadaNoTermo')::boolean, false) = false
           AND COALESCE((pit."details"->>'quitadaSemValor')::boolean, false) = false
           AND ${noDueDatePdf ? Prisma.sql`pit."dueDate" IS NULL` : Prisma.sql`true`}
@@ -1024,7 +1033,11 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
     ? await extrasParaPayablesPdf({ startToday, status, startDate, endDate, noDueDate: noDueDatePdf })
     : ([] as Array<Record<string, unknown>>);
 
-  const rowsCompletas = [...rows, ...taxRowsPdf, ...payrollRowsPdf, ...extraRowsPdf].sort((a, b) => {
+  const loteRowsPdf = incluirOutrasFontes
+    ? await lotesParaPayablesPdf({ startToday, status, startDate, endDate, noDueDate: noDueDatePdf, fimInclusivo: true })
+    : ([] as Array<Record<string, unknown>>);
+
+  const rowsCompletas = [...rows, ...taxRowsPdf, ...payrollRowsPdf, ...extraRowsPdf, ...loteRowsPdf].sort((a, b) => {
     const da = a.dueDate ? new Date(String(a.dueDate)).getTime() : Number.POSITIVE_INFINITY;
     const db = b.dueDate ? new Date(String(b.dueDate)).getTime() : Number.POSITIVE_INFINITY;
     if (da !== db) return da - db;
@@ -1077,6 +1090,7 @@ purchaseRouter.get("/payables/:id/history", async (request, response) => {
        OR (a."entity" = 'PaymentInstallment' AND a."newValue"::text ILIKE ${`%${request.params.id}%`})
        OR (a."entity" = 'PayrollItem' AND a."entityId" = ${request.params.id})
        OR (a."entity" = 'ExtraPayment' AND a."entityId" = ${request.params.id})
+       OR (a."entity" = 'FolhaLote' AND a."entityId" = ${request.params.id})
     ORDER BY a."createdAt" DESC
     LIMIT 80
   `;

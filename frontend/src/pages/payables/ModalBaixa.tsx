@@ -4,7 +4,7 @@ import { Notice, type NoticeState } from "../../components/Notice";
 import { Button, Money } from "../../design-system";
 import { formatDate } from "../../utils/format";
 import { Janela } from "./Janela";
-import { favorecidoDoTitulo, formatInstallment, isExtra, isPayroll, isSimpleLedger, isTaxPayment } from "./regras";
+import { favorecidoDoTitulo, formatInstallment, isExtra, isFolhaLote, isPayroll, isSimpleLedger, isTaxPayment } from "./regras";
 
 export type FormBaixa = {
   paidDate: string;
@@ -40,6 +40,8 @@ export function ModalBaixa({ paying, form, onCampo, onEmpresa, formas, companies
   const pago = Number(form.paidAmount || 0);
   const diferenca = Number((pago - original).toFixed(2));
   const temDiferenca = Math.abs(diferenca) > TOLERANCIA;
+  // Título do lote da folha: paga-se pelo total (cada pessoa recebe a baixa pelo valor dela).
+  const lote = isFolhaLote(paying);
   const parcela = paying.installment != null ? formatInstallment(paying.installment, paying.totalInstallments, paying.paymentMethodName) : "";
 
   return (
@@ -51,7 +53,7 @@ export function ModalBaixa({ paying, form, onCampo, onEmpresa, formas, companies
           {isSimpleLedger(paying) ? (
             <>
               <div><span>Tipo</span><strong>{paying.taxDocumentType ?? paying.supplierName}</strong></div>
-              {paying.taxCompanyName && <div><span>{isExtra(paying) ? "Pessoa" : isPayroll(paying) ? "Funcionário" : "Empresa"}</span><strong>{paying.taxCompanyName}</strong></div>}
+              {paying.taxCompanyName && <div><span>{isExtra(paying) ? "Pessoa" : isPayroll(paying) ? "Funcionário" : lote ? "Título" : "Empresa"}</span><strong>{paying.taxCompanyName}</strong></div>}
               {paying.taxDescription && <div><span>Descrição</span><strong>{paying.taxDescription}</strong></div>}
               {paying.taxCompetenceDate && <div><span>Competência</span><strong>{formatDate(paying.taxCompetenceDate)}</strong></div>}
             </>
@@ -74,8 +76,9 @@ export function ModalBaixa({ paying, form, onCampo, onEmpresa, formas, companies
         </label>
         <label>
           Valor pago *
-          <input type="number" min="0.01" step="0.01" inputMode="decimal" value={form.paidAmount}
+          <input type="number" min="0.01" step="0.01" inputMode="decimal" value={form.paidAmount} readOnly={lote}
             onChange={(e) => onCampo("paidAmount", e.target.value)} />
+          {lote && <small className="pg-nota">O lote é pago pelo total. Para pagar outro valor a alguém, retire a pessoa do lote.</small>}
         </label>
         {!imposto && (
           <label>
@@ -132,7 +135,11 @@ export function ModalBaixa({ paying, form, onCampo, onEmpresa, formas, companies
 
       <p className="pay-confirm-phrase">
         {isSimpleLedger(paying) ? (
-          <>Você está baixando <strong>{paying.taxDocumentType ?? paying.supplierName}</strong> no valor de{" "}<strong><Money value={pago > 0 ? pago : original} /></strong>.</>
+          lote ? (
+            <>Você está baixando <strong>{paying.supplierName}</strong> ({paying.loteMembros?.length ?? 0} lançamento(s) de salário, cada um pelo seu valor) no total de{" "}<strong><Money value={original} /></strong>.</>
+          ) : (
+            <>Você está baixando <strong>{paying.taxDocumentType ?? paying.supplierName}</strong> no valor de{" "}<strong><Money value={pago > 0 ? pago : original} /></strong>.</>
+          )
         ) : (
           <>
             Você está baixando{parcela ? ` a parcela ${parcela}` : ""}
