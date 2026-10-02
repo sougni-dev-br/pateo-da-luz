@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { auditLog, requestIp, requireAdmin, requireRole } from "../security/security-utils.js";
 import { addPurchaseToCycle } from "./supplier-billing-cycle.service.js";
+import { empresaDoCiclo } from "./supplier-cycle-company.js";
 
 export const supplierCyclesRouter = Router();
 
@@ -451,8 +452,11 @@ supplierCyclesRouter.post("/:id/close", async (request, response) => {
 
   // ── Validar itens ─────────────────────────────────────────────────────────
 
-  const items = await prisma.$queryRaw<Array<{ id: string; checked: boolean }>>`
-    SELECT "id", "checked" FROM "SupplierBillingCycleItem" WHERE "cycleId" = ${request.params.id}
+  const items = await prisma.$queryRaw<Array<{ id: string; checked: boolean; companyId: string | null }>>`
+    SELECT i."id", i."checked", p."companyId"
+    FROM "SupplierBillingCycleItem" i
+    JOIN "Purchase" p ON p."id" = i."purchaseId"
+    WHERE i."cycleId" = ${request.params.id}
   `;
   if (items.length === 0) {
     response.status(400).json({ message: "Ciclo sem itens — adicione compras ao ciclo antes de fechar." });
@@ -470,6 +474,8 @@ supplierCyclesRouter.post("/:id/close", async (request, response) => {
 
   const periodStart = new Date(cycle.periodStart);
   const closeDate = new Date();
+  // A compra do ciclo herda a empresa das compras que o compõem: é dela que sai o pagamento.
+  const companyId = empresaDoCiclo(items.map((i) => i.companyId));
   const invoiceNumber = `CICLO-${request.params.id.substring(0, 8).toUpperCase()}`;
   const competenceMonth = periodStart.getMonth() + 1;
   const competenceYear = periodStart.getFullYear();
@@ -501,11 +507,11 @@ supplierCyclesRouter.post("/:id/close", async (request, response) => {
     await tx.$executeRaw`
       INSERT INTO "Purchase" (
         "id", "purchaseNumber", "purchaseDate", "competenceMonth", "competenceYear",
-        "supplierId", "invoiceNumber", "paymentMethod", "paymentMethodId",
+        "supplierId", "companyId", "invoiceNumber", "paymentMethod", "paymentMethodId",
         "totalAmount", "workflowStatus", "status", "createdAt", "updatedAt"
       ) VALUES (
         ${purchaseId}, ${purchaseNumber}, ${closeDate}, ${competenceMonth}, ${competenceYear},
-        ${cycle.supplierId}, ${invoiceNumber}, ${paymentMethod.name}, ${paymentMethodId},
+        ${cycle.supplierId}, ${companyId}, ${invoiceNumber}, ${paymentMethod.name}, ${paymentMethodId},
         ${new Prisma.Decimal(totalAmount)}, 'SUPPLIER_CYCLE', 'ACTIVE',
         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
       )
@@ -596,6 +602,7 @@ supplierCyclesRouter.post("/:id/close", async (request, response) => {
     newValue: {
       generatedPurchaseId: result.purchaseId,
       purchaseNumber: result.purchaseNumber,
+      companyId,
       totalAmount,
       installmentCount,
     } as Prisma.InputJsonValue,
