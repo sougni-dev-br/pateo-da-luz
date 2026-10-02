@@ -9,7 +9,7 @@ import {
 } from "../../api/client";
 import { Button, Select, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
-import { type ModoImpressaoFolha, gerarPdfFolhaLiquidos } from "./pdfFolhaLiquidos";
+import { COLUNAS_OPCIONAIS_PDF, type ModoImpressaoFolha, gerarPdfFolhaLiquidos } from "./pdfFolhaLiquidos";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { fmtDate, money, mutedStyle, panelStyle } from "./gorjetaUtils";
 import { SEM_DADOS_BANCARIOS, linhasDadosBancarios } from "./dadosBancarios";
@@ -94,6 +94,8 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
   }
   const ord = useOrdenacao("folha-liquidos");
   const col = useColunas("folha-liquidos");
+  // O PDF tem a sua escolha de colunas, separada da tela.
+  const colPdf = useColunas("folha-liquidos-pdf");
   const filtro = useFiltro("folha-liquidos");
   // A folha só traz o nome: o apelido vem do cadastro, pelo funcionário.
   const apelidos = useContext(ApelidosContext);
@@ -149,12 +151,13 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
             </Button>
           )}
           <div className="folha-pdf-acao">
+            <SeletorColunas rotulo="Colunas do PDF" colunas={COLUNAS_OPCIONAIS_PDF} ocultas={colPdf.ocultas} alternar={colPdf.alternar} mostrarTodas={colPdf.mostrarTodas} />
             <Select aria-label="Modo de impressão do PDF" options={MODOS_IMPRESSAO} value={modo}
               title="Por empresa: um bloco por empresa com subtotal. Pateo: todos juntos em ordem alfabética."
               onChange={(e) => escolherModo(e.target.value as ModoImpressaoFolha)} />
             <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} disabled={folha.linhas.length === 0}
               title={filtro.ativo ? "O PDF sai com a folha inteira, sem o filtro" : undefined}
-              onClick={() => void gerarPdfFolhaLiquidos(folha, { year, month, liberada, modo })
+              onClick={() => void gerarPdfFolhaLiquidos(folha, { year, month, liberada, modo, ocultas: colPdf.ocultas })
                 .catch((e) => onNotice("error", "Erro ao gerar o PDF: " + (e as Error).message))}>
               PDF da folha
             </Button>
