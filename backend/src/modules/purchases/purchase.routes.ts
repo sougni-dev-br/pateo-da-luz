@@ -30,6 +30,10 @@ import {
 
 export const purchaseRouter = Router();
 
+// Limite de segurança por origem (compras, impostos, Folha, extras) no Contas a Pagar e no
+// relatório. Não é paginação: o ano inteiro cabe com folga; se for atingido, a tela é avisada.
+export const LIMITE_POR_ORIGEM = 5000;
+
 type ManualPurchaseItem = {
   productId: string;
   rawProductCode: string | null;
@@ -578,7 +582,7 @@ purchaseRouter.get("/payables", async (request, response) => {
           AND ${!noDueDate && endDate ? Prisma.sql`pi."dueDate" < ${endDate}` : Prisma.sql`true`}
           AND ${status ? Prisma.sql`${computedStatus} = ${status}` : Prisma.sql`true`}
         ORDER BY pi."dueDate" NULLS LAST, s."name", p."purchaseNumber", pi."installment"
-        LIMIT 400
+        LIMIT ${LIMITE_POR_ORIGEM}
       `
     : ([] as Array<Record<string, unknown>>);
 
@@ -641,7 +645,7 @@ purchaseRouter.get("/payables", async (request, response) => {
           AND ${!noDueDate && endDate ? Prisma.sql`tp."dueDate" < ${endDate}` : Prisma.sql`true`}
           AND ${taxStatusFilter}
         ORDER BY tp."dueDate" NULLS LAST
-        LIMIT 400
+        LIMIT ${LIMITE_POR_ORIGEM}
       `
     : ([] as Array<Record<string, unknown>>);
 
@@ -714,7 +718,7 @@ purchaseRouter.get("/payables", async (request, response) => {
           AND ${!noDueDate && endDate ? Prisma.sql`pit."dueDate" < ${endDate}` : Prisma.sql`true`}
           AND ${payrollStatusFilter}
         ORDER BY pit."dueDate" NULLS LAST
-        LIMIT 400
+        LIMIT ${LIMITE_POR_ORIGEM}
       `
     : ([] as Array<Record<string, unknown>>);
 
@@ -740,7 +744,11 @@ purchaseRouter.get("/payables", async (request, response) => {
     return String(a["supplierName"] ?? "").localeCompare(String(b["supplierName"] ?? ""));
   });
 
-  response.json(allRows.slice(0, 500));
+  // Sem corte final: cortar escondia em silêncio o que vence depois do 500º título (ex.: rescisões
+  // de setembro com "Ano atual"). Se alguma origem bater no limite de segurança, a tela é avisada.
+  const truncado = [purchaseMapped, taxRows, payrollRows, extraRows].some((l) => l.length >= LIMITE_POR_ORIGEM);
+  if (truncado) response.setHeader("X-Payables-Truncado", "1");
+  response.json(allRows);
 });
 
 purchaseRouter.get("/reports/supplier-position.pdf", async (request, response) => {
@@ -893,7 +901,7 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
       AND ${!noDueDatePdf && endDate ? Prisma.sql`pi."dueDate" <= ${endDate}` : Prisma.sql`true`}
       AND ${status ? Prisma.sql`${computedStatus} = ${status}` : Prisma.sql`true`}
     ORDER BY pi."dueDate" NULLS LAST, s."name", p."purchaseNumber", pi."installment"
-    LIMIT 1000
+    LIMIT ${LIMITE_POR_ORIGEM}
   `;
 
   // O PDF lia SO parcela de compra, enquanto a tela (/payables) une tres fontes.
@@ -968,7 +976,7 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
           AND ${!noDueDatePdf && startDate ? Prisma.sql`tp."dueDate" >= ${startDate}` : Prisma.sql`true`}
           AND ${!noDueDatePdf && endDate ? Prisma.sql`tp."dueDate" <= ${endDate}` : Prisma.sql`true`}
           AND ${taxStatusFilter}
-        LIMIT 1000
+        LIMIT ${LIMITE_POR_ORIGEM}
       `
     : ([] as Array<Record<string, unknown>>);
 
@@ -999,7 +1007,7 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
           AND ${!noDueDatePdf && startDate ? Prisma.sql`pit."dueDate" >= ${startDate}` : Prisma.sql`true`}
           AND ${!noDueDatePdf && endDate ? Prisma.sql`pit."dueDate" <= ${endDate}` : Prisma.sql`true`}
           AND ${payrollStatusFilter}
-        LIMIT 1000
+        LIMIT ${LIMITE_POR_ORIGEM}
       `
     : ([] as Array<Record<string, unknown>>);
 
