@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Payable } from "../../../api/client";
-import { avisoDataDoLote, contarVencidosHaMaisDe, dataDaBaixaNoLote } from "../regras";
+import { avisoDataDoLote, contarVencidosHaMaisDe, dataDaBaixaNoLote, resumoDatasDoLote } from "../regras";
 
 // Dados fictícios. Hoje = 02/10/2026.
 const HOJE = "2026-10-02";
@@ -32,5 +32,15 @@ describe("baixa em lote — aviso de data de hoje com vencidos antigos", () => {
     expect(avisoDataDoLote(lote, "2026-09-30", false, HOJE)).toBeNull();
     expect(avisoDataDoLote(lote, HOJE, true, HOJE)).toBeNull();
     expect(avisoDataDoLote([t("d", "2026-09-28"), t("e", "2026-10-10")], HOJE, false, HOJE)).toBeNull();
+  });
+});
+
+describe("baixa em lote — resumo das datas", () => {
+  test("separa vencidos dos a vencer e dá o intervalo dos vencimentos", () => {
+    const lote = [t("a", "2026-09-20T00:00:00.000Z"), t("b", "2026-08-20T00:00:00.000Z"), t("c", "2026-10-15T00:00:00.000Z"), t("d", null)];
+    expect(resumoDatasDoLote(lote, HOJE)).toEqual({ vencidos: 2, aVencer: 2, primeiro: "2026-08-20", ultimo: "2026-10-15" });
+  });
+  test("lote vazio não quebra", () => {
+    expect(resumoDatasDoLote([], HOJE)).toEqual({ vencidos: 0, aVencer: 0, primeiro: "", ultimo: "" });
   });
 });
