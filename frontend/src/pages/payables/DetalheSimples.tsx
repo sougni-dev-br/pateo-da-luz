@@ -5,7 +5,8 @@ import { Button, Money } from "../../design-system";
 import { formatDate } from "../../utils/format";
 import { Campo, StatusTitulo } from "./Campos";
 import { Janela } from "./Janela";
-import { estaEmAberto, isExtra, isPayroll } from "./regras";
+import { MembrosDoLote } from "./MembrosDoLote";
+import { estaEmAberto, isExtra, isFolhaLote, isPayroll } from "./regras";
 import { TabelaAuditoria } from "./TabelaAuditoria";
 
 type Props = {
@@ -51,16 +52,18 @@ function ComposicaoSalario({ c }: { c: SalarioComposicao }) {
 
 /** Imposto, lançamento da Folha ou diária de extra. */
 export function DetalheSimples({ titulo, historico, notice, excluirMotivo, excluindo, podeGerir, onMotivo, onExcluir, onFechar }: Props) {
-  const tipo = isExtra(titulo) ? "Diária de extra" : isPayroll(titulo) ? "Folha de pagamento" : "Imposto / Guia";
-  const rotuloPessoa = isExtra(titulo) ? "Pessoa" : isPayroll(titulo) ? "Funcionário" : "Empresa";
+  const lote = isFolhaLote(titulo);
+  const tipo = isExtra(titulo) ? "Diária de extra" : isPayroll(titulo) ? "Folha de pagamento" : lote ? "Folha · lote de pagamento" : "Imposto / Guia";
+  const rotuloPessoa = isExtra(titulo) ? "Pessoa" : isPayroll(titulo) ? "Funcionário" : lote ? "Título" : "Empresa";
   const podeExcluir = podeGerir && isPayroll(titulo) && estaEmAberto(titulo);
   // Folha/extra: o nome da pessoa é o que identifica; o tipo (VT, Rescisão…) vai no sobretítulo.
   const pessoal = isPayroll(titulo) || isExtra(titulo);
   const cabecalho = pessoal ? (titulo.taxCompanyName ?? titulo.supplierName) : (titulo.taxDocumentType ?? titulo.supplierName);
   const sobretitulo = pessoal && titulo.taxDocumentType ? `${tipo} · ${titulo.taxDocumentType}` : tipo;
+  const cabecalhoFinal = lote ? titulo.supplierName : cabecalho;
 
   return (
-    <Janela eyebrow={sobretitulo} titulo={cabecalho} onFechar={onFechar} ocupado={excluindo} largura="media">
+    <Janela eyebrow={sobretitulo} titulo={cabecalhoFinal} onFechar={onFechar} ocupado={excluindo} largura="media">
       <section className="modal-section pg-sec-primeira">
         <dl className="pg-campos">
           <Campo rotulo="Status"><StatusTitulo status={titulo.status} /></Campo>
@@ -78,6 +81,14 @@ export function DetalheSimples({ titulo, historico, notice, excluirMotivo, exclu
       </section>
 
       {titulo.salarioComposicao && <ComposicaoSalario c={titulo.salarioComposicao} />}
+
+      {lote && (
+        <section className="modal-section">
+          <h3 className="modal-section-title">Pessoas neste título</h3>
+          <p className="pg-nota">O valor do título é a soma delas. Retirar e devolver ficam na linha do título, na lista.</p>
+          <MembrosDoLote titulo={titulo} podeGerir={false} />
+        </section>
+      )}
 
       {titulo.paymentNotes && (
         <section className="modal-section">

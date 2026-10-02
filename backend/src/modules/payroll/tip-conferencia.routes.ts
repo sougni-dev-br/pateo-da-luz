@@ -16,6 +16,8 @@ import { onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { minutosValidos } from "./hora-extra.js";
 import { ORIGEM_ACERTO, editadoAMao } from "./acerto-lista.js";
+import { RecusaFolha } from "./folha-lancamento.routes.js";
+import { cancelarLiberacao, liberarLotes, lotesDaCompetencia, previaDaLiberacao, temLoteVivo } from "./folha-lote.service.js";
 import {
   type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, aplicarAcertosAjustados, conferir, textoContaBancaria, ehPendente, esconderTeto, montarFolhaLiquidos, separarJaPagos, somarSalariosPagos,
 } from "./tip-conferencia.js";
@@ -291,6 +293,15 @@ tipConferenciaRouter.post("/periods/:year/:month/etapas", async (request, respon
   }
   const { estado } = await estadoEtapas(periodo.id);
   const i = ETAPAS.indexOf(etapa);
+  // Com a folha liberada para pagamento (lotes no Contas a Pagar), a "Folha paga" segue os
+  // títulos: marca sozinha quando todos são baixados. E o OK não sai com títulos liberados.
+  const comLotes = await temLoteVivo(periodo.competenceYear, periodo.competenceMonth);
+  if (comLotes && etapa === "FOLHA_PAGA") {
+    return response.status(409).json({ message: "A folha paga é marcada sozinha quando todos os títulos da folha forem baixados no Contas a Pagar (e desmarcada no estorno)." });
+  }
+  if (comLotes && etapa === "OK_CONTABILIDADE" && acao === "DESMARCOU") {
+    return response.status(409).json({ message: "A folha já foi liberada para pagamento: cancele a liberação (ou estorne os títulos pagos) antes de desmarcar o OK." });
+  }
   if (acao === "MARCOU") {
     if (periodo.status !== "CLOSED") return response.status(409).json({ message: "Feche o período da gorjeta antes: os valores enviados não podem mudar depois." });
     if (i > 0 && !estado[ETAPAS[i - 1]].marcada) return response.status(409).json({ message: "Marque a etapa anterior primeiro." });
@@ -309,17 +320,12 @@ tipConferenciaRouter.post("/periods/:year/:month/etapas", async (request, respon
   response.json(await estadoEtapas(periodo.id));
 });
 
-// Folha salarial líquidos (lista do banco). Tem salário e PIX: exige a permissão de Funcionários.
-tipConferenciaRouter.get("/periods/:year/:month/folha-liquidos", async (request, response) => {
-  if (!(await podeVerDadosPessoais(request))) {
-    return response.status(403).json({ message: "A folha de líquidos tem salários e PIX: exige permissão de ver Funcionários." });
-  }
-  const periodo = await periodoDe(request, response);
-  if (!periodo) return;
-  const [pessoas, extratos, etapas] = await Promise.all([
+// Folha de líquidos do período: o que o banco paga (sem quem já está pago) e os já pagos.
+// A mesma conta serve à tela da folha e à liberação para pagamento (lote por empresa).
+async function folhaDoPeriodo(periodo: { id: string; competenceYear: number; competenceMonth: number }) {
+  const [pessoas, extratos] = await Promise.all([
     pessoasApuradas(periodo.competenceYear, periodo.competenceMonth, true),
     extratosDoPeriodo(periodo.id),
-    estadoEtapas(periodo.id),
   ]);
   const montadas = montarFolhaLiquidos(pessoas, extratos.map((e) => e.dados),
     await combinadosDe(extratos, periodo.competenceYear, periodo.competenceMonth));
@@ -344,6 +350,17 @@ tipConferenciaRouter.get("/periods/:year/:month/folha-liquidos", async (request,
   });
   // Soma todos os pagos da pessoa (acerto + complemento); só sai da lista quem está quitado.
   const { linhas, jaPagos } = separarJaPagos(todas, somarSalariosPagos(salariosPagos));
+  return { linhas, jaPagos, extratos };
+}
+
+// Folha salarial líquidos (lista do banco). Tem salário e PIX: exige a permissão de Funcionários.
+tipConferenciaRouter.get("/periods/:year/:month/folha-liquidos", async (request, response) => {
+  if (!(await podeVerDadosPessoais(request))) {
+    return response.status(403).json({ message: "A folha de líquidos tem salários e PIX: exige permissão de ver Funcionários." });
+  }
+  const periodo = await periodoDe(request, response);
+  if (!periodo) return;
+  const [{ linhas, jaPagos, extratos }, etapas] = await Promise.all([folhaDoPeriodo(periodo), estadoEtapas(periodo.id)]);
   const combinados = await combinadosVigentes(periodo.competenceYear, periodo.competenceMonth, null);
   response.json({
     code: periodo.code, label: periodo.label, linhas, jaPagos,
@@ -355,6 +372,80 @@ tipConferenciaRouter.get("/periods/:year/:month/folha-liquidos", async (request,
       valor: Number(c.salarioCombinado), motivo: c.salarioCombinadoMotivo,
     })),
   });
+});
+
+// ─── Liberar para pagamento (lote por empresa no Contas a Pagar) ──────────────
+// Liberar autoriza o pagamento: exige aprovar a gorjeta (como o OK) e ver Funcionários (a
+// folha tem salários). Só depois do OK à contabilidade.
+
+async function podeLiberar(request: Request, response: Response) {
+  const user = await getSessionUser(request);
+  if (!user) { response.status(401).json({ message: "Sessão obrigatória." }); return null; }
+  if (!(await userHasPermission(user as SessionUser, "payroll-tips", "approve"))) {
+    response.status(403).json({ message: "Liberar a folha para pagamento exige a permissão de aprovar a gorjeta." }); return null;
+  }
+  if (!(await podeVerDadosPessoais(request))) {
+    response.status(403).json({ message: "A folha de líquidos tem salários: liberar exige permissão de ver Funcionários." }); return null;
+  }
+  return user;
+}
+
+const entradaDaLiberacao = async (periodo: { id: string; competenceYear: number; competenceMonth: number }) => {
+  const { linhas, extratos } = await folhaDoPeriodo(periodo);
+  return {
+    ano: periodo.competenceYear, mes: periodo.competenceMonth, linhas,
+    extratos: extratos.map((e) => ({ empresa: e.dados.empresa, cnpj: e.dados.cnpj })),
+  };
+};
+
+// Títulos já liberados (valor, vencimento, situação). Sem nomes nem salários.
+tipConferenciaRouter.get("/periods/:year/:month/folha-lotes", async (request, response) => {
+  const periodo = await periodoDe(request, response);
+  if (!periodo) return;
+  response.json({ lotes: await lotesDaCompetencia(periodo.competenceYear, periodo.competenceMonth) });
+});
+
+// O que liberar vai criar (títulos, pessoas e totais) e os avisos — nada é gravado.
+tipConferenciaRouter.get("/periods/:year/:month/folha-lotes/previa", async (request, response) => {
+  if (!(await podeVerDadosPessoais(request))) {
+    return response.status(403).json({ message: "A folha de líquidos tem salários: exige permissão de ver Funcionários." });
+  }
+  const periodo = await periodoDe(request, response);
+  if (!periodo) return;
+  response.json(await previaDaLiberacao(await entradaDaLiberacao(periodo)));
+});
+
+tipConferenciaRouter.post("/periods/:year/:month/folha-lotes/liberar", async (request, response) => {
+  const user = await podeLiberar(request, response);
+  if (!user) return;
+  const periodo = await periodoDe(request, response);
+  if (!periodo) return;
+  if (!(await estadoEtapas(periodo.id)).estado.OK_CONTABILIDADE.marcada) {
+    return response.status(409).json({ message: "Dê o OK à contabilidade antes de liberar a folha para pagamento." });
+  }
+  try {
+    const r = await liberarLotes(await entradaDaLiberacao(periodo), { id: user.id, name: user.name, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? "") });
+    response.json({ ...r, etapas: await estadoEtapas(periodo.id) });
+  } catch (err) {
+    if (err instanceof RecusaFolha) return response.status(err.status).json(err.corpo);
+    throw err;
+  }
+});
+
+// Desfaz a liberação: os títulos em aberto são cancelados e os salários voltam soltos.
+tipConferenciaRouter.post("/periods/:year/:month/folha-lotes/cancelar", async (request, response) => {
+  const user = await podeLiberar(request, response);
+  if (!user) return;
+  const periodo = await periodoDe(request, response);
+  if (!periodo) return;
+  try {
+    const r = await cancelarLiberacao(periodo.competenceYear, periodo.competenceMonth, String(request.body?.motivo ?? ""),
+      { id: user.id, name: user.name, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? "") });
+    response.json({ ...r, lotes: [], etapas: await estadoEtapas(periodo.id) });
+  } catch (err) {
+    if (err instanceof RecusaFolha) return response.status(err.status).json(err.corpo);
+    throw err;
+  }
 });
 
 // Recalcula o SALARIO não pago de quem tem salário combinado na competência com o valor

@@ -4,8 +4,9 @@ import {
   AppUser, AuditLog, Company, CompanyBankAccount, checkPayrollPayBatch,
   downloadPayablesFinancialPdf, deletePayrollItem, getAllBankAccounts, getCompanies,
   getPayableHistory, getPayablesComLimite, getPaymentMethods, getPurchase,
-  getTaxPaymentHistory, getSuppliers, payExtraPayment, payInstallment, payPayrollItem, payTaxPayment,
-  Payable, PaymentMethod, PurchaseDetail, reverseExtraPayment, reverseInstallment, reversePayrollItem, reverseTaxPayment, Supplier
+  getTaxPaymentHistory, getSuppliers, payExtraPayment, payFolhaLote, payInstallment, payPayrollItem, payTaxPayment,
+  MembroFolhaLote, Payable, PaymentMethod, PurchaseDetail, reverseExtraPayment, reverseFolhaLote, reverseInstallment, reversePayrollItem,
+  reverseTaxPayment, Supplier, devolverAoFolhaLote, retirarDoFolhaLote
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { Alert, Button, EmptyState, IconButton, Money, PanelEyebrow } from "../design-system";
@@ -22,14 +23,16 @@ import { PainelFiltros } from "./payables/PainelFiltros";
 import { ResumoKpis, type CartaoResumo } from "./payables/ResumoKpis";
 import {
   addDaysKey, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dataDaBaixaNoLote, dateKey,
-  isExtra, isPayroll, isSimpleLedger, isTaxPayment, juntarVencidosAnteriores, minDateKey, periodoPuxaVencidosAnteriores, rotuloPeriodo, somarValores, todayKey,
+  isExtra, isFolhaLote, isPayroll, isSimpleLedger, isTaxPayment, juntarVencidosAnteriores, minDateKey, periodoPuxaVencidosAnteriores, rotuloPeriodo, somarValores, todayKey,
   type FiltrosPagar
 } from "./payables/regras";
 import { ConfirmaBaixaDuplicada } from "./payables/ConfirmaBaixaDuplicada";
 import { recusaDaFolha, type RecusaFolha, type SuspeitoLote } from "../lib/folha-duplicidade";
 import "./payables/payables.css";
 
+// Folha, extra e o título do lote da folha: mesmo formulário de baixa, rotas próprias.
 function payPessoal(p: Payable, payload: Parameters<typeof payPayrollItem>[1]) {
+  if (isFolhaLote(p)) return payFolhaLote(p.id, payload);
   return isExtra(p) ? payExtraPayment(p.id, payload) : payPayrollItem(p.id, payload);
 }
 
@@ -389,7 +392,7 @@ export function Payables({ user }: PayablesProps) {
         setSelectedPayable(payable);
         setDetail(null);
         setHistoryRows(audits);
-      } else if (isPayroll(payable) || isExtra(payable)) {
+      } else if (isPayroll(payable) || isExtra(payable) || isFolhaLote(payable)) {
         const audits = await getPayableHistory(payable.id);
         setSelectedPayable(payable);
         setDetail(null);
@@ -589,7 +592,7 @@ export function Payables({ user }: PayablesProps) {
       try {
         if (isTaxPayment(p)) {
           await payTaxPayment(p.id, { paymentDate: dataBaixa, paidAmount: valor, comments: paymentForm.paymentNotes || null });
-        } else if (isPayroll(p) || isExtra(p)) {
+        } else if (isPayroll(p) || isExtra(p) || isFolhaLote(p)) {
           await payPessoal(p, { paymentDate: dataBaixa, paidAmount: valor, ...comum, ...(confirmados.has(p.id) ? { confirmaDuplicidade: true } : {}) });
         } else {
           await payInstallment(p.id, { paidDate: dataBaixa, paidAmount: valor, ...comum });
@@ -650,7 +653,7 @@ export function Payables({ user }: PayablesProps) {
           payingCompanyId: paymentForm.payingCompanyId || null,
           companyBankAccountId: paymentForm.companyBankAccountId || null
         };
-        if (isPayroll(paying) || isExtra(paying)) {
+        if (isPayroll(paying) || isExtra(paying) || isFolhaLote(paying)) {
           await payPessoal(paying, { paymentDate: paymentForm.paidDate, paidAmount, ...commonPayload, ...(confirmaDuplicidade ? { confirmaDuplicidade: true } : {}) });
         } else {
           await payInstallment(paying.id, { paidDate: paymentForm.paidDate, paidAmount, ...commonPayload });
@@ -686,6 +689,8 @@ export function Payables({ user }: PayablesProps) {
         await reversePayrollItem(reversing.id, reason);
       } else if (isExtra(reversing)) {
         await reverseExtraPayment(reversing.id, reason);
+      } else if (isFolhaLote(reversing)) {
+        await reverseFolhaLote(reversing.id, reason);
       } else {
         await reverseInstallment(reversing.id, reason);
       }
@@ -696,6 +701,26 @@ export function Payables({ user }: PayablesProps) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao estornar pagamento." });
     } finally {
       setEstornando(false);
+    }
+  }
+
+  // Título do lote da folha: tirar alguém (vai para a "Folha à parte") ou devolver ao de origem.
+  const [loteOcupado, setLoteOcupado] = useState(false);
+  async function mexerNoLote(lote: Payable, membro: MembroFolhaLote, acao: "retirar" | "devolver") {
+    setLoteOcupado(true);
+    try {
+      if (acao === "retirar") {
+        const r = await retirarDoFolhaLote(lote.id, membro.id);
+        setNotice({ tone: "success", message: `${membro.nome} saiu de "${lote.supplierName}" e foi para "${r.aParte.rotulo}".${r.loteCancelado ? " O título ficou vazio e foi cancelado." : ""}` });
+      } else {
+        const r = await devolverAoFolhaLote(lote.id, membro.id);
+        setNotice({ tone: "success", message: `${membro.nome} voltou para "${r.destino.rotulo}".${r.folhaAParteCancelada ? " A folha à parte ficou vazia e foi cancelada." : ""}` });
+      }
+      await load();
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao mexer no título da folha." });
+    } finally {
+      setLoteOcupado(false);
     }
   }
 
@@ -910,6 +935,9 @@ export function Payables({ user }: PayablesProps) {
           onBaixar={startPayment}
           onEstornar={openReverse}
           onHistorico={openHistory}
+          onRetirarDoLote={(l, m) => void mexerNoLote(l, m, "retirar")}
+          onDevolverAoLote={(l, m) => void mexerNoLote(l, m, "devolver")}
+          loteOcupado={loteOcupado}
         />
       )}
 

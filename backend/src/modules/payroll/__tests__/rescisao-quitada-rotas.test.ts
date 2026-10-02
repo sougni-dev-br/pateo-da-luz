@@ -202,7 +202,7 @@ describe("Folha: a rescisão quitada no termo", () => {
     db.payrollItem.findMany.mockResolvedValue([{ details: { gorjetaNaApuracao: { participantId: "tp1", anterior: null, aplicada: 50 } } }]);
     const r = await request(app).delete("/payroll/q1").send({ reason: "termo importado para a pessoa errada" });
     expect(r.status).toBe(200);
-    expect(db.payrollItem.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "q1" } }));
+    expect(db.payrollItem.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "q1", folhaLoteId: null } }));
     expect(db.tipParticipant.updateMany).not.toHaveBeenCalled();
     expect(db.tipParticipant.count).not.toHaveBeenCalled();
   });

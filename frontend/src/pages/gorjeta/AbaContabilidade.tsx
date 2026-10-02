@@ -1,13 +1,15 @@
 // Depois da apuração: envio à contabilidade → extratos devolvidos (conferência)
-// → OK dado → folha salarial líquidos → paga. Cada etapa fica registrada.
+// → OK dado → liberar para pagamento (títulos por empresa no Contas a Pagar) → pagos.
+// Cada etapa fica registrada; a última marca sozinha quando todos os títulos são baixados.
 import { Check, FileUp, Trash2, Undo2 } from "lucide-react";
 import { type CSSProperties, useContext, useEffect, useRef, useState } from "react";
 import {
-  type TipConferencia, type TipConferenciaCompleta, type TipEtapa, type TipLinhaConferencia, type TipStatusConferencia,
-  aceitarTipDivergencia, confirmarTipVinculo, desfazerTipAceite, enviarTipExtrato, getTipConferencia, marcarTipEtapa, removerTipExtrato,
+  type TipConferencia, type TipConferenciaCompleta, type TipEtapa, type TipFolhaLote, type TipLinhaConferencia, type TipStatusConferencia,
+  aceitarTipDivergencia, confirmarTipVinculo, desfazerTipAceite, enviarTipExtrato, getTipConferencia, getTipFolhaLotes, marcarTipEtapa, removerTipExtrato,
 } from "../../api/client";
 import { Button, StatusBadge, Table } from "../../design-system";
 import { FolhaLiquidos } from "./FolhaLiquidos";
+import { LiberarPagamento, resumoDosLotes } from "./LiberarPagamento";
 import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
@@ -79,11 +81,18 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
   const apelidos = useContext(ApelidosContext);
   const erro = (e: unknown) => onNotice("error", (e as Error).message);
 
+  // Títulos da folha liberados no Contas a Pagar (só existem depois do OK à contabilidade).
+  const [lotes, setLotes] = useState<TipFolhaLote[]>([]);
+
   async function carregar() {
-    try { setDados(await getTipConferencia(year, month)); } catch (e) { erro(e); }
+    try {
+      const conf = await getTipConferencia(year, month);
+      setDados(conf);
+      setLotes(conf.etapas.estado.OK_CONTABILIDADE.marcada ? (await getTipFolhaLotes(year, month)).lotes : []);
+    } catch (e) { erro(e); }
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setDados(null); void carregar(); }, [year, month]);
+  useEffect(() => { setDados(null); setLotes([]); void carregar(); }, [year, month]);
 
   const aplicarConf = (c: TipConferencia) => setDados((d) => (d ? { ...d, ...c } : d));
 
@@ -132,9 +141,16 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
     { chave: "CONFERIDO", titulo: "Extratos conferidos", feito: dados.extratos.length > 0 && dados.pendentes === 0,
       detalhe: dados.extratos.length === 0 ? "nenhum extrato" : dados.pendentes ? `${dados.pendentes} pendência(s)` : `${dados.extratos.length} empresa(s), tudo certo` },
     { chave: "OK_CONTABILIDADE", titulo: "OK dado à contabilidade", feito: ok,
-      detalhe: ok ? `${quando(estado.OK_CONTABILIDADE.em)} · ${estado.OK_CONTABILIDADE.por}` : "responda o e-mail e marque aqui", acao: "OK_CONTABILIDADE" },
-    { chave: "FOLHA_PAGA", titulo: "Folha paga no banco", feito: estado.FOLHA_PAGA.marcada,
-      detalhe: estado.FOLHA_PAGA.marcada ? `${quando(estado.FOLHA_PAGA.em)} · ${estado.FOLHA_PAGA.por}` : "depois do pagamento", acao: "FOLHA_PAGA" },
+      detalhe: ok ? `${quando(estado.OK_CONTABILIDADE.em)} · ${estado.OK_CONTABILIDADE.por}` : "responda o e-mail e marque aqui",
+      // Com títulos liberados o OK não se desmarca (desfaça a liberação antes).
+      acao: lotes.length > 0 ? undefined : "OK_CONTABILIDADE" },
+    // Liberar cria os títulos no Contas a Pagar; o passo fica feito sozinho quando todos são
+    // baixados. "Folha paga" marcada à mão (antes dos títulos) ainda pode ser desmarcada.
+    { chave: "FOLHA_PAGA", titulo: "Liberar para pagamento", feito: estado.FOLHA_PAGA.marcada,
+      detalhe: estado.FOLHA_PAGA.marcada
+        ? `${lotes.length > 0 ? "todos os títulos pagos · " : ""}${quando(estado.FOLHA_PAGA.em)} · ${estado.FOLHA_PAGA.por}`
+        : resumoDosLotes(lotes),
+      acao: lotes.length === 0 && estado.FOLHA_PAGA.marcada ? "FOLHA_PAGA" : undefined },
   ];
   const proximo = passos.findIndex((p) => !p.feito);
 
@@ -154,6 +170,11 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
           </li>
         ))}
       </ol>
+
+      {dados.podeVerFolha && (
+        <LiberarPagamento year={year} month={month} lotes={lotes} liberavel={ok && !(estado.FOLHA_PAGA.marcada && lotes.length === 0)} canEdit={canEdit}
+          onLotes={setLotes} onEtapas={(etapas) => setDados((d) => (d ? { ...d, etapas } : d))} onNotice={onNotice} />
+      )}
 
       <div style={panelStyle}>
         <div className="cabecalho-painel">

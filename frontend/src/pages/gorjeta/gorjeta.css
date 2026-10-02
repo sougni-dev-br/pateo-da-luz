@@ -590,6 +590,22 @@
 .etapas-folha li.atual .etapas-folha-marca { border-color: var(--ink); color: var(--ink); }
 .lista-extratos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .lista-extratos li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* Liberar para pagamento: títulos por empresa (prévia e os já liberados). */
+.liberar-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.liberar-lista li {
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  padding: 8px 4px; border-bottom: 1px solid var(--line);
+}
+.liberar-lista li:last-child { border-bottom: 0; }
+.liberar-total { border-top: 2px solid var(--line-strong, #c8d0da); }
+.liberar-valor { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.liberar-previa { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.liberar-avisos { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+.liberar-acoes { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; }
+@media (max-width: 640px) {
+  .liberar-lista li { grid-template-columns: 1fr auto; }
+  .liberar-lista li > span:not(.liberar-valor) { grid-column: 1 / -1; grid-row: 2; }
+}
 .linha-pendente > td { background: color-mix(in srgb, var(--danger) 5%, transparent); }
 .linha-grupo > td { background: color-mix(in srgb, var(--ink) 4%, transparent); }
 .aceite-form, .combinado-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }

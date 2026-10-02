@@ -177,7 +177,7 @@ describe("Folha: a rescisão quitada sem valor", () => {
     db.payrollItem.count.mockResolvedValue(0);
     const r = await request(app).delete("/payroll/q1").send({ reason: "lançada com o vale errado" });
     expect(r.status).toBe(200);
-    expect(db.payrollItem.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "q1" } }));
+    expect(db.payrollItem.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "q1", folhaLoteId: null } }));
     expect(db.tipParticipant.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { rescisaoValorFixo: null } }));
   });
 
