@@ -9,6 +9,7 @@ export const ROTAS_RH = {
   folha: "/rh/folha",
   retorno: "/rh/retorno",
   extras: "/rh/extras",
+  fichas: "/rh/fichas-cadastrais",
 } as const;
 
 const ANTIGAS: Record<string, string> = {

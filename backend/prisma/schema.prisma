@@ -2511,6 +2511,7 @@ model Employee {
   possuiDeficiencia Boolean?
   rgDataEmissao     DateTime?          @db.Date
   rgOrgaoEmissor    String?
+  rgUf              String?
   tituloEleitor     String?
   tituloZona        String?
   tituloSecao       String?
@@ -2524,7 +2525,9 @@ model Employee {
   intervaloInicio   String?
   intervaloFim      String?
   fgtsDataOpcao     DateTime?          @db.Date
+  nomeConjuge       String?
   dependentes       EmployeeDependente[]
+  fichasCadastrais  FichaCadastral[]
   feriasRegistradas EmployeeFerias[]
   anotacoesCarteira EmployeeAnotacaoCarteira[]
   // Auditoria / soft delete
@@ -2896,7 +2899,8 @@ model EmployeeDependente {
   nome           String
   parentesco     String?
   dataNascimento DateTime? @db.Date
-  origem         String    @default("CADASTRO") // CADASTRO | FICHA_REGISTRO
+  cpf            String?
+  origem         String    @default("CADASTRO") // CADASTRO | FICHA_REGISTRO | FICHA_CADASTRAL
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -3428,4 +3432,76 @@ model ExtraPayment {
   @@index([status])
   @@index([employeeId])
   @@index([extraWorkerId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Ficha cadastral por link: a pessoa preenche os próprios dados e manda as fotos
+// dos documentos pelo celular, sem login. Os dados ficam aqui (e não no cadastro)
+// até o RH conferir e concluir — ficha pela metade não suja o Employee.
+// O link só existe no WhatsApp de quem recebeu: o banco guarda o hash do código.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum FichaCadastralTipo {
+  /// Pessoa ainda não está no sistema: ao concluir, vira um funcionário novo.
+  ADMISSAO
+  /// Funcionário existente completando/corrigindo os próprios dados.
+  ATUALIZACAO
+}
+
+enum FichaCadastralStatus {
+  ENVIADA
+  PREENCHENDO
+  FINALIZADA
+  CONCLUIDA
+  CANCELADA
+}
+
+model FichaCadastral {
+  id                String                  @id @default(cuid())
+  tipo              FichaCadastralTipo
+  status            FichaCadastralStatus    @default(ENVIADA)
+  tokenHash         String                  @unique
+  expiraEm          DateTime
+  /// Como o RH chamou a pessoa ao gerar o link (lista e mensagem do WhatsApp).
+  nomeReferencia    String
+  /// Atualização: o funcionário desde o início. Admissão: o criado ao concluir.
+  employeeId        String?
+  employee          Employee?               @relation(fields: [employeeId], references: [id])
+  /// O que a pessoa preencheu (campos de ficha-cadastral-campos.ts).
+  dados             Json                    @default("{}")
+  /// O que o RH completa: empresa, admissão, função, salário, horário, VT.
+  dadosEmpresa      Json                    @default("{}")
+  /// Data de nascimento errada ao abrir o link: bloqueia por um tempo.
+  tentativasErradas Int                     @default(0)
+  bloqueadoAte      DateTime?
+  motivoDevolucao   String?
+  primeiroAcessoEm  DateTime?
+  finalizadaEm      DateTime?
+  concluidaEm       DateTime?
+  canceladaEm       DateTime?
+  createdById       String
+  concluidaPorId    String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  arquivos          FichaCadastralArquivo[]
+
+  @@index([status])
+  @@index([employeeId])
+}
+
+/// Foto/PDF de documento enviado pelo link. Fica no banco (o disco do Render é
+/// apagado a cada deploy) e é guardado para sempre, como comprovação.
+model FichaCadastralArquivo {
+  id           String         @id @default(cuid())
+  fichaId      String
+  ficha        FichaCadastral @relation(fields: [fichaId], references: [id], onDelete: Cascade)
+  tipo         String // RG, CPF, CTPS, COMPROVANTE_ENDERECO, TITULO, CERTIDAO, ESCOLARIDADE, OUTRO
+  nomeOriginal String
+  mimeType     String
+  tamanho      Int
+  sha256       String
+  conteudo     Bytes
+  createdAt    DateTime       @default(now())
+
+  @@index([fichaId])
 }

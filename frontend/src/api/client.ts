@@ -7413,3 +7413,68 @@ export function getExtraEventos() {
 export function getExtraHabitualidade(simular?: { pessoa: string; data: string; ignorar?: string }) {
   return request<ExtraHabitualidade>(`/extras/habitualidade${toQueryString(simular ?? {})}`);
 }
+
+// ─── Fichas cadastrais (link para a pessoa preencher) ──────────────────────────
+export type FichaCadastralStatus = "ENVIADA" | "PREENCHENDO" | "FINALIZADA" | "CONCLUIDA" | "CANCELADA";
+export type FichaCadastralTipo = "ADMISSAO" | "ATUALIZACAO";
+export type FichaCadastralResumo = {
+  id: string; tipo: FichaCadastralTipo; status: FichaCadastralStatus; nomeReferencia: string; employeeId: string | null;
+  expiraEm: string; createdAt: string; primeiroAcessoEm: string | null; finalizadaEm: string | null; concluidaEm: string | null;
+  canceladaEm: string | null; motivoDevolucao: string | null; arquivos: number; vencida: boolean;
+  employee: { firstName: string; lastName: string } | null;
+};
+export type FichaCadastralFilho = { nome: string; dataNascimento: string | null; cpf: string | null };
+export type FichaCadastralDados = Record<string, string | boolean | null | FichaCadastralFilho[] | undefined> & { filhos?: FichaCadastralFilho[] };
+export type FichaCadastralEmpresa = {
+  companyId?: string | null; admissao?: string | null; funcao?: string | null; salario?: number | null; modalidade?: "CLT" | "NAO_CLT";
+  entrada?: string | null; intervaloInicio?: string | null; intervaloFim?: string | null; saida?: string | null;
+  sabadoEntrada?: string | null; sabadoSaida?: string | null; folga?: string | null;
+  valeTransporte?: boolean | null; valorVt?: number | null; observacoes?: string | null;
+};
+export type FichaCadastralArquivo = { id: string; tipo: string; nomeOriginal: string; mimeType: string; tamanho: number; createdAt: string };
+export type FichaCadastralDiferenca = { campo: string; rotulo: string; atual: string | null; novo: string };
+/** Dependente que já está no cadastro com data de nascimento ou CPF diferente na ficha. */
+export type FichaCadastralFilhoAlterado = {
+  dependenteId: string; nome: string;
+  dataNascimento?: { atual: string | null; novo: string };
+  cpf?: { atual: string | null; novo: string };
+};
+export type FichaCadastralDetalhe = Omit<FichaCadastralResumo, "arquivos" | "vencida" | "employee"> & {
+  dados: FichaCadastralDados; dadosEmpresa: FichaCadastralEmpresa; arquivos: FichaCadastralArquivo[];
+  funcionario: { id: string; nome: string; isActive: boolean } | null;
+  diferencas: FichaCadastralDiferenca[]; filhosNovos: FichaCadastralFilho[]; filhosAlterados: FichaCadastralFilhoAlterado[]; falta: string[];
+  empresas: Array<{ id: string; tradeName: string; legalName: string; cnpj: string }>;
+  opcoes: { tiposArquivo: Record<string, string>; rotulos: Record<string, string> };
+  bloqueadoAte: string | null;
+  /** Sem permissão de ver Funcionários: salário e valores atuais do cadastro vêm ocultos. */
+  salarioOculto: boolean;
+};
+export type FichaCadastralLink = { id: string; codigo: string; expiraEm: string };
+
+export function getFichasCadastrais(params: { status?: string; employeeId?: string } = {}) {
+  return request<FichaCadastralResumo[]>(`/employee-forms${toQueryString(params)}`);
+}
+export function criarFichaCadastral(payload: { tipo: FichaCadastralTipo; nomeReferencia?: string; employeeId?: string }) {
+  return request<FichaCadastralLink>("/employee-forms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+export function getFichaCadastral(id: string) {
+  return request<FichaCadastralDetalhe>(`/employee-forms/${id}`);
+}
+export function salvarEmpresaFichaCadastral(id: string, empresa: FichaCadastralEmpresa) {
+  return request<{ ok: true }>(`/employee-forms/${id}/empresa`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(empresa) });
+}
+export function novoLinkFichaCadastral(id: string) {
+  return request<FichaCadastralLink>(`/employee-forms/${id}/novo-link`, { method: "POST" });
+}
+export function devolverFichaCadastral(id: string, motivo: string) {
+  return request<{ ok: true }>(`/employee-forms/${id}/devolver`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ motivo }) });
+}
+export function cancelarFichaCadastral(id: string) {
+  return request<{ ok: true }>(`/employee-forms/${id}/cancelar`, { method: "POST" });
+}
+export function concluirFichaCadastral(id: string, campos?: string[]) {
+  return request<{ ok: true; employeeId: string }>(`/employee-forms/${id}/concluir`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(campos ? { campos } : {}) });
+}
+export function getArquivoFichaCadastral(id: string, arquivoId: string) {
+  return fetchBlob(`/employee-forms/${id}/arquivos/${arquivoId}`);
+}
