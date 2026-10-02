@@ -7,7 +7,7 @@ import { montarFolhaLiquidos } from "../tip-conferencia.js";
 // Regra do dono: quem tem salário combinado recebe no dia 5 o valor INTEGRAL,
 // (combinado − adiantamento) + gorjeta calculada na íntegra — não só o líquido do extrato.
 describe("valorIntegralCombinado", () => {
-  test("caso do Elioenai em setembro: 5.200 − 1.468,80 + 2.223,54 = 5.954,74", () => {
+  test("caso do Teodoro em setembro: 5.200 − 1.468,80 + 2.223,54 = 5.954,74", () => {
     expect(valorIntegralCombinado({ combinado: 5200, adiantamento: 1468.8, gorjeta: 2223.54 })).toBe(5954.74);
   });
 

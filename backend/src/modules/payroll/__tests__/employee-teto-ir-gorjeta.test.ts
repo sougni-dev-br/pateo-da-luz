@@ -35,12 +35,12 @@ app.use("/employees", employeeRouter);
 
 const CPF = "52998224725";
 const existente = {
-  id: "e1", firstName: "Elioenai", lastName: "Silva", cpf: CPF, baseSalary: "3672", modality: "CLT", position: "Gerente",
+  id: "e1", firstName: "Teodoro", lastName: "Silva", cpf: CPF, baseSalary: "3672", modality: "CLT", position: "Gerente",
   companyId: null, salarioCombinado: "5200", salarioCombinadoMotivo: "Combinado acima", tetoIrGorjeta: null,
   recebeAdiantamento: true, pagamentoQuinzenal: false, admissionDate: new Date("2024-01-01T00:00:00Z"), deletedAt: null,
 };
 const corpo = (over: Record<string, unknown> = {}) => ({
-  firstName: "Elioenai", lastName: "Silva", cpf: CPF, baseSalary: "3672", modality: "CLT", position: "Gerente",
+  firstName: "Teodoro", lastName: "Silva", cpf: CPF, baseSalary: "3672", modality: "CLT", position: "Gerente",
   salarioCombinado: "5200", salarioCombinadoMotivo: "Combinado acima", recebeAdiantamento: true, admissionDate: "2024-01-01", ...over,
 });
 const linhasGravadas = () => db.employeeHistorico.createMany.mock.calls.flatMap((c: [{ data: unknown[] }]) => c[0].data);
