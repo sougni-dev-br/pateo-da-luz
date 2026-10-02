@@ -27,6 +27,7 @@ import { lerPdfRescisao } from "./tip-trct.service.js";
 import { pdfDoCorpo } from "./pdf-corpo.js";
 import { tipConferenciaRouter } from "./tip-conferencia.routes.js";
 import { sincronizarSalariosCombinados } from "./salario-combinado.service.js";
+import { type ResultadoAcertos, lancarAcertosDaLista } from "./acerto-lista.service.js";
 import { tipValesRouter } from "./tip-vales.routes.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { normalizarHorasDigitadas } from "./hora-extra.js";
@@ -679,6 +680,29 @@ async function sincronizarAposFechar(request: Request, year: number, month: numb
   }
 }
 
+// O resultado dos acertos para a tela: nomes e valores só para quem vê Funcionários.
+function acertosParaTela(r: ResultadoAcertos, podeVer: boolean) {
+  return { criados: r.criados.length, atualizados: r.atualizados.length, detalhes: podeVer ? r : null, avisos: podeVer ? r.avisos : r.avisosSemValor };
+}
+
+// Fechado o mês, o acerto de cada sem registro (lista de pagamento) vira título no Contas a
+// Pagar. Como a sincronização acima: grava na Folha (exige editar a Folha) e falha não desfaz
+// o fechamento — vira aviso.
+async function lancarAcertosAposFechar(request: Request, year: number, month: number, usuario: { id: string; name: string; role: string }) {
+  if (!(await userHasPermission(usuario as SessionUser, "payroll", "edit"))) {
+    return {
+      criados: 0, atualizados: 0, detalhes: null, erro: null, avisos: [],
+      aviso: "Acertos da lista de pagamento não lançados no Contas a Pagar: exige a permissão de editar a Folha. Quem tiver a permissão lança pela aba Lista de pagamento.",
+    };
+  }
+  try {
+    const r = await lancarAcertosDaLista(year, month, { id: usuario.id, name: usuario.name });
+    return { ...acertosParaTela(r, await podeVerDadosPessoais(request)), erro: null };
+  } catch (err) {
+    return { criados: 0, atualizados: 0, detalhes: null, erro: (err as Error).message, avisos: [] };
+  }
+}
+
 // ─── Fechar o período (recalcula, persiste e trava a conferência) ───────────
 tipCommissionRouter.post("/periods/:year/:month/close", async (request, response) => {
   const user = await getSessionUser(request);
@@ -691,10 +715,35 @@ tipCommissionRouter.post("/periods/:year/:month/close", async (request, response
       userId: user.id, action: "CLOSE_TIP_PERIOD", entity: "TipPeriod", entityId: result.code ?? `${year}-${month}`,
       newValue: { registro: result.fechamento?.code ?? null, ...result.totals }, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
     });
+    const usuario = { id: user.id, name: user.name, role: user.role };
     // Fechado o mês, o salário de quem tem salário combinado passa ao valor integral.
-    response.json({ ...result, salariosCombinados: await sincronizarAposFechar(request, year, month, { id: user.id, name: user.name, role: user.role }) });
+    const salariosCombinados = await sincronizarAposFechar(request, year, month, usuario);
+    response.json({ ...result, salariosCombinados, acertosLista: await lancarAcertosAposFechar(request, year, month, usuario) });
   } catch (err) {
     response.status(422).json({ message: (err as Error).message });
+  }
+});
+
+// ─── Lançar os acertos da lista de pagamento no Contas a Pagar (botão) ─────
+// Período aberto ou fechado: aberto lança o valor de agora (lançar de novo atualiza o que não
+// foi pago); fechado, o valor gravado no fechamento.
+tipCommissionRouter.post("/periods/:year/:month/acertos-lista", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  if (!(await userHasPermission(user as SessionUser, "payroll", "edit"))) {
+    return response.status(403).json({ message: "Lançar os acertos grava na Folha: exige a permissão de editar a Folha." });
+  }
+  const year = parseInt(request.params.year, 10);
+  const month = parseInt(request.params.month, 10);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return response.status(400).json({ message: "Competência inválida." });
+  }
+  try {
+    const r = await lancarAcertosDaLista(year, month, { id: user.id, name: user.name });
+    const tela = acertosParaTela(r, await podeVerDadosPessoais(request));
+    response.json({ criados: tela.criados, atualizados: tela.atualizados, semMudanca: r.semMudanca, detalhes: tela.detalhes, avisos: tela.avisos });
+  } catch (err) {
+    response.status(409).json({ message: (err as Error).message });
   }
 });
 

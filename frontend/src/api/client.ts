@@ -5701,6 +5701,8 @@ export type PayrollComputedItem = {
   dreCategoryName: string | null;
   details: Record<string, unknown> | null;
   exists: boolean;
+  /** 1ª quinzena já lançada, sem baixa, com valor diferente do calculado: gerar de novo atualiza. */
+  desatualizado?: boolean;
 };
 
 export type PayrollPreview = {
@@ -5847,6 +5849,8 @@ export type TipComputedParticipant = {
   adiantamentoSalarial?: number | null;
   /** Sem registro por quinzena: 1ª quinzena já paga no dia 15 (0 = não recebeu). null sem permissão de ver Funcionários. */
   primeiraQuinzena?: number | null;
+  /** Sem registro que recebe por quinzena no mês (o acerto vence no fim do mês). */
+  pagamentoQuinzenal?: boolean;
   /** Sem registro: hora extra (+50%) e adicional noturno, já no total a pagar. CLT = 0. null sem permissão de ver Funcionários. */
   valorHoraExtra?: number | null;
   valorAdicionalNoturno?: number | null;
@@ -6251,8 +6255,30 @@ export function getTipRelatorioVales(de: string, ate: string) {
 export type SincronizacaoAposFechar = {
   atualizados: number; detalhes: SincronizacaoSalariosCombinados | null; erro: string | null; aviso?: string | null;
 };
+/** Acertos da lista de pagamento (sem registro) lançados no Contas a Pagar como SALARIO.
+ *  detalhes: nomes e valores, só para quem vê Funcionários (senão null). */
+export type ResultadoAcertosLista = {
+  competencia: string;
+  criados: Array<{ employeeId: string; nome: string; valor: number; vencimento: string }>;
+  atualizados: Array<{ employeeId: string; nome: string; antes: number; depois: number }>;
+  semMudanca: number;
+  avisos: string[];
+  avisosSemValor: string[];
+};
+export type AcertosListaLancados = {
+  criados: number; atualizados: number; semMudanca: number; avisos: string[]; detalhes: ResultadoAcertosLista | null;
+};
+/** Os mesmos, lançados logo depois do fechamento (falha ou falta de permissão vira aviso). */
+export type AcertosAposFechar = {
+  criados: number; atualizados: number; detalhes: ResultadoAcertosLista | null; erro: string | null; avisos: string[]; aviso?: string | null;
+};
 export function closeTipPeriodApi(year: number, month: number) {
-  return request<TipComputation & { salariosCombinados?: SincronizacaoAposFechar | null }>(`/payroll/tip/periods/${year}/${month}/close`, { method: "POST" });
+  return request<TipComputation & { salariosCombinados?: SincronizacaoAposFechar | null; acertosLista?: AcertosAposFechar | null }>(
+    `/payroll/tip/periods/${year}/${month}/close`, { method: "POST" });
+}
+/** Lança (ou atualiza o que não foi pago) o acerto de cada sem registro da lista no Contas a Pagar. */
+export function lancarAcertosLista(year: number, month: number) {
+  return request<AcertosListaLancados>(`/payroll/tip/periods/${year}/${month}/acertos-lista`, { method: "POST" });
 }
 
 export function reopenTipPeriodApi(year: number, month: number, motivo: string) {
@@ -6414,14 +6440,15 @@ export function previewPayroll(year: number, month: number) {
 
 // VT e folha (adiantamento + salário) fecham em momentos diferentes — dá para
 // gerar cada um isoladamente.
-/** ADIANTAMENTO_SR: só o adiantamento do dia 20 de quem é sem registro e recebe adiantamento. */
-export type PayrollKind = "ALL" | "VT" | "VT_Q1" | "VT_Q2" | "FOLHA" | "ADIANTAMENTO_SR";
+/** ADIANTAMENTO_SR: só o adiantamento do dia 20 de quem é sem registro e recebe adiantamento.
+ *  QUINZENA_SR: só a 1ª quinzena (dia 15) de quem é sem registro e recebe por quinzena. */
+export type PayrollKind = "ALL" | "VT" | "VT_Q1" | "VT_Q2" | "FOLHA" | "ADIANTAMENTO_SR" | "QUINZENA_SR";
 
 // Valor ajustado à mão na prévia, quando o cálculo não bate com a realidade.
 export type PayrollOverride = { employeeId: string; type: PayrollItemType; periodLabel: string; amount: number };
 
 export function generatePayroll(year: number, month: number, kind: PayrollKind = "ALL", overrides: PayrollOverride[] = []) {
-  return request<{ year: number; month: number; kind: PayrollKind; created: number; skipped: number; ajustados: number; avisos?: string[] }>("/payroll/generate", {
+  return request<{ year: number; month: number; kind: PayrollKind; created: number; atualizados?: number; skipped: number; ajustados: number; avisos?: string[] }>("/payroll/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ year, month, kind, overrides })

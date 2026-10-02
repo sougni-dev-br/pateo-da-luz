@@ -668,7 +668,14 @@ purchaseRouter.get("/payables", async (request, response) => {
           : status === "CANCELLED"
             ? Prisma.sql`pit."status" = 'CANCELED'`
             : Prisma.sql`false`;
-  const payrollTypeLabel = Prisma.sql`CASE pit."type" WHEN 'VALE_TRANSPORTE' THEN 'Vale-transporte' WHEN 'ADIANTAMENTO' THEN 'Adiantamento' WHEN 'SALARIO' THEN 'Salário' WHEN 'RESCISAO' THEN 'Rescisão' WHEN 'FERIAS' THEN 'Férias' ELSE pit."type"::text END`;
+  // Do sem registro: a 1ª quinzena (ADIANTAMENTO marcado) e o acerto da lista de pagamento
+  // (SALARIO de origem LISTA_PAGAMENTO) têm rótulo próprio — a coluna e o filtro por sub-tipo.
+  const payrollTypeLabel = Prisma.sql`CASE
+    WHEN pit."type" = 'ADIANTAMENTO' AND COALESCE((pit."details"->>'primeiraQuinzena')::boolean, false) THEN '1ª quinzena'
+    WHEN pit."type" = 'SALARIO' AND pit."details"->>'origem' = 'LISTA_PAGAMENTO' THEN 'Salário (acerto)'
+    WHEN pit."type" = 'VALE_TRANSPORTE' THEN 'Vale-transporte' WHEN pit."type" = 'ADIANTAMENTO' THEN 'Adiantamento'
+    WHEN pit."type" = 'SALARIO' THEN 'Salário' WHEN pit."type" = 'RESCISAO' THEN 'Rescisão' WHEN pit."type" = 'FERIAS' THEN 'Férias'
+    ELSE pit."type"::text END`;
   // Folha não tem fornecedor/método — pula quando esses filtros estão ativos.
   const includePayroll = origin !== "purchases" && origin !== "taxes" && !supplierId && !paymentMethodId;
   const payrollRows = includePayroll

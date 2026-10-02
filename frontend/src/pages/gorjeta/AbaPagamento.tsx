@@ -1,7 +1,9 @@
-import { FileText, Lock } from "lucide-react";
-import { type CSSProperties, useMemo } from "react";
-import type { TipComputation, TipComputedParticipant } from "../../api/client";
+import { FileText, Lock, Receipt } from "lucide-react";
+import { type CSSProperties, useMemo, useState } from "react";
+import { type AcertosListaLancados, type TipComputation, type TipComputedParticipant, lancarAcertosLista } from "../../api/client";
+import { useSession } from "../../context/SessionContext";
 import { Alert, Button, Money, StatusBadge, Table } from "../../design-system";
+import { hasPermission } from "../../lib/permissions";
 import { exportarContabilidade, exportarListaPagamento } from "./exportarPdf";
 import { NOTA_TETO_OCULTO, gorjetaEnviada } from "./envioContabilidade";
 import { SeloRecibo } from "./ReciboRescisao";
@@ -118,7 +120,32 @@ function CelulaValorHoraExtra({ valor, titulo }: { valor: number | null; titulo?
 
 const somaHoras = (lista: Array<string | undefined>) => lista.reduce((a, t) => a + Math.max(0, parseHoras(t) ?? 0), 0);
 
+const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
+const dataBr = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
+
+// O que o "Lançar acertos" fez. Nomes e valores só vêm para quem vê Funcionários (detalhes).
+function ResultadoAcertos({ r }: { r: AcertosListaLancados }) {
+  const resumo = [plural(r.criados, "criado", "criados"), plural(r.atualizados, "atualizado", "atualizados"), `${r.semMudanca} sem mudança`].join(" · ");
+  return (
+    <Alert tone={r.avisos.length ? "warning" : "success"} style={{ fontSize: 13 }}>
+      <div>Acertos no Contas a Pagar (Folha · Salário (acerto)): {resumo}.</div>
+      {r.detalhes?.criados.map((c) => (
+        <div key={`c-${c.employeeId}`}>{c.nome}: <Money value={c.valor} /> · vence {dataBr(c.vencimento)}</div>
+      ))}
+      {r.detalhes?.atualizados.map((a) => (
+        <div key={`a-${a.employeeId}`}>{a.nome}: <Money value={a.antes} /> → <Money value={a.depois} /></div>
+      ))}
+      {r.avisos.map((a) => <div key={a}>{a}</div>)}
+    </Alert>
+  );
+}
+
 export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
+  const { user } = useSession();
+  // Lançar os acertos grava na Folha (Contas a Pagar): exige editar a Folha.
+  const podeLancarAcertos = hasPermission(user, "payroll", "edit");
+  const [lancando, setLancando] = useState(false);
+  const [acertos, setAcertos] = useState<AcertosListaLancados | null>(null);
   const rowPorFuncionario = useMemo(() => new Map(rows.map((r) => [r.employeeId, r])), [rows]);
   const participantes = useMemo(() => ordenar(comp.participants).filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO"), [comp]);
   // Quem só está pelo salário não vai à contabilidade (não tem gorjeta a lançar).
@@ -190,6 +217,15 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   async function exportar(fn: (c: TipComputation) => Promise<void>) {
     try { await fn(comp); } catch (e) { onError("Erro ao gerar o PDF: " + (e as Error).message); }
   }
+
+  async function lancarAcertos() {
+    setLancando(true);
+    setAcertos(null);
+    try { setAcertos(await lancarAcertosLista(comp.year, comp.month)); }
+    catch (e) { onError("Erro ao lançar os acertos: " + (e as Error).message); }
+    finally { setLancando(false); }
+  }
+  const mostraLancarAcertos = podeLancarAcertos && Boolean(comp.periodId) && semRegistro.length > 0;
 
   // Normaliza para h:mm ao sair do campo ("7,5" → "7:30").
   function normalizarHoras(employeeId: string, campo: "horaExtra" | "adicionalNoturno", valor: string) {
@@ -343,8 +379,15 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
           <div className="barra-lista">
             <SeletorColunas colunas={COLUNAS_PAG.filter((c) => comQuinzena || c.chave !== "quinzena")} ocultas={colP.ocultas} alternar={colP.alternar} mostrarTodas={colP.mostrarTodas} />
             <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarListaPagamento)}>PDF pagamento</Button>
+            {mostraLancarAcertos && (
+              <Button variant="secondary" size="sm" leadingIcon={<Receipt size={14} />} onClick={() => void lancarAcertos()} disabled={lancando}
+                title="Cria (ou atualiza, se ainda não foi pago) um título Salário (acerto) por sem registro, com o A pagar da lista. Vence no fim do mês para quem recebe por quinzena; no 5º dia útil do mês seguinte para os outros. Pago não muda; excluído à mão não volta. Fechar a gorjeta já lança.">
+                {lancando ? "Lançando…" : "Lançar acertos no Contas a Pagar"}
+              </Button>
+            )}
           </div>
         </div>
+        {acertos && <ResultadoAcertos r={acertos} />}
         {!veSalario && semRegistro.length > 0 && (
           <Alert tone="warning">Salário e PIX só aparecem para quem tem permissão de ver Funcionários.</Alert>
         )}

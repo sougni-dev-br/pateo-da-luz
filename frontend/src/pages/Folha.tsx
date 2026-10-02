@@ -14,6 +14,7 @@ import {
 import { hasPermission } from "../lib/permissions";
 import { maskMoney, moneyToMasked } from "../utils/format";
 import { LancamentoManualModal } from "./folha/LancamentoManualModal";
+import { adiantamentosSrAGerar, quinzenasSrAGerar } from "./folha/semRegistro";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
@@ -346,13 +347,15 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
         : kind === "VT_Q2" ? "VT da 2ª quinzena gerado"
         : kind === "VT" ? "Vale-transporte gerado"
         : kind === "FOLHA" ? "Folha gerada"
-        : kind === "ADIANTAMENTO_SR" ? "Adiantamento dos sem registro lançado" : "VT + folha gerados";
+        : kind === "ADIANTAMENTO_SR" ? "Adiantamento dos sem registro lançado"
+        : kind === "QUINZENA_SR" ? "1ª quinzena dos sem registro lançada" : "VT + folha gerados";
       const comAjuste = res.ajustados > 0 ? ` · ${res.ajustados} com valor ajustado` : "";
+      const atualizados = res.atualizados ? `, ${res.atualizados} atualizado(s) (sem baixa, valor mudou)` : "";
       // O que a geração pulou de propósito (depois da saída, já lançado) aparece junto.
       const pulados = (res.avisos ?? []).filter((a) => a.includes("não gerado"));
       setNotice({
         tone: pulados.length > 0 ? "warning" : "success",
-        message: `${oque} — ${res.created} lançamento(s) criado(s), ${res.skipped} já existiam${comAjuste}.${pulados.length > 0 ? ` Pulados: ${pulados.join(" ")}` : ""}`,
+        message: `${oque} — ${res.created} lançamento(s) criado(s)${atualizados}, ${res.skipped} já existiam${comAjuste}.${pulados.length > 0 ? ` Pulados: ${pulados.join(" ")}` : ""}`,
       });
       setPreview(null);
       await load();
@@ -488,7 +491,10 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
   const novosFolha = itensDoEscopo.filter((i) => !i.exists && (i.type === "ADIANTAMENTO" || i.type === "SALARIO")).length;
   // Adiantamento do dia 20 de quem é sem registro e recebe adiantamento: lançado sozinho (o
   // salário deles sai pela lista da gorjeta, que desconta este título pelo valor pago).
-  const novosAdiantamentoSr = itensDoEscopo.filter((i) => !i.exists && i.type === "ADIANTAMENTO" && i.details?.semRegistro === true).length;
+  const novosAdiantamentoSr = adiantamentosSrAGerar(itensDoEscopo);
+  // 1ª quinzena (dia 15) de quem é sem registro e recebe por quinzena: idem, e a lista desconta.
+  const quinzenasSr = quinzenasSrAGerar(itensDoEscopo);
+  const quinzenasSrTotal = quinzenasSr.novas + quinzenasSr.desatualizadas;
 
   // Conferência: VT já lançado da quinzena escolhida, ordenado por funcionário.
   //
@@ -824,6 +830,10 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                 )}
                 {canEdit && previewScope === "FOLHA" && (
                   <>
+                    <Button variant="secondary" leadingIcon={<Banknote size={14} />} onClick={() => handleGenerate("QUINZENA_SR")} disabled={busy || quinzenasSrTotal === 0}
+                      title="Lança só a 1ª quinzena (dia 15) dos sem registro que recebem por quinzena: metade do salário base vigente no dia 15. Gerar de novo atualiza a que ainda não foi paga. No dia, dê a baixa no Contas a Pagar com o valor pago: a lista de pagamento desconta esse valor.">
+                      Gerar 1ª quinzena (sem registro) ({quinzenasSrTotal})
+                    </Button>
                     <Button variant="secondary" leadingIcon={<Banknote size={14} />} onClick={() => handleGenerate("ADIANTAMENTO_SR")} disabled={busy || novosAdiantamentoSr === 0}
                       title="Lança só o adiantamento do dia 20 dos sem registro que recebem adiantamento. No dia, dê a baixa no Contas a Pagar com o valor pago: a lista de pagamento desconta esse valor.">
                       Lançar adiantamento dos sem registro ({novosAdiantamentoSr})
