@@ -324,6 +324,13 @@ export function dataDaBaixaNoLote(p: Payable, usarVencimento: boolean, dataUnica
   return dataUnica;
 }
 
+/** Datas do lote para o resumo: quantos já venceram, quantos ainda vão vencer e o intervalo dos vencimentos. */
+export function resumoDatasDoLote(titulos: Payable[], hoje: string): { vencidos: number; aVencer: number; primeiro: string; ultimo: string } {
+  const datas = titulos.map((p) => dateKey(p.dueDate)).filter(Boolean).sort();
+  const vencidos = titulos.filter((p) => vencidoAntesDe(p, hoje)).length;
+  return { vencidos, aVencer: titulos.length - vencidos, primeiro: datas[0] ?? "", ultimo: datas[datas.length - 1] ?? "" };
+}
+
 export const DIAS_ALERTA_BAIXA_HOJE = 7;
 
 /** Quantos títulos venceram há mais de `dias` dias (o vencimento está a mais de `dias` antes de hoje). */
