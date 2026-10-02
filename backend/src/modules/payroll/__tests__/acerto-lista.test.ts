@@ -45,7 +45,7 @@ type Existente = Record<string, unknown>;
 function existentes(itens: Existente[]) {
   db.payrollItem.findMany.mockResolvedValue(itens.map((i) => ({
     id: "x", employeeId: "e1", type: "SALARIO", periodLabel: ROTULO_ACERTO, amount: 1695, paymentDate: null, paidAmount: null,
-    deletedAt: null, deletedById: null, status: "PENDING", dueDate: d("2026-10-07"), details: { origem: "LISTA_PAGAMENTO" }, ...i,
+    deletedAt: null, deletedById: null, status: "PENDING", dueDate: d("2026-10-06"), details: { origem: "LISTA_PAGAMENTO" }, ...i,
   })));
 }
 
@@ -62,19 +62,17 @@ beforeEach(() => {
 });
 
 describe("regras puras", () => {
-  test("5º dia útil: seg a sex, sem os feriados", () => {
-    expect(quintoDiaUtil(2026, 10)).toEqual(d("2026-10-07"));
-    // 01/01 é feriado (sexta): 04, 05, 06, 07, 08.
-    expect(quintoDiaUtil(2027, 1)).toEqual(d("2027-01-08"));
-    // Novembro/2026: 02 (Finados) fora → 03, 04, 05, 06, 09.
-    expect(quintoDiaUtil(2026, 11)).toEqual(d("2026-11-09"));
+  test("5º dia útil: seg a sáb (o sábado conta), sem os feriados", () => {
+    expect(quintoDiaUtil(2026, 10)).toEqual(d("2026-10-06")); // 01, 02, 03 (sáb), 05, 06
+    expect(quintoDiaUtil(2027, 1)).toEqual(d("2027-01-07")); // 01 é feriado; 02 (sáb), 04, 05, 06, 07
+    expect(quintoDiaUtil(2026, 11)).toEqual(d("2026-11-07")); // 01 dom, 02 Finados; 03 a 07 (sáb)
   });
 
   test("vencimento: por quinzena no último dia do mês; os outros no 5º dia útil do mês seguinte", () => {
     expect(vencimentoDoAcerto(2026, 9, true)).toEqual(d("2026-09-30"));
     expect(vencimentoDoAcerto(2026, 2, true)).toEqual(d("2026-02-28"));
-    expect(vencimentoDoAcerto(2026, 9, false)).toEqual(d("2026-10-07"));
-    expect(vencimentoDoAcerto(2026, 12, false)).toEqual(d("2027-01-08"));
+    expect(vencimentoDoAcerto(2026, 9, false)).toEqual(d("2026-10-06"));
+    expect(vencimentoDoAcerto(2026, 12, false)).toEqual(d("2027-01-07"));
   });
 
   test("composição guarda a conta inteira da lista", () => {
@@ -118,10 +116,10 @@ describe("lançar os acertos da lista", () => {
     expect(db.payrollItem.create).toHaveBeenCalledTimes(1);
     expect(db.payrollItem.create.mock.calls[0][0].data).toMatchObject({
       employeeId: "e1", type: "SALARIO", competenceYear: 2026, competenceMonth: 9, periodLabel: "Acerto (lista de pagamento)",
-      amount: 1695, dueDate: d("2026-10-07"), dreCategoryId: "dre-folha", source: "GENERATED", createdById: "u1",
+      amount: 1695, dueDate: d("2026-10-06"), dreCategoryId: "dre-folha", source: "GENERATED", createdById: "u1",
       details: expect.objectContaining({ origem: "LISTA_PAGAMENTO", totalAPagar: 1695, adiantamento: 800 }),
     });
-    expect(r.criados).toEqual([{ employeeId: "e1", nome: "Ana Exemplo", valor: 1695, vencimento: "2026-10-07" }]);
+    expect(r.criados).toEqual([{ employeeId: "e1", nome: "Ana Exemplo", valor: 1695, vencimento: "2026-10-06" }]);
     expect(assertPeriodWritableForDate).toHaveBeenCalledWith(d("2026-09-01"), expect.any(String));
   });
 
@@ -175,7 +173,7 @@ describe("lançar os acertos da lista", () => {
 
   test("título pago nunca muda: avisa a diferença", async () => {
     apuracao([pessoa({ totalAPagar: 1800 })]);
-    existentes([{ amount: 1695, paymentDate: d("2026-10-07"), paidAmount: 1695, status: "PAID" }]);
+    existentes([{ amount: 1695, paymentDate: d("2026-10-06"), paidAmount: 1695, status: "PAID" }]);
     const r = await lancarAcertosDaLista(2026, 9, USUARIO);
     expect(db.payrollItem.update).not.toHaveBeenCalled();
     expect(db.payrollItem.updateMany).not.toHaveBeenCalled();
@@ -260,10 +258,10 @@ describe("acerto: corrida e ajuste à mão", () => {
   test("a releitura dentro da trava vê o título já pago: não grava e avisa como pago", async () => {
     apuracao([pessoa({ totalAPagar: 1800 })]);
     const base = { id: "x", employeeId: "e1", type: "SALARIO", periodLabel: ROTULO_ACERTO, amount: 1695, paidAmount: null, deletedAt: null,
-      deletedById: null, dueDate: d("2026-10-07"), details: { origem: "LISTA_PAGAMENTO" } };
+      deletedById: null, dueDate: d("2026-10-06"), details: { origem: "LISTA_PAGAMENTO" } };
     db.payrollItem.findMany
       .mockResolvedValueOnce([{ ...base, paymentDate: null, status: "PENDING" }])
-      .mockResolvedValue([{ ...base, paymentDate: d("2026-10-07"), paidAmount: 1695, status: "PAID" }]);
+      .mockResolvedValue([{ ...base, paymentDate: d("2026-10-06"), paidAmount: 1695, status: "PAID" }]);
     const r = await lancarAcertosDaLista(2026, 9, USUARIO);
     expect(db.payrollItem.updateMany).not.toHaveBeenCalled();
     expect(r.avisos).toEqual([expect.stringMatching(/Ana Exemplo.*já pago/)]);
