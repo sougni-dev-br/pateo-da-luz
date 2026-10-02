@@ -2,11 +2,15 @@
 // rotas públicas, que não têm sessão para segurar abuso.
 import type { NextFunction, Request, Response } from "express";
 
-// No Render o proxy ACRESCENTA o IP de quem conectou ao fim do X-Forwarded-For; o começo da
-// lista é o que o cliente mandou e pode ser inventado para fugir do limite.
+// Na frente do Render há o Cloudflare (resposta com "Server: cloudflare" e CF-RAY). Ele grava o
+// IP de quem conectou em CF-Connecting-IP, sobrescrevendo o que o cliente mandar. O
+// X-Forwarded-For não serve: o começo da lista é o que o cliente inventar, e o fim é o servidor
+// do Cloudflare, que muda a cada requisição — com ele o limite nunca acumulava (visto em produção
+// em 02/10/2026: 43 tentativas seguidas sem nenhum bloqueio).
 export function ipConfiavel(request: Request): string {
-  const lista = String(request.headers["x-forwarded-for"] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  return lista.at(-1) ?? request.socket?.remoteAddress ?? "desconhecido";
+  const cloudflare = String(request.headers["cf-connecting-ip"] ?? "").trim();
+  if (cloudflare) return cloudflare;
+  return request.socket?.remoteAddress ?? "desconhecido";
 }
 
 export function limiteDeRequisicoes(opcoes: { janelaMs: number; maximo: number; chave?: string }) {

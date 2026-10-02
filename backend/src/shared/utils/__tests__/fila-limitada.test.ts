@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, test, vi } from "vitest";
 import type { NextFunction, Request, Response } from "express";
-import { filaLimitada } from "../limite-requisicoes.js";
+import { filaLimitada, ipConfiavel, limiteDeRequisicoes } from "../limite-requisicoes.js";
 
 // Requisição/resposta de mentira: só o que a fila usa (fechar a conexão e o prazo do corpo).
 function conexao() {
@@ -46,5 +46,25 @@ describe("filaLimitada", () => {
     a.fechar();
     a.fechar();
     expect(fila.situacao()).toEqual({ ativos: 0, naFila: 0 });
+  });
+});
+
+describe("ipConfiavel e limite por IP", () => {
+  const req = (headers: Record<string, string>, remoto = "10.0.0.9") =>
+    ({ headers, socket: { remoteAddress: remoto } }) as unknown as Request;
+
+  test("usa o IP que o Cloudflare informa; X-Forwarded-For inventado não muda nada", () => {
+    expect(ipConfiavel(req({ "cf-connecting-ip": "200.1.2.3", "x-forwarded-for": "1.1.1.1, 172.70.0.1" }))).toBe("200.1.2.3");
+    expect(ipConfiavel(req({ "x-forwarded-for": "1.1.1.1" }))).toBe("10.0.0.9");
+  });
+
+  test("o limite acumula para o mesmo aparelho mesmo trocando o X-Forwarded-For", () => {
+    const limite = limiteDeRequisicoes({ janelaMs: 60_000, maximo: 2 });
+    const status: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const resposta = { setHeader: vi.fn(), status: vi.fn((s: number) => { status.push(s); return { json: vi.fn() }; }) } as unknown as Response;
+      limite(req({ "cf-connecting-ip": "200.1.2.3", "x-forwarded-for": `9.9.9.${i}` }), resposta, vi.fn());
+    }
+    expect(status).toEqual([429]);
   });
 });
