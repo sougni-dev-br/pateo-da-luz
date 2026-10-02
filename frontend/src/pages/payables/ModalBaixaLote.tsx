@@ -7,7 +7,7 @@ import { Alert, Button, Money } from "../../design-system";
 import { formatDate } from "../../utils/format";
 import { Janela } from "./Janela";
 import type { FormBaixa, OpcaoForma } from "./ModalBaixa";
-import { favorecidoDoTitulo, isTaxPayment, valorDoTitulo } from "./regras";
+import { avisoDataDoLote, dataDaBaixaNoLote, favorecidoDoTitulo, isTaxPayment, todayKey, valorDoTitulo } from "./regras";
 
 export type ResultadoLote = { ok: number; erros: Array<{ nome: string; motivo: string }> };
 
@@ -16,6 +16,9 @@ type Props = {
   total: number;
   form: FormBaixa;
   onCampo: <K extends keyof FormBaixa>(campo: K, valor: FormBaixa[K]) => void;
+  /** Título vencido é baixado na própria data de vencimento (os demais, na data única). */
+  usarVencimento?: boolean;
+  onUsarVencimento?: (usar: boolean) => void;
   onEmpresa: (companyId: string) => void;
   formas: OpcaoForma[];
   companies: Company[];
@@ -31,7 +34,7 @@ type Props = {
   onConfirmar: () => void;
 };
 
-export function ModalBaixaLote({ selecionados, total, form, onCampo, onEmpresa, formas, companies, notice, ocupado, resultado, suspeitos, onTirarSuspeitos, onBaixarMesmoAssim, onFechar, onFecharResultado, onConfirmar }: Props) {
+export function ModalBaixaLote({ selecionados, total, form, onCampo, usarVencimento = false, onUsarVencimento, onEmpresa, formas, companies, notice, ocupado, resultado, suspeitos, onTirarSuspeitos, onBaixarMesmoAssim, onFechar, onFecharResultado, onConfirmar }: Props) {
   const temNaoImposto = selecionados.some((p) => !isTaxPayment(p));
   // Os suspeitos aparecem no pé da janela, fora da vista: rola até eles.
   const blocoSuspeitos = useRef<HTMLDivElement>(null);
@@ -42,6 +45,9 @@ export function ModalBaixaLote({ selecionados, total, form, onCampo, onEmpresa, 
 
   // Depois de enviar a seleção é limpa: o título conta o que foi enviado, não o que sobrou selecionado.
   const quantidade = resultado ? resultado.ok + resultado.erros.length : selecionados.length;
+  const hoje = todayKey();
+  // Baixar com a data de hoje títulos vencidos há semanas costuma ser engano (a data real é outra).
+  const avisoData = avisoDataDoLote(selecionados, form.paidDate, usarVencimento, hoje);
 
   return (
     <Janela eyebrow="Baixa em lote" titulo={`Baixar ${quantidade} título(s)`} onFechar={onFechar} ocupado={ocupado}>
@@ -77,9 +83,15 @@ export function ModalBaixaLote({ selecionados, total, form, onCampo, onEmpresa, 
 
           <div className="form-grid">
             <label>
-              Data do pagamento *
+              {usarVencimento ? "Data dos títulos não vencidos *" : "Data do pagamento *"}
               <input type="date" value={form.paidDate} onChange={(e) => onCampo("paidDate", e.target.value)} />
             </label>
+            {onUsarVencimento && (
+              <label className="checkbox-label">
+                <input type="checkbox" checked={usarVencimento} onChange={(e) => onUsarVencimento(e.target.checked)} />
+                Usar a data de vencimento de cada título
+              </label>
+            )}
             {temNaoImposto && (
               <label>
                 Forma de pagamento *
@@ -104,6 +116,13 @@ export function ModalBaixaLote({ selecionados, total, form, onCampo, onEmpresa, 
             )}
           </div>
 
+          {avisoData && <Alert tone="warning" role="alert">{avisoData}</Alert>}
+          {usarVencimento && (
+            <p className="pg-nota">
+              Cada título vencido é baixado na data em que venceu; os que ainda vão vencer ficam com a data acima.
+            </p>
+          )}
+
           <ul className="pg-lote-lista" aria-label="Títulos selecionados">
             {selecionados.map((p) => (
               <li key={p.id}>
@@ -111,7 +130,10 @@ export function ModalBaixaLote({ selecionados, total, form, onCampo, onEmpresa, 
                   {favorecidoDoTitulo(p)}
                   {p.taxDescription ? ` · ${p.taxDescription}` : ""}
                 </span>
-                <span className="pg-lote-venc">{formatDate(p.dueDate)}</span>
+                <span className="pg-lote-venc">
+                  {formatDate(p.dueDate)}
+                  {usarVencimento ? ` · baixa em ${formatDate(dataDaBaixaNoLote(p, true, form.paidDate, hoje))}` : ""}
+                </span>
                 <strong className="pg-num"><Money value={valorDoTitulo(p)} /></strong>
               </li>
             ))}

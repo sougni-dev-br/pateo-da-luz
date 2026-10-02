@@ -3,12 +3,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AppUser, AuditLog, Company, CompanyBankAccount, checkPayrollPayBatch,
   downloadPayablesFinancialPdf, deletePayrollItem, getAllBankAccounts, getCompanies,
-  getPayableHistory, getPayables, getPaymentMethods, getPurchase,
+  getPayableHistory, getPayablesComLimite, getPaymentMethods, getPurchase,
   getTaxPaymentHistory, getSuppliers, payExtraPayment, payInstallment, payPayrollItem, payTaxPayment,
   Payable, PaymentMethod, PurchaseDetail, reverseExtraPayment, reverseInstallment, reversePayrollItem, reverseTaxPayment, Supplier
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
-import { Button, EmptyState, IconButton, Money, PanelEyebrow } from "../design-system";
+import { Alert, Button, EmptyState, IconButton, Money, PanelEyebrow } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { formatDate } from "../utils/format";
 import { currentMonthPeriod, periodForPreset, PeriodPreset, PeriodState } from "../utils/period";
@@ -21,8 +21,8 @@ import { ModalEstorno, ModalHistorico } from "./payables/ModalEstorno";
 import { PainelFiltros } from "./payables/PainelFiltros";
 import { ResumoKpis, type CartaoResumo } from "./payables/ResumoKpis";
 import {
-  addDaysKey, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dateKey,
-  isExtra, isPayroll, isSimpleLedger, isTaxPayment, juntarVencidosAnteriores, minDateKey, periodoChegaAHoje, rotuloPeriodo, somarValores, todayKey,
+  addDaysKey, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dataDaBaixaNoLote, dateKey,
+  isExtra, isPayroll, isSimpleLedger, isTaxPayment, juntarVencidosAnteriores, minDateKey, periodoPuxaVencidosAnteriores, rotuloPeriodo, somarValores, todayKey,
   type FiltrosPagar
 } from "./payables/regras";
 import { ConfirmaBaixaDuplicada } from "./payables/ConfirmaBaixaDuplicada";
@@ -101,6 +101,12 @@ export function Payables({ user }: PayablesProps) {
   const [period, setPeriod] = useState(currentMonthPeriod());
   const [loading, setLoading] = useState(false);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
+  // O backend corta a lista num limite de segurança e avisa pelo cabeçalho X-Payables-Truncado.
+  const [listaTruncada, setListaTruncada] = useState(false);
+  const [gerandoPdf, setGerandoPdf] = useState(false);
+  const gerandoPdfRef = useRef(false);
+  // Baixa em lote: cada título vencido baixado na própria data de vencimento (em vez da data única).
+  const [loteUsarVencimento, setLoteUsarVencimento] = useState(false);
   const [filtrosAbertos, setFiltrosAbertos] = useState(() => {
     try { return window.localStorage.getItem(CHAVE_FILTROS_ABERTOS) === "1"; } catch { return false; }
   });
@@ -122,6 +128,7 @@ export function Payables({ user }: PayablesProps) {
     const atual = () => carga === ultimaCarga.current;
     setLoading(true);
     setErroCarga(null);
+    setListaTruncada(false);
     setPayables([]);
     const activeFilters = filterOverride ?? filters;
     const activePeriod = periodOverride ?? period;
@@ -133,26 +140,28 @@ export function Payables({ user }: PayablesProps) {
         ? { noDueDate: true as const }
         : periodFilters;
       const orig = origin as "all" | "purchases" | "taxes";
-      // Vencido não pago aparece sempre, mesmo de antes do período (ex.: rescisão que
-      // venceu no mês passado com a tela em "Mês atual"). Só quando o status pedido
-      // admite vencidos.
-      const buscaVencidos = !noDueDateFlag && Boolean(activePeriod.startDate) && periodoChegaAHoje(activePeriod.endDate, todayKey())
-        && (!activeFilters.status || activeFilters.status === "OVERDUE");
-      const vencidosAntes = (extra: Record<string, string | undefined>) => buscaVencidos
-        ? getPayables({ ...extra, status: "OVERDUE", endDate: activePeriod.startDate, origin: orig })
-        : Promise.resolve([] as Awaited<ReturnType<typeof getPayables>>);
+      // Vencido não pago de antes do período entra quando o período olha o mês/ano corrente ou
+      // o que vem pela frente (ex.: rescisão que venceu no mês passado com a tela em "Mês atual").
+      // No resumo, independe do status escolhido: o cartão "Vencido" não muda ao clicar em
+      // "Em aberto" ou "Pago no mês". Na lista, só quando o status pedido admite vencidos.
+      const puxaVencidos = !noDueDateFlag && Boolean(activePeriod.startDate) && periodoPuxaVencidosAnteriores(activePeriod.preset);
+      const vencidosNaLista = puxaVencidos && (!activeFilters.status || activeFilters.status === "OVERDUE");
+      const vencidosAntes = (buscar: boolean, extra: Record<string, string | undefined>) => buscar
+        ? getPayablesComLimite({ ...extra, status: "OVERDUE", endDate: activePeriod.startDate, origin: orig })
+        : Promise.resolve({ titulos: [] as Payable[], truncado: false });
       const [periodoRows, periodoAllRows, vencidosRows, vencidosAllRows, supplierRows, methodRows, companyRows] = await Promise.all([
-        getPayables({ ...apiFilters, ...dateParams, origin: orig }),
-        getPayables({ ...periodFilters, origin: orig }),
-        vencidosAntes(apiFilters),
-        vencidosAntes({}),
+        getPayablesComLimite({ ...apiFilters, ...dateParams, origin: orig }),
+        getPayablesComLimite({ ...periodFilters, origin: orig }),
+        vencidosAntes(vencidosNaLista, apiFilters),
+        vencidosAntes(puxaVencidos, {}),
         suppliers.length ? Promise.resolve(suppliers) : getSuppliers(),
         paymentMethods.length ? Promise.resolve(paymentMethods) : getPaymentMethods(),
         companies.length ? Promise.resolve(companies) : getCompanies().catch(() => [] as Company[])
       ]);
       if (!atual()) return;
-      setPayables(juntarVencidosAnteriores(periodoRows, vencidosRows));
-      setAllPayables(juntarVencidosAnteriores(periodoAllRows, vencidosAllRows));
+      setPayables(juntarVencidosAnteriores(periodoRows.titulos, vencidosRows.titulos));
+      setAllPayables(juntarVencidosAnteriores(periodoAllRows.titulos, vencidosAllRows.titulos));
+      setListaTruncada([periodoRows, periodoAllRows, vencidosRows, vencidosAllRows].some((r) => r.truncado));
       setSuppliers(supplierRows);
       setPaymentMethods(methodRows);
       setCompanies(companyRows.filter((c) => c.isActive));
@@ -465,6 +474,7 @@ export function Payables({ user }: PayablesProps) {
     empresaEscolhida.current = "";
     setBankAccounts([]);
     setPaymentForm(formVazio());
+    setLoteUsarVencimento(false);
     setBatchResult(null);
     setSuspeitosLote(null);
     setBatchOpen(true);
@@ -571,16 +581,18 @@ export function Payables({ user }: PayablesProps) {
 
     // Sequencial de propósito: cada título gera a sua baixa e o seu registro de
     // auditoria; em paralelo, uma falha no meio deixaria o lote ambíguo.
+    const hojeLote = todayKey();
     for (const p of selecionados) {
       const valor = Number(p.amount ?? 0);
+      const dataBaixa = dataDaBaixaNoLote(p, loteUsarVencimento, paymentForm.paidDate, hojeLote);
       const nome = p.supplierName ?? p.taxDocumentType ?? p.id;
       try {
         if (isTaxPayment(p)) {
-          await payTaxPayment(p.id, { paymentDate: paymentForm.paidDate, paidAmount: valor, comments: paymentForm.paymentNotes || null });
+          await payTaxPayment(p.id, { paymentDate: dataBaixa, paidAmount: valor, comments: paymentForm.paymentNotes || null });
         } else if (isPayroll(p) || isExtra(p)) {
-          await payPessoal(p, { paymentDate: paymentForm.paidDate, paidAmount: valor, ...comum, ...(confirmados.has(p.id) ? { confirmaDuplicidade: true } : {}) });
+          await payPessoal(p, { paymentDate: dataBaixa, paidAmount: valor, ...comum, ...(confirmados.has(p.id) ? { confirmaDuplicidade: true } : {}) });
         } else {
-          await payInstallment(p.id, { paidDate: paymentForm.paidDate, paidAmount: valor, ...comum });
+          await payInstallment(p.id, { paidDate: dataBaixa, paidAmount: valor, ...comum });
         }
         ok += 1;
       } catch (error) {
@@ -717,6 +729,10 @@ export function Payables({ user }: PayablesProps) {
   }
 
   async function handleFinancialPdf() {
+    // Trava contra duplo clique: a ref barra o segundo clique antes do re-render desabilitar o botão.
+    if (gerandoPdfRef.current) return;
+    gerandoPdfRef.current = true;
+    setGerandoPdf(true);
     try {
       await downloadPayablesFinancialPdf({
         supplierId: filters.supplierId || undefined,
@@ -728,6 +744,9 @@ export function Payables({ user }: PayablesProps) {
       setNotice({ tone: "success", message: "PDF financeiro gerado." });
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao gerar PDF financeiro." });
+    } finally {
+      gerandoPdfRef.current = false;
+      setGerandoPdf(false);
     }
   }
 
@@ -746,8 +765,8 @@ export function Payables({ user }: PayablesProps) {
       <div className="pg-topo">
         <PanelEyebrow>Resumo financeiro</PanelEyebrow>
         <div className="pg-topo-acoes">
-          <Button variant="secondary" size="sm" leadingIcon={<FileText size={15} />} onClick={handleFinancialPdf}>
-            PDF financeiro
+          <Button variant="secondary" size="sm" leadingIcon={<FileText size={15} />} onClick={() => void handleFinancialPdf()} disabled={gerandoPdf} aria-busy={gerandoPdf}>
+            {gerandoPdf ? "Gerando PDF…" : "PDF financeiro"}
           </Button>
           <IconButton icon={<RefreshCw size={16} />} label="Atualizar" size="sm" onClick={() => load()} disabled={loading} />
         </div>
@@ -849,6 +868,12 @@ export function Payables({ user }: PayablesProps) {
         <span className="pg-resultado-periodo">{descricaoPeriodo}</span>
       </div>
 
+      {!loading && !erroCarga && listaTruncada && (
+        <Alert tone="warning" role="alert">
+          A lista passou do limite de segurança: refine o período ou os filtros.
+        </Alert>
+      )}
+
       {/* ── Lista de títulos ─────────────────────────────────────── */}
       {loading ? (
         <div className="pg-carregando" role="status" aria-label="Carregando contas">
@@ -909,6 +934,8 @@ export function Payables({ user }: PayablesProps) {
           total={totalSelecionado}
           form={paymentForm}
           onCampo={alterarCampo}
+          usarVencimento={loteUsarVencimento}
+          onUsarVencimento={setLoteUsarVencimento}
           onEmpresa={(id) => void handleCompanyChange(id)}
           formas={effectivePaymentOptions}
           companies={companies}

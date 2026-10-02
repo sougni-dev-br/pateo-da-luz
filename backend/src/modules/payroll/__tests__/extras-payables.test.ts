@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { limitesDeData } from "../extras-payables.js";
 
 // As datas são montadas como o Contas a Pagar monta (construtor local), então o
@@ -19,5 +19,26 @@ describe("limitesDeData", () => {
 
   it("sem período não limita", () => {
     expect(limitesDeData({ startToday: new Date(2026, 8, 1), startDate: null, endDate: null })).toEqual({ hoje: "2026-09-01", inicio: null, ultimoDia: null });
+  });
+});
+
+describe("extras no Contas a Pagar: mesmo limite de segurança das outras origens", () => {
+  it("lista e PDF usam LIMITE_POR_ORIGEM, com ORDER BY determinístico antes do LIMIT", async () => {
+    vi.resetModules();
+    const queryRaw = vi.fn(async () => []);
+    vi.doMock("../../../config/database.js", () => ({ prisma: { $queryRaw: queryRaw } }));
+    const { extrasParaPayables, extrasParaPayablesPdf } = await import("../extras-payables.js");
+    const { LIMITE_POR_ORIGEM } = await import("../../purchases/payables-limite.js");
+    const f = { startToday: new Date(2026, 8, 1), startDate: null, endDate: null };
+    await extrasParaPayables(f);
+    await extrasParaPayablesPdf(f);
+    // Tagged template: (strings, ...valores).
+    for (const [strings, ...values] of queryRaw.mock.calls as unknown as Array<[string[], ...unknown[]]>) {
+      const texto = strings.join("?");
+      expect(texto).toMatch(/ORDER BY ep\."dueDate"( NULLS LAST)?, ep\."code"[\s\S]*LIMIT \?\s*$/);
+      expect(values[values.length - 1]).toBe(LIMITE_POR_ORIGEM);
+    }
+    expect(queryRaw).toHaveBeenCalledTimes(2);
+    vi.doUnmock("../../../config/database.js");
   });
 });

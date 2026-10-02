@@ -165,7 +165,7 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
                     <NomePessoa nome={l.nome} employeeId={l.employeeId} apelido={apelidoDe(l)} />
                     {l.aviso && (
                       <div style={{ ...mutedStyle, color: "var(--warning, #b45309)", display: "flex", gap: 4, alignItems: "center" }}>
-                        <AlertTriangle size={12} aria-hidden /> {l.aviso}
+                        <AlertTriangle size={12} aria-hidden="true" /> <span>{l.aviso}</span>
                       </div>
                     )}
                   </Table.Td>
@@ -186,9 +186,13 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
         </Table.Body>
       </Table>
       {(folha.jaPagos?.length ?? 0) > 0 && (
-        <div style={{ ...mutedStyle, fontSize: 13, marginTop: 10 }} aria-label="Já pagos">
-          <strong>Já pagos (fora desta lista e do total):</strong>{" "}
-          {folha.jaPagos!.map((p) => `${p.nome} ${money(p.valor)} em ${fmtDate(p.pagoEm)}`).join(" · ")}
+        <div role="region" aria-label="Já pagos" style={{ ...mutedStyle, fontSize: 13, marginTop: 10 }}>
+          <strong>Já pagos (fora desta lista e do total):</strong>
+          <ul style={{ margin: "4px 0 0", paddingLeft: 18, display: "grid", gap: 2 }}>
+            {folha.jaPagos!.map((p) => (
+              <li key={`${p.employeeId}-${p.pagoEm}`}>{p.nome} {money(p.valor)} em {fmtDate(p.pagoEm)}</li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

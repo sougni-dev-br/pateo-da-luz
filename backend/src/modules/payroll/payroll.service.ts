@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { diaDeReferencia } from "./cadastro-historico.js";
 import { cadastrosVigentesEmDatas } from "./cadastro-historico.service.js";
-import { aposSaida, duplicadosDe, ehComplemento, rotuloTipo, type ItemFolha } from "./folha-duplicidade.js";
+import { aposSaida, duplicadosDe, ehComplemento, excluidoAMao, rotuloTipo, type ItemFolha } from "./folha-duplicidade.js";
 import { DIA_PRIMEIRA_QUINZENA, primeiraQuinzenaPrevista } from "./tip-rateio.js";
 import { computeVtForPeriod, costOfCalendarDay, describeLegs, eveOf, round2, vtPeriods, type Fare, type Leg } from "./vt-calc.js";
 
@@ -51,6 +51,10 @@ const KIND_QUINZENA: Record<PayrollKind, 1 | 2 | null> = {
   ALL: null, VT: null, VT_Q1: 1, VT_Q2: 2, FOLHA: null, ADIANTAMENTO_SR: null, QUINZENA_SR: null,
 };
 export const ROTULO_PRIMEIRA_QUINZENA = "1ª quinzena";
+export const AVISO_SALARIO_SEM_REGISTRO = "Sem registro: salário pelo acerto da lista de pagamento (Gorjeta → lista de pagamento).";
+// ALL/FOLHA não geram nada de sem registro: o salário vem do acerto da lista, e o adiantamento
+// e a 1ª quinzena têm botões próprios (ADIANTAMENTO_SR, QUINZENA_SR).
+const ehDeSemRegistro = (i: { details: unknown }) => (i.details as { semRegistro?: unknown } | null)?.semRegistro === true;
 const ehPrimeiraQuinzena = (i: { details: unknown }) => (i.details as { primeiraQuinzena?: unknown } | null)?.primeiraQuinzena === true;
 // A quinzena de um item vem carimbada no cálculo. Antes era deduzida do
 // vencimento (dia <= 15 => 1ª), e isso QUEBRA agora que o VT vence na véspera
@@ -275,6 +279,11 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
     },
   });
   const existingByKey = new Map(existingRows.map((e) => [`${e.employeeId}|${e.type}|${e.periodLabel}`, e]));
+  // 1ª quinzena excluída À MÃO (com autor): regerar não a ressuscita — mesma regra do acerto e do extrato.
+  const quinzenasExcluidas = new Set((await prisma.payrollItem.findMany({
+    where: { competenceYear: year, competenceMonth: month, type: "ADIANTAMENTO", periodLabel: ROTULO_PRIMEIRA_QUINZENA, deletedAt: { not: null } },
+    select: { employeeId: true, deletedAt: true, deletedById: true },
+  })).filter((e) => excluidoAMao(e)).map((e) => e.employeeId));
   const existsKey = new Set(existingByKey.keys());
   // Salário/adiantamento que já veio do extrato da contabilidade (rótulo "Extrato MM/AAAA"
   // ou "Adiantamento MM/AAAA", não "Salário"/"Adiantamento"): gerar a folha criaria o
@@ -283,6 +292,7 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
   const mmaaaa = `${String(month).padStart(2, "0")}/${year}`;
 
   const items: ComputedItem[] = [];
+  let temSemRegistroComSalario = false;
   const warnings: string[] = [];
   // Nao achar a categoria nao derruba a geracao — o lancamento nasce sem categoria,
   // o que e recuperavel. Mas nascia em SILENCIO: o item saia do grupo PESSOAL do DRE
@@ -491,6 +501,8 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
     if (base > 0 && comFeriasNaFolha.has(emp.id)) {
       warnings.push(`${name} tem férias e salário na mesma competência (${String(month).padStart(2, "0")}/${year}) — confira os valores para não pagar em dobro.`);
     }
+    const semRegistro = vigente.modality === "NAO_CLT";
+    if (base > 0 && semRegistro) temSemRegistroComSalario = true;
     if (base > 0) {
       // Sem registro não recebe adiantamento (salvo marcado no cadastro): o salário
       // sai inteiro no pagamento, sem a parcela do dia 20.
@@ -509,7 +521,8 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
       const ny = month === 12 ? year + 1 : year;
       const nm = month === 12 ? 1 : month + 1;
       const nmDays = new Date(ny, nm, 0).getDate();
-      items.push({
+      // Sem registro: o salário sai pelo acerto da lista de pagamento (acerto-lista), não por aqui.
+      if (!semRegistro) items.push({
         employeeId: emp.id, employeeName: name, employeeDisplayName: emp.displayName, sector: emp.sector, type: "SALARIO",
         periodLabel: "Salário", periodStart: null, periodEnd: null,
         dueDate: isoDate(ny, nm, Math.min(settings.salaryDueDay, nmDays)),
@@ -520,8 +533,11 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
     }
 
     const quinzena = itemPrimeiraQuinzena(emp, name, vigentesQuinzena.get(emp.id)!, regrasDoMes, year, month, dreFolha, existingByKey);
-    if (quinzena) items.push(quinzena);
+    if (quinzena && !quinzena.exists && quinzenasExcluidas.has(emp.id)) {
+      warnings.push(`${name}: 1ª quinzena excluída à mão em ${mmaaaa}; não gerada de novo. Para lançar, restaure o título excluído.`);
+    } else if (quinzena) items.push(quinzena);
   }
+  if (temSemRegistroComSalario) warnings.push(AVISO_SALARIO_SEM_REGISTRO);
 
   return { year, month, settings, items: travarDuplicidadeESaida(items, existingRows, employees, year, month, warnings), warnings };
 }
@@ -623,8 +639,10 @@ export async function generatePayroll(
   // Adiantamento do dia 20 e 1ª quinzena do dia 15 são títulos distintos: cada botão gera o seu.
   const soSemRegistro = kind === "ADIANTAMENTO_SR";
   const soQuinzena = kind === "QUINZENA_SR";
+  const folhaGeral = kind === "ALL" || kind === "FOLHA";
   const escopo = items.filter((i) => allowed.includes(i.type) && (quinzena == null || i.quinzena === quinzena)
-    && (!soSemRegistro || ((i.details as { semRegistro?: unknown } | null)?.semRegistro === true && !ehPrimeiraQuinzena(i)))
+    && (!folhaGeral || !ehDeSemRegistro(i))
+    && (!soSemRegistro || (ehDeSemRegistro(i) && !ehPrimeiraQuinzena(i)))
     && (!soQuinzena || ehPrimeiraQuinzena(i)));
   const toCreate = escopo.filter((i) => !i.exists);
   // 1ª quinzena já lançada e sem baixa, com outro valor (salário mudou): atualiza. Paga não muda.

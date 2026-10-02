@@ -1,5 +1,5 @@
 import { FileText, Lock, Receipt } from "lucide-react";
-import { type CSSProperties, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { type AcertosListaLancados, type TipComputation, type TipComputedParticipant, lancarAcertosLista } from "../../api/client";
 import { useSession } from "../../context/SessionContext";
 import { Alert, Button, Money, StatusBadge, Table } from "../../design-system";
@@ -135,17 +135,25 @@ function ResultadoAcertos({ r }: { r: AcertosListaLancados }) {
       {r.detalhes?.atualizados.map((a) => (
         <div key={`a-${a.employeeId}`}>{a.nome}: <Money value={a.antes} /> → <Money value={a.depois} /></div>
       ))}
-      {r.avisos.map((a) => <div key={a}>{a}</div>)}
+      {r.avisos.map((a, i) => <div key={`aviso-${i}`}>{a}</div>)}
     </Alert>
   );
 }
 
 export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   const { user } = useSession();
-  // Lançar os acertos grava na Folha (Contas a Pagar): exige editar a Folha.
-  const podeLancarAcertos = hasPermission(user, "payroll", "edit");
+  // Lançar os acertos grava na Folha (Contas a Pagar): exige editar a Folha e, como o resto da
+  // aba, editar a gorjeta. Período fechado não bloqueia aqui: o servidor lança o valor gravado no
+  // fechamento ou recusa (mês financeiro travado), e a recusa aparece junto do botão.
+  const podeLancarAcertos = hasPermission(user, "payroll", "edit") && hasPermission(user, "payroll-tips", "edit");
   const [lancando, setLancando] = useState(false);
-  const [acertos, setAcertos] = useState<AcertosListaLancados | null>(null);
+  // O resultado e a recusa valem só para o mês em que foram pedidos.
+  const mesAtual = `${comp.year}-${comp.month}`;
+  const mesRef = useRef(mesAtual);
+  mesRef.current = mesAtual;
+  const [acertos, setAcertos] = useState<{ mes: string; r: AcertosListaLancados } | null>(null);
+  const [recusaAcertos, setRecusaAcertos] = useState<{ mes: string; mensagem: string } | null>(null);
+  useEffect(() => { setAcertos(null); setRecusaAcertos(null); }, [mesAtual]);
   const rowPorFuncionario = useMemo(() => new Map(rows.map((r) => [r.employeeId, r])), [rows]);
   const participantes = useMemo(() => ordenar(comp.participants).filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO"), [comp]);
   // Quem só está pelo salário não vai à contabilidade (não tem gorjeta a lançar).
@@ -219,11 +227,18 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   }
 
   async function lancarAcertos() {
+    const mes = mesAtual;
     setLancando(true);
     setAcertos(null);
-    try { setAcertos(await lancarAcertosLista(comp.year, comp.month)); }
-    catch (e) { onError("Erro ao lançar os acertos: " + (e as Error).message); }
-    finally { setLancando(false); }
+    setRecusaAcertos(null);
+    try {
+      const r = await lancarAcertosLista(comp.year, comp.month);
+      if (mesRef.current === mes) setAcertos({ mes, r });
+    } catch (e) {
+      const mensagem = (e as Error).message;
+      if (mesRef.current === mes) setRecusaAcertos({ mes, mensagem });
+      onError("Erro ao lançar os acertos: " + mensagem);
+    } finally { setLancando(false); }
   }
   const mostraLancarAcertos = podeLancarAcertos && Boolean(comp.periodId) && semRegistro.length > 0;
 
@@ -387,7 +402,10 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
             )}
           </div>
         </div>
-        {acertos && <ResultadoAcertos r={acertos} />}
+        {acertos && acertos.mes === mesAtual && <ResultadoAcertos r={acertos.r} />}
+        {recusaAcertos && recusaAcertos.mes === mesAtual && (
+          <Alert tone="error" role="alert" style={{ fontSize: 13 }}>Acertos não lançados: {recusaAcertos.mensagem}</Alert>
+        )}
         {!veSalario && semRegistro.length > 0 && (
           <Alert tone="warning">Salário e PIX só aparecem para quem tem permissão de ver Funcionários.</Alert>
         )}

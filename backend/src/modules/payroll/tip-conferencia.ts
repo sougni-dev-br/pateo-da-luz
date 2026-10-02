@@ -202,20 +202,55 @@ export function montarFolhaLiquidos(apuracao: PessoaApurada[], extratos: Extrato
 
 export type JaPagoFolha = { employeeId: string; nome: string; grupo: string; valor: number; pagoEm: string };
 
+const TOLERANCIA_PAGO = 0.01;
+const diaMesBR = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+export type SalarioPagoRow = { employeeId: string; paidAmount: unknown; amount: unknown; paymentDate: Date | null };
+
+/**
+ * Soma, por pessoa, todos os SALARIO pagos da competência (o acerto e um eventual complemento):
+ * vale o paidAmount, ou o amount quando a baixa não registrou o valor. A data é a da última baixa.
+ */
+export function somarSalariosPagos(rows: SalarioPagoRow[]): Map<string, { valor: number; pagoEm: string }> {
+  const pagos = new Map<string, { valor: number; pagoEm: string }>();
+  for (const r of rows) {
+    if (!r.paymentDate) continue;
+    const valor = Number(r.paidAmount ?? r.amount);
+    const data = r.paymentDate.toISOString().slice(0, 10);
+    const atual = pagos.get(r.employeeId);
+    pagos.set(r.employeeId, atual
+      ? { valor: round2(atual.valor + valor), pagoEm: data > atual.pagoEm ? data : atual.pagoEm }
+      : { valor: round2(valor), pagoEm: data });
+  }
+  return pagos;
+}
+
 /**
  * Quem já teve o salário da competência baixado no Contas a Pagar (ex.: acerto de quem recebe
- * por quinzena, pago no dia 30) sai da folha de líquidos e do total: a lista é o que ainda
- * falta o banco pagar. Volta como "já pagos", com o valor e a data da baixa.
+ * por quinzena, pago no dia 30) sai da folha de líquidos e do total — mas só se o pago cobre o
+ * valor da linha (tolerância de 1 centavo). Pago a menos: a linha fica com o saldo e um aviso.
+ * Os que saíram voltam como "já pagos", com a soma paga e a data da última baixa.
  */
 export function separarJaPagos(
   linhas: LinhaFolha[], pagos: Map<string, { valor: number; pagoEm: string }>,
 ): { linhas: LinhaFolha[]; jaPagos: JaPagoFolha[] } {
   const jaPagos: JaPagoFolha[] = [];
-  const restantes = linhas.filter((l) => {
+  const restantes: LinhaFolha[] = [];
+  // O pago de uma pessoa é consumido linha a linha (raro, mas pode ter mais de uma).
+  const saldoPago = new Map([...pagos].map(([id, p]) => [id, p.valor]));
+  for (const l of linhas) {
     const p = l.employeeId ? pagos.get(l.employeeId) : undefined;
-    if (!p) return true;
-    jaPagos.push({ employeeId: l.employeeId!, nome: l.nome, grupo: l.grupo, valor: p.valor, pagoEm: p.pagoEm });
-    return false;
-  });
+    const disponivel = l.employeeId ? saldoPago.get(l.employeeId) ?? 0 : 0;
+    if (!p || disponivel <= 0) { restantes.push(l); continue; }
+    if (disponivel >= l.valor - TOLERANCIA_PAGO) {
+      saldoPago.set(l.employeeId!, round2(disponivel - l.valor));
+      jaPagos.push({ employeeId: l.employeeId!, nome: l.nome, grupo: l.grupo, valor: p.valor, pagoEm: p.pagoEm });
+      continue;
+    }
+    saldoPago.set(l.employeeId!, 0);
+    const falta = round2(l.valor - disponivel);
+    const msg = `Pago R$ ${reais(disponivel)} em ${diaMesBR(p.pagoEm)}; falta R$ ${reais(falta)}.`;
+    restantes.push({ ...l, valor: falta, aviso: l.aviso ? `${l.aviso} ${msg}` : msg });
+  }
   return { linhas: restantes, jaPagos };
 }

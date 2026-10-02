@@ -116,3 +116,30 @@ describe("regras puras", () => {
     expect(observacaoJaPago({ valor: 1000, competencia: "08/2026" })).toMatch(/08\/2026.*1\.000,00 de salário e gorjeta/);
   });
 });
+
+describe("apurarRescisao com o acerto da lista já pago (gorjeta ainda aberta)", () => {
+  const acerto = (over: Record<string, unknown> = {}) => ({
+    id: "ac", type: "SALARIO", amount: 831.77, paidAmount: 831.77, paymentDate: new Date("2026-09-30T12:00:00Z"), status: "PAID",
+    details: { origem: "LISTA_PAGAMENTO" }, ...over,
+  });
+
+  test("acerto pago desconta: vira 'já pago' e a sugestão zera", async () => {
+    cenario("OPEN", 831.77);
+    db.payrollItem.findMany.mockImplementation(async ({ where }: { where: { type?: string } }) => (where.type === "SALARIO" ? [acerto()] : []));
+    const a = (await apurarRescisao("e1"))!;
+    expect(a.jaPagoNaLista).toMatchObject({ valor: 831.77, competencia: "09/2026", acerto: true });
+    expect(a.sugestao).toMatchObject({ salario: 0, gorjeta: 0, bruto: 0 });
+    expect(a.gorjetaObservacao).toMatch(/já foi pago no acerto da lista de pagamento.*831,77.*30\/09/);
+    // Sem ver Funcionários: some o valor, fica o aviso.
+    expect(semDadosPessoais(a)!.gorjetaObservacao).toBe("O salário de 09/2026 já foi pago no acerto da lista de pagamento. Não lance de novo aqui.");
+  });
+
+  test("acerto sem baixa não desconta (a rota recusa a rescisão)", async () => {
+    cenario("OPEN", 831.77);
+    db.payrollItem.findMany.mockImplementation(async ({ where }: { where: { type?: string } }) =>
+      (where.type === "SALARIO" ? [acerto({ paidAmount: null, paymentDate: null, status: "PENDING" })] : []));
+    const a = (await apurarRescisao("e1"))!;
+    expect(a.jaPagoNaLista).toBeNull();
+    expect(a.sugestao.salario).toBe(659.97);
+  });
+});
