@@ -119,7 +119,7 @@ export type ComputedParticipant = {
   pointsAdjustment: number;
   fixedAmount: number | null;
   // O que está na Escala agora, digitado ou não: para quem confere ver a diferença.
-  escala: { faltas: number; atestados: number; ferias: number };
+  escala: { faltas: number; atestados: number; ferias: number; afastamento: number };
   // Folgas da Escala no período. Só informação: a folga normal já está nos dias padrão
   // e nada disto entra no cálculo. Fechado, vem do retrato (null se o retrato é antigo).
   folgasEscala: FolgasEscala | null;
@@ -127,6 +127,10 @@ export type ComputedParticipant = {
   faltas: number; faltasOrigem: Origem;
   atestados: number; atestadosOrigem: Origem;
   ferias: number; feriasOrigem: Origem;
+  // Afastamento não remunerado: dias da Escala no ciclo. Sempre desconta; não se digita.
+  afastamento: number; afastamentoOrigem: "ESCALA";
+  // Dias de afastamento no mês civil do salário (sem registro). Fechado: o do retrato.
+  afastamentoSalario: number;
   outrosDias: number;
   diasPrevistosOverride: number | null;
   diasElegiveis: number;
@@ -233,6 +237,8 @@ export type TipComputation = {
   descontaAtestado: boolean;
   descontaFerias: boolean;
   descontaOutros: boolean;
+  // Afastamento não remunerado desconta na gorjeta (regra do período; a pessoa pode ter a dela).
+  descontaAfastamento: boolean;
   proporcionalEntrada: boolean;
   // Parte de quem saiu depois da saída: true = vai para o livre; false = sobe o ponto de quem fica.
   sobraRescisaoParaSaldo: boolean;
@@ -265,9 +271,9 @@ export type TipComputation = {
 };
 
 export type FolgasEscala = { total: number; folga: number; feriado: number; bancoHoras: number };
-type ScheduleCounts = { faltas: number; atestados: number; ferias: number; folgas: FolgasEscala };
+type ScheduleCounts = { faltas: number; atestados: number; ferias: number; afastamento: number; folgas: FolgasEscala };
 
-const semOcorrencias = (): ScheduleCounts => ({ faltas: 0, atestados: 0, ferias: 0, folgas: { total: 0, folga: 0, feriado: 0, bancoHoras: 0 } });
+const semOcorrencias = (): ScheduleCounts => ({ faltas: 0, atestados: 0, ferias: 0, afastamento: 0, folgas: { total: 0, folga: 0, feriado: 0, bancoHoras: 0 } });
 
 // Contagem das ocorrências da Escala no intervalo, por funcionário — inclusive de quem
 // está fora da escala (seção "só ocorrências"): a consulta não olha o cadastro.
@@ -278,7 +284,7 @@ async function contarOcorrenciasDaEscala(employeeIds: string[], start: Date, end
     by: ["employeeId", "type"],
     where: {
       employeeId: { in: employeeIds }, date: { gte: start, lte: end },
-      type: { in: ["FALTA", "ATESTADO", "FERIAS", "FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS"] },
+      type: { in: ["FALTA", "ATESTADO", "FERIAS", "FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS", "AFASTAMENTO"] },
     },
     _count: { _all: true },
   });
@@ -287,6 +293,7 @@ async function contarOcorrenciasDaEscala(employeeIds: string[], start: Date, end
     const n = g._count._all;
     if (g.type === "FALTA") c.faltas += n;
     if (g.type === "ATESTADO") c.atestados += n;
+    if (g.type === "AFASTAMENTO") c.afastamento += n;
     if (g.type === "FOLGA") c.folgas.folga += n;
     if (g.type === "FOLGA_FERIADO") c.folgas.feriado += n;
     if (g.type === "FOLGA_BANCO_HORAS") c.folgas.bancoHoras += n;
@@ -345,6 +352,22 @@ function folgasDoRetrato(participantes: unknown): Map<string, FolgasEscala> {
     const f = p.folgasEscala as Partial<FolgasEscala> | undefined;
     if (typeof p.employeeId !== "string" || !f || typeof f.total !== "number") continue;
     mapa.set(p.employeeId, { total: f.total, folga: Number(f.folga ?? 0), feriado: Number(f.feriado ?? 0), bancoHoras: Number(f.bancoHoras ?? 0) });
+  }
+  return mapa;
+}
+
+// Dias de afastamento gravados no retrato do fechamento. Retrato de antes do tipo não tem:
+// o afastamento ainda não existia, então vale zero (mudar a escala depois não reescreve o fechado).
+// Vale para a entrada do cálculo também: o fechado não pode mudar presença nem salário porque
+// alguém lançou um afastamento depois (os valores em reais já estão congelados).
+type AfastamentoFechado = { afastamento: number; afastamentoSalario: number };
+function afastamentosDoRetrato(participantes: unknown): Map<string, AfastamentoFechado> {
+  const mapa = new Map<string, AfastamentoFechado>();
+  if (!Array.isArray(participantes)) return mapa;
+  const dias = (v: unknown) => (typeof v === "number" ? v : 0);
+  for (const p of participantes as Array<{ employeeId?: unknown; afastamento?: unknown; afastamentoSalario?: unknown }>) {
+    if (typeof p.employeeId !== "string") continue;
+    mapa.set(p.employeeId, { afastamento: dias(p.afastamento), afastamentoSalario: dias(p.afastamentoSalario) });
   }
   return mapa;
 }
@@ -524,6 +547,7 @@ export async function computeTipCommission(
     descontaAtestado: period?.descontaAtestado ?? true,
     descontaFerias: period?.descontaFerias ?? true,
     descontaOutros: period?.descontaOutros ?? false,
+    descontaAfastamento: period?.descontaAfastamento ?? true,
     proporcionalEntrada: period?.proporcionalEntrada ?? true,
     sobraRescisaoParaSaldo: period?.sobraRescisaoParaSaldo ?? false,
     // O salário de quem não tem registro é do mês civil da competência.
@@ -605,8 +629,21 @@ export async function computeTipCommission(
   };
   const rescisaoCobreEstePeriodo = (r: (typeof rows)[number]) => rescisoesLancadas.has(r.employeeId) && !parteForaDaRescisao(r);
 
+  // Registro vigente do fechamento: lido antes da entrada do cálculo porque o afastamento do
+  // fechado vem dele, não da Escala de hoje.
+  const registro = period && periodoFechado
+    ? await prisma.tipPeriodClosing.findFirst({
+      where: { periodId: period.id, reopenedAt: null }, orderBy: { version: "desc" },
+      select: { id: true, code: true, version: true, closedAt: true, closedByName: true, participants: true },
+    })
+    : null;
+  const afastamentosFechados = registro ? afastamentosDoRetrato(registro.participants) : null;
+  const afastamentoDe = (employeeId: string, aoVivo: AfastamentoFechado): AfastamentoFechado =>
+    afastamentosFechados ? afastamentosFechados.get(employeeId) ?? { afastamento: 0, afastamentoSalario: 0 } : aoVivo;
+
   const entradas: ParticipanteEntrada[] = rows.map((r) => {
     const e = escala.get(r.employeeId) ?? semOcorrencias();
+    const afast = afastamentoDe(r.employeeId, { afastamento: e.afastamento, afastamentoSalario: escalaMes.get(r.employeeId)?.afastamento ?? 0 });
     return {
       kind: r.kind,
       basePoints: Number(r.basePoints ?? r.points ?? 0),
@@ -618,11 +655,14 @@ export async function computeTipCommission(
       faltas: r.faltas ?? e.faltas,
       atestados: r.atestados ?? e.atestados,
       ferias: r.ferias ?? e.ferias,
+      afastamento: afast.afastamento,
+      afastamentoSalario: afast.afastamentoSalario,
       outrosDias: r.outrosDias ?? 0,
       diasPrevistosOverride: r.diasPrevistosOverride,
       regras: {
         descontaFalta: r.descontaFalta, descontaAtestado: r.descontaAtestado, descontaFerias: r.descontaFerias,
         descontaOutros: r.descontaOutros, proporcionalEntrada: r.proporcionalEntrada,
+        descontaAfastamento: r.descontaAfastamento ?? null,
       },
       rescisaoServicoBruto: num(r.rescisaoServicoBruto) ?? servicoAteSaida.get(r.id) ?? null,
       rescisaoValorFixo: num(r.rescisaoValorFixo),
@@ -649,12 +689,6 @@ export async function computeTipCommission(
 
   const rateio = calcularRateio(regras, entradas);
   const closed = periodoFechado;
-  const registro = period && closed
-    ? await prisma.tipPeriodClosing.findFirst({
-      where: { periodId: period.id, reopenedAt: null }, orderBy: { version: "desc" },
-      select: { id: true, code: true, version: true, closedAt: true, closedByName: true, participants: true },
-    })
-    : null;
   const folgasFechadas = registro ? folgasDoRetrato(registro.participants) : null;
   const adicionaisFechados = registro ? adicionaisDoRetrato(registro.participants) : null;
   const quinzenasFechadas = registro ? quinzenasDoRetrato(registro.participants) : null;
@@ -724,12 +758,15 @@ export async function computeTipCommission(
       basePoints: ent.basePoints,
       pointsAdjustment: ent.ajuste,
       fixedAmount: ent.fixedAmount,
-      escala: { faltas: naEscala.faltas, atestados: naEscala.atestados, ferias: naEscala.ferias },
+      escala: { faltas: naEscala.faltas, atestados: naEscala.atestados, ferias: naEscala.ferias, afastamento: naEscala.afastamento },
       // Fechado: o que o retrato guardou (mudar a escala depois não reescreve o fechado).
       folgasEscala: closed ? folgasFechadas?.get(r.employeeId) ?? null : naEscala.folgas,
       faltas: ent.faltas, faltasOrigem: r.faltas == null ? "ESCALA" : "MANUAL",
       atestados: ent.atestados, atestadosOrigem: r.atestados == null ? "ESCALA" : "MANUAL",
       ferias: ent.ferias, feriasOrigem: r.ferias == null ? "ESCALA" : "MANUAL",
+      afastamento: ent.afastamento ?? 0,
+      afastamentoSalario: ent.afastamentoSalario ?? 0,
+      afastamentoOrigem: "ESCALA",
       outrosDias: ent.outrosDias,
       diasPrevistosOverride: r.diasPrevistosOverride,
       diasElegiveis: calc.diasElegiveis,
@@ -963,6 +1000,7 @@ export async function computeTipCommission(
     descontaAtestado: regras.descontaAtestado,
     descontaFerias: regras.descontaFerias,
     descontaOutros: regras.descontaOutros,
+    descontaAfastamento: regras.descontaAfastamento !== false,
     proporcionalEntrada: regras.proporcionalEntrada,
     sobraRescisaoParaSaldo: regras.sobraRescisaoParaSaldo === true,
     distribuido, saldo,

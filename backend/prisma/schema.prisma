@@ -2561,6 +2561,9 @@ enum ScheduleDayType {
   FERIAS
   FALTA
   ATESTADO
+  /// Afastamento não remunerado (pedido da pessoa): fora da escala, sem salário nem VT;
+  /// na gorjeta segue a regra descontaAfastamento. O motivo fica em notes.
+  AFASTAMENTO
 }
 
 model EmployeeScheduleDay {
@@ -3027,6 +3030,8 @@ model TipPeriod {
   descontaAtestado Boolean          @default(true)
   descontaFerias   Boolean          @default(true)
   descontaOutros   Boolean          @default(false)
+  // Afastamento não remunerado desconta na gorjeta (o salário e o VT descontam sempre).
+  descontaAfastamento Boolean       @default(true)
   // Admitido no meio do período recebe proporcional aos dias.
   proporcionalEntrada Boolean       @default(true)
   // Parte de quem saiu depois da saída: false = sobe o ponto de quem fica;
@@ -3080,6 +3085,7 @@ model TipParticipant {
   descontaFerias       Boolean?
   descontaOutros       Boolean?
   proporcionalEntrada  Boolean?
+  descontaAfastamento  Boolean?
   // Rescisão: serviço bruto até o desligamento (null = puxar do faturamento)
   // e valor já quitado/congelado, que prevalece sobre o cálculo.
   rescisaoServicoBruto Decimal?    @db.Decimal(14, 2)

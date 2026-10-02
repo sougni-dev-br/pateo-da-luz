@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { ScheduleDayMeta, ScheduleDayType, ScheduleEmployee } from "../../api/client";
 import {
-  COLORS, DOW_LETTERS, MARCAS_OCORRENCIA, type MarcaOcorrencia, dataCurta, dateMs, fullName, keyOf,
+  COLORS, DOW_LETTERS, MARCAS_OCORRENCIA, MARCAS_OCORRENCIA_PINCEL, type MarcaOcorrencia, editavelNaEscala, dataCurta, dateMs, fullName, keyOf,
   proximaOcorrencia, withinEmployment,
 } from "./marcas";
 
@@ -102,7 +102,7 @@ export function SoOcorrencias({ employees, days, year, month, marks, isFerias, c
       {canEdit && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", margin: "0 0 8px" }}>
           <span style={{ fontSize: 12, color: "var(--muted)", marginRight: 2 }}>Marcar com:</span>
-          {MARCAS_OCORRENCIA.map((m) => {
+          {MARCAS_OCORRENCIA_PINCEL.map((m) => {
             const ativo = pincel === m.tipo;
             return (
               <button
@@ -184,7 +184,7 @@ export function SoOcorrencias({ employees, days, year, month, marks, isFerias, c
                         : d.isHoliday ? COLORS.feriado
                           : d.isSunday ? COLORS.domingo
                             : "transparent";
-                  const clicavel = within && !feriasFolha && canEdit;
+                  const clicavel = within && !feriasFolha && canEdit && editavelNaEscala(marks.get(keyOf(emp.id, d.day)));
                   const title = !within
                     ? (emp.terminationDate && dateMs(year, month, d.day) > new Date(emp.terminationDate).getTime()
                       ? `Desligado em ${dataCurta(emp.terminationDate)}` : "Fora do vínculo")

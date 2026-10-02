@@ -21,10 +21,13 @@ import {
   type VerbaMarcada, algumaMarcada, aplicarVerbasOpcionais, calculoCompleto, lerEscolhaVerbas,
 } from "./rescisao-verbas-opcionais.js";
 import { ehQuitadaNoTermo, ehQuitadaSemValor, ehRescisaoQuitada } from "./rescisao-quitada.js";
+import { afastamentoRouter } from "./afastamento.routes.js";
 
 export const payrollRouter = Router();
 // Lançamento manual (POST /) e conferência do lote antes da baixa (POST /pay-check).
 payrollRouter.use(folhaLancamentoRouter);
+// Afastamento não remunerado (dias na Escala, sem lançamento). Antes de "/:id", que o engoliria.
+payrollRouter.use("/afastamentos", afastamentoRouter);
 
 function parseYearMonth(q: { year?: unknown; month?: unknown }) {
   const now = new Date();

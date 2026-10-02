@@ -209,7 +209,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
     select: {
       grossPool: true, servicoFaturamento: true, ajusteServico: true, ajusteServicoMotivo: true, deductionPercent: true,
       pointsTotal: true, periodStart: true, periodEnd: true, diasPadrao: true, reservaPontos: true,
-      descontaFalta: true, descontaAtestado: true, descontaFerias: true, descontaOutros: true, proporcionalEntrada: true,
+      descontaFalta: true, descontaAtestado: true, descontaFerias: true, descontaOutros: true, descontaAfastamento: true, proporcionalEntrada: true,
       sobraRescisaoParaSaldo: true,
     },
   });
@@ -307,6 +307,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       descontaAtestado: boolOrUndefined(b.descontaAtestado),
       descontaFerias: boolOrUndefined(b.descontaFerias),
       descontaOutros: boolOrUndefined(b.descontaOutros),
+      descontaAfastamento: boolOrUndefined(b.descontaAfastamento),
       proporcionalEntrada: boolOrUndefined(b.proporcionalEntrada),
       sobraRescisaoParaSaldo: boolOrUndefined(b.sobraRescisaoParaSaldo),
       reservaPontos: (() => { const n = numOrNull(b.reservaPontos); return n == null ? undefined : Math.max(0, n); })(),
@@ -324,7 +325,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       grossPool: period.grossPool, servicoFaturamento: period.servicoFaturamento, ajusteServico: period.ajusteServico,
       ajusteServicoMotivo: period.ajusteServicoMotivo, deductionPercent: period.deductionPercent, pointsTotal: period.pointsTotal,
       periodStart: period.periodStart, periodEnd: period.periodEnd, diasPadrao: period.diasPadrao, reservaPontos: period.reservaPontos,
-      descontaFalta: period.descontaFalta, descontaAtestado: period.descontaAtestado, descontaFerias: period.descontaFerias, descontaOutros: period.descontaOutros,
+      descontaFalta: period.descontaFalta, descontaAtestado: period.descontaAtestado, descontaFerias: period.descontaFerias, descontaOutros: period.descontaOutros, descontaAfastamento: period.descontaAfastamento,
       proporcionalEntrada: period.proporcionalEntrada, sobraRescisaoParaSaldo: period.sobraRescisaoParaSaldo,
     },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
@@ -439,6 +440,7 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
         descontaAtestado: boolOrNull(raw.descontaAtestado),
         descontaFerias: boolOrNull(raw.descontaFerias),
         descontaOutros: boolOrNull(raw.descontaOutros),
+        descontaAfastamento: boolOrNull(raw.descontaAfastamento),
         proporcionalEntrada: boolOrNull(raw.proporcionalEntrada),
         horaExtra: texto(raw.horaExtra),
         adicionalNoturno: texto(raw.adicionalNoturno),

@@ -102,7 +102,7 @@ describe("folgas da escala na apuração", () => {
     const comp = await computeTipCommission(2026, 9);
     const p = comp.participants[0];
     expect(p).toMatchObject({ faltas: 1, faltasOrigem: "MANUAL", atestados: 2, atestadosOrigem: "ESCALA", ferias: 0, feriasOrigem: "MANUAL" });
-    expect(p.escala).toEqual({ faltas: 3, atestados: 2, ferias: 5 });
+    expect(p.escala).toEqual({ faltas: 3, atestados: 2, ferias: 5, afastamento: 0 });
   });
 
   test("férias lançadas na Folha contam na gorjeta, somadas às da escala sem repetir o dia", async () => {

@@ -28,7 +28,37 @@ test("totais do resumo somam horas (h:mm), faltas e atestados", async () => {
   const l = (horaExtra: string | null, adicionalNoturno: string | null, faltas: number, atestados: number): LinhaEnvio =>
     ({ pessoa: { horaExtra, adicionalNoturno, faltas, atestados } as LinhaEnvio["pessoa"], empresa: "X", gorjeta: 0, peloTeto: false });
   expect(totaisDoEnvio([l("15:13", null, 0, 0), l("24:27", "5:06", 1, 2)], parseHoras))
-    .toEqual({ minutosHoraExtra: 39 * 60 + 40, minutosNoturno: 306, faltas: 1, atestados: 2 });
+    .toEqual({ minutosHoraExtra: 39 * 60 + 40, minutosNoturno: 306, faltas: 1, atestados: 2, afastamento: 0 });
+});
+
+describe("afastamento não remunerado no envio (CLT precisa ser informado)", () => {
+  const l = (nome: string, afastamento?: number): LinhaEnvio =>
+    ({ pessoa: { employeeName: nome, horaExtra: null, adicionalNoturno: "1:00", faltas: 1, atestados: 0, afastamento, tipoCalculo: "MES", terminationDate: null } as unknown as LinhaEnvio["pessoa"], empresa: "X", gorjeta: 100, peloTeto: false });
+
+  test("coluna Afast. só quando alguém tem afastamento", async () => {
+    const { tabelaDoEnvio } = await import("../envioContabilidade");
+    const sem = tabelaDoEnvio([l("ANA LIMA"), l("BIA REIS", 0)]);
+    expect(sem.head).toEqual(["Funcionário", "Gorjeta", "Hora extra", "Ad. noturno", "Faltas", "Atestados"]);
+    expect(sem.comAfastamento).toBe(false);
+
+    const entrada = [l("ANA LIMA", 20), l("BIA REIS")];
+    const com = tabelaDoEnvio(entrada);
+    expect(com.head).toEqual(["Funcionário", "Gorjeta", "Hora extra", "Ad. noturno", "Faltas", "Atestados", "Afast."]);
+    expect(com.comAfastamento).toBe(true);
+    expect(com.linha(entrada[0]).slice(2)).toEqual(["-", "1:00", "1", "-", "20"]);
+    expect(com.linha(entrada[1]).slice(-1)).toEqual(["-"]);
+    // A linha da pessoa começa pelo nome (próprio) e a gorjeta em reais.
+    expect(com.linha(entrada[0])[0]).toBe("Ana Lima");
+  });
+
+  test("totais somam os dias de afastamento e o rótulo do resumo muda só quando há", async () => {
+    const { totaisDoEnvio, rotuloResumoAusencias } = await import("../envioContabilidade");
+    const { parseHoras } = await import("../gorjetaUtils");
+    const t = totaisDoEnvio([l("A", 20), l("B", 3)], parseHoras);
+    expect(t.afastamento).toBe(23);
+    expect(rotuloResumoAusencias(t)).toEqual(["Faltas / atestados / afast.", "2  /  0  /  23"]);
+    expect(rotuloResumoAusencias({ ...t, afastamento: 0 })).toEqual(["Faltas / atestados", "2  /  0"]);
+  });
 });
 
 test("impressão: gorjeta zero sem hora extra sai; com hora extra ou noturno fica", async () => {

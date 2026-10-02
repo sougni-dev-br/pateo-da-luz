@@ -39,6 +39,9 @@ export type RegrasPeriodo = {
   descontaAtestado: boolean;
   descontaFerias: boolean;
   descontaOutros: boolean;
+  // Afastamento não remunerado desconta na gorjeta? Ausente = sim (o padrão das férias).
+  // O salário e o VT descontam sempre; esta regra é só da gorjeta.
+  descontaAfastamento?: boolean;
   // Admitido no meio do período recebe proporcional aos dias (padrão). Desligado
   // já é proporcional pelo valor do ponto próprio (serviço até a saída).
   proporcionalEntrada: boolean;
@@ -75,6 +78,12 @@ export type ParticipanteEntrada = {
   atestados: number;
   ferias: number;
   outrosDias: number;
+  // Afastamento não remunerado (Escala, AFASTAMENTO): dias corridos dentro do ciclo. Na
+  // gorjeta seguem a regra descontaAfastamento. Ausente = nenhum.
+  afastamento?: number;
+  // Dias de afastamento dentro do mês do salário (sem registro): descontam como faltas.
+  // Ausente = usa os do ciclo.
+  afastamentoSalario?: number;
   diasPrevistosOverride: number | null;
   // Decisão de quem fecha, pessoa a pessoa. null = segue a regra do período.
   regras: {
@@ -83,6 +92,8 @@ export type ParticipanteEntrada = {
     descontaFerias: boolean | null;
     descontaOutros: boolean | null;
     proporcionalEntrada: boolean | null;
+    // Ausente = segue o período (como null).
+    descontaAfastamento?: boolean | null;
   };
   rescisaoServicoBruto: number | null;
   rescisaoValorFixo: number | null;
@@ -226,6 +237,7 @@ export function regraEfetiva(regras: RegrasPeriodo, p: ParticipanteEntrada) {
     descontaFerias: p.regras.descontaFerias ?? regras.descontaFerias,
     descontaOutros: p.regras.descontaOutros ?? regras.descontaOutros,
     proporcionalEntrada: p.regras.proporcionalEntrada ?? regras.proporcionalEntrada,
+    descontaAfastamento: p.regras.descontaAfastamento ?? regras.descontaAfastamento ?? true,
   };
 }
 
@@ -237,6 +249,8 @@ export function regraEfetiva(regras: RegrasPeriodo, p: ParticipanteEntrada) {
 //                saída, porque o valor do ponto dele já é proporcional ao serviço
 //                até ali. Sem proporcional de entrada, referência = previstos.
 //   fator      = computados ÷ referência
+// Afastamento não remunerado vem em dias corridos: quando desconta, converte na proporção
+// dos dias-padrão (26 de 31 corridos ≈ 22 dos 26). Quem fecha pode dar a gorjeta integral.
 function presenca(regras: RegrasPeriodo, p: ParticipanteEntrada) {
   const r = regraEfetiva(regras, p);
   const corridos = diasEntre(regras.start, regras.end);
@@ -251,7 +265,8 @@ function presenca(regras: RegrasPeriodo, p: ParticipanteEntrada) {
     (r.descontaFalta ? p.faltas : 0) +
     (r.descontaAtestado ? p.atestados : 0) +
     (r.descontaFerias ? p.ferias : 0) +
-    (r.descontaOutros ? p.outrosDias : 0);
+    (r.descontaOutros ? p.outrosDias : 0) +
+    (r.descontaAfastamento ? proporcao(p.afastamento ?? 0) : 0);
   const computados = Math.max(0, previstos - descontados);
   const fator = referencia > 0 ? Math.min(1, computados / referencia) : 0;
   return { elegiveis, previstos, referencia, computados, fator };
@@ -259,14 +274,16 @@ function presenca(regras: RegrasPeriodo, p: ParticipanteEntrada) {
 
 // Quem não tem registro recebe o salário junto da gorjeta, calculado como se
 // fosse registrado: diária × dias do MÊS CIVIL da competência. Mês inteiro no vínculo
-// conta 30 dias; entrada ou saída no meio conta os dias corridos. Faltas descontam.
+// conta 30 dias; entrada ou saída no meio conta os dias corridos. Faltas e dias de
+// afastamento não remunerado descontam (vale também para a rescisão, que lê daqui).
 function salarioSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo): { dias: number; valor: number } {
   if (!p.semRegistro || !p.salarioBase) return { dias: 0, valor: 0 };
   const janela = regras.mesSalario ?? { start: regras.start, end: regras.end };
   const corridos = diasEntre(janela.start, janela.end);
   const elegiveis = diasElegiveis(janela, p.admissao, p.desligamento);
   const base = elegiveis >= corridos ? 30 : Math.min(30, elegiveis);
-  const dias = p.diasSalarioOverride ?? Math.max(0, base - (p.faltasSalario ?? p.faltas));
+  const naoTrabalhados = (p.faltasSalario ?? p.faltas) + (p.afastamentoSalario ?? p.afastamento ?? 0);
+  const dias = p.diasSalarioOverride ?? Math.max(0, base - naoTrabalhados);
   // Mês cheio paga o salário inteiro; proporcional é a diária arredondada × dias,
   // como o RH faz à mão (2.200 ÷ 30 = 73,33; 9 dias = 659,97, não 660,00).
   if (dias >= 30) return { dias, valor: round2(p.salarioBase) };

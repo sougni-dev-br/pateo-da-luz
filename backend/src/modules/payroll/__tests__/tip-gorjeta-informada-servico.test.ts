@@ -41,7 +41,7 @@ function participante(emp: Record<string, unknown> = {}) {
     rateioAmount: 0, netCommission: 0, salarioProporcional: 0, totalAPagar: 0, functionName: "Cozinha",
     horaExtra: null, adicionalNoturno: null, justificada: false, vales: [],
     employee: {
-      firstName: "Elioenai", lastName: "Silva", displayName: null, isActive: true, companyId: null, company: null,
+      firstName: "Teodoro", lastName: "Silva", displayName: null, isActive: true, companyId: null, company: null,
       modality: "CLT", baseSalary: 3672, tetoIrGorjeta: 5000, pixKeyType: null, pixKey: null, recebeAdiantamento: false,
       admissionDate: d("2025-01-01"), terminationDate: null,
       pontosExtra: null, tipFunction: { name: "Cozinha", points: 20, minPoints: null, maxPoints: null }, ...emp,

@@ -7,7 +7,7 @@ import { holidaysForYear } from "./holidays.js";
 
 export const scheduleRouter = Router();
 
-const SCHEDULE_TYPES = ["FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS", "TURNO", "EVENTO", "FERIAS", "FALTA", "ATESTADO"] as const;
+const SCHEDULE_TYPES = ["FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS", "TURNO", "EVENTO", "FERIAS", "FALTA", "ATESTADO", "AFASTAMENTO"] as const;
 type ScheduleType = (typeof SCHEDULE_TYPES)[number];
 
 const EVENT_SIZES = ["PEQUENO", "MEDIO", "GRANDE"] as const;
@@ -45,7 +45,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 // corte a folga marcada neste mês não abateria nada, que é justamente o uso.
 const CORTE_SALDO_FERIADO = new Date(Date.UTC(2026, 9, 1)); // 01/10/2026
 
-const TIPOS_NAO_TRABALHADOS = ["FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS", "FALTA", "ATESTADO", "FERIAS"] as const;
+const TIPOS_NAO_TRABALHADOS = ["FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS", "FALTA", "ATESTADO", "FERIAS", "AFASTAMENTO"] as const;
 const TIPOS_DE_FOLGA = ["FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS"] as const;
 
 // ─── Domingos anteriores ao mês exibido ─────────────────────────────────────
@@ -85,7 +85,8 @@ async function domingosAnteriores(
     for (const id of empIds) {
       const temEscala = mesesComEscala.has(`${id}|${dia.getUTCFullYear()}-${dia.getUTCMonth()}`);
       const tipo = porDia.get(`${id}|${iso}`);
-      const status = !temEscala
+      // Afastamento não remunerado não é folga nem trabalho: o domingo fica fora da conta.
+      const status = !temEscala || tipo === "AFASTAMENTO"
         ? "SEM_ESCALA"
         : tipo && ((TIPOS_DE_FOLGA as readonly string[]).includes(tipo) || tipo === "FERIAS")
           ? "FOLGA"
@@ -182,7 +183,7 @@ function empregadosDaEscala(monthStart: Date): Prisma.EmployeeWhereInput {
 
 // O que se marca para quem está fora da escala. Turno e evento não existem para
 // quem não tem escala: aceitar seria inventar um dia trabalhado que ninguém montou.
-const TIPOS_SO_OCORRENCIA: readonly ScheduleType[] = ["FALTA", "ATESTADO", "FERIAS", "FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS"];
+const TIPOS_SO_OCORRENCIA: readonly ScheduleType[] = ["FALTA", "ATESTADO", "FERIAS", "FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS", "AFASTAMENTO"];
 
 // Marcação depois do desligamento não existe: a pessoa já saiu. Sobra de folga
 // planejada antes do desligamento seria lida pelo mural e por quem somar a
@@ -364,17 +365,38 @@ scheduleRouter.post("/bulk", async (request, response) => {
     const emp = foraDaEscala.get(invalida.employeeId)!;
     const nome = emp.displayName?.trim() || `${emp.firstName} ${emp.lastName}`.trim();
     return response.status(400).json({
-      message: `${nome} está fora da escala (só ocorrências): no dia ${invalida.day} só dá para marcar falta, atestado, férias ou folga — turno e evento não.`,
+      message: `${nome} está fora da escala (só ocorrências): no dia ${invalida.day} só dá para marcar falta, atestado, férias, afastamento ou folga — turno e evento não.`,
     });
   }
 
+  // Afastamento não remunerado é da Folha (intervalo, motivo, trava de período, auditoria): a
+  // escala não cria, não troca nem apaga esses dias. Eles ficam intocados no salvamento (com o
+  // motivo), e a marca AF que vem da tela só é aceita onde já é afastamento.
+  const diasDeAfastamento = new Set((await prisma.employeeScheduleDay.findMany({
+    where: { employeeId: { in: [...activeIds] }, type: "AFASTAMENTO", date: { gte: monthStart, lt: nextMonthStart } },
+    select: { employeeId: true, date: true },
+  })).map((r) => `${r.employeeId}|${r.date.getUTCDate()}`));
+  const afastamentoNovo = entries.find((e) => e.type === "AFASTAMENTO" && !diasDeAfastamento.has(`${e.employeeId}|${e.day}`));
+  if (afastamentoNovo) {
+    return response.status(400).json({
+      message: `Dia ${afastamentoNovo.day}: afastamento não remunerado não se marca pela escala — lance o intervalo e o motivo em Folha → Lançar afastamento. Nada foi salvo.`,
+    });
+  }
+  const sobreAfastamento = entries.find((e) => e.type !== "AFASTAMENTO" && diasDeAfastamento.has(`${e.employeeId}|${e.day}`));
+  if (sobreAfastamento) {
+    return response.status(400).json({
+      message: `Dia ${sobreAfastamento.day} é afastamento não remunerado: para mudar, edite ou exclua o afastamento em Folha → Lançar afastamento. Nada foi salvo.`,
+    });
+  }
+  const gravaveis = entries.filter((e) => e.type !== "AFASTAMENTO");
+
   await prisma.$transaction(async (tx) => {
     await tx.employeeScheduleDay.deleteMany({
-      where: { date: { gte: monthStart, lt: nextMonthStart }, employeeId: { in: [...activeIds] } },
+      where: { date: { gte: monthStart, lt: nextMonthStart }, employeeId: { in: [...activeIds] }, type: { not: "AFASTAMENTO" } },
     });
-    if (entries.length > 0) {
+    if (gravaveis.length > 0) {
       await tx.employeeScheduleDay.createMany({
-        data: entries.map((e) => ({
+        data: gravaveis.map((e) => ({
           id: crypto.randomUUID(),
           employeeId: e.employeeId,
           date: new Date(Date.UTC(year, month - 1, e.day)),

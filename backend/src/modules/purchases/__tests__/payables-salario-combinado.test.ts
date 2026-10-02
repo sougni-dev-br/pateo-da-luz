@@ -23,7 +23,7 @@ const app = express();
 app.use("/purchases", purchaseRouter);
 
 const linhaFolha = (details: unknown) => ({
-  id: "p1", sourceType: "PAYROLL", amount: "5954.74", dueDate: "2026-10-05", supplierName: "Elioenai Silva", payrollDetails: details,
+  id: "p1", sourceType: "PAYROLL", amount: "5954.74", dueDate: "2026-10-05", supplierName: "Teodoro Fictício", payrollDetails: details,
 });
 const ehFolha = (q: unknown) =>
   ((q as { strings?: string[] }).strings ?? (q as string[])).join("?").includes('FROM "PayrollItem"');

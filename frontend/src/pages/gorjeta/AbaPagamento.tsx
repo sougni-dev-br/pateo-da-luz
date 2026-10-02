@@ -27,6 +27,7 @@ const EXTRATORES: Extratores<TipComputedParticipant> = {
   noturno: (p) => parseHoras(p.adicionalNoturno),
   faltas: (p) => p.faltas,
   atestados: (p) => p.atestados,
+  afastamento: (p) => p.afastamento ?? 0,
   salarioBase: (p) => p.baseSalary,
   dias: (p) => p.diasSalario,
   salario: (p) => p.salarioProporcional,
@@ -162,6 +163,8 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   // Gorjeta já paga dentro da rescisão (termo da contabilidade): aparece, mas não soma no que falta pagar.
   const registradosAPagar = registrados.filter((p) => !p.pagoNaRescisao);
   const pagasNaRescisao = participantes.filter((p) => p.pagoNaRescisao);
+  // CLT com afastamento não remunerado no período: a contabilidade precisa saber (coluna só quando há).
+  const comAfastamento = registrados.some((p) => (p.afastamento ?? 0) > 0);
   const veSalario = participantes.some((p) => p.baseSalary != null);
   const ordContab = useOrdenacao("contabilidade");
   const colC = useColunas("contabilidade");
@@ -301,6 +304,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 {vc("atestados") && (
               <ThOrdenavel {...thC("atestados")}>Atest.</ThOrdenavel>
 )}
+              {comAfastamento && <ThOrdenavel {...thC("afastamento")} title="Afastamento não remunerado no período (dias) — vai no PDF da contabilidade">Afast.</ThOrdenavel>}
 {vc("justificada") && (
               <ThOrdenavel {...thC("justificada")}>Justificada</ThOrdenavel>
 )}
@@ -354,6 +358,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 {vc("atestados") && (
                   <Table.Td>{p.atestados || "—"}</Table.Td>
 )}
+                  {comAfastamento && <Table.Td>{p.afastamento || "—"}</Table.Td>}
 {vc("justificada") && (
                   <Table.Td>
                     <select style={{ ...inputStyle, width: 80 }} value={r.justificada ? "S" : "N"} disabled={readonly}
@@ -379,6 +384,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
               {veSalario && vc("estimativa") && <Table.Td> </Table.Td>}
               {vc("faltas") && <Table.Td> </Table.Td>}
               {vc("atestados") && <Table.Td> </Table.Td>}
+              {comAfastamento && <Table.Td> </Table.Td>}
               {vc("justificada") && <Table.Td> </Table.Td>}
             </Table.Row>
           </Table.Body>

@@ -1,4 +1,5 @@
 import type { TipComputation, TipComputedParticipant } from "../../api/client";
+import { fmtDate, money } from "./gorjetaUtils";
 
 // Envio à contabilidade: só quem é registrado, por empresa e depois por nome. Os sem
 // registro vão para a lista de pagamento; quem recebeu a gorjeta na rescisão não entra de
@@ -70,7 +71,7 @@ export const nomeNoEnvio = (nome: string) =>
 export const celulaOuTraco = (v: string | number | null | undefined) =>
   v == null || v === "" || v === 0 ? "-" : textoPdf(String(v));
 
-/** Totais do resumo do envio: horas extras e noturnas somadas (minutos), faltas e atestados (dias). */
+/** Totais do resumo do envio: horas extras e noturnas somadas (minutos), faltas, atestados e afastamento (dias). */
 export function totaisDoEnvio(linhas: LinhaEnvio[], minutos: (t: string | null | undefined) => number | null) {
   const soma = (f: (l: LinhaEnvio) => number) => linhas.reduce((a, l) => a + f(l), 0);
   return {
@@ -78,7 +79,35 @@ export function totaisDoEnvio(linhas: LinhaEnvio[], minutos: (t: string | null |
     minutosNoturno: soma((l) => Math.max(0, minutos(l.pessoa.adicionalNoturno) ?? 0)),
     faltas: soma((l) => l.pessoa.faltas ?? 0),
     atestados: soma((l) => l.pessoa.atestados ?? 0),
+    afastamento: soma((l) => l.pessoa.afastamento ?? 0),
   };
+}
+
+/** Caixa do resumo de ausências: o afastamento só entra no rótulo quando alguém tem. */
+export function rotuloResumoAusencias(t: { faltas: number; atestados: number; afastamento: number }): [string, string] {
+  return t.afastamento > 0
+    ? ["Faltas / atestados / afast.", `${t.faltas}  /  ${t.atestados}  /  ${t.afastamento}`]
+    : ["Faltas / atestados", `${t.faltas}  /  ${t.atestados}`];
+}
+
+/** Alguém do envio teve afastamento não remunerado no período (CLT: a contabilidade precisa saber). */
+export const temAfastamentoNoEnvio = (linhas: LinhaEnvio[]) => linhas.some((l) => (l.pessoa.afastamento ?? 0) > 0);
+
+
+/** Tabela do PDF do envio: cabeçalho e linha de cada pessoa. "Afast." só quando alguém tem. */
+export function tabelaDoEnvio(linhas: LinhaEnvio[]) {
+  const comAfastamento = temAfastamentoNoEnvio(linhas);
+  const head = ["Funcionário", "Gorjeta", "Hora extra", "Ad. noturno", "Faltas", "Atestados", ...(comAfastamento ? ["Afast."] : [])];
+  const linha = ({ pessoa: p, gorjeta }: LinhaEnvio): string[] => [
+    nomeNoEnvio(p.employeeName) + (p.tipoCalculo === "MES" || !p.terminationDate ? "" : `\nSaída em ${fmtDate(p.terminationDate)}`),
+    textoPdf(money(gorjeta ?? 0)),
+    celulaOuTraco(p.horaExtra),
+    celulaOuTraco(p.adicionalNoturno),
+    celulaOuTraco(p.faltas),
+    celulaOuTraco(p.atestados),
+    ...(comAfastamento ? [celulaOuTraco(p.afastamento)] : []),
+  ];
+  return { head, comAfastamento, linha };
 }
 
 /** Na impressão não entra quem tem gorjeta zero e nada mais a pagar (hora extra ou noturno mantêm a linha). */

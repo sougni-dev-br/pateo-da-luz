@@ -11,7 +11,7 @@ import { Alert, Button, EmptyState, PanelEyebrow } from "../design-system";
 import { useNavigationGuard } from "../lib/navigationGuard";
 import { hasPermission } from "../lib/permissions";
 import {
-  COLORS, DOW_LETTERS, MARCAS, MARCA_POR_TIPO, TIPOS_OCORRENCIA, type MarcaCelula, dataCurta, dateMs, fullName, keyOf, withinEmployment,
+  COLORS, DOW_LETTERS, MARCAS, MARCAS_PINCEL, MARCA_POR_TIPO, TIPOS_OCORRENCIA, type MarcaCelula, dataCurta, dateMs, editavelNaEscala, ehDiaNaoTrabalhado, fullName, keyOf, withinEmployment,
 } from "./escala/marcas";
 import { SoOcorrencias } from "./escala/SoOcorrencias";
 
@@ -413,11 +413,9 @@ export function Escala() {
     return !!m && (FOLGAS as string[]).includes(m);
   }
 
-  // Falta e atestado: em ambos a pessoa não veio, então nenhum conta como dia
-  // trabalhado nem paga condução.
-  function isAusencia(employeeId: string, day: number): boolean {
-    const m = marks.get(keyOf(employeeId, day));
-    return m === "FALTA" || m === "ATESTADO";
+  // Afastamento não remunerado não é folga nem trabalho: fica fora da conta do descanso.
+  function isAfastamento(employeeId: string, day: number): boolean {
+    return marks.get(keyOf(employeeId, day)) === "AFASTAMENTO";
   }
   // Folgas de feriado tiradas no mês — só para o resumo sob o nome.
   function folgasFeriadoNoMes(emp: ScheduleEmployee): number {
@@ -427,7 +425,7 @@ export function Escala() {
 
   function holidaysWorked(emp: ScheduleEmployee): number {
     if (!data) return 0;
-    return data.days.filter((d) => d.isHoliday && withinEmployment(emp, year, month, d.day) && !isFolga(emp.id, d.day) && !isFerias(emp.id, d.day)).length;
+    return data.days.filter((d) => d.isHoliday && withinEmployment(emp, year, month, d.day) && !isFolga(emp.id, d.day) && !isFerias(emp.id, d.day) && !isAfastamento(emp.id, d.day)).length;
   }
 
   // Marcações dos meses vizinhos, indexadas por "empId|AAAA-MM-DD". Só leitura:
@@ -503,7 +501,8 @@ export function Escala() {
 
     // Folgas previstas = semanas do mês × folgas por semana. Só as semanas
     // dentro do vínculo contam: quem entrou dia 20 não deve as 4 do mês cheio.
-    const semanas = semanasDoMes(year, month, (d) => withinEmployment(emp, year, month, d));
+    // Semana cujo domingo a pessoa está afastada também não deve folga.
+    const semanas = semanasDoMes(year, month, (d) => withinEmployment(emp, year, month, d) && !isAfastamento(emp.id, d));
     const previstas = semanas * regra.folgasPorSemana;
 
     // O DSR conta SÓ a folga comum (F). FF e FBH são COMPENSAÇÃO — de feriado
@@ -532,7 +531,7 @@ export function Escala() {
     }
     for (const d of data.days) {
       if (d.dow !== 0) continue;
-      if (!withinEmployment(emp, year, month, d.day)) { domingos.push("SEM_ESCALA"); continue; }
+      if (!withinEmployment(emp, year, month, d.day) || isAfastamento(emp.id, d.day)) { domingos.push("SEM_ESCALA"); continue; }
       domingos.push(isFolga(emp.id, d.day) || isFerias(emp.id, d.day) ? "FOLGA" : "TRABALHOU");
     }
     let domSeguidos = 0;
@@ -563,7 +562,7 @@ export function Escala() {
   // Gerencial — só na tela, nunca na impressão.
   function workedDays(emp: ScheduleEmployee): number {
     if (!data) return 0;
-    return data.days.filter((d) => withinEmployment(emp, year, month, d.day) && !isFolga(emp.id, d.day) && !isAusencia(emp.id, d.day) && !isFerias(emp.id, d.day)).length;
+    return data.days.filter((d) => withinEmployment(emp, year, month, d.day) && !ehDiaNaoTrabalhado(marks.get(keyOf(emp.id, d.day))) && !isFerias(emp.id, d.day)).length;
   }
 
   // Problemas de descanso, recalculados a cada clique. A validação é ao vivo:
@@ -842,7 +841,7 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
         {canEdit && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", margin: "0 0 10px" }}>
             <span style={{ fontSize: 12, color: "var(--muted)", marginRight: 2 }}>Marcar com:</span>
-            {MARCAS.map((m) => {
+            {MARCAS_PINCEL.map((m) => {
               const ativo = pincel === m.tipo;
               return (
                 <button
@@ -896,7 +895,7 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                 {EVENT_LABEL[sz]}
               </span>
             ))}
-            {canEdit && <span style={{ fontSize: 11, opacity: 0.85 }}>Célula do funcionário: clique cicla — → F → T → X → AT → —. Cabeçalho da data: clique cicla o evento — → Pequeno → Médio → Grande → —</span>}
+            {canEdit && <span style={{ fontSize: 11, opacity: 0.85 }}>Afastamento não remunerado por intervalo (com motivo): Folha → Lançar afastamento. Célula do funcionário: clique cicla — → F → T → X → AT → —. Cabeçalho da data: clique cicla o evento — → Pequeno → Médio → Grande → —</span>}
           </div>
         )}
 
@@ -1051,7 +1050,8 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                                     : d.isSunday
                                       ? COLORS.domingo
                                       : "transparent";
-                          const clickable = within && !isFeriasDay;
+                          // Afastamento só se muda pela Folha (intervalo, motivo, auditoria).
+                          const clickable = within && !isFeriasDay && editavelNaEscala(mark);
                           const title = !within
                             ? (emp.terminationDate && dateMs(year, month, d.day) > new Date(emp.terminationDate).getTime()
                               ? `Desligado em ${dataCurta(emp.terminationDate)}`

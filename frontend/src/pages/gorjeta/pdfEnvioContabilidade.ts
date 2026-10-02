@@ -4,7 +4,7 @@
 import { getCompanies, type Company, type TipComputation } from "../../api/client";
 import { MONTHS, fmtDate, fmtHoras, money, parseHoras } from "./gorjetaUtils";
 import {
-  NOTA_TETO_OCULTO, agruparEnvioPorEmpresa, celulaOuTraco, montarEnvioContabilidade, entraNaImpressao, nomeNoEnvio, textoPdf, totaisDoEnvio,
+  NOTA_TETO_OCULTO, agruparEnvioPorEmpresa, montarEnvioContabilidade, entraNaImpressao, rotuloResumoAusencias, tabelaDoEnvio, textoPdf, totaisDoEnvio,
 } from "./envioContabilidade";
 
 type Doc = {
@@ -46,6 +46,8 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
   // Quem tem gorjeta zero e nada mais a pagar não vai para o papel.
   const linhas = envio.linhas.filter((l) => entraNaImpressao(l, parseHoras));
   const grupos = agruparEnvioPorEmpresa(linhas);
+  // Uma tabela só para todas as empresas: a coluna de afastamento aparece em todas ou em nenhuma.
+  const tabela = tabelaDoEnvio(linhas);
   const empresas = await empresasPorId();
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default as unknown as AutoTable;
@@ -93,7 +95,7 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
     ["Total de gorjetas", reais(envio.total ?? 0), 1.5],
     ["Funcionários", String(linhas.length), 0.8],
     ["Hora extra / noturno", `${horas(t.minutosHoraExtra)}  /  ${horas(t.minutosNoturno)}`, 1.2],
-    ["Faltas / atestados", `${t.faltas}  /  ${t.atestados}`, 1],
+    [...rotuloResumoAusencias(t), 1],
   ];
   const yResumo = 33;
   const gap = 3.5;
@@ -140,16 +142,9 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
       headStyles: { fillColor: [...MARROM], textColor: 255, fontStyle: "bold", fontSize: 8 },
       footStyles: { fillColor: [...BEGE], textColor: [...TINTA], fontStyle: "bold" },
       alternateRowStyles: { fillColor: [...LISTRA] },
-      head: [["Funcionário", "Gorjeta", "Hora extra", "Ad. noturno", "Faltas", "Atestados"]],
-      body: g.linhas.map(({ pessoa: p, gorjeta }) => [
-        nomeNoEnvio(p.employeeName) + (p.tipoCalculo === "MES" || !p.terminationDate ? "" : `\nSaída em ${fmtDate(p.terminationDate)}`),
-        reais(gorjeta ?? 0),
-        celulaOuTraco(p.horaExtra),
-        celulaOuTraco(p.adicionalNoturno),
-        celulaOuTraco(p.faltas),
-        celulaOuTraco(p.atestados),
-      ]),
-      foot: [[textoPdf(`Subtotal ${g.empresa}`), reais(g.subtotal), "", "", "", ""]],
+      head: [tabela.head],
+      body: g.linhas.map(tabela.linha),
+      foot: [[textoPdf(`Subtotal ${g.empresa}`), reais(g.subtotal), ...tabela.head.slice(2).map(() => "")]],
       columnStyles: {
         0: { cellWidth: "auto" },
         1: { cellWidth: 30, halign: "right", fontStyle: "bold" },
@@ -157,6 +152,7 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
         3: { cellWidth: 22, halign: "center" },
         4: { cellWidth: 16, halign: "center" },
         5: { cellWidth: 19, halign: "center" },
+        ...(tabela.comAfastamento ? { 6: { cellWidth: 15, halign: "center" } } : {}),
       },
       didParseCell: (d: { section: string; column: { index: number }; cell: { text: string[]; styles: Record<string, unknown> } }) => {
         if (d.section === "head" && d.column.index > 0) d.cell.styles.halign = d.column.index === 1 ? "right" : "center";
@@ -197,7 +193,9 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
   doc.setTextColor(...CINZA);
   [
     "Gorjeta: valor a lançar na folha de cada funcionário.",
-    "Hora extra e adicional noturno em horas (h:mm). Faltas e atestados em dias. \"-\" = nada no período.",
+    tabela.comAfastamento
+      ? "Hora extra e adicional noturno em horas (h:mm). Faltas, atestados e afastamento não remunerado (Afast.) em dias. \"-\" = nada no período."
+      : "Hora extra e adicional noturno em horas (h:mm). Faltas e atestados em dias. \"-\" = nada no período.",
   ].forEach((l, i) => doc.text(textoPdf(l), M, y + i * 4.2));
 
   // Assinatura de quem confere; a data é a do dia, preenchida pelo sistema.
