@@ -15,8 +15,9 @@ import { computeTipCommission } from "./tip-commission.service.js";
 import { onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { minutosValidos } from "./hora-extra.js";
+import { ORIGEM_ACERTO, editadoAMao } from "./acerto-lista.js";
 import {
-  type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, conferir, ehPendente, esconderTeto, montarFolhaLiquidos, separarJaPagos, somarSalariosPagos,
+  type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, aplicarAcertosAjustados, conferir, textoContaBancaria, ehPendente, esconderTeto, montarFolhaLiquidos, separarJaPagos, somarSalariosPagos,
 } from "./tip-conferencia.js";
 
 export const tipConferenciaRouter = Router();
@@ -61,7 +62,13 @@ async function pessoasApuradas(year: number, month: number, comPix: boolean): Pr
   const ids = comp.participants.map((p) => p.employeeId);
   const cadastro = await prisma.employee.findMany({
     where: { id: { in: ids } },
-    select: { id: true, company: { select: { cnpj: true } } },
+    select: {
+      id: true, company: { select: { cnpj: true } },
+      // Dados de pagamento do cadastro de hoje (não do retrato): só com a permissão.
+      ...(comPix ? {
+        pixKey: true, pixKeyType: true, bankName: true, bankAgency: true, bankAccount: true, bankAccountDigit: true, bankAccountType: true,
+      } : {}),
+    },
   });
   const porId = new Map(cadastro.map((e) => [e.id, e]));
   return comp.participants.map((p) => {
@@ -83,7 +90,12 @@ async function pessoasApuradas(year: number, month: number, comPix: boolean): Pr
         ? (p.valorHoraExtra + (p.valorAdicionalNoturno ?? 0)) > 0
         : minutosValidos(p.horaExtra) + minutosValidos(p.adicionalNoturno) > 0),
       cnpjEmpresa: e?.company?.cnpj ?? null,
-      pix: comPix ? p.pixKey : null,
+      pix: comPix ? e?.pixKey?.trim() || p.pixKey || null : null,
+      pixTipo: comPix ? e?.pixKeyType?.trim() || null : null,
+      contaBancaria: comPix && e ? textoContaBancaria({
+        bankName: e.bankName ?? null, bankAgency: e.bankAgency ?? null, bankAccount: e.bankAccount ?? null,
+        bankAccountDigit: e.bankAccountDigit ?? null, bankAccountType: String(e.bankAccountType ?? "CONTA_CORRENTE"),
+      }) : null,
     };
   });
 }
@@ -308,10 +320,20 @@ tipConferenciaRouter.get("/periods/:year/:month/folha-liquidos", async (request,
     extratosDoPeriodo(periodo.id),
     estadoEtapas(periodo.id),
   ]);
-  const todas = montarFolhaLiquidos(pessoas, extratos.map((e) => e.dados),
+  const montadas = montarFolhaLiquidos(pessoas, extratos.map((e) => e.dados),
     await combinadosDe(extratos, periodo.competenceYear, periodo.competenceMonth));
+  const ids = montadas.flatMap((l) => (l.employeeId ? [l.employeeId] : []));
+  // Acerto da lista ajustado à mão no Contas a Pagar: a folha paga o valor dele.
+  const acertos = ids.length === 0 ? [] : await prisma.payrollItem.findMany({
+    where: {
+      employeeId: { in: ids }, type: "SALARIO", competenceYear: periodo.competenceYear, competenceMonth: periodo.competenceMonth,
+      deletedAt: null, status: { not: "CANCELED" }, details: { path: ["origem"], equals: ORIGEM_ACERTO },
+    },
+    select: { employeeId: true, amount: true, details: true },
+  });
+  const todas = aplicarAcertosAjustados(montadas,
+    new Map(acertos.filter((a) => editadoAMao(a.details)).map((a) => [a.employeeId, Number(a.amount)])));
   // Salário da competência já baixado no Contas a Pagar: sai da lista do banco.
-  const ids = todas.flatMap((l) => (l.employeeId ? [l.employeeId] : []));
   const salariosPagos = ids.length === 0 ? [] : await prisma.payrollItem.findMany({
     where: {
       employeeId: { in: ids }, type: "SALARIO", competenceYear: periodo.competenceYear, competenceMonth: periodo.competenceMonth,
