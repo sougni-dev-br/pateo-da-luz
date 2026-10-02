@@ -25,12 +25,12 @@ describe("conferência dos extratos sem permissão (pelo teto do IR)", () => {
       etapas: { estado: { ENVIADO_CONTABILIDADE: etapa, OK_CONTABILIDADE: etapa, FOLHA_PAGA: etapa } },
       extratos: [{ id: "x1", empresa: "Pateo Frei", cnpj: "1", arquivo: "a.pdf", hash: "h", importadoEm: "2026-10-01T10:00:00Z", importadoPor: "Eli", pessoas: 2 }],
       linhas: [
-        { chave: "eli", employeeId: "eli", nome: "Elioenai Silva", empresa: "Pateo Frei", apuracao: null, diferenca: null, status: "DIVERGE", justificativa: null, peloTeto: true },
+        { chave: "eli", employeeId: "eli", nome: "Teodoro Fictício", empresa: "Pateo Frei", apuracao: null, diferenca: null, status: "DIVERGE", justificativa: null, peloTeto: true },
         { chave: "ana", employeeId: "ana", nome: "Ana Souza", empresa: "Pateo Frei", apuracao: 500, extrato: 500, diferenca: 0, status: "OK", justificativa: null },
       ],
     } as unknown as TipConferenciaCompleta);
     render(<AbaContabilidade year={2026} month={9} canEdit={false} onNotice={vi.fn()} />);
-    const eli = (await screen.findByText("Elioenai Silva")).closest("tr")!;
+    const eli = (await screen.findByText("Teodoro Fictício")).closest("tr")!;
     const celulas = within(eli).getAllByRole("cell").map((c) => c.textContent ?? "");
     expect(celulas.filter((t) => t.startsWith("—")).length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText(/sem os valores ocultos/).length).toBeGreaterThan(0);

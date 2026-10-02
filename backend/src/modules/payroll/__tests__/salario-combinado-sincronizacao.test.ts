@@ -24,12 +24,12 @@ import { gorjetasDaCompetencia, sincronizarSalariosCombinados } from "../salario
 const db = prisma as any;
 const usuario = { id: "u1", name: "Eli" };
 const empregado = (id: string, combinado: number | null) => ({
-  id, firstName: "Elioenai", lastName: "Silva", displayName: null, salarioCombinado: combinado, salarioCombinadoMotivo: "acordo", terminationDate: null,
+  id, firstName: "Teodoro", lastName: "Fictício", displayName: null, salarioCombinado: combinado, salarioCombinadoMotivo: "acordo", terminationDate: null,
 });
 const item = (over: Record<string, unknown> = {}) => ({
   id: "p1", employeeId: "e1", amount: 3030, paymentDate: null, status: "PENDING",
   details: { calculo: "MENSAL", liquido: 3030, gorjeta: 500, adiantamento: 1468.8, empresa: "X" },
-  employee: { firstName: "Elioenai", lastName: "Silva" },
+  employee: { firstName: "Teodoro", lastName: "Fictício" },
   ...over,
 });
 const apuracao = (participants: Array<{ employeeId: string; netCommission: number; tipoCalculo?: string }>) =>
@@ -82,7 +82,7 @@ describe("sincronizarSalariosCombinados", () => {
       userId: "u1", action: "SALARIO_COMBINADO_SINCRONIZADO", entity: "PayrollItem", entityId: "p1",
       previousValue: expect.objectContaining({ amount: 3030 }), newValue: expect.objectContaining({ amount: 5954.74 }),
     }));
-    expect(r.alterados).toEqual([{ payrollItemId: "p1", employeeId: "e1", nome: "Elioenai Silva", antes: 3030, depois: 5954.74, pendenteGorjeta: false }]);
+    expect(r.alterados).toEqual([{ payrollItemId: "p1", employeeId: "e1", nome: "Teodoro Fictício", antes: 3030, depois: 5954.74, pendenteGorjeta: false }]);
     expect(r.pagosIgnorados).toBe(0);
   });
 
@@ -130,14 +130,14 @@ describe("sincronizarSalariosCombinados", () => {
     const upd = db.payrollItem.update.mock.calls[0][0];
     expect(upd.data.amount).toBe(3030);
     expect(upd.data.details.pendenteGorjeta).toBe(true);
-    expect(r.avisos).toContain("Salário combinado de Elioenai Silva: gorjeta do mês ainda não apurada; mantido o líquido do extrato.");
+    expect(r.avisos).toContain("Salário combinado de Teodoro Fictício: gorjeta do mês ainda não apurada; mantido o líquido do extrato.");
   });
 
   test("lançamento antigo sem o adiantamento guardado: não calcula e pede para reimportar", async () => {
     db.payrollItem.findMany.mockResolvedValue([item({ details: { liquido: 3030 } })]);
     const r = await sincronizarSalariosCombinados(2026, 9, usuario);
     expect(db.payrollItem.update).not.toHaveBeenCalled();
-    expect(r.avisos[0]).toContain("Elioenai Silva");
+    expect(r.avisos[0]).toContain("Teodoro Fictício");
     expect(r.avisos[0]).toContain("reimporte o extrato");
   });
 

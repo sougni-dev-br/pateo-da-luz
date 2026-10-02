@@ -6959,6 +6959,8 @@ export type TipLinhaConferencia = {
   apelido?: string | null;
   /** A apuração é a gorjeta informada pelo teto do IR (sem permissão, apuração e diferença vêm null). */
   peloTeto?: boolean;
+  /** CLT desligado no mês: a gorjeta foi paga na rescisão (conferida com o extrato quando aparece nele). */
+  naRescisao?: boolean;
 };
 export type TipExtratoMeta = { id: string; empresa: string; cnpj: string; arquivo: string; hash: string; importadoEm: string; importadoPor: string; pessoas: number };
 export type TipConferencia = {

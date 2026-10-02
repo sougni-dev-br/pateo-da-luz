@@ -52,3 +52,11 @@ export function nomeComApelido(nome: string, apelido?: string | null): string {
   if (!a || a.toLowerCase() === n.toLowerCase()) return n || a;
   return n ? `${n} (${a})` : a;
 }
+
+const PARTICULAS = new Set(["da", "de", "di", "do", "du", "das", "dos", "e"]);
+
+/** Nome que veio todo em maiúsculas (extrato, cadastro antigo) vira nome próprio; os demais ficam como estão. */
+export const nomeProprio = (nome: string) =>
+  nome !== nome.toLocaleUpperCase("pt-BR") ? nome : nome.trim().toLocaleLowerCase("pt-BR").split(/\s+/)
+    .map((p, i) => (i > 0 && PARTICULAS.has(p) ? p : p.charAt(0).toLocaleUpperCase("pt-BR") + p.slice(1)))
+    .join(" ");

@@ -10,8 +10,8 @@ import { DetalheSimples } from "../DetalheSimples";
 const titulo = (over: Partial<Payable> = {}): Payable => ({
   id: "p1", purchaseId: null, dueDate: "2026-10-05T00:00:00.000Z", paidDate: null, amount: "5954.74", paidAmount: null,
   installment: null, paymentMethodId: null, paymentMethodName: null, sourceType: "PAYROLL", status: "OPEN", rawValue: null,
-  supplierId: null, supplierName: "Elioenai Silva", purchaseNumber: null, invoiceNumber: null, purchaseDate: null, notes: null,
-  taxDocumentType: "Salário", taxDescription: "Extrato 09/2026", taxCompanyName: "Elioenai Silva",
+  supplierId: null, supplierName: "Teodoro Fictício", purchaseNumber: null, invoiceNumber: null, purchaseDate: null, notes: null,
+  taxDocumentType: "Salário", taxDescription: "Extrato 09/2026", taxCompanyName: "Teodoro Fictício",
   ...over,
 });
 const SESSAO = { user: null, setUser: () => undefined, hideSensitiveValues: false, toggleSensitiveValues: () => undefined, canAccessSection: () => true, hasPermission: () => true } as unknown as SessionContextValue;

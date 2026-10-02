@@ -56,7 +56,7 @@ function pessoa(over: Partial<TipComputedParticipant>): TipComputedParticipant {
   } as TipComputedParticipant;
 }
 const eli = (over: Partial<TipComputedParticipant> = {}) => pessoa({
-  employeeId: "eli", employeeName: "Elioenai Silva", rateioAmount: 2223.54, netCommission: 2223.54, baseSalary: 3672,
+  employeeId: "eli", employeeName: "Teodoro Fictício", rateioAmount: 2223.54, netCommission: 2223.54, baseSalary: 3672,
   gorjetaInformada: 1328, gorjetaInformadaPeloTeto: true, tetoIrGorjeta: 5000, ...over,
 });
 const ana = pessoa({ employeeId: "ana", employeeName: "Ana Souza", netCommission: 500, rateioAmount: 500, gorjetaInformada: 500 });
@@ -94,7 +94,7 @@ describe("PDF do envio à contabilidade", () => {
   test("leva a gorjeta informada e o total por ela, sem nada do teto", async () => {
     await exportarContabilidade(comp([eli(), ana]));
     const t = tabelas[0] as { body: string[][]; foot: string[][] };
-    const linhaEli = t.body.find((l) => l[0].startsWith("Elioenai"))!;
+    const linhaEli = t.body.find((l) => l[0].startsWith("Teodoro"))!;
     expect(linhaEli[1]).toMatch(/1\.328,00/);
     expect(t.foot[0][1]).toMatch(/1\.828,00/);
     expect(textos.join(" ")).toMatch(/Total geral de gorjetas/);
@@ -112,7 +112,7 @@ describe("envio à contabilidade na tela", () => {
   test("mostra a informada com o selo e a dica da gorjeta real; total pela informada", () => {
     const c = comp([eli(), ana]);
     render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />);
-    const linha = screen.getByText("Elioenai Silva").closest("tr")!;
+    const linha = screen.getByText("Teodoro Fictício").closest("tr")!;
     expect(within(linha).getByText("1.328,00")).toBeTruthy();
     const selo = within(linha).getByText("pelo teto do IR");
     expect(selo.closest("[title]")!.getAttribute("title")).toMatch(/^gorjeta real R\$\s2\.223,54; a diferença ele recebe na lista de pagamento$/);
@@ -123,7 +123,7 @@ describe("envio à contabilidade na tela", () => {
   test("sem permissão: traço com explicação, sem a gorjeta real no lugar", () => {
     const c = comp([eli({ gorjetaInformada: null, tetoIrGorjeta: null, baseSalary: null }), ana]);
     render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />);
-    const linha = screen.getByText("Elioenai Silva").closest("tr")!;
+    const linha = screen.getByText("Teodoro Fictício").closest("tr")!;
     const traco = within(linha).getByTitle(/permissão de ver Funcionários/);
     expect(traco.textContent).toContain("—");
     expect(within(linha).queryByText("2.223,54")).toBeNull();

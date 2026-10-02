@@ -37,7 +37,7 @@ app.use("/payroll/tip", tipCommissionRouter);
 
 const sinc = {
   competencia: "09/2026", semMudanca: 0, pagosIgnorados: 0, avisos: [],
-  alterados: [{ payrollItemId: "p1", employeeId: "e1", nome: "Elioenai Silva", antes: 3030, depois: 5954.74, pendenteGorjeta: false }],
+  alterados: [{ payrollItemId: "p1", employeeId: "e1", nome: "Teodoro Fictício", antes: 3030, depois: 5954.74, pendenteGorjeta: false }],
 };
 
 beforeEach(() => {

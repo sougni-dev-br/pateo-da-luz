@@ -62,6 +62,7 @@ export type LinhaConferencia = {
   extratoId?: string;          // de qual extrato veio (para confirmar o vínculo)
   nomeNoExtrato?: string;      // como a pessoa está escrita no extrato
   peloTeto?: boolean;          // a apuração é a gorjeta informada pelo teto do IR
+  naRescisao?: boolean;        // CLT desligado: a gorjeta do mês foi paga na rescisão
 };
 
 const PENDENTES: StatusConferencia[] = ["DIVERGE", "FALTA_NO_EXTRATO", "SO_NO_EXTRATO", "SEM_EXTRATO_DA_EMPRESA", "VINCULO_A_CONFIRMAR"];
@@ -114,9 +115,20 @@ export function conferir(
 
   // No extrato e fora da apuração: com gorjeta é divergência; sem gorjeta, só não participa.
   const naApuracao = new Set(clt.map((p) => p.employeeId));
+  // CLT desligado no mês: a gorjeta saiu na rescisão. Fora do extrato não é falta;
+  // estando nele, confere com a apuração como os demais.
+  const naRescisao = new Map(apuracao.filter((p) => p.noPeriodo && !p.semRegistro && p.pagoNaRescisao).map((p) => [p.employeeId, p]));
   for (const e of extratos) {
     for (const l of e.linhas) {
       if (l.employeeId && naApuracao.has(l.employeeId)) continue;
+      const resc = l.employeeId && !aConfirmar(l) ? naRescisao.get(l.employeeId) : undefined;
+      if (resc) {
+        const valor = l.gorjeta ?? 0;
+        const dif = round2(valor - resc.gorjetaLiquida);
+        saida.push({ chave: resc.employeeId, employeeId: resc.employeeId, nome: resc.nome, empresa: e.empresa,
+          apuracao: resc.gorjetaLiquida, extrato: valor, diferenca: dif, ...aceita(resc.employeeId, Math.abs(dif) < 0.01 ? "OK" : "DIVERGE"), naRescisao: true });
+        continue;
+      }
       const chave = l.employeeId ?? `extrato:${l.nome}`;
       const comGorjeta = (l.gorjeta ?? 0) > 0;
       if (aConfirmar(l)) {
