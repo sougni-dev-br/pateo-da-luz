@@ -4,7 +4,7 @@
 //   valor      = total a pagar da lista (salário − adiantamento − 1ª quinzena + gorjeta
 //                líquida + hora extra + noturno + DSR)
 //   vencimento = por quinzena: último dia do mês da competência ("dia 30");
-//                os outros: 5º dia útil do mês seguinte (seg a sex, sem os feriados de holidays.ts)
+//                os outros: 5º dia útil do mês seguinte (seg a sáb, sem os feriados de holidays.ts)
 import { ehComplemento, excluidoAMao } from "./folha-duplicidade.js";
 import { holidaysForYear } from "./holidays.js";
 
@@ -17,14 +17,14 @@ export const competenciaTexto = (ano: number, mes: number) => `${pad(mes)}/${ano
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const mesmoValor = (a: number, b: number) => Math.abs(a - b) < 0.005;
 
-// N-ésimo dia útil do mês: segunda a sexta, fora os feriados (nacionais, SP e móveis).
+// N-ésimo dia útil do mês: segunda a sábado (o sábado conta, regra do dono), fora os feriados (nacionais, SP e móveis).
 export function quintoDiaUtil(ano: number, mes: number): Date {
   const feriados = holidaysForYear(ano);
   let uteis = 0;
   for (let dia = 1; ; dia += 1) {
     const data = new Date(Date.UTC(ano, mes - 1, dia));
     const semana = data.getUTCDay();
-    if (semana === 0 || semana === 6 || feriados.has(`${pad(mes)}-${pad(dia)}`)) continue;
+    if (semana === 0 || feriados.has(`${pad(mes)}-${pad(dia)}`)) continue;
     uteis += 1;
     if (uteis === DIA_UTIL_DO_SALARIO) return data;
   }
