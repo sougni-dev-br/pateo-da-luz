@@ -39,6 +39,21 @@ describe("detalhesNaLista — salário e adiantamento sem ver Funcionários", ()
     expect(detalhesNaLista("SALARIO", salario, true)).toBe(salario);
   });
 
+  test("acerto da lista de pagamento (sem registro): a composição sai, a origem fica", () => {
+    const acerto = {
+      origem: "LISTA_PAGAMENTO", semRegistro: true, apuracao: "GOR-2026-0009", pagamentoQuinzenal: true,
+      salario: 2000, diasSalario: 30, adiantamento: 0, primeiraQuinzena: 1000, gorjeta: 500, vales: 50, creditos: 10,
+      gorjetaLiquida: 460, horaExtra: 30, adicionalNoturno: 5, totalAPagar: 1495,
+    };
+    expect(detalhesNaLista("SALARIO", acerto, false)).toEqual({ origem: "LISTA_PAGAMENTO", semRegistro: true });
+    expect(detalhesNaLista("SALARIO", acerto, true)).toBe(acerto);
+  });
+
+  test("1ª quinzena do sem registro: as marcas ficam, o salário base sai", () => {
+    expect(detalhesNaLista("ADIANTAMENTO", { base: 2000, semRegistro: true, primeiraQuinzena: true }, false))
+      .toEqual({ semRegistro: true, primeiraQuinzena: true });
+  });
+
   test("VT continua como está (o trajeto aparece na tela)", () => {
     const vt = { trajeto: "sem trajeto cadastrado", diasPagos: [1, 2] };
     expect(detalhesNaLista("VALE_TRANSPORTE", vt, false)).toBe(vt);

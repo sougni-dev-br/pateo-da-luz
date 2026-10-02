@@ -183,6 +183,8 @@ export type ComputedParticipant = {
   // Sem registro que recebe por quinzena: a 1ª quinzena já paga no dia 15, descontada do
   // total (acerto do dia 30). Metade do salário base: null sem a permissão de Funcionários.
   primeiraQuinzena: number | null;
+  // Cadastro vigente no mês: recebe por quinzena (o acerto vence no fim do mês, não no 5º dia útil).
+  pagamentoQuinzenal: boolean;
   // Sem registro: hora extra (+50%) e adicional noturno, já somados no total a pagar.
   // CLT = 0 (só informativo, vai à contabilidade). Derivam do salário: null sem a permissão.
   valorHoraExtra: number | null;
@@ -417,8 +419,11 @@ export function somarAdiantamentos(
   }]));
 }
 
-async function adiantamentosEmContasAPagar(employeeIds: string[], year: number, month: number) {
-  if (employeeIds.length === 0) return new Map<string, AdiantamentoLancado>();
+// Títulos do sem registro pagos antes do acerto, por pessoa: o adiantamento do dia 20 e a 1ª
+// quinzena (dia 15, ADIANTAMENTO marcado com details.primeiraQuinzena) — separados, porque cada
+// um desconta na sua coluna e um não pode ser lido como o outro.
+async function pagosAntesEmContasAPagar(employeeIds: string[], year: number, month: number) {
+  if (employeeIds.length === 0) return { adiantamentos: new Map<string, AdiantamentoLancado>(), quinzenas: new Map<string, AdiantamentoLancado>() };
   const itens = await prisma.payrollItem.findMany({
     // Só o título do sem registro: o adiantamento de quem era CLT no dia 20 (extrato da
     // contabilidade) não sai do salário sem registro de quem mudou de vínculo no mês.
@@ -426,9 +431,13 @@ async function adiantamentosEmContasAPagar(employeeIds: string[], year: number, 
       type: "ADIANTAMENTO", deletedAt: null, status: { not: "CANCELED" }, competenceYear: year, competenceMonth: month,
       employeeId: { in: employeeIds }, details: { path: ["semRegistro"], equals: true },
     },
-    select: { employeeId: true, amount: true, paidAmount: true, paymentDate: true },
+    select: { employeeId: true, amount: true, paidAmount: true, paymentDate: true, details: true },
   });
-  return somarAdiantamentos(itens);
+  const ehQuinzena = (i: { details?: unknown }) => (i.details as { primeiraQuinzena?: unknown } | null)?.primeiraQuinzena === true;
+  return {
+    adiantamentos: somarAdiantamentos(itens.filter((i) => !ehQuinzena(i))),
+    quinzenas: somarAdiantamentos(itens.filter(ehQuinzena)),
+  };
 }
 
 async function rescisoesEmContasAPagar(
@@ -583,8 +592,8 @@ export async function computeTipCommission(
   const rescisoesLancadas = await rescisoesEmContasAPagar(rows.map((r) => r.employee.terminationDate
     && r.employee.terminationDate >= start && r.employee.terminationDate <= fimDaBusca(r)
     ? { employeeId: r.employeeId, saida: r.employee.terminationDate } : null));
-  // Adiantamento do sem registro: o lançado em Contas a Pagar no mês do salário (o pago).
-  const adiantamentosLancados = await adiantamentosEmContasAPagar(
+  // Adiantamento e 1ª quinzena do sem registro: os lançados em Contas a Pagar no mês do salário (o pago).
+  const { adiantamentos: adiantamentosLancados, quinzenas: quinzenasLancadas } = await pagosAntesEmContasAPagar(
     rows.filter((r) => vigenteDe(r).modality === "NAO_CLT").map((r) => r.employeeId), year, month);
 
   // "Tudo na rescisão" sem a parte dos dias depois do ciclo gravada aqui (o período não
@@ -626,6 +635,7 @@ export async function computeTipCommission(
       faltasSalario: r.faltas ?? escalaMes.get(r.employeeId)?.faltas ?? 0,
       recebeAdiantamento: vigenteDe(r).recebeAdiantamento,
       adiantamentoLancado: vigenteDe(r).modality === "NAO_CLT" ? adiantamentosLancados.get(r.employeeId) : undefined,
+      quinzenaLancada: vigenteDe(r).modality === "NAO_CLT" ? quinzenasLancadas.get(r.employeeId) : undefined,
       pagamentoQuinzenal: vigenteDe(r).pagamentoQuinzenal,
       rescisaoLancada: rescisaoCobreEstePeriodo(r),
       rescisaoTudoNaRescisao: rescisoesLancadas.get(r.employeeId)?.tudoNaRescisao === true,
@@ -767,6 +777,7 @@ export async function computeTipCommission(
       salarioProporcional,
       adiantamentoSalarial: dadosPessoais ? adiantamentoSalarial : null,
       primeiraQuinzena: dadosPessoais ? primeiraQuinzena : null,
+      pagamentoQuinzenal: ent.semRegistro && ent.pagamentoQuinzenal === true,
       valorHoraExtra: dadosPessoais ? adicionais.valorHoraExtra : null,
       valorAdicionalNoturno: dadosPessoais ? adicionais.valorAdicionalNoturno : null,
       totalAPagar,
@@ -827,11 +838,17 @@ export async function computeTipCommission(
   // título o valor é estimado — quem fecha precisa ver. Fechado: vale o retrato, sem aviso.
   if (!closed) {
     const competencia = `${String(month).padStart(2, "0")}/${year}`;
-    const naLista = participants.map((p, i) => ({ p, e: entradas[i] }))
+    const naLista = participants.map((p, i) => ({ p, e: entradas[i], c: rateio.linhas[i] }))
       .filter(({ p }) => p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && !p.pagoNaRescisao);
     // Quinzena prevalece: o título lançado para quem recebe por quinzena não é descontado.
     const quinzenaComTitulo = naLista.filter(({ e }) => e.pagamentoQuinzenal && e.adiantamentoLancado).map(({ p }) => p);
     if (quinzenaComTitulo.length) warnings.push(`Recebem por quinzena, mas têm adiantamento de ${competencia} lançado em Contas a Pagar — a lista não desconta esse título (desconta a 1ª quinzena). Cancele o título ou corrija o cadastro: ${listar(quinzenaComTitulo)}.`);
+    // 1ª quinzena: a lista desconta o título "1ª quinzena" (o pago). Sem baixa ou sem título, o estimado.
+    const quinzenaEmAberto = naLista.filter(({ p }) => quinzenasLancadas.get(p.employeeId)?.emAberto).map(({ p }) => p);
+    if (quinzenaEmAberto.length) warnings.push(`1ª quinzena de ${competencia} lançada mas ainda sem baixa em Contas a Pagar (a lista desconta o valor previsto; dê a baixa com o valor pago): ${listar(quinzenaEmAberto)}.`);
+    // O cálculo (c) decide, não o valor exibido: sem a permissão ele vem oculto, e o aviso sai igual.
+    const quinzenaSemTitulo = naLista.filter(({ e, c }) => e.pagamentoQuinzenal && !e.quinzenaLancada && c.primeiraQuinzena > 0).map(({ p }) => p);
+    if (quinzenaSemTitulo.length) warnings.push(`Recebem por quinzena, mas falta lançar a 1ª quinzena de ${competencia} em Contas a Pagar — a lista desconta a metade do salário do cadastro, não o que foi pago. Lance em Folha → "Gerar 1ª quinzena (sem registro)" e dê a baixa com o valor pago: ${listar(quinzenaSemTitulo)}.`);
     const emAberto = naLista.filter(({ p, e }) => !e.pagamentoQuinzenal && adiantamentosLancados.get(p.employeeId)?.emAberto).map(({ p }) => p);
     if (emAberto.length) warnings.push(`Adiantamento de ${competencia} lançado mas ainda sem baixa em Contas a Pagar (a lista desconta o valor previsto; dê a baixa com o valor pago): ${listar(emAberto)}.`);
     // Sem a permissão de Funcionários o valor vem null (oculto): o aviso sai do mesmo jeito, sem valor.

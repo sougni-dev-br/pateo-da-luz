@@ -9,7 +9,7 @@ import { FOLHA_CATEGORY } from "./payroll.service.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
 import { avisosDoExtrato, guardarExtrato, preencherAdmissaoCarteira } from "./rh-extract-store.service.js";
-import { aposSaida, duplicadosDe, ehComplemento } from "./folha-duplicidade.js";
+import { aposSaida, duplicadosDe, ehComplemento, excluidoAMao } from "./folha-duplicidade.js";
 import { avisoGorjetaPendente, gorjetasDaCompetencia, mapaCombinados } from "./salario-combinado.service.js";
 import { type GorjetaDaApuracao, gorjetaDaPessoa, salarioDaFolha } from "./salario-combinado-folha.js";
 import { nomeProprio } from "../../shared/utils/nome-proprio.js";
@@ -170,11 +170,8 @@ const ehZero = (v: number) => Math.abs(v) < 0.005;
 // quem excluiu): esse continua sendo restaurado. Não dá para saber se foi decisão de
 // alguém, e o upsert casa com ele de qualquer jeito (a chave única não inclui deletedAt)
 // — sem restaurar, atualizaria um item invisível: a importação diria "título gerado" e o
-// salário sumiria do DRE.
-type SituacaoDaChave = { deletedAt: Date | null; deletedById: string | null };
-export function excluidoAMao(item: SituacaoDaChave | null | undefined): boolean {
-  return Boolean(item?.deletedAt && item.deletedById);
-}
+// salário sumiria do DRE. (A regra mora em folha-duplicidade.ts: o acerto da lista usa a mesma.)
+export { excluidoAMao };
 
 const ddmmEmSaoPaulo = (d: Date) =>
   new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" }).format(d);
