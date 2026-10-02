@@ -32,11 +32,22 @@ export function isExtra(p: Payable): boolean {
   return p.sourceType === "EXTRA";
 }
 
+// Título do lote de pagamento da folha: um por empresa, agrupando os salários da competência.
+// A baixa é uma só (rota própria) e baixa cada pessoa dentro dele.
+export function isFolhaLote(p: Payable): boolean {
+  return p.sourceType === "FOLHA_LOTE";
+}
+
+/** Folha à parte: quem foi retirado do título da empresa (o "devolver" vale só aqui). */
+export function ehFolhaAParte(p: Payable): boolean {
+  return isFolhaLote(p) && p.folhaLoteGrupo === "A_PARTE";
+}
+
 // Títulos "simples" (imposto e folha): baixa com data + valor, sem forma de
 // pagamento / empresa / diferença. A query de payables preenche os campos tax*
 // para folha (tipo, funcionário, competência), então a UI é reaproveitada.
 export function isSimpleLedger(p: Payable): boolean {
-  return isTaxPayment(p) || isPayroll(p) || isExtra(p);
+  return isTaxPayment(p) || isPayroll(p) || isExtra(p) || isFolhaLote(p);
 }
 
 export function estaEmAberto(p: Payable): boolean {
@@ -209,6 +220,7 @@ export function seloDoTitulo(p: Payable): Selo | null {
     case "TAX_PAYMENT": return { rotulo: "Imposto", tom: "imposto" };
     case "PAYROLL": return { rotulo: p.taxDocumentType ? `Folha · ${p.taxDocumentType}` : "Folha", tom: "folha" };
     case "EXTRA": return { rotulo: "Extra", tom: "extra" };
+    case "FOLHA_LOTE": return { rotulo: "Folha · lote", tom: "folha" };
     case "CARD_STATEMENT": return { rotulo: "Fatura cartão", tom: "fatura" };
     case "LEGACY_CREDIT_CARD": return { rotulo: "Cartão legado", tom: "legado" };
     case "SUPPLIER_CYCLE": return { rotulo: "Ciclo fornecedor", tom: "ciclo" };
@@ -231,7 +243,7 @@ export function detalhesDoTitulo(p: Payable): string[] {
       p.taxCompetenceDate ? `Comp. ${competencia(p.taxCompetenceDate)}` : ""
     ].filter(Boolean);
   }
-  if (isPayroll(p) || isExtra(p)) {
+  if (isPayroll(p) || isExtra(p) || isFolhaLote(p)) {
     return [
       p.taxDescription ?? "",
       p.taxCompetenceDate ? `Comp. ${competencia(p.taxCompetenceDate)}` : ""

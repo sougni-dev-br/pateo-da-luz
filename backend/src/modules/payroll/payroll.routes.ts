@@ -22,12 +22,17 @@ import {
 } from "./rescisao-verbas-opcionais.js";
 import { ehQuitadaNoTermo, ehQuitadaSemValor, ehRescisaoQuitada } from "./rescisao-quitada.js";
 import { afastamentoRouter } from "./afastamento.routes.js";
+import { dadosDoEstorno, gravarBaixaDoItem, lerCamposDaBaixa, registroNaoEncontrado, validarBaixa } from "./folha-baixa.js";
+import { recusaDoItemMudado, recusaPorLote } from "./folha-lote.service.js";
+import { folhaLoteRouter } from "./folha-lote.routes.js";
 
 export const payrollRouter = Router();
 // Lançamento manual (POST /) e conferência do lote antes da baixa (POST /pay-check).
 payrollRouter.use(folhaLancamentoRouter);
 // Afastamento não remunerado (dias na Escala, sem lançamento). Antes de "/:id", que o engoliria.
 payrollRouter.use("/afastamentos", afastamentoRouter);
+// Título do lote de pagamento da folha (Contas a Pagar): baixa, estorno, retirar e devolver.
+payrollRouter.use("/folha-lotes", folhaLoteRouter);
 
 function parseYearMonth(q: { year?: unknown; month?: unknown }) {
   const now = new Date();
@@ -942,23 +947,11 @@ payrollRouter.patch("/:id/pay", async (request, response) => {
   const existing = await prisma.payrollItem.findFirst({ where: { id: request.params.id, deletedAt: null } });
   if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
 
+  // Membro de lote de pagamento da folha: só se paga pelo lote.
+  const recusaLote = await recusaPorLote(existing.folhaLoteId);
+  if (recusaLote) return response.status(409).json({ message: recusaLote });
+
   const b = request.body as Record<string, unknown>;
-  const asText = (v: unknown) => { const s = typeof v === "string" ? v.trim() : ""; return s.length ? s : null; };
-  const paymentDate = b.paymentDate ? new Date(String(b.paymentDate)) : new Date();
-  const paidAmount = numOrNull(b.paidAmount) ?? Number(existing.amount);
-  const paidPaymentMethodId = asText(b.paidPaymentMethodId);
-  const paidPaymentMethodNameInput = asText(b.paidPaymentMethodName);
-  const differenceReason = asText(b.differenceReason);
-  const paymentNotes = asText(b.paymentNotes ?? b.notes);
-  const payingCompanyId = asText(b.payingCompanyId);
-  const companyBankAccountId = asText(b.companyBankAccountId);
-
-  if (isNaN(paymentDate.getTime()) || paidAmount <= 0) {
-    return response.status(400).json({ message: "Data e valor pago (> 0) são obrigatórios." });
-  }
-
-  // As quatro guardas abaixo existiam em contas a pagar e faltavam aqui, apesar
-  // de ser a mesma operação: gravar o pagamento de um título que entra no DRE.
 
   // 1. Rebaixar sobrescreveria paymentDate/paidAmount e apagaria a trilha do
   //    pagamento anterior. Estornar primeiro deixa o histórico intacto.
@@ -967,102 +960,21 @@ payrollRouter.patch("/:id/pay", async (request, response) => {
       message: "Lançamento já baixado. Estorne o pagamento antes de lançar uma nova baixa."
     });
   }
-
-  // 2. Data futura joga a despesa para um mês que ainda não aconteceu.
-  const soData = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  if (soData(paymentDate).getTime() > soData(new Date()).getTime()) {
-    return response.status(400).json({ message: "Data do pagamento não pode ser futura." });
-  }
-
-  // 3. O paymentDate posiciona a despesa no mês do DRE — o mesmo motivo pelo
-  //    qual a baixa de fatura de cartão já é travada. Sem isto dava para alterar
-  //    um mês com CMV fechado por aqui, contornando a trava.
-  try {
-    await assertPeriodWritableForDate(paymentDate, "Baixa de lançamento de folha");
-  } catch (error) {
-    return response.status(400).json({ message: error instanceof Error ? error.message : "Período fechado." });
-  }
-  // Paridade com títulos normais: forma de pagamento obrigatória.
-  if (!paidPaymentMethodId && !paidPaymentMethodNameInput) {
-    return response.status(400).json({ message: "Forma de pagamento é obrigatória." });
-  }
-  // Diferença em relação ao valor do título exige justificativa.
-  // 4. Erro de digitação com ordem de grandeza a mais (R$ 1.200 virando 12.000).
-  //    Só barra o que é absurdo em proporção E em valor, para não atrapalhar
-  //    acerto legítimo em título pequeno.
-  const MAX_PAYMENT_MULTIPLIER = 10;
-  const MIN_ABSURD_SURCHARGE = 10_000;
-  const tituloOriginal = Number(existing.amount ?? 0);
-  if (
-    tituloOriginal > 0 &&
-    paidAmount > tituloOriginal * MAX_PAYMENT_MULTIPLIER &&
-    paidAmount - tituloOriginal > MIN_ABSURD_SURCHARGE
-  ) {
-    return response.status(400).json({
-      message: `Valor pago (${paidAmount.toFixed(2)}) é mais de ${MAX_PAYMENT_MULTIPLIER}x o título (${tituloOriginal.toFixed(2)}). Confira antes de baixar.`
-    });
-  }
-
-  const difference = Number((paidAmount - Number(existing.amount)).toFixed(2));
-  if (Math.abs(difference) > 0.009 && !differenceReason) {
-    return response.status(400).json({ message: "Justificativa obrigatória quando o valor pago difere do valor do título." });
-  }
-  // Conta bancária tem que pertencer à empresa pagadora e estar ativa.
-  if (payingCompanyId && companyBankAccountId) {
-    const owned = await prisma.companyBankAccount.findFirst({ where: { id: companyBankAccountId, companyId: payingCompanyId, isActive: true } });
-    if (!owned) return response.status(400).json({ message: "Conta bancária não pertence à empresa selecionada ou está inativa." });
-  }
-  const method = paidPaymentMethodId ? await prisma.paymentMethod.findUnique({ where: { id: paidPaymentMethodId } }) : null;
-  const paidPaymentMethodName = method?.name ?? paidPaymentMethodNameInput;
+  // As demais guardas (data futura, mês travado, forma de pagamento, valor absurdo,
+  // diferença sem justificativa, conta da empresa) ficam em folha-baixa.ts, as mesmas da
+  // baixa do lote de pagamento.
+  const validada = await validarBaixa(lerCamposDaBaixa(b, Number(existing.amount)), Number(existing.amount ?? 0), "Baixa de lançamento de folha");
+  if ("erro" in validada) return response.status(400).json({ message: validada.erro });
   const confirmaDuplicidade = b.confirmaDuplicidade === true;
 
-  // 5. Baixa em duplicidade: o mesmo pagamento (pessoa + tipo + competência, + quinzena no
-  //    VT) já pago em OUTRO item. Parcela da mesma rescisão e complemento não contam.
-  //    Só passa com a confirmação explícita, que fica na auditoria. Checagem e gravação
-  //    dentro da trava da pessoa: duas baixas ao mesmo tempo não passam as duas.
+  // Baixa em duplicidade: o mesmo pagamento (pessoa + tipo + competência, + quinzena no
+  // VT) já pago em OUTRO item. Parcela da mesma rescisão e complemento não contam.
+  // Só passa com a confirmação explícita, que fica na auditoria. Checagem e gravação
+  // dentro da trava da pessoa: duas baixas ao mesmo tempo não passam as duas.
   let updated;
   let jaPagos: ReturnType<typeof pagamentosEmDuplicidade>;
   try {
-    ({ updated, jaPagos } = await prisma.$transaction(async (tx) => {
-      await travarFolhaDaPessoa(tx, existing.employeeId);
-      const atual = await tx.payrollItem.findFirst({ where: { id: existing.id, deletedAt: null }, select: { paymentDate: true, status: true } });
-      if (!atual) throw new RecusaFolha(404, { message: "Lançamento não encontrado." });
-      if (atual.paymentDate || atual.status === "PAID") {
-        throw new RecusaFolha(400, { message: "Lançamento já baixado. Estorne o pagamento antes de lançar uma nova baixa." });
-      }
-      const outrosPagos = await tx.payrollItem.findMany({
-        where: {
-          employeeId: existing.employeeId, type: existing.type, competenceYear: existing.competenceYear, competenceMonth: existing.competenceMonth,
-          deletedAt: null, paymentDate: { not: null }, id: { not: existing.id },
-        },
-        select: CAMPOS_TRAVA,
-      });
-      const duplicados = pagamentosEmDuplicidade(existing, outrosPagos);
-      if (duplicados.length > 0 && !confirmaDuplicidade) {
-        const emp = await tx.employee.findFirst({ where: { id: existing.employeeId }, select: { firstName: true, lastName: true } });
-        const pessoa = nomeDe(emp);
-        const p = duplicados[0];
-        const valor = Number(p.paidAmount ?? p.amount).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-        throw new RecusaFolha(409, {
-          code: "BAIXA_DUPLICADA",
-          message: `Já foi pago ${rotuloTipo(existing.type).toLowerCase()} ${competenciaDe(existing)} de ${pessoa} em ${dataBr(p.paymentDate)} (${valor}). Baixar mesmo assim?`,
-          pessoa,
-          item: resumoItem(existing),
-          jaPagos: duplicados.map(resumoItem),
-        });
-      }
-      const gravado = await tx.payrollItem.update({
-        where: { id: existing.id },
-        data: {
-          paymentDate, paidAmount, status: "PAID",
-          paidPaymentMethodId, paidPaymentMethodName,
-          paidByCompanyId: payingCompanyId, companyBankAccountId,
-          differenceReason, paymentNotes,
-          updatedById: user.id,
-        },
-      });
-      return { updated: gravado, jaPagos: duplicados };
-    }));
+    ({ updated, jaPagos } = await prisma.$transaction((tx) => gravarBaixaDoItem(tx, existing, validada.dados, user.id, confirmaDuplicidade)));
   } catch (err) {
     if (err instanceof RecusaFolha) return response.status(err.status).json(err.corpo);
     throw err;
@@ -1096,6 +1008,8 @@ payrollRouter.patch("/:id/reverse", async (request, response) => {
   const existing = await prisma.payrollItem.findFirst({ where: { id: request.params.id, deletedAt: null } });
   if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
   if (!existing.paymentDate) return response.status(400).json({ message: "Este lançamento ainda não foi pago." });
+  const recusaLote = await recusaPorLote(existing.folhaLoteId);
+  if (recusaLote) return response.status(409).json({ message: recusaLote });
   // Quitada no termo não saiu do caixa: não há baixa a estornar. Desfazer = excluir.
   if (existing.type === "RESCISAO" && ehQuitadaNoTermo(existing.details)) {
     return response.status(400).json({ message: "Rescisão quitada no termo não teve pagamento a estornar: para desfazer, exclua o registro (RH → Rescisões)." });
@@ -1115,13 +1029,7 @@ payrollRouter.patch("/:id/reverse", async (request, response) => {
 
   const updated = await prisma.payrollItem.update({
     where: { id: request.params.id },
-    data: {
-      paymentDate: null, paidAmount: null, status: computeStatus(existing.dueDate, null),
-      paidPaymentMethodId: null, paidPaymentMethodName: null, paidByCompanyId: null,
-      // paymentNotes guarda o motivo do estorno, como no estorno de conta a pagar.
-      companyBankAccountId: null, differenceReason: null, paymentNotes: reason,
-      updatedById: user.id,
-    },
+    data: dadosDoEstorno(existing.dueDate, reason, user.id),
   });
 
   await auditLog({
@@ -1242,6 +1150,10 @@ payrollRouter.patch("/:id", async (request, response) => {
   }
 
   if (existing.paymentDate) return response.status(400).json({ message: "Lançamento já pago — estorne no Contas a Pagar antes de editar." });
+  {
+    const recusaLote = await recusaPorLote(existing.folhaLoteId);
+    if (recusaLote) return response.status(409).json({ message: recusaLote });
+  }
 
   const b = request.body as Record<string, unknown>;
   const amount = numOrNull(b.amount);
@@ -1269,7 +1181,15 @@ payrollRouter.patch("/:id", async (request, response) => {
   const mudouValor = Math.abs(Number(existing.amount) - round2(amount)) >= 0.005 || dueDate.getTime() !== existing.dueDate.getTime();
   if (det?.origem === ORIGEM_ACERTO && mudouValor) data.details = { ...det, editadoAMao: true } as Prisma.InputJsonValue;
 
-  const updated = await prisma.payrollItem.update({ where: { id: existing.id }, data });
+  // Condicionado a continuar fora de lote e sem baixa: liberar a folha entre a checagem acima
+  // e aqui não deixa um membro de lote editado sozinho.
+  let updated;
+  try {
+    updated = await prisma.payrollItem.update({ where: { id: existing.id, folhaLoteId: null, paymentDate: null }, data });
+  } catch (err) {
+    if (!registroNaoEncontrado(err)) throw err;
+    return response.status(409).json({ message: await recusaDoItemMudado(existing.id) });
+  }
 
   await auditLog({
     userId: user.id, action: "EDIT_PAYROLL_ITEM", entity: "PayrollItem", entityId: updated.id,
@@ -1295,6 +1215,10 @@ payrollRouter.delete("/:id", async (request, response) => {
   }
 
 
+  {
+    const recusaLote = await recusaPorLote(existing.folhaLoteId);
+    if (recusaLote) return response.status(409).json({ message: recusaLote });
+  }
   const reason = String((request.body as { reason?: unknown })?.reason ?? "").trim();
   if (reason.length < 3) return response.status(400).json({ message: "Informe a justificativa da exclusão (mín. 3 caracteres)." });
 
@@ -1319,7 +1243,12 @@ payrollRouter.delete("/:id", async (request, response) => {
     resultado = await prisma.$transaction(async (tx) => {
       if (existing.type === "RESCISAO") await travarRescisao(tx, existing.employeeId);
       const liberadas = await tx.vtFaltaDeduction.deleteMany({ where: { payrollItemId: request.params.id } });
-      await tx.payrollItem.update({ where: { id: request.params.id }, data: { deletedAt: new Date(), deletedById: user.id } });
+      // Condicionado a continuar fora de lote (liberar pode ter acabado de pô-lo num título).
+      await tx.payrollItem.update({ where: { id: request.params.id, folhaLoteId: null }, data: { deletedAt: new Date(), deletedById: user.id } })
+        .catch(async (err: unknown) => {
+          if (!registroNaoEncontrado(err)) throw err;
+          throw new RecusaFolha(409, { message: await recusaDoItemMudado(request.params.id) });
+        });
       // Rescisão: a gorjeta que ela gravou na apuração volta ao que era antes — só quando
       // sai a última parcela (enquanto houver parcela viva, a rescisão continua valendo).
       let desfeita = null;
@@ -1331,6 +1260,7 @@ payrollRouter.delete("/:id", async (request, response) => {
     });
   } catch (err) {
     if (err instanceof RecusaRescisao) return response.status(err.status).json({ message: err.message });
+    if (err instanceof RecusaFolha) return response.status(err.status).json(err.corpo);
     throw err;
   }
   const { faltasLiberadas, gorjetaDesfeita } = resultado;

@@ -2775,6 +2775,12 @@ model PayrollItem {
   dreCategory     DRECategory?      @relation(fields: [dreCategoryId], references: [id])
   notes           String?
   source          String            @default("GENERATED")
+  // Lote de pagamento da folha: o SALARIO entra num título por empresa no Contas a Pagar.
+  // Enquanto o lote existe (aberto ou pago) o item não aparece solto nem é baixado sozinho.
+  // folhaLoteOrigemId: o lote da empresa de onde a pessoa foi retirada (para devolver).
+  folhaLoteId       String?
+  folhaLote         FolhaLote?        @relation(fields: [folhaLoteId], references: [id], onDelete: SetNull)
+  folhaLoteOrigemId String?
   createdById     String
   updatedById     String?
   deletedAt       DateTime?
@@ -2783,6 +2789,7 @@ model PayrollItem {
   updatedAt       DateTime          @updatedAt
 
   @@unique([employeeId, type, competenceYear, competenceMonth, periodLabel])
+  @@index([folhaLoteId])
   @@index([competenceYear, competenceMonth])
   @@index([employeeId])
   @@index([status])
@@ -3234,6 +3241,38 @@ model TipPeriodEtapa {
   em       DateTime  @default(now())
 
   @@index([periodId, em])
+}
+
+// Lote de pagamento da folha: um título por empresa (CNPJ), um para os sem registro e
+// uma "Folha à parte" para quem foi retirado — agrupa os SALARIO da competência no Contas a
+// Pagar. O valor é sempre a soma viva dos membros; a baixa do lote baixa cada membro.
+// Um só lote ABERTO por competência e grupo (índice parcial na migration).
+model FolhaLote {
+  id                    String        @id
+  competenceYear        Int
+  competenceMonth       Int
+  grupo                 String        // CNPJ (só dígitos) | SEM_REGISTRO | A_PARTE
+  rotulo                String
+  dueDate               DateTime
+  status                String        @default("ABERTO") // ABERTO | PAGO | CANCELADO
+  paymentDate           DateTime?
+  paidPaymentMethodId   String?
+  paidPaymentMethodName String?
+  paidByCompanyId       String?
+  companyBankAccountId  String?
+  paymentNotes          String?
+  cancelReason          String?
+  canceledAt            DateTime?
+  createdById           String
+  createdByName         String
+  updatedById           String?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  membros               PayrollItem[]
+
+  @@index([competenceYear, competenceMonth])
+  @@index([status])
+  @@index([dueDate])
 }
 
 // Descrições prontas para os vales (por tipo ou para todos). Desativar não apaga.

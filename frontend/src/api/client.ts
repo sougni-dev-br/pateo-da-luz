@@ -1321,6 +1321,20 @@ export type Payable = {
   taxDreCategoryName?: string | null;
   /** Folha: salário de quem tem salário combinado (só para quem pode ver salários). */
   salarioComposicao?: SalarioComposicao | null;
+  /** Título do lote de pagamento da folha (sourceType FOLHA_LOTE): CNPJ, SEM_REGISTRO ou A_PARTE. */
+  folhaLoteGrupo?: string | null;
+  /** Título do lote: as pessoas dentro dele (o valor do título é a soma). */
+  loteMembros?: MembroFolhaLote[] | null;
+};
+
+export type MembroFolhaLote = {
+  id: string;
+  employeeId: string;
+  nome: string;
+  valor: string | number;
+  /** Na folha à parte: o título da empresa de onde a pessoa saiu. */
+  origem: string | null;
+  pago: boolean;
 };
 
 export type SalarioComposicao = {
@@ -7055,6 +7069,46 @@ export function marcarTipEtapa(year: number, month: number, etapa: TipEtapa, aca
 }
 export function getTipFolhaLiquidos(year: number, month: number) {
   return request<TipFolhaLiquidos>(`${baseTip(year, month)}/folha-liquidos`);
+}
+
+// ─── Lote de pagamento da folha (passo "Liberar para pagamento") ──────────────
+export type TipFolhaLote = {
+  id: string; rotulo: string; grupo: string; dueDate: string; status: "ABERTO" | "PAGO" | string;
+  total: number; pessoas: number; paymentDate: string | null; paidPaymentMethodName: string | null;
+};
+export type TipFolhaLotePrevia = {
+  grupos: Array<{ grupo: string; rotulo: string; total: number; membros: Array<{ payrollItemId: string; employeeId: string; nome: string; valor: number }> }>;
+  avisos: string[];
+  lotes: TipFolhaLote[];
+  vencimento: string;
+};
+export type TipFolhaLiberada = {
+  criados: Array<{ id: string; rotulo: string }>; acrescentados: number; jaLiberada: boolean; avisos: string[];
+  lotes: TipFolhaLote[]; etapas: TipEtapasEstado;
+};
+export function getTipFolhaLotes(year: number, month: number) {
+  return request<{ lotes: TipFolhaLote[] }>(`${baseTip(year, month)}/folha-lotes`);
+}
+export function getTipFolhaLotesPrevia(year: number, month: number) {
+  return request<TipFolhaLotePrevia>(`${baseTip(year, month)}/folha-lotes/previa`);
+}
+export function liberarTipFolha(year: number, month: number) {
+  return request<TipFolhaLiberada>(`${baseTip(year, month)}/folha-lotes/liberar`, json("POST", {}));
+}
+export function cancelarTipFolhaLiberada(year: number, month: number, motivo: string) {
+  return request<{ cancelados: number; salariosSoltos: number; etapas: TipEtapasEstado }>(`${baseTip(year, month)}/folha-lotes/cancelar`, json("POST", { motivo }));
+}
+export function payFolhaLote(id: string, payload: Parameters<typeof payPayrollItem>[1]) {
+  return request<{ id: string; status: string; membros: number; folhaPaga: boolean }>(`/payroll/folha-lotes/${id}/pay`, json("PATCH", payload));
+}
+export function reverseFolhaLote(id: string, reason: string) {
+  return request<{ id: string; status: string }>(`/payroll/folha-lotes/${id}/reverse`, json("PATCH", { reason }));
+}
+export function retirarDoFolhaLote(id: string, payrollItemId: string) {
+  return request<{ aParte: { id: string; rotulo: string }; loteCancelado: boolean }>(`/payroll/folha-lotes/${id}/membros/${payrollItemId}/retirar`, json("PATCH", {}));
+}
+export function devolverAoFolhaLote(id: string, payrollItemId: string) {
+  return request<{ destino: { id: string; rotulo: string }; folhaAParteCancelada: boolean }>(`/payroll/folha-lotes/${id}/membros/${payrollItemId}/devolver`, json("PATCH", {}));
 }
 export type SincronizacaoSalariosCombinados = {
   competencia: string;

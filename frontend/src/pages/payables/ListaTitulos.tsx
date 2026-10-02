@@ -1,11 +1,12 @@
-import { CheckCircle2, Eye, History, RotateCcw } from "lucide-react";
-import { useId } from "react";
-import type { Payable } from "../../api/client";
+import { CheckCircle2, ChevronDown, ChevronRight, Eye, History, RotateCcw } from "lucide-react";
+import { useId, useState } from "react";
+import type { MembroFolhaLote, Payable } from "../../api/client";
 import { Button, IconButton, Money } from "../../design-system";
 import { formatDate } from "../../utils/format";
 import { StatusTitulo } from "./Campos";
+import { MembrosDoLote } from "./MembrosDoLote";
 import {
-  dateKey, detalhesDoTitulo, estaEmAberto, estaPago, favorecidoDoTitulo,
+  dateKey, detalhesDoTitulo, estaEmAberto, estaPago, favorecidoDoTitulo, isFolhaLote,
   rotuloPrazo, seloDoTitulo, valorDoTitulo, type GrupoDeTitulos
 } from "./regras";
 
@@ -19,6 +20,10 @@ type Acoes = {
   onBaixar: (p: Payable) => void;
   onEstornar: (p: Payable) => void;
   onHistorico: (p: Payable) => void;
+  /** Título do lote da folha: tirar a pessoa (vai para a folha à parte) ou devolver. */
+  onRetirarDoLote?: (lote: Payable, membro: MembroFolhaLote) => void;
+  onDevolverAoLote?: (lote: Payable, membro: MembroFolhaLote) => void;
+  loteOcupado?: boolean;
 };
 
 type Props = Acoes & { grupos: GrupoDeTitulos[]; hoje: string };
@@ -77,6 +82,8 @@ function Linha({ titulo: p, grupo, hoje, ...acoes }: Acoes & { titulo: Payable; 
   const mostrarNota = nota && !detalhes.includes(nota);
   const pago = estaPago(p);
   const paidDiferente = pago && p.paidAmount != null && Number(p.paidAmount) !== valorDoTitulo(p);
+  const lote = isFolhaLote(p);
+  const [aberto, setAberto] = useState(false);
 
   return (
     <li className={`pg-linha pg-linha--${grupo}`}>
@@ -106,6 +113,16 @@ function Linha({ titulo: p, grupo, hoje, ...acoes }: Acoes & { titulo: Payable; 
           {detalhes.length > 0 && <span className="pg-sub-texto">{detalhes.join(" · ")}</span>}
         </div>
         {mostrarNota && <p className="pg-obs" title={nota}>{nota}</p>}
+        {lote && (
+          <button type="button" className="pg-lote-toggle" aria-expanded={aberto} onClick={() => setAberto((a) => !a)}>
+            {aberto ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            {aberto ? "esconder pessoas" : `ver ${p.loteMembros?.length ?? 0} pessoa(s)`}
+          </button>
+        )}
+        {lote && aberto && (
+          <MembrosDoLote titulo={p} podeGerir={acoes.podeGerir} ocupado={acoes.loteOcupado}
+            onRetirar={acoes.onRetirarDoLote} onDevolver={acoes.onDevolverAoLote} />
+        )}
       </div>
 
       <div className="pg-c-status"><StatusTitulo status={p.status} /></div>
