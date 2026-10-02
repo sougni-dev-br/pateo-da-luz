@@ -882,6 +882,19 @@ payrollRouter.post("/vacation", async (request, response) => {
 
   // As mesmas férias (mesma pessoa e mesmo início) já lançadas: recusa. Outro período no
   // mesmo mês é legítimo e ganha rótulo próprio (a chave única inclui o rótulo, até de excluído).
+  // Afastamento não remunerado no período: são dias sem pagamento, não viram férias.
+  const afastados = await prisma.employeeScheduleDay.findMany({
+    where: { employeeId: emp.id, type: "AFASTAMENTO", date: { gte: start, lte: end } },
+    select: { date: true }, orderBy: { date: "asc" },
+  });
+  if (afastados.length > 0) {
+    const de = dataBr(afastados[0].date).slice(0, 5);
+    const ate = dataBr(afastados[afastados.length - 1].date).slice(0, 5);
+    return response.status(409).json({
+      message: `${nomeDe(emp)} está em afastamento não remunerado de ${de} a ${ate} dentro dessas férias. Ajuste ou exclua o afastamento em "Lançar afastamento" antes.`,
+    });
+  }
+
   const competenciaFerias = { employeeId: emp.id, type: "FERIAS", competenceYear: start.getUTCFullYear(), competenceMonth: start.getUTCMonth() + 1 } as const;
   const feriasDoMes = await prisma.payrollItem.findMany({ where: competenciaFerias, select: CAMPOS_TRAVA });
   const feriasRepetidas = duplicadosDe({ ...competenciaFerias, periodStart: start }, feriasDoMes);
