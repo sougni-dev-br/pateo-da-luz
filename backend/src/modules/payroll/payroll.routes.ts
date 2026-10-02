@@ -11,6 +11,8 @@ import {
   type GorjetaNaApuracao, type ValoresRescisao,
 } from "./rescisao-apuracao.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
+import { ORIGEM_ACERTO } from "./acerto-lista.js";
+import { acertosDaListaNaSaida, decidirAcertoNaRescisao } from "./rescisao-acerto.js";
 import { round2 } from "./vt-calc.js";
 import { duplicadosDe, ehComplemento, pagamentosEmDuplicidade, resumoItem, rotuloLivre, rotuloTipo, competenciaDe } from "./folha-duplicidade.js";
 import { CAMPOS_TRAVA, RecusaFolha, dataBr, folhaLancamentoRouter, nomeDe, travarFolhaDaPessoa } from "./folha-lancamento.routes.js";
@@ -316,6 +318,12 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   // Mudou algum valor apurado: exige a justificativa e grava o antes e o depois.
   const divergencias = divergenciasDoApurado(apuracao?.sugestao ?? null, lido.componentes);
   const justificativa = typeof b.ajusteJustificativa === "string" ? b.ajusteJustificativa.trim().slice(0, 1000) : "";
+  // Sem registro com o acerto da lista da competência da saída já lançado: sem baixa, recusa
+  // (exclua o acerto antes); pago, exige justificativa e avisa (a apuração já o descontou).
+  const acertoNaSaida = semRegistroNaSaida && emp.terminationDate
+    ? decidirAcertoNaRescisao(await acertosDaListaNaSaida(prisma, emp.id, emp.terminationDate), justificativa, JUSTIFICATIVA_MINIMA)
+    : { ok: true as const, acertoPago: null, aviso: null };
+  if (!acertoNaSaida.ok) return response.status(acertoNaSaida.status).json({ message: acertoNaSaida.message });
   if (divergencias.length > 0 && justificativa.length < JUSTIFICATIVA_MINIMA) {
     return response.status(400).json({
       message: `Você mudou ${divergencias.map((d) => d.rotulo.toLowerCase()).join(", ")} em relação ao apurado pelo sistema. Explique o ajuste (pelo menos ${JUSTIFICATIVA_MINIMA} letras).`,
@@ -349,6 +357,7 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
       ? { divergencias, justificativa, porUserId: user.id, porNome: user.name ?? null, em: new Date().toISOString() }
       : null,
     ...(quitadaSemValor ? { quitadaSemValor: true, saldoDevedorPerdoado } : {}),
+    ...(acertoNaSaida.acertoPago ? { acertoListaPago: { ...acertoNaSaida.acertoPago, justificativa } } : {}),
     // Verbas opcionais marcadas (decisão da empresa) e quem marcou.
     ...(verbas ? { verbasOpcionais: verbas, verbasOpcionaisPor: { userId: user.id, nome: user.name ?? null, em: new Date().toISOString() } } : {}),
   };
@@ -388,6 +397,12 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
         where: { employeeId: emp.id, type: "RESCISAO", deletedAt: null, status: { not: "CANCELED" } }, select: { id: true },
       });
       if (viva) throw new RecusaRescisao(400, "Rescisão já lançada para este funcionário.");
+      // O acerto da lista pode ter sido lançado depois da checagem de cima: reconfere sob a trava da folha.
+      if (semRegistroNaSaida && emp.terminationDate) {
+        await travarFolhaDaPessoa(tx, emp.id);
+        const agora = decidirAcertoNaRescisao(await acertosDaListaNaSaida(tx, emp.id, emp.terminationDate), justificativa, JUSTIFICATIVA_MINIMA);
+        if (!agora.ok) throw new RecusaRescisao(agora.status, agora.message);
+      }
       // Rótulo livre na competência (a chave única inclui os excluídos).
       const ocupados = await rotulosDeRescisaoNoMes(tx, emp.id, term.getUTCFullYear(), term.getUTCMonth() + 1);
       for (const data of dadosParcelas) {
@@ -425,6 +440,7 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
     installments: n,
     quitadaSemValor,
     saldoDevedorPerdoado,
+    aviso: acertoNaSaida.aviso,
     items: parcelas.map((p) => ({ id: p.id, amount: p.amount, dueDate: p.due.toISOString(), installmentNumber: p.number })),
   });
 });
@@ -1232,6 +1248,10 @@ payrollRouter.patch("/:id", async (request, response) => {
     if (!isNaN(e.getTime())) data.periodEnd = e;
   }
   if (b.notes !== undefined) data.notes = (b.notes as string) || null;
+  // Acerto da lista ajustado à mão: marca, para o relançamento da lista não sobrescrever.
+  const det = existing.details && typeof existing.details === "object" ? existing.details as Record<string, unknown> : null;
+  const mudouValor = Math.abs(Number(existing.amount) - round2(amount)) >= 0.005 || dueDate.getTime() !== existing.dueDate.getTime();
+  if (det?.origem === ORIGEM_ACERTO && mudouValor) data.details = { ...det, editadoAMao: true } as Prisma.InputJsonValue;
 
   const updated = await prisma.payrollItem.update({ where: { id: existing.id }, data });
 

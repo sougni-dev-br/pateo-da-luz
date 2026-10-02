@@ -4,9 +4,11 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 // Pessoas fictícias.
 vi.mock("../../../config/database.js", () => ({
   prisma: {
-    payrollItem: { findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+    payrollItem: { findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     employee: { findMany: vi.fn() },
     dRECategory: { findFirst: vi.fn() },
+    $executeRaw: vi.fn(),
+    $transaction: vi.fn(),
   },
 }));
 vi.mock("../../cmv-real/cmv-real.service.js", () => ({ assertPeriodWritableForDate: vi.fn(async () => undefined) }));
@@ -52,6 +54,9 @@ beforeEach(() => {
   db.payrollItem.findMany.mockResolvedValue([]);
   db.payrollItem.create.mockResolvedValue({ id: "novo" });
   db.payrollItem.update.mockResolvedValue({});
+  db.payrollItem.updateMany.mockResolvedValue({ count: 1 });
+  db.$executeRaw.mockResolvedValue(1);
+  db.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(db));
   db.employee.findMany.mockResolvedValue([{ id: "e1", terminationDate: null }, { id: "e2", terminationDate: null }, { id: "e3", terminationDate: null }]);
   db.dRECategory.findFirst.mockResolvedValue({ id: "dre-folha" });
 });
@@ -127,6 +132,7 @@ describe("lançar os acertos da lista", () => {
     const r = await lancarAcertosDaLista(2026, 9, USUARIO);
     expect(db.payrollItem.create).not.toHaveBeenCalled();
     expect(db.payrollItem.update).not.toHaveBeenCalled();
+    expect(db.payrollItem.updateMany).not.toHaveBeenCalled();
     expect(r.semMudanca).toBe(1);
   });
 
@@ -134,9 +140,11 @@ describe("lançar os acertos da lista", () => {
     apuracao([pessoa({ totalAPagar: 1800 })]);
     existentes([{ amount: 1695 }]);
     const r = await lancarAcertosDaLista(2026, 9, USUARIO);
-    expect(db.payrollItem.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: "x" }, data: expect.objectContaining({ amount: 1800, updatedById: "u1" }),
+    // Só grava se continua sem baixa e ninguém mexeu desde a releitura (updatedAt).
+    expect(db.payrollItem.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: "x", paymentDate: null }), data: expect.objectContaining({ amount: 1800, updatedById: "u1" }),
     }));
+    expect(db.$executeRaw).toHaveBeenCalled(); // trava da folha da pessoa
     expect(r.atualizados).toEqual([{ employeeId: "e1", nome: "Ana Exemplo", antes: 1695, depois: 1800 }]);
   });
 
@@ -145,6 +153,7 @@ describe("lançar os acertos da lista", () => {
     existentes([{ amount: 1695, paymentDate: d("2026-10-07"), paidAmount: 1695, status: "PAID" }]);
     const r = await lancarAcertosDaLista(2026, 9, USUARIO);
     expect(db.payrollItem.update).not.toHaveBeenCalled();
+    expect(db.payrollItem.updateMany).not.toHaveBeenCalled();
     expect(r.avisos).toEqual([expect.stringMatching(/Ana Exemplo.*já pago.*1\.695,00.*1\.800,00/)]);
   });
 
@@ -154,6 +163,7 @@ describe("lançar os acertos da lista", () => {
     const r = await lancarAcertosDaLista(2026, 9, USUARIO);
     expect(db.payrollItem.create).not.toHaveBeenCalled();
     expect(db.payrollItem.update).not.toHaveBeenCalled();
+    expect(db.payrollItem.updateMany).not.toHaveBeenCalled();
     expect(r.avisos).toEqual([expect.stringMatching(/Ana Exemplo.*excluído à mão.*não foi recriado/)]);
   });
 
@@ -161,7 +171,7 @@ describe("lançar os acertos da lista", () => {
     apuracao([pessoa({})]);
     existentes([{ deletedAt: d("2026-10-02"), deletedById: null, amount: 1 }]);
     await lancarAcertosDaLista(2026, 9, USUARIO);
-    expect(db.payrollItem.update).toHaveBeenCalledWith(expect.objectContaining({
+    expect(db.payrollItem.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ amount: 1695, deletedAt: null, deletedById: null }),
     }));
   });
@@ -186,6 +196,7 @@ describe("lançar os acertos da lista", () => {
     existentes([{}]);
     const r = await lancarAcertosDaLista(2026, 9, USUARIO);
     expect(db.payrollItem.update).not.toHaveBeenCalled();
+    expect(db.payrollItem.updateMany).not.toHaveBeenCalled();
     expect(r.avisos).toEqual([expect.stringMatching(/Ana Exemplo.*acerto.*lançado.*não tem mais nada a receber/)]);
   });
 
@@ -207,5 +218,46 @@ describe("lançar os acertos da lista", () => {
     const r = await lancarAcertosDaLista(2026, 9, USUARIO);
     expect(db.payrollItem.create).not.toHaveBeenCalled();
     expect(r.avisos).toEqual([expect.stringMatching(/Ana Exemplo.*saiu em 20\/08\/2026/)]);
+  });
+});
+
+describe("acerto: corrida e ajuste à mão", () => {
+  test("pago entre a leitura e a gravação: não atualiza (MANTER) e avisa", async () => {
+    apuracao([pessoa({ totalAPagar: 1800 })]);
+    existentes([{ amount: 1695 }]);
+    db.payrollItem.updateMany.mockResolvedValue({ count: 0 });
+    const r = await lancarAcertosDaLista(2026, 9, USUARIO);
+    expect(r.atualizados).toEqual([]);
+    expect(r.semMudanca).toBe(1);
+    expect(r.avisos).toEqual([expect.stringMatching(/Ana Exemplo.*mudou ou foi pago.*não atualizado/)]);
+  });
+
+  test("a releitura dentro da trava vê o título já pago: não grava e avisa como pago", async () => {
+    apuracao([pessoa({ totalAPagar: 1800 })]);
+    const base = { id: "x", employeeId: "e1", type: "SALARIO", periodLabel: ROTULO_ACERTO, amount: 1695, paidAmount: null, deletedAt: null,
+      deletedById: null, dueDate: d("2026-10-07"), details: { origem: "LISTA_PAGAMENTO" } };
+    db.payrollItem.findMany
+      .mockResolvedValueOnce([{ ...base, paymentDate: null, status: "PENDING" }])
+      .mockResolvedValue([{ ...base, paymentDate: d("2026-10-07"), paidAmount: 1695, status: "PAID" }]);
+    const r = await lancarAcertosDaLista(2026, 9, USUARIO);
+    expect(db.payrollItem.updateMany).not.toHaveBeenCalled();
+    expect(r.avisos).toEqual([expect.stringMatching(/Ana Exemplo.*já pago/)]);
+  });
+
+  test("acerto não pago ajustado à mão (details.editadoAMao): não sobrescreve e avisa o valor da lista", async () => {
+    apuracao([pessoa({ totalAPagar: 1800 })]);
+    existentes([{ amount: 1500, details: { origem: "LISTA_PAGAMENTO", editadoAMao: true } }]);
+    const r = await lancarAcertosDaLista(2026, 9, USUARIO);
+    expect(db.payrollItem.updateMany).not.toHaveBeenCalled();
+    expect(r.avisos).toEqual([expect.stringMatching(/^Ana Exemplo: acerto ajustado à mão: não atualizado \(lista diz R\$\s1\.800,00\)\.$/)]);
+    expect(r.avisosSemValor).toEqual(["Ana Exemplo: acerto ajustado à mão: não atualizado."]);
+  });
+
+  test("ajustado à mão com o mesmo valor da lista: nada a fazer", async () => {
+    apuracao([pessoa({ totalAPagar: 1800 })]);
+    existentes([{ amount: 1800, details: { origem: "LISTA_PAGAMENTO", editadoAMao: true } }]);
+    const r = await lancarAcertosDaLista(2026, 9, USUARIO);
+    expect(r.semMudanca).toBe(1);
+    expect(r.avisos).toEqual([]);
   });
 });

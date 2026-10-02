@@ -296,8 +296,47 @@ export function juntarVencidosAnteriores(doPeriodo: Payable[], vencidosAntes: Pa
   return [...vencidosAntes.filter((p) => !vistos.has(chave(p)) && estaEmAberto(p)), ...doPeriodo];
 }
 
-/** Período que chega até hoje (ou além): só então os vencidos de antes dele entram na lista.
- *  Período passado ("Mês anterior", personalizado já encerrado) mostra só o que vence nele. */
-export function periodoChegaAHoje(fim: string | null | undefined, hoje: string): boolean {
-  return !fim || fim >= hoje;
+/**
+ * Presets em que os vencidos de antes do período entram na lista (e no resumo): os que olham
+ * o mês/ano corrente ou o que vem pela frente. "Vence hoje", "Últimos 7/30 dias", "Ontem",
+ * "Vencidos" (já cobre tudo), "Mês anterior" e o personalizado mostram só o que vence neles.
+ * "Pago no mês" é o mês atual (vale para o resumo; a lista pede só os pagos).
+ */
+const PRESETS_COM_VENCIDOS_ANTERIORES = new Set(["currentMonth", "currentYear", "next7", "next15", "next30", "nextMonth", "paidMonth"]);
+
+export function periodoPuxaVencidosAnteriores(preset: string | null | undefined): boolean {
+  return Boolean(preset) && PRESETS_COM_VENCIDOS_ANTERIORES.has(String(preset));
+}
+
+/** Vencido: venceu antes de hoje (chaves YYYY-MM-DD). */
+function vencidoAntesDe(p: Payable, hoje: string): boolean {
+  const due = dateKey(p.dueDate);
+  return Boolean(due) && due < hoje;
+}
+
+/**
+ * Data da baixa de cada título no lote. Com "usar a data de vencimento", o título vencido é
+ * baixado na data em que venceu; o que ainda vai vencer (ou não tem vencimento) fica com a
+ * data única informada — pagamento em data futura o backend recusa.
+ */
+export function dataDaBaixaNoLote(p: Payable, usarVencimento: boolean, dataUnica: string, hoje: string): string {
+  if (usarVencimento && vencidoAntesDe(p, hoje)) return dateKey(p.dueDate);
+  return dataUnica;
+}
+
+export const DIAS_ALERTA_BAIXA_HOJE = 7;
+
+/** Quantos títulos venceram há mais de `dias` dias (o vencimento está a mais de `dias` antes de hoje). */
+export function contarVencidosHaMaisDe(titulos: Payable[], hoje: string, dias = DIAS_ALERTA_BAIXA_HOJE): number {
+  return titulos.filter((p) => vencidoAntesDe(p, hoje) && diasEntre(dateKey(p.dueDate), hoje) > dias).length;
+}
+
+/** Aviso da baixa em lote com a data de hoje quando há títulos vencidos há mais de uma semana. */
+export function avisoDataDoLote(titulos: Payable[], dataUnica: string, usarVencimento: boolean, hoje: string): string | null {
+  if (usarVencimento || dataUnica !== hoje) return null;
+  const n = contarVencidosHaMaisDe(titulos, hoje);
+  if (n === 0) return null;
+  return n === 1
+    ? "1 título venceu há mais de uma semana — confira a data real do pagamento."
+    : `${n} títulos venceram há mais de uma semana — confira a data real do pagamento.`;
 }

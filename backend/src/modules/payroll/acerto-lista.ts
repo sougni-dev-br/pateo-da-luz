@@ -83,6 +83,11 @@ const mesmaComposicao = (gravada: unknown, nova: ComposicaoAcerto) => {
   return g.origem === ORIGEM_ACERTO && CHAVES_COMPARADAS.every((k) => JSON.stringify(g[k] ?? null) === JSON.stringify(nova[k] ?? null));
 };
 
+// Marcado pelo PATCH /payroll/:id ao mudar valor ou vencimento de um acerto da lista.
+export function editadoAMao(details: unknown): boolean {
+  return Boolean(details && typeof details === "object" && (details as Record<string, unknown>).editadoAMao === true);
+}
+
 // O que fazer com o acerto de uma pessoa, dados os SALARIO dela na competência.
 // - Excluído à mão não volta; o excluído antigo (sem autor) volta.
 // - Pago nunca muda (avisa se a lista mudou); sem baixa, atualiza o que mudou.
@@ -111,6 +116,15 @@ export function decidirAcerto(
         acao: "PULAR",
         aviso: `${nome}: o acerto de ${mmaaaa} já pago (${brl(antes)}) não muda; a lista agora dá ${brl(novo.valor)}. Confira a diferença.`,
         avisoSemValor: `${nome}: o acerto de ${mmaaaa} já pago não muda, e a lista agora dá outro valor. Confira a diferença.`,
+      };
+    }
+    // Ajustado à mão pela Folha (PATCH grava details.editadoAMao): a lista não sobrescreve.
+    if (editadoAMao(proprio.details)) {
+      if (mesmoValor(antes, novo.valor)) return { acao: "MANTER" };
+      return {
+        acao: "PULAR",
+        aviso: `${nome}: acerto ajustado à mão: não atualizado (lista diz ${brl(novo.valor)}).`,
+        avisoSemValor: `${nome}: acerto ajustado à mão: não atualizado.`,
       };
     }
     const igual = mesmoValor(antes, novo.valor) && proprio.dueDate.getTime() === novo.vencimento.getTime()

@@ -3,6 +3,7 @@
 // aqui — o DRE lê o custo pela data de cada diária.
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
+import { LIMITE_POR_ORIGEM } from "../purchases/payables-limite.js";
 
 export type FiltroPayables = {
   startToday: Date;
@@ -95,8 +96,8 @@ export function extrasParaPayables(f: FiltroPayables) {
     LEFT JOIN "ExtraWorker" w ON w."id" = ep."extraWorkerId"
     LEFT JOIN "PaymentMethod" ppm ON ppm."id" = ep."paidPaymentMethodId"
     WHERE ${filtroWhere(f)}
-    ORDER BY ep."dueDate"
-    LIMIT 400
+    ORDER BY ep."dueDate" NULLS LAST, ep."code", ep."id"
+    LIMIT ${LIMITE_POR_ORIGEM}
   `;
 }
 
@@ -122,6 +123,7 @@ export function extrasParaPayablesPdf(f: FiltroPayables) {
     LEFT JOIN "ExtraWorker" w ON w."id" = ep."extraWorkerId"
     LEFT JOIN "PaymentMethod" ppm ON ppm."id" = ep."paidPaymentMethodId"
     WHERE ${filtroWhere(f)}
-    LIMIT 1000
+    ORDER BY ep."dueDate" NULLS LAST, ep."code", ep."id"
+    LIMIT ${LIMITE_POR_ORIGEM}
   `;
 }

@@ -113,11 +113,17 @@ describe("folha de mês passado", () => {
     vtType: "NENHUM", vtPeriodicity: "QUINZENAL", vtFixedAmount: null, vtLegs: [], vtMonthlyFare: null,
   };
 
-  test("setembro gera o salário de 2.200 e, sem registro sem adiantamento, sem a parcela do dia 20", async () => {
+  test("setembro (sem registro): sem salário pela folha (sai pelo acerto da lista) e sem a parcela do dia 20", async () => {
     db.employee.findMany.mockResolvedValue([empFolha]);
     const { items } = await computePayroll(2026, 9);
     expect(items.filter((i) => i.type === "ADIANTAMENTO")).toHaveLength(0);
-    expect(items.find((i) => i.type === "SALARIO")).toMatchObject({ amount: 2200, details: { base: 2200, advance: 0 } });
+    expect(items.filter((i) => i.type === "SALARIO")).toHaveLength(0);
+  });
+
+  test("setembro usa o base de 2.200 do histórico (adiantamento do sem registro marcado: 40%)", async () => {
+    db.employee.findMany.mockResolvedValue([{ ...empFolha, recebeAdiantamento: true }]);
+    const { items } = await computePayroll(2026, 9);
+    expect(items.find((i) => i.type === "ADIANTAMENTO")).toMatchObject({ amount: 880, details: { base: 2200, semRegistro: true } });
   });
 
   test("outubro já usa o valor novo (CLT, 2.600, com adiantamento)", async () => {

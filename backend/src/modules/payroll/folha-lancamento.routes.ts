@@ -27,11 +27,9 @@ export class RecusaFolha extends Error {
   }
 }
 
-// Uma escrita de folha por pessoa de cada vez: dois lançamentos simultâneos passariam
-// os dois pela checagem e criariam o par duplicado. A trava solta no commit/rollback.
-export async function travarFolhaDaPessoa(tx: Prisma.TransactionClient, employeeId: string) {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`folha:${employeeId}`}))`;
-}
+// A trava mora em folha-trava.ts (o acerto da lista também usa); reexportada para as rotas.
+import { travarFolhaDaPessoa } from "./folha-trava.js";
+export { travarFolhaDaPessoa };
 
 export const nomeDe = (e: { firstName: string; lastName: string } | null | undefined) =>
   e ? `${e.firstName} ${e.lastName}`.trim() : "";

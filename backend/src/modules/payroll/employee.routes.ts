@@ -9,6 +9,7 @@ import { CAMPOS_SALARIO, ROTULO_CAMPO, alteracoes, faltaMotivoEntradaGorjeta, fa
 import { registrarAlteracoes } from "./cadastro-historico.service.js";
 import { lerFichaDoFuncionario } from "./ficha-registro.service.js";
 import { cidadeProprio, nomeProprio } from "../../shared/utils/nome-proprio.js";
+import { mascararDadosSensiveis } from "./auditoria-mascara.js";
 
 export const employeeRouter = Router();
 
@@ -482,7 +483,7 @@ employeeRouter.post("/", async (request, response) => {
     action: "CREATE_EMPLOYEE",
     entity: "Employee",
     entityId: created.id,
-    newValue: created,
+    newValue: mascararDadosSensiveis(created),
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? ""),
   });
@@ -563,8 +564,8 @@ employeeRouter.put("/:id", async (request, response) => {
     action: "UPDATE_EMPLOYEE",
     entity: "Employee",
     entityId: updated.id,
-    previousValue: existing,
-    newValue: updated,
+    previousValue: mascararDadosSensiveis(existing),
+    newValue: mascararDadosSensiveis(updated),
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? ""),
   });
@@ -593,8 +594,8 @@ employeeRouter.patch("/:id/status", async (request, response) => {
     action: isActive ? "REACTIVATE_EMPLOYEE" : "INACTIVATE_EMPLOYEE",
     entity: "Employee",
     entityId: updated.id,
-    previousValue: existing,
-    newValue: updated,
+    previousValue: mascararDadosSensiveis(existing),
+    newValue: mascararDadosSensiveis(updated),
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? ""),
   });
@@ -629,8 +630,8 @@ employeeRouter.patch("/:id/terminate", async (request, response) => {
     action: "TERMINATE_EMPLOYEE",
     entity: "Employee",
     entityId: updated.id,
-    previousValue: existing,
-    newValue: updated,
+    previousValue: mascararDadosSensiveis(existing),
+    newValue: mascararDadosSensiveis(updated),
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? ""),
   });
@@ -709,7 +710,7 @@ employeeRouter.delete("/:id", async (request, response) => {
     action: "DELETE_EMPLOYEE",
     entity: "Employee",
     entityId: request.params.id,
-    previousValue: existing,
+    previousValue: mascararDadosSensiveis(existing),
     newValue: { reason },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? ""),

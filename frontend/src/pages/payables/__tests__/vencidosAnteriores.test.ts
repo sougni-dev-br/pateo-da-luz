@@ -14,10 +14,14 @@ test("mesmo id de origens diferentes não é repetido", () => {
   expect(juntarVencidosAnteriores([p("1", "OPEN", "DIRECT")], [p("1", "OVERDUE", "PAYROLL")]).length).toBe(2);
 });
 
-test("vencidos de antes do período só entram quando o período chega até hoje", async () => {
-  const { periodoChegaAHoje, OPCOES_PERIODO } = await import("../regras");
-  expect(periodoChegaAHoje("2026-10-31", "2026-10-02")).toBe(true);   // Mês atual
-  expect(periodoChegaAHoje("2026-12-31", "2026-10-02")).toBe(true);   // Ano atual
-  expect(periodoChegaAHoje("2026-09-30", "2026-10-02")).toBe(false);  // Mês anterior: só setembro
+test("vencidos de antes do período: só nos presets de mês/ano corrente e dos próximos dias", async () => {
+  const { periodoPuxaVencidosAnteriores, OPCOES_PERIODO } = await import("../regras");
+  for (const preset of ["currentMonth", "currentYear", "next7", "next15", "next30", "nextMonth", "paidMonth"]) {
+    expect(periodoPuxaVencidosAnteriores(preset)).toBe(true);
+  }
+  // "Vence hoje", "Últimos 7/30 dias", "Ontem", "Mês anterior", personalizado e "Vencidos" (já cobre tudo): não.
+  for (const preset of ["today", "yesterday", "last7", "last30", "previousMonth", "custom", "overdue", "", null, undefined]) {
+    expect(periodoPuxaVencidosAnteriores(preset)).toBe(false);
+  }
   expect(OPCOES_PERIODO.map((o) => o.label)).toContain("Mês anterior");
 });

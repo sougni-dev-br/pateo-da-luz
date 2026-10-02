@@ -5,7 +5,8 @@ import { HideValuesProvider } from "../../../design-system";
 import { SessionContext, type SessionContextValue } from "../../../context/SessionContext";
 
 const api = vi.hoisted(() => ({
-  getPayables: vi.fn(),
+  getPayablesComLimite: vi.fn(),
+  downloadPayablesFinancialPdf: vi.fn(),
   getSuppliers: vi.fn(),
   getPaymentMethods: vi.fn(),
   getCompanies: vi.fn(),
@@ -35,13 +36,14 @@ function adiado<T>() {
   return { promessa, resolver };
 }
 
+const lista = (titulos: Payable[], truncado = false) => ({ titulos, truncado });
 const ANA = titulo("a", "Ana Fornecedora");
 const BETO = titulo("b", "Beto Distribuidora");
 
 beforeEach(() => {
   window.localStorage.clear();
   Object.values(api).forEach((f) => f.mockReset());
-  api.getPayables.mockResolvedValue([ANA, BETO]);
+  api.getPayablesComLimite.mockResolvedValue(lista([ANA, BETO]));
   api.getSuppliers.mockResolvedValue([]);
   api.getPaymentMethods.mockResolvedValue([{ id: "pix", name: "PIX" }]);
   api.getCompanies.mockResolvedValue([
@@ -88,20 +90,20 @@ describe("Contas a Pagar — baixa em lote não herda a baixa individual", () =>
 
 describe("Contas a Pagar — respostas fora de ordem", () => {
   test("carga antiga que chega depois não sobrescreve a nova", async () => {
-    const velha = adiado<Payable[]>();
-    api.getPayables.mockReset();
-    api.getPayables
+    const velha = adiado<{ titulos: Payable[]; truncado: boolean }>();
+    api.getPayablesComLimite.mockReset();
+    api.getPayablesComLimite
       // Primeira carga: período (lista e resumo) + vencidos de antes do período (lista e resumo).
       .mockImplementationOnce(() => velha.promessa)
       .mockImplementationOnce(() => velha.promessa)
       .mockImplementationOnce(() => velha.promessa)
       .mockImplementationOnce(() => velha.promessa)
-      .mockResolvedValue([BETO]);
+      .mockResolvedValue(lista([BETO]));
     abrir();
-    await waitFor(() => expect(api.getPayables).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(api.getPayablesComLimite).toHaveBeenCalledTimes(4));
     fireEvent.click(within(screen.getByRole("group", { name: "Atalhos" })).getByRole("button", { name: "Vencidos" }));
     expect(await screen.findByRole("button", { name: "Baixar Beto Distribuidora" })).toBeInTheDocument();
-    await act(async () => { velha.resolver([ANA]); });
+    await act(async () => { velha.resolver(lista([ANA])); });
     expect(screen.queryByRole("button", { name: "Baixar Ana Fornecedora" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Baixar Beto Distribuidora" })).toBeInTheDocument();
   });
@@ -138,5 +140,89 @@ describe("Contas a Pagar — selecionar todos só pega o que está na tela", () 
     fireEvent.click(screen.getByRole("checkbox", { name: /Selecionar todos em aberto/ }));
     expect(screen.getByRole("region", { name: "Títulos selecionados" })).toHaveTextContent("2 selecionado(s)");
     expect(screen.getByRole("checkbox", { name: /Selecionar todos em aberto/ })).toBeChecked();
+  });
+});
+
+describe("Contas a Pagar — baixa em lote com a data de vencimento de cada título", () => {
+  test("avisa a data de hoje com vencido antigo; com a opção, cada vencido baixa na data em que venceu", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 2, 10, 0));
+    abrir();
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Selecionar todos em aberto/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Baixar selecionados" }));
+    const lote = screen.getByRole("dialog");
+    expect(within(lote).getByRole("alert")).toHaveTextContent("2 títulos venceram há mais de uma semana — confira a data real do pagamento.");
+
+    fireEvent.click(within(lote).getByRole("checkbox", { name: "Usar a data de vencimento de cada título" }));
+    expect(within(lote).queryByText(/venceram há mais de uma semana/)).not.toBeInTheDocument();
+    fireEvent.change(within(lote).getByLabelText("Forma de pagamento *"), { target: { value: "id:pix" } });
+    fireEvent.click(within(lote).getByRole("button", { name: "Confirmar baixa de 2" }));
+    await waitFor(() => expect(api.payInstallment).toHaveBeenCalledTimes(2));
+    expect(api.payInstallment.mock.calls.map((c) => c[1].paidDate)).toEqual(["2026-09-20", "2026-09-20"]);
+  }, 20000);
+});
+
+describe("Contas a Pagar — vencidos de antes do período", () => {
+  // Juliana (fictícia) venceu em agosto: só vem na busca de vencidos de antes do período.
+  const JULIANA = titulo("j", "Juliana Exemplo", { dueDate: "2026-08-10T00:00:00.000Z", amount: "500" });
+  const vencidosAntes = (args: Record<string, string>) => args.status === "OVERDUE" && args.endDate !== undefined && args.startDate === undefined;
+  beforeEach(() => {
+    api.getPayablesComLimite.mockImplementation(async (args: Record<string, string>) =>
+      lista(vencidosAntes(args) ? [JULIANA] : [ANA]));
+  });
+  const cartaoVencido = () => within(screen.getByRole("group", { name: /Resumo financeiro/ })).getByRole("button", { name: /^Vencido/ });
+
+  test("o cartão Vencido não muda ao clicar em Em aberto ou Pago no mês", async () => {
+    abrir();
+    await waitFor(() => expect(cartaoVencido()).toHaveTextContent("600,00"));
+    fireEvent.click(within(screen.getByRole("group", { name: /Resumo financeiro/ })).getByRole("button", { name: /^Em aberto/ }));
+    await waitFor(() => expect(screen.getByText(/Mês atual/)).toBeInTheDocument());
+    await waitFor(() => expect(cartaoVencido()).toHaveTextContent("600,00"));
+    fireEvent.click(within(screen.getByRole("group", { name: /Resumo financeiro/ })).getByRole("button", { name: /^Pago no mês/ }));
+    await waitFor(() => expect(screen.getByText(/Pago no mês ·/)).toBeInTheDocument());
+    expect(cartaoVencido()).toHaveTextContent("600,00");
+  });
+
+  test("Hoje e Próx. 7 dias: só o segundo puxa os vencidos históricos", async () => {
+    abrir();
+    await screen.findByRole("button", { name: "Baixar Juliana Exemplo" });
+    api.getPayablesComLimite.mockClear();
+    fireEvent.click(within(screen.getByRole("group", { name: "Atalhos" })).getByRole("button", { name: "Hoje" }));
+    await waitFor(() => expect(api.getPayablesComLimite).toHaveBeenCalledTimes(2));
+    expect(api.getPayablesComLimite.mock.calls.some((c) => vencidosAntes(c[0]))).toBe(false);
+    expect(screen.queryByRole("button", { name: "Baixar Juliana Exemplo" })).not.toBeInTheDocument();
+
+    api.getPayablesComLimite.mockClear();
+    fireEvent.click(within(screen.getByRole("group", { name: "Atalhos" })).getByRole("button", { name: "Próx. 7 dias" }));
+    expect(await screen.findByRole("button", { name: "Baixar Juliana Exemplo" })).toBeInTheDocument();
+    expect(api.getPayablesComLimite.mock.calls.filter((c) => vencidosAntes(c[0]))).toHaveLength(2);
+  });
+});
+
+describe("Contas a Pagar — limite de segurança da lista", () => {
+  test("cabeçalho de lista cortada vira alerta; lista inteira, sem alerta", async () => {
+    api.getPayablesComLimite.mockImplementation(async (args: Record<string, string>) => lista([ANA], !args.status));
+    abrir();
+    expect(await screen.findByText("A lista passou do limite de segurança: refine o período ou os filtros.")).toBeInTheDocument();
+    api.getPayablesComLimite.mockResolvedValue(lista([ANA]));
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar" }));
+    await screen.findByRole("button", { name: "Baixar Ana Fornecedora" });
+    expect(screen.queryByText(/limite de segurança/)).not.toBeInTheDocument();
+  });
+});
+
+describe("Contas a Pagar — PDF financeiro", () => {
+  test("duplo clique gera um PDF só", async () => {
+    const pdf = adiado<void>();
+    api.downloadPayablesFinancialPdf.mockImplementation(() => pdf.promessa);
+    abrir();
+    await screen.findByRole("button", { name: "Baixar Ana Fornecedora" });
+    const botao = screen.getByRole("button", { name: "PDF financeiro" });
+    fireEvent.click(botao);
+    fireEvent.click(botao);
+    expect(api.downloadPayablesFinancialPdf).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Gerando PDF…" })).toBeDisabled();
+    await act(async () => { pdf.resolver(); });
+    expect(screen.getByRole("button", { name: "PDF financeiro" })).not.toBeDisabled();
   });
 });

@@ -218,3 +218,26 @@ describe("entrada na gorjeta (Entra na gorjeta em)", () => {
     expect(db.employee.update.mock.calls[0][0].data).not.toHaveProperty("inicioGorjeta");
   });
 });
+
+describe("auditoria do cadastro sem documentos por extenso", () => {
+  test("UPDATE_EMPLOYEE grava CPF, PIS e PIX mascarados no antes e no depois", async () => {
+    db.employee.findFirst.mockImplementation(async (q: { where: { id?: unknown } }) =>
+      (typeof q.where.id === "string" ? { ...existente, pis: "12345678944", pixKey: "ana@exemplo.com" } : null));
+    const r = await request(app).put("/employees/e1").send(corpo({ phone: "11999990000" }));
+    expect(r.status).toBe(200);
+    const { auditLog } = await import("../../security/security-utils.js");
+    const chamada = vi.mocked(auditLog).mock.calls.find((c) => c[0].action === "UPDATE_EMPLOYEE")![0];
+    const gravado = JSON.stringify([chamada.previousValue, chamada.newValue]);
+    expect(gravado).not.toContain(CPF);
+    expect(gravado).not.toContain("12345678944");
+    expect(gravado).not.toContain("ana@exemplo.com");
+    expect(chamada.previousValue).toMatchObject({ cpf: "•••.•••.•••-25", pis: "•••••44" });
+  });
+
+  test("TERMINATE_EMPLOYEE também", async () => {
+    await request(app).patch("/employees/e1/terminate").send({});
+    const { auditLog } = await import("../../security/security-utils.js");
+    const chamada = vi.mocked(auditLog).mock.calls.find((c) => c[0].action === "TERMINATE_EMPLOYEE")![0];
+    expect(JSON.stringify([chamada.previousValue, chamada.newValue])).not.toContain(CPF);
+  });
+});

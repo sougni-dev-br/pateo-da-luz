@@ -8,6 +8,7 @@ import { prisma } from "../../config/database.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { carregarHistorico, semRegistroEm } from "./cadastro-historico.service.js";
 import { serializar, valorVigenteEm } from "./cadastro-historico.js";
+import { acertosDaListaNaSaida } from "./rescisao-acerto.js";
 import { type VerbasOpcionaisApuracao, calcularVerbasOpcionais, ocultarValoresVerbas } from "./rescisao-verbas-opcionais.js";
 import { DIA_PRIMEIRA_QUINZENA } from "./tip-rateio.js";
 import { costOfCalendarDay, round2, type Leg } from "./vt-calc.js";
@@ -115,7 +116,8 @@ export type GorjetaParte = {
   periodo: string; competencia: string; dias: string; valor: number | null; pendente: boolean; jaPagoNaLista: boolean;
 };
 
-export type JaPagoNaLista = { valor: number | null; competencia: string };
+// acerto: veio do acerto da lista (SALARIO) já pago, não da gorjeta fechada.
+export type JaPagoNaLista = { valor: number | null; competencia: string; acerto?: true; pagoEm?: string | null };
 // valor = hora extra + adicional noturno; null quando oculto (deriva do salário).
 export type HoraExtraRescisao = { horaExtra: string | null; adicionalNoturno: string | null; valor: number | null };
 export type AdiantamentoPago = { valor: number | null; data: string };
@@ -129,6 +131,10 @@ export function jaPagoNaListaFechada(
 }
 
 export function observacaoJaPago(j: JaPagoNaLista): string {
+  if (j.acerto) {
+    const quando = j.pagoEm ? ` em ${j.pagoEm.split("-").reverse().join("/")}` : "";
+    return `O salário de ${j.competencia} já foi pago no acerto da lista de pagamento${j.valor == null ? "" : ` (${reaisBr(j.valor)}${quando})`}. Não lance de novo aqui.`;
+  }
   const quanto = j.valor == null ? "salário e gorjeta" : `${reaisBr(j.valor)} de salário e gorjeta`;
   return `Já pago na lista de pagamento da gorjeta de ${j.competencia} (fechada): ${quanto}. Não lance de novo aqui.`;
 }
@@ -279,8 +285,9 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
     select: { id: true, competenceYear: true, competenceMonth: true },
   });
   const periodoMes = semRegistro ? await periodoDoMesDoSalarioAntesDaSaida(saida, periodo) : null;
-  const g = (periodoMes && await gorjetaTudoNaRescisao(employeeId, saida, periodoMes, periodo))
-    ?? await gorjetaDoPeriodoDaSaida(employeeId, semRegistro, periodo);
+  const g = await descontarAcertoPago(employeeId, semRegistro, saida,
+    (periodoMes && await gorjetaTudoNaRescisao(employeeId, saida, periodoMes, periodo))
+    ?? await gorjetaDoPeriodoDaSaida(employeeId, semRegistro, periodo));
   const { valesItens, descontos, creditos } = g;
 
   const base = {
@@ -303,6 +310,19 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
       : null,
   };
   return { ...base, sugestao: montarSugestao(base) };
+}
+
+// Acerto da lista de pagamento da competência da saída JÁ PAGO (gorjeta ainda aberta, ou
+// lançado pelo botão): salário e gorjeta da lista já saíram. Desconta como "já pago na
+// lista" — a sugestão zera e qualquer valor lançado vira divergência com justificativa.
+async function descontarAcertoPago(employeeId: string, semRegistro: boolean, saida: Date, g: GorjetaApurada): Promise<GorjetaApurada> {
+  if (!semRegistro || g.jaPagoNaLista) return g;
+  const pago = (await acertosDaListaNaSaida(prisma, employeeId, saida)).find((a) => a.pago);
+  if (!pago) return g;
+  const jaPagoNaLista: JaPagoNaLista = { valor: pago.valorPago, competencia: pago.competencia, acerto: true, pagoEm: pago.pagoEm };
+  return {
+    ...g, jaPagoNaLista, adiantamento: null, primeiraQuinzena: null, horaExtra: null, gorjetaObservacao: observacaoJaPago(jaPagoNaLista),
+  };
 }
 
 // Férias, 13º e aviso de sem registro, sobre o salário base vigente na saída. Os lançamentos

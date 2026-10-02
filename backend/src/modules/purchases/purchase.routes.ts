@@ -7,6 +7,7 @@ import { parseDate } from "../../shared/utils/parse-date.js";
 import { createSupplierPositionPdf, type SupplierPositionData } from "./supplier-position-pdf.js";
 import { excludeAggregatorsWhere } from "./purchase-aggregators.js";
 import { extrasParaPayables, extrasParaPayablesPdf } from "../payroll/extras-payables.js";
+import { LIMITE_POR_ORIGEM } from "./payables-limite.js";
 import {
   formatPaymentMethodWithInstallments,
   getPaymentMethodBaseName,
@@ -30,9 +31,8 @@ import {
 
 export const purchaseRouter = Router();
 
-// Limite de segurança por origem (compras, impostos, Folha, extras) no Contas a Pagar e no
-// relatório. Não é paginação: o ano inteiro cabe com folga; se for atingido, a tela é avisada.
-export const LIMITE_POR_ORIGEM = 5000;
+// Limite de segurança por origem: ver payables-limite.ts (os extras usam o mesmo).
+export { LIMITE_POR_ORIGEM };
 
 type ManualPurchaseItem = {
   productId: string;
@@ -983,6 +983,7 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
           AND ${!noDueDatePdf && startDate ? Prisma.sql`tp."dueDate" >= ${startDate}` : Prisma.sql`true`}
           AND ${!noDueDatePdf && endDate ? Prisma.sql`tp."dueDate" <= ${endDate}` : Prisma.sql`true`}
           AND ${taxStatusFilter}
+        ORDER BY tp."dueDate" NULLS LAST, tp."id"
         LIMIT ${LIMITE_POR_ORIGEM}
       `
     : ([] as Array<Record<string, unknown>>);
@@ -1014,6 +1015,7 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
           AND ${!noDueDatePdf && startDate ? Prisma.sql`pit."dueDate" >= ${startDate}` : Prisma.sql`true`}
           AND ${!noDueDatePdf && endDate ? Prisma.sql`pit."dueDate" <= ${endDate}` : Prisma.sql`true`}
           AND ${payrollStatusFilter}
+        ORDER BY pit."dueDate" NULLS LAST, pit."id"
         LIMIT ${LIMITE_POR_ORIGEM}
       `
     : ([] as Array<Record<string, unknown>>);

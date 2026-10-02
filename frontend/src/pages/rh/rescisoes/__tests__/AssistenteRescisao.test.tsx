@@ -15,7 +15,7 @@ import { HideValuesProvider } from "../../../../design-system";
 import { AssistenteRescisao, type NumeroPasso } from "../AssistenteRescisao";
 
 const SESSAO = { user: null, setUser: () => undefined, hideSensitiveValues: false, toggleSensitiveValues: () => undefined, canAccessSection: () => true, hasPermission: () => true } as unknown as SessionContextValue;
-const ui = (employeeId: string, passo: NumeroPasso): ReactElement => (
+const ui = (employeeId: string | null, passo: NumeroPasso): ReactElement => (
   <MemoryRouter><SessionContext.Provider value={SESSAO}><HideValuesProvider>
     <AssistenteRescisao employeeId={employeeId} passo={passo} lista={null} onEscolher={vi.fn()} onPasso={vi.fn()} onVoltar={vi.fn()} onMudou={vi.fn()} />
   </HideValuesProvider></SessionContext.Provider></MemoryRouter>
@@ -57,5 +57,31 @@ describe("AssistenteRescisao", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: /Ana Souza/ })).toBeInTheDocument());
     expect(screen.getByText(/Sem data de saída/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Liberar para Contas a Pagar|Lançar como quitada/ })).toBeNull();
+  });
+
+  test("pessoa desmarcada com a carga no ar: o \"carregando\" não fica preso", async () => {
+    const daAna = adiado<DetalheRescisao>();
+    vi.mocked(getRescisaoDetalhe).mockImplementation(() => daAna.promessa);
+    const { rerender } = renderRaw(ui("ana", 1));
+    expect(screen.getByText("Carregando a rescisão…")).toBeInTheDocument();
+    rerender(ui(null, 1));
+    await waitFor(() => expect(screen.queryByText("Carregando a rescisão…")).toBeNull());
+    await act(async () => { daAna.resolver(detalhe("ana", "Ana Souza", "2026-09-10")); });
+    expect(screen.queryByText("Carregando a rescisão…")).toBeNull();
+    expect(screen.queryByRole("heading", { name: /Ana Souza/ })).toBeNull();
+  });
+
+  test("passo 3 não mostra pendências de detalhe que não é da pessoa escolhida", async () => {
+    vi.mocked(getRescisaoDetalhe).mockResolvedValue(detalhe("ana", "Ana Souza", "2026-09-10"));
+    renderRaw(ui("beto", 3));
+    await waitFor(() => expect(getRescisaoDetalhe).toHaveBeenCalledWith("beto"));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByRole("heading", { name: /Pendências antes de lançar/ })).toBeNull();
+  });
+
+  test("passo 3 com o detalhe da própria pessoa mostra as pendências", async () => {
+    vi.mocked(getRescisaoDetalhe).mockResolvedValue(detalhe("beto", "Beto Lima", "2026-09-20"));
+    renderRaw(ui("beto", 3));
+    expect(await screen.findByRole("heading", { name: /Pendências antes de lançar/ })).toBeInTheDocument();
   });
 });
