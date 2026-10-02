@@ -58,7 +58,7 @@ describe("lista de pagamento: hora extra e adicional noturno do sem registro", (
     expect(within(total).getByText("10:00")).toBeTruthy();
     expect(within(total).getByText("7:00")).toBeTruthy();
     expect(within(total).getByText("166,00")).toBeTruthy();
-    expect(screen.getByText(/Lista de pagamento \(salário − adiantamento \+ gorjeta \+ hora extra\)/)).toBeTruthy();
+    expect(screen.getByText(/Lista de pagamento \(salário − adiantamento \+ gorjeta − vales \+ créditos \+ hora extra e noturno\)/)).toBeTruthy();
     expect(screen.getByText(/adicional noturno = 20% sobre a hora noturna de 52,5 min/)).toBeTruthy();
   });
 

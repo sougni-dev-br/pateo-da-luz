@@ -177,7 +177,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   const tituloQuinzena = qOculta ? `1ª quinzena já paga: sai do total. Sem permissão de ver o valor; ${NOTA_QUINZENA_OCULTA}` : REGRA_QUINZENA;
   const vq = comQuinzena && vp("quinzena");
   // O resumo do topo e o título da lista dizem o que sai do salário.
-  const formula = `salário − adiantamento${comQuinzena ? " − 1ª quinzena" : ""} + gorjeta + hora extra`;
+  const formula = `salário − adiantamento${comQuinzena ? " − 1ª quinzena" : ""} + gorjeta − vales + créditos + hora extra e noturno`;
   // Hora extra e noturno (sem registro): o total não leva quem foi pago na rescisão (recebe lá).
   const heOculta = semRegistro.some((p) => valorHoraExtraTotal(p) == null);
   const totalValorHe = semRegistroFilt.filter((p) => !p.pagoNaRescisao).reduce((a, p) => a + (valorHoraExtraTotal(p) ?? 0), 0);
