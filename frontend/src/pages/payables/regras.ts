@@ -85,7 +85,35 @@ export function minDateKey(dueKey: string, todayK: string): string {
 }
 
 export function basePaymentName(name: string): string {
-  return name.trim().replace(/\s+\d+[Xx]$/, "").toUpperCase().trim();
+  // "BOLETO 2X" e "DINHEIRO / 1x" viram a forma base.
+  return name.trim().replace(/\s*(\/\s*)?\d+[Xx]$/, "").toUpperCase().trim();
+}
+
+/**
+ * Forma prevista do título como valor do select de baixa ("id:<forma>"), ou "" quando não casa.
+ * Casa primeiro pelo id da forma de origem e, se não achar, pelo nome; as formas parceladas
+ * ("BOLETO 2X") viram a forma base ("BOLETO"), que é a que o select oferece.
+ */
+export function formaPrevistaDoTitulo(
+  p: Payable,
+  metodos: Array<{ id: string; name: string }>,
+  formas: Array<{ id: string; label: string }>
+): string {
+  const daBase = (nome: string) => formas.find((o) => o.label === basePaymentName(nome));
+  const origem = p.paymentMethodId ? metodos.find((m) => m.id === p.paymentMethodId) : undefined;
+  const forma = (origem && daBase(origem.name)) || (p.paymentMethodName ? daBase(p.paymentMethodName) : undefined);
+  return forma ? `id:${forma.id}` : "";
+}
+
+/** Forma da baixa de cada título no lote: a prevista do título (quando pedida e conhecida) ou a forma única. */
+export function formaDaBaixaNoLote(usarFormaDoTitulo: boolean, prevista: string, formaUnica: string): string {
+  return usarFormaDoTitulo && prevista ? prevista : formaUnica;
+}
+
+/** Valor do select de forma ("id:..." ou "name:...") no formato que a API de baixa espera. */
+export function payloadDaForma(valor: string): { paidPaymentMethodId: string | null; paidPaymentMethodName: string | null } {
+  if (valor.startsWith("id:")) return { paidPaymentMethodId: valor.replace("id:", ""), paidPaymentMethodName: null };
+  return { paidPaymentMethodId: null, paidPaymentMethodName: valor.replace("name:", "") };
 }
 
 export function inferTotalInstallments(methodName: string | null): number {

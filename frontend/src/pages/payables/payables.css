@@ -721,6 +721,22 @@
 }
 .pg-lote-opcao:has(input:focus-visible) { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
 
+.pg-lote-formas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.pg-lote-formas > span {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--app-bg-from);
+}
+.pg-lote-formas strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+
 .pg-lote-data { display: grid; gap: 5px; max-width: 260px; font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
 
 .pg-lote-campo { display: grid; gap: 4px; min-width: 0; }
