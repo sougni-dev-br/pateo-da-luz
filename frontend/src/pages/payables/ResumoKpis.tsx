@@ -6,7 +6,8 @@ export type TotaisResumo = Record<CartaoResumo, number>;
 
 const CARTOES: Array<{ chave: CartaoResumo; rotulo: string; tom: "warning" | "danger" | "success" | "info" }> = [
   { chave: "overdue", rotulo: "Vencido", tom: "danger" },
-  { chave: "open", rotulo: "Em aberto", tom: "warning" },
+  // Só os ainda não vencidos: a aba "Em aberto" da lista soma estes mais os vencidos.
+  { chave: "open", rotulo: "A vencer", tom: "warning" },
   { chave: "next7", rotulo: "Próx. 7 dias", tom: "info" },
   { chave: "next30", rotulo: "Próx. 30 dias", tom: "info" },
   { chave: "paidToday", rotulo: "Pago hoje", tom: "success" },

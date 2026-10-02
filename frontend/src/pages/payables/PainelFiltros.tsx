@@ -1,7 +1,7 @@
 import type { Supplier } from "../../api/client";
 import { Select } from "../../design-system";
 import type { PeriodState } from "../../utils/period";
-import { OPCOES_PERIODO, TIPOS_FOLHA, type FiltrosPagar } from "./regras";
+import { OPCOES_PERIODO, type FiltrosPagar } from "./regras";
 
 type Props = {
   id: string;
@@ -16,14 +16,22 @@ type Props = {
   onTipo: (origin: string) => void;
 };
 
-const OPCOES_SUBTIPO = [
-  { value: "DIRECT", label: "Título normal" },
-  { value: "CARD_STATEMENT", label: "Fatura cartão" },
-  { value: "LEGACY_CREDIT_CARD", label: "Cartão legado" },
-  { value: "SUPPLIER_CYCLE", label: "Ciclo fornecedor" },
-  { value: "PAYROLL", label: "Folha de pagamento (tudo)" },
-  ...TIPOS_FOLHA.map((t) => ({ value: `PAYROLL:${t}`, label: `Folha · ${t}` })),
-  { value: "EXTRA", label: "Diárias de extras" }
+// Em grupos para achar de olho. "Folha (tudo)" traz também os títulos da folha liberada.
+export const OPCOES_SUBTIPO = [
+  { value: "DIRECT", label: "Título normal", group: "Compras" },
+  { value: "CARD_STATEMENT", label: "Fatura do cartão", group: "Compras" },
+  { value: "LEGACY_CREDIT_CARD", label: "Cartão (legado)", group: "Compras" },
+  { value: "SUPPLIER_CYCLE", label: "Ciclo do fornecedor", group: "Compras" },
+  { value: "PAYROLL", label: "Folha (tudo)", group: "Folha" },
+  { value: "FOLHA_LOTE", label: "Folha liberada (títulos por empresa)", group: "Folha" },
+  { value: "PAYROLL:Salário", label: "Salário CLT", group: "Folha" },
+  { value: "PAYROLL:Salário (acerto)", label: "Salário sem registro (acerto)", group: "Folha" },
+  { value: "PAYROLL:1ª quinzena", label: "1ª quinzena", group: "Folha" },
+  { value: "PAYROLL:Adiantamento", label: "Adiantamento", group: "Folha" },
+  { value: "PAYROLL:Vale-transporte", label: "Vale-transporte", group: "Folha" },
+  { value: "PAYROLL:Rescisão", label: "Rescisão", group: "Folha" },
+  { value: "PAYROLL:Férias", label: "Férias", group: "Folha" },
+  { value: "EXTRA", label: "Diárias de extras", group: "Extras" },
 ];
 
 const OPCOES_STATUS = [

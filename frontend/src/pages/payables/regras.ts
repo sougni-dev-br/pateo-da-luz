@@ -64,6 +64,8 @@ export const TIPOS_FOLHA = ["Vale-transporte", "Adiantamento", "1ª quinzena", "
 
 /** Sub-tipo "PAYROLL:Vale-transporte" filtra só aquele tipo dentro da Folha. */
 export function combinaSubtipo(p: Payable, subtipo: string): boolean {
+  // "Folha (tudo)": os lançamentos soltos e os títulos da folha liberada.
+  if (subtipo === "PAYROLL") return p.sourceType === "PAYROLL" || p.sourceType === "FOLHA_LOTE";
   const [sourceType, tipoFolha] = subtipo.split(":");
   if (p.sourceType !== sourceType) return false;
   return !tipoFolha || p.taxDocumentType === tipoFolha;

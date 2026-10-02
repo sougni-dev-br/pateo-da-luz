@@ -51,6 +51,7 @@ const ATALHOS = [
   { key: "next7", label: "Próx. 7 dias" },
   { key: "boleto", label: "Boleto" },
   { key: "cartao", label: "Cartão" },
+  { key: "folha", label: "Folha" },
   { key: "noduedate", label: "Sem vencimento" }
 ] as const;
 
@@ -326,6 +327,9 @@ export function Payables({ user }: PayablesProps) {
         setFilters(u);
         void load(u);
       }
+    } else if (key === "folha") {
+      // Só a folha (soltos e títulos liberados); o filtro de tipo é da tela, sem recarregar.
+      setFilters({ ...filters, sourceType: "PAYROLL" });
     } else if (key === "noduedate") {
       const u = { ...filters, noDueDate: true, status: "", sourceType: "" };
       setFilters(u);
