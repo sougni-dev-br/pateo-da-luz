@@ -77,13 +77,15 @@ describe("rateio com quem está fora da gorjeta", () => {
     expect(l.totalAPagar).toBe(613.36);
   });
 
-  test("total a pagar = salário + hora extra − vales + créditos", () => {
+  test("total a pagar = salário + hora extra + DSR − vales + créditos", () => {
     const [l] = calcularRateio(SETEMBRO, [carmelita({
       horaExtraMin: 120, vales: [{ type: "REFEICAO", amount: 50 }, { type: "CREDITO", amount: 10 }],
     })]).linhas;
     expect(l.comissaoLiquida).toBe(-40);
     expect(l.valorHoraExtra).toBeGreaterThan(0);
-    expect(l.totalAPagar).toBe(Math.round((613.36 + l.valorHoraExtra - 40) * 100) / 100);
+    // Setembro/2026: DSR = HE × 5 descansos ÷ 25 úteis.
+    expect(l.valorDsr).toBe(Math.round(l.valorHoraExtra * 0.2 * 100) / 100);
+    expect(l.totalAPagar).toBe(Math.round((613.36 + l.valorHoraExtra + l.valorDsr - 40) * 100) / 100);
   });
 
   test("admitida depois do ciclo (28/09) ainda está no mês do salário", () => {

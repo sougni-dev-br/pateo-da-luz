@@ -90,9 +90,13 @@ export function ApuracaoRescisaoPainel({ apuracao: a, aberto = false }: { apurac
                   : a.gorjetaObservacao} />
             {a.vales.creditos > 0 && <Linha rotulo="Créditos (aba Vales)" valor={a.vales.creditos} sinal="+" />}
             {a.horaExtra && (
-              <Linha rotulo="Hora extra e adicional noturno" valor={a.horaExtra.valor} sinal="+"
+              // dsr presente (valor ou null oculto) = o valor já leva o DSR do mês (mesma regra da lista).
+              <Linha rotulo={a.horaExtra.dsr !== undefined ? "Hora extra, adicional noturno e DSR" : "Hora extra e adicional noturno"}
+                valor={a.horaExtra.valor} sinal="+"
                 detalhe={`${[a.horaExtra.horaExtra && `HE ${a.horaExtra.horaExtra}`, a.horaExtra.adicionalNoturno && `noturno ${a.horaExtra.adicionalNoturno}`].filter(Boolean).join(" · ")}`
-                  + " na gorjeta do mês da saída: salário ÷ 220 × 1,5; noturno 20% sobre a hora de 52,5 min. Entra nos créditos"
+                  + " na gorjeta do mês da saída: salário ÷ 220 × 1,5; noturno 20% sobre a hora de 52,5 min"
+                  + (a.horaExtra.dsr !== undefined ? "; DSR = (hora extra + noturno) × domingos e feriados ÷ dias úteis do mês" : "")
+                  + ". Entra nos créditos"
                   + (a.horaExtra.valor == null ? " (valor oculto: exige a permissão de ver Funcionários)" : "")} />
             )}
           </>

@@ -5870,6 +5870,8 @@ export type TipComputedParticipant = {
   /** Sem registro: hora extra (+50%) e adicional noturno, já no total a pagar. CLT = 0. null sem permissão de ver Funcionários. */
   valorHoraExtra?: number | null;
   valorAdicionalNoturno?: number | null;
+  /** Sem registro: DSR sobre a hora extra e o noturno (a partir de 09/2026), já no total. null sem permissão. */
+  valorDsr?: number | null;
   totalAPagar: number;
   /** null quando o usuário não tem permissão de ver Funcionários. */
   baseSalary: number | null;
@@ -5935,7 +5937,7 @@ export type TipComputation = {
   totals: {
     rateio: number; vales: number; netCommission: number; salarios: number; adiantamentos?: number | null;
     primeirasQuinzenas?: number | null;
-    horasExtrasSemRegistro?: number | null; totalAPagar: number; pagoNaRescisao: number;
+    horasExtrasSemRegistro?: number | null; dsrSemRegistro?: number | null; totalAPagar: number; pagoNaRescisao: number;
   };
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
   pendencias: string[];
@@ -6636,8 +6638,9 @@ export type ApuracaoRescisao = {
   adiantamento?: { valor: number | null; data: string } | null;
   /** Sem registro que recebe por quinzena e saiu no dia 15 ou depois. valor null = oculto. */
   primeiraQuinzena?: { valor: number | null; data: string } | null;
-  /** Sem registro com horas na gorjeta do período da saída: entra nos créditos. valor (HE + noturno) null = oculto. */
-  horaExtra?: { horaExtra: string | null; adicionalNoturno: string | null; valor: number | null } | null;
+  /** Sem registro com horas na gorjeta do período da saída: entra nos créditos. valor (HE + noturno + DSR) null = oculto.
+   *  dsr = a parte do DSR (ausente quando não há ou nas apurações de antes dele). */
+  horaExtra?: { horaExtra: string | null; adicionalNoturno: string | null; dsr?: number | null; valor: number | null } | null;
   dadosPessoaisOcultos?: boolean;
   /** Salário e gorjeta até a saída já pagos na lista de pagamento da gorjeta (sem registro). */
   jaPagoNaLista?: { valor: number; competencia: string } | null;

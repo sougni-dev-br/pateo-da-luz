@@ -1,7 +1,7 @@
 import type { TipComputation, TipComputedParticipant } from "../../api/client";
 import {
-  MONTHS, NOTA_ADIANTAMENTO_OCULTO, NOTA_HORA_EXTRA_OCULTA, NOTA_QUINZENA_OCULTA, REGRA_HORA_EXTRA, REGRA_QUINZENA, adiantamentoOculto, fmtDate, fmtHoras,
-  money, mostraQuinzena, ordenar, parseHoras, quinzenaOculta, valorHoraExtraTotal,
+  MONTHS, NOTA_ADIANTAMENTO_OCULTO, NOTA_DSR_OCULTO, NOTA_HORA_EXTRA_OCULTA, NOTA_QUINZENA_OCULTA, REGRA_DSR, REGRA_HORA_EXTRA, REGRA_QUINZENA,
+  adiantamentoOculto, fmtDate, fmtHoras, money, mostraDsr, mostraQuinzena, ordenar, parseHoras, quinzenaOculta, valorHoraExtraTotal,
 } from "./gorjetaUtils";
 import { celulasPdf, textoPdf } from "./envioContabilidade";
 import { gerarPdfEnvioContabilidade } from "./pdfEnvioContabilidade";
@@ -65,8 +65,9 @@ const celulaHoras = (texto: string | null) => {
 /**
  * Linha da lista de pagamento no PDF (exportada para o teste). comQuinzena: a coluna da 1ª
  * quinzena entra depois do adiantamento (só quando alguém da lista recebe por quinzena).
+ * comDsr: a coluna do DSR entra depois do valor HE/AN (só quando alguém tem DSR).
  */
-export function linhaListaPagamento(p: TipComputedParticipant, comQuinzena = false): string[] {
+export function linhaListaPagamento(p: TipComputedParticipant, comQuinzena = false, comDsr = false): string[] {
   return [
     p.employeeName + (p.foraDaGorjeta ? " (fora da gorjeta)" : "") + (p.tipoCalculo === "MES" ? "" : ` (saída ${fmtDate(p.terminationDate)})`),
     String(p.diasSalario),
@@ -82,13 +83,16 @@ export function linhaListaPagamento(p: TipComputedParticipant, comQuinzena = fal
     celulaHoras(p.horaExtra),
     celulaHoras(p.adicionalNoturno),
     celulaValorHoraExtra(valorHoraExtraTotal(p)),
+    // Mesma célula da hora extra: null = "oculto"; ausente (backend antigo) = sem DSR.
+    ...(comDsr ? [celulaValorHoraExtra(p.valorDsr === undefined ? 0 : p.valorDsr)] : []),
     money(p.totalAPagar),
     p.pixKey ?? "",
   ];
 }
 
 // Lista de pagamento dos sem registro: salário proporcional − adiantamento − 1ª quinzena +
-// gorjeta − vales + créditos + hora extra/noturno. Em paisagem: 12 colunas (13 com a quinzena).
+// gorjeta − vales + créditos + hora extra/noturno + DSR. Em paisagem: 12 colunas (+1 com a
+// quinzena, +1 com o DSR).
 export async function exportarListaPagamento(comp: TipComputation) {
   const { doc, autoTable, finalY } = await novoPdf("Lista de Pagamento — Sem registro", comp, "landscape");
   const lista = ordenar(comp.participants).filter((p) => p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && !p.pagoNaRescisao);
@@ -99,8 +103,11 @@ export async function exportarListaPagamento(comp: TipComputation) {
   const comQuinzena = mostraQuinzena(lista);
   const qOculta = quinzenaOculta(lista);
   const totalQuinzena = lista.reduce((a, p) => a + (p.primeiraQuinzena ?? 0), 0);
-  // A partir da coluna da quinzena, os índices andam uma casa.
+  const comDsr = mostraDsr(lista);
+  const dsrOculto = lista.some((p) => p.valorDsr === null);
+  // A partir da coluna da quinzena, os índices andam uma casa; depois da do DSR, mais uma.
   const q = comQuinzena ? 1 : 0;
+  const ds = comDsr ? 1 : 0;
   const totalHoras = (campo: "horaExtra" | "adicionalNoturno") => {
     const min = lista.reduce((a, p) => a + Math.max(0, parseHoras(p[campo]) ?? 0), 0);
     return min > 0 ? fmtHoras(min) : "";
@@ -109,16 +116,18 @@ export async function exportarListaPagamento(comp: TipComputation) {
     ...estilo,
     startY: 30,
     head: [["Funcionário", "Dias", "Salário", "Adiantamento", ...(comQuinzena ? ["1ª quinzena (15)"] : []),
-      "Gorjeta", "Vales", "Créditos", "HE", "Ad. noturno", "Valor HE/AN", "A pagar", "PIX"]],
-    body: lista.map((p) => linhaListaPagamento(p, comQuinzena)),
+      "Gorjeta", "Vales", "Créditos", "HE", "Ad. noturno", "Valor HE/AN", ...(comDsr ? ["DSR"] : []), "A pagar", "PIX"]],
+    body: lista.map((p) => linhaListaPagamento(p, comQuinzena, comDsr)),
     foot: [["Total", "", money(lista.reduce((a, p) => a + p.salarioProporcional, 0)), celulaAdiantamento(oculto ? null : totalAdiantamento),
       ...(comQuinzena ? [celulaAdiantamento(qOculta ? null : totalQuinzena)] : []),
       money(lista.reduce((a, p) => a + p.rateioAmount, 0)), "", "", totalHoras("horaExtra"), totalHoras("adicionalNoturno"),
       celulaValorHoraExtra(heOculta ? null : lista.reduce((a, p) => a + (valorHoraExtraTotal(p) ?? 0), 0)),
+      ...(comDsr ? [celulaValorHoraExtra(dsrOculto ? null : lista.reduce((a, p) => a + (p.valorDsr ?? 0), 0))] : []),
       money(lista.reduce((a, p) => a + p.totalAPagar, 0)), ""]],
     columnStyles: {
       1: { halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" },
       [6 + q]: { halign: "right" }, [7 + q]: { halign: "center" }, [8 + q]: { halign: "center" }, [9 + q]: { halign: "right" }, [10 + q]: { halign: "right" },
+      [10 + q + ds]: { halign: "right" },
     },
   });
   doc.setFontSize(8);
@@ -135,6 +144,9 @@ export async function exportarListaPagamento(comp: TipComputation) {
   nota(`Horas em h:mm. ${REGRA_HORA_EXTRA}${heOculta ? ` Valor oculto (sem permissão). ${NOTA_HORA_EXTRA_OCULTA}` : ""}`, finalY() + 16);
   if (comQuinzena) {
     nota(qOculta ? `1ª quinzena oculta (sem permissão de ver Funcionários). ${NOTA_QUINZENA_OCULTA}` : REGRA_QUINZENA, finalY() + 20);
+  }
+  if (comDsr) {
+    nota(`${REGRA_DSR}${dsrOculto ? ` Valor oculto (sem permissão). ${NOTA_DSR_OCULTO}` : ""}`, finalY() + (comQuinzena ? 24 : 20));
   }
   doc.save(`Gorjeta_Pagamento_${MONTHS[comp.month - 1]}_${comp.year}.pdf`);
 }

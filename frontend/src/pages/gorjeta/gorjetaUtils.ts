@@ -132,6 +132,19 @@ export function valorHoraExtraTotal(p: Pick<TipComputedParticipant, "valorHoraEx
 export const REGRA_HORA_EXTRA = "Hora extra = salário ÷ 220 × 1,5; adicional noturno = 20% sobre a hora noturna de 52,5 min.";
 export const NOTA_HORA_EXTRA_OCULTA = "A pagar já considera a hora extra.";
 
+// DSR sobre a hora extra e o noturno (sem registro, a partir de setembro/2026), já no A pagar.
+// A coluna só aparece quando alguém tem DSR, ou quando o valor está oculto para quem tem horas.
+// Ausente (backend antigo) = ninguém tem.
+export const REGRA_DSR = "DSR = (hora extra + noturno) × domingos e feriados ÷ dias úteis do mês.";
+export const NOTA_DSR_OCULTO = "A pagar já considera o DSR.";
+export function mostraDsr(
+  lista: Pick<TipComputedParticipant, "valorDsr" | "horaExtra" | "adicionalNoturno">[],
+): boolean {
+  const temHoras = (p: Pick<TipComputedParticipant, "horaExtra" | "adicionalNoturno">) =>
+    (parseHoras(p.horaExtra) ?? 0) > 0 || (parseHoras(p.adicionalNoturno) ?? 0) > 0;
+  return lista.some((p) => (p.valorDsr ?? 0) > 0 || (p.valorDsr === null && temHoras(p)));
+}
+
 // Ordem da planilha: quem está no mês primeiro, por nome; desligados no fim.
 export function ordenar(list: TipComputedParticipant[]): TipComputedParticipant[] {
   const peso = (p: TipComputedParticipant) => (p.tipoCalculo === "MES" ? 0 : p.tipoCalculo === "FORA_DO_PERIODO" ? 2 : 1);

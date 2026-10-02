@@ -80,6 +80,19 @@ describe("PDF só leva caracteres que a fonte do jsPDF desenha", () => {
     expect(enviados.some((t) => /^- R\$/.test(t))).toBe(true);
   });
 
+  test("lista de pagamento com DSR: coluna, regra e caracteres que a fonte desenha", async () => {
+    const comDsr = {
+      ...comp,
+      participants: [pessoa({ employeeName: "Ana – Souza", valorHoraExtra: 127.34, valorDsr: 25.47, totalAPagar: 1279.97 })],
+    } as unknown as TipComputation;
+    await exportarListaPagamento(comDsr);
+    expect(enviados).toContain("DSR");
+    expect(enviados.some((t) => /25,47/.test(t))).toBe(true);
+    const todos = enviados.join("\n");
+    expect(todos).toMatch(/DSR = \(hora extra \+ noturno\) × domingos e feriados ÷ dias úteis do mês/);
+    expect(foraDoPdf(todos)).toEqual([]);
+  });
+
   test("folha de líquidos: rodapé e cabeçalho sem − nem ·", async () => {
     const folha = {
       code: "FOL-2026-09", label: "Setembro – 2026", total: 2000, extratos: [], etapas: {}, salariosCombinados: [],

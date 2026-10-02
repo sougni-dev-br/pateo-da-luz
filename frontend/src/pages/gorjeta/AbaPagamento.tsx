@@ -13,8 +13,9 @@ import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { NomePessoa, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
-  type LocalRow, type RowPatch, NOTA_ADIANTAMENTO_OCULTO, NOTA_HORA_EXTRA_OCULTA, NOTA_QUINZENA_OCULTA, REGRA_HORA_EXTRA, REGRA_QUINZENA,
-  adiantamentoOculto, estimarAdicionais, fmtDate, fmtHoras, inputStyle, money, mostraQuinzena, mutedStyle, numInputStyle, ordenar, panelStyle,
+  type LocalRow, type RowPatch, NOTA_ADIANTAMENTO_OCULTO, NOTA_DSR_OCULTO, NOTA_HORA_EXTRA_OCULTA, NOTA_QUINZENA_OCULTA, REGRA_DSR, REGRA_HORA_EXTRA,
+  REGRA_QUINZENA, adiantamentoOculto, estimarAdicionais, fmtDate, fmtHoras, inputStyle, money, mostraDsr, mostraQuinzena, mutedStyle, numInputStyle,
+  ordenar, panelStyle,
   parseHoras, pts, quinzenaOculta, valorHoraExtraTotal,
 } from "./gorjetaUtils";
 
@@ -34,6 +35,7 @@ const EXTRATORES: Extratores<TipComputedParticipant> = {
   adiantamento: (p) => p.adiantamentoSalarial ?? null,
   quinzena: (p) => p.primeiraQuinzena ?? null,
   valorHe: (p) => valorHoraExtraTotal(p),
+  dsr: (p) => p.valorDsr ?? null,
   vales: (p) => p.creditos - p.descontos,
   aPagar: (p) => p.totalAPagar,
   pix: (p) => p.pixKey,
@@ -54,7 +56,7 @@ const COLUNAS_PAG: ColunaOpcional[] = [
   { chave: "salarioBase", rotulo: "Salário base" }, { chave: "dias", rotulo: "Dias" }, { chave: "salario", rotulo: "Salário" },
   { chave: "adiantamento", rotulo: "Adiantamento" }, { chave: "quinzena", rotulo: "1ª quinzena (15)" }, { chave: "gorjeta", rotulo: "Gorjeta" }, { chave: "vales", rotulo: "Vales" },
   { chave: "horaExtra", rotulo: "Hora extra" }, { chave: "noturno", rotulo: "Ad. noturno" }, { chave: "valorHe", rotulo: "Valor HE/noturno" },
-  { chave: "aPagar", rotulo: "A pagar" },
+  { chave: "dsr", rotulo: "DSR" }, { chave: "aPagar", rotulo: "A pagar" },
   { chave: "pix", rotulo: "PIX" },
 ];
 
@@ -106,12 +108,14 @@ function CelulaGorjetaEnviada({ p }: { p: TipComputedParticipant }) {
   );
 }
 
-// Hora extra + noturno já somados ao A pagar. null = sem permissão (deriva do salário): "oculto".
-function CelulaValorHoraExtra({ valor, titulo }: { valor: number | null; titulo?: string }) {
+// Hora extra + noturno (ou o DSR) já somados ao A pagar. null = sem permissão (deriva do salário): "oculto".
+function CelulaValorHoraExtra({ valor, titulo, oculto = `Sem permissão de ver o valor da hora extra. ${NOTA_HORA_EXTRA_OCULTA}` }: {
+  valor: number | null; titulo?: string; oculto?: string;
+}) {
   if (valor == null) {
     return (
       <span style={{ ...mutedStyle, display: "inline-flex", alignItems: "center", gap: 4 }}
-        title={`Sem permissão de ver o valor da hora extra. ${NOTA_HORA_EXTRA_OCULTA}`}>
+        title={oculto}>
         <Lock size={12} aria-hidden="true" />oculto
       </span>
     );
@@ -215,7 +219,13 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   const tituloQuinzena = qOculta ? `1ª quinzena já paga: sai do total. Sem permissão de ver o valor; ${NOTA_QUINZENA_OCULTA}` : REGRA_QUINZENA;
   const vq = comQuinzena && vp("quinzena");
   // O resumo do topo e o título da lista dizem o que sai do salário.
-  const formula = `salário − adiantamento${comQuinzena ? " − 1ª quinzena" : ""} + gorjeta − vales + créditos + hora extra e noturno`;
+  // DSR (a partir de setembro/2026): coluna só quando alguém tem, como a quinzena.
+  const comDsr = mostraDsr(semRegistro);
+  const dsrOculto = semRegistro.some((p) => p.valorDsr === null);
+  const totalDsr = semRegistroFilt.filter((p) => !p.pagoNaRescisao).reduce((a, p) => a + (p.valorDsr ?? 0), 0);
+  const vd = comDsr && vp("dsr");
+  const ocultoDsr = `Sem permissão de ver o DSR. ${NOTA_DSR_OCULTO}`;
+  const formula = `salário − adiantamento${comQuinzena ? " − 1ª quinzena" : ""} + gorjeta − vales + créditos + hora extra e noturno${comDsr ? " + DSR" : ""}`;
   // Hora extra e noturno (sem registro): o total não leva quem foi pago na rescisão (recebe lá).
   const heOculta = semRegistro.some((p) => valorHoraExtraTotal(p) == null);
   const totalValorHe = semRegistroFilt.filter((p) => !p.pagoNaRescisao).reduce((a, p) => a + (valorHoraExtraTotal(p) ?? 0), 0);
@@ -398,7 +408,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <strong>Lista de pagamento <span style={{ ...mutedStyle, fontWeight: 400 }}>— sem registro: {formula}</span></strong>
           <div className="barra-lista">
-            <SeletorColunas colunas={COLUNAS_PAG.filter((c) => comQuinzena || c.chave !== "quinzena")} ocultas={colP.ocultas} alternar={colP.alternar} mostrarTodas={colP.mostrarTodas} />
+            <SeletorColunas colunas={COLUNAS_PAG.filter((c) => (comQuinzena || c.chave !== "quinzena") && (comDsr || c.chave !== "dsr"))} ocultas={colP.ocultas} alternar={colP.alternar} mostrarTodas={colP.mostrarTodas} />
             <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarListaPagamento)}>PDF pagamento</Button>
             {mostraLancarAcertos && (
               <Button variant="secondary" size="sm" leadingIcon={<Receipt size={14} />} onClick={() => void lancarAcertos()} disabled={lancando}
@@ -462,6 +472,9 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 )}
 {vp("valorHe") && (
                   <ThOrdenavel {...thP("valorHe")} title={`${REGRA_HORA_EXTRA} Já soma no A pagar.`}>Valor HE/noturno</ThOrdenavel>
+)}
+{vd && (
+                  <ThOrdenavel {...thP("dsr")} title={`${REGRA_DSR} Já soma no A pagar.`}>DSR</ThOrdenavel>
 )}
 {vp("aPagar") && (
                   <ThOrdenavel {...thP("aPagar")}>A pagar</ThOrdenavel>
@@ -529,6 +542,12 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                         <CelulaValorHoraExtra valor={valorHoraExtraTotal(p)} titulo={tituloValorHe(p)} />
                       </Table.Td>
 )}
+{vd && (
+                      <Table.Td className={p.pagoNaRescisao ? "valor-ja-pago" : undefined}>
+                        <CelulaValorHoraExtra valor={p.valorDsr === undefined ? 0 : p.valorDsr} oculto={ocultoDsr}
+                          titulo={p.pagoNaRescisao ? "Paga na rescisão (não entra no A pagar da lista)" : REGRA_DSR} />
+                      </Table.Td>
+)}
 {vp("aPagar") && (
                       <Table.Td style={{ fontWeight: 700 }}><Money value={p.totalAPagar} /></Table.Td>
 )}
@@ -558,6 +577,11 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                       <CelulaValorHoraExtra valor={heOculta ? null : totalValorHe} />
                     </Table.Td>
                   )}
+                  {vd && (
+                    <Table.Td style={totalTd} title="Sem quem foi pago na rescisão">
+                      <CelulaValorHoraExtra valor={dsrOculto ? null : totalDsr} oculto={ocultoDsr} />
+                    </Table.Td>
+                  )}
                   {vp("aPagar") && <Table.Td style={{ fontWeight: 700 }}><Money value={semRegistroFilt.reduce((a, p) => a + p.totalAPagar, 0)} /></Table.Td>}
                   {vp("pix") && <Table.Td> </Table.Td>}
                 </Table.Row>
@@ -568,6 +592,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
           <span style={mutedStyle}>
             Horas em h:mm (também aceita "7,5"); o valor recalcula ao gravar (automático). {REGRA_HORA_EXTRA} Entra no A pagar.
             {heOculta && ` Valor oculto (sem permissão): ${NOTA_HORA_EXTRA_OCULTA}`}
+            {comDsr && ` ${REGRA_DSR} Também entra no A pagar.`}
           </span>
         )}
       </div>
