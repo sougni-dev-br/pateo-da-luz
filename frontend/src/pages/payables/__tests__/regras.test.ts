@@ -3,7 +3,7 @@ import type { Payable } from "../../../api/client";
 import {
   agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, detalhesDoTitulo,
   diasEntre, favorecidoDoTitulo, formatInstallment, grupoDoTitulo, inferTotalInstallments,
-  minDateKey, rotuloPeriodo, rotuloPrazo, seloDoTitulo, somarValores, type FiltrosPagar
+  minDateKey, rotuloPeriodo, rotuloPrazo, seloDoTitulo, somarValores, TIPOS_FOLHA, type FiltrosPagar
 } from "../regras";
 
 const HOJE = "2026-10-01";
@@ -40,6 +40,18 @@ describe("combinaSubtipo", () => {
     const salario = titulo({ sourceType: "PAYROLL", taxDocumentType: "Salário" });
     expect(combinaSubtipo(vt, "PAYROLL:Vale-transporte")).toBe(true);
     expect(combinaSubtipo(salario, "PAYROLL:Vale-transporte")).toBe(false);
+  });
+
+  it("1ª quinzena e acerto da lista (sem registro) têm sub-tipo e selo próprios", () => {
+    expect(TIPOS_FOLHA).toContain("1ª quinzena");
+    expect(TIPOS_FOLHA).toContain("Salário (acerto)");
+    const quinzena = titulo({ sourceType: "PAYROLL", taxDocumentType: "1ª quinzena" });
+    const acerto = titulo({ sourceType: "PAYROLL", taxDocumentType: "Salário (acerto)" });
+    expect(combinaSubtipo(quinzena, "PAYROLL:1ª quinzena")).toBe(true);
+    expect(combinaSubtipo(quinzena, "PAYROLL:Adiantamento")).toBe(false);
+    expect(combinaSubtipo(acerto, "PAYROLL:Salário (acerto)")).toBe(true);
+    expect(seloDoTitulo(quinzena)?.rotulo).toBe("Folha · 1ª quinzena");
+    expect(seloDoTitulo(acerto)?.rotulo).toBe("Folha · Salário (acerto)");
   });
 
   it("PAYROLL sem tipo pega toda a Folha e nada de compra", () => {

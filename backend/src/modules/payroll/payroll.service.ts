@@ -2,8 +2,9 @@ import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { diaDeReferencia } from "./cadastro-historico.js";
-import { cadastrosVigentes } from "./cadastro-historico.service.js";
+import { cadastrosVigentesEmDatas } from "./cadastro-historico.service.js";
 import { aposSaida, duplicadosDe, ehComplemento, rotuloTipo, type ItemFolha } from "./folha-duplicidade.js";
+import { DIA_PRIMEIRA_QUINZENA, primeiraQuinzenaPrevista } from "./tip-rateio.js";
 import { computeVtForPeriod, costOfCalendarDay, describeLegs, eveOf, round2, vtPeriods, type Fare, type Leg } from "./vt-calc.js";
 
 // Nomes das categorias de DRE que a folha usa. O vinculo e por NOME, com acento:
@@ -34,18 +35,23 @@ export const TIPOS_DE_FOLGA: Array<"FOLGA" | "FOLGA_FERIADO" | "FOLGA_BANCO_HORA
 // O que gerar: VT (inteiro ou por quinzena), só a folha, ou tudo.
 // ADIANTAMENTO_SR: só o adiantamento de quem é sem registro e recebe adiantamento — o título do
 // dia 20 que a lista de pagamento desconta. O de CLT vem do extrato da contabilidade.
-export type PayrollKind = "ALL" | "VT" | "VT_Q1" | "VT_Q2" | "FOLHA" | "ADIANTAMENTO_SR";
-export const PAYROLL_KINDS: PayrollKind[] = ["ALL", "VT", "VT_Q1", "VT_Q2", "FOLHA", "ADIANTAMENTO_SR"];
+// QUINZENA_SR: só a 1ª quinzena (dia 15) de quem é sem registro e recebe por quinzena — um
+// ADIANTAMENTO com rótulo "1ª quinzena" e details.primeiraQuinzena, que a lista desconta.
+export type PayrollKind = "ALL" | "VT" | "VT_Q1" | "VT_Q2" | "FOLHA" | "ADIANTAMENTO_SR" | "QUINZENA_SR";
+export const PAYROLL_KINDS: PayrollKind[] = ["ALL", "VT", "VT_Q1", "VT_Q2", "FOLHA", "ADIANTAMENTO_SR", "QUINZENA_SR"];
 const VT_TYPES: PayrollItemType[] = ["VALE_TRANSPORTE"];
 const KIND_TYPES: Record<PayrollKind, PayrollItemType[]> = {
   ALL: ["VALE_TRANSPORTE", "ADIANTAMENTO", "SALARIO"],
   VT: VT_TYPES, VT_Q1: VT_TYPES, VT_Q2: VT_TYPES,
   FOLHA: ["ADIANTAMENTO", "SALARIO"],
   ADIANTAMENTO_SR: ["ADIANTAMENTO"],
+  QUINZENA_SR: ["ADIANTAMENTO"],
 };
 const KIND_QUINZENA: Record<PayrollKind, 1 | 2 | null> = {
-  ALL: null, VT: null, VT_Q1: 1, VT_Q2: 2, FOLHA: null, ADIANTAMENTO_SR: null,
+  ALL: null, VT: null, VT_Q1: 1, VT_Q2: 2, FOLHA: null, ADIANTAMENTO_SR: null, QUINZENA_SR: null,
 };
+export const ROTULO_PRIMEIRA_QUINZENA = "1ª quinzena";
+const ehPrimeiraQuinzena = (i: { details: unknown }) => (i.details as { primeiraQuinzena?: unknown } | null)?.primeiraQuinzena === true;
 // A quinzena de um item vem carimbada no cálculo. Antes era deduzida do
 // vencimento (dia <= 15 => 1ª), e isso QUEBRA agora que o VT vence na véspera
 // do período: o vencimento da 1ª quinzena caiu para o último dia do mês
@@ -72,6 +78,9 @@ export type ComputedItem = {
   dreCategoryName: string | null;
   details: Record<string, unknown> | null;
   exists: boolean;
+  /** Já lançado, sem baixa, com valor diferente do calculado (1ª quinzena): gerar de novo atualiza. */
+  desatualizado?: boolean;
+  existingId?: string;
 };
 
 function isoDate(year: number, month: number, day: number): string {
@@ -113,13 +122,21 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
   const empIds = employees.map((e) => e.id);
   // Salário, vínculo e adiantamento VIGENTES no mês da competência (último dia do mês, ou
   // a saída se foi antes): gerar a folha de um mês passado não usa o aumento de depois.
-  const vigentes = await cadastrosVigentes(
+  // A 1ª quinzena sai com o cadastro vigente no dia 15 (salário e "recebe por quinzena").
+  const { mes: vigentes, quinzena: vigentesQuinzena } = await cadastrosVigentesEmDatas(
     employees.map((e) => ({
       id: e.id, terminationDate: e.terminationDate, modality: e.modality as string,
       baseSalary: e.baseSalary == null ? null : Number(e.baseSalary), recebeAdiantamento: e.recebeAdiantamento,
+      pagamentoQuinzenal: e.pagamentoQuinzenal === true,
     })),
-    (e) => diaDeReferencia(year, month, e.terminationDate),
+    {
+      mes: (e) => diaDeReferencia(year, month, e.terminationDate),
+      quinzena: () => new Date(Date.UTC(year, month - 1, DIA_PRIMEIRA_QUINZENA)),
+    },
   );
+  // O salário do sem registro é do mês civil da competência (como na lista de pagamento).
+  const mesCivil = { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 0)) };
+  const regrasDoMes = { ...mesCivil, mesSalario: mesCivil };
 
   const monthStart = new Date(Date.UTC(year, month - 1, 1));
   const nextMonthStart = new Date(Date.UTC(year, month, 1));
@@ -254,7 +271,7 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
     where: { competenceYear: year, competenceMonth: month, deletedAt: null },
     select: {
       id: true, employeeId: true, type: true, periodLabel: true, amount: true, workedDays: true, freeDays: true, source: true,
-      periodStart: true, details: true, status: true,
+      periodStart: true, details: true, status: true, paymentDate: true,
     },
   });
   const existingByKey = new Map(existingRows.map((e) => [`${e.employeeId}|${e.type}|${e.periodLabel}`, e]));
@@ -501,9 +518,48 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
         details: { base, advance }, exists: existsKey.has(`${emp.id}|SALARIO|Salário`) || jaVeioDoExtrato(emp.id, name, "SALARIO"),
       });
     }
+
+    const quinzena = itemPrimeiraQuinzena(emp, name, vigentesQuinzena.get(emp.id)!, regrasDoMes, year, month, dreFolha, existingByKey);
+    if (quinzena) items.push(quinzena);
   }
 
   return { year, month, settings, items: travarDuplicidadeESaida(items, existingRows, employees, year, month, warnings), warnings };
+}
+
+// 1ª quinzena (dia 15) de quem é sem registro e recebe por quinzena no dia 15: metade do
+// salário base vigente naquele dia, limitada ao salário proporcional do mês (mesma regra da
+// lista de pagamento, que desconta este título). Sem vínculo no dia 15, não há quinzena.
+// Já lançada e sem baixa com outro valor: "desatualizado" — gerar de novo atualiza.
+function itemPrimeiraQuinzena(
+  emp: { id: string; displayName: string | null; sector: string | null; admissionDate: Date | null; terminationDate: Date | null },
+  name: string,
+  vigente: { modality: string; baseSalary: number | null; pagamentoQuinzenal: boolean },
+  regras: Parameters<typeof primeiraQuinzenaPrevista>[1],
+  year: number, month: number,
+  dreFolha: { id: string; name: string } | null,
+  existentes: Map<string, { id: string; amount: unknown; paymentDate: Date | null; status: string | null }>,
+): ComputedItem | null {
+  if (vigente.modality !== "NAO_CLT" || !vigente.pagamentoQuinzenal) return null;
+  const base = round2(Number(vigente.baseSalary ?? 0));
+  if (base <= 0) return null;
+  const valor = primeiraQuinzenaPrevista({
+    semRegistro: true, pagamentoQuinzenal: true, salarioBase: base, salarioBaseQuinzena: base,
+    admissao: emp.admissionDate, desligamento: emp.terminationDate,
+  }, regras);
+  if (valor <= 0) return null;
+  const prev = existentes.get(`${emp.id}|ADIANTAMENTO|${ROTULO_PRIMEIRA_QUINZENA}`);
+  const emAberto = prev != null && prev.paymentDate == null && prev.status !== "PAID" && prev.status !== "CANCELED";
+  return {
+    employeeId: emp.id, employeeName: name, employeeDisplayName: emp.displayName, sector: emp.sector, type: "ADIANTAMENTO",
+    periodLabel: ROTULO_PRIMEIRA_QUINZENA, periodStart: null, periodEnd: null,
+    dueDate: isoDate(year, month, DIA_PRIMEIRA_QUINZENA),
+    amount: valor, workedDays: null, freeDays: null, quinzena: null,
+    dreCategoryId: dreFolha?.id ?? null, dreCategoryName: dreFolha?.name ?? null,
+    details: { base, semRegistro: true, primeiraQuinzena: true },
+    exists: prev != null,
+    desatualizado: emAberto && Math.abs(Number(prev.amount) - valor) >= 0.005,
+    existingId: prev?.id,
+  };
 }
 
 // Duas travas antes de qualquer item virar lançamento:
@@ -564,15 +620,33 @@ export async function generatePayroll(
   // fecha quando a escala da segunda metade do mês está pronta.
   const allowed = KIND_TYPES[kind];
   const quinzena = KIND_QUINZENA[kind];
+  // Adiantamento do dia 20 e 1ª quinzena do dia 15 são títulos distintos: cada botão gera o seu.
   const soSemRegistro = kind === "ADIANTAMENTO_SR";
+  const soQuinzena = kind === "QUINZENA_SR";
   const escopo = items.filter((i) => allowed.includes(i.type) && (quinzena == null || i.quinzena === quinzena)
-    && (!soSemRegistro || (i.details as { semRegistro?: unknown } | null)?.semRegistro === true));
+    && (!soSemRegistro || ((i.details as { semRegistro?: unknown } | null)?.semRegistro === true && !ehPrimeiraQuinzena(i)))
+    && (!soQuinzena || ehPrimeiraQuinzena(i)));
   const toCreate = escopo.filter((i) => !i.exists);
+  // 1ª quinzena já lançada e sem baixa, com outro valor (salário mudou): atualiza. Paga não muda.
+  const toUpdate = escopo.filter((i) => i.exists && i.desatualizado && i.existingId && ehPrimeiraQuinzena(i));
 
   const ajustes = new Map(overrides.map((o) => [overrideKey(o), round2(Number(o.amount))]));
   let ajustados = 0;
 
   await prisma.$transaction(async (tx) => {
+    for (const item of toUpdate) {
+      const due = new Date(item.dueDate);
+      const ajustado = ajustes.get(overrideKey(item));
+      const valor = ajustado != null && ajustado > 0 ? ajustado : item.amount;
+      await tx.payrollItem.update({
+        where: { id: item.existingId! },
+        data: {
+          amount: valor, dueDate: due, status: computeStatus(due, null), dreCategoryId: item.dreCategoryId,
+          details: ({ ...(item.details ?? {}), ...(valor !== item.amount ? { ajusteManual: true, valorCalculado: item.amount } : {}) }) as Prisma.InputJsonValue,
+          updatedById: userId,
+        },
+      });
+    }
     for (const item of toCreate) {
       const due = new Date(item.dueDate);
       const ajustado = ajustes.get(overrideKey(item));
@@ -670,5 +744,8 @@ export async function generatePayroll(
 
   // Os avisos voltam no resultado: o que foi pulado (depois da saída, já lançado) não
   // pode sumir em silêncio só porque a geração "deu certo".
-  return { year, month, kind, created: toCreate.length, skipped: escopo.length - toCreate.length, ajustados, avisos: warnings };
+  return {
+    year, month, kind, created: toCreate.length, atualizados: toUpdate.length,
+    skipped: escopo.length - toCreate.length - toUpdate.length, ajustados, avisos: warnings,
+  };
 }

@@ -52,8 +52,10 @@ function clampInt(v: unknown, min: number, max: number): number | undefined {
 // do extrato. Sai só o que a lista usa (lista branca). Os outros tipos ficam como estão.
 const DETALHES_NA_LISTA: Record<string, readonly string[]> = {
   RESCISAO: ["grupoRescisao", "installmentNumber", "installmentTotal", "valesLabel", "otherDiscountLabel", "quitadaNoTermo", "quitadaSemValor", "saldoDevedorPerdoado"],
-  SALARIO: ["calculo", "empresa", "origem", "origemValor", "pendenteGorjeta", "observacao", "lancamentoManual", "duplicaDe", "aposSaida"],
-  ADIANTAMENTO: ["calculo", "empresa", "origem", "origemValor", "pendenteGorjeta", "observacao", "lancamentoManual", "duplicaDe", "aposSaida"],
+  // semRegistro/primeiraQuinzena: só as marcas (título do sem registro, 1ª quinzena). A composição
+  // do acerto da lista de pagamento (salário, adiantamento, gorjeta, vales…) sai.
+  SALARIO: ["calculo", "empresa", "origem", "origemValor", "pendenteGorjeta", "observacao", "lancamentoManual", "duplicaDe", "aposSaida", "semRegistro"],
+  ADIANTAMENTO: ["calculo", "empresa", "origem", "origemValor", "pendenteGorjeta", "observacao", "lancamentoManual", "duplicaDe", "aposSaida", "semRegistro", "primeiraQuinzena"],
 };
 export function detalhesNaLista(type: string, details: unknown, podeVer: boolean): unknown {
   const permitidos = DETALHES_NA_LISTA[type];

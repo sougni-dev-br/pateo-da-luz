@@ -106,6 +106,10 @@ export type ParticipanteEntrada = {
   // Cadastro: recebe por quinzena — metade do salário base no dia 15 (só sem registro).
   // Prevalece sobre recebeAdiantamento: as duas juntas não descontam duas vezes.
   pagamentoQuinzenal?: boolean;
+  // 1ª quinzena LANÇADA em Contas a Pagar (título "1ª quinzena" da competência), como no
+  // adiantamento: quando vem, a lista desconta o pago (ou o previsto, sem baixa).
+  // Ausente = sem título no mês: vale a regra do cadastro (metade do salário no dia 15).
+  quinzenaLancada?: { previsto: number; pago: number | null };
   // Rescisão lançada em Contas a Pagar (Folha → rescisão). Sem registro: ela já
   // pagou salário e gorjeta até a saída, então a pessoa sai da lista do mês.
   rescisaoLancada: boolean;
@@ -298,11 +302,27 @@ export const DIA_PRIMEIRA_QUINZENA = 15;
 //   valor = metade do salário base vigente no dia 15, paga no dia 15.
 // Mesma regra de datas do adiantamento: não recebeu quem entrou depois do dia 15 ou saiu
 // ANTES dele (quem sai no dia 15 recebeu). Nunca passa do salário proporcional do mês.
+// Título lançado: desconta o que foi pago (ou o previsto, sem baixa) — o dinheiro que saiu.
 export function primeiraQuinzenaSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo, salarioProporcional: number): number {
+  if (!p.semRegistro) return 0;
+  if (p.quinzenaLancada) {
+    const valor = p.quinzenaLancada.pago ?? p.quinzenaLancada.previsto;
+    return Math.max(0, Math.min(round2(salarioProporcional), round2(valor)));
+  }
   const base = p.salarioBaseQuinzena !== undefined ? p.salarioBaseQuinzena : p.salarioBase;
-  if (!p.semRegistro || !p.pagamentoQuinzenal || !base) return 0;
+  if (!p.pagamentoQuinzenal || !base) return 0;
   if (!vinculadoNoDia(p, regras, DIA_PRIMEIRA_QUINZENA)) return 0;
   return Math.max(0, Math.min(round2(salarioProporcional), round2(base / 2)));
+}
+
+// O que a 1ª quinzena deve ser no dia 15, para gerar o título (Folha): a mesma regra da lista,
+// limitada ao salário proporcional aos dias de vínculo no mês (as faltas ainda não são sabidas).
+export type DadosQuinzena = Pick<ParticipanteEntrada,
+  "semRegistro" | "pagamentoQuinzenal" | "salarioBase" | "salarioBaseQuinzena" | "admissao" | "desligamento">;
+export function primeiraQuinzenaPrevista(p: DadosQuinzena, regras: Pick<RegrasPeriodo, "start" | "end" | "mesSalario">): number {
+  const semTitulo = { ...p, faltas: 0, faltasSalario: 0, diasSalarioOverride: null } as ParticipanteEntrada;
+  const r = regras as RegrasPeriodo;
+  return primeiraQuinzenaSemRegistro(semTitulo, r, salarioSemRegistro(semTitulo, r).valor);
 }
 
 // A pessoa estava no vínculo no dia X do mês do salário (o pagamento daquele dia saiu para ela)?

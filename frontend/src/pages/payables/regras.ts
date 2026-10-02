@@ -48,7 +48,8 @@ export function estaPago(p: Payable): boolean {
 }
 
 // Rótulos que a query de payables grava em taxDocumentType para a Folha.
-export const TIPOS_FOLHA = ["Vale-transporte", "Adiantamento", "Salário", "Rescisão", "Férias"] as const;
+// "1ª quinzena" e "Salário (acerto)": do sem registro (dia 15 e lista de pagamento da gorjeta).
+export const TIPOS_FOLHA = ["Vale-transporte", "Adiantamento", "1ª quinzena", "Salário", "Salário (acerto)", "Rescisão", "Férias"] as const;
 
 /** Sub-tipo "PAYROLL:Vale-transporte" filtra só aquele tipo dentro da Folha. */
 export function combinaSubtipo(p: Payable, subtipo: string): boolean {

@@ -53,6 +53,12 @@ export function grupoRescisao(details: unknown): string | null {
   return typeof g === "string" && g ? g : null;
 }
 
+// Excluído À MÃO = alguém apagou pela tela (deletedById preenchido): regerar não desfaz essa
+// decisão em silêncio. Excluído sem autor é o caso legado (antes de gravar quem excluiu) e volta.
+export function excluidoAMao(item: { deletedAt: Date | string | null; deletedById: string | null } | null | undefined): boolean {
+  return Boolean(item?.deletedAt && item.deletedById);
+}
+
 export function ehComplemento(details: unknown): boolean {
   return detalhes(details).complemento != null;
 }
