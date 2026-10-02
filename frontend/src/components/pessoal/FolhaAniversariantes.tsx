@@ -81,18 +81,26 @@ export function primeiroNome(b: EmployeeBirthday) {
 // Filho, Júnior, Neto, Sobrinho… acompanham o sobrenome que vem antes ("Prado Sobrinho").
 const AGNOMES = new Set(["filho", "filha", "junior", "júnior", "jr", "jr.", "neto", "neta", "sobrinho", "sobrinha", "segundo", "terceiro"]);
 
+const PARTICULAS = new Set(["da", "de", "do", "das", "dos", "e"]);
+const palavras = (s: string | null | undefined) => (s ?? "").trim().split(/\s+/).filter(Boolean);
+const juntar = (...partes: Array<string | null | undefined>) => partes.flatMap(palavras).join(" ");
+
 // Último sobrenome: "Souza Lima" → "Lima"; "Rocha Prado Sobrinho" → "Prado Sobrinho".
+// Partícula solta no fim (cadastro digitado pela metade: "Silva de") não vira sobrenome.
+// Limite conhecido: sobrenome composto ("Castelo Branco") sai só com a última palavra.
 export function ultimoSobrenome(sobrenome: string | null | undefined): string {
-  const partes = (sobrenome ?? "").trim().split(/\s+/).filter(Boolean);
+  const partes = palavras(sobrenome);
+  while (partes.length > 1 && PARTICULAS.has(partes[partes.length - 1].toLocaleLowerCase("pt-BR"))) partes.pop();
   if (partes.length === 0) return "";
   const ultima = partes[partes.length - 1];
   return AGNOMES.has(ultima.toLocaleLowerCase("pt-BR")) && partes.length > 1 ? partes.slice(-2).join(" ") : ultima;
 }
 
 export function nomeParaExibir(b: EmployeeBirthday, forma: FormaNome) {
-  if (forma === "PRENOME_SOBRENOME") return `${(b.firstName ?? "").trim()} ${ultimoSobrenome(b.lastName)}`.trim();
-  if (forma === "COMPLETO") return `${b.firstName} ${b.lastName}`.trim();
-  if (forma === "APELIDO") return (b.displayName ?? "").trim() || primeiroNome(b);
+  if (forma === "PRENOME_SOBRENOME") return juntar(b.firstName, ultimoSobrenome(b.lastName));
+  // "Completo" é o nome da carteira; sem ficha importada, Nome + Sobrenome.
+  if (forma === "COMPLETO") return juntar(b.nomeCompleto) || juntar(b.firstName, b.lastName);
+  if (forma === "APELIDO") return juntar(b.displayName) || primeiroNome(b);
   return primeiroNome(b);
 }
 

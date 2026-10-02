@@ -64,7 +64,7 @@ async function importarUma(f: Ficha): Promise<"gravado" | "simulado" | "sem-cada
   await prisma.$transaction(async (tx) => {
     if (campos.length) await tx.employee.update({ where: { id: atual.id }, data: plano.dados });
     await regravarListasDaFicha(tx, atual.id, plano);
-  });
+  }, { timeout: 30_000 }); // banco remoto: o padrão de 5 s é curto para 6 escritas
   // Só os NOMES dos campos e contagens: o valor (RG, PIS, endereço, filiação) já está no
   // cadastro e não precisa de uma segunda cópia no log.
   await auditLog({
@@ -75,7 +75,13 @@ async function importarUma(f: Ficha): Promise<"gravado" | "simulado" | "sem-cada
 }
 
 async function main() {
-  const fichas = arquivos.flatMap((a) => lerFichasRegistro(textoDoPdf(a)));
+  const fichas = arquivos.flatMap((a) => {
+    try {
+      return lerFichasRegistro(textoDoPdf(a));
+    } catch (e) {
+      throw new Error(`${a}: ${e instanceof Error ? e.message : e} — nada foi gravado.`);
+    }
+  });
   console.log(`${fichas.length} ficha(s) lida(s) de ${arquivos.length} arquivo(s).\n`);
   const resultado = new Map<string, string[]>();
   for (const f of fichas) {

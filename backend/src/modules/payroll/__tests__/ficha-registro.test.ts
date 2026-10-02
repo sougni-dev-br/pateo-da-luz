@@ -148,10 +148,15 @@ describe("resumoFerias", () => {
     expect(resumoFerias(d("2014-11-01"), null, [], d("2018-11-01"))[2].status).toBe("PRAZO_VENCIDO");
   });
 
-  test("admissão em 29/02 e período com 00/00 (sem gozo) ainda dentro do prazo", () => {
+  test("admissão em 29/02: o aniversário em ano não bissexto é 01/03 (Código Civil, art. 132, §3º)", () => {
     const r = resumoFerias(d("2008-02-29"), null, [], d("2009-06-01"));
-    expect(r[0]).toMatchObject({ aquisitivoInicio: "2008-02-29", aquisitivoFim: "2009-02-27", status: "A_GOZAR" });
-    expect(r[1]).toMatchObject({ aquisitivoInicio: "2009-02-28", status: "EM_AQUISICAO" });
+    expect(r[0]).toMatchObject({ aquisitivoInicio: "2008-02-29", aquisitivoFim: "2009-02-28", concessivoFim: "2010-02-28", status: "A_GOZAR" });
+    expect(r[1]).toMatchObject({ aquisitivoInicio: "2009-03-01", status: "EM_AQUISICAO" });
+  });
+
+  test("concessivo de período que atravessa 29/02 termina na véspera do 2º aniversário", () => {
+    const r = resumoFerias(d("2023-03-01"), null, [], d("2025-01-10"));
+    expect(r[0]).toMatchObject({ aquisitivoInicio: "2023-03-01", aquisitivoFim: "2024-02-29", concessivoFim: "2025-02-28" });
   });
 
   test("admissão do cadastro um dia diferente da ficha: não duplica o ano com um período vazio 'vencido'", () => {
@@ -164,9 +169,11 @@ describe("resumoFerias", () => {
     ]);
   });
 
-  test("admissão em 29/02: cada aniversário conta da admissão, sem deriva para 28/02", () => {
+  test("admissão em 29/02: cada aniversário conta da admissão — 01/03 nos anos comuns, 29/02 no bissexto", () => {
     const r = resumoFerias(d("2020-02-29"), null, [], d("2024-03-10"));
-    expect(r.map((p) => p.aquisitivoInicio)).toEqual(["2020-02-29", "2021-02-28", "2022-02-28", "2023-02-28", "2024-02-29"]);
+    expect(r.map((p) => p.aquisitivoInicio)).toEqual(["2020-02-29", "2021-03-01", "2022-03-01", "2023-03-01", "2024-02-29"]);
+    expect(r[0].aquisitivoFim).toBe("2021-02-28");
+    expect(r[3].aquisitivoFim).toBe("2024-02-28");
   });
 
   test("quem saiu: período sem os 30 dias fica com o acerto da rescisão; não conta depois da saída", () => {

@@ -539,11 +539,12 @@ export function Funcionarios() {
                 <FormField label="Sobrenome" required>
                   <TextField value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
                 </FormField>
-                <FormField label="Nome completo" hint="como está na carteira de trabalho">
+                <FormField label="Nome completo" hint="como está na carteira de trabalho; em branco, vale Nome + Sobrenome">
                   <TextField
                     value={form.ficha.nomeCompleto}
                     onChange={(e) => setForm({ ...form, ficha: { ...form.ficha, nomeCompleto: e.target.value } })}
-                    placeholder={`${form.firstName} ${form.lastName}`.trim() || undefined}
+                    placeholder="Ex.: Maria de Souza Lima"
+                    maxLength={120}
                   />
                 </FormField>
                 <FormField label="Como quero ser chamado" hint="Nome que aparece na escala">

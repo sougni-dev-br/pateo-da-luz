@@ -63,7 +63,7 @@ async function main() {
         if (Object.keys(dados).length) await tx.employee.update({ where: { id: e.id }, data: dados });
         for (const d of deps) await tx.employeeDependente.update({ where: { id: d.id }, data: { nome: nomeProprio(d.nome) ?? d.nome } });
         for (const a of cargos) await tx.employeeAnotacaoCarteira.update({ where: { id: a.id }, data: { cargo: nomeProprio(a.cargo), cargoAnterior: nomeProprio(a.cargoAnterior) } });
-      });
+      }, { timeout: 30_000 }); // banco remoto: o padrão de 5 s é curto para várias escritas
     } catch (err) {
       falhas.push(`${atual.firstName} ${atual.lastName}: ${err instanceof Error ? err.message : err}`);
       continue;
