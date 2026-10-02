@@ -52,6 +52,7 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     descontaAtestado: comp.descontaAtestado,
     descontaFerias: comp.descontaFerias,
     descontaOutros: comp.descontaOutros,
+    descontaAfastamento: comp.descontaAfastamento,
     proporcionalEntrada: comp.proporcionalEntrada,
     // Modo usado para a parte de quem saiu: explica o ponto do mês e o livre do retrato.
     sobraRescisaoParaSaldo: comp.sobraRescisaoParaSaldo,
@@ -98,6 +99,9 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     faltas: p.faltas,
     atestados: p.atestados,
     ferias: p.ferias,
+    // Afastamento não remunerado (Escala). Retratos de antes do tipo não têm (= 0).
+    afastamento: p.afastamento,
+    afastamentoSalario: p.afastamentoSalario,
     // Só informação (não entra no cálculo). Retratos antigos não têm.
     ...(p.folgasEscala ? { folgasEscala: p.folgasEscala } : {}),
     outrosDias: p.outrosDias,

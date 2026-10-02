@@ -254,8 +254,9 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
   // O aviso de "férias e salário na mesma competência" é sobre pagar em dobro: continua
   // só para quem tem o lançamento de férias, não para a marca da escala.
   const comFeriasNaFolha = new Set(feriasItems.map((f) => f.employeeId));
+  // Afastamento não remunerado entra junto: a pessoa não vem, então o dia não paga condução.
   const feriasNaEscala = await prisma.employeeScheduleDay.findMany({
-    where: { employeeId: { in: empIds }, date: { gte: monthStart, lt: nextMonthStart }, type: "FERIAS" },
+    where: { employeeId: { in: empIds }, date: { gte: monthStart, lt: nextMonthStart }, type: { in: ["FERIAS", "AFASTAMENTO"] } },
     select: { employeeId: true, date: true },
   });
   for (const f of feriasNaEscala) {

@@ -155,9 +155,20 @@ describe("férias marcadas na escala tiram os dias do VT", () => {
     for (const dia of [14, 15, 16, 17, 18]) expect(pagos).not.toContain(dia);
   });
 
+  test("dias de AFASTAMENTO (não remunerado) também não geram VT", async () => {
+    db.employee.findMany.mockResolvedValue([comVt()]);
+    const sem = (await computePayroll(2026, 9)).items.find((i) => i.type === "VALE_TRANSPORTE")!;
+    escala = [14, 15, 16].map((dia) => ({ employeeId: "e1", date: d(`2026-09-${dia}`), type: "AFASTAMENTO" }));
+    const com = (await computePayroll(2026, 9)).items.find((i) => i.type === "VALE_TRANSPORTE")!;
+    expect(com.workedDays).toBe(sem.workedDays! - 3);
+    expect(com.amount).toBe(sem.amount - 30);
+    const pagos = (com.details as { diasPagos: number[] }).diasPagos;
+    for (const dia of [14, 15, 16]) expect(pagos).not.toContain(dia);
+  });
+
   test("marca da escala sozinha não dispara o aviso de férias e salário na mesma competência", async () => {
     db.employee.findMany.mockResolvedValue([comVt({ baseSalary: 2600 })]);
-    escala = [{ employeeId: "e1", date: d("2026-09-14"), type: "FERIAS" }];
+    escala = [{ employeeId: "e1", date: d("2026-09-14"), type: "FERIAS" }, { employeeId: "e1", date: d("2026-09-15"), type: "AFASTAMENTO" }];
     const { warnings } = await computePayroll(2026, 9);
     expect(warnings.some((w) => w.includes("férias e salário"))).toBe(false);
   });

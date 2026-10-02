@@ -98,6 +98,31 @@ describe("GET /schedule — quem está fora da escala", () => {
     expect(ids.has("fora")).toBe(false);
   });
 
+  test("domingo de afastamento não conta como domingo trabalhado nem como folga", async () => {
+    db.employee.findMany.mockResolvedValue([funcionario("dentro", true)]);
+    linhas = [
+      { employeeId: "dentro", date: d("2026-08-02"), type: "AFASTAMENTO" },
+      { employeeId: "dentro", date: d("2026-08-09"), type: "FOLGA" },
+    ];
+    const res = await request(app).get("/schedule?year=2026&month=9");
+    const status = Object.fromEntries(res.body.sundayHistory.map((h: { date: string; status: string }) => [h.date, h.status]));
+    expect(status["2026-08-02"]).toBe("SEM_ESCALA");
+    expect(status["2026-08-09"]).toBe("FOLGA");
+    expect(status["2026-08-16"]).toBe("TRABALHOU");
+  });
+
+  test("feriado de afastamento não vira crédito de feriado trabalhado", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(d("2026-11-18"));
+    db.employee.findMany.mockResolvedValue([funcionario("dentro", true)]);
+    linhas = [
+      { employeeId: "dentro", date: d("2026-11-02"), type: "AFASTAMENTO" },
+      { employeeId: "dentro", date: d("2026-11-15"), type: "AFASTAMENTO" },
+    ];
+    const res = await request(app).get("/schedule?year=2026&month=11");
+    expect(res.body.employees[0].holidayCompBalance).toBe(0);
+  });
+
   test("feriado sem marca não vira crédito para quem está fora; folga de feriado debita igual", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(d("2026-11-18"));
@@ -150,6 +175,35 @@ describe("POST /schedule/bulk — só ocorrências", () => {
     expect(res.body.message).toContain("dia 5");
     expect(db.$transaction).not.toHaveBeenCalled();
     expect(db.employeeScheduleDay.deleteMany).not.toHaveBeenCalled();
+  });
+
+  describe("afastamento não remunerado é da Folha", () => {
+    beforeEach(() => {
+      db.employee.findMany.mockResolvedValue([funcionario("dentro", true), funcionario("fora", false)]);
+      linhas = [{ employeeId: "dentro", date: d("2026-09-03"), type: "AFASTAMENTO", notes: "Pedido pessoal" } as Linha];
+    });
+
+    test.each([["dentro", 4], ["fora", 5]])("não cria afastamento pela escala (%s, dia %i): 400 e nada gravado", async (employeeId, day) => {
+      const res = await salvar([{ employeeId: "dentro", day: 3, type: "AFASTAMENTO" }, { employeeId, day, type: "AFASTAMENTO" }]);
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain("Lançar afastamento");
+      expect(db.$transaction).not.toHaveBeenCalled();
+    });
+
+    test("não troca um dia de afastamento por outra marca", async () => {
+      const res = await salvar([{ employeeId: "dentro", day: 3, type: "FOLGA" }]);
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain("Dia 3 é afastamento");
+      expect(db.$transaction).not.toHaveBeenCalled();
+    });
+
+    test("salvar o mês preserva os dias que já são afastamento, com o motivo (não apaga nem regrava)", async () => {
+      const res = await salvar([{ employeeId: "dentro", day: 3, type: "AFASTAMENTO" }, { employeeId: "dentro", day: 6, type: "FOLGA" }]);
+      expect(res.status).toBe(200);
+      expect(db.employeeScheduleDay.deleteMany.mock.calls[0][0].where.type).toEqual({ not: "AFASTAMENTO" });
+      const gravados = db.employeeScheduleDay.createMany.mock.calls[0][0].data as Array<{ type: string }>;
+      expect(gravados.map((g) => g.type)).toEqual(["FOLGA"]);
+    });
   });
 
   test("turno continua valendo para quem está na escala", async () => {

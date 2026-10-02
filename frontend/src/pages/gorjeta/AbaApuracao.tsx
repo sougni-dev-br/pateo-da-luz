@@ -52,6 +52,7 @@ const EXTRATORES: Extratores<TipComputedParticipant> = {
   faltas: (p) => p.faltas,
   atestados: (p) => p.atestados,
   ferias: (p) => p.ferias,
+  afastamento: (p) => p.afastamento ?? 0,
   outros: (p) => p.outrosDias,
   folgas: (p) => p.folgasEscala?.total ?? null,
   dias: (p) => p.diasComputados,
@@ -64,7 +65,7 @@ const EXTRATORES: Extratores<TipComputedParticipant> = {
 
 const OPCOES_ORDEM: Array<[string, string]> = [
   ["nome", "Nome"], ["funcao", "Função"], ["empresa", "Empresa"], ["situacao", "Situação"], ["base", "Pontos-base"],
-  ["faltas", "Faltas"], ["atestados", "Atestados"], ["ferias", "Férias"], ["outros", "Outros dias"], ["folgas", "Folgas (escala)"], ["dias", "Dias trabalhados"],
+  ["faltas", "Faltas"], ["atestados", "Atestados"], ["ferias", "Férias"], ["afastamento", "Afastamento"], ["outros", "Outros dias"], ["folgas", "Folgas (escala)"], ["dias", "Dias trabalhados"],
   ["ajuste", "Ajuste"], ["pontos", "Pontos finais"], ["gorjeta", "Gorjeta"], ["vales", "Vales"], ["liquido", "Líquido"],
 ];
 const TEXTO = new Set(["nome", "funcao", "empresa", "situacao"]);
@@ -72,7 +73,7 @@ const TEXTO = new Set(["nome", "funcao", "empresa", "situacao"]);
 // "Gorjeta" não se oculta: tem o lápis da gorjeta real, e é a coluna que a tabela existe para mostrar.
 const COLUNAS: ColunaOpcional[] = [
   { chave: "base", rotulo: "Base" }, { chave: "faltas", rotulo: "Faltas" }, { chave: "atestados", rotulo: "Atestados" },
-  { chave: "ferias", rotulo: "Férias" }, { chave: "outros", rotulo: "Outros dias" }, { chave: "folgas", rotulo: "Folgas (escala)" },
+  { chave: "ferias", rotulo: "Férias" }, { chave: "afastamento", rotulo: "Afastamento" }, { chave: "outros", rotulo: "Outros dias" }, { chave: "folgas", rotulo: "Folgas (escala)" },
   { chave: "dias", rotulo: "Dias" },
   { chave: "ajuste", rotulo: "Ajuste" }, { chave: "pontos", rotulo: "Pontos" },
   { chave: "liquido", rotulo: "Gorjeta líquida" },
@@ -109,7 +110,7 @@ const EXT_RESC: Extratores<TipComputedParticipant> = {
   calculada: (p) => (p.tipoCalculo === "RESCISAO_QUITADA" || p.rescisaoPendente ? null : p.rateioAmount),
 };
 // Colunas antes de "Pontos": na linha de total elas viram um espaço em branco só.
-const ANTES_DOS_PONTOS = ["base", "faltas", "atestados", "ferias", "outros", "folgas", "dias", "ajuste"];
+const ANTES_DOS_PONTOS = ["base", "faltas", "atestados", "ferias", "afastamento", "outros", "folgas", "dias", "ajuste"];
 
 // Digitado diferente do que está na Escala: o número da escala aparece embaixo, para
 // quem confere perceber a diferença sem abrir a Escala.
@@ -134,6 +135,23 @@ export function Ocorrencia({ value, escala, naEscala, manual, disabled, label, o
       <span style={{ fontSize: 10, color: "var(--warning)", whiteSpace: "nowrap" }} title="O valor digitado é o que vale; a Escala tem outro número">
         escala: {naEscala}
       </span>
+    </span>
+  );
+}
+
+// Afastamento não remunerado: vem da Escala (lançado na Folha), não se digita aqui. Riscado
+// quando, por decisão de quem fecha, não desconta (gorjeta integral).
+function DiasAfastamento({ p }: { p: TipComputedParticipant }) {
+  const dias = p.afastamento ?? 0;
+  const desconta = p.regrasEfetivas.descontaAfastamento !== false;
+  const titulo = dias === 0
+    ? "Sem afastamento não remunerado na Escala"
+    : `${dias} dia(s) de afastamento não remunerado na Escala — ${desconta ? "desconta na gorjeta" : "não desconta: gorjeta integral para esta pessoa"}. O salário desconta sempre.`;
+  return (
+    <span aria-label={`Afastamento de ${p.employeeName}`} title={titulo}
+      style={{ fontVariantNumeric: "tabular-nums", fontWeight: dias ? 600 : 400, color: !dias || !desconta ? "var(--muted)" : undefined,
+        textDecoration: dias && !desconta ? "line-through" : undefined }}>
+      {dias || "—"}
     </span>
   );
 }
@@ -181,7 +199,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
   const soSalario = useMemo(() => ordenar(comp.participants).filter((p) => p.foraDaGorjeta), [comp]);
   const { ordem, alternar, definir } = useOrdenacao("apuracao");
   // No celular começa com o essencial (nome, pontos, gorjeta); o resto se liga em "Colunas".
-  const colunas = useColunas("apuracao", ["faltas", "atestados", "ferias", "outros", "folgas", "dias", "ajuste", "base"]);
+  const colunas = useColunas("apuracao", ["faltas", "atestados", "ferias", "afastamento", "outros", "folgas", "dias", "ajuste", "base"]);
   // Quem já tinha ocultado "Gorjeta" antes de ela virar fixa volta a vê-la.
   const v = (c: string) => c === "gorjeta" || colunas.visivel(c);
   const visiveis = COLUNAS.filter((c) => v(c.chave)).length + 1;
@@ -269,6 +287,9 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
 )}
 {v("ferias") && (
         <Table.Td align="center"><Ocorrencia label={`Férias de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaFerias} value={r.ferias} escala={p.feriasOrigem === "ESCALA" ? p.ferias : 0} naEscala={p.escala?.ferias} manual={r.ferias !== ""} disabled={readonly} onChange={(v) => set({ ferias: v })} /></Table.Td>
+)}
+{v("afastamento") && (
+        <Table.Td align="center"><DiasAfastamento p={p} /></Table.Td>
 )}
 {v("outros") && (
         <Table.Td align="center"><Ocorrencia label={`Outros dias de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaOutros} value={r.outrosDias} escala={0} manual={r.outrosDias !== ""} disabled={readonly} onChange={(v) => set({ outrosDias: v })} /></Table.Td>
@@ -378,10 +399,13 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
             <ThOrdenavel {...th("faltas")} align="center" style={inicioBloco} title="Faltas injustificadas no período">Faltas</ThOrdenavel>
 )}
 {v("atestados") && (
-            <ThOrdenavel {...th("atestados")} align="center" title="Atestados / afastamentos">Atest.</ThOrdenavel>
+            <ThOrdenavel {...th("atestados")} align="center" title="Atestados">Atest.</ThOrdenavel>
 )}
 {v("ferias") && (
             <ThOrdenavel {...th("ferias")} align="center">Férias</ThOrdenavel>
+)}
+{v("afastamento") && (
+            <ThOrdenavel {...th("afastamento")} align="center" title="Afastamento não remunerado (dias da Escala no ciclo). Desconta na gorjeta pela regra do período ou da pessoa; o salário desconta sempre">Afast.</ThOrdenavel>
 )}
 {v("outros") && (
             <ThOrdenavel {...th("outros")} align="center">Outros</ThOrdenavel>
