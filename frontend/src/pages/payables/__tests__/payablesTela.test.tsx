@@ -229,6 +229,50 @@ describe("Contas a Pagar — baixa em lote com a forma de cada título", () => {
   }, 20000);
 });
 
+describe("Contas a Pagar — baixa em lote pela empresa de cada título", () => {
+  test("cada título sai da empresa em que foi lançado, com a conta dela; o sem empresa usa a única", async () => {
+    api.getPayablesComLimite.mockResolvedValue(lista([
+      titulo("a", "Ana Fornecedora", { companyId: "emp1" }),
+      titulo("b", "Beto Distribuidora", { companyId: "emp2" }),
+      titulo("c", "Caio Hortifruti"),
+    ]));
+    abrir();
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Selecionar todos em aberto/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Baixar selecionados" }));
+    const lote = screen.getByRole("dialog");
+    fireEvent.change(within(lote).getByLabelText("Forma de pagamento *"), { target: { value: "id:pix" } });
+
+    fireEvent.click(within(lote).getByRole("radio", { name: /A empresa de cada título/ }));
+    expect(within(lote).getByLabelText("Títulos por empresa pagadora")).toHaveTextContent(/Pateo Frei 1.*Pateo Peposo 1.*sem empresa lançada 1/);
+    fireEvent.change(within(lote).getByLabelText("Empresa dos 1 sem empresa lançada"), { target: { value: "emp2" } });
+
+    fireEvent.click(within(lote).getByRole("button", { name: "Confirmar baixa de 3" }));
+    await waitFor(() => expect(api.payInstallment).toHaveBeenCalledTimes(3));
+    expect(api.payInstallment.mock.calls.map((c) => [c[0], c[1].payingCompanyId, c[1].companyBankAccountId])).toEqual([
+      ["a", "emp1", "conta-emp1"], ["b", "emp2", "conta-emp2"], ["c", "emp2", "conta-emp2"],
+    ]);
+  }, 20000);
+
+  test("todos com empresa lançada: o campo da empresa única some", async () => {
+    api.getPayablesComLimite.mockResolvedValue(lista([
+      titulo("a", "Ana Fornecedora", { companyId: "emp1" }),
+      titulo("b", "Beto Distribuidora", { companyId: "emp1" }),
+    ]));
+    abrir();
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Selecionar todos em aberto/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Baixar selecionados" }));
+    const lote = screen.getByRole("dialog");
+    expect(within(lote).getByLabelText("Empresa pagadora")).toBeInTheDocument();
+    fireEvent.click(within(lote).getByRole("radio", { name: /A empresa de cada título/ }));
+    expect(within(lote).queryByLabelText(/Empresa pagadora|sem empresa lançada/)).not.toBeInTheDocument();
+    fireEvent.change(within(lote).getByLabelText("Forma de pagamento *"), { target: { value: "id:pix" } });
+    fireEvent.click(within(lote).getByRole("button", { name: "Confirmar baixa de 2" }));
+    await waitFor(() => expect(api.payInstallment).toHaveBeenCalledTimes(2));
+    expect(api.payInstallment.mock.calls.map((c) => c[1].payingCompanyId)).toEqual(["emp1", "emp1"]);
+    expect(api.getAllBankAccounts).toHaveBeenCalledTimes(1);
+  }, 20000);
+});
+
 describe("Contas a Pagar — vencidos de antes do período", () => {
   // Juliana (fictícia) venceu em agosto: só vem na busca de vencidos de antes do período.
   const JULIANA = titulo("j", "Juliana Exemplo", { dueDate: "2026-08-10T00:00:00.000Z", amount: "500" });
