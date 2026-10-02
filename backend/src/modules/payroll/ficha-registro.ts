@@ -1,7 +1,7 @@
 // Regras da importação da ficha de registro para o cadastro — puras, sem banco.
 //
 // A ficha é o documento da contabilidade, mas o cadastro do ERP pode ter sido corrigido à mão
-// (a ficha da Michele diz "Masculino"; a da Maria Rosana traz os filhos como pai e mãe). Por
+// (já houve ficha com o sexo trocado e ficha com os filhos no lugar de pai e mãe). Por
 // isso só se PREENCHE o que está vazio; valor diferente já gravado vira aviso, nunca é trocado.
 // Salário, cargo, vínculo, empresa, admissão e turno não são tocados: entram no histórico do
 // cadastro (EmployeeHistorico) e mexer neles muda cálculo de mês passado. O histórico da
