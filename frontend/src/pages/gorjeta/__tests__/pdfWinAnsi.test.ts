@@ -36,7 +36,8 @@ vi.mock("jspdf", () => ({
 vi.mock("jspdf-autotable", () => ({
   default: (_doc: unknown, opts: Record<string, unknown>) => { guardar(opts.head); guardar(opts.body); guardar(opts.foot); },
 }));
-import { exportarFolhaLiquidos, exportarListaPagamento } from "../exportarPdf";
+import { exportarListaPagamento } from "../exportarPdf";
+import { gerarPdfFolhaLiquidos } from "../pdfFolhaLiquidos";
 import { gerarReciboVale } from "../reciboVale";
 
 // Helvetica do jsPDF = WinAnsi (cp1252). Fora dela o caractere sai embaralhado. Além disso,
@@ -82,9 +83,11 @@ describe("PDF só leva caracteres que a fonte do jsPDF desenha", () => {
   test("folha de líquidos: rodapé e cabeçalho sem − nem ·", async () => {
     const folha = {
       code: "FOL-2026-09", label: "Setembro – 2026", total: 2000, extratos: [], etapas: {}, salariosCombinados: [],
-      linhas: [{ employeeId: "a", nome: "Ana", grupo: "Pateo – Frei", origem: "SALARIO_COMBINADO", valor: 2000, composicao: "x", pix: null, aviso: null }],
+      linhas: [{ employeeId: "a", nome: "Ana", grupo: "Pateo – Frei", origem: "SALARIO_COMBINADO", valor: 2000, composicao: "x", pix: "ana–1", pixTipo: "EMAIL", contaBancaria: null, aviso: "Pago − falta" }],
+      jaPagos: [{ employeeId: "b", nome: "Bia – Lima", grupo: "Sem registro", valor: 10, pagoEm: "2026-09-30" }],
     } as unknown as TipFolhaLiquidos;
-    await exportarFolhaLiquidos(folha, false);
+    await gerarPdfFolhaLiquidos(folha, { year: 2026, month: 9, liberada: false, modo: "empresa" });
+    await gerarPdfFolhaLiquidos(folha, { year: 2026, month: 9, liberada: true, modo: "alfabetica" });
     const todos = enviados.join("\n");
     expect(todos).not.toMatch(/[−–]/);
     expect(foraDoPdf(todos)).toEqual([]);
