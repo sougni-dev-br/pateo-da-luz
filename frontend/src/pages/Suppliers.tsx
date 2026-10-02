@@ -1,6 +1,7 @@
-import { ChevronDown, ChevronUp, History, Pencil, PowerOff, RefreshCw, X } from "lucide-react";
+import { ChevronDown, ChevronUp, History, Pencil, PowerOff, RefreshCw, RotateCcw, UserRound, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getPaymentMethods, getSupplierHistory, getSuppliers, PaymentMethod, saveSupplier, setSupplierStatus, Supplier, SupplierHistory } from "../api/client";
+import { getPaymentMethods, getSupplierEmployeeOptions, getSupplierHistory, getSuppliers, PaymentMethod, saveSupplier, setSupplierStatus, Supplier, SupplierEmployeeOption, SupplierHistory } from "../api/client";
+import { nomeBaseDaForma } from "../lib/formas-pagamento";
 import { useRevealScroll } from "../lib/useRevealScroll";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
@@ -72,10 +73,63 @@ function paymentLabel(supplier: Supplier): string {
   return "-";
 }
 
+const EMPLOYEE_SELECT_ID = "supp-employee-select";
+
+type EmployeeSummaryProps = {
+  option: SupplierEmployeeOption;
+  paymentLabel: string | null;
+  onUndo: () => void;
+};
+
+function EmployeeSummary({ option, paymentLabel, onUndo }: EmployeeSummaryProps) {
+  const { draft } = option;
+  const contact = [draft.phone, draft.email].filter(Boolean).join(" · ");
+  return (
+    <div className="supp-employee-summary" role="status">
+      <div className="supp-employee-summary-head">
+        <span className="supp-employee-avatar" aria-hidden>{draft.name.slice(0, 1).toUpperCase()}</span>
+        <div className="supp-employee-summary-title">
+          <strong>{draft.name}</strong>
+          <span>
+            {draft.document}
+            {option.position ? ` · ${option.position}` : ""}
+            {option.isActive ? "" : " · desligado"}
+          </span>
+        </div>
+        <button type="button" className="supp-link-btn" onClick={onUndo}>
+          <RotateCcw size={13} aria-hidden /> Desfazer
+        </button>
+      </div>
+      <dl className="supp-employee-summary-list">
+        <div>
+          <dt>Contato</dt>
+          <dd>{contact || <span className="supp-muted">sem telefone/e-mail no cadastro</span>}</dd>
+        </div>
+        <div>
+          <dt>Pagamento padrão</dt>
+          <dd>{paymentLabel ? `${paymentLabel} · 1 parcela` : <span className="supp-muted">padrão do sistema</span>}</dd>
+        </div>
+        <div className="supp-employee-summary-wide">
+          <dt>PIX / conta</dt>
+          <dd>
+            {draft.defaultFinancialNotes || (
+              <span className="supp-warn-text">
+                Sem PIX nem conta no cadastro do funcionário — complete em Funcionários ou na observação financeira abaixo.
+              </span>
+            )}
+          </dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
 export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void }) {
   const { user } = useSession();
   const canEdit = hasPermission(user, "suppliers", "edit");
   const canDelete = hasPermission(user, "suppliers", "delete");
+  // CPF e PIX do funcionário só para quem pode ver Funcionários (o backend aplica a mesma regra).
+  const canReuseEmployee = hasPermission(user, "suppliers", "create") && hasPermission(user, "employees", "view");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [search, setSearch] = useState("");
@@ -88,6 +142,10 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [employeeOptions, setEmployeeOptions] = useState<SupplierEmployeeOption[] | null>(null);
+  const [employeeOptionsError, setEmployeeOptionsError] = useState<string | null>(null);
+  const [pickedEmployeeId, setPickedEmployeeId] = useState("");
+  const [fromEmployee, setFromEmployee] = useState(false);
   const { notice, setNotice } = useNotice();
   const formRef = useRevealScroll<HTMLElement>({ when: formOpen ? (editingId ?? "new") : null });
 
@@ -108,6 +166,8 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
   async function handleSubmit() {
     if (!form.name.trim()) return;
     const isUpdate = Boolean(form.id);
+    const createdFromEmployee = !isUpdate && Boolean(pickedEmployeeId);
+    const savedName = form.name.trim();
     setError(null);
     try {
       await saveSupplier({
@@ -127,7 +187,12 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
       });
       cancelEdit();
       await loadSuppliers();
-      setNotice({ tone: "success", message: isUpdate ? "Cadastro atualizado com sucesso." : "Cadastro criado com sucesso." });
+      setNotice({
+        tone: "success",
+        message: createdFromEmployee
+          ? `${savedName} cadastrado como fornecedor — já pode ser escolhido em Compras para lançar o reembolso.`
+          : isUpdate ? "Cadastro atualizado com sucesso." : "Cadastro criado com sucesso."
+      });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Erro ao salvar fornecedor.");
       setNotice({ tone: "error", message: "Erro ao salvar." });
@@ -182,8 +247,53 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
     setFormOpen(true);
   }
 
+  async function loadEmployeeOptions() {
+    setEmployeeOptionsError(null);
+    try {
+      setEmployeeOptions(await getSupplierEmployeeOptions());
+    } catch (loadError) {
+      setEmployeeOptionsError(loadError instanceof Error ? loadError.message : "Erro ao carregar funcionários.");
+    }
+  }
+
+  function applyEmployee(employeeId: string) {
+    setPickedEmployeeId(employeeId);
+    const option = employeeOptions?.find((o) => o.employeeId === employeeId);
+    if (!option) return;
+    // Reembolso se paga por PIX, numa parcela; o vencimento se ajusta no lançamento.
+    const pix = paymentMethods.find((m) => nomeBaseDaForma(m.name).trim().toUpperCase() === "PIX");
+    setForm((current) => ({
+      ...current,
+      ...option.draft,
+      defaultPaymentMethodId: pix?.id ?? current.defaultPaymentMethodId,
+      defaultInstallmentCount: pix ? "1" : current.defaultInstallmentCount
+    }));
+  }
+
+  function editExistingFromEmployee(supplierId: string) {
+    const supplier = suppliers.find((s) => s.id === supplierId);
+    if (supplier) editSupplier(supplier);
+    else setNotice({ tone: "info", message: "O cadastro existente não está na lista atual — limpe a busca e tente de novo." });
+  }
+
+  function openFromEmployee() {
+    openNewForm();
+    setFromEmployee(true);
+    // Sempre recarrega: um fornecedor criado agora muda o aviso de CPF repetido.
+    setEmployeeOptions(null);
+    loadEmployeeOptions();
+  }
+
+  function undoEmployee() {
+    setForm(emptySupplier);
+    setPickedEmployeeId("");
+    document.getElementById(EMPLOYEE_SELECT_ID)?.focus();
+  }
+
   function cancelEdit() {
     setForm(emptySupplier);
+    setPickedEmployeeId("");
+    setFromEmployee(false);
     setEditingId(null);
     setEditingName("");
     setFormOpen(false);
@@ -191,6 +301,8 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
 
   function openNewForm() {
     setForm(emptySupplier);
+    setPickedEmployeeId("");
+    setFromEmployee(false);
     setEditingId(null);
     setEditingName("");
     setFormOpen(true);
@@ -205,6 +317,15 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
   useEffect(() => {
     loadSuppliers();
   }, []);
+
+  // Entrou por "A partir de funcionário": o primeiro passo é escolher a pessoa.
+  useEffect(() => {
+    if (formOpen && fromEmployee && employeeOptions && !pickedEmployeeId) {
+      document.getElementById(EMPLOYEE_SELECT_ID)?.focus({ preventScroll: true });
+    }
+  }, [formOpen, fromEmployee, employeeOptions]);
+
+  const pickedEmployee = employeeOptions?.find((o) => o.employeeId === pickedEmployeeId) ?? null;
 
   const activeCount = suppliers.filter((s) => s.isActive).length;
   const statusTabs = [
@@ -226,6 +347,11 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
       <div className="supp-page-header">
         <div className="supp-page-actions">
           <IconButton icon={<RefreshCw size={16} />} label="Atualizar" onClick={loadSuppliers} />
+          {canReuseEmployee && (
+            <Button variant="secondary" onClick={openFromEmployee}>
+              <UserRound size={15} /> A partir de funcionário
+            </Button>
+          )}
           {canEdit && (
             <Button onClick={openNewForm}>+ Novo fornecedor</Button>
           )}
@@ -246,7 +372,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
         >
           <span className="supp-form-toggle-label">
             {formOpen
-              ? (editingId ? `Editando: ${editingName}` : "Novo fornecedor")
+              ? (editingId ? `Editando: ${editingName}` : fromEmployee ? "Novo fornecedor a partir de funcionário" : "Novo fornecedor")
               : "Cadastrar / Editar fornecedor"}
           </span>
           {formOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -261,6 +387,77 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
                   <X size={14} /> Cancelar edição
                 </button>
               </div>
+            )}
+
+            {!editingId && canReuseEmployee && !fromEmployee && (
+              <div className="supp-employee-hint">
+                <UserRound size={16} aria-hidden />
+                <span>É reembolso a funcionário? Traga nome, CPF e PIX do cadastro dele.</span>
+                <Button variant="secondary" size="sm" onClick={openFromEmployee}>Reaproveitar funcionário</Button>
+              </div>
+            )}
+
+            {!editingId && canReuseEmployee && fromEmployee && (
+              <FormSection
+                eyebrow="Reembolsos"
+                title="Reaproveitar cadastro de funcionário"
+                description="Escolha a pessoa: nome, CPF, contato e PIX/conta vêm do cadastro em Funcionários. Revise abaixo e clique em Cadastrar."
+              >
+                <FormGrid cols={2}>
+                  <FormField label="Funcionário" hint="Desligados também aparecem, para reembolso depois da rescisão.">
+                    <Select
+                      id={EMPLOYEE_SELECT_ID}
+                      value={pickedEmployeeId}
+                      disabled={!employeeOptions}
+                      onChange={(event) => applyEmployee(event.target.value)}
+                      placeholder={employeeOptions ? "Selecione um funcionário" : "Carregando funcionários…"}
+                      options={(employeeOptions ?? []).map((o) => ({
+                        value: o.employeeId,
+                        label: `${o.name}${o.position ? ` — ${o.position}` : ""}${o.isActive ? "" : " (desligado)"}`
+                      }))}
+                    />
+                  </FormField>
+                  <div className="supp-employee-switch">
+                    <button type="button" className="supp-link-btn" onClick={openNewForm}>
+                      Não é funcionário? Cadastro comum
+                    </button>
+                  </div>
+                  {employeeOptionsError && (
+                    <div className="ds-form-grid-span-all">
+                      <Alert tone="error" title="Não foi possível carregar os funcionários">
+                        {employeeOptionsError}
+                        <div className="supp-alert-actions">
+                          <Button variant="secondary" size="sm" onClick={loadEmployeeOptions}>Tentar de novo</Button>
+                        </div>
+                      </Alert>
+                    </div>
+                  )}
+                  {pickedEmployee && (
+                    <div className="ds-form-grid-span-all">
+                      <EmployeeSummary
+                        option={pickedEmployee}
+                        paymentLabel={paymentMethods.find((m) => m.id === form.defaultPaymentMethodId)?.name ?? null}
+                        onUndo={undoEmployee}
+                      />
+                    </div>
+                  )}
+                  {pickedEmployee?.existingSupplier && (
+                    <div className="ds-form-grid-span-all">
+                      <Alert
+                        tone="warning"
+                        title={`Já existe fornecedor com este CPF: ${pickedEmployee.existingSupplier.name}${pickedEmployee.existingSupplier.isActive ? "" : " (inativo)"}`}
+                      >
+                        Para não duplicar o cadastro, lance o reembolso no fornecedor existente.
+                        <div className="supp-alert-actions">
+                          <Button size="sm" onClick={() => editExistingFromEmployee(pickedEmployee.existingSupplier!.id)}>
+                            Abrir cadastro existente
+                          </Button>
+                        </div>
+                      </Alert>
+                    </div>
+                  )}
+                </FormGrid>
+              </FormSection>
             )}
 
             <FormSection eyebrow="Cadastro operacional" title="Dados do fornecedor">
@@ -433,7 +630,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
             <div className="form-actions">
               <Button variant="secondary" onClick={cancelEdit}>Cancelar</Button>
               <Button disabled={!canEdit} onClick={handleSubmit}>
-                {form.id ? "Salvar alterações" : "Cadastrar"}
+                {form.id ? "Salvar alterações" : pickedEmployee?.existingSupplier ? "Cadastrar mesmo assim" : "Cadastrar"}
               </Button>
             </div>
           </div>
