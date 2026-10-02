@@ -50,7 +50,7 @@ export type FeriasRow = {
 };
 
 export type PlanoFicha = {
-  dados: Partial<CamposFicha & CamposExistentes>;
+  dados: Partial<CamposFicha & Omit<CamposExistentes, "gender">> & { gender?: SexoCadastro };
   avisos: string[];
   dependentes: string[];
   ferias: FeriasRow[];
@@ -61,7 +61,8 @@ const dia = (iso: string | null): Date | null => (iso ? new Date(`${iso}T00:00:0
 const iso = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
 const soDigitos = (s: string | null | undefined) => (s ?? "").replace(/[^\dXx]/g, "").toUpperCase();
 const semAcento = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
-const SEXO: Record<string, string> = { Masculino: "MASCULINO", Feminino: "FEMININO" };
+type SexoCadastro = "MASCULINO" | "FEMININO";
+const SEXO: Record<string, SexoCadastro> = { Masculino: "MASCULINO", Feminino: "FEMININO" };
 
 export type EnderecoQuebrado = {
   address: string; addressNumber: string | null; addressComplement: string | null;
@@ -153,6 +154,11 @@ export function planoDaFicha(atual: CadastroAtual, f: FichaRegistro): PlanoFicha
     const valor = novos[campo];
     if (valor == null || comErro.has(campo)) continue;
     if (atual[campo] == null) Object.assign(dados, { [campo]: valor });
+    // Nome completo criado pelo extrato da contabilidade vem sem acento ("Joao"): a ficha pode
+    // trocar pela mesma grafia acentuada ("João") — é o mesmo nome, não uma divergência.
+    else if (campo === "nomeCompleto" && typeof valor === "string" && typeof atual.nomeCompleto === "string"
+      && semAcento(valor) === semAcento(atual.nomeCompleto) && valor !== atual.nomeCompleto
+      && /[̀-ͯ]/.test(valor.normalize("NFD"))) Object.assign(dados, { nomeCompleto: valor });
     else if (!igual(atual[campo], valor)) avisos.push(`${campo}: cadastro "${mostrar(atual[campo])}" × ficha "${mostrar(valor)}" (mantido o do cadastro)`);
   }
 
@@ -179,7 +185,7 @@ export function planoDaFicha(atual: CadastroAtual, f: FichaRegistro): PlanoFicha
   const temEndereco = [atual.zipCode, atual.address, atual.addressNumber, atual.neighborhood, atual.city, atual.state].some(Boolean);
   const daFicha = f.endereco ? { ...quebrarEndereco(f.endereco), zipCode: f.cep } : null;
   if (daFicha && !temEndereco) Object.assign(dados, daFicha);
-  else if (daFicha && (Object.keys(daFicha) as (keyof typeof daFicha)[]).some((c) => !igual(atual[c], daFicha[c]))) {
+  else if (daFicha && (Object.keys(daFicha) as (keyof typeof daFicha)[]).some((c) => (c === "zipCode" ? soDigitos(atual[c]) !== soDigitos(daFicha[c]) : !igual(atual[c], daFicha[c])))) {
     avisos.push("endereço do cadastro diferente do da ficha: mantido o do cadastro");
   }
 
@@ -208,9 +214,9 @@ const DIA_MS = 86_400_000;
 const diasEntre = (a: Date | null, b: Date | null) => (a && b && b >= a ? Math.round((b.getTime() - a.getTime()) / DIA_MS) + 1 : 0);
 function somarAnos(d: Date, anos: number): Date {
   const r = new Date(d);
+  // 29/02 em ano não bissexto vira 01/03 (o Date já faz isso): "no dia imediato, se faltar
+  // exata correspondência" (Código Civil, art. 132, §3º). O período antes dele termina em 28/02.
   r.setUTCFullYear(r.getUTCFullYear() + anos);
-  // 29/02 + 1 ano cai em 01/03: volta para o último dia de fevereiro.
-  if (r.getUTCDate() !== d.getUTCDate()) r.setUTCDate(0);
   return r;
 }
 const vespera = (d: Date) => new Date(d.getTime() - DIA_MS);
@@ -232,19 +238,23 @@ export function resumoFerias(admissao: Date, saida: Date | null, linhas: FeriasR
   // cada ano, com o duplicado vazio aparecendo como "Prazo vencido".
   const cobertos = linhas.map((l) => [l.aquisitivoInicio, l.aquisitivoFim] as const);
   const inicios = new Set(porInicio.keys());
+  // Fim do período gerado: véspera do PRÓXIMO aniversário contado da admissão (de 29/02/2020, o
+  // período de 01/03/2023 termina em 28/02/2024, porque o seguinte começa em 29/02/2024).
+  const fimGerado = new Map<string, Date>();
   for (let n = 0, ini = admissao; ini <= limite; n++, ini = somarAnos(admissao, n)) {
     const dentro = cobertos.some(([a, b]) => ini >= a && ini <= b);
-    const fimGerado = vespera(somarAnos(admissao, n + 1));
-    const cobreAlgum = cobertos.some(([a]) => a >= ini && a <= fimGerado);
-    if (!dentro && !cobreAlgum) inicios.add(iso(ini)!);
+    const fim = vespera(somarAnos(admissao, n + 1));
+    const cobreAlgum = cobertos.some(([a]) => a >= ini && a <= fim);
+    if (!dentro && !cobreAlgum) { inicios.add(iso(ini)!); fimGerado.set(iso(ini)!, fim); }
   }
 
   return [...inicios].sort().map((k) => {
     const ini = dia(k)!;
     const doPeriodo = porInicio.get(k) ?? [];
-    const fim = doPeriodo[0]?.aquisitivoFim ?? vespera(somarAnos(ini, 1));
-    // Concessivo: os 12 meses seguintes ao aquisitivo (31/10/2017 → 31/10/2018).
-    const concessivoFim = somarAnos(fim, 1);
+    const fim = doPeriodo[0]?.aquisitivoFim ?? fimGerado.get(k) ?? vespera(somarAnos(ini, 1));
+    // Concessivo: os 12 meses seguintes ao aquisitivo — da véspera do dia seguinte ao fim, um ano
+    // depois (31/10/2017 → 31/10/2018; 29/02/2024 → 28/02/2025).
+    const concessivoFim = vespera(somarAnos(new Date(fim.getTime() + DIA_MS), 1));
     const diasGozados = doPeriodo.reduce((s, l) => s + diasEntre(l.gozoInicio, l.gozoFim), 0);
     const diasAbono = doPeriodo.reduce((s, l) => s + diasEntre(l.abonoInicio, l.abonoFim), 0);
     let status: StatusFerias;

@@ -139,6 +139,31 @@ const FICHA_TEXTO = [
 ] as const;
 const FICHA_DATA = ["rgDataEmissao", "ctpsDataEmissao", "fgtsDataOpcao"] as const;
 
+const ROTULO_DATA_FICHA: Record<(typeof FICHA_DATA)[number], string> = {
+  rgDataEmissao: "Data de emissão do RG", ctpsDataEmissao: "Data de emissão da CTPS", fgtsDataOpcao: "Data de opção pelo FGTS",
+};
+
+// "AAAA-MM-DD" (com ou sem hora) que existe no calendário: o Date aceitaria "2021-02-31" como
+// 03/03 e "20210-01-01" como ano 20210.
+function dataDoCalendario(v: unknown): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(String(v));
+  if (!m) return false;
+  const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00.000Z`);
+  return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+// Valor da ficha que não dá para entender é recusado — antes virava null e APAGAVA o gravado.
+// Vazio ("" ou null) continua valendo como "limpar o campo".
+export function conferirCamposFicha(b: Record<string, unknown>): string | null {
+  for (const c of FICHA_DATA) {
+    if (c in b && b[c] != null && b[c] !== "" && !dataDoCalendario(b[c])) return `${ROTULO_DATA_FICHA[c]} inválida.`;
+  }
+  if ("possuiDeficiencia" in b && b.possuiDeficiencia != null && typeof b.possuiDeficiencia !== "boolean") {
+    return "Informe se é pessoa com deficiência (sim ou não).";
+  }
+  return null;
+}
+
 export function lerCamposFicha(b: Record<string, unknown>): Record<string, string | Date | boolean | null> {
   const out: Record<string, string | Date | boolean | null> = {};
   for (const c of FICHA_TEXTO) if (c in b) out[c] = str(b[c])?.slice(0, 120) ?? null;
@@ -320,7 +345,7 @@ employeeRouter.get("/", async (request, response) => {
 employeeRouter.get("/birthdays", async (request, response) => {
   const month = intOrNull(request.query.month) ?? new Date().getMonth() + 1;
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-    SELECT id, "firstName", "lastName", "displayName", "birthDate", sector, position
+    SELECT id, "firstName", "lastName", "displayName", "nomeCompleto", "birthDate", sector, position
     FROM "Employee"
     WHERE "deletedAt" IS NULL AND "isActive" = true AND "birthDate" IS NOT NULL
       AND EXTRACT(MONTH FROM "birthDate") = ${month}
@@ -416,6 +441,8 @@ employeeRouter.post("/", async (request, response) => {
 
   const existing = await prisma.employee.findFirst({ where: { cpf, deletedAt: null } });
   if (existing) return response.status(400).json({ message: "Já existe um funcionário com este CPF." });
+  const erroFicha = conferirCamposFicha(b);
+  if (erroFicha) return response.status(400).json({ message: erroFicha });
   const combinado = lerSalarioCombinado(b);
   if ("erro" in combinado) return response.status(400).json({ message: combinado.erro });
   const adiantamento = lerFormaPagamento(b);
@@ -487,6 +514,8 @@ employeeRouter.put("/:id", async (request, response) => {
     where: { cpf, deletedAt: null, id: { not: request.params.id } },
   });
   if (cpfConflict) return response.status(400).json({ message: "CPF já está em uso por outro funcionário." });
+  const erroFicha = conferirCamposFicha(b);
+  if (erroFicha) return response.status(400).json({ message: erroFicha });
   const combinado = lerSalarioCombinado(b);
   if ("erro" in combinado) return response.status(400).json({ message: combinado.erro });
   const adiantamento = lerFormaPagamento(b, existing);

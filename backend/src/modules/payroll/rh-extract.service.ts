@@ -12,6 +12,7 @@ import { avisosDoExtrato, guardarExtrato, preencherAdmissaoCarteira } from "./rh
 import { aposSaida, duplicadosDe, ehComplemento } from "./folha-duplicidade.js";
 import { avisoGorjetaPendente, gorjetasDaCompetencia, mapaCombinados } from "./salario-combinado.service.js";
 import { type GorjetaDaApuracao, gorjetaDaPessoa, salarioDaFolha } from "./salario-combinado-folha.js";
+import { nomeProprio } from "../../shared/utils/nome-proprio.js";
 
 export type ExtratoFuncionario = {
   nome: string;
@@ -103,11 +104,18 @@ export function lerTextoExtrato(txt: string): ExtratoParsed {
   return { calculo, empresa, cnpj, competenceYear, competenceMonth, funcionarios };
 }
 
-function splitName(full: string): { firstName: string; lastName: string } {
+// O extrato traz o nome em MAIÚSCULAS: o cadastro criado daqui já nasce no padrão (nome
+// próprio) e com o nome inteiro em nomeCompleto. A divisão é pela 1ª palavra — prenome
+// composto ("Ana Beatriz") se acerta à mão no cadastro.
+export function splitName(full: string): { firstName: string; lastName: string; nomeCompleto: string | null } {
   const parts = full.trim().split(/\s+/);
   const firstName = parts.shift() || full || "—";
   const lastName = parts.join(" ") || firstName;
-  return { firstName, lastName };
+  return {
+    firstName: nomeProprio(firstName) ?? firstName,
+    lastName: nomeProprio(lastName, { continuacao: true }) ?? lastName,
+    nomeCompleto: nomeProprio(full)?.slice(0, 120) ?? null,
+  };
 }
 
 // Categoria de DRE para a folha. Busca pelo MESMO nome exato que payroll.service usa.
@@ -378,10 +386,10 @@ export async function importExtrato(opts: {
   for (const f of parsed.funcionarios) {
     let empId = f.cpfNorm ? byCpf.get(f.cpfNorm) : undefined;
     if (!empId) {
-      const { firstName, lastName } = splitName(f.nome);
+      const { firstName, lastName, nomeCompleto } = splitName(f.nome);
       const cpfValue = f.cpf || `SEMCPF-${crypto.randomUUID().slice(0, 8)}`;
       const emp = await prisma.employee.create({
-        data: { id: crypto.randomUUID(), firstName, lastName, cpf: cpfValue, companyId, createdById: opts.userId },
+        data: { id: crypto.randomUUID(), firstName, lastName, nomeCompleto, cpf: cpfValue, companyId, createdById: opts.userId },
       });
       empId = emp.id;
       funcionariosCadastrados += 1;
