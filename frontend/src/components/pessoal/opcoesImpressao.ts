@@ -22,6 +22,7 @@ export const PALETAS: Array<{ value: Paleta; label: string; amostra: string }> =
 ];
 
 export const FORMAS_NOME: Array<{ value: FormaNome; label: string }> = [
+  { value: "PRENOME_SOBRENOME", label: "Nome e sobrenome" },
   { value: "APELIDO", label: "Apelido" },
   { value: "PRIMEIRO", label: "Primeiro nome" },
   { value: "COMPLETO", label: "Completo" }
@@ -43,19 +44,24 @@ export const MENSAGENS_SUGERIDAS = [
 export const ASSINATURA_PADRAO = "Com carinho, equipe Pateo da Luz";
 
 export const PADRAO: OpcoesFolha = {
-  modelo: "CARTAZ", orientacao: "portrait", paleta: "DOURADO", formaNome: "APELIDO", tamanho: "NORMAL",
+  modelo: "CARTAZ", orientacao: "portrait", paleta: "DOURADO", formaNome: "PRENOME_SOBRENOME", tamanho: "NORMAL",
   mostrarSetor: true, mostrarCargo: false, mostrarLogo: true,
   titulo: "", mensagem: MENSAGENS_SUGERIDAS[0], assinatura: ASSINATURA_PADRAO
 };
 
 // v2: o padrão de nome virou "Apelido" e a mensagem mudou — preferências antigas não valem mais.
-const CHAVE_PREFERENCIAS = "pateo.aniversariantes.impressao.v2";
+// v3: o padrão de nome virou "Nome e sobrenome" (decisão do Eli, 01/10/2026). As preferências da
+// v2 continuam valendo (cores, modelo, mensagem); só a forma do nome passa para o padrão novo.
+const CHAVE_PREFERENCIAS = "pateo.aniversariantes.impressao.v3";
+const CHAVE_V2 = "pateo.aniversariantes.impressao.v2";
 
 // Preferências só de conveniência: se o navegador bloquear o armazenamento, usa o padrão.
 export function lerPreferencias(): OpcoesFolha {
   try {
     const salvo = window.localStorage.getItem(CHAVE_PREFERENCIAS);
-    return salvo ? { ...PADRAO, ...(JSON.parse(salvo) as Partial<OpcoesFolha>), titulo: "" } : PADRAO;
+    if (salvo) return { ...PADRAO, ...(JSON.parse(salvo) as Partial<OpcoesFolha>), titulo: "" };
+    const v2 = window.localStorage.getItem(CHAVE_V2);
+    return v2 ? { ...PADRAO, ...(JSON.parse(v2) as Partial<OpcoesFolha>), formaNome: PADRAO.formaNome, titulo: "" } : PADRAO;
   } catch {
     return PADRAO;
   }
