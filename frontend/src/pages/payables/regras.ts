@@ -106,7 +106,10 @@ export function basePaymentName(name: string): string {
  * Forma prevista do título como valor do select de baixa ("id:<forma>"), ou "" quando não casa.
  * Casa primeiro pelo id da forma de origem e, se não achar, pelo nome; as formas parceladas
  * ("BOLETO 2X") viram a forma base ("BOLETO"), que é a que o select oferece.
+ * Folha, extras e lote da folha não guardam forma: a prevista é PIX, como é paga a folha.
  */
+const FORMA_DA_FOLHA = "PIX";
+
 export function formaPrevistaDoTitulo(
   p: Payable,
   metodos: Array<{ id: string; name: string }>,
@@ -114,7 +117,9 @@ export function formaPrevistaDoTitulo(
 ): string {
   const daBase = (nome: string) => formas.find((o) => o.label === basePaymentName(nome));
   const origem = p.paymentMethodId ? metodos.find((m) => m.id === p.paymentMethodId) : undefined;
-  const forma = (origem && daBase(origem.name)) || (p.paymentMethodName ? daBase(p.paymentMethodName) : undefined);
+  const pessoal = isPayroll(p) || isExtra(p) || isFolhaLote(p);
+  const forma = (origem && daBase(origem.name)) || (p.paymentMethodName ? daBase(p.paymentMethodName) : undefined)
+    || (pessoal ? daBase(FORMA_DA_FOLHA) : undefined);
   return forma ? `id:${forma.id}` : "";
 }
 
