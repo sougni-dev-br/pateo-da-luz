@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getEmployeeFicha, type EmployeeFicha, type EmployeeFichaFerias, type StatusFerias } from "../../api/client";
-import { Alert, FormSection, Money, StatusBadge, type StatusTone } from "../../design-system";
+import { Alert, Button, FormSection, Money, StatusBadge, type StatusTone } from "../../design-system";
 import { diaBr } from "./historicoCadastroFormato";
 import "./FichaRegistro.css";
 
@@ -26,7 +26,7 @@ function Periodo({ p }: { p: EmployeeFichaFerias }) {
         <StatusBadge tone={s.tom}>{s.texto}</StatusBadge>
       </div>
       {p.gozos.map((g) => (
-        <div key={g.inicio} className="ficha-registro__detalhe">
+        <div key={`${g.inicio}-${g.fim}`} className="ficha-registro__detalhe">
           gozo {diaBr(g.inicio)} a {diaBr(g.fim)}
           {g.abonoInicio && g.abonoFim && <> · abono {diaBr(g.abonoInicio)} a {diaBr(g.abonoFim)}</>}
         </div>
@@ -66,6 +66,7 @@ function Carteira({ ficha }: { ficha: EmployeeFicha }) {
 export function FichaRegistro({ employeeId }: Props) {
   const [ficha, setFicha] = useState<EmployeeFicha | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [tentativa, setTentativa] = useState(0);
 
   useEffect(() => {
     let vivo = true;
@@ -75,7 +76,7 @@ export function FichaRegistro({ employeeId }: Props) {
       .then((r) => { if (vivo) setFicha(r); })
       .catch((e) => { if (vivo) setErro(e instanceof Error ? e.message : "Erro ao carregar a ficha de registro."); });
     return () => { vivo = false; };
-  }, [employeeId]);
+  }, [employeeId, tentativa]);
 
   const vazia = ficha && ficha.dependentes.length === 0 && ficha.carteira.length === 0 && ficha.ferias.every((p) => p.gozos.length === 0);
   // Mais recente em cima, como o histórico do cadastro.
@@ -83,8 +84,13 @@ export function FichaRegistro({ employeeId }: Props) {
 
   return (
     <FormSection title="Ficha de registro" description="Dependentes, férias e carteira, da ficha da contabilidade.">
-      {erro && <Alert tone="error">{erro}</Alert>}
-      {!erro && !ficha && <div className="historico-cadastro__vazio">Carregando…</div>}
+      {erro && (
+        <Alert tone="error">
+          {erro}{" "}
+          <Button variant="secondary" size="sm" onClick={() => setTentativa((n) => n + 1)}>Tentar de novo</Button>
+        </Alert>
+      )}
+      {!erro && !ficha && <div className="historico-cadastro__vazio" role="status" aria-live="polite">Carregando…</div>}
       {ficha && vazia && <div className="historico-cadastro__vazio">Ficha de registro ainda não importada para esta pessoa.</div>}
       {ficha && !vazia && (
         <div className="ficha-registro">
@@ -96,11 +102,15 @@ export function FichaRegistro({ employeeId }: Props) {
           </div>
           <div className="ficha-registro__bloco">
             <h4 className="ficha-registro__titulo">Férias por período aquisitivo</h4>
-            <ol className="ficha-registro__lista ficha-registro__lista--ferias">{periodos.map((p) => <Periodo key={p.aquisitivoInicio} p={p} />)}</ol>
+            {periodos.length === 0
+              ? <div className="historico-cadastro__vazio">Sem admissão em carteira para contar os períodos.</div>
+              : <ol className="ficha-registro__lista ficha-registro__lista--ferias">{periodos.map((p) => <Periodo key={p.aquisitivoInicio} p={p} />)}</ol>}
           </div>
           <div className="ficha-registro__bloco">
             <h4 className="ficha-registro__titulo">Carteira</h4>
-            <div className="ficha-registro__rolagem"><Carteira ficha={ficha} /></div>
+            {ficha.carteira.length === 0
+              ? <div className="historico-cadastro__vazio">Nenhuma anotação na ficha.</div>
+              : <div className="ficha-registro__rolagem"><Carteira ficha={ficha} /></div>}
           </div>
         </div>
       )}

@@ -21,6 +21,19 @@ describe("nome na impressão de aniversariantes", () => {
     expect(ultimoSobrenome("Neto")).toBe("Neto");
   });
 
+  test("Completo usa o nome da carteira; sem ele, Nome + Sobrenome", () => {
+    const comCarteira = { ...pessoa("Ana", "Lima"), nomeCompleto: "Ana Beatriz de Souza Lima" };
+    expect(nomeParaExibir(comCarteira, "COMPLETO")).toBe("Ana Beatriz de Souza Lima");
+    expect(nomeParaExibir({ ...comCarteira, nomeCompleto: "  " }, "COMPLETO")).toBe("Ana Lima");
+  });
+
+  test("espaços sobrando não vão para a impressão; partícula solta no fim é ignorada", () => {
+    expect(nomeParaExibir(pessoa(" Ana  Beatriz ", "Souza   Lima "), "PRENOME_SOBRENOME")).toBe("Ana Beatriz Lima");
+    expect(nomeParaExibir(pessoa("Ana ", " Souza Lima"), "COMPLETO")).toBe("Ana Souza Lima");
+    expect(ultimoSobrenome("Silva de")).toBe("Silva");
+    expect(ultimoSobrenome("de")).toBe("de");
+  });
+
   test("as outras formas continuam como eram", () => {
     const p = pessoa("Ana Beatriz", "Souza Lima", "Bia");
     expect(nomeParaExibir(p, "APELIDO")).toBe("Bia");
