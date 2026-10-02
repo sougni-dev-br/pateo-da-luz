@@ -30,6 +30,8 @@ import { supplierCyclesRouter } from "./modules/suppliers/supplier-cycles.routes
 import { taxPaymentRouter } from "./modules/tax-payments/tax-payment.routes.js";
 import { companyRouter } from "./modules/companies/company.routes.js";
 import { employeeRouter } from "./modules/payroll/employee.routes.js";
+import { fichaCadastralRouter } from "./modules/payroll/ficha-cadastral.routes.js";
+import { fichaCadastralPublicoRouter } from "./modules/payroll/ficha-cadastral-publico.routes.js";
 import { scheduleRouter } from "./modules/payroll/schedule.routes.js";
 import { payrollRouter } from "./modules/payroll/payroll.routes.js";
 import { rescisoesRouter } from "./modules/payroll/rescisoes.routes.js";
@@ -67,6 +69,9 @@ app.use(cors({
   // Cabeçalhos que a tela lê da resposta (sem isto o navegador os esconde em outra origem).
   exposedHeaders: ["X-Payables-Truncado"],
 }));
+// A ficha cadastral pública é aberta por qualquer um que tenha o link: corpo JSON pequeno (o
+// formulário inteiro tem poucos KB). Vem antes do parser geral, que então pula o corpo já lido.
+app.use("/public/ficha-cadastral", express.json({ limit: "100kb" }));
 // Limite generoso para acomodar o payload do agente Agile PDV
 // (backfill de 6 meses pode ficar em ~10 MB de JSON com vendas + pagamentos + itens).
 // verify() salva o rawBody UTF-8 apenas em rotas que precisam validar
@@ -127,6 +132,9 @@ app.use("/auth", authRouter);
 // Rotas PÚBLICAS (chamadas por terceiros/webhooks) ficam ANTES do
 // requireMenuAccess pra bypassar o middleware de sessão.
 app.use("/public/delivery/noventa-nove", noventaNovePublicRouter);
+// Link da ficha cadastral: quem abre é a pessoa sendo admitida, sem login. Acesso pelo
+// código do link (e pela data de nascimento/CPF depois do primeiro salvamento).
+app.use("/public/ficha-cadastral", fichaCadastralPublicoRouter);
 // Notifications público (trigger via cron): autenticado por token próprio
 // (X-Daily-Summary-Token). Precisa ficar ANTES do requireMenuAccess.
 app.use("/notifications", notificationsPublicRouter);
@@ -138,6 +146,7 @@ app.use("/suppliers", supplierRouter);
 app.use("/supplier-cycles", supplierCyclesRouter);
 app.use("/companies", companyRouter);
 app.use("/employees", employeeRouter);
+app.use("/employee-forms", fichaCadastralRouter);
 app.use("/schedule", scheduleRouter);
 // Montada ANTES de "/payroll" para o prefixo mais específico ser resolvido primeiro.
 app.use("/payroll/tip", tipCommissionRouter);
