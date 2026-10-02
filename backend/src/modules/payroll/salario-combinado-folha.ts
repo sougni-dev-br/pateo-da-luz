@@ -10,8 +10,17 @@ export function valorIntegralCombinado(a: { combinado: number; adiantamento: num
   return round2(a.combinado - a.adiantamento + a.gorjeta);
 }
 
-// Gorjeta da pessoa na apuração da competência (null = apuração inexistente ou pessoa fora dela).
-export type GorjetaDaApuracao = { noPeriodo: boolean; gorjetaLiquida: number };
+// Gorjeta da pessoa na apuração da competência. pagoNaRescisao: a gorjeta já foi paga no
+// termo de rescisão (não soma de novo no salário).
+export type GorjetaDaApuracao = { noPeriodo: boolean; gorjetaLiquida: number; pagoNaRescisao?: boolean };
+
+// A gorjeta de uma pessoa a partir do mapa da competência. Sem apuração (mapa null) =
+// pendente (null). Apuração existe e a pessoa não está nela (em teste, fora do período) =
+// gorjeta zero, como na folha de líquidos — não fica pendente para sempre.
+export function gorjetaDaPessoa(mapa: Map<string, GorjetaDaApuracao> | null | undefined, employeeId: string): GorjetaDaApuracao | null {
+  if (mapa == null) return null;
+  return mapa.get(employeeId) ?? { noPeriodo: false, gorjetaLiquida: 0 };
+}
 
 export type DetalhesSalario = {
   liquidoExtrato: number;
@@ -39,7 +48,7 @@ export function salarioDaFolha(e: {
     };
   }
   const adiantamento = e.adiantamento ?? 0;
-  const gorjetaIntegral = e.gorjeta.noPeriodo ? round2(e.gorjeta.gorjetaLiquida) : 0;
+  const gorjetaIntegral = e.gorjeta.noPeriodo && !e.gorjeta.pagoNaRescisao ? round2(e.gorjeta.gorjetaLiquida) : 0;
   const valor = valorIntegralCombinado({ combinado: e.combinado, adiantamento, gorjeta: gorjetaIntegral });
   const complemento = round2(valor - liquidoExtrato);
   return {

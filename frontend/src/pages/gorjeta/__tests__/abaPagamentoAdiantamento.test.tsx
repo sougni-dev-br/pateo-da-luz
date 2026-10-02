@@ -90,6 +90,6 @@ describe("adiantamento oculto (regra compartilhada pela tela e pelo PDF)", () =>
   test("célula do PDF: \"oculto\" sem permissão, vazio para zero, negativo para valor", () => {
     expect(celulaAdiantamento(null)).toBe("oculto");
     expect(celulaAdiantamento(0)).toBe("");
-    expect(celulaAdiantamento(880)).toMatch(/^− R\$\s*880,00$/);
+    expect(celulaAdiantamento(880)).toMatch(/^- R\$\s*880,00$/);
   });
 });

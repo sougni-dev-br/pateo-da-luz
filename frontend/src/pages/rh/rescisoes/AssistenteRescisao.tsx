@@ -40,19 +40,25 @@ export function AssistenteRescisao({ employeeId, passo, lista, onEscolher, onPas
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const tituloRef = useRef<HTMLHeadingElement>(null);
+  // Trocou de pessoa com a carga no ar: a resposta da anterior não vale mais.
+  const pessoaAtual = useRef(employeeId);
+  pessoaAtual.current = employeeId;
 
   const recarregar = useCallback(async () => {
     if (!employeeId) return;
+    const desta = () => pessoaAtual.current === employeeId;
     setCarregando(true);
     setErro(null);
     try {
       const [d, i] = await Promise.all([getRescisaoDetalhe(employeeId), getTerminationInfo(employeeId)]);
+      if (!desta()) return;
       setDetalhe(d);
       setInfo(i);
     } catch (e) {
+      if (!desta()) return;
       setErro(e instanceof Error ? e.message : "Não consegui carregar a rescisão.");
     } finally {
-      setCarregando(false);
+      if (desta()) setCarregando(false);
     }
   }, [employeeId]);
 
@@ -71,7 +77,8 @@ export function AssistenteRescisao({ employeeId, passo, lista, onEscolher, onPas
     () => (detalhe ? pendenciasDaRescisao({ detalhe, apuracao: info?.apuracao ?? null }) : []),
     [detalhe, info],
   );
-  const pessoa = detalhe?.pessoa ?? null;
+  // Só vale o detalhe da pessoa escolhida (nunca o de quem estava antes).
+  const pessoa = detalhe && detalhe.pessoa.employeeId === employeeId ? detalhe.pessoa : null;
   const situacao = pessoa && lista ? situacaoRescisao(pessoa, lista.hoje) : null;
   const semSaida = pessoa != null && !pessoa.saida;
   const bloqueado = (n: NumeroPasso) => n > 1 && (!employeeId || semSaida);
@@ -132,7 +139,13 @@ export function AssistenteRescisao({ employeeId, passo, lista, onEscolher, onPas
       {passo === 3 && detalhe && (
         <PassoPendencias pendencias={pendencias} onMudou={mudou} onPasso={onPasso} />
       )}
-      {passo === 4 && detalhe && pessoa && (
+      {passo > 1 && semSaida && (
+        <Alert tone="warning">
+          Sem data de saída: informe a data no passo 1 antes de apurar, conferir e lançar.{" "}
+          <Button size="sm" variant="secondary" onClick={() => onPasso(1)}>Ir para o passo 1</Button>
+        </Alert>
+      )}
+      {passo === 4 && detalhe && pessoa?.saida && (
         <PassoLancar
           key={`${pessoa.employeeId}-${pessoa.saida}`}
           funcionario={{ id: pessoa.employeeId, nome: pessoa.nome, semRegistro: info?.apuracao?.semRegistro ?? pessoa.semRegistro }}

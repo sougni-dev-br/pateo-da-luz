@@ -326,12 +326,15 @@ tipConferenciaRouter.get("/periods/:year/:month/folha-liquidos", async (request,
 // Recalcula o SALARIO não pago de quem tem salário combinado na competência com o valor
 // integral ((combinado − adiantamento) + gorjeta). O fechamento da gorjeta já chama sozinho;
 // aqui é o botão para depois de um extrato reimportado ou de um combinado mudado.
-// Mostra salários: exige editar a gorjeta E ver Funcionários.
+// Mostra salários e grava no SALARIO da Folha: exige editar a gorjeta, editar a Folha E ver Funcionários.
 tipConferenciaRouter.post("/periods/:year/:month/salarios-combinados/sincronizar", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
   if (!(await userHasPermission(user as SessionUser, "payroll-tips", "edit"))) {
     return response.status(403).json({ message: "Atualizar os salários exige a permissão de editar a gorjeta." });
+  }
+  if (!(await userHasPermission(user as SessionUser, "payroll", "edit"))) {
+    return response.status(403).json({ message: "Atualizar os salários combinados grava na Folha: exige a permissão de editar a Folha." });
   }
   if (!(await podeVerDadosPessoais(request))) {
     return response.status(403).json({ message: "Os salários combinados exigem permissão de ver Funcionários." });

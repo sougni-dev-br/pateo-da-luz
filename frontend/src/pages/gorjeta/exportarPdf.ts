@@ -3,19 +3,29 @@ import {
   MONTHS, NOTA_ADIANTAMENTO_OCULTO, NOTA_HORA_EXTRA_OCULTA, NOTA_QUINZENA_OCULTA, REGRA_HORA_EXTRA, REGRA_QUINZENA, adiantamentoOculto, fmtDate, fmtHoras,
   money, mostraQuinzena, ordenar, parseHoras, quinzenaOculta, valorHoraExtraTotal,
 } from "./gorjetaUtils";
+import { celulasPdf, textoPdf } from "./envioContabilidade";
 import { gerarPdfEnvioContabilidade } from "./pdfEnvioContabilidade";
 
 type AutoTable = (doc: unknown, options: Record<string, unknown>) => void;
 
+// A Helvetica do jsPDF (WinAnsi) não desenha "−" nem alguns traços: todo texto e toda célula
+// passam por textoPdf antes de ir para o documento.
+const comTextoPdf = (autoTable: AutoTable): AutoTable => (doc, o) => autoTable(doc, {
+  ...o,
+  ...(o.head ? { head: celulasPdf(o.head as string[][]) } : {}),
+  ...(o.body ? { body: celulasPdf(o.body as string[][]) } : {}),
+  ...(o.foot ? { foot: celulasPdf(o.foot as string[][]) } : {}),
+});
+
 async function novoPdf(titulo: string, comp: TipComputation, orientacao: "portrait" | "landscape" = "portrait") {
   const { jsPDF } = await import("jspdf");
-  const autoTable = (await import("jspdf-autotable")).default as unknown as AutoTable;
+  const autoTable = comTextoPdf((await import("jspdf-autotable")).default as unknown as AutoTable);
   const doc = new jsPDF({ orientation: orientacao });
   doc.setFontSize(14);
-  doc.text(titulo, 14, 16);
+  doc.text(textoPdf(titulo), 14, 16);
   doc.setFontSize(10);
   doc.setTextColor(90);
-  doc.text(`Competência: ${MONTHS[comp.month - 1]} / ${comp.year}   ·   Período: ${comp.label}`, 14, 23);
+  doc.text(textoPdf(`Competência: ${MONTHS[comp.month - 1]} / ${comp.year}   ·   Período: ${comp.label}`), 14, 23);
   doc.setTextColor(0);
   const finalY = () => (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
   return { doc, autoTable, finalY };
@@ -37,7 +47,7 @@ export async function exportarContabilidade(comp: TipComputation) {
 /** Célula do adiantamento no PDF: null = sem permissão ("oculto"); 0 = não recebe (vazio). */
 export function celulaAdiantamento(valor: number | null | undefined): string {
   if (valor == null) return "oculto";
-  return valor ? `− ${money(valor)}` : "";
+  return valor ? textoPdf(`- ${money(valor)}`) : "";
 }
 
 /** Célula do valor da hora extra + noturno no PDF: null = sem permissão ("oculto"); 0 = sem horas (vazio). */
@@ -67,7 +77,7 @@ export function linhaListaPagamento(p: TipComputedParticipant, comQuinzena = fal
     ...(comQuinzena ? [celulaAdiantamento(p.primeiraQuinzena === undefined ? 0 : p.primeiraQuinzena)] : []),
     // Não participa da gorjeta: traço, não "R$ 0,00" (que leria como gorjeta zerada).
     p.foraDaGorjeta ? "—" : money(p.rateioAmount),
-    p.descontos ? `− ${money(p.descontos)}` : "",
+    p.descontos ? textoPdf(`- ${money(p.descontos)}`) : "",
     p.creditos ? money(p.creditos) : "",
     celulaHoras(p.horaExtra),
     celulaHoras(p.adicionalNoturno),
@@ -113,17 +123,18 @@ export async function exportarListaPagamento(comp: TipComputation) {
   });
   doc.setFontSize(8);
   doc.setTextColor(120);
-  doc.text("Salário calculado como registrado: salário ÷ 30 × dias (mês inteiro = 30; faltas injustificadas descontam).", 14, finalY() + 8);
+  const nota = (t: string, y: number) => doc.text(textoPdf(t), 14, y);
+  nota("Salário calculado como registrado: salário ÷ 30 × dias (mês inteiro = 30; faltas injustificadas descontam).", finalY() + 8);
   // O adiantamento já foi pago no dia dele: a lista só leva o que falta.
   if (oculto) {
-    doc.text(`Adiantamento oculto (sem permissão de ver Funcionários). ${NOTA_ADIANTAMENTO_OCULTO}`, 14, finalY() + 12);
+    nota(`Adiantamento oculto (sem permissão de ver Funcionários). ${NOTA_ADIANTAMENTO_OCULTO}`, finalY() + 12);
   } else if (comp.adiantamento) {
     const { percent, dia } = comp.adiantamento;
-    doc.text(`Adiantamento = ${percent.toLocaleString("pt-BR")}% do salário base, pago no dia ${dia}, para quem recebe adiantamento (cadastro).`, 14, finalY() + 12);
+    nota(`Adiantamento = ${percent.toLocaleString("pt-BR")}% do salário base, pago no dia ${dia}, para quem recebe adiantamento (cadastro).`, finalY() + 12);
   }
-  doc.text(`Horas em h:mm. ${REGRA_HORA_EXTRA}${heOculta ? ` Valor oculto (sem permissão). ${NOTA_HORA_EXTRA_OCULTA}` : ""}`, 14, finalY() + 16);
+  nota(`Horas em h:mm. ${REGRA_HORA_EXTRA}${heOculta ? ` Valor oculto (sem permissão). ${NOTA_HORA_EXTRA_OCULTA}` : ""}`, finalY() + 16);
   if (comQuinzena) {
-    doc.text(qOculta ? `1ª quinzena oculta (sem permissão de ver Funcionários). ${NOTA_QUINZENA_OCULTA}` : REGRA_QUINZENA, 14, finalY() + 20);
+    nota(qOculta ? `1ª quinzena oculta (sem permissão de ver Funcionários). ${NOTA_QUINZENA_OCULTA}` : REGRA_QUINZENA, finalY() + 20);
   }
   doc.save(`Gorjeta_Pagamento_${MONTHS[comp.month - 1]}_${comp.year}.pdf`);
 }
@@ -131,14 +142,14 @@ export async function exportarListaPagamento(comp: TipComputation) {
 // Folha salarial líquidos: a lista para o pagamento no banco, por empresa.
 export async function exportarFolhaLiquidos(folha: TipFolhaLiquidos, liberada: boolean) {
   const { jsPDF } = await import("jspdf");
-  const autoTable = (await import("jspdf-autotable")).default as unknown as AutoTable;
+  const autoTable = comTextoPdf((await import("jspdf-autotable")).default as unknown as AutoTable);
   const doc = new jsPDF();
   const finalY = () => (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
   doc.setFontSize(14);
   doc.text("Folha salarial líquidos", 14, 16);
   doc.setFontSize(10);
   doc.setTextColor(90);
-  doc.text(`${folha.code} · ${folha.label}${liberada ? "" : "   ·   PRÉVIA (sem OK da contabilidade)"}`, 14, 23);
+  doc.text(textoPdf(`${folha.code} · ${folha.label}${liberada ? "" : "   ·   PRÉVIA (sem OK da contabilidade)"}`), 14, 23);
   doc.setTextColor(0);
   let y = 26;
   for (const grupo of [...new Set(folha.linhas.map((l) => l.grupo))]) {
@@ -154,9 +165,9 @@ export async function exportarFolhaLiquidos(folha: TipFolhaLiquidos, liberada: b
     y = finalY() + 4;
   }
   doc.setFontSize(11);
-  doc.text(`Total geral: ${money(folha.total)}`, 14, y + 8);
+  doc.text(textoPdf(`Total geral: ${money(folha.total)}`), 14, y + 8);
   doc.setFontSize(8);
   doc.setTextColor(120);
-  doc.text("CLT: líquido do extrato da contabilidade. * (salário combinado − adiantamento) + gorjeta. Sem registro: salário ÷ 30 × dias − adiantamento ou 1ª quinzena (quem recebe) + gorjeta − vales + hora extra/noturno.", 14, y + 14);
+  doc.text(textoPdf("CLT: líquido do extrato da contabilidade. * (salário combinado - adiantamento) + gorjeta. Sem registro: salário ÷ 30 × dias - adiantamento ou 1ª quinzena (quem recebe) + gorjeta - vales + hora extra/noturno."), 14, y + 14);
   doc.save(`Folha_Liquidos_${folha.code}.pdf`);
 }

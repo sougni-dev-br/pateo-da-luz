@@ -270,3 +270,49 @@ describe("GET /termination — rescisão lançada com verbas", () => {
     expect(r2.body.lancada.verbasOpcionais.total).toBeNull();
   });
 });
+
+// Auditoria 01/10: férias, 13º e aviso são calculados sobre o salário — marcar sem a
+// permissão de ver Funcionários lançava (e revelava pelo bruto) o que a pessoa não pode ver.
+// Sem a permissão, só o valor livre.
+describe("verbas calculadas exigem ver Funcionários", () => {
+  beforeEach(() => vi.mocked(podeVerDadosPessoais).mockResolvedValue(false));
+
+  test("POST com aviso marcado, sem a permissão: 403, nada criado", async () => {
+    const r = await request(app).post("/payroll/termination/e1").send({ ...CORPO, verbasOpcionais: { ...nada, aviso: true } });
+    expect(r.status).toBe(403);
+    expect(r.body.message).toMatch(/ver Funcionários/);
+    expect(db.payrollItem.create).not.toHaveBeenCalled();
+  });
+
+  test("POST só com o valor livre, sem a permissão: lança", async () => {
+    const r = await request(app).post("/payroll/termination/e1").send({ ...CORPO, verbasOpcionais: { ...nada, livre: { valor: 300, descricao: "Gratificação de saída" } } });
+    expect(r.status).toBe(201);
+    expect(criado().details.verbasOpcionais.itens).toEqual([expect.objectContaining({ tipo: "LIVRE", valor: 300 })]);
+  });
+
+  const item = (verbas: unknown = null) => ({
+    id: "r1", employeeId: "e1", type: "RESCISAO", competenceYear: 2026, competenceMonth: 9, periodLabel: "Rescisão",
+    dueDate: new Date("2026-09-30T00:00:00Z"), amount: 1946.8, paymentDate: null, notes: null, updatedAt: new Date("2026-09-25T10:00:00Z"),
+    details: {
+      grupoRescisao: "g1", grossAmount: 1946.8, vtDiscount: 0, otherDiscount: 0, salario: 1760, gorjeta: 186.8, creditos: 0, valesDiscount: 0,
+      gorjetaNaApuracao: { participantId: "tp1", periodo: "x", anterior: null, aplicada: 186.8 }, historicoAjustes: [],
+      ...(verbas ? { verbasOpcionais: verbas } : {}),
+    },
+  });
+  const AVISO = { itens: [{ tipo: "AVISO", rotulo: "Aviso prévio indenizado", valor: 2200, memoria: "x", dias: 30 }], total: 2200 };
+
+  test("PUT marcando o 13º, sem a permissão: 403", async () => {
+    db.payrollItem.updateMany.mockResolvedValue({ count: 1 });
+    db.payrollItem.findMany.mockResolvedValue([item()]);
+    const r = await request(app).put("/payroll/termination/e1").send({ ...CORPO, justificativa: "Empresa decidiu pagar o 13º", verbasOpcionais: { ...nada, decimoTerceiro: true } });
+    expect(r.status).toBe(403);
+    expect(db.payrollItem.updateMany).not.toHaveBeenCalled();
+  });
+
+  test("PUT desmarcando a calculada, sem a permissão: pode (só tira)", async () => {
+    db.payrollItem.updateMany.mockResolvedValue({ count: 1 });
+    db.payrollItem.findMany.mockResolvedValue([item(AVISO)]);
+    const r = await request(app).put("/payroll/termination/e1").send({ ...CORPO, justificativa: "Aviso não será pago afinal", verbasOpcionais: nada });
+    expect(r.status).toBe(200);
+  });
+});

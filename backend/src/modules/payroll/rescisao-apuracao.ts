@@ -432,6 +432,13 @@ async function periodoDoMesDoSalarioAntesDaSaida(saida: Date, periodoDaSaida: Pe
   return p;
 }
 
+// Competência do período seguinte ao do mês (o que contém a saída), exista ele ou não.
+function competenciaSegDe(periodoMes: PeriodoDaGorjeta, periodoSeguinte: PeriodoDaGorjeta | null): string {
+  if (periodoSeguinte) return competenciaDe(periodoSeguinte);
+  const dezembro = periodoMes.competenceMonth === 12;
+  return competenciaDe({ competenceYear: dezembro ? periodoMes.competenceYear + 1 : periodoMes.competenceYear, competenceMonth: periodoMes.competenceMonth % 12 + 1 });
+}
+
 const umDiaDepois = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
 const intervaloBr = (a: Date, b: Date) => `${ddmm(isoDia(a))} a ${ddmm(isoDia(b))}`;
 
@@ -460,14 +467,15 @@ async function gorjetaTudoNaRescisao(
   const s = seg?.parte ?? null;
   const contaMes = !m.jaPagoNaLista;
   const contaSeg = s != null && !s.jaPagoNaLista;
-  const pendenteSeg = contaSeg && s.gorjeta.pendente;
+  // Sem o período seguinte (ou sem a pessoa nele) a parte dos dias depois do ciclo não foi
+  // apurada: pendente, para a tela exigir completar ou justificar — nunca some em silêncio.
+  const semOndeApurar = s == null;
+  const pendenteSeg = semOndeApurar || (contaSeg && s.gorjeta.pendente);
   const gorjetaMes = contaMes ? m.gorjeta.gorjeta : 0;
   const gorjetaSeg = s && !pendenteSeg ? (contaSeg ? s.gorjeta.gorjeta : 0) : null;
 
   const competenciaMes = competenciaDe(periodoMes);
-  const competenciaSeg = periodoSeguinte
-    ? competenciaDe(periodoSeguinte)
-    : competenciaDe({ competenceYear: periodoMes.competenceMonth === 12 ? periodoMes.competenceYear + 1 : periodoMes.competenceYear, competenceMonth: periodoMes.competenceMonth % 12 + 1 });
+  const competenciaSeg = competenciaSegDe(periodoMes, periodoSeguinte);
   const diasSeg = intervaloBr(umDiaDepois(periodoMes.periodEnd), saida);
   const gorjetaPartes: GorjetaParte[] = [
     { periodo: mes.label, competencia: competenciaMes, dias: intervaloBr(periodoMes.periodStart, periodoMes.periodEnd), valor: round2(gorjetaMes), pendente: false, jaPagoNaLista: !contaMes },
@@ -479,8 +487,10 @@ async function gorjetaTudoNaRescisao(
       + `a rescisão paga o mês inteiro (${mes.label}) e a gorjeta de ${diasSeg}; lançada a rescisão, a lista de ${competenciaMes} não paga nada.`,
   ];
   if (!contaMes) observacoes.push(`A parte do mês já foi paga na lista de pagamento da gorjeta de ${competenciaMes} (fechada): entra só a gorjeta de ${diasSeg}.`);
-  if (!periodoSeguinte) observacoes.push(`A gorjeta de ${diasSeg} ainda não pode ser apurada: o período de gorjeta de ${competenciaSeg} não existe. Lance depois ou ajuste.`);
-  else if (!s) observacoes.push(`A gorjeta de ${diasSeg} ainda não pode ser apurada: ela não está no período de gorjeta de ${competenciaSeg}. Lance depois ou ajuste.`);
+  // Sem onde apurar: lançar só a do ciclo deixa esses dias para a lista do período seguinte.
+  const restoNaLista = (preparar: string) => `Para pagar esses dias na rescisão, ${preparar} antes de lançar; lançada só a gorjeta do ciclo, a lista de ${competenciaSeg} paga esses dias.`;
+  if (!periodoSeguinte) observacoes.push(`A gorjeta de ${diasSeg} ainda não pode ser apurada: o período de gorjeta de ${competenciaSeg} não existe. ${restoNaLista(`crie o período de ${competenciaSeg} com a pessoa`)}`);
+  else if (!s) observacoes.push(`A gorjeta de ${diasSeg} ainda não pode ser apurada: ela não está no período de gorjeta de ${competenciaSeg}. ${restoNaLista("inclua a pessoa nele")}`);
   else if (!contaSeg) observacoes.push(`A gorjeta de ${diasSeg} já foi paga na lista de pagamento da gorjeta de ${competenciaSeg} (fechada).`);
   else if (pendenteSeg) observacoes.push(`A gorjeta de ${diasSeg} está pendente: falta o serviço até a saída (faturamento).`);
 
@@ -527,18 +537,28 @@ export async function localizarGorjetaNaApuracao(
   apuracao?: Pick<ApuracaoRescisao, "gorjetaPartes"> | null,
 ): Promise<{ erro: string } | { alvo: GorjetaNaApuracao | null }> {
   if (gorjeta == null || !saida) return { alvo: null };
-  const cicloDoMes = apuracao?.gorjetaPartes?.length ? apuracao.gorjetaPartes[0].valor ?? 0 : null;
+  const partes = apuracao?.gorjetaPartes?.length ? apuracao.gorjetaPartes : null;
+  const cicloDoMes = partes ? partes[0].valor ?? 0 : null;
   const aplicada = cicloDoMes == null ? round2(gorjeta) : Math.max(0, round2(gorjeta - cicloDoMes));
+  // "Tudo na rescisão": a parte dos dias depois do ciclo precisa de onde ser gravada. Sem
+  // isso, lançá-la aqui pagaria duas vezes (a lista do período seguinte também paga).
+  const semOnde = (motivo: string) => (cicloDoMes != null && aplicada > 0
+    ? { erro: `A gorjeta lançada passa a do ciclo do mês (${reaisBr(cicloDoMes)}) em ${reaisBr(aplicada)}, que é dos dias depois do ciclo, mas ${motivo}. `
+      + `Lance só a gorjeta do ciclo (a lista do período seguinte paga esses dias) ou ajuste a gorjeta antes.` }
+    : { alvo: null });
   const periodo = await prisma.tipPeriod.findFirst({
     where: { periodStart: { lte: saida }, periodEnd: { gte: saida } },
     select: { id: true, label: true, status: true },
   });
-  if (!periodo) return { alvo: null };
+  if (!periodo) return semOnde("o período de gorjeta que contém a saída não existe (crie o período antes)");
   const p = await prisma.tipParticipant.findUnique({
     where: { periodId_employeeId: { periodId: periodo.id, employeeId } },
     select: { id: true, rescisaoValorFixo: true, rateioAmount: true, totalAPagar: true, employee: { select: { modality: true } } },
   });
-  if (!p) return { alvo: null };
+  if (!p) return semOnde(`a pessoa não está no período de ${periodo.label} (inclua-a antes)`);
+  // Parte depois do ciclo ainda não apurada e nada lançado para ela: não grava zero — a
+  // lista do período seguinte é que paga esses dias.
+  if (cicloDoMes != null && aplicada === 0 && partes![1]?.valor == null) return { alvo: null };
   const anterior = p.rescisaoValorFixo == null ? null : round2(Number(p.rescisaoValorFixo));
   // Já pago na lista fechada: a apuração não muda. O que for lançado aqui além do zero
   // apurado já passou pela divergência com justificativa.

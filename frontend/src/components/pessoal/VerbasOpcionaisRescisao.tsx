@@ -38,8 +38,12 @@ export function VerbasOpcionaisRescisao({ verbas, estado, onChange, erroLivre }:
   const somenteLeitura = !onChange;
   const c = verbas?.calculo ?? null;
   const alternar = (k: Chave | "livre") => onChange?.({ ...estado, [k]: !estado[k] });
+  // Valor oculto = sem permissão de ver Funcionários: o servidor recusa férias, 13º e aviso.
+  // A caixa fica travada para marcar (desmarcar uma já lançada continua possível).
+  const semPermissao = c != null && [c.ferias.valor, c.decimoTerceiro.valor, c.aviso.valor].some((v) => v == null);
   const calculada = (k: Chave, rotulo: string, valor: number | null | undefined, detalhe: ReactNode) => (
-    <Opcao id={`verba-${k}`} rotulo={rotulo} marcada={estado[k]} travada={somenteLeitura || !c} onToggle={() => alternar(k)}
+    <Opcao id={`verba-${k}`} rotulo={rotulo} marcada={estado[k]}
+      travada={somenteLeitura || !c || (valor == null && !estado[k])} onToggle={() => alternar(k)}
       valor={c ? valorOuOculto(valor) : undefined} detalhe={detalhe} />
   );
 
@@ -52,6 +56,11 @@ export function VerbasOpcionaisRescisao({ verbas, estado, onChange, erroLivre }:
       </p>
       {verbas?.observacao && <div className="resc-detalhe" style={{ marginBottom: 6 }}>{verbas.observacao}</div>}
       {c?.avisoFeriasVencidas && <div style={{ marginBottom: 8 }}><Alert tone="warning">{c.avisoFeriasVencidas}</Alert></div>}
+      {semPermissao && !somenteLeitura && (
+        <div style={{ marginBottom: 8 }}>
+          <Alert tone="info">Sem permissão de ver Funcionários: férias, 13º e aviso não podem ser incluídos por você (o valor é calculado do salário). Só o valor livre fica disponível.</Alert>
+        </div>
+      )}
 
       {calculada("ferias", "Férias proporcionais + 1/3", c?.ferias.valor,
         c ? <>{c.ferias.avos} {c.ferias.avos === 1 ? "avo" : "avos"} desde {c.ferias.inicioAquisitivo.split("-").reverse().join("/")} · {c.ferias.memoria}</> : null)}

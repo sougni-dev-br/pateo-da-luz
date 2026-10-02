@@ -7,7 +7,7 @@ import { auditLog } from "../security/security-utils.js";
 import { cadastroVigenteEm, diaDeReferencia } from "./cadastro-historico.js";
 import { carregarHistorico } from "./cadastro-historico.service.js";
 import { computeTipCommission } from "./tip-commission.service.js";
-import { type GorjetaDaApuracao, mesclarDetalhes, salarioDaFolha } from "./salario-combinado-folha.js";
+import { type GorjetaDaApuracao, gorjetaDaPessoa, mesclarDetalhes, salarioDaFolha } from "./salario-combinado-folha.js";
 
 // Salário combinado VIGENTE no mês da competência (não o de hoje): quem teve o combinado
 // mudado depois continua com o daquele mês. Sem ids = todos com combinado ou histórico dele.
@@ -41,7 +41,7 @@ export async function mapaCombinados(ano: number, mes: number, ids: string[]): P
 export async function gorjetasDaCompetencia(ano: number, mes: number): Promise<Map<string, GorjetaDaApuracao> | null> {
   const comp = await computeTipCommission(ano, mes);
   if (!comp.periodId) return null;
-  return new Map(comp.participants.map((p) => [p.employeeId, { noPeriodo: p.tipoCalculo !== "FORA_DO_PERIODO", gorjetaLiquida: p.netCommission }]));
+  return new Map(comp.participants.map((p) => [p.employeeId, { noPeriodo: p.tipoCalculo !== "FORA_DO_PERIODO", gorjetaLiquida: p.netCommission, pagoNaRescisao: Boolean(p.pagoNaRescisao) }]));
 }
 
 export const avisoGorjetaPendente = (nome: string) =>
@@ -100,7 +100,7 @@ export async function sincronizarSalariosCombinados(ano: number, mes: number, us
       continue;
     }
     const calc = salarioDaFolha({
-      liquidoExtrato, adiantamento: num(d.adiantamento), combinado, gorjeta: gorjetas?.get(i.employeeId) ?? null,
+      liquidoExtrato, adiantamento: num(d.adiantamento), combinado, gorjeta: gorjetaDaPessoa(gorjetas, i.employeeId),
     });
     if (calc.pendenteGorjeta) resultado.avisos.push(`Salário combinado de ${nome}: gorjeta do mês ainda não apurada; mantido o líquido do extrato.`);
     if (calc.aviso) resultado.avisos.push(`Salário combinado de ${nome}: ${calc.aviso}.`);

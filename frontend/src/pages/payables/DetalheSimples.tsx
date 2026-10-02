@@ -15,6 +15,8 @@ type Props = {
   /** null = formulário de exclusão fechado. */
   excluirMotivo: string | null;
   excluindo: boolean;
+  /** Só quem pode gerir Contas a Pagar vê "Excluir lançamento". */
+  podeGerir: boolean;
   onMotivo: (motivo: string | null) => void;
   onExcluir: () => void;
   onFechar: () => void;
@@ -48,10 +50,10 @@ function ComposicaoSalario({ c }: { c: SalarioComposicao }) {
 }
 
 /** Imposto, lançamento da Folha ou diária de extra. */
-export function DetalheSimples({ titulo, historico, notice, excluirMotivo, excluindo, onMotivo, onExcluir, onFechar }: Props) {
+export function DetalheSimples({ titulo, historico, notice, excluirMotivo, excluindo, podeGerir, onMotivo, onExcluir, onFechar }: Props) {
   const tipo = isExtra(titulo) ? "Diária de extra" : isPayroll(titulo) ? "Folha de pagamento" : "Imposto / Guia";
   const rotuloPessoa = isExtra(titulo) ? "Pessoa" : isPayroll(titulo) ? "Funcionário" : "Empresa";
-  const podeExcluir = isPayroll(titulo) && estaEmAberto(titulo);
+  const podeExcluir = podeGerir && isPayroll(titulo) && estaEmAberto(titulo);
   // Folha/extra: o nome da pessoa é o que identifica; o tipo (VT, Rescisão…) vai no sobretítulo.
   const pessoal = isPayroll(titulo) || isExtra(titulo);
   const cabecalho = pessoal ? (titulo.taxCompanyName ?? titulo.supplierName) : (titulo.taxDocumentType ?? titulo.supplierName);

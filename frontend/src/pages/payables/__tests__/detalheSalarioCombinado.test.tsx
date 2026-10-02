@@ -18,7 +18,7 @@ const SESSAO = { user: null, setUser: () => undefined, hideSensitiveValues: fals
 const abrir = (t: Payable) => render(
   <SessionContext.Provider value={SESSAO}>
     <HideValuesProvider>
-      <DetalheSimples titulo={t} historico={[]} notice={null} excluirMotivo={null} excluindo={false}
+      <DetalheSimples titulo={t} historico={[]} notice={null} excluirMotivo={null} excluindo={false} podeGerir
         onMotivo={vi.fn()} onExcluir={vi.fn()} onFechar={vi.fn()} />
     </HideValuesProvider>
   </SessionContext.Provider>,

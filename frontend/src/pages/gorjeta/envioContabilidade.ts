@@ -51,8 +51,12 @@ export function agruparEnvioPorEmpresa(linhas: LinhaEnvio[]): GrupoEnvio[] {
 // A fonte padrão do PDF (Helvetica, WinAnsi) não tem o sinal de menos "−" nem alguns traços:
 // eles saem embaralhados. Tudo que vai para o PDF passa por aqui.
 export function textoPdf(s: string): string {
-  return s.replace(/−/g, "-").replace(/[‐-–]/g, "-").replace(/ /g, " ");
+  return s.replace(/−/g, "-").replace(/[‐-–]/g, "-").replace(/[   ]/g, " ")
+    .replace(/→/g, "->").replace(/≥/g, ">=").replace(/≤/g, "<=").replace(/≈/g, "~");
 }
+
+/** Células de tabela do PDF (cabeçalho, corpo, rodapé) passadas por `textoPdf`. */
+export const celulasPdf = (linhas: string[][]) => linhas.map((l) => l.map(textoPdf));
 
 const PARTICULAS = new Set(["da", "de", "di", "do", "du", "das", "dos", "e"]);
 

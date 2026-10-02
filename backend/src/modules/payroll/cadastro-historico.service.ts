@@ -68,6 +68,19 @@ export async function cadastrosVigentes<T extends { id: string } & Partial<Recor
   return new Map(atuais.map((e) => [e.id, cadastroVigenteEm(e, historico.get(e.id) ?? [], dataDe(e))]));
 }
 
+// O mesmo, em vários dias de uma vez (um carregamento do histórico): { chave: mapa }.
+// Ex.: o salário do fim do mês e o vigente no dia 15 (1ª quinzena) e no do adiantamento.
+export async function cadastrosVigentesEmDatas<T extends { id: string } & Partial<Record<CampoHistorico, unknown>>, K extends string>(
+  atuais: T[], datas: Record<K, (e: T) => Date>, db: Db = prisma,
+): Promise<Record<K, Map<string, T>>> {
+  const historico = await carregarHistorico(atuais.map((e) => e.id), db);
+  const out = {} as Record<K, Map<string, T>>;
+  for (const chave of Object.keys(datas) as K[]) {
+    out[chave] = new Map(atuais.map((e) => [e.id, cadastroVigenteEm(e, historico.get(e.id) ?? [], datas[chave](e))]));
+  }
+  return out;
+}
+
 // Um campo de um funcionário num dia (texto, como no histórico). null = vazio.
 export async function valorVigente(employeeId: string, campo: CampoHistorico, data: Date, db: Db = prisma): Promise<string | null> {
   const emp = await db.employee.findUnique({ where: { id: employeeId }, select: { [campo]: true } as Prisma.EmployeeSelect });

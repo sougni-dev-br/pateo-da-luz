@@ -138,3 +138,34 @@ describe("DELETE da rescisão — desfaz exatamente o que gravou", () => {
     }));
   });
 });
+
+// Auditoria 01/10: a lista do mês só zera quando a rescisão foi lançada pela regra "tudo na
+// rescisão" — o lançamento grava o marcador quando a apuração tem as partes da gorjeta.
+describe("POST /termination — marcador tudoNaRescisao", () => {
+  test("apuração com as partes (saída depois do ciclo): grava details.tudoNaRescisao = true", async () => {
+    db.payrollItem.findFirst.mockResolvedValue(null);
+    db.payrollItem.findMany.mockResolvedValue([]);
+    const r = await request(app).post("/payroll/termination/e1").send({ salario: 2126.57, gorjeta: 795.32 });
+    expect(r.status).toBe(201);
+    expect(db.payrollItem.create.mock.calls[0][0].data.details.tudoNaRescisao).toBe(true);
+  });
+
+  test("parcelado: o marcador vai em todas as parcelas", async () => {
+    db.payrollItem.findFirst.mockResolvedValue(null);
+    db.payrollItem.findMany.mockResolvedValue([]);
+    const r = await request(app).post("/payroll/termination/e1").send({ salario: 2126.57, gorjeta: 795.32, installments: 2, dueDate: "2026-10-05" });
+    expect(r.status).toBe(201);
+    for (const c of db.payrollItem.create.mock.calls) expect(c[0].data.details.tudoNaRescisao).toBe(true);
+  });
+
+  test("apuração sem as partes (saída dentro do ciclo): sem o marcador", async () => {
+    const semPartes = apuracao();
+    delete semPartes.gorjetaPartes;
+    vi.mocked(apurarRescisao).mockResolvedValue(semPartes);
+    db.payrollItem.findFirst.mockResolvedValue(null);
+    db.payrollItem.findMany.mockResolvedValue([]);
+    const r = await request(app).post("/payroll/termination/e1").send({ salario: 2126.57, gorjeta: 795.32 });
+    expect(r.status).toBe(201);
+    expect(db.payrollItem.create.mock.calls[0][0].data.details).not.toHaveProperty("tudoNaRescisao");
+  });
+});

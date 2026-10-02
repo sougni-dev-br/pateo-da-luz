@@ -1,6 +1,7 @@
 // Recibo do vale em nome da empresa, com autorização de desconto na gorjeta e
 // campo de assinatura. Uma folha A4 com duas vias (empresa e funcionário).
 import type { TipReciboVale, TipValeType } from "../../api/client";
+import { textoPdf } from "./envioContabilidade";
 import { valorPorExtenso } from "./extenso";
 
 type Doc = InstanceType<typeof import("jspdf").jsPDF>;
@@ -106,7 +107,22 @@ function via(doc: Doc, r: TipReciboVale, topo: number, rotulo: string) {
   doc.setTextColor(0);
 }
 
-export async function gerarReciboVale(r: TipReciboVale) {
+// O que veio digitado (nomes, descrição, endereço) pode ter "−" ou traços que a Helvetica do
+// jsPDF não desenha: limpa uma cópia antes de montar o recibo.
+const limpo = (s: string | null) => (s == null ? s : textoPdf(s));
+function reciboParaPdf(r: TipReciboVale): TipReciboVale {
+  return {
+    ...r,
+    empresa: { ...r.empresa, razaoSocial: textoPdf(r.empresa.razaoSocial), fantasia: textoPdf(r.empresa.fantasia), endereco: textoPdf(r.empresa.endereco), cidade: limpo(r.empresa.cidade) },
+    funcionario: { ...r.funcionario, nome: textoPdf(r.funcionario.nome), funcao: limpo(r.funcionario.funcao) },
+    vale: { ...r.vale, descricao: limpo(r.vale.descricao) },
+    apuracao: { codigo: textoPdf(r.apuracao.codigo), periodo: textoPdf(r.apuracao.periodo) },
+    emitidoPor: textoPdf(r.emitidoPor),
+  };
+}
+
+export async function gerarReciboVale(recibo: TipReciboVale) {
+  const r = reciboParaPdf(recibo);
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   via(doc, r, 10, "Via da empresa");

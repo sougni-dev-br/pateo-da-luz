@@ -138,3 +138,32 @@ describe("GET /closings/:id — gorjeta informada pelo teto", () => {
     expect(r.body.participants[1].gorjetaInformada).toBe(500);
   });
 });
+
+// Auditoria 01/10: sincronizar o salário combinado grava no SALARIO da Folha (Contas a
+// Pagar): exige também a permissão de editar a Folha (módulo payroll).
+describe("salário combinado — permissão de editar a Folha", () => {
+  const semFolha = () => vi.mocked(userHasPermission).mockImplementation(async (_u, menu) => menu !== "payroll");
+
+  test("rota manual sem editar a Folha: 403, nada sincronizado", async () => {
+    semFolha();
+    const r = await request(app).post("/payroll/tip/periods/2026/9/salarios-combinados/sincronizar");
+    expect(r.status).toBe(403);
+    expect(r.body.message).toMatch(/Folha/);
+    expect(sincronizarSalariosCombinados).not.toHaveBeenCalled();
+  });
+
+  test("rota manual confere a ação de editar na Folha", async () => {
+    await request(app).post("/payroll/tip/periods/2026/9/salarios-combinados/sincronizar");
+    expect(userHasPermission).toHaveBeenCalledWith(expect.objectContaining({ id: "u1" }), "payroll", "edit");
+  });
+
+  test("fechamento sem editar a Folha: fecha, não sincroniza e devolve o aviso", async () => {
+    semFolha();
+    const r = await request(app).post("/payroll/tip/periods/2026/9/close");
+    expect(r.status).toBe(200);
+    expect(closeTipPeriod).toHaveBeenCalled();
+    expect(sincronizarSalariosCombinados).not.toHaveBeenCalled();
+    expect(r.body.salariosCombinados).toMatchObject({ atualizados: 0, detalhes: null, erro: null });
+    expect(r.body.salariosCombinados.aviso).toMatch(/editar a Folha/);
+  });
+});

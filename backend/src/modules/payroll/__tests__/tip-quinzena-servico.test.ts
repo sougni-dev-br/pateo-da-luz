@@ -171,3 +171,32 @@ describe("folha de líquidos: composição do sem registro", () => {
       .toBe("salário − adiantamento + gorjeta − vales + hora extra/noturno");
   });
 });
+
+// Auditoria 01/10: a 1ª quinzena sai no dia 15 com o salário de então — aumento no dia 16
+// não muda o que já foi pago. Idem o adiantamento, no dia do adiantamento.
+describe("1ª quinzena e adiantamento pelo salário vigente NO DIA do pagamento", () => {
+  test("aumento vigente desde 16/09: a quinzena é metade do salário de 15/09; o mês é pelo novo", async () => {
+    db.employeeHistorico.findMany.mockResolvedValue([h("baseSalary", "2000.00", "2400.00", "2026-09-16")]);
+    periodo("OPEN", [rafa({}, { baseSalary: 2400 })]);
+    const p = (await computeTipCommission(2026, 9, { incluirDadosPessoais: true })).participants[0];
+    expect(p.salarioProporcional).toBe(2400);
+    expect(p.primeiraQuinzena).toBe(1000);
+    expect(p.totalAPagar).toBe(1400);
+  });
+
+  test("aumento vigente desde 15/09: a quinzena já sai pelo novo", async () => {
+    db.employeeHistorico.findMany.mockResolvedValue([h("baseSalary", "2000.00", "2400.00", "2026-09-15")]);
+    periodo("OPEN", [rafa({}, { baseSalary: 2400 })]);
+    const p = (await computeTipCommission(2026, 9, { incluirDadosPessoais: true })).participants[0];
+    expect(p.primeiraQuinzena).toBe(1200);
+  });
+
+  test("adiantamento (40%, dia 20) com aumento vigente desde 21/09: 40% do salário de 20/09", async () => {
+    db.employeeHistorico.findMany.mockResolvedValue([h("baseSalary", "2000.00", "2400.00", "2026-09-21")]);
+    periodo("OPEN", [rafa({}, { baseSalary: 2400, pagamentoQuinzenal: false, recebeAdiantamento: true })]);
+    const p = (await computeTipCommission(2026, 9, { incluirDadosPessoais: true })).participants[0];
+    expect(p.salarioProporcional).toBe(2400);
+    expect(p.adiantamentoSalarial).toBe(800);
+    expect(p.totalAPagar).toBe(1600);
+  });
+});

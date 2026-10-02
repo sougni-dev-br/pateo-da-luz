@@ -26,3 +26,8 @@ export function dicaFormaPagamento(forma: FormaPagamento): string {
   if (forma === "ADIANTAMENTO") return "a lista de pagamento da gorjeta desconta o adiantamento já pago (% e dia em Folha → Configurações)";
   return "salário inteiro na lista de pagamento da gorjeta";
 }
+
+/** Troca de modalidade no cadastro: registrado (CLT) não recebe por quinzena — o campo some e o backend recusaria. */
+export function camposDaModalidade<M extends "CLT" | "NAO_CLT">(modality: M, c: Campos): { modality: M; pagamentoQuinzenal: boolean } {
+  return { modality, pagamentoQuinzenal: modality === "CLT" ? false : Boolean(c.pagamentoQuinzenal) };
+}

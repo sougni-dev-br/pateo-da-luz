@@ -105,20 +105,26 @@ describe("apurarRescisao: saiu em 29/09, depois do ciclo de setembro", () => {
     expect(a.gorjetaObservacao).toContain("a lista de 09/2026 não paga nada");
   });
 
-  test("sem o período de outubro: só o mês, com observação, sem quebrar", async () => {
+  // Auditoria 01/10: sem o período seguinte (ou fora dele), a gorjeta dos dias depois do
+  // ciclo não pode sumir: a sugestão fica pendente (a tela exige completar ou justificar).
+  test("sem o período de outubro: gorjeta pendente (os dias depois do ciclo não foram apurados)", async () => {
     cenario({ outubro: null });
     const a = (await apurarRescisao("e1"))!;
-    expect(a.sugestao).toMatchObject({ salario: 2126.57, gorjeta: 745.32, vales: 930, creditos: 160, bruto: 3031.89 });
+    expect(a.sugestao).toMatchObject({ salario: 2126.57, gorjeta: null, bruto: null, vales: 930, creditos: 160 });
+    expect(a.gorjeta).toMatchObject({ gorjeta: 745.32, pendente: true });
     expect(a.gorjetaPartes).toHaveLength(2);
-    expect(a.gorjetaPartes![1]).toMatchObject({ competencia: "10/2026", dias: "26/09 a 29/09", valor: null, pendente: false });
-    expect(a.gorjetaObservacao).toContain("A gorjeta de 26/09 a 29/09 ainda não pode ser apurada: o período de gorjeta de 10/2026 não existe. Lance depois ou ajuste.");
+    expect(a.gorjetaPartes![1]).toMatchObject({ competencia: "10/2026", dias: "26/09 a 29/09", valor: null, pendente: true });
+    expect(a.gorjetaObservacao).toContain("A gorjeta de 26/09 a 29/09 ainda não pode ser apurada: o período de gorjeta de 10/2026 não existe.");
+    expect(a.gorjetaObservacao).toContain("a lista de 10/2026 paga esses dias");
   });
 
-  test("outubro existe mas ela não está nele: só o mês, com observação", async () => {
+  test("outubro existe mas ela não está nele: gorjeta pendente, com observação", async () => {
     cenario({ naOutubro: false });
     const a = (await apurarRescisao("e1"))!;
-    expect(a.sugestao).toMatchObject({ gorjeta: 745.32, vales: 930 });
-    expect(a.gorjetaObservacao).toContain("A gorjeta de 26/09 a 29/09 ainda não pode ser apurada: ela não está no período de gorjeta de 10/2026. Lance depois ou ajuste.");
+    expect(a.sugestao).toMatchObject({ gorjeta: null, vales: 930 });
+    expect(a.gorjeta!.pendente).toBe(true);
+    expect(a.gorjetaPartes![1]).toMatchObject({ valor: null, pendente: true });
+    expect(a.gorjetaObservacao).toContain("A gorjeta de 26/09 a 29/09 ainda não pode ser apurada: ela não está no período de gorjeta de 10/2026.");
   });
 
   test("gorjeta de outubro pendente (falta o serviço até a saída): gorjeta e bruto ficam pendentes", async () => {
@@ -180,11 +186,35 @@ describe("localizarGorjetaNaApuracao: só a parte depois do ciclo vai para outub
     expect(await localizarGorjetaNaApuracao("e1", SAIDA, 700, a)).toMatchObject({ alvo: { aplicada: 0 } });
   });
 
-  test("sem o período de outubro: não grava nada", async () => {
+  // Auditoria 01/10: sem onde gravar a parte de outubro, ela não pode entrar na rescisão
+  // (a lista de outubro pagaria de novo) — só a do ciclo, e a lista de outubro paga o resto.
+  test("sem o período de outubro: só a gorjeta do ciclo passa (nada gravado); acima dela, recusa", async () => {
     cenario({ outubro: null });
     const a = await apurarRescisao("e1");
     db.tipPeriod.findFirst.mockResolvedValue(null);
-    expect(await localizarGorjetaNaApuracao("e1", SAIDA, 800, a)).toEqual({ alvo: null });
+    expect(await localizarGorjetaNaApuracao("e1", SAIDA, 745.32, a)).toEqual({ alvo: null });
+    const r = await localizarGorjetaNaApuracao("e1", SAIDA, 800, a);
+    expect(r).toHaveProperty("erro");
+    expect((r as { erro: string }).erro).toContain("não existe");
+  });
+
+  test("outubro sem a pessoa: idem (acima do ciclo recusa, pedindo para incluí-la)", async () => {
+    cenario({ naOutubro: false });
+    const a = await apurarRescisao("e1");
+    db.tipPeriod.findFirst.mockResolvedValue(OUTUBRO);
+    db.tipParticipant.findUnique.mockResolvedValue(null);
+    expect(await localizarGorjetaNaApuracao("e1", SAIDA, 745.32, a)).toEqual({ alvo: null });
+    const r = await localizarGorjetaNaApuracao("e1", SAIDA, 800, a);
+    expect((r as { erro: string }).erro).toMatch(/não está no período/);
+  });
+
+  test("outubro com o serviço pendente: lançada só a do ciclo não grava zero (a lista de outubro paga os dias)", async () => {
+    cenario({ outubroPendente: true });
+    const a = await apurarRescisao("e1");
+    db.tipPeriod.findFirst.mockResolvedValue(OUTUBRO);
+    participanteOutubro();
+    expect(await localizarGorjetaNaApuracao("e1", SAIDA, 745.32, a)).toEqual({ alvo: null });
+    expect(await localizarGorjetaNaApuracao("e1", SAIDA, 800, a)).toMatchObject({ alvo: { participantId: "tp10", aplicada: 54.68 } });
   });
 
   test("lista de setembro já paga: a gorjeta lançada é toda de outubro", async () => {

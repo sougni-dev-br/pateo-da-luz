@@ -15,11 +15,11 @@ import { getOrDefaultSettings } from "./payroll.service.js";
 import { round2 } from "./vt-calc.js";
 import { motivoParaNaoRetirar, saldoReserva, travarFundo } from "./tip-historico.service.js";
 import { proximoCodigoApuracao, registrarFechamento, registrarReabertura } from "./tip-fechamento.service.js";
-import { adiantamentoDoFechado, calcularRateio, emTesteNaGorjeta, motivoGorjetaRealSemEfeito, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
+import { DIA_PRIMEIRA_QUINZENA, adiantamentoDoFechado, calcularRateio, emTesteNaGorjeta, motivoGorjetaRealSemEfeito, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
 import { minutosValidos, parseHoras } from "./hora-extra.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { diaDeReferencia } from "./cadastro-historico.js";
-import { cadastrosVigentes } from "./cadastro-historico.service.js";
+import { cadastrosVigentes, cadastrosVigentesEmDatas } from "./cadastro-historico.service.js";
 import { gorjetaInformada } from "./gorjeta-informada.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
@@ -94,6 +94,9 @@ export type RescisaoContasPagar = {
   parcelas: number;
   // A gorjeta paga na apuração veio desta rescisão: só muda por lá.
   gorjetaDefinida: boolean;
+  // Lançada pela regra "tudo na rescisão" (sem registro que saiu depois do ciclo, no mês do
+  // salário): só ela zera a lista do mês. Ausente nas lançadas antes do marcador.
+  tudoNaRescisao?: boolean;
 };
 
 export type ComputedParticipant = {
@@ -410,9 +413,10 @@ async function rescisoesEmContasAPagar(
   for (const it of itens) {
     const status = it.status === "CANCELED" ? "PENDING" : it.status;
     const definida = Boolean((it.details as { gorjetaNaApuracao?: unknown } | null)?.gorjetaNaApuracao);
+    const tudo = (it.details as { tudoNaRescisao?: unknown } | null)?.tudoNaRescisao === true;
     const atual = porPessoa.get(it.employeeId);
     if (!atual) {
-      porPessoa.set(it.employeeId, { valor: round2(Number(it.amount)), vencimento: it.dueDate.toISOString(), status, parcelas: 1, gorjetaDefinida: definida });
+      porPessoa.set(it.employeeId, { valor: round2(Number(it.amount)), vencimento: it.dueDate.toISOString(), status, parcelas: 1, gorjetaDefinida: definida, tudoNaRescisao: tudo });
       continue;
     }
     // Parcelado: soma, vence na primeira; paga só quando todas estão pagas.
@@ -423,6 +427,7 @@ async function rescisoesEmContasAPagar(
       status: juntos.includes("OVERDUE") ? "OVERDUE" : juntos.every((s) => s === "PAID") ? "PAID" : "PENDING",
       parcelas: atual.parcelas + 1,
       gorjetaDefinida: atual.gorjetaDefinida || definida,
+      tudoNaRescisao: atual.tudoNaRescisao || tudo,
     });
   }
   return porPessoa;
@@ -508,14 +513,22 @@ export async function computeTipCommission(
   // Vínculo, salário, adiantamento e empresa VIGENTES no mês do salário (Opção A): o último
   // dia do mês civil da competência, ou o dia da saída se saiu antes. Um aumento de outubro
   // não muda a gorjeta de setembro aberta ou reaberta.
-  const vigentes = await cadastrosVigentes(
+  // A 1ª quinzena (dia 15) e o adiantamento (dia dele) saem com o salário vigente NAQUELE
+  // dia: um aumento depois do pagamento não muda o que já foi pago.
+  const ultimoDiaDoMes = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const diaNoMes = (dia: number) => new Date(Date.UTC(year, month - 1, Math.min(Math.max(1, dia), ultimoDiaDoMes)));
+  const { mes: vigentes, quinzena: vigentesQuinzena, adiantamento: vigentesAdiantamento } = await cadastrosVigentesEmDatas(
     rows.map((r) => ({
       id: r.employeeId, terminationDate: r.employee.terminationDate,
       modality: r.employee.modality as string, baseSalary: num(r.employee.baseSalary), tetoIrGorjeta: num(r.employee.tetoIrGorjeta),
       recebeAdiantamento: r.employee.recebeAdiantamento, pagamentoQuinzenal: r.employee.pagamentoQuinzenal,
       companyId: r.employee.companyId,
     })),
-    (e) => diaDeReferencia(year, month, e.terminationDate),
+    {
+      mes: (e) => diaDeReferencia(year, month, e.terminationDate),
+      quinzena: () => diaNoMes(DIA_PRIMEIRA_QUINZENA),
+      adiantamento: () => diaNoMes(config.advanceDueDay),
+    },
   );
   const vigenteDe = (r: (typeof rows)[number]) => vigentes.get(r.employeeId)!;
   // Empresa do mês diferente da de hoje: o nome vem do cadastro de empresas.
@@ -533,6 +546,15 @@ export async function computeTipCommission(
   const rescisoesLancadas = await rescisoesEmContasAPagar(rows.map((r) => r.employee.terminationDate
     && r.employee.terminationDate >= start && r.employee.terminationDate <= fimDaBusca(r)
     ? { employeeId: r.employeeId, saida: r.employee.terminationDate } : null));
+
+  // "Tudo na rescisão" sem a parte dos dias depois do ciclo gravada aqui (o período não
+  // existia ou a pessoa não estava nele): a rescisão não pagou este período — a lista paga.
+  const parteForaDaRescisao = (r: (typeof rows)[number]) => {
+    const saida = r.employee.terminationDate;
+    return rescisoesLancadas.get(r.employeeId)?.tudoNaRescisao === true && r.rescisaoValorFixo == null
+      && saida != null && saida >= start && saida <= end;
+  };
+  const rescisaoCobreEstePeriodo = (r: (typeof rows)[number]) => rescisoesLancadas.has(r.employeeId) && !parteForaDaRescisao(r);
 
   const entradas: ParticipanteEntrada[] = rows.map((r) => {
     const e = escala.get(r.employeeId) ?? semOcorrencias();
@@ -557,12 +579,15 @@ export async function computeTipCommission(
       rescisaoValorFixo: num(r.rescisaoValorFixo),
       semRegistro: vigenteDe(r).modality === "NAO_CLT",
       salarioBase: vigenteDe(r).baseSalary,
+      salarioBaseQuinzena: vigentesQuinzena.get(r.employeeId)?.baseSalary ?? null,
+      salarioBaseAdiantamento: vigentesAdiantamento.get(r.employeeId)?.baseSalary ?? null,
       diasSalarioOverride: r.diasSalarioOverride,
       // Faltas digitadas na apuração não dizem o dia: valem também para o salário.
       faltasSalario: r.faltas ?? escalaMes.get(r.employeeId)?.faltas ?? 0,
       recebeAdiantamento: vigenteDe(r).recebeAdiantamento,
       pagamentoQuinzenal: vigenteDe(r).pagamentoQuinzenal,
-      rescisaoLancada: rescisoesLancadas.has(r.employeeId),
+      rescisaoLancada: rescisaoCobreEstePeriodo(r),
+      rescisaoTudoNaRescisao: rescisoesLancadas.get(r.employeeId)?.tudoNaRescisao === true,
       gorjetaReal: num(r.gorjetaReal),
       horaExtraMin: minutosValidos(r.horaExtra),
       adicionalNoturnoMin: minutosValidos(r.adicionalNoturno),
@@ -626,7 +651,9 @@ export async function computeTipCommission(
     const fechada = closed ? informadasFechadas?.get(r.employeeId) : undefined;
     const teto = fechada ? fechada.teto : ent.semRegistro ? null : vigenteDe(r).tetoIrGorjeta;
     const peloTeto = fechada ? fechada.peloTeto : teto != null && ent.salarioBase != null;
-    const informada = fechada ? fechada.informada : gorjetaInformada(peloTeto ? teto : null, ent.salarioBase, netCommission);
+    // Pelo teto nunca vai mais que a gorjeta real; fora do rateio (em teste) não há gorjeta real.
+    const informada = fechada ? fechada.informada
+      : gorjetaInformada(peloTeto ? teto : null, ent.salarioBase, peloTeto && calc.foraDaGorjeta ? 0 : netCommission);
     return {
       participantId: r.id,
       employeeId: r.employeeId,
@@ -786,6 +813,10 @@ export async function computeTipCommission(
   const mesNaRescisao = noPeriodo.filter((p) => p.semRegistro && p.tipoCalculo === "MES" && p.pagoNaRescisao);
   if (mesNaRescisao.length) {
     warnings.push(`Saíram depois do fim do ciclo, ainda no mês do salário, com a rescisão lançada: salário, gorjeta do ciclo, vales e hora extra do mês vão na rescisão, não nesta lista: ${listar(mesNaRescisao)}.`);
+  }
+  const diasForaDaRescisao = rows.filter((r) => parteForaDaRescisao(r)).map((r) => nomeCompleto(r.employee));
+  if (diasForaDaRescisao.length) {
+    warnings.push(`A gorjeta dos dias depois do ciclo não entrou na rescisão ("tudo na rescisão" lançada sem este período): esta lista paga esses dias a ${diasForaDaRescisao.join(", ")}.`);
   }
   const comReal = naGorjeta.filter((p) => p.gorjetaReal != null && p.tipoCalculo === "MES");
   if (comReal.length) {

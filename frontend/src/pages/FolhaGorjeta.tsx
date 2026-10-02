@@ -22,6 +22,7 @@ import { AbaRelatorios } from "./gorjeta/AbaRelatorios";
 import { Pendencias } from "./gorjeta/Pendencias";
 import { ResumoApuracao } from "./gorjeta/ResumoApuracao";
 import { ApelidosContext, nomeComApelido } from "./gorjeta/NomePessoa";
+import { avisoDoFechamento } from "./gorjeta/avisoDoFechamento";
 import { type LocalRow, MONTHS, inputStyle, money, mutedStyle, panelStyle, toPayload, toRows } from "./gorjeta/gorjetaUtils";
 
 type Aba = "apuracao" | "vales" | "pagamento" | "contabilidade" | "equipe" | "funcoes" | "relatorios";
@@ -280,9 +281,9 @@ export function FolhaGorjeta() {
     if (!ok) return;
     setBusy(true);
     try {
-      await closeTipPeriodApi(year, month);
+      const fechado = await closeTipPeriodApi(year, month);
       await load();
-      setNotice({ tone: "success", message: "Período fechado. O retrato completo ficou gravado no registro de fechamentos (Relatórios → Fechamentos)." });
+      setNotice(avisoDoFechamento(fechado));
     } catch (e) { erro(e); } finally { setBusy(false); }
   }
 

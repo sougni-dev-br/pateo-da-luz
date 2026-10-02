@@ -134,9 +134,10 @@ export function conferir(
 }
 
 // Sem a permissão de Funcionários, a gorjeta informada pelo teto (teto − salário) não vai
-// para a tela: a linha mantém o status (bate ou não) sem o valor da apuração nem a diferença.
-export function esconderTeto<T extends { peloTeto?: boolean; apuracao: number | null; diferenca: number | null }>(linhas: T[], veDados: boolean): T[] {
-  return veDados ? linhas : linhas.map((l) => (l.peloTeto ? { ...l, apuracao: null, diferenca: null } : l));
+// para a tela: a linha mantém o status (bate ou não) sem o valor da apuração, o do extrato
+// (que, batendo, é o próprio teto − salário) nem a diferença.
+export function esconderTeto<T extends { peloTeto?: boolean; apuracao: number | null; extrato: number | null; diferenca: number | null }>(linhas: T[], veDados: boolean): T[] {
+  return veDados ? linhas : linhas.map((l) => (l.peloTeto ? { ...l, apuracao: null, extrato: null, diferenca: null } : l));
 }
 
 export type OrigemFolha = "EXTRATO" | "SALARIO_COMBINADO" | "SEM_REGISTRO";
@@ -176,7 +177,8 @@ export function montarFolhaLiquidos(apuracao: PessoaApurada[], extratos: Extrato
       const combinado = l.employeeId && seguro ? combinados.get(l.employeeId) : undefined;
       if (combinado != null) {
         const adiant = l.adiantamento ?? 0;
-        const gorjeta = p?.noPeriodo ? p.gorjetaLiquida : 0;
+        // Gorjeta paga no termo de rescisão (pagoNaRescisao) não soma de novo.
+        const gorjeta = p?.noPeriodo && !p.pagoNaRescisao ? p.gorjetaLiquida : 0;
         const valor = valorIntegralCombinado({ combinado, adiantamento: adiant, gorjeta });
         linhas.push({ employeeId: l.employeeId, nome: p?.nome ?? l.nome, grupo: e.empresa, origem: "SALARIO_COMBINADO", valor,
           composicao: `(${reais(combinado)} − adiant. ${reais(adiant)}) + gorjeta ${reais(gorjeta)}`,

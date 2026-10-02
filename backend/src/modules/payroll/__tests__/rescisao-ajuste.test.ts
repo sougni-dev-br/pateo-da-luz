@@ -43,14 +43,27 @@ describe("leitura dos valores da rescisão (auditoria)", () => {
     const r = lerValoresRescisao({ salario: 500, gorjeta: 100, valesDiscount: 50 }, true, 0);
     expect(r).toMatchObject({ net: 550, saldoDevedorPerdoado: 0 });
   });
-  test("bruto zero com desconto: aceito, todo o desconto vira perdoado", () => {
+  test("sem registro, bruto zero com desconto: aceito, todo o desconto vira perdoado", () => {
     expect(lerValoresRescisao({ salario: 0, gorjeta: 0, valesDiscount: 80 }, true, 0)).toMatchObject({ gross: 0, net: 0, saldoDevedorPerdoado: 80 });
-    expect(lerValoresRescisao({ grossAmount: 0, otherDiscount: 25 }, false, 0)).toMatchObject({ gross: 0, net: 0, saldoDevedorPerdoado: 25 });
   });
-  test("bruto e descontos todos zero: nada a lançar", () => {
-    const erro = { erro: "Bruto e descontos estão zerados: não há rescisão a lançar." };
-    expect(lerValoresRescisao({ salario: 0, gorjeta: 0 }, true, 0)).toEqual(erro);
+  test("bruto e descontos todos zero (sem registro): nada a lançar", () => {
+    expect(lerValoresRescisao({ salario: 0, gorjeta: 0 }, true, 0)).toEqual({ erro: "Bruto e descontos estão zerados: não há rescisão a lançar." });
+  });
+  // Auditoria 01/10: CLT com o bruto vazio virava "quitada sem valor" com saldo perdoado.
+  // O perdão do saldo devedor é da rescisão calculada pelo sistema (sem registro).
+  test("CLT sem bruto (vazio, zero ou ausente): exige o bruto do termo", () => {
+    const erro = { erro: "Informe o bruto do termo de rescisão." };
     expect(lerValoresRescisao({}, false, 0)).toEqual(erro);
+    expect(lerValoresRescisao({ grossAmount: "" }, false, 0)).toEqual(erro);
+    expect(lerValoresRescisao({ grossAmount: 0, otherDiscount: 25 }, false, 0)).toEqual(erro);
+    expect(lerValoresRescisao({ grossAmount: 0, vtDiscount: 40 }, false, 0)).toEqual(erro);
+  });
+  test("CLT com descontos que zeram ou passam do bruto: recusa (termo zerado vai pela quitada no termo)", () => {
+    for (const corpo of [{ grossAmount: 100, vtDiscount: 100 }, { grossAmount: 100, otherDiscount: 150 }]) {
+      const r = lerValoresRescisao(corpo, false, 0);
+      expect(r).toHaveProperty("erro");
+      expect((r as { erro: string }).erro).toMatch(/quitada no termo/);
+    }
   });
   test("número inválido, infinito, negativo ou absurdo é recusado", () => {
     for (const v of ["abc", "Infinity", -1, 1e21]) {

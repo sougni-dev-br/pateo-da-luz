@@ -52,10 +52,11 @@ function periodo(participants: unknown[]) {
 }
 
 // Rescisão lançada em Contas a Pagar na competência da saída (09/2026).
-function comRescisaoLancada(lancada: boolean) {
+// details.tudoNaRescisao: lançada pela regra "tudo na rescisão" (a apuração tinha as partes).
+function comRescisaoLancada(lancada: boolean, details: unknown = { tudoNaRescisao: true }) {
   db.payrollItem.findMany.mockImplementation(async (args: { where?: { type?: string } }) => (
     lancada && args?.where?.type === "RESCISAO"
-      ? [{ employeeId: "e1", amount: 3000, dueDate: d("2026-10-05"), status: "PENDING", details: null }]
+      ? [{ employeeId: "e1", amount: 3000, dueDate: d("2026-10-05"), status: "PENDING", details }]
       : []));
 }
 
@@ -104,5 +105,59 @@ describe("sem registro que saiu em 29/09 (ciclo até 25/09)", () => {
     const p = comp.participants[0];
     expect(p.pagoNaRescisao).toBe(false);
     expect(p.totalAPagar).toBe(p.netCommission);
+  });
+});
+
+// Auditoria 01/10: a lista do mês só zera para quem saiu depois do ciclo quando a rescisão
+// foi lançada pela regra "tudo na rescisão" (marcador). Sem o marcador, a rescisão pagou só
+// o período que contém a saída — a lista do mês paga o mês.
+describe("marcador tudoNaRescisao", () => {
+  test("setembro: rescisão sem o marcador não zera a lista do mês", async () => {
+    comRescisaoLancada(true, { grupoRescisao: "g1" });
+    periodo([participante()]);
+    const p = (await computeTipCommission(2026, 9, { incluirDadosPessoais: true })).participants[0];
+    expect(p.pagoNaRescisao).toBe(false);
+    expect(p.totalAPagar).toBeGreaterThan(2126.57);
+  });
+
+  // Outubro (26/09–25/10) contém a saída de 29/09: é o período dos dias depois do ciclo.
+  function outubro(participants: unknown[]) {
+    db.tipPeriod.findUnique.mockResolvedValue({
+      id: "per10", code: "GOR-2026-0010", label: "Gorjeta 26/09–25/10", status: "OPEN",
+      periodStart: d("2026-09-26"), periodEnd: d("2026-10-25"),
+      grossPool: 20000, servicoFaturamento: 20000, ajusteServico: 0, ajusteServicoMotivo: null, deductionPercent: 20, pointsTotal: 100,
+      diasPadrao: 26, descontaFalta: true, descontaAtestado: true, descontaFerias: true, descontaOutros: false, proporcionalEntrada: true,
+      reservaPontos: 0, participants,
+    });
+  }
+
+  test("outubro: tudo na rescisão SEM a parte dos dias gravada (período não existia): a lista paga esses dias", async () => {
+    comRescisaoLancada(true);
+    outubro([{ ...participante(), rescisaoServicoBruto: 2000 }]);
+    const comp = await computeTipCommission(2026, 10, { incluirDadosPessoais: true });
+    const p = comp.participants[0];
+    expect(p.tipoCalculo).toBe("RESCISAO");
+    expect(p.pagoNaRescisao).toBe(false);
+    expect(p.rateioAmount).toBeGreaterThan(0);
+    // Gorjeta e vales desses dias + a hora extra digitada no período (nada disso entrou na rescisão).
+    expect(p.totalAPagar).toBe(Math.round((p.netCommission + (p.valorHoraExtra ?? 0)) * 100) / 100);
+    expect(comp.warnings.join(" ")).toMatch(/não entrou na rescisão/);
+  });
+
+  test("outubro: com a parte gravada na apuração (rescisaoValorFixo): quitada, a lista não paga", async () => {
+    comRescisaoLancada(true);
+    outubro([{ ...participante(), rescisaoServicoBruto: 2000, rescisaoValorFixo: 50 }]);
+    const p = (await computeTipCommission(2026, 10, { incluirDadosPessoais: true })).participants[0];
+    expect(p.tipoCalculo).toBe("RESCISAO_QUITADA");
+    expect(p.pagoNaRescisao).toBe(true);
+    expect(p.totalAPagar).toBe(0);
+  });
+
+  test("outubro: rescisão comum (sem o marcador) segue pagando o período da saída", async () => {
+    comRescisaoLancada(true, null);
+    outubro([{ ...participante(), rescisaoServicoBruto: 2000 }]);
+    const p = (await computeTipCommission(2026, 10, { incluirDadosPessoais: true })).participants[0];
+    expect(p.pagoNaRescisao).toBe(true);
+    expect(p.totalAPagar).toBe(0);
   });
 });

@@ -31,7 +31,7 @@ const ORIGEM: Record<TipLinhaFolha["origem"], string> = {
 };
 
 const EXT: Extratores<TipLinhaFolha> = {
-  nome: (l) => l.nome, origem: (l) => ORIGEM[l.origem], composicao: (l) => l.composicao, pix: (l) => l.pix, valor: (l) => l.valor,
+  nome: (l) => l.nome, origem: (l) => ORIGEM[l.origem], composicao: (l) => l.composicao ?? "", pix: (l) => l.pix, valor: (l) => l.valor,
 };
 const TEXTO = new Set(["nome", "origem", "composicao", "pix"]);
 const COLUNAS: ColunaOpcional[] = [
@@ -90,10 +90,10 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
   if (!folha) return <div style={panelStyle}><span style={mutedStyle}>Carregando a folha…</span></div>;
   // Contexto da página primeiro; o salário combinado já vem com o apelido.
   const apelidoDe = (l: TipLinhaFolha) => (l.employeeId
-    ? apelidos.get(l.employeeId) ?? folha.salariosCombinados.find((s) => s.employeeId === l.employeeId)?.apelido ?? null
+    ? apelidos.get(l.employeeId) ?? (folha.salariosCombinados ?? []).find((s) => s.employeeId === l.employeeId)?.apelido ?? null
     : null);
   const filtradas = filtro.aplicar(folha.linhas,
-    (l) => [textoPessoa(l.nome, apelidoDe(l)), l.grupo, l.pix ?? "", l.composicao].join(" "),
+    (l) => [textoPessoa(l.nome, apelidoDe(l)), l.grupo, l.pix ?? "", l.composicao ?? ""].join(" "),
     { grupo: (l) => l.grupo, origem: (l) => ORIGEM[l.origem] });
   const ordenadas = aplicarOrdem(filtradas, ord.ordem, EXT);
   // Agrupado por empresa/grupo; a ordem escolhida vale dentro de cada grupo.
@@ -112,7 +112,7 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
         </div>
         <div className="cabecalho-painel-acoes">
           <SeletorColunas colunas={COLUNAS} ocultas={col.ocultas} alternar={col.alternar} mostrarTodas={col.mostrarTodas} />
-          {canEdit && folha.salariosCombinados.length > 0 && (
+          {canEdit && (folha.salariosCombinados?.length ?? 0) > 0 && (
             <Button variant="secondary" size="sm" leadingIcon={<RefreshCw size={14} />} disabled={sincronizando}
               title="Recalcula o salário ainda não pago de quem tem salário combinado: (combinado − adiantamento) + gorjeta"
               onClick={() => void atualizarSalarios()}>
@@ -170,7 +170,7 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
                     )}
                   </Table.Td>
                   {v("origem") && <Table.Td><StatusBadge tone={l.origem === "SALARIO_COMBINADO" ? "info" : "neutral"}>{ORIGEM[l.origem]}</StatusBadge></Table.Td>}
-                  {v("composicao") && <Table.Td style={mutedStyle}>{l.composicao}</Table.Td>}
+                  {v("composicao") && <Table.Td style={mutedStyle}>{l.composicao ?? "—"}</Table.Td>}
                   {v("pix") && <Table.Td style={mutedStyle}>{l.pix ?? <span style={{ color: "var(--warning, #b45309)" }}>sem PIX</span>}</Table.Td>}
                   {v("valor") && <Table.Td style={{ fontWeight: 700 }}>{money(l.valor)}</Table.Td>}
                 </Table.Row>

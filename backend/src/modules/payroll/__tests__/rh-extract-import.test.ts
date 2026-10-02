@@ -286,10 +286,21 @@ describe("importExtrato — salário combinado", () => {
     expect(r.avisos).toContain("Salário combinado de FULANO DE TAL: gorjeta do mês ainda não apurada; lançado o líquido do extrato. Será atualizado ao fechar a gorjeta.");
   });
 
-  test("pessoa fora da apuração: também fica pendente", async () => {
+  // Auditoria 01/10: fora da apuração existente (em teste, fora do período) ficava pendente
+  // para sempre. Igual à folha de líquidos: gorjeta zero, valor = combinado − adiantamento.
+  test("pessoa fora da apuração (que existe): gorjeta zero, não fica pendente", async () => {
     vi.mocked(gorjetasDaCompetencia).mockResolvedValue(new Map([["outro", { noPeriodo: true, gorjetaLiquida: 1 }]]));
     await importar();
-    expect(salarioCriado().details).toMatchObject({ pendenteGorjeta: true });
+    const sal = salarioCriado();
+    expect(sal.amount).toBe(3731.2);
+    expect(sal.details).toMatchObject({ origemValor: "SALARIO_COMBINADO", gorjetaIntegral: 0 });
+    expect(sal.details).not.toHaveProperty("pendenteGorjeta");
+  });
+
+  test("gorjeta paga na rescisão (termo): não soma de novo", async () => {
+    vi.mocked(gorjetasDaCompetencia).mockResolvedValue(new Map([["e1", { noPeriodo: true, gorjetaLiquida: 2223.54, pagoNaRescisao: true }]]));
+    await importar();
+    expect(salarioCriado().amount).toBe(3731.2);
   });
 
   test("erro ao calcular a gorjeta: fica pendente e o erro vira aviso (não some)", async () => {
@@ -323,5 +334,33 @@ describe("importExtrato — salário combinado", () => {
     textoDoPdf.atual = extrato("Adiantamento");
     await importar();
     expect(mapaCombinados).not.toHaveBeenCalled();
+  });
+});
+
+// Auditoria 01/10: reimportar o extrato atualizava valor e detalhes do salário/adiantamento
+// já PAGO. Pago não muda: pula e avisa com o valor que o extrato traz.
+describe("importExtrato — lançamento já pago", () => {
+  test("salário pago: não atualiza, conta como pulado e avisa com o valor do extrato", async () => {
+    db.payrollItem.findUnique.mockResolvedValue({ id: "p1", deletedAt: null, deletedById: null, paymentDate: new Date("2026-10-05T12:00:00Z"), amount: 1000 });
+    const r = await importar();
+    expect(db.payrollItem.update).not.toHaveBeenCalled();
+    expect(db.payrollItem.create).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ titulosAtualizados: 0, titulosNovos: 0, titulosPulados: 1 });
+    expect(r.avisos.map((a) => a.replace(/\s/g, " "))).toContain("FULANO DE TAL: salário de 09/2026 já pago: não atualizado (extrato traz R$ 1.034,00).");
+  });
+
+  test("adiantamento pago: idem", async () => {
+    textoDoPdf.atual = extrato("Adiantamento");
+    db.payrollItem.findUnique.mockResolvedValue({ id: "a1", deletedAt: null, deletedById: null, paymentDate: new Date("2026-09-20T12:00:00Z"), amount: 1000 });
+    const r = await importar();
+    expect(db.payrollItem.update).not.toHaveBeenCalled();
+    expect(r.avisos.map((a) => a.replace(/\s/g, " "))).toContain("FULANO DE TAL: adiantamento de 09/2026 já pago: não atualizado (extrato traz R$ 1.034,00).");
+  });
+
+  test("em aberto continua sendo atualizado", async () => {
+    db.payrollItem.findUnique.mockResolvedValue({ id: "p1", deletedAt: null, deletedById: null, paymentDate: null, amount: 1000 });
+    const r = await importar();
+    expect(db.payrollItem.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "p1" } }));
+    expect(r.titulosAtualizados).toBe(1);
   });
 });

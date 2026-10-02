@@ -13,5 +13,8 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     globals: true,
     css: true,
+    // As telas grandes (Funcionários, lista de pagamento, Contas a Pagar) passam de 5 s
+    // quando os ~100 arquivos rodam em paralelo; sozinhas levam 1–2 s.
+    testTimeout: 20000,
   },
 });

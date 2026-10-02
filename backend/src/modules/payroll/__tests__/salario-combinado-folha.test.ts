@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  composicaoParaTela, mesclarDetalhes, salarioDaFolha, valorIntegralCombinado,
+  composicaoParaTela, gorjetaDaPessoa, mesclarDetalhes, salarioDaFolha, valorIntegralCombinado,
 } from "../salario-combinado-folha.js";
 import { montarFolhaLiquidos } from "../tip-conferencia.js";
 
@@ -93,5 +93,33 @@ describe("composicaoParaTela", () => {
   test("lançamento comum: nada", () => {
     expect(composicaoParaTela({ liquido: 3030 }, 3030)).toBeNull();
     expect(composicaoParaTela(null, 3030)).toBeNull();
+  });
+});
+
+// Auditoria 01/10: a gorjeta paga no termo de rescisão (pagoNaRescisao) era somada de novo
+// no salário combinado; e quem estava fora da apuração ficava pendente para sempre.
+describe("salário combinado: gorjeta paga na rescisão e pessoa fora da apuração", () => {
+  test("pagoNaRescisao: gorjeta zero no salário combinado (combinado − adiantamento)", () => {
+    const r = salarioDaFolha({ liquidoExtrato: 3030, adiantamento: 1468.8, combinado: 5200, gorjeta: { noPeriodo: true, gorjetaLiquida: 2223.54, pagoNaRescisao: true } });
+    expect(r.valor).toBe(3731.2);
+    expect(r.detalhes.gorjetaIntegral).toBe(0);
+    expect(r.pendenteGorjeta).toBe(false);
+  });
+
+  test("folha de líquidos: pagoNaRescisao também não soma a gorjeta", () => {
+    const [linha] = montarFolhaLiquidos(
+      [{ employeeId: "e1", nome: "E", semRegistro: false, noPeriodo: true, pagoNaRescisao: true, gorjetaLiquida: 2223.54, totalAPagar: 0, cnpjEmpresa: null, pix: null }],
+      [{ empresa: "X", cnpj: "1", linhas: [{ employeeId: "e1", nome: "E", liquido: 3030, gorjeta: 100, adiantamento: 1468.8, situacao: null, vinculo: "CPF" }] }],
+      new Map([["e1", 5200]]),
+    );
+    expect(linha.valor).toBe(3731.2);
+  });
+
+  test("gorjetaDaPessoa: sem apuração = pendente (null); apuração sem a pessoa = gorjeta zero", () => {
+    expect(gorjetaDaPessoa(null, "e1")).toBeNull();
+    expect(gorjetaDaPessoa(undefined, "e1")).toBeNull();
+    expect(gorjetaDaPessoa(new Map(), "e1")).toEqual({ noPeriodo: false, gorjetaLiquida: 0 });
+    const mapa = new Map([["e1", { noPeriodo: true, gorjetaLiquida: 10 }]]);
+    expect(gorjetaDaPessoa(mapa, "e1")).toEqual({ noPeriodo: true, gorjetaLiquida: 10 });
   });
 });

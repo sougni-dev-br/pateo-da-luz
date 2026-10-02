@@ -33,7 +33,7 @@ const h = (campo: string, de: string | null, para: string | null, vigente: strin
 
 function participante(emp: Record<string, unknown> = {}) {
   return {
-    id: "tp1", employeeId: "e1", kind: "PONTOS", basePoints: 2, points: null, pointsAdjustment: 0, fixedAmount: null,
+    id: "tp1", employeeId: "e1", kind: "PONTOS", basePoints: 20, points: null, pointsAdjustment: 0, fixedAmount: null,
     faltas: 0, atestados: 0, ferias: 0, outrosDias: 0, diasPrevistosOverride: null,
     descontaFalta: null, descontaAtestado: null, descontaFerias: null, descontaOutros: null, proporcionalEntrada: null,
     rescisaoServicoBruto: null, rescisaoValorFixo: null, rescisaoRecibo: null, diasSalarioOverride: null,
@@ -44,7 +44,7 @@ function participante(emp: Record<string, unknown> = {}) {
       firstName: "Elioenai", lastName: "Silva", displayName: null, isActive: true, companyId: null, company: null,
       modality: "CLT", baseSalary: 3672, tetoIrGorjeta: 5000, pixKeyType: null, pixKey: null, recebeAdiantamento: false,
       admissionDate: d("2025-01-01"), terminationDate: null,
-      pontosExtra: null, tipFunction: { name: "Cozinha", points: 2, minPoints: null, maxPoints: null }, ...emp,
+      pontosExtra: null, tipFunction: { name: "Cozinha", points: 20, minPoints: null, maxPoints: null }, ...emp,
     },
   };
 }
@@ -90,6 +90,23 @@ describe("gorjeta informada à contabilidade", () => {
     expect(comTeto.totalAPagar).toBe(semTeto.totalAPagar);
     expect(comTeto.points).toBe(semTeto.points);
     expect(comTeto.netCommission).not.toBe(1328);
+  });
+
+  // Auditoria 01/10: o teto nunca informa mais que a gorjeta real.
+  test("com teto e gorjeta real menor que teto − salário: informa a real (2 pts = R$ 320,00)", async () => {
+    periodoSetembro([{ ...participante(), basePoints: 2 }]);
+    const p = (await computeTipCommission(2026, 9, { incluirDadosPessoais: true })).participants[0];
+    expect(p.gorjetaInformadaPeloTeto).toBe(true);
+    expect(p.gorjetaInformada).toBe(p.netCommission);
+    expect(p.gorjetaInformada).toBeLessThan(1328);
+  });
+
+  test("com teto, em teste (fora do rateio): sem gorjeta real, informa zero (mesmo com crédito na aba Vales)", async () => {
+    periodoSetembro([{ ...participante({ participaGorjeta: true, inicioGorjeta: null }), vales: [{ id: "v1", type: "CREDITO", amount: 500, date: null, notes: null }] }]);
+    const p = (await computeTipCommission(2026, 9, { incluirDadosPessoais: true })).participants[0];
+    expect(p.foraDaGorjeta).toBe(true);
+    expect(p.gorjetaInformadaPeloTeto).toBe(true);
+    expect(p.gorjetaInformada).toBe(0);
   });
 
   test("sem teto: a gorjeta informada é a gorjeta líquida (mesmo sem permissão)", async () => {
@@ -144,7 +161,7 @@ describe("gorjeta informada no período fechado", () => {
       periodStart: d("2026-08-26"), periodEnd: d("2026-09-25"),
       grossPool: 20000, servicoFaturamento: 20000, ajusteServico: 0, ajusteServicoMotivo: null, deductionPercent: 20, pointsTotal: 100,
       diasPadrao: 26, descontaFalta: true, descontaAtestado: true, descontaFerias: true, descontaOutros: false, proporcionalEntrada: true,
-      reservaPontos: 0, participants: [participante()],
+      reservaPontos: 0, participants: [{ ...participante(), netCommission: 3200 }],
     });
     db.tipPeriodClosing.findFirst.mockResolvedValue(retrato == null ? null
       : { id: "c1", code: "GOR-2026-0009/v1", version: 1, closedAt: d("2026-09-30"), closedByName: "Eli", participants: retrato });

@@ -176,9 +176,11 @@ describe("conferência sem permissão de ver Funcionários", () => {
       [extrato([linha({ employeeId: "eli", nome: "ELIOENAI", gorjeta: 1300 }), linha({ employeeId: "ana", nome: "ANA", gorjeta: 500 })])],
       new Map());
     const sem = esconderTeto(linhas, false);
-    expect(sem.find((l) => l.chave === "eli")).toMatchObject({ status: "DIVERGE", apuracao: null, diferenca: null, extrato: 1300, peloTeto: true });
+    // Auditoria 01/10: o extrato de quem é pelo teto também sai (com "OK", ele É o teto − salário).
+    expect(sem.find((l) => l.chave === "eli")).toMatchObject({ status: "DIVERGE", apuracao: null, diferenca: null, extrato: null, peloTeto: true });
     expect(sem.find((l) => l.chave === "ana")).toMatchObject({ status: "OK", apuracao: 500, diferenca: 0 });
     expect(JSON.stringify(sem)).not.toContain("1328");
+    expect(JSON.stringify(sem)).not.toContain("1300");
     expect(esconderTeto(linhas, true)).toEqual(linhas);
   });
 });

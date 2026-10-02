@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { gorjetaInformada } from "../gorjeta-informada.js";
 
-// Gorjeta informada à contabilidade: com teto do IR, teto − salário registrado (o total
-// registrado fica no teto de isenção); sem teto, a gorjeta do rateio. A pessoa continua
-// recebendo a gorjeta real na lista de pagamento — isso não passa por aqui.
+// Gorjeta informada à contabilidade: com teto do IR, o menor entre a gorjeta real e
+// teto − salário registrado (o total registrado fica no teto de isenção, e nunca se
+// informa mais gorjeta do que a pessoa teve); sem teto, a gorjeta do rateio. A pessoa
+// continua recebendo a gorjeta real na lista de pagamento — isso não passa por aqui.
 describe("gorjetaInformada", () => {
-  it("com teto: teto − salário registrado (setembro do Elioenai: 5.000 − 3.672)", () => {
+  it("com teto: teto − salário registrado (setembro do Elioenai: 5.000 − 3.672; real 2.223,54)", () => {
     expect(gorjetaInformada(5000, 3672, 2223.54)).toBe(1328);
   });
 
@@ -14,7 +15,7 @@ describe("gorjetaInformada", () => {
   });
 
   it("arredonda em centavos", () => {
-    expect(gorjetaInformada(5000, 3672.333, 10)).toBe(1327.67);
+    expect(gorjetaInformada(5000, 3672.333, 2000)).toBe(1327.67);
   });
 
   it("teto menor ou igual ao salário: zero, nunca negativo", () => {
@@ -30,7 +31,13 @@ describe("gorjetaInformada", () => {
     expect(gorjetaInformada(5000, null, 2223.54)).toBe(2223.54);
   });
 
-  it("não depende da gorjeta real quando há teto (mesmo real menor que o informado)", () => {
-    expect(gorjetaInformada(5000, 3672, 500)).toBe(1328);
+  // Auditoria 01/10: informava teto − salário mesmo com a gorjeta real menor (ou zero).
+  it("nunca informa mais que a gorjeta real: real menor que teto − salário vai a real", () => {
+    expect(gorjetaInformada(5000, 3672, 500)).toBe(500);
+  });
+
+  it("sem gorjeta real (zero, em teste, fora do rateio) ou negativa: zero", () => {
+    expect(gorjetaInformada(5000, 3672, 0)).toBe(0);
+    expect(gorjetaInformada(5000, 3672, -120)).toBe(0);
   });
 });

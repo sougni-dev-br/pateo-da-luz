@@ -112,9 +112,12 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
   const liquido = Math.round((bruto - (valores.vales ?? 0) - (valores.vtDesconto ?? 0) - outro) * 100) / 100;
 
   const editavel = !info?.alreadyReleased || ajustando;
+  // Verba marcada com valor oculto (sem ver Funcionários): o líquido daqui está incompleto.
+  // Quem decide se fica quitada é o servidor, ao lançar.
+  const liquidoOculto = extras.oculto;
   // Líquido zero ou negativo: lança como quitada (nada a pagar; o negativo é perdoado).
-  const quitacao = !ajustando && !info?.alreadyReleased ? quitacaoDoLiquido(liquido) : null;
-  const liquidoZerado = Math.round(liquido * 100) <= 0;
+  const quitacao = !ajustando && !info?.alreadyReleased && !liquidoOculto ? quitacaoDoLiquido(liquido) : null;
+  const liquidoZerado = !liquidoOculto && Math.round(liquido * 100) <= 0;
   const difs = ajustando ? [] : divergencias(sugestao, valores);
   const precisaJustificar = ajustando || difs.length > 0;
   const semSeparacao = ajustando && semRegistro && lancada?.salario == null;
@@ -132,7 +135,7 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
   // Prévia do parcelamento — mesma conta de centavos do backend (a 1ª absorve o resto).
   const nParcelas = Math.max(1, Math.min(Number(form.installments) || 1, 12));
   const parcelas = (() => {
-    if (ajustando || liquido <= 0 || nParcelas <= 1) return [] as Array<{ n: number; valor: number; vence: Date }>;
+    if (ajustando || liquidoOculto || liquido <= 0 || nParcelas <= 1) return [] as Array<{ n: number; valor: number; vence: Date }>;
     const total = Math.round(liquido * 100);
     const base = Math.floor(total / nParcelas);
     const [a, m, d] = (form.dueDate || hojeLocalIso()).split("-").map(Number);
@@ -175,7 +178,7 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
   async function liberar() {
     setMsg(null);
     const descontos = (valores.vales ?? 0) + (valores.vtDesconto ?? 0) + outro;
-    if (bruto <= 0 && descontos <= 0) {
+    if (bruto <= 0 && descontos <= 0 && !liquidoOculto) {
       return avisar({ tom: "error", texto: semRegistro ? "Informe o salário e a gorjeta da rescisão." : "Informe o valor bruto que a contabilidade enviou." });
     }
     if (!verbasValidas()) return;
@@ -391,7 +394,9 @@ export function RescisaoFormulario({ funcionario, onGravou, mostrarApuracao = tr
               <span className="resc-detalhe">
                 {quitacao ? "Nada a pagar · quitada" : "Líquido a pagar"}{precisaJustificar && !ajustando ? " · precisa justificar" : ""}
               </span>
-              <strong><Money value={quitacao ? 0 : liquido} /></strong>
+              {liquidoOculto
+                ? <strong>calculado ao lançar</strong>
+                : <strong><Money value={quitacao ? 0 : liquido} /></strong>}
               <span className="resc-detalhe">
                 bruto <Money value={bruto} />{creditos > 0 && <> (com <Money value={creditos} /> de créditos{(sugestao?.horaExtra ?? 0) > 0 && " e hora extra"})</>}
                 {extras.total > 0 && <> (com <Money value={extras.total} /> de verbas opcionais)</>}

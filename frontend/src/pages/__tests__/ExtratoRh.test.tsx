@@ -53,8 +53,8 @@ describe("Retorno do RH depois de importar", () => {
     vi.mocked(previewExtratoRh).mockResolvedValueOnce(previa(0)).mockResolvedValueOnce(previa(1));
     vi.mocked(importExtratoRh).mockResolvedValue(RESULTADO);
     renderizar();
-    fireEvent.click(await screen.findByRole("button", { name: "Lançar salários no Contas a Pagar" }));
-    expect(await screen.findByRole("button", { name: "Atualizar e guardar o extrato" })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Lançar salários no Contas a Pagar" }, { timeout: 5000 }));
+    expect(await screen.findByRole("button", { name: "Atualizar e guardar o extrato" }, { timeout: 5000 })).toBeInTheDocument();
     expect(previewExtratoRh).toHaveBeenCalledTimes(2);
     expect(vi.mocked(previewExtratoRh).mock.calls[1][0]).toBe(vi.mocked(previewExtratoRh).mock.calls[0][0]);
     expect(screen.getAllByText(/1 excluído\(s\) à mão, não recriado\(s\)/).length).toBeGreaterThan(0);
@@ -65,7 +65,7 @@ describe("Retorno do RH depois de importar", () => {
     vi.mocked(previewExtratoRh).mockResolvedValueOnce(previa(0)).mockRejectedValueOnce(new Error("rede"));
     vi.mocked(importExtratoRh).mockResolvedValue({ ...RESULTADO, titulosPulados: undefined, avisos: [] });
     renderizar();
-    fireEvent.click(await screen.findByRole("button", { name: "Lançar salários no Contas a Pagar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Lançar salários no Contas a Pagar" }, { timeout: 5000 }));
     await waitFor(() => expect(screen.queryByRole("button", { name: /Lançar salários/ })).toBeNull());
     expect(screen.getByText(/Este arquivo já estava guardado/)).toBeInTheDocument();
   });
