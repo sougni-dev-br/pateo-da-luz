@@ -22,6 +22,7 @@ export const PALETAS: Array<{ value: Paleta; label: string; amostra: string }> =
 ];
 
 export const FORMAS_NOME: Array<{ value: FormaNome; label: string }> = [
+  { value: "PRENOME_SOBRENOME", label: "Nome e sobrenome" },
   { value: "APELIDO", label: "Apelido" },
   { value: "PRIMEIRO", label: "Primeiro nome" },
   { value: "COMPLETO", label: "Completo" }
@@ -43,19 +44,48 @@ export const MENSAGENS_SUGERIDAS = [
 export const ASSINATURA_PADRAO = "Com carinho, equipe Pateo da Luz";
 
 export const PADRAO: OpcoesFolha = {
-  modelo: "CARTAZ", orientacao: "portrait", paleta: "DOURADO", formaNome: "APELIDO", tamanho: "NORMAL",
+  modelo: "CARTAZ", orientacao: "portrait", paleta: "DOURADO", formaNome: "PRENOME_SOBRENOME", tamanho: "NORMAL",
   mostrarSetor: true, mostrarCargo: false, mostrarLogo: true,
   titulo: "", mensagem: MENSAGENS_SUGERIDAS[0], assinatura: ASSINATURA_PADRAO
 };
 
 // v2: o padrão de nome virou "Apelido" e a mensagem mudou — preferências antigas não valem mais.
-const CHAVE_PREFERENCIAS = "pateo.aniversariantes.impressao.v2";
+// v3: o padrão de nome virou "Nome e sobrenome" (decisão do Eli, 01/10/2026). As preferências da
+// v2 continuam valendo (cores, modelo, mensagem); só a forma do nome passa para o padrão novo.
+const CHAVE_PREFERENCIAS = "pateo.aniversariantes.impressao.v3";
+const CHAVE_V2 = "pateo.aniversariantes.impressao.v2";
+
+const um = <T extends string>(lista: Array<{ value: T }>, v: unknown, padrao: T): T =>
+  lista.some((o) => o.value === v) ? (v as T) : padrao;
+const texto = (v: unknown, padrao: string) => (typeof v === "string" ? v : padrao);
+const sim = (v: unknown, padrao: boolean) => (typeof v === "boolean" ? v : padrao);
+
+// O que veio do armazenamento passa campo a campo pelas listas: valor que não existe mais (ou
+// editado à mão) volta ao padrão em vez de quebrar a prévia.
+function validar(bruto: unknown): OpcoesFolha {
+  const o = bruto && typeof bruto === "object" && !Array.isArray(bruto) ? (bruto as Record<string, unknown>) : {};
+  return {
+    modelo: um(MODELOS, o.modelo, PADRAO.modelo),
+    orientacao: um(ORIENTACOES, o.orientacao, PADRAO.orientacao),
+    paleta: um(PALETAS, o.paleta, PADRAO.paleta),
+    formaNome: um(FORMAS_NOME, o.formaNome, PADRAO.formaNome),
+    tamanho: um(TAMANHOS, o.tamanho, PADRAO.tamanho),
+    mostrarSetor: sim(o.mostrarSetor, PADRAO.mostrarSetor),
+    mostrarCargo: sim(o.mostrarCargo, PADRAO.mostrarCargo),
+    mostrarLogo: sim(o.mostrarLogo, PADRAO.mostrarLogo),
+    titulo: "",
+    mensagem: texto(o.mensagem, PADRAO.mensagem),
+    assinatura: texto(o.assinatura, PADRAO.assinatura),
+  };
+}
 
 // Preferências só de conveniência: se o navegador bloquear o armazenamento, usa o padrão.
 export function lerPreferencias(): OpcoesFolha {
   try {
     const salvo = window.localStorage.getItem(CHAVE_PREFERENCIAS);
-    return salvo ? { ...PADRAO, ...(JSON.parse(salvo) as Partial<OpcoesFolha>), titulo: "" } : PADRAO;
+    if (salvo) return validar(JSON.parse(salvo));
+    const v2 = window.localStorage.getItem(CHAVE_V2);
+    return v2 ? { ...validar(JSON.parse(v2)), formaNome: PADRAO.formaNome } : PADRAO;
   } catch {
     return PADRAO;
   }

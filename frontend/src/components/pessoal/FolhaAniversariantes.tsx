@@ -6,7 +6,7 @@ import "./FolhaAniversariantes.css";
 export type ModeloFolha = "CARTAZ" | "CARTOES" | "LISTA";
 export type Orientacao = "portrait" | "landscape";
 export type Paleta = "DOURADO" | "ROSA" | "AZUL" | "VERDE" | "PB";
-export type FormaNome = "APELIDO" | "PRIMEIRO" | "COMPLETO";
+export type FormaNome = "PRENOME_SOBRENOME" | "APELIDO" | "PRIMEIRO" | "COMPLETO";
 export type TamanhoTexto = "PEQUENO" | "NORMAL" | "GRANDE";
 
 export type OpcoesFolha = {
@@ -78,7 +78,19 @@ export function primeiroNome(b: EmployeeBirthday) {
   return (b.firstName ?? "").trim().split(/\s+/)[0] ?? "";
 }
 
+// Filho, Júnior, Neto, Sobrinho… acompanham o sobrenome que vem antes ("Prado Sobrinho").
+const AGNOMES = new Set(["filho", "filha", "junior", "júnior", "jr", "jr.", "neto", "neta", "sobrinho", "sobrinha", "segundo", "terceiro"]);
+
+// Último sobrenome: "Souza Lima" → "Lima"; "Rocha Prado Sobrinho" → "Prado Sobrinho".
+export function ultimoSobrenome(sobrenome: string | null | undefined): string {
+  const partes = (sobrenome ?? "").trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return "";
+  const ultima = partes[partes.length - 1];
+  return AGNOMES.has(ultima.toLocaleLowerCase("pt-BR")) && partes.length > 1 ? partes.slice(-2).join(" ") : ultima;
+}
+
 export function nomeParaExibir(b: EmployeeBirthday, forma: FormaNome) {
+  if (forma === "PRENOME_SOBRENOME") return `${(b.firstName ?? "").trim()} ${ultimoSobrenome(b.lastName)}`.trim();
   if (forma === "COMPLETO") return `${b.firstName} ${b.lastName}`.trim();
   if (forma === "APELIDO") return (b.displayName ?? "").trim() || primeiroNome(b);
   return primeiroNome(b);
