@@ -32,16 +32,19 @@ const AUSENCIAS: AusenciaTipo[] = ["FALTA", "ATESTADO"];
 export const TIPOS_DE_FOLGA: Array<"FOLGA" | "FOLGA_FERIADO" | "FOLGA_BANCO_HORAS"> = ["FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS"];
 
 // O que gerar: VT (inteiro ou por quinzena), só a folha, ou tudo.
-export type PayrollKind = "ALL" | "VT" | "VT_Q1" | "VT_Q2" | "FOLHA";
-export const PAYROLL_KINDS: PayrollKind[] = ["ALL", "VT", "VT_Q1", "VT_Q2", "FOLHA"];
+// ADIANTAMENTO_SR: só o adiantamento de quem é sem registro e recebe adiantamento — o título do
+// dia 20 que a lista de pagamento desconta. O de CLT vem do extrato da contabilidade.
+export type PayrollKind = "ALL" | "VT" | "VT_Q1" | "VT_Q2" | "FOLHA" | "ADIANTAMENTO_SR";
+export const PAYROLL_KINDS: PayrollKind[] = ["ALL", "VT", "VT_Q1", "VT_Q2", "FOLHA", "ADIANTAMENTO_SR"];
 const VT_TYPES: PayrollItemType[] = ["VALE_TRANSPORTE"];
 const KIND_TYPES: Record<PayrollKind, PayrollItemType[]> = {
   ALL: ["VALE_TRANSPORTE", "ADIANTAMENTO", "SALARIO"],
   VT: VT_TYPES, VT_Q1: VT_TYPES, VT_Q2: VT_TYPES,
   FOLHA: ["ADIANTAMENTO", "SALARIO"],
+  ADIANTAMENTO_SR: ["ADIANTAMENTO"],
 };
 const KIND_QUINZENA: Record<PayrollKind, 1 | 2 | null> = {
-  ALL: null, VT: null, VT_Q1: 1, VT_Q2: 2, FOLHA: null,
+  ALL: null, VT: null, VT_Q1: 1, VT_Q2: 2, FOLHA: null, ADIANTAMENTO_SR: null,
 };
 // A quinzena de um item vem carimbada no cálculo. Antes era deduzida do
 // vencimento (dia <= 15 => 1ª), e isso QUEBRA agora que o VT vence na véspera
@@ -483,7 +486,7 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
         dueDate: isoDate(year, month, Math.min(settings.advanceDueDay, daysInMonth)),
         amount: advance, workedDays: null, freeDays: null, quinzena: null,
         dreCategoryId: dreFolha?.id ?? null, dreCategoryName: dreFolha?.name ?? null,
-        details: { base, percent: Number(settings.advancePercent) },
+        details: { base, percent: Number(settings.advancePercent), ...(vigente.modality === "NAO_CLT" ? { semRegistro: true } : {}) },
         exists: existsKey.has(`${emp.id}|ADIANTAMENTO|Adiantamento`) || jaVeioDoExtrato(emp.id, name, "ADIANTAMENTO"),
       });
       const ny = month === 12 ? year + 1 : year;
@@ -561,7 +564,9 @@ export async function generatePayroll(
   // fecha quando a escala da segunda metade do mês está pronta.
   const allowed = KIND_TYPES[kind];
   const quinzena = KIND_QUINZENA[kind];
-  const escopo = items.filter((i) => allowed.includes(i.type) && (quinzena == null || i.quinzena === quinzena));
+  const soSemRegistro = kind === "ADIANTAMENTO_SR";
+  const escopo = items.filter((i) => allowed.includes(i.type) && (quinzena == null || i.quinzena === quinzena)
+    && (!soSemRegistro || (i.details as { semRegistro?: unknown } | null)?.semRegistro === true));
   const toCreate = escopo.filter((i) => !i.exists);
 
   const ajustes = new Map(overrides.map((o) => [overrideKey(o), round2(Number(o.amount))]));

@@ -98,6 +98,11 @@ export type ParticipanteEntrada = {
   faltasSalario?: number;
   // Cadastro: recebe adiantamento salarial (só vale para quem não tem registro).
   recebeAdiantamento?: boolean;
+  // Adiantamento do mês LANÇADO em Contas a Pagar (título ADIANTAMENTO da competência):
+  // previsto = soma dos títulos; pago = soma do que foi baixado (valor pago), null se nenhum
+  // foi baixado. Quando vem, é ele que a lista desconta — o que saiu de verdade, não os 40%.
+  // Ausente = sem título no mês: vale a regra do cadastro (recebeAdiantamento × %).
+  adiantamentoLancado?: { previsto: number; pago: number | null };
   // Cadastro: recebe por quinzena — metade do salário base no dia 15 (só sem registro).
   // Prevalece sobre recebeAdiantamento: as duas juntas não descontam duas vezes.
   pagamentoQuinzenal?: boolean;
@@ -274,7 +279,14 @@ function salarioSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo): { di
 export function adiantamentoSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo, salarioProporcional: number): number {
   const percent = regras.adiantamentoPercent ?? 0;
   const base = p.salarioBaseAdiantamento !== undefined ? p.salarioBaseAdiantamento : p.salarioBase;
-  if (!p.semRegistro || !p.recebeAdiantamento || p.pagamentoQuinzenal || !base || percent <= 0 || !regras.adiantamentoDia) return 0;
+  if (!p.semRegistro || p.pagamentoQuinzenal) return 0;
+  // Título lançado: desconta o que foi pago (ou o previsto, se ainda sem baixa) — o valor real,
+  // mesmo diferente dos 40% (pago a menor ou a maior no dia).
+  if (p.adiantamentoLancado) {
+    const valor = p.adiantamentoLancado.pago ?? p.adiantamentoLancado.previsto;
+    return Math.max(0, Math.min(round2(salarioProporcional), round2(valor)));
+  }
+  if (!p.recebeAdiantamento || !base || percent <= 0 || !regras.adiantamentoDia) return 0;
   if (!vinculadoNoDia(p, regras, regras.adiantamentoDia)) return 0;
   return Math.max(0, Math.min(round2(salarioProporcional), round2((base * percent) / 100)));
 }
