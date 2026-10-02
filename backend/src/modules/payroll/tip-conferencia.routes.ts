@@ -16,7 +16,7 @@ import { onlyDigits, parseExtratoMensal } from "./rh-extract.service.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { minutosValidos } from "./hora-extra.js";
 import {
-  type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, conferir, ehPendente, esconderTeto, montarFolhaLiquidos, separarJaPagos,
+  type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, conferir, ehPendente, esconderTeto, montarFolhaLiquidos, separarJaPagos, somarSalariosPagos,
 } from "./tip-conferencia.js";
 
 export const tipConferenciaRouter = Router();
@@ -319,10 +319,8 @@ tipConferenciaRouter.get("/periods/:year/:month/folha-liquidos", async (request,
     },
     select: { employeeId: true, paidAmount: true, amount: true, paymentDate: true },
   });
-  const pagos = new Map(salariosPagos.map((s) => [s.employeeId, {
-    valor: Number(s.paidAmount ?? s.amount), pagoEm: s.paymentDate!.toISOString().slice(0, 10),
-  }]));
-  const { linhas, jaPagos } = separarJaPagos(todas, pagos);
+  // Soma todos os pagos da pessoa (acerto + complemento); só sai da lista quem está quitado.
+  const { linhas, jaPagos } = separarJaPagos(todas, somarSalariosPagos(salariosPagos));
   const combinados = await combinadosVigentes(periodo.competenceYear, periodo.competenceMonth, null);
   response.json({
     code: periodo.code, label: periodo.label, linhas, jaPagos,

@@ -74,7 +74,8 @@ async function fetchWithTimeout(url: string, options?: RequestInit, timeoutMs = 
   }
 }
 
-async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+// aoResponder: só para quem precisa ler cabeçalho da resposta bem-sucedida (ex.: X-Payables-Truncado).
+async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS, aoResponder?: (response: Response) => void): Promise<T> {
   const token = sessionToken();
   const headers = new Headers(options?.headers);
   if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
@@ -92,6 +93,7 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUE
     try {
       const response = await fetchWithTimeout(url, requestOptions, timeoutMs);
       if (response.ok) {
+        aoResponder?.(response);
         return response.json() as Promise<T>;
       }
 
@@ -2143,6 +2145,16 @@ export function getPayables(filters?: {
   origin?: "all" | "purchases" | "taxes";
 }) {
   return request<Payable[]>(`/purchases/payables${toQueryString(filters)}`);
+}
+
+/** Igual a getPayables, mas diz se o backend cortou a lista no limite de segurança (cabeçalho X-Payables-Truncado). */
+export async function getPayablesComLimite(filters?: Parameters<typeof getPayables>[0]): Promise<{ titulos: Payable[]; truncado: boolean }> {
+  let truncado = false;
+  const titulos = await request<Payable[]>(`/purchases/payables${toQueryString(filters)}`, undefined, REQUEST_TIMEOUT_MS, (response) => {
+    const valor = response.headers.get("X-Payables-Truncado");
+    truncado = valor !== null && valor !== "0" && valor.toLowerCase() !== "false";
+  });
+  return { titulos, truncado };
 }
 
 export function payTaxPayment(id: string, payload: { paymentDate: string; paidAmount: number; comments?: string | null }) {

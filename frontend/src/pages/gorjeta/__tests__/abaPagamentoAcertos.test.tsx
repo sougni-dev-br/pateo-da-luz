@@ -103,4 +103,64 @@ describe("lançar os acertos da lista no Contas a Pagar", () => {
     render(<AbaPagamento comp={soClt} rows={toRows(soClt)} readonly onRow={vi.fn()} onError={vi.fn()} />, sessao("ADMIN"));
     expect(screen.queryByRole("button", BOTAO)).toBeNull();
   });
+
+  test("trocar de mês zera o resultado do lançamento", async () => {
+    vi.mocked(lancarAcertosLista).mockResolvedValue({ criados: 1, atualizados: 0, semMudanca: 0, avisos: [], detalhes: null });
+    const set = comp([pessoa({})]);
+    const out = comp([pessoa({})], { month: 10, periodId: "per2" });
+    const s = sessao("ADMIN");
+    const ui = (c: TipComputation) => <SessionContext.Provider value={s}><HideValuesProvider>
+      <AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} /></HideValuesProvider></SessionContext.Provider>;
+    const { rerender } = renderRaw(ui(set));
+    fireEvent.click(screen.getByRole("button", BOTAO));
+    expect(await screen.findByText(/Acertos no Contas a Pagar/)).toBeInTheDocument();
+    rerender(ui(out));
+    expect(screen.queryByText(/Acertos no Contas a Pagar/)).toBeNull();
+  });
+
+  test("resposta do mês anterior que chega depois da troca é ignorada", async () => {
+    let resolver!: (v: Awaited<ReturnType<typeof lancarAcertosLista>>) => void;
+    vi.mocked(lancarAcertosLista).mockImplementation(() => new Promise((r) => { resolver = r; }));
+    const s = sessao("ADMIN");
+    const set = comp([pessoa({})]);
+    const out = comp([pessoa({})], { month: 10, periodId: "per2" });
+    const ui = (c: TipComputation) => <SessionContext.Provider value={s}><HideValuesProvider>
+      <AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} /></HideValuesProvider></SessionContext.Provider>;
+    const { rerender } = renderRaw(ui(set));
+    fireEvent.click(screen.getByRole("button", BOTAO));
+    rerender(ui(out));
+    resolver({ criados: 1, atualizados: 0, semMudanca: 0, avisos: [], detalhes: null });
+    await waitFor(() => expect(screen.getByRole("button", BOTAO)).not.toBeDisabled());
+    expect(screen.queryByText(/Acertos no Contas a Pagar/)).toBeNull();
+  });
+
+  test("avisos repetidos aparecem todos (chave sem colisão)", async () => {
+    const aviso = "Pessoa Exemplo: sem PIX no cadastro.";
+    vi.mocked(lancarAcertosLista).mockResolvedValue({ criados: 0, atualizados: 0, semMudanca: 2, avisos: [aviso, aviso], detalhes: null });
+    const erro = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const c = comp([pessoa({})]);
+    render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />, sessao("ADMIN"));
+    fireEvent.click(screen.getByRole("button", BOTAO));
+    expect(await screen.findAllByText(aviso)).toHaveLength(2);
+    expect(erro.mock.calls.some((args) => String(args[0]).includes("same key"))).toBe(false);
+    erro.mockRestore();
+  });
+
+  test("recusa do servidor (período fechado) aparece junto do botão", async () => {
+    vi.mocked(lancarAcertosLista).mockRejectedValue(new Error("Mês 09/2026 fechado no financeiro"));
+    const c = comp([pessoa({})]);
+    render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />, sessao("ADMIN"));
+    fireEvent.click(screen.getByRole("button", BOTAO));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Acertos não lançados: Mês 09/2026 fechado no financeiro");
+  });
+
+  test("sem editar a gorjeta (critério do resto da aba): sem o botão", () => {
+    const gerente = (editaGorjeta: boolean) => ({ ...sessao("GERENTE"), user: { id: "u2", name: "Beltrano", role: "GERENTE", modulePermissions: { payroll: { view: true, edit: true }, "payroll-tips": { view: true, edit: editaGorjeta } } } } as unknown as SessionContextValue);
+    const c = comp([pessoa({})]);
+    const r1 = render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />, gerente(false));
+    expect(screen.queryByRole("button", BOTAO)).toBeNull();
+    r1.unmount();
+    render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />, gerente(true));
+    expect(screen.getByRole("button", BOTAO)).toBeInTheDocument();
+  });
 });

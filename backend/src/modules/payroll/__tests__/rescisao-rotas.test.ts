@@ -316,3 +316,48 @@ describe("funções puras", () => {
     expect(JSON.stringify(r)).not.toContain("659.97");
   });
 });
+
+describe("POST /termination — sem registro com o acerto da lista já lançado", () => {
+  const acerto = (over: Record<string, unknown> = {}) => ({
+    id: "ac", amount: 1695, paidAmount: null, paymentDate: null, status: "PENDING", details: { origem: "LISTA_PAGAMENTO" }, ...over,
+  });
+  beforeEach(() => {
+    vi.mocked(apurarRescisao).mockResolvedValue(apuracao());
+    db.payrollItem.findFirst.mockResolvedValue(null);
+    gorjetaDoMes("OPEN", {});
+  });
+
+  test("acerto sem baixa: 409, pede para excluir o acerto antes, nada lançado", async () => {
+    db.payrollItem.findMany.mockResolvedValue([acerto()]);
+    const r = await request(app).post("/payroll/termination/e1").send({ salario: 659.97, gorjeta: 186.8 });
+    expect(r.status).toBe(409);
+    expect(r.body.message).toMatch(/acerto da lista de pagamento de 09\/2026.*Exclua o acerto/);
+    expect(db.payrollItem.create).not.toHaveBeenCalled();
+  });
+
+  test("acerto pago sem justificativa: 400 avisando que o salário já foi pago", async () => {
+    db.payrollItem.findMany.mockResolvedValue([acerto({ paidAmount: 1695, paymentDate: new Date("2026-09-30T12:00:00Z"), status: "PAID" })]);
+    const r = await request(app).post("/payroll/termination/e1").send({ salario: 0, gorjeta: 0, vtDiscount: 10 });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/já foi pago no acerto da lista de pagamento.*30\/09.*Explique/);
+    expect(db.payrollItem.create).not.toHaveBeenCalled();
+  });
+
+  test("acerto pago com justificativa: lança, guarda o acerto e avisa", async () => {
+    db.payrollItem.findMany.mockResolvedValue([acerto({ paidAmount: 1695, paymentDate: new Date("2026-09-30T12:00:00Z"), status: "PAID" })]);
+    const r = await request(app).post("/payroll/termination/e1")
+      .send({ salario: 659.97, gorjeta: 186.8, ajusteJustificativa: "Saída combinada depois do acerto pago" });
+    expect(r.status).toBe(201);
+    expect(r.body.aviso).toMatch(/já foi pago no acerto/);
+    const details = db.payrollItem.create.mock.calls[0][0].data.details;
+    expect(details.acertoListaPago).toMatchObject({ id: "ac", valorPago: 1695, justificativa: "Saída combinada depois do acerto pago" });
+  });
+
+  test("CLT não passa por esta trava", async () => {
+    vi.mocked(apurarRescisao).mockResolvedValue({ ...apuracao({ semRegistro: false }) });
+    db.employee.findFirst.mockResolvedValue({ ...emp, modality: "CLT" });
+    db.payrollItem.findMany.mockResolvedValue([acerto()]);
+    const r = await request(app).post("/payroll/termination/e1").send({ grossAmount: 1000 });
+    expect(r.status).toBe(201);
+  });
+});

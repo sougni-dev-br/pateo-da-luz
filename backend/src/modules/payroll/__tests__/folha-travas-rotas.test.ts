@@ -310,3 +310,20 @@ describe("auditoria 01/10: restaurar, baixar e vencimento", () => {
     vi.mocked(assertPeriodWritableForDate).mockReset();
   });
 });
+
+describe("PATCH /payroll/:id — acerto da lista ajustado à mão", () => {
+  test("editar o valor de um acerto da lista marca details.editadoAMao (o relançamento não sobrescreve)", async () => {
+    itens = [item({ id: "ac", periodLabel: "Acerto (lista de pagamento)", amount: 1695, details: { origem: "LISTA_PAGAMENTO", totalAPagar: 1695 } })];
+    const r = await request(app).patch("/payroll/ac").send({ amount: 1500 });
+    expect(r.status).toBe(200);
+    expect(db.payrollItem.update.mock.calls[0][0].data).toMatchObject({
+      amount: 1500, details: { origem: "LISTA_PAGAMENTO", totalAPagar: 1695, editadoAMao: true },
+    });
+  });
+
+  test("editar outro lançamento não mexe no details", async () => {
+    itens = [item({ id: "s1" })];
+    await request(app).patch("/payroll/s1").send({ amount: 1500 });
+    expect(db.payrollItem.update.mock.calls[0][0].data).not.toHaveProperty("details");
+  });
+});

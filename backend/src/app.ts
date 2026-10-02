@@ -64,6 +64,8 @@ app.use(cors({
     callback(new Error(`CORS: origin não permitida: ${origin}`));
   },
   credentials: true,
+  // Cabeçalhos que a tela lê da resposta (sem isto o navegador os esconde em outra origem).
+  exposedHeaders: ["X-Payables-Truncado"],
 }));
 // Limite generoso para acomodar o payload do agente Agile PDV
 // (backfill de 6 meses pode ficar em ~10 MB de JSON com vendas + pagamentos + itens).

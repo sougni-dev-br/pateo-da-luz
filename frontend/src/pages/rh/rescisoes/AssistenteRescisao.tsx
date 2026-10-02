@@ -45,7 +45,9 @@ export function AssistenteRescisao({ employeeId, passo, lista, onEscolher, onPas
   pessoaAtual.current = employeeId;
 
   const recarregar = useCallback(async () => {
-    if (!employeeId) return;
+    // Sem pessoa: nada a carregar, e a carga que estava no ar (de quem saiu) não pode deixar
+    // o "carregando" preso — o finally dela já não mexe no estado.
+    if (!employeeId) { setCarregando(false); setErro(null); return; }
     const desta = () => pessoaAtual.current === employeeId;
     setCarregando(true);
     setErro(null);
@@ -73,12 +75,13 @@ export function AssistenteRescisao({ employeeId, passo, lista, onEscolher, onPas
 
   const mudou = useCallback(() => { void recarregar(); onMudou(); }, [recarregar, onMudou]);
 
-  const pendencias = useMemo(
-    () => (detalhe ? pendenciasDaRescisao({ detalhe, apuracao: info?.apuracao ?? null }) : []),
-    [detalhe, info],
-  );
   // Só vale o detalhe da pessoa escolhida (nunca o de quem estava antes).
-  const pessoa = detalhe && detalhe.pessoa.employeeId === employeeId ? detalhe.pessoa : null;
+  const detalheAtual = detalhe && detalhe.pessoa.employeeId === employeeId ? detalhe : null;
+  const pendencias = useMemo(
+    () => (detalheAtual ? pendenciasDaRescisao({ detalhe: detalheAtual, apuracao: info?.apuracao ?? null }) : []),
+    [detalheAtual, info],
+  );
+  const pessoa = detalheAtual ? detalheAtual.pessoa : null;
   const situacao = pessoa && lista ? situacaoRescisao(pessoa, lista.hoje) : null;
   const semSaida = pessoa != null && !pessoa.saida;
   const bloqueado = (n: NumeroPasso) => n > 1 && (!employeeId || semSaida);
@@ -136,7 +139,7 @@ export function AssistenteRescisao({ employeeId, passo, lista, onEscolher, onPas
       {passo === 2 && detalhe && (
         <PassoApuracao detalhe={detalhe} info={info} carregando={carregando} onMudou={mudou} onLancarNormal={() => onPasso(4)} />
       )}
-      {passo === 3 && detalhe && (
+      {passo === 3 && detalheAtual && (
         <PassoPendencias pendencias={pendencias} onMudou={mudou} onPasso={onPasso} />
       )}
       {passo > 1 && semSaida && (

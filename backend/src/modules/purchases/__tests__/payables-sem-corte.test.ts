@@ -44,3 +44,23 @@ test("limite de segurança atingido: avisa no cabeçalho em vez de esconder cala
   const r = await request(app).get("/purchases/payables");
   expect(r.headers["x-payables-truncado"]).toBe("1");
 });
+
+// O relatório em PDF corta cada origem no limite de segurança: sem ORDER BY antes do LIMIT,
+// o Postgres escolhe QUAIS linhas sobram (não determinístico).
+test("PDF: impostos e Folha ordenados antes do LIMIT", async () => {
+  db.$queryRaw.mockResolvedValue([]);
+  const r = await request(app).get("/purchases/payables/report.pdf?includeOther=true");
+  expect(r.status).toBe(200);
+  const consultas = db.$queryRaw.mock.calls.map(sql) as string[];
+  for (const origem of ['FROM "TaxPayment"', 'FROM "PayrollItem"']) {
+    const q = consultas.find((s) => s.includes(origem));
+    expect(q, origem).toBeDefined();
+    expect(q!).toMatch(/ORDER BY[\s\S]*LIMIT/);
+  }
+});
+
+test("o cabeçalho de corte é lido pelo navegador (CORS exposedHeaders)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const fonte = readFileSync(new URL("../../../app.ts", import.meta.url), "utf8");
+  expect(fonte).toMatch(/exposedHeaders:\s*\[[^\]]*"X-Payables-Truncado"/);
+});
