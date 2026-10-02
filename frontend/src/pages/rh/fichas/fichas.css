@@ -1,0 +1,106 @@
+/* RH → Fichas cadastrais (lista, conferência) e a ficha impressa. */
+
+.fc-topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.fc-topo-texto { max-width: 680px; }
+.fc-titulo { margin: 0; font-size: 1.35rem; }
+.fc-descricao { margin: 4px 0 0; color: var(--muted); font-size: 0.9rem; }
+.fc-carregando, .fc-vazio { color: var(--muted); margin: 12px 0; }
+
+.fc-lista { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.fc-item {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper);
+  font: inherit; color: inherit; text-align: left; cursor: pointer; transition: border-color 150ms ease, background 150ms ease;
+}
+.fc-item:hover { border-color: var(--line-strong); background: var(--row-hover); }
+.fc-item:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.fc-item--destaque { border-left: 4px solid var(--gold); }
+.fc-item-nome { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fc-item-nome small { color: var(--muted); }
+.fc-item-meta { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 0.85rem; }
+.fc-item-anexos { display: inline-flex; align-items: center; gap: 3px; }
+.fc-item-seta { color: var(--line-strong); }
+
+.fc-form { display: flex; flex-direction: column; gap: 14px; }
+.fc-form-acoes { display: flex; justify-content: flex-end; gap: 8px; }
+
+.fc-link { display: flex; flex-direction: column; gap: 14px; }
+.fc-link-acoes { display: flex; gap: 8px; }
+.fc-link-whats { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.fc-botao-whats {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 16px;
+  border-radius: 10px; background: #1f7a4d; color: #fff; font-weight: 600; text-decoration: none;
+}
+.fc-botao-whats:hover { background: #18633e; }
+.fc-botao-whats:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+
+.fc-cabecalho { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.fc-cabecalho-linha { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; width: 100%; flex-wrap: wrap; }
+.fc-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.fc-secao-titulo { margin: 0 0 12px; font-size: 1.05rem; }
+.fc-secao-titulo small { color: var(--muted); font-weight: 400; }
+.fc-secao-topo { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.fc-subtitulo { margin: 18px 0 8px; font-size: 0.9rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.fc-nota { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: var(--paper-soft); color: var(--muted); font-size: 0.88rem; }
+.fc-switch { display: inline-flex; align-items: center; gap: 10px; font-size: 0.92rem; align-self: end; min-height: 40px; }
+
+.fc-dados { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px 28px; }
+.fc-grupo h3 { margin: 0 0 6px; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.fc-grupo dl { margin: 0; }
+.fc-linha { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--paper-soft); font-size: 0.9rem; }
+.fc-linha dt { color: var(--muted); }
+.fc-linha dd { margin: 0; text-align: right; font-weight: 500; overflow-wrap: anywhere; }
+
+.fc-docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.fc-doc {
+  display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  color: inherit; text-decoration: none; background: var(--paper); transition: border-color 150ms ease, transform 150ms ease;
+}
+.fc-doc:hover { border-color: var(--gold); transform: translateY(-1px); }
+.fc-doc:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.fc-doc img, .fc-doc-icone { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--paper-soft); }
+.fc-doc-icone { display: grid; place-items: center; color: var(--muted); }
+.fc-doc-rotulo { display: flex; flex-direction: column; padding: 8px 10px; font-size: 0.82rem; min-width: 0; }
+.fc-doc-rotulo small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.fc-diferencas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.fc-diferencas label {
+  display: grid; grid-template-columns: auto minmax(140px, 200px) 1fr auto 1fr; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 0.9rem;
+}
+.fc-diferencas label:hover { background: var(--row-hover); }
+.fc-dif-rotulo { font-weight: 600; }
+.fc-dif-de { color: var(--muted); text-decoration: line-through; overflow-wrap: anywhere; }
+.fc-dif-seta { color: var(--gold); }
+.fc-dif-para { font-weight: 500; overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .fc-diferencas label { grid-template-columns: auto 1fr; }
+  .fc-dif-de, .fc-dif-seta, .fc-dif-para { grid-column: 2; }
+  .fc-dif-seta { display: none; }
+}
+
+/* ── Ficha impressa ─────────────────────────────────────────────────────── */
+.fi-raiz { position: absolute; left: -10000px; top: 0; visibility: hidden; }
+@media print {
+  body.imprimindo-ficha-cadastral > *:not(.fi-raiz) { display: none !important; }
+  body.imprimindo-ficha-cadastral { margin: 0 !important; background: #fff !important; }
+  body.imprimindo-ficha-cadastral .fi-raiz { position: static; left: auto; visibility: visible; }
+}
+.fi-folha { width: 184mm; font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 9pt; }
+.fi-titulo { text-align: center; font-size: 14pt; margin: 0 0 4mm; letter-spacing: 0.02em; }
+.fi-secao { font-size: 9pt; margin: 2.4mm 0 0.8mm; padding-bottom: 0.6mm; border-bottom: 1.2pt solid #000; text-transform: uppercase; }
+.fi-linha { display: grid; grid-template-columns: repeat(12, 1fr); }
+.fi-celula { border: 0.6pt solid #888; margin: -0.3pt; padding: 0.5mm 1.4mm 0.6mm; min-height: 6.6mm; display: flex; flex-direction: column; break-inside: avoid; }
+.fi-rotulo { font-size: 6.3pt; line-height: 1.2; font-weight: 700; color: #555; text-transform: uppercase; }
+.fi-valor { font-size: 9.5pt; margin-top: 0.2mm; line-height: 1.25; }
+.fi-data { margin: 5mm 0 0; }
+.fi-assinaturas { display: grid; grid-template-columns: 1fr 1fr; gap: 14mm; margin-top: 11mm; text-align: center; }
+.fi-traco { display: block; border-top: 0.8pt solid #000; margin-bottom: 1mm; }
+.fi-assinaturas small { font-size: 7.5pt; color: #444; }
+
+/* Seção no cadastro do funcionário */
+.fc-func { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.fc-func .fc-descricao { margin: 0; max-width: 520px; }
+.fc-func-docs { margin-top: 12px; }
+
+.fc-dif-linha { display: block; }

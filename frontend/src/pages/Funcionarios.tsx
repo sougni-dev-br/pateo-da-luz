@@ -12,6 +12,7 @@ import { ImpressaoAniversariantes } from "../components/pessoal/ImpressaoAnivers
 import { HistoricoCadastro } from "../components/pessoal/HistoricoCadastro";
 import { DocumentosRegistro } from "../components/pessoal/DocumentosRegistro";
 import { FichaRegistro } from "../components/pessoal/FichaRegistro";
+import { FichasDoFuncionario } from "../components/pessoal/FichasDoFuncionario";
 import { fichaFormDe, fichaFormVazio, fichaParaSalvar } from "../components/pessoal/fichaRegistroForm";
 import { TIPOS_DESLIGAMENTO, motivoDoDesligamento } from "../components/pessoal/desligamento";
 import { linkRescisao } from "./rh/rotasRh";
@@ -816,6 +817,7 @@ export function Funcionarios() {
 
             {form.id && <HistoricoCadastro key={form.id} employeeId={form.id} />}
             {form.id && <FichaRegistro key={`ficha-${form.id}`} employeeId={form.id} />}
+            {form.id && <FichasDoFuncionario key={`fichas-${form.id}`} employeeId={form.id} nome={`${form.firstName} ${form.lastName}`.trim()} celular={form.phone || null} />}
 
             <div className="form-actions">
               <Button variant="secondary" onClick={() => setShowForm(false)}>Cancelar</Button>

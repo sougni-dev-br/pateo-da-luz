@@ -43,6 +43,9 @@ export const menuCatalog = [
   { id: "suppliers", label: "Fornecedores", group: "Cadastros" },
   { id: "companies", label: "Empresas", group: "Cadastros" },
   { id: "employees", label: "Funcionarios", group: "RH" },
+  // Gerar link da ficha cadastral, ver os documentos enviados e concluir. Concluir também
+  // exige criar/editar Funcionarios (checado na rota), porque grava no cadastro.
+  { id: "employee-forms", label: "Fichas cadastrais", group: "RH" },
   { id: "schedule", label: "Escala", group: "RH" },
   { id: "payroll", label: "Folha e VT (inclui Rescisões)", group: "RH" },
   { id: "payroll-tips", label: "Apuração de gorjeta (inclui Retorno do RH)", group: "RH" },
@@ -396,6 +399,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/suppliers")) return "suppliers";
   if (path.startsWith("/companies")) return "companies";
   if (path.startsWith("/employees")) return "employees";
+  if (path.startsWith("/employee-forms")) return "employee-forms";
   if (path.startsWith("/schedule")) return "schedule";
   // Antes de /payroll: a gorjeta tem modulo proprio no controle de acesso.
   if (path.startsWith("/payroll/tip")) return "payroll-tips";
@@ -488,6 +492,9 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
   if (menuId === "extras" && path.startsWith("/extras/settings") && method !== "GET" && method !== "HEAD") return "admin";
   // Gerar pagamento é aprovar as diárias: quem lança não é, necessariamente, quem aprova.
   if (menuId === "extras" && path === "/extras/payments" && method === "POST") return "approve";
+
+  // Concluir a ficha grava no cadastro de funcionários: é aprovar, não "criar um registro".
+  if (menuId === "employee-forms" && path.endsWith("/concluir")) return "approve";
 
   if (menuId === "purchase-orders" && path.endsWith("/status")) {
     return String(request.body?.action ?? "").trim() === "APPROVE" ? "approve" : "edit";

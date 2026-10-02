@@ -1,0 +1,237 @@
+// Conferência de uma ficha: dados que a pessoa mandou, fotos dos documentos, parte da
+// empresa, impressão para assinar e a conclusão (cria o funcionário ou grava a atualização).
+import { ArrowLeft, Ban, CheckCircle2, Link2, Printer, RotateCcw, Save } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  cancelarFichaCadastral, concluirFichaCadastral, devolverFichaCadastral, getFichaCadastral, novoLinkFichaCadastral,
+  salvarEmpresaFichaCadastral, type FichaCadastralDetalhe as Detalhe, type FichaCadastralEmpresa, type FichaCadastralLink,
+} from "../../../api/client";
+import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
+import { Dialog } from "../../../components/ui/Dialog";
+import { useSession } from "../../../context/SessionContext";
+import { Alert, Button, StatusBadge, Textarea } from "../../../design-system";
+import { ROTAS_RH } from "../rotasRh";
+import { DadosPessoa, DocumentosFicha } from "./DadosPessoa";
+import { EmpresaFicha } from "./EmpresaFicha";
+import { FichaImpressao, imprimirFicha } from "./FichaImpressao";
+import { LinkFicha } from "./LinkFicha";
+import { dataBr, diaBr, formatarCpf, situacao } from "./fichaFormato";
+
+type Props = { id: string; onVoltar: () => void };
+
+export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
+  const navigate = useNavigate();
+  const { hasPermission } = useSession();
+  const [ficha, setFicha] = useState<Detalhe | null>(null);
+  const [empresa, setEmpresa] = useState<FichaCadastralEmpresa>({});
+  const [erro, setErro] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  const [link, setLink] = useState<FichaCadastralLink | null>(null);
+  const [devolvendo, setDevolvendo] = useState(false);
+  const [motivo, setMotivo] = useState("");
+  const [confirmar, setConfirmar] = useState<"cancelar" | "concluir" | null>(null);
+  const [escolhidos, setEscolhidos] = useState<Set<string>>(new Set());
+  // As caixas do "O que muda" começam marcadas só na primeira carga: recarregar depois de salvar
+  // a parte da empresa não pode remarcar o que o RH desmarcou (iria para o cadastro).
+  const caixasIniciadas = useRef<string | null>(null);
+
+  const carregar = useCallback(() => {
+    getFichaCadastral(id)
+      .then((f) => {
+        setFicha(f);
+        setEmpresa(f.dadosEmpresa ?? {});
+        if (caixasIniciadas.current !== f.id) {
+          caixasIniciadas.current = f.id;
+          const temFilhos = f.filhosNovos.length > 0 || f.filhosAlterados.length > 0;
+          setEscolhidos(new Set([...f.diferencas.map((d) => d.campo), ...(temFilhos ? ["filhos"] : [])]));
+        }
+      })
+      .catch((e) => setErro(e instanceof Error ? e.message : "Não foi possível abrir a ficha."));
+  }, [id]);
+  useEffect(carregar, [carregar]);
+
+  if (erro && !ficha) return <div className="stack"><Button variant="secondary" leadingIcon={<ArrowLeft size={16} />} onClick={onVoltar}>Voltar</Button><Alert tone="error">{erro}</Alert></div>;
+  if (!ficha) return <p className="fc-carregando">Carregando…</p>;
+
+  const s = situacao({ status: ficha.status, vencida: ["ENVIADA", "PREENCHENDO"].includes(ficha.status) && new Date(ficha.expiraEm).getTime() < Date.now() });
+  const aberta = ["ENVIADA", "PREENCHENDO"].includes(ficha.status);
+  const finalizada = ficha.status === "FINALIZADA";
+  const podeEditar = hasPermission("employee-forms", "edit") && ficha.status !== "CANCELADA";
+  // Novo link e devolução são POST: no controle de acesso pedem "criar".
+  const podeReenviar = hasPermission("employee-forms", "create");
+  const podeConcluir = hasPermission("employee-forms", "approve") && hasPermission("employees", ficha.tipo === "ADMISSAO" ? "create" : "edit");
+  const nome = ficha.funcionario?.nome ?? (typeof ficha.dados.nomeCompleto === "string" ? ficha.dados.nomeCompleto : ficha.nomeReferencia);
+
+  async function agir(acao: () => Promise<unknown>, sucesso: string) {
+    setOcupado(true);
+    setErro(null);
+    setAviso(null);
+    try {
+      await acao();
+      setAviso(sucesso);
+      carregar();
+      return true;
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível concluir a ação.");
+      return false;
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  const salvarEmpresa = () => agir(() => salvarEmpresaFichaCadastral(id, empresa), "Parte da empresa salva.");
+
+  async function concluir() {
+    setConfirmar(null);
+    setOcupado(true);
+    setErro(null);
+    setAviso(null);
+    try {
+      if (podeEditar) await salvarEmpresaFichaCadastral(id, empresa);
+      const r = await concluirFichaCadastral(id, ficha!.tipo === "ATUALIZACAO" ? [...escolhidos] : undefined);
+      setAviso(ficha!.tipo === "ADMISSAO" ? "Funcionário criado. Complete escala, VT e gorjeta no cadastro." : "Cadastro atualizado.");
+      carregar();
+      return r;
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível concluir.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  function alternar(campo: string) {
+    setEscolhidos((atual) => { const novo = new Set(atual); if (novo.has(campo)) novo.delete(campo); else novo.add(campo); return novo; });
+  }
+
+  return (
+    <div className="stack fc">
+      <section className="panel fc-cabecalho">
+        <Button variant="secondary" size="sm" leadingIcon={<ArrowLeft size={16} />} onClick={onVoltar}>Fichas</Button>
+        <div className="fc-cabecalho-linha">
+          <div>
+            <h1 className="fc-titulo">{nome}</h1>
+            <p className="fc-descricao">
+              {ficha.tipo === "ADMISSAO" ? "Admissão" : "Atualização de dados"} · link criado em {dataBr(ficha.createdAt)}
+              {aberta && ` · vale até ${dataBr(ficha.expiraEm)}`}
+              {ficha.finalizadaEm && ` · finalizada em ${dataBr(ficha.finalizadaEm)}`}
+            </p>
+          </div>
+          <StatusBadge tone={s.tom}>{s.rotulo}</StatusBadge>
+        </div>
+        <div className="fc-acoes">
+          <Button variant="secondary" leadingIcon={<Printer size={16} />} onClick={imprimirFicha}>Imprimir ficha</Button>
+          {aberta && podeReenviar && <Button variant="secondary" leadingIcon={<Link2 size={16} />} disabled={ocupado}
+            onClick={() => agir(async () => setLink(await novoLinkFichaCadastral(id)), "Novo link gerado. O anterior não abre mais.")}>Gerar novo link</Button>}
+          {finalizada && podeReenviar && <Button variant="secondary" leadingIcon={<RotateCcw size={16} />} disabled={ocupado} onClick={() => setDevolvendo(true)}>Devolver para correção</Button>}
+          {(aberta || finalizada) && hasPermission("employee-forms", "delete") && <Button variant="danger" leadingIcon={<Ban size={16} />} disabled={ocupado} onClick={() => setConfirmar("cancelar")}>Cancelar ficha</Button>}
+          {finalizada && podeConcluir && <Button leadingIcon={<CheckCircle2 size={16} />} disabled={ocupado} onClick={() => setConfirmar("concluir")}>
+            {ficha.tipo === "ADMISSAO" ? "Criar funcionário" : "Gravar no cadastro"}</Button>}
+          {ficha.status === "CONCLUIDA" && ficha.funcionario && <Button variant="secondary" onClick={() => navigate(ROTAS_RH.funcionarios)}>Abrir Funcionários</Button>}
+        </div>
+        {erro && <Alert tone="error">{erro}</Alert>}
+        {aviso && <Alert tone="success">{aviso}</Alert>}
+        {aberta && ficha.falta.length > 0 && (
+          <Alert tone="info" title="A pessoa ainda não finalizou">Falta: {ficha.falta.join(", ")}.</Alert>
+        )}
+        {ficha.motivoDevolucao && aberta && <Alert tone="warning" title="Devolvida para correção">{ficha.motivoDevolucao}</Alert>}
+        {ficha.salarioOculto && (
+          <Alert tone="info">Sem a permissão de ver Funcionários, CPF, PIX e salário aparecem ocultos — inclusive na ficha impressa.</Alert>
+        )}
+        {ficha.bloqueadoAte && new Date(ficha.bloqueadoAte).getTime() > Date.now() && (
+          <Alert tone="warning">O link foi bloqueado por tentativas erradas de data de nascimento. “Gerar novo link” desbloqueia.</Alert>
+        )}
+      </section>
+
+      {ficha.tipo === "ATUALIZACAO" && finalizada && (
+        <section className="panel">
+          <h2 className="fc-secao-titulo">O que muda no cadastro</h2>
+          {ficha.diferencas.length === 0 && ficha.filhosNovos.length === 0 && ficha.filhosAlterados.length === 0 ? (
+            <p className="fc-vazio">Nada mudou em relação ao cadastro.</p>
+          ) : (
+            <ul className="fc-diferencas">
+              {ficha.diferencas.map((d) => (
+                <li key={d.campo}>
+                  <label>
+                    <input type="checkbox" checked={escolhidos.has(d.campo)} onChange={() => alternar(d.campo)} />
+                    <span className="fc-dif-rotulo">{d.rotulo}</span>
+                    <span className="fc-dif-de">{d.atual ?? "vazio"}</span>
+                    <span className="fc-dif-seta" aria-hidden="true">→</span>
+                    <span className="fc-dif-para">{d.novo}</span>
+                  </label>
+                </li>
+              ))}
+              {(ficha.filhosNovos.length > 0 || ficha.filhosAlterados.length > 0) && (
+                <li>
+                  <label>
+                    <input type="checkbox" checked={escolhidos.has("filhos")} onChange={() => alternar("filhos")} />
+                    <span className="fc-dif-rotulo">Filhos</span>
+                    <span className="fc-dif-de">{ficha.filhosAlterados.length ? "dados no cadastro" : "—"}</span>
+                    <span className="fc-dif-seta" aria-hidden="true">→</span>
+                    <span className="fc-dif-para">
+                      {ficha.filhosNovos.length > 0 && <span className="fc-dif-linha">Incluir: {ficha.filhosNovos.map((f) => f.nome).join(", ")}</span>}
+                      {ficha.filhosAlterados.map((f) => (
+                        <span key={f.dependenteId} className="fc-dif-linha">
+                          {f.nome}:{" "}
+                          {f.dataNascimento && `nascimento ${diaBr(f.dataNascimento.atual) || "vazio"} → ${diaBr(f.dataNascimento.novo)}`}
+                          {f.dataNascimento && f.cpf && "; "}
+                          {f.cpf && `CPF ${f.cpf.atual ? formatarCpf(f.cpf.atual) : "vazio"} → ${formatarCpf(f.cpf.novo)}`}
+                        </span>
+                      ))}
+                    </span>
+                  </label>
+                </li>
+              )}
+            </ul>
+          )}
+        </section>
+      )}
+
+      <section className="panel">
+        <h2 className="fc-secao-titulo">Fotos dos documentos <small>({ficha.arquivos.length})</small></h2>
+        <DocumentosFicha fichaId={ficha.id} arquivos={ficha.arquivos} tipos={ficha.opcoes.tiposArquivo} />
+      </section>
+
+      <section className="panel">
+        <h2 className="fc-secao-titulo">Dados enviados pela pessoa</h2>
+        <DadosPessoa dados={ficha.dados} rotulos={ficha.opcoes.rotulos} />
+      </section>
+
+      <section className="panel">
+        <div className="fc-secao-topo">
+          <h2 className="fc-secao-titulo">Parte da empresa</h2>
+          {podeEditar && <Button variant="secondary" size="sm" leadingIcon={<Save size={15} />} disabled={ocupado} onClick={salvarEmpresa}>Salvar</Button>}
+        </div>
+        <EmpresaFicha ficha={ficha} valor={empresa} onChange={setEmpresa} somenteLeitura={!podeEditar} />
+      </section>
+
+      <FichaImpressao ficha={ficha} empresa={empresa} />
+
+      {link && <LinkFicha aberto onFechar={() => setLink(null)} nome={nome} tipo={ficha.tipo} codigo={link.codigo} expiraEm={link.expiraEm}
+        celular={typeof ficha.dados.telefone === "string" ? ficha.dados.telefone : null} />}
+
+      <Dialog open={devolvendo} onOpenChange={setDevolvendo} title="Devolver para correção" description="O mesmo link volta a abrir para a pessoa corrigir. Ela vê a sua mensagem no topo da ficha.">
+        <div className="fc-form">
+          <Textarea label="O que precisa corrigir" value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={3} autoFocus placeholder="Ex.: a foto do RG ficou ilegível, mande de novo." />
+          <div className="fc-form-acoes">
+            <Button variant="secondary" onClick={() => setDevolvendo(false)}>Cancelar</Button>
+            <Button disabled={motivo.trim().length < 3 || ocupado} onClick={async () => {
+              if (await agir(() => devolverFichaCadastral(id, motivo), "Ficha devolvida. Avise a pessoa pelo WhatsApp para abrir o mesmo link.")) { setDevolvendo(false); setMotivo(""); }
+            }}>Devolver</Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <ConfirmDialog open={confirmar === "cancelar"} tone="danger" title="Cancelar esta ficha?" confirmLabel="Cancelar ficha" cancelLabel="Voltar"
+        description="O link para de funcionar. Os dados e fotos já enviados continuam guardados."
+        onCancel={() => setConfirmar(null)} onConfirm={() => { setConfirmar(null); agir(() => cancelarFichaCadastral(id), "Ficha cancelada."); }} />
+      <ConfirmDialog open={confirmar === "concluir"} title={ficha.tipo === "ADMISSAO" ? "Criar o funcionário?" : "Gravar no cadastro?"}
+        confirmLabel={ficha.tipo === "ADMISSAO" ? "Criar funcionário" : "Gravar"} cancelLabel="Voltar"
+        description={ficha.tipo === "ADMISSAO"
+          ? "Os dados da ficha e a parte da empresa viram o cadastro do funcionário. Depois, complete no cadastro a escala, o trajeto do VT e a gorjeta."
+          : `Grava ${escolhidos.size} alteração(ões) marcadas no cadastro de ${nome.split(" ")[0]}. Salário, função e empresa não mudam por aqui.`}
+        onCancel={() => setConfirmar(null)} onConfirm={concluir} />
+    </div>
+  );
+}

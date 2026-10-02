@@ -16,6 +16,7 @@ import {
   FileSpreadsheet,
   FileScan,
   HandCoins,
+  FileUser,
   Layers,
   LogOut,
   MessageCircle,
@@ -95,6 +96,7 @@ const FolhaGorjeta = lazy(() => import("./pages/FolhaGorjeta").then((module) => 
 const ExtratoRh = lazy(() => import("./pages/ExtratoRh").then((module) => ({ default: module.ExtratoRh })));
 const Rescisoes = lazy(() => import("./pages/rh/Rescisoes").then((module) => ({ default: module.Rescisoes })));
 const Extras = lazy(() => import("./pages/Extras").then((module) => ({ default: module.Extras })));
+const FichasCadastrais = lazy(() => import("./pages/rh/fichas/FichasCadastrais").then((module) => ({ default: module.FichasCadastrais })));
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
 const Users = lazy(() => import("./pages/Users").then((module) => ({ default: module.Users })));
 const Dishes = lazy(() => import("./pages/Dishes").then((module) => ({ default: module.Dishes })));
@@ -178,6 +180,7 @@ const sections = [
   // até o <Navigate> levar para o novo — sem isso o guard não acharia a seção e mandaria
   // para a primeira tela permitida antes do redirecionamento.
   { id: "employees", label: "Funcionários", icon: UsersIcon, showInSidebar: true, group: "RH", path: ROTAS_RH.funcionarios, matchers: [ROTAS_RH.funcionarios, "/pessoal", "/pessoal/funcionarios"], description: "Cadastro de funcionários — base para escala, VT e folha de pagamento" },
+  { id: "employee-forms", label: "Fichas cadastrais", icon: FileUser, showInSidebar: true, group: "RH", path: ROTAS_RH.fichas, matchers: [ROTAS_RH.fichas, `${ROTAS_RH.fichas}/:id`], description: "Link para a pessoa preencher a ficha e mandar os documentos pelo celular; conferência, impressão e admissão" },
   { id: "schedule", label: "Escala", icon: CalendarDays, showInSidebar: true, group: "RH", path: ROTAS_RH.escala, matchers: [ROTAS_RH.escala, "/pessoal/escala"], description: "Escala mensal de folgas (6×1 / 5×2) — domingos e feriados destacados; base para o cálculo do VT" },
   { id: "payroll-tips", label: "Apuração de gorjeta", icon: Coins, showInSidebar: true, group: "RH", path: ROTAS_RH.gorjeta, matchers: [ROTAS_RH.gorjeta, "/pessoal/gorjeta"], description: "Rateio por pontos com presença e rescisões, envio à contabilidade e lista de pagamento" },
   // A rescisão é lançada nas rotas /payroll/termination (módulo da Folha): quem lança
@@ -748,6 +751,8 @@ export function App() {
               <Route path={ROTAS_RH.folha} element={<Folha />} />
               <Route path={ROTAS_RH.retorno} element={<ExtratoRh />} />
               <Route path={ROTAS_RH.extras} element={<Extras />} />
+              <Route path={ROTAS_RH.fichas} element={<FichasCadastrais />} />
+              <Route path={`${ROTAS_RH.fichas}/:id`} element={<FichasCadastrais />} />
               <Route path="/pessoal/*" element={<RedirecionaPessoal fallback={fallbackSection.path} />} />
               <Route path="/configuracoes/pagamentos" element={<PaymentMethods />} />
               <Route path="/configuracoes/cadastros-base" element={<MasterData />} />
