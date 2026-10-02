@@ -122,8 +122,24 @@ describe("salvar o cadastro com os campos da ficha", () => {
     });
   });
 
-  test("deficiência que não é sim/não vira null, não true", async () => {
-    await request(app).put("/employees/e1").send(corpo({ possuiDeficiencia: "false" }));
-    expect(gravado().possuiDeficiencia).toBeNull();
+  test("deficiência que não é sim/não é recusada e nada é gravado (antes apagava o valor)", async () => {
+    const r = await request(app).put("/employees/e1").send(corpo({ possuiDeficiencia: "false" }));
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/deficiência/);
+    expect(db.employee.update).not.toHaveBeenCalled();
+  });
+
+  test("data da ficha inválida é recusada; vazio continua limpando o campo", async () => {
+    const r = await request(app).put("/employees/e1").send(corpo({ ctpsDataEmissao: "31/02/2020" }));
+    expect(r.status).toBe(400);
+    expect(r.body.message).toBe("Data de emissão da CTPS inválida.");
+    expect(db.employee.update).not.toHaveBeenCalled();
+    for (const invalida of ["2021-02-31", "20210-01-01", "2021-13-01"]) {
+      const r2 = await request(app).put("/employees/e1").send(corpo({ rgDataEmissao: invalida }));
+      expect(r2.status, invalida).toBe(400);
+    }
+    const ok = await request(app).put("/employees/e1").send(corpo({ ctpsDataEmissao: "", possuiDeficiencia: null }));
+    expect(ok.status).toBe(200);
+    expect(gravado()).toMatchObject({ ctpsDataEmissao: null, possuiDeficiencia: null });
   });
 });

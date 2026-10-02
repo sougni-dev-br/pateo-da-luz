@@ -56,6 +56,23 @@ describe("seção Ficha de registro", () => {
     expect(screen.queryByText(/2\.100/)).toBeNull();
   });
 
+  test("falha ao carregar: mostra o erro e tenta de novo pelo botão", async () => {
+    vi.mocked(getEmployeeFicha).mockRejectedValueOnce(new Error("Sem conexão.")).mockResolvedValueOnce(FICHA);
+    render(<FichaRegistro employeeId="e1" />);
+    await waitFor(() => expect(screen.getByText(/Sem conexão./)).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
+    await waitFor(() => expect(screen.getByText("CICLANO DE TAL")).toBeTruthy());
+    expect(getEmployeeFicha).toHaveBeenCalledTimes(2);
+  });
+
+  test("com dependentes mas sem carteira e sem períodos: cada bloco diz que está vazio", async () => {
+    vi.mocked(getEmployeeFicha).mockResolvedValue({ ...FICHA, ferias: [], carteira: [] });
+    render(<FichaRegistro employeeId="e1" />);
+    await waitFor(() => expect(screen.getByText("CICLANO DE TAL")).toBeTruthy());
+    expect(screen.getByText("Sem admissão em carteira para contar os períodos.")).toBeTruthy();
+    expect(screen.getByText("Nenhuma anotação na ficha.")).toBeTruthy();
+  });
+
   test("ficha não importada: avisa em vez de listas vazias", async () => {
     vi.mocked(getEmployeeFicha).mockResolvedValue({ dependentes: [], ferias: [{ ...FICHA.ferias[1] }], salarioOculto: false, carteira: [] });
     render(<FichaRegistro employeeId="e1" />);
@@ -99,6 +116,11 @@ describe("campos da ficha no formulário", () => {
     expect(fichaParaSalvar({ ...original, nomePai: "  ", cbo: "513205 ", possuiDeficiencia: "" }, original)).toEqual({
       nomePai: null, cbo: "513205", possuiDeficiencia: null,
     });
+  });
+
+  test("campo gravado só com espaços pode ser limpo", () => {
+    const original = fichaFormDe({ nomePai: "   " } as unknown as Employee);
+    expect(fichaParaSalvar({ ...original, nomePai: "" }, original)).toEqual({ nomePai: null });
   });
 
   test("nome completo vai e volta como os outros campos da ficha", () => {

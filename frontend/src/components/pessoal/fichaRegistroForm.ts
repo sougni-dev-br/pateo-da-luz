@@ -32,7 +32,8 @@ export function fichaFormDe(e: Employee): FichaForm {
 // Só os campos que mudaram desde que a ficha foi aberta (cadastro novo: original vazio).
 export function fichaParaSalvar(f: FichaForm, original: FichaForm = fichaFormVazio): Partial<EmployeeFichaCampos> {
   const out: Partial<EmployeeFichaCampos> = {};
-  for (const c of CAMPOS_TEXTO) if (f[c].trim() !== original[c].trim()) out[c] = f[c].trim() || null;
+  // Compara o texto como está: um campo gravado só com espaços também pode ser limpo.
+  for (const c of CAMPOS_TEXTO) if (f[c] !== original[c]) out[c] = f[c].trim() || null;
   if (f.possuiDeficiencia !== original.possuiDeficiencia) {
     out.possuiDeficiencia = f.possuiDeficiencia === "sim" ? true : f.possuiDeficiencia === "nao" ? false : null;
   }

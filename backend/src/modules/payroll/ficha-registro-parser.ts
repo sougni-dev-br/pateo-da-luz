@@ -186,10 +186,16 @@ function lerCargos(ls: string[]): FichaCargo[] {
   return out;
 }
 
-const feriasDe = (ds: string[]): FichaFerias => ({
-  aquisitivoInicio: isoDeBr(ds[0])!, aquisitivoFim: isoDeBr(ds[1])!,
-  gozoInicio: isoDeBr(ds[2]), gozoFim: isoDeBr(ds[3]), abonoInicio: isoDeBr(ds[4]), abonoFim: isoDeBr(ds[5]),
-});
+// Aquisitivo com data inválida (erro de digitação na ficha): a linha é descartada, não derruba
+// a importação da pessoa inteira.
+function feriasDe(ds: string[]): FichaFerias | null {
+  const aquisitivoInicio = isoDeBr(ds[0]);
+  const aquisitivoFim = isoDeBr(ds[1]);
+  if (!aquisitivoInicio || !aquisitivoFim) return null;
+  return { aquisitivoInicio, aquisitivoFim,
+    gozoInicio: isoDeBr(ds[2]), gozoFim: isoDeBr(ds[3]), abonoInicio: isoDeBr(ds[4]), abonoFim: isoDeBr(ds[5]) };
+}
+const empurrar = (out: FichaFerias[], f: FichaFerias | null) => { if (f) out.push(f); };
 
 // Dois formatos: "De a a b De c a d [De e a f]" na página principal; "a - b c - d [e - f]" em
 // duas colunas na continuação.
@@ -197,7 +203,7 @@ function lerFerias(ls: string[]): FichaFerias[] {
   const out: FichaFerias[] = [];
   for (const l of ls) {
     for (const m of l.matchAll(/De (\S+) a (\S+) De (\S+) a (\S+)(?: De (\S+) a (\S+))?/g)) {
-      out.push(feriasDe(m.slice(1).filter((x): x is string => Boolean(x))));
+      empurrar(out, feriasDe(m.slice(1).filter((x): x is string => Boolean(x))));
     }
   }
   const iCont = indice(ls, /PERÍODO AQUISITIVO - PERÍODO GOZO/);
@@ -205,7 +211,7 @@ function lerFerias(ls: string[]): FichaFerias[] {
     for (const l of ls.slice(iCont + 1)) {
       for (const seg of l.trim().split(/\s{2,}/)) {
         const ds = seg.match(DATA) ?? [];
-        if (ds.length >= 4) out.push(feriasDe(ds));
+        if (ds.length >= 4) empurrar(out, feriasDe(ds));
       }
     }
   }
