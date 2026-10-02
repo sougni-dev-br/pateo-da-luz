@@ -574,6 +574,9 @@
 .pg-erro p { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--ink-soft); }
 
 /* ── Janelas (modais) ────────────────────────────────────────────── */
+/* O padding fica numa variável: o rodapé preso do lote estica até as bordas com ela. */
+.panel.pg-janela { --pg-pad: 18px; padding: var(--pg-pad); }
+@media (max-width: 900px) { .panel.pg-janela { --pg-pad: 14px; } }
 .pg-janela { background: var(--paper); overflow-x: hidden; }
 .pg-janela:focus { outline: none; }
 .pg-janela--estreita { width: min(520px, 100%); }
@@ -666,11 +669,110 @@
 .pg-lote-erros { margin: 10px 0 0; padding-left: 18px; font-size: var(--fs-sm); }
 .pg-lote-erros li { margin-bottom: 4px; }
 
+/* ── Baixa em lote ─────────────────────────────────────────────────── */
+.pg-lote-resumo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--app-bg-from);
+}
+.pg-lote-resumo > div:first-child { display: grid; gap: 2px; }
+.pg-lote-resumo > div:first-child > span {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pg-lote-total { font-size: 26px; line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.pg-lote-resumo-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 14px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.pg-lote-vencidos { color: var(--danger); font-weight: var(--fw-semibold); }
+
+.pg-lote-sec { margin: 18px 0 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 10px; }
+.pg-lote-sec > legend,
+.pg-lote-lista-topo > span {
+  padding: 0;
+  margin-bottom: 10px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pg-lote-sec .form-grid { margin: 0; align-items: start; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.pg-lote-opcoes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pg-lote-opcao {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+.pg-lote-opcao input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.pg-lote-opcao > svg { margin-top: 1px; }
+.pg-lote-opcao > span { display: grid; gap: 2px; }
+.pg-lote-opcao strong { color: var(--ink); font-size: var(--fs-body); font-weight: var(--fw-semibold); }
+.pg-lote-opcao small { font-size: var(--fs-xs); line-height: 1.35; }
+.pg-lote-opcao:hover { border-color: var(--gold); }
+.pg-lote-opcao:has(input:checked) {
+  border-color: var(--gold-dark);
+  background: var(--app-bg-from);
+  box-shadow: inset 0 0 0 1px var(--gold-dark);
+  color: var(--gold-dark);
+}
+.pg-lote-opcao:has(input:focus-visible) { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
+
+.pg-lote-formas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.pg-lote-formas > span {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--app-bg-from);
+}
+.pg-lote-formas strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.pg-lote-data { display: grid; gap: 5px; max-width: 260px; font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+
+.pg-lote-campo { display: grid; gap: 4px; min-width: 0; }
+.pg-lote-erro-campo { color: var(--danger); font-size: var(--fs-xs); font-weight: var(--fw-medium); }
+.pg-janela select[aria-invalid="true"] { border-color: var(--danger); }
+
+.pg-lote-lista-topo { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+.pg-lote-lista-topo > span { margin-bottom: 0; }
+.pg-lote-lista-topo > small { color: var(--muted); font-size: var(--fs-xs); }
+
 .pg-lote-lista {
   list-style: none;
-  margin: 12px 0 0;
-  padding: 4px 10px;
-  max-height: 220px;
+  margin: 0;
+  padding: 4px 12px;
+  max-height: 240px;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -682,12 +784,34 @@
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 12px;
   align-items: baseline;
-  padding: 5px 0;
+  padding: 6px 0;
 }
 
 .pg-lote-lista li + li { border-top: 1px solid var(--line); }
 .pg-lote-nome { overflow-wrap: anywhere; }
 .pg-lote-venc { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+
+/* Rodapé preso no pé da janela: o botão de confirmar não some atrás da lista. */
+.pg-lote-rodape {
+  position: sticky;
+  bottom: calc(-1 * var(--pg-pad, 18px));
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin: 18px calc(-1 * var(--pg-pad, 18px)) calc(-1 * var(--pg-pad, 18px));
+  padding: 14px var(--pg-pad, 18px);
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+  box-shadow: 0 -8px 18px -14px rgba(0, 0, 0, 0.35);
+}
+.pg-lote-rodape .modal-actions { margin-top: 0; margin-left: auto; }
+/* Suspeitos de duplicidade ficam no fluxo: presos ao pé, cobririam a janela no celular. */
+.pg-lote-suspeitos { margin-top: 18px; }
+.pg-lote-rodape-resumo { display: grid; gap: 1px; font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; color: var(--ink); }
+.pg-lote-rodape-resumo small { color: var(--muted); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
 
 /* ── Telas médias: o status desce para baixo da data (sem coluna própria) ── */
 @media (max-width: 1180px) {
@@ -768,8 +892,22 @@
   .pg-selecao-acoes .ds-button { flex: 1; }
 
   .pg-ctx-valor { margin-left: 0; text-align: left; }
-  .pg-lote-lista li { grid-template-columns: minmax(0, 1fr) auto; }
-  .pg-lote-venc { display: none; }
+  .pg-lote-resumo-meta { justify-content: flex-start; }
+  .pg-lote-opcoes { grid-template-columns: 1fr; }
+  .pg-lote-data { max-width: none; }
+  .pg-lote-sec .form-grid { grid-template-columns: 1fr; }
+  .pg-lote-lista li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "nome valor" "venc valor";
+    row-gap: 2px;
+  }
+  .pg-lote-nome { grid-area: nome; }
+  .pg-lote-venc { grid-area: venc; }
+  .pg-lote-lista li > .pg-num { grid-area: valor; align-self: center; }
+  .pg-lote-rodape-resumo { display: none; }
+  .pg-lote-rodape .modal-actions { width: 100%; }
+  .pg-lote-rodape .modal-actions .ds-button { flex: 1; }
+  .pg-lote-rodape .modal-actions .ds-button:first-child { flex: 0 0 auto; }
 }
 
 .pg-tnum { font-variant-numeric: tabular-nums; white-space: nowrap; }
