@@ -13,3 +13,11 @@ test("vencido de antes do período entra; repetido e pago não", () => {
 test("mesmo id de origens diferentes não é repetido", () => {
   expect(juntarVencidosAnteriores([p("1", "OPEN", "DIRECT")], [p("1", "OVERDUE", "PAYROLL")]).length).toBe(2);
 });
+
+test("vencidos de antes do período só entram quando o período chega até hoje", async () => {
+  const { periodoChegaAHoje, OPCOES_PERIODO } = await import("../regras");
+  expect(periodoChegaAHoje("2026-10-31", "2026-10-02")).toBe(true);   // Mês atual
+  expect(periodoChegaAHoje("2026-12-31", "2026-10-02")).toBe(true);   // Ano atual
+  expect(periodoChegaAHoje("2026-09-30", "2026-10-02")).toBe(false);  // Mês anterior: só setembro
+  expect(OPCOES_PERIODO.map((o) => o.label)).toContain("Mês anterior");
+});

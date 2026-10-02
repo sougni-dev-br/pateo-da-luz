@@ -273,6 +273,7 @@ export const OPCOES_PERIODO = [
   { value: "next15", label: "Próximos 15 dias" },
   { value: "next30", label: "Próximos 30 dias" },
   { value: "currentMonth", label: "Mês atual" },
+  { value: "previousMonth", label: "Mês anterior" },
   { value: "nextMonth", label: "Mês seguinte" },
   { value: "currentYear", label: "Ano atual" },
   { value: "paidMonth", label: "Pago no mês" },
@@ -292,4 +293,10 @@ export function juntarVencidosAnteriores(doPeriodo: Payable[], vencidosAntes: Pa
   const chave = (p: Payable) => `${p.sourceType ?? ""}:${p.id}`;
   const vistos = new Set(doPeriodo.map(chave));
   return [...vencidosAntes.filter((p) => !vistos.has(chave(p)) && estaEmAberto(p)), ...doPeriodo];
+}
+
+/** Período que chega até hoje (ou além): só então os vencidos de antes dele entram na lista.
+ *  Período passado ("Mês anterior", personalizado já encerrado) mostra só o que vence nele. */
+export function periodoChegaAHoje(fim: string | null | undefined, hoje: string): boolean {
+  return !fim || fim >= hoje;
 }
