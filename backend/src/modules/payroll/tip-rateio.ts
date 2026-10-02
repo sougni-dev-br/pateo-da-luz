@@ -26,7 +26,7 @@
 // NÃO sobe quando alguém do mês perde pontos por falta: a diferença fica como
 // saldo (retido pela casa). Saldo = líquido − distribuído.
 
-import { valoresAdicionais } from "./hora-extra.js";
+import { dsrDoMes, valoresAdicionais } from "./hora-extra.js";
 import { round2 } from "./vt-calc.js";
 
 const DIA_MS = 24 * 60 * 60 * 1000;
@@ -180,6 +180,8 @@ export type ParticipanteCalculado = {
   // Sem registro: hora extra (+50%) e adicional noturno pagos na lista. CLT = 0.
   valorHoraExtra: number;
   valorAdicionalNoturno: number;
+  // Sem registro: DSR sobre a hora extra e o noturno (mês civil do salário). CLT = 0.
+  valorDsr: number;
   totalAPagar: number;
   rescisaoPendente: boolean;
   // CLT com gorjeta paga: a contabilidade já pagou na rescisão. Sem registro só
@@ -372,8 +374,8 @@ function pagoAntesDoAcerto(p: ParticipanteEntrada, regras: RegrasPeriodo, salari
 }
 
 // Período fechado não grava o adiantamento: ele é o que explica o total gravado
-// (salário + gorjeta líquida + hora extra/noturno − 1ª quinzena − total a pagar). Fechamentos
-// de antes do adiantamento dão zero. A hora extra e a 1ª quinzena vêm do retrato (ausente = zero).
+// (salário + gorjeta líquida + hora extra/noturno/DSR − 1ª quinzena − total a pagar). Fechamentos
+// de antes do adiantamento dão zero. A hora extra, o DSR e a 1ª quinzena vêm do retrato (ausente = zero).
 export function adiantamentoDoFechado(g: {
   semRegistro: boolean; pagoNaRescisao: boolean; salarioProporcional: number; comissaoLiquida: number; totalAPagar: number;
   adicionais?: number; primeiraQuinzena?: number;
@@ -382,10 +384,16 @@ export function adiantamentoDoFechado(g: {
   return Math.max(0, round2(g.salarioProporcional + g.comissaoLiquida + (g.adicionais ?? 0) - (g.primeiraQuinzena ?? 0) - g.totalAPagar));
 }
 
-// Hora extra e adicional noturno a pagar na lista: só quem não tem registro.
-function adicionaisSemRegistro(p: ParticipanteEntrada) {
-  if (!p.semRegistro) return { valorHoraExtra: 0, valorAdicionalNoturno: 0 };
-  return valoresAdicionais(p.salarioBase, p.horaExtraMin ?? 0, p.adicionalNoturnoMin ?? 0);
+// Hora extra, adicional noturno e o DSR sobre eles a pagar na lista: só quem não tem registro.
+// O DSR é do mês civil do salário; sem ele (regras antigas, só o ciclo) não há mês para contar.
+function adicionaisSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo) {
+  if (!p.semRegistro) return { valorHoraExtra: 0, valorAdicionalNoturno: 0, valorDsr: 0 };
+  const { valorHoraExtra, valorAdicionalNoturno } = valoresAdicionais(p.salarioBase, p.horaExtraMin ?? 0, p.adicionalNoturnoMin ?? 0);
+  const mes = regras.mesSalario;
+  const valorDsr = mes
+    ? dsrDoMes(valorHoraExtra, valorAdicionalNoturno, mes.start.getUTCFullYear(), mes.start.getUTCMonth() + 1)
+    : 0;
+  return { valorHoraExtra, valorAdicionalNoturno, valorDsr };
 }
 
 // Gorjeta real só substitui a calculada de quem está no mês, por pontos (e participa).
@@ -424,7 +432,7 @@ function calcularForaDaGorjeta(regras: RegrasPeriodo, p: ParticipanteEntrada): P
   const comissaoLiquida = round2(creditos - descontos);
   const salario = salarioSemRegistro(p, regras);
   const { adiantamentoSalarial, primeiraQuinzena } = pagoAntesDoAcerto(p, regras, salario.valor);
-  const { valorHoraExtra, valorAdicionalNoturno } = adicionaisSemRegistro(p);
+  const { valorHoraExtra, valorAdicionalNoturno, valorDsr } = adicionaisSemRegistro(p, regras);
   // Saiu dentro do ciclo (ou depois dele, no mês do salário) com a rescisão lançada:
   // recebeu tudo lá, como os demais sem registro.
   const pagoNaRescisao = (p.semRegistro && p.rescisaoLancada && p.desligamento != null && p.desligamento <= regras.end)
@@ -436,9 +444,9 @@ function calcularForaDaGorjeta(regras: RegrasPeriodo, p: ParticipanteEntrada): P
     justificativaExtra: null, valorDireito: null, gorjetaCalculada: 0, gorjetaRealAplicada: false,
     valorPonto: 0, rateio: 0, descontos, creditos, comissaoLiquida,
     diasSalario: salario.dias, salarioProporcional: salario.valor, adiantamentoSalarial, primeiraQuinzena,
-    valorHoraExtra, valorAdicionalNoturno,
+    valorHoraExtra, valorAdicionalNoturno, valorDsr,
     totalAPagar: pagoNaRescisao ? 0
-      : round2(salario.valor - adiantamentoSalarial - primeiraQuinzena + comissaoLiquida + valorHoraExtra + valorAdicionalNoturno),
+      : round2(salario.valor - adiantamentoSalarial - primeiraQuinzena + comissaoLiquida + valorHoraExtra + valorAdicionalNoturno + valorDsr),
     rescisaoPendente: false,
     pagoNaRescisao,
   };
@@ -521,7 +529,7 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
   const comissaoLiquida = round2(rateio - descontos + creditos);
   const salario = salarioSemRegistro(p, regras);
   const { adiantamentoSalarial, primeiraQuinzena } = pagoAntesDoAcerto(p, regras, salario.valor);
-  const { valorHoraExtra, valorAdicionalNoturno } = adicionaisSemRegistro(p);
+  const { valorHoraExtra, valorAdicionalNoturno, valorDsr } = adicionaisSemRegistro(p, regras);
   const saiuNoPeriodo = tipoCalculo === "RESCISAO" || tipoCalculo === "RESCISAO_QUITADA";
   // Saiu depois do fim do ciclo, antes da folha dele: o termo de rescisão importado neste
   // período já pagou a gorjeta do mês (com os vales descontados). Pontos e vales ficam;
@@ -560,9 +568,10 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
     primeiraQuinzena,
     valorHoraExtra,
     valorAdicionalNoturno,
-    // Quem foi pago na rescisão recebe a hora extra lá (apuração da rescisão).
+    valorDsr,
+    // Quem foi pago na rescisão recebe a hora extra e o DSR lá (apuração da rescisão).
     totalAPagar: pagoNaRescisao ? 0
-      : round2(salario.valor - adiantamentoSalarial - primeiraQuinzena + comissaoLiquida + valorHoraExtra + valorAdicionalNoturno),
+      : round2(salario.valor - adiantamentoSalarial - primeiraQuinzena + comissaoLiquida + valorHoraExtra + valorAdicionalNoturno + valorDsr),
     rescisaoPendente,
     pagoNaRescisao,
   };

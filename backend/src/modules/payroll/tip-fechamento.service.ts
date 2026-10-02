@@ -77,6 +77,7 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     // Idem para a hora extra e o noturno de quem não tem registro (já no total a pagar).
     ...(comp.totals.primeirasQuinzenas ? { primeirasQuinzenas: comp.totals.primeirasQuinzenas } : {}),
     ...(comp.totals.horasExtrasSemRegistro ? { horasExtrasSemRegistro: comp.totals.horasExtrasSemRegistro } : {}),
+    ...(comp.totals.dsrSemRegistro ? { dsrSemRegistro: comp.totals.dsrSemRegistro } : {}),
     totalAPagar: comp.totals.totalAPagar,
   };
   const participants = comp.participants.map((p) => ({
@@ -145,6 +146,8 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     ...(p.valorHoraExtra || p.valorAdicionalNoturno
       ? { valorHoraExtra: p.valorHoraExtra ?? 0, valorAdicionalNoturno: p.valorAdicionalNoturno ?? 0 }
       : {}),
+    // DSR que entrou no total: o fechado lê daqui (retrato sem o campo = DSR zero).
+    ...(p.valorDsr ? { valorDsr: p.valorDsr } : {}),
     totalAPagar: p.totalAPagar,
     horaExtra: p.horaExtra,
     adicionalNoturno: p.adicionalNoturno,

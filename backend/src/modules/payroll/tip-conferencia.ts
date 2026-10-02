@@ -21,10 +21,11 @@ export type PessoaApurada = {
   gorjetaLiquida: number;      // netCommission
   gorjetaInformada?: number;   // o que foi enviado à contabilidade (= gorjetaLiquida sem teto)
   peloTeto?: boolean;          // gorjeta informada pelo teto do IR
-  totalAPagar: number;         // sem registro: salário − adiantamento − 1ª quinzena + gorjeta − vales + hora extra/noturno
+  totalAPagar: number;         // sem registro: salário − adiantamento − 1ª quinzena + gorjeta − vales + hora extra/noturno + DSR
   adiantamentoSalarial?: number; // sem registro: já pago no dia do adiantamento (0/ausente = não recebeu)
   primeiraQuinzena?: number;   // sem registro por quinzena: já pago no dia 15 (0/ausente = não recebeu)
   comHoraExtra?: boolean;      // sem registro: o total leva hora extra ou adicional noturno
+  comDsr?: boolean;            // sem registro: o total leva o DSR sobre a hora extra/noturno
   cnpjEmpresa: string | null;  // da empresa do cadastro
   pix: string | null;
   pixTipo?: string | null;
@@ -218,13 +219,14 @@ export function aplicarAcertosAjustados(linhas: LinhaFolha[], ajustados: Map<str
 }
 
 // Sem registro: o adiantamento salarial e a 1ª quinzena já saíram no dia deles, então
-// aparecem na conta quando houve; a hora extra e o noturno, quando há horas no período.
+// aparecem na conta quando houve; a hora extra e o noturno, quando há horas no período; o
+// DSR, quando entrou no total (a partir de setembro/2026).
 export function composicaoSemRegistro(p: PessoaApurada): string {
   const salario = ["salário",
     ...((p.adiantamentoSalarial ?? 0) > 0 ? ["adiantamento"] : []),
     ...((p.primeiraQuinzena ?? 0) > 0 ? ["1ª quinzena"] : []),
   ].join(" − ");
-  return `${salario} + gorjeta − vales${p.comHoraExtra ? " + hora extra/noturno" : ""}`;
+  return `${salario} + gorjeta − vales${p.comHoraExtra ? " + hora extra/noturno" : ""}${p.comDsr ? " + DSR" : ""}`;
 }
 
 // Folha salarial líquidos: o que o banco paga. CLT pelo extrato (ou pela regra do

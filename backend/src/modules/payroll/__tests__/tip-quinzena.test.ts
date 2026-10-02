@@ -53,7 +53,8 @@ describe("1ª quinzena de quem não tem registro", () => {
     expect(r.comissaoLiquida).toBe(302.66); // 2 × 186,33 − 100 + 30
     expect(r.valorHoraExtra).toBe(he.valorHoraExtra);
     expect(r.primeiraQuinzena).toBe(1000);
-    expect(r.totalAPagar).toBe(round(2000 - 1000 + 302.66 + he.valorHoraExtra + he.valorAdicionalNoturno));
+    expect(r.valorDsr).toBeGreaterThan(0);
+    expect(r.totalAPagar).toBe(round(2000 - 1000 + 302.66 + he.valorHoraExtra + he.valorAdicionalNoturno + r.valorDsr));
   });
 
   test("quem recebe só no pagamento não tem quinzena (nada muda)", () => {

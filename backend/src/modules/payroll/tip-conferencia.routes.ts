@@ -87,8 +87,9 @@ async function pessoasApuradas(year: number, month: number, comPix: boolean): Pr
       adiantamentoSalarial: comPix ? p.adiantamentoSalarial ?? 0 : 0,
       primeiraQuinzena: comPix ? p.primeiraQuinzena ?? 0 : 0,
       comHoraExtra: p.semRegistro && (p.valorHoraExtra != null
-        ? (p.valorHoraExtra + (p.valorAdicionalNoturno ?? 0)) > 0
+        ? (p.valorHoraExtra + (p.valorAdicionalNoturno ?? 0) + (p.valorDsr ?? 0)) > 0
         : minutosValidos(p.horaExtra) + minutosValidos(p.adicionalNoturno) > 0),
+      comDsr: p.semRegistro && (p.valorDsr ?? 0) > 0,
       cnpjEmpresa: e?.company?.cnpj ?? null,
       pix: comPix ? e?.pixKey?.trim() || p.pixKey || null : null,
       pixTipo: comPix ? e?.pixKeyType?.trim() || null : null,

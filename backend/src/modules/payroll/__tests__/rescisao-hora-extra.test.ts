@@ -21,7 +21,7 @@ import { lerValoresRescisao } from "../payroll.routes.js";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = prisma as any;
 
-function cenario(opts: { modality?: string; status?: "OPEN" | "CLOSED"; totalAPagar?: number; creditos?: number } = {}) {
+function cenario(opts: { modality?: string; status?: "OPEN" | "CLOSED"; totalAPagar?: number; creditos?: number; dsr?: number } = {}) {
   db.employee.findFirst.mockResolvedValue({
     id: "e1", modality: opts.modality ?? "NAO_CLT", terminationDate: new Date("2026-09-22T00:00:00Z"), vtType: "TRANSPORTE_PUBLICO", vtLegs: [],
   });
@@ -35,6 +35,7 @@ function cenario(opts: { modality?: string; status?: "OPEN" | "CLOSED"; totalAPa
       rateioAmount: 186.8, valorDireito: null, rescisaoPendente: false, diasSalario: 22, salarioProporcional: 1613.26,
       adiantamentoSalarial: 0, descontos: 0, creditos: opts.creditos ?? 0, totalAPagar: opts.totalAPagar ?? 0,
       horaExtra: "10:00", adicionalNoturno: "7:00", valorHoraExtra: 150, valorAdicionalNoturno: 16,
+      ...(opts.dsr != null ? { valorDsr: opts.dsr } : {}),
     }],
   } as never);
 }
@@ -71,5 +72,19 @@ describe("hora extra na rescisão de sem registro", () => {
     const a = semDadosPessoais(await apurarRescisao("e1"))!;
     expect(a.horaExtra).toEqual({ horaExtra: "10:00", adicionalNoturno: "7:00", valor: null });
     expect(a.sugestao).toMatchObject({ creditos: 50, horaExtra: 0, bruto: null });
+  });
+
+  test("com DSR: a hora extra da rescisão leva o DSR do mês (mesmo cálculo da lista)", async () => {
+    cenario({ creditos: 50, dsr: 33.2 });
+    const a = (await apurarRescisao("e1"))!;
+    expect(a.horaExtra).toEqual({ horaExtra: "10:00", adicionalNoturno: "7:00", dsr: 33.2, valor: 199.2 });
+    expect(a.sugestao).toMatchObject({ horaExtra: 199.2, creditos: 249.2, bruto: 2049.26 });
+  });
+
+  test("com DSR, sem ver Funcionários: o DSR também some", async () => {
+    cenario({ creditos: 50, dsr: 33.2 });
+    const a = semDadosPessoais(await apurarRescisao("e1"))!;
+    expect(a.horaExtra).toEqual({ horaExtra: "10:00", adicionalNoturno: "7:00", dsr: null, valor: null });
+    expect(a.sugestao).toMatchObject({ creditos: 50, horaExtra: 0 });
   });
 });
