@@ -41,10 +41,13 @@ export function FormField({
   const helperId = error || hint ? `${fieldId}-helper` : undefined;
 
   let control = children;
+  // Filho com id próprio: o label precisa apontar para ele, não para o id gerado.
+  let controlId = fieldId;
   if (isValidElement(children)) {
     const child = children as ReactElement<InjectableProps>;
+    controlId = child.props.id ?? fieldId;
     const injected: InjectableProps = {
-      id: child.props.id ?? fieldId,
+      id: controlId,
       "aria-describedby": child.props["aria-describedby"] ?? helperId
     };
     if (error) {
@@ -66,7 +69,7 @@ export function FormField({
 
   return (
     <div className={rootClasses}>
-      <label className="ds-form-field-label" htmlFor={fieldId}>
+      <label className="ds-form-field-label" htmlFor={controlId}>
         {label}
         {required && (
           <span className="ds-form-field-required" aria-hidden>
