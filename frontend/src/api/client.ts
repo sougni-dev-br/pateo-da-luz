@@ -2255,6 +2255,27 @@ export function saveSupplier(payload: Partial<Supplier> & { name: string }) {
   });
 }
 
+export type SupplierEmployeeOption = {
+  employeeId: string;
+  name: string;
+  position: string | null;
+  isActive: boolean;
+  draft: {
+    name: string;
+    document: string;
+    phone: string;
+    email: string;
+    mainCategory: string;
+    defaultFinancialNotes: string;
+    notes: string;
+  };
+  existingSupplier: { id: string; name: string; isActive: boolean } | null;
+};
+
+export function getSupplierEmployeeOptions() {
+  return request<SupplierEmployeeOption[]>("/suppliers/employee-options");
+}
+
 export function setSupplierStatus(id: string, isActive: boolean) {
   return request<Supplier>(`/suppliers/${id}/status`, {
     method: "PATCH",
