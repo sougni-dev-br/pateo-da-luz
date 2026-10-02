@@ -221,14 +221,24 @@ export function lerFichasRegistro(texto: string): FichaRegistro[] {
       fichas.push(ficha);
     } else {
       const reg = b.linhas[0].match(/Nº: (\d{6})/)![1];
-      const achada = fichas.find((f) => f.registro === reg);
+      // A continuação vem logo depois da ficha dela. O nº da ficha é por empresa e pode repetir
+      // num PDF com duas empresas: vale a ficha mais recente com o nº, conferindo o nome.
+      const achada = [...fichas].reverse().find((f) => f.registro === reg);
       if (!achada) throw new Error(`Página de continuação do registro ${reg} sem a ficha principal antes.`);
+      const nome = b.linhas[2]?.trim();
+      if (nome && nome !== achada.nome) {
+        throw new Error(`Página de continuação do registro ${reg} é de "${nome}", mas a ficha anterior com esse nº é de "${achada.nome}".`);
+      }
       ficha = achada;
     }
     ficha.salarios.push(...lerSalarios(b.linhas.join("\n")));
     ficha.cargos.push(...lerCargos(b.linhas));
     ficha.ferias.push(...lerFerias(b.linhas));
   }
-  for (const f of fichas) f.salarios.sort((a, b) => a.vigencia.localeCompare(b.vigencia));
+  // Ordem de data, não de página: o cargo atual (CBO) é o da última mudança.
+  for (const f of fichas) {
+    f.salarios.sort((a, b) => a.vigencia.localeCompare(b.vigencia));
+    f.cargos.sort((a, b) => a.data.localeCompare(b.data));
+  }
   return fichas;
 }

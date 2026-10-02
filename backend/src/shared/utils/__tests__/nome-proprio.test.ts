@@ -26,6 +26,34 @@ describe("nomeProprio", () => {
   });
 });
 
+describe("casos que a regra não pode estragar", () => {
+  test("apóstrofo, Mc e parêntese", () => {
+    expect(nomeProprio("JOANA D'ÁVILA")).toBe("Joana D'Ávila");
+    expect(nomeProprio("o'brien")).toBe("O'Brien");
+    expect(nomeProprio("MCDONALD")).toBe("McDonald");
+    expect(nomeProprio("CASA (FUNDOS)")).toBe("Casa (Fundos)");
+    expect(nomeProprio("COZINHEIRO (A)")).toBe("Cozinheiro (a)");
+  });
+
+  test("romanos até XX e letra sozinha depois de Rua/Bloco", () => {
+    expect(nomeProprio("RUA XV DE NOVEMBRO")).toBe("Rua XV de Novembro");
+    expect(nomeProprio("bloco e apto 12")).toBe("Bloco E Apto 12");
+    expect(nomeProprio("RUA A")).toBe("Rua A");
+    expect(nomeProprio("ANA E PAULO")).toBe("Ana e Paulo");
+  });
+
+  test("palavra com número ou barra fica como foi digitada", () => {
+    expect(nomeProprio("Apto 12B")).toBe("Apto 12B");
+    expect(nomeProprio("RODOVIA SP-280")).toBe("Rodovia SP-280");
+    expect(nomeProprio("rua sem nome, S/N")).toBe("Rua Sem Nome, S/N");
+  });
+
+  test("Di e Du são sobrenomes, não partículas", () => {
+    expect(nomeProprio("LUCIA DI MARCO")).toBe("Lucia Di Marco");
+    expect(nomeProprio("DI LUCIA", { continuacao: true })).toBe("Di Lucia");
+  });
+});
+
 describe("sobrenome e acentos do nome completo", () => {
   test("sobrenome continua o nome: partícula no começo fica minúscula", () => {
     expect(nomeProprio("DA SILVA", { continuacao: true })).toBe("da Silva");

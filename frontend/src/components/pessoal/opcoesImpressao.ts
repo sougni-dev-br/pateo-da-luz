@@ -55,13 +55,37 @@ export const PADRAO: OpcoesFolha = {
 const CHAVE_PREFERENCIAS = "pateo.aniversariantes.impressao.v3";
 const CHAVE_V2 = "pateo.aniversariantes.impressao.v2";
 
+const um = <T extends string>(lista: Array<{ value: T }>, v: unknown, padrao: T): T =>
+  lista.some((o) => o.value === v) ? (v as T) : padrao;
+const texto = (v: unknown, padrao: string) => (typeof v === "string" ? v : padrao);
+const sim = (v: unknown, padrao: boolean) => (typeof v === "boolean" ? v : padrao);
+
+// O que veio do armazenamento passa campo a campo pelas listas: valor que não existe mais (ou
+// editado à mão) volta ao padrão em vez de quebrar a prévia.
+function validar(bruto: unknown): OpcoesFolha {
+  const o = bruto && typeof bruto === "object" && !Array.isArray(bruto) ? (bruto as Record<string, unknown>) : {};
+  return {
+    modelo: um(MODELOS, o.modelo, PADRAO.modelo),
+    orientacao: um(ORIENTACOES, o.orientacao, PADRAO.orientacao),
+    paleta: um(PALETAS, o.paleta, PADRAO.paleta),
+    formaNome: um(FORMAS_NOME, o.formaNome, PADRAO.formaNome),
+    tamanho: um(TAMANHOS, o.tamanho, PADRAO.tamanho),
+    mostrarSetor: sim(o.mostrarSetor, PADRAO.mostrarSetor),
+    mostrarCargo: sim(o.mostrarCargo, PADRAO.mostrarCargo),
+    mostrarLogo: sim(o.mostrarLogo, PADRAO.mostrarLogo),
+    titulo: "",
+    mensagem: texto(o.mensagem, PADRAO.mensagem),
+    assinatura: texto(o.assinatura, PADRAO.assinatura),
+  };
+}
+
 // Preferências só de conveniência: se o navegador bloquear o armazenamento, usa o padrão.
 export function lerPreferencias(): OpcoesFolha {
   try {
     const salvo = window.localStorage.getItem(CHAVE_PREFERENCIAS);
-    if (salvo) return { ...PADRAO, ...(JSON.parse(salvo) as Partial<OpcoesFolha>), titulo: "" };
+    if (salvo) return validar(JSON.parse(salvo));
     const v2 = window.localStorage.getItem(CHAVE_V2);
-    return v2 ? { ...PADRAO, ...(JSON.parse(v2) as Partial<OpcoesFolha>), formaNome: PADRAO.formaNome, titulo: "" } : PADRAO;
+    return v2 ? { ...validar(JSON.parse(v2)), formaNome: PADRAO.formaNome } : PADRAO;
   } catch {
     return PADRAO;
   }
