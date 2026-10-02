@@ -153,12 +153,79 @@ describe("Contas a Pagar — baixa em lote com a data de vencimento de cada tít
     const lote = screen.getByRole("dialog");
     expect(within(lote).getByRole("alert")).toHaveTextContent("2 títulos venceram há mais de uma semana — confira a data real do pagamento.");
 
-    fireEvent.click(within(lote).getByRole("checkbox", { name: "Usar a data de vencimento de cada título" }));
+    fireEvent.click(within(lote).getByRole("radio", { name: /No vencimento de cada título/ }));
     expect(within(lote).queryByText(/venceram há mais de uma semana/)).not.toBeInTheDocument();
+    // Todos vencidos: a data única não serve para ninguém e some.
+    expect(within(lote).queryByLabelText(/Data do pagamento|ainda não venceram/)).not.toBeInTheDocument();
+
+    // Sem a forma, o aviso aparece ao lado do campo e nada é enviado.
+    fireEvent.click(within(lote).getByRole("button", { name: "Confirmar baixa de 2" }));
+    expect(within(lote).getByText("Escolha a forma de pagamento.")).toBeInTheDocument();
+    expect(within(lote).getByLabelText("Forma de pagamento *")).toHaveFocus();
+    expect(api.payInstallment).not.toHaveBeenCalled();
+
     fireEvent.change(within(lote).getByLabelText("Forma de pagamento *"), { target: { value: "id:pix" } });
+    expect(within(lote).queryByText("Escolha a forma de pagamento.")).not.toBeInTheDocument();
     fireEvent.click(within(lote).getByRole("button", { name: "Confirmar baixa de 2" }));
     await waitFor(() => expect(api.payInstallment).toHaveBeenCalledTimes(2));
     expect(api.payInstallment.mock.calls.map((c) => c[1].paidDate)).toEqual(["2026-09-20", "2026-09-20"]);
+  }, 20000);
+
+  test("data apagada no modo vencimento: o campo continua à vista para corrigir", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 2, 10, 0));
+    abrir();
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Selecionar todos em aberto/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Baixar selecionados" }));
+    const lote = screen.getByRole("dialog");
+    fireEvent.change(within(lote).getByLabelText("Data do pagamento *"), { target: { value: "" } });
+    fireEvent.click(within(lote).getByRole("radio", { name: /No vencimento de cada título/ }));
+    expect(within(lote).getByLabelText("Data do pagamento *")).toHaveValue("");
+  }, 20000);
+});
+
+describe("Contas a Pagar — baixa em lote com a forma de cada título", () => {
+  test("cada título vai com a sua forma; o sem forma prevista usa a forma única", async () => {
+    api.getPaymentMethods.mockResolvedValue([{ id: "pix", name: "PIX" }, { id: "boleto", name: "BOLETO" }, { id: "boleto2", name: "BOLETO 2X" }]);
+    api.getPayablesComLimite.mockResolvedValue(lista([
+      titulo("a", "Ana Fornecedora", { paymentMethodId: "boleto2" }),
+      titulo("b", "Beto Distribuidora", { paymentMethodId: "pix" }),
+      titulo("c", "Caio Hortifruti"),
+    ]));
+    abrir();
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Selecionar todos em aberto/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Baixar selecionados" }));
+    const lote = screen.getByRole("dialog");
+
+    fireEvent.click(within(lote).getByRole("radio", { name: /A forma de cada título/ }));
+    expect(within(lote).getByLabelText("Títulos por forma de pagamento")).toHaveTextContent(/BOLETO 1.*PIX 1.*sem forma prevista 1/);
+
+    // Só o título sem forma prevista precisa da forma única.
+    fireEvent.click(within(lote).getByRole("button", { name: "Confirmar baixa de 3" }));
+    expect(within(lote).getByText("Escolha a forma de pagamento.")).toBeInTheDocument();
+    expect(api.payInstallment).not.toHaveBeenCalled();
+
+    fireEvent.change(within(lote).getByLabelText("Forma dos 1 sem forma prevista *"), { target: { value: "id:pix" } });
+    fireEvent.click(within(lote).getByRole("button", { name: "Confirmar baixa de 3" }));
+    await waitFor(() => expect(api.payInstallment).toHaveBeenCalledTimes(3));
+    expect(api.payInstallment.mock.calls.map((c) => [c[0], c[1].paidPaymentMethodId])).toEqual([["a", "boleto"], ["b", "pix"], ["c", "pix"]]);
+  }, 20000);
+
+  test("todos com forma prevista: a forma única some e nada mais é pedido", async () => {
+    api.getPaymentMethods.mockResolvedValue([{ id: "pix", name: "PIX" }, { id: "boleto", name: "BOLETO" }]);
+    api.getPayablesComLimite.mockResolvedValue(lista([
+      titulo("a", "Ana Fornecedora", { paymentMethodId: "boleto" }),
+      titulo("b", "Beto Distribuidora", { paymentMethodName: "PIX / 1x" }),
+    ]));
+    abrir();
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Selecionar todos em aberto/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Baixar selecionados" }));
+    const lote = screen.getByRole("dialog");
+    fireEvent.click(within(lote).getByRole("radio", { name: /A forma de cada título/ }));
+    expect(within(lote).queryByLabelText(/Forma de pagamento|sem forma prevista \*/)).not.toBeInTheDocument();
+    fireEvent.click(within(lote).getByRole("button", { name: "Confirmar baixa de 2" }));
+    await waitFor(() => expect(api.payInstallment).toHaveBeenCalledTimes(2));
+    expect(api.payInstallment.mock.calls.map((c) => c[1].paidPaymentMethodId)).toEqual(["boleto", "pix"]);
   }, 20000);
 });
 
