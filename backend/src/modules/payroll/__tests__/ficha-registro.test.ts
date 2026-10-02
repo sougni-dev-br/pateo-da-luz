@@ -41,11 +41,11 @@ describe("planoDaFicha", () => {
   test("cadastro vazio: preenche documentos, filiação, contrato, endereço quebrado, PIS só com dígitos e sexo", () => {
     const p = planoDaFicha(cadastro(), ficha());
     expect(p.dados).toMatchObject({
-      nomeCompleto: "FULANA DE TAL", registroNumero: "000020", matriculaEsocial: "20", nomePai: "JOSE DE TAL", nomeMae: "MARIA DE TAL",
+      nomeCompleto: "Fulana de Tal", registroNumero: "000020", matriculaEsocial: "20", nomePai: "Jose de Tal", nomeMae: "Maria de Tal",
       rgDataEmissao: d("2016-01-15"), rgOrgaoEmissor: "SSP/SP", ctpsNumero: "5299822", ctpsUf: "SP",
       cbo: "513210", jornadaInicio: "08:00", intervaloFim: "13:00", possuiDeficiencia: false, fgtsDataOpcao: d("2025-03-01"),
       rg: "12.345.678-9", pis: "12345678901", birthDate: d("1990-03-10"), gender: "FEMININO",
-      address: "Rua DAS FLORES", addressNumber: "10", addressComplement: "apto 5", neighborhood: "JARDIM TESTE", city: "SAO PAULO", state: "SP", zipCode: "01000-000",
+      address: "Rua das Flores", addressNumber: "10", addressComplement: "Apto 5", neighborhood: "Jardim Teste", city: "São Paulo", state: "SP", zipCode: "01000-000",
     });
     expect(p.dados).not.toHaveProperty("ctpsDataEmissao");
     expect(p.avisos).toEqual([]);
@@ -72,7 +72,7 @@ describe("planoDaFicha", () => {
     const p = planoDaFicha(cadastro(), ficha({ pai: "CICLANO DE TAL", rgEmissao: "1989-01-01" }));
     expect(p.dados).not.toHaveProperty("nomePai");
     expect(p.dados).not.toHaveProperty("rgDataEmissao");
-    expect(p.dados).toHaveProperty("nomeMae", "MARIA DE TAL");
+    expect(p.dados).toHaveProperty("nomeMae", "Maria de Tal");
     expect(p.avisos.join("\n")).toMatch(/dependente "CICLANO DE TAL" como pai/);
     expect(p.avisos.join("\n")).toMatch(/antes do nascimento/);
   });
@@ -108,9 +108,9 @@ describe("planoDaFicha", () => {
     expect(p.anotacoes.map((a) => [a.tipo, a.data.toISOString().slice(0, 10)])).toEqual([
       ["ADMISSAO", "2025-03-01"], ["SALARIO", "2026-05-01"], ["CARGO", "2026-05-01"],
     ]);
-    expect(p.anotacoes[0]).toMatchObject({ salario: 2000, cargo: "COZINHEIRO (A)", cbo: "513205" });
-    expect(p.anotacoes[2]).toMatchObject({ cargoAnterior: "COZINHEIRO (A)", cargo: "LIDER DE PRACA", cbo: "513210" });
-    expect(p.dependentes).toEqual(["CICLANO DE TAL"]);
+    expect(p.anotacoes[0]).toMatchObject({ salario: 2000, cargo: "Cozinheiro (a)", cbo: "513205" });
+    expect(p.anotacoes[2]).toMatchObject({ cargoAnterior: "Cozinheiro (a)", cargo: "Lider de Praca", cbo: "513210" });
+    expect(p.dependentes).toEqual(["Ciclano de Tal"]);
     expect(p.ferias[0]).toMatchObject({ aquisitivoInicio: d("2025-03-01"), gozoFim: d("2026-07-30"), abonoInicio: null });
   });
 });
@@ -118,9 +118,9 @@ describe("planoDaFicha", () => {
 describe("quebrarEndereco", () => {
   test("5 partes: sem complemento; formato estranho fica inteiro no logradouro", () => {
     expect(quebrarEndereco("Rua UM, 1, CENTRO, SAO PAULO, SP")).toEqual({
-      address: "Rua UM", addressNumber: "1", addressComplement: null, neighborhood: "CENTRO", city: "SAO PAULO", state: "SP",
+      address: "Rua Um", addressNumber: "1", addressComplement: null, neighborhood: "Centro", city: "São Paulo", state: "SP",
     });
-    expect(quebrarEndereco("Rua UM 1 CENTRO")).toMatchObject({ address: "Rua UM 1 CENTRO", city: null });
+    expect(quebrarEndereco("Rua UM 1 CENTRO")).toMatchObject({ address: "Rua Um 1 Centro", city: null });
   });
 });
 
