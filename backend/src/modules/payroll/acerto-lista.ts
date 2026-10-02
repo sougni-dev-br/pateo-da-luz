@@ -2,7 +2,7 @@
 // Pagar — regras puras. O serviço (acerto-lista.service.ts) lê a apuração e grava.
 //
 //   valor      = total a pagar da lista (salário − adiantamento − 1ª quinzena + gorjeta
-//                líquida + hora extra + noturno)
+//                líquida + hora extra + noturno + DSR)
 //   vencimento = por quinzena: último dia do mês da competência ("dia 30");
 //                os outros: 5º dia útil do mês seguinte (seg a sex, sem os feriados de holidays.ts)
 import { ehComplemento, excluidoAMao } from "./folha-duplicidade.js";
@@ -41,7 +41,7 @@ export type ParticipanteDaLista = {
   foraDaGorjeta: boolean; pagamentoQuinzenal: boolean;
   salarioProporcional: number; diasSalario: number; adiantamentoSalarial: number | null; primeiraQuinzena: number | null;
   rateioAmount: number; descontos: number; creditos: number; netCommission: number;
-  valorHoraExtra: number | null; valorAdicionalNoturno: number | null; totalAPagar: number;
+  valorHoraExtra: number | null; valorAdicionalNoturno: number | null; valorDsr?: number | null; totalAPagar: number;
 };
 
 // Quem recebe acerto: sem registro na lista do mês, que não recebeu na rescisão e tem a receber.
@@ -50,13 +50,17 @@ export function recebeAcerto(p: ParticipanteDaLista): boolean {
 }
 
 // A conta inteira da lista, guardada no título (dado sensível: a lista da Folha só mostra a origem).
+// O DSR só aparece quando há: acertos lançados antes dele seguem iguais (não viram "mudança").
 export function composicaoDoAcerto(p: ParticipanteDaLista, apuracao: string | null) {
+  const dsr = p.valorDsr ?? 0;
   return {
     origem: ORIGEM_ACERTO, semRegistro: true, apuracao, pagamentoQuinzenal: p.pagamentoQuinzenal,
     salario: p.salarioProporcional, diasSalario: p.diasSalario,
     adiantamento: p.adiantamentoSalarial ?? 0, primeiraQuinzena: p.primeiraQuinzena ?? 0,
     gorjeta: p.foraDaGorjeta ? 0 : p.rateioAmount, vales: p.descontos, creditos: p.creditos, gorjetaLiquida: p.netCommission,
-    horaExtra: p.valorHoraExtra ?? 0, adicionalNoturno: p.valorAdicionalNoturno ?? 0, totalAPagar: p.totalAPagar,
+    horaExtra: p.valorHoraExtra ?? 0, adicionalNoturno: p.valorAdicionalNoturno ?? 0,
+    ...(dsr > 0 ? { dsr } : {}),
+    totalAPagar: p.totalAPagar,
   };
 }
 export type ComposicaoAcerto = ReturnType<typeof composicaoDoAcerto>;
@@ -76,7 +80,7 @@ export type DecisaoAcerto =
 
 const CHAVES_COMPARADAS: Array<keyof ComposicaoAcerto> = [
   "salario", "diasSalario", "adiantamento", "primeiraQuinzena", "gorjeta", "vales", "creditos", "gorjetaLiquida",
-  "horaExtra", "adicionalNoturno", "totalAPagar", "pagamentoQuinzenal", "apuracao",
+  "horaExtra", "adicionalNoturno", "dsr", "totalAPagar", "pagamentoQuinzenal", "apuracao",
 ];
 const mesmaComposicao = (gravada: unknown, nova: ComposicaoAcerto) => {
   const g = (gravada && typeof gravada === "object" ? gravada : {}) as Record<string, unknown>;

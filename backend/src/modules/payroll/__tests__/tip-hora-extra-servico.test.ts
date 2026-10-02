@@ -78,7 +78,8 @@ describe("hora extra de quem não tem registro na gorjeta", () => {
     const p = comp.participants[0];
     expect(p.valorHoraExtra).toBe(150);
     expect(p.valorAdicionalNoturno).toBe(16);
-    expect(p.totalAPagar).toBe(Math.round((2200 + p.netCommission + 166) * 100) / 100);
+    // + DSR de setembro (166 × 5 ÷ 25 = 33,20).
+    expect(p.totalAPagar).toBe(Math.round((2200 + p.netCommission + 166 + 33.2) * 100) / 100);
     expect(comp.totals.horasExtrasSemRegistro).toBe(166);
     const retrato = montarRetrato(comp, []);
     expect(retrato.participants[0]).toMatchObject({ horaExtra: "10:00", adicionalNoturno: "7:00", valorHoraExtra: 150, valorAdicionalNoturno: 16 });
@@ -92,7 +93,7 @@ describe("hora extra de quem não tem registro na gorjeta", () => {
     expect(p.valorHoraExtra).toBeNull();
     expect(p.valorAdicionalNoturno).toBeNull();
     expect(comp.totals.horasExtrasSemRegistro).toBeNull();
-    expect(p.totalAPagar).toBe(Math.round((2200 + p.netCommission + 166) * 100) / 100);
+    expect(p.totalAPagar).toBe(Math.round((2200 + p.netCommission + 166 + 33.2) * 100) / 100);
   });
 
   test("sem horas: retrato e totais sem os campos novos, como os de antes", async () => {
@@ -156,5 +157,56 @@ describe("hora extra de quem não tem registro na gorjeta", () => {
     expect(p.valorHoraExtra).toBe(150);
     expect(comp.totals.horasExtrasSemRegistro).toBe(0);
     expect(comp.warnings.join(" ")).toContain("paga na rescisão");
+  });
+});
+
+describe("DSR sobre a hora extra de quem não tem registro", () => {
+  test("aberto: DSR de setembro (5 ÷ 25) no total, nos totais e no retrato", async () => {
+    periodo("OPEN", [participante()]);
+    const comp = await computeTipCommission(2026, 9, { incluirDadosPessoais: true });
+    const p = comp.participants[0];
+    expect(p.valorDsr).toBe(33.2);
+    expect(p.totalAPagar).toBe(Math.round((2200 + p.netCommission + 166 + 33.2) * 100) / 100);
+    expect(comp.totals.dsrSemRegistro).toBe(33.2);
+    const retrato = montarRetrato(comp, []);
+    expect(retrato.participants[0]).toMatchObject({ valorHoraExtra: 150, valorAdicionalNoturno: 16, valorDsr: 33.2 });
+    expect(retrato.totals).toMatchObject({ dsrSemRegistro: 33.2 });
+  });
+
+  test("sem a permissão de Funcionários: DSR null, mas o total já o leva", async () => {
+    periodo("OPEN", [participante()]);
+    const comp = await computeTipCommission(2026, 9);
+    expect(comp.participants[0].valorDsr).toBeNull();
+    expect(comp.totals.dsrSemRegistro).toBeNull();
+  });
+
+  test("sem horas: retrato sem o campo do DSR", async () => {
+    periodo("OPEN", [participante({ horaExtra: null, adicionalNoturno: null })]);
+    const comp = await computeTipCommission(2026, 9, { incluirDadosPessoais: true });
+    expect(comp.participants[0].valorDsr).toBe(0);
+    const retrato = montarRetrato(comp, []);
+    expect(retrato.participants[0]).not.toHaveProperty("valorDsr");
+    expect(retrato.totals).not.toHaveProperty("dsrSemRegistro");
+  });
+
+  test("fechado com o DSR no retrato: usa o gravado e o adiantamento sai certo", async () => {
+    // Gravado: salário 2200 − adiantamento 880 + gorjeta 320 + HE 166 + DSR 33,20 = 1839,20.
+    periodo("CLOSED", [participante({ rateioAmount: 320, netCommission: 320, salarioProporcional: 2200, totalAPagar: 1839.2 }, { recebeAdiantamento: true })]);
+    fechamento([{ employeeId: "e1", valorHoraExtra: 150, valorAdicionalNoturno: 16, valorDsr: 33.2 }]);
+    const comp = await computeTipCommission(2026, 9, { incluirDadosPessoais: true });
+    const p = comp.participants[0];
+    expect(p.valorDsr).toBe(33.2);
+    expect(p.totalAPagar).toBe(1839.2);
+    expect(p.adiantamentoSalarial).toBe(880);
+  });
+
+  test("fechado antes do DSR (retrato sem o campo): DSR zero e o total gravado não muda", async () => {
+    periodo("CLOSED", [participante({ rateioAmount: 320, netCommission: 320, salarioProporcional: 2200, totalAPagar: 1806 }, { recebeAdiantamento: true })]);
+    fechamento([{ employeeId: "e1", valorHoraExtra: 150, valorAdicionalNoturno: 16 }]);
+    const comp = await computeTipCommission(2026, 9, { incluirDadosPessoais: true });
+    const p = comp.participants[0];
+    expect(p.valorDsr).toBe(0);
+    expect(p.totalAPagar).toBe(1806);
+    expect(p.adiantamentoSalarial).toBe(880);
   });
 });

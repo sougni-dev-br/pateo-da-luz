@@ -84,6 +84,31 @@ describe("regras puras", () => {
       gorjeta: 500, vales: 50, creditos: 10, gorjetaLiquida: 460, horaExtra: 30, adicionalNoturno: 5, totalAPagar: 1695,
     });
   });
+
+  test("composição leva o DSR quando há (sem DSR, igual à de antes)", () => {
+    expect(composicaoDoAcerto(pessoa({ valorDsr: 7, totalAPagar: 1702 }) as never, "GOR-2026-0009"))
+      .toMatchObject({ horaExtra: 30, adicionalNoturno: 5, dsr: 7, totalAPagar: 1702 });
+    expect(composicaoDoAcerto(pessoa({ valorDsr: 0 }) as never, "GOR-2026-0009")).not.toHaveProperty("dsr");
+  });
+});
+
+describe("acerto com o DSR", () => {
+  test("acerto lançado antes do DSR: a lista com DSR atualiza o valor e a composição", async () => {
+    apuracao([pessoa({ valorDsr: 7, totalAPagar: 1702 })]);
+    existentes([{ details: composicaoDoAcerto(pessoa({}) as never, "GOR-2026-0009") }]);
+    await lancarAcertosDaLista(2026, 9, USUARIO);
+    expect(db.payrollItem.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ amount: 1702, details: expect.objectContaining({ dsr: 7, totalAPagar: 1702 }) }),
+    }));
+  });
+
+  test("acerto lançado sem DSR e a lista também sem: não mexe", async () => {
+    apuracao([pessoa({ valorDsr: 0 })]);
+    existentes([{ details: composicaoDoAcerto(pessoa({}) as never, "GOR-2026-0009") }]);
+    await lancarAcertosDaLista(2026, 9, USUARIO);
+    expect(db.payrollItem.updateMany).not.toHaveBeenCalled();
+    expect(db.payrollItem.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("lançar os acertos da lista", () => {

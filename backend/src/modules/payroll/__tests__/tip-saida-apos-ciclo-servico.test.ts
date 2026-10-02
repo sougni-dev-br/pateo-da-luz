@@ -139,8 +139,9 @@ describe("marcador tudoNaRescisao", () => {
     expect(p.tipoCalculo).toBe("RESCISAO");
     expect(p.pagoNaRescisao).toBe(false);
     expect(p.rateioAmount).toBeGreaterThan(0);
-    // Gorjeta e vales desses dias + a hora extra digitada no período (nada disso entrou na rescisão).
-    expect(p.totalAPagar).toBe(Math.round((p.netCommission + (p.valorHoraExtra ?? 0)) * 100) / 100);
+    // Gorjeta e vales desses dias + a hora extra digitada no período e o DSR dela (nada disso entrou na rescisão).
+    expect(p.valorDsr).toBeGreaterThan(0);
+    expect(p.totalAPagar).toBe(Math.round((p.netCommission + (p.valorHoraExtra ?? 0) + (p.valorDsr ?? 0)) * 100) / 100);
     expect(comp.warnings.join(" ")).toMatch(/não entrou na rescisão/);
   });
 

@@ -118,8 +118,11 @@ export type GorjetaParte = {
 
 // acerto: veio do acerto da lista (SALARIO) já pago, não da gorjeta fechada.
 export type JaPagoNaLista = { valor: number | null; competencia: string; acerto?: true; pagoEm?: string | null };
-// valor = hora extra + adicional noturno; null quando oculto (deriva do salário).
-export type HoraExtraRescisao = { horaExtra: string | null; adicionalNoturno: string | null; valor: number | null };
+// valor = hora extra + adicional noturno + DSR; null quando oculto (deriva do salário).
+// dsr = a parte do DSR no valor (só quando há; ausente nas apurações de antes dele).
+export type HoraExtraRescisao = {
+  horaExtra: string | null; adicionalNoturno: string | null; dsr?: number | null; valor: number | null;
+};
 export type AdiantamentoPago = { valor: number | null; data: string };
 
 // Gorjeta fechada com total a pagar gravado para quem não tem registro: a lista de
@@ -183,7 +186,7 @@ export function montarSugestao(a: Omit<ApuracaoRescisao, "sugestao">): SugestaoR
   const g = a.gorjeta;
   const salario = g ? g.salarioProporcional : null;
   const gorjeta = g && !g.pendente ? g.gorjeta : null;
-  // Crédito lançado na aba Vales (ex.: do fundo) e a hora extra/noturno do período somam
+  // Crédito lançado na aba Vales (ex.: do fundo) e a hora extra/noturno/DSR do período somam
   // ao que a pessoa recebe. Vão juntos em "créditos", que entra no bruto da rescisão.
   const horaExtra = round2(a.horaExtra?.valor ?? 0);
   const creditos = round2(a.vales.creditos + horaExtra);
@@ -394,10 +397,12 @@ async function lerGorjetaDoPeriodo(
   const primeiraQuinzena: AdiantamentoPago | null = semRegistro && (p.primeiraQuinzena ?? 0) > 0 && !jaPagoNaLista
     ? { valor: p.primeiraQuinzena, data: isoDia(new Date(Date.UTC(ano, mes - 1, DIA_PRIMEIRA_QUINZENA))) }
     : null;
-  // Hora extra e noturno do período (o cálculo da gorjeta já aplicou a regra).
-  const valorHoraExtra = round2((p.valorHoraExtra ?? 0) + (p.valorAdicionalNoturno ?? 0));
+  // Hora extra, noturno e o DSR sobre eles (o cálculo da gorjeta já aplicou a regra do mês
+  // do salário do período, a mesma da lista).
+  const dsr = round2(p.valorDsr ?? 0);
+  const valorHoraExtra = round2((p.valorHoraExtra ?? 0) + (p.valorAdicionalNoturno ?? 0) + dsr);
   const horaExtra: HoraExtraRescisao | null = semRegistro && valorHoraExtra > 0 && !jaPagoNaLista
-    ? { horaExtra: p.horaExtra ?? null, adicionalNoturno: p.adicionalNoturno ?? null, valor: valorHoraExtra }
+    ? { horaExtra: p.horaExtra ?? null, adicionalNoturno: p.adicionalNoturno ?? null, ...(dsr > 0 ? { dsr } : {}), valor: valorHoraExtra }
     : null;
   let valesItens: ValeAberto[] = [];
   if (p.participantId) {
@@ -465,8 +470,10 @@ const intervaloBr = (a: Date, b: Date) => `${ddmm(isoDia(a))} a ${ddmm(isoDia(b)
 function somarHoraExtra(a: HoraExtraRescisao | null, b: HoraExtraRescisao | null): HoraExtraRescisao | null {
   if (!a || !b) return a ?? b;
   const juntar = (x: string | null, y: string | null) => [x, y].filter(Boolean).join(" + ") || null;
+  const dsr = round2((a.dsr ?? 0) + (b.dsr ?? 0));
   return {
     horaExtra: juntar(a.horaExtra, b.horaExtra), adicionalNoturno: juntar(a.adicionalNoturno, b.adicionalNoturno),
+    ...(dsr > 0 ? { dsr } : {}),
     valor: round2((a.valor ?? 0) + (b.valor ?? 0)),
   };
 }
@@ -621,7 +628,7 @@ export function semDadosPessoais(a: ApuracaoRescisao | null): ApuracaoRescisao |
     },
     adiantamento: a.adiantamento ? { ...a.adiantamento, valor: null } : null,
     primeiraQuinzena: a.primeiraQuinzena ? { ...a.primeiraQuinzena, valor: null } : a.primeiraQuinzena,
-    horaExtra: a.horaExtra ? { ...a.horaExtra, valor: null } : a.horaExtra,
+    horaExtra: a.horaExtra ? { ...a.horaExtra, ...(a.horaExtra.dsr != null ? { dsr: null } : {}), valor: null } : a.horaExtra,
     // O total pago na lista inclui o salário: some o valor, fica o aviso.
     ...(a.jaPagoNaLista ? ocultarJaPago(a.jaPagoNaLista) : {}),
     ...(a.verbasOpcionais ? { verbasOpcionais: ocultarValoresVerbas(a.verbasOpcionais) } : {}),

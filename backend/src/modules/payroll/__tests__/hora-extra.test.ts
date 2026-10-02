@@ -74,11 +74,12 @@ describe("total a pagar de quem não tem registro", () => {
     expect(r.valorAdicionalNoturno).toBe(0);
     expect(r.totalAPagar).toBe(2200 + 320);
   });
-  test("com 10h de HE e 7h de noturno: soma R$ 166 ao total", () => {
+  test("com 10h de HE e 7h de noturno: soma R$ 166 + DSR de R$ 33,20 ao total", () => {
     const r = calcularParticipante(SETEMBRO, pessoa({ horaExtraMin: 600, adicionalNoturnoMin: 420 }), 160);
     expect(r.valorHoraExtra).toBe(150);
     expect(r.valorAdicionalNoturno).toBe(16);
-    expect(r.totalAPagar).toBe(2200 + 320 + 166);
+    expect(r.valorDsr).toBe(33.2);
+    expect(r.totalAPagar).toBe(2200 + 320 + 166 + 33.2);
   });
   test("CLT: as horas são só informativas, não entram no total", () => {
     const r = calcularParticipante(SETEMBRO, pessoa({ semRegistro: false, horaExtraMin: 600, adicionalNoturnoMin: 420 }), 160);
