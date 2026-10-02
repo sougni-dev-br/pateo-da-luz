@@ -56,3 +56,14 @@ test("nome curto da empresa: até a atividade ou o tipo societário", () => {
   expect(empresaCurta("CASA FICTICIA LTDA")).toBe("Casa Ficticia");
   expect(empresaCurta("Sem registro")).toBe("Sem registro");
 });
+
+test("colunas ocultas saem do PDF; nome e líquido ficam sempre", async () => {
+  await gerarPdfFolhaLiquidos(folha, { year: 2026, month: 9, liberada: true, modo: "empresa", ocultas: new Set(["banco", "pago"]) });
+  expect(tabelas[1].head[0]).toEqual(["Funcionário", "Líquido"]);
+  expect(tabelas[1].body[0]).toEqual(["Bruno Fictício", "R$ 200,00"]);
+  expect(tabelas[1].foot[0]).toEqual(["Subtotal", "R$ 200,00"]);
+
+  tabelas.length = 0;
+  await gerarPdfFolhaLiquidos(folha, { year: 2026, month: 9, liberada: true, modo: "alfabetica", ocultas: new Set(["empresa"]) });
+  expect(tabelas[0].head[0]).toEqual(["Funcionário", "Líquido", "Dados bancários", "Pago"]);
+});

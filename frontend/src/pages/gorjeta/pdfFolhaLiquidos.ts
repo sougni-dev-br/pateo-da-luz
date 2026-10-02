@@ -24,10 +24,29 @@ type CelulaDesenho = { x: number; y: number; width: number; height: number };
 
 export type ModoImpressaoFolha = "empresa" | "alfabetica";
 
+/** Colunas que quem imprime pode tirar do PDF; nome e líquido sempre saem. */
+export type ColunaOpcionalPdf = "empresa" | "banco" | "pago";
+export const COLUNAS_OPCIONAIS_PDF: Array<{ chave: ColunaOpcionalPdf; rotulo: string }> = [
+  { chave: "banco", rotulo: "Dados bancários" },
+  { chave: "pago", rotulo: "Pago (caixinha)" },
+  { chave: "empresa", rotulo: "Empresa (modo Pateo)" },
+];
+
+type Coluna = "nome" | "valor" | ColunaOpcionalPdf;
+const TITULO: Record<Coluna, string> = { nome: "Funcionário", empresa: "Empresa", valor: "Líquido", banco: "Dados bancários", pago: "Pago" };
+
 type Bloco = { titulo: string; subtitulo: string; comEmpresa: boolean; rotuloSubtotal: string };
-const colunas = (comEmpresa: boolean) => (comEmpresa
-  ? { empresa: 1, valor: 2, banco: 3, pago: 4 }
-  : { empresa: -1, valor: 1, banco: 2, pago: 3 });
+
+/** As colunas de um bloco, na ordem: o líquido sempre logo depois do nome (e da empresa). */
+export function colunasDoBloco(comEmpresa: boolean, ocultas: ReadonlySet<string>): Coluna[] {
+  return [
+    "nome",
+    ...(comEmpresa && !ocultas.has("empresa") ? ["empresa" as const] : []),
+    "valor",
+    ...(!ocultas.has("banco") ? ["banco" as const] : []),
+    ...(!ocultas.has("pago") ? ["pago" as const] : []),
+  ];
+}
 
 /** "PATEO FREI CANECA BAR E FORNERIA LTDA" → "Pateo Frei Caneca": o nome até a atividade ou o tipo societário. */
 export function empresaCurta(grupo: string): string {
@@ -42,7 +61,11 @@ export function ordemAlfabetica(linhas: TipLinhaFolha[]): TipLinhaFolha[] {
   return [...linhas].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" }));
 }
 
-export async function gerarPdfFolhaLiquidos(folha: TipFolhaLiquidos, opcoes: { year: number; month: number; liberada: boolean; modo: ModoImpressaoFolha }) {
+export async function gerarPdfFolhaLiquidos(
+  folha: TipFolhaLiquidos,
+  opcoes: { year: number; month: number; liberada: boolean; modo: ModoImpressaoFolha; ocultas?: ReadonlySet<string> },
+) {
+  const ocultas = opcoes.ocultas ?? new Set<string>();
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default as unknown as AutoTable;
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" }) as unknown as Doc;
@@ -79,9 +102,25 @@ export async function gerarPdfFolhaLiquidos(folha: TipFolhaLiquidos, opcoes: { y
 
   // Uma tabela por bloco: por empresa (com subtotal de cada) ou, no modo Pateo, todos juntos em ordem alfabética.
   const desenharBloco = (lista: TipLinhaFolha[], bloco: Bloco) => {
-    const C = colunas(bloco.comEmpresa);
+    const cols = colunasDoBloco(bloco.comEmpresa, ocultas);
+    const C = Object.fromEntries(cols.map((c, i) => [c, i])) as Partial<Record<Coluna, number>>;
+    const comEmpresa = C.empresa != null;
     // Largura do aviso embaixo do nome: a coluna do nome é mais estreita quando há a da empresa.
-    const larguraAviso = bloco.comEmpresa ? 44 : 70;
+    const larguraAviso = comEmpresa ? 44 : 70;
+    const celula = (c: Coluna, l: TipLinhaFolha) => {
+      if (c === "nome") return nomeNoEnvio(l.nome) + (l.origem === "SALARIO_COMBINADO" ? " *" : "");
+      if (c === "empresa") return textoPdf(empresaCurta(l.grupo));
+      if (c === "valor") return reais(l.valor);
+      if (c === "banco") return textoPdf(linhasDadosBancarios(l).join("\n") || SEM_DADOS_BANCARIOS);
+      return "";
+    };
+    const ESTILO: Record<Coluna, Record<string, unknown>> = {
+      nome: { cellWidth: "auto" },
+      empresa: { cellWidth: 26, fontSize: 8, textColor: [...CINZA] },
+      valor: { cellWidth: 28, halign: "right", fontStyle: "bold" },
+      banco: { cellWidth: comEmpresa ? 64 : 72, fontSize: 8 },
+      pago: { cellWidth: 12, halign: "center" },
+    };
     if (y > H - 60) { doc.addPage(); y = 20; }
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10.5);
@@ -102,22 +141,10 @@ export async function gerarPdfFolhaLiquidos(folha: TipFolhaLiquidos, opcoes: { y
       headStyles: { fillColor: [...MARROM], textColor: 255, fontStyle: "bold", fontSize: 8 },
       footStyles: { fillColor: [...BEGE], textColor: [...TINTA], fontStyle: "bold" },
       alternateRowStyles: { fillColor: [...LISTRA] },
-      head: [["Funcionário", ...(bloco.comEmpresa ? ["Empresa"] : []), "Líquido", "Dados bancários", "Pago"]],
-      body: lista.map((l) => [
-        nomeNoEnvio(l.nome) + (l.origem === "SALARIO_COMBINADO" ? " *" : ""),
-        ...(bloco.comEmpresa ? [textoPdf(empresaCurta(l.grupo))] : []),
-        reais(l.valor),
-        textoPdf(linhasDadosBancarios(l).join("\n") || SEM_DADOS_BANCARIOS),
-        "",
-      ]),
-      foot: [[textoPdf(bloco.rotuloSubtotal), ...(bloco.comEmpresa ? [""] : []), reais(soma(lista)), "", ""]],
-      columnStyles: {
-        0: { cellWidth: "auto" },
-        ...(bloco.comEmpresa ? { [C.empresa]: { cellWidth: 26, fontSize: 8, textColor: [...CINZA] } } : {}),
-        [C.valor]: { cellWidth: 28, halign: "right", fontStyle: "bold" },
-        [C.banco]: { cellWidth: bloco.comEmpresa ? 64 : 72, fontSize: 8 },
-        [C.pago]: { cellWidth: 12, halign: "center" },
-      },
+      head: [cols.map((c) => TITULO[c])],
+      body: lista.map((l) => cols.map((c) => celula(c, l))),
+      foot: [cols.map((c) => (c === "nome" ? textoPdf(bloco.rotuloSubtotal) : c === "valor" ? reais(soma(lista)) : ""))],
+      columnStyles: Object.fromEntries(cols.map((c, i) => [i, ESTILO[c]])),
       didParseCell: (d: { section: string; row: { index: number }; column: { index: number }; cell: Celula }) => {
         if (d.section === "head" && d.column.index === C.valor) d.cell.styles.halign = "right";
         if (d.section === "head" && d.column.index === C.pago) d.cell.styles.halign = "center";

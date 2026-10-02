@@ -47,9 +47,11 @@ type SeletorProps = {
   ocultas: Set<string>;
   alternar: (coluna: string) => void;
   mostrarTodas: () => void;
+  /** Texto do botão (padrão "Colunas"): a folha de líquidos tem um seletor para a tela e outro para o PDF. */
+  rotulo?: string;
 };
 
-export function SeletorColunas({ colunas, ocultas, alternar, mostrarTodas }: SeletorProps) {
+export function SeletorColunas({ colunas, ocultas, alternar, mostrarTodas, rotulo = "Colunas" }: SeletorProps) {
   const [aberto, setAberto] = useState(false);
   const caixa = useRef<HTMLDivElement>(null);
   const escondidas = colunas.filter((c) => ocultas.has(c.chave)).length;
@@ -72,11 +74,11 @@ export function SeletorColunas({ colunas, ocultas, alternar, mostrarTodas }: Sel
       <button type="button" className="barra-lista-botao" aria-expanded={aberto} aria-haspopup="true"
         onClick={() => setAberto((v) => !v)} title="Mostrar ou ocultar colunas">
         <Columns3 size={14} aria-hidden />
-        Colunas
+        {rotulo}
         {escondidas > 0 && <span className="seletor-colunas-contagem">{escondidas} oculta{escondidas > 1 ? "s" : ""}</span>}
       </button>
       {aberto && (
-        <div className="seletor-colunas-painel" role="group" aria-label="Colunas visíveis">
+        <div className="seletor-colunas-painel" role="group" aria-label={`${rotulo} visíveis`}>
           {colunas.map((c) => (
             <label key={c.chave}>
               <input type="checkbox" checked={!ocultas.has(c.chave)} onChange={() => alternar(c.chave)} />
