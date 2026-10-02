@@ -5463,6 +5463,8 @@ export type EmployeeBirthday = {
   firstName: string;
   lastName: string;
   displayName?: string | null;
+  /** Nome como está na carteira (pode faltar em quem não tem ficha importada). */
+  nomeCompleto?: string | null;
   birthDate: string;
   sector: string | null;
   position: string | null;
