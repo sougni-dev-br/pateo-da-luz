@@ -394,6 +394,43 @@ const fmtIso = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5
 
 // Rescisões lançadas pela Folha (Contas a Pagar) na competência da saída de cada um.
 // Cancelada não conta: é como se não tivesse sido lançada.
+// Adiantamento do mês lançado em Contas a Pagar (títulos ADIANTAMENTO da competência do
+// salário), por pessoa: o previsto (soma dos títulos) e o que vale para descontar — o valor
+// pago de cada título baixado, o previsto dos ainda em aberto. emAberto: algum sem baixa.
+export type AdiantamentoLancado = { previsto: number; pago: number | null; emAberto: boolean };
+
+export function somarAdiantamentos(
+  itens: Array<{ employeeId: string; amount: unknown; paidAmount: unknown; paymentDate: Date | null }>,
+): Map<string, AdiantamentoLancado> {
+  const porPessoa = new Map<string, { previsto: number; valor: number; algumPago: boolean; emAberto: boolean }>();
+  for (const it of itens) {
+    const previsto = Number(it.amount) || 0;
+    const pago = it.paymentDate != null;
+    const valor = pago ? Number(it.paidAmount ?? it.amount) || 0 : previsto;
+    const a = porPessoa.get(it.employeeId) ?? { previsto: 0, valor: 0, algumPago: false, emAberto: false };
+    porPessoa.set(it.employeeId, {
+      previsto: a.previsto + previsto, valor: a.valor + valor, algumPago: a.algumPago || pago, emAberto: a.emAberto || !pago,
+    });
+  }
+  return new Map([...porPessoa].map(([id, a]) => [id, {
+    previsto: round2(a.previsto), pago: a.algumPago ? round2(a.valor) : null, emAberto: a.emAberto,
+  }]));
+}
+
+async function adiantamentosEmContasAPagar(employeeIds: string[], year: number, month: number) {
+  if (employeeIds.length === 0) return new Map<string, AdiantamentoLancado>();
+  const itens = await prisma.payrollItem.findMany({
+    // Só o título do sem registro: o adiantamento de quem era CLT no dia 20 (extrato da
+    // contabilidade) não sai do salário sem registro de quem mudou de vínculo no mês.
+    where: {
+      type: "ADIANTAMENTO", deletedAt: null, status: { not: "CANCELED" }, competenceYear: year, competenceMonth: month,
+      employeeId: { in: employeeIds }, details: { path: ["semRegistro"], equals: true },
+    },
+    select: { employeeId: true, amount: true, paidAmount: true, paymentDate: true },
+  });
+  return somarAdiantamentos(itens);
+}
+
 async function rescisoesEmContasAPagar(
   saidas: Array<{ employeeId: string; saida: Date } | null>,
 ): Promise<Map<string, RescisaoContasPagar & { valor: number }>> {
@@ -546,6 +583,9 @@ export async function computeTipCommission(
   const rescisoesLancadas = await rescisoesEmContasAPagar(rows.map((r) => r.employee.terminationDate
     && r.employee.terminationDate >= start && r.employee.terminationDate <= fimDaBusca(r)
     ? { employeeId: r.employeeId, saida: r.employee.terminationDate } : null));
+  // Adiantamento do sem registro: o lançado em Contas a Pagar no mês do salário (o pago).
+  const adiantamentosLancados = await adiantamentosEmContasAPagar(
+    rows.filter((r) => vigenteDe(r).modality === "NAO_CLT").map((r) => r.employeeId), year, month);
 
   // "Tudo na rescisão" sem a parte dos dias depois do ciclo gravada aqui (o período não
   // existia ou a pessoa não estava nele): a rescisão não pagou este período — a lista paga.
@@ -585,6 +625,7 @@ export async function computeTipCommission(
       // Faltas digitadas na apuração não dizem o dia: valem também para o salário.
       faltasSalario: r.faltas ?? escalaMes.get(r.employeeId)?.faltas ?? 0,
       recebeAdiantamento: vigenteDe(r).recebeAdiantamento,
+      adiantamentoLancado: vigenteDe(r).modality === "NAO_CLT" ? adiantamentosLancados.get(r.employeeId) : undefined,
       pagamentoQuinzenal: vigenteDe(r).pagamentoQuinzenal,
       rescisaoLancada: rescisaoCobreEstePeriodo(r),
       rescisaoTudoNaRescisao: rescisoesLancadas.get(r.employeeId)?.tudoNaRescisao === true,
@@ -782,6 +823,22 @@ export async function computeTipCommission(
   const semSalario = participants.filter((p, i) =>
     p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && entradas[i].salarioBase == null);
   if (semSalario.length) warnings.push(`Sem registro e sem salário no cadastro (a lista de pagamento sai só com a gorjeta): ${listar(semSalario)}.`);
+  // Adiantamento do sem registro: a lista desconta o título lançado (o pago). Sem baixa ou sem
+  // título o valor é estimado — quem fecha precisa ver. Fechado: vale o retrato, sem aviso.
+  if (!closed) {
+    const competencia = `${String(month).padStart(2, "0")}/${year}`;
+    const naLista = participants.map((p, i) => ({ p, e: entradas[i] }))
+      .filter(({ p }) => p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && !p.pagoNaRescisao);
+    // Quinzena prevalece: o título lançado para quem recebe por quinzena não é descontado.
+    const quinzenaComTitulo = naLista.filter(({ e }) => e.pagamentoQuinzenal && e.adiantamentoLancado).map(({ p }) => p);
+    if (quinzenaComTitulo.length) warnings.push(`Recebem por quinzena, mas têm adiantamento de ${competencia} lançado em Contas a Pagar — a lista não desconta esse título (desconta a 1ª quinzena). Cancele o título ou corrija o cadastro: ${listar(quinzenaComTitulo)}.`);
+    const emAberto = naLista.filter(({ p, e }) => !e.pagamentoQuinzenal && adiantamentosLancados.get(p.employeeId)?.emAberto).map(({ p }) => p);
+    if (emAberto.length) warnings.push(`Adiantamento de ${competencia} lançado mas ainda sem baixa em Contas a Pagar (a lista desconta o valor previsto; dê a baixa com o valor pago): ${listar(emAberto)}.`);
+    // Sem a permissão de Funcionários o valor vem null (oculto): o aviso sai do mesmo jeito, sem valor.
+    const semTitulo = naLista.filter(({ p, e }) => e.recebeAdiantamento && !e.pagamentoQuinzenal && !e.adiantamentoLancado
+      && (p.adiantamentoSalarial == null || p.adiantamentoSalarial > 0)).map(({ p }) => p);
+    if (semTitulo.length) warnings.push(`Recebem adiantamento, mas o de ${competencia} não está lançado em Contas a Pagar — a lista desconta os ${regras.adiantamentoPercent ?? 0}% do cadastro, não o que foi pago. Lance em Folha → "Lançar adiantamento dos sem registro" e dê a baixa com o valor pago: ${listar(semTitulo)}.`);
+  }
   // Texto de horas que a conta não entende vira zero: quem fecha precisa ver.
   const ilegivel = (t: string | null) => t != null && t.trim() !== "" && (parseHoras(t) == null || parseHoras(t)! < 0);
   const horasIlegiveis = noPeriodo.filter((p) => ilegivel(p.horaExtra) || ilegivel(p.adicionalNoturno));

@@ -345,7 +345,8 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
       const oque = kind === "VT_Q1" ? "VT da 1ª quinzena gerado"
         : kind === "VT_Q2" ? "VT da 2ª quinzena gerado"
         : kind === "VT" ? "Vale-transporte gerado"
-        : kind === "FOLHA" ? "Folha gerada" : "VT + folha gerados";
+        : kind === "FOLHA" ? "Folha gerada"
+        : kind === "ADIANTAMENTO_SR" ? "Adiantamento dos sem registro lançado" : "VT + folha gerados";
       const comAjuste = res.ajustados > 0 ? ` · ${res.ajustados} com valor ajustado` : "";
       // O que a geração pulou de propósito (depois da saída, já lançado) aparece junto.
       const pulados = (res.avisos ?? []).filter((a) => a.includes("não gerado"));
@@ -485,6 +486,9 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
   const novosVtQ1 = novosVtDe(1);
   const novosVtQ2 = novosVtDe(2);
   const novosFolha = itensDoEscopo.filter((i) => !i.exists && (i.type === "ADIANTAMENTO" || i.type === "SALARIO")).length;
+  // Adiantamento do dia 20 de quem é sem registro e recebe adiantamento: lançado sozinho (o
+  // salário deles sai pela lista da gorjeta, que desconta este título pelo valor pago).
+  const novosAdiantamentoSr = itensDoEscopo.filter((i) => !i.exists && i.type === "ADIANTAMENTO" && i.details?.semRegistro === true).length;
 
   // Conferência: VT já lançado da quinzena escolhida, ordenado por funcionário.
   //
@@ -819,9 +823,15 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                   </>
                 )}
                 {canEdit && previewScope === "FOLHA" && (
-                  <Button leadingIcon={<Banknote size={14} />} onClick={() => handleGenerate("FOLHA")} disabled={busy || novosFolha === 0} title="Fecha adiantamento + salário">
-                    Gerar folha ({novosFolha})
-                  </Button>
+                  <>
+                    <Button variant="secondary" leadingIcon={<Banknote size={14} />} onClick={() => handleGenerate("ADIANTAMENTO_SR")} disabled={busy || novosAdiantamentoSr === 0}
+                      title="Lança só o adiantamento do dia 20 dos sem registro que recebem adiantamento. No dia, dê a baixa no Contas a Pagar com o valor pago: a lista de pagamento desconta esse valor.">
+                      Lançar adiantamento dos sem registro ({novosAdiantamentoSr})
+                    </Button>
+                    <Button leadingIcon={<Banknote size={14} />} onClick={() => handleGenerate("FOLHA")} disabled={busy || novosFolha === 0} title="Fecha adiantamento + salário">
+                      Gerar folha ({novosFolha})
+                    </Button>
+                  </>
                 )}
               </div>
             </div>
