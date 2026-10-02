@@ -29,11 +29,13 @@ export function resumoDocumentos(f: FichaForm): string {
 // num formulário que já é longo.
 export function DocumentosRegistro({ value, onChange }: Props) {
   const [aberta, setAberta] = useState(false);
-  const campo = (c: keyof FichaForm, extra: { type?: string; maxLength?: number; placeholder?: string } = {}) => (
+  const campo = (c: keyof FichaForm, extra: { type?: string; maxLength?: number; placeholder?: string; "aria-label"?: string } = {}) => (
     <TextField {...extra} value={value[c]} onChange={(e) => onChange({ ...value, [c]: e.target.value })} />
   );
+  // O texto do botão já diz o estado ("Ver e editar" / "Recolher"): sem aria-expanded, que o
+  // leitor de tela anunciaria junto e soaria contraditório ("Recolher, recolhido").
   const alternar = (
-    <Button variant="secondary" size="sm" aria-expanded={aberta} onClick={() => setAberta(!aberta)}>
+    <Button variant="secondary" size="sm" onClick={() => setAberta(!aberta)}>
       {aberta ? "Recolher" : "Ver e editar"}
     </Button>
   );
@@ -59,16 +61,16 @@ export function DocumentosRegistro({ value, onChange }: Props) {
         <FormField label="Órgão emissor do RG">{campo("rgOrgaoEmissor", { placeholder: "SSP/SP" })}</FormField>
         <FormField label="Título de eleitor">{campo("tituloEleitor")}</FormField>
         <FormField label="Zona / seção">
-          <div className="documentos-registro__par">
-            {campo("tituloZona", { placeholder: "Zona" })}
-            {campo("tituloSecao", { placeholder: "Seção" })}
+          <div className="documentos-registro__par" role="group" aria-label="Zona e seção do título">
+            {campo("tituloZona", { placeholder: "Zona", "aria-label": "Zona do título" })}
+            {campo("tituloSecao", { placeholder: "Seção", "aria-label": "Seção do título" })}
           </div>
         </FormField>
         <FormField label="CTPS número">{campo("ctpsNumero")}</FormField>
         <FormField label="CTPS série / UF">
-          <div className="documentos-registro__par">
-            {campo("ctpsSerie", { placeholder: "Série" })}
-            {campo("ctpsUf", { placeholder: "UF", maxLength: 2 })}
+          <div className="documentos-registro__par" role="group" aria-label="Série e UF da CTPS">
+            {campo("ctpsSerie", { placeholder: "Série", "aria-label": "Série da CTPS" })}
+            {campo("ctpsUf", { placeholder: "UF", maxLength: 2, "aria-label": "UF da CTPS" })}
           </div>
         </FormField>
         <FormField label="CTPS emitida em">{campo("ctpsDataEmissao", { type: "date" })}</FormField>
@@ -77,15 +79,15 @@ export function DocumentosRegistro({ value, onChange }: Props) {
         <FormField label="Matrícula eSocial">{campo("matriculaEsocial")}</FormField>
         <FormField label="CBO" hint="código do cargo na carteira">{campo("cbo", { maxLength: 6 })}</FormField>
         <FormField label="Jornada do contrato">
-          <div className="documentos-registro__par">
-            {campo("jornadaInicio", { type: "time" })}
-            {campo("jornadaFim", { type: "time" })}
+          <div className="documentos-registro__par" role="group" aria-label="Jornada do contrato">
+            {campo("jornadaInicio", { type: "time", "aria-label": "Jornada: início" })}
+            {campo("jornadaFim", { type: "time", "aria-label": "Jornada: fim" })}
           </div>
         </FormField>
         <FormField label="Intervalo do contrato">
-          <div className="documentos-registro__par">
-            {campo("intervaloInicio", { type: "time" })}
-            {campo("intervaloFim", { type: "time" })}
+          <div className="documentos-registro__par" role="group" aria-label="Intervalo do contrato">
+            {campo("intervaloInicio", { type: "time", "aria-label": "Intervalo: início" })}
+            {campo("intervaloFim", { type: "time", "aria-label": "Intervalo: fim" })}
           </div>
         </FormField>
       </FormGrid>}

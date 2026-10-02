@@ -41,6 +41,14 @@ describe("preferências da impressão", () => {
     expect(lerPreferencias()).toMatchObject({ paleta: "ROSA", modelo: "LISTA", formaNome: "PRENOME_SOBRENOME" });
   });
 
+  test("valor salvo que não existe (ou JSON que não é objeto) volta ao padrão, sem quebrar", () => {
+    window.localStorage.setItem("pateo.aniversariantes.impressao.v3", JSON.stringify({ paleta: "ROXO", modelo: 3, mostrarLogo: "sim", mensagem: "Oi" }));
+    expect(lerPreferencias()).toMatchObject({ paleta: "DOURADO", modelo: "CARTAZ", mostrarLogo: true, mensagem: "Oi" });
+    window.localStorage.setItem("pateo.aniversariantes.impressao.v3", JSON.stringify("abc"));
+    expect(lerPreferencias()).toMatchObject({ paleta: "DOURADO", formaNome: "PRENOME_SOBRENOME" });
+    expect(lerPreferencias()).not.toHaveProperty("0");
+  });
+
   test("escolha feita depois da mudança (v3) é respeitada", () => {
     window.localStorage.setItem("pateo.aniversariantes.impressao.v3", JSON.stringify({ formaNome: "APELIDO" }));
     expect(lerPreferencias().formaNome).toBe("APELIDO");
