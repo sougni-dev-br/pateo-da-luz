@@ -77,6 +77,15 @@ describe("planoDaFicha", () => {
     expect(p.avisos.join("\n")).toMatch(/antes do nascimento/);
   });
 
+  test("nome completo sem acento (veio do extrato) ganha o acento da ficha, sem aviso", () => {
+    const p = planoDaFicha(cadastro({ nomeCompleto: "Joao de Tal" }), ficha({ nome: "JOÃO DE TAL" }));
+    expect(p.dados.nomeCompleto).toBe("João de Tal");
+    expect(p.avisos.join(" | ")).not.toMatch(/nomeCompleto/);
+    const outro = planoDaFicha(cadastro({ nomeCompleto: "Joao de Souza" }), ficha({ nome: "JOÃO DE TAL" }));
+    expect(outro.dados).not.toHaveProperty("nomeCompleto");
+    expect(outro.avisos.join(" | ")).toMatch(/nomeCompleto/);
+  });
+
   test("reimportar a mesma ficha: nada a preencher e nenhum aviso", () => {
     const primeira = planoDaFicha(cadastro(), ficha());
     const depois = cadastro({ ...(primeira.dados as Partial<CadastroAtual>) });
@@ -152,6 +161,11 @@ describe("resumoFerias", () => {
     const r = resumoFerias(d("2008-02-29"), null, [], d("2009-06-01"));
     expect(r[0]).toMatchObject({ aquisitivoInicio: "2008-02-29", aquisitivoFim: "2009-02-28", concessivoFim: "2010-02-28", status: "A_GOZAR" });
     expect(r[1]).toMatchObject({ aquisitivoInicio: "2009-03-01", status: "EM_AQUISICAO" });
+  });
+
+  test("concessivo que cai em ano bissexto: 12 meses cheios depois do aquisitivo", () => {
+    const r = resumoFerias(d("2026-03-01"), null, [], d("2027-06-01"));
+    expect(r[0]).toMatchObject({ aquisitivoFim: "2027-02-28", concessivoFim: "2028-02-29" });
   });
 
   test("concessivo de período que atravessa 29/02 termina na véspera do 2º aniversário", () => {
