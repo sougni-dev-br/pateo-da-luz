@@ -13,7 +13,7 @@ export const ORIGEM_FICHA = "FICHA_REGISTRO";
 
 // Campos novos do Employee que vêm só da ficha.
 export type CamposFicha = {
-  registroNumero: string | null; matriculaEsocial: string | null;
+  nomeCompleto: string | null; registroNumero: string | null; matriculaEsocial: string | null;
   nomeMae: string | null; nomePai: string | null;
   estadoCivil: string | null; nacionalidade: string | null; naturalidade: string | null;
   racaCor: string | null; escolaridade: string | null; possuiDeficiencia: boolean | null;
@@ -83,7 +83,7 @@ function cargoAtual(f: FichaRegistro): { cargo: string; cbo: string } {
 
 function camposDaFicha(f: FichaRegistro): CamposFicha {
   return {
-    registroNumero: f.registro, matriculaEsocial: f.matriculaEsocial,
+    nomeCompleto: f.nome, registroNumero: f.registro, matriculaEsocial: f.matriculaEsocial,
     nomeMae: f.mae, nomePai: f.pai,
     estadoCivil: f.estadoCivil, nacionalidade: f.nacionalidade, naturalidade: f.naturalidade,
     racaCor: f.racaCor, escolaridade: f.escolaridade, possuiDeficiencia: f.possuiDeficiencia,
