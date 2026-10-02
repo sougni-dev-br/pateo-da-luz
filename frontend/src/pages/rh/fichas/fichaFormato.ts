@@ -23,8 +23,12 @@ export const linkDaFicha = (codigo: string) => `${window.location.origin}/ficha/
 export function linkWhatsapp(nome: string, url: string, tipo: "ADMISSAO" | "ATUALIZACAO", celular?: string | null): string {
   const primeiro = nome.split(" ")[0];
   const texto = tipo === "ADMISSAO"
-    ? `Olá, ${primeiro}! Para o seu registro no Pateo da Luz, preencha a ficha cadastral e envie as fotos dos documentos por este link (vale por 7 dias):\n${url}`
-    : `Olá, ${primeiro}! Precisamos atualizar seus dados no Pateo da Luz. Confira e corrija o que mudou por este link (vale por 7 dias):\n${url}`;
+    ? `Olá, ${primeiro}. Aqui é o Departamento Pessoal do Pateo da Luz.\n\n`
+      + `Seja bem-vindo(a) à equipe! Para formalizarmos o seu registro, pedimos que preencha a ficha cadastral e envie as fotos dos documentos pelo link abaixo:\n${url}\n\n`
+      + `O preenchimento leva cerca de 10 minutos e o link é válido por 7 dias. Seus dados são tratados com sigilo (LGPD).\n\nObrigado!`
+    : `Olá, ${primeiro}. Aqui é o Departamento Pessoal do Pateo da Luz.\n\n`
+      + `Estamos atualizando o cadastro da equipe. Pedimos que confira os seus dados e corrija o que tiver mudado pelo link abaixo:\n${url}\n\n`
+      + `O link é válido por 7 dias. Seus dados são tratados com sigilo (LGPD).\n\nObrigado!`;
   const numero = (celular ?? "").replace(/\D/g, "");
   const destino = numero.length >= 10 ? (numero.startsWith("55") ? numero : `55${numero}`) : "";
   return `https://wa.me/${destino}?text=${encodeURIComponent(texto)}`;

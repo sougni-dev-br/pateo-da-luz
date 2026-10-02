@@ -4,6 +4,7 @@
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, Lock, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { abrirFicha, ErroFicha, finalizar, salvarDados, verificar, type Dados, type Estado } from "./api";
+import { Apresentacao } from "./Apresentacao";
 import { CampoFicha } from "./CampoFicha";
 import { EtapaFamilia, filhosParaSalvar, filhosParaTela, type FilhoTela } from "./EtapaFamilia";
 import { EtapaFotos } from "./EtapaFotos";
@@ -11,6 +12,13 @@ import { EtapaRevisao } from "./EtapaRevisao";
 import { ETAPAS, corpoDaEtapa, etapaInicial, valoresDe, type Valores } from "./etapas";
 import { buscarCep, dataParaIso, mascaraCpf, mascaraData, soDigitos } from "./formato";
 import "./fichaPublica.css";
+
+// A carta de apresentação aparece uma vez por aba: recarregar no meio do preenchimento não volta
+// para ela.
+const chaveApresentada = (codigo: string) => `ficha-apresentada:${codigo.slice(0, 12)}`;
+function jaApresentada(codigo: string): boolean {
+  try { return sessionStorage.getItem(chaveApresentada(codigo)) === "1"; } catch { return false; }
+}
 
 function codigoDaUrl(): string {
   const parte = window.location.pathname.split("/")[2] ?? "";
@@ -54,8 +62,8 @@ function Verificacao({ codigo, metodo, onLiberado }: { codigo: string; metodo: "
     <Moldura>
       <form className="fp-cartao fp-verificacao" onSubmit={confirmar}>
         <Lock size={28} className="fp-verificacao-icone" aria-hidden="true" />
-        <h1>Olá!</h1>
-        <p>Para proteger seus dados, confirme {metodo === "NASCIMENTO" ? "sua data de nascimento" : "seu CPF"}.</p>
+        <h1>Confirme sua identidade</h1>
+        <p>Para proteger as suas informações, informe {metodo === "NASCIMENTO" ? "a sua data de nascimento" : "o seu CPF"} antes de continuar.</p>
         <label className="fp-rotulo" htmlFor="fp-verifica">{metodo === "NASCIMENTO" ? "Data de nascimento" : "CPF"}</label>
         <input id="fp-verifica" className="fp-entrada" inputMode="numeric" autoFocus placeholder={metodo === "NASCIMENTO" ? "DD/MM/AAAA" : "000.000.000-00"}
           value={valor} onChange={(e) => setValor(metodo === "NASCIMENTO" ? mascaraData(e.target.value) : mascaraCpf(e.target.value))} aria-invalid={Boolean(erro)} />
@@ -79,6 +87,7 @@ export function FichaPublica() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [consentiu, setConsentiu] = useState(false);
+  const [apresentada, setApresentada] = useState(() => jaApresentada(codigo));
   const iniciado = useRef(false);
   const topo = useRef<HTMLHeadingElement>(null);
 
@@ -189,16 +198,34 @@ export function FichaPublica() {
     }
   }
 
-  if (erroFatal) return <Mensagem titulo="Não foi possível abrir" texto={erroFatal} />;
+  function iniciar() {
+    try { sessionStorage.setItem(chaveApresentada(codigo), "1"); } catch { /* aba anônima: mostra de novo ao recarregar */ }
+    setApresentada(true);
+    // O botão some com a carta: o foco vai para o título da etapa (leitor de tela e teclado).
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0 });
+      topo.current?.focus({ preventScroll: true });
+    });
+  }
+
+  if (erroFatal) return <Mensagem titulo="Não foi possível abrir a ficha" texto={erroFatal} />;
   if (!estado) return <Moldura><div className="fp-mensagem"><Loader2 size={28} className="fp-girando" aria-label="Carregando" /></div></Moldura>;
   if (estado.status === "FINALIZADA" || estado.status === "CONCLUIDA") {
-    return <Mensagem icone={<CheckCircle2 size={44} className="fp-ok" aria-hidden="true" />} titulo={estado.primeiroNome ? `Recebido, ${estado.primeiroNome}!` : "Ficha recebida!"}
-      texto="Sua ficha foi enviada ao RH do Pateo da Luz. Se faltar alguma coisa, o RH fala com você. Pode fechar esta página." />;
+    return <Mensagem icone={<CheckCircle2 size={44} className="fp-ok" aria-hidden="true" />} titulo="Ficha enviada com sucesso"
+      texto={`${estado.primeiroNome ? `Obrigado, ${estado.primeiroNome}. ` : "Obrigado. "}Suas informações foram recebidas pelo Departamento Pessoal do Pateo da Luz. Se for necessário algum ajuste, entraremos em contato. Você já pode fechar esta página.`} />;
+  }
+  if (!apresentada) {
+    return (
+      <Moldura>
+        <Apresentacao tipo={estado.tipo} primeiroNome={estado.primeiroNome} expiraEm={estado.expiraEm}
+          jaComecou={estado.status === "PREENCHENDO"} onIniciar={iniciar} />
+      </Moldura>
+    );
   }
   if (estado.verificacao && !estado.dados) {
     return <Verificacao codigo={codigo} metodo={estado.verificacao} onLiberado={receber} />;
   }
-  if (!estado.dados || !estado.opcoes) return <Mensagem titulo="Não foi possível abrir" texto="Recarregue a página." />;
+  if (!estado.dados || !estado.opcoes) return <Mensagem titulo="Não foi possível abrir a ficha" texto="Recarregue a página. Se o problema continuar, procure o Departamento Pessoal." />;
 
   const atual = ETAPAS[etapa];
   const ultima = etapa === ETAPAS.length - 1;
@@ -206,18 +233,10 @@ export function FichaPublica() {
 
   return (
     <Moldura>
-      {etapa === 0 && (
-        <div className="fp-boasvindas">
-          <h1>Olá{estado.primeiroNome ? `, ${estado.primeiroNome}` : ""}!</h1>
-          <p>
-            {estado.tipo === "ADMISSAO"
-              ? "Preencha seus dados para o registro no Pateo da Luz. Leva uns 10 minutos — tenha seus documentos por perto."
-              : "Confira seus dados e corrija o que estiver diferente. O que já temos aparece preenchido."}
-            {" "}Tudo é salvo a cada etapa: dá para parar e voltar depois pelo mesmo link.
-          </p>
-        </div>
+      {etapa === 0 && estado.tipo === "ATUALIZACAO" && (
+        <p className="fp-nota">Os dados que já temos aparecem preenchidos. Confira e corrija o que tiver mudado.</p>
       )}
-      {estado.motivoDevolucao && <div className="fp-aviso fp-aviso--rh" role="status"><strong>O RH pediu para corrigir:</strong> {estado.motivoDevolucao}</div>}
+      {estado.motivoDevolucao && <div className="fp-aviso fp-aviso--rh" role="status"><strong>O Departamento Pessoal pediu um ajuste:</strong> {estado.motivoDevolucao}</div>}
 
       <nav className="fp-progresso" aria-label="Etapas">
         <div className="fp-progresso-barra" aria-hidden="true"><span style={{ width: `${progresso}%` }} /></div>
@@ -234,7 +253,7 @@ export function FichaPublica() {
 
       <section className="fp-cartao" aria-labelledby="fp-titulo-etapa">
         <p className="fp-contador">Etapa {etapa + 1} de {ETAPAS.length}</p>
-        <h2 id="fp-titulo-etapa" ref={topo} tabIndex={-1} className="fp-titulo">{atual.titulo}</h2>
+        <h1 id="fp-titulo-etapa" ref={topo} tabIndex={-1} className="fp-titulo">{atual.titulo}</h1>
         <p className="fp-subtitulo">{atual.resumo}</p>
 
         {atual.id === "familia" ? (
@@ -250,10 +269,11 @@ export function FichaPublica() {
           <div className="fp-grade">
             {atual.campos
               .filter((c) => c.nome !== "vtTrajeto" || valores.usaVt === true)
-              .map((c) => (
+              .flatMap((c) => [
+                ...(c.grupo ? [<h2 key={`g-${c.grupo}`} className="fp-grupo">{c.grupo}</h2>] : []),
                 <CampoFicha key={c.nome} campo={{ ...c, obrigatorio: c.obrigatorio || (c.nome === "vtTrajeto" && estado.tipo === "ADMISSAO") }} valor={valores[c.nome] ?? null}
-                  erro={erros[c.nome]} opcoes={estado.opcoes!} onChange={(v) => alterar(c.nome, v)} onBlur={c.nome === "cep" ? aoSairDoCep : undefined} />
-              ))}
+                  erro={erros[c.nome]} opcoes={estado.opcoes!} onChange={(v) => alterar(c.nome, v)} onBlur={c.nome === "cep" ? aoSairDoCep : undefined} />,
+              ])}
           </div>
         )}
       </section>
