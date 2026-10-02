@@ -114,7 +114,7 @@ export function splitName(full: string): { firstName: string; lastName: string; 
   return {
     firstName: nomeProprio(firstName) ?? firstName,
     lastName: nomeProprio(lastName, { continuacao: true }) ?? lastName,
-    nomeCompleto: nomeProprio(full),
+    nomeCompleto: nomeProprio(full)?.slice(0, 120) ?? null,
   };
 }
 

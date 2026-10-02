@@ -143,11 +143,20 @@ const ROTULO_DATA_FICHA: Record<(typeof FICHA_DATA)[number], string> = {
   rgDataEmissao: "Data de emissão do RG", ctpsDataEmissao: "Data de emissão da CTPS", fgtsDataOpcao: "Data de opção pelo FGTS",
 };
 
+// "AAAA-MM-DD" (com ou sem hora) que existe no calendário: o Date aceitaria "2021-02-31" como
+// 03/03 e "20210-01-01" como ano 20210.
+function dataDoCalendario(v: unknown): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(String(v));
+  if (!m) return false;
+  const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00.000Z`);
+  return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === `${m[1]}-${m[2]}-${m[3]}`;
+}
+
 // Valor da ficha que não dá para entender é recusado — antes virava null e APAGAVA o gravado.
 // Vazio ("" ou null) continua valendo como "limpar o campo".
 export function conferirCamposFicha(b: Record<string, unknown>): string | null {
   for (const c of FICHA_DATA) {
-    if (c in b && b[c] != null && b[c] !== "" && !dateOrNull(b[c])) return `${ROTULO_DATA_FICHA[c]} inválida.`;
+    if (c in b && b[c] != null && b[c] !== "" && !dataDoCalendario(b[c])) return `${ROTULO_DATA_FICHA[c]} inválida.`;
   }
   if ("possuiDeficiencia" in b && b.possuiDeficiencia != null && typeof b.possuiDeficiencia !== "boolean") {
     return "Informe se é pessoa com deficiência (sim ou não).";
