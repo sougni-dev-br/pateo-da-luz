@@ -1,5 +1,5 @@
-// Padrão de escrita do cadastro de pessoas: nome próprio ("Antonio Sales Viana Sobrinho",
-// "Rua Paim"), venha em MAIÚSCULAS, minúsculas ou misturado. Mesma regra do PDF do envio à
+// Padrão de escrita do cadastro de pessoas: nome próprio ("Fulano de Tal Sobrinho",
+// "Rua das Flores"), venha em MAIÚSCULAS, minúsculas ou misturado. Mesma regra do PDF do envio à
 // contabilidade (frontend: nomeNoEnvio). Não acentua palavra: "SAO" vira "Sao" — acento em
 // nome de pessoa só à mão; cidade conhecida ganha o acento pela lista abaixo.
 
@@ -26,7 +26,7 @@ export function nomeProprio(texto: string | null | undefined, opcoes: { continua
 }
 
 // Devolve o acento que o nome completo tem e o texto perdeu, palavra por palavra:
-// "Mendes Goncalves" + "Juliana Mendes Gonçalves" → "Mendes Gonçalves". Só troca palavra igual
+// "Souza Goncalves" + "Fulana Souza Gonçalves" → "Souza Gonçalves". Só troca palavra igual
 // sem contar acento e caixa; o resto fica como está.
 export function acentosDoNomeCompleto(texto: string | null, nomeCompleto: string | null): string | null {
   if (!texto || !nomeCompleto) return texto;

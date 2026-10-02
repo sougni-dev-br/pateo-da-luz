@@ -74,7 +74,7 @@ const padraoEndereco = (e: EnderecoQuebrado): EnderecoQuebrado => ({
   neighborhood: nomeProprio(e.neighborhood), city: cidadeProprio(e.city), state: e.state?.toUpperCase() ?? null,
 });
 
-// "Rua PAIM, 235, AP 1307, BELA VISTA, SAO PAULO, SP" → logradouro, número, complemento, bairro,
+// "Rua DAS FLORES, 10, AP 5, JARDIM TESTE, SAO PAULO, SP" → logradouro, número, complemento, bairro,
 // cidade, UF. Sem complemento são 5 partes. Formato inesperado fica inteiro no logradouro.
 export function quebrarEndereco(endereco: string): EnderecoQuebrado {
   const p = endereco.split(",").map((s) => s.trim()).filter(Boolean);
