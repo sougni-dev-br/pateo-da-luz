@@ -92,7 +92,8 @@ export async function gerarPdfFolhaLiquidos(
     ["CLT", reais(soma(clt)), 1.1],
     ["Sem registro", reais(soma(semRegistro)), 1.1],
   ]);
-  if (semDados > 0) {
+  // Só avisa se a coluna dos dados bancários vai no PDF: sem ela, o aviso não teria a que se referir.
+  if (semDados > 0 && !ocultas.has("banco")) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8.5);
     doc.setTextColor(...AMBAR);
@@ -106,8 +107,12 @@ export async function gerarPdfFolhaLiquidos(
     const cols = colunasDoBloco(bloco.comEmpresa, ocultas);
     const C = Object.fromEntries(cols.map((c, i) => [c, i])) as Partial<Record<Coluna, number>>;
     const comEmpresa = C.empresa != null;
-    // Largura do aviso embaixo do nome: a coluna do nome é mais estreita quando há a da empresa.
-    const larguraAviso = comEmpresa ? 44 : 70;
+    const LARGURA_BANCO = comEmpresa ? 54 : 72;
+    // A coluna do nome fica com o que sobra; o aviso embaixo dele usa a largura útil dela (menos o respiro).
+    const larguraNome = (W - 2 * M) - (comEmpresa ? 34 : 0) - 28 - (C.banco != null ? LARGURA_BANCO : 0) - (C.pago != null ? 12 : 0);
+    const larguraUtil = larguraNome - 5;
+    const linhasDoNome = (l: TipLinhaFolha) => { doc.setFontSize(9); return doc.splitTextToSize(celula("nome", l), larguraUtil).length; };
+    const linhasDoAviso = (l: TipLinhaFolha) => { doc.setFontSize(7.2); return doc.splitTextToSize(textoPdf(l.aviso ?? ""), larguraUtil); };
     const celula = (c: Coluna, l: TipLinhaFolha) => {
       if (c === "nome") return nomeNoEnvio(l.nome) + (l.origem === "SALARIO_COMBINADO" ? " *" : "");
       if (c === "empresa") return textoPdf(empresaCurta(l.grupo));
@@ -120,7 +125,7 @@ export async function gerarPdfFolhaLiquidos(
       // Largo o bastante para "Pateo Frei Caneca" numa linha só.
       empresa: { cellWidth: 34, fontSize: 8, textColor: [...CINZA] },
       valor: { cellWidth: 28, halign: "right", fontStyle: "bold" },
-      banco: { cellWidth: comEmpresa ? 54 : 72, fontSize: 8 },
+      banco: { cellWidth: LARGURA_BANCO, fontSize: 8 },
       pago: { cellWidth: 12, halign: "center" },
     };
     if (y > H - 60) { doc.addPage(); y = 20; }
@@ -157,9 +162,8 @@ export async function gerarPdfFolhaLiquidos(
         // Aviso da linha (pago a menos, acerto ajustado, vínculo a confirmar) vai embaixo do nome, em cinza.
         if (d.column.index === 0 && l.aviso) {
           d.cell.styles.valign = "top";
-          // As linhas do aviso contam na fonte em que ele é desenhado (7,2), não na da tabela.
-          doc.setFontSize(7.2);
-          d.cell.styles.minCellHeight = 7.4 + doc.splitTextToSize(textoPdf(l.aviso), larguraAviso).length * 3;
+          // Altura = nome (9 pt, pode quebrar) + aviso (7,2 pt), cada um contado na sua fonte.
+          d.cell.styles.minCellHeight = 3.6 + linhasDoNome(l) * 3.9 + linhasDoAviso(l).length * 3 + 1.2;
         }
       },
       didDrawCell: (d: { section: string; row: { index: number }; column: { index: number }; cell: CelulaDesenho }) => {
@@ -175,10 +179,12 @@ export async function gerarPdfFolhaLiquidos(
         doc.line(d.cell.x, d.cell.y + d.cell.height, d.cell.x + d.cell.width, d.cell.y + d.cell.height);
         const l = lista[d.row.index];
         if (d.column.index === 0 && l.aviso) {
+          const yAviso = d.cell.y + 1.8 + linhasDoNome(l) * 3.9 + 2.6;
+          const partes = linhasDoAviso(l);
           doc.setFont("helvetica", "normal");
           doc.setFontSize(7.2);
           doc.setTextColor(...AMBAR);
-          doc.text(doc.splitTextToSize(textoPdf(l.aviso), larguraAviso), d.cell.x + 2.5, d.cell.y + 8.2);
+          doc.text(partes, d.cell.x + 2.5, yAviso);
         }
         // Caixinha para marcar à caneta o que já foi pago.
         if (d.column.index === C.pago) {

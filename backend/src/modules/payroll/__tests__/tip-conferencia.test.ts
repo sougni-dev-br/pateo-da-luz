@@ -205,3 +205,19 @@ describe("gorjeta paga na rescisão que aparece no extrato", () => {
     expect(r[0].status).toBe("SO_NO_EXTRATO");
   });
 });
+
+describe("rescisão no extrato: combinado e pessoa em dois extratos", () => {
+  const apuracao = [pessoa({ employeeId: "viviane", nome: "Viviane", gorjetaLiquida: 370.93, pagoNaRescisao: true })];
+
+  test("com salário combinado não vira divergência", () => {
+    const r = conferir(apuracao, [extrato([linha({ employeeId: "viviane", nome: "VIVIANE", gorjeta: 999 })])], new Map(), new Map([["viviane", 3000]]));
+    expect(r[0]).toMatchObject({ status: "SALARIO_COMBINADO", naRescisao: true });
+  });
+
+  test("a mesma pessoa em dois extratos sai uma vez só", () => {
+    const dois = [extrato([linha({ employeeId: "viviane", nome: "VIVIANE", gorjeta: 370.93 })]), extrato([linha({ employeeId: "viviane", nome: "VIVIANE", gorjeta: 0 })])];
+    const r = conferir(apuracao, dois, new Map());
+    expect(r.filter((l) => l.chave === "viviane")).toHaveLength(1);
+    expect(r[0]).toMatchObject({ status: "OK", apuracao: 370.93, extrato: 370.93 });
+  });
+});
