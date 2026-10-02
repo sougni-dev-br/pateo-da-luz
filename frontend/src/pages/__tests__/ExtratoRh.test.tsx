@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { ExtratoPreview, ImportExtratoResult } from "../../api/client";
 
@@ -68,5 +68,30 @@ describe("Retorno do RH depois de importar", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Lançar salários no Contas a Pagar" }, { timeout: 5000 }));
     await waitFor(() => expect(screen.queryByRole("button", { name: /Lançar salários/ })).toBeNull());
     expect(screen.getByText(/Este arquivo já estava guardado/)).toBeInTheDocument();
+  });
+});
+
+describe("Retorno do RH com dois PDFs", () => {
+  test("lê os dois de uma vez e cada empresa tem a sua prévia e o seu botão", async () => {
+    vi.mocked(previewExtratoRh).mockImplementation(async (b64: string) => ({
+      ...previa(0), empresa: b64.includes(btoa("A")) ? "EMPRESA FICTICIA A" : "EMPRESA FICTICIA B",
+    }));
+    vi.mocked(importExtratoRh).mockResolvedValue(RESULTADO);
+    const r = render(
+      <SessionContext.Provider value={SESSAO}><HideValuesProvider><ExtratoRh /></HideValuesProvider></SessionContext.Provider>,
+    );
+    const input = r.container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.multiple).toBe(true);
+    fireEvent.change(input, { target: { files: [
+      new File(["A"], "a.pdf", { type: "application/pdf" }),
+      new File(["B"], "b.pdf", { type: "application/pdf" }),
+    ] } });
+    const a = await screen.findByRole("region", { name: "EMPRESA FICTICIA A" }, { timeout: 5000 });
+    const b = await screen.findByRole("region", { name: "EMPRESA FICTICIA B" }, { timeout: 5000 });
+    expect(previewExtratoRh).toHaveBeenCalledTimes(2);
+    fireEvent.click(within(b).getByRole("button", { name: "Lançar salários no Contas a Pagar" }));
+    await waitFor(() => expect(importExtratoRh).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(importExtratoRh).mock.calls[0][1]).toBe("b.pdf");
+    expect(within(a).getByRole("button", { name: "Lançar salários no Contas a Pagar" })).toBeInTheDocument();
   });
 });
