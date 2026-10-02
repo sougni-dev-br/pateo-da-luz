@@ -91,11 +91,14 @@ describe("Contas a Pagar — respostas fora de ordem", () => {
     const velha = adiado<Payable[]>();
     api.getPayables.mockReset();
     api.getPayables
+      // Primeira carga: período (lista e resumo) + vencidos de antes do período (lista e resumo).
+      .mockImplementationOnce(() => velha.promessa)
+      .mockImplementationOnce(() => velha.promessa)
       .mockImplementationOnce(() => velha.promessa)
       .mockImplementationOnce(() => velha.promessa)
       .mockResolvedValue([BETO]);
     abrir();
-    await waitFor(() => expect(api.getPayables).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.getPayables).toHaveBeenCalledTimes(4));
     fireEvent.click(within(screen.getByRole("group", { name: "Atalhos" })).getByRole("button", { name: "Vencidos" }));
     expect(await screen.findByRole("button", { name: "Baixar Beto Distribuidora" })).toBeInTheDocument();
     await act(async () => { velha.resolver([ANA]); });
