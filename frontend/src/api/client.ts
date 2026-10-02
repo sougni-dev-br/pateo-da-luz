@@ -6965,6 +6965,8 @@ export type TipLinhaFolha = {
 export type TipFolhaLiquidos = {
   code: string; label: string; linhas: TipLinhaFolha[]; total: number; extratos: string[]; etapas: TipEtapasEstado;
   salariosCombinados?: Array<{ employeeId: string; nome: string; apelido?: string | null; valor: number; motivo: string | null }>;
+  /** Salário da competência já baixado no Contas a Pagar: fora da lista e do total. */
+  jaPagos?: Array<{ employeeId: string; nome: string; grupo: string; valor: number; pagoEm: string }>;
 };
 
 const baseTip = (year: number, month: number) => `/payroll/tip/periods/${year}/${month}`;
