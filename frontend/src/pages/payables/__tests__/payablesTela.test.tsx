@@ -239,10 +239,10 @@ describe("Contas a Pagar — vencidos de antes do período", () => {
   });
   const cartaoVencido = () => within(screen.getByRole("group", { name: /Resumo financeiro/ })).getByRole("button", { name: /^Vencido/ });
 
-  test("o cartão Vencido não muda ao clicar em Em aberto ou Pago no mês", async () => {
+  test("o cartão Vencido não muda ao clicar em A vencer ou Pago no mês", async () => {
     abrir();
     await waitFor(() => expect(cartaoVencido()).toHaveTextContent("600,00"));
-    fireEvent.click(within(screen.getByRole("group", { name: /Resumo financeiro/ })).getByRole("button", { name: /^Em aberto/ }));
+    fireEvent.click(within(screen.getByRole("group", { name: /Resumo financeiro/ })).getByRole("button", { name: /^A vencer/ }));
     await waitFor(() => expect(screen.getByText(/Mês atual/)).toBeInTheDocument());
     await waitFor(() => expect(cartaoVencido()).toHaveTextContent("600,00"));
     fireEvent.click(within(screen.getByRole("group", { name: /Resumo financeiro/ })).getByRole("button", { name: /^Pago no mês/ }));

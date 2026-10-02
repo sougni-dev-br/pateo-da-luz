@@ -7,7 +7,26 @@ export type SelectOption = {
   value: string;
   label: string;
   disabled?: boolean;
+  /** Opções seguidas com o mesmo grupo saem dentro de um <optgroup> com esse título. */
+  group?: string;
 };
+
+// Junta as opções seguidas do mesmo grupo; as sem grupo ficam soltas, na ordem.
+function emBlocos(options: SelectOption[]): Array<{ group?: string; options: SelectOption[] }> {
+  const blocos: Array<{ group?: string; options: SelectOption[] }> = [];
+  for (const opt of options) {
+    const ultimo = blocos[blocos.length - 1];
+    if (ultimo && opt.group && ultimo.group === opt.group) ultimo.options.push(opt);
+    else blocos.push({ group: opt.group, options: [opt] });
+  }
+  return blocos;
+}
+
+const opcao = (opt: SelectOption) => (
+  <option key={opt.value} value={opt.value} disabled={opt.disabled}>
+    {opt.label}
+  </option>
+);
 
 export type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
   label?: string;
@@ -59,11 +78,9 @@ export function Select({
           {...rest}
         >
           {placeholder && <option value="">{placeholder}</option>}
-          {options.map((opt) => (
-            <option key={opt.value} value={opt.value} disabled={opt.disabled}>
-              {opt.label}
-            </option>
-          ))}
+          {emBlocos(options).map((b, i) => (b.group
+            ? <optgroup key={`g-${b.group}-${i}`} label={b.group}>{b.options.map(opcao)}</optgroup>
+            : b.options.map(opcao)))}
         </select>
         <span className="ds-select-caret" aria-hidden>
           <ChevronDown size={14} strokeWidth={2} />
