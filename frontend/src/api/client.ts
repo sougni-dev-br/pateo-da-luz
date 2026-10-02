@@ -6414,7 +6414,8 @@ export function previewPayroll(year: number, month: number) {
 
 // VT e folha (adiantamento + salário) fecham em momentos diferentes — dá para
 // gerar cada um isoladamente.
-export type PayrollKind = "ALL" | "VT" | "VT_Q1" | "VT_Q2" | "FOLHA";
+/** ADIANTAMENTO_SR: só o adiantamento do dia 20 de quem é sem registro e recebe adiantamento. */
+export type PayrollKind = "ALL" | "VT" | "VT_Q1" | "VT_Q2" | "FOLHA" | "ADIANTAMENTO_SR";
 
 // Valor ajustado à mão na prévia, quando o cálculo não bate com a realidade.
 export type PayrollOverride = { employeeId: string; type: PayrollItemType; periodLabel: string; amount: number };
