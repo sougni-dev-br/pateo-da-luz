@@ -27,7 +27,14 @@ export type PessoaApurada = {
   comHoraExtra?: boolean;      // sem registro: o total leva hora extra ou adicional noturno
   cnpjEmpresa: string | null;  // da empresa do cadastro
   pix: string | null;
+  pixTipo?: string | null;
+  contaBancaria?: string | null; // textoContaBancaria do cadastro
 };
+
+// PIX e conta da pessoa para a folha de líquidos (sem a pessoa no cadastro: nada).
+const pagamentoDe = (p: PessoaApurada | undefined) => ({
+  pix: p?.pix ?? null, pixTipo: p?.pixTipo ?? null, contaBancaria: p?.contaBancaria ?? null,
+});
 
 export type LinhaExtrato = {
   employeeId: string | null;
@@ -161,10 +168,45 @@ export type LinhaFolha = {
   valor: number;
   composicao: string;
   pix: string | null;
+  pixTipo: string | null;
+  contaBancaria: string | null;  // "Banco · Ag. 0001 · C/C 123-4" (null sem banco nem conta)
   aviso: string | null;
 };
 
 const reais = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+export type DadosBancarios = {
+  bankName: string | null; bankAgency: string | null; bankAccount: string | null; bankAccountDigit: string | null; bankAccountType: string;
+};
+const TIPO_CONTA: Record<string, string> = { CONTA_CORRENTE: "C/C", POUPANCA: "Poupança" };
+
+/** Conta do cadastro numa linha só, para quem paga no banco. Sem banco e sem conta: null. */
+export function textoContaBancaria(d: DadosBancarios): string | null {
+  const limpo = (s: string | null) => (s ?? "").trim();
+  const banco = limpo(d.bankName);
+  const conta = limpo(d.bankAccount);
+  if (!banco && !conta) return null;
+  const digito = limpo(d.bankAccountDigit);
+  const agencia = limpo(d.bankAgency);
+  return [
+    banco || null,
+    agencia ? `Ag. ${agencia}` : null,
+    conta ? `${TIPO_CONTA[d.bankAccountType] ?? "Conta"} ${conta}${digito ? `-${digito}` : ""}` : null,
+  ].filter(Boolean).join(" · ");
+}
+
+/**
+ * Sem registro com o acerto da lista ajustado à mão no Contas a Pagar (details.editadoAMao):
+ * a folha paga o valor do acerto, não o recalculado pela apuração.
+ */
+export function aplicarAcertosAjustados(linhas: LinhaFolha[], ajustados: Map<string, number>): LinhaFolha[] {
+  return linhas.map((l) => {
+    const valor = l.origem === "SEM_REGISTRO" && l.employeeId ? ajustados.get(l.employeeId) : undefined;
+    if (valor == null) return l;
+    const msg = `Acerto ajustado à mão no Contas a Pagar (a apuração dava R$ ${reais(l.valor)}).`;
+    return { ...l, valor: round2(valor), composicao: "acerto ajustado à mão no Contas a Pagar", aviso: l.aviso ? `${l.aviso} ${msg}` : msg };
+  });
+}
 
 // Sem registro: o adiantamento salarial e a 1ª quinzena já saíram no dia deles, então
 // aparecem na conta quando houve; a hora extra e o noturno, quando há horas no período.
@@ -194,12 +236,12 @@ export function montarFolhaLiquidos(apuracao: PessoaApurada[], extratos: Extrato
         const valor = valorIntegralCombinado({ combinado, adiantamento: adiant, gorjeta });
         linhas.push({ employeeId: l.employeeId, nome: p?.nome ?? l.nome, grupo: e.empresa, origem: "SALARIO_COMBINADO", valor,
           composicao: `(${reais(combinado)} − adiant. ${reais(adiant)}) + gorjeta ${reais(gorjeta)}`,
-          pix: p?.pix ?? null, aviso: l.adiantamento == null ? "Adiantamento não lido no extrato: considerado zero." : null });
+          ...pagamentoDe(p), aviso: l.adiantamento == null ? "Adiantamento não lido no extrato: considerado zero." : null });
         continue;
       }
       if (l.liquido <= 0) continue;
       linhas.push({ employeeId: l.employeeId, nome: p?.nome ?? l.nome, grupo: e.empresa, origem: "EXTRATO", valor: round2(l.liquido),
-        composicao: "líquido do extrato", pix: p?.pix ?? null,
+        composicao: "líquido do extrato", ...pagamentoDe(p),
         aviso: !seguro ? "Reconhecido pelo nome: confirme a pessoa na conferência antes de pagar."
           : l.employeeId ? null : "Não achado no cadastro: confira o PIX." });
     }
@@ -207,7 +249,7 @@ export function montarFolhaLiquidos(apuracao: PessoaApurada[], extratos: Extrato
   for (const p of apuracao) {
     if (!p.semRegistro || !p.noPeriodo || p.totalAPagar <= 0) continue;
     linhas.push({ employeeId: p.employeeId, nome: p.nome, grupo: "Sem registro", origem: "SEM_REGISTRO", valor: round2(p.totalAPagar),
-      composicao: composicaoSemRegistro(p), pix: p.pix, aviso: null });
+      composicao: composicaoSemRegistro(p), ...pagamentoDe(p), aviso: null });
   }
   return linhas;
 }

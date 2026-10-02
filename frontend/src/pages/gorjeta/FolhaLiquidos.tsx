@@ -7,11 +7,12 @@ import { useContext, useEffect, useState } from "react";
 import {
   type SincronizacaoSalariosCombinados, type TipFolhaLiquidos, type TipLinhaFolha, getTipFolhaLiquidos, sincronizarSalariosCombinados,
 } from "../../api/client";
-import { Button, StatusBadge, Table } from "../../design-system";
+import { Button, Select, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
-import { exportarFolhaLiquidos } from "./exportarPdf";
+import { type ModoImpressaoFolha, gerarPdfFolhaLiquidos } from "./pdfFolhaLiquidos";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { fmtDate, money, mutedStyle, panelStyle } from "./gorjetaUtils";
+import { SEM_DADOS_BANCARIOS, linhasDadosBancarios } from "./dadosBancarios";
 import { ApelidosContext, NomePessoa, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 
@@ -31,12 +32,24 @@ const ORIGEM: Record<TipLinhaFolha["origem"], string> = {
 };
 
 const EXT: Extratores<TipLinhaFolha> = {
-  nome: (l) => l.nome, origem: (l) => ORIGEM[l.origem], composicao: (l) => l.composicao ?? "", pix: (l) => l.pix, valor: (l) => l.valor,
+  nome: (l) => l.nome, valor: (l) => l.valor, banco: (l) => linhasDadosBancarios(l).join(" "),
+  origem: (l) => ORIGEM[l.origem], composicao: (l) => l.composicao ?? "",
 };
-const TEXTO = new Set(["nome", "origem", "composicao", "pix"]);
+const TEXTO = new Set(["nome", "origem", "composicao", "banco"]);
+// O valor vem logo depois do nome: é o que se confere ao pagar.
 const COLUNAS: ColunaOpcional[] = [
-  { chave: "origem", rotulo: "Origem" }, { chave: "composicao", rotulo: "Composição" }, { chave: "pix", rotulo: "PIX" }, { chave: "valor", rotulo: "Valor" },
+  { chave: "banco", rotulo: "Dados bancários" }, { chave: "origem", rotulo: "Origem" }, { chave: "composicao", rotulo: "Composição" },
 ];
+
+const MODOS_IMPRESSAO = [
+  { value: "empresa", label: "Por empresa" },
+  { value: "alfabetica", label: "Pateo (A–Z)" },
+];
+const CHAVE_MODO = "folha-liquidos:modo-impressao";
+// Preferência de quem imprime; sem armazenamento (aba anônima), volta ao padrão.
+function lerModo(): ModoImpressaoFolha {
+  try { return window.localStorage.getItem(CHAVE_MODO) === "alfabetica" ? "alfabetica" : "empresa"; } catch { return "empresa"; }
+}
 
 const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
 
@@ -60,10 +73,25 @@ function ResultadoSincronizacao({ r }: { r: SincronizacaoSalariosCombinados }) {
   );
 }
 
+function DadosBancarios({ linha }: { linha: TipLinhaFolha }) {
+  const linhas = linhasDadosBancarios(linha);
+  if (linhas.length === 0) return <span style={{ ...mutedStyle, color: "var(--warning, #b45309)" }}>{SEM_DADOS_BANCARIOS}</span>;
+  return (
+    <div style={{ display: "grid", gap: 2, fontSize: 13 }}>
+      {linhas.map((t) => <span key={t} style={{ overflowWrap: "anywhere" }}>{t}</span>)}
+    </div>
+  );
+}
+
 export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice }: Props) {
   const [folha, setFolha] = useState<TipFolhaLiquidos | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
   const [sincronizacao, setSincronizacao] = useState<SincronizacaoSalariosCombinados | null>(null);
+  const [modo, setModo] = useState<ModoImpressaoFolha>(lerModo);
+  function escolherModo(m: ModoImpressaoFolha) {
+    setModo(m);
+    try { window.localStorage.setItem(CHAVE_MODO, m); } catch { /* só não lembra */ }
+  }
   const ord = useOrdenacao("folha-liquidos");
   const col = useColunas("folha-liquidos");
   const filtro = useFiltro("folha-liquidos");
@@ -93,13 +121,14 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
     ? apelidos.get(l.employeeId) ?? (folha.salariosCombinados ?? []).find((s) => s.employeeId === l.employeeId)?.apelido ?? null
     : null);
   const filtradas = filtro.aplicar(folha.linhas,
-    (l) => [textoPessoa(l.nome, apelidoDe(l)), l.grupo, l.pix ?? "", l.composicao ?? ""].join(" "),
+    (l) => [textoPessoa(l.nome, apelidoDe(l)), l.grupo, ...linhasDadosBancarios(l), l.composicao ?? ""].join(" "),
     { grupo: (l) => l.grupo, origem: (l) => ORIGEM[l.origem] });
   const ordenadas = aplicarOrdem(filtradas, ord.ordem, EXT);
   // Agrupado por empresa/grupo; a ordem escolhida vale dentro de cada grupo.
   const grupos = [...new Set(folha.linhas.map((l) => l.grupo))];
   const v = col.visivel;
-  const antesDoValor = 1 + ["origem", "composicao", "pix"].filter(v).length;
+  const depoisDoValor = ["banco", "origem", "composicao"].filter(v).length;
+  const semDados = folha.linhas.filter((l) => linhasDadosBancarios(l).length === 0).length;
   const th = (c: string) => ({ coluna: c, ordem: ord.ordem, onOrdenar: () => ord.alternar(c, TEXTO.has(c) ? "asc" : "desc") });
   const totalFiltro = filtradas.reduce((a, l) => a + l.valor, 0);
 
@@ -119,19 +148,31 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
               {sincronizando ? "Atualizando…" : "Atualizar salários combinados no Contas a Pagar"}
             </Button>
           )}
-          <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} disabled={folha.linhas.length === 0}
-            title={filtro.ativo ? "O PDF sai com a folha inteira, sem o filtro" : undefined}
-            onClick={() => void exportarFolhaLiquidos(folha, liberada).catch((e) => onNotice("error", "Erro ao gerar o PDF: " + (e as Error).message))}>
-            PDF da folha
-          </Button>
+          <div className="folha-pdf-acao">
+            <Select aria-label="Modo de impressão do PDF" options={MODOS_IMPRESSAO} value={modo}
+              title="Por empresa: um bloco por empresa com subtotal. Pateo: todos juntos em ordem alfabética."
+              onChange={(e) => escolherModo(e.target.value as ModoImpressaoFolha)} />
+            <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} disabled={folha.linhas.length === 0}
+              title={filtro.ativo ? "O PDF sai com a folha inteira, sem o filtro" : undefined}
+              onClick={() => void gerarPdfFolhaLiquidos(folha, { year, month, liberada, modo })
+                .catch((e) => onNotice("error", "Erro ao gerar o PDF: " + (e as Error).message))}>
+              PDF da folha
+            </Button>
+          </div>
         </div>
       </div>
       {sincronizacao && <ResultadoSincronizacao r={sincronizacao} />}
+      {semDados > 0 && (
+        <span style={{ ...mutedStyle, color: "var(--warning, #b45309)", display: "flex", gap: 6, alignItems: "center" }}>
+          <AlertTriangle size={13} aria-hidden="true" />
+          {semDados === folha.linhas.length ? "Ninguém da lista tem PIX ou conta" : `${semDados} de ${folha.linhas.length} pessoas estão sem PIX e sem conta`} no cadastro — preencha em Funcionários → Dados bancários.
+        </span>
+      )}
       {folha.extratos.length === 0 && <span style={mutedStyle}>Sem extrato carregado: a lista só tem os sem registro.</span>}
       {folha.linhas.some((l) => l.origem === "SALARIO_COMBINADO") && (
         <span style={mutedStyle}>Salário combinado: definido na ficha do funcionário (Funcionários → seção Trabalho).</span>
       )}
-      <BarraFiltro filtro={filtro} total={folha.linhas.length} visiveis={filtradas.length} placeholder="Filtrar por nome, apelido, empresa, PIX…"
+      <BarraFiltro filtro={filtro} total={folha.linhas.length} visiveis={filtradas.length} placeholder="Filtrar por nome, apelido, empresa, PIX, banco…"
         listas={[
           { chave: "grupo", rotulo: "Empresa/grupo", opcoes: opcoesDe(folha.linhas, (l) => l.grupo) },
           { chave: "origem", rotulo: "Origem", opcoes: opcoesDe(folha.linhas, (l) => ORIGEM[l.origem]) },
@@ -144,10 +185,10 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
         <Table.Head>
           <Table.Row>
             <ThOrdenavel {...th("nome")} align="left" minWidth={220}>Funcionário</ThOrdenavel>
+            <ThOrdenavel {...th("valor")}>Líquido a pagar</ThOrdenavel>
+            {v("banco") && <ThOrdenavel {...th("banco")} align="left" minWidth={220}>Dados bancários</ThOrdenavel>}
             {v("origem") && <ThOrdenavel {...th("origem")}>Origem</ThOrdenavel>}
             {v("composicao") && <ThOrdenavel {...th("composicao")} minWidth={220}>Composição</ThOrdenavel>}
-            {v("pix") && <ThOrdenavel {...th("pix")}>PIX</ThOrdenavel>}
-            {v("valor") && <ThOrdenavel {...th("valor")}>Valor</ThOrdenavel>}
           </Table.Row>
         </Table.Head>
         <Table.Body>
@@ -156,8 +197,9 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
             if (doGrupo.length === 0) return null;
             return [
               <Table.Row key={`g-${g}`} className="linha-grupo">
-                <Table.Td colSpan={v("valor") ? antesDoValor : antesDoValor + 1} style={{ textAlign: "left", fontWeight: 700 }}>{g}</Table.Td>
-                {v("valor") && <Table.Td style={{ fontWeight: 700 }}>{money(doGrupo.reduce((a, l) => a + l.valor, 0))}</Table.Td>}
+                <Table.Td style={{ textAlign: "left", fontWeight: 700 }}>{g} <span style={{ ...mutedStyle, fontWeight: 400 }}>· {doGrupo.length}</span></Table.Td>
+                <Table.Td style={{ fontWeight: 700 }}>{money(doGrupo.reduce((a, l) => a + l.valor, 0))}</Table.Td>
+                {depoisDoValor > 0 && <Table.Td colSpan={depoisDoValor} />}
               </Table.Row>,
               ...doGrupo.map((l) => (
                 <Table.Row key={`${g}-${l.employeeId ?? l.nome}`}>
@@ -169,19 +211,20 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
                       </div>
                     )}
                   </Table.Td>
+                  <Table.Td style={{ fontWeight: 700, whiteSpace: "nowrap" }}>{money(l.valor)}</Table.Td>
+                  {v("banco") && <Table.Td style={{ textAlign: "left" }}><DadosBancarios linha={l} /></Table.Td>}
                   {v("origem") && <Table.Td><StatusBadge tone={l.origem === "SALARIO_COMBINADO" ? "info" : "neutral"}>{ORIGEM[l.origem]}</StatusBadge></Table.Td>}
                   {v("composicao") && <Table.Td style={mutedStyle}>{l.composicao ?? "—"}</Table.Td>}
-                  {v("pix") && <Table.Td style={mutedStyle}>{l.pix ?? <span style={{ color: "var(--warning, #b45309)" }}>sem PIX</span>}</Table.Td>}
-                  {v("valor") && <Table.Td style={{ fontWeight: 700 }}>{money(l.valor)}</Table.Td>}
                 </Table.Row>
               )),
             ];
           })}
           <Table.Row>
-            <Table.Td colSpan={v("valor") ? antesDoValor : antesDoValor + 1} style={{ textAlign: "left", fontWeight: 700 }}>
+            <Table.Td style={{ textAlign: "left", fontWeight: 700 }}>
               {filtro.ativo ? `Total do filtro (${filtradas.length} de ${folha.linhas.length})` : "Total a pagar"}
             </Table.Td>
-            {v("valor") && <Table.Td style={{ fontWeight: 800 }}>{money(filtro.ativo ? totalFiltro : folha.total)}</Table.Td>}
+            <Table.Td style={{ fontWeight: 800 }}>{money(filtro.ativo ? totalFiltro : folha.total)}</Table.Td>
+            {depoisDoValor > 0 && <Table.Td colSpan={depoisDoValor} />}
           </Table.Row>
         </Table.Body>
       </Table>

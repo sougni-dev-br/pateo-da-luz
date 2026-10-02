@@ -1,4 +1,4 @@
-import type { TipComputation, TipComputedParticipant, TipFolhaLiquidos } from "../../api/client";
+import type { TipComputation, TipComputedParticipant } from "../../api/client";
 import {
   MONTHS, NOTA_ADIANTAMENTO_OCULTO, NOTA_HORA_EXTRA_OCULTA, NOTA_QUINZENA_OCULTA, REGRA_HORA_EXTRA, REGRA_QUINZENA, adiantamentoOculto, fmtDate, fmtHoras,
   money, mostraQuinzena, ordenar, parseHoras, quinzenaOculta, valorHoraExtraTotal,
@@ -139,35 +139,3 @@ export async function exportarListaPagamento(comp: TipComputation) {
   doc.save(`Gorjeta_Pagamento_${MONTHS[comp.month - 1]}_${comp.year}.pdf`);
 }
 
-// Folha salarial líquidos: a lista para o pagamento no banco, por empresa.
-export async function exportarFolhaLiquidos(folha: TipFolhaLiquidos, liberada: boolean) {
-  const { jsPDF } = await import("jspdf");
-  const autoTable = comTextoPdf((await import("jspdf-autotable")).default as unknown as AutoTable);
-  const doc = new jsPDF();
-  const finalY = () => (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
-  doc.setFontSize(14);
-  doc.text("Folha salarial líquidos", 14, 16);
-  doc.setFontSize(10);
-  doc.setTextColor(90);
-  doc.text(textoPdf(`${folha.code} · ${folha.label}${liberada ? "" : "   ·   PRÉVIA (sem OK da contabilidade)"}`), 14, 23);
-  doc.setTextColor(0);
-  let y = 26;
-  for (const grupo of [...new Set(folha.linhas.map((l) => l.grupo))]) {
-    const lista = folha.linhas.filter((l) => l.grupo === grupo);
-    autoTable(doc, {
-      ...estilo,
-      startY: y + 4,
-      head: [[grupo, "PIX", "Valor"]],
-      body: lista.map((l) => [l.nome + (l.origem === "SALARIO_COMBINADO" ? " *" : ""), l.pix ?? "", money(l.valor)]),
-      foot: [["Total", "", money(lista.reduce((a, l) => a + l.valor, 0))]],
-      columnStyles: { 2: { halign: "right" } },
-    });
-    y = finalY() + 4;
-  }
-  doc.setFontSize(11);
-  doc.text(textoPdf(`Total geral: ${money(folha.total)}`), 14, y + 8);
-  doc.setFontSize(8);
-  doc.setTextColor(120);
-  doc.text(textoPdf("CLT: líquido do extrato da contabilidade. * (salário combinado - adiantamento) + gorjeta. Sem registro: salário ÷ 30 × dias - adiantamento ou 1ª quinzena (quem recebe) + gorjeta - vales + hora extra/noturno."), 14, y + 14);
-  doc.save(`Folha_Liquidos_${folha.code}.pdf`);
-}

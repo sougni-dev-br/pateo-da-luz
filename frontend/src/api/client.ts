@@ -7013,6 +7013,8 @@ export type TipLinhaFolha = {
   employeeId: string | null; nome: string; grupo: string; origem: "EXTRATO" | "SALARIO_COMBINADO" | "SEM_REGISTRO";
   /** Ausente/null para quem não vê Funcionários na linha de salário combinado. */
   valor: number; composicao?: string | null; pix: string | null; aviso: string | null;
+  /** Tipo da chave PIX (CPF, e-mail, telefone, aleatória) e a conta do cadastro numa linha. */
+  pixTipo?: string | null; contaBancaria?: string | null;
 };
 export type TipFolhaLiquidos = {
   code: string; label: string; linhas: TipLinhaFolha[]; total: number; extratos: string[]; etapas: TipEtapasEstado;

@@ -7,27 +7,7 @@ import {
   NOTA_TETO_OCULTO, agruparEnvioPorEmpresa, montarEnvioContabilidade, entraNaImpressao, rotuloResumoAusencias, tabelaDoEnvio, textoPdf, totaisDoEnvio,
 } from "./envioContabilidade";
 
-type Doc = {
-  setFont: (f: string, s?: string) => void; setFontSize: (n: number) => void;
-  setTextColor: (...c: number[]) => void; setDrawColor: (...c: number[]) => void; setFillColor: (...c: number[]) => void;
-  setLineWidth: (n: number) => void; getTextWidth: (t: string) => number; text: (t: string | string[], x: number, y: number, o?: Record<string, unknown>) => void;
-  line: (x1: number, y1: number, x2: number, y2: number) => void;
-  rect: (x: number, y: number, w: number, h: number, s?: string) => void;
-  roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, s?: string) => void;
-  addPage: () => void; setPage: (n: number) => void; getNumberOfPages: () => number;
-  internal: { pageSize: { getWidth: () => number; getHeight: () => number } };
-  lastAutoTable: { finalY: number };
-  save: (nome: string) => void;
-};
-type AutoTable = (doc: unknown, options: Record<string, unknown>) => void;
-
-const MARROM = [107, 79, 42] as const;
-const BEGE = [246, 242, 235] as const;
-const LISTRA = [251, 249, 245] as const;
-const LINHA = [226, 219, 207] as const;
-const TINTA = [38, 32, 26] as const;
-const CINZA = [118, 110, 100] as const;
-const M = 14; // margem
+import { type AutoTable, BEGE, CINZA, type Doc, LINHA, LISTRA, M, MARROM, TINTA, cabecalhoPdf, caixasResumo, faixaTotal, rodapePdf } from "./pdfTema";
 
 const reais = (v: number) => textoPdf(money(v));
 const cnpjFmt = (c: string | null | undefined) => {
@@ -59,34 +39,14 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
   const emitido = new Date();
 
   // ── Cabeçalho ───────────────────────────────────────────────
-  doc.setFillColor(...MARROM);
-  doc.rect(0, 0, W, 3, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.setTextColor(...MARROM);
-  doc.text("PATEO DA LUZ", M, 13);
-  doc.setFontSize(17);
-  doc.setTextColor(...TINTA);
-  doc.text("Gorjetas para a folha de pagamento", M, 21);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9.5);
-  doc.setTextColor(...CINZA);
-  doc.text(textoPdf(`Competência ${competencia}   |   Ciclo da gorjeta: ${fmtDate(comp.periodStart)} a ${fmtDate(comp.periodEnd)}`), M, 27.5);
-
   // Código e situação em selo no canto: fechado (verde) ou prévia (âmbar).
   const fechado = comp.status === "CLOSED" && comp.fechamento;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
-  doc.setTextColor(...CINZA);
-  if (comp.code) doc.text(comp.code, W - M, 13, { align: "right" });
-  const selo = fechado ? textoPdf(`FECHADO EM ${fmtDate(comp.fechamento!.closedAt)}`) : "PRÉVIA - GORJETA EM ABERTO";
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
-  const largSelo = doc.getTextWidth(selo) + 7;
-  if (fechado) doc.setFillColor(228, 242, 232); else doc.setFillColor(253, 238, 220);
-  doc.roundedRect(W - M - largSelo, 16.5, largSelo, 6.5, 3.2, 3.2, "F");
-  if (fechado) doc.setTextColor(36, 104, 58); else doc.setTextColor(166, 88, 10);
-  doc.text(selo, W - M - largSelo / 2, 20.9, { align: "center" });
+  cabecalhoPdf(doc, {
+    titulo: "Gorjetas para a folha de pagamento",
+    apoio: `Competência ${competencia}   |   Ciclo da gorjeta: ${fmtDate(comp.periodStart)} a ${fmtDate(comp.periodEnd)}`,
+    codigo: comp.code,
+    selo: fechado ? { texto: `FECHADO EM ${fmtDate(comp.fechamento!.closedAt)}`, tom: "ok" } : { texto: "PRÉVIA - GORJETA EM ABERTO", tom: "aviso" },
+  });
 
   // ── Resumo ──────────────────────────────────────────────────
   const t = totaisDoEnvio(linhas, parseHoras);
@@ -98,25 +58,7 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
     [...rotuloResumoAusencias(t), 1],
   ];
   const yResumo = 33;
-  const gap = 3.5;
-  const pesos = caixas.reduce((a, c) => a + c[2], 0);
-  const util = W - 2 * M - gap * (caixas.length - 1);
-  let xCaixa = M;
-  caixas.forEach(([rotulo, valor, peso], i) => {
-    const x = xCaixa;
-    const larg = (util * peso) / pesos;
-    xCaixa += larg + gap;
-    doc.setFillColor(...BEGE);
-    doc.roundedRect(x, yResumo, larg, 15, 2, 2, "F");
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
-    doc.setTextColor(...CINZA);
-    doc.text(rotulo.toUpperCase(), x + 4, yResumo + 5.5);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(i === 0 ? 13 : 11.5);
-    doc.setTextColor(...(i === 0 ? MARROM : TINTA));
-    doc.text(valor, x + 4, yResumo + 12);
-  });
+  caixasResumo(doc, yResumo, caixas);
 
   // ── Um bloco por empresa ────────────────────────────────────
   let y = yResumo + 22;
@@ -179,13 +121,7 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
 
   // ── Total geral, legenda e conferência ──────────────────────
   if (y > H - 50) { doc.addPage(); y = 20; }
-  doc.setFillColor(...MARROM);
-  doc.roundedRect(M, y - 4, W - 2 * M, 11, 1.5, 1.5, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10.5);
-  doc.setTextColor(255, 255, 255);
-  doc.text("Total geral de gorjetas", M + 4, y + 3);
-  doc.text(reais(envio.total ?? 0), W - M - 4, y + 3, { align: "right" });
+  faixaTotal(doc, y, "Total geral de gorjetas", reais(envio.total ?? 0));
 
   y += 15;
   doc.setFont("helvetica", "normal");
@@ -214,19 +150,7 @@ export async function gerarPdfEnvioContabilidade(comp: TipComputation) {
   doc.text("Data", M + 105, y + 4);
 
   // ── Rodapé em todas as páginas ──────────────────────────────
-  const total = doc.getNumberOfPages();
-  const quando = `${emitido.toLocaleDateString("pt-BR")} às ${emitido.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
-  for (let i = 1; i <= total; i++) {
-    doc.setPage(i);
-    doc.setDrawColor(...LINHA);
-    doc.setLineWidth(0.2);
-    doc.line(M, H - 12, W - M, H - 12);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
-    doc.setTextColor(...CINZA);
-    doc.text(textoPdf(`Gorjetas ${competencia}${comp.code ? ` - ${comp.code}` : ""}   |   Emitido em ${quando}`), M, H - 7.5);
-    doc.text(`Página ${i} de ${total}`, W - M, H - 7.5, { align: "right" });
-  }
+  rodapePdf(doc, `Gorjetas ${competencia}${comp.code ? ` - ${comp.code}` : ""}`, emitido);
 
   doc.save(`Gorjeta_Contabilidade_${mes}_${comp.year}.pdf`);
 }

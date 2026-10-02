@@ -29,3 +29,13 @@ test("linha paga a menos fica na lista com o aviso do que falta", async () => {
   expect(await screen.findByText("Pago R$ 1.200,00 em 30/09; falta R$ 300,00.")).toBeInTheDocument();
   expect(screen.getByText("Ciclano Lima")).toBeInTheDocument();
 });
+
+test("líquido logo depois do nome, dados bancários no lugar do PIX e aviso de quem não tem", async () => {
+  render(<FolhaLiquidos year={2026} month={9} canEdit={false} liberada versao="1" onNotice={vi.fn()} />);
+  await screen.findByText("Ciclano Lima");
+  const titulos = screen.getAllByRole("columnheader").map((th) => th.textContent?.trim());
+  expect(titulos.slice(0, 3)).toEqual(["Funcionário", "Líquido a pagar", "Dados bancários"]);
+  expect(screen.getAllByText("Sem dados bancários no cadastro")).toHaveLength(2);
+  expect(screen.getByText(/Ninguém da lista tem PIX ou conta no cadastro/)).toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "Modo de impressão do PDF" })).toBeInTheDocument();
+});
