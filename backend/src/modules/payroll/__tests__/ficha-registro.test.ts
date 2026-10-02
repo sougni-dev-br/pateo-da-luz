@@ -24,7 +24,7 @@ const ficha = (over: Partial<FichaRegistro> = {}): FichaRegistro => ({
 });
 
 const VAZIO = {
-  registroNumero: null, matriculaEsocial: null, nomeMae: null, nomePai: null, estadoCivil: null, nacionalidade: null, naturalidade: null,
+  nomeCompleto: null, registroNumero: null, matriculaEsocial: null, nomeMae: null, nomePai: null, estadoCivil: null, nacionalidade: null, naturalidade: null,
   racaCor: null, escolaridade: null, possuiDeficiencia: null, rgDataEmissao: null, rgOrgaoEmissor: null,
   tituloEleitor: null, tituloZona: null, tituloSecao: null, ctpsNumero: null, ctpsSerie: null, ctpsUf: null, ctpsDataEmissao: null,
   cbo: null, jornadaInicio: null, jornadaFim: null, intervaloInicio: null, intervaloFim: null, fgtsDataOpcao: null,
@@ -41,7 +41,7 @@ describe("planoDaFicha", () => {
   test("cadastro vazio: preenche documentos, filiação, contrato, endereço quebrado, PIS só com dígitos e sexo", () => {
     const p = planoDaFicha(cadastro(), ficha());
     expect(p.dados).toMatchObject({
-      registroNumero: "000020", matriculaEsocial: "20", nomePai: "JOSE DE TAL", nomeMae: "MARIA DE TAL",
+      nomeCompleto: "FULANA DE TAL", registroNumero: "000020", matriculaEsocial: "20", nomePai: "JOSE DE TAL", nomeMae: "MARIA DE TAL",
       rgDataEmissao: d("2016-01-15"), rgOrgaoEmissor: "SSP/SP", ctpsNumero: "5299822", ctpsUf: "SP",
       cbo: "513210", jornadaInicio: "08:00", intervaloFim: "13:00", possuiDeficiencia: false, fgtsDataOpcao: d("2025-03-01"),
       rg: "12.345.678-9", pis: "12345678901", birthDate: d("1990-03-10"), gender: "FEMININO",

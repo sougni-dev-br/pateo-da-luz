@@ -8,7 +8,7 @@ type CampoTexto = Exclude<keyof EmployeeFichaCampos, "possuiDeficiencia">;
 export type FichaForm = Record<CampoTexto, string> & { possuiDeficiencia: "" | "sim" | "nao" };
 
 const CAMPOS_TEXTO: CampoTexto[] = [
-  "registroNumero", "matriculaEsocial", "nomeMae", "nomePai", "estadoCivil", "nacionalidade", "naturalidade",
+  "nomeCompleto", "registroNumero", "matriculaEsocial", "nomeMae", "nomePai", "estadoCivil", "nacionalidade", "naturalidade",
   "racaCor", "escolaridade", "rgDataEmissao", "rgOrgaoEmissor", "tituloEleitor", "tituloZona", "tituloSecao",
   "ctpsNumero", "ctpsSerie", "ctpsUf", "ctpsDataEmissao", "cbo", "jornadaInicio", "jornadaFim",
   "intervaloInicio", "intervaloFim", "fgtsDataOpcao",
