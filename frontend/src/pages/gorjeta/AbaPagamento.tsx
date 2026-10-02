@@ -254,6 +254,8 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
     } finally { setLancando(false); }
   }
   const mostraLancarAcertos = podeLancarAcertos && Boolean(comp.periodId) && semRegistro.length > 0;
+  // Apuração aberta: os valores ainda são parciais; o servidor recusa e o fechamento já lança.
+  const apuracaoAberta = comp.status !== "CLOSED";
 
   // Normaliza para h:mm ao sair do campo ("7,5" → "7:30").
   function normalizarHoras(employeeId: string, campo: "horaExtra" | "adicionalNoturno", valor: string) {
@@ -411,8 +413,10 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
             <SeletorColunas colunas={COLUNAS_PAG.filter((c) => (comQuinzena || c.chave !== "quinzena") && (comDsr || c.chave !== "dsr"))} ocultas={colP.ocultas} alternar={colP.alternar} mostrarTodas={colP.mostrarTodas} />
             <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarListaPagamento)}>PDF pagamento</Button>
             {mostraLancarAcertos && (
-              <Button variant="secondary" size="sm" leadingIcon={<Receipt size={14} />} onClick={() => void lancarAcertos()} disabled={lancando}
-                title="Cria (ou atualiza, se ainda não foi pago) um título Salário (acerto) por sem registro, com o A pagar da lista. Vence no fim do mês para quem recebe por quinzena; no 5º dia útil do mês seguinte para os outros. Pago não muda; excluído à mão não volta. Fechar a gorjeta já lança.">
+              <Button variant="secondary" size="sm" leadingIcon={<Receipt size={14} />} onClick={() => void lancarAcertos()} disabled={lancando || apuracaoAberta}
+                title={apuracaoAberta
+                  ? "Feche a apuração antes: com ela aberta os valores ainda são parciais. O fechamento já lança os acertos."
+                  : "Atualiza (ou cria) um título Salário (acerto) por sem registro, com o A pagar da lista. Vence no fim do mês para quem recebe por quinzena; no 5º dia útil do mês seguinte para os outros. Pago não muda; excluído à mão não volta. Fechar a gorjeta já lança."}>
                 {lancando ? "Lançando…" : "Lançar acertos no Contas a Pagar"}
               </Button>
             )}
