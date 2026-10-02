@@ -7,6 +7,8 @@ import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { hojeEmSaoPaulo } from "./extras-comum.js";
 import { CAMPOS_SALARIO, ROTULO_CAMPO, alteracoes, faltaMotivoEntradaGorjeta, faltaMotivoRetroativo, lerVigenteDesde, type CampoHistorico } from "./cadastro-historico.js";
 import { registrarAlteracoes } from "./cadastro-historico.service.js";
+import { lerFichaDoFuncionario } from "./ficha-registro.service.js";
+import { cidadeProprio, nomeProprio } from "../../shared/utils/nome-proprio.js";
 
 export const employeeRouter = Router();
 
@@ -75,8 +77,8 @@ function digits(v: unknown): string | null {
 // Campos do cadastro compartilhados por create e update (sem id/auditoria).
 function buildEmployeeData(b: Record<string, unknown>) {
   return {
-    firstName: str(b.firstName)!,
-    lastName: str(b.lastName)!,
+    firstName: nomeProprio(str(b.firstName))!,
+    lastName: nomeProprio(str(b.lastName), { continuacao: true })!,
     displayName: str(b.displayName),
     rg: str(b.rg),
     pis: digits(b.pis),
@@ -85,11 +87,11 @@ function buildEmployeeData(b: Record<string, unknown>) {
     phone: str(b.phone),
     email: str(b.email),
     zipCode: str(b.zipCode),
-    address: str(b.address),
+    address: nomeProprio(str(b.address)),
     addressNumber: str(b.addressNumber),
-    addressComplement: str(b.addressComplement),
-    neighborhood: str(b.neighborhood),
-    city: str(b.city),
+    addressComplement: nomeProprio(str(b.addressComplement)),
+    neighborhood: nomeProprio(str(b.neighborhood)),
+    city: cidadeProprio(str(b.city)),
     state: str(b.state)?.toUpperCase().slice(0, 2) ?? null,
     bankName: str(b.bankName),
     bankAgency: str(b.bankAgency),
@@ -124,7 +126,29 @@ function buildEmployeeData(b: Record<string, unknown>) {
     // mesmo modo de falha que sumiu com 5 vales em julho.
     ...("vtMonthlyFareId" in b ? { vtMonthlyFareId: str(b.vtMonthlyFareId) } : {}),
     ...("vtFixedAmount" in b ? { vtFixedAmount: numOrNull(b.vtFixedAmount) } : {}),
+    ...lerCamposFicha(b),
   };
+}
+
+// Documentos e contrato da ficha de registro. Ausente = não mexe: tela antiga aberta em outro
+// computador, ao salvar, não apaga o que a importação da ficha preencheu.
+const FICHA_TEXTO = [
+  "nomeCompleto", "registroNumero", "matriculaEsocial", "nomeMae", "nomePai", "estadoCivil", "nacionalidade", "naturalidade",
+  "racaCor", "escolaridade", "rgOrgaoEmissor", "tituloEleitor", "tituloZona", "tituloSecao",
+  "ctpsNumero", "ctpsSerie", "ctpsUf", "cbo", "jornadaInicio", "jornadaFim", "intervaloInicio", "intervaloFim",
+] as const;
+const FICHA_DATA = ["rgDataEmissao", "ctpsDataEmissao", "fgtsDataOpcao"] as const;
+
+export function lerCamposFicha(b: Record<string, unknown>): Record<string, string | Date | boolean | null> {
+  const out: Record<string, string | Date | boolean | null> = {};
+  for (const c of FICHA_TEXTO) if (c in b) out[c] = str(b[c])?.slice(0, 120) ?? null;
+  for (const c of FICHA_DATA) if (c in b) out[c] = dateOrNull(b[c]);
+  if ("ctpsUf" in out && out.ctpsUf) out.ctpsUf = String(out.ctpsUf).toUpperCase().slice(0, 2);
+  // Nomes de pessoas e lugares no padrão do cadastro (nome próprio; cidade da lista com acento).
+  for (const c of ["nomeCompleto", "nomeMae", "nomePai", "nacionalidade"] as const) if (c in out) out[c] = nomeProprio(out[c] as string | null);
+  if ("naturalidade" in out) out.naturalidade = cidadeProprio(out.naturalidade as string | null);
+  if ("possuiDeficiencia" in b) out.possuiDeficiencia = typeof b.possuiDeficiencia === "boolean" ? b.possuiDeficiencia : null;
+  return out;
 }
 
 // Salário combinado: quem ganha acima do registrado (na folha sai combinado − adiantamento
@@ -353,6 +377,17 @@ employeeRouter.get("/:id/historico", async (request, response) => {
       createdAt: l.createdAt.toISOString(),
     };
   }));
+});
+
+// ─── FICHA DE REGISTRO (dependentes, férias, carteira) ────────────────────────────
+// Salário da carteira só com a permissão de ver Funcionários, como no histórico do cadastro.
+employeeRouter.get("/:id/ficha", async (request, response) => {
+  const employee = await prisma.employee.findFirst({
+    where: { id: request.params.id, deletedAt: null },
+    select: { id: true, admissaoCarteira: true, terminationDate: true },
+  });
+  if (!employee) return response.status(404).json({ message: "Funcionário não encontrado." });
+  return response.json(await lerFichaDoFuncionario(employee, await podeVerDadosPessoais(request)));
 });
 
 // ─── GET ONE ─────────────────────────────────────────────────────────────────────

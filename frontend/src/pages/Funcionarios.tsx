@@ -10,6 +10,9 @@ import {
 import { Notice, useNotice } from "../components/Notice";
 import { ImpressaoAniversariantes } from "../components/pessoal/ImpressaoAniversariantes";
 import { HistoricoCadastro } from "../components/pessoal/HistoricoCadastro";
+import { DocumentosRegistro } from "../components/pessoal/DocumentosRegistro";
+import { FichaRegistro } from "../components/pessoal/FichaRegistro";
+import { fichaFormDe, fichaFormVazio, fichaParaSalvar } from "../components/pessoal/fichaRegistroForm";
 import { TIPOS_DESLIGAMENTO, motivoDoDesligamento } from "../components/pessoal/desligamento";
 import { linkRescisao } from "./rh/rotasRh";
 import { motivoObrigatorio, mudouCampoComHistorico, type CamposComHistorico } from "../components/pessoal/historicoCadastroFormato";
@@ -115,6 +118,9 @@ const emptyEmployee = {
   vtType: "TRANSPORTE_PUBLICO" as VtType, vtPeriodicity: "QUINZENAL" as VtPeriodicity,
   vtFixedAmount: "", vtMonthlyFareId: "", notes: "",
   vtLegs: [] as Array<{ direction: VtDirection; fareId: string }>,
+  ficha: fichaFormVazio,
+  // Como a ficha estava ao abrir: ao salvar só vai o que mudou (não apaga o que veio da importação).
+  fichaOriginal: fichaFormVazio,
   // Histórico do cadastro: a partir de quando vale a mudança de salário, vínculo ou cargo.
   vigenteDesde: "", motivoAlteracao: ""
 };
@@ -231,6 +237,8 @@ export function Funcionarios() {
       vtType: e.vtType, vtPeriodicity: e.vtPeriodicity,
       vtFixedAmount: moneyToMasked(e.vtFixedAmount), vtMonthlyFareId: e.vtMonthlyFareId ?? "", notes: e.notes ?? "",
       vtLegs: (e.vtLegs ?? []).map((l) => ({ direction: l.direction, fareId: l.fareId })),
+      ficha: fichaFormDe(e),
+      fichaOriginal: fichaFormDe(e),
       vigenteDesde: hojeLocalIso(), motivoAlteracao: ""
     });
     setOriginal({
@@ -319,6 +327,7 @@ export function Funcionarios() {
           ? (form.vtFixedAmount ? moneyToNumberString(form.vtFixedAmount) : null)
           : undefined,
         notes: form.notes || undefined,
+        ...fichaParaSalvar(form.ficha, form.fichaOriginal),
         ...(pedeVigencia ? { vigenteDesde: form.vigenteDesde || undefined, motivoAlteracao: form.motivoAlteracao.trim() || undefined } : {})
       });
       setNotice({ tone: "success", message: form.id ? "Funcionário atualizado." : "Funcionário cadastrado." });
@@ -530,6 +539,13 @@ export function Funcionarios() {
                 <FormField label="Sobrenome" required>
                   <TextField value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
                 </FormField>
+                <FormField label="Nome completo" hint="como está na carteira de trabalho">
+                  <TextField
+                    value={form.ficha.nomeCompleto}
+                    onChange={(e) => setForm({ ...form, ficha: { ...form.ficha, nomeCompleto: e.target.value } })}
+                    placeholder={`${form.firstName} ${form.lastName}`.trim() || undefined}
+                  />
+                </FormField>
                 <FormField label="Como quero ser chamado" hint="Nome que aparece na escala">
                   <TextField value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} placeholder={form.firstName || "Ex.: Maria"} />
                 </FormField>
@@ -588,6 +604,8 @@ export function Funcionarios() {
                 </FormField>
               </FormGrid>
             </FormSection>
+
+            <DocumentosRegistro value={form.ficha} onChange={(ficha) => setForm({ ...form, ficha })} />
 
             <FormSection title="Dados bancários">
               <FormGrid cols={4}>
@@ -796,6 +814,7 @@ export function Funcionarios() {
             </FormSection>
 
             {form.id && <HistoricoCadastro key={form.id} employeeId={form.id} />}
+            {form.id && <FichaRegistro key={`ficha-${form.id}`} employeeId={form.id} />}
 
             <div className="form-actions">
               <Button variant="secondary" onClick={() => setShowForm(false)}>Cancelar</Button>

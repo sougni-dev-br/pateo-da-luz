@@ -15,9 +15,9 @@ describe("PDF do envio à contabilidade", () => {
   });
 
   test("nomes saem como nome próprio e células vazias viram traço", () => {
-    expect(nomeNoEnvio(" ELIOENAI FERREIRA DA SILVA ")).toBe("Elioenai Ferreira da Silva");
-    expect(nomeNoEnvio("maria  jose silva de freitas")).toBe("Maria Jose Silva de Freitas");
-    expect(nomeNoEnvio("JULIANA MENDES GONÇALVES")).toBe("Juliana Mendes Gonçalves");
+    expect(nomeNoEnvio(" FULANO FERREIRA DA SILVA ")).toBe("Fulano Ferreira da Silva");
+    expect(nomeNoEnvio("beltrana  rosa lima de tal")).toBe("Beltrana Rosa Lima de Tal");
+    expect(nomeNoEnvio("SICRANA MOTA GONÇALVES")).toBe("Sicrana Mota Gonçalves");
     expect([celulaOuTraco(""), celulaOuTraco(null), celulaOuTraco(0), celulaOuTraco("15:13"), celulaOuTraco(2)]).toEqual(["-", "-", "-", "15:13", "2"]);
   });
 });

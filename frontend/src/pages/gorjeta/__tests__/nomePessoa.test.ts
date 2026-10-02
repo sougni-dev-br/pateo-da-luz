@@ -3,7 +3,7 @@ import { nomeComApelido, resolverApelido } from "../NomePessoa";
 
 describe("nomeComApelido", () => {
   test("nome completo com o apelido entre parênteses", () => {
-    expect(nomeComApelido("Luiz Felipe Cardoso Silva", "Luiz")).toBe("Luiz Felipe Cardoso Silva (Luiz)");
+    expect(nomeComApelido("Paulo Henrique Costa Lima", "Paulo")).toBe("Paulo Henrique Costa Lima (Paulo)");
   });
 
   test("sem apelido, ou apelido igual ao nome, fica só o nome", () => {
@@ -18,7 +18,7 @@ describe("nomeComApelido", () => {
 });
 
 describe("resolverApelido", () => {
-  const mapa = new Map([["e1", "Luiz"]]);
+  const mapa = new Map([["e1", "Paulo"]]);
 
   test("o apelido da linha vale, inclusive null", () => {
     expect(resolverApelido(mapa, "e1", "Lu")).toBe("Lu");
@@ -26,7 +26,7 @@ describe("resolverApelido", () => {
   });
 
   test("sem o campo, cai no cadastro pelo funcionário", () => {
-    expect(resolverApelido(mapa, "e1")).toBe("Luiz");
+    expect(resolverApelido(mapa, "e1")).toBe("Paulo");
     expect(resolverApelido(mapa, "e2")).toBeNull();
     expect(resolverApelido(mapa, null)).toBeNull();
   });

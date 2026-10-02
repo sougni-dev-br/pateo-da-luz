@@ -8,7 +8,7 @@ import { prisma } from "../../../config/database.js";
 import { evolucaoMensal, extratoReserva, listarMudancas, motivoParaNaoRetirar, mudouSituacao } from "../tip-historico.service.js";
 
 const d = (s: string) => new Date(`${s}T00:00:00.000Z`);
-const emp = { firstName: "Luiz", lastName: "Moreno", displayName: null };
+const emp = { firstName: "Carlos", lastName: "Barreto", displayName: null };
 let seq = 0;
 const linha = (validFrom: string, over: Record<string, unknown>) => ({
   id: `h${++seq}`, employeeId: "e1", validFrom: d(validFrom), participaGorjeta: true, tipFunctionId: "pizzaiolo",
@@ -89,7 +89,7 @@ describe("apelido nos relatórios (nome continua o completo)", () => {
   test("mudanças de função/pontos", async () => {
     vi.mocked(prisma.employeeTipHistory.findMany).mockResolvedValue([linha("2026-01-01", { employee: comApelido }), linha("2026-02-01", {})] as never);
     const r = await listarMudancas({});
-    expect(r.map((m) => [m.employeeName, m.apelido])).toEqual([["Luiz Moreno", null], ["José Carlos", "Zé"]]);
+    expect(r.map((m) => [m.employeeName, m.apelido])).toEqual([["Carlos Barreto", null], ["José Carlos", "Zé"]]);
   });
 
   test("evolução mês a mês", async () => {

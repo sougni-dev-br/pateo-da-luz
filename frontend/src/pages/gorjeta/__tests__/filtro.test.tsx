@@ -46,12 +46,12 @@ describe("valorForaDasOpcoes", () => {
 });
 
 describe("useFiltro", () => {
-  const pessoas = [{ nome: "Luiz Felipe", apelido: "Luiz", funcao: "Garçom" }, { nome: "Ana", apelido: null, funcao: "Caixa" }];
+  const pessoas = [{ nome: "Paulo Henrique", apelido: "Paulo", funcao: "Garçom" }, { nome: "Ana", apelido: null, funcao: "Caixa" }];
 
   test("texto ignora acento e caixa; lista filtra pelo valor exato", () => {
     const { result } = renderHook(() => useFiltro("teste"));
     act(() => result.current.setTexto("GARCOM"));
-    expect(result.current.aplicar(pessoas, (p) => `${p.nome} ${p.funcao}`).map((p) => p.nome)).toEqual(["Luiz Felipe"]);
+    expect(result.current.aplicar(pessoas, (p) => `${p.nome} ${p.funcao}`).map((p) => p.nome)).toEqual(["Paulo Henrique"]);
     act(() => { result.current.setTexto(""); result.current.setValor("funcao", "Caixa"); });
     expect(result.current.aplicar(pessoas, (p) => p.nome, { funcao: (p) => p.funcao }).map((p) => p.nome)).toEqual(["Ana"]);
   });

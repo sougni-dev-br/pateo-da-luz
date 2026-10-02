@@ -185,7 +185,7 @@ tipConferenciaRouter.post("/periods/:year/:month/extratos", async (request, resp
     const alvo = semAcento(nome);
     const exato = cadastro.filter((e) => semAcento(`${e.firstName} ${e.lastName}`) === alvo);
     if (exato.length === 1) { avisos.push(`${nome}: CPF diferente do cadastro, reconhecido pelo nome — confirme.`); return { employeeId: exato[0].id, vinculo: "NOME" }; }
-    // Nome do cadastro mais curto que o do extrato ("Anderson Fernandes" × "ANDERSON FERNANDES DOS SANTOS").
+    // Nome do cadastro mais curto que o do extrato ("Fulano Rocha" × "FULANO ROCHA DOS SANTOS").
     const contido = cadastro.filter((e) => {
       const partes = semAcento(`${e.firstName} ${e.lastName}`).split(" ");
       return partes.length >= 2 && alvo.startsWith(partes[0] + " ") && partes.every((p) => alvo.split(" ").includes(p));

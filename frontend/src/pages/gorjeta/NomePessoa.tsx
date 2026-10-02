@@ -43,7 +43,7 @@ export function NomePessoa({ nome, employeeId, apelido, children }: Props) {
 export const textoPessoa = (nome: string, apelido?: string | null) => `${nome} ${apelido ?? ""}`;
 
 /**
- * Nome numa linha só (opções de select): "Luiz Felipe Cardoso Silva (Luiz)". Sem apelido,
+ * Nome numa linha só (opções de select): "Paulo Henrique Costa Lima (Paulo)". Sem apelido,
  * ou apelido igual ao nome, fica só o nome — nunca só o apelido.
  */
 export function nomeComApelido(nome: string, apelido?: string | null): string {
