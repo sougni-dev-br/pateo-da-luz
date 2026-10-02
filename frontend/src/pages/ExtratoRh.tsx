@@ -17,6 +17,9 @@ export function ExtratoRh() {
   const erroDaLista = useCallback((message: string) => setNotice({ tone: "error", message }), [setNotice]);
   const avisar = useCallback((tone: "success" | "error", message: string) => setNotice({ tone, message }), [setNotice]);
   const aoImportar = useCallback(() => setImportacoes((n) => n + 1), []);
+  // Quantos blocos estão lançando agora: trocar os arquivos no meio apagaria a confirmação.
+  const [lancando, setLancando] = useState(0);
+  const aoMudarLancamento = useCallback((ativo: boolean) => setLancando((n) => Math.max(0, n + (ativo ? 1 : -1))), []);
 
   function escolher(lista: FileList | null) {
     if (!lista?.length) return;
@@ -42,14 +45,15 @@ export function ExtratoRh() {
             style={{ display: "none" }}
             onChange={(e) => escolher(e.target.files)}
           />
-          <Button onClick={() => inputRef.current?.click()} leadingIcon={<Upload size={14} />}>
-            Selecionar PDF(s) do extrato
+          <Button onClick={() => inputRef.current?.click()} leadingIcon={<Upload size={14} />} disabled={lancando > 0}
+            title={lancando > 0 ? "Espere o lançamento terminar para escolher outros arquivos" : undefined}>
+            {lancando > 0 ? "Lançando…" : "Selecionar PDF(s) do extrato"}
           </Button>
         </div>
       </div>
 
       {escolhidos.map((e) => (
-        <ExtratoRhArquivo key={e.chave} arquivo={e.arquivo} onImportado={aoImportar} onNotice={avisar} />
+        <ExtratoRhArquivo key={e.chave} arquivo={e.arquivo} onImportado={aoImportar} onNotice={avisar} onLancando={aoMudarLancamento} />
       ))}
 
       <ExtratosGuardados recarregar={importacoes} onErro={erroDaLista} />

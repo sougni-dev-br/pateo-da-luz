@@ -3,7 +3,7 @@
 // pelo total da apuração (salário ÷ 30 × dias + gorjeta − vales).
 // O salário combinado se cadastra em Funcionários; aqui só aparece o efeito.
 import { AlertTriangle, FileText, RefreshCw } from "lucide-react";
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import {
   type SincronizacaoSalariosCombinados, type TipFolhaLiquidos, type TipLinhaFolha, getTipFolhaLiquidos, sincronizarSalariosCombinados,
 } from "../../api/client";
@@ -13,7 +13,7 @@ import { COLUNAS_OPCIONAIS_PDF, type ModoImpressaoFolha, gerarPdfFolhaLiquidos }
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { fmtDate, money, mutedStyle, panelStyle } from "./gorjetaUtils";
 import { SEM_DADOS_BANCARIOS, linhasDadosBancarios } from "./dadosBancarios";
-import { ApelidosContext, NomePessoa, textoPessoa } from "./NomePessoa";
+import { ApelidosContext, NomePessoa, nomeProprio, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 
 type Props = {
@@ -100,11 +100,20 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
   // A folha só traz o nome: o apelido vem do cadastro, pelo funcionário.
   const apelidos = useContext(ApelidosContext);
 
+  // Só a resposta do último pedido vale: trocar de mês no meio não deixa a folha (nem o PDF) com o mês anterior.
+  const pedido = useRef(0);
   async function carregar() {
-    try { setFolha(await getTipFolhaLiquidos(year, month)); } catch (e) { onNotice("error", (e as Error).message); }
+    const vez = ++pedido.current;
+    try {
+      const f = await getTipFolhaLiquidos(year, month);
+      if (vez === pedido.current) setFolha(f);
+    } catch (e) {
+      if (vez === pedido.current) onNotice("error", (e as Error).message);
+    }
   }
+  // carregar e onNotice mudam a cada render; o que dispara a recarga é a competência e a versão.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void carregar(); setSincronizacao(null); }, [year, month, versao]);
+  useEffect(() => { setFolha(null); setSincronizacao(null); void carregar(); }, [year, month, versao]);
 
   async function atualizarSalarios() {
     setSincronizando(true);
@@ -204,10 +213,10 @@ export function FolhaLiquidos({ year, month, canEdit, liberada, versao, onNotice
                 <Table.Td style={{ fontWeight: 700 }}>{money(doGrupo.reduce((a, l) => a + l.valor, 0))}</Table.Td>
                 {depoisDoValor > 0 && <Table.Td colSpan={depoisDoValor} />}
               </Table.Row>,
-              ...doGrupo.map((l) => (
-                <Table.Row key={`${g}-${l.employeeId ?? l.nome}`}>
+              ...doGrupo.map((l, i) => (
+                <Table.Row key={`${g}-${l.employeeId ?? l.nome}-${i}`}>
                   <Table.Td style={{ textAlign: "left" }}>
-                    <NomePessoa nome={l.nome} employeeId={l.employeeId} apelido={apelidoDe(l)} />
+                    <NomePessoa nome={nomeProprio(l.nome)} employeeId={l.employeeId} apelido={apelidoDe(l)} />
                     {l.aviso && (
                       <div style={{ ...mutedStyle, color: "var(--warning, #b45309)", display: "flex", gap: 4, alignItems: "center" }}>
                         <AlertTriangle size={12} aria-hidden="true" /> <span>{l.aviso}</span>

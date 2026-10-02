@@ -92,6 +92,19 @@ describe("afastamento não remunerado no salário de quem não tem registro", ()
     expect(r.totalAPagar).toBe(866.7);
   });
 
+  test("fevereiro inteiro afastada: salário zero (não paga 30 − 28 = 2 diárias)", () => {
+    const fev = { ...REGRAS, mesSalario: { start: d("2027-02-01"), end: d("2027-02-28") } };
+    const r = calcularParticipante(fev, semReg({ afastamentoSalario: 28 }), VALOR_PONTO);
+    expect(r.diasSalario).toBe(0);
+    expect(r.salarioProporcional).toBe(0);
+  });
+
+  test("mês de 31 dias com afastamento só até o dia 30: o desconto segue a regra de 30 dias", () => {
+    const out = { ...REGRAS, mesSalario: { start: d("2026-10-01"), end: d("2026-10-31") } };
+    const r = calcularParticipante(out, semReg({ afastamentoSalario: 30 }), VALOR_PONTO);
+    expect(r.diasSalario).toBe(0);
+  });
+
   test("gorjeta integral não devolve o salário: os dias continuam descontando", () => {
     const r = calcularParticipante({ ...REGRAS, descontaAfastamento: false }, semReg({ afastamento: 20, afastamentoSalario: 20 }), VALOR_PONTO);
     expect(r.salarioProporcional).toBe(866.7);

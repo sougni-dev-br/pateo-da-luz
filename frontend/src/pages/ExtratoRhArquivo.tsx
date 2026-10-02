@@ -24,10 +24,12 @@ type Props = {
   arquivo: File;
   onImportado: () => void;
   onNotice: (tone: "success" | "error", message: string) => void;
+  /** Avisa o pai quando começa e termina um lançamento. */
+  onLancando?: (ativo: boolean) => void;
 };
 
 // Um PDF do Retorno do RH: lê, mostra a prévia e lança — cada empresa no seu bloco.
-export function ExtratoRhArquivo({ arquivo, onImportado, onNotice }: Props) {
+export function ExtratoRhArquivo({ arquivo, onImportado, onNotice, onLancando }: Props) {
   const [busy, setBusy] = useState(true);
   const [importing, setImporting] = useState(false);
   const [base64, setBase64] = useState("");
@@ -48,7 +50,6 @@ export function ExtratoRhArquivo({ arquivo, onImportado, onNotice }: Props) {
         const p = await previewExtratoRh(b64);
         if (!montado.current) return;
         setPreview(p);
-        onNotice("success", `${arquivo.name} lido: ${p.items.length} funcionário(s), ${p.matchedCount} casaram com o cadastro.`);
       } catch (e) {
         if (montado.current) setErroLeitura((e as Error).message);
       } finally {
@@ -63,17 +64,20 @@ export function ExtratoRhArquivo({ arquivo, onImportado, onNotice }: Props) {
     if (!preview || !base64) return;
     if (!window.confirm(confirmacaoImportar(preview))) return;
     setImporting(true);
+    onLancando?.(true);
     try {
       const r = await importExtratoRh(base64, arquivo.name || "extrato.pdf");
+      // Lançado no servidor: a lista e o aviso do pai valem mesmo que este bloco já tenha saído da tela.
+      onImportado();
+      onNotice("success", `${preview.empresa || arquivo.name}: ${resumoImportacao(r)}` + (r.funcionariosCadastrados > 0 ? ` ${r.funcionariosCadastrados} funcionário(s) cadastrado(s).` : ""));
       if (!montado.current) return;
       setResult(r);
       setAvisosImportacao(avisosSoDaImportacao(r, preview));
-      onImportado();
-      onNotice("success", resumoImportacao(r) + (r.funcionariosCadastrados > 0 ? ` ${r.funcionariosCadastrados} funcionário(s) cadastrado(s).` : ""));
       await refazerPrevia();
     } catch (e) {
       onNotice("error", (e as Error).message);
     } finally {
+      onLancando?.(false);
       if (montado.current) setImporting(false);
     }
   }
@@ -98,7 +102,12 @@ export function ExtratoRhArquivo({ arquivo, onImportado, onNotice }: Props) {
         <span style={{ color: "var(--muted)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}><FileUp size={14} /> {arquivo.name}</span>
       </div>
 
-      {busy && <span style={{ color: "var(--muted)", fontSize: 13 }}>Lendo…</span>}
+      {busy && <span role="status" style={{ color: "var(--muted)", fontSize: 13 }}>Lendo…</span>}
+      {preview && !result && (
+        <span role="status" style={{ color: "var(--muted)", fontSize: 13 }}>
+          Lido: {preview.items.length} funcionário(s), {preview.matchedCount} casaram com o cadastro.
+        </span>
+      )}
       {erroLeitura && <Alert tone="error">{erroLeitura}</Alert>}
 
       {preview && (

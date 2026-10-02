@@ -125,15 +125,24 @@ export function conferir(
   // CLT desligado no mês: a gorjeta saiu na rescisão. Fora do extrato não é falta;
   // estando nele, confere com a apuração como os demais.
   const naRescisao = new Map(apuracao.filter((p) => p.noPeriodo && !p.semRegistro && p.pagoNaRescisao).map((p) => [p.employeeId, p]));
+  const conferidosNaRescisao = new Set<string>();
+  const outroExtratoComGorjeta = (id: string, atual: ExtratoEmpresa) =>
+    extratos.some((x) => x !== atual && x.linhas.some((l) => l.employeeId === id && !aConfirmar(l) && (l.gorjeta ?? 0) > 0));
   for (const e of extratos) {
     for (const l of e.linhas) {
       if (l.employeeId && naApuracao.has(l.employeeId)) continue;
       const resc = l.employeeId && !aConfirmar(l) ? naRescisao.get(l.employeeId) : undefined;
       if (resc) {
+        // Uma linha por pessoa: se ela aparece em dois extratos, vale o primeiro com gorjeta.
+        if (conferidosNaRescisao.has(resc.employeeId)) continue;
+        if ((l.gorjeta ?? 0) <= 0 && outroExtratoComGorjeta(resc.employeeId, e)) continue;
+        conferidosNaRescisao.add(resc.employeeId);
         const valor = l.gorjeta ?? 0;
         const dif = round2(valor - resc.gorjetaLiquida);
+        // Com salário combinado a gorjeta do extrato completa o salário: não se compara, como nos demais CLT.
+        const st: StatusConferencia = combinados.has(resc.employeeId) ? "SALARIO_COMBINADO" : Math.abs(dif) < 0.01 ? "OK" : "DIVERGE";
         saida.push({ chave: resc.employeeId, employeeId: resc.employeeId, nome: resc.nome, empresa: e.empresa,
-          apuracao: resc.gorjetaLiquida, extrato: valor, diferenca: dif, ...aceita(resc.employeeId, Math.abs(dif) < 0.01 ? "OK" : "DIVERGE"), naRescisao: true });
+          apuracao: resc.gorjetaLiquida, extrato: valor, diferenca: dif, ...aceita(resc.employeeId, st), naRescisao: true });
         continue;
       }
       const chave = l.employeeId ?? `extrato:${l.nome}`;

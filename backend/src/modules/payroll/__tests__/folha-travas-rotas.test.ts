@@ -14,6 +14,7 @@ vi.mock("../../../config/database.js", () => {
     paymentMethod: { findUnique: vi.fn() },
     companyBankAccount: { findFirst: vi.fn() },
     vtFaltaDeduction: { createMany: vi.fn() },
+    employeeScheduleDay: { findMany: vi.fn(async () => []) },
     $executeRaw: vi.fn(),
     $transaction: vi.fn(),
   };
@@ -246,6 +247,18 @@ describe("PATCH /payroll/:id/restore — restaurar não pode criar duplicidade",
     expect(r.status).toBe(409);
     expect(r.body.code).toBe("DUPLICIDADE");
     expect(db.payrollItem.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /payroll/vacation — por cima de afastamento", () => {
+  test("dias já marcados como afastamento não remunerado: 409, nada criado", async () => {
+    itens = [];
+    db.employeeScheduleDay.findMany.mockResolvedValueOnce([{ date: d("2026-09-14") }, { date: d("2026-09-15") }]);
+    const r = await request(app).post("/payroll/vacation").send({ employeeId: "e1", startDate: "2026-09-14", endDate: "2026-09-28", amount: 3000 });
+    expect(r.status).toBe(409);
+    expect(r.body.message).toContain("afastamento não remunerado");
+    expect(r.body.message).toContain("14/09 a 15/09");
+    expect(db.payrollItem.create).not.toHaveBeenCalled();
   });
 });
 

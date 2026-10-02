@@ -282,8 +282,12 @@ function salarioSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo): { di
   const corridos = diasEntre(janela.start, janela.end);
   const elegiveis = diasElegiveis(janela, p.admissao, p.desligamento);
   const base = elegiveis >= corridos ? 30 : Math.min(30, elegiveis);
-  const naoTrabalhados = (p.faltasSalario ?? p.faltas) + (p.afastamentoSalario ?? p.afastamento ?? 0);
-  const dias = p.diasSalarioOverride ?? Math.max(0, base - naoTrabalhados);
+  const afastado = p.afastamentoSalario ?? p.afastamento ?? 0;
+  const naoTrabalhados = (p.faltasSalario ?? p.faltas) + afastado;
+  // Afastado em todos os dias do vínculo no mês não recebe nada — sem isto, fevereiro
+  // inteiro afastado pagaria 2 diárias (30 − 28).
+  const mesTodoAfastado = elegiveis > 0 && afastado >= elegiveis;
+  const dias = p.diasSalarioOverride ?? (mesTodoAfastado ? 0 : Math.max(0, base - naoTrabalhados));
   // Mês cheio paga o salário inteiro; proporcional é a diária arredondada × dias,
   // como o RH faz à mão (2.200 ÷ 30 = 73,33; 9 dias = 659,97, não 660,00).
   if (dias >= 30) return { dias, valor: round2(p.salarioBase) };
