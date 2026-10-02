@@ -22,7 +22,7 @@ import { PainelFiltros } from "./payables/PainelFiltros";
 import { ResumoKpis, type CartaoResumo } from "./payables/ResumoKpis";
 import {
   addDaysKey, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dateKey,
-  isExtra, isPayroll, isSimpleLedger, isTaxPayment, juntarVencidosAnteriores, minDateKey, rotuloPeriodo, somarValores, todayKey,
+  isExtra, isPayroll, isSimpleLedger, isTaxPayment, juntarVencidosAnteriores, minDateKey, periodoChegaAHoje, rotuloPeriodo, somarValores, todayKey,
   type FiltrosPagar
 } from "./payables/regras";
 import { ConfirmaBaixaDuplicada } from "./payables/ConfirmaBaixaDuplicada";
@@ -136,7 +136,7 @@ export function Payables({ user }: PayablesProps) {
       // Vencido não pago aparece sempre, mesmo de antes do período (ex.: rescisão que
       // venceu no mês passado com a tela em "Mês atual"). Só quando o status pedido
       // admite vencidos.
-      const buscaVencidos = !noDueDateFlag && Boolean(activePeriod.startDate)
+      const buscaVencidos = !noDueDateFlag && Boolean(activePeriod.startDate) && periodoChegaAHoje(activePeriod.endDate, todayKey())
         && (!activeFilters.status || activeFilters.status === "OVERDUE");
       const vencidosAntes = (extra: Record<string, string | undefined>) => buscaVencidos
         ? getPayables({ ...extra, status: "OVERDUE", endDate: activePeriod.startDate, origin: orig })
