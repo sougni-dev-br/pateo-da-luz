@@ -7,10 +7,10 @@
 //   npx tsx scripts/importar-planilha-gorjeta.ts <planilha.xlsx> [--reserva "Ricardo Almeida"] [--acertos acertos.json] [--aplicar [--producao]]
 //
 // --acertos: decisões do RH que valem mais que a planilha, por nome da planilha:
-//   [{ "nome": "Victoria Alves dos Anjos", "vinculo": "CLT", "empresa": "Pateo Frei" },
-//    { "nome": "Janete Cristina de Oliveira", "vinculo": "sem registro" },
-//    { "nome": "Lidiane Souza Felipe", "salario": 2600 },
-//    { "nome": "Elenice Tais", "cadastro": "Elenice Alves" }]
+//   [{ "nome": "Fulana Alves de Tal", "vinculo": "CLT", "empresa": "Pateo Frei" },
+//    { "nome": "Beltrana Cristina de Souza", "vinculo": "sem registro" },
+//    { "nome": "Sicrana Souza Lima", "salario": 2600 },
+//    { "nome": "Joana Tais", "cadastro": "Joana Alves" }]
 //   Só aqui o importador altera salário; sem acerto, divergência de salário é só listada.
 //
 // Casa o funcionário pelo nome completo (sem acento, sem caixa, ignorando "de/da/do").
@@ -55,7 +55,7 @@ const { host: destino } = conferirDestino(args, process.env.DATABASE_URL);
 console.log(`Banco de destino: ${destino}${aplicar ? " (GRAVANDO)" : " (simulação)"}`);
 if (process.env.TZ !== "UTC") console.warn("Aviso: rode com TZ=UTC (as datas de produção são em UTC).");
 
-// cadastro: o nome como está no ERP, quando a planilha escreve diferente ("Elenice Tais" → "Elenice Alves").
+// cadastro: o nome como está no ERP, quando a planilha escreve diferente ("Joana Tais" → "Joana Alves").
 type Acerto = { nome: string; cadastro?: string; vinculo?: "CLT" | "sem registro"; empresa?: string; salario?: number };
 function lerAcertos(caminho: string | null): Acerto[] {
   if (!caminho) return [];
@@ -94,7 +94,7 @@ const data = (c: ExcelJS.Cell) => {
   const v = valor(c);
   return v instanceof Date && !isNaN(v.getTime()) ? v : null;
 };
-// Palavras que a planilha e o cadastro escrevem de jeitos diferentes ("Jodeni Pereira de Oliveira").
+// Palavras que a planilha e o cadastro escrevem de jeitos diferentes ("Fulano Pereira de Souza").
 const LIGACOES = new Set(["de", "da", "do", "das", "dos", "e"]);
 const tokens = (s: string) => norm(s).split(" ").filter((t) => t && !LIGACOES.has(t));
 

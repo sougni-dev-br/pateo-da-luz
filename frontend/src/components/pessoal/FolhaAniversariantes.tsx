@@ -78,10 +78,10 @@ export function primeiroNome(b: EmployeeBirthday) {
   return (b.firstName ?? "").trim().split(/\s+/)[0] ?? "";
 }
 
-// Filho, Júnior, Neto, Sobrinho… acompanham o sobrenome que vem antes ("Viana Sobrinho").
+// Filho, Júnior, Neto, Sobrinho… acompanham o sobrenome que vem antes ("Prado Sobrinho").
 const AGNOMES = new Set(["filho", "filha", "junior", "júnior", "jr", "jr.", "neto", "neta", "sobrinho", "sobrinha", "segundo", "terceiro"]);
 
-// Último sobrenome: "Feitoza Lima" → "Lima"; "Sales Viana Sobrinho" → "Viana Sobrinho".
+// Último sobrenome: "Souza Lima" → "Lima"; "Rocha Prado Sobrinho" → "Prado Sobrinho".
 export function ultimoSobrenome(sobrenome: string | null | undefined): string {
   const partes = (sobrenome ?? "").trim().split(/\s+/).filter(Boolean);
   if (partes.length === 0) return "";

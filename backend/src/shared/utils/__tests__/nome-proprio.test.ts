@@ -57,13 +57,13 @@ describe("casos que a regra não pode estragar", () => {
 describe("sobrenome e acentos do nome completo", () => {
   test("sobrenome continua o nome: partícula no começo fica minúscula", () => {
     expect(nomeProprio("DA SILVA", { continuacao: true })).toBe("da Silva");
-    expect(nomeProprio("DE SOUZA FERREIRA", { continuacao: true })).toBe("de Souza Ferreira");
+    expect(nomeProprio("DE MOURA PRADO", { continuacao: true })).toBe("de Moura Prado");
   });
 
   test("acento vem do nome completo só para a mesma palavra", () => {
-    expect(acentosDoNomeCompleto("Mendes Goncalves", "Fulana Mendes Gonçalves")).toBe("Mendes Gonçalves");
+    expect(acentosDoNomeCompleto("Mota Goncalves", "Fulana Mota Gonçalves")).toBe("Mota Gonçalves");
     expect(acentosDoNomeCompleto("Joao da Silva", "João da Silva Souza")).toBe("João da Silva");
-    expect(acentosDoNomeCompleto("Mendes Goncalves", null)).toBe("Mendes Goncalves");
+    expect(acentosDoNomeCompleto("Mota Goncalves", null)).toBe("Mota Goncalves");
     expect(acentosDoNomeCompleto("Ana Paula", "Ana Pâmela")).toBe("Ana Paula");
   });
 });

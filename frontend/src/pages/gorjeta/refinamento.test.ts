@@ -23,11 +23,11 @@ describe("datas no fuso de quem usa", () => {
 describe("pendências agrupadas", () => {
   test("saídas sem valor viram um item; o resto continua como veio", () => {
     const r = agrupar([
-      "Analia de Jesus Santos: saiu em 16/09 e falta o valor da rescisão. Em \"Rescisões do período\", digite…",
-      "Luiz Felipe: saiu em 14/09 e falta o valor da rescisão. Em \"Rescisões do período\", digite…",
+      "Fulana de Jesus Lima: saiu em 16/09 e falta o valor da rescisão. Em \"Rescisões do período\", digite…",
+      "Paulo Henrique: saiu em 14/09 e falta o valor da rescisão. Em \"Rescisões do período\", digite…",
       "As cotas fixas passam do líquido.",
     ]);
-    expect(r.saidas).toEqual([{ nome: "Analia de Jesus Santos", dia: "16/09" }, { nome: "Luiz Felipe", dia: "14/09" }]);
+    expect(r.saidas).toEqual([{ nome: "Fulana de Jesus Lima", dia: "16/09" }, { nome: "Paulo Henrique", dia: "14/09" }]);
     expect(r.outras).toEqual(["As cotas fixas passam do líquido."]);
   });
 });

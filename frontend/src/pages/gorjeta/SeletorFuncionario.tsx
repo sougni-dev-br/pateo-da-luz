@@ -46,7 +46,7 @@ export function SeletorFuncionario({ pessoas, valor, onEscolher, autoFoco }: Pro
 
   const lista = useMemo(() => {
     const termo = semAcento(busca.trim());
-    // Várias palavras, em qualquer ordem: "ana ros" acha "Maria Rosana".
+    // Várias palavras, em qualquer ordem: "ana ros" acha "Rosa Mariana".
     const palavras = termo.split(/\s+/).filter(Boolean);
     const recentes = lerRecentes();
     const filtradas = pessoas.filter((p) => {

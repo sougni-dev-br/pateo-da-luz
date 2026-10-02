@@ -45,7 +45,7 @@ describe("presença", () => {
     expect(r.rateio).toBe(745.32); // Janete na planilha
   });
 
-  test("desligada em 16/09 com 2 faltas: 18 previstos, 16 computados, 3,11 pontos (Analia)", () => {
+  test("desligada em 16/09 com 2 faltas: 18 previstos, 16 computados, 3,11 pontos (Fulana)", () => {
     const r = calcularParticipante(SETEMBRO, pessoa({ basePoints: 3.5, desligamento: d("2026-09-16"), faltas: 2 }), VALOR_PONTO);
     expect(r.diasElegiveis).toBe(22);
     expect(r.diasPrevistos).toBe(18);
@@ -184,7 +184,7 @@ describe("sem registro", () => {
     expect(r.salarioProporcional).toBe(996.71); // diária 76,67 × 13 (a diária é arredondada antes)
   });
 
-  test("diária arredondada × dias, como o RH faz: Luiz Felipe, 02/09 a 12/09 com 2 faltas", () => {
+  test("diária arredondada × dias, como o RH faz: Paulo Henrique, 02/09 a 12/09 com 2 faltas", () => {
     const r = calcularParticipante(SETEMBRO, pessoa({
       semRegistro: true, salarioBase: 2200, admissao: d("2026-09-02"), desligamento: d("2026-09-12"), faltas: 2, atestados: 1,
     }), VALOR_PONTO);
@@ -200,7 +200,7 @@ describe("sem registro", () => {
 
 describe("rescisões abatidas da apuração", () => {
   test("o que a rescisão levou sai do líquido e os pontos dela saem dos 100", () => {
-    // Analia: 3,11 pts × R$ 80 (serviço de 10.000 até a saída) = 248,80
+    // Fulana: 3,11 pts × R$ 80 (serviço de 10.000 até a saída) = 248,80
     const res = calcularRateio(SETEMBRO, [
       pessoa({ basePoints: 3.5, desligamento: d("2026-09-16"), faltas: 2, rescisaoServicoBruto: 10000 }),
       pessoa({ basePoints: 10 }),
@@ -322,7 +322,7 @@ describe("rescisões abatidas da apuração", () => {
 
 describe("parte de quem saiu: fica com quem continua × vai para o livre", () => {
   const SALDO: RegrasPeriodo = { ...SETEMBRO, sobraRescisaoParaSaldo: true };
-  // Analia (rescisão calculada, 3,11 pts × R$ 80), uma quitada medida pela saída
+  // Fulana (rescisão calculada, 3,11 pts × R$ 80), uma quitada medida pela saída
   // (direito 4 pts × R$ 80 = 320, pagou 160) e duas pessoas que ficam, uma com faltas.
   const equipe = () => [
     pessoa({ basePoints: 3.5, desligamento: d("2026-09-16"), faltas: 2, rescisaoServicoBruto: 10000 }),
@@ -590,15 +590,15 @@ describe("adiantamento salarial de sem registro", () => {
 const round = (v: number) => Math.round(v * 100) / 100;
 
 describe("saiu depois do fim do ciclo, com o termo de rescisão já importado no período", () => {
-  // Luiz Moreno: ciclo 26/08→25/09, saída 29/09. O termo pagou R$ 489,30 de gorjeta =
+  // Carlos Barreto: ciclo 26/08→25/09, saída 29/09. O termo pagou R$ 489,30 de gorjeta =
   // a gorjeta do mês (689,30) menos os vales (200). A lista não pode pagar de novo.
-  const luiz = pessoa({
+  const carlos = pessoa({
     basePoints: 3.1, desligamento: d("2026-09-29"), rescisaoValorFixo: 489.3,
     vales: [{ type: "ADIANTAMENTO", amount: 100 }, { type: "ADIANTAMENTO", amount: 100 }],
   } as Partial<ParticipanteEntrada>);
 
   test("gorjeta do mês e vales calculados normalmente, mas nada a pagar na lista", () => {
-    const r = calcularParticipante(SETEMBRO, luiz, 222.35);
+    const r = calcularParticipante(SETEMBRO, carlos, 222.35);
     expect(r.tipoCalculo).toBe("MES");
     expect(r.rateio).toBe(689.29);
     expect(r.comissaoLiquida).toBe(489.29);
@@ -607,7 +607,7 @@ describe("saiu depois do fim do ciclo, com o termo de rescisão já importado no
   });
 
   test("sem o termo importado, continua a pagar na lista", () => {
-    const r = calcularParticipante(SETEMBRO, { ...luiz, rescisaoValorFixo: null }, 222.35);
+    const r = calcularParticipante(SETEMBRO, { ...carlos, rescisaoValorFixo: null }, 222.35);
     expect(r.pagoNaRescisao).toBe(false);
     expect(r.totalAPagar).toBe(489.29);
   });
