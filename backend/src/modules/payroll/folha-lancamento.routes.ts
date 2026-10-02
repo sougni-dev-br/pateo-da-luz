@@ -149,6 +149,13 @@ folhaLancamentoRouter.post("/", async (request, response) => {
 
   const dre = await prisma.dRECategory.findFirst({ where: { name: lido.tipo === "VALE_TRANSPORTE" ? VT_CATEGORY : FOLHA_CATEGORY } });
   const vencimento = lido.vencimento ?? periodo.vencimento;
+  // O vencimento posiciona o título no Contas a Pagar (e o mês dele no caixa): mês travado
+  // também recusa, não só o da competência.
+  try {
+    await assertPeriodWritableForDate(vencimento, "Vencimento de lancamento manual de folha");
+  } catch (error) {
+    return response.status(400).json({ message: error instanceof Error ? error.message : "Período do vencimento fechado." });
+  }
 
   let criado: { id: string; periodLabel: string };
   try {

@@ -11,7 +11,7 @@ import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
 import { avisosDoExtrato, guardarExtrato, preencherAdmissaoCarteira } from "./rh-extract-store.service.js";
 import { aposSaida, duplicadosDe, ehComplemento } from "./folha-duplicidade.js";
 import { avisoGorjetaPendente, gorjetasDaCompetencia, mapaCombinados } from "./salario-combinado.service.js";
-import { type GorjetaDaApuracao, salarioDaFolha } from "./salario-combinado-folha.js";
+import { type GorjetaDaApuracao, gorjetaDaPessoa, salarioDaFolha } from "./salario-combinado-folha.js";
 
 export type ExtratoFuncionario = {
   nome: string;
@@ -357,7 +357,7 @@ export async function importExtrato(opts: {
         avisosDaImportacao.push(`Não foi possível calcular a gorjeta de ${mmaaaa} para os salários combinados: ${(err as Error).message}`);
       }
     }
-    return gorjetas?.get(employeeId) ?? null;
+    return gorjetaDaPessoa(gorjetas, employeeId);
   };
   // Valor e detalhes do lançamento: o líquido do extrato, ou o integral de quem tem combinado.
   const lancamento = async (f: ExtratoFuncionario, empId: string) => {
@@ -407,7 +407,7 @@ export async function importExtrato(opts: {
     const chaveUnica = { employeeId: empId, type: tipo, competenceYear, competenceMonth, periodLabel };
     const existente = await prisma.payrollItem.findUnique({
       where: { employeeId_type_competenceYear_competenceMonth_periodLabel: chaveUnica },
-      select: { id: true, deletedAt: true, deletedById: true },
+      select: { id: true, deletedAt: true, deletedById: true, paymentDate: true },
     });
     if (existente && excluidoAMao(existente)) {
       titulosPulados += 1;
@@ -415,6 +415,12 @@ export async function importExtrato(opts: {
       continue;
     }
     const ativo = Boolean(existente && existente.deletedAt == null);
+    // Já pago: o valor e o detalhe ficam como foram pagos. Reimportar só avisa a diferença.
+    if (ativo && existente!.paymentDate != null) {
+      titulosPulados += 1;
+      avisosDaImportacao.push(`${f.nome}: ${tipo === "ADIANTAMENTO" ? "adiantamento" : "salário"} de ${mmaaaa} já pago: não atualizado (extrato traz ${brl(f.liquido)}).`);
+      continue;
+    }
     // Líquido zero não vira lançamento novo (nem restaura um excluído): fica só no
     // holerite guardado. O lançamento que já está ativo não é apagado: segue sendo
     // atualizado com o valor do extrato, como sempre (inclusive para zero).

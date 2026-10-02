@@ -662,10 +662,17 @@ tipCommissionRouter.delete("/participants/:id", async (request, response) => {
 // Vales: em tip-vales.routes.ts (lançar, corrigir, cancelar, relatório).
 
 // Depois do fechamento gravado: falha aqui (ex.: mês travado) não desfaz o fechamento,
-// vira aviso. Quem não vê Funcionários recebe só quantos salários mudaram.
-async function sincronizarAposFechar(request: Request, year: number, month: number, usuario: { id: string; name: string }) {
+// vira aviso. Quem não vê Funcionários recebe só quantos salários mudaram. Sincronizar
+// grava no SALARIO da Folha: sem a permissão de editar a Folha, fecha sem sincronizar.
+async function sincronizarAposFechar(request: Request, year: number, month: number, usuario: { id: string; name: string; role: string }) {
+  if (!(await userHasPermission(usuario as SessionUser, "payroll", "edit"))) {
+    return {
+      atualizados: 0, detalhes: null, erro: null,
+      aviso: "Salários combinados não atualizados: exige a permissão de editar a Folha. Quem tiver a permissão atualiza pela Folha de líquidos.",
+    };
+  }
   try {
-    const r = await sincronizarSalariosCombinados(year, month, usuario);
+    const r = await sincronizarSalariosCombinados(year, month, { id: usuario.id, name: usuario.name });
     return { atualizados: r.alterados.length, detalhes: (await podeVerDadosPessoais(request)) ? r : null, erro: null };
   } catch (err) {
     return { atualizados: 0, detalhes: null, erro: (err as Error).message };
@@ -685,7 +692,7 @@ tipCommissionRouter.post("/periods/:year/:month/close", async (request, response
       newValue: { registro: result.fechamento?.code ?? null, ...result.totals }, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
     });
     // Fechado o mês, o salário de quem tem salário combinado passa ao valor integral.
-    response.json({ ...result, salariosCombinados: await sincronizarAposFechar(request, year, month, { id: user.id, name: user.name }) });
+    response.json({ ...result, salariosCombinados: await sincronizarAposFechar(request, year, month, { id: user.id, name: user.name, role: user.role }) });
   } catch (err) {
     response.status(422).json({ message: (err as Error).message });
   }

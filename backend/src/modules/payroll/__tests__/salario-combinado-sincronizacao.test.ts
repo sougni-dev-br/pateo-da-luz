@@ -55,8 +55,8 @@ describe("gorjetasDaCompetencia", () => {
       { employeeId: "e1", netCommission: 2223.54 }, { employeeId: "e2", netCommission: 10, tipoCalculo: "FORA_DO_PERIODO" },
     ]));
     const g = await gorjetasDaCompetencia(2026, 9);
-    expect(g?.get("e1")).toEqual({ noPeriodo: true, gorjetaLiquida: 2223.54 });
-    expect(g?.get("e2")).toEqual({ noPeriodo: false, gorjetaLiquida: 10 });
+    expect(g?.get("e1")).toEqual({ noPeriodo: true, gorjetaLiquida: 2223.54, pagoNaRescisao: false });
+    expect(g?.get("e2")).toEqual({ noPeriodo: false, gorjetaLiquida: 10, pagoNaRescisao: false });
   });
 });
 
@@ -152,5 +152,23 @@ describe("sincronizarSalariosCombinados", () => {
     await sincronizarSalariosCombinados(2026, 9, usuario);
     expect(assertPeriodWritableForDate).not.toHaveBeenCalled();
     expect(computeTipCommission).not.toHaveBeenCalled();
+  });
+});
+
+describe("sincronizarSalariosCombinados — auditoria 01/10", () => {
+  test("apuração existe mas a pessoa está fora dela: gorjeta zero, não pendente", async () => {
+    vi.mocked(computeTipCommission).mockResolvedValue(apuracao([{ employeeId: "outro", netCommission: 100 }]));
+    const r = await sincronizarSalariosCombinados(2026, 9, usuario);
+    const upd = db.payrollItem.update.mock.calls[0][0];
+    expect(upd.data.amount).toBe(3731.2);
+    expect(upd.data.details).toMatchObject({ origemValor: "SALARIO_COMBINADO", gorjetaIntegral: 0 });
+    expect(upd.data.details.pendenteGorjeta).toBeUndefined();
+    expect(r.avisos).toEqual([]);
+  });
+
+  test("gorjeta paga na rescisão (pagoNaRescisao): não soma de novo", async () => {
+    vi.mocked(computeTipCommission).mockResolvedValue(apuracao([{ employeeId: "e1", netCommission: 2223.54, pagoNaRescisao: true } as never]));
+    await sincronizarSalariosCombinados(2026, 9, usuario);
+    expect(db.payrollItem.update.mock.calls[0][0].data.amount).toBe(3731.2);
   });
 });

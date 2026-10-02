@@ -263,7 +263,7 @@ describe("DELETE e restaurar rescisão — permissão da Gorjeta e trava", () =>
 });
 
 describe("GET /payroll — salário da rescisão sem ver Funcionários", () => {
-  test("rescisão sai com o details na lista branca; outros tipos como estão", async () => {
+  test("rescisão e salário saem com o details na lista branca; VT como está", async () => {
     vi.mocked(podeVerDadosPessoais).mockResolvedValue(false);
     const employee = { firstName: "Ana", lastName: "Silva", displayName: null, sector: "Salão" };
     db.payrollItem.findMany.mockResolvedValue([
@@ -271,12 +271,15 @@ describe("GET /payroll — salário da rescisão sem ver Funcionários", () => {
         id: "r1", type: "RESCISAO", amount: 400, dueDate: new Date("2099-01-01"), paymentDate: null, employee,
         details: { grupoRescisao: "g1", installmentNumber: 1, installmentTotal: 2, salario: 659.97, apuracaoSistema: { x: 1 }, historicoAjustes: [], valesLabel: "VALE-1" },
       },
-      { id: "s1", type: "SALARIO", amount: 2200, dueDate: new Date("2099-01-01"), paymentDate: null, employee, details: { base: 2200 } },
+      { id: "s1", type: "SALARIO", amount: 2200, dueDate: new Date("2099-01-01"), paymentDate: null, employee, details: { base: 2200, calculo: "MENSAL" } },
+      { id: "v1", type: "VALE_TRANSPORTE", amount: 200, dueDate: new Date("2099-01-01"), paymentDate: null, employee, details: { trajeto: "x" } },
     ]);
     const r = await request(app).get("/payroll?year=2026&month=9");
     expect(r.status).toBe(200);
     expect(r.body.items[0].details).toEqual({ grupoRescisao: "g1", installmentNumber: 1, installmentTotal: 2, valesLabel: "VALE-1" });
-    expect(r.body.items[1].details).toEqual({ base: 2200 });
+    // Salário também passa pela lista branca (auditoria 01/10); VT fica como está.
+    expect(r.body.items[1].details).toEqual({ calculo: "MENSAL" });
+    expect(r.body.items[2].details).toEqual({ trajeto: "x" });
   });
 });
 

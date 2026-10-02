@@ -194,3 +194,46 @@ describe("PassoApuracao — verbas opcionais só para leitura", () => {
     expect(screen.getByText(/Sem salário base vigente/)).toBeInTheDocument();
   });
 });
+
+describe("RescisaoFormulario — sem permissão de ver Funcionários (valores ocultos)", () => {
+  const OCULTAS: VerbasOpcionaisApuracao = {
+    observacao: null,
+    calculo: {
+      ...VERBAS.calculo!,
+      ferias: { ...VERBAS.calculo!.ferias, valor: null },
+      decimoTerceiro: { ...VERBAS.calculo!.decimoTerceiro, valor: null },
+      aviso: { ...VERBAS.calculo!.aviso, valor: null },
+    },
+  } as unknown as VerbasOpcionaisApuracao;
+
+  test("férias, 13º e aviso travados com explicação; só o valor livre habilitado", async () => {
+    vi.mocked(getTerminationInfo).mockResolvedValue(info({ apuracao: apuracao(OCULTAS) }));
+    render(<RescisaoFormulario funcionario={{ id: "e1", nome: "Ana Silva", semRegistro: true }} onGravou={vi.fn()} mostrarApuracao={false} />);
+    const secao = await screen.findByRole("group", { name: /Verbas opcionais/ });
+    expect(within(secao).getByRole("checkbox", { name: /Férias proporcionais/ })).toBeDisabled();
+    expect(within(secao).getByRole("checkbox", { name: /13º proporcional/ })).toBeDisabled();
+    expect(within(secao).getByRole("checkbox", { name: /Aviso prévio/ })).toBeDisabled();
+    expect(within(secao).getByRole("checkbox", { name: /Valor livre/ })).toBeEnabled();
+    expect(within(secao).getByText(/Sem permissão de ver Funcionários/)).toBeInTheDocument();
+  });
+
+  test("ajuste com verba lançada de valor oculto: líquido 'calculado ao lançar', sem decidir quitação", async () => {
+    const lancada = {
+      bruto: 4146.8, salario: 1760, gorjeta: 186.8, vales: 0, vtDesconto: 0, outroDesconto: 0, liquido: 4146.8,
+      outroDescontoRotulo: null, valesRotulo: null, parcelas: [{ id: "r1", rotulo: "Rescisão", valor: 4146.8, vencimento: "2026-09-30", paga: false }],
+      algumaPaga: false, notes: null, ajusteManual: null, historicoAjustes: [],
+      verbasOpcionais: { itens: [{ tipo: "AVISO" as const, rotulo: "Aviso prévio indenizado", valor: null, memoria: null, dias: 30 }], total: null, por: { userId: "u1", nome: "Eli", em: "2026-09-30T10:00:00Z" } },
+    };
+    vi.mocked(getTerminationInfo).mockResolvedValue(info({ alreadyReleased: true, lancada, apuracao: apuracao(OCULTAS) }));
+    render(<RescisaoFormulario funcionario={{ id: "e1", nome: "Ana Silva", semRegistro: true }} onGravou={vi.fn()} mostrarApuracao={false} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Ajustar rescisão" }));
+    // Desconto maior que o visível: sem a verba oculta, o cliente acharia "zero ou negativo".
+    fireEvent.change(screen.getByLabelText("Outro desconto (opcional)"), { target: { value: "300000" } });
+    expect(texto(document.querySelector(".resc-rodape-valor strong")?.textContent)).toBe("calculado ao lançar");
+    expect(screen.queryByText(/líquido fica zero ou negativo/)).toBeNull();
+    // A já marcada pode ser desmarcada.
+    const aviso = screen.getByRole("checkbox", { name: /Aviso prévio indenizado/ });
+    expect(aviso).toBeChecked();
+    expect(aviso).toBeEnabled();
+  });
+});

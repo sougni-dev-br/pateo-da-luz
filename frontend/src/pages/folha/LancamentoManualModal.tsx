@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPayrollItemManual, type Employee, type LancamentoManualFolha } from "../../api/client";
-import { Alert, Button, FormField, FormGrid, PanelEyebrow, Select, TextField, Textarea } from "../../design-system";
+import { Janela } from "../../components/pessoal/extras/Janela";
+import "../../components/pessoal/extras/extras.css";
+import { Alert, Button, FormField, FormGrid, Select, TextField, Textarea } from "../../design-system";
 import { descreverExistente, recusaDaFolha, type RecusaFolha } from "../../lib/folha-duplicidade";
 import { maskMoney, numeroBr } from "../../utils/format";
 
@@ -93,16 +95,12 @@ export function LancamentoManualModal({ employees, year, month, onFechar, onLanc
     ? { ...decisao, complemento: true, motivoComplemento: motivo.trim() }
     : { ...decisao, confirmaAposSaida: true, motivoAposSaida: motivo.trim() });
 
+  // Algo preenchido: Esc e o X perguntam antes de descartar.
+  const preenchido = Boolean(form.employeeId || form.amount || form.notes.trim() || motivo.trim());
+
+  // Mesma janela dos outros modais: Esc fecha, o Tab fica preso dentro e o foco volta a quem abriu.
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="lancamento-manual-titulo">
-      <section className="panel modal-panel">
-        <div className="section-heading">
-          <div>
-            <PanelEyebrow>Folha · lançamento à mão</PanelEyebrow>
-            <h2 id="lancamento-manual-titulo">Lançar pagamento</h2>
-          </div>
-          <Button variant="secondary" onClick={onFechar} disabled={ocupado}>Fechar</Button>
-        </div>
+    <Janela eyebrow="Folha · lançamento à mão" titulo="Lançar pagamento" onFechar={onFechar} ocupado={ocupado} confirmarDescarte={preenchido}>
 
         <p style={{ fontSize: 13, color: "var(--muted)", margin: "0 0 12px" }}>
           Um pagamento por pessoa, tipo e mês (no VT, por quinzena). Se já existir, o sistema mostra o que há e pede o motivo para lançar um complemento.
@@ -173,7 +171,6 @@ export function LancamentoManualModal({ employees, year, month, onFechar, onLanc
             <Button onClick={() => void enviar()} disabled={ocupado}>{ocupado ? "Lançando..." : "Lançar"}</Button>
           )}
         </div>
-      </section>
-    </div>
+    </Janela>
   );
 }

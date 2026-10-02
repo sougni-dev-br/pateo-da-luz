@@ -5,7 +5,7 @@ import type { ApuracaoRescisao } from "../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../context/SessionContext";
 import { HideValuesProvider } from "../../../design-system";
 import { ApuracaoRescisaoPainel } from "../ApuracaoRescisao";
-import { camposDaForma, dicaFormaPagamento, formaPagamentoDe, OPCOES_FORMA_PAGAMENTO } from "../formaPagamento";
+import { camposDaForma, camposDaModalidade, dicaFormaPagamento, formaPagamentoDe, OPCOES_FORMA_PAGAMENTO } from "../formaPagamento";
 import { mudouCampoComHistorico, textoDoValor, type CamposComHistorico } from "../historicoCadastroFormato";
 import { dicaValesRescisao } from "../rescisaoFormato";
 
@@ -27,6 +27,11 @@ describe("forma de pagamento do sem registro (cadastro)", () => {
     expect(camposDaForma("PAGAMENTO")).toEqual({ recebeAdiantamento: false, pagamentoQuinzenal: false });
     expect(camposDaForma("ADIANTAMENTO")).toEqual({ recebeAdiantamento: true, pagamentoQuinzenal: false });
     expect(camposDaForma("QUINZENA")).toEqual({ recebeAdiantamento: false, pagamentoQuinzenal: true });
+  });
+
+  test("mudar para CLT zera a quinzena (o campo some e o backend recusaria); Não-CLT mantém", () => {
+    expect(camposDaModalidade("CLT", { recebeAdiantamento: false, pagamentoQuinzenal: true })).toEqual({ modality: "CLT", pagamentoQuinzenal: false });
+    expect(camposDaModalidade("NAO_CLT", { recebeAdiantamento: false, pagamentoQuinzenal: true })).toEqual({ modality: "NAO_CLT", pagamentoQuinzenal: true });
   });
 
   test("a dica explica o desconto na lista do dia 30", () => {

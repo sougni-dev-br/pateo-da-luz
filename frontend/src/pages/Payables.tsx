@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, FileText, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AppUser, AuditLog, Company, CompanyBankAccount, checkPayrollPayBatch,
   downloadPayablesFinancialPdf, deletePayrollItem, getAllBankAccounts, getCompanies,
@@ -51,10 +51,11 @@ const ATALHOS = [
   { key: "noduedate", label: "Sem vencimento" }
 ] as const;
 
-const FORM_VAZIO: FormBaixa = {
+// Função, não constante: a data é a de hoje na hora de abrir (a tela pode ficar aberta depois da meia-noite).
+const formVazio = (): FormBaixa => ({
   paidDate: todayKey(), paidAmount: "", paidPaymentMethod: "",
   paymentNotes: "", differenceReason: "", payingCompanyId: "", companyBankAccountId: ""
-};
+});
 
 type PayablesProps = { user: AppUser };
 
@@ -87,7 +88,7 @@ export function Payables({ user }: PayablesProps) {
   const [reversing, setReversing] = useState<Payable | null>(null);
   const [reverseReason, setReverseReason] = useState("");
   const [estornando, setEstornando] = useState(false);
-  const [paymentForm, setPaymentForm] = useState<FormBaixa>(FORM_VAZIO);
+  const [paymentForm, setPaymentForm] = useState<FormBaixa>(formVazio);
   // Le o filtro da URL na abertura. Sem isto o alerta do Dashboard levava para
   // esta tela com os filtros padrao, e as parcelas sem vencimento continuavam
   // enterradas — o link existia mas nao resolvia nada.
@@ -104,6 +105,9 @@ export function Payables({ user }: PayablesProps) {
     try { return window.localStorage.getItem(CHAVE_FILTROS_ABERTOS) === "1"; } catch { return false; }
   });
   const canManage = hasPermission(user, "payables", "edit");
+  // Respostas fora de ordem: só vale a última carga pedida e as contas da empresa escolhida por último.
+  const ultimaCarga = useRef(0);
+  const empresaEscolhida = useRef("");
   const { notice, setNotice } = useNotice();
 
   function alternarFiltros() {
@@ -114,6 +118,8 @@ export function Payables({ user }: PayablesProps) {
   }
 
   async function load(filterOverride?: typeof filters, periodOverride?: typeof period) {
+    const carga = ++ultimaCarga.current;
+    const atual = () => carga === ultimaCarga.current;
     setLoading(true);
     setErroCarga(null);
     setPayables([]);
@@ -133,17 +139,19 @@ export function Payables({ user }: PayablesProps) {
         paymentMethods.length ? Promise.resolve(paymentMethods) : getPaymentMethods(),
         companies.length ? Promise.resolve(companies) : getCompanies().catch(() => [] as Company[])
       ]);
+      if (!atual()) return;
       setPayables(payableRows);
       setAllPayables(allRows);
       setSuppliers(supplierRows);
       setPaymentMethods(methodRows);
       setCompanies(companyRows.filter((c) => c.isActive));
     } catch (error) {
+      if (!atual()) return;
       const message = error instanceof Error ? error.message : "Erro ao carregar contas a pagar.";
       setErroCarga(message);
       setNotice({ tone: "error", message });
     } finally {
-      setLoading(false);
+      if (atual()) setLoading(false);
     }
   }
 
@@ -407,6 +415,7 @@ export function Payables({ user }: PayablesProps) {
       if (eff) paidPaymentMethod = `id:${eff.id}`;
     }
     setPaying(payable);
+    empresaEscolhida.current = "";
     setBankAccounts([]);
     setPaymentForm({
       // Vencido: usa o vencimento (nao movimenta o mes da despesa no DRE).
@@ -423,26 +432,49 @@ export function Payables({ user }: PayablesProps) {
   }
 
   async function handleCompanyChange(companyId: string) {
+    empresaEscolhida.current = companyId;
     setPaymentForm((prev) => ({ ...prev, payingCompanyId: companyId, companyBankAccountId: "" }));
-    if (companyId) {
-      try {
-        const accounts = await getAllBankAccounts(companyId);
-        setBankAccounts(accounts);
-        if (accounts.length > 0) {
-          setPaymentForm((prev) => ({ ...prev, companyBankAccountId: accounts[0].id }));
-        }
-      } catch {
-        setBankAccounts([]);
+    setBankAccounts([]);
+    if (!companyId) return;
+    try {
+      const accounts = await getAllBankAccounts(companyId);
+      // Trocou de empresa enquanto as contas desta chegavam: a resposta não vale mais.
+      if (empresaEscolhida.current !== companyId) return;
+      setBankAccounts(accounts);
+      if (accounts.length > 0) {
+        setPaymentForm((prev) => (prev.payingCompanyId === companyId ? { ...prev, companyBankAccountId: accounts[0].id } : prev));
       }
-    } else {
-      setBankAccounts([]);
+    } catch {
+      if (empresaEscolhida.current === companyId) setBankAccounts([]);
     }
+  }
+
+  // O lote começa limpo: nada herdado da última baixa individual (data, forma, empresa, conta, observação).
+  function abrirLote() {
+    empresaEscolhida.current = "";
+    setBankAccounts([]);
+    setPaymentForm(formVazio());
+    setBatchResult(null);
+    setSuspeitosLote(null);
+    setBatchOpen(true);
   }
 
   // ── Baixa em lote ────────────────────────────────────────────────────────
   const podeSelecionar = (p: Payable) => canManage && ["OPEN", "OVERDUE"].includes(p.status);
   const selecionaveis = displayedPayables.filter(podeSelecionar);
   const selecionados = displayedPayables.filter((p) => selectedIds.has(p.id));
+  const idsSelecionaveis = selecionaveis.map((p) => p.id).join("|");
+
+  // Seleção só do que está na tela: filtrou/buscou e o título sumiu, ele sai da seleção.
+  // Durante a carga a lista fica vazia de propósito: não é filtro, a seleção espera.
+  useEffect(() => {
+    if (loading) return;
+    const visiveis = new Set(idsSelecionaveis ? idsSelecionaveis.split("|") : []);
+    setSelectedIds((prev) => {
+      const ficam = [...prev].filter((id) => visiveis.has(id));
+      return ficam.length === prev.size ? prev : new Set(ficam);
+    });
+  }, [idsSelecionaveis, loading]);
   const totalSelecionado = selecionados.reduce((s, p) => s + Number(p.amount ?? 0), 0);
 
   function toggleSelecionado(id: string) {
@@ -453,7 +485,15 @@ export function Payables({ user }: PayablesProps) {
     });
   }
   function toggleTodos() {
-    setSelectedIds((prev) => (prev.size === selecionaveis.length ? new Set() : new Set(selecionaveis.map((p) => p.id))));
+    const visiveis = selecionaveis.map((p) => p.id);
+    setSelectedIds((prev) => {
+      const todos = visiveis.length > 0 && visiveis.every((id) => prev.has(id));
+      const next = new Set(prev);
+      for (const id of visiveis) {
+        if (todos) next.delete(id); else next.add(id);
+      }
+      return next;
+    });
   }
   function alternarGrupo(ids: string[], marcar: boolean) {
     setSelectedIds((prev) => {
@@ -684,7 +724,8 @@ export function Payables({ user }: PayablesProps) {
   const descricaoPeriodo = filters.noDueDate
     ? "Sem vencimento"
     : `${rotuloPeriodo(period.preset)} · ${formatDate(period.startDate)} a ${formatDate(period.endDate)}`;
-  const todosMarcados = selecionaveis.length > 0 && selectedIds.size === selecionaveis.length;
+  const todosMarcados = selecionaveis.length > 0 && selecionaveis.every((p) => selectedIds.has(p.id));
+  const algumMarcado = selecionaveis.some((p) => selectedIds.has(p.id));
 
   return (
     <section className="panel pg-tela">
@@ -782,7 +823,7 @@ export function Payables({ user }: PayablesProps) {
             type="checkbox"
             className="pg-check"
             checked={todosMarcados}
-            ref={(el) => { if (el) el.indeterminate = selectedIds.size > 0 && !todosMarcados; }}
+            ref={(el) => { if (el) el.indeterminate = algumMarcado && !todosMarcados; }}
             onChange={toggleTodos}
             aria-label={`Selecionar todos em aberto (${selecionaveis.length})`}
             title={`Selecionar todos em aberto (${selecionaveis.length})`}
@@ -844,7 +885,7 @@ export function Payables({ user }: PayablesProps) {
           </span>
           <span className="pg-selecao-acoes">
             <Button variant="secondary" size="sm" onClick={() => setSelectedIds(new Set())}>Limpar</Button>
-            <Button size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={() => { setBatchResult(null); setBatchOpen(true); }}>
+            <Button size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={abrirLote}>
               Baixar selecionados
             </Button>
           </span>
@@ -904,6 +945,7 @@ export function Payables({ user }: PayablesProps) {
           notice={notice}
           excluirMotivo={excluirMotivo}
           excluindo={excluindo}
+          podeGerir={canManage}
           onMotivo={setExcluirMotivo}
           onExcluir={() => void submitExcluirFolha()}
           onFechar={fecharDetalheSimples}

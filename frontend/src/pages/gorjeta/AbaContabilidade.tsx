@@ -53,7 +53,18 @@ const COLUNAS: ColunaOpcional[] = [
 ];
 // A Situação não se oculta: é nela que ficam aceitar, confirmar a pessoa e desfazer.
 const totalTd: CSSProperties = { fontWeight: 700, borderTop: "2px solid var(--line-strong, #c8d0da)" };
-const soma = (l: TipLinhaConferencia[], v: (x: TipLinhaConferencia) => number | null) => l.reduce((a, x) => a + (v(x) ?? 0), 0);
+const soma = (l: TipLinhaConferencia[], v: (x: TipLinhaConferencia) => number | null | undefined) => l.reduce((a, x) => a + (v(x) ?? 0), 0);
+const OCULTO_TETO = "Gorjeta informada pelo teto do IR: o valor exige permissão de ver Funcionários.";
+/** Total de uma coluna em que alguma linha pelo teto veio sem valor (sem permissão): o total não inclui essas linhas. */
+function TotalComOcultos({ linhas, valor }: { linhas: TipLinhaConferencia[]; valor: (x: TipLinhaConferencia) => number | null | undefined }) {
+  const ocultos = linhas.some((l) => l.peloTeto && valor(l) == null);
+  return (
+    <Table.Td style={totalTd}>
+      {money(soma(linhas, valor))}
+      {ocultos && <div style={{ fontSize: 11, fontWeight: 400, color: "var(--muted)" }} title={OCULTO_TETO}>sem os valores ocultos</div>}
+    </Table.Td>
+  );
+}
 
 export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
   const [dados, setDados] = useState<TipConferenciaCompleta | null>(null);
@@ -245,7 +256,7 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
                         {l.peloTeto && <div style={{ fontSize: 11, color: "var(--muted)" }}>pelo teto do IR</div>}
                       </Table.Td>
                     )}
-                    {v("extrato") && <Table.Td>{l.extrato == null ? "—" : money(l.extrato)}</Table.Td>}
+                    {v("extrato") && <Table.Td title={l.peloTeto && l.extrato == null ? OCULTO_TETO : undefined}>{l.extrato == null ? "—" : money(l.extrato)}</Table.Td>}
                     {v("dif") && (
                       <Table.Td style={{ fontWeight: 600, color: l.diferenca && Math.abs(l.diferenca) >= 0.01 && pend ? "var(--danger)" : undefined }}>
                         {l.diferenca == null || Math.abs(l.diferenca) < 0.01 ? "—" : money(l.diferenca)}
@@ -278,9 +289,9 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
                 <Table.Td colSpan={antesDosValores} style={{ ...totalTd, textAlign: "left" }}>
                   {filtrando ? `Total do filtro (${filtradas.length} de ${dados.linhas.length})` : "Total"}
                 </Table.Td>
-                {v("apuracao") && <Table.Td style={totalTd}>{money(soma(filtradas, (l) => l.apuracao))}</Table.Td>}
-                {v("extrato") && <Table.Td style={totalTd}>{money(soma(filtradas, (l) => l.extrato))}</Table.Td>}
-                {v("dif") && <Table.Td style={totalTd}>{money(soma(filtradas, (l) => l.diferenca))}</Table.Td>}
+                {v("apuracao") && <TotalComOcultos linhas={filtradas} valor={(l) => l.apuracao} />}
+                {v("extrato") && <TotalComOcultos linhas={filtradas} valor={(l) => l.extrato} />}
+                {v("dif") && <TotalComOcultos linhas={filtradas} valor={(l) => l.diferenca} />}
                 <Table.Td style={totalTd}> </Table.Td>
               </Table.Row>
             </Table.Body>

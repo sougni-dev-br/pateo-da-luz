@@ -618,8 +618,18 @@ describe("sem registro que saiu depois do fim do ciclo, no mês do salário: tud
   // rescisão paga o mês inteiro (salário, gorjeta do ciclo, vales...) e a lista não paga nada.
   const SET_COM_MES: RegrasPeriodo = { ...SETEMBRO, mesSalario: { start: d("2026-09-01"), end: d("2026-09-30") } };
   const ana = pessoa({
-    semRegistro: true, salarioBase: 2200, desligamento: d("2026-09-29"), rescisaoLancada: true,
+    semRegistro: true, salarioBase: 2200, desligamento: d("2026-09-29"), rescisaoLancada: true, rescisaoTudoNaRescisao: true,
     vales: [{ type: "ADIANTAMENTO", amount: 50 }],
+  });
+
+  // Auditoria 01/10: rescisão lançada sem o marcador "tudo na rescisão" pagou só o período
+  // da saída: a lista do mês paga o mês.
+  test("rescisão lançada SEM o marcador tudoNaRescisao: a lista do mês paga", () => {
+    const r = calcularParticipante(SET_COM_MES, { ...ana, rescisaoTudoNaRescisao: false }, VALOR_PONTO);
+    expect(r.pagoNaRescisao).toBe(false);
+    expect(r.totalAPagar).toBe(round2(2126.57 + 745.32 - 50));
+    const fora = calcularParticipante(SET_COM_MES, { ...ana, foraDaGorjeta: true, rescisaoTudoNaRescisao: undefined }, VALOR_PONTO);
+    expect(fora.pagoNaRescisao).toBe(false);
   });
 
   test("com a rescisão lançada: MES, pago na rescisão, nada na lista, mas tudo calculado", () => {
