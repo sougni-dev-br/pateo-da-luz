@@ -69,7 +69,7 @@ describe("lista de pagamento: coluna 1ª quinzena (15)", () => {
   test("o resumo do topo e o título da lista mencionam a 1ª quinzena", () => {
     const c = comp([RAFA]);
     render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />);
-    expect(screen.getByText("Lista de pagamento (salário − adiantamento − 1ª quinzena + gorjeta + hora extra)")).toBeTruthy();
+    expect(screen.getByText("Lista de pagamento (salário − adiantamento − 1ª quinzena + gorjeta − vales + créditos + hora extra e noturno)")).toBeTruthy();
     expect(screen.getByText(/sem registro: salário − adiantamento − 1ª quinzena/)).toBeTruthy();
   });
 
@@ -77,7 +77,7 @@ describe("lista de pagamento: coluna 1ª quinzena (15)", () => {
     const c = comp([BIA]);
     render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />);
     expect(screen.queryByRole("columnheader", { name: /1ª quinzena/ })).toBeNull();
-    expect(screen.getByText("Lista de pagamento (salário − adiantamento + gorjeta + hora extra)")).toBeTruthy();
+    expect(screen.getByText("Lista de pagamento (salário − adiantamento + gorjeta − vales + créditos + hora extra e noturno)")).toBeTruthy();
   });
 
   test("respeita \"ocultar valores\"", () => {
