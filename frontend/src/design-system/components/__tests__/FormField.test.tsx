@@ -13,6 +13,15 @@ describe("FormField", () => {
     expect(screen.getByLabelText("Razão social")).toBeInTheDocument();
   });
 
+  test("filho com id próprio continua associado ao label", () => {
+    render(
+      <FormField label="Funcionário">
+        <input id="campo-proprio" />
+      </FormField>
+    );
+    expect(screen.getByLabelText("Funcionário").id).toBe("campo-proprio");
+  });
+
   test("funciona com TextField do DS (id repassado ao input interno)", () => {
     render(
       <FormField label="CNPJ">

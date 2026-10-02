@@ -21,7 +21,7 @@ import { ModalEstorno, ModalHistorico } from "./payables/ModalEstorno";
 import { PainelFiltros } from "./payables/PainelFiltros";
 import { ResumoKpis, type CartaoResumo } from "./payables/ResumoKpis";
 import {
-  addDaysKey, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dataDaBaixaNoLote, dateKey,
+  addDaysKey, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dataDaBaixaNoLote, dateKey, formaDaBaixaNoLote, formaPrevistaDoTitulo, payloadDaForma,
   isExtra, isPayroll, isSimpleLedger, isTaxPayment, juntarVencidosAnteriores, minDateKey, periodoPuxaVencidosAnteriores, rotuloPeriodo, somarValores, todayKey,
   type FiltrosPagar
 } from "./payables/regras";
@@ -107,6 +107,7 @@ export function Payables({ user }: PayablesProps) {
   const gerandoPdfRef = useRef(false);
   // Baixa em lote: cada título vencido baixado na própria data de vencimento (em vez da data única).
   const [loteUsarVencimento, setLoteUsarVencimento] = useState(false);
+  const [loteUsarFormaDoTitulo, setLoteUsarFormaDoTitulo] = useState(false);
   const [filtrosAbertos, setFiltrosAbertos] = useState(() => {
     try { return window.localStorage.getItem(CHAVE_FILTROS_ABERTOS) === "1"; } catch { return false; }
   });
@@ -372,11 +373,10 @@ export function Payables({ user }: PayablesProps) {
   }
 
   function selectedPaymentPayload() {
-    if (paymentForm.paidPaymentMethod.startsWith("id:")) {
-      return { paidPaymentMethodId: paymentForm.paidPaymentMethod.replace("id:", ""), paidPaymentMethodName: null };
-    }
-    return { paidPaymentMethodId: null, paidPaymentMethodName: paymentForm.paidPaymentMethod.replace("name:", "") };
+    return payloadDaForma(paymentForm.paidPaymentMethod);
   }
+
+  const formaPrevista = (p: Payable) => formaPrevistaDoTitulo(p, paymentMethods, effectivePaymentOptions);
 
   function alterarCampo<K extends keyof FormBaixa>(campo: K, valor: FormBaixa[K]) {
     setPaymentForm((prev) => ({ ...prev, [campo]: valor }));
@@ -418,22 +418,7 @@ export function Payables({ user }: PayablesProps) {
   }
 
   function startPayment(payable: Payable) {
-    let paidPaymentMethod = "";
-    // 1) Match pelo paymentMethodId da origem
-    if (payable.paymentMethodId) {
-      const orig = paymentMethods.find((m) => m.id === payable.paymentMethodId);
-      if (orig) {
-        const base = basePaymentName(orig.name);
-        const eff = effectivePaymentOptions.find((o) => o.label === base);
-        if (eff) paidPaymentMethod = `id:${eff.id}`;
-      }
-    }
-    // 2) Fallback pelo nome do método (caso o id não bata)
-    if (!paidPaymentMethod && payable.paymentMethodName) {
-      const base = basePaymentName(payable.paymentMethodName);
-      const eff = effectivePaymentOptions.find((o) => o.label === base);
-      if (eff) paidPaymentMethod = `id:${eff.id}`;
-    }
+    const paidPaymentMethod = formaPrevista(payable);
     setPaying(payable);
     empresaEscolhida.current = "";
     setBankAccounts([]);
@@ -475,6 +460,7 @@ export function Payables({ user }: PayablesProps) {
     setBankAccounts([]);
     setPaymentForm(formVazio());
     setLoteUsarVencimento(false);
+    setLoteUsarFormaDoTitulo(false);
     setBatchResult(null);
     setSuspeitosLote(null);
     setBatchOpen(true);
@@ -558,8 +544,9 @@ export function Payables({ user }: PayablesProps) {
   async function submitBatch(confirmaSuspeitos = false) {
     if (selecionados.length === 0) return;
     if (!paymentForm.paidDate) { setNotice({ tone: "error", message: "Data do pagamento é obrigatória." }); return; }
-    // Impostos usam fluxo simples; os demais exigem forma de pagamento.
-    if (selecionados.some((p) => !isTaxPayment(p)) && !paymentForm.paidPaymentMethod) {
+    // Impostos usam fluxo simples; os demais exigem forma de pagamento (a do título ou a única).
+    const formaDe = (p: Payable) => formaDaBaixaNoLote(loteUsarFormaDoTitulo, formaPrevista(p), paymentForm.paidPaymentMethod);
+    if (selecionados.some((p) => !isTaxPayment(p) && !formaDe(p))) {
       setNotice({ tone: "error", message: "Forma de pagamento é obrigatória." });
       return;
     }
@@ -572,7 +559,6 @@ export function Payables({ user }: PayablesProps) {
     const erros: Array<{ nome: string; motivo: string }> = [];
     let ok = 0;
     const comum = {
-      ...selectedPaymentPayload(),
       paymentNotes: paymentForm.paymentNotes || null,
       differenceReason: null,
       payingCompanyId: paymentForm.payingCompanyId || null,
@@ -585,14 +571,15 @@ export function Payables({ user }: PayablesProps) {
     for (const p of selecionados) {
       const valor = Number(p.amount ?? 0);
       const dataBaixa = dataDaBaixaNoLote(p, loteUsarVencimento, paymentForm.paidDate, hojeLote);
+      const forma = isTaxPayment(p) ? {} : payloadDaForma(formaDe(p));
       const nome = p.supplierName ?? p.taxDocumentType ?? p.id;
       try {
         if (isTaxPayment(p)) {
           await payTaxPayment(p.id, { paymentDate: dataBaixa, paidAmount: valor, comments: paymentForm.paymentNotes || null });
         } else if (isPayroll(p) || isExtra(p)) {
-          await payPessoal(p, { paymentDate: dataBaixa, paidAmount: valor, ...comum, ...(confirmados.has(p.id) ? { confirmaDuplicidade: true } : {}) });
+          await payPessoal(p, { paymentDate: dataBaixa, paidAmount: valor, ...forma, ...comum, ...(confirmados.has(p.id) ? { confirmaDuplicidade: true } : {}) });
         } else {
-          await payInstallment(p.id, { paidDate: dataBaixa, paidAmount: valor, ...comum });
+          await payInstallment(p.id, { paidDate: dataBaixa, paidAmount: valor, ...forma, ...comum });
         }
         ok += 1;
       } catch (error) {
@@ -936,6 +923,9 @@ export function Payables({ user }: PayablesProps) {
           onCampo={alterarCampo}
           usarVencimento={loteUsarVencimento}
           onUsarVencimento={setLoteUsarVencimento}
+          usarFormaDoTitulo={loteUsarFormaDoTitulo}
+          onUsarFormaDoTitulo={setLoteUsarFormaDoTitulo}
+          formaPrevista={formaPrevista}
           onEmpresa={(id) => void handleCompanyChange(id)}
           formas={effectivePaymentOptions}
           companies={companies}
