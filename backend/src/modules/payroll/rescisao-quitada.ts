@@ -7,8 +7,10 @@
 // serve para casar; nunca entra em mensagem nem é gravado.
 import type { ReciboRescisao } from "./tip-trct.service.js";
 
+// modality: o vínculo VIGENTE NA SAÍDA (histórico do cadastro), não o de hoje.
 export type PessoaDoTermo = {
   firstName: string; lastName: string; cpf: string | null; modality: string; terminationDate: Date | null;
+  admissionDate?: Date | null;
 };
 export type AvaliacaoTermo = {
   casadoPor: "CPF" | "NOME" | null;
@@ -47,7 +49,30 @@ function casar(recibo: ReciboRescisao, pessoa: PessoaDoTermo): AvaliacaoTermo["c
   return null;
 }
 
-export function avaliarTermoSemValor(recibo: ReciboRescisao, pessoa: PessoaDoTermo, ctx: { rescisaoViva: boolean }): AvaliacaoTermo {
+// Dias depois de hoje que a data de pagamento do termo ainda pode estar (termo recebido
+// antes do pagamento). Mais que isso é data errada no PDF (ano trocado).
+export const PAGAMENTO_FUTURO_MAX_DIAS = 31;
+
+// A data de pagamento do termo vira a data da baixa: precisa ser um dia de verdade, não
+// antes da admissão e não muito no futuro. null = ok (ou ausente: vale o afastamento).
+export function recusaDaDataDePagamento(pagamento: string | null, admissao: Date | null | undefined, hojeIso: string): string | null {
+  if (pagamento == null) return null;
+  const data = new Date(`${pagamento}T00:00:00.000Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(pagamento) || Number.isNaN(data.getTime()) || isoDia(data) !== pagamento) {
+    return `A data de pagamento do termo (${pagamento}) não é uma data válida. Confira o PDF.`;
+  }
+  if (admissao && pagamento < isoDia(admissao)) {
+    return `A data de pagamento do termo (${dataBr(pagamento)}) é antes da admissão (${dataBr(isoDia(admissao))}). Confira o PDF.`;
+  }
+  const limite = new Date(`${hojeIso}T00:00:00.000Z`);
+  limite.setUTCDate(limite.getUTCDate() + PAGAMENTO_FUTURO_MAX_DIAS);
+  if (pagamento > isoDia(limite)) {
+    return `A data de pagamento do termo (${dataBr(pagamento)}) está muito no futuro (mais de ${PAGAMENTO_FUTURO_MAX_DIAS} dias). Confira o PDF.`;
+  }
+  return null;
+}
+
+export function avaliarTermoSemValor(recibo: ReciboRescisao, pessoa: PessoaDoTermo, ctx: { rescisaoViva: boolean; hojeIso?: string }): AvaliacaoTermo {
   const nome = `${pessoa.firstName} ${pessoa.lastName}`.trim();
   const casadoPor = casar(recibo, pessoa);
   if (!casadoPor) {
@@ -71,6 +96,8 @@ export function avaliarTermoSemValor(recibo: ReciboRescisao, pessoa: PessoaDoTer
     if (!saida) return "Registre a data de saída antes (passo 1).";
     if (ctx.rescisaoViva) return "Rescisão já lançada para este funcionário.";
     if (recibo.liquido == null) return "Não consegui ler o líquido do termo: sem ele não dá para marcar como quitada.";
+    const dataRuim = ctx.hojeIso ? recusaDaDataDePagamento(recibo.pagamento, pessoa.admissionDate, ctx.hojeIso) : null;
+    if (dataRuim) return dataRuim;
     if (Math.abs(recibo.liquido) >= 0.005) {
       return `O termo tem líquido de ${reais(recibo.liquido)}: há o que pagar. Lance a rescisão normal no passo 4.`;
     }

@@ -40,8 +40,11 @@ export function ModalBaixaLote({ selecionados, total, form, onCampo, onEmpresa, 
     if (haSuspeitos) blocoSuspeitos.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
   }, [haSuspeitos]);
 
+  // Depois de enviar a seleção é limpa: o título conta o que foi enviado, não o que sobrou selecionado.
+  const quantidade = resultado ? resultado.ok + resultado.erros.length : selecionados.length;
+
   return (
-    <Janela eyebrow="Baixa em lote" titulo={`Baixar ${selecionados.length} título(s)`} onFechar={onFechar} ocupado={ocupado}>
+    <Janela eyebrow="Baixa em lote" titulo={`Baixar ${quantidade} título(s)`} onFechar={onFechar} ocupado={ocupado}>
       <Notice notice={notice} />
 
       {resultado && resultado.erros.length > 0 ? (

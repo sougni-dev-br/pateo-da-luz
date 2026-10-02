@@ -88,6 +88,10 @@ export type ParticipanteEntrada = {
   rescisaoValorFixo: number | null;
   semRegistro: boolean;
   salarioBase: number | null;
+  // Salário base vigente no dia 15 (1ª quinzena) e no dia do adiantamento: o pagamento sai
+  // com o salário daquele dia. Ausente = salarioBase (o do mês).
+  salarioBaseQuinzena?: number | null;
+  salarioBaseAdiantamento?: number | null;
   diasSalarioOverride: number | null;
   // Faltas dentro do mês do salário (as de 26 a 31 do mês anterior são daquele salário).
   // Ausente = usa as faltas do período.
@@ -100,6 +104,9 @@ export type ParticipanteEntrada = {
   // Rescisão lançada em Contas a Pagar (Folha → rescisão). Sem registro: ela já
   // pagou salário e gorjeta até a saída, então a pessoa sai da lista do mês.
   rescisaoLancada: boolean;
+  // A rescisão lançada é a da regra "tudo na rescisão" (details.tudoNaRescisao): só ela
+  // paga o mês de quem saiu depois do ciclo. Ausente/false = a lista do mês paga.
+  rescisaoTudoNaRescisao?: boolean;
   // Gorjeta real digitada no lugar da calculada (quem está no mês, por pontos).
   gorjetaReal?: number | null;
   // Hora extra e adicional noturno do período, em minutos. Só pagam a quem não tem
@@ -266,22 +273,24 @@ function salarioSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo): { di
 // recusa as duas juntas; isto protege o histórico e quem gravou por fora da tela).
 export function adiantamentoSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo, salarioProporcional: number): number {
   const percent = regras.adiantamentoPercent ?? 0;
-  if (!p.semRegistro || !p.recebeAdiantamento || p.pagamentoQuinzenal || !p.salarioBase || percent <= 0 || !regras.adiantamentoDia) return 0;
+  const base = p.salarioBaseAdiantamento !== undefined ? p.salarioBaseAdiantamento : p.salarioBase;
+  if (!p.semRegistro || !p.recebeAdiantamento || p.pagamentoQuinzenal || !base || percent <= 0 || !regras.adiantamentoDia) return 0;
   if (!vinculadoNoDia(p, regras, regras.adiantamentoDia)) return 0;
-  return Math.max(0, Math.min(round2(salarioProporcional), round2((p.salarioBase * percent) / 100)));
+  return Math.max(0, Math.min(round2(salarioProporcional), round2((base * percent) / 100)));
 }
 
 // Dia do mês em que sai a 1ª quinzena de quem recebe por quinzena (a 2ª é o acerto do dia 30).
 export const DIA_PRIMEIRA_QUINZENA = 15;
 
 // 1ª quinzena já paga a quem não tem registro e recebe por quinzena, para descontar do acerto:
-//   valor = metade do salário base (o vigente no mês do salário), paga no dia 15.
+//   valor = metade do salário base vigente no dia 15, paga no dia 15.
 // Mesma regra de datas do adiantamento: não recebeu quem entrou depois do dia 15 ou saiu
 // ANTES dele (quem sai no dia 15 recebeu). Nunca passa do salário proporcional do mês.
 export function primeiraQuinzenaSemRegistro(p: ParticipanteEntrada, regras: RegrasPeriodo, salarioProporcional: number): number {
-  if (!p.semRegistro || !p.pagamentoQuinzenal || !p.salarioBase) return 0;
+  const base = p.salarioBaseQuinzena !== undefined ? p.salarioBaseQuinzena : p.salarioBase;
+  if (!p.semRegistro || !p.pagamentoQuinzenal || !base) return 0;
   if (!vinculadoNoDia(p, regras, DIA_PRIMEIRA_QUINZENA)) return 0;
-  return Math.max(0, Math.min(round2(salarioProporcional), round2(p.salarioBase / 2)));
+  return Math.max(0, Math.min(round2(salarioProporcional), round2(base / 2)));
 }
 
 // A pessoa estava no vínculo no dia X do mês do salário (o pagamento daquele dia saiu para ela)?
@@ -346,7 +355,7 @@ export function motivoGorjetaRealSemEfeito(tipoCalculo: TipoCalculo, kind: "FIXO
 // quinzena, hora extra — mais a gorjeta dos dias depois do ciclo (período seguinte). A
 // lista do mês não paga nada; os valores seguem calculados porque a rescisão lê daqui.
 export function saiuAposCicloNoMesDoSalario(p: ParticipanteEntrada, regras: RegrasPeriodo): boolean {
-  if (!p.semRegistro || !p.rescisaoLancada || !p.desligamento || !regras.mesSalario) return false;
+  if (!p.semRegistro || !p.rescisaoLancada || !p.rescisaoTudoNaRescisao || !p.desligamento || !regras.mesSalario) return false;
   return p.desligamento > regras.end && p.desligamento <= regras.mesSalario.end;
 }
 

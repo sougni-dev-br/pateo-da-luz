@@ -126,7 +126,7 @@ describe("1ª quinzena: regras compartilhadas e PDF", () => {
   test("PDF: a coluna entra depois do adiantamento só quando pedida", () => {
     const com = linhaListaPagamento(RAFA, true);
     expect(com).toHaveLength(13);
-    expect(com[4]).toMatch(/^− R\$\s*1\.000,00$/);
+    expect(com[4]).toMatch(/^- R\$\s*1\.000,00$/);
     expect(com[11]).toMatch(/1\.000,00/); // A pagar
     expect(linhaListaPagamento(BIA, true)[4]).toBe("");
     expect(linhaListaPagamento(pessoa({ primeiraQuinzena: null }), true)[4]).toBe("oculto");

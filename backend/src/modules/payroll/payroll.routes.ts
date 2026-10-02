@@ -12,9 +12,9 @@ import {
 } from "./rescisao-apuracao.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { round2 } from "./vt-calc.js";
-import { duplicadosDe, pagamentosEmDuplicidade, resumoItem, rotuloLivre, rotuloTipo, competenciaDe } from "./folha-duplicidade.js";
-import { CAMPOS_TRAVA, dataBr, folhaLancamentoRouter, nomeDe } from "./folha-lancamento.routes.js";
-import { RecusaRescisao, travarRescisao } from "./rescisao-trava.js";
+import { duplicadosDe, ehComplemento, pagamentosEmDuplicidade, resumoItem, rotuloLivre, rotuloTipo, competenciaDe } from "./folha-duplicidade.js";
+import { CAMPOS_TRAVA, RecusaFolha, dataBr, folhaLancamentoRouter, nomeDe, travarFolhaDaPessoa } from "./folha-lancamento.routes.js";
+import { MSG_ROTULO_OCUPADO, RecusaRescisao, ehChaveUnicaDuplicada, rotulosDeRescisaoNoMes, travarRescisao } from "./rescisao-trava.js";
 import {
   type VerbaMarcada, algumaMarcada, aplicarVerbasOpcionais, calculoCompleto, lerEscolhaVerbas,
 } from "./rescisao-verbas-opcionais.js";
@@ -46,14 +46,24 @@ function clampInt(v: unknown, min: number, max: number): number | undefined {
   return Math.min(Math.max(Math.round(n), min), max);
 }
 
-// Rescisão na lista de Contas a Pagar, sem a permissão de ver Funcionários: o details
-// guarda salário, apuração e histórico de ajustes. Sai só o que a lista usa (lista
-// branca). Os outros tipos ficam como estão.
-const DETALHES_RESCISAO_NA_LISTA = ["grupoRescisao", "installmentNumber", "installmentTotal", "valesLabel", "otherDiscountLabel", "quitadaNoTermo", "quitadaSemValor", "saldoDevedorPerdoado"] as const;
+// Lista da Folha sem a permissão de ver Funcionários: o details da rescisão guarda
+// salário, apuração e histórico de ajustes; o do salário e do adiantamento, o salário
+// combinado, o adiantamento, a gorjeta integral, o complemento, a composição e o líquido
+// do extrato. Sai só o que a lista usa (lista branca). Os outros tipos ficam como estão.
+const DETALHES_NA_LISTA: Record<string, readonly string[]> = {
+  RESCISAO: ["grupoRescisao", "installmentNumber", "installmentTotal", "valesLabel", "otherDiscountLabel", "quitadaNoTermo", "quitadaSemValor", "saldoDevedorPerdoado"],
+  SALARIO: ["calculo", "empresa", "origem", "origemValor", "pendenteGorjeta", "observacao", "lancamentoManual", "duplicaDe", "aposSaida"],
+  ADIANTAMENTO: ["calculo", "empresa", "origem", "origemValor", "pendenteGorjeta", "observacao", "lancamentoManual", "duplicaDe", "aposSaida"],
+};
 export function detalhesNaLista(type: string, details: unknown, podeVer: boolean): unknown {
-  if (podeVer || type !== "RESCISAO" || details == null || typeof details !== "object") return details;
+  const permitidos = DETALHES_NA_LISTA[type];
+  if (podeVer || !permitidos || details == null || typeof details !== "object") return details;
   const d = details as Record<string, unknown>;
-  return Object.fromEntries(DETALHES_RESCISAO_NA_LISTA.filter((k) => d[k] !== undefined).map((k) => [k, d[k]]));
+  const filtrados = Object.fromEntries(permitidos.filter((k) => d[k] !== undefined).map((k) => [k, d[k]]));
+  // "complemento" é a marca do lançamento manual (motivo e autor) — essa fica; o número do
+  // salário combinado (a diferença paga além do extrato) sai.
+  if (type !== "RESCISAO" && d.complemento != null && typeof d.complemento === "object") filtrados.complemento = d.complemento;
+  return filtrados;
 }
 
 export { RecusaRescisao } from "./rescisao-trava.js";
@@ -278,6 +288,10 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   const vo = verbasDoCorpo(b, semRegistroNaSaida, apuracao);
   if ("erro" in vo) return response.status(400).json({ message: vo.erro });
   const verbas = vo.verbas ?? null;
+  // Férias, 13º e aviso saem do salário: sem ver Funcionários, só o valor livre.
+  if (assinaturaCalculadas(verbas) !== "" && !(await podeVerDadosPessoais(request))) {
+    return response.status(403).json({ message: MSG_VERBAS_SEM_PERMISSAO });
+  }
   const lido = lerValoresRescisao(b, semRegistroNaSaida, apuracao?.sugestao.creditos ?? 0, verbas?.total ?? 0);
   if ("erro" in lido) return response.status(400).json({ message: lido.erro });
   const { gross, vtDiscount, otherDiscount, net, saldoDevedorPerdoado } = lido;
@@ -318,8 +332,12 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
   // Todas as parcelas levam o mesmo grupo e o vínculo com a gorjeta: excluir uma parcela
   // isolada não pode soltar a gorjeta enquanto as outras seguem valendo.
   const grupoRescisao = crypto.randomUUID();
+  // Lançada pela regra "tudo na rescisão" (a apuração juntou o mês e os dias depois do
+  // ciclo): só com este marcador a lista do mês deixa de pagar (tip-rateio).
+  const tudoNaRescisao = (apuracao?.gorjetaPartes?.length ?? 0) > 0;
   const baseDetails = {
     grupoRescisao,
+    ...(tudoNaRescisao ? { tudoNaRescisao: true } : {}),
     grossAmount: gross, vtDiscount, otherDiscount, otherDiscountLabel: textoLimitado(b.otherDiscountLabel, 300),
     gorjetaNaApuracao,
     salario: lido.componentes.salario, gorjeta: lido.componentes.gorjeta, creditos: lido.creditos,
@@ -354,7 +372,7 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
     notes: textoLimitado(b.notes, 1000),
     // A 1ª parcela carrega o detalhamento (bruto/descontos); todas guardam o índice.
     details: n > 1
-      ? { ...(p.number === 1 ? baseDetails : { grupoRescisao, gorjetaNaApuracao }), installmentNumber: p.number, installmentTotal: n, netTotal: net }
+      ? { ...(p.number === 1 ? baseDetails : { grupoRescisao, gorjetaNaApuracao, ...(tudoNaRescisao ? { tudoNaRescisao: true } : {}) }), installmentNumber: p.number, installmentTotal: n, netTotal: net }
       : baseDetails,
     createdById: user.id,
   }));
@@ -368,7 +386,13 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
         where: { employeeId: emp.id, type: "RESCISAO", deletedAt: null, status: { not: "CANCELED" } }, select: { id: true },
       });
       if (viva) throw new RecusaRescisao(400, "Rescisão já lançada para este funcionário.");
-      for (const data of dadosParcelas) await tx.payrollItem.create({ data });
+      // Rótulo livre na competência (a chave única inclui os excluídos).
+      const ocupados = await rotulosDeRescisaoNoMes(tx, emp.id, term.getUTCFullYear(), term.getUTCMonth() + 1);
+      for (const data of dadosParcelas) {
+        const periodLabel = rotuloLivre(data.periodLabel, ocupados);
+        ocupados.push(periodLabel);
+        await tx.payrollItem.create({ data: { ...data, periodLabel } });
+      }
       if (gorjetaNaApuracao && mudaGorjeta) {
         await tx.tipParticipant.update({
           where: { id: gorjetaNaApuracao.participantId },
@@ -378,6 +402,7 @@ payrollRouter.post("/termination/:employeeId", async (request, response) => {
     });
   } catch (err) {
     if (err instanceof RecusaRescisao) return response.status(err.status).json({ message: err.message });
+    if (ehChaveUnicaDuplicada(err)) return response.status(409).json({ message: MSG_ROTULO_OCUPADO });
     throw err;
   }
 
@@ -435,14 +460,20 @@ export function lerValoresRescisao(b: Record<string, unknown>, semRegistro: bool
   // Sem registro: o bruto é sempre salário + gorjeta. Aceitar um bruto avulso deixaria
   // lançar sem passar pela comparação com o apurado (e sem justificativa).
   if (semRegistro && (salario == null || gorjeta == null)) return { erro: "Informe o salário proporcional e a gorjeta da rescisão." };
+  // CLT: o bruto vem do termo da contabilidade. Vazio não pode virar "quitada sem valor".
+  if (!semRegistro && !((brutoInformado ?? 0) > 0)) return { erro: "Informe o bruto do termo de rescisão." };
   const creditos = semRegistro ? round2(creditosApurados) : 0;
   const gross = semRegistro ? round2((salario ?? 0) + (gorjeta ?? 0) + creditos + round2(verbasOpcionais)) : brutoInformado ?? 0;
   if (gross <= 0 && vtDiscount + vales + otherDiscount <= 0) {
     return { erro: "Bruto e descontos estão zerados: não há rescisão a lançar." };
   }
   // Descontos que passam do bruto: o saldo devedor é perdoado (regra do Eli, 01/10/2026)
-  // e a rescisão fica quitada com líquido zero — nunca vira cobrança da pessoa.
+  // e a rescisão fica quitada com líquido zero — nunca vira cobrança da pessoa. Só na
+  // rescisão calculada aqui (sem registro); na CLT o líquido é o do termo.
   const liquidoBruto = round2(gross - vtDiscount - vales - otherDiscount);
+  if (!semRegistro && liquidoBruto <= 0) {
+    return { erro: "Na CLT os descontos não podem zerar o bruto do termo. Termo com líquido zero: registre como quitada no termo (RH → Rescisões)." };
+  }
   const saldoDevedorPerdoado = Math.max(0, round2(-liquidoBruto));
   const net = Math.max(0, liquidoBruto);
   return {
@@ -474,6 +505,10 @@ export function verbasDoCorpo(
 // "AVISO:2200:|LIVRE:100:Acordo": para saber se a escolha mudou no ajuste.
 const assinaturaVerbas = (v: VerbasGravadas | null | undefined) =>
   (v?.itens ?? []).map((i) => `${i.tipo}:${round2(i.valor)}:${i.descricao ?? ""}`).join("|");
+// Só as calculadas sobre o salário (férias, 13º, aviso): "" = nenhuma.
+const assinaturaCalculadas = (v: VerbasGravadas | null | undefined) =>
+  assinaturaVerbas(v ? { ...v, itens: v.itens.filter((i) => i.tipo !== "LIVRE") } : v);
+const MSG_VERBAS_SEM_PERMISSAO = "Férias, 13º e aviso prévio são calculados sobre o salário: lançar exige a permissão de ver Funcionários. Sem ela, só o valor livre.";
 
 type Tx = Prisma.TransactionClient;
 const gorjetaDe = (details: unknown) =>
@@ -674,6 +709,11 @@ payrollRouter.put("/termination/:employeeId", async (request, response) => {
   const verbasGravadas = ((primeira.details as { verbasOpcionais?: VerbasGravadas | null } | null)?.verbasOpcionais) ?? null;
   const verbas = vo.verbas === undefined ? verbasGravadas : vo.verbas;
   const mudouVerbas = assinaturaVerbas(verbas) !== assinaturaVerbas(verbasGravadas);
+  // Marcar (ou trocar) férias, 13º e aviso exige ver Funcionários; tirar as gravadas, não.
+  const calculadasNovas = assinaturaCalculadas(verbas);
+  if (calculadasNovas !== "" && calculadasNovas !== assinaturaCalculadas(verbasGravadas) && !(await podeVerDadosPessoais(request))) {
+    return response.status(403).json({ message: MSG_VERBAS_SEM_PERMISSAO });
+  }
   const lido = lerValoresRescisao(b, semRegistroNaSaida, typeof creditosLancados === "number" ? creditosLancados : apuracao?.sugestao.creditos ?? 0, verbas?.total ?? 0);
   if ("erro" in lido) return response.status(400).json({ message: lido.erro });
   const { gross, vtDiscount, otherDiscount, net } = lido;
@@ -938,45 +978,61 @@ payrollRouter.patch("/:id/pay", async (request, response) => {
     const owned = await prisma.companyBankAccount.findFirst({ where: { id: companyBankAccountId, companyId: payingCompanyId, isActive: true } });
     if (!owned) return response.status(400).json({ message: "Conta bancária não pertence à empresa selecionada ou está inativa." });
   }
-  // 5. Baixa em duplicidade: o mesmo pagamento (pessoa + tipo + competência, + quinzena no
-  //    VT) já pago em OUTRO item. Parcela da mesma rescisão e complemento não contam.
-  //    Só passa com a confirmação explícita, que fica na auditoria.
-  const outrosPagos = await prisma.payrollItem.findMany({
-    where: {
-      employeeId: existing.employeeId, type: existing.type, competenceYear: existing.competenceYear, competenceMonth: existing.competenceMonth,
-      deletedAt: null, paymentDate: { not: null }, id: { not: existing.id },
-    },
-    select: CAMPOS_TRAVA,
-  });
-  const jaPagos = pagamentosEmDuplicidade(existing, outrosPagos);
-  const confirmaDuplicidade = b.confirmaDuplicidade === true;
-  if (jaPagos.length > 0 && !confirmaDuplicidade) {
-    const emp = await prisma.employee.findFirst({ where: { id: existing.employeeId }, select: { firstName: true, lastName: true } });
-    const pessoa = nomeDe(emp);
-    const p = jaPagos[0];
-    const valor = Number(p.paidAmount ?? p.amount).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-    return response.status(409).json({
-      code: "BAIXA_DUPLICADA",
-      message: `Já foi pago ${rotuloTipo(existing.type).toLowerCase()} ${competenciaDe(existing)} de ${pessoa} em ${dataBr(p.paymentDate)} (${valor}). Baixar mesmo assim?`,
-      pessoa,
-      item: resumoItem(existing),
-      jaPagos: jaPagos.map(resumoItem),
-    });
-  }
-
   const method = paidPaymentMethodId ? await prisma.paymentMethod.findUnique({ where: { id: paidPaymentMethodId } }) : null;
   const paidPaymentMethodName = method?.name ?? paidPaymentMethodNameInput;
+  const confirmaDuplicidade = b.confirmaDuplicidade === true;
 
-  const updated = await prisma.payrollItem.update({
-    where: { id: request.params.id },
-    data: {
-      paymentDate, paidAmount, status: "PAID",
-      paidPaymentMethodId, paidPaymentMethodName,
-      paidByCompanyId: payingCompanyId, companyBankAccountId,
-      differenceReason, paymentNotes,
-      updatedById: user.id,
-    },
-  });
+  // 5. Baixa em duplicidade: o mesmo pagamento (pessoa + tipo + competência, + quinzena no
+  //    VT) já pago em OUTRO item. Parcela da mesma rescisão e complemento não contam.
+  //    Só passa com a confirmação explícita, que fica na auditoria. Checagem e gravação
+  //    dentro da trava da pessoa: duas baixas ao mesmo tempo não passam as duas.
+  let updated;
+  let jaPagos: ReturnType<typeof pagamentosEmDuplicidade>;
+  try {
+    ({ updated, jaPagos } = await prisma.$transaction(async (tx) => {
+      await travarFolhaDaPessoa(tx, existing.employeeId);
+      const atual = await tx.payrollItem.findFirst({ where: { id: existing.id, deletedAt: null }, select: { paymentDate: true, status: true } });
+      if (!atual) throw new RecusaFolha(404, { message: "Lançamento não encontrado." });
+      if (atual.paymentDate || atual.status === "PAID") {
+        throw new RecusaFolha(400, { message: "Lançamento já baixado. Estorne o pagamento antes de lançar uma nova baixa." });
+      }
+      const outrosPagos = await tx.payrollItem.findMany({
+        where: {
+          employeeId: existing.employeeId, type: existing.type, competenceYear: existing.competenceYear, competenceMonth: existing.competenceMonth,
+          deletedAt: null, paymentDate: { not: null }, id: { not: existing.id },
+        },
+        select: CAMPOS_TRAVA,
+      });
+      const duplicados = pagamentosEmDuplicidade(existing, outrosPagos);
+      if (duplicados.length > 0 && !confirmaDuplicidade) {
+        const emp = await tx.employee.findFirst({ where: { id: existing.employeeId }, select: { firstName: true, lastName: true } });
+        const pessoa = nomeDe(emp);
+        const p = duplicados[0];
+        const valor = Number(p.paidAmount ?? p.amount).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        throw new RecusaFolha(409, {
+          code: "BAIXA_DUPLICADA",
+          message: `Já foi pago ${rotuloTipo(existing.type).toLowerCase()} ${competenciaDe(existing)} de ${pessoa} em ${dataBr(p.paymentDate)} (${valor}). Baixar mesmo assim?`,
+          pessoa,
+          item: resumoItem(existing),
+          jaPagos: duplicados.map(resumoItem),
+        });
+      }
+      const gravado = await tx.payrollItem.update({
+        where: { id: existing.id },
+        data: {
+          paymentDate, paidAmount, status: "PAID",
+          paidPaymentMethodId, paidPaymentMethodName,
+          paidByCompanyId: payingCompanyId, companyBankAccountId,
+          differenceReason, paymentNotes,
+          updatedById: user.id,
+        },
+      });
+      return { updated: gravado, jaPagos: duplicados };
+    }));
+  } catch (err) {
+    if (err instanceof RecusaFolha) return response.status(err.status).json(err.corpo);
+    throw err;
+  }
 
   await auditLog({
     userId: user.id, action: "PAY_PAYROLL_ITEM", entity: "PayrollItem", entityId: updated.id,
@@ -1066,7 +1122,8 @@ payrollRouter.patch("/:id/restore", async (request, response) => {
       where: { employeeId: existing.employeeId, type: existing.type, competenceYear: existing.competenceYear, competenceMonth: existing.competenceMonth, deletedAt: null, id: { not: existing.id } },
       select: CAMPOS_TRAVA,
     });
-    const duplicados = duplicadosDe(existing, vivos);
+    // Complemento (de qualquer lado) não é duplicidade — como no lançamento manual.
+    const duplicados = ehComplemento(existing.details) ? [] : duplicadosDe(existing, vivos.filter((v) => !ehComplemento(v.details)));
     if (duplicados.length > 0) {
       return response.status(409).json({
         code: "DUPLICIDADE",

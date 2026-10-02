@@ -10,7 +10,10 @@ import { auditLog, getSessionUser, requestIp } from "../security/security-utils.
 import { RESCISAO_CATEGORY } from "./payroll.service.js";
 import { pdfDoCorpo } from "./pdf-corpo.js";
 import { avaliarTermoSemValor } from "./rescisao-quitada.js";
-import { RecusaRescisao, travarRescisao } from "./rescisao-trava.js";
+import { semRegistroEm } from "./cadastro-historico.service.js";
+import { hojeEmSaoPaulo } from "./extras-comum.js";
+import { MSG_ROTULO_OCUPADO, RecusaRescisao, ehChaveUnicaDuplicada, rotulosDeRescisaoNoMes, travarRescisao } from "./rescisao-trava.js";
+import { rotuloLivre } from "./folha-duplicidade.js";
 import { extrairTextoPdf } from "./rh-extract.service.js";
 import { lerTextoRescisao, type ReciboRescisao } from "./tip-trct.service.js";
 
@@ -51,16 +54,21 @@ rescisaoQuitadaRouter.post("/:employeeId/termo-sem-valor", async (request, respo
 
   const emp = await prisma.employee.findFirst({
     where: { id: request.params.employeeId, deletedAt: null },
-    select: { id: true, firstName: true, lastName: true, cpf: true, modality: true, terminationDate: true },
+    select: { id: true, firstName: true, lastName: true, cpf: true, modality: true, terminationDate: true, admissionDate: true },
   });
   if (!emp) return response.status(404).json({ message: "Funcionário não encontrado." });
+  // Vínculo vigente na saída (histórico): quem virou sem registro depois de sair continua CLT aqui.
+  const semRegistroNaSaida = emp.terminationDate
+    ? await semRegistroEm(emp.id, emp.modality, emp.terminationDate)
+    : emp.modality === "NAO_CLT";
+  const modalidadeNaSaida = semRegistroNaSaida ? "NAO_CLT" : emp.modality === "NAO_CLT" ? "CLT" : emp.modality;
 
   const lido = await lerTermo(b.fileBase64);
   if ("status" in lido) return response.status(lido.status).json({ message: lido.message });
   const { recibo, hash } = lido;
 
   const viva = await prisma.payrollItem.findFirst({ where: { ...RESCISAO_VIVA, employeeId: emp.id }, select: { id: true } });
-  const avaliacao = avaliarTermoSemValor(recibo, emp, { rescisaoViva: viva != null });
+  const avaliacao = avaliarTermoSemValor(recibo, { ...emp, modality: modalidadeNaSaida }, { rescisaoViva: viva != null, hojeIso: hojeEmSaoPaulo() });
   // Termo de outra pessoa: nem mostra a prévia.
   if (!avaliacao.casadoPor) return response.status(422).json({ message: avaliacao.recusa });
 
@@ -102,7 +110,7 @@ rescisaoQuitadaRouter.post("/:employeeId/termo-sem-valor", async (request, respo
           type: "RESCISAO",
           competenceYear: saida.getUTCFullYear(),
           competenceMonth: saida.getUTCMonth() + 1,
-          periodLabel: "Rescisão (quitada no termo)",
+          periodLabel: rotuloLivre("Rescisão (quitada no termo)", await rotulosDeRescisaoNoMes(tx, emp.id, saida.getUTCFullYear(), saida.getUTCMonth() + 1)),
           dueDate: pagamento,
           amount: 0,
           paymentDate: pagamento,
@@ -125,6 +133,7 @@ rescisaoQuitadaRouter.post("/:employeeId/termo-sem-valor", async (request, respo
     });
   } catch (err) {
     if (err instanceof RecusaRescisao) return response.status(err.status).json({ message: err.message });
+    if (ehChaveUnicaDuplicada(err)) return response.status(409).json({ message: MSG_ROTULO_OCUPADO });
     throw err;
   }
 

@@ -13,7 +13,7 @@ import { HistoricoCadastro } from "../components/pessoal/HistoricoCadastro";
 import { TIPOS_DESLIGAMENTO, motivoDoDesligamento } from "../components/pessoal/desligamento";
 import { linkRescisao } from "./rh/rotasRh";
 import { motivoObrigatorio, mudouCampoComHistorico, type CamposComHistorico } from "../components/pessoal/historicoCadastroFormato";
-import { type FormaPagamento, OPCOES_FORMA_PAGAMENTO, camposDaForma, dicaFormaPagamento, formaPagamentoDe } from "../components/pessoal/formaPagamento";
+import { type FormaPagamento, OPCOES_FORMA_PAGAMENTO, camposDaForma, camposDaModalidade, dicaFormaPagamento, formaPagamentoDe } from "../components/pessoal/formaPagamento";
 import { useSession } from "../context/SessionContext";
 import {
   Alert, Button, EmptyState, FormField, FormGrid, FormSection,
@@ -632,7 +632,7 @@ export function Funcionarios() {
                   <TextField value={form.baseSalary} onChange={(e) => setForm({ ...form, baseSalary: maskMoney(e.target.value) })} placeholder="0,00" inputMode="numeric" />
                 </FormField>
                 <FormField label="Modalidade">
-                  <Select value={form.modality} onChange={(e) => setForm({ ...form, modality: e.target.value as EmployeeModality })} options={toOptions(MODALITY_LABELS)} />
+                  <Select value={form.modality} onChange={(e) => setForm({ ...form, ...camposDaModalidade(e.target.value as EmployeeModality, form) })} options={toOptions(MODALITY_LABELS)} />
                 </FormField>
                 {form.modality === "CLT" && (
                   <>

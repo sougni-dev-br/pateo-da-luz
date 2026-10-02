@@ -267,3 +267,46 @@ describe("POST /payroll/vacation — as mesmas férias duas vezes", () => {
     expect(db.payrollItem.create.mock.calls[0][0].data.periodLabel).toBe("Férias (2)");
   });
 });
+
+// Auditoria 01/10 — itens baixos.
+describe("auditoria 01/10: restaurar, baixar e vencimento", () => {
+  const complemento = { complemento: { motivo: "pagamento a mais combinado", por: "u1", porNome: "Eli", em: "2026-09-30" } };
+
+  test("restaurar um complemento com o salário do mês vivo: restaura (complemento não é duplicidade)", async () => {
+    itens = [item({ id: "del", periodLabel: "Salário (complemento)", details: complemento, deletedAt: new Date(), deletedById: "u1" }), item({ id: "vivo" })];
+    const r = await request(app).patch("/payroll/del/restore").send();
+    expect(r.status).toBe(200);
+  });
+
+  test("restaurar o salário com só um complemento vivo no mês: restaura", async () => {
+    itens = [item({ id: "del", deletedAt: new Date(), deletedById: "u1" }), item({ id: "comp", periodLabel: "Salário (complemento)", details: complemento })];
+    const r = await request(app).patch("/payroll/del/restore").send();
+    expect(r.status).toBe(200);
+  });
+
+  test("baixa: a checagem de duplicidade e a gravação correm dentro da trava da pessoa", async () => {
+    itens = [item({ id: "a" })];
+    const r = await request(app).patch("/payroll/a/pay").send({ paymentDate: "2026-09-30", paidAmount: 2000, paidPaymentMethodId: "pm1" });
+    expect(r.status).toBe(200);
+    const trava = db.$executeRaw.mock.calls.findIndex((c: unknown[]) => String((c[0] as string[]).join("?")).includes("pg_advisory_xact_lock"));
+    expect(trava).toBeGreaterThanOrEqual(0);
+    expect(db.$executeRaw.mock.calls[trava][1]).toBe("folha:e1");
+    const ordemTrava = db.$executeRaw.mock.invocationCallOrder[trava];
+    const ordemBusca = db.payrollItem.findMany.mock.invocationCallOrder.at(-1);
+    const ordemGravacao = db.payrollItem.update.mock.invocationCallOrder[0];
+    expect(ordemTrava).toBeLessThan(ordemBusca);
+    expect(ordemBusca).toBeLessThan(ordemGravacao);
+  });
+
+  test("lançamento manual: o mês do vencimento também passa pela trava de período", async () => {
+    const { assertPeriodWritableForDate } = await import("../../cmv-real/cmv-real.service.js");
+    vi.mocked(assertPeriodWritableForDate).mockImplementation(async (data: Date) => {
+      if (data.getUTCMonth() === 9 && data.getUTCFullYear() === 2026) throw new Error("Período 10/2026 fechado.");
+    });
+    const r = await request(app).post("/payroll").send({ employeeId: "e1", type: "SALARIO", competenceYear: 2026, competenceMonth: 9, amount: 2000, dueDate: "2026-10-05" });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toContain("10/2026");
+    expect(db.payrollItem.create).not.toHaveBeenCalled();
+    vi.mocked(assertPeriodWritableForDate).mockReset();
+  });
+});

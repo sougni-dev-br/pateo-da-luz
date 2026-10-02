@@ -6207,8 +6207,12 @@ export function getTipRelatorioVales(de: string, ate: string) {
   return request<TipValeRelatorio[]>(`/payroll/tip/reports/vales?de=${de}&ate=${ate}`);
 }
 
+/** Atualização dos salários combinados feita logo depois do fechamento (falha ou falta de permissão vira aviso). */
+export type SincronizacaoAposFechar = {
+  atualizados: number; detalhes: SincronizacaoSalariosCombinados | null; erro: string | null; aviso?: string | null;
+};
 export function closeTipPeriodApi(year: number, month: number) {
-  return request<TipComputation>(`/payroll/tip/periods/${year}/${month}/close`, { method: "POST" });
+  return request<TipComputation & { salariosCombinados?: SincronizacaoAposFechar | null }>(`/payroll/tip/periods/${year}/${month}/close`, { method: "POST" });
 }
 
 export function reopenTipPeriodApi(year: number, month: number, motivo: string) {
@@ -6868,7 +6872,8 @@ export type TipStatusConferencia =
   | "FALTA_NO_EXTRATO" | "SO_NO_EXTRATO" | "SEM_EXTRATO_DA_EMPRESA" | "NAO_PARTICIPA" | "VINCULO_A_CONFIRMAR";
 export type TipLinhaConferencia = {
   chave: string; employeeId: string | null; nome: string; empresa: string | null;
-  apuracao: number | null; extrato: number | null; diferenca: number | null;
+  /** extrato ausente/null: pelo teto do IR, sem permissão de ver Funcionários (o valor do extrato É o teto − salário). */
+  apuracao: number | null; extrato?: number | null; diferenca: number | null;
   status: TipStatusConferencia; justificativa: string | null;
   extratoId?: string; nomeNoExtrato?: string;
   apelido?: string | null;
@@ -6886,11 +6891,12 @@ export type TipConferenciaCompleta = TipConferencia & {
 };
 export type TipLinhaFolha = {
   employeeId: string | null; nome: string; grupo: string; origem: "EXTRATO" | "SALARIO_COMBINADO" | "SEM_REGISTRO";
-  valor: number; composicao: string; pix: string | null; aviso: string | null;
+  /** Ausente/null para quem não vê Funcionários na linha de salário combinado. */
+  valor: number; composicao?: string | null; pix: string | null; aviso: string | null;
 };
 export type TipFolhaLiquidos = {
   code: string; label: string; linhas: TipLinhaFolha[]; total: number; extratos: string[]; etapas: TipEtapasEstado;
-  salariosCombinados: Array<{ employeeId: string; nome: string; apelido?: string | null; valor: number; motivo: string | null }>;
+  salariosCombinados?: Array<{ employeeId: string; nome: string; apelido?: string | null; valor: number; motivo: string | null }>;
 };
 
 const baseTip = (year: number, month: number) => `/payroll/tip/periods/${year}/${month}`;

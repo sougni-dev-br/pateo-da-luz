@@ -2,8 +2,11 @@
 // detalhe que a tela usa para mostrar as pendências antes de lançar.
 //
 // Montado em /payroll/rescisoes: o controle de acesso resolve pelo prefixo /payroll, o
-// mesmo módulo que lança a rescisão. Sem CPF e sem salário — nada aqui depende de
-// poder ver Funcionários.
+// mesmo módulo que lança a rescisão. Devolve valores — o líquido e as parcelas da
+// rescisão, os lançamentos da Folha depois da saída e o líquido/gorjeta do termo —, os
+// mesmos que a lista da Folha já mostra a quem tem o módulo. Não devolve CPF (o termo
+// usa o CPF só para casar a pessoa), salário base, apuração nem histórico de ajustes:
+// esses ficam em Folha → rescisão, que oculta sem a permissão de ver Funcionários.
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { hojeEmSaoPaulo } from "./extras-comum.js";

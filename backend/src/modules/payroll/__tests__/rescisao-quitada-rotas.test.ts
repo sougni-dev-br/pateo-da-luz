@@ -224,3 +224,54 @@ describe("Folha: a rescisão quitada no termo", () => {
     expect(db.tipParticipant.count).not.toHaveBeenCalled();
   });
 });
+
+// Auditoria 01/10: a quitada no termo olhava o vínculo de HOJE (não o da saída) e aceitava
+// qualquer data de pagamento do termo (inválida, antes da admissão, anos à frente).
+describe("termo-sem-valor — vínculo na saída e data de pagamento", () => {
+  const h = (de: string, para: string, vigente: string) => ({
+    employeeId: "e1", campo: "modality", valorAnterior: de, valorNovo: para,
+    vigenteDesde: new Date(`${vigente}T00:00:00.000Z`), createdAt: new Date(`${vigente}T12:00:00Z`),
+  });
+
+  test("hoje sem registro, mas CLT na saída: pode quitar", async () => {
+    db.employee.findFirst.mockResolvedValue({ ...maria, modality: "NAO_CLT" });
+    db.employeeHistorico.findMany.mockResolvedValueOnce([h("CLT", "NAO_CLT", "2026-09-20")]);
+    const r = await request(app).post(URL).send(corpo(false));
+    expect(r.status).toBe(200);
+    expect(r.body.previa).toMatchObject({ podeQuitar: true, recusa: null });
+  });
+
+  test("hoje CLT, mas sem registro na saída: recusa", async () => {
+    db.employee.findFirst.mockResolvedValue({ ...maria, modality: "CLT" });
+    db.employeeHistorico.findMany.mockResolvedValueOnce([h("NAO_CLT", "CLT", "2026-09-20")]);
+    const r = await request(app).post(URL).send(corpo(false));
+    expect(r.body.previa.podeQuitar).toBe(false);
+    expect(r.body.previa.recusa).toMatch(/Sem registro/);
+  });
+
+  const comPagamento = (data: string) => termo().replace("Data pagamento: 11/09/2026", `Data pagamento: ${data}`);
+
+  test("pagamento antes da admissão: recusa", async () => {
+    vi.mocked(extrairTextoPdf).mockResolvedValue(comPagamento("01/07/2026"));
+    const r = await request(app).post(URL).send(corpo(true));
+    expect(r.status).toBe(422);
+    expect(r.body.message).toMatch(/admissão/);
+    expect(db.payrollItem.create).not.toHaveBeenCalled();
+  });
+
+  test("pagamento muito no futuro: recusa", async () => {
+    vi.mocked(extrairTextoPdf).mockResolvedValue(comPagamento("11/09/2030"));
+    const r = await request(app).post(URL).send(corpo(true));
+    expect(r.status).toBe(422);
+    expect(r.body.message).toMatch(/futuro/);
+    expect(db.payrollItem.create).not.toHaveBeenCalled();
+  });
+
+  test("pagamento com data impossível (31/02): recusa", async () => {
+    vi.mocked(extrairTextoPdf).mockResolvedValue(comPagamento("31/02/2026"));
+    const r = await request(app).post(URL).send(corpo(true));
+    expect(r.status).toBe(422);
+    expect(r.body.message).toMatch(/data de pagamento/i);
+    expect(db.payrollItem.create).not.toHaveBeenCalled();
+  });
+});
