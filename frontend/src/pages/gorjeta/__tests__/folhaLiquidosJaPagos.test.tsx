@@ -38,4 +38,5 @@ test("líquido logo depois do nome, dados bancários no lugar do PIX e aviso de 
   expect(screen.getAllByText("Sem dados bancários no cadastro")).toHaveLength(2);
   expect(screen.getByText(/Ninguém da lista tem PIX ou conta no cadastro/)).toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "Modo de impressão do PDF" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Colunas do PDF/ })).toBeInTheDocument();
 });
