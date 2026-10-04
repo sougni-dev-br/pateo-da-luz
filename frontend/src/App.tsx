@@ -101,6 +101,7 @@ const FichasCadastrais = lazy(() => import("./pages/rh/fichas/FichasCadastrais")
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
 const Users = lazy(() => import("./pages/Users").then((module) => ({ default: module.Users })));
 const Dishes = lazy(() => import("./pages/Dishes").then((module) => ({ default: module.Dishes })));
+const PainelEventos = lazy(() => import("./pages/operacao/eventos/PainelEventos").then((module) => ({ default: module.PainelEventos })));
 const Plaquinhas = lazy(() => import("./pages/cardapio/plaquinhas/Plaquinhas").then((module) => ({ default: module.Plaquinhas })));
 const DRE = lazy(() => import("./pages/DRE").then((module) => ({ default: module.DRE })));
 const SupplierCycles = lazy(() => import("./pages/SupplierCycles").then((module) => ({ default: module.SupplierCycles })));
@@ -147,6 +148,7 @@ const sections = [
   { id: "dashboard", label: "Dashboard", icon: BarChart3, showInSidebar: true, group: "Visão geral", path: "/", matchers: ["/", "/dashboard"], hidePageHeader: true },
   { id: "purchases", label: "Compras", icon: ReceiptText, showInSidebar: true, group: "Operação", path: "/compras", matchers: ["/compras", "/compras/nova", "/compras/:id/editar"], description: "Registro e controle de compras do período" },
   { id: "purchase-orders", label: "Pedidos de compra", icon: ClipboardList, showInSidebar: true, group: "Operação", path: "/compras/pedidos", matchers: ["/compras/pedidos"], description: "Pedidos operacionais gerados a partir da pré-lista do comprador. Ainda não integram contas a pagar." },
+  { id: "events", label: "Painel de eventos", icon: CalendarDays, showInSidebar: true, group: "Operação", path: "/operacao/eventos", matchers: ["/operacao/eventos"], description: "Eventos do centro de convenções, do teatro e grupos: histórico de cada um e sugestão de buffet para cada dia" },
   { id: "payables", label: "Contas a pagar", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-pagar", matchers: ["/financeiro/contas-a-pagar"] },
   { id: "receivables", label: "Contas a receber", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-receber", matchers: ["/financeiro/contas-a-receber"], description: "Repasses iFood, eventos e outros recebíveis" },
   { id: "ifood-expenses", label: "Despesas iFood", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/despesas-ifood", matchers: ["/financeiro/despesas-ifood"], description: "Comissão, entrega, marketing e taxas mensais iFood" },
@@ -744,6 +746,7 @@ export function App() {
               <Route path="/estoque/requisicoes" element={<Requisitions user={user} />} />
               <Route path="/cardapio/fichas-tecnicas" element={<Dishes />} />
               <Route path="/cardapio/plaquinhas" element={<Plaquinhas />} />
+              <Route path="/operacao/eventos" element={<PainelEventos />} />
               <Route path="/financeiro/dre" element={<DRE />} />
               <Route path="/financeiro/impostos" element={<TaxPayments user={user} />} />
               <Route path="/financeiro/ciclos-fornecedor" element={<SupplierCycles />} />

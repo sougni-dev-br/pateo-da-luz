@@ -7628,3 +7628,155 @@ export type FichaLoteResultado = {
 export function pedirAtualizacaoEmLote() {
   return request<FichaLoteResultado>("/employee-forms/lote", { method: "POST" });
 }
+
+// ── Painel de eventos ──
+
+export type EventOrigin = "CENTRO_CONVENCOES" | "TEATRO" | "GRUPO";
+export type EventArea = "SAUDE" | "CORPORATIVO" | "TECNOLOGIA" | "JURIDICO" | "FINANCEIRO" | "FEIRA_VAREJO" | "EDUCACAO" | "ENTRETENIMENTO" | "OUTRO";
+export type ServiceMode = "BUFFET" | "BUFFET_EXECUTIVO" | "A_LA_CARTE";
+export type EventPosition = "UNICO" | "PRIMEIRO" | "MEIO" | "ULTIMO";
+
+/** O que o restaurante fez no dia, sem os 10% de serviço. */
+export type DayRealized = {
+  fonte: "PDV" | "PLANILHA";
+  almocos: number | null;
+  valorAlmoco: number | null;
+  jantares: number | null;
+  valorJantar: number | null;
+};
+
+export type DayForecast = {
+  almoco: number;
+  minimo: number;
+  maximo: number;
+  tamanho: EventSize;
+  base: string;
+  casos: number;
+  poucaBase: boolean;
+};
+
+export type AgendaEvent = {
+  seriesId: string;
+  seriesName: string;
+  origin: EventOrigin;
+  posicao: EventPosition;
+  editionId: string;
+  editionTitle: string;
+  dia: number;
+  totalDias: number;
+  startTime: string | null;
+  endTime: string | null;
+};
+
+export type AgendaDay = {
+  date: string;
+  eventos: AgendaEvent[];
+  previsao: DayForecast | null;
+  realizado: DayRealized | null;
+  escala: EventSize | null;
+  decisao: { serviceMode: ServiceMode | null; buffetPrice: number | null; notes: string | null; forecastLunch: number | null; forecastSize: EventSize | null } | null;
+};
+
+export type EventSettings = { smallMaxLunch: number; largeMinLunch: number; lunchCapacity: number | null };
+
+export type EventSeriesSummary = {
+  id: string;
+  name: string;
+  origin: EventOrigin;
+  area: EventArea;
+  edicoes: number;
+  ultimaEdicao: string | null;
+  diasComMovimento: number;
+  mediaAlmocos: number | null;
+};
+
+export type EventEditionDetail = {
+  id: string;
+  title: string;
+  startDate: string;
+  endDate: string;
+  announcedAudience: number | null;
+  floor: string | null;
+  contact: string | null;
+  source: string;
+  notes: string | null;
+  days: Array<{
+    date: string;
+    dia: number;
+    totalDias: number;
+    startTime: string | null;
+    endTime: string | null;
+    realizado: DayRealized | null;
+    outrosEventos: Array<{ seriesId: string; seriesName: string; dia: number; totalDias: number }>;
+    notes: string | null;
+    serviceMode: ServiceMode | null;
+    buffetPrice: number | null;
+  }>;
+};
+
+export type EventSeriesDetail = {
+  id: string;
+  name: string;
+  origin: EventOrigin;
+  area: EventArea;
+  organizer: string | null;
+  notes: string | null;
+  editions: EventEditionDetail[];
+};
+
+export type EventEditionInput = {
+  seriesId?: string | null;
+  newSeriesName?: string | null;
+  newSeriesOrigin?: EventOrigin;
+  title: string;
+  startDate: string;
+  endDate: string;
+  announcedAudience?: number | null;
+  floor?: string | null;
+  contact?: string | null;
+  notes?: string | null;
+};
+
+export function getEventsAgenda(year: number, month: number) {
+  return request<{ dias: AgendaDay[]; limites: EventSettings }>(`/events/agenda?year=${year}&month=${month}`);
+}
+
+export function saveOperationDay(date: string, input: { serviceMode: ServiceMode | null; buffetPrice: number | null; notes: string | null }) {
+  return request<{ date: string }>(`/events/days/${date}`, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(input) });
+}
+
+export function getEventSeriesList() {
+  return request<EventSeriesSummary[]>("/events/series");
+}
+
+export function getEventSeries(id: string) {
+  return request<EventSeriesDetail>(`/events/series/${id}`);
+}
+
+export function matchEventSeries(name: string) {
+  return request<Array<{ id: string; name: string; origin: EventOrigin; exato: boolean }>>(`/events/series-match${toQueryString({ name })}`);
+}
+
+export function saveEventSeries(id: string, input: Pick<EventSeriesDetail, "name" | "origin" | "area" | "organizer" | "notes">) {
+  return request<EventSeriesDetail>(`/events/series/${id}`, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(input) });
+}
+
+export function mergeEventSeries(id: string, intoId: string) {
+  return request<{ ok: boolean; id: string }>(`/events/series/${id}/merge`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ intoId }) });
+}
+
+export function createEventEdition(input: EventEditionInput) {
+  return request<{ id: string; seriesId: string }>("/events/editions", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(input) });
+}
+
+export function deleteEventEdition(id: string) {
+  return request<{ ok: boolean }>(`/events/editions/${id}`, { method: "DELETE" });
+}
+
+export function getEventSettings() {
+  return request<EventSettings>("/events/settings");
+}
+
+export function saveEventSettings(input: EventSettings) {
+  return request<EventSettings>("/events/settings", { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(input) });
+}
