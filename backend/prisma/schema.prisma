@@ -3569,3 +3569,121 @@ model FichaCadastralArquivo {
 
   @@index([fichaId])
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Painel de Eventos: histórico dos eventos que trazem gente ao restaurante
+// (centro de convenções, teatro e grupos com pacote) para decidir a operação
+// do dia: modalidade, tamanho do buffet e reservas. Ver docs/painel-eventos.md.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum EventOrigin {
+  CENTRO_CONVENCOES
+  TEATRO
+  GRUPO
+}
+
+enum EventArea {
+  SAUDE
+  CORPORATIVO
+  TECNOLOGIA
+  JURIDICO
+  FINANCEIRO
+  FEIRA_VAREJO
+  EDUCACAO
+  ENTRETENIMENTO
+  OUTRO
+}
+
+enum ServiceMode {
+  BUFFET
+  BUFFET_EXECUTIVO
+  A_LA_CARTE
+}
+
+/// O evento que se repete. Junta todas as edições para responder "como foi no ano passado".
+model EventSeries {
+  id        String         @id @default(cuid())
+  name      String
+  /// Nome normalizado (sem acento, ano, número da edição). Casa variações do mesmo evento.
+  nameKey   String         @unique
+  /// Chaves de séries que foram juntadas a esta: a importação reconhece o nome antigo.
+  aliasKeys String[]       @default([])
+  origin    EventOrigin    @default(CENTRO_CONVENCOES)
+  area      EventArea      @default(OUTRO)
+  organizer String?
+  notes     String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  editions  EventEdition[]
+}
+
+/// Cada vez que a série acontece.
+model EventEdition {
+  id                String            @id @default(cuid())
+  seriesId          String
+  series            EventSeries       @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  title             String
+  startDate         DateTime          @db.Date
+  endDate           DateTime          @db.Date
+  announcedAudience Int?
+  floor             String?
+  contact           String?
+  /// PLANILHA | CIRCULAR | MANUAL
+  source            String            @default("MANUAL")
+  notes             String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  days              EventEditionDay[]
+
+  @@unique([seriesId, startDate])
+  @@index([startDate])
+}
+
+/// Um dia de uma edição. Só o que é do evento; o que é do restaurante fica em OperationDay.
+model EventEditionDay {
+  id          String       @id @default(cuid())
+  editionId   String
+  edition     EventEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  date        DateTime     @db.Date
+  startTime   String?
+  endTime     String?
+  /// O evento serviu almoço lá dentro (lunch box, finger food): tira gente do restaurante.
+  lunchInside Boolean?
+
+  @@unique([editionId, date])
+  @@index([date])
+}
+
+/// Uma linha por data: a decisão e o histórico do restaurante naquele dia.
+/// O faturamento nunca fica no evento, então dia com dois eventos não duplica.
+model OperationDay {
+  id                 String       @id @default(cuid())
+  date               DateTime     @unique @db.Date
+  serviceMode        ServiceMode?
+  buffetPrice        Decimal?     @db.Decimal(10, 2)
+  /// Previsão congelada quando a decisão foi salva, para medir o acerto depois.
+  forecastLunch      Int?
+  forecastSize       EventSize?
+  forecastBasis      String?
+  /// Antes do PDV entrar no ERP (2024–2025), vindo da planilha. Valores SEM os 10%.
+  legacyLunchPeople  Int?
+  legacyLunchSales   Decimal?     @db.Decimal(14, 2)
+  legacyDinnerPeople Int?
+  legacyDinnerSales  Decimal?     @db.Decimal(14, 2)
+  notes              String?
+  updatedById        String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+}
+
+/// Limites da sugestão de buffet e capacidade do salão. Linha única (id = "singleton").
+model EventSettings {
+  id            String   @id @default("singleton")
+  /// Até este número de almoços previstos: buffet Pequeno.
+  smallMaxLunch Int      @default(80)
+  /// Acima deste número: buffet Grande. Entre os dois: Médio.
+  largeMinLunch Int      @default(150)
+  /// Lugares do salão no almoço, contando o giro. Vazio enquanto não for informado.
+  lunchCapacity Int?
+  updatedAt     DateTime @updatedAt
+}
