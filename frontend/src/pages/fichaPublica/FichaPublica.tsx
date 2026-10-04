@@ -112,9 +112,24 @@ export function FichaPublica() {
     });
   }
 
+  // Respostas do servidor chegam fora de ordem (foto, recarga, salvar): só vale a do pedido mais
+  // recente — uma recarga atrasada não pode mostrar a lista ou os dados de antes.
+  const pedidoSeq = useRef(0);
+  const pedidoAplicado = useRef(0);
+  const novoPedido = () => ++pedidoSeq.current;
+  function aplicarResposta(n: number, e: Estado): boolean {
+    if (n < pedidoAplicado.current) return false;
+    pedidoAplicado.current = n;
+    receber(e);
+    return true;
+  }
+
   // Depois de enviar ou apagar foto: a lista certa é a do servidor (falha silenciosa: a tela segue).
   function recarregar() {
-    abrirFicha(codigo).then(receber).catch(() => undefined);
+    const n = novoPedido();
+    abrirFicha(codigo).then((e) => aplicarResposta(n, e)).catch((e) => {
+      if (e instanceof ErroFicha && (e.status === 404 || e.status === 410)) { apagarRascunho(codigo); abrir(); }
+    });
   }
 
   useEffect(() => {
@@ -141,8 +156,10 @@ export function FichaPublica() {
       setFilhos(rascunho?.filhos ?? filhosParaTela(e.dados.filhos));
       setEtapa(etapaDeRetomada(e, rascunho));
       doCep.current = rascunho?.doCep ?? {};
+      base.current = impressaoDe(e.dados);
     }
-    if (e.dados) base.current = impressaoDe(e.dados);
+    // A base do rascunho só muda quando a tela e o servidor ficam iguais (carga inicial e salvar).
+    // Resposta de foto ou recarga traz dados que a tela não mostrou: não pode "lavar" o rascunho.
   }
 
   // Guarda o rascunho a cada alteração (só depois de carregar a ficha, e enquanto dá para editar).
@@ -205,7 +222,9 @@ export function FichaPublica() {
   async function salvar(corpo: Dados): Promise<boolean> {
     setSalvando(true);
     try {
-      receber(await salvarDados(codigo, corpo));
+      const n = novoPedido();
+      const e = await salvarDados(codigo, corpo);
+      if (aplicarResposta(n, e) && e.dados) base.current = impressaoDe(e.dados);
       return true;
     } catch (e) {
       if (!pedirConfirmacao(e) && !mudouNoServidor(e)) setAviso(e instanceof ErroFicha ? e.message : "Não foi possível salvar. Tente de novo.");
@@ -340,7 +359,7 @@ export function FichaPublica() {
             onConjuge={(v) => alterar("nomeConjuge", v)} onFilhos={alterarFilhos} />
         ) : atual.id === "fotos" ? (
           <EtapaFotos codigo={codigo} tipo={estado.tipo} tipos={estado.opcoes.tiposArquivo} obrigatorios={estado.opcoes.arquivosObrigatorios}
-            arquivos={estado.arquivos ?? []} onEstado={receber} onSessaoExpirada={pedirConfirmacao} onRecarregar={recarregar} />
+            arquivos={estado.arquivos ?? []} novoPedido={novoPedido} aplicarResposta={aplicarResposta} onSessaoExpirada={pedirConfirmacao} onRecarregar={recarregar} />
         ) : atual.id === "revisao" ? (
           <EtapaRevisao dados={estado.dados} arquivos={estado.arquivos ?? []} tiposArquivo={estado.opcoes.tiposArquivo} falta={estado.falta ?? []}
             consentiu={consentiu} onConsentir={setConsentiu} onEditar={irPara} />
