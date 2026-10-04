@@ -9,7 +9,12 @@ import { isSyncInFlight, runSmartSyncGuarded } from "./noventa-nove.service.js";
 // setTimeout. Reinicia junto com o deploy (aceitável — recalcula o próximo).
 // 1 instância no Render Starter, então não há corrida entre múltiplos crons.
 //
+// Liga sozinho só em produção (NODE_ENV=production ou RENDER, que o Render
+// define em todo serviço). Fora dela fica desligado: o banco local tem a
+// credencial e as lojas reais da 99, e cada backend de desenvolvimento chamava a
+// API real às 04:00 BRT junto com o de produção — a 99 aceita 1 chamada/20s.
 // Desligar sem redeploy: NOVENTA_NOVE_CRON_ENABLED=false no painel do Render.
+// Ligar num ambiente local, de propósito: NOVENTA_NOVE_CRON_ENABLED=true.
 
 const BRT_OFFSET_MS = 3 * 60 * 60 * 1000; // BRT = UTC-3 (sem DST hoje)
 const RUN_HOUR_BRT = 4; // 04:00 BRT — plataforma já fechou o dia anterior
@@ -18,8 +23,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // repasses semanais que cruzam a virada e só fecham no início do mês seguinte.
 const PREV_MONTH_GRACE_DAYS = 5;
 
+export function cronHabilitado(env: NodeJS.ProcessEnv): boolean {
+  const flag = env.NOVENTA_NOVE_CRON_ENABLED;
+  if (flag === "false") return false;
+  if (flag === "true") return true;
+  return env.NODE_ENV === "production" || Boolean(env.RENDER);
+}
+
 function isEnabled(): boolean {
-  return process.env.NOVENTA_NOVE_CRON_ENABLED !== "false";
+  return cronHabilitado(process.env);
 }
 
 // "Agora" em BRT como Date (componentes UTC representam o relógio BRT).
@@ -98,7 +110,7 @@ function scheduleNext(): void {
 // Ponto de entrada — chamado no boot (server.ts), fire-and-forget.
 export function startNoventaNoveCronScheduler(): void {
   if (!isEnabled()) {
-    console.info("[99cron] desabilitado (NOVENTA_NOVE_CRON_ENABLED=false).");
+    console.info("[99cron] desligado — só liga em produção ou com NOVENTA_NOVE_CRON_ENABLED=true.");
     return;
   }
   if (timer) return; // já agendado
