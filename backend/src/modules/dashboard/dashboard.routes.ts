@@ -218,6 +218,30 @@ dashboardRouter.get("/purchases", async (request, response) => {
   });
 });
 
+type RevenueDay = { day: number; grossAmount: number; netAmount: number; serviceAmount: number };
+
+async function revenueByDay(year: number, month: number): Promise<RevenueDay[]> {
+  const rows = await prisma.$queryRaw<Array<{ day: unknown; grossAmount: unknown; netAmount: unknown; serviceAmount: unknown }>>`
+    SELECT
+      EXTRACT(DAY FROM "date")::int      AS "day",
+      COALESCE(SUM("grossAmount"), 0)    AS "grossAmount",
+      COALESCE(SUM("netAmount"), 0)      AS "netAmount",
+      COALESCE(SUM("serviceAmount"), 0)  AS "serviceAmount"
+    FROM "RevenueEntry"
+    WHERE "competenceYear" = ${year}
+      AND "competenceMonth" = ${month}
+      AND "status" <> 'CANCELLED'
+    GROUP BY 1
+    ORDER BY 1
+  `;
+  return rows.map((row) => ({
+    day: Number(row.day),
+    grossAmount: Number(row.grossAmount ?? 0),
+    netAmount: Number(row.netAmount ?? 0),
+    serviceAmount: Number(row.serviceAmount ?? 0),
+  }));
+}
+
 // ─────────────────────────────────────────────
 // GET /dashboard/summary?year=YYYY&month=MM
 // Resumo financeiro consolidado do período:
@@ -246,6 +270,8 @@ dashboardRouter.get("/summary", async (request, response) => {
     prevSmallExpRow,
     monthlyCmv,
     monthlyCmvViews,
+    dailyRows,
+    prevDailyRows,
   ] = await Promise.all([
     // Faturamento período atual (por competência)
     prisma.$queryRaw<Array<{ grossAmount: unknown; netAmount: unknown; serviceAmount: unknown; tickets: unknown; peopleServed: unknown; count: unknown }>>`
@@ -327,6 +353,11 @@ dashboardRouter.get("/summary", async (request, response) => {
       }
     }),
     getMonthlyCmv(year, month),
+    // Faturamento por dia, nos dois meses: com o mes em andamento, comparar o
+    // acumulado com o mes anterior INTEIRO da sempre queda (dia 4 contra 30 dias).
+    // A serie permite comparar o mesmo trecho e desenhar o ritmo do mes.
+    revenueByDay(year, month),
+    revenueByDay(prevYear, prevMonth),
   ]);
 
   // ── Extrair valores ──
@@ -442,6 +473,10 @@ dashboardRouter.get("/summary", async (request, response) => {
           cmvPercent: razaoParaPercentual(monthlyCmvViews.views.managerial?.cmvPercent),
         },
       },
+    },
+    revenueDaily: {
+      current: dailyRows,
+      previous: prevDailyRows,
     },
     estimatedResult: {
       value: estimatedResult,
@@ -604,7 +639,10 @@ dashboardRouter.get("/alerts", async (request, response) => {
   // ── 5. Status do CMV / inventário final (competência) ──
   const [finalSnapshot, monthlyCmv] = await Promise.all([
     prisma.inventorySnapshot.findFirst({
-      where: { competenceYear: year, competenceMonth: month, type: "INVENTARIO_FINAL", status: "ACTIVE" },
+      // Inventario do sistema fica APPROVED, o da planilha ACTIVE: filtrar so ACTIVE
+      // acusava "inventario final nao registrado" em mes que tinha um. Mesma regra
+      // do monthly.service (status <> CANCELLED).
+      where: { competenceYear: year, competenceMonth: month, type: "INVENTARIO_FINAL", status: { not: "CANCELLED" } },
       select: { id: true }
     }),
     prisma.monthlyCmv.findFirst({

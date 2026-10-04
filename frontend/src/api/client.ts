@@ -2687,6 +2687,12 @@ export type DashboardSummaryData = {
       managerial: MonthlyCmv["views"]["managerial"];
     };
   };
+  // Faturamento por dia do mês (competência), nos dois meses. Opcional porque um
+  // backend anterior a este campo não o manda.
+  revenueDaily?: {
+    current: Array<{ day: number; grossAmount: number; netAmount: number; serviceAmount: number }>;
+    previous: Array<{ day: number; grossAmount: number; netAmount: number; serviceAmount: number }>;
+  };
   estimatedResult: {
     value: number;
     marginPercent: number | null;
