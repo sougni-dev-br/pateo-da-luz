@@ -6,6 +6,7 @@ import logoVinho from "./assets/logo-horizontal-vinho.png";
 import { paginar } from "./FolhaPlaquinhas";
 import { type FaceImpressa, type LayoutFolha } from "./cardapioFormato";
 import { useFontesProntas } from "./medidaFonte";
+import { semQuebrarHifen } from "./semQuebrarHifen";
 import "./cardapio.css";
 
 // Letra base do cardápio (nome do prato), em pt. Título e inglês são proporcionais a ela.
@@ -36,7 +37,7 @@ export const FaceCardapio = memo(forwardRef<HTMLDivElement, FaceProps>(function 
               <p className="cdp-titulo-en">{s.titleEn}</p>
               <ul>
                 {s.items.map((it, j) => (
-                  <li key={j}><span className="cdp-pt">{it.namePt}</span><span className="cdp-en">{it.nameEn}</span></li>
+                  <li key={j}><span className="cdp-pt">{semQuebrarHifen(it.namePt)}</span><span className="cdp-en">{semQuebrarHifen(it.nameEn)}</span></li>
                 ))}
               </ul>
             </section>

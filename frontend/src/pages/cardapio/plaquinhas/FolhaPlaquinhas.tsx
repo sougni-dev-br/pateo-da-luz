@@ -3,6 +3,7 @@ import type { PlateFormat, PlateTheme } from "../../../api/client";
 import logoDourado from "./assets/logo-horizontal-dourado.png";
 import logoVinho from "./assets/logo-horizontal-vinho.png";
 import { FONTE, chaveTamanho, tamanhoIngles, type Tamanho, type TextoPlaca } from "./medidaFonte";
+import { semQuebrarHifen } from "./semQuebrarHifen";
 import "./plaquinhas.css";
 
 export type PlacaImpressa = { key: string; namePt: string; nameEn: string; category: string };
@@ -39,8 +40,8 @@ const Placa = memo(function Placa({ sobretitulo, nome, nameEn, tema, mostrarCate
         <i /><i /><i /><i />
         <div className={`plq-sobretitulo${mostrarCategoria ? "" : " plq-oculto"}`}><b />{sobretitulo}<b /></div>
         <div className="plq-nomes" style={fonte}>
-          <div className="plq-pt">{nome}</div>
-          <div className="plq-en">{nameEn}</div>
+          <div className="plq-pt">{semQuebrarHifen(nome)}</div>
+          <div className="plq-en">{semQuebrarHifen(nameEn)}</div>
         </div>
         <img className="plq-logo" src={tema === "gold" ? logoDourado : logoVinho} alt="" />
       </div>
