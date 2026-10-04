@@ -1,7 +1,6 @@
 import { memo, type CSSProperties } from "react";
 import type { PlateFormat, PlateTheme } from "../../../api/client";
-import logoDourado from "./assets/logo-horizontal-dourado.png";
-import logoVinho from "./assets/logo-horizontal-vinho.png";
+import { LOGO_DO_TEMA } from "./logos";
 import { FONTE, chaveTamanho, tamanhoIngles, type Tamanho, type TextoPlaca } from "./medidaFonte";
 import { semQuebrarHifen } from "./semQuebrarHifen";
 import "./plaquinhas.css";
@@ -43,7 +42,7 @@ const Placa = memo(function Placa({ sobretitulo, nome, nameEn, tema, mostrarCate
           <div className="plq-pt">{semQuebrarHifen(nome)}</div>
           <div className="plq-en">{semQuebrarHifen(nameEn)}</div>
         </div>
-        <img className="plq-logo" src={tema === "gold" ? logoDourado : logoVinho} alt="" />
+        <img className="plq-logo" src={LOGO_DO_TEMA[tema]} alt="" />
       </div>
     </div>
   );

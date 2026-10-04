@@ -10,11 +10,13 @@ type Props = {
   podeCriar: boolean;
   onAdicionar: (itemId: string) => void;
   onNovoPrato: (texto: string, categoria: string | null) => void;
+  /** Orientação mostrada no lugar do aviso enquanto a folha está vazia. */
+  dica?: string;
 };
 
 // Busca feita para ser usada só no teclado: digita, ↑/↓ escolhe, Enter adiciona e o cursor
 // continua na busca para o próximo prato.
-export const BuscaPrato = forwardRef<HTMLInputElement, Props>(function BuscaPrato({ catalogo, naFolha, podeCriar, onAdicionar, onNovoPrato }, ref) {
+export const BuscaPrato = forwardRef<HTMLInputElement, Props>(function BuscaPrato({ catalogo, naFolha, podeCriar, onAdicionar, onNovoPrato, dica }, ref) {
   const [texto, setTexto] = useState("");
   const [categoria, setCategoria] = useState<string | null>(null);
   const [ativo, setAtivo] = useState(0);
@@ -67,7 +69,7 @@ export const BuscaPrato = forwardRef<HTMLInputElement, Props>(function BuscaPrat
       <div className="plq-busca">
         <Search size={18} aria-hidden="true" />
         <input ref={ref} type="text" value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={tecla}
-          placeholder="Procure o prato: penne, salmão, café…" aria-label="Procurar prato no catálogo" autoComplete="off"
+          placeholder="Procure o prato pelo nome" aria-label="Procurar prato no catálogo" autoComplete="off"
           role="combobox" aria-autocomplete="list" aria-expanded={aberto} aria-controls={aberto ? idLista : undefined}
           aria-activedescendant={aberto && resultados[indiceAtivo] ? `plq-opcao-${resultados[indiceAtivo].id}` : undefined} />
         {(texto || categoria) && (
@@ -99,7 +101,11 @@ export const BuscaPrato = forwardRef<HTMLInputElement, Props>(function BuscaPrat
             : <p className="plq-contagem plq-resultado-vazio">Nenhum prato com esse nome no catálogo.</p>)}
         </div>
       )}
-      <p className="plq-anuncio" aria-live="polite">{anuncio && <><Check size={14} aria-hidden="true" /> {anuncio}</>}</p>
+      {/* A dica e o aviso dividem a mesma linha: a dica não empurra a tela para baixo. */}
+      <div className="plq-busca-rodape">
+        {dica && !anuncio && !aberto && <p className="plq-vazio">{dica}</p>}
+        <p className="plq-anuncio" aria-live="polite">{anuncio && <><Check size={14} aria-hidden="true" /> {anuncio}</>}</p>
+      </div>
     </div>
   );
 });

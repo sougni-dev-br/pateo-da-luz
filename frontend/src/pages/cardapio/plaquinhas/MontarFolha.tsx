@@ -267,8 +267,8 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
 
         <section className="plq-bloco" aria-label="Adicionar prato">
           <BuscaPrato ref={buscaRef} catalogo={catalogo} naFolha={naFolha} podeCriar={podeCriar} onAdicionar={adicionar}
-            onNovoPrato={(texto, categoria) => setNovoPrato({ texto, categoria })} />
-          {folha.entradas.length === 0 && <p className="plq-vazio">Procure o prato pelo nome ou toque numa categoria para ver todos dela.</p>}
+            onNovoPrato={(texto, categoria) => setNovoPrato({ texto, categoria })}
+            dica={folha.entradas.length === 0 ? "Procure o prato pelo nome ou toque numa categoria para ver todos dela." : undefined} />
         </section>
 
         <ListaDaFolha key={versaoLista} entradas={folha.entradas} porId={porId} destaque={destaque} onMudar={mudarEntradas} />
@@ -283,7 +283,7 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
               </button>
             ))}
           </div>
-          <div className="plq-opcoes plq-opcoes--2" role="group" aria-label="Cores">
+          <div className="plq-opcoes plq-opcoes--cores" role="group" aria-label="Cores">
             {TEMAS.map((t) => (
               <button key={t.value} type="button" className="plq-opcao" aria-pressed={folha.tema === t.value} onClick={() => mudar({ tema: t.value })}>
                 <strong><i className={`plq-amostra plq-amostra--${t.value}`} aria-hidden="true" />{t.label}</strong><span>{t.dica}</span>
@@ -318,7 +318,7 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
         </div>
       </div>
 
-      <PreviaFolhas resumo={resumo} tema={folha.tema} vazia={!placas.length}
+      <PreviaFolhas resumo={resumo} tema={folha.tema} vazia={!placas.length} textoVazia="Abra uma lista salva ou procure os pratos. Cada plaquinha aparece na folha A4 do jeito que sai na impressora."
         alerta={naoCouberam.length ? {
           curto: naoCouberam.length === 1 ? "1 nome não coube" : `${naoCouberam.length} nomes não couberam`,
           longo: `${naoCouberam.length === 1 ? "Este nome não coube" : "Estes nomes não couberam"} mesmo com a letra no menor tamanho: ${naoCouberam.join(", ")}. Encurte na aba Catálogo (a plaquinha aparece com borda vermelha).`,

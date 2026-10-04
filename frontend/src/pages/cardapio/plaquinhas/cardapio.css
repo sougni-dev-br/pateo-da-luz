@@ -13,6 +13,7 @@
   background: var(--cdp-fundo); color: var(--cdp-texto); padding: 1.8mm;
 }
 .cdp-face--gold { --cdp-fundo: #161512; --cdp-texto: #f6f0e2; --cdp-traco: #c9aa66; --cdp-ingles: #cfc4ad; }
+.cdp-face--white { --cdp-fundo: #ffffff; --cdp-texto: #161512; --cdp-traco: #9c7c3c; --cdp-ingles: #5f574a; }
 .cdp-moldura {
   position: relative; width: 100%; height: 100%; border: .35mm solid var(--cdp-traco);
   display: flex; flex-direction: column; align-items: center; padding: 1.8mm 2mm; text-align: center;

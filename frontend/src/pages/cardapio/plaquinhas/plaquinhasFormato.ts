@@ -16,6 +16,7 @@ export const TIPOS_LISTA: Array<{ value: PlateListKind; label: string }> = [
 export const TEMAS: Array<{ value: PlateTheme; label: string; dica: string }> = [
   { value: "wine", label: "Vinho", dica: "Fundo branco, gasta pouca tinta" },
   { value: "gold", label: "Preto e dourado", dica: "Marque “Gráficos de plano de fundo”" },
+  { value: "white", label: "Branco e dourado", dica: "O inverso da preta, gasta pouca tinta" },
 ];
 
 // O formato que cada tipo de lista costuma usar: coffee break em stand fica melhor de pé.

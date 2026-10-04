@@ -13,7 +13,7 @@ export const buffetMenusRouter = Router();
 const MAX_SECTIONS = 10;
 const MAX_ITEMS_PER_SECTION = 20;
 const FACES = ["front", "back"] as const;
-const THEMES = ["wine", "gold"] as const;
+const THEMES = ["wine", "gold", "white"] as const;
 
 const texto = (campo: string, max: number) =>
   z.string().trim().transform((s) => s.replace(/\s+/g, " ")).pipe(z.string().min(2, `${campo} obrigatório`).max(max, `${campo} muito longo`));
