@@ -298,7 +298,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
       </Dialog>
 
       <ConfirmDialog open={confirmar === "cancelar"} tone="danger" title="Cancelar esta ficha?" confirmLabel="Cancelar ficha" cancelLabel="Voltar"
-        description="O link para de funcionar. Os dados e fotos já enviados continuam guardados."
+        description="O link para de funcionar. Os dados e as fotos já enviados ficam guardados por 90 dias e depois são apagados."
         onCancel={() => setConfirmar(null)} onConfirm={() => { setConfirmar(null); agir(() => cancelarFichaCadastral(id), "Ficha cancelada."); }} />
       <ConfirmDialog open={confirmar === "concluir"} title={ficha.tipo === "ADMISSAO" ? "Criar o funcionário?" : "Gravar no cadastro?"}
         confirmLabel={ficha.tipo === "ADMISSAO" ? "Criar funcionário" : "Gravar"} cancelLabel="Voltar"
