@@ -144,7 +144,7 @@ type SectionDefinition = {
 };
 
 const sections = [
-  { id: "dashboard", label: "Dashboard", icon: BarChart3, showInSidebar: true, group: "Visão geral", path: "/", matchers: ["/", "/dashboard"] },
+  { id: "dashboard", label: "Dashboard", icon: BarChart3, showInSidebar: true, group: "Visão geral", path: "/", matchers: ["/", "/dashboard"], hidePageHeader: true },
   { id: "purchases", label: "Compras", icon: ReceiptText, showInSidebar: true, group: "Operação", path: "/compras", matchers: ["/compras", "/compras/nova", "/compras/:id/editar"], description: "Registro e controle de compras do período" },
   { id: "purchase-orders", label: "Pedidos de compra", icon: ClipboardList, showInSidebar: true, group: "Operação", path: "/compras/pedidos", matchers: ["/compras/pedidos"], description: "Pedidos operacionais gerados a partir da pré-lista do comprador. Ainda não integram contas a pagar." },
   { id: "payables", label: "Contas a pagar", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-pagar", matchers: ["/financeiro/contas-a-pagar"] },

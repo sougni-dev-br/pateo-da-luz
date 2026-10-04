@@ -1,17 +1,6 @@
-import {
-  ArrowDown,
-  ArrowUp,
-  BadgeDollarSign,
-  ExternalLink,
-  Info,
-  Minus,
-  RefreshCw,
-  ShoppingCart,
-  TicketPercent,
-  TrendingUp,
-} from "lucide-react";
-import { ReactNode, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { ShoppingCart, TrendingUp } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   DashboardAlert,
   DashboardData,
@@ -19,50 +8,28 @@ import {
   getDashboard,
   getDashboardAlerts,
   getDashboardSummary,
-  Purchase,
 } from "../api/client";
 import { useSession } from "../context/SessionContext";
-import { Alert, Button, IconButton, Money, useFormatCurrency } from "../design-system";
-import { formatDate, formatNumber, formatPercent } from "../utils/format";
-import { currentMonthPeriod } from "../utils/period";
+import { Alert, Button, useFormatCurrency } from "../design-system";
+import { AttentionList, type AttentionItem } from "./dashboard/AttentionList";
+import { PeriodBar } from "./dashboard/PeriodBar";
+import { CmvStrip, ResultPanel, RevenueHero, TicketPanel } from "./dashboard/Panels";
+import { PurchasesPanel, RecentPurchases } from "./dashboard/Purchases";
+import { RitmoDoMes } from "./dashboard/RitmoDoMes";
+import {
+  buildDelta,
+  classifyAlerts,
+  compareRevenue,
+  competenceOf,
+  isValidCompetence,
+  monthInfo,
+  monthShortLabel,
+  shiftCompetence,
+  type MonthInfo,
+} from "./dashboard/logic";
+import "./dashboard/dashboard.css";
 
-// ─────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────
-
-const MONTHS = [
-  "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
-  "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro",
-];
-
-function monthFromPeriod(startDate: string) {
-  return startDate.slice(0, 7);
-}
-
-function safePct(current: number, previous: number): number | null {
-  if (previous === 0 || current === 0) return null;
-  return ((current - previous) / previous) * 100;
-}
-
-type DeltaTone = "success" | "warning" | "neutral";
-
-type DeltaDirection = "up" | "down" | "flat";
-
-function deltaInfo(
-  pct: number | null,
-  higherIsGood: boolean
-): { text: string; tone: DeltaTone; direction: DeltaDirection } {
-  if (pct === null) return { text: "Sem comparação disponível", tone: "neutral", direction: "flat" };
-  const sign = pct >= 0 ? "+" : "";
-  const tone: DeltaTone =
-    pct === 0 ? "neutral"
-    : higherIsGood ? (pct > 0 ? "success" : "warning")
-    : (pct > 0 ? "warning" : "success");
-  const direction: DeltaDirection = pct === 0 ? "flat" : pct > 0 ? "up" : "down";
-  return { text: `${sign}${formatPercent(pct)} vs mês anterior`, tone, direction };
-}
-
-// Mapa path → moduleId para verificação de permissão nos botões de ação
+// Mapa path → moduleId para só oferecer navegação a quem pode abrir a tela.
 const MODULE_BY_PATH: Record<string, string> = {
   "/financeiro/faturamento": "revenue",
   "/compras": "purchases",
@@ -74,689 +41,352 @@ const MODULE_BY_PATH: Record<string, string> = {
   "/fornecedores": "suppliers",
 };
 
-// ─────────────────────────────────────────────
-// Main component
-// ─────────────────────────────────────────────
+// Título curto de cada espera de fim de mês, para caber numa linha só.
+const WAITING_TITLE: Record<string, string> = {
+  CMV_NO_INVENTORY: "inventário final",
+  CMV_PENDING_CLOSE: "fechamento do CMV",
+};
+
+type SessionHasPermission = ReturnType<typeof useSession>["hasPermission"];
+
+type Loaded = {
+  competence: string;
+  data: DashboardData;
+  summary: DashboardSummaryData | null;
+  alerts: DashboardAlert[];
+  /** Partes que falharam — a tela avisa em vez de esconder (contas vencidas sumindo pareceria "tudo em dia"). */
+  failed: Array<"alertas" | "indicadores">;
+  /** Status do CMV pelo inventário final (endpoint de alertas) — o summary só olha o fechamento. */
+  inventoryCmvStatus?: "closed" | "pending" | "missing" | "unknown";
+};
 
 export function Dashboard() {
-  const fmt = useFormatCurrency();
   const navigate = useNavigate();
   const { canAccessSection, hasPermission } = useSession();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [competence, setCompetence] = useState(monthFromPeriod(currentMonthPeriod().startDate));
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [summary, setSummary] = useState<DashboardSummaryData | null>(null);
+  const today = new Date();
+  const urlMonth = searchParams.get("mes");
+  const competence = isValidCompetence(urlMonth) ? urlMonth : competenceOf(today);
+  const info = monthInfo(competence, today);
+
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [backendAlerts, setBackendAlerts] = useState<DashboardAlert[]>([]);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const requestId = useRef(0);
 
-  // Verifica se o usuário pode navegar para um path antes de exibir o botão
-  function pathAllowed(path: string): boolean {
-    const moduleId = MODULE_BY_PATH[path];
-    if (!moduleId) return true;
-    return canAccessSection(moduleId);
-  }
-
-  async function load(comp = competence) {
+  const load = useCallback(async (comp: string) => {
+    const id = ++requestId.current;
     setLoading(true);
     setError(null);
-    try {
-      const [yearStr, monthStr] = comp.split("-");
-      const yearNum = Number(yearStr);
-      const monthNum = Number(monthStr);
-      const [dashData, alertsData, summaryData] = await Promise.allSettled([
-        // Sem startDate/endDate de proposito. O backend so usa competencia quando
-        // as duas datas estao ausentes (isMonthFilter) — mandando o intervalo, a
-        // tela caia sempre no ramo por data da compra e passava a ler um mes
-        // diferente do que o card de compras e o mes anterior liam, ambos por
-        // competencia. Em set/2026 isso dava R$ 103.381,29 na distribuicao contra
-        // R$ 87.069,37 no card. O seletor daqui e de mes: competencia e a base.
-        getDashboard({ year: yearStr, month: monthStr }),
-        getDashboardAlerts(comp),
-        getDashboardSummary(yearNum, monthNum),
-      ]);
-      if (dashData.status === "fulfilled") setData(dashData.value);
-      else throw dashData.reason;
-      // Guard defensivo: se o endpoint retornar shape parcial (mock, backend
-      // com bug, resposta incompleta), Array.isArray protege o .filter em
-      // linhas 205/208.
-      const rawAlerts = alertsData.status === "fulfilled" ? alertsData.value?.alerts : undefined;
-      setBackendAlerts(Array.isArray(rawAlerts) ? rawAlerts : []);
-      setSummary(summaryData.status === "fulfilled" ? summaryData.value : null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Erro ao carregar dashboard.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
-
-  function handleMonthChange(value: string) {
-    setCompetence(value);
-    load(value);
-  }
-
-  // Derived state
-  const rev = data?.revenue;
-  const hasRevenue = !!rev && rev.grossAmount > 0;
-  const hasPurchases = !!data && data.totalAmount > 0;
-  const noData = !!data && !hasRevenue && !hasPurchases;
-
-  const now = new Date();
-  const isCurrentMonth = competence === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-
-  const purchasePct = data ? safePct(data.totalAmount, data.previousTotalAmount) : null;
-  const purchaseDelta = deltaInfo(purchasePct, false);
-
-  const [yearPart, monthPart] = competence.split("-");
-  const monthLabel = `${MONTHS[Number(monthPart) - 1]}/${yearPart}`;
-
-  // Permissões por módulo
-  // view  → pode acessar a tela (usado em alertas e botões de navegação)
-  // create → pode lançar dados (usado em ações rápidas e botões de criação nos KPIs)
-  const canViewRevenue   = canAccessSection("revenue");
-  const canCreateRevenue = hasPermission("revenue", "create");
-  const canViewPurchases  = canAccessSection("purchases");
-  const canCreatePurchases = hasPermission("purchases", "create");
-  const canViewPayables  = canAccessSection("payables");
-  const canCreateCash    = hasPermission("cash", "create");
-
-  // ── Alertas locais de completude do período ──
-  type LocalAlert = {
-    tone: "warning" | "info" | "danger";
-    text: string;
-    actionPath?: string;
-    actionLabel?: string;
-  };
-
-  // Indica se o usuário pode criar em algum dos módulos principais do período
-  const canCreateAnything = canCreateRevenue || canCreatePurchases || canCreateCash;
-
-  const localAlerts: LocalAlert[] = [];
-  if (!loading && data) {
-    if (noData) {
-      localAlerts.push({
-        tone: "info",
-        text: isCurrentMonth
-          ? canCreateAnything
-            ? `${monthLabel} ainda não tem lançamentos suficientes para análise. Lance faturamento ou compras para liberar os indicadores.`
-            : `${monthLabel} ainda não tem lançamentos suficientes para análise.`
-          : `Nenhum dado encontrado para ${monthLabel}. Verifique se houve movimento neste período.`,
-      });
+    const [year, month] = comp.split("-");
+    const [dash, alerts, summary] = await Promise.allSettled([
+      // Sem startDate/endDate de propósito: só assim o backend usa competência,
+      // a mesma base do card de compras e do mês anterior.
+      getDashboard({ year, month }),
+      getDashboardAlerts(comp),
+      getDashboardSummary(Number(year), Number(month)),
+    ]);
+    // Troca rápida de mês: a resposta antiga não pode sobrescrever a nova.
+    if (id !== requestId.current) return;
+    if (dash.status === "rejected") {
+      setError(dash.reason instanceof Error ? dash.reason.message : "Erro ao carregar o painel.");
     } else {
-      if (!hasRevenue && canViewRevenue) {
-        localAlerts.push({
-          tone: "warning",
-          text: "Faturamento ainda não lançado neste período — importe os dados para liberar os indicadores de receita.",
-          actionLabel: "Ir para faturamento",
-          actionPath: "/financeiro/faturamento",
-        });
-      }
-      if (!hasPurchases) {
-        localAlerts.push({
-          tone: "warning",
-          text: "Aguardando lançamentos de compras neste período.",
-        });
-      }
-      if (hasPurchases && data.previousTotalAmount === 0) {
-        localAlerts.push({
-          tone: "info",
-          text: "Sem dados do mês anterior — comparação de compras indisponível.",
-        });
-      }
+      const rawAlerts = alerts.status === "fulfilled" ? alerts.value?.alerts : undefined;
+      setLoaded({
+        competence: comp,
+        data: dash.value,
+        summary: summary.status === "fulfilled" ? summary.value : null,
+        alerts: Array.isArray(rawAlerts) ? rawAlerts : [],
+        inventoryCmvStatus: alerts.status === "fulfilled" ? alerts.value?.summary?.cmvStatus : undefined,
+        failed: [
+          ...(alerts.status === "rejected" ? (["alertas"] as const) : []),
+          ...(summary.status === "rejected" ? (["indicadores"] as const) : []),
+        ],
+      });
+      setUpdatedAt(new Date());
     }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { void load(competence); }, [competence, load]);
+
+  function goTo(comp: string) {
+    const next = new URLSearchParams(searchParams);
+    if (comp === competenceOf(new Date())) next.delete("mes");
+    else next.set("mes", comp);
+    setSearchParams(next, { replace: true });
   }
 
-  // ── Alertas globais do backend ──
-  const GLOBAL_CODES = ["OVERDUE_PAYABLES", "DUE_SOON_PAYABLES"];
-  const globalAlerts = backendAlerts.filter((a) => GLOBAL_CODES.includes(a.code));
-
-  // ── Alertas da competência do backend ──
-  const competenceAlerts = backendAlerts.filter((a) => {
-    if (GLOBAL_CODES.includes(a.code)) return false;
-    if (a.code === "MISSING_REVENUE_DAYS" && !hasRevenue) return false;
-    if ((a.code === "CMV_NO_INVENTORY" || a.code === "CMV_PENDING_CLOSE") && noData) return false;
-    return true;
-  });
-
-  type DisplayAlert = {
-    tone: "danger" | "warning" | "info";
-    label?: string;
-    text: string;
-    actionLabel?: string;
-    actionPath?: string;
+  const pathAllowed = (path: string) => {
+    const moduleId = MODULE_BY_PATH[path.split("?")[0]];
+    return !moduleId || canAccessSection(moduleId);
   };
 
-  const toDisplay = (a: DashboardAlert): DisplayAlert => ({
-    tone: a.type === "success" ? "info" : a.type,
-    label: a.title,
-    text: a.description + (a.amount != null && a.amount > 0 ? ` Total: ${fmt(a.amount)}.` : ""),
-    actionLabel: a.actionLabel,
-    actionPath: a.actionPath,
-  });
+  return (
+    <div className="dash">
+      <PeriodBar
+        competence={competence}
+        info={info}
+        loading={loading}
+        updatedAt={updatedAt}
+        onChange={goTo}
+        onStep={(delta) => goTo(shiftCompetence(competence, delta))}
+        onToday={() => goTo(competenceOf(new Date()))}
+        onRefresh={() => void load(competence)}
+      />
 
-  const localDisplayAlerts: DisplayAlert[] = localAlerts.map((a) => ({
-    tone: a.tone as "danger" | "warning" | "info",
-    text: a.text,
-    actionLabel: a.actionLabel,
-    actionPath: a.actionPath,
-  }));
-  const competenceDisplayAlerts: DisplayAlert[] = competenceAlerts.map(toDisplay);
-  const globalDisplayAlerts: DisplayAlert[] = globalAlerts.map(toDisplay);
+      {error && (
+        <Alert tone="error">
+          {error}{" "}
+          <button type="button" className="dash-inline-retry" onClick={() => void load(competence)}>Tentar de novo</button>
+        </Alert>
+      )}
 
-  const hasAnyAlert =
-    localDisplayAlerts.length > 0 ||
-    competenceDisplayAlerts.length > 0 ||
-    globalDisplayAlerts.length > 0;
+      {!loaded && loading && <DashboardSkeleton />}
 
-  // ── Ações rápidas — só módulos onde o usuário pode criar ──
+      {loaded && loaded.failed.length > 0 && loaded.competence === competence && (
+        <Alert tone="warning">
+          Não foi possível carregar {loaded.failed.join(" e ")} deste mês — o que aparece abaixo está incompleto.{" "}
+          <button type="button" className="dash-inline-retry" onClick={() => void load(competence)}>Tentar de novo</button>
+        </Alert>
+      )}
+
+      {/* Com erro na troca de mês, o conteúdo do mês anterior não fica sob o título novo. */}
+      {loaded && !(error && loaded.competence !== competence) && (
+        <div className="dash-body" aria-busy={loading} data-stale={loading || loaded.competence !== competence}>
+          <DashboardContent
+            loaded={loaded}
+            info={monthInfo(loaded.competence, today)}
+            navigate={navigate}
+            pathAllowed={pathAllowed}
+            canAccessSection={canAccessSection}
+            hasPermission={hasPermission}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+
+type ContentProps = {
+  loaded: Loaded;
+  info: MonthInfo;
+  navigate: (path: string) => void;
+  pathAllowed: (path: string) => boolean;
+  canAccessSection: (moduleId: string) => boolean;
+  hasPermission: SessionHasPermission;
+};
+
+function DashboardContent({ loaded, info, navigate, pathAllowed, canAccessSection, hasPermission }: ContentProps) {
+  const fmt = useFormatCurrency();
+  const { data, summary, alerts, competence } = loaded;
+  const prevLabel = monthShortLabel(shiftCompetence(competence, -1));
+
+  const canCreateRevenue = hasPermission("revenue", "create");
+  const canCreatePurchases = hasPermission("purchases", "create");
+  const canViewPurchases = canAccessSection("purchases");
+  const canViewClosing = canAccessSection("monthly-closing");
+
+  const rev = summary?.revenue;
+  const gross = rev?.grossAmount ?? data.revenue?.grossAmount ?? 0;
+  const net = rev?.netAmount ?? data.revenue?.netAmount ?? 0;
+  const service = rev?.serviceAmount ?? data.revenue?.serviceAmount ?? 0;
+  const hasRevenue = gross > 0;
+  const purchasesTotal = summary?.purchases.total ?? data.totalAmount;
+  const hasPurchases = purchasesTotal > 0;
+  const noData = !hasRevenue && !hasPurchases;
+
+  // ── Comparação do faturamento: mesmo trecho no mês em andamento ──
+  const daily = summary?.revenueDaily;
+  let revenueDelta = null;
+  if (!summary) {
+    // sem o resumo não há base — o chip some em vez de dizer "sem comparação"
+  } else if (daily) {
+    const cmp = compareRevenue(daily.current, daily.previous, "netAmount", info.isCurrent);
+    const against = cmp.throughDay ? `vs 1–${cmp.throughDay} de ${prevLabel}` : `vs ${prevLabel}`;
+    revenueDelta = buildDelta(cmp.pct, true, against);
+  } else if (rev) {
+    revenueDelta = buildDelta(rev.deltaPercent, true, `vs ${prevLabel}`);
+  }
+
+  // Compras são por competência, sem dia: no mês em andamento, o total parcial
+  // contra o mês anterior inteiro não é comparação — fica só a referência.
+  const purchasesPrev = summary?.purchases.prev.total ?? data.previousTotalAmount;
+  const purchasesDelta = info.isCurrent ? null : buildDelta(summary?.purchases.deltaPercent ?? null, false, `vs ${prevLabel}`);
+  const purchasesReference = purchasesPrev > 0 && info.isCurrent ? `${prevLabel} fechou em ${fmt(purchasesPrev, { decimals: 0 })}` : undefined;
+
+  // ── Alertas ──
+  const attention: AttentionItem[] = [];
+  // Como no Dashboard anterior: o aviso só aparece para quem pode ver o faturamento.
+  if (!noData && !hasRevenue && canAccessSection("revenue")) {
+    attention.push({
+      key: "local-revenue",
+      bucket: "attention",
+      tone: "warning",
+      title: "Faturamento ainda não lançado",
+      description: "Sem ele os indicadores de receita e o resultado ficam zerados.",
+      actionLabel: "Lançar",
+      actionPath: canCreateRevenue ? "/financeiro/faturamento" : undefined,
+    });
+  }
+  for (const a of classifyAlerts(alerts, { isInProgress: info.isCurrent, hasRevenue, hasAnyData: !noData })) {
+    attention.push({
+      key: a.code,
+      bucket: a.bucket,
+      tone: a.type === "success" ? "info" : a.type,
+      title: a.bucket === "waiting" ? WAITING_TITLE[a.code] ?? a.title : a.title,
+      description: a.description,
+      amount: a.amount,
+      actionLabel: shortAction(a.actionLabel),
+      actionPath: a.actionPath,
+    });
+  }
+
   const quickActions = [
-    canCreateRevenue   && { label: "Lançar faturamento", icon: <TrendingUp   size={16} />, path: "/financeiro/faturamento" },
-    canCreatePurchases && { label: "Nova compra",         icon: <ShoppingCart size={16} />, path: "/compras" },
+    canCreateRevenue && { label: "Lançar faturamento", icon: <TrendingUp size={16} />, path: "/financeiro/faturamento" },
+    canCreatePurchases && { label: "Nova compra", icon: <ShoppingCart size={16} />, path: "/compras" },
   ].filter(Boolean) as { label: string; icon: ReactNode; path: string }[];
 
   return (
-    <div className="stack">
+    <>
+      <AttentionList items={attention} canNavigate={pathAllowed} onNavigate={navigate} />
 
-      {/* ── Cabeçalho ── */}
-      <div className="dash-header panel">
-        <div className="dash-header-inner">
-          <div className="dash-header-controls">
-            <div className="dash-period-row">
-              <label className="dash-period-label">Competência</label>
-              <input
-                type="month"
-                className="dash-month-input"
-                value={competence}
-                onChange={(e) => handleMonthChange(e.target.value)}
-              />
-              <span className="dash-month-label">
-                {MONTHS[Number(monthPart) - 1]} {yearPart}
-                {isCurrentMonth && <span className="dash-live-badge">Em andamento</span>}
-              </span>
-            </div>
-            <IconButton
-              icon={<RefreshCw size={16} className={loading ? "spin" : ""} />}
-              label="Atualizar"
-              onClick={() => load()}
-              disabled={loading}
-            />
-          </div>
-        </div>
-      </div>
-
-      {error && <Alert tone="error">{error}</Alert>}
-
-      {/* ── Alertas importantes ── */}
-      {hasAnyAlert && (
-        <div className="dash-alerts">
-          <p className="dash-alert-group-label">Alertas importantes</p>
-          {localDisplayAlerts.map((a, i) => (
-            <AlertRow
-              key={`local-${i}`}
-              alert={a}
-              onNavigate={navigate}
-              allowed={!a.actionPath || pathAllowed(a.actionPath)}
-            />
-          ))}
-          {competenceDisplayAlerts.map((a, i) => (
-            <AlertRow
-              key={`comp-${i}`}
-              alert={a}
-              onNavigate={navigate}
-              allowed={!a.actionPath || pathAllowed(a.actionPath)}
-            />
-          ))}
-          {globalDisplayAlerts.length > 0 && (
-            <>
-              {(localDisplayAlerts.length > 0 || competenceDisplayAlerts.length > 0) && (
-                <p className="dash-alert-group-label" style={{ marginTop: 4 }}>Situação financeira atual</p>
-              )}
-              {globalDisplayAlerts.map((a, i) => (
-                <AlertRow
-                  key={`global-${i}`}
-                  alert={a}
-                  onNavigate={navigate}
-                  allowed={!a.actionPath || pathAllowed(a.actionPath)}
-                />
+      {noData && (
+        <section className="dash-card dash-nodata">
+          <p>
+            {info.isCurrent
+              ? `${info.label} ainda não tem lançamentos. Os indicadores aparecem conforme faturamento e compras entram.`
+              : info.isFuture
+              ? `${info.label} ainda não começou.`
+              : `Nenhum lançamento em ${info.label}.`}
+          </p>
+          {info.isCurrent && quickActions.length > 0 && (
+            <div className="dash-nodata-actions">
+              {quickActions.map((a) => (
+                <Button key={a.path} leadingIcon={a.icon} onClick={() => navigate(a.path)}>{a.label}</Button>
               ))}
-            </>
+            </div>
           )}
-        </div>
+        </section>
       )}
 
-      {/* ── Ações rápidas (mês atual sem dados, somente módulos permitidos) ── */}
-      {noData && !loading && isCurrentMonth && quickActions.length > 0 && (
-        <div className="panel dash-quick-actions">
-          <p className="dash-quick-actions-title">Ações rápidas para começar</p>
-          <div className="dash-quick-actions-row">
-            {quickActions.map((a) => (
-              <Button key={a.path} leadingIcon={a.icon} onClick={() => navigate(a.path)}>{a.label}</Button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Skeleton enquanto carrega ── */}
-      {loading && (
-        <div className="dash-skeleton-wrap">
-          <div className="dash-kpi-grid">
-            {[1,2,3,4].map((i) => <div key={i} className="dash-skeleton" style={{ height: 120 }} />)}
-          </div>
-          <div className="dashboard-grid">
-            {[1,2,3].map((i) => <div key={i} className="dash-skeleton" style={{ height: 280 }} />)}
-          </div>
-        </div>
-      )}
-
-      {data && !loading && (
-        <>
-          {/* ── Resumo financeiro ── */}
-          <div className="dash-section">
-            <p className="dash-section-label">Resumo financeiro</p>
-            <div className="dash-kpi-grid">
-              <KpiCard
-                label="Faturamento Bruto"
-                value={hasRevenue ? fmt(rev!.grossAmount) : "—"}
-                sub={
-                  hasRevenue
-                    ? `Cliente pagou · inclui 10% de serviço`
-                    : "Sem lançamentos no período"
-                }
-                tone={hasRevenue ? "success" : "neutral"}
-                icon={<BadgeDollarSign size={18} />}
-                delta={summary && summary.revenue.deltaGrossPercent !== null ? deltaInfo(summary.revenue.deltaGrossPercent, true) : undefined}
-                actionLabel={!hasRevenue && canCreateRevenue ? "Lançar faturamento" : undefined}
-                onAction={!hasRevenue && canCreateRevenue ? () => navigate("/financeiro/faturamento") : undefined}
-              />
-              <KpiCard
-                label="Serviço (10%)"
-                value={hasRevenue ? fmt(rev!.serviceAmount) : "—"}
-                sub={hasRevenue ? "Gorjeta (garçom)" : "Sem lançamentos no período"}
-                tone="neutral"
-                icon={<BadgeDollarSign size={18} />}
-                delta={summary && summary.revenue.deltaServicePercent !== null ? deltaInfo(summary.revenue.deltaServicePercent, true) : undefined}
-              />
-              <KpiCard
-                label="Faturamento Líquido"
-                value={hasRevenue ? fmt(rev!.netAmount) : "—"}
-                sub={hasRevenue ? "Fica para a casa (bruto − serviço)" : "Sem lançamentos no período"}
-                tone={hasRevenue ? "success" : "neutral"}
-                icon={<BadgeDollarSign size={18} />}
-                delta={summary && summary.revenue.deltaPercent !== null ? deltaInfo(summary.revenue.deltaPercent, true) : undefined}
-              />
-              <KpiCard
-                label="Ticket médio"
-                value={
-                  hasRevenue && summary && summary.revenue.ticketAveragePerTable > 0 ? (
-                    <div className="dash-kpi-dual">
-                      <div className="dash-kpi-dual-line">
-                        <span className="dash-kpi-dual-label">por mesa</span>
-                        <span className="dash-kpi-dual-value">{fmt(summary.revenue.ticketAveragePerTable)}</span>
-                      </div>
-                      <div className="dash-kpi-dual-line">
-                        <span className="dash-kpi-dual-label">por pessoa</span>
-                        <span className="dash-kpi-dual-value">
-                          {summary.revenue.ticketAveragePerPerson > 0
-                            ? fmt(summary.revenue.ticketAveragePerPerson)
-                            : "—"}
-                        </span>
-                      </div>
-                    </div>
-                  ) : "—"
-                }
-                sub={
-                  hasRevenue
-                    ? `${formatNumber(rev!.tickets)} mesa${rev!.tickets !== 1 ? "s" : ""}${summary && summary.revenue.peopleServed > 0 ? ` · ${formatNumber(summary.revenue.peopleServed)} pessoas` : ""}`
-                    : "Aguardando faturamento"
-                }
-                tone="neutral"
-                icon={<TicketPercent size={18} />}
-                delta={summary && summary.revenue.deltaTicketAvgPerTablePercent !== null ? deltaInfo(summary.revenue.deltaTicketAvgPerTablePercent, true) : undefined}
-              />
-              <KpiCard
-                label="Compras do Período"
-                value={summary ? fmt(summary.purchases.total) : hasPurchases ? fmt(data.totalAmount) : "—"}
-                sub={
-                  summary && summary.purchases.prev.total > 0
-                    ? `Anterior: ${fmt(summary.purchases.prev.total)}`
-                    : summary && summary.purchases.total > 0
-                    ? "Sem dados do mês anterior"
-                    : "Sem compras no período"
-                }
-                tone="neutral"
-                icon={<ShoppingCart size={18} />}
-                delta={
-                  summary && summary.purchases.deltaPercent !== null
-                    ? deltaInfo(summary.purchases.deltaPercent, false)
-                    : hasPurchases && data.previousTotalAmount > 0 ? purchaseDelta : undefined
-                }
-                actionLabel={!hasPurchases && !summary?.purchases.total && canCreatePurchases ? "Registrar compra" : undefined}
-                onAction={!hasPurchases && !summary?.purchases.total && canCreatePurchases ? () => navigate("/compras") : undefined}
-              />
-              <KpiCard
-                label="CMV Atual"
-                value={
-                  summary?.cmvReal.status === "closed" && summary.cmvReal.value !== null
-                    ? fmt(summary.cmvReal.value)
-                    : "-"
-                }
-                sub={
-                  summary?.cmvReal.status === "closed"
-                    ? summary.cmvReal.percent !== null
-                      ? `${formatPercent(summary.cmvReal.percent)} do faturamento`
-                      : "Periodo fechado"
-                    : summary?.cmvReal.status === "pending"
-                    ? "Inventario aberto - fechamento pendente"
-                    : "Sem inventario final neste periodo"
-                }
-                tone={
-                  summary?.cmvReal.status === "closed" ? "info"
-                  : "neutral"
-                }
-                icon={<TrendingUp size={18} />}
-                actionLabel={
-                  summary && summary.cmvReal.status !== "closed" && canAccessSection("monthly-closing")
-                    ? "Fechar periodo"
-                    : undefined
-                }
-                onAction={
-                  summary && summary.cmvReal.status !== "closed" && canAccessSection("monthly-closing")
-                    ? () => navigate("/cmv/fechamento-mensal")
-                    : undefined
-                }
-              />
-              <KpiCard
-                label="CMV Gerencial"
-                value={
-                  summary?.cmvReal.status === "closed"
-                    ? fmt(summary.cmvReal.views.managerial.realCmvValue)
-                    : "-"
-                }
-                sub={
-                  summary?.cmvReal.status === "closed"
-                    ? summary.cmvReal.views.managerial.cmvPercent !== null
-                      ? `${formatPercent(summary.cmvReal.views.managerial.cmvPercent)} do faturamento`
-                      : "Periodo fechado"
-                    : summary?.cmvReal.status === "pending"
-                    ? "Aguardando fechamento para comparar"
-                    : "Sem inventario final neste periodo"
-                }
-                tone={
-                  summary?.cmvReal.status === "closed" ? "success"
-                  : "neutral"
-                }
-                icon={<TrendingUp size={18} />}
-                actionLabel={
-                  summary && summary.cmvReal.status !== "closed" && canAccessSection("monthly-closing")
-                    ? "Fechar periodo"
-                    : undefined
-                }
-                onAction={
-                  summary && summary.cmvReal.status !== "closed" && canAccessSection("monthly-closing")
-                    ? () => navigate("/cmv/fechamento-mensal")
-                    : undefined
-                }
-              />
-              <KpiCard
-                label="Resultado Estimado"
-                value={summary ? fmt(summary.estimatedResult.value) : "—"}
-                sub={
-                  summary
-                    ? summary.estimatedResult.marginPercent !== null
-                      ? `Margem: ${formatPercent(summary.estimatedResult.marginPercent)}`
-                      : "Faturamento − Compras do período"
-                    : "Aguardando dados"
-                }
-                tone={
-                  summary
-                    ? summary.estimatedResult.value > 0 ? "success"
-                    : summary.estimatedResult.value < 0 ? "danger"
-                    : "neutral"
-                  : "neutral"
-                }
-                icon={<BadgeDollarSign size={18} />}
-              />
-            </div>
-          </div>
-
-          {/* ── Distribuição de compras ── */}
-          <div className="dash-section">
-            <p className="dash-section-label">Distribuição de compras</p>
-            <div className="dashboard-grid">
-              <RankingPanel
-                title="Por Categoria"
-                rows={[...data.byCategory].sort((a, b) => b.total - a.total).slice(0, 10)}
-                total={data.byCategoryTotal}
-                emptyText="Nenhuma compra registrada neste período."
-                emptyActionLabel={canViewPurchases ? "Ver compras" : undefined}
-                emptyActionPath={canViewPurchases ? "/compras" : undefined}
-                onNavigate={navigate}
-              />
-              <RankingPanel
-                title="Por Fornecedor"
-                rows={[...data.bySupplier].sort((a, b) => b.total - a.total).slice(0, 10)}
-                total={data.bySupplierTotal}
-                emptyText="Nenhuma compra registrada neste período."
-                emptyActionLabel={canViewPurchases ? "Ver fornecedores" : undefined}
-                emptyActionPath={canViewPurchases ? "/compras" : undefined}
-                onNavigate={navigate}
-              />
-              <RankingPanel
-                title="Por Produto"
-                total={data.byProductTotal}
-                rows={[...data.byProduct].sort((a, b) => b.total - a.total).slice(0, 10).map((p) => ({
-                  name: p.name,
-                  total: p.total,
-                  sub: `${formatNumber(p.quantity)} un.`,
-                }))}
-                emptyText="Nenhum produto registrado neste período."
-                emptyActionLabel={canViewPurchases ? "Ver compras" : undefined}
-                emptyActionPath={canViewPurchases ? "/compras" : undefined}
-                onNavigate={navigate}
-              />
-            </div>
-          </div>
-
-          {/* ── Compras recentes ── */}
-          {data.recentPurchases.length > 0 && canViewPurchases && (
-            <div className="dash-section">
-              <p className="dash-section-label">Compras recentes</p>
-              <div className="panel">
-                <RecentPurchasesList
-                  purchases={data.recentPurchases.slice(0, 6)}
-                  onNavigate={navigate}
+      {!noData && (
+        <div className="dash-grid">
+          <RevenueHero
+            gross={gross}
+            service={service}
+            net={net}
+            delta={revenueDelta}
+            noDeltaText={summary ? "Sem base de comparação" : undefined}
+            emptyAction={canCreateRevenue ? { label: "Lançar faturamento", onClick: () => navigate("/financeiro/faturamento") } : undefined}
+            chart={
+              daily && (
+                <RitmoDoMes
+                  current={daily.current}
+                  previous={daily.previous}
+                  daysInMonth={info.daysInMonth}
+                  previousDaysInMonth={monthInfo(shiftCompetence(competence, -1), new Date()).daysInMonth}
+                  currentUntil={info.isCurrent ? info.elapsedDays : info.daysInMonth}
+                  currentLabel={info.shortLabel}
+                  previousLabel={prevLabel}
                 />
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Alert Row
-// ─────────────────────────────────────────────
-
-function AlertRow({
-  alert: a,
-  onNavigate,
-  allowed = true,
-}: {
-  alert: {
-    tone: "danger" | "warning" | "info";
-    label?: string;
-    text: string;
-    actionLabel?: string;
-    actionPath?: string;
-  };
-  onNavigate: (path: string) => void;
-  allowed?: boolean;
-}) {
-  return (
-    <div className={`alert ${a.tone} dash-alert-row`} style={{ marginTop: 0 }}>
-      <span className="alert-icon"><Info size={15} /></span>
-      <span className="dash-alert-text">
-        {a.label ? <strong>{a.label}: </strong> : null}
-        {a.text}
-      </span>
-      {allowed && a.actionPath && a.actionLabel && (
-        <button
-          type="button"
-          className="dash-alert-action"
-          onClick={() => onNavigate(a.actionPath!)}
-        >
-          {a.actionLabel} <ExternalLink size={12} />
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// KPI Card
-// ─────────────────────────────────────────────
-
-function KpiCard({
-  label, value, sub, tone = "neutral", icon, delta, actionLabel, onAction,
-}: {
-  label: string;
-  value: ReactNode;
-  sub?: ReactNode;
-  tone?: "success" | "warning" | "danger" | "info" | "neutral";
-  icon?: ReactNode;
-  delta?: { text: string; tone: DeltaTone; direction?: DeltaDirection };
-  actionLabel?: string;
-  onAction?: () => void;
-}) {
-  return (
-    <article className={`dash-kpi-card summary-card tone-${tone}`}>
-      <div>
-        <span className="dash-kpi-label">{label}</span>
-        <strong className="dash-kpi-value">{value}</strong>
-        {sub && <small className="muted-inline">{sub}</small>}
-        {delta && (
-          <div className={`dash-delta dash-delta-${delta.tone}`}>
-            {/* A seta segue o SINAL; a cor e que segue o julgamento. Vinham as
-                duas do tone, entao faturamento caindo 66,6% — ruim, logo tone
-                warning — era desenhado com a seta pra cima. */}
-            {delta.direction === "up" ? <ArrowUp size={11} /> : delta.direction === "down" ? <ArrowDown size={11} /> : <Minus size={11} />}
-            <span>{delta.text}</span>
+              )
+            }
+          />
+          <div className="dash-side">
+            {summary && (
+              <TicketPanel
+                perTable={summary.revenue.ticketAveragePerTable}
+                perPerson={summary.revenue.ticketAveragePerPerson}
+                tables={summary.revenue.tickets}
+                people={summary.revenue.peopleServed}
+                deltaTable={buildDelta(summary.revenue.deltaTicketAvgPerTablePercent, true, `vs ${prevLabel}`)}
+                deltaPerson={buildDelta(summary.revenue.deltaTicketAvgPerPersonPercent, true, `vs ${prevLabel}`)}
+              />
+            )}
+            {summary && (
+              <ResultPanel
+                net={net}
+                purchases={summary.purchases.total}
+                smallExpenses={summary.smallExpenses.total}
+                result={summary.estimatedResult.value}
+                margin={summary.estimatedResult.marginPercent}
+              />
+            )}
           </div>
-        )}
-        {actionLabel && onAction && (
-          <button type="button" className="dash-kpi-action" onClick={onAction}>
-            {actionLabel} <ExternalLink size={11} />
-          </button>
-        )}
-      </div>
-      {icon && <div className="summary-card-icon">{icon}</div>}
-    </article>
-  );
-}
+        </div>
+      )}
 
-// ─────────────────────────────────────────────
-// Recent Purchases List
-// ─────────────────────────────────────────────
+      {!noData && summary && (
+        <CmvStrip
+          status={cmvStatus(summary.cmvReal.status, loaded.inventoryCmvStatus)}
+          isInProgress={info.isCurrent}
+          accounting={{ value: summary.cmvReal.value, percent: summary.cmvReal.percent }}
+          managerial={{
+            value: summary.cmvReal.views.managerial?.realCmvValue ?? null,
+            percent: summary.cmvReal.views.managerial?.cmvPercent ?? null,
+          }}
+          onOpen={canViewClosing ? () => navigate("/cmv/fechamento-mensal") : undefined}
+        />
+      )}
 
-function RecentPurchasesList({
-  purchases,
-  onNavigate,
-}: {
-  purchases: Purchase[];
-  onNavigate: (path: string) => void;
-}) {
-  return (
-    <ul className="dash-recent-list">
-      {purchases.map((p) => (
-        <li key={p.id} className="dash-recent-row">
-          <span className="dash-recent-supplier">{p.supplier?.name ?? "—"}</span>
-          <span className="dash-recent-meta">
-            {p.invoiceNumber ? `NF ${p.invoiceNumber}` : p.purchaseNumber ? `#${p.purchaseNumber}` : ""}
-          </span>
-          <span className="dash-recent-date">{formatDate(p.purchaseDate)}</span>
-          <strong className="dash-recent-amount"><Money value={p.totalAmount} /></strong>
-        </li>
-      ))}
-      <li className="dash-recent-footer">
-        <button
-          type="button"
-          className="dash-alert-action"
-          onClick={() => onNavigate("/compras")}
-        >
-          Ver todas as compras <ExternalLink size={12} />
-        </button>
-      </li>
-    </ul>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Ranking Panel
-// ─────────────────────────────────────────────
-
-function RankingPanel({
-  title,
-  rows,
-  total,
-  emptyText = "Nenhum dado no período.",
-  emptyActionLabel,
-  emptyActionPath,
-  onNavigate,
-}: {
-  title: string;
-  rows: Array<{ name: string; total: number; sub?: string }>;
-  total?: number;
-  emptyText?: string;
-  emptyActionLabel?: string;
-  emptyActionPath?: string;
-  onNavigate?: (path: string) => void;
-}) {
-  // `total` e o total do periodo inteiro, nao o das linhas visiveis: a lista e
-  // cortada no top 10, e somar so o que aparece inflava cada percentual.
-  const grandTotal = total ?? rows.reduce((s, r) => s + r.total, 0);
-
-  return (
-    <section className="panel">
-      <h3 className="dash-ranking-title">{title}</h3>
-      {rows.length === 0 ? (
-        <div className="dash-ranking-empty">
-          <p>{emptyText}</p>
-          {emptyActionLabel && emptyActionPath && onNavigate && (
-            <button
-              type="button"
-              className="dash-alert-action"
-              onClick={() => onNavigate(emptyActionPath)}
-            >
-              {emptyActionLabel} <ExternalLink size={12} />
-            </button>
+      {!noData && (
+        <div className="dash-grid dash-grid--purchases">
+          <PurchasesPanel
+            total={purchasesTotal}
+            count={summary ? summary.purchases.count : null}
+            delta={purchasesDelta}
+            reference={purchasesReference}
+            rankings={{
+              category: { rows: data.byCategory, total: data.byCategoryTotal },
+              supplier: { rows: data.bySupplier, total: data.bySupplierTotal },
+              product: { rows: data.byProduct, total: data.byProductTotal },
+            }}
+            emptyAction={canCreatePurchases ? { label: "Registrar compra", onClick: () => navigate("/compras") } : undefined}
+          />
+          {canViewPurchases && data.recentPurchases.length > 0 && (
+            <RecentPurchases purchases={data.recentPurchases.slice(0, 7)} onOpenAll={() => navigate("/compras")} />
           )}
         </div>
-      ) : (
-        <ol className="dash-ranking-list">
-          {rows.map((row, i) => {
-            const pct = grandTotal > 0 ? (row.total / grandTotal) * 100 : 0;
-            return (
-              <li key={row.name} className="dash-ranking-row">
-                <span className="dash-ranking-pos">{i + 1}</span>
-                <div className="dash-ranking-body">
-                  <div className="dash-ranking-top-row">
-                    <span className="dash-ranking-name">{row.name}</span>
-                    <strong className="dash-ranking-value"><Money value={row.total} /></strong>
-                  </div>
-                  <div className="dash-ranking-bar-wrap">
-                    <div className="dash-ranking-bar" style={{ width: `${Math.max(pct, 2)}%` }} />
-                    <span className="dash-ranking-pct">{formatPercent(pct)}{row.sub ? ` · ${row.sub}` : ""}</span>
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
       )}
-    </section>
+    </>
   );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="dash-skeleton-wrap" aria-hidden>
+      <div className="dash-grid">
+        <div className="dash-skeleton" style={{ height: 360 }} />
+        <div className="dash-side">
+          <div className="dash-skeleton" style={{ height: 160 }} />
+          <div className="dash-skeleton" style={{ height: 184 }} />
+        </div>
+      </div>
+      <div className="dash-skeleton" style={{ height: 320 }} />
+    </div>
+  );
+}
+
+// O summary diz "missing" sempre que não há apuração; os alertas sabem se o
+// inventário final já foi lançado. Sem combinar, a faixa dizia "sem inventário"
+// logo abaixo do alerta "inventário final registrado".
+function cmvStatus(
+  fromSummary: "closed" | "pending" | "missing",
+  fromInventory?: "closed" | "pending" | "missing" | "unknown",
+): "closed" | "pending" | "missing" {
+  if (fromSummary === "closed") return "closed";
+  if (fromSummary === "pending" || fromInventory === "pending") return "pending";
+  return "missing";
+}
+
+// "Ver contas a pagar" → "Contas a pagar": o verbo é a seta.
+function shortAction(label?: string) {
+  if (!label) return undefined;
+  const trimmed = label.replace(/^Ver\s+/i, "");
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }

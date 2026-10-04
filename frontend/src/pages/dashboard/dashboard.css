@@ -1,0 +1,761 @@
+/* ═══════════════════════════════════════════════════════════
+   Dashboard — visão do mês
+   Direção: livro-caixa editorial. Números em tabular, contas
+   escritas como contas, um único protagonista (faturamento),
+   ouro como acento e cor semântica só onde há julgamento.
+   O layout reage ao espaço real (container query), não à
+   janela: o menu lateral recolhe e expande.
+   ═══════════════════════════════════════════════════════════ */
+
+.dash {
+  --dash-gap: 16px;
+  --dash-radius: 10px;
+  --dash-series-current: #a8781f;
+  --dash-series-previous: #4a76b0;
+  --dash-gold-wash: #fbf6ea;
+  --dash-shadow: 0 1px 2px rgba(22, 21, 18, 0.04), 0 4px 16px -8px rgba(22, 21, 18, 0.08);
+
+  container: dash / inline-size;
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.dash-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dash-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+/* ── Cabeçalho do período ───────────────────────────────── */
+
+.dash-period {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dash-period-titles { min-width: 0; }
+
+.dash-period-title {
+  margin: 4px 0 6px;
+  color: var(--ink);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.dash-period-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.dash-period-updated { color: var(--muted); }
+
+.dash-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dash-series-current);
+  box-shadow: 0 0 0 3px rgba(168, 120, 31, 0.18);
+  animation: dash-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes dash-pulse {
+  50% { opacity: 0.35; }
+}
+
+.dash-period-progress {
+  position: relative;
+  width: 72px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.dash-period-progress > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--dash-series-current);
+}
+
+.dash-period-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dash-stepper {
+  display: inline-flex;
+  align-items: stretch;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  overflow: hidden;
+}
+
+.dash-stepper-btn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.dash-stepper-btn:hover { background: var(--row-hover); color: var(--ink); }
+.dash-stepper-btn:active { background: var(--dash-gold-wash); }
+
+.dash-stepper-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-inline: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.dash-stepper-field input {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.dash-stepper-field input:focus { outline: none; }
+.dash-stepper-field:focus-within { background: var(--dash-gold-wash); }
+
+.dash-stepper-btn:focus-visible,
+.dash-today-btn:focus-visible,
+.dash-link-btn:focus-visible,
+.dash-attention-row:focus-visible,
+.dash-ritmo-plot svg:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.dash-today-btn {
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dash-today-btn:hover { border-color: var(--line-strong); background: var(--row-hover); }
+
+.dash-inline-retry {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Troca de mês esmaece em vez de sumir: o quadro fica, os botões não fogem do cursor. */
+.dash-body {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  transition: opacity 160ms ease;
+}
+
+.dash-body[data-stale="true"] { opacity: 0.55; pointer-events: none; }
+
+/* ── Cartões ────────────────────────────────────────────── */
+
+.dash-card {
+  position: relative;
+  min-width: 0;
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--dash-radius);
+  background: var(--paper);
+  box-shadow: var(--dash-shadow);
+}
+
+.dash-stat-value {
+  margin: 6px 0 2px;
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+.dash-stat-value--lg { font-size: 26px; }
+
+.dash-stat-label {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.dash-footnote {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.dash-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--gold);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+.dash-link-btn svg { transition: transform 140ms ease; }
+.dash-link-btn:hover svg { transform: translateX(3px); }
+
+/* ── Deltas ─────────────────────────────────────────────── */
+
+.dash-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.dash-delta strong { font-weight: 700; }
+.dash-delta span { opacity: 0.85; }
+
+.dash-delta--success { background: #eaf5ee; color: var(--success); }
+.dash-delta--warning { background: #fbf1dc; color: var(--warning); }
+.dash-delta--neutral { background: var(--paper-soft); color: var(--muted); }
+
+/* ── Precisa de você ────────────────────────────────────── */
+
+.dash-attention { display: grid; gap: 10px; }
+
+.dash-attention-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--dash-radius);
+  background: var(--paper);
+  overflow: hidden;
+}
+
+.dash-attention-item + .dash-attention-item { border-top: 1px solid var(--line); }
+
+.dash-attention-item { position: relative; }
+
+.dash-attention-item::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+}
+
+.dash-attention-item.tone-danger::before { background: var(--danger); }
+.dash-attention-item.tone-warning::before { background: #c99a30; }
+.dash-attention-item.tone-info::before { background: var(--info); }
+
+.dash-attention-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px 14px;
+  width: 100%;
+  padding: 12px 18px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+button.dash-attention-row { cursor: pointer; transition: background 120ms ease; }
+button.dash-attention-row:hover { background: var(--row-hover); }
+button.dash-attention-row:hover .dash-attention-go svg { transform: translateX(3px); }
+
+.dash-attention-icon { display: grid; place-items: center; }
+.dash-attention-icon.tone-danger { color: var(--danger); }
+.dash-attention-icon.tone-warning { color: var(--warning); }
+.dash-attention-icon.tone-info { color: var(--info); }
+
+.dash-attention-text { display: grid; gap: 2px; min-width: 0; }
+.dash-attention-text strong { font-size: 14px; font-weight: 600; }
+.dash-attention-text span { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+
+.dash-attention-amount { font-size: 15px; font-weight: 700; white-space: nowrap; }
+
+.dash-attention-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dash-attention-go svg { transition: transform 140ms ease; }
+
+.dash-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.dash-waiting strong { color: var(--ink-soft); font-weight: 600; }
+
+/* ── Grade principal ────────────────────────────────────── */
+
+.dash-grid {
+  display: grid;
+  gap: var(--dash-gap);
+  min-width: 0;
+}
+
+.dash-side {
+  display: grid;
+  gap: var(--dash-gap);
+  align-content: start;
+  min-width: 0;
+}
+
+@container dash (min-width: 960px) {
+  .dash-grid { grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); }
+  .dash-grid--purchases { grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); }
+}
+
+@container dash (min-width: 640px) and (max-width: 959px) {
+  .dash-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ── Faturamento (protagonista) ─────────────────────────── */
+
+.dash-revenue {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  background:
+    linear-gradient(180deg, var(--dash-gold-wash) 0%, var(--paper) 140px);
+}
+
+.dash-revenue::before {
+  content: "";
+  position: absolute;
+  inset: -1px -1px auto -1px;
+  height: 3px;
+  border-radius: var(--dash-radius) var(--dash-radius) 0 0;
+  background: var(--dash-series-current);
+}
+
+.dash-revenue-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dash-hero-value {
+  margin: 8px 0 4px;
+  color: var(--ink);
+  font-size: clamp(30px, 4.2cqi, 44px);
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.dash-hero-caption { margin: 0; color: var(--muted); font-size: 13px; }
+
+.dash-equation {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+}
+
+.dash-equation > div { display: grid; gap: 2px; }
+.dash-equation dt { color: var(--muted); font-size: 11.5px; }
+.dash-equation dd { margin: 0; color: var(--ink-soft); font-size: 15px; font-weight: 600; }
+.dash-equation-op { color: var(--muted); font-size: 18px; line-height: 1.3; }
+.dash-equation-result dd { color: var(--ink); font-weight: 700; }
+
+/* ── Ritmo do mês (gráfico) ─────────────────────────────── */
+
+.dash-ritmo { display: grid; gap: 8px; margin: 0; }
+
+.dash-ritmo-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.dash-ritmo-key { display: inline-flex; align-items: center; gap: 6px; }
+
+.dash-ritmo-key::before {
+  content: "";
+  width: 16px;
+  border-top: 2px solid var(--dash-series-current);
+}
+
+.dash-ritmo-key--previous::before {
+  border-top: 2px dashed var(--dash-series-previous);
+}
+
+.dash-ritmo-hint { margin-left: auto; color: var(--muted); }
+
+.dash-ritmo-plot { position: relative; min-width: 0; height: 168px; }
+.dash-ritmo-plot svg { display: block; touch-action: pan-y; cursor: crosshair; border-radius: 4px; }
+
+.dash-ritmo-grid { stroke: var(--line); stroke-width: 1; }
+.dash-ritmo-axis { fill: var(--muted); font-size: 10.5px; }
+
+.dash-ritmo-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dash-ritmo-line--current { stroke: var(--dash-series-current); stroke-width: 2.5; }
+.dash-ritmo-line--previous { stroke: var(--dash-series-previous); stroke-dasharray: 5 4; opacity: 0.9; }
+
+.dash-ritmo-dot { fill: var(--dash-series-current); stroke: var(--paper); stroke-width: 2; }
+.dash-ritmo-dot--previous { fill: var(--dash-series-previous); }
+.dash-ritmo-cross { stroke: var(--line-strong); stroke-width: 1; }
+
+.dash-ritmo-tooltip {
+  position: absolute;
+  top: 0;
+  display: grid;
+  gap: 3px;
+  min-width: 168px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: 0 8px 24px -10px rgba(22, 21, 18, 0.28);
+  font-size: 12px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.dash-ritmo-tooltip-day { color: var(--muted); font-size: 11px; }
+.dash-ritmo-tooltip-row { color: var(--muted); }
+.dash-ritmo-tooltip-row strong { color: var(--ink); font-size: 13px; }
+
+/* ── Ticket médio ───────────────────────────────────────── */
+
+.dash-ticket-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.dash-ticket-grid > div + div { padding-left: 16px; border-left: 1px solid var(--line); }
+
+/* ── Resultado (livro-caixa) ────────────────────────────── */
+
+.dash-ledger { display: grid; margin: 12px 0 0; }
+
+.dash-ledger > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 13.5px;
+}
+
+.dash-ledger dt { color: var(--ink-soft); }
+.dash-ledger dd { margin: 0; color: var(--ink); font-weight: 600; white-space: nowrap; }
+
+.dash-ledger-total {
+  margin-top: 4px;
+  padding-top: 10px !important;
+  border-top: 2px solid var(--ink);
+}
+
+.dash-ledger-total dt { display: flex; align-items: baseline; gap: 8px; color: var(--ink); font-weight: 700; }
+.dash-ledger-total dd { font-size: 18px; font-weight: 750; }
+.dash-ledger-total.tone-success dd { color: var(--success); }
+.dash-ledger-total.tone-danger dd { color: var(--danger); }
+.dash-ledger-margin { color: var(--muted); font-size: 12px; font-weight: 500; }
+
+/* ── CMV ────────────────────────────────────────────────── */
+
+.dash-cmv {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  padding-block: 14px;
+}
+
+.dash-cmv .dash-link-btn { margin-left: auto; }
+
+.dash-cmv--open { background: var(--paper-soft); box-shadow: none; }
+
+.dash-cmv-message { margin: 0; color: var(--ink-soft); font-size: 13.5px; }
+
+.dash-cmv-values { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 0; }
+.dash-cmv-values > div { display: flex; align-items: baseline; gap: 10px; }
+.dash-cmv-values dt { color: var(--muted); font-size: 12.5px; }
+.dash-cmv-values dd { margin: 0; font-size: 17px; font-weight: 700; }
+.dash-cmv-values dd span { margin-left: 4px; color: var(--muted); font-size: 12.5px; font-weight: 500; }
+
+/* ── Compras ────────────────────────────────────────────── */
+
+.dash-purchases { display: grid; gap: 14px; align-content: start; }
+
+.dash-purchases-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dash-purchases-tabs { justify-self: start; }
+
+.dash-bars {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dash-bar-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto 52px;
+  grid-template-areas:
+    "rank name value share"
+    ".    bar  bar   bar";
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 6px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.dash-bar-row:hover { background: var(--row-hover); }
+
+.dash-bar-rank { grid-area: rank; color: var(--muted); font-size: 11px; font-weight: 700; text-align: right; }
+.dash-bar-name { grid-area: name; overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
+.dash-bar-value { grid-area: value; font-weight: 600; white-space: nowrap; }
+.dash-bar-share { grid-area: share; color: var(--muted); font-size: 12px; text-align: right; }
+
+.dash-bar-track {
+  grid-area: bar;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--paper-soft);
+  overflow: hidden;
+}
+
+.dash-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--dash-series-current);
+  transform-origin: left;
+  animation: dash-grow 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.dash-bar-row:nth-child(n + 4) .dash-bar-fill { background: #c9a865; }
+
+.dash-bar-row.is-remainder .dash-bar-name { color: var(--muted); font-style: italic; }
+.dash-bar-row.is-remainder .dash-bar-fill {
+  background: repeating-linear-gradient(45deg, var(--line-strong) 0 3px, transparent 3px 6px);
+}
+
+@keyframes dash-grow { from { transform: scaleX(0); } }
+
+.dash-empty {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 18px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dash-empty p { margin: 0; }
+
+/* ── Últimas compras ────────────────────────────────────── */
+
+.dash-recent { display: grid; gap: 10px; align-content: start; }
+
+.dash-recent-list { display: grid; margin: 0; padding: 0; list-style: none; }
+
+.dash-recent-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "supplier amount" "meta amount";
+  gap: 1px 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.dash-recent-row:last-child { border-bottom: 0; }
+
+.dash-recent-supplier {
+  grid-area: supplier;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-recent-meta { grid-area: meta; color: var(--muted); font-size: 11.5px; }
+.dash-recent-amount { grid-area: amount; align-self: center; font-size: 13.5px; white-space: nowrap; }
+
+/* ── Sem dados / carregando ─────────────────────────────── */
+
+.dash-nodata { display: grid; gap: 14px; }
+.dash-nodata p { margin: 0; color: var(--ink-soft); }
+.dash-nodata-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+.dash-skeleton-wrap { display: grid; gap: var(--dash-gap); }
+
+.dash-skeleton {
+  border-radius: var(--dash-radius);
+  background: linear-gradient(90deg, #f0f2f5 0%, #e8eaed 50%, #f0f2f5 100%);
+  background-size: 200% 100%;
+  animation: dash-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes dash-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Estreito (celular) ─────────────────────────────────── */
+
+@container dash (max-width: 560px) {
+  .dash-period { align-items: stretch; }
+  .dash-period-title { font-size: 24px; }
+  .dash-period-controls { width: 100%; flex-wrap: wrap; }
+  .dash-stepper { flex: 1 1 100%; }
+  .dash-stepper-field { flex: 1; justify-content: center; }
+  .dash-stepper-field input { width: 100%; text-align: center; }
+  .dash-today-btn { flex: 1; }
+
+  .dash-card { padding: 16px; }
+
+  .dash-attention-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    padding: 12px 14px;
+  }
+  .dash-attention-go { display: none; }
+
+  /* A conta vira um extrato: uma linha por termo, sinal à esquerda. */
+  .dash-equation { display: grid; gap: 4px; }
+  .dash-equation > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .dash-equation-op { display: none; }
+  .dash-equation dt { font-size: 12.5px; }
+  .dash-equation dd { font-size: 14px; }
+  .dash-equation-minus dt::before { content: "− "; }
+  .dash-equation-result { padding-top: 6px; border-top: 1px solid var(--line); }
+  .dash-equation-result dt::before { content: "= "; }
+
+  .dash-ticket-grid { grid-template-columns: 1fr; gap: 12px; }
+  .dash-ticket-grid > div + div { padding: 12px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+
+  .dash-bar-row { grid-template-columns: 16px minmax(0, 1fr) auto 42px; gap: 4px 8px; }
+
+  .dash-ritmo-hint { display: none; }
+  .dash-cmv .dash-link-btn { margin-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-live-dot,
+  .dash-skeleton,
+  .dash-bar-fill { animation: none; }
+  .dash-body,
+  .dash-link-btn svg,
+  .dash-attention-go svg { transition: none; }
+}
