@@ -3539,7 +3539,7 @@ model FichaCadastral {
 }
 
 /// Foto/PDF de documento enviado pelo link. Fica no banco (o disco do Render é
-/// apagado a cada deploy) e é guardado para sempre, como comprovação.
+/// apagado a cada deploy) e é guardado como comprovação; ficha cancelada é apagada em 90 dias (ficha-cadastral-expurgo.ts).
 model FichaCadastralArquivo {
   id           String         @id @default(cuid())
   fichaId      String
