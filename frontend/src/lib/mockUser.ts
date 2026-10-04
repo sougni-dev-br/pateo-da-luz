@@ -771,6 +771,7 @@ function mockResponseFor(url: string): unknown {
     "orders",
     "requisitions",
     "dishes",
+    "buffet-plates",
     "cards",
     "cash-entries",
     "movements",

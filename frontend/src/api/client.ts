@@ -3943,6 +3943,65 @@ export function searchDishProducts(search: string) {
 }
 
 // ──────────────────────────────────────────────
+// Plaquinhas do buffet
+// ──────────────────────────────────────────────
+
+export type PlateFormat = "std" | "tent" | "sauce";
+export type PlateTheme = "wine" | "gold";
+export type PlateListKind = "BUFFET" | "COFFEE_BREAK" | "EVENTO";
+
+export type BuffetPlateItem = { id: string; namePt: string; nameEn: string; category: string; isActive: boolean };
+export type BuffetPlateItemInput = { namePt: string; nameEn: string; category: string; isActive?: boolean };
+export type BuffetPlateListEntry = { itemId: string; qty: number };
+export type BuffetPlateListSummary = {
+  id: string;
+  name: string;
+  kind: PlateListKind;
+  eventDate: string | null;
+  format: PlateFormat;
+  theme: PlateTheme;
+  itemCount: number;
+  plateCount: number;
+  updatedAt: string;
+};
+export type BuffetPlateList = BuffetPlateListSummary & { items: BuffetPlateListEntry[] };
+export type BuffetPlateListInput = Pick<BuffetPlateList, "name" | "kind" | "eventDate" | "format" | "theme" | "items">;
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+export function getBuffetPlateItems(includeInactive = false) {
+  return request<BuffetPlateItem[]>(`/buffet-plates/items${toQueryString({ includeInactive: includeInactive ? "true" : undefined })}`);
+}
+
+export function saveBuffetPlateItem(payload: BuffetPlateItemInput, id?: string) {
+  return request<BuffetPlateItem>(id ? `/buffet-plates/items/${id}` : "/buffet-plates/items", {
+    method: id ? "PUT" : "POST", headers: JSON_HEADERS, body: JSON.stringify(payload),
+  });
+}
+
+export function deactivateBuffetPlateItem(id: string) {
+  return request<BuffetPlateItem>(`/buffet-plates/items/${id}`, { method: "DELETE" });
+}
+
+export function getBuffetPlateLists() {
+  return request<BuffetPlateListSummary[]>("/buffet-plates/lists");
+}
+
+export function getBuffetPlateList(id: string) {
+  return request<BuffetPlateList>(`/buffet-plates/lists/${id}`);
+}
+
+export function saveBuffetPlateList(payload: BuffetPlateListInput, id?: string) {
+  return request<BuffetPlateListSummary>(id ? `/buffet-plates/lists/${id}` : "/buffet-plates/lists", {
+    method: id ? "PUT" : "POST", headers: JSON_HEADERS, body: JSON.stringify(payload),
+  });
+}
+
+export function deleteBuffetPlateList(id: string) {
+  return request<{ ok: boolean }>(`/buffet-plates/lists/${id}`, { method: "DELETE" });
+}
+
+// ──────────────────────────────────────────────
 // DRE Gerencial
 // ──────────────────────────────────────────────
 

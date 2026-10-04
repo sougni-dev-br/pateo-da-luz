@@ -1650,6 +1650,36 @@ model DishItem {
   @@index([productId])
 }
 
+// Plaquinhas do buffet: catálogo de nomes para impressão (português + inglês),
+// separado das fichas técnicas — muitos itens de buffet e coffee break não têm ficha.
+model BuffetPlateItem {
+  id        String   @id @default(cuid())
+  namePt    String   @unique
+  nameEn    String
+  category  String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, category])
+}
+
+// Lista montada para um dia ou evento. `items` guarda [{ itemId, qty }] na ordem da folha.
+model BuffetPlateList {
+  id          String    @id @default(cuid())
+  name        String
+  kind        String    @default("BUFFET")
+  eventDate   DateTime? @db.Date
+  format      String    @default("std")
+  theme       String    @default("wine")
+  items       Json      @default("[]")
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([updatedAt])
+}
+
 model DRECategory {
   id                String             @id @default(cuid())
   name              String             @unique

@@ -5,6 +5,7 @@ import {
   Calculator,
   CalendarDays,
   ChefHat,
+  Tags,
   ClipboardCheck,
   ClipboardList,
   Coins,
@@ -100,6 +101,7 @@ const FichasCadastrais = lazy(() => import("./pages/rh/fichas/FichasCadastrais")
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
 const Users = lazy(() => import("./pages/Users").then((module) => ({ default: module.Users })));
 const Dishes = lazy(() => import("./pages/Dishes").then((module) => ({ default: module.Dishes })));
+const Plaquinhas = lazy(() => import("./pages/cardapio/plaquinhas/Plaquinhas").then((module) => ({ default: module.Plaquinhas })));
 const DRE = lazy(() => import("./pages/DRE").then((module) => ({ default: module.DRE })));
 const SupplierCycles = lazy(() => import("./pages/SupplierCycles").then((module) => ({ default: module.SupplierCycles })));
 const TaxPayments = lazy(() => import("./pages/TaxPayments").then((module) => ({ default: module.TaxPayments })));
@@ -170,6 +172,7 @@ const sections = [
   { id: "inventory-reports", label: "Relatórios", icon: BarChart3, showInSidebar: true, group: "Estoque", path: "/estoque/relatorios", matchers: ["/estoque/relatorios"] },
   { id: "requisitions", label: "Requisições", icon: ClipboardCheck, showInSidebar: true, group: "Estoque", path: "/estoque/requisicoes", matchers: ["/estoque/requisicoes"] },
   { id: "dishes", label: "Fichas Técnicas", icon: ChefHat, showInSidebar: true, group: "Cardápio", path: "/cardapio/fichas-tecnicas", matchers: ["/cardapio/fichas-tecnicas"] },
+  { id: "buffet-plates", label: "Plaquinhas do buffet", icon: Tags, showInSidebar: true, group: "Cardápio", path: "/cardapio/plaquinhas", matchers: ["/cardapio/plaquinhas"], description: "Monte a lista do buffet ou do coffee break e imprima as plaquinhas em português e inglês" },
   { id: "dre", label: "DRE Gerencial", icon: BarChart3, showInSidebar: true, group: "Financeiro", path: "/financeiro/dre", matchers: ["/financeiro/dre"] },
   { id: "tax-payments", label: "Impostos e Guias", icon: ScrollText, showInSidebar: true, group: "Financeiro", path: "/financeiro/impostos", matchers: ["/financeiro/impostos"] },
   { id: "supplier-cycles", label: "Ciclos de fornecedor", icon: RefreshCw, showInSidebar: true, group: "Financeiro", path: "/financeiro/ciclos-fornecedor", matchers: ["/financeiro/ciclos-fornecedor"], description: "Agrupa compras por fornecedor para pagamento consolidado" },
@@ -602,6 +605,7 @@ export function App() {
                     className="ds-sidebar-footer-button ds-sidebar-footer-button-danger"
                     type="button"
                     onClick={() => {
+                      if (navGuardRef.current && !navGuardRef.current()) return;
                       setMobileMenuOpen(false);
                       setUser(null);
                       logout();
@@ -631,6 +635,7 @@ export function App() {
       hideValues={hideSensitiveValues}
       onToggleValues={toggleSensitiveValues}
       onLogout={() => {
+        if (navGuardRef.current && !navGuardRef.current()) return;
         setUser(null);
         logout();
       }}
@@ -738,6 +743,7 @@ export function App() {
               <Route path="/inventory/counts/:agendaId" element={<Navigate to="/estoque/contagens" replace />} />
               <Route path="/estoque/requisicoes" element={<Requisitions user={user} />} />
               <Route path="/cardapio/fichas-tecnicas" element={<Dishes />} />
+              <Route path="/cardapio/plaquinhas" element={<Plaquinhas />} />
               <Route path="/financeiro/dre" element={<DRE />} />
               <Route path="/financeiro/impostos" element={<TaxPayments user={user} />} />
               <Route path="/financeiro/ciclos-fornecedor" element={<SupplierCycles />} />
