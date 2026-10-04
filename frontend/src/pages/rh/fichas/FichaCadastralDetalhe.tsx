@@ -88,6 +88,8 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
   const podeEditar = hasPermission("employee-forms", "edit") && ficha.status !== "CANCELADA";
   // Novo link e devolução são POST: no controle de acesso pedem "criar".
   const podeReenviar = hasPermission("employee-forms", "create");
+  // Gerar link exige também ver Funcionários (mesma regra do servidor).
+  const podeGerarLink = podeReenviar && hasPermission("employees", "view");
   const podeConcluir = hasPermission("employee-forms", "approve") && hasPermission("employees", ficha.tipo === "ADMISSAO" ? "create" : "edit");
   const nome = ficha.funcionario?.nome ?? (typeof ficha.dados.nomeCompleto === "string" ? ficha.dados.nomeCompleto : ficha.nomeReferencia);
 
@@ -161,7 +163,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
         </div>
         <div className="fc-acoes">
           <Button variant="secondary" leadingIcon={<Printer size={16} />} onClick={imprimirFicha}>Imprimir ficha</Button>
-          {aberta && podeReenviar && <Button variant="secondary" leadingIcon={<Link2 size={16} />} disabled={ocupado}
+          {aberta && podeGerarLink && <Button variant="secondary" leadingIcon={<Link2 size={16} />} disabled={ocupado}
             onClick={() => agir(async () => setLink(await novoLinkFichaCadastral(id)), "Novo link gerado. O anterior não abre mais.")}>Gerar novo link</Button>}
           {finalizada && podeReenviar && <Button variant="secondary" leadingIcon={<RotateCcw size={16} />} disabled={ocupado} onClick={() => setDevolvendo(true)}>Devolver para correção</Button>}
           {(aberta || finalizada) && hasPermission("employee-forms", "delete") && <Button variant="danger" leadingIcon={<Ban size={16} />} disabled={ocupado} onClick={() => setConfirmar("cancelar")}>Cancelar ficha</Button>}

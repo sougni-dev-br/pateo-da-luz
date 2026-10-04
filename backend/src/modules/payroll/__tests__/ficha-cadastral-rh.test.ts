@@ -369,14 +369,15 @@ describe("atualização em lote", () => {
     expect(r.headers["cache-control"]).toBe("no-store");
   });
 
-  test("sem ver Funcionários, o lote não devolve o celular", async () => {
-    db.employee.findMany.mockResolvedValue([{ ...funcionario, id: "e1", phone: "(11) 91234-5678" }]);
-    db.fichaCadastral.findMany.mockResolvedValue([]);
-    db.fichaCadastral.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "nova", expiraEm: new Date(), ...data }));
+  test("gerar link (lote, ficha nova, novo link) exige também ver Funcionários", async () => {
     vi.mocked(userHasPermission).mockResolvedValue(false);
-    const r = await request(app).post("/employee-forms/lote");
-    expect(r.status).toBe(201);
-    expect(r.body.criadas[0].celular).toBeNull();
+    expect((await request(app).post("/employee-forms/lote")).status).toBe(403);
+    expect((await request(app).post("/employee-forms").send({ tipo: "ADMISSAO", nomeReferencia: "Joana Exemplo" })).status).toBe(403);
+    ficha.status = "PREENCHENDO";
+    expect((await request(app).post("/employee-forms/f1/novo-link")).status).toBe(403);
+    expect(db.fichaCadastral.create).not.toHaveBeenCalled();
+    expect(db.fichaCadastral.updateMany).not.toHaveBeenCalled();
+    expect(db.$transaction).not.toHaveBeenCalled();
   });
 
   test("falha no meio do lote não devolve links (a transação desfaz tudo)", async () => {
