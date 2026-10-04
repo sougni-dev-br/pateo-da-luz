@@ -1,7 +1,7 @@
 // Página que a pessoa abre pelo link do WhatsApp para preencher a ficha cadastral. Fora do
 // login do sistema (main.tsx desvia /ficha/... para cá). Celular primeiro: uma etapa por
 // tela, botão de avançar embaixo, onde o polegar alcança.
-import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, Lock, Send } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, Lock, RotateCw, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { abrirFicha, ErroFicha, finalizar, salvarDados, verificar, type Dados, type Estado } from "./api";
 import { Apresentacao } from "./Apresentacao";
@@ -9,8 +9,9 @@ import { CampoFicha } from "./CampoFicha";
 import { EtapaFamilia, filhosParaSalvar, filhosParaTela, type FilhoTela } from "./EtapaFamilia";
 import { EtapaFotos } from "./EtapaFotos";
 import { EtapaRevisao } from "./EtapaRevisao";
-import { ETAPAS, corpoDaEtapa, etapaInicial, valoresDe, type Valores } from "./etapas";
+import { ETAPAS, corpoDaEtapa, etapaDeRetomada, valoresDe, type Valores } from "./etapas";
 import { buscarCep, dataParaIso, mascaraCpf, mascaraData, soDigitos } from "./formato";
+import { aplicarCep, apagarRascunho, guardarRascunho, lerRascunho } from "./rascunho";
 import "./fichaPublica.css";
 
 // A carta de apresentação aparece uma vez por aba: recarregar no meio do preenchimento não volta
@@ -34,13 +35,14 @@ function Moldura({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Mensagem({ titulo, texto, icone }: { titulo: string; texto: string; icone?: React.ReactNode }) {
+function Mensagem({ titulo, texto, icone, acao }: { titulo: string; texto: string; icone?: React.ReactNode; acao?: React.ReactNode }) {
   return (
     <Moldura>
       <div className="fp-mensagem">
         {icone}
         <h1>{titulo}</h1>
         <p>{texto}</p>
+        {acao}
       </div>
     </Moldura>
   );
@@ -79,7 +81,7 @@ function Verificacao({ codigo, metodo, onLiberado }: { codigo: string; metodo: "
 export function FichaPublica() {
   const codigo = useRef(codigoDaUrl()).current;
   const [estado, setEstado] = useState<Estado | null>(null);
-  const [erroFatal, setErroFatal] = useState<string | null>(null);
+  const [erroFatal, setErroFatal] = useState<{ texto: string; semConexao: boolean } | null>(null);
   const [etapa, setEtapa] = useState(0);
   const [valores, setValores] = useState<Valores>({});
   const [filhos, setFilhos] = useState<FilhoTela[]>([]);
@@ -90,6 +92,16 @@ export function FichaPublica() {
   const [apresentada, setApresentada] = useState(() => jaApresentada(codigo));
   const iniciado = useRef(false);
   const topo = useRef<HTMLHeadingElement>(null);
+  // Endereço que veio do último CEP consultado: corrigir o CEP troca só esse, não o digitado.
+  const doCep = useRef<Partial<Record<"endereco" | "bairro" | "cidade" | "uf", string>>>({});
+
+  function abrir() {
+    setErroFatal(null);
+    abrirFicha(codigo).then(receber).catch((e) => setErroFatal({
+      texto: e instanceof ErroFicha ? e.message : "Não foi possível abrir a ficha.",
+      semConexao: e instanceof ErroFicha && e.status === 0,
+    }));
+  }
 
   useEffect(() => {
     document.title = "Ficha cadastral — Pateo da Luz";
@@ -97,7 +109,7 @@ export function FichaPublica() {
     robots.name = "robots";
     robots.content = "noindex, nofollow";
     document.head.appendChild(robots);
-    abrirFicha(codigo).then(receber).catch((e) => setErroFatal(e instanceof ErroFicha ? e.message : "Não foi possível abrir a ficha."));
+    abrir();
     return () => { robots.remove(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -106,12 +118,23 @@ export function FichaPublica() {
     setEstado(e);
     if (e.dados && !iniciado.current) {
       iniciado.current = true;
-      setValores(valoresDe(e.dados));
-      setFilhos(filhosParaTela(e.dados.filhos));
-      // Primeira visita (atualização vem preenchida): do começo, para conferir tudo.
-      setEtapa(e.status === "ENVIADA" ? 0 : etapaInicial(e.dados, (e.arquivos?.length ?? 0) > 0));
+      // O rascunho da aba é mais novo que o salvo: o que a pessoa digitou e não salvou volta.
+      const rascunho = lerRascunho(codigo);
+      setValores({ ...valoresDe(e.dados), ...(rascunho?.valores ?? {}) });
+      setFilhos(rascunho?.filhos ?? filhosParaTela(e.dados.filhos));
+      setEtapa(etapaDeRetomada(e, rascunho));
+      doCep.current = rascunho?.doCep ?? {};
     }
   }
+
+  // Guarda o rascunho a cada alteração (só depois de carregar a ficha, e enquanto dá para editar).
+  const editavel = estado?.status === "ENVIADA" || estado?.status === "PREENCHENDO";
+  useEffect(() => {
+    if (iniciado.current && editavel) guardarRascunho(codigo, { valores, filhos, etapa, doCep: doCep.current });
+  }, [codigo, editavel, valores, filhos, etapa]);
+  useEffect(() => {
+    if (estado && (estado.status === "FINALIZADA" || estado.status === "CONCLUIDA")) apagarRascunho(codigo);
+  }, [codigo, estado]);
 
   function irPara(i: number) {
     setErros({});
@@ -132,11 +155,11 @@ export function FichaPublica() {
   async function aoSairDoCep() {
     const achado = await buscarCep(String(valores.cep ?? ""));
     if (!achado) return;
-    setValores((atual) => ({
-      ...atual,
-      endereco: atual.endereco || achado.endereco, bairro: atual.bairro || achado.bairro,
-      cidade: atual.cidade || achado.cidade, uf: atual.uf || achado.uf,
-    }));
+    // A atualização do estado fica pura (o React pode rodá-la duas vezes); a lembrança do que
+    // veio do CEP é gravada fora dela.
+    const anterior = doCep.current;
+    setValores((atual) => aplicarCep(atual, achado, anterior).valores);
+    doCep.current = { ...anterior, ...aplicarCep(valores, achado, anterior).doCep };
   }
 
   // A chave de acesso vale 2 h: passou disso (ou o RH gerou outro link), o servidor pede a
@@ -148,17 +171,37 @@ export function FichaPublica() {
     return true;
   }
 
+  // A ficha mudou no servidor (já foi enviada — a resposta do envio se perdeu e a pessoa tocou
+  // de novo — ou o link venceu/foi cancelado): recarrega e mostra a tela certa, não um erro.
+  function mudouNoServidor(e: unknown): boolean {
+    if (!(e instanceof ErroFicha) || (e.status !== 409 && e.status !== 410)) return false;
+    abrir();
+    return true;
+  }
+
   async function salvar(corpo: Dados): Promise<boolean> {
     setSalvando(true);
     try {
       receber(await salvarDados(codigo, corpo));
       return true;
     } catch (e) {
-      if (!pedirConfirmacao(e)) setAviso(e instanceof ErroFicha ? e.message : "Não foi possível salvar. Tente de novo.");
+      if (!pedirConfirmacao(e) && !mudouNoServidor(e)) setAviso(e instanceof ErroFicha ? e.message : "Não foi possível salvar. Tente de novo.");
       return false;
     } finally {
       setSalvando(false);
     }
+  }
+
+  function focarErro(id: string) {
+    const alvo = document.getElementById(id);
+    alvo?.scrollIntoView({ behavior: "smooth", block: "center" });
+    alvo?.focus({ preventScroll: true });
+  }
+
+  // Corrigiu um filho: os avisos dos filhos saem (eles são por posição; remover um deslocaria os outros).
+  function alterarFilhos(lista: FilhoTela[]) {
+    setFilhos(lista);
+    setErros((atual) => Object.fromEntries(Object.entries(atual).filter(([k]) => !k.startsWith("filho-"))));
   }
 
   async function continuar() {
@@ -166,16 +209,19 @@ export function FichaPublica() {
     let corpo: Dados | null = null;
     if (atual.id === "familia") {
       const r = filhosParaSalvar(filhos);
-      if ("erros" in r) { setErros(r.erros); return; }
+      if ("erros" in r) {
+        setErros(r.erros);
+        setAviso("Confira os campos marcados.");
+        focarErro(Object.keys(r.erros)[0]);
+        return;
+      }
       corpo = { nomeConjuge: String(valores.nomeConjuge ?? "").trim() || null, filhos: r.filhos };
     } else if (atual.campos.length) {
       const r = corpoDaEtapa(atual, valores, estado?.tipo === "ADMISSAO");
       if ("erros" in r) {
         setErros(r.erros);
         setAviso("Confira os campos marcados.");
-        const alvo = document.getElementById(`ficha-${Object.keys(r.erros)[0]}`);
-        alvo?.scrollIntoView({ behavior: "smooth", block: "center" });
-        alvo?.focus({ preventScroll: true });
+        focarErro(`ficha-${Object.keys(r.erros)[0]}`);
         return;
       }
       corpo = r.corpo;
@@ -189,10 +235,11 @@ export function FichaPublica() {
     setSalvando(true);
     try {
       setEstado(await finalizar(codigo));
+      apagarRascunho(codigo);
     } catch (e) {
       const falta = e instanceof ErroFicha && Array.isArray(e.corpo?.falta) ? (e.corpo!.falta as string[]) : null;
       if (falta && estado) setEstado({ ...estado, falta });
-      if (!pedirConfirmacao(e)) setAviso(e instanceof ErroFicha ? e.message : "Não foi possível enviar. Tente de novo.");
+      if (!pedirConfirmacao(e) && !mudouNoServidor(e)) setAviso(e instanceof ErroFicha ? e.message : "Não foi possível enviar. Tente de novo.");
     } finally {
       setSalvando(false);
     }
@@ -208,8 +255,17 @@ export function FichaPublica() {
     });
   }
 
-  if (erroFatal) return <Mensagem titulo="Não foi possível abrir a ficha" texto={erroFatal} />;
-  if (!estado) return <Moldura><div className="fp-mensagem"><Loader2 size={28} className="fp-girando" aria-label="Carregando" /></div></Moldura>;
+  if (erroFatal) {
+    return (
+      <Mensagem titulo="Não foi possível abrir a ficha" texto={erroFatal.texto}
+        acao={erroFatal.semConexao ? (
+          <button type="button" className="fp-botao fp-botao--principal" onClick={abrir}><RotateCw size={18} aria-hidden="true" /> Tentar de novo</button>
+        ) : undefined} />
+    );
+  }
+  if (!estado) {
+    return <Moldura><div className="fp-mensagem" role="status"><Loader2 size={28} className="fp-girando" aria-hidden="true" /><span className="fp-oculto">Carregando a ficha…</span></div></Moldura>;
+  }
   if (estado.status === "FINALIZADA" || estado.status === "CONCLUIDA") {
     return <Mensagem icone={<CheckCircle2 size={44} className="fp-ok" aria-hidden="true" />} titulo="Ficha enviada com sucesso"
       texto={`${estado.primeiroNome ? `Obrigado, ${estado.primeiroNome}. ` : "Obrigado. "}Suas informações foram recebidas pelo Departamento Pessoal do Pateo da Luz. Se for necessário algum ajuste, entraremos em contato. Você já pode fechar esta página.`} />;
@@ -258,10 +314,10 @@ export function FichaPublica() {
 
         {atual.id === "familia" ? (
           <EtapaFamilia nomeConjuge={String(valores.nomeConjuge ?? "")} filhos={filhos} erros={erros}
-            onConjuge={(v) => alterar("nomeConjuge", v)} onFilhos={setFilhos} />
+            onConjuge={(v) => alterar("nomeConjuge", v)} onFilhos={alterarFilhos} />
         ) : atual.id === "fotos" ? (
           <EtapaFotos codigo={codigo} tipo={estado.tipo} tipos={estado.opcoes.tiposArquivo} obrigatorios={estado.opcoes.arquivosObrigatorios}
-            arquivos={estado.arquivos ?? []} onEstado={receber} />
+            arquivos={estado.arquivos ?? []} onEstado={receber} onSessaoExpirada={pedirConfirmacao} />
         ) : atual.id === "revisao" ? (
           <EtapaRevisao dados={estado.dados} arquivos={estado.arquivos ?? []} tiposArquivo={estado.opcoes.tiposArquivo} falta={estado.falta ?? []}
             consentiu={consentiu} onConsentir={setConsentiu} onEditar={irPara} />
@@ -288,7 +344,7 @@ export function FichaPublica() {
         )}
         {ultima ? (
           <button type="button" className="fp-botao fp-botao--principal" onClick={enviar} disabled={salvando || (estado.falta?.length ?? 0) > 0}>
-            {salvando ? <Loader2 size={18} className="fp-girando" aria-hidden="true" /> : <Send size={18} aria-hidden="true" />} Enviar ao RH
+            {salvando ? <Loader2 size={18} className="fp-girando" aria-hidden="true" /> : <Send size={18} aria-hidden="true" />} Enviar ficha
           </button>
         ) : (
           <button type="button" className="fp-botao fp-botao--principal" onClick={continuar} disabled={salvando}>

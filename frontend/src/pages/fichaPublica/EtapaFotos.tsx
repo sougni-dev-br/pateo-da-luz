@@ -10,7 +10,11 @@ type Props = {
   obrigatorios: string[];
   arquivos: Arquivo[];
   onEstado: (e: Estado) => void;
+  /** Chave de acesso vencida (401): volta para a confirmação de identidade. */
+  onSessaoExpirada: (e: unknown) => boolean;
 };
+
+type Ordem = { proximo: () => number; aplicar: (n: number, e: Estado) => void };
 
 const DICAS: Record<string, string> = {
   FOTO_PESSOA: "Rosto de frente, com fundo claro e boa luz. Sem boné, chapéu ou óculos escuros.",
@@ -36,25 +40,32 @@ function Miniatura({ codigo, arquivo }: { codigo: string; arquivo: Arquivo }) {
   return <span className="fp-miniatura fp-miniatura--icone"><FileText size={22} aria-hidden="true" /></span>;
 }
 
-function Slot({ codigo, tipo, rotulo, obrigatorio, arquivos, onEstado }: {
-  codigo: string; tipo: string; rotulo: string; obrigatorio: boolean; arquivos: Arquivo[]; onEstado: (e: Estado) => void;
+function Slot({ codigo, tipo, rotulo, obrigatorio, arquivos, ordem, onSessaoExpirada }: {
+  codigo: string; tipo: string; rotulo: string; obrigatorio: boolean; arquivos: Arquivo[]; ordem: Ordem; onSessaoExpirada: (e: unknown) => boolean;
 }) {
   const camera = useRef<HTMLInputElement>(null);
   const galeria = useRef<HTMLInputElement>(null);
   const [enviando, setEnviando] = useState(false);
+  const [apagando, setApagando] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
   async function enviar(lista: FileList | null) {
     if (!lista?.length) return;
+    const arquivosEscolhidos = Array.from(lista); // antes de limpar o input (a lista é "viva")
     setErro(null);
     setEnviando(true);
+    let atual = "";
     try {
-      for (const f of Array.from(lista)) {
+      for (const f of arquivosEscolhidos) {
+        atual = f.name;
         const { blob, nome } = await prepararArquivo(f);
-        onEstado(await enviarArquivo(codigo, tipo, blob, nome));
+        const n = ordem.proximo();
+        ordem.aplicar(n, await enviarArquivo(codigo, tipo, blob, nome));
       }
     } catch (e) {
-      setErro(e instanceof ErroFicha ? e.message : "Não foi possível enviar. Tente de novo.");
+      if (onSessaoExpirada(e)) return;
+      const motivo = e instanceof ErroFicha ? e.message : "Não foi possível enviar. Tente de novo.";
+      setErro(arquivosEscolhidos.length > 1 && atual ? `${atual}: ${motivo}` : motivo);
     } finally {
       setEnviando(false);
       if (camera.current) camera.current.value = "";
@@ -62,9 +73,18 @@ function Slot({ codigo, tipo, rotulo, obrigatorio, arquivos, onEstado }: {
     }
   }
 
-  async function apagar(id: string) {
+  async function apagar(a: Arquivo) {
+    if (apagando || !window.confirm(`Apagar "${a.nomeOriginal}"?`)) return;
     setErro(null);
-    try { onEstado(await apagarArquivo(codigo, id)); } catch (e) { setErro(e instanceof ErroFicha ? e.message : "Não foi possível apagar."); }
+    setApagando(a.id);
+    try {
+      const n = ordem.proximo();
+      ordem.aplicar(n, await apagarArquivo(codigo, a.id));
+    } catch (e) {
+      if (!onSessaoExpirada(e)) setErro(e instanceof ErroFicha ? e.message : "Não foi possível apagar.");
+    } finally {
+      setApagando(null);
+    }
   }
 
   const feito = arquivos.length > 0;
@@ -74,7 +94,7 @@ function Slot({ codigo, tipo, rotulo, obrigatorio, arquivos, onEstado }: {
       <header className="fp-slot-topo">
         <span className="fp-slot-marca" aria-hidden="true">{feito ? <Check size={16} /> : null}</span>
         <div>
-          <h3 id={`slot-${tipo}`} className="fp-slot-titulo">{rotulo}{obrigatorio && <span className="fp-selo">obrigatório</span>}</h3>
+          <h2 id={`slot-${tipo}`} className="fp-slot-titulo">{rotulo}{obrigatorio && <span className="fp-selo">obrigatório</span>}</h2>
           {DICAS[tipo] && <p className="fp-dica">{DICAS[tipo]}</p>}
         </div>
       </header>
@@ -84,8 +104,10 @@ function Slot({ codigo, tipo, rotulo, obrigatorio, arquivos, onEstado }: {
           {arquivos.map((a) => (
             <li key={a.id} className="fp-arquivo">
               <Miniatura codigo={codigo} arquivo={a} />
-              <span className="fp-arquivo-nome">{a.nomeOriginal}<small>{tamanhoLegivel(a.tamanho)}</small></span>
-              <button type="button" className="fp-icone" onClick={() => apagar(a.id)} aria-label={`Apagar ${a.nomeOriginal}`}><Trash2 size={18} /></button>
+              <span className="fp-arquivo-nome"><span className="fp-arquivo-nome-texto">{a.nomeOriginal}</span><small>{tamanhoLegivel(a.tamanho)}</small></span>
+              <button type="button" className="fp-icone" onClick={() => apagar(a)} disabled={apagando !== null} aria-label={`Apagar ${a.nomeOriginal}`}>
+                {apagando === a.id ? <Loader2 size={18} className="fp-girando" aria-hidden="true" /> : <Trash2 size={18} aria-hidden="true" />}
+              </button>
             </li>
           ))}
         </ul>
@@ -107,7 +129,15 @@ function Slot({ codigo, tipo, rotulo, obrigatorio, arquivos, onEstado }: {
   );
 }
 
-export function EtapaFotos({ codigo, tipo, tipos, obrigatorios, arquivos, onEstado }: Props) {
+export function EtapaFotos({ codigo, tipo, tipos, obrigatorios, arquivos, onEstado, onSessaoExpirada }: Props) {
+  // Envios em documentos diferentes ao mesmo tempo: a resposta que chega por último pode ser a
+  // mais antiga. Só vale a lista de arquivos da operação mais recente.
+  const seq = useRef(0);
+  const aplicada = useRef(0);
+  const sequencia: Ordem = {
+    proximo: () => ++seq.current,
+    aplicar: (n, e) => { if (n < aplicada.current) return; aplicada.current = n; onEstado(e); },
+  };
   const exige = tipo === "ADMISSAO" ? obrigatorios : [];
   // Obrigatórios primeiro, depois a ordem do RH.
   const ordem = [...exige, ...Object.keys(tipos).filter((t) => !exige.includes(t))];
@@ -118,7 +148,7 @@ export function EtapaFotos({ codigo, tipo, tipos, obrigatorios, arquivos, onEsta
       </p>
       {ordem.map((t) => (
         <Slot key={t} codigo={codigo} tipo={t} rotulo={tipos[t]} obrigatorio={exige.includes(t)}
-          arquivos={arquivos.filter((a) => a.tipo === t)} onEstado={onEstado} />
+          arquivos={arquivos.filter((a) => a.tipo === t)} ordem={sequencia} onSessaoExpirada={onSessaoExpirada} />
       ))}
     </div>
   );

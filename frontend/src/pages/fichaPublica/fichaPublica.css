@@ -9,7 +9,7 @@
   --fp-linha: #e6dfd2;
   --fp-linha-forte: #cfc5b3;
   --fp-ouro: var(--gold, #b99a58);
-  --fp-ouro-escuro: #8a6f36;
+  --fp-ouro-escuro: #735a26; /* 4,5:1 sobre o fundo dourado claro */
   --fp-ouro-fundo: #f6efe0;
   --fp-erro: var(--danger, #9f2d2d);
   --fp-ok: var(--success, #276749);
@@ -59,6 +59,8 @@
 
 /* Grade: celular em uma coluna; a partir de 480px, meia e terço lado a lado. */
 .fp-grade { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px 12px; }
+/* Linha inteira também para o que não é campo (o botão "Adicionar filho" ficava com 1/6 da largura). */
+.fp-campo--inteira { grid-column: span 6; }
 .fp-campo { grid-column: span 6; display: flex; flex-direction: column; gap: 6px; min-width: 0; border: 0; padding: 0; margin: 0; }
 @media (min-width: 480px) {
   .fp-campo--meia { grid-column: span 3; }
@@ -84,7 +86,7 @@ select.fp-entrada {
   background-position: calc(100% - 20px) 50%, calc(100% - 14px) 50%; background-size: 6px 6px; background-repeat: no-repeat; padding-right: 36px;
 }
 .fp-entrada:focus { outline: none; border-color: var(--fp-ouro); box-shadow: 0 0 0 4px rgba(185, 154, 88, 0.22); }
-.fp-entrada::placeholder { color: #a39c8e; }
+.fp-entrada::placeholder { color: #7a7364; }
 .fp-campo--erro .fp-entrada { border-color: var(--fp-erro); }
 
 .fp-escolhas { display: flex; gap: 10px; }
@@ -132,8 +134,10 @@ select.fp-entrada {
 
 /* Família */
 .fp-filho { grid-column: span 6; border: 1px solid var(--fp-linha); border-radius: 12px; padding: 12px 12px 14px; margin: 0; }
-.fp-filho-titulo { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0 4px; font-weight: 600; font-size: 0.9rem; }
-.fp-filho-remover { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: var(--fp-erro); font: inherit; font-size: 0.85rem; cursor: pointer; min-height: 44px; }
+.fp-filho-titulo { padding: 0 4px; font-weight: 600; font-size: 0.9rem; }
+/* Remover fica fora da legenda (flex em <legend> varia no WebKit): no canto do quadro. */
+.fp-filho { position: relative; }
+.fp-filho-remover { position: absolute; top: -6px; right: 8px; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: var(--fp-erro); font: inherit; font-size: 0.85rem; cursor: pointer; min-height: 44px; }
 
 /* Fotos */
 .fp-slots { display: flex; flex-direction: column; gap: 12px; }
@@ -153,7 +157,8 @@ select.fp-entrada {
 .fp-arquivo { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--fp-linha); border-radius: 10px; padding: 6px 6px 6px 6px; }
 .fp-miniatura { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; flex: none; background: var(--fp-papel); }
 .fp-miniatura--icone { display: grid; place-items: center; color: var(--fp-suave); }
-.fp-arquivo-nome { flex: 1; min-width: 0; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; flex-direction: column; }
+.fp-arquivo-nome { flex: 1; min-width: 0; font-size: 0.88rem; display: flex; flex-direction: column; }
+.fp-arquivo-nome-texto { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fp-arquivo-nome small { color: var(--fp-suave); }
 .fp-icone { width: 44px; height: 44px; border: 0; border-radius: 10px; background: none; color: var(--fp-erro); cursor: pointer; display: grid; place-items: center; }
 .fp-icone:focus-visible { outline: 3px solid var(--fp-ouro); }
@@ -162,7 +167,7 @@ select.fp-entrada {
 .fp-revisao { display: flex; flex-direction: column; gap: 12px; }
 .fp-bloco { border: 1px solid var(--fp-linha); border-radius: 12px; padding: 12px 14px; }
 .fp-bloco-topo { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.fp-bloco-topo h3 { margin: 0; font-size: 1rem; }
+.fp-bloco-topo h2 { margin: 0; font-size: 1rem; }
 .fp-link { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: var(--fp-ouro-escuro); font: inherit; font-weight: 600; font-size: 0.88rem; cursor: pointer; min-height: 44px; padding: 0 4px; }
 .fp-lista { margin: 0; }
 .fp-lista-linha { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid #f1ece2; font-size: 0.9rem; }
@@ -225,3 +230,10 @@ fieldset.fp-campo:focus { outline: none; }
 
 /* Sua foto: miniatura em formato 3x4 */
 .fp-slot--selfie .fp-miniatura { width: 48px; height: 64px; border-radius: 6px; }
+
+/* Botão da etapa: o círculo tem 32 px, a área de toque tem 44 px. */
+.fp-passo { position: relative; }
+.fp-passo::after { content: ""; position: absolute; inset: -6px; }
+.fp-icone:disabled { opacity: 0.5; cursor: default; }
+.fp-oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.fp-mensagem .fp-botao { margin-top: 16px; }

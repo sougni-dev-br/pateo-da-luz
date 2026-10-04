@@ -1,6 +1,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import type { Filho } from "./api";
 import { cpfValido, dataParaIso, mascaraCpf, mascaraData } from "./formato";
+import { hojeSp } from "./rascunho";
 
 /** Filho como aparece no formulário: data em DD/MM/AAAA e CPF com máscara. */
 export type FilhoTela = { nome: string; nascimento: string; cpf: string; ref?: string | null };
@@ -32,6 +33,7 @@ export function filhosParaSalvar(filhos: FilhoTela[]): { erros: Record<string, s
     if (!nome) erros[`filho-${i}-nome`] = "Escreva o nome.";
     const nascimento = f.nascimento ? dataParaIso(f.nascimento) : null;
     if (f.nascimento && !nascimento) erros[`filho-${i}-nascimento`] = "Data inválida.";
+    else if (nascimento && nascimento > hojeSp()) erros[`filho-${i}-nascimento`] = "Data no futuro. Confira.";
     if (f.cpf && !cpfValido(f.cpf)) erros[`filho-${i}-cpf`] = "CPF inválido.";
     lista.push({ nome, dataNascimento: nascimento, cpf: f.cpf || null, ref: f.ref ?? null });
   });
@@ -41,6 +43,9 @@ export function filhosParaSalvar(filhos: FilhoTela[]): { erros: Record<string, s
 export function EtapaFamilia({ nomeConjuge, filhos, erros, onConjuge, onFilhos }: Props) {
   const alterar = (i: number, campo: keyof FilhoTela, valor: string) =>
     onFilhos(filhos.map((f, j) => (j === i ? { ...f, [campo]: valor } : f)));
+  // Campo com erro: anunciado e ligado à mensagem (leitor de tela lê o erro junto do campo).
+  const comErro = (id: string) => (erros[id] ? { "aria-invalid": true, "aria-describedby": `${id}-erro` } : {});
+  const mensagem = (id: string) => erros[id] && <small id={`${id}-erro`} className="fp-erro" role="alert">{erros[id]}</small>;
 
   return (
     <div className="fp-grade">
@@ -57,27 +62,25 @@ export function EtapaFamilia({ nomeConjuge, filhos, erros, onConjuge, onFilhos }
 
       {filhos.map((f, i) => (
         <fieldset key={i} className="fp-filho">
-          <legend className="fp-filho-titulo">
-            Filho(a) {i + 1}
-            <button type="button" className="fp-filho-remover" onClick={() => onFilhos(filhos.filter((_, j) => j !== i))} aria-label={`Remover filho ${i + 1}`}>
-              <Trash2 size={16} aria-hidden="true" /> Remover
-            </button>
-          </legend>
+          <legend className="fp-filho-titulo">Filho(a) {i + 1}</legend>
+          <button type="button" className="fp-filho-remover" onClick={() => onFilhos(filhos.filter((_, j) => j !== i))} aria-label={`Remover filho ${i + 1}`}>
+            <Trash2 size={16} aria-hidden="true" /> Remover
+          </button>
           <div className="fp-grade">
             <div className={`fp-campo fp-campo--inteira${erros[`filho-${i}-nome`] ? " fp-campo--erro" : ""}`}>
               <label className="fp-rotulo" htmlFor={`filho-${i}-nome`}>Nome completo</label>
-              <input id={`filho-${i}-nome`} className="fp-entrada" autoCapitalize="words" value={f.nome} onChange={(e) => alterar(i, "nome", e.target.value)} />
-              {erros[`filho-${i}-nome`] && <small className="fp-erro" role="alert">{erros[`filho-${i}-nome`]}</small>}
+              <input id={`filho-${i}-nome`} className="fp-entrada" autoCapitalize="words" value={f.nome} onChange={(e) => alterar(i, "nome", e.target.value)} {...comErro(`filho-${i}-nome`)} />
+              {mensagem(`filho-${i}-nome`)}
             </div>
             <div className={`fp-campo fp-campo--meia${erros[`filho-${i}-nascimento`] ? " fp-campo--erro" : ""}`}>
               <label className="fp-rotulo" htmlFor={`filho-${i}-nascimento`}>Nascimento</label>
-              <input id={`filho-${i}-nascimento`} className="fp-entrada" inputMode="numeric" placeholder="DD/MM/AAAA" value={f.nascimento} onChange={(e) => alterar(i, "nascimento", mascaraData(e.target.value))} />
-              {erros[`filho-${i}-nascimento`] && <small className="fp-erro" role="alert">{erros[`filho-${i}-nascimento`]}</small>}
+              <input id={`filho-${i}-nascimento`} className="fp-entrada" inputMode="numeric" placeholder="DD/MM/AAAA" value={f.nascimento} onChange={(e) => alterar(i, "nascimento", mascaraData(e.target.value))} {...comErro(`filho-${i}-nascimento`)} />
+              {mensagem(`filho-${i}-nascimento`)}
             </div>
             <div className={`fp-campo fp-campo--meia${erros[`filho-${i}-cpf`] ? " fp-campo--erro" : ""}`}>
               <label className="fp-rotulo" htmlFor={`filho-${i}-cpf`}>CPF <span className="fp-opcional">(se tiver)</span></label>
-              <input id={`filho-${i}-cpf`} className="fp-entrada" inputMode="numeric" placeholder="000.000.000-00" value={f.cpf} onChange={(e) => alterar(i, "cpf", mascaraCpf(e.target.value))} />
-              {erros[`filho-${i}-cpf`] && <small className="fp-erro" role="alert">{erros[`filho-${i}-cpf`]}</small>}
+              <input id={`filho-${i}-cpf`} className="fp-entrada" inputMode="numeric" placeholder="000.000.000-00" value={f.cpf} onChange={(e) => alterar(i, "cpf", mascaraCpf(e.target.value))} {...comErro(`filho-${i}-cpf`)} />
+              {mensagem(`filho-${i}-cpf`)}
             </div>
           </div>
         </fieldset>

@@ -1,7 +1,9 @@
 // Etapas do formulário público e os campos de cada uma. Os obrigatórios espelham o backend
 // (ficha-cadastral-campos.ts): o servidor confere de novo ao finalizar.
+import { hojeSp } from "./rascunho";
 import { cpfValido, dataParaIso, isoParaData, mascaraCep, mascaraCpf, mascaraPis, mascaraTelefone, mascaraTitulo, soDigitos } from "./formato";
-import type { Dados, Opcoes } from "./api";
+import type { Dados, Estado, Opcoes } from "./api";
+import type { Rascunho } from "./rascunho";
 
 export type TipoCampo = "texto" | "data" | "cpf" | "cep" | "telefone" | "pis" | "titulo" | "email" | "lista" | "simnao" | "sexo";
 export type Campo = {
@@ -108,12 +110,13 @@ export function corpoDaEtapa(etapa: Etapa, valores: Valores, exigeTrajeto = true
     if (DATA.has(c.tipo)) {
       if (!s) { corpo[c.nome] = null; continue; }
       const iso = dataParaIso(s);
-      if (!iso || iso > new Date().toISOString().slice(0, 10)) { erros[c.nome] = "Data inválida. Use DD/MM/AAAA."; continue; }
+      // Hoje no fuso de São Paulo (às 22h o dia em UTC já é amanhã); antes de 1900 é erro de digitação.
+      if (!iso || iso > hojeSp() || iso < "1900-01-01") { erros[c.nome] = "Data inválida. Use DD/MM/AAAA."; continue; }
       corpo[c.nome] = iso;
       continue;
     }
     if (c.tipo === "cpf" && s && !cpfValido(s)) { erros[c.nome] = "CPF inválido. Confira os números."; continue; }
-    if (c.tipo === "telefone" && s && soDigitos(s).length < 10) { erros[c.nome] = "Celular com DDD."; continue; }
+    if (c.tipo === "telefone" && s && soDigitos(s).length < 10) { erros[c.nome] = "Informe o celular com DDD."; continue; }
     if (c.tipo === "cep" && s && soDigitos(s).length !== 8) { erros[c.nome] = "CEP tem 8 números."; continue; }
     if (c.tipo === "pis" && s && soDigitos(s).length !== 11) { erros[c.nome] = "PIS tem 11 números."; continue; }
     if (c.tipo === "titulo" && s && soDigitos(s).length !== 12) { erros[c.nome] = "Título tem 12 números."; continue; }
@@ -135,4 +138,18 @@ export function etapaInicial(dados: Dados, temArquivos: boolean): number {
   if (!Object.values(dados).some(preenchido) && !temArquivos) return 0;
   const i = ETAPAS.findIndex((e) => e.campos.some((c) => c.obrigatorio && !preenchido(dados[c.nome])));
   return i === -1 ? ETAPAS.findIndex((e) => e.id === "fotos") : i;
+}
+
+const IDX_REVISAO = ETAPAS.findIndex((e) => e.id === "revisao");
+
+/**
+ * Onde abrir: no rascunho da aba (recarregou no meio), na revisão se o DP devolveu a ficha
+ * (a mensagem dele está no topo), do começo na atualização (conferir tudo) e, na admissão já
+ * começada, na primeira etapa que falta.
+ */
+export function etapaDeRetomada(e: Estado, rascunho: Rascunho | null): number {
+  if (rascunho) return Math.min(Math.max(rascunho.etapa, 0), ETAPAS.length - 1);
+  if (e.motivoDevolucao) return IDX_REVISAO;
+  if (e.status === "ENVIADA" || e.tipo === "ATUALIZACAO") return 0;
+  return etapaInicial(e.dados ?? {}, (e.arquivos?.length ?? 0) > 0);
 }

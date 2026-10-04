@@ -41,7 +41,7 @@ export function EtapaRevisao({ dados, arquivos, tiposArquivo, falta, consentiu, 
         return (
           <section key={etapa.id} className="fp-bloco">
             <header className="fp-bloco-topo">
-              <h3>{etapa.titulo}</h3>
+              <h2>{etapa.titulo}</h2>
               <button type="button" className="fp-link" onClick={() => onEditar(i)}><Pencil size={14} aria-hidden="true" /> Corrigir</button>
             </header>
             {etapa.id === "familia" ? (

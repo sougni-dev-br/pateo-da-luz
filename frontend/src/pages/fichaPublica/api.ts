@@ -59,11 +59,23 @@ export const salvarDados = (codigo: string, dados: Dados) =>
 export const finalizar = (codigo: string) => chamar<Estado>(codigo, "/finalizar", { method: "POST" });
 export const apagarArquivo = (codigo: string, id: string) => chamar<Estado>(codigo, `/arquivos/${id}`, { method: "DELETE" });
 
-export function enviarArquivo(codigo: string, tipo: string, arquivo: Blob, nome: string) {
+const PRAZO_ENVIO_MS = 90_000;
+
+/** Envio de foto com prazo: em 4G fraco o botão não fica "Enviando…" para sempre. */
+export async function enviarArquivo(codigo: string, tipo: string, arquivo: Blob, nome: string) {
   const form = new FormData();
   form.append("tipo", tipo);
   form.append("arquivo", arquivo, nome);
-  return chamar<Estado>(codigo, "/arquivos", { method: "POST", body: form });
+  const controle = new AbortController();
+  const prazo = window.setTimeout(() => controle.abort(), PRAZO_ENVIO_MS);
+  try {
+    return await chamar<Estado>(codigo, "/arquivos", { method: "POST", body: form, signal: controle.signal });
+  } catch (e) {
+    if (controle.signal.aborted) throw new ErroFicha("A conexão está lenta e o envio não terminou. Tente de novo no Wi-Fi ou com sinal melhor.", 0, null);
+    throw e;
+  } finally {
+    window.clearTimeout(prazo);
+  }
 }
 
 /** Miniatura do arquivo já enviado (com a chave de acesso no cabeçalho, por isso não é <img src>). */
