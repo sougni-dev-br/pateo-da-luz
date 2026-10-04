@@ -2,6 +2,7 @@ import { app } from "./app.js";
 import { env } from "./config/env.js";
 import { initBaileys } from "./modules/notifications/baileys.service.js";
 import { startNoventaNoveCronScheduler } from "./modules/integrations/delivery/noventa-nove/noventa-nove-cron.service.js";
+import { iniciarExpurgoFichas } from "./modules/payroll/ficha-cadastral-expurgo.js";
 
 app.listen(env.port, () => {
   console.log(`CMV Loja backend running on http://localhost:${env.port}`);
@@ -30,4 +31,7 @@ app.listen(env.port, () => {
   // Sync diário do 99 Food (in-process, 04:00 BRT). Guarda contra
   // concorrência com o sync manual. Desligar via NOVENTA_NOVE_CRON_ENABLED=false.
   startNoventaNoveCronScheduler();
+
+  // LGPD: ficha cadastral cancelada some 90 dias depois (dados e fotos). Uma vez por dia.
+  iniciarExpurgoFichas();
 });
