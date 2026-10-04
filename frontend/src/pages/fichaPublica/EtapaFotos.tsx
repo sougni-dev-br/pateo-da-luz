@@ -9,7 +9,9 @@ type Props = {
   tipos: Record<string, string>;
   obrigatorios: string[];
   arquivos: Arquivo[];
-  onEstado: (e: Estado) => void;
+  /** Numera o pedido (a página só aplica a resposta mais recente de todas as chamadas). */
+  novoPedido: () => number;
+  aplicarResposta: (n: number, e: Estado) => boolean;
   /** Chave de acesso vencida (401): volta para a confirmação de identidade. */
   onSessaoExpirada: (e: unknown) => boolean;
   /** Busca o estado no servidor (depois de envios e exclusões, e depois de qualquer erro). */
@@ -136,16 +138,14 @@ function Slot({ codigo, tipo, rotulo, obrigatorio, arquivos, ordem, onSessaoExpi
   );
 }
 
-export function EtapaFotos({ codigo, tipo, tipos, obrigatorios, arquivos, onEstado, onSessaoExpirada, onRecarregar }: Props) {
+export function EtapaFotos({ codigo, tipo, tipos, obrigatorios, arquivos, novoPedido, aplicarResposta, onSessaoExpirada, onRecarregar }: Props) {
   // Envios e exclusões ao mesmo tempo: o servidor pode terminar em outra ordem. Enquanto há
   // operação no ar, só vale a resposta mais recente; quando a última termina (ou depois de um
   // erro, inclusive o prazo estourado de um envio que pode ter gravado), a lista vem do servidor.
-  const seq = useRef(0);
-  const aplicada = useRef(0);
   const pendentes = useRef(0);
   const sequencia: Ordem = {
-    proximo: () => { pendentes.current += 1; return ++seq.current; },
-    aplicar: (n, e) => { if (n < aplicada.current) return; aplicada.current = n; onEstado(e); },
+    proximo: () => { pendentes.current += 1; return novoPedido(); },
+    aplicar: (n, e) => { aplicarResposta(n, e); },
     fim: () => { pendentes.current = Math.max(0, pendentes.current - 1); if (pendentes.current === 0) onRecarregar(); },
   };
   const exige = tipo === "ADMISSAO" ? obrigatorios : [];

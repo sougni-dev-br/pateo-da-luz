@@ -4,7 +4,7 @@ import { ArrowLeft, Ban, CheckCircle2, Link2, Printer, RotateCcw, Save } from "l
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  getArquivoFichaCadastral,
+  ApiError, getArquivoFichaCadastral,
   cancelarFichaCadastral, concluirFichaCadastral, devolverFichaCadastral, getFichaCadastral, novoLinkFichaCadastral,
   salvarEmpresaFichaCadastral, type FichaCadastralDetalhe as Detalhe, type FichaCadastralEmpresa, type FichaCadastralLink,
 } from "../../../api/client";
@@ -64,7 +64,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
           ]));
         }
       })
-      .catch((e) => setErro(e instanceof Error ? e.message : "Não foi possível abrir a ficha."));
+      .catch((e) => { if (meu === pedido.current) setErro(e instanceof Error ? e.message : "Não foi possível abrir a ficha."); });
   }, [id]);
   useEffect(carregar, [carregar]);
 
@@ -129,7 +129,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
   async function salvarEmpresa() {
     setOcupado(true);
     try {
-      await salvarEmpresaFichaCadastral(id, empresaParaEnvio(empresa));
+      await salvarEmpresaFichaCadastral(id, empresaParaEnvio(empresa), ficha!.updatedAt);
       toast("Parte da empresa salva.", "success");
       carregar();
     } catch (e) {
@@ -147,16 +147,26 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
     try {
       // Salvar a parte da empresa muda a versão da ficha: o concluir vai com a versão nova.
       let versao = ficha!.updatedAt;
-      if (podeEditar) versao = (await salvarEmpresaFichaCadastral(id, empresaParaEnvio(empresa))).versao ?? versao;
+      // O salvar também exige a versão que o RH viu: devolvida e reenviada no meio = 409, sem gravar.
+      if (podeEditar) versao = (await salvarEmpresaFichaCadastral(id, empresaParaEnvio(empresa), versao)).versao ?? versao;
       const r = await concluirFichaCadastral(id, versao, ficha!.tipo === "ATUALIZACAO" ? efetivos : undefined);
       setAviso(ficha!.tipo === "ADMISSAO" ? "Funcionário criado. Complete escala, VT e gorjeta no cadastro." : "Cadastro atualizado.");
+      if (r.auditoria === false) toast("Gravado, mas o registro de auditoria falhou. Avise o suporte.", "warning", 8000);
       carregar();
       return r;
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não foi possível concluir.");
+      // A ficha mudou (409): a tela velha não serve para conferir — traz a versão nova.
+      if (e instanceof ApiError && e.status === 409) carregar();
     } finally {
       setOcupado(false);
     }
+  }
+
+  function fecharDevolver() {
+    setDevolvendo(false);
+    setErroDevolver(null);
+    setErro(null);
   }
 
   function alternar(campo: string) {
@@ -185,8 +195,8 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
           {finalizada && podeReenviar && <Button variant="secondary" leadingIcon={<RotateCcw size={16} />} disabled={ocupado} onClick={() => setDevolvendo(true)}>Devolver para correção</Button>}
           {(aberta || finalizada) && hasPermission("employee-forms", "delete") && <Button variant="danger" leadingIcon={<Ban size={16} />} disabled={ocupado} onClick={() => setConfirmar("cancelar")}>Cancelar ficha</Button>}
           {finalizada && podeConcluir && <Button leadingIcon={<CheckCircle2 size={16} />}
-            disabled={ocupado || (ficha.tipo === "ATUALIZACAO" && !semDiferencas && efetivos.length === 0)} onClick={() => setConfirmar("concluir")}>
-            {ficha.tipo === "ADMISSAO" ? "Criar funcionário" : semDiferencas ? "Concluir sem alterações" : "Gravar no cadastro"}</Button>}
+            disabled={ocupado} onClick={() => setConfirmar("concluir")}>
+            {ficha.tipo === "ADMISSAO" ? "Criar funcionário" : semDiferencas ? "Concluir sem alterações" : efetivos.length === 0 ? "Concluir sem gravar" : "Gravar no cadastro"}</Button>}
           {ficha.status === "CONCLUIDA" && ficha.funcionario && (
             <Button variant="secondary" onClick={() => navigate(`${ROTAS_RH.funcionarios}?funcionario=${encodeURIComponent(ficha.funcionario!.id)}`)}>Abrir o cadastro</Button>
           )}
@@ -304,12 +314,12 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
       {link && <LinkFicha aberto onFechar={() => setLink(null)} nome={nome} tipo={ficha.tipo} codigo={link.codigo} expiraEm={link.expiraEm}
         celular={typeof ficha.dados.telefone === "string" ? ficha.dados.telefone : null} />}
 
-      <Dialog open={devolvendo} onOpenChange={(v) => { setDevolvendo(v); if (!v) { setErroDevolver(null); setErro(null); } }} title="Devolver para correção" description="O mesmo link volta a abrir para a pessoa corrigir. Ela vê a sua mensagem no topo da ficha.">
+      <Dialog open={devolvendo} onOpenChange={(v) => (v ? setDevolvendo(true) : fecharDevolver())} title="Devolver para correção" description="O mesmo link volta a abrir para a pessoa corrigir. Ela vê a sua mensagem no topo da ficha.">
         <div className="fc-form">
           {erroDevolver && <Alert tone="error">{erroDevolver}</Alert>}
           <Textarea label="O que precisa corrigir" value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={3} autoFocus placeholder="Ex.: a foto do RG ficou ilegível, mande de novo." />
           <div className="fc-form-acoes">
-            <Button variant="secondary" onClick={() => setDevolvendo(false)}>Cancelar</Button>
+            <Button variant="secondary" onClick={fecharDevolver}>Cancelar</Button>
             <Button disabled={motivo.trim().length < 3 || ocupado} onClick={async () => {
               // O erro aparece dentro da janela: o aviso do topo fica atrás dela.
               setErroDevolver(null);
@@ -325,12 +335,14 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
         description="O link para de funcionar. Os dados e as fotos já enviados ficam guardados por 90 dias e depois são apagados."
         onCancel={() => setConfirmar(null)} onConfirm={() => { setConfirmar(null); agir(() => cancelarFichaCadastral(id), "Ficha cancelada."); }} />
       <ConfirmDialog open={confirmar === "concluir"} title={ficha.tipo === "ADMISSAO" ? "Criar o funcionário?" : "Gravar no cadastro?"}
-        confirmLabel={ficha.tipo === "ADMISSAO" ? "Criar funcionário" : "Gravar"} cancelLabel="Voltar"
+        confirmLabel={ficha.tipo === "ADMISSAO" ? "Criar funcionário" : efetivos.length === 0 ? "Concluir" : "Gravar"} cancelLabel="Voltar"
         description={ficha.tipo === "ADMISSAO"
           ? "Os dados da ficha e a parte da empresa viram o cadastro do funcionário. Depois, complete no cadastro a escala, o trajeto do VT e a gorjeta."
           : semDiferencas
             ? `Nada mudou em relação ao cadastro de ${nome.split(" ")[0]}. A ficha fica guardada como conferida.`
-            : `Grava ${efetivos.length} alteração(ões) marcadas no cadastro de ${nome.split(" ")[0]}. Salário, função e empresa não mudam por aqui.`}
+            : efetivos.length === 0
+              ? `Nenhuma alteração marcada: nada vai para o cadastro de ${nome.split(" ")[0]} (nem CPF ou PIX desmarcados). A ficha fica guardada como conferida.`
+              : `Grava ${efetivos.length} alteração(ões) marcadas no cadastro de ${nome.split(" ")[0]}. Salário, função e empresa não mudam por aqui.`}
         onCancel={() => setConfirmar(null)} onConfirm={concluir} />
     </div>
   );

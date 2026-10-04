@@ -59,6 +59,12 @@ describe("endereço pelo CEP", () => {
     expect(aplicarCep({ endereco: "Rua Minha" }, semRua, { endereco: "Rua Errada" }).valores.endereco).toBe("Rua Minha");
   });
 
+  test("campo apagado à mão e o CEP novo sem ele: deixa de contar como vindo do CEP", () => {
+    const r = aplicarCep({ endereco: "", bairro: "Sé" }, { endereco: "", bairro: "Centro", cidade: "Rio", uf: "RJ" }, { endereco: "Rua Velha", bairro: "Sé" });
+    expect(r.doCep.endereco).toBeUndefined();
+    expect(r.valores.bairro).toBe("Centro");
+  });
+
   test("sem CEP anterior, o que já está escrito fica", () => {
     expect(aplicarCep({ endereco: "Rua Minha" }, achado, {}).valores.endereco).toBe("Rua Minha");
   });
