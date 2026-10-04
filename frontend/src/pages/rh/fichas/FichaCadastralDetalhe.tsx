@@ -66,7 +66,8 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
   useEffect(carregar, [carregar]);
 
   // Foto da pessoa para a ficha impressa (baixada uma vez por ficha/arquivo).
-  const fotoId = ficha?.arquivos.find((a) => a.tipo === "FOTO_PESSOA")?.id ?? null;
+  // A foto também é documento: sem ver Funcionários, a ficha impressa sai sem ela.
+  const fotoId = ficha && !ficha.salarioOculto ? ficha.arquivos.find((a) => a.tipo === "FOTO_PESSOA")?.id ?? null : null;
   const [fotoUrl, setFotoUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!fotoId) { setFotoUrl(null); return undefined; }
@@ -186,7 +187,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
         )}
         {ficha.motivoDevolucao && aberta && <Alert tone="warning" title="Devolvida para correção">{ficha.motivoDevolucao}</Alert>}
         {ficha.salarioOculto && (
-          <Alert tone="info">Sem a permissão de ver Funcionários, CPF, PIX e salário aparecem ocultos — inclusive na ficha impressa.</Alert>
+          <Alert tone="info">Sem a permissão de ver Funcionários, CPF, PIX, salário e as fotos dos documentos ficam ocultos — inclusive na ficha impressa.</Alert>
         )}
         {ficha.bloqueadoAte && new Date(ficha.bloqueadoAte).getTime() > Date.now() && (
           <Alert tone="warning">O link foi bloqueado por tentativas erradas de data de nascimento. “Gerar novo link” desbloqueia.</Alert>
@@ -256,7 +257,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
 
       <section className="panel">
         <h2 className="fc-secao-titulo">Foto e documentos <small>({ficha.arquivos.length})</small></h2>
-        <DocumentosFicha fichaId={ficha.id} arquivos={ficha.arquivos} tipos={ficha.opcoes.tiposArquivo} />
+        <DocumentosFicha fichaId={ficha.id} arquivos={ficha.arquivos} tipos={ficha.opcoes.tiposArquivo} podeAbrir={!ficha.salarioOculto} />
       </section>
 
       <section className="panel">

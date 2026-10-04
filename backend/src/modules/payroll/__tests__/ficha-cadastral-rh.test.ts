@@ -389,6 +389,17 @@ describe("atualização em lote", () => {
   });
 });
 
+describe("fotos e documentos", () => {
+  test("abrir exige também ver Funcionários; sem ela, nem consulta o arquivo", async () => {
+    vi.mocked(userHasPermission).mockResolvedValue(false);
+    const r = await request(app).get("/employee-forms/f1/arquivos/a1");
+    expect(r.status).toBe(403);
+    expect(db.fichaCadastralArquivo.findFirst).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
+    expect(userHasPermission).toHaveBeenCalledWith(expect.anything(), "employees", "view");
+  });
+});
+
 describe("correções pela leitura dos documentos", () => {
   test("troca o digitado pelo valor do documento, com nome no padrão do cadastro", async () => {
     const r = await request(app).put("/employee-forms/f1/correcoes").send({ valores: { cpf: "111.444.777-35", nomeMae: "BELTRANA DE TAL SOUZA" } });
