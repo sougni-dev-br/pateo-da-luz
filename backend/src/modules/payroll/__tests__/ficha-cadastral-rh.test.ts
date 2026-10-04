@@ -7,10 +7,11 @@ vi.mock("../../../config/database.js", () => {
   const prisma: Record<string, unknown> = {
     fichaCadastral: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     fichaCadastralArquivo: { findFirst: vi.fn() },
-    employee: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    employee: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
     employeeDependente: { findMany: vi.fn(), createMany: vi.fn(), update: vi.fn() },
     company: { findUnique: vi.fn(), findMany: vi.fn() },
     $transaction: vi.fn(),
+    $executeRaw: vi.fn(),
   };
   return { prisma };
 });
@@ -297,5 +298,77 @@ describe("outras ações", () => {
     const r = await request(app).get("/employee-forms/f1");
     expect(r.status).toBe(200);
     expect(JSON.stringify(r.body)).not.toContain("segredo");
+  });
+});
+
+describe("atualização em lote", () => {
+  test("gera link só para quem não tem ficha aberta e devolve os códigos uma vez", async () => {
+    db.employee.findMany.mockResolvedValue([
+      { ...funcionario, id: "e1", phone: "(11) 91234-5678" },
+      { ...funcionario, id: "e2", firstName: "Bia", lastName: "Exemplo", phone: null },
+    ]);
+    db.fichaCadastral.findMany.mockResolvedValue([{ id: "f9", employeeId: "e2" }]);
+    db.employeeDependente.findMany.mockResolvedValue([]);
+    db.fichaCadastral.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "nova-" + String(data.employeeId), expiraEm: new Date(), ...data }));
+    const r = await request(app).post("/employee-forms/lote");
+    expect(r.status).toBe(201);
+    expect(r.body.criadas).toHaveLength(1);
+    expect(r.body.criadas[0]).toMatchObject({ employeeId: "e1", nome: "Fulana Souza", celular: "(11) 91234-5678" });
+    expect(r.body.criadas[0].codigo).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(r.body.jaAbertas).toEqual([{ fichaId: "f9", employeeId: "e2", nome: "Bia Exemplo" }]);
+    const data = db.fichaCadastral.create.mock.calls[0][0].data;
+    expect(data).toMatchObject({ tipo: "ATUALIZACAO", employeeId: "e1", tokenHash: hashCodigo(r.body.criadas[0].codigo) });
+    expect(db.employee.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { deletedAt: null, isActive: true } }));
+    expect(db.$executeRaw).toHaveBeenCalled();
+    expect(r.headers["cache-control"]).toBe("no-store");
+  });
+
+  test("sem ver Funcionários, o lote não devolve o celular", async () => {
+    db.employee.findMany.mockResolvedValue([{ ...funcionario, id: "e1", phone: "(11) 91234-5678" }]);
+    db.fichaCadastral.findMany.mockResolvedValue([]);
+    db.fichaCadastral.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "nova", expiraEm: new Date(), ...data }));
+    vi.mocked(userHasPermission).mockResolvedValue(false);
+    const r = await request(app).post("/employee-forms/lote");
+    expect(r.status).toBe(201);
+    expect(r.body.criadas[0].celular).toBeNull();
+  });
+
+  test("falha no meio do lote não devolve links (a transação desfaz tudo)", async () => {
+    db.employee.findMany.mockResolvedValue([{ ...funcionario, id: "e1" }, { ...funcionario, id: "e2" }]);
+    db.fichaCadastral.findMany.mockResolvedValue([]);
+    db.fichaCadastral.create.mockResolvedValueOnce({ id: "nova", expiraEm: new Date() }).mockRejectedValueOnce(new Error("timeout"));
+    const r = await request(app).post("/employee-forms/lote");
+    expect(r.status).toBe(500);
+    expect(r.body.criadas).toBeUndefined();
+  });
+});
+
+describe("correções pela leitura dos documentos", () => {
+  test("troca o digitado pelo valor do documento, com nome no padrão do cadastro", async () => {
+    const r = await request(app).put("/employee-forms/f1/correcoes").send({ valores: { cpf: "111.444.777-35", nomeMae: "BELTRANA DE TAL SOUZA" } });
+    expect(r.status).toBe(200);
+    const dados = db.fichaCadastral.updateMany.mock.calls[0][0].data.dados;
+    expect(dados).toMatchObject({ cpf: "11144477735", nomeMae: "Beltrana de Tal Souza", nomeCompleto: "Fulana de Tal Souza" });
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "FICHA_CADASTRAL_CORRIGIDA_PELO_DOCUMENTO" }));
+  });
+
+  test("não apaga campo, não aceita campo fora da lista nem valor inválido", async () => {
+    expect((await request(app).put("/employee-forms/f1/correcoes").send({ valores: { dataNascimento: "" } })).status).toBe(400);
+    expect((await request(app).put("/employee-forms/f1/correcoes").send({ valores: { pixChave: "x@y.com" } })).status).toBe(400);
+    expect((await request(app).put("/employee-forms/f1/correcoes").send({ valores: { cpf: "123.456.789-00" } })).status).toBe(400);
+    expect(db.fichaCadastral.updateMany).not.toHaveBeenCalled();
+  });
+
+  test("ficha alterada no meio da conferência: não sobrescreve", async () => {
+    db.fichaCadastral.updateMany.mockResolvedValue({ count: 0 });
+    expect((await request(app).put("/employee-forms/f1/correcoes").send({ valores: { rg: "1234567" } })).status).toBe(409);
+  });
+
+  test("só em ficha enviada e só para quem vê Funcionários", async () => {
+    ficha.status = "PREENCHENDO";
+    expect((await request(app).put("/employee-forms/f1/correcoes").send({ valores: { rg: "1234567" } })).status).toBe(409);
+    ficha.status = "FINALIZADA";
+    vi.mocked(userHasPermission).mockResolvedValue(false);
+    expect((await request(app).put("/employee-forms/f1/correcoes").send({ valores: { rg: "1234567" } })).status).toBe(403);
   });
 });

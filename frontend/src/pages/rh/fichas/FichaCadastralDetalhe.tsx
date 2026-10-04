@@ -17,6 +17,7 @@ import { ROTAS_RH } from "../rotasRh";
 import { DadosPessoa, DocumentosFicha } from "./DadosPessoa";
 import { EmpresaFicha } from "./EmpresaFicha";
 import { FichaImpressao, imprimirFicha } from "./FichaImpressao";
+import { LeituraDocumentos } from "./LeituraDocumentos";
 import { LinkFicha } from "./LinkFicha";
 import { dataBr, diaBr, formatarCpf, situacao } from "./fichaFormato";
 
@@ -225,6 +226,8 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
           )}
         </section>
       )}
+
+      {finalizada && podeEditar && !ficha.salarioOculto && <LeituraDocumentos ficha={ficha} onCorrigida={carregar} />}
 
       <section className="panel">
         <h2 className="fc-secao-titulo">Foto e documentos <small>({ficha.arquivos.length})</small></h2>

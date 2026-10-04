@@ -7,6 +7,7 @@ import { criarFichaCadastral, getFichasCadastrais, type FichaCadastralLink, type
 import { Dialog } from "../../../components/ui/Dialog";
 import { useSession } from "../../../context/SessionContext";
 import { Alert, Button, EmptyState, StatusBadge, Tabs, TextField } from "../../../design-system";
+import { AtualizacaoEmLote } from "./AtualizacaoEmLote";
 import { FichaCadastralDetalhe } from "./FichaCadastralDetalhe";
 import { LinkFicha } from "./LinkFicha";
 import { ROTA_FICHAS, dataBr, rotaFicha, situacao } from "./fichaFormato";
@@ -103,7 +104,12 @@ export function FichasCadastrais() {
             <li key={titulo}><span className="fc-passo-num" aria-hidden="true">{i + 1}</span><span><strong>{titulo}</strong>{texto}</span></li>
           ))}
         </ol>
-        {podeCriar && <Button leadingIcon={<Plus size={16} />} onClick={() => setNovaAberta(true)}>Nova ficha de admissão</Button>}
+        {podeCriar && (
+          <div className="fc-topo-acoes">
+            <AtualizacaoEmLote onGeradas={carregar} />
+            <Button leadingIcon={<Plus size={16} />} onClick={() => setNovaAberta(true)}>Nova ficha de admissão</Button>
+          </div>
+        )}
       </section>
 
       <section className="panel">
