@@ -60,6 +60,7 @@ export const menuCatalog = [
   { id: "supplier-cycles", label: "Ciclos de fornecedor", group: "Financeiro" },
   { id: "dre", label: "DRE Gerencial", group: "Financeiro" },
   { id: "dishes", label: "Fichas Técnicas", group: "Cardápio" },
+  { id: "buffet-plates", label: "Plaquinhas do buffet", group: "Cardápio" },
   { id: "notifications", label: "Notificações WhatsApp", group: "Configuracoes" },
   { id: "doc-intake", label: "Leitura de documentos", group: "Dados" }
 ] as const;
@@ -469,6 +470,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/monthly")) return "monthly-closing";
   if (path.startsWith("/dre")) return "dre";
   if (path.startsWith("/dishes")) return "dishes";
+  if (path.startsWith("/buffet-plates")) return "buffet-plates";
   if (path.startsWith("/master-data/sectors") && method === "GET" && String(request.query?.forStockCounting ?? "").toLowerCase() === "true") {
     return "inventory-counting";
   }
