@@ -29,6 +29,7 @@
   width: 100%; height: 100%; padding: 2.6mm; background: var(--plq-fundo); color: var(--plq-texto);
 }
 .plq-placa--gold { --plq-fundo: #161512; --plq-texto: #f6f0e2; --plq-traco: #c9aa66; --plq-ingles: #cfc4ad; }
+.plq-placa--white { --plq-fundo: #ffffff; --plq-texto: #161512; --plq-traco: #9c7c3c; --plq-ingles: #5f574a; }
 .plq-moldura {
   position: relative; width: 100%; height: 100%; border: .35mm solid var(--plq-traco);
   display: flex; flex-direction: column; align-items: center; justify-content: space-between;

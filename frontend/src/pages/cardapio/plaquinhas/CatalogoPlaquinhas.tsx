@@ -1,9 +1,10 @@
-import { Pencil, Plus, RotateCcw, Search, Archive } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Archive, Pencil, Plus, RotateCcw, Search, Undo2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { deactivateBuffetPlateItem, saveBuffetPlateItem, type BuffetPlateItem } from "../../../api/client";
 import { Alert, Button, EmptyState, Select, Switch, FormField } from "../../../design-system";
 import { PratoDialog } from "./PratoDialog";
 import { CATEGORIAS, semAcento } from "./plaquinhasFormato";
+import { semQuebrarHifen } from "./semQuebrarHifen";
 
 type Props = {
   catalogo: BuffetPlateItem[];
@@ -14,6 +15,7 @@ type Props = {
 };
 
 const LIMITE_LINHAS = 200;
+const AVISO_MS = 10_000;
 
 export function CatalogoPlaquinhas({ catalogo, podeCriar, podeEditar, podeExcluir, aoMudar }: Props) {
   const [texto, setTexto] = useState("");
@@ -22,6 +24,13 @@ export function CatalogoPlaquinhas({ catalogo, podeCriar, podeEditar, podeExclui
   const [editando, setEditando] = useState<BuffetPlateItem | null>(null);
   const [criando, setCriando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  // O prato inativado some da lista; o aviso diz qual foi e deixa voltar atrás.
+  const [inativado, setInativado] = useState<BuffetPlateItem | null>(null);
+  useEffect(() => {
+    if (!inativado) return undefined;
+    const t = window.setTimeout(() => setInativado(null), AVISO_MS);
+    return () => window.clearTimeout(t);
+  }, [inativado]);
 
   const linhas = useMemo(() => {
     const termos = semAcento(texto).split(/\s+/).filter(Boolean);
@@ -33,6 +42,7 @@ export function CatalogoPlaquinhas({ catalogo, podeCriar, podeEditar, podeExclui
     setErro(null);
     try {
       aoMudar(p.isActive ? await deactivateBuffetPlateItem(p.id) : await saveBuffetPlateItem({ namePt: p.namePt, nameEn: p.nameEn, category: p.category, isActive: true }, p.id));
+      setInativado(p.isActive ? p : null);
     } catch (x) {
       setErro(x instanceof Error ? x.message : "Não foi possível alterar o prato.");
     }
@@ -54,6 +64,12 @@ export function CatalogoPlaquinhas({ catalogo, podeCriar, podeEditar, podeExclui
       </div>
       <p className="plq-contagem">{ativos} pratos no catálogo · {linhas.length} na busca</p>
       {erro && <Alert tone="error">{erro}</Alert>}
+      {inativado && (
+        <div className="plq-desfazer" role="status">
+          <span>“{inativado.namePt}” saiu da busca. As listas antigas continuam com ele.</span>
+          <button type="button" onClick={() => alternarAtivo({ ...inativado, isActive: false })}><Undo2 size={14} aria-hidden="true" /> Desfazer</button>
+        </div>
+      )}
 
       {linhas.length === 0 ? (
         <EmptyState title="Nenhum prato encontrado" description="Mude a busca ou a categoria." />
@@ -64,9 +80,9 @@ export function CatalogoPlaquinhas({ catalogo, podeCriar, podeEditar, podeExclui
             <tbody>
               {linhas.slice(0, LIMITE_LINHAS).map((p) => (
                 <tr key={p.id} className={p.isActive ? "" : "plq-inativo"}>
-                  <td>{p.namePt}{!p.isActive && <small> · inativo</small>}</td>
-                  <td className="plq-tabela-en">{p.nameEn}</td>
-                  <td>{p.category}</td>
+                  <td className="plq-tabela-pt">{semQuebrarHifen(p.namePt)}{!p.isActive && <small> · inativo</small>}</td>
+                  <td className="plq-tabela-en" lang="en">{semQuebrarHifen(p.nameEn)}</td>
+                  <td className="plq-tabela-cat">{p.category}</td>
                   {(podeEditar || podeExcluir) && (
                     <td className="plq-tabela-acoes">
                       {podeEditar && <Button variant="icon" size="sm" aria-label={`Editar ${p.namePt}`} title="Editar" onClick={() => setEditando(p)}><Pencil size={16} /></Button>}

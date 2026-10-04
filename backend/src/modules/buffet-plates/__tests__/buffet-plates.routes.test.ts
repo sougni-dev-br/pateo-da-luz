@@ -128,6 +128,12 @@ describe("listas", () => {
     expect(data.eventDate.toISOString()).toBe("2026-10-09T00:00:00.000Z");
   });
 
+  test("aceita a cor branco e dourado", async () => {
+    const r = await request(app).post("/buffet-plates/lists").send({ ...listaValida, theme: "white" });
+    expect(r.status).toBe(201);
+    expect(db.buffetPlateList.create.mock.calls[0][0].data.theme).toBe("white");
+  });
+
   test("o mesmo prato repetido vira uma linha com as quantidades somadas", async () => {
     const r = await request(app).post("/buffet-plates/lists").send({ ...listaValida, items: [{ itemId: "i1", qty: 2 }, { itemId: "i2", qty: 1 }, { itemId: "i1", qty: 3 }] });
     expect(r.status).toBe(201);
@@ -142,6 +148,7 @@ describe("listas", () => {
 
   test.each([
     [{ format: "a3" }, /format/],
+    [{ theme: "pink" }, /theme/],
     [{ items: [{ itemId: "i1", qty: 0 }] }, /quantidade mínima/],
     [{ items: [{ itemId: "i1", qty: 21 }] }, /quantidade máxima/],
     [{ eventDate: "10/10/2026" }, /data inválida/],

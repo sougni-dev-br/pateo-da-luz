@@ -16,10 +16,12 @@ import { MontarFolha } from "./MontarFolha";
 import "./plaquinhas-tela.css";
 
 const MODULO = "buffet-plates";
+// No celular as três abas dividem a linha; o rótulo encolhe para caber sem quebrar.
+const rotulo = (longo: string, curto: string) => <><span className="plq-aba-longa">{longo}</span><span className="plq-aba-curta" aria-hidden="true">{curto}</span></>;
 const ABAS = [
   { value: "montar", label: "Plaquinhas" },
-  { value: "cardapio", label: "Cardápio do evento" },
-  { value: "catalogo", label: "Catálogo de pratos" },
+  { value: "cardapio", label: rotulo("Cardápio do evento", "Cardápio") },
+  { value: "catalogo", label: rotulo("Catálogo de pratos", "Catálogo") },
 ];
 
 export function Plaquinhas() {
@@ -80,7 +82,7 @@ export function Plaquinhas() {
   return (
     <div className="plq-pagina">
       {erro && <Alert tone="error">{erro}</Alert>}
-      <Tabs tabs={ABAS} value={aba} onChange={setAba} />
+      <Tabs className="plq-abas" tabs={ABAS} value={aba} onChange={setAba} />
       {/* As abas ficam montadas: ir ao catálogo cadastrar um prato não apaga o que estava sendo montado. */}
       <div hidden={aba !== "montar"}>
         <MontarFolha ativa={aba === "montar"} catalogo={catalogo} listas={listas} podeCriar={podeCriar} podeEditar={podeEditar} podeExcluir={podeExcluir}
