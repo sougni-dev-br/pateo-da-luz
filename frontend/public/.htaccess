@@ -16,6 +16,9 @@
   RewriteRule ^ index.html [L]
 </IfModule>
 
+# Worker do leitor de PDF sai como .mjs; com nosniff, outro tipo impediria o navegador de rodá-lo.
+AddType application/javascript .mjs
+
 # Cache de assets buildados (têm hash no nome)
 <IfModule mod_expires.c>
   ExpiresActive On

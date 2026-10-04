@@ -7,9 +7,10 @@ import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { mascararDadosSensiveis } from "./auditoria-mascara.js";
+import { nomeProprio } from "../../shared/utils/nome-proprio.js";
 import {
   ESCOLARIDADES, ESTADOS_CIVIS, RACAS_CORES, ROTULOS, TIPOS_ARQUIVO, UFS,
-  dadosDoFuncionario, diferencas, faltaParaFinalizar, filhosAlterados, filhosNovos, lerDadosEmpresa,
+  dadosDoFuncionario, diferencas, faltaParaFinalizar, filhosAlterados, filhosNovos, lerDadosEmpresa, lerDadosPessoa,
   type DadosEmpresa, type DadosPessoa,
 } from "./ficha-cadastral-campos.js";
 import { expiracaoNova, gerarCodigo } from "./ficha-cadastral-acesso.js";
@@ -70,6 +71,85 @@ fichaCadastralRouter.get("/", async (request, response) => {
   })));
 });
 
+type FuncionarioDaFicha = Parameters<typeof empresaDoFuncionario>[0] & { id: string; firstName: string; lastName: string };
+
+type FilhoDaFicha = { nome: string; dataNascimento: Date | null; cpf: string | null };
+
+// Ficha de ATUALIZAÇÃO de um funcionário: já abre com o que o cadastro tem.
+function novaAtualizacao(e: FuncionarioDaFicha, filhos: FilhoDaFicha[], usuarioId: string) {
+  const { codigo, hash } = gerarCodigo();
+  const data: Prisma.FichaCadastralUncheckedCreateInput = {
+    tipo: "ATUALIZACAO", tokenHash: hash, expiraEm: expiracaoNova(), employeeId: e.id,
+    nomeReferencia: [e.firstName, e.lastName].filter(Boolean).join(" "),
+    dados: dadosDoFuncionario(e as unknown as Record<string, unknown>, filhos) as Prisma.InputJsonValue,
+    dadosEmpresa: empresaDoFuncionario(e) as Prisma.InputJsonValue,
+    createdById: usuarioId,
+  };
+  return { data, codigo };
+}
+
+async function criarAtualizacao(e: FuncionarioDaFicha, filhos: FilhoDaFicha[], usuarioId: string) {
+  const { data, codigo } = novaAtualizacao(e, filhos, usuarioId);
+  return { ficha: await prisma.fichaCadastral.create({ data }), codigo };
+}
+
+const TEMPO_LOTE_MS = 60_000;
+
+// ─── ATUALIZAÇÃO EM LOTE (todos os ativos) ──────────────────────────────────────
+// Gera um link para cada funcionário ativo que ainda não tem ficha aberta. Os códigos só existem
+// nesta resposta (o banco guarda o hash): a tela mostra a lista para mandar pelo WhatsApp.
+type LoteCriada = { fichaId: string; employeeId: string; nome: string; codigo: string; expiraEm: Date; celular: string | null };
+type LoteJaAberta = { fichaId: string; employeeId: string; nome: string };
+
+// Tudo ou nada: se uma criação falhar, nenhuma ficha fica aberta sem o código ter chegado à tela.
+// A trava impede dois lotes simultâneos de abrirem duas fichas para a mesma pessoa.
+function gerarLote(usuarioId: string, podeVerCadastro: boolean) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('ficha-cadastral-lote'))`;
+    const ativos = await tx.employee.findMany({
+      where: { deletedAt: null, isActive: true }, orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+    });
+    const ids = ativos.map((e) => e.id);
+    const abertas = await tx.fichaCadastral.findMany({
+      where: { employeeId: { in: ids }, status: { in: ABERTAS } }, select: { id: true, employeeId: true },
+    });
+    const comFicha = new Map(abertas.map((f) => [f.employeeId, f.id]));
+    const dependentes = await tx.employeeDependente.findMany({
+      where: { employeeId: { in: ids } }, select: { employeeId: true, nome: true, dataNascimento: true, cpf: true },
+    });
+    const filhosPor = new Map<string, FilhoDaFicha[]>();
+    for (const d of dependentes) filhosPor.set(d.employeeId, [...(filhosPor.get(d.employeeId) ?? []), d]);
+    const criadas: LoteCriada[] = [];
+    const jaAbertas: LoteJaAberta[] = [];
+    for (const e of ativos) {
+      const nome = [e.firstName, e.lastName].filter(Boolean).join(" ");
+      const aberta = comFicha.get(e.id);
+      if (aberta) { jaAbertas.push({ fichaId: aberta, employeeId: e.id, nome }); continue; }
+      const { data, codigo } = novaAtualizacao(e, filhosPor.get(e.id) ?? [], usuarioId);
+      const ficha = await tx.fichaCadastral.create({ data });
+      // Celular é dado do cadastro: só vai para quem pode ver Funcionários.
+      criadas.push({ fichaId: ficha.id, employeeId: e.id, nome, codigo, expiraEm: ficha.expiraEm, celular: podeVerCadastro ? e.phone : null });
+    }
+    return { criadas, jaAbertas };
+  }, { timeout: TEMPO_LOTE_MS, maxWait: TEMPO_LOTE_MS });
+}
+
+fichaCadastralRouter.post("/lote", async (request, response) => {
+  const user = await usuario(request, response);
+  if (!user) return;
+  let resultado: { criadas: LoteCriada[]; jaAbertas: LoteJaAberta[] };
+  try {
+    resultado = await gerarLote(user.id, await userHasPermission(user, "employees", "view"));
+  } catch (e) {
+    console.error("[ficha-cadastral] lote falhou", e);
+    return response.status(500).json({ message: "Não foi possível gerar os links. Nenhuma ficha foi criada; tente de novo." });
+  }
+  const { criadas, jaAbertas } = resultado;
+  await auditLog({ userId: user.id, action: "FICHA_CADASTRAL_LOTE", entity: "FichaCadastral", newValue: { criadas: criadas.length, jaAbertas: jaAbertas.length }, ...auditoria(request) });
+  response.setHeader("Cache-Control", "no-store");
+  return response.status(201).json({ criadas, jaAbertas });
+});
+
 // ─── CRIAR (gera o link) ────────────────────────────────────────────────────────
 fichaCadastralRouter.post("/", async (request, response) => {
   const user = await usuario(request, response);
@@ -78,31 +158,24 @@ fichaCadastralRouter.post("/", async (request, response) => {
   const tipo = b.tipo === "ATUALIZACAO" ? "ATUALIZACAO" : b.tipo === "ADMISSAO" ? "ADMISSAO" : null;
   if (!tipo) return response.status(400).json({ message: "Escolha admissão ou atualização." });
 
-  let nomeReferencia = String(b.nomeReferencia ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
-  let dados: DadosPessoa = {};
-  let dadosEmpresa: Partial<DadosEmpresa> = {};
-  let employeeId: string | null = null;
+  const nomeReferencia = String(b.nomeReferencia ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
   if (tipo === "ATUALIZACAO") {
     const e = await prisma.employee.findFirst({ where: { id: String(b.employeeId ?? ""), deletedAt: null } });
     if (!e) return response.status(404).json({ message: "Funcionário não encontrado." });
     const aberta = await prisma.fichaCadastral.findFirst({ where: { employeeId: e.id, status: { in: ABERTAS } }, select: { id: true } });
     if (aberta) return response.status(409).json({ message: `Já existe uma ficha aberta para ${e.firstName}. Use "Gerar novo link" nela.`, fichaId: aberta.id });
     const filhos = await prisma.employeeDependente.findMany({ where: { employeeId: e.id }, select: { nome: true, dataNascimento: true, cpf: true } });
-    dados = dadosDoFuncionario(e as unknown as Record<string, unknown>, filhos);
-    dadosEmpresa = empresaDoFuncionario(e);
-    employeeId = e.id;
-    nomeReferencia = [e.firstName, e.lastName].filter(Boolean).join(" ");
+    const { ficha, codigo } = await criarAtualizacao(e, filhos, user.id);
+    await auditLog({ userId: user.id, action: "FICHA_CADASTRAL_CRIADA", entity: "FichaCadastral", entityId: ficha.id, newValue: { tipo, nomeReferencia: ficha.nomeReferencia, employeeId: e.id }, ...auditoria(request) });
+    return response.status(201).json({ id: ficha.id, codigo, expiraEm: ficha.expiraEm });
   }
   if (nomeReferencia.length < 2) return response.status(400).json({ message: "Informe o nome da pessoa." });
 
   const { codigo, hash } = gerarCodigo();
   const ficha = await prisma.fichaCadastral.create({
-    data: {
-      tipo, tokenHash: hash, expiraEm: expiracaoNova(), nomeReferencia, employeeId,
-      dados: dados as Prisma.InputJsonValue, dadosEmpresa: dadosEmpresa as Prisma.InputJsonValue, createdById: user.id,
-    },
+    data: { tipo, tokenHash: hash, expiraEm: expiracaoNova(), nomeReferencia, createdById: user.id },
   });
-  await auditLog({ userId: user.id, action: "FICHA_CADASTRAL_CRIADA", entity: "FichaCadastral", entityId: ficha.id, newValue: { tipo, nomeReferencia, employeeId }, ...auditoria(request) });
+  await auditLog({ userId: user.id, action: "FICHA_CADASTRAL_CRIADA", entity: "FichaCadastral", entityId: ficha.id, newValue: { tipo, nomeReferencia }, ...auditoria(request) });
   return response.status(201).json({ id: ficha.id, codigo, expiraEm: ficha.expiraEm });
 });
 
@@ -174,6 +247,51 @@ async function abertaOu404(id: string, response: Response) {
   }
   return ficha;
 }
+
+// ─── Correções vindas da leitura das fotos dos documentos ──────────────────────
+// O RH conferiu a leitura e aceitou trocar o que a pessoa digitou pelo que está no documento.
+// Lista fechada de campos que dá para ler de documento; só troca, nunca apaga (data de
+// nascimento e CPF protegem o link). CPF e documentos exigem ver Funcionários.
+const CORRIGIVEIS = new Set([
+  "nomeCompleto", "nomeMae", "nomePai", "dataNascimento", "cpf", "rg", "rgOrgaoEmissor", "pis",
+  "tituloEleitor", "tituloZona", "tituloSecao", "ctpsNumero", "ctpsSerie", "cep",
+]);
+const NOMES = new Set(["nomeCompleto", "nomeMae", "nomePai"]);
+
+fichaCadastralRouter.put("/:id/correcoes", async (request, response) => {
+  const user = await usuario(request, response);
+  if (!user) return;
+  if (!(await userHasPermission(user, "employees", "view"))) {
+    return response.status(403).json({ message: "Exige permissão de ver Funcionários." });
+  }
+  const ficha = await prisma.fichaCadastral.findUnique({ where: { id: request.params.id } });
+  if (!ficha) return response.status(404).json({ message: "Ficha não encontrada." });
+  if (ficha.status !== "FINALIZADA") return response.status(409).json({ message: "Só dá para corrigir uma ficha que a pessoa já enviou." });
+  const valores = (request.body as Record<string, unknown>)?.valores;
+  if (!valores || typeof valores !== "object" || Array.isArray(valores)) return response.status(400).json({ message: "Nada para corrigir." });
+  const entrada = Object.fromEntries(Object.entries(valores as Record<string, unknown>).filter(([c]) => CORRIGIVEIS.has(c)));
+  if (Object.keys(entrada).length === 0) return response.status(400).json({ message: "Nada para corrigir." });
+  if (Object.values(entrada).some((v) => v == null || String(v).trim() === "")) {
+    return response.status(400).json({ message: "A correção não pode deixar campo em branco." });
+  }
+  const lido = lerDadosPessoa(entrada);
+  if ("erro" in lido) return response.status(400).json({ message: lido.erro });
+  const corrigido: DadosPessoa = { ...lido.dados };
+  for (const c of NOMES) if (typeof corrigido[c] === "string") corrigido[c] = nomeProprio(corrigido[c] as string);
+  const anterior = ficha.dados as DadosPessoa;
+  // Só grava se a ficha ainda estiver como foi lida (devolvida ou alterada no meio, não sobrescreve).
+  const gravada = await prisma.fichaCadastral.updateMany({
+    where: { id: ficha.id, status: "FINALIZADA", updatedAt: ficha.updatedAt },
+    data: { dados: { ...anterior, ...corrigido } as Prisma.InputJsonValue },
+  });
+  if (gravada.count === 0) return response.status(409).json({ message: "A ficha mudou enquanto você conferia. Abra de novo e leia os documentos outra vez." });
+  const antes = Object.fromEntries(Object.keys(corrigido).map((c) => [c, anterior[c] ?? null]));
+  await auditLog({
+    userId: user.id, action: "FICHA_CADASTRAL_CORRIGIDA_PELO_DOCUMENTO", entity: "FichaCadastral", entityId: ficha.id,
+    previousValue: mascararDadosSensiveis(antes), newValue: mascararDadosSensiveis(corrigido), ...auditoria(request),
+  });
+  return response.json({ ok: true, corrigidos: Object.keys(corrigido) });
+});
 
 // ─── Parte da empresa ───────────────────────────────────────────────────────────
 fichaCadastralRouter.put("/:id/empresa", async (request, response) => {

@@ -7478,3 +7478,13 @@ export function concluirFichaCadastral(id: string, campos?: string[]) {
 export function getArquivoFichaCadastral(id: string, arquivoId: string) {
   return fetchBlob(`/employee-forms/${id}/arquivos/${arquivoId}`);
 }
+/** RH aceitou trocar o digitado pelo que a leitura dos documentos achou. */
+export function corrigirFichaPelaLeitura(id: string, valores: Record<string, string>) {
+  return request<{ ok: true; corrigidos: string[] }>(`/employee-forms/${id}/correcoes`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ valores }) });
+}
+export type FichaLoteCriada = { fichaId: string; employeeId: string; nome: string; codigo: string; expiraEm: string; celular: string | null };
+export type FichaLoteResultado = { criadas: FichaLoteCriada[]; jaAbertas: Array<{ fichaId: string; employeeId: string; nome: string }> };
+/** Uma ficha de atualização para cada funcionário ativo sem ficha aberta. Os códigos só vêm nesta resposta. */
+export function pedirAtualizacaoEmLote() {
+  return request<FichaLoteResultado>("/employee-forms/lote", { method: "POST" });
+}
