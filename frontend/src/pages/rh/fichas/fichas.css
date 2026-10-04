@@ -128,3 +128,31 @@
 .fc-roteiro a { color: #8a6f36; font-weight: 600; }
 .fc-dif-de--neutro { text-decoration: none; font-style: italic; }
 #fc-empresa { scroll-margin-top: 80px; }
+
+/* Conferência pela leitura dos documentos */
+.fc-leitura-ajuda, .fc-leitura-nao-lido { color: var(--muted); margin: 8px 0 0; }
+.fc-leitura-progresso { display: flex; align-items: center; gap: 12px; margin-top: 12px; color: var(--muted); }
+.fc-leitura-progresso progress { flex: 0 0 180px; accent-color: var(--gold); }
+.fc-leitura-resultado { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.fc-leitura-chamada { margin: 0; font-weight: 500; }
+.fc-leitura-fonte { color: var(--muted); font-weight: 400; }
+.fc-leitura-ok { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: var(--success); }
+.fc-leitura-ok svg { flex: none; margin-top: 3px; }
+
+/* Atualização em lote */
+.fc-topo-acoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.fc-lote { display: flex; flex-direction: column; gap: 12px; }
+.fc-lote-lista { list-style: none; margin: 0; padding: 0; max-height: 52vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+.fc-lote-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 12px; flex-wrap: wrap; }
+.fc-lote-item + .fc-lote-item { border-top: 1px solid var(--line); }
+.fc-lote-item--feito { background: var(--row-hover); }
+.fc-lote-item--feito .fc-lote-nome { color: var(--muted); }
+.fc-lote-nome { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fc-lote-nome small { color: var(--muted); }
+.fc-lote-nome svg { color: var(--success); }
+.fc-lote-acoes { display: flex; gap: 8px; }
+.fc-botao-whats--compacto { padding: 6px 12px; font-size: 0.875rem; }
+.fc-lote-rodape { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); }
+.fc-lote-rodape > :only-child { margin-left: auto; }
+.fc-leitura-selo { display: block; font-size: 0.75rem; font-weight: 400; color: var(--warning); }
+.fc-leitura-selo--ok { color: var(--success); }
