@@ -5,11 +5,12 @@ import type { PlateTheme } from "../../../api/client";
 const MM_EM_PX = 96 / 25.4;
 const LARGURA_A4_PX = 210 * MM_EM_PX;
 
-type Props = { resumo: string; naoCouberam: string[]; tema: PlateTheme; vazia: boolean; children: ReactNode };
+export type AlertaPrevia = { curto: string; longo: string } | null;
+type Props = { resumo: string; alerta: AlertaPrevia; tema: PlateTheme; vazia: boolean; children: ReactNode };
 
 // A folha A4 real, reduzida para caber na coluna: o que se vê é o que sai na impressora.
 // No celular começa fechada, para a lista de pratos não ficar lá embaixo da página.
-export function PreviaFolhas({ resumo, naoCouberam, tema, vazia, children }: Props) {
+export function PreviaFolhas({ resumo, alerta, tema, vazia, children }: Props) {
   const caixaRef = useRef<HTMLDivElement>(null);
   const [escala, setEscala] = useState(0.5);
   const [abertaNoCelular, setAbertaNoCelular] = useState(false);
@@ -32,19 +33,16 @@ export function PreviaFolhas({ resumo, naoCouberam, tema, vazia, children }: Pro
       <button type="button" className="plq-previa-alternar" aria-expanded={abertaNoCelular} onClick={() => setAbertaNoCelular((v) => !v)}>
         <span>
           {abertaNoCelular ? "Esconder prévia" : "Ver prévia"} · {resumo}
-          {naoCouberam.length > 0 && <strong className="plq-previa-alternar-alerta"><TriangleAlert size={14} aria-hidden="true" /> {naoCouberam.length === 1 ? "1 nome não coube" : `${naoCouberam.length} nomes não couberam`}</strong>}
+          {alerta && <strong className="plq-previa-alternar-alerta"><TriangleAlert size={14} aria-hidden="true" /> {alerta.curto}</strong>}
         </span>
         <ChevronDown size={18} aria-hidden="true" />
       </button>
       <div className="plq-previa-corpo">
         <p className="plq-previa-resumo">{resumo}</p>
-        {naoCouberam.length > 0 && (
+        {alerta && (
           <p className="plq-previa-alerta" role="status">
             <TriangleAlert size={16} aria-hidden="true" />
-            <span>
-              {naoCouberam.length === 1 ? "Este nome não coube" : "Estes nomes não couberam"} mesmo com a letra no menor tamanho:{" "}
-              <strong>{naoCouberam.join(", ")}</strong>. Encurte na aba Catálogo (a plaquinha aparece com borda vermelha).
-            </span>
+            <span>{alerta.longo}</span>
           </p>
         )}
         {!vazia && (
