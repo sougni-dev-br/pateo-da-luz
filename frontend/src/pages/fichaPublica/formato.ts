@@ -1,3 +1,5 @@
+import { ErroFicha } from "./api";
+
 // Máscaras e conversões do formulário público. A pessoa digita como está acostumada
 // (DD/MM/AAAA, 000.000.000-00); o backend recebe AAAA-MM-DD e só algarismos.
 
@@ -83,17 +85,19 @@ export async function prepararArquivo(arquivo: File): Promise<{ blob: Blob; nome
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(img.naturalWidth * escala);
     canvas.height = Math.round(img.naturalHeight * escala);
-    const ctx = canvas.getContext("2d")!;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvas");
     // PNG com fundo transparente (print da CTPS digital) viraria JPEG com fundo preto.
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/jpeg", QUALIDADE));
-    if (!blob) return { blob: arquivo, nome: arquivo.name };
+    if (!blob) throw new Error("toBlob");
     return { blob, nome: arquivo.name.replace(/\.[^.]+$/, "") + ".jpg" };
   } catch {
-    // Formato que o navegador não abre (HEIC no Android, por exemplo): o servidor responde.
-    return { blob: arquivo, nome: arquivo.name };
+    // Não deu para redesenhar (HEIC no Android, foto grande demais para a memória): mandar o
+    // original levaria a localização de onde a foto foi tirada. Melhor pedir outra.
+    throw new ErroFicha("Não foi possível preparar esta foto. Tire de novo ou escolha outra imagem (JPG ou PNG).", 0, null);
   } finally {
     URL.revokeObjectURL(url);
   }

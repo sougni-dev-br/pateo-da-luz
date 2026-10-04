@@ -1,5 +1,6 @@
 import type { FichaCadastralDetalhe, FichaCadastralEmpresa } from "../../../api/client";
 import { FormGrid, Select, Switch, TextField, Textarea } from "../../../design-system";
+import { useState } from "react";
 import { valorBr, valorNoCampo } from "./fichaFormato";
 
 type Props = {
@@ -16,11 +17,14 @@ export function EmpresaFicha({ ficha, valor, onChange, somenteLeitura }: Props) 
   const mudar = <K extends keyof FichaCadastralEmpresa>(campo: K, v: FichaCadastralEmpresa[K]) => onChange({ ...valor, [campo]: v });
   const texto = (campo: keyof FichaCadastralEmpresa) => (valor[campo] == null ? "" : String(valor[campo]));
   const vazioParaNull = (s: string) => (s.trim() === "" ? null : s);
-  // Dinheiro: guarda o que foi digitado; a conversão (1.500,00 → 1500) é feita no envio.
+  // Dinheiro: guarda o que foi digitado; a conversão (1.500,00 → 1500) é feita no envio. O aviso
+  // de formato só depois de sair do campo ("12," no meio da digitação não é erro).
+  const [tocados, setTocados] = useState<Set<string>>(new Set());
   const dinheiro = (campo: "salario" | "valorVt") => ({
     value: valorNoCampo(valor[campo]),
-    error: valorBr(valor[campo]) === undefined ? "Use o formato 1.500,00." : undefined,
+    error: tocados.has(campo) && valorBr(valor[campo]) === undefined ? "Use o formato 1.500,00." : undefined,
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => mudar(campo, (e.target.value.trim() === "" ? null : e.target.value) as never),
+    onBlur: () => setTocados((t) => new Set(t).add(campo)),
   });
   const hora = (campo: keyof FichaCadastralEmpresa, rotulo: string) => (
     <TextField label={rotulo} type="time" value={texto(campo)} disabled={campo.startsWith("sabado") ? somenteLeitura : doCadastro}

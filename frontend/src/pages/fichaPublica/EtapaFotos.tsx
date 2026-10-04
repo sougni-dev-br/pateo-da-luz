@@ -12,9 +12,11 @@ type Props = {
   onEstado: (e: Estado) => void;
   /** Chave de acesso vencida (401): volta para a confirmação de identidade. */
   onSessaoExpirada: (e: unknown) => boolean;
+  /** Busca o estado no servidor (depois de envios e exclusões, e depois de qualquer erro). */
+  onRecarregar: () => void;
 };
 
-type Ordem = { proximo: () => number; aplicar: (n: number, e: Estado) => void };
+type Ordem = { proximo: () => number; aplicar: (n: number, e: Estado) => void; fim: () => void };
 
 const DICAS: Record<string, string> = {
   FOTO_PESSOA: "Rosto de frente, com fundo claro e boa luz. Sem boné, chapéu ou óculos escuros.",
@@ -60,7 +62,11 @@ function Slot({ codigo, tipo, rotulo, obrigatorio, arquivos, ordem, onSessaoExpi
         atual = f.name;
         const { blob, nome } = await prepararArquivo(f);
         const n = ordem.proximo();
-        ordem.aplicar(n, await enviarArquivo(codigo, tipo, blob, nome));
+        try {
+          ordem.aplicar(n, await enviarArquivo(codigo, tipo, blob, nome));
+        } finally {
+          ordem.fim();
+        }
       }
     } catch (e) {
       if (onSessaoExpirada(e)) return;
@@ -77,12 +83,13 @@ function Slot({ codigo, tipo, rotulo, obrigatorio, arquivos, ordem, onSessaoExpi
     if (apagando || !window.confirm(`Apagar "${a.nomeOriginal}"?`)) return;
     setErro(null);
     setApagando(a.id);
+    const n = ordem.proximo();
     try {
-      const n = ordem.proximo();
       ordem.aplicar(n, await apagarArquivo(codigo, a.id));
     } catch (e) {
       if (!onSessaoExpirada(e)) setErro(e instanceof ErroFicha ? e.message : "Não foi possível apagar.");
     } finally {
+      ordem.fim();
       setApagando(null);
     }
   }
@@ -129,14 +136,17 @@ function Slot({ codigo, tipo, rotulo, obrigatorio, arquivos, ordem, onSessaoExpi
   );
 }
 
-export function EtapaFotos({ codigo, tipo, tipos, obrigatorios, arquivos, onEstado, onSessaoExpirada }: Props) {
-  // Envios em documentos diferentes ao mesmo tempo: a resposta que chega por último pode ser a
-  // mais antiga. Só vale a lista de arquivos da operação mais recente.
+export function EtapaFotos({ codigo, tipo, tipos, obrigatorios, arquivos, onEstado, onSessaoExpirada, onRecarregar }: Props) {
+  // Envios e exclusões ao mesmo tempo: o servidor pode terminar em outra ordem. Enquanto há
+  // operação no ar, só vale a resposta mais recente; quando a última termina (ou depois de um
+  // erro, inclusive o prazo estourado de um envio que pode ter gravado), a lista vem do servidor.
   const seq = useRef(0);
   const aplicada = useRef(0);
+  const pendentes = useRef(0);
   const sequencia: Ordem = {
-    proximo: () => ++seq.current,
+    proximo: () => { pendentes.current += 1; return ++seq.current; },
     aplicar: (n, e) => { if (n < aplicada.current) return; aplicada.current = n; onEstado(e); },
+    fim: () => { pendentes.current = Math.max(0, pendentes.current - 1); if (pendentes.current === 0) onRecarregar(); },
   };
   const exige = tipo === "ADMISSAO" ? obrigatorios : [];
   // Obrigatórios primeiro, depois a ordem do RH.

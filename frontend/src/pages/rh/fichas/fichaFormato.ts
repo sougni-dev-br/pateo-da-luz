@@ -68,7 +68,11 @@ export function valorBr(v: unknown): number | null | undefined {
   if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
   let t = String(v).replace(/R\$|\s/gi, "");
   if (t === "") return null;
-  if (t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");
+  if (t.includes(",")) {
+    // Com vírgula, ponto só como milhar no lugar certo: "1.5,00" ou "1.234,5.6" não viram número.
+    if (!/^(\d{1,3}(\.\d{3})+|\d+),\d{1,2}$/.test(t)) return undefined;
+    t = t.replace(/\./g, "").replace(",", ".");
+  }
   else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
   if (!/^\d+(\.\d{1,2})?$/.test(t)) return undefined;
   return Number(t);

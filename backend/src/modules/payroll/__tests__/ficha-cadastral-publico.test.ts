@@ -126,6 +126,14 @@ describe("verificar", () => {
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "FICHA_CADASTRAL_BLOQUEADA" }));
   });
 
+  test("cancelada entre a leitura e a trava: não libera os dados nem conta tentativa", async () => {
+    db.$queryRaw.mockResolvedValueOnce([{ status: "CANCELADA", bloqueadoAte: null, tentativasErradas: 0 }]);
+    const r = await request(app).post(url("/verificar")).send({ resposta: "1995-04-10" });
+    expect(r.status).toBe(409);
+    expect(r.body.dados).toBeUndefined();
+    expect(db.fichaCadastral.update).not.toHaveBeenCalled();
+  });
+
   test("bloqueada recusa até a data certa", async () => {
     ficha.bloqueadoAte = amanha();
     const r = await request(app).post(url("/verificar")).send({ resposta: "1995-04-10" });

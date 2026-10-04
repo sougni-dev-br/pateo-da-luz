@@ -11,7 +11,7 @@ import { EtapaFotos } from "./EtapaFotos";
 import { EtapaRevisao } from "./EtapaRevisao";
 import { ETAPAS, corpoDaEtapa, etapaDeRetomada, valoresDe, type Valores } from "./etapas";
 import { buscarCep, dataParaIso, mascaraCpf, mascaraData, soDigitos } from "./formato";
-import { aplicarCep, apagarRascunho, guardarRascunho, lerRascunho } from "./rascunho";
+import { aplicarCep, apagarRascunho, guardarRascunho, impressaoDe, lerRascunho } from "./rascunho";
 import "./fichaPublica.css";
 
 // A carta de apresentação aparece uma vez por aba: recarregar no meio do preenchimento não volta
@@ -95,12 +95,26 @@ export function FichaPublica() {
   // Endereço que veio do último CEP consultado: corrigir o CEP troca só esse, não o digitado.
   const doCep = useRef<Partial<Record<"endereco" | "bairro" | "cidade" | "uf", string>>>({});
 
+  // Impressão dos dados do servidor que o rascunho tem como base; e o que está na tela agora
+  // (a consulta do CEP termina depois e precisa do valor atual, não do da hora do clique).
+  const base = useRef("");
+  const valoresAtuais = useRef<Valores>({});
+
   function abrir() {
     setErroFatal(null);
-    abrirFicha(codigo).then(receber).catch((e) => setErroFatal({
-      texto: e instanceof ErroFicha ? e.message : "Não foi possível abrir a ficha.",
-      semConexao: e instanceof ErroFicha && e.status === 0,
-    }));
+    abrirFicha(codigo).then(receber).catch((e) => {
+      // Link inexistente, vencido ou cancelado: o rascunho (CPF, endereço) não fica no aparelho.
+      if (e instanceof ErroFicha && (e.status === 404 || e.status === 410)) apagarRascunho(codigo);
+      setErroFatal({
+        texto: e instanceof ErroFicha ? e.message : "Não foi possível abrir a ficha.",
+        semConexao: e instanceof ErroFicha && e.status === 0,
+      });
+    });
+  }
+
+  // Depois de enviar ou apagar foto: a lista certa é a do servidor (falha silenciosa: a tela segue).
+  function recarregar() {
+    abrirFicha(codigo).then(receber).catch(() => undefined);
   }
 
   useEffect(() => {
@@ -118,20 +132,26 @@ export function FichaPublica() {
     setEstado(e);
     if (e.dados && !iniciado.current) {
       iniciado.current = true;
-      // O rascunho da aba é mais novo que o salvo: o que a pessoa digitou e não salvou volta.
-      const rascunho = lerRascunho(codigo);
+      // O rascunho da aba volta só se foi feito sobre estes mesmos dados do servidor — salvo em
+      // outro aparelho ou corrigido pelo RH depois, o servidor vence.
+      const guardado = lerRascunho(codigo);
+      const rascunho = guardado && guardado.base === impressaoDe(e.dados) ? guardado : null;
+      if (guardado && !rascunho) apagarRascunho(codigo);
       setValores({ ...valoresDe(e.dados), ...(rascunho?.valores ?? {}) });
       setFilhos(rascunho?.filhos ?? filhosParaTela(e.dados.filhos));
       setEtapa(etapaDeRetomada(e, rascunho));
       doCep.current = rascunho?.doCep ?? {};
     }
+    if (e.dados) base.current = impressaoDe(e.dados);
   }
 
   // Guarda o rascunho a cada alteração (só depois de carregar a ficha, e enquanto dá para editar).
   const editavel = estado?.status === "ENVIADA" || estado?.status === "PREENCHENDO";
+  const dadosDoServidor = estado?.dados;
   useEffect(() => {
-    if (iniciado.current && editavel) guardarRascunho(codigo, { valores, filhos, etapa, doCep: doCep.current });
-  }, [codigo, editavel, valores, filhos, etapa]);
+    if (iniciado.current && editavel) guardarRascunho(codigo, { valores, filhos, etapa, doCep: doCep.current, base: base.current });
+  }, [codigo, editavel, valores, filhos, etapa, dadosDoServidor]);
+  useEffect(() => { valoresAtuais.current = valores; }, [valores]);
   useEffect(() => {
     if (estado && (estado.status === "FINALIZADA" || estado.status === "CONCLUIDA")) apagarRascunho(codigo);
   }, [codigo, estado]);
@@ -153,13 +173,16 @@ export function FichaPublica() {
   }
 
   async function aoSairDoCep() {
-    const achado = await buscarCep(String(valores.cep ?? ""));
+    const consultado = soDigitos(String(valores.cep ?? ""));
+    const achado = await buscarCep(consultado);
     if (!achado) return;
+    // A pessoa corrigiu o CEP enquanto a consulta andava: esta resposta é do CEP velho.
+    if (soDigitos(String(valoresAtuais.current.cep ?? "")) !== consultado) return;
     // A atualização do estado fica pura (o React pode rodá-la duas vezes); a lembrança do que
     // veio do CEP é gravada fora dela.
     const anterior = doCep.current;
     setValores((atual) => aplicarCep(atual, achado, anterior).valores);
-    doCep.current = { ...anterior, ...aplicarCep(valores, achado, anterior).doCep };
+    doCep.current = aplicarCep(valoresAtuais.current, achado, anterior).doCep;
   }
 
   // A chave de acesso vale 2 h: passou disso (ou o RH gerou outro link), o servidor pede a
@@ -317,7 +340,7 @@ export function FichaPublica() {
             onConjuge={(v) => alterar("nomeConjuge", v)} onFilhos={alterarFilhos} />
         ) : atual.id === "fotos" ? (
           <EtapaFotos codigo={codigo} tipo={estado.tipo} tipos={estado.opcoes.tiposArquivo} obrigatorios={estado.opcoes.arquivosObrigatorios}
-            arquivos={estado.arquivos ?? []} onEstado={receber} onSessaoExpirada={pedirConfirmacao} />
+            arquivos={estado.arquivos ?? []} onEstado={receber} onSessaoExpirada={pedirConfirmacao} onRecarregar={recarregar} />
         ) : atual.id === "revisao" ? (
           <EtapaRevisao dados={estado.dados} arquivos={estado.arquivos ?? []} tiposArquivo={estado.opcoes.tiposArquivo} falta={estado.falta ?? []}
             consentiu={consentiu} onConsentir={setConsentiu} onEditar={irPara} />

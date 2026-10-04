@@ -13,7 +13,7 @@ type Props = { employeeId: string; nome: string; celular: string | null };
 
 /**
  * Seção do cadastro: fichas cadastrais da pessoa (admissão e atualizações), as fotos dos
- * documentos que ela mandou — guardadas para sempre — e o botão para pedir atualização.
+ * documentos que ela mandou e o botão para pedir atualização.
  */
 export function FichasDoFuncionario({ employeeId, nome, celular }: Props) {
   const navigate = useNavigate();
@@ -23,6 +23,9 @@ export function FichasDoFuncionario({ employeeId, nome, celular }: Props) {
   const [erro, setErro] = useState<string | null>(null);
   const [link, setLink] = useState<FichaCadastralLink | null>(null);
   const [gerando, setGerando] = useState(false);
+  // Recarrega a lista depois de criar uma ficha — não ao abrir/fechar a janela do link (cada
+  // recarga baixava todas as fotos de novo e cada download vira um registro de "arquivo aberto").
+  const [recarga, setRecarga] = useState(0);
 
   const podeVer = hasPermission("employee-forms", "view");
 
@@ -31,6 +34,7 @@ export function FichasDoFuncionario({ employeeId, nome, celular }: Props) {
     let vivo = true;
     setFichas(null);
     setComDocumentos([]);
+    setErro(null);
     getFichasCadastrais({ employeeId })
       .then(async (lista) => {
         if (!vivo) return;
@@ -40,7 +44,7 @@ export function FichasDoFuncionario({ employeeId, nome, celular }: Props) {
       })
       .catch((e) => { if (vivo) setErro(e instanceof Error ? e.message : "Não foi possível carregar as fichas."); });
     return () => { vivo = false; };
-  }, [employeeId, link, podeVer]);
+  }, [employeeId, recarga, podeVer]);
 
   if (!podeVer) return null;
 
@@ -49,6 +53,7 @@ export function FichasDoFuncionario({ employeeId, nome, celular }: Props) {
     setGerando(true);
     try {
       setLink(await criarFichaCadastral({ tipo: "ATUALIZACAO", employeeId }));
+      setRecarga((n) => n + 1);
     } catch (e) {
       const existente = e instanceof ApiError ? e.body?.fichaId : null;
       setErro(e instanceof Error ? e.message : "Não foi possível gerar o link.");

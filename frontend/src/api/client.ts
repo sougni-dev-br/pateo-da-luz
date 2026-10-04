@@ -7518,6 +7518,8 @@ export type FichaCadastralResumo = {
   expiraEm: string; createdAt: string; primeiroAcessoEm: string | null; finalizadaEm: string | null; concluidaEm: string | null;
   canceladaEm: string | null; motivoDevolucao: string | null; arquivos: number; vencida: boolean;
   employee: { firstName: string; lastName: string } | null;
+  /** Versão da ficha (updatedAt): o concluir só vale para a versão que o RH viu. */
+  updatedAt: string;
 };
 export type FichaCadastralFilho = { nome: string; dataNascimento: string | null; cpf: string | null; ref?: string | null };
 export type FichaCadastralDados = Record<string, string | boolean | null | FichaCadastralFilho[] | undefined> & { filhos?: FichaCadastralFilho[] };
@@ -7557,7 +7559,7 @@ export function getFichaCadastral(id: string) {
   return request<FichaCadastralDetalhe>(`/employee-forms/${id}`);
 }
 export function salvarEmpresaFichaCadastral(id: string, empresa: FichaCadastralEmpresa) {
-  return request<{ ok: true }>(`/employee-forms/${id}/empresa`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(empresa) });
+  return request<{ ok: true; versao: string | null }>(`/employee-forms/${id}/empresa`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(empresa) });
 }
 export function novoLinkFichaCadastral(id: string) {
   return request<FichaCadastralLink>(`/employee-forms/${id}/novo-link`, { method: "POST" });
@@ -7568,8 +7570,8 @@ export function devolverFichaCadastral(id: string, motivo: string) {
 export function cancelarFichaCadastral(id: string) {
   return request<{ ok: true }>(`/employee-forms/${id}/cancelar`, { method: "POST" });
 }
-export function concluirFichaCadastral(id: string, campos?: string[]) {
-  return request<{ ok: true; employeeId: string }>(`/employee-forms/${id}/concluir`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(campos ? { campos } : {}) });
+export function concluirFichaCadastral(id: string, versao: string, campos?: string[]) {
+  return request<{ ok: true; employeeId: string }>(`/employee-forms/${id}/concluir`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(campos ? { campos, versao } : { versao }) });
 }
 export function getArquivoFichaCadastral(id: string, arquivoId: string) {
   return fetchBlob(`/employee-forms/${id}/arquivos/${arquivoId}`);

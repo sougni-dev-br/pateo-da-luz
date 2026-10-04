@@ -106,6 +106,12 @@ describe("cadastro", () => {
     expect(d.filhos).toEqual([{ nome: "Ciclano", dataNascimento: null, cpf: null, ref: "dep-1" }]);
   });
 
+  test("CPF sem algarismos no cadastro não entra na ficha (viraria verificação impossível)", () => {
+    const d = dadosDoFuncionario({ ...funcionario, cpf: "TESTE-A", birthDate: null }, []);
+    expect(d.cpf).toBeUndefined();
+    expect(verificacaoNecessaria(d)).toBeNull();
+  });
+
   test("cadastro sem nome completo: compara com nome + sobrenome (não aponta mudança falsa)", () => {
     const semCompleto = { ...funcionario, nomeCompleto: null };
     expect(diferencas({ nomeCompleto: "Fulana Souza" }, semCompleto)).toEqual([]);

@@ -19,6 +19,14 @@ describe("valor em reais digitado pelo RH", () => {
     expect(valorBr("1.50.0")).toBeUndefined();
     expect(valorBr("mil")).toBeUndefined();
     expect(valorBr("1,500,00")).toBeUndefined();
+    // Com vírgula, ponto só como milhar no lugar certo (antes "1.5,00" virava R$ 15).
+    expect(valorBr("1.5,00")).toBeUndefined();
+    expect(valorBr("1.50,00")).toBeUndefined();
+    expect(valorBr("12,3.4")).toBeUndefined();
+    expect(valorBr("1.234,5.6")).toBeUndefined();
+    expect(valorBr("-100")).toBeUndefined();
+    expect(valorBr("10.000,5")).toBe(10000.5);
+    expect(valorBr("1.000.000,00")).toBe(1000000);
   });
 
   test("número gravado aparece no formato brasileiro no campo", () => {

@@ -14,7 +14,7 @@ import {
   type DadosEmpresa, type DadosPessoa,
 } from "./ficha-cadastral-campos.js";
 import { expiracaoNova, gerarCodigo } from "./ficha-cadastral-acesso.js";
-import { ErroConclusao, concluirAdmissao, concluirAtualizacao } from "./ficha-cadastral-concluir.js";
+import { ConflitoConclusao, ErroConclusao, concluirAdmissao, concluirAtualizacao } from "./ficha-cadastral-concluir.js";
 import { enviarArquivo } from "./ficha-cadastral-arquivo.js";
 
 export const fichaCadastralRouter = Router();
@@ -22,6 +22,9 @@ export const fichaCadastralRouter = Router();
 const ABERTAS: FichaCadastralStatus[] = ["ENVIADA", "PREENCHENDO", "FINALIZADA"];
 const SITUACOES = new Set<string>(["ENVIADA", "PREENCHENDO", "FINALIZADA", "CONCLUIDA", "CANCELADA"]);
 const MUDOU = "A ficha mudou de situação enquanto você estava nela. Recarregue a tela.";
+// Sem ver Funcionários, nem o valor atual nem o novo destes campos aparecem.
+const SENSIVEIS = new Set(["cpf", "pixChave", "rg", "pis", "tituloEleitor", "ctpsNumero"]);
+const versaoDe = (f: { updatedAt: Date }) => f.updatedAt.toISOString();
 const auditoria = (request: Request) => ({ ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? "") });
 const dataIso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
@@ -215,8 +218,10 @@ fichaCadastralRouter.get("/:id", async (request, response) => {
   const dadosEmpresa = verFuncionarios ? empresa : { ...empresa, salario: null, valorVt: null };
   const oculto = (v: unknown) => (v ? "•••" : null);
   const filhosVisiveis = (lista: Array<{ cpf: string | null }>) => lista.map((f) => ({ ...f, cpf: oculto(f.cpf) }));
+  // Sem ver Funcionários: CPF, PIX e os números de documento ficam ocultos — a mesma regra das
+  // fotos (decisão do dono em 04/10/2026: o número do RG não pode valer menos que a foto dele).
   const dadosVisiveis = verFuncionarios ? dados : {
-    ...dados, cpf: oculto(dados.cpf), pixChave: oculto(dados.pixChave),
+    ...dados, ...Object.fromEntries([...SENSIVEIS].map((c) => [c, oculto(dados[c])])),
     filhos: Array.isArray(dados.filhos) ? filhosVisiveis(dados.filhos) : dados.filhos,
   };
   const mudancas = compararCom ? diferencas(dados, compararCom as unknown as Record<string, unknown>) : [];
@@ -224,8 +229,6 @@ fichaCadastralRouter.get("/:id", async (request, response) => {
   const filhosDoCadastro = compararCom ? compararCom.dependentes.filter((d) => ehFilho(d.parentesco)) : [];
   const novos = compararCom ? filhosNovos(listaFilhos, filhosDoCadastro) : [];
   const alterados = compararCom ? filhosAlterados(listaFilhos, filhosDoCadastro) : [];
-  // Sem ver Funcionários, nem o valor atual nem o novo de CPF/PIX aparecem.
-  const SENSIVEIS = new Set(["cpf", "pixChave"]);
   const empresas = await prisma.company.findMany({
     where: { isActive: true }, orderBy: { tradeName: "asc" },
     select: { id: true, tradeName: true, legalName: true, cnpj: true },
@@ -301,7 +304,8 @@ fichaCadastralRouter.put("/:id/correcoes", async (request, response) => {
     userId: user.id, action: "FICHA_CADASTRAL_CORRIGIDA_PELO_DOCUMENTO", entity: "FichaCadastral", entityId: ficha.id,
     previousValue: mascararDadosSensiveis(antes), newValue: mascararDadosSensiveis(corrigido), ...auditoria(request),
   });
-  return response.json({ ok: true, corrigidos: Object.keys(corrigido) });
+  const atual = await prisma.fichaCadastral.findUnique({ where: { id: ficha.id }, select: { updatedAt: true } });
+  return response.json({ ok: true, corrigidos: Object.keys(corrigido), versao: atual ? versaoDe(atual) : null });
 });
 
 // ─── Parte da empresa ───────────────────────────────────────────────────────────
@@ -325,8 +329,9 @@ fichaCadastralRouter.put("/:id/empresa", async (request, response) => {
   }
   const gravada = await prisma.fichaCadastral.updateMany({ where: { id: ficha.id, status: { in: ABERTAS } }, data: { dadosEmpresa: dados as Prisma.InputJsonValue } });
   if (gravada.count === 0) return response.status(409).json({ message: MUDOU });
+  const salva = await prisma.fichaCadastral.findUnique({ where: { id: ficha.id }, select: { updatedAt: true } });
   await auditLog({ userId: user.id, action: "FICHA_CADASTRAL_EMPRESA", entity: "FichaCadastral", entityId: ficha.id, previousValue: anterior, newValue: dados, ...auditoria(request) });
-  return response.json({ ok: true });
+  return response.json({ ok: true, versao: salva ? versaoDe(salva) : null });
 });
 
 // ─── Novo link (o anterior para de funcionar) ───────────────────────────────────
@@ -392,14 +397,32 @@ fichaCadastralRouter.post("/:id/concluir", async (request, response) => {
   // Atualização só grava o que o RH marcou: sem lista, nada passa — trocar PIX ou CPF de quem já
   // recebe exige escolha explícita (link vazado + "Concluir" no automático desviaria pagamento).
   if (ficha.tipo === "ATUALIZACAO" && !Array.isArray(campos)) return response.status(400).json({ message: "Marque o que deve ser gravado no cadastro." });
+  // Só a versão que o RH conferiu: devolvida e reenviada, ou corrigida, no meio do caminho = outra
+  // ficha (um PIX trocado nunca visto iria para o cadastro).
+  const versao = (request.body as Record<string, unknown>)?.versao;
+  if (typeof versao !== "string" || versao !== versaoDe(ficha)) {
+    return response.status(409).json({ message: "A ficha mudou depois que você a abriu (foi devolvida, reenviada ou corrigida). Recarregue e confira de novo." });
+  }
+  let concluida: { tipo: "ADMISSAO"; funcionario: { id: string } & Record<string, unknown> } | { tipo: "ATUALIZACAO"; r: Awaited<ReturnType<typeof concluirAtualizacao>> };
   try {
-    if (ficha.tipo === "ADMISSAO") {
-      const { funcionario } = await concluirAdmissao(ficha, user.id);
+    concluida = ficha.tipo === "ADMISSAO"
+      ? { tipo: "ADMISSAO", funcionario: (await concluirAdmissao(ficha, user.id)).funcionario }
+      : { tipo: "ATUALIZACAO", r: await concluirAtualizacao(ficha, user.id, (campos as unknown[]).map(String)) };
+  } catch (error) {
+    if (error instanceof ConflitoConclusao) return response.status(409).json({ message: error.message });
+    if (error instanceof ErroConclusao) return response.status(400).json({ message: error.message });
+    console.error("[ficha-cadastral] concluir falhou", error);
+    return response.status(500).json({ message: "Não foi possível concluir. Nada foi gravado; tente de novo." });
+  }
+  // Já gravado: falha na auditoria não pode virar "nada foi gravado" (o RH repetiria e veria
+  // "já concluída"). Registra o erro e responde o que aconteceu.
+  try {
+    if (concluida.tipo === "ADMISSAO") {
+      const { funcionario } = concluida;
       await auditLog({ userId: user.id, action: "CREATE_EMPLOYEE", entity: "Employee", entityId: funcionario.id, newValue: { ...mascararDadosSensiveis(funcionario), origem: `FichaCadastral ${ficha.id}` }, ...auditoria(request) });
       return response.json({ ok: true, employeeId: funcionario.id });
     }
-    const escolhidos = (campos as unknown[]).map(String);
-    const { antes, funcionario, filhosIncluidos, filhosCorrigidos } = await concluirAtualizacao(ficha, user.id, escolhidos);
+    const { antes, funcionario, filhosIncluidos, filhosCorrigidos } = concluida.r;
     await auditLog({
       userId: user.id, action: "UPDATE_EMPLOYEE", entity: "Employee", entityId: funcionario.id, previousValue: mascararDadosSensiveis(antes),
       newValue: {
@@ -414,9 +437,9 @@ fichaCadastralRouter.post("/:id/concluir", async (request, response) => {
     });
     return response.json({ ok: true, employeeId: funcionario.id });
   } catch (error) {
-    if (error instanceof ErroConclusao) return response.status(400).json({ message: error.message });
-    console.error("[ficha-cadastral] concluir falhou", error);
-    return response.status(500).json({ message: "Não foi possível concluir. Nada foi gravado; tente de novo." });
+    console.error("[ficha-cadastral] concluída, mas a auditoria falhou", error);
+    const employeeId = concluida.tipo === "ADMISSAO" ? concluida.funcionario.id : concluida.r.funcionario.id;
+    return response.json({ ok: true, employeeId });
   }
 });
 

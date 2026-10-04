@@ -290,7 +290,12 @@ export function dadosDoFuncionario(
     if (v instanceof Date) dados[campo] = iso(v);
     else if (coluna === "gender") { if (v !== "NAO_INFORMADO") dados[campo] = String(v); }
     else if (typeof v === "boolean") dados[campo] = v;
-    else dados[campo] = DIGITOS[campo] ? String(v).replace(/\D/g, "") : String(v);
+    else {
+      // CPF/telefone sem nenhum algarismo (cadastro de teste, lixo antigo) não entra: um CPF vazio
+      // viraria a pergunta de verificação do link e ninguém conseguiria abrir.
+      const texto = DIGITOS[campo] ? String(v).replace(/\D/g, "") : String(v);
+      if (texto !== "") dados[campo] = texto;
+    }
   }
   if (!dados.nomeCompleto) dados.nomeCompleto = [e.firstName, e.lastName].filter(Boolean).join(" ") || null;
   if (typeof e.vtType === "string") dados.usaVt = e.vtType !== "NENHUM";

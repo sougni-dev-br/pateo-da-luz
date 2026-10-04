@@ -46,13 +46,16 @@ const funcionario = {
   deletedAt: null,
 };
 let ficha: Record<string, unknown>;
+// Versão que o RH viu na tela (o updatedAt da ficha): o concluir só vale para ela.
+const VERSAO = "2026-10-04T12:00:00.000Z";
+const VERSAO_DATA = new Date(VERSAO);
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getSessionUser).mockResolvedValue({ id: "u1", name: "Eli", email: "e@x", role: "GESTAO_COMPLETA" } as never);
   vi.mocked(userHasPermission).mockResolvedValue(true);
   ficha = {
-    id: "f1", tipo: "ADMISSAO", status: "FINALIZADA", expiraEm: new Date(Date.now() + 86400000), nomeReferencia: "Fulana",
+    id: "f1", tipo: "ADMISSAO", status: "FINALIZADA", expiraEm: new Date(Date.now() + 86400000), nomeReferencia: "Fulana", updatedAt: VERSAO_DATA,
     employeeId: null, dados: DADOS, dadosEmpresa: { admissao: "2026-10-05", funcao: "Garçonete", salario: 2500, companyId: "c1", entrada: "10:00", saida: "18:00" },
   };
   db.fichaCadastral.findUnique.mockImplementation(async () => ficha);
@@ -104,7 +107,7 @@ describe("gerar o link", () => {
 
 describe("concluir admissão", () => {
   test("cria o funcionário com dados pessoais, empresa e filhos", async () => {
-    const r = await request(app).post("/employee-forms/f1/concluir");
+    const r = await request(app).post("/employee-forms/f1/concluir").send({ versao: VERSAO });
     expect(r.status).toBe(200);
     const data = db.employee.create.mock.calls[0][0].data;
     expect(data).toMatchObject({
@@ -115,7 +118,7 @@ describe("concluir admissão", () => {
     });
     expect(db.employeeDependente.createMany.mock.calls[0][0].data[0]).toMatchObject({ nome: "Ciclano Souza", origem: "FICHA_CADASTRAL", employeeId: data.id });
     expect(db.fichaCadastral.updateMany).toHaveBeenCalledWith({
-      where: { id: "f1", status: "FINALIZADA" },
+      where: { id: "f1", status: "FINALIZADA", updatedAt: VERSAO_DATA },
       data: expect.objectContaining({ status: "CONCLUIDA", employeeId: data.id, concluidaPorId: "u1" }),
     });
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "CREATE_EMPLOYEE" }));
@@ -125,7 +128,7 @@ describe("concluir admissão", () => {
 
   test("telefone e CEP vão com máscara; VT segue a decisão do RH", async () => {
     ficha.dadosEmpresa = { ...(ficha.dadosEmpresa as object), valeTransporte: false };
-    await request(app).post("/employee-forms/f1/concluir");
+    await request(app).post("/employee-forms/f1/concluir").send({ versao: VERSAO });
     const data = db.employee.create.mock.calls[0][0].data;
     expect(data).toMatchObject({ phone: "(11) 91234-5678", zipCode: "01000-000", vtType: "NENHUM", notes: null });
   });
@@ -133,35 +136,51 @@ describe("concluir admissão", () => {
   test("CPF único no banco (funcionário excluído) vira mensagem, não erro 500", async () => {
     const { Prisma } = await import("@prisma/client");
     db.employee.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("único", { code: "P2002", clientVersion: "5" }));
-    const r = await request(app).post("/employee-forms/f1/concluir");
+    const r = await request(app).post("/employee-forms/f1/concluir").send({ versao: VERSAO });
     expect(r.status).toBe(400);
     expect(r.body.message).toContain("CPF");
   });
 
   test("CPF já cadastrado não cria outro funcionário", async () => {
     db.employee.findFirst.mockResolvedValue({ id: "e9" });
-    const r = await request(app).post("/employee-forms/f1/concluir");
+    const r = await request(app).post("/employee-forms/f1/concluir").send({ versao: VERSAO });
     expect(r.status).toBe(400);
     expect(db.employee.create).not.toHaveBeenCalled();
   });
 
   test("sem admissão ou função não conclui", async () => {
     ficha.dadosEmpresa = { funcao: "Garçonete" };
-    expect((await request(app).post("/employee-forms/f1/concluir")).body.message).toContain("admissão");
+    expect((await request(app).post("/employee-forms/f1/concluir").send({ versao: VERSAO })).body.message).toContain("admissão");
   });
 
   test("sem permissão de criar Funcionários = 403", async () => {
     vi.mocked(userHasPermission).mockResolvedValue(false);
-    expect((await request(app).post("/employee-forms/f1/concluir")).status).toBe(403);
+    expect((await request(app).post("/employee-forms/f1/concluir").send({ versao: VERSAO })).status).toBe(403);
     expect(userHasPermission).toHaveBeenCalledWith(expect.anything(), "employees", "create");
   });
 
   test("ficha que não está finalizada não conclui; conclusão concorrente é barrada", async () => {
     ficha.status = "PREENCHENDO";
-    expect((await request(app).post("/employee-forms/f1/concluir")).status).toBe(409);
+    expect((await request(app).post("/employee-forms/f1/concluir").send({ versao: VERSAO })).status).toBe(409);
     ficha.status = "FINALIZADA";
     db.fichaCadastral.updateMany.mockResolvedValue({ count: 0 });
-    expect((await request(app).post("/employee-forms/f1/concluir")).status).toBe(400);
+    expect((await request(app).post("/employee-forms/f1/concluir").send({ versao: VERSAO })).status).toBe(409);
+  });
+
+  test("só conclui a versão que o RH viu: devolvida e reenviada no meio = 409, nada gravado", async () => {
+    const r = await request(app).post("/employee-forms/f1/concluir").send({ versao: "2026-10-04T11:00:00.000Z" });
+    expect(r.status).toBe(409);
+    expect(r.body.message).toContain("mudou depois que você a abriu");
+    expect((await request(app).post("/employee-forms/f1/concluir").send({})).status).toBe(409);
+    expect(db.employee.create).not.toHaveBeenCalled();
+    expect(db.fichaCadastral.updateMany).not.toHaveBeenCalled();
+  });
+
+  test("gravou mas a auditoria falhou: responde que concluiu (não 'nada foi gravado')", async () => {
+    vi.mocked(auditLog).mockRejectedValueOnce(new Error("sem conexão"));
+    const r = await request(app).post("/employee-forms/f1/concluir").send({ versao: VERSAO });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
   });
 });
 
@@ -173,13 +192,13 @@ describe("concluir atualização", () => {
   });
 
   test("sem a lista do que gravar, não grava nada", async () => {
-    expect((await request(app).post("/employee-forms/f1/concluir")).status).toBe(400);
+    expect((await request(app).post("/employee-forms/f1/concluir").send({ versao: VERSAO })).status).toBe(400);
     expect(db.employee.update).not.toHaveBeenCalled();
   });
 
   test("grava só os dados pessoais que mudaram — nunca salário nem cargo", async () => {
     ficha.dadosEmpresa = { salario: 9999, funcao: "Gerente" };
-    const r = await request(app).post("/employee-forms/f1/concluir").send({ campos: ["nomeMae", "rg", "cpf", "baseSalary", "position"] });
+    const r = await request(app).post("/employee-forms/f1/concluir").send({ campos: ["nomeMae", "rg", "cpf", "baseSalary", "position"], versao: VERSAO });
     expect(r.status).toBe(200);
     const data = db.employee.update.mock.calls[0][0].data;
     expect(data).toMatchObject({ nomeMae: "Beltrana de Tal", rg: "123456789", updatedById: "u1" });
@@ -190,34 +209,34 @@ describe("concluir atualização", () => {
   });
 
   test("campos escolhidos: aplica só eles e não inclui filhos se não marcados", async () => {
-    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["nomeMae"] });
+    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["nomeMae"], versao: VERSAO });
     expect(db.employee.update.mock.calls[0][0].data).toEqual({ nomeMae: "Beltrana de Tal", updatedById: "u1" });
     expect(db.employeeDependente.createMany).not.toHaveBeenCalled();
   });
 
   test("chave PIX nova vai com o tipo certo", async () => {
     ficha.dados = { ...DADOS, pixChave: "fulana@exemplo.com" };
-    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["pixChave"] });
+    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["pixChave"], versao: VERSAO });
     expect(db.employee.update.mock.calls[0][0].data).toEqual({ pixKey: "fulana@exemplo.com", pixKeyType: "EMAIL", updatedById: "u1" });
   });
 
   test("filho já cadastrado com nascimento corrigido: atualiza o dependente, não duplica", async () => {
     db.employeeDependente.findMany.mockResolvedValue([{ id: "d1", nome: "CICLANO SOUZA", dataNascimento: new Date("2015-01-20T00:00:00Z"), cpf: null }]);
-    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["filhos"] });
+    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["filhos"], versao: VERSAO });
     expect(db.employeeDependente.createMany).not.toHaveBeenCalled();
     expect(db.employeeDependente.update).toHaveBeenCalledWith({ where: { id: "d1" }, data: { dataNascimento: new Date("2015-01-02T00:00:00Z") } });
   });
 
   test("nome completo corrigido também corrige nome e sobrenome (o que o sistema mostra)", async () => {
     ficha.dados = { ...DADOS, nomeCompleto: "Fulana de Tal Sousa" };
-    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["nomeCompleto"] });
+    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["nomeCompleto"], versao: VERSAO });
     expect(db.employee.update.mock.calls[0][0].data).toMatchObject({ nomeCompleto: "Fulana de Tal Sousa", firstName: "Fulana", lastName: "de Tal Sousa" });
   });
 
   test("filho do cadastro com nome corrigido: corrige o dependente; incluir e corrigir são escolhas separadas", async () => {
     db.employeeDependente.findMany.mockResolvedValue([{ id: "d1", nome: "Ciclano Sosa", dataNascimento: null, cpf: null, parentesco: null }]);
     ficha.dados = { ...DADOS, filhos: [{ nome: "Ciclano Souza", dataNascimento: null, cpf: null, ref: "d1" }, { nome: "Beltrano Souza", dataNascimento: null, cpf: null, ref: null }] };
-    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["filhosAlterados"] });
+    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["filhosAlterados"], versao: VERSAO });
     expect(db.employeeDependente.update).toHaveBeenCalledWith({ where: { id: "d1" }, data: { nome: "Ciclano Souza" } });
     expect(db.employeeDependente.createMany).not.toHaveBeenCalled();
   });
@@ -225,21 +244,21 @@ describe("concluir atualização", () => {
   test("cônjuge cadastrado como dependente não entra como filho", async () => {
     db.employeeDependente.findMany.mockResolvedValue([{ id: "d9", nome: "Beltrana Souza", dataNascimento: null, cpf: null, parentesco: "Cônjuge" }]);
     ficha.dados = { ...DADOS, filhos: [] };
-    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["filhos"] });
+    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["filhos"], versao: VERSAO });
     expect(db.employeeDependente.update).not.toHaveBeenCalled();
   });
 
   test("ficha alterada depois de lida (correção, devolução): não conclui com dado velho", async () => {
     db.fichaCadastral.updateMany.mockResolvedValue({ count: 0 });
-    const r = await request(app).post("/employee-forms/f1/concluir").send({ campos: ["nomeMae"] });
-    expect(r.status).toBe(400);
+    const r = await request(app).post("/employee-forms/f1/concluir").send({ campos: ["nomeMae"], versao: VERSAO });
+    expect(r.status).toBe(409);
     expect(db.fichaCadastral.updateMany.mock.calls[0][0].where).toHaveProperty("updatedAt");
     expect(db.employee.update).not.toHaveBeenCalled();
   });
 
   test("filho que já é dependente não é duplicado", async () => {
     db.employeeDependente.findMany.mockResolvedValue([{ nome: "CICLANO SOUZA" }]);
-    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["filhos"] });
+    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["filhos"], versao: VERSAO });
     expect(db.employeeDependente.createMany).not.toHaveBeenCalled();
   });
 });
@@ -336,6 +355,15 @@ describe("outras ações", () => {
 
   test("situação inválida no filtro = 400", async () => {
     expect((await request(app).get("/employee-forms?status=XYZ")).status).toBe(400);
+  });
+
+  test("sem ver Funcionários, números de documento também ficam ocultos", async () => {
+    db.fichaCadastral.findUnique.mockResolvedValue({ ...ficha, dados: { ...DADOS, pis: "12012345672" }, arquivos: [], employee: null });
+    db.company.findMany.mockResolvedValue([]);
+    vi.mocked(userHasPermission).mockResolvedValue(false);
+    const r = await request(app).get("/employee-forms/f1");
+    expect(r.body.dados).toMatchObject({ cpf: "•••", rg: "•••", pis: "•••", nomeMae: "Beltrana de Tal" });
+    expect(JSON.stringify(r.body)).not.toContain("123456789");
   });
 
   test("detalhe não devolve o hash do link", async () => {
