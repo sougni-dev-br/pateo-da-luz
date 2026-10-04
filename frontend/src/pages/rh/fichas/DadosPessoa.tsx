@@ -73,8 +73,21 @@ function Documento({ fichaId, arquivo, rotulo }: { fichaId: string; arquivo: Fic
   );
 }
 
-export function DocumentosFicha({ fichaId, arquivos, tipos }: { fichaId: string; arquivos: FichaCadastralArquivo[]; tipos: Record<string, string> }) {
+export function DocumentosFicha({ fichaId, arquivos, tipos, podeAbrir }: {
+  fichaId: string; arquivos: FichaCadastralArquivo[]; tipos: Record<string, string>; podeAbrir: boolean;
+}) {
   if (arquivos.length === 0) return <p className="fc-vazio">Nenhum documento enviado.</p>;
+  // Sem ver Funcionários: só a lista do que foi enviado, sem baixar a imagem.
+  if (!podeAbrir) {
+    return (
+      <>
+        <p className="fc-nota">Para abrir as fotos e os documentos, é preciso também a permissão de ver Funcionários.</p>
+        <ul className="fc-docs-lista">
+          {arquivos.map((a) => <li key={a.id}><FileText size={16} aria-hidden="true" /> <strong>{tipos[a.tipo] ?? a.tipo}</strong> <small>{a.nomeOriginal}</small></li>)}
+        </ul>
+      </>
+    );
+  }
   return (
     <div className="fc-docs">
       {arquivos.map((a) => <Documento key={a.id} fichaId={fichaId} arquivo={a} rotulo={tipos[a.tipo] ?? a.tipo} />)}
