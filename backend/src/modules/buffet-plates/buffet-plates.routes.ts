@@ -5,11 +5,15 @@ import { z } from "zod";
 import { prisma } from "../../config/database.js";
 import { parseBody } from "../../shared/validate-body.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
+import { buffetMenusRouter } from "./buffet-menus.routes.js";
 
 // Plaquinhas do buffet: a cozinha monta a lista do dia (ou do coffee break) a partir
 // do catálogo e imprime. Toda plaquinha sai em português e inglês, então o catálogo
 // não aceita prato sem o nome em inglês.
 export const buffetPlatesRouter = Router();
+
+// Cardápio do evento (display de acrílico): mesmo módulo de permissão.
+buffetPlatesRouter.use("/menus", buffetMenusRouter);
 
 export const PLATE_CATEGORIES = [
   "Arroz e grãos", "Massas", "Risotos", "Carnes", "Aves", "Peixes e frutos do mar", "Guarnições",

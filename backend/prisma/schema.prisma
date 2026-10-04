@@ -1680,6 +1680,25 @@ model BuffetPlateList {
   @@index([updatedAt])
 }
 
+// Cardápio do evento impresso para o display de acrílico (frente e verso).
+// `sections` guarda [{ face: "front"|"back", titlePt, titleEn, items: [{ namePt, nameEn }] }] na ordem
+// de impressão. Os pratos ficam escritos aqui (são composições à la carte, nem sempre do catálogo).
+model BuffetMenuCard {
+  id           String    @id @default(cuid())
+  name         String
+  eventDate    DateTime? @db.Date
+  theme        String    @default("wine")
+  faceWidthMm  Int       @default(92)
+  faceHeightMm Int       @default(76)
+  copies       Int       @default(1)
+  sections     Json      @default("[]")
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([updatedAt])
+}
+
 model DRECategory {
   id                String             @id @default(cuid())
   name              String             @unique
