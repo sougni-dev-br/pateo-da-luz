@@ -7423,7 +7423,7 @@ export type FichaCadastralResumo = {
   canceladaEm: string | null; motivoDevolucao: string | null; arquivos: number; vencida: boolean;
   employee: { firstName: string; lastName: string } | null;
 };
-export type FichaCadastralFilho = { nome: string; dataNascimento: string | null; cpf: string | null };
+export type FichaCadastralFilho = { nome: string; dataNascimento: string | null; cpf: string | null; ref?: string | null };
 export type FichaCadastralDados = Record<string, string | boolean | null | FichaCadastralFilho[] | undefined> & { filhos?: FichaCadastralFilho[] };
 export type FichaCadastralEmpresa = {
   companyId?: string | null; admissao?: string | null; funcao?: string | null; salario?: number | null; modalidade?: "CLT" | "NAO_CLT";
@@ -7435,7 +7435,7 @@ export type FichaCadastralArquivo = { id: string; tipo: string; nomeOriginal: st
 export type FichaCadastralDiferenca = { campo: string; rotulo: string; atual: string | null; novo: string };
 /** Dependente que já está no cadastro com data de nascimento ou CPF diferente na ficha. */
 export type FichaCadastralFilhoAlterado = {
-  dependenteId: string; nome: string;
+  dependenteId: string; nome: string; nomeNovo?: string;
   dataNascimento?: { atual: string | null; novo: string };
   cpf?: { atual: string | null; novo: string };
 };

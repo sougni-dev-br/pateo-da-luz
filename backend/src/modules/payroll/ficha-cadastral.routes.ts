@@ -10,7 +10,7 @@ import { mascararDadosSensiveis } from "./auditoria-mascara.js";
 import { nomeProprio } from "../../shared/utils/nome-proprio.js";
 import {
   ESCOLARIDADES, ESTADOS_CIVIS, RACAS_CORES, ROTULOS, TIPOS_ARQUIVO, UFS,
-  dadosDoFuncionario, diferencas, faltaParaFinalizar, filhosAlterados, filhosNovos, lerDadosEmpresa, lerDadosPessoa,
+  dadosDoFuncionario, diferencas, ehFilho, faltaParaFinalizar, filhosAlterados, filhosNovos, lerDadosEmpresa, lerDadosPessoa,
   type DadosEmpresa, type DadosPessoa,
 } from "./ficha-cadastral-campos.js";
 import { expiracaoNova, gerarCodigo } from "./ficha-cadastral-acesso.js";
@@ -21,6 +21,7 @@ export const fichaCadastralRouter = Router();
 
 const ABERTAS: FichaCadastralStatus[] = ["ENVIADA", "PREENCHENDO", "FINALIZADA"];
 const SITUACOES = new Set<string>(["ENVIADA", "PREENCHENDO", "FINALIZADA", "CONCLUIDA", "CANCELADA"]);
+const MUDOU = "A ficha mudou de situação enquanto você estava nela. Recarregue a tela.";
 const auditoria = (request: Request) => ({ ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? "") });
 const dataIso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
@@ -73,7 +74,7 @@ fichaCadastralRouter.get("/", async (request, response) => {
 
 type FuncionarioDaFicha = Parameters<typeof empresaDoFuncionario>[0] & { id: string; firstName: string; lastName: string };
 
-type FilhoDaFicha = { nome: string; dataNascimento: Date | null; cpf: string | null };
+type FilhoDaFicha = { id: string; nome: string; dataNascimento: Date | null; cpf: string | null; parentesco: string | null };
 
 // Ficha de ATUALIZAÇÃO de um funcionário: já abre com o que o cadastro tem.
 function novaAtualizacao(e: FuncionarioDaFicha, filhos: FilhoDaFicha[], usuarioId: string) {
@@ -81,7 +82,7 @@ function novaAtualizacao(e: FuncionarioDaFicha, filhos: FilhoDaFicha[], usuarioI
   const data: Prisma.FichaCadastralUncheckedCreateInput = {
     tipo: "ATUALIZACAO", tokenHash: hash, expiraEm: expiracaoNova(), employeeId: e.id,
     nomeReferencia: [e.firstName, e.lastName].filter(Boolean).join(" "),
-    dados: dadosDoFuncionario(e as unknown as Record<string, unknown>, filhos) as Prisma.InputJsonValue,
+    dados: dadosDoFuncionario(e as unknown as Record<string, unknown>, filhos.filter((f) => ehFilho(f.parentesco))) as Prisma.InputJsonValue,
     dadosEmpresa: empresaDoFuncionario(e) as Prisma.InputJsonValue,
     createdById: usuarioId,
   };
@@ -115,7 +116,7 @@ function gerarLote(usuarioId: string, podeVerCadastro: boolean) {
     });
     const comFicha = new Map(abertas.map((f) => [f.employeeId, f.id]));
     const dependentes = await tx.employeeDependente.findMany({
-      where: { employeeId: { in: ids } }, select: { employeeId: true, nome: true, dataNascimento: true, cpf: true },
+      where: { employeeId: { in: ids } }, select: { id: true, employeeId: true, nome: true, dataNascimento: true, cpf: true, parentesco: true },
     });
     const filhosPor = new Map<string, FilhoDaFicha[]>();
     for (const d of dependentes) filhosPor.set(d.employeeId, [...(filhosPor.get(d.employeeId) ?? []), d]);
@@ -164,7 +165,9 @@ fichaCadastralRouter.post("/", async (request, response) => {
     if (!e) return response.status(404).json({ message: "Funcionário não encontrado." });
     const aberta = await prisma.fichaCadastral.findFirst({ where: { employeeId: e.id, status: { in: ABERTAS } }, select: { id: true } });
     if (aberta) return response.status(409).json({ message: `Já existe uma ficha aberta para ${e.firstName}. Use "Gerar novo link" nela.`, fichaId: aberta.id });
-    const filhos = await prisma.employeeDependente.findMany({ where: { employeeId: e.id }, select: { nome: true, dataNascimento: true, cpf: true } });
+    const filhos = await prisma.employeeDependente.findMany({
+      where: { employeeId: e.id }, select: { id: true, nome: true, dataNascimento: true, cpf: true, parentesco: true },
+    });
     const { ficha, codigo } = await criarAtualizacao(e, filhos, user.id);
     await auditLog({ userId: user.id, action: "FICHA_CADASTRAL_CRIADA", entity: "FichaCadastral", entityId: ficha.id, newValue: { tipo, nomeReferencia: ficha.nomeReferencia, employeeId: e.id }, ...auditoria(request) });
     return response.status(201).json({ id: ficha.id, codigo, expiraEm: ficha.expiraEm });
@@ -187,7 +190,7 @@ fichaCadastralRouter.get("/:id", async (request, response) => {
     where: { id: request.params.id },
     include: {
       arquivos: { select: { id: true, tipo: true, nomeOriginal: true, mimeType: true, tamanho: true, createdAt: true }, orderBy: { createdAt: "asc" } },
-      employee: { include: { dependentes: { select: { id: true, nome: true, dataNascimento: true, cpf: true } } } },
+      employee: { include: { dependentes: { select: { id: true, nome: true, dataNascimento: true, cpf: true, parentesco: true } } } },
     },
   });
   if (!ficha) return response.status(404).json({ message: "Ficha não encontrada." });
@@ -211,8 +214,9 @@ fichaCadastralRouter.get("/:id", async (request, response) => {
   };
   const mudancas = compararCom ? diferencas(dados, compararCom as unknown as Record<string, unknown>) : [];
   const listaFilhos = Array.isArray(dados.filhos) ? dados.filhos : [];
-  const novos = compararCom ? filhosNovos(listaFilhos, compararCom.dependentes) : [];
-  const alterados = compararCom ? filhosAlterados(listaFilhos, compararCom.dependentes) : [];
+  const filhosDoCadastro = compararCom ? compararCom.dependentes.filter((d) => ehFilho(d.parentesco)) : [];
+  const novos = compararCom ? filhosNovos(listaFilhos, filhosDoCadastro) : [];
+  const alterados = compararCom ? filhosAlterados(listaFilhos, filhosDoCadastro) : [];
   // Sem ver Funcionários, nem o valor atual nem o novo de CPF/PIX aparecem.
   const SENSIVEIS = new Set(["cpf", "pixChave"]);
   const empresas = await prisma.company.findMany({
@@ -299,7 +303,7 @@ fichaCadastralRouter.put("/:id/empresa", async (request, response) => {
   if (!user) return;
   const ficha = await prisma.fichaCadastral.findUnique({ where: { id: request.params.id } });
   if (!ficha) return response.status(404).json({ message: "Ficha não encontrada." });
-  if (ficha.status === "CANCELADA") return response.status(409).json({ message: "Ficha cancelada." });
+  if (!ABERTAS.includes(ficha.status)) return response.status(409).json({ message: "Ficha já concluída ou cancelada: a parte da empresa não muda mais." });
   const lido = lerDadosEmpresa((request.body ?? {}) as Record<string, unknown>);
   if ("erro" in lido) return response.status(400).json({ message: lido.erro });
   // Salário só com a permissão de ver Funcionários (mesma regra do cadastro). Sem ela, a tela
@@ -312,7 +316,8 @@ fichaCadastralRouter.put("/:id/empresa", async (request, response) => {
     }
     dados = { ...lido.dados, salario: anterior.salario ?? null, valorVt: anterior.valorVt ?? null };
   }
-  await prisma.fichaCadastral.update({ where: { id: ficha.id }, data: { dadosEmpresa: dados as Prisma.InputJsonValue } });
+  const gravada = await prisma.fichaCadastral.updateMany({ where: { id: ficha.id, status: { in: ABERTAS } }, data: { dadosEmpresa: dados as Prisma.InputJsonValue } });
+  if (gravada.count === 0) return response.status(409).json({ message: MUDOU });
   await auditLog({ userId: user.id, action: "FICHA_CADASTRAL_EMPRESA", entity: "FichaCadastral", entityId: ficha.id, previousValue: anterior, newValue: dados, ...auditoria(request) });
   return response.json({ ok: true });
 });
@@ -325,12 +330,14 @@ fichaCadastralRouter.post("/:id/novo-link", async (request, response) => {
   if (!ficha) return;
   if (ficha.status === "FINALIZADA") return response.status(409).json({ message: "A pessoa já finalizou. Para ela corrigir algo, use \"Devolver para correção\"." });
   const { codigo, hash } = gerarCodigo();
-  const atualizada = await prisma.fichaCadastral.update({
-    where: { id: ficha.id },
-    data: { tokenHash: hash, expiraEm: expiracaoNova(), tentativasErradas: 0, bloqueadoAte: null },
+  const expiraEm = expiracaoNova();
+  const r = await prisma.fichaCadastral.updateMany({
+    where: { id: ficha.id, status: { in: ["ENVIADA", "PREENCHENDO"] } },
+    data: { tokenHash: hash, expiraEm, tentativasErradas: 0, bloqueadoAte: null },
   });
+  if (r.count === 0) return response.status(409).json({ message: MUDOU });
   await auditLog({ userId: user.id, action: "FICHA_CADASTRAL_NOVO_LINK", entity: "FichaCadastral", entityId: ficha.id, ...auditoria(request) });
-  return response.json({ id: ficha.id, codigo, expiraEm: atualizada.expiraEm });
+  return response.json({ id: ficha.id, codigo, expiraEm });
 });
 
 // ─── Devolver para a pessoa corrigir (o mesmo link volta a abrir) ────────────────
@@ -343,7 +350,10 @@ fichaCadastralRouter.post("/:id/devolver", async (request, response) => {
   const motivo = String((request.body as Record<string, unknown>)?.motivo ?? "").trim().slice(0, 500);
   if (motivo.length < 3) return response.status(400).json({ message: "Escreva o que a pessoa precisa corrigir." });
   const expiraEm = new Date(Math.max(ficha.expiraEm.getTime(), expiracaoNova().getTime()));
-  await prisma.fichaCadastral.update({ where: { id: ficha.id }, data: { status: "PREENCHENDO", motivoDevolucao: motivo, finalizadaEm: null, expiraEm } });
+  const r = await prisma.fichaCadastral.updateMany({
+    where: { id: ficha.id, status: "FINALIZADA" }, data: { status: "PREENCHENDO", motivoDevolucao: motivo, finalizadaEm: null, expiraEm },
+  });
+  if (r.count === 0) return response.status(409).json({ message: MUDOU });
   await auditLog({ userId: user.id, action: "FICHA_CADASTRAL_DEVOLVIDA", entity: "FichaCadastral", entityId: ficha.id, newValue: { motivo }, ...auditoria(request) });
   return response.json({ ok: true, expiraEm });
 });
@@ -354,7 +364,8 @@ fichaCadastralRouter.post("/:id/cancelar", async (request, response) => {
   if (!user) return;
   const ficha = await abertaOu404(request.params.id, response);
   if (!ficha) return;
-  await prisma.fichaCadastral.update({ where: { id: ficha.id }, data: { status: "CANCELADA", canceladaEm: new Date() } });
+  const r = await prisma.fichaCadastral.updateMany({ where: { id: ficha.id, status: { in: ABERTAS } }, data: { status: "CANCELADA", canceladaEm: new Date() } });
+  if (r.count === 0) return response.status(409).json({ message: MUDOU });
   await auditLog({ userId: user.id, action: "FICHA_CADASTRAL_CANCELADA", entity: "FichaCadastral", entityId: ficha.id, ...auditoria(request) });
   return response.json({ ok: true });
 });
@@ -381,12 +392,24 @@ fichaCadastralRouter.post("/:id/concluir", async (request, response) => {
       return response.json({ ok: true, employeeId: funcionario.id });
     }
     const escolhidos = (campos as unknown[]).map(String);
-    const { antes, funcionario, filhosIncluidos } = await concluirAtualizacao(ficha, user.id, escolhidos);
-    await auditLog({ userId: user.id, action: "UPDATE_EMPLOYEE", entity: "Employee", entityId: funcionario.id, previousValue: mascararDadosSensiveis(antes), newValue: { ...mascararDadosSensiveis(funcionario), origem: `FichaCadastral ${ficha.id}`, filhosIncluidos }, ...auditoria(request) });
+    const { antes, funcionario, filhosIncluidos, filhosCorrigidos } = await concluirAtualizacao(ficha, user.id, escolhidos);
+    await auditLog({
+      userId: user.id, action: "UPDATE_EMPLOYEE", entity: "Employee", entityId: funcionario.id, previousValue: mascararDadosSensiveis(antes),
+      newValue: {
+        ...mascararDadosSensiveis(funcionario), origem: `FichaCadastral ${ficha.id}`,
+        // Filhos: quem entrou e o que mudou em quem já estava (CPF mascarado, como no resto).
+        filhosIncluidos: filhosIncluidos.map((f) => ({ nome: f.nome, dataNascimento: f.dataNascimento, cpf: f.cpf ? "***" : null })),
+        filhosCorrigidos: filhosCorrigidos.map((c) => ({
+          dependenteId: c.dependenteId, nome: c.nome, nomeNovo: c.nomeNovo ?? null, dataNascimento: c.dataNascimento ?? null, cpfAlterado: Boolean(c.cpf),
+        })),
+      },
+      ...auditoria(request),
+    });
     return response.json({ ok: true, employeeId: funcionario.id });
   } catch (error) {
     if (error instanceof ErroConclusao) return response.status(400).json({ message: error.message });
-    throw error;
+    console.error("[ficha-cadastral] concluir falhou", error);
+    return response.status(500).json({ message: "Não foi possível concluir. Nada foi gravado; tente de novo." });
   }
 });
 

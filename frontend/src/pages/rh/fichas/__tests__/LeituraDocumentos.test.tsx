@@ -22,11 +22,11 @@ const RG = `REGISTRO GERAL 12.345.678-9
 NOME
 JOANA EXEMPLO DA SILVA
 DATA DE NASCIMENTO 21/07/1998
-CPF 862.883.667-57`;
+CPF 123.456.789-09`;
 
 const ficha = (arquivos = [{ id: "a1", tipo: "DOC_FOTO", nomeOriginal: "rg.jpg", mimeType: "image/jpeg", tamanho: 1, createdAt: "" }]) => ({
   id: "f1", tipo: "ATUALIZACAO", status: "FINALIZADA", arquivos,
-  dados: { nomeCompleto: "Joana Exmplo da Silva", cpf: "86288366757", dataNascimento: "1998-07-12" },
+  dados: { nomeCompleto: "Joana Exmplo da Silva", cpf: "12345678909", dataNascimento: "1998-07-12" },
   opcoes: { tiposArquivo: { DOC_FOTO: "RG ou CNH" }, rotulos: {} },
 }) as unknown as FichaCadastralDetalhe;
 
@@ -54,7 +54,7 @@ describe("Conferir com os documentos", () => {
 
   test("CPF com dígito verificador vem marcado", async () => {
     const f = ficha();
-    f.dados = { cpf: "86288366775" };
+    f.dados = { cpf: "12345678990" };
     montar(f);
     fireEvent.click(screen.getByRole("button", { name: "Ler documentos" }));
     expect(await screen.findByText("dígito verificador confere")).toBeTruthy();
@@ -74,7 +74,7 @@ describe("Conferir com os documentos", () => {
   test("leitura sem divergência não mostra botão de correção", async () => {
     vi.mocked(lerDocumentos).mockResolvedValue({ textos: { DOC_FOTO: RG }, falhas: ["RG ou CNH (verso.jpg)"] });
     const f = ficha();
-    f.dados = { cpf: "86288366757" };
+    f.dados = { cpf: "12345678909" };
     montar(f);
     fireEvent.click(screen.getByRole("button", { name: "Ler documentos" }));
     expect(await screen.findByText(/Nenhuma divergência/)).toBeTruthy();

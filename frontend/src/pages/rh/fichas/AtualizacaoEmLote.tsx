@@ -6,7 +6,7 @@ import { pedirAtualizacaoEmLote, type FichaLoteResultado } from "../../../api/cl
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import { Dialog } from "../../../components/ui/Dialog";
 import { Alert, Button } from "../../../design-system";
-import { dataBr, linkDaFicha, linkWhatsapp } from "./fichaFormato";
+import { copiarTexto, dataBr, linkDaFicha, linkWhatsapp } from "./fichaFormato";
 
 type Props = { onGeradas: () => void };
 
@@ -17,6 +17,7 @@ export function AtualizacaoEmLote({ onGeradas }: Props) {
   const [resultado, setResultado] = useState<FichaLoteResultado | null>(null);
   const [enviados, setEnviados] = useState<Set<string>>(new Set());
   const [copiado, setCopiado] = useState<string | null>(null);
+  const [semCopiar, setSemCopiar] = useState<string | null>(null);
 
   async function gerar() {
     setConfirmando(false);
@@ -34,7 +35,9 @@ export function AtualizacaoEmLote({ onGeradas }: Props) {
   }
 
   async function copiar(fichaId: string, url: string) {
-    try { await navigator.clipboard.writeText(url); } catch { /* sem permissão de área de transferência: o link continua visível */ }
+    // Só conta como enviado se copiou de verdade: o link não aparece de novo depois de fechar.
+    if (!(await copiarTexto(url))) { setSemCopiar(url); return; }
+    setSemCopiar(null);
     setCopiado(fichaId);
     setEnviados((a) => new Set(a).add(fichaId));
     window.setTimeout(() => setCopiado((atual) => (atual === fichaId ? null : atual)), 2500);
@@ -42,7 +45,7 @@ export function AtualizacaoEmLote({ onGeradas }: Props) {
 
   function fechar() {
     const faltam = (resultado?.criadas.length ?? 0) - enviados.size;
-    if (faltam > 0 && !window.confirm(`${faltam} link(s) ainda não foram enviados nem copiados. Fechando, só gerando novo link em cada ficha. Fechar mesmo assim?`)) return;
+    if (faltam > 0 && !window.confirm(`${faltam} link(s) ainda não foram enviados nem copiados. Depois de fechar, só gerando um novo link em cada ficha. Fechar mesmo assim?`)) return;
     setResultado(null);
   }
 
@@ -62,6 +65,9 @@ export function AtualizacaoEmLote({ onGeradas }: Props) {
         {resultado && (
           <div className="fc-lote">
             <Alert tone="warning">Os links aparecem só agora. Mande cada um antes de fechar esta janela.</Alert>
+            {semCopiar && (
+              <Alert tone="error">O navegador não deixou copiar. Selecione e copie este link: <code className="fc-lote-url">{semCopiar}</code></Alert>
+            )}
             {resultado.criadas.length > 0 && (
               <ul className="fc-lote-lista">
                 {resultado.criadas.map((c) => {

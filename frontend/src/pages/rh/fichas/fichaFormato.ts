@@ -58,3 +58,46 @@ export function formatarTelefone(v: unknown): string {
   if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
   return String(v ?? "");
 }
+
+/**
+ * Valor em reais como o RH digita: "1.500", "1.500,50", "1500,5", "1500.50", "R$ 2.800,00".
+ * null = vazio; undefined = não dá para entender (melhor avisar do que gravar R$ 1,50).
+ */
+export function valorBr(v: unknown): number | null | undefined {
+  if (v == null) return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+  let t = String(v).replace(/R\$|\s/gi, "");
+  if (t === "") return null;
+  if (t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(t)) return undefined;
+  return Number(t);
+}
+
+/** Número guardado → como aparece no campo ("1.500,00"); texto em digitação fica como está. */
+export function valorNoCampo(v: unknown): string {
+  if (v == null) return "";
+  return typeof v === "number" ? v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v);
+}
+
+/** Parte da empresa pronta para enviar; erro com a mensagem para o RH se um valor não fizer sentido. */
+export function empresaParaEnvio<T extends { salario?: unknown; valorVt?: unknown }>(empresa: T): T {
+  const salario = valorBr(empresa.salario);
+  if (salario === undefined) throw new Error("Salário: use o formato 1.500,00.");
+  const valorVt = valorBr(empresa.valorVt);
+  if (valorVt === undefined) throw new Error("Valor do VT: use o formato 250,00.");
+  return { ...empresa, salario, valorVt };
+}
+
+/** Copia para a área de transferência e diz se conseguiu (sem permissão, o RH copia à mão). */
+export async function copiarTexto(texto: string, campoId?: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(texto);
+    return true;
+  } catch {
+    const campo = campoId ? (document.getElementById(campoId) as HTMLInputElement | null) : null;
+    if (!campo) return false;
+    campo.select();
+    try { return document.execCommand?.("copy") ?? false; } catch { return false; }
+  }
+}
