@@ -7558,8 +7558,9 @@ export function criarFichaCadastral(payload: { tipo: FichaCadastralTipo; nomeRef
 export function getFichaCadastral(id: string) {
   return request<FichaCadastralDetalhe>(`/employee-forms/${id}`);
 }
-export function salvarEmpresaFichaCadastral(id: string, empresa: FichaCadastralEmpresa) {
-  return request<{ ok: true; versao: string | null }>(`/employee-forms/${id}/empresa`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(empresa) });
+/** `versao`: a da ficha que o RH está vendo — se ela mudou no meio (devolvida, reenviada), 409. */
+export function salvarEmpresaFichaCadastral(id: string, empresa: FichaCadastralEmpresa, versao: string) {
+  return request<{ ok: true; versao: string | null }>(`/employee-forms/${id}/empresa`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...empresa, versao }) });
 }
 export function novoLinkFichaCadastral(id: string) {
   return request<FichaCadastralLink>(`/employee-forms/${id}/novo-link`, { method: "POST" });
@@ -7571,7 +7572,7 @@ export function cancelarFichaCadastral(id: string) {
   return request<{ ok: true }>(`/employee-forms/${id}/cancelar`, { method: "POST" });
 }
 export function concluirFichaCadastral(id: string, versao: string, campos?: string[]) {
-  return request<{ ok: true; employeeId: string }>(`/employee-forms/${id}/concluir`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(campos ? { campos, versao } : { versao }) });
+  return request<{ ok: true; employeeId: string; auditoria?: false }>(`/employee-forms/${id}/concluir`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(campos ? { campos, versao } : { versao }) });
 }
 export function getArquivoFichaCadastral(id: string, arquivoId: string) {
   return fetchBlob(`/employee-forms/${id}/arquivos/${arquivoId}`);
@@ -7581,7 +7582,11 @@ export function corrigirFichaPelaLeitura(id: string, valores: Record<string, str
   return request<{ ok: true; corrigidos: string[] }>(`/employee-forms/${id}/correcoes`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ valores }) });
 }
 export type FichaLoteCriada = { fichaId: string; employeeId: string; nome: string; codigo: string; expiraEm: string; celular: string | null };
-export type FichaLoteResultado = { criadas: FichaLoteCriada[]; jaAbertas: Array<{ fichaId: string; employeeId: string; nome: string }> };
+export type FichaLoteResultado = {
+  criadas: FichaLoteCriada[]; jaAbertas: Array<{ fichaId: string; employeeId: string; nome: string }>;
+  /** Cadastro sem data de nascimento nem CPF válidos: o link abriria sem confirmação, não foi gerado. */
+  semVerificacao: Array<{ employeeId: string; nome: string }>;
+};
 /** Uma ficha de atualização para cada funcionário ativo sem ficha aberta. Os códigos só vêm nesta resposta. */
 export function pedirAtualizacaoEmLote() {
   return request<FichaLoteResultado>("/employee-forms/lote", { method: "POST" });

@@ -68,6 +68,8 @@ export function aplicarCep(valores: Valores, achado: Endereco, anterior: Partial
     const atual = String(valores[campo] ?? "");
     const veioDoCep = anterior[campo] !== undefined && atual === anterior[campo];
     if (atual !== "" && !veioDoCep) { delete doCep[campo]; continue; }
+    // Apagado à mão e o CEP novo não traz: nada aqui veio do CEP.
+    if (atual === "" && !achado[campo]) { delete doCep[campo]; continue; }
     if (achado[campo]) {
       novos[campo] = achado[campo];
       doCep[campo] = achado[campo];

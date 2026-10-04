@@ -176,11 +176,22 @@ describe("concluir admissão", () => {
     expect(db.fichaCadastral.updateMany).not.toHaveBeenCalled();
   });
 
-  test("gravou mas a auditoria falhou: responde que concluiu (não 'nada foi gravado')", async () => {
+  test("gravou mas a auditoria falhou: responde que concluiu, avisa e registra o mínimo", async () => {
     vi.mocked(auditLog).mockRejectedValueOnce(new Error("sem conexão"));
     const r = await request(app).post("/employee-forms/f1/concluir").send({ versao: VERSAO });
     expect(r.status).toBe(200);
-    expect(r.body.ok).toBe(true);
+    expect(r.body).toMatchObject({ ok: true, auditoria: false });
+    expect(auditLog).toHaveBeenLastCalledWith(expect.objectContaining({ action: "FICHA_CADASTRAL_CONCLUIDA_SEM_AUDITORIA" }));
+  });
+
+  test("parte da empresa só sobre a versão que o RH viu", async () => {
+    const velha = await request(app).put("/employee-forms/f1/empresa").send({ funcao: "Copeira", versao: "2026-10-04T11:00:00.000Z" });
+    expect(velha.status).toBe(409);
+    expect(db.fichaCadastral.updateMany).not.toHaveBeenCalled();
+    db.fichaCadastral.findUnique.mockResolvedValueOnce(ficha).mockResolvedValueOnce({ updatedAt: new Date("2026-10-04T12:05:00.000Z") });
+    const ok = await request(app).put("/employee-forms/f1/empresa").send({ funcao: "Copeira", versao: VERSAO });
+    expect(ok.body).toMatchObject({ ok: true, versao: "2026-10-04T12:05:00.000Z" });
+    expect(db.fichaCadastral.updateMany.mock.calls[0][0].where.updatedAt).toEqual(VERSAO_DATA);
   });
 });
 
@@ -252,7 +263,7 @@ describe("concluir atualização", () => {
     db.fichaCadastral.updateMany.mockResolvedValue({ count: 0 });
     const r = await request(app).post("/employee-forms/f1/concluir").send({ campos: ["nomeMae"], versao: VERSAO });
     expect(r.status).toBe(409);
-    expect(db.fichaCadastral.updateMany.mock.calls[0][0].where).toHaveProperty("updatedAt");
+    expect(db.fichaCadastral.updateMany.mock.calls[0][0].where.updatedAt).toEqual(VERSAO_DATA);
     expect(db.employee.update).not.toHaveBeenCalled();
   });
 
@@ -395,6 +406,20 @@ describe("atualização em lote", () => {
     expect(db.employee.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { deletedAt: null, isActive: true } }));
     expect(db.$executeRaw).toHaveBeenCalled();
     expect(r.headers["cache-control"]).toBe("no-store");
+  });
+
+  test("cadastro sem data de nascimento nem CPF válidos: não gera link de atualização (abriria sem confirmação)", async () => {
+    db.employee.findFirst.mockResolvedValue({ ...funcionario, birthDate: null, cpf: "TESTE-A" });
+    const r = await request(app).post("/employee-forms").send({ tipo: "ATUALIZACAO", employeeId: "e1" });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toContain("sem pedir confirmação");
+    expect(db.fichaCadastral.create).not.toHaveBeenCalled();
+    db.employee.findMany.mockResolvedValue([{ ...funcionario, id: "e1", birthDate: null, cpf: null }, { ...funcionario, id: "e2" }]);
+    db.fichaCadastral.findMany.mockResolvedValue([]);
+    db.fichaCadastral.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "nova", expiraEm: new Date(), ...data }));
+    const lote = await request(app).post("/employee-forms/lote");
+    expect(lote.body.criadas.map((c: { employeeId: string }) => c.employeeId)).toEqual(["e2"]);
+    expect(lote.body.semVerificacao).toEqual([{ employeeId: "e1", nome: "Fulana Souza" }]);
   });
 
   test("gerar link (lote, ficha nova, novo link) exige também ver Funcionários", async () => {

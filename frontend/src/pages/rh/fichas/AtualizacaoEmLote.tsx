@@ -94,6 +94,12 @@ export function AtualizacaoEmLote({ onGeradas }: Props) {
                 })}
               </ul>
             )}
+            {resultado.semVerificacao.length > 0 && (
+              <Alert tone="warning">
+                Sem link, porque o cadastro não tem data de nascimento nem CPF válidos (o link abriria sem pedir confirmação):{" "}
+                {resultado.semVerificacao.map((p) => p.nome).join(", ")}. Corrija o cadastro e peça a atualização de cada um.
+              </Alert>
+            )}
             {resultado.jaAbertas.length > 0 && (
               <p className="fc-vazio">Já tinham ficha aberta (use “Gerar novo link” na ficha, se precisar): {resultado.jaAbertas.map((j) => j.nome).join(", ")}.</p>
             )}
