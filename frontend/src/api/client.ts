@@ -3947,7 +3947,7 @@ export function searchDishProducts(search: string) {
 // ──────────────────────────────────────────────
 
 export type PlateFormat = "std" | "tent" | "sauce";
-export type PlateTheme = "wine" | "gold";
+export type PlateTheme = "wine" | "gold" | "white";
 export type PlateListKind = "BUFFET" | "COFFEE_BREAK" | "EVENTO";
 
 export type BuffetPlateItem = { id: string; namePt: string; nameEn: string; category: string; isActive: boolean };

@@ -20,7 +20,7 @@ export const PLATE_CATEGORIES = [
   "Salgados", "Entradas", "Sopas e cremes", "Sobremesas", "Molhos", "Coffee break", "Bebidas",
 ] as const;
 export const PLATE_FORMATS = ["std", "tent", "sauce"] as const;
-export const PLATE_THEMES = ["wine", "gold"] as const;
+export const PLATE_THEMES = ["wine", "gold", "white"] as const;
 export const LIST_KINDS = ["BUFFET", "COFFEE_BREAK", "EVENTO"] as const;
 const MAX_QTY = 20;
 const MAX_ITEMS_PER_LIST = 300;

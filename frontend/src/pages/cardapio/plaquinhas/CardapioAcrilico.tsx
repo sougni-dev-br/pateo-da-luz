@@ -280,7 +280,7 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
             </span>
             {layout && <small>{layout.porFolha} faces por folha</small>}
           </div>
-          <div className="plq-opcoes plq-opcoes--2" role="group" aria-label="Cores">
+          <div className="plq-opcoes plq-opcoes--cores" role="group" aria-label="Cores">
             {TEMAS.map((t) => (
               <button key={t.value} type="button" className="plq-opcao" aria-pressed={c.tema === t.value} onClick={() => mudar({ tema: t.value })}>
                 <strong><i className={`plq-amostra plq-amostra--${t.value}`} aria-hidden="true" />{t.label}</strong><span>{t.dica}</span>
@@ -308,7 +308,7 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
         </div>
       </div>
 
-      <PreviaFolhas resumo={resumo} tema={c.tema} vazia={!secoes.length}
+      <PreviaFolhas resumo={resumo} tema={c.tema} vazia={!secoes.length} textoVazia="Escolha uma seção, como Antepastos ou Sobremesas, e coloque os pratos. A frente e o verso aparecem aqui lado a lado."
         alerta={naoCouberam.length ? {
           curto: `Não coube ${naoCouberam.join(" e ")}`,
           longo: `O texto não coube ${naoCouberam.join(" e ")} mesmo com a letra no menor tamanho. Tire pratos, encurte os nomes ou use uma face maior (a face aparece com borda vermelha).`,

@@ -1,8 +1,7 @@
 import { forwardRef, memo, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { BuffetMenuSection, MenuFace, PlateTheme } from "../../../api/client";
-import logoDourado from "./assets/logo-horizontal-dourado.png";
-import logoVinho from "./assets/logo-horizontal-vinho.png";
+import { LOGO_DO_TEMA } from "./logos";
 import { paginar } from "./FolhaPlaquinhas";
 import { type FaceImpressa, type LayoutFolha } from "./cardapioFormato";
 import { useFontesProntas } from "./medidaFonte";
@@ -29,7 +28,7 @@ export const FaceCardapio = memo(forwardRef<HTMLDivElement, FaceProps>(function 
       className={`cdp-face cdp-face--${tema}${face === "front" ? " cdp-face--frente" : ""}${ajuste.estoura && !medidor ? " cdp-face--estoura" : ""}${medidor ? " cdp-face--medidor" : ""}`}>
       <div className="cdp-moldura">
         <i /><i /><i /><i />
-        {face === "front" && <img className="cdp-logo" src={tema === "gold" ? logoDourado : logoVinho} alt="" />}
+        {face === "front" && <img className="cdp-logo" src={LOGO_DO_TEMA[tema]} alt="" />}
         <div className="cdp-corpo">
           {daFace.map((s, i) => (
             <section key={i} className="cdp-secao">

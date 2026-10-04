@@ -212,3 +212,33 @@ describe("lista da folha", () => {
     expect(screen.getByLabelText("Plaquinhas de Arroz").textContent).toBe("2");
   });
 });
+
+vi.mock("../../../../api/client", async (original) => ({
+  ...(await original<typeof import("../../../../api/client")>()),
+  deactivateBuffetPlateItem: vi.fn(async (id: string) => ({ ...catalogo.find((p) => p.id === id)!, isActive: false })),
+  saveBuffetPlateItem: vi.fn(async (dados: Omit<BuffetPlateItem, "id">, id: string) => ({ ...dados, id })),
+}));
+
+describe("catálogo", () => {
+  test("inativar avisa qual prato saiu e o Desfazer devolve ele", async () => {
+    const { CatalogoPlaquinhas } = await import("../CatalogoPlaquinhas");
+    const aoMudar = vi.fn();
+    render(<CatalogoPlaquinhas catalogo={catalogo} podeCriar podeEditar podeExcluir aoMudar={aoMudar} />);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Inativar Arroz" })); });
+    expect(aoMudar).toHaveBeenLastCalledWith(expect.objectContaining({ id: "Arroz", isActive: false }));
+    expect(screen.getByRole("status")).toHaveTextContent("“Arroz” saiu da busca");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Desfazer/ })); });
+    expect(aoMudar).toHaveBeenLastCalledWith(expect.objectContaining({ id: "Arroz", isActive: true }));
+    expect(screen.queryByText(/saiu da busca/)).toBeNull();
+  });
+});
+
+describe("prévia", () => {
+  test("vazia explica o que fazer em vez de mostrar uma folha em branco", async () => {
+    const { PreviaFolhas } = await import("../PreviaFolhas");
+    render(<PreviaFolhas resumo="" alerta={null} tema="white" vazia textoVazia="Abra uma lista salva."><div>folha</div></PreviaFolhas>);
+    expect(screen.getByText("A prévia aparece aqui")).toBeInTheDocument();
+    expect(screen.getByText("Abra uma lista salva.")).toBeInTheDocument();
+    expect(screen.getByText("folha").closest("[hidden]")).not.toBeNull();
+  });
+});
