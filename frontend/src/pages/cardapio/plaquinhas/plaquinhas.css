@@ -1,0 +1,90 @@
+/* Fontes embutidas no build: a plaquinha sai igual mesmo sem internet. */
+@font-face { font-family: "Marcellus"; font-weight: 400; font-style: normal; font-display: block; src: url("./assets/marcellus.woff2") format("woff2"); }
+@font-face { font-family: "Josefin Sans"; font-weight: 600; font-style: normal; font-display: block; src: url("./assets/josefin600.woff2") format("woff2"); }
+
+/* ── Folha A4 em pé ── */
+.plq-folha {
+  width: 210mm; height: 297mm; background: #fff; position: relative; overflow: hidden;
+  display: grid; justify-content: center; align-content: start; padding-top: 11mm;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.plq-folha--tent { padding-top: 10mm; }
+.plq-folha--sauce { padding-top: 15mm; }
+.plq-grade { display: grid; border-top: .25mm dashed #c9c9c9; border-left: .25mm dashed #c9c9c9; }
+.plq-folha--std .plq-grade { grid-template-columns: repeat(2, 95mm); grid-auto-rows: 55mm; }
+.plq-folha--tent .plq-grade { grid-template-columns: repeat(2, 95mm); grid-auto-rows: 92mm; }
+.plq-folha--sauce .plq-grade { grid-template-columns: repeat(3, 63mm); grid-auto-rows: 38mm; }
+.plq-celula { position: relative; overflow: hidden; border-right: .25mm dashed #c9c9c9; border-bottom: .25mm dashed #c9c9c9; }
+.plq-numero { position: absolute; bottom: 4mm; right: 8mm; font: 7pt Inter, "Segoe UI", Arial, sans-serif; color: #aaa; }
+
+/* Cavalete: a face de cima vai de cabeça para baixo; dobrando na linha, as duas ficam de pé. */
+.plq-folha--tent .plq-celula { display: grid; grid-template-rows: 1fr 1fr; }
+.plq-face { min-height: 0; }
+.plq-face--virada { transform: rotate(180deg); }
+.plq-dobra { position: absolute; left: 0; right: 0; top: 50%; border-top: .2mm dotted #b5b5b5; }
+
+/* ── A plaquinha ── */
+.plq-placa {
+  --plq-fundo: #ffffff; --plq-texto: #2a1a16; --plq-traco: #712313; --plq-ingles: #6e4c43;
+  width: 100%; height: 100%; padding: 2.6mm; background: var(--plq-fundo); color: var(--plq-texto);
+}
+.plq-placa--gold { --plq-fundo: #161512; --plq-texto: #f6f0e2; --plq-traco: #c9aa66; --plq-ingles: #cfc4ad; }
+.plq-moldura {
+  position: relative; width: 100%; height: 100%; border: .35mm solid var(--plq-traco);
+  display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+  padding: 2.2mm 4mm 2mm; text-align: center;
+}
+.plq-moldura::before { content: ""; position: absolute; inset: .9mm; border: .15mm solid var(--plq-traco); pointer-events: none; }
+/* Cantos em losango, como os do letreiro "LUZ". */
+.plq-moldura i { position: absolute; width: 2.4mm; height: 2.4mm; background: var(--plq-traco); transform: rotate(45deg); }
+.plq-moldura i::after { content: ""; position: absolute; inset: .55mm; background: var(--plq-fundo); }
+.plq-moldura i:nth-of-type(1) { top: -1.25mm; left: -1.25mm; }
+.plq-moldura i:nth-of-type(2) { top: -1.25mm; right: -1.25mm; }
+.plq-moldura i:nth-of-type(3) { bottom: -1.25mm; left: -1.25mm; }
+.plq-moldura i:nth-of-type(4) { bottom: -1.25mm; right: -1.25mm; }
+
+/* Sobretítulo com o ornamento linha·losango·linha do "Desde 2003". */
+.plq-sobretitulo {
+  display: flex; align-items: center; gap: 1.6mm; white-space: nowrap; color: var(--plq-traco);
+  font: 600 6.8pt/1 "Josefin Sans", "Century Gothic", sans-serif; letter-spacing: .22em; text-transform: uppercase; padding-left: .22em;
+}
+.plq-sobretitulo::before, .plq-sobretitulo::after { content: ""; width: 8mm; height: .3mm; background: linear-gradient(90deg, transparent, var(--plq-traco)); }
+.plq-sobretitulo::after { transform: scaleX(-1); }
+.plq-sobretitulo b { width: 1mm; height: 1mm; background: var(--plq-traco); transform: rotate(45deg); display: inline-block; }
+.plq-oculto { visibility: hidden; }
+
+.plq-nomes { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; justify-content: center; gap: .9mm; overflow: hidden; }
+.plq-pt { font-family: Marcellus, "Palatino Linotype", Georgia, serif; font-size: var(--pt, 20pt); line-height: 1.08; text-wrap: balance; overflow-wrap: break-word; }
+.plq-en { font: italic var(--en, 10pt)/1.2 Georgia, "Times New Roman", serif; color: var(--plq-ingles); text-wrap: balance; overflow-wrap: break-word; }
+.plq-logo { display: block; height: 8.5mm; width: auto; flex: none; }
+
+.plq-folha--tent .plq-logo { height: 7.5mm; }
+.plq-folha--sauce .plq-placa { padding: 1.8mm; }
+.plq-folha--sauce .plq-moldura { padding: 1.6mm 2.4mm 1.4mm; }
+.plq-folha--sauce .plq-sobretitulo { font-size: 5.4pt; }
+.plq-folha--sauce .plq-sobretitulo::before, .plq-folha--sauce .plq-sobretitulo::after { width: 4mm; }
+.plq-folha--sauce .plq-logo { height: 5.4mm; }
+
+/* Nome que não coube nem no menor tamanho: marcado só na tela, para encurtar. */
+.plq-placa--estoura { outline: .6mm solid #c0392b; outline-offset: -.6mm; }
+
+/* Molde invisível onde cada prato é medido uma vez (ver medidaFonte.ts). */
+.plq-medidor { position: fixed; top: 0; left: -30000px; visibility: hidden; pointer-events: none; contain: layout style; }
+.plq-medidor .plq-logo { width: 30mm; }
+.plq-medidor .plq-folha { height: auto; overflow: visible; }
+/* No molde a palavra não é partida: palavra longa demais conta como "não coube" e a letra diminui. */
+.plq-medidor .plq-pt, .plq-medidor .plq-en { overflow-wrap: normal; }
+
+/* ── Impressão ── */
+.plq-area-impressao { position: fixed; top: 0; left: -20000px; visibility: hidden; pointer-events: none; }
+/* 1 mm de folga evita uma página em branco no fim em alguns navegadores. */
+.plq-area-impressao .plq-folha { height: 296mm; }
+@media print {
+  body.imprimindo-plaquinhas > *:not(.plq-area-impressao) { display: none !important; }
+  body.imprimindo-plaquinhas { margin: 0 !important; background: #fff !important; }
+  body.imprimindo-plaquinhas .plq-area-impressao { position: static; left: auto; visibility: visible; }
+  body.imprimindo-plaquinhas .plq-folha { break-after: page; page-break-after: always; }
+  body.imprimindo-plaquinhas .plq-folha:last-child { break-after: auto; page-break-after: auto; }
+  body.imprimindo-plaquinhas .plq-placa--estoura { outline: none; }
+  body.imprimindo-plaquinhas .plq-numero { display: none; }
+}
