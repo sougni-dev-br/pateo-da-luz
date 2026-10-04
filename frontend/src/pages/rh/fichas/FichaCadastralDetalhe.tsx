@@ -19,7 +19,7 @@ import { EmpresaFicha } from "./EmpresaFicha";
 import { FichaImpressao, imprimirFicha } from "./FichaImpressao";
 import { LeituraDocumentos } from "./LeituraDocumentos";
 import { LinkFicha } from "./LinkFicha";
-import { dataBr, diaBr, empresaParaEnvio, formatarCpf, situacao } from "./fichaFormato";
+import { apagaEm, dataBr, diaBr, empresaParaEnvio, formatarCpf, situacao } from "./fichaFormato";
 
 // Trocar CPF ou chave PIX é a mudança que um link vazado faria (desviar pagamento): só com marcação explícita.
 const SENSIVEIS = new Set(["cpf", "pixChave"]);
@@ -91,6 +91,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
   // Gerar link exige também ver Funcionários (mesma regra do servidor).
   const podeGerarLink = podeReenviar && hasPermission("employees", "view");
   const podeConcluir = hasPermission("employee-forms", "approve") && hasPermission("employees", ficha.tipo === "ADMISSAO" ? "create" : "edit");
+  const quandoApaga = apagaEm(ficha);
   const nome = ficha.funcionario?.nome ?? (typeof ficha.dados.nomeCompleto === "string" ? ficha.dados.nomeCompleto : ficha.nomeReferencia);
 
   async function agir(acao: () => Promise<unknown>, sucesso: string) {
@@ -155,7 +156,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
             <h1 className="fc-titulo">{nome}</h1>
             <p className="fc-descricao">
               {ficha.tipo === "ADMISSAO" ? "Admissão" : "Atualização de dados"} · link criado em {dataBr(ficha.createdAt)}
-              {aberta && ` · vale até ${dataBr(ficha.expiraEm)}`}
+              {aberta && ` · ${new Date(ficha.expiraEm).getTime() < Date.now() ? "venceu em" : "vale até"} ${dataBr(ficha.expiraEm)}`}
               {ficha.finalizadaEm && ` · finalizada em ${dataBr(ficha.finalizadaEm)}`}
             </p>
           </div>
@@ -188,6 +189,13 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
           <Alert tone="info" title="A pessoa ainda não finalizou">Falta: {ficha.falta.join(", ")}.</Alert>
         )}
         {ficha.motivoDevolucao && aberta && <Alert tone="warning" title="Devolvida para correção">{ficha.motivoDevolucao}</Alert>}
+        {quandoApaga && (
+          <Alert tone="warning" title={`Será apagada em ${dataBr(quandoApaga.toISOString())}`}>
+            {ficha.status === "CANCELADA"
+              ? "Ficha cancelada: os dados e as fotos são apagados 90 dias depois do cancelamento."
+              : "O link venceu: se não for gerado um novo link, os dados e as fotos são apagados 90 dias depois do vencimento."}
+          </Alert>
+        )}
         {ficha.salarioOculto && (
           <Alert tone="info">Sem a permissão de ver Funcionários, CPF, PIX, salário e as fotos dos documentos ficam ocultos — inclusive na ficha impressa.</Alert>
         )}

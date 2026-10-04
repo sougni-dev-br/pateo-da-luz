@@ -101,3 +101,14 @@ export async function copiarTexto(texto: string, campoId?: string): Promise<bool
     try { return document.execCommand?.("copy") ?? false; } catch { return false; }
   }
 }
+
+/** Prazo de guarda (LGPD): cancelada ou vencida é apagada 90 dias depois (rotina do servidor). */
+export const DIAS_GUARDA = 90;
+
+/** Quando a ficha será apagada; null = não será (aberta no prazo, enviada ao RH ou concluída). */
+export function apagaEm(f: { status: string; expiraEm: string; canceladaEm: string | null }, agora = Date.now()): Date | null {
+  const mais = (iso: string) => new Date(new Date(iso).getTime() + DIAS_GUARDA * 86_400_000);
+  if (f.status === "CANCELADA" && f.canceladaEm) return mais(f.canceladaEm);
+  if ((f.status === "ENVIADA" || f.status === "PREENCHENDO") && new Date(f.expiraEm).getTime() < agora) return mais(f.expiraEm);
+  return null;
+}

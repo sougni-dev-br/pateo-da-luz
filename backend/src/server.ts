@@ -32,6 +32,6 @@ app.listen(env.port, () => {
   // concorrência com o sync manual. Desligar via NOVENTA_NOVE_CRON_ENABLED=false.
   startNoventaNoveCronScheduler();
 
-  // LGPD: ficha cadastral cancelada some 90 dias depois (dados e fotos). Uma vez por dia.
+  // LGPD: ficha cadastral cancelada ou vencida some 90 dias depois (dados e fotos). Uma vez por dia.
   iniciarExpurgoFichas();
 });
