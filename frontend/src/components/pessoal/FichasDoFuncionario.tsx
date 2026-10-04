@@ -62,7 +62,7 @@ export function FichasDoFuncionario({ employeeId, nome, celular }: Props) {
     <FormSection title="Ficha cadastral e documentos">
       <div className="fc-func">
         <p className="fc-descricao">Mande um link para {nome.split(" ")[0]} conferir e corrigir os próprios dados pelo celular e enviar fotos de documentos.</p>
-        {hasPermission("employee-forms", "create") && (
+        {hasPermission("employee-forms", "create") && hasPermission("employees", "view") && (
           <Button variant="secondary" leadingIcon={<Send size={15} />} disabled={gerando} onClick={pedirAtualizacao}>Pedir atualização de dados</Button>
         )}
       </div>

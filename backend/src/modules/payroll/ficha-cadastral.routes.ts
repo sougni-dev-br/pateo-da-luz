@@ -99,12 +99,20 @@ const TEMPO_LOTE_MS = 60_000;
 // ─── ATUALIZAÇÃO EM LOTE (todos os ativos) ──────────────────────────────────────
 // Gera um link para cada funcionário ativo que ainda não tem ficha aberta. Os códigos só existem
 // nesta resposta (o banco guarda o hash): a tela mostra a lista para mandar pelo WhatsApp.
+// Gerar link (ficha nova, lote, novo link) exige, além de Fichas, ver Funcionários (decisão do
+// dono em 04/10/2026): quem gera o link de alguém pode, com a data de nascimento, ler a ficha toda.
+async function podeGerarLink(user: SessionUser, response: Response): Promise<boolean> {
+  if (await userHasPermission(user, "employees", "view")) return true;
+  response.status(403).json({ message: "Gerar link de ficha exige também a permissão de ver Funcionários." });
+  return false;
+}
+
 type LoteCriada = { fichaId: string; employeeId: string; nome: string; codigo: string; expiraEm: Date; celular: string | null };
 type LoteJaAberta = { fichaId: string; employeeId: string; nome: string };
 
 // Tudo ou nada: se uma criação falhar, nenhuma ficha fica aberta sem o código ter chegado à tela.
 // A trava impede dois lotes simultâneos de abrirem duas fichas para a mesma pessoa.
-function gerarLote(usuarioId: string, podeVerCadastro: boolean) {
+function gerarLote(usuarioId: string) {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('ficha-cadastral-lote'))`;
     const ativos = await tx.employee.findMany({
@@ -128,8 +136,7 @@ function gerarLote(usuarioId: string, podeVerCadastro: boolean) {
       if (aberta) { jaAbertas.push({ fichaId: aberta, employeeId: e.id, nome }); continue; }
       const { data, codigo } = novaAtualizacao(e, filhosPor.get(e.id) ?? [], usuarioId);
       const ficha = await tx.fichaCadastral.create({ data });
-      // Celular é dado do cadastro: só vai para quem pode ver Funcionários.
-      criadas.push({ fichaId: ficha.id, employeeId: e.id, nome, codigo, expiraEm: ficha.expiraEm, celular: podeVerCadastro ? e.phone : null });
+      criadas.push({ fichaId: ficha.id, employeeId: e.id, nome, codigo, expiraEm: ficha.expiraEm, celular: e.phone });
     }
     return { criadas, jaAbertas };
   }, { timeout: TEMPO_LOTE_MS, maxWait: TEMPO_LOTE_MS });
@@ -137,10 +144,10 @@ function gerarLote(usuarioId: string, podeVerCadastro: boolean) {
 
 fichaCadastralRouter.post("/lote", async (request, response) => {
   const user = await usuario(request, response);
-  if (!user) return;
+  if (!user || !(await podeGerarLink(user, response))) return;
   let resultado: { criadas: LoteCriada[]; jaAbertas: LoteJaAberta[] };
   try {
-    resultado = await gerarLote(user.id, await userHasPermission(user, "employees", "view"));
+    resultado = await gerarLote(user.id);
   } catch (e) {
     console.error("[ficha-cadastral] lote falhou", e);
     return response.status(500).json({ message: "Não foi possível gerar os links. Nenhuma ficha foi criada; tente de novo." });
@@ -154,7 +161,7 @@ fichaCadastralRouter.post("/lote", async (request, response) => {
 // ─── CRIAR (gera o link) ────────────────────────────────────────────────────────
 fichaCadastralRouter.post("/", async (request, response) => {
   const user = await usuario(request, response);
-  if (!user) return;
+  if (!user || !(await podeGerarLink(user, response))) return;
   const b = (request.body ?? {}) as Record<string, unknown>;
   const tipo = b.tipo === "ATUALIZACAO" ? "ATUALIZACAO" : b.tipo === "ADMISSAO" ? "ADMISSAO" : null;
   if (!tipo) return response.status(400).json({ message: "Escolha admissão ou atualização." });
@@ -325,7 +332,7 @@ fichaCadastralRouter.put("/:id/empresa", async (request, response) => {
 // ─── Novo link (o anterior para de funcionar) ───────────────────────────────────
 fichaCadastralRouter.post("/:id/novo-link", async (request, response) => {
   const user = await usuario(request, response);
-  if (!user) return;
+  if (!user || !(await podeGerarLink(user, response))) return;
   const ficha = await abertaOu404(request.params.id, response);
   if (!ficha) return;
   if (ficha.status === "FINALIZADA") return response.status(409).json({ message: "A pessoa já finalizou. Para ela corrigir algo, use \"Devolver para correção\"." });
