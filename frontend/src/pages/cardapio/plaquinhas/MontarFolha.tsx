@@ -2,12 +2,14 @@ import { Copy, Printer, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  deleteBuffetPlateList, getBuffetPlateList, saveBuffetPlateList,
+  ApiError, deleteBuffetPlateList, getBuffetPlateList, registerBuffetPlatePrint, saveBuffetPlateList,
   type BuffetPlateItem, type BuffetPlateListSummary, type PlateFormat, type PlateListKind, type PlateTheme,
 } from "../../../api/client";
 import { Dialog } from "../../../components/ui/Dialog";
 import { Alert, Button, FormField, Select, Switch, TextField } from "../../../design-system";
 import { BuscaPrato } from "./BuscaPrato";
+import { LembretesDoBuffet } from "./LembretesDoBuffet";
+import { useAcompanhamento } from "./acompanhamento";
 import { FORMATOS, FolhaPlaquinhas, paginar, textoDaPlaca, type PlacaImpressa } from "./FolhaPlaquinhas";
 import { ListaDaFolha } from "./ListaDaFolha";
 import { PratoDialog } from "./PratoDialog";
@@ -20,11 +22,12 @@ import {
 
 type Folha = { listaId: string | null; nome: string; tipo: PlateListKind; data: string; formato: PlateFormat; tema: PlateTheme; entradas: Entrada[] };
 type Confirmacao = { titulo: string; texto: string; ok: string; acao: () => void };
-type Aviso = { tom: "success" | "error"; texto: string };
+type Aviso = { tom: "success" | "error" | "warning"; texto: string };
 
 const CLASSE_IMPRIMINDO = "imprimindo-plaquinhas";
 const CHAVE_CATEGORIA = "pateo.plaquinhas.mostrarCategoria";
 const LISTAS_DE_ATALHO = 5;
+const REPETICAO_MS = 10_000;
 const hoje = () => new Date().toLocaleDateString("sv-SE");
 const folhaVazia = (): Folha => ({ listaId: null, nome: "", tipo: "BUFFET", data: hoje(), formato: "std", tema: "wine", entradas: [] });
 const assinatura = (f: Folha) => JSON.stringify({ ...f, entradas: f.entradas.map(({ itemId, qty }) => [itemId, qty]) });
@@ -44,9 +47,12 @@ type Props = {
   aoMudarListas: () => void;
   aoCadastrarPrato: (p: BuffetPlateItem) => void;
   aoMudarPendencia: (pendente: boolean) => void;
+  /** Avisa a página que uma impressão entrou no acompanhamento. */
+  aoRegistrarImpressao: () => void;
+  versaoAcompanhamento: number;
 };
 
-export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, podeExcluir, aoMudarListas, aoCadastrarPrato, aoMudarPendencia }: Props) {
+export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, podeExcluir, aoMudarListas, aoCadastrarPrato, aoMudarPendencia, aoRegistrarImpressao, versaoAcompanhamento }: Props) {
   const [folha, setFolha] = useState<Folha>(folhaVazia);
   const [salva, setSalva] = useState(() => assinatura(folhaVazia()));
   const [mostrarCategoria, setMostrarCategoria] = useState(lerMostrarCategoria);
@@ -189,7 +195,34 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
     });
   }
 
-  const imprimir = useCallback(() => { if (placas.length) setPedidoImpressao((n) => n + 1); }, [placas.length]);
+  // Cada impressão anota os pratos do dia da folha: é o que alimenta o acompanhamento.
+  // Se não registrar, a impressão sai igual e a cozinha fica sabendo.
+  // Lista salva reaberta traz a data de quando foi montada: o que se imprime hoje sai hoje.
+  // Só uma data à frente (folha preparada com antecedência) vale como está.
+  // Clique duplo ou Ctrl+P segurado mandariam a mesma folha várias vezes: a repetida em
+  // poucos segundos é ignorada.
+  const ultimoRegistro = useRef({ chave: "", quando: 0 });
+  const registrarImpressao = useCallback(() => {
+    const itemIds = [...new Set(folha.entradas.map((e) => e.itemId))].filter((id) => porId.has(id));
+    if (!itemIds.length) return;
+    const servedOn = folha.data > hoje() ? folha.data : hoje();
+    const chave = `${servedOn}|${folha.tipo}|${itemIds.join(",")}`;
+    const agora = Date.now();
+    if (ultimoRegistro.current.chave === chave && agora - ultimoRegistro.current.quando < REPETICAO_MS) return;
+    ultimoRegistro.current = { chave, quando: agora };
+    registerBuffetPlatePrint({ servedOn, kind: folha.tipo, listId: folha.listaId, listName: folha.nome.trim() || null, itemIds })
+      .then(aoRegistrarImpressao)
+      .catch((x) => setAviso({ tom: "warning", texto: x instanceof ApiError && x.status === 403
+        ? "As plaquinhas foram para a impressora, mas seu usuário não pode registrar no acompanhamento de pratos. Peça para liberar “Criar” em Plaquinhas do buffet."
+        : "As plaquinhas foram para a impressora, mas este dia não entrou no acompanhamento de pratos. Imprima de novo para registrar." }));
+  }, [folha.entradas, folha.data, folha.tipo, folha.listaId, folha.nome, porId, aoRegistrarImpressao]);
+
+  const imprimir = useCallback(() => {
+    if (!placas.length) return;
+    setPedidoImpressao((n) => n + 1);
+    registrarImpressao();
+  }, [placas.length, registrarImpressao]);
+  const acompanhamento = useAcompanhamento(folha.tipo, 30, versaoAcompanhamento, ativa);
 
   // A cópia de impressão só existe enquanto imprime: montar as folhas duas vezes o tempo todo
   // deixava cada clique lento com muitas plaquinhas.
@@ -225,7 +258,7 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
     const tecla = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const k = e.key.toLowerCase();
-      if (k === "p" && placas.length) { e.preventDefault(); imprimir(); }
+      if (k === "p" && placas.length) { e.preventDefault(); if (!e.repeat) imprimir(); }
       if (k === "s" && podeSalvar && folha.entradas.length) { e.preventDefault(); void salvarRef.current(false); }
     };
     window.addEventListener("keydown", tecla);
@@ -270,6 +303,8 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
             onNovoPrato={(texto, categoria) => setNovoPrato({ texto, categoria })}
             dica={folha.entradas.length === 0 ? "Procure o prato pelo nome ou toque numa categoria para ver todos dela." : undefined} />
         </section>
+
+        <LembretesDoBuffet relatorio={acompanhamento.relatorio} porId={porId} naFolha={naFolha} onAdicionar={adicionar} />
 
         <ListaDaFolha key={versaoLista} entradas={folha.entradas} porId={porId} destaque={destaque} onMudar={mudarEntradas} />
 

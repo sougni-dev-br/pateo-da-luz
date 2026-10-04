@@ -1680,6 +1680,21 @@ model BuffetPlateList {
   @@index([updatedAt])
 }
 
+// Uma impressão de plaquinhas: os pratos que saíram naquele dia. Alimenta o acompanhamento
+// de pratos mais feitos, repetidos e esquecidos. `itemIds` é a lista de BuffetPlateItem.id.
+model BuffetPlatePrint {
+  id          String   @id @default(cuid())
+  servedOn    DateTime @db.Date
+  kind        String   @default("BUFFET")
+  listId      String?
+  listName    String?
+  itemIds     Json     @default("[]")
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([kind, servedOn])
+}
+
 // Cardápio do evento impresso para o display de acrílico (frente e verso).
 // `sections` guarda [{ face: "front"|"back", titlePt, titleEn, items: [{ namePt, nameEn }] }] na ordem
 // de impressão. Os pratos ficam escritos aqui (são composições à la carte, nem sempre do catálogo).
