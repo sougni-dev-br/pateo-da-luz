@@ -4001,6 +4001,43 @@ export function deleteBuffetPlateList(id: string) {
   return request<{ ok: boolean }>(`/buffet-plates/lists/${id}`, { method: "DELETE" });
 }
 
+// Cardápio do evento (display de acrílico, frente e verso)
+export type MenuFace = "front" | "back";
+export type BuffetMenuItem = { namePt: string; nameEn: string };
+export type BuffetMenuSection = { face: MenuFace; titlePt: string; titleEn: string; items: BuffetMenuItem[] };
+export type BuffetMenuSummary = {
+  id: string;
+  name: string;
+  eventDate: string | null;
+  theme: PlateTheme;
+  faceWidthMm: number;
+  faceHeightMm: number;
+  copies: number;
+  sectionCount: number;
+  itemCount: number;
+  updatedAt: string;
+};
+export type BuffetMenu = BuffetMenuSummary & { sections: BuffetMenuSection[] };
+export type BuffetMenuInput = Pick<BuffetMenu, "name" | "eventDate" | "theme" | "faceWidthMm" | "faceHeightMm" | "copies" | "sections">;
+
+export function getBuffetMenus() {
+  return request<BuffetMenuSummary[]>("/buffet-plates/menus");
+}
+
+export function getBuffetMenu(id: string) {
+  return request<BuffetMenu>(`/buffet-plates/menus/${id}`);
+}
+
+export function saveBuffetMenu(payload: BuffetMenuInput, id?: string) {
+  return request<BuffetMenuSummary>(id ? `/buffet-plates/menus/${id}` : "/buffet-plates/menus", {
+    method: id ? "PUT" : "POST", headers: JSON_HEADERS, body: JSON.stringify(payload),
+  });
+}
+
+export function deleteBuffetMenu(id: string) {
+  return request<{ ok: boolean }>(`/buffet-plates/menus/${id}`, { method: "DELETE" });
+}
+
 // ──────────────────────────────────────────────
 // DRE Gerencial
 // ──────────────────────────────────────────────

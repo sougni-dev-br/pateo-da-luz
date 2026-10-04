@@ -98,22 +98,29 @@ const cache = new Map<string, Tamanho>();
 const FONTES_DA_PLACA = ["12pt Marcellus", '600 12pt "Josefin Sans"'];
 const fontesCarregadas = () => !document.fonts || FONTES_DA_PLACA.every((f) => document.fonts.check(f));
 
-export function useTamanhos(textos: TextoPlaca[], formato: PlateFormat, mostrarCategoria: boolean): Map<string, Tamanho> {
-  const [tamanhos, setTamanhos] = useState<Map<string, Tamanho>>(() => new Map(cache));
-  const [fontesProntas, setFontesProntas] = useState(fontesCarregadas);
-
+// Fica true quando as fontes da plaquinha já podem ser medidas.
+export function useFontesProntas(aoCarregar?: () => void): boolean {
+  const [prontas, setProntas] = useState(fontesCarregadas);
   useLayoutEffect(() => {
-    if (fontesProntas) return undefined;
+    if (prontas) return undefined;
     let ativo = true;
     Promise.all(FONTES_DA_PLACA.map((f) => document.fonts.load(f)))
       .catch(() => undefined) // sem a fonte, mede com a reserva mesmo: melhor que não mostrar nada
       .then(() => {
         if (!ativo) return;
-        cache.clear();
-        setFontesProntas(true);
+        aoCarregar?.();
+        setProntas(true);
       });
     return () => { ativo = false; };
-  }, [fontesProntas]);
+  }, [prontas, aoCarregar]);
+  return prontas;
+}
+
+const limparCache = () => cache.clear();
+
+export function useTamanhos(textos: TextoPlaca[], formato: PlateFormat, mostrarCategoria: boolean): Map<string, Tamanho> {
+  const [tamanhos, setTamanhos] = useState<Map<string, Tamanho>>(() => new Map(cache));
+  const fontesProntas = useFontesProntas(limparCache);
 
   useLayoutEffect(() => {
     if (!fontesProntas) return;

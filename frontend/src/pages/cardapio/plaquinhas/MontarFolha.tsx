@@ -6,13 +6,13 @@ import {
   type BuffetPlateItem, type BuffetPlateListSummary, type PlateFormat, type PlateListKind, type PlateTheme,
 } from "../../../api/client";
 import { Dialog } from "../../../components/ui/Dialog";
-import { useNavigationGuard } from "../../../lib/navigationGuard";
 import { Alert, Button, FormField, Select, Switch, TextField } from "../../../design-system";
 import { BuscaPrato } from "./BuscaPrato";
 import { FORMATOS, FolhaPlaquinhas, paginar, textoDaPlaca, type PlacaImpressa } from "./FolhaPlaquinhas";
 import { ListaDaFolha } from "./ListaDaFolha";
 import { PratoDialog } from "./PratoDialog";
 import { PreviaFolhas } from "./PreviaFolhas";
+import { esperarImagens } from "./impressao";
 import { chaveTamanho, useTamanhos, type TextoPlaca } from "./medidaFonte";
 import {
   FORMATO_SUGERIDO, TEMAS, TIPOS_LISTA, adicionarEntrada, novaEntrada, rotuloLista, sugerirCategoria, type Entrada,
@@ -43,9 +43,10 @@ type Props = {
   podeExcluir: boolean;
   aoMudarListas: () => void;
   aoCadastrarPrato: (p: BuffetPlateItem) => void;
+  aoMudarPendencia: (pendente: boolean) => void;
 };
 
-export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, podeExcluir, aoMudarListas, aoCadastrarPrato }: Props) {
+export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, podeExcluir, aoMudarListas, aoCadastrarPrato, aoMudarPendencia }: Props) {
   const [folha, setFolha] = useState<Folha>(folhaVazia);
   const [salva, setSalva] = useState(() => assinatura(folhaVazia()));
   const [mostrarCategoria, setMostrarCategoria] = useState(lerMostrarCategoria);
@@ -94,16 +95,9 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
     return () => window.clearTimeout(t);
   }, [aviso]);
 
-  // Fechar a aba ou recarregar com a folha montada e não salva pede confirmação do navegador.
+  // A página junta as pendências das abas e avisa ao sair (menu, Sair, fechar a aba).
   const temTrabalhoPerdivel = alterada && folha.entradas.length > 0;
-  useEffect(() => {
-    if (!temTrabalhoPerdivel) return undefined;
-    const avisar = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
-    window.addEventListener("beforeunload", avisar);
-    return () => window.removeEventListener("beforeunload", avisar);
-  }, [temTrabalhoPerdivel]);
-  // Trocar de tela pelo menu (ou sair do ERP) com a folha não salva também pergunta antes.
-  useNavigationGuard(temTrabalhoPerdivel, "A folha de plaquinhas tem mudanças não salvas. Sair desta tela e perder as mudanças?");
+  useEffect(() => { aoMudarPendencia(temTrabalhoPerdivel); }, [temTrabalhoPerdivel, aoMudarPendencia]);
 
   const mudar = (parcial: Partial<Folha>) => setFolha((f) => ({ ...f, ...parcial }));
   const mudarEntradas = useCallback((fn: (es: Entrada[]) => Entrada[]) => setFolha((f) => ({ ...f, entradas: fn(f.entradas) })), []);
@@ -208,14 +202,15 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
     let ativo = true;
     const terminar = () => { if (ativo) setPedidoImpressao(0); };
     window.addEventListener("afterprint", terminar);
-    const quadro = requestAnimationFrame(async () => {
-      const logos = [...document.querySelectorAll<HTMLImageElement>(".plq-area-impressao img")];
-      await Promise.all(logos.map((img) => img.decode().catch(() => undefined)));
+    // setTimeout e não requestAnimationFrame: a animação fica parada quando o navegador
+    // está atrás de outra janela ou minimizado, e a impressão nunca começaria.
+    const espera = window.setTimeout(async () => {
+      await esperarImagens(".plq-area-impressao img");
       if (ativo) window.print();
-    });
+    }, 0);
     return () => {
       ativo = false;
-      cancelAnimationFrame(quadro);
+      window.clearTimeout(espera);
       window.removeEventListener("afterprint", terminar);
       document.body.classList.remove(CLASSE_IMPRIMINDO);
       estilo.remove();
@@ -323,7 +318,11 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
         </div>
       </div>
 
-      <PreviaFolhas resumo={resumo} naoCouberam={naoCouberam} tema={folha.tema} vazia={!placas.length}>
+      <PreviaFolhas resumo={resumo} tema={folha.tema} vazia={!placas.length}
+        alerta={naoCouberam.length ? {
+          curto: naoCouberam.length === 1 ? "1 nome não coube" : `${naoCouberam.length} nomes não couberam`,
+          longo: `${naoCouberam.length === 1 ? "Este nome não coube" : "Estes nomes não couberam"} mesmo com a letra no menor tamanho: ${naoCouberam.join(", ")}. Encurte na aba Catálogo (a plaquinha aparece com borda vermelha).`,
+        } : null}>
         <FolhaPlaquinhas {...folhaProps} />
       </PreviaFolhas>
 
