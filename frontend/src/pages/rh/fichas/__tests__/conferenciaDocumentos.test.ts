@@ -11,7 +11,7 @@ FILIACAO
 JOSE EXEMPLO DA SILVA
 MARIA EXEMPLO DA SILVA
 NATURALIDADE SAO PAULO-SP  DATA DE NASCIMENTO 21/07/1998
-CPF 862.883.667-57`;
+CPF 123.456.789-09`;
 
 const COMPROVANTE = `ENEL DISTRIBUICAO SAO PAULO
 JOANA EXEMPLO DA SILVA
@@ -20,7 +20,7 @@ PRACA DA SE 50 - SE
 VENCIMENTO 10/09/2026`;
 
 const DIGITADO = {
-  nomeCompleto: "Joana Exemplo da Silva", dataNascimento: "1998-07-21", cpf: "86288366757", rg: "12.345.678-9",
+  nomeCompleto: "Joana Exemplo da Silva", dataNascimento: "1998-07-21", cpf: "12345678909", rg: "12.345.678-9",
   nomeMae: "Maria Exemplo da Silva", nomePai: "José Exemplo da Silva", cep: "01001000",
 };
 
@@ -35,8 +35,8 @@ describe("conferirDocumentos", () => {
   });
 
   test("CPF com dígito trocado: sugere o CPF válido do documento", () => {
-    const r = porCampo(conferirDocumentos({ ...DIGITADO, cpf: "86288366775" }, { DOC_FOTO: RG }));
-    expect(r.cpf).toMatchObject({ situacao: "diverge", lido: "86288366757" });
+    const r = porCampo(conferirDocumentos({ ...DIGITADO, cpf: "12345678990" }, { DOC_FOTO: RG }));
+    expect(r.cpf).toMatchObject({ situacao: "diverge", lido: "12345678909" });
   });
 
   test("nascimento digitado errado: sugere a data junto de NASCIMENTO, não a de expedição", () => {
@@ -78,7 +78,7 @@ describe("conferirDocumentos", () => {
   });
 
   test("dois CPFs válidos diferentes no texto e nenhum é o digitado: não arrisca sugestão", () => {
-    const r = porCampo(conferirDocumentos({ ...DIGITADO, cpf: "52998224725" }, { DOC_FOTO: "CPF 862.883.667-57", CPF: "CPF 111.444.777-35" }));
+    const r = porCampo(conferirDocumentos({ ...DIGITADO, cpf: "52998224725" }, { DOC_FOTO: "CPF 123.456.789-09", CPF: "CPF 111.444.777-35" }));
     expect(r.cpf.situacao).toBe("nao_lido");
   });
 
@@ -93,7 +93,7 @@ describe("conferirDocumentos", () => {
   });
 
   test("só CPF, PIS e título contam como leitura segura", () => {
-    const r = porCampo(conferirDocumentos({ ...DIGITADO, cpf: "86288366775", nomeCompleto: "Joana Exmplo da Silva" }, { DOC_FOTO: RG }));
+    const r = porCampo(conferirDocumentos({ ...DIGITADO, cpf: "12345678990", nomeCompleto: "Joana Exmplo da Silva" }, { DOC_FOTO: RG }));
     expect(r.cpf.seguro).toBe(true);
     expect(r.nomeCompleto.seguro).toBe(false);
   });
@@ -134,7 +134,7 @@ describe("conferirDocumentos", () => {
   });
 
   test("CPF dentro de um número maior (protocolo, CNPJ) não é sugerido", () => {
-    const r = porCampo(conferirDocumentos({ cpf: "11144477735" }, { DOC_FOTO: "PROTOCOLO 98628836675701" }));
+    const r = porCampo(conferirDocumentos({ cpf: "11144477735" }, { DOC_FOTO: "PROTOCOLO 91234567890901" }));
     expect(r.cpf.situacao).toBe("nao_lido");
   });
 
@@ -146,7 +146,7 @@ describe("conferirDocumentos", () => {
   });
 
   test("campo não digitado não entra na conferência", () => {
-    const r = conferirDocumentos({ cpf: "86288366757" }, { DOC_FOTO: RG });
+    const r = conferirDocumentos({ cpf: "12345678909" }, { DOC_FOTO: RG });
     expect(r.map((c) => c.campo)).toEqual(["cpf"]);
   });
 });

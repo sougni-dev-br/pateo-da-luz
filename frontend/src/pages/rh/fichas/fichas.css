@@ -156,3 +156,12 @@
 .fc-lote-rodape > :only-child { margin-left: auto; }
 .fc-leitura-selo { display: block; font-size: 0.75rem; font-weight: 400; color: var(--warning); }
 .fc-leitura-selo--ok { color: var(--success); }
+
+/* Dado sensível (CPF, PIX) na lista do que muda */
+.fc-dif--sensivel label { background: color-mix(in srgb, var(--warning) 8%, transparent); border-radius: 8px; }
+.fc-dif-alerta { display: block; font-size: 0.75rem; font-weight: 500; color: var(--warning); }
+.fc-lote-url { display: block; margin-top: 4px; overflow-wrap: anywhere; user-select: all; }
+
+/* Impressão: assinaturas e título de seção não ficam sozinhos na outra página */
+.fi-secao { break-after: avoid; page-break-after: avoid; }
+.fi-assinaturas, .fi-data { break-inside: avoid; page-break-inside: avoid; }

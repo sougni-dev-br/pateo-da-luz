@@ -3,7 +3,8 @@
 // sessionStorage da aba, por ficha — recarregar a página não pede a data de novo.
 import { API_BASE_URL } from "../../api/client";
 
-export type Filho = { nome: string; dataNascimento: string | null; cpf: string | null };
+/** `ref`: dependente que já está no cadastro (atualização). Volta como veio. */
+export type Filho = { nome: string; dataNascimento: string | null; cpf: string | null; ref?: string | null };
 export type Dados = Record<string, string | boolean | Filho[] | null | undefined> & { filhos?: Filho[] };
 export type Arquivo = { id: string; tipo: string; nomeOriginal: string; mimeType: string; tamanho: number; createdAt: string };
 export type Opcoes = {

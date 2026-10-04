@@ -3,7 +3,7 @@ import type { Filho } from "./api";
 import { cpfValido, dataParaIso, mascaraCpf, mascaraData } from "./formato";
 
 /** Filho como aparece no formulário: data em DD/MM/AAAA e CPF com máscara. */
-export type FilhoTela = { nome: string; nascimento: string; cpf: string };
+export type FilhoTela = { nome: string; nascimento: string; cpf: string; ref?: string | null };
 
 type Props = {
   nomeConjuge: string;
@@ -18,6 +18,7 @@ export function filhosParaTela(filhos: Filho[] | undefined): FilhoTela[] {
     nome: f.nome,
     nascimento: f.dataNascimento ? f.dataNascimento.split("-").reverse().join("/") : "",
     cpf: f.cpf ? mascaraCpf(f.cpf) : "",
+    ref: f.ref ?? null,
   }));
 }
 
@@ -32,7 +33,7 @@ export function filhosParaSalvar(filhos: FilhoTela[]): { erros: Record<string, s
     const nascimento = f.nascimento ? dataParaIso(f.nascimento) : null;
     if (f.nascimento && !nascimento) erros[`filho-${i}-nascimento`] = "Data inválida.";
     if (f.cpf && !cpfValido(f.cpf)) erros[`filho-${i}-cpf`] = "CPF inválido.";
-    lista.push({ nome, dataNascimento: nascimento, cpf: f.cpf || null });
+    lista.push({ nome, dataNascimento: nascimento, cpf: f.cpf || null, ref: f.ref ?? null });
   });
   return Object.keys(erros).length ? { erros } : { filhos: lista };
 }

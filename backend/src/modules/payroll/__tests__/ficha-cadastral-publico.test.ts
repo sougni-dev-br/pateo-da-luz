@@ -40,12 +40,11 @@ beforeEach(() => {
   };
   db.fichaCadastral.findUnique.mockImplementation(async ({ where }: { where: { tokenHash: string } }) => (where.tokenHash === hash ? ficha : null));
   db.fichaCadastral.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
-    const inc = data.tentativasErradas as { increment?: number } | undefined;
-    if (inc?.increment) ficha.tentativasErradas = Number(ficha.tentativasErradas) + inc.increment;
+    if (typeof data.tentativasErradas === "number") ficha.tentativasErradas = data.tentativasErradas;
     return { ...ficha, ...data, tentativasErradas: ficha.tentativasErradas };
   });
   db.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(db));
-  db.$queryRaw.mockImplementation(async () => [{ status: ficha.status }]);
+  db.$queryRaw.mockImplementation(async () => [{ status: ficha.status, bloqueadoAte: ficha.bloqueadoAte, tentativasErradas: ficha.tentativasErradas }]);
   db.fichaCadastral.updateMany.mockResolvedValue({ count: 1 });
   db.fichaCadastralArquivo.findMany.mockResolvedValue([]);
   db.fichaCadastralArquivo.aggregate.mockResolvedValue({ _count: 0, _sum: { tamanho: 0 } });
@@ -113,15 +112,17 @@ describe("verificar", () => {
     expect(db.fichaCadastral.update).toHaveBeenCalledWith(expect.objectContaining({ data: { tentativasErradas: 0, bloqueadoAte: null } }));
   });
 
-  test("data errada conta a tentativa no banco (incremento); a quinta bloqueia", async () => {
+  test("data errada conta a tentativa com a linha travada; a quinta bloqueia", async () => {
     const r = await request(app).post(url("/verificar")).send({ resposta: "1995-04-11" });
     expect(r.status).toBe(401);
-    expect(r.body.message).toContain("Restam 4");
-    expect(db.fichaCadastral.update).toHaveBeenCalledWith(expect.objectContaining({ data: { tentativasErradas: { increment: 1 } } }));
-    ficha.tentativasErradas = 4;
+    expect(r.body.message).toContain("Restam 4 tentativas");
+    expect(String(db.$queryRaw.mock.calls[0][0].join(""))).toContain("FOR UPDATE");
+    expect(db.fichaCadastral.update).toHaveBeenCalledWith(expect.objectContaining({ data: { tentativasErradas: 1 } }));
+    ficha.tentativasErradas = 3;
+    expect((await request(app).post(url("/verificar")).send({ resposta: "1995-04-11" })).body.message).toContain("Resta 1 tentativa.");
     const r5 = await request(app).post(url("/verificar")).send({ resposta: "1995-04-11" });
     expect(r5.status).toBe(429);
-    expect(db.fichaCadastral.update).toHaveBeenLastCalledWith(expect.objectContaining({ data: { bloqueadoAte: expect.any(Date) } }));
+    expect(db.fichaCadastral.update).toHaveBeenLastCalledWith(expect.objectContaining({ data: { tentativasErradas: 5, bloqueadoAte: expect.any(Date) } }));
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "FICHA_CADASTRAL_BLOQUEADA" }));
   });
 

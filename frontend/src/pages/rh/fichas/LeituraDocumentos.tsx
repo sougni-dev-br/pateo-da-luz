@@ -95,7 +95,7 @@ export function LeituraDocumentos({ ficha, onCorrigida }: Props) {
       {lendo && progresso && (
         <div className="fc-leitura-progresso" role="status" aria-live="polite">
           <progress max={Math.max(progresso.total, 1)} value={progresso.feitos} />
-          <span>Lendo {progresso.atual}… ({progresso.feitos} de {progresso.total})</span>
+          <span>{progresso.feitos === 0 && progresso.atual === "preparando a leitura" ? "Preparando a leitura…" : `Lendo ${progresso.atual}… (${progresso.feitos} de ${progresso.total})`}</span>
         </div>
       )}
       {erro && <Alert tone="error">{erro}</Alert>}

@@ -43,7 +43,9 @@ describe("lerDadosPessoa", () => {
 
   test("filhos: ignora linha sem nome, valida CPF e data", () => {
     const r = lerDadosPessoa({ filhos: [{ nome: "ciclano de tal", dataNascimento: "2015-01-02", cpf: "111.444.777-35" }, { nome: "" }] });
-    expect(r).toEqual({ dados: { filhos: [{ nome: "Ciclano de Tal", dataNascimento: "2015-01-02", cpf: "11144477735" }] } });
+    expect(r).toEqual({ dados: { filhos: [{ nome: "Ciclano de Tal", dataNascimento: "2015-01-02", cpf: "11144477735", ref: null }] } });
+    const comRef = lerDadosPessoa({ filhos: [{ nome: "A B", ref: "dep-1" }, { nome: "C D", ref: "x'; drop" }] }) as { dados: { filhos: Array<{ ref: unknown }> } };
+    expect(comRef.dados.filhos.map((f) => f.ref)).toEqual(["dep-1", null]);
     expect(lerDadosPessoa({ filhos: [{ nome: "A", cpf: "123" }] })).toHaveProperty("erro");
     expect(lerDadosPessoa({ filhos: Array.from({ length: 11 }, () => ({ nome: "A" })) })).toHaveProperty("erro");
   });
@@ -96,12 +98,31 @@ describe("cadastro", () => {
   };
 
   test("dadosDoFuncionario monta a ficha com o cadastro e sem salário", () => {
-    const d = dadosDoFuncionario(funcionario, [{ nome: "Ciclano", dataNascimento: null, cpf: null }]);
+    const d = dadosDoFuncionario(funcionario, [{ id: "dep-1", nome: "Ciclano", dataNascimento: null, cpf: null }]);
     expect(d).toMatchObject({ nomeCompleto: "Fulana Souza", dataNascimento: "1995-04-10", cpf: "52998224725", cidade: "São Paulo" });
     expect(d.sexo).toBeUndefined();
     expect(d.usaVt).toBe(false);
     expect(JSON.stringify(d)).not.toContain("2500");
-    expect(d.filhos).toEqual([{ nome: "Ciclano", dataNascimento: null, cpf: null }]);
+    expect(d.filhos).toEqual([{ nome: "Ciclano", dataNascimento: null, cpf: null, ref: "dep-1" }]);
+  });
+
+  test("cadastro sem nome completo: compara com nome + sobrenome (não aponta mudança falsa)", () => {
+    const semCompleto = { ...funcionario, nomeCompleto: null };
+    expect(diferencas({ nomeCompleto: "Fulana Souza" }, semCompleto)).toEqual([]);
+    expect(diferencas({ nomeCompleto: "Fulana de Souza" }, semCompleto)).toEqual([
+      { campo: "nomeCompleto", rotulo: "Nome completo", atual: "Fulana Souza", novo: "Fulana de Souza" },
+    ]);
+  });
+
+  test("filho corrigido pela referência vira correção de nome, não filho novo", () => {
+    const existentes = [{ id: "dep-1", nome: "Ciclano Sousa", dataNascimento: null, cpf: null }];
+    const ficha = [{ nome: "Ciclano Souza", dataNascimento: "2015-01-20", cpf: null, ref: "dep-1" }];
+    expect(filhosNovos(ficha, existentes)).toEqual([]);
+    expect(filhosAlterados(ficha, existentes)).toEqual([
+      { dependenteId: "dep-1", nome: "Ciclano Sousa", nomeNovo: "Ciclano Souza", dataNascimento: { atual: null, novo: "2015-01-20" } },
+    ]);
+    // Referência de dependente de outro funcionário não vale: é filho novo.
+    expect(filhosNovos([{ ...ficha[0], ref: "dep-de-outro" }], existentes)).toHaveLength(1);
   });
 
   test("diferencas ignora o que não mudou (caixa e máscara) e campo vazio da ficha", () => {

@@ -19,7 +19,10 @@ import { EmpresaFicha } from "./EmpresaFicha";
 import { FichaImpressao, imprimirFicha } from "./FichaImpressao";
 import { LeituraDocumentos } from "./LeituraDocumentos";
 import { LinkFicha } from "./LinkFicha";
-import { dataBr, diaBr, formatarCpf, situacao } from "./fichaFormato";
+import { dataBr, diaBr, empresaParaEnvio, formatarCpf, situacao } from "./fichaFormato";
+
+// Trocar CPF ou chave PIX é a mudança que um link vazado faria (desviar pagamento): só com marcação explícita.
+const SENSIVEIS = new Set(["cpf", "pixChave"]);
 
 type Props = { id: string; onVoltar: () => void };
 
@@ -34,6 +37,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
   const [ocupado, setOcupado] = useState(false);
   const [link, setLink] = useState<FichaCadastralLink | null>(null);
   const [devolvendo, setDevolvendo] = useState(false);
+  const [erroDevolver, setErroDevolver] = useState<string | null>(null);
   const [motivo, setMotivo] = useState("");
   const [confirmar, setConfirmar] = useState<"cancelar" | "concluir" | null>(null);
   const [escolhidos, setEscolhidos] = useState<Set<string>>(new Set());
@@ -45,11 +49,16 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
     getFichaCadastral(id)
       .then((f) => {
         setFicha(f);
-        setEmpresa(f.dadosEmpresa ?? {});
+        // Só na primeira carga: recarregar depois de uma ação não apaga o que o RH digitou na
+        // parte da empresa nem remarca o que ele desmarcou.
         if (caixasIniciadas.current !== f.id) {
           caixasIniciadas.current = f.id;
-          const temFilhos = f.filhosNovos.length > 0 || f.filhosAlterados.length > 0;
-          setEscolhidos(new Set([...f.diferencas.map((d) => d.campo), ...(temFilhos ? ["filhos"] : [])]));
+          setEmpresa(f.dadosEmpresa ?? {});
+          setEscolhidos(new Set([
+            ...f.diferencas.map((d) => d.campo).filter((c) => !SENSIVEIS.has(c)),
+            ...(f.filhosNovos.length ? ["filhosNovos"] : []),
+            ...(f.filhosAlterados.length ? ["filhosAlterados"] : []),
+          ]));
         }
       })
       .catch((e) => setErro(e instanceof Error ? e.message : "Não foi possível abrir a ficha."));
@@ -102,7 +111,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
   async function salvarEmpresa() {
     setOcupado(true);
     try {
-      await salvarEmpresaFichaCadastral(id, empresa);
+      await salvarEmpresaFichaCadastral(id, empresaParaEnvio(empresa));
       toast("Parte da empresa salva.", "success");
       carregar();
     } catch (e) {
@@ -118,7 +127,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
     setErro(null);
     setAviso(null);
     try {
-      if (podeEditar) await salvarEmpresaFichaCadastral(id, empresa);
+      if (podeEditar) await salvarEmpresaFichaCadastral(id, empresaParaEnvio(empresa));
       const r = await concluirFichaCadastral(id, ficha!.tipo === "ATUALIZACAO" ? [...escolhidos] : undefined);
       setAviso(ficha!.tipo === "ADMISSAO" ? "Funcionário criado. Complete escala, VT e gorjeta no cadastro." : "Cadastro atualizado.");
       carregar();
@@ -155,7 +164,8 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
             onClick={() => agir(async () => setLink(await novoLinkFichaCadastral(id)), "Novo link gerado. O anterior não abre mais.")}>Gerar novo link</Button>}
           {finalizada && podeReenviar && <Button variant="secondary" leadingIcon={<RotateCcw size={16} />} disabled={ocupado} onClick={() => setDevolvendo(true)}>Devolver para correção</Button>}
           {(aberta || finalizada) && hasPermission("employee-forms", "delete") && <Button variant="danger" leadingIcon={<Ban size={16} />} disabled={ocupado} onClick={() => setConfirmar("cancelar")}>Cancelar ficha</Button>}
-          {finalizada && podeConcluir && <Button leadingIcon={<CheckCircle2 size={16} />} disabled={ocupado} onClick={() => setConfirmar("concluir")}>
+          {finalizada && podeConcluir && <Button leadingIcon={<CheckCircle2 size={16} />}
+            disabled={ocupado || (ficha.tipo === "ATUALIZACAO" && escolhidos.size === 0)} onClick={() => setConfirmar("concluir")}>
             {ficha.tipo === "ADMISSAO" ? "Criar funcionário" : "Gravar no cadastro"}</Button>}
           {ficha.status === "CONCLUIDA" && ficha.funcionario && (
             <Button variant="secondary" onClick={() => navigate(`${ROTAS_RH.funcionarios}?funcionario=${encodeURIComponent(ficha.funcionario!.id)}`)}>Abrir o cadastro</Button>
@@ -191,31 +201,46 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
           ) : (
             <ul className="fc-diferencas">
               {ficha.diferencas.map((d) => (
-                <li key={d.campo}>
+                <li key={d.campo} className={SENSIVEIS.has(d.campo) ? "fc-dif--sensivel" : undefined}>
                   <label>
                     <input type="checkbox" checked={escolhidos.has(d.campo)} onChange={() => alternar(d.campo)} />
-                    <span className="fc-dif-rotulo">{d.rotulo}</span>
+                    <span className="fc-dif-rotulo">
+                      {d.rotulo}
+                      {SENSIVEIS.has(d.campo) && <small className="fc-dif-alerta">dado sensível: confirme com a pessoa antes de marcar</small>}
+                    </span>
                     <span className="fc-dif-de">{d.atual ?? "vazio"}</span>
                     <span className="fc-dif-seta" aria-hidden="true">→</span>
                     <span className="fc-dif-para">{d.novo}</span>
                   </label>
                 </li>
               ))}
-              {(ficha.filhosNovos.length > 0 || ficha.filhosAlterados.length > 0) && (
+              {ficha.filhosNovos.length > 0 && (
                 <li>
                   <label>
-                    <input type="checkbox" checked={escolhidos.has("filhos")} onChange={() => alternar("filhos")} />
-                    <span className="fc-dif-rotulo">Filhos</span>
-                    <span className="fc-dif-de fc-dif-de--neutro">{ficha.filhosNovos.length && !ficha.filhosAlterados.length ? "—" : "como está no cadastro"}</span>
+                    <input type="checkbox" checked={escolhidos.has("filhosNovos")} onChange={() => alternar("filhosNovos")} />
+                    <span className="fc-dif-rotulo">Incluir filhos</span>
+                    <span className="fc-dif-de fc-dif-de--neutro">não estão no cadastro</span>
+                    <span className="fc-dif-seta" aria-hidden="true">→</span>
+                    <span className="fc-dif-para">{ficha.filhosNovos.map((f) => f.nome).join(", ")}</span>
+                  </label>
+                </li>
+              )}
+              {ficha.filhosAlterados.length > 0 && (
+                <li>
+                  <label>
+                    <input type="checkbox" checked={escolhidos.has("filhosAlterados")} onChange={() => alternar("filhosAlterados")} />
+                    <span className="fc-dif-rotulo">Corrigir filhos</span>
+                    <span className="fc-dif-de fc-dif-de--neutro">como está no cadastro</span>
                     <span className="fc-dif-seta" aria-hidden="true">→</span>
                     <span className="fc-dif-para">
-                      {ficha.filhosNovos.length > 0 && <span className="fc-dif-linha">Incluir: {ficha.filhosNovos.map((f) => f.nome).join(", ")}</span>}
                       {ficha.filhosAlterados.map((f) => (
                         <span key={f.dependenteId} className="fc-dif-linha">
                           {f.nome}:{" "}
-                          {f.dataNascimento && `nascimento ${diaBr(f.dataNascimento.atual) || "vazio"} → ${diaBr(f.dataNascimento.novo)}`}
-                          {f.dataNascimento && f.cpf && "; "}
-                          {f.cpf && `CPF ${f.cpf.atual ? formatarCpf(f.cpf.atual) : "vazio"} → ${formatarCpf(f.cpf.novo)}`}
+                          {[
+                            f.nomeNovo && `nome → ${f.nomeNovo}`,
+                            f.dataNascimento && `nascimento ${diaBr(f.dataNascimento.atual) || "vazio"} → ${diaBr(f.dataNascimento.novo)}`,
+                            f.cpf && `CPF ${f.cpf.atual ? formatarCpf(f.cpf.atual) : "vazio"} → ${formatarCpf(f.cpf.novo)}`,
+                          ].filter(Boolean).join("; ")}
                         </span>
                       ))}
                     </span>
@@ -252,13 +277,18 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
       {link && <LinkFicha aberto onFechar={() => setLink(null)} nome={nome} tipo={ficha.tipo} codigo={link.codigo} expiraEm={link.expiraEm}
         celular={typeof ficha.dados.telefone === "string" ? ficha.dados.telefone : null} />}
 
-      <Dialog open={devolvendo} onOpenChange={setDevolvendo} title="Devolver para correção" description="O mesmo link volta a abrir para a pessoa corrigir. Ela vê a sua mensagem no topo da ficha.">
+      <Dialog open={devolvendo} onOpenChange={(v) => { setDevolvendo(v); if (!v) setErroDevolver(null); }} title="Devolver para correção" description="O mesmo link volta a abrir para a pessoa corrigir. Ela vê a sua mensagem no topo da ficha.">
         <div className="fc-form">
+          {erroDevolver && <Alert tone="error">{erroDevolver}</Alert>}
           <Textarea label="O que precisa corrigir" value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={3} autoFocus placeholder="Ex.: a foto do RG ficou ilegível, mande de novo." />
           <div className="fc-form-acoes">
             <Button variant="secondary" onClick={() => setDevolvendo(false)}>Cancelar</Button>
             <Button disabled={motivo.trim().length < 3 || ocupado} onClick={async () => {
-              if (await agir(() => devolverFichaCadastral(id, motivo), "Ficha devolvida. Avise a pessoa pelo WhatsApp para abrir o mesmo link.")) { setDevolvendo(false); setMotivo(""); }
+              // O erro aparece dentro da janela: o aviso do topo fica atrás dela.
+              setErroDevolver(null);
+              if (await agir(() => devolverFichaCadastral(id, motivo), "Ficha devolvida. Avise a pessoa pelo WhatsApp para abrir o mesmo link.")) {
+                setDevolvendo(false); setMotivo("");
+              } else setErroDevolver("Não foi possível devolver. Recarregue a tela e tente de novo.");
             }}>Devolver</Button>
           </div>
         </div>

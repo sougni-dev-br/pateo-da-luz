@@ -185,7 +185,9 @@ app.use("/ifood-expenses", ifoodExpenseRouter);
 
 app.use((error: unknown, request: express.Request, response: express.Response, _next: express.NextFunction) => {
   const { status, message, detail } = describeHttpError(error);
-  console.error(`Unhandled API error ${request.method} ${request.path} -> ${status}`, detail ?? error);
+  // O código do link da ficha é um segredo (o banco guarda só o hash): não vai para o log.
+  const caminho = request.path.replace(/(\/public\/ficha-cadastral\/)[^/]+/i, "$1[codigo]");
+  console.error(`Unhandled API error ${request.method} ${caminho} -> ${status}`, detail ?? error);
   if (response.headersSent) return;
   response.status(status).json({ message });
 });

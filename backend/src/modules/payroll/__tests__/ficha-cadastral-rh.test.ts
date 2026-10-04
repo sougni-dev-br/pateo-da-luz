@@ -208,6 +208,35 @@ describe("concluir atualização", () => {
     expect(db.employeeDependente.update).toHaveBeenCalledWith({ where: { id: "d1" }, data: { dataNascimento: new Date("2015-01-02T00:00:00Z") } });
   });
 
+  test("nome completo corrigido também corrige nome e sobrenome (o que o sistema mostra)", async () => {
+    ficha.dados = { ...DADOS, nomeCompleto: "Fulana de Tal Sousa" };
+    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["nomeCompleto"] });
+    expect(db.employee.update.mock.calls[0][0].data).toMatchObject({ nomeCompleto: "Fulana de Tal Sousa", firstName: "Fulana", lastName: "de Tal Sousa" });
+  });
+
+  test("filho do cadastro com nome corrigido: corrige o dependente; incluir e corrigir são escolhas separadas", async () => {
+    db.employeeDependente.findMany.mockResolvedValue([{ id: "d1", nome: "Ciclano Sosa", dataNascimento: null, cpf: null, parentesco: null }]);
+    ficha.dados = { ...DADOS, filhos: [{ nome: "Ciclano Souza", dataNascimento: null, cpf: null, ref: "d1" }, { nome: "Beltrano Souza", dataNascimento: null, cpf: null, ref: null }] };
+    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["filhosAlterados"] });
+    expect(db.employeeDependente.update).toHaveBeenCalledWith({ where: { id: "d1" }, data: { nome: "Ciclano Souza" } });
+    expect(db.employeeDependente.createMany).not.toHaveBeenCalled();
+  });
+
+  test("cônjuge cadastrado como dependente não entra como filho", async () => {
+    db.employeeDependente.findMany.mockResolvedValue([{ id: "d9", nome: "Beltrana Souza", dataNascimento: null, cpf: null, parentesco: "Cônjuge" }]);
+    ficha.dados = { ...DADOS, filhos: [] };
+    await request(app).post("/employee-forms/f1/concluir").send({ campos: ["filhos"] });
+    expect(db.employeeDependente.update).not.toHaveBeenCalled();
+  });
+
+  test("ficha alterada depois de lida (correção, devolução): não conclui com dado velho", async () => {
+    db.fichaCadastral.updateMany.mockResolvedValue({ count: 0 });
+    const r = await request(app).post("/employee-forms/f1/concluir").send({ campos: ["nomeMae"] });
+    expect(r.status).toBe(400);
+    expect(db.fichaCadastral.updateMany.mock.calls[0][0].where).toHaveProperty("updatedAt");
+    expect(db.employee.update).not.toHaveBeenCalled();
+  });
+
   test("filho que já é dependente não é duplicado", async () => {
     db.employeeDependente.findMany.mockResolvedValue([{ nome: "CICLANO SOUZA" }]);
     await request(app).post("/employee-forms/f1/concluir").send({ campos: ["filhos"] });
@@ -220,14 +249,25 @@ describe("outras ações", () => {
     expect((await request(app).post("/employee-forms/f1/devolver").send({ motivo: "" })).status).toBe(400);
     const r = await request(app).post("/employee-forms/f1/devolver").send({ motivo: "Foto do RG ilegível" });
     expect(r.status).toBe(200);
-    expect(db.fichaCadastral.update.mock.calls[0][0].data).toMatchObject({ status: "PREENCHENDO", motivoDevolucao: "Foto do RG ilegível", finalizadaEm: null });
+    expect(db.fichaCadastral.updateMany.mock.calls[0][0]).toMatchObject({
+      where: { id: "f1", status: "FINALIZADA" }, data: { status: "PREENCHENDO", motivoDevolucao: "Foto do RG ilegível", finalizadaEm: null },
+    });
+  });
+
+  test("devolver ou cancelar ficha que outra pessoa já concluiu: 409, nada muda", async () => {
+    db.fichaCadastral.updateMany.mockResolvedValue({ count: 0 });
+    expect((await request(app).post("/employee-forms/f1/devolver").send({ motivo: "Foto do RG ilegível" })).status).toBe(409);
+    expect((await request(app).post("/employee-forms/f1/cancelar")).status).toBe(409);
+    expect(auditLog).not.toHaveBeenCalled();
   });
 
   test("novo link troca o hash e desbloqueia; ficha finalizada não troca", async () => {
     expect((await request(app).post("/employee-forms/f1/novo-link")).status).toBe(409);
     ficha.status = "PREENCHENDO";
     const r = await request(app).post("/employee-forms/f1/novo-link");
-    expect(db.fichaCadastral.update.mock.calls[0][0].data).toMatchObject({ tokenHash: hashCodigo(r.body.codigo), tentativasErradas: 0, bloqueadoAte: null });
+    expect(db.fichaCadastral.updateMany.mock.calls[0][0]).toMatchObject({
+      where: { status: { in: ["ENVIADA", "PREENCHENDO"] } }, data: { tokenHash: hashCodigo(r.body.codigo), tentativasErradas: 0, bloqueadoAte: null },
+    });
   });
 
   test("cancelar ficha concluída não pode", async () => {
@@ -285,7 +325,13 @@ describe("outras ações", () => {
   test("sem ver Funcionários, salvar a parte da empresa mantém o salário gravado", async () => {
     vi.mocked(userHasPermission).mockResolvedValue(false);
     await request(app).put("/employee-forms/f1/empresa").send({ funcao: "Copeira" });
-    expect(db.fichaCadastral.update.mock.calls[0][0].data.dadosEmpresa).toMatchObject({ funcao: "Copeira", salario: 2500 });
+    expect(db.fichaCadastral.updateMany.mock.calls[0][0].data.dadosEmpresa).toMatchObject({ funcao: "Copeira", salario: 2500 });
+  });
+
+  test("parte da empresa não muda depois de concluída", async () => {
+    ficha.status = "CONCLUIDA";
+    expect((await request(app).put("/employee-forms/f1/empresa").send({ funcao: "Copeira" })).status).toBe(409);
+    expect(db.fichaCadastral.updateMany).not.toHaveBeenCalled();
   });
 
   test("situação inválida no filtro = 400", async () => {

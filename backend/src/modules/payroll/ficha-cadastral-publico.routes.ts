@@ -117,27 +117,32 @@ fichaCadastralPublicoRouter.post(`${rota}/verificar`, limiteVerificacao, carrega
   if (!EDITAVEL.has(c.ficha.status)) return response.json(await estado(c));
   const metodo = verificacaoNecessaria(c.dados);
   if (!metodo) return response.json(await estado({ ...c, liberada: true }));
-  if (c.ficha.bloqueadoAte && c.ficha.bloqueadoAte.getTime() > Date.now()) {
-    return response.status(429).json({ message: `Muitas tentativas erradas. Tente de novo depois de ${momentoSp(c.ficha.bloqueadoAte)}.` });
-  }
   const esperado = String(metodo === "NASCIMENTO" ? c.dados.dataNascimento : c.dados.cpf);
-  if (respostaConfere((request.body as Record<string, unknown>)?.resposta, esperado, metodo)) {
-    await prisma.fichaCadastral.update({ where: { id: c.ficha.id }, data: { tentativasErradas: 0, bloqueadoAte: null } });
-    return response.json(await estado({ ...c, liberada: true }));
-  }
-  // Incremento no banco, não "lido + 1": tentativas em paralelo contam todas.
-  const { tentativasErradas } = await prisma.fichaCadastral.update({
-    where: { id: c.ficha.id }, data: { tentativasErradas: { increment: 1 } }, select: { tentativasErradas: true },
+  const certo = respostaConfere((request.body as Record<string, unknown>)?.resposta, esperado, metodo);
+  // Uma tentativa por vez, com a linha travada: tentativas em paralelo não passam todas pela
+  // checagem do bloqueio antes de ele ser gravado (20 chutes em vez de 5).
+  type Tentativa = { liberada: true } | { bloqueadoAte: Date; novo: boolean } | { tentativasErradas: number };
+  const r = await prisma.$transaction(async (tx): Promise<Tentativa> => {
+    const [linha] = await tx.$queryRaw<Array<{ bloqueadoAte: Date | null; tentativasErradas: number }>>`
+      SELECT "bloqueadoAte", "tentativasErradas" FROM "FichaCadastral" WHERE id = ${c.ficha.id} FOR UPDATE`;
+    if (linha?.bloqueadoAte && linha.bloqueadoAte.getTime() > Date.now()) return { bloqueadoAte: linha.bloqueadoAte, novo: false };
+    if (certo) {
+      await tx.fichaCadastral.update({ where: { id: c.ficha.id }, data: { tentativasErradas: 0, bloqueadoAte: null } });
+      return { liberada: true };
+    }
+    const tentativasErradas = (linha?.tentativasErradas ?? 0) + 1;
+    const bloqueadoAte = bloqueioApos(tentativasErradas);
+    await tx.fichaCadastral.update({ where: { id: c.ficha.id }, data: { tentativasErradas, ...(bloqueadoAte ? { bloqueadoAte } : {}) } });
+    return bloqueadoAte ? { bloqueadoAte, novo: true } : { tentativasErradas };
   });
-  const bloqueadoAte = bloqueioApos(tentativasErradas);
-  if (bloqueadoAte) {
-    await prisma.fichaCadastral.update({ where: { id: c.ficha.id }, data: { bloqueadoAte } });
-    await auditLog({ action: "FICHA_CADASTRAL_BLOQUEADA", entity: "FichaCadastral", entityId: c.ficha.id, ipAddress: ipConfiavel(request), userAgent: String(request.headers["user-agent"] ?? "") });
-    return response.status(429).json({ message: `Muitas tentativas erradas. Tente de novo depois de ${momentoSp(bloqueadoAte)}.` });
+  if ("liberada" in r) return response.json(await estado({ ...c, liberada: true }));
+  if ("bloqueadoAte" in r) {
+    if (r.novo) await auditLog({ action: "FICHA_CADASTRAL_BLOQUEADA", entity: "FichaCadastral", entityId: c.ficha.id, ipAddress: ipConfiavel(request), userAgent: String(request.headers["user-agent"] ?? "") });
+    return response.status(429).json({ message: `Muitas tentativas erradas. Tente de novo depois de ${momentoSp(r.bloqueadoAte)}.` });
   }
   const oQue = metodo === "NASCIMENTO" ? "Data de nascimento" : "CPF";
-  const restam = MAX_TENTATIVAS - (tentativasErradas % MAX_TENTATIVAS);
-  return response.status(401).json({ message: `${oQue} não confere. Restam ${restam} tentativas.`, verificacao: metodo });
+  const restam = MAX_TENTATIVAS - (r.tentativasErradas % MAX_TENTATIVAS);
+  return response.status(401).json({ message: `${oQue} não confere. ${restam === 1 ? "Resta 1 tentativa" : `Restam ${restam} tentativas`}.`, verificacao: metodo });
 });
 
 fichaCadastralPublicoRouter.put(`${rota}/dados`, carregar, exigeEdicao, async (request: ReqFicha, response) => {
@@ -176,7 +181,7 @@ fichaCadastralPublicoRouter.post(`${rota}/arquivos`, limiteUpload, carregar, exi
   const arquivo = request.file;
   if (!arquivo) return response.status(400).json({ message: "Escolha um arquivo." });
   const tipo = String((request.body as Record<string, unknown>)?.tipo ?? "");
-  if (!(tipo in TIPOS_ARQUIVO)) return response.status(400).json({ message: "Escolha que documento é este." });
+  if (!Object.hasOwn(TIPOS_ARQUIVO, tipo)) return response.status(400).json({ message: "Escolha que documento é este." });
   const mime = tipoDoConteudo(arquivo.buffer);
   if (!mime) return response.status(415).json({ message: "Envie uma foto (JPG ou PNG) ou um PDF." });
   // Cota conferida com a linha da ficha travada: envios em paralelo não passam juntos do limite,

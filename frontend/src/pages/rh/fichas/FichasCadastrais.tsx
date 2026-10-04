@@ -1,7 +1,7 @@
 // RH → Fichas cadastrais: gerar o link para a pessoa preencher, acompanhar quem já abriu,
 // quem finalizou (para conferir) e o que foi concluído.
 import { ChevronRight, Paperclip, Plus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { criarFichaCadastral, getFichasCadastrais, type FichaCadastralLink, type FichaCadastralResumo } from "../../../api/client";
 import { Dialog } from "../../../components/ui/Dialog";
@@ -85,16 +85,23 @@ export function FichasCadastrais() {
   const [novaAberta, setNovaAberta] = useState(false);
   const [link, setLink] = useState<{ dados: FichaCadastralLink; nome: string; celular: string } | null>(null);
 
+  // Resposta de um filtro antigo que chega depois não sobrescreve a do filtro atual.
+  const pedido = useRef(0);
   const carregar = useCallback(() => {
+    const meu = ++pedido.current;
     setErro(null);
     getFichasCadastrais({ status: filtro || undefined })
-      .then(setFichas)
-      .catch((e) => { setFichas([]); setErro(e instanceof Error ? e.message : "Não foi possível carregar as fichas."); });
+      .then((lista) => { if (meu === pedido.current) setFichas(lista); })
+      .catch((e) => {
+        if (meu !== pedido.current) return;
+        setFichas(null);
+        setErro(e instanceof Error ? e.message : "Não foi possível carregar as fichas.");
+      });
   }, [filtro]);
 
-  useEffect(() => { if (!id) carregar(); }, [carregar, id]);
+  useEffect(() => { if (!id) { setFichas(null); carregar(); } }, [carregar, id]);
 
-  if (id) return <FichaCadastralDetalhe id={id} onVoltar={() => navigate(ROTA_FICHAS)} />;
+  if (id) return <FichaCadastralDetalhe key={id} id={id} onVoltar={() => navigate(ROTA_FICHAS)} />;
 
   return (
     <div className="stack fc">
@@ -116,7 +123,7 @@ export function FichasCadastrais() {
         <Tabs tabs={FILTROS} value={filtro} onChange={setFiltro} aria-label="Situação das fichas" />
         {erro && <Alert tone="error">{erro}</Alert>}
         {fichas === null ? (
-          <p className="fc-carregando">Carregando…</p>
+          !erro && <p className="fc-carregando" role="status">Carregando…</p>
         ) : fichas.length === 0 ? (
           <EmptyState title="Nenhuma ficha aqui"
             description={filtro === "ABERTAS" ? "Gere um link em “Nova ficha de admissão”, ou peça atualização no cadastro de um funcionário." : "Nada nesta situação."} />

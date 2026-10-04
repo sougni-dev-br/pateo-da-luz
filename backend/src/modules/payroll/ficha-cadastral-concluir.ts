@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { Prisma, type FichaCadastral } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import {
-  PARA_FUNCIONARIO, cpfValido, diferencas, dividirNome, filhosAlterados, filhosNovos, tipoDaChavePix, valorParaFuncionario,
+  PARA_FUNCIONARIO, cpfValido, diferencas, dividirNome, ehFilho, filhosAlterados, filhosNovos, tipoDaChavePix, valorParaFuncionario,
   type DadosEmpresa, type DadosPessoa, type Filho,
 } from "./ficha-cadastral-campos.js";
 
@@ -86,7 +86,8 @@ export async function concluirAdmissao(ficha: FichaCadastral, usuarioId: string)
     const criado = await tx.employee.create({ data }).catch(cpfRepetido);
     if (filhos.length) await tx.employeeDependente.createMany({ data: dependentes(id, filhos) });
     const r = await tx.fichaCadastral.updateMany({
-      where: { id: ficha.id, status: "FINALIZADA" },
+      // updatedAt: se a ficha mudou depois de lida (correção, devolução), não grava dado velho.
+      where: { id: ficha.id, status: "FINALIZADA", updatedAt: ficha.updatedAt },
       data: { status: "CONCLUIDA", concluidaEm: new Date(), concluidaPorId: usuarioId, employeeId: id },
     });
     if (r.count !== 1) throw new ErroConclusao("Esta ficha já foi concluída ou mudou de situação. Recarregue a tela.");
@@ -102,21 +103,28 @@ export async function concluirAtualizacao(ficha: FichaCadastral, usuarioId: stri
   const mudancas = diferencas(dados, funcionario as unknown as Record<string, unknown>);
   const escolhidos = new Set(camposEscolhidos.filter((c) => mudancas.some((m) => m.campo === c)));
   const novos = camposPessoais(dados, escolhidos);
+  // O sistema inteiro mostra nome + sobrenome: corrigir o nome completo corrige os dois.
+  if (typeof novos.nomeCompleto === "string") {
+    const { firstName, lastName } = dividirNome(novos.nomeCompleto);
+    if (firstName && lastName) Object.assign(novos, { firstName, lastName });
+  }
   if (typeof novos.cpf === "string") {
     const conflito = await prisma.employee.findFirst({ where: { cpf: novos.cpf, deletedAt: null, id: { not: funcionario.id } }, select: { id: true } });
     if (conflito) throw new ErroConclusao("O CPF informado já está no cadastro de outro funcionário.");
   }
-  const existentes = await prisma.employeeDependente.findMany({
-    where: { employeeId: funcionario.id }, select: { id: true, nome: true, dataNascimento: true, cpf: true },
-  });
+  const existentes = (await prisma.employeeDependente.findMany({
+    where: { employeeId: funcionario.id }, select: { id: true, nome: true, dataNascimento: true, cpf: true, parentesco: true },
+  })).filter((d) => ehFilho(d.parentesco));
   const listaFilhos = Array.isArray(dados.filhos) ? dados.filhos : [];
-  const comFilhos = camposEscolhidos.includes("filhos");
-  const filhos = comFilhos ? filhosNovos(listaFilhos, existentes) : [];
-  const corrigidos = comFilhos ? filhosAlterados(listaFilhos, existentes) : [];
+  // "filhos" (telas antigas) vale pelos dois; a tela atual separa incluir de corrigir.
+  const incluir = camposEscolhidos.includes("filhos") || camposEscolhidos.includes("filhosNovos");
+  const corrigir = camposEscolhidos.includes("filhos") || camposEscolhidos.includes("filhosAlterados");
+  const filhos = incluir ? filhosNovos(listaFilhos, existentes) : [];
+  const corrigidos = corrigir ? filhosAlterados(listaFilhos, existentes) : [];
 
   return prisma.$transaction(async (tx) => {
     const r = await tx.fichaCadastral.updateMany({
-      where: { id: ficha.id, status: "FINALIZADA" },
+      where: { id: ficha.id, status: "FINALIZADA", updatedAt: ficha.updatedAt },
       data: { status: "CONCLUIDA", concluidaEm: new Date(), concluidaPorId: usuarioId },
     });
     if (r.count !== 1) throw new ErroConclusao("Esta ficha já foi concluída ou mudou de situação. Recarregue a tela.");
@@ -128,11 +136,12 @@ export async function concluirAtualizacao(ficha: FichaCadastral, usuarioId: stri
       await tx.employeeDependente.update({
         where: { id: c.dependenteId },
         data: {
+          ...(c.nomeNovo ? { nome: c.nomeNovo } : {}),
           ...(c.dataNascimento ? { dataNascimento: dataUtc(c.dataNascimento.novo) } : {}),
           ...(c.cpf ? { cpf: c.cpf.novo } : {}),
         },
       });
     }
-    return { antes: funcionario, funcionario: atualizado, filhosIncluidos: filhos.length, filhosCorrigidos: corrigidos.length };
+    return { antes: funcionario, funcionario: atualizado, filhosIncluidos: filhos, filhosCorrigidos: corrigidos };
   });
 }

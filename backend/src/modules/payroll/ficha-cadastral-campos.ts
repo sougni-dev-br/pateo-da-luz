@@ -50,7 +50,11 @@ const OPCOES: Record<string, readonly string[]> = {
 const BOOLEANOS = ["possuiDeficiencia", "usaVt"] as const;
 const MAX_FILHOS = 10;
 
-export type Filho = { nome: string; dataNascimento: string | null; cpf: string | null };
+/** `ref`: id do dependente já cadastrado (atualização) — corrigir o nome não vira filho novo. */
+export type Filho = { nome: string; dataNascimento: string | null; cpf: string | null; ref?: string | null };
+
+/** Dependente sem parentesco (importado da ficha de registro) conta como filho; cônjuge etc. não. */
+export const ehFilho = (parentesco: string | null | undefined) => !parentesco || /filh/i.test(parentesco);
 export type DadosPessoa = Record<string, string | boolean | Filho[] | null>;
 
 export const ROTULOS: Record<string, string> = {
@@ -114,7 +118,9 @@ function lerFilhos(v: unknown): Filho[] | { erro: string } {
     if (nascimento !== null && !dataValida(nascimento)) return { erro: `Data de nascimento de ${nome} inválida.` };
     const cpf = f.cpf == null || f.cpf === "" ? null : String(f.cpf).replace(/\D/g, "");
     if (cpf !== null && !cpfValido(cpf)) return { erro: `CPF de ${nome} inválido.` };
-    filhos.push({ nome: nomeProprio(nome) ?? nome, dataNascimento: nascimento, cpf });
+    // A referência vem da própria ficha; na conclusão só vale se for dependente deste funcionário.
+    const ref = typeof f.ref === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(f.ref) ? f.ref : null;
+    filhos.push({ nome: nomeProprio(nome) ?? nome, dataNascimento: nascimento, cpf, ref });
   }
   return filhos;
 }
@@ -274,7 +280,9 @@ export function tipoDaChavePix(chave: string): "CPF" | "EMAIL" | "TELEFONE" | "A
 }
 
 /** Dados atuais do funcionário no formato da ficha — a atualização já abre preenchida. */
-export function dadosDoFuncionario(e: Record<string, unknown>, filhos: Array<{ nome: string; dataNascimento: Date | null; cpf: string | null }>): DadosPessoa {
+export function dadosDoFuncionario(
+  e: Record<string, unknown>, filhos: Array<{ id?: string; nome: string; dataNascimento: Date | null; cpf: string | null }>,
+): DadosPessoa {
   const dados: DadosPessoa = {};
   for (const [campo, coluna] of Object.entries(PARA_FUNCIONARIO)) {
     const v = e[coluna];
@@ -286,7 +294,7 @@ export function dadosDoFuncionario(e: Record<string, unknown>, filhos: Array<{ n
   }
   if (!dados.nomeCompleto) dados.nomeCompleto = [e.firstName, e.lastName].filter(Boolean).join(" ") || null;
   if (typeof e.vtType === "string") dados.usaVt = e.vtType !== "NENHUM";
-  dados.filhos = filhos.map((f) => ({ nome: f.nome, dataNascimento: iso(f.dataNascimento), cpf: f.cpf }));
+  dados.filhos = filhos.map((f) => ({ nome: f.nome, dataNascimento: iso(f.dataNascimento), cpf: f.cpf, ref: f.id ?? null }));
   return dados;
 }
 
@@ -314,7 +322,10 @@ export function diferencas(dados: DadosPessoa, funcionario: Record<string, unkno
   for (const [campo, coluna] of Object.entries(PARA_FUNCIONARIO)) {
     const novo = valorParaFuncionario(campo, dados[campo]);
     if (novo == null) continue;
-    const atual = funcionario[coluna];
+    // Cadastro antigo sem "nome completo": o nome que vale é nome + sobrenome.
+    const atual = coluna === "nomeCompleto" && !funcionario.nomeCompleto
+      ? [funcionario.firstName, funcionario.lastName].filter(Boolean).join(" ") || null
+      : funcionario[coluna];
     const soAlfanumerico = DIGITOS[campo] || SEM_PONTUACAO.has(campo);
     const limpar = (v: unknown) => (soAlfanumerico ? comparavel(v).replace(/[^0-9a-z]/g, "") : comparavel(v));
     if (limpar(atual) === limpar(novo)) continue;
@@ -331,14 +342,17 @@ export function dividirNome(nomeCompleto: string): { firstName: string; lastName
 
 const chaveNome = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
 
-/** Filhos da ficha que ainda não estão nos dependentes (comparando o nome sem caixa nem acento). */
-export function filhosNovos(filhos: Filho[], existentes: Array<{ nome: string }>): Filho[] {
+/** Filhos da ficha que ainda não estão nos dependentes: nem pela referência, nem pelo nome (sem caixa nem acento). */
+export function filhosNovos(filhos: Filho[], existentes: Array<{ id: string; nome: string }>): Filho[] {
+  const ids = new Set(existentes.map((d) => d.id));
   const ja = new Set(existentes.map((d) => chaveNome(d.nome)));
-  return filhos.filter((f) => !ja.has(chaveNome(f.nome)));
+  return filhos.filter((f) => !(f.ref && ids.has(f.ref)) && !ja.has(chaveNome(f.nome)));
 }
 
 export type FilhoAlterado = {
   dependenteId: string; nome: string;
+  /** Grafia do nome corrigida pela pessoa (só quando o dependente veio do cadastro pela referência). */
+  nomeNovo?: string;
   dataNascimento?: { atual: string | null; novo: string };
   cpf?: { atual: string | null; novo: string };
 };
@@ -353,17 +367,20 @@ export function filhosAlterados(
   const lista: FilhoAlterado[] = [];
   const quantos = (nomes: string[], alvo: string) => nomes.filter((n) => chaveNome(n) === chaveNome(alvo)).length;
   for (const d of existentes) {
-    // Dois filhos com o mesmo nome (na ficha ou no cadastro): não dá para saber qual é qual —
-    // nada é corrigido sozinho; o RH ajusta no cadastro.
-    if (quantos(existentes.map((e) => e.nome), d.nome) > 1 || quantos(filhos.map((x) => x.nome), d.nome) > 1) continue;
-    const f = filhos.find((x) => chaveNome(x.nome) === chaveNome(d.nome));
+    // Pela referência (a ficha veio do cadastro), o nome pode ter sido corrigido.
+    const porRef = filhos.find((x) => x.ref === d.id);
+    // Sem referência, pelo nome. Dois filhos com o mesmo nome (na ficha ou no cadastro): não dá
+    // para saber qual é qual — nada é corrigido sozinho; o RH ajusta no cadastro.
+    const repetido = quantos(existentes.map((e) => e.nome), d.nome) > 1 || quantos(filhos.map((x) => x.nome), d.nome) > 1;
+    const f = porRef ?? (repetido ? undefined : filhos.find((x) => !x.ref && chaveNome(x.nome) === chaveNome(d.nome)));
     if (!f) continue;
     const item: FilhoAlterado = { dependenteId: d.id, nome: d.nome };
+    if (porRef && chaveNome(f.nome) !== chaveNome(d.nome)) item.nomeNovo = f.nome;
     const nascimentoAtual = iso(d.dataNascimento);
     if (f.dataNascimento && f.dataNascimento !== nascimentoAtual) item.dataNascimento = { atual: nascimentoAtual, novo: f.dataNascimento };
     const cpfAtual = d.cpf ? d.cpf.replace(/\D/g, "") : null;
     if (f.cpf && f.cpf !== cpfAtual) item.cpf = { atual: cpfAtual, novo: f.cpf };
-    if (item.dataNascimento || item.cpf) lista.push(item);
+    if (item.nomeNovo || item.dataNascimento || item.cpf) lista.push(item);
   }
   return lista;
 }

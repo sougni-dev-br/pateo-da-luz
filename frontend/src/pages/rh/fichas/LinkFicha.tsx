@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { FichaCadastralTipo } from "../../../api/client";
 import { Dialog } from "../../../components/ui/Dialog";
 import { Alert, Button, TextField } from "../../../design-system";
-import { dataBr, linkDaFicha, linkWhatsapp } from "./fichaFormato";
+import { copiarTexto, dataBr, linkDaFicha, linkWhatsapp } from "./fichaFormato";
 
 type Props = {
   aberto: boolean;
@@ -21,19 +21,13 @@ type Props = {
  */
 export function LinkFicha({ aberto, onFechar, nome, tipo, codigo, expiraEm, celular }: Props) {
   const url = linkDaFicha(codigo);
-  const [copiado, setCopiado] = useState(false);
+  const [copiado, setCopiado] = useState<boolean | null>(null);
   const [numero, setNumero] = useState(celular ?? "");
 
   async function copiar() {
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      const campo = document.getElementById("ficha-link-url") as HTMLInputElement | null;
-      campo?.select();
-      document.execCommand?.("copy");
-    }
-    setCopiado(true);
-    window.setTimeout(() => setCopiado(false), 2500);
+    const ok = await copiarTexto(url, "ficha-link-url");
+    setCopiado(ok);
+    if (ok) window.setTimeout(() => setCopiado(null), 2500);
   }
 
   return (
@@ -46,6 +40,7 @@ export function LinkFicha({ aberto, onFechar, nome, tipo, codigo, expiraEm, celu
             {copiado ? "Copiado" : "Copiar link"}
           </Button>
         </div>
+        {copiado === false && <Alert tone="warning">O navegador não deixou copiar. O link está selecionado no campo acima: copie com Ctrl+C.</Alert>}
         <div className="fc-link-whats">
           <TextField label="Celular da pessoa (opcional)" hint="Com DDD. Sem número, o WhatsApp pede para escolher a conversa." inputMode="numeric"
             value={numero} onChange={(e) => setNumero(e.target.value)} />

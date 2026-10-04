@@ -1,5 +1,6 @@
 import type { FichaCadastralDetalhe, FichaCadastralEmpresa } from "../../../api/client";
 import { FormGrid, Select, Switch, TextField, Textarea } from "../../../design-system";
+import { valorBr, valorNoCampo } from "./fichaFormato";
 
 type Props = {
   ficha: FichaCadastralDetalhe;
@@ -15,6 +16,12 @@ export function EmpresaFicha({ ficha, valor, onChange, somenteLeitura }: Props) 
   const mudar = <K extends keyof FichaCadastralEmpresa>(campo: K, v: FichaCadastralEmpresa[K]) => onChange({ ...valor, [campo]: v });
   const texto = (campo: keyof FichaCadastralEmpresa) => (valor[campo] == null ? "" : String(valor[campo]));
   const vazioParaNull = (s: string) => (s.trim() === "" ? null : s);
+  // Dinheiro: guarda o que foi digitado; a conversão (1.500,00 → 1500) é feita no envio.
+  const dinheiro = (campo: "salario" | "valorVt") => ({
+    value: valorNoCampo(valor[campo]),
+    error: valorBr(valor[campo]) === undefined ? "Use o formato 1.500,00." : undefined,
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => mudar(campo, (e.target.value.trim() === "" ? null : e.target.value) as never),
+  });
   const hora = (campo: keyof FichaCadastralEmpresa, rotulo: string) => (
     <TextField label={rotulo} type="time" value={texto(campo)} disabled={campo.startsWith("sabado") ? somenteLeitura : doCadastro}
       onChange={(e) => mudar(campo, vazioParaNull(e.target.value) as never)} />
@@ -32,9 +39,8 @@ export function EmpresaFicha({ ficha, valor, onChange, somenteLeitura }: Props) 
           onChange={(e) => mudar("admissao", vazioParaNull(e.target.value))} />
         <TextField label="Função" value={texto("funcao")} disabled={doCadastro} required={ficha.tipo === "ADMISSAO"}
           onChange={(e) => mudar("funcao", vazioParaNull(e.target.value))} />
-        <TextField label="Salário (R$)" inputMode="decimal" value={texto("salario")} disabled={doCadastro || ficha.salarioOculto}
-          hint={ficha.salarioOculto ? "Oculto: exige permissão de ver Funcionários." : undefined}
-          onChange={(e) => { const n = e.target.value.replace(",", "."); mudar("salario", n.trim() === "" ? null : (n as unknown as number)); }} />
+        <TextField label="Salário (R$)" inputMode="decimal" placeholder="1.500,00" disabled={doCadastro || ficha.salarioOculto}
+          hint={ficha.salarioOculto ? "Oculto: exige permissão de ver Funcionários." : undefined} {...dinheiro("salario")} />
         <Select label="Vínculo" value={valor.modalidade ?? "CLT"} disabled={doCadastro}
           options={[{ value: "CLT", label: "CLT" }, { value: "NAO_CLT", label: "Sem registro" }]}
           onChange={(e) => mudar("modalidade", e.target.value as "CLT" | "NAO_CLT")} />
@@ -57,8 +63,7 @@ export function EmpresaFicha({ ficha, valor, onChange, somenteLeitura }: Props) 
             onChange={(v: boolean) => mudar("valeTransporte", v)} />
           <span>Recebe vale-transporte</span>
         </label>
-        <TextField label="Valor do VT (R$)" inputMode="decimal" value={texto("valorVt")} disabled={somenteLeitura || ficha.salarioOculto}
-          onChange={(e) => { const n = e.target.value.replace(",", "."); mudar("valorVt", n.trim() === "" ? null : (n as unknown as number)); }} />
+        <TextField label="Valor do VT (R$)" inputMode="decimal" placeholder="250,00" disabled={somenteLeitura || ficha.salarioOculto} {...dinheiro("valorVt")} />
       </FormGrid>
       <Textarea label="Observações para a contabilidade" value={texto("observacoes")} disabled={somenteLeitura} rows={2}
         onChange={(e) => mudar("observacoes", vazioParaNull(e.target.value))} />
