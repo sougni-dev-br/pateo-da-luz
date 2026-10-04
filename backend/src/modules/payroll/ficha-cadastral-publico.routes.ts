@@ -121,20 +121,24 @@ fichaCadastralPublicoRouter.post(`${rota}/verificar`, limiteVerificacao, carrega
   const certo = respostaConfere((request.body as Record<string, unknown>)?.resposta, esperado, metodo);
   // Uma tentativa por vez, com a linha travada: tentativas em paralelo não passam todas pela
   // checagem do bloqueio antes de ele ser gravado (20 chutes em vez de 5).
-  type Tentativa = { liberada: true } | { bloqueadoAte: Date; novo: boolean } | { tentativasErradas: number };
+  type Tentativa = { liberada: true } | { bloqueadoAte: Date; novo: boolean } | { tentativasErradas: number } | { mudou: true };
   const r = await prisma.$transaction(async (tx): Promise<Tentativa> => {
-    const [linha] = await tx.$queryRaw<Array<{ bloqueadoAte: Date | null; tentativasErradas: number }>>`
-      SELECT "bloqueadoAte", "tentativasErradas" FROM "FichaCadastral" WHERE id = ${c.ficha.id} FOR UPDATE`;
-    if (linha?.bloqueadoAte && linha.bloqueadoAte.getTime() > Date.now()) return { bloqueadoAte: linha.bloqueadoAte, novo: false };
+    const [linha] = await tx.$queryRaw<Array<{ bloqueadoAte: Date | null; tentativasErradas: number; status: string }>>`
+      SELECT "bloqueadoAte", "tentativasErradas", status::text AS status FROM "FichaCadastral" WHERE id = ${c.ficha.id} FOR UPDATE`;
+    // Cancelada, enviada ou apagada entre a leitura e a trava: não libera dados nem conta tentativa.
+    if (!linha || !EDITAVEL.has(linha.status as never)) return { mudou: true };
+    if (linha.bloqueadoAte && linha.bloqueadoAte.getTime() > Date.now()) return { bloqueadoAte: linha.bloqueadoAte, novo: false };
     if (certo) {
       await tx.fichaCadastral.update({ where: { id: c.ficha.id }, data: { tentativasErradas: 0, bloqueadoAte: null } });
       return { liberada: true };
     }
-    const tentativasErradas = (linha?.tentativasErradas ?? 0) + 1;
+    const tentativasErradas = linha.tentativasErradas + 1;
     const bloqueadoAte = bloqueioApos(tentativasErradas);
     await tx.fichaCadastral.update({ where: { id: c.ficha.id }, data: { tentativasErradas, ...(bloqueadoAte ? { bloqueadoAte } : {}) } });
     return bloqueadoAte ? { bloqueadoAte, novo: true } : { tentativasErradas };
-  });
+    // O envio de foto segura a mesma linha por até 20 s: o padrão de 5 s daria erro à toa.
+  }, { timeout: 30_000, maxWait: 30_000 });
+  if ("mudou" in r) return response.status(409).json({ message: "Esta ficha mudou de situação. Recarregue a página." });
   if ("liberada" in r) return response.json(await estado({ ...c, liberada: true }));
   if ("bloqueadoAte" in r) {
     if (r.novo) await auditLog({ action: "FICHA_CADASTRAL_BLOQUEADA", entity: "FichaCadastral", entityId: c.ficha.id, ipAddress: ipConfiavel(request), userAgent: String(request.headers["user-agent"] ?? "") });

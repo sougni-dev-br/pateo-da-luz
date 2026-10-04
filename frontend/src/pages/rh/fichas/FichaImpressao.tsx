@@ -3,7 +3,7 @@
 import { createPortal } from "react-dom";
 import type { FichaCadastralDetalhe, FichaCadastralEmpresa } from "../../../api/client";
 import { valorLegivel } from "./DadosPessoa";
-import { diaBr, formatarCnpj } from "./fichaFormato";
+import { diaBr, formatarCnpj, valorBr } from "./fichaFormato";
 
 export const CLASSE_IMPRIMINDO = "imprimindo-ficha-cadastral";
 
@@ -23,7 +23,11 @@ function Linha({ celulas }: { celulas: Celula[] }) {
 }
 
 const marca = (sim: boolean | null | undefined, rotulo: string) => `(${sim ? "X" : " "}) ${rotulo}`;
-const dinheiro = (v: unknown) => (v == null || v === "" ? "" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
+// O valor pode estar como o RH digitou ("1.500,00"): Number() daria "R$ NaN" na folha assinada.
+const dinheiro = (v: unknown) => {
+  const n = valorBr(v);
+  return n == null ? "" : n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+};
 
 export function FichaImpressao({ ficha, empresa, fotoUrl }: { ficha: FichaCadastralDetalhe; empresa: FichaCadastralEmpresa; fotoUrl?: string | null }) {
   const d = ficha.dados;
