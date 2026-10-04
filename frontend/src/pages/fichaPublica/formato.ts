@@ -58,14 +58,19 @@ export function tamanhoLegivel(bytes: number): string {
 
 const LADO_MAXIMO = 2000;
 const QUALIDADE = 0.85;
-const SEM_COMPRIMIR_ATE = 1.2 * 1024 * 1024;
+const EXTENSAO_DE_IMAGEM = /\.(jpe?g|png|webp|heic|heif|gif)$/i;
+
+/** Alguns Android entregam a foto sem tipo: decide pela extensão. */
+const ehImagem = (arquivo: File) => arquivo.type.startsWith("image/") || (!arquivo.type && EXTENSAO_DE_IMAGEM.test(arquivo.name));
 
 /**
  * Foto do celular chega com 4–12 MB: reduz para no máximo 2000 px no lado maior, em JPEG.
- * Ainda dá para ler o número do documento e a ficha não estoura o espaço. PDF vai como está.
+ * Ainda dá para ler o número do documento e a ficha não estoura o espaço. Toda foto é
+ * redesenhada — isso tira os metadados (inclusive a localização de onde foi tirada). PDF vai
+ * como está.
  */
 export async function prepararArquivo(arquivo: File): Promise<{ blob: Blob; nome: string }> {
-  if (!arquivo.type.startsWith("image/")) return { blob: arquivo, nome: arquivo.name };
+  if (!ehImagem(arquivo)) return { blob: arquivo, nome: arquivo.name };
   const url = URL.createObjectURL(arquivo);
   try {
     const img = await new Promise<HTMLImageElement>((ok, falha) => {
@@ -75,11 +80,14 @@ export async function prepararArquivo(arquivo: File): Promise<{ blob: Blob; nome
       i.src = url;
     });
     const escala = Math.min(1, LADO_MAXIMO / Math.max(img.naturalWidth, img.naturalHeight));
-    if (escala === 1 && arquivo.size <= SEM_COMPRIMIR_ATE && /jpe?g|png/.test(arquivo.type)) return { blob: arquivo, nome: arquivo.name };
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(img.naturalWidth * escala);
     canvas.height = Math.round(img.naturalHeight * escala);
-    canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const ctx = canvas.getContext("2d")!;
+    // PNG com fundo transparente (print da CTPS digital) viraria JPEG com fundo preto.
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/jpeg", QUALIDADE));
     if (!blob) return { blob: arquivo, nome: arquivo.name };
     return { blob, nome: arquivo.name.replace(/\.[^.]+$/, "") + ".jpg" };
