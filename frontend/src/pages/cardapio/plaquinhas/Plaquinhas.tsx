@@ -1,6 +1,7 @@
 // Cardápio → Plaquinhas do buffet: a cozinha monta a lista do dia (ou do coffee break)
 // a partir do catálogo e imprime as plaquinhas em português e inglês. A aba "Cardápio do
-// evento" monta a placa de frente e verso do display de acrílico.
+// evento" monta a placa de frente e verso do display de acrílico. "Acompanhamento" mostra,
+// a partir das impressões, os pratos mais feitos, os que repetem e os esquecidos.
 import { useCallback, useEffect, useState } from "react";
 import {
   getBuffetMenus, getBuffetPlateItems, getBuffetPlateLists,
@@ -10,16 +11,18 @@ import { useSession } from "../../../context/SessionContext";
 import { Alert, Tabs } from "../../../design-system";
 import { useNavigationGuard } from "../../../lib/navigationGuard";
 import { hasPermission } from "../../../lib/permissions";
+import { AcompanhamentoPratos } from "./AcompanhamentoPratos";
 import { CardapioAcrilico } from "./CardapioAcrilico";
 import { CatalogoPlaquinhas } from "./CatalogoPlaquinhas";
 import { MontarFolha } from "./MontarFolha";
 import "./plaquinhas-tela.css";
 
 const MODULO = "buffet-plates";
-// No celular as três abas dividem a linha; o rótulo encolhe para caber sem quebrar.
+// No celular as abas ficam em grade 2 × 2; o rótulo encolhe para caber sem quebrar.
 const rotulo = (longo: string, curto: string) => <><span className="plq-aba-longa">{longo}</span><span className="plq-aba-curta" aria-hidden="true">{curto}</span></>;
 const ABAS = [
   { value: "montar", label: "Plaquinhas" },
+  { value: "acompanhamento", label: "Acompanhamento" },
   { value: "cardapio", label: rotulo("Cardápio do evento", "Cardápio") },
   { value: "catalogo", label: rotulo("Catálogo de pratos", "Catálogo") },
 ];
@@ -39,6 +42,9 @@ export function Plaquinhas() {
   const [erro, setErro] = useState<string | null>(null);
   const [folhaPendente, setFolhaPendente] = useState(false);
   const [cardapioPendente, setCardapioPendente] = useState(false);
+  // Muda a cada impressão registrada ou apagada: o alerta e a aba de acompanhamento releem.
+  const [versaoAcompanhamento, setVersaoAcompanhamento] = useState(0);
+  const acompanhamentoMudou = useCallback(() => setVersaoAcompanhamento((v) => v + 1), []);
 
   const carregarListas = useCallback(() => {
     getBuffetPlateLists().then(setListas).catch(() => setErro("Não foi possível carregar as listas salvas."));
@@ -86,7 +92,11 @@ export function Plaquinhas() {
       {/* As abas ficam montadas: ir ao catálogo cadastrar um prato não apaga o que estava sendo montado. */}
       <div hidden={aba !== "montar"}>
         <MontarFolha ativa={aba === "montar"} catalogo={catalogo} listas={listas} podeCriar={podeCriar} podeEditar={podeEditar} podeExcluir={podeExcluir}
-          aoMudarListas={carregarListas} aoCadastrarPrato={guardarPrato} aoMudarPendencia={setFolhaPendente} />
+          aoMudarListas={carregarListas} aoCadastrarPrato={guardarPrato} aoMudarPendencia={setFolhaPendente}
+          aoRegistrarImpressao={acompanhamentoMudou} versaoAcompanhamento={versaoAcompanhamento} />
+      </div>
+      <div hidden={aba !== "acompanhamento"}>
+        <AcompanhamentoPratos ativa={aba === "acompanhamento"} catalogo={catalogo} podeExcluir={podeExcluir} versao={versaoAcompanhamento} aoMudar={acompanhamentoMudou} />
       </div>
       <div hidden={aba !== "cardapio"}>
         <CardapioAcrilico ativa={aba === "cardapio"} catalogo={catalogo} cardapios={cardapios} podeCriar={podeCriar} podeEditar={podeEditar} podeExcluir={podeExcluir}

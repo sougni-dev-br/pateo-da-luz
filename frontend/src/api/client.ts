@@ -4038,6 +4038,37 @@ export function deleteBuffetMenu(id: string) {
   return request<{ ok: boolean }>(`/buffet-plates/menus/${id}`, { method: "DELETE" });
 }
 
+// Impressões de plaquinhas: cada uma anota os pratos do dia para o acompanhamento.
+export type BuffetPlatePrintInput = { servedOn: string; kind: PlateListKind; listId: string | null; listName: string | null; itemIds: string[] };
+export type BuffetPlatePrint = { id: string; servedOn: string; kind: PlateListKind; listName: string | null; itemCount: number; createdAt: string };
+export type BuffetUsageRow = { itemId: string; days: number; share: number; lastDay: string };
+export type BuffetForgottenRow = { itemId: string; daysInHistory: number; lastDay: string; daysSince: number };
+export type BuffetUsageReport = {
+  period: { start: string; end: string; windowDays: number; servedDays: number };
+  ranking: BuffetUsageRow[];
+  staples: string[];
+  repeating: string[];
+  forgotten: BuffetForgottenRow[];
+};
+
+export function registerBuffetPlatePrint(payload: BuffetPlatePrintInput) {
+  return request<{ id: string; servedOn: string; itemCount: number }>("/buffet-plates/prints", {
+    method: "POST", headers: JSON_HEADERS, body: JSON.stringify(payload),
+  });
+}
+
+export function getBuffetPlatePrints(kind: PlateListKind) {
+  return request<BuffetPlatePrint[]>(`/buffet-plates/prints${toQueryString({ kind })}`);
+}
+
+export function deleteBuffetPlatePrint(id: string) {
+  return request<{ ok: boolean }>(`/buffet-plates/prints/${id}`, { method: "DELETE" });
+}
+
+export function getBuffetUsage(kind: PlateListKind, days: 7 | 30 | 90) {
+  return request<BuffetUsageReport>(`/buffet-plates/usage${toQueryString({ kind, days: String(days) })}`);
+}
+
 // ──────────────────────────────────────────────
 // DRE Gerencial
 // ──────────────────────────────────────────────

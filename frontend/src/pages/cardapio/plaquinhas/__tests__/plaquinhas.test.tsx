@@ -217,6 +217,8 @@ vi.mock("../../../../api/client", async (original) => ({
   ...(await original<typeof import("../../../../api/client")>()),
   deactivateBuffetPlateItem: vi.fn(async (id: string) => ({ ...catalogo.find((p) => p.id === id)!, isActive: false })),
   saveBuffetPlateItem: vi.fn(async (dados: Omit<BuffetPlateItem, "id">, id: string) => ({ ...dados, id })),
+  getBuffetUsage: vi.fn(async () => ({ period: { start: "2026-09-05", end: "2026-10-04", windowDays: 30, servedDays: 0 }, ranking: [], staples: [], repeating: [], forgotten: [] })),
+  getBuffetPlatePrints: vi.fn(async () => []),
 }));
 
 describe("catálogo", () => {
@@ -240,5 +242,52 @@ describe("prévia", () => {
     expect(screen.getByText("A prévia aparece aqui")).toBeInTheDocument();
     expect(screen.getByText("Abra uma lista salva.")).toBeInTheDocument();
     expect(screen.getByText("folha").closest("[hidden]")).not.toBeNull();
+  });
+});
+
+const relatorio = {
+  period: { start: "2026-09-05", end: "2026-10-04", windowDays: 30, servedDays: 20 },
+  ranking: [{ itemId: "Penne ao molho rosé", days: 12, share: 0.6, lastDay: "2026-10-04" }],
+  staples: [],
+  repeating: ["Penne ao molho rosé"],
+  forgotten: [
+    { itemId: "Salmão ao molho de alcaparras", daysInHistory: 6, lastDay: "2026-09-10", daysSince: 24 },
+    { itemId: "Penne antigo", daysInHistory: 5, lastDay: "2026-09-01", daysSince: 33 },
+  ],
+};
+
+describe("lembretes na hora de montar a folha", () => {
+  test("lembra o esquecido que não está na folha e põe com um toque; prato inativo não é lembrado", async () => {
+    const { LembretesDoBuffet } = await import("../LembretesDoBuffet");
+    const porId = new Map(catalogo.map((p) => [p.id, p]));
+    const onAdicionar = vi.fn();
+    render(<LembretesDoBuffet relatorio={relatorio} porId={porId} naFolha={new Map()} onAdicionar={onAdicionar} />);
+    fireEvent.click(screen.getByRole("button", { name: /Salmão ao molho de alcaparras/ }));
+    expect(onAdicionar).toHaveBeenCalledWith("Salmão ao molho de alcaparras");
+    expect(screen.queryByText(/Penne antigo/)).toBeNull();
+    expect(screen.queryByText(/Saindo demais/)).toBeNull();
+  });
+
+  test("avisa quando um prato da folha está saindo demais", async () => {
+    const { LembretesDoBuffet } = await import("../LembretesDoBuffet");
+    const porId = new Map(catalogo.map((p) => [p.id, p]));
+    render(<LembretesDoBuffet relatorio={relatorio} porId={porId} naFolha={new Map([["Penne ao molho rosé", 1], ["Salmão ao molho de alcaparras", 1]])} onAdicionar={vi.fn()} />);
+    expect(screen.getByText(/saiu em 12 dos 20 dias de buffet/)).toBeInTheDocument();
+    expect(screen.queryByText(/Faz tempo que não sai/)).toBeNull();
+  });
+
+  test("sem nada a dizer, não ocupa espaço", async () => {
+    const { LembretesDoBuffet } = await import("../LembretesDoBuffet");
+    const { container } = render(<LembretesDoBuffet relatorio={{ ...relatorio, repeating: [], forgotten: [] }} porId={new Map()} naFolha={new Map()} onAdicionar={vi.fn()} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("aba de acompanhamento", () => {
+  test("sem impressões registradas explica de onde vêm os números", async () => {
+    const { AcompanhamentoPratos } = await import("../AcompanhamentoPratos");
+    render(<AcompanhamentoPratos ativa catalogo={catalogo} podeExcluir versao={0} aoMudar={vi.fn()} />);
+    expect(await screen.findByText("Ainda sem registros")).toBeInTheDocument();
+    expect(screen.getByText(/Cada vez que a cozinha imprime as plaquinhas/)).toBeInTheDocument();
   });
 });
