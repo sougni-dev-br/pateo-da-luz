@@ -1,5 +1,6 @@
 import { useLayoutEffect, useState } from "react";
 import type { PlateFormat } from "../../../api/client";
+import { preencherSemQuebrarHifen } from "./semQuebrarHifen";
 
 // Tamanho da letra de cada prato na plaquinha. Medir é caro (o navegador recalcula o layout a
 // cada tentativa), então cada prato é medido UMA vez num molde escondido e o resultado fica
@@ -44,8 +45,8 @@ function criarMolde(formato: PlateFormat, textos: TextoPlaca[], mostrarCategoria
     (c.querySelector(".plq-sobretitulo span") as HTMLElement).textContent = textos[i].sobretitulo;
     const pt = c.querySelector(".plq-pt") as HTMLElement;
     const en = c.querySelector(".plq-en") as HTMLElement;
-    pt.textContent = textos[i].nome;
-    en.textContent = textos[i].nameEn;
+    preencherSemQuebrarHifen(pt, textos[i].nome);
+    preencherSemQuebrarHifen(en, textos[i].nameEn);
     return { nomes: c.querySelector(".plq-nomes") as HTMLElement, pt, en };
   });
   document.body.appendChild(raiz);

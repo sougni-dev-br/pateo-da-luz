@@ -9,6 +9,7 @@ import { chaveTamanho, comFolga } from "../medidaFonte";
 import {
   adicionarEntrada, arrumarNome, buscarPratos, dataCurta, novaEntrada, ordenarPorCategoria, rotuloLista, sugerirCategoria, type Entrada,
 } from "../plaquinhasFormato";
+import { preencherSemQuebrarHifen, semQuebrarHifen } from "../semQuebrarHifen";
 
 const prato = (namePt: string, nameEn: string, category: string, isActive = true): BuffetPlateItem => ({ id: namePt, namePt, nameEn, category, isActive });
 const catalogo = [
@@ -74,6 +75,29 @@ describe("entradas da folha", () => {
   test("ordenar por categoria segue a ordem do buffet e mantém a ordem dentro da categoria", () => {
     const es = ["Pão de queijo", "Penne ao molho rosé", "fantasma", "Arroz", "Salmão ao molho de alcaparras"].map((id) => novaEntrada(id));
     expect(ordenarPorCategoria(es, porId).map((e) => e.itemId)).toEqual(["Arroz", "Penne ao molho rosé", "Salmão ao molho de alcaparras", "Pão de queijo", "fantasma"]);
+  });
+});
+
+describe("palavra com hífen", () => {
+  test("não quebra a linha no meio de alho-poró nem de grão-de-bico", () => {
+    const { container } = render(<div>{semQuebrarHifen("Creme de alho-poró com grão-de-bico")}</div>);
+    const blocos = [...container.querySelectorAll(".plq-sem-quebra")].map((e) => e.textContent);
+    expect(blocos).toEqual(["alho-poró", "grão-de-bico"]);
+    expect(container.textContent).toBe("Creme de alho-poró com grão-de-bico");
+  });
+
+  test("texto sem hífen e hífen solto ficam como estão", () => {
+    expect(semQuebrarHifen("Arroz branco")).toBe("Arroz branco");
+    const { container } = render(<div>{semQuebrarHifen("Massa - opção vegana")}</div>);
+    expect(container.querySelector(".plq-sem-quebra")).toBeNull();
+  });
+
+  test("o molde de medição recebe a mesma marcação", () => {
+    const el = document.createElement("div");
+    el.textContent = "antigo";
+    preencherSemQuebrarHifen(el, "Batata-doce assada");
+    expect(el.querySelector(".plq-sem-quebra")?.textContent).toBe("Batata-doce");
+    expect(el.textContent).toBe("Batata-doce assada");
   });
 });
 

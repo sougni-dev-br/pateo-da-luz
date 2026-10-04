@@ -52,18 +52,19 @@
 .plq-sobretitulo::after { transform: scaleX(-1); }
 .plq-sobretitulo b { width: 1mm; height: 1mm; background: var(--plq-traco); transform: rotate(45deg); display: inline-block; }
 .plq-oculto { visibility: hidden; }
+.plq-sem-quebra { white-space: nowrap; }
 
 .plq-nomes { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; justify-content: center; gap: .9mm; overflow: hidden; }
 .plq-pt { font-family: Marcellus, "Palatino Linotype", Georgia, serif; font-size: var(--pt, 20pt); line-height: 1.08; text-wrap: balance; overflow-wrap: break-word; }
 .plq-en { font: italic var(--en, 10pt)/1.2 Georgia, "Times New Roman", serif; color: var(--plq-ingles); text-wrap: balance; overflow-wrap: break-word; }
-.plq-logo { display: block; height: 8.5mm; width: auto; flex: none; }
+.plq-logo { display: block; height: 11mm; width: auto; flex: none; }
 
-.plq-folha--tent .plq-logo { height: 7.5mm; }
+.plq-folha--tent .plq-logo { height: 9.5mm; }
 .plq-folha--sauce .plq-placa { padding: 1.8mm; }
 .plq-folha--sauce .plq-moldura { padding: 1.6mm 2.4mm 1.4mm; }
 .plq-folha--sauce .plq-sobretitulo { font-size: 5.4pt; }
 .plq-folha--sauce .plq-sobretitulo::before, .plq-folha--sauce .plq-sobretitulo::after { width: 4mm; }
-.plq-folha--sauce .plq-logo { height: 5.4mm; }
+.plq-folha--sauce .plq-logo { height: 6.8mm; }
 
 /* Nome que não coube nem no menor tamanho: marcado só na tela, para encurtar. */
 .plq-placa--estoura { outline: .6mm solid #c0392b; outline-offset: -.6mm; }

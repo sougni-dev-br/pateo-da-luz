@@ -1,4 +1,5 @@
-/* Cardápio do evento para o display de acrílico. Mesma moldura e fontes das plaquinhas. */
+/* Cardápio do evento para o display de acrílico. Mesma moldura e fontes das plaquinhas.
+   Espaçamento mais justo que o da plaquinha: a face é pequena e cada décimo de mm vira letra maior. */
 .cdp-face, .cdp-face *, .cdp-folha, .cdp-celula { box-sizing: border-box; }
 
 .cdp-folha { background: #fff; position: relative; overflow: hidden; display: grid; justify-content: center; align-content: start; padding-top: 8mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -9,12 +10,12 @@
 
 .cdp-face {
   --cdp-fundo: #ffffff; --cdp-texto: #2a1a16; --cdp-traco: #712313; --cdp-ingles: #6e4c43;
-  background: var(--cdp-fundo); color: var(--cdp-texto); padding: 2.4mm;
+  background: var(--cdp-fundo); color: var(--cdp-texto); padding: 1.8mm;
 }
 .cdp-face--gold { --cdp-fundo: #161512; --cdp-texto: #f6f0e2; --cdp-traco: #c9aa66; --cdp-ingles: #cfc4ad; }
 .cdp-moldura {
   position: relative; width: 100%; height: 100%; border: .35mm solid var(--cdp-traco);
-  display: flex; flex-direction: column; align-items: center; padding: 2.4mm 3mm; text-align: center;
+  display: flex; flex-direction: column; align-items: center; padding: 1.8mm 2mm; text-align: center;
 }
 .cdp-moldura::before { content: ""; position: absolute; inset: .9mm; border: .15mm solid var(--cdp-traco); pointer-events: none; }
 .cdp-moldura i { position: absolute; width: 2.4mm; height: 2.4mm; background: var(--cdp-traco); transform: rotate(45deg); }
@@ -28,7 +29,7 @@
 
 .cdp-corpo {
   flex: 1; min-height: 0; width: 100%; overflow: hidden;
-  display: flex; flex-direction: column; justify-content: center; gap: calc(var(--s) * 0.75);
+  display: flex; flex-direction: column; justify-content: center; gap: calc(var(--s) * 0.55);
 }
 .cdp-secao { display: flex; flex-direction: column; align-items: center; }
 .cdp-titulo {
@@ -37,7 +38,7 @@
 }
 .cdp-titulo b { width: calc(var(--s) * 0.32); height: calc(var(--s) * 0.32); background: var(--cdp-traco); transform: rotate(45deg); flex: none; }
 .cdp-titulo-en { margin: .2mm 0 0; font: italic calc(var(--s) * 0.72) / 1.15 Georgia, "Times New Roman", serif; color: var(--cdp-ingles); }
-.cdp-secao ul { list-style: none; margin: calc(var(--s) * 0.35) 0 0; padding: 0; display: flex; flex-direction: column; gap: calc(var(--s) * 0.38); width: 100%; }
+.cdp-secao ul { list-style: none; margin: calc(var(--s) * 0.25) 0 0; padding: 0; display: flex; flex-direction: column; gap: calc(var(--s) * 0.28); width: 100%; }
 .cdp-secao li { display: flex; flex-direction: column; }
 .cdp-pt { font: var(--s) / 1.15 Marcellus, "Palatino Linotype", Georgia, serif; text-wrap: balance; overflow-wrap: break-word; }
 .cdp-en { font: italic calc(var(--s) * 0.78) / 1.15 Georgia, "Times New Roman", serif; color: var(--cdp-ingles); text-wrap: balance; overflow-wrap: break-word; }
