@@ -78,7 +78,8 @@ export function FichasCadastrais() {
   const { id } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { hasPermission } = useSession();
-  const podeCriar = hasPermission("employee-forms", "create");
+  // Gerar link exige também ver Funcionários (mesma regra do servidor).
+  const podeCriar = hasPermission("employee-forms", "create") && hasPermission("employees", "view");
   const [filtro, setFiltro] = useState("ABERTAS");
   const [fichas, setFichas] = useState<FichaCadastralResumo[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -126,7 +127,9 @@ export function FichasCadastrais() {
           !erro && <p className="fc-carregando" role="status">Carregando…</p>
         ) : fichas.length === 0 ? (
           <EmptyState title="Nenhuma ficha aqui"
-            description={filtro === "ABERTAS" ? "Gere um link em “Nova ficha de admissão”, ou peça atualização no cadastro de um funcionário." : "Nada nesta situação."} />
+            description={filtro !== "ABERTAS" ? "Nada nesta situação." : podeCriar
+              ? "Gere um link em “Nova ficha de admissão”, ou peça atualização no cadastro de um funcionário."
+              : "Gerar link exige as permissões de Fichas cadastrais e de ver Funcionários."} />
         ) : (
           <ul className="fc-lista">
             {fichas.map((f) => {
