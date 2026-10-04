@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { filhosParaSalvar } from "../EtapaFamilia";
 import { ETAPAS, corpoDaEtapa, etapaDeRetomada } from "../etapas";
 import type { Estado } from "../api";
-import { aplicarCep, apagarRascunho, guardarRascunho, hojeSp, lerRascunho } from "../rascunho";
+import { aplicarCep, apagarRascunho, guardarRascunho, hojeSp, impressaoDe, lerRascunho } from "../rascunho";
 
 const CODIGO = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
 
@@ -10,8 +10,8 @@ describe("rascunho na aba", () => {
   beforeEach(() => sessionStorage.clear());
 
   test("guarda, lê e apaga o que foi digitado e a etapa", () => {
-    guardarRascunho(CODIGO, { valores: { endereco: "Rua Exemplo" }, filhos: [{ nome: "Lia", nascimento: "", cpf: "" }], etapa: 2 });
-    expect(lerRascunho(CODIGO)).toEqual({ valores: { endereco: "Rua Exemplo" }, filhos: [{ nome: "Lia", nascimento: "", cpf: "" }], etapa: 2, doCep: {} });
+    guardarRascunho(CODIGO, { valores: { endereco: "Rua Exemplo" }, filhos: [{ nome: "Lia", nascimento: "", cpf: "" }], etapa: 2, base: "b1" });
+    expect(lerRascunho(CODIGO)).toEqual({ valores: { endereco: "Rua Exemplo" }, filhos: [{ nome: "Lia", nascimento: "", cpf: "" }], etapa: 2, doCep: {}, base: "b1" });
     apagarRascunho(CODIGO);
     expect(lerRascunho(CODIGO)).toBeNull();
   });
@@ -19,8 +19,18 @@ describe("rascunho na aba", () => {
   test("rascunho estragado é ignorado", () => {
     sessionStorage.setItem(`ficha-rascunho:${CODIGO.slice(0, 12)}`, "{não é json");
     expect(lerRascunho(CODIGO)).toBeNull();
-    sessionStorage.setItem(`ficha-rascunho:${CODIGO.slice(0, 12)}`, JSON.stringify({ valores: {}, filhos: "x", etapa: 1 }));
+    sessionStorage.setItem(`ficha-rascunho:${CODIGO.slice(0, 12)}`, JSON.stringify({ valores: {}, filhos: "x", etapa: 1, base: "b" }));
     expect(lerRascunho(CODIGO)).toBeNull();
+    // Filho estragado quebraria a tela a cada recarga; rascunho antigo sem base também sai.
+    sessionStorage.setItem(`ficha-rascunho:${CODIGO.slice(0, 12)}`, JSON.stringify({ valores: {}, filhos: [null], etapa: 1, base: "b" }));
+    expect(lerRascunho(CODIGO)).toBeNull();
+    sessionStorage.setItem(`ficha-rascunho:${CODIGO.slice(0, 12)}`, JSON.stringify({ valores: {}, filhos: [], etapa: 1 }));
+    expect(lerRascunho(CODIGO)).toBeNull();
+  });
+
+  test("impressão dos dados do servidor: igual para os mesmos dados, diferente se mudou", () => {
+    expect(impressaoDe({ cpf: "1", nome: "A", filhos: [{ nome: "Lia", cpf: null }] })).toBe(impressaoDe({ filhos: [{ cpf: null, nome: "Lia" }], nome: "A", cpf: "1" }));
+    expect(impressaoDe({ cpf: "1", nome: "A" })).not.toBe(impressaoDe({ cpf: "2", nome: "A" }));
   });
 });
 
@@ -38,6 +48,15 @@ describe("endereço pelo CEP", () => {
     const digitadoAMao = { endereco: "Rua Errada", bairro: "Vila Que Eu Escrevi", cidade: "Santos", uf: "SP" };
     const r = aplicarCep(digitadoAMao, achado, anterior);
     expect(r.valores).toMatchObject({ endereco: "Praça da Sé", bairro: "Vila Que Eu Escrevi", cidade: "São Paulo", uf: "SP" });
+  });
+
+  test("CEP novo sem rua (CEP geral de cidade): a rua do CEP anterior sai; a digitada à mão fica", () => {
+    const anterior = { endereco: "Rua Errada", bairro: "Bairro Errado", cidade: "Santos", uf: "SP" };
+    const semRua = { endereco: "", bairro: "", cidade: "Cidade Pequena", uf: "MG" };
+    const r = aplicarCep({ ...anterior }, semRua, anterior);
+    expect(r.valores).toMatchObject({ endereco: "", bairro: "", cidade: "Cidade Pequena", uf: "MG" });
+    expect(r.doCep).toEqual({ cidade: "Cidade Pequena", uf: "MG" });
+    expect(aplicarCep({ endereco: "Rua Minha" }, semRua, { endereco: "Rua Errada" }).valores.endereco).toBe("Rua Minha");
   });
 
   test("sem CEP anterior, o que já está escrito fica", () => {
@@ -64,8 +83,10 @@ describe("onde a ficha reabre", () => {
   const revisao = ETAPAS.findIndex((e) => e.id === "revisao");
 
   test("com rascunho, na etapa em que a pessoa estava", () => {
-    expect(etapaDeRetomada(base, { valores: {}, filhos: [], etapa: 3 })).toBe(3);
-    expect(etapaDeRetomada(base, { valores: {}, filhos: [], etapa: 99 })).toBe(ETAPAS.length - 1);
+    expect(etapaDeRetomada(base, { valores: {}, filhos: [], etapa: 3, base: "" })).toBe(3);
+    expect(etapaDeRetomada(base, { valores: {}, filhos: [], etapa: 99, base: "" })).toBe(ETAPAS.length - 1);
+    // Rascunho vale mais que "devolvida" (a pessoa já estava corrigindo quando recarregou).
+    expect(etapaDeRetomada({ ...base, motivoDevolucao: "Foto ilegível" }, { valores: {}, filhos: [], etapa: 2, base: "" })).toBe(2);
   });
 
   test("devolvida pelo DP abre na revisão; atualização recomeça do início", () => {

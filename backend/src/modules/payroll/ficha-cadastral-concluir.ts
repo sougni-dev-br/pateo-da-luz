@@ -10,6 +10,8 @@ import {
 } from "./ficha-cadastral-campos.js";
 
 export class ErroConclusao extends Error {}
+/** A ficha mudou de situação entre a leitura e a gravação (outra pessoa agiu nela). */
+export class ConflitoConclusao extends ErroConclusao {}
 
 const dataUtc = (iso: string | null) => (iso ? new Date(`${iso}T00:00:00.000Z`) : null);
 
@@ -90,7 +92,7 @@ export async function concluirAdmissao(ficha: FichaCadastral, usuarioId: string)
       where: { id: ficha.id, status: "FINALIZADA", updatedAt: ficha.updatedAt },
       data: { status: "CONCLUIDA", concluidaEm: new Date(), concluidaPorId: usuarioId, employeeId: id },
     });
-    if (r.count !== 1) throw new ErroConclusao("Esta ficha já foi concluída ou mudou de situação. Recarregue a tela.");
+    if (r.count !== 1) throw new ConflitoConclusao("Esta ficha já foi concluída ou mudou de situação. Recarregue a tela.");
     return { funcionario: criado, campos: Object.keys(data) };
   });
 }
@@ -127,7 +129,7 @@ export async function concluirAtualizacao(ficha: FichaCadastral, usuarioId: stri
       where: { id: ficha.id, status: "FINALIZADA", updatedAt: ficha.updatedAt },
       data: { status: "CONCLUIDA", concluidaEm: new Date(), concluidaPorId: usuarioId },
     });
-    if (r.count !== 1) throw new ErroConclusao("Esta ficha já foi concluída ou mudou de situação. Recarregue a tela.");
+    if (r.count !== 1) throw new ConflitoConclusao("Esta ficha já foi concluída ou mudou de situação. Recarregue a tela.");
     const atualizado = Object.keys(novos).length
       ? await tx.employee.update({ where: { id: funcionario.id }, data: { ...novos, updatedById: usuarioId } }).catch(cpfRepetido)
       : funcionario;

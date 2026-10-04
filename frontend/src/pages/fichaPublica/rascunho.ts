@@ -5,7 +5,28 @@
 import type { FilhoTela } from "./EtapaFamilia";
 import type { Valores } from "./etapas";
 
-export type Rascunho = { valores: Valores; filhos: FilhoTela[]; etapa: number; doCep?: Partial<Record<"endereco" | "bairro" | "cidade" | "uf", string>> };
+export type Rascunho = {
+  valores: Valores; filhos: FilhoTela[]; etapa: number; doCep?: Partial<Record<"endereco" | "bairro" | "cidade" | "uf", string>>;
+  /** Impressão dos dados do servidor sobre os quais o rascunho foi feito (ver `impressaoDe`). */
+  base: string;
+};
+
+/**
+ * Impressão curta dos dados salvos no servidor. O rascunho só volta se ela bater: se a ficha foi
+ * salva em outro aparelho ou corrigida pelo RH depois, o rascunho velho não passa por cima.
+ */
+export function impressaoDe(dados: unknown): string {
+  const ordenar = (v: unknown): unknown => Array.isArray(v) ? v.map(ordenar)
+    : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, ordenar(x)]))
+    : v;
+  const texto = JSON.stringify(ordenar(dados ?? {}));
+  let h = 5381;
+  for (let i = 0; i < texto.length; i++) h = ((h * 33) ^ texto.charCodeAt(i)) >>> 0;
+  return `${texto.length}-${h.toString(16)}`;
+}
+
+const filhoValido = (f: unknown) => !!f && typeof f === "object"
+  && ["nome", "nascimento", "cpf"].every((k) => typeof (f as Record<string, unknown>)[k] === "string");
 
 const chave = (codigo: string) => `ficha-rascunho:${codigo.slice(0, 12)}`;
 
@@ -14,8 +35,9 @@ export function lerRascunho(codigo: string): Rascunho | null {
     const bruto = sessionStorage.getItem(chave(codigo));
     if (!bruto) return null;
     const r = JSON.parse(bruto) as Partial<Rascunho>;
-    if (!r || typeof r !== "object" || typeof r.valores !== "object" || !Array.isArray(r.filhos) || typeof r.etapa !== "number") return null;
-    return { valores: r.valores ?? {}, filhos: r.filhos, etapa: r.etapa, doCep: typeof r.doCep === "object" && r.doCep ? r.doCep : {} };
+    if (!r || typeof r !== "object" || !r.valores || typeof r.valores !== "object" || !Array.isArray(r.filhos) || typeof r.etapa !== "number"
+      || typeof r.base !== "string" || !r.filhos.every(filhoValido)) return null;
+    return { valores: r.valores, filhos: r.filhos, etapa: r.etapa, doCep: typeof r.doCep === "object" && r.doCep ? r.doCep : {}, base: r.base };
   } catch {
     return null;
   }
@@ -35,18 +57,23 @@ type Endereco = Record<(typeof CAMPOS_DO_CEP)[number], string>;
 
 /**
  * Endereço do CEP sobre o que está na tela: preenche o vazio e troca o que veio do CEP anterior
- * (CEP digitado errado e depois corrigido). O que a pessoa escreveu à mão não é tocado.
- * Devolve os valores novos e o que agora veio do CEP.
+ * (CEP digitado errado e depois corrigido) — inclusive limpando, se o CEP novo não traz aquele
+ * campo (CEP geral de cidade pequena não tem rua). O que a pessoa escreveu à mão não é tocado.
+ * Devolve os valores novos e o mapa completo do que agora está na tela vindo do CEP.
  */
 export function aplicarCep(valores: Valores, achado: Endereco, anterior: Partial<Endereco>): { valores: Valores; doCep: Partial<Endereco> } {
   const novos: Valores = { ...valores };
-  const doCep: Partial<Endereco> = {};
+  const doCep: Partial<Endereco> = { ...anterior };
   for (const campo of CAMPOS_DO_CEP) {
     const atual = String(valores[campo] ?? "");
     const veioDoCep = anterior[campo] !== undefined && atual === anterior[campo];
-    if ((atual === "" || veioDoCep) && achado[campo]) {
+    if (atual !== "" && !veioDoCep) { delete doCep[campo]; continue; }
+    if (achado[campo]) {
       novos[campo] = achado[campo];
       doCep[campo] = achado[campo];
+    } else if (veioDoCep) {
+      novos[campo] = "";
+      delete doCep[campo];
     }
   }
   return { valores: novos, doCep };
