@@ -61,6 +61,9 @@ export const menuCatalog = [
   { id: "dre", label: "DRE Gerencial", group: "Financeiro" },
   { id: "dishes", label: "Fichas Técnicas", group: "Cardápio" },
   { id: "buffet-plates", label: "Plaquinhas do buffet", group: "Cardápio" },
+  // Painel de eventos: histórico dos eventos vizinhos e decisão do dia (buffet, reservas).
+  // Mudar os limites do P/M/G e a capacidade do salão é configuração do módulo: pede admin.
+  { id: "events", label: "Painel de eventos", group: "Operacao" },
   { id: "notifications", label: "Notificações WhatsApp", group: "Configuracoes" },
   { id: "doc-intake", label: "Leitura de documentos", group: "Dados" }
 ] as const;
@@ -471,6 +474,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/dre")) return "dre";
   if (path.startsWith("/dishes")) return "dishes";
   if (path.startsWith("/buffet-plates")) return "buffet-plates";
+  if (path.startsWith("/events")) return "events";
   if (path.startsWith("/master-data/sectors") && method === "GET" && String(request.query?.forStockCounting ?? "").toLowerCase() === "true") {
     return "inventory-counting";
   }
@@ -492,6 +496,10 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
 
   // Valor da diária vale para todo lançamento novo: configuração do módulo, não registro do dia.
   if (menuId === "extras" && path.startsWith("/extras/settings") && method !== "GET" && method !== "HEAD") return "admin";
+  if (menuId === "events" && path.startsWith("/events/settings") && method !== "GET" && method !== "HEAD") return "admin";
+  // Juntar apaga o evento absorvido: pede a mesma permissão de apagar.
+  if (menuId === "events" && /^\/events\/series\/[^/]+\/merge$/.test(path)) return "delete";
+
   // Gerar pagamento é aprovar as diárias: quem lança não é, necessariamente, quem aprova.
   if (menuId === "extras" && path === "/extras/payments" && method === "POST") return "approve";
 
