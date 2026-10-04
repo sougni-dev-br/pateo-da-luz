@@ -165,3 +165,8 @@
 /* Impressão: assinaturas e título de seção não ficam sozinhos na outra página */
 .fi-secao { break-after: avoid; page-break-after: avoid; }
 .fi-assinaturas, .fi-data { break-inside: avoid; page-break-inside: avoid; }
+
+/* Documentos sem permissão de abrir: só a lista */
+.fc-docs-lista { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.fc-docs-lista li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fc-docs-lista small { color: var(--muted); }

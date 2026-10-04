@@ -88,7 +88,7 @@ export function FichasDoFuncionario({ employeeId, nome, celular }: Props) {
       {comDocumentos.map((f) => (
         <div key={f.id} className="fc-func-docs">
           <p className="fc-subtitulo">Documentos enviados em {dataBr(f.finalizadaEm ?? f.createdAt)}</p>
-          <DocumentosFicha fichaId={f.id} arquivos={f.arquivos} tipos={f.opcoes.tiposArquivo} />
+          <DocumentosFicha fichaId={f.id} arquivos={f.arquivos} tipos={f.opcoes.tiposArquivo} podeAbrir={hasPermission("employees", "view")} />
         </div>
       ))}
       {link && <LinkFicha aberto onFechar={() => setLink(null)} nome={nome} tipo="ATUALIZACAO" codigo={link.codigo} expiraEm={link.expiraEm} celular={celular} />}

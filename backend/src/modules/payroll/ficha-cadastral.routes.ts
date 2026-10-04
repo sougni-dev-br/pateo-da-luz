@@ -417,6 +417,11 @@ fichaCadastralRouter.post("/:id/concluir", async (request, response) => {
 fichaCadastralRouter.get("/:id/arquivos/:arquivoId", async (request, response) => {
   const user = await usuario(request, response);
   if (!user) return;
+  // Foto de documento mostra CPF, RG e o rosto: além de Fichas, exige ver Funcionários (decisão do
+  // dono em 04/10/2026 — a mesma regra que oculta CPF e PIX no texto da ficha).
+  if (!(await userHasPermission(user, "employees", "view"))) {
+    return response.status(403).json({ message: "Abrir fotos e documentos exige também a permissão de ver Funcionários." });
+  }
   const arquivo = await prisma.fichaCadastralArquivo.findFirst({ where: { id: request.params.arquivoId, fichaId: request.params.id } });
   if (!arquivo) return response.status(404).json({ message: "Arquivo não encontrado." });
   // Documento pessoal (RG, CPF, certidão): quem abriu fica registrado (LGPD).
