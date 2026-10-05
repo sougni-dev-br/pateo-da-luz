@@ -13,7 +13,7 @@ import { PreviaFolhas } from "./PreviaFolhas";
 import { esperarImagens } from "./impressao";
 import { SecaoCardapio, chaveNova, itemVazio, type SecaoEdit } from "./SecaoCardapio";
 import {
-  MAX_DISPLAYS, SECOES_MODELO, TAMANHOS_FACE, cm, facesParaImprimir, layoutDaFolha, pendenciasDoCardapio,
+  MAX_DISPLAYS, SECOES_MODELO, TAMANHOS_FACE, TAMANHO_DISPLAY, cm, facesParaImprimir, layoutDaFolha, pendenciasDoCardapio,
 } from "./cardapioFormato";
 import { TEMAS, dataCurta, semAcento } from "./plaquinhasFormato";
 
@@ -25,7 +25,7 @@ const CLASSE_IMPRIMINDO = "imprimindo-cardapio";
 const ID_SUGESTOES = "cdp-sugestoes-pratos";
 const MAX_SECOES = 10;
 const hoje = () => new Date().toLocaleDateString("sv-SE");
-const novoCardapio = (): Cardapio => ({ id: null, nome: "", data: hoje(), tema: "wine", largura: 92, altura: 76, displays: 1, secoes: [] });
+const novoCardapio = (): Cardapio => ({ id: null, nome: "", data: hoje(), tema: "wine", largura: TAMANHO_DISPLAY.largura, altura: TAMANHO_DISPLAY.altura, displays: 1, secoes: [] });
 const paraSalvar = (c: Cardapio): BuffetMenuSection[] =>
   c.secoes.map(({ face, titlePt, titleEn, items }) => ({ face, titlePt: titlePt.trim(), titleEn: titleEn.trim(), items: items.map((i) => ({ namePt: i.namePt.trim(), nameEn: i.nameEn.trim() })) }));
 const assinatura = (c: Cardapio) => JSON.stringify({ ...c, secoes: paraSalvar(c) });

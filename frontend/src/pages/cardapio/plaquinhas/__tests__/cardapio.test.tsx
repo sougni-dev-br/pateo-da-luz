@@ -3,13 +3,18 @@ import { describe, expect, test, vi } from "vitest";
 import type { BuffetMenuSection } from "../../../../api/client";
 import { CampoCm } from "../CampoCm";
 import { FaceCardapio } from "../FaceCardapio";
-import { facesParaImprimir, layoutDaFolha, pendenciasDoCardapio } from "../cardapioFormato";
+import { TAMANHO_DISPLAY, facesParaImprimir, layoutDaFolha, pendenciasDoCardapio } from "../cardapioFormato";
 import { esperarImagens } from "../impressao";
 
 const secao = (face: "front" | "back", titlePt: string, items: Array<[string, string]>, titleEn = "Title"): BuffetMenuSection =>
   ({ face, titlePt, titleEn, items: items.map(([namePt, nameEn]) => ({ namePt, nameEn })) });
 
 describe("encaixe das faces na folha A4", () => {
+  test("display de acrílico (9,4 × 9,0 cm): 6 por folha, em pé, frente e verso lado a lado", () => {
+    expect(TAMANHO_DISPLAY).toEqual({ largura: 94, altura: 90 });
+    expect(layoutDaFolha(94, 90)).toEqual({ orientacao: "portrait", colunas: 2, linhas: 3, porFolha: 6 });
+  });
+
   test("tamanho da planilha (9,2 × 7,6 cm): 6 por folha, em pé, frente e verso lado a lado", () => {
     expect(layoutDaFolha(92, 76)).toEqual({ orientacao: "portrait", colunas: 2, linhas: 3, porFolha: 6 });
   });

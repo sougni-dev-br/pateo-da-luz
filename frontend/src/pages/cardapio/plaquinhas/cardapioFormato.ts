@@ -12,9 +12,11 @@ export const SECOES_MODELO: Array<{ titlePt: string; titleEn: string; face: Menu
   { titlePt: "Bebidas", titleEn: "Drinks", face: "back" },
 ];
 
-// Tamanho de cada face, em mm. "Como na planilha" é a medida que saía das placas de acrílico.
+// Tamanho de cada face, em mm. "Display de acrílico" é o bolso do display da casa
+// (9,5 × 9,2 cm medidos com régua), com folga de 1–2 mm para o papel entrar.
+export const TAMANHO_DISPLAY = { largura: 94, altura: 90 };
 export const TAMANHOS_FACE: Array<{ id: string; nome: string; largura: number; altura: number }> = [
-  { id: "planilha", nome: "Como na planilha", largura: 92, altura: 76 },
+  { id: "display", nome: "Display de acrílico", ...TAMANHO_DISPLAY },
   { id: "a6", nome: "A6", largura: 105, altura: 148 },
   { id: "a5", nome: "A5", largura: 148, altura: 210 },
 ];

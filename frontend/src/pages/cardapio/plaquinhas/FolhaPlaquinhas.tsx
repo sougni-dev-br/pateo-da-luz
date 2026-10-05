@@ -9,7 +9,8 @@ export type PlacaImpressa = { key: string; namePt: string; nameEn: string; categ
 
 // Medidas reais no papel A4 em pé. Somadas ao recuo do topo, cabem na folha com folga.
 export const FORMATOS: Record<PlateFormat, { porFolha: number; nome: string; tamanho: string }> = {
-  std: { porFolha: 10, nome: "Plaquinha", tamanho: "9,5 × 5,5 cm" },
+  // Cabe no suporte de inox do buffet (7,5 × 5,0 cm entre as dobras), com 1 mm de folga.
+  std: { porFolha: 10, nome: "Plaquinha", tamanho: "7,4 × 4,9 cm" },
   tent: { porFolha: 6, nome: "Cavalete", tamanho: "9,5 × 4,6 cm, dobra ao meio" },
   sauce: { porFolha: 21, nome: "Molho", tamanho: "6,3 × 3,8 cm" },
 };
