@@ -9,21 +9,21 @@ import { Dialog } from "../../../components/ui/Dialog";
 import { Alert, Button, Select, TextField } from "../../../design-system";
 import { CampoCm } from "./CampoCm";
 import { FolhasCardapio, useAjustesDoCardapio } from "./FaceCardapio";
+import { PratoDialog } from "./PratoDialog";
 import { PreviaFolhas } from "./PreviaFolhas";
 import { esperarImagens } from "./impressao";
-import { SecaoCardapio, chaveNova, itemVazio, type SecaoEdit } from "./SecaoCardapio";
+import { SecaoCardapio, chaveNova, type SecaoEdit } from "./SecaoCardapio";
 import {
   MAX_DISPLAYS, SECOES_MODELO, TAMANHOS_FACE, TAMANHO_DISPLAY, cm, facesParaImprimir, gruposDasFaces, layoutDaFolha, pendenciasDoCardapio, umPorDisplay,
   type Distribuicao,
 } from "./cardapioFormato";
-import { TEMAS, dataCurta, semAcento } from "./plaquinhasFormato";
+import { TEMAS, dataCurta, semAcento, sugerirCategoria } from "./plaquinhasFormato";
 
 type Cardapio = { id: string | null; nome: string; data: string; tema: PlateTheme; largura: number; altura: number; displays: number; distribuicao: Distribuicao; secoes: SecaoEdit[] };
 type Confirmacao = { titulo: string; texto: string; ok: string; acao: () => void };
 type Aviso = { tom: "success" | "error"; texto: string };
 
 const CLASSE_IMPRIMINDO = "imprimindo-cardapio";
-const ID_SUGESTOES = "cdp-sugestoes-pratos";
 const MAX_SECOES = 10;
 const hoje = () => new Date().toLocaleDateString("sv-SE");
 const novoCardapio = (): Cardapio => ({ id: null, nome: "", data: hoje(), tema: "wine", largura: TAMANHO_DISPLAY.largura, altura: TAMANHO_DISPLAY.altura, displays: 1, distribuicao: "same", secoes: [] });
@@ -40,9 +40,14 @@ type Props = {
   podeExcluir: boolean;
   aoMudarCardapios: () => void;
   aoMudarPendencia: (pendente: boolean) => void;
+  aoCadastrarPrato: (p: BuffetPlateItem) => void;
 };
 
-export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEditar, podeExcluir, aoMudarCardapios, aoMudarPendencia }: Props) {
+// Prato a cadastrar no catálogo a partir do cardápio: volta para a seção de onde saiu.
+type Cadastro = { secao: string; namePt: string; nameEn: string; substituir?: string };
+
+export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEditar, podeExcluir, aoMudarCardapios, aoMudarPendencia, aoCadastrarPrato }: Props) {
+  const [cadastro, setCadastro] = useState<Cadastro | null>(null);
   const [c, setC] = useState<Cardapio>(novoCardapio);
   const [salvo, setSalvo] = useState(() => assinatura(novoCardapio()));
   const [mostrarErros, setMostrarErros] = useState(false);
@@ -75,9 +80,21 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
   const comoSai = porPrato ? "um por prato, frente e verso iguais" : porSecao ? "um por seção, frente e verso iguais" : temVerso ? "frente e verso" : "só frente";
   const resumo = !secoes.length ? "A prévia aparece aqui" : `${totalDisplays} ${totalDisplays === 1 ? "display" : "displays"} (${comoSai}) em ${folhas} ${folhas === 1 ? "folha" : "folhas"} A4`;
 
-  // Sugestões do catálogo para o nome do prato; escolher uma traz o inglês junto.
+  // Pratos do catálogo pelo nome: traz o inglês de quem escreve à mão e diz quem ainda não está cadastrado.
   const porNome = useMemo(() => new Map(catalogo.filter((p) => p.isActive).map((p) => [semAcento(p.namePt), p])), [catalogo]);
-  const sugestoes = useMemo(() => catalogo.filter((p) => p.isActive).map((p) => <option key={p.id} value={p.namePt} />), [catalogo]);
+
+  function cadastrado(p: BuffetPlateItem) {
+    const pedido = cadastro;
+    setCadastro(null);
+    aoCadastrarPrato(p);
+    if (!pedido) return;
+    const novo = { namePt: p.namePt, nameEn: p.nameEn };
+    mudarSecoes((ss) => ss.map((s) => {
+      if (s.chave !== pedido.secao) return s;
+      if (pedido.substituir) return { ...s, items: s.items.map((it) => (it.chave === pedido.substituir ? { ...it, ...novo } : it)) };
+      return { ...s, items: [...s.items, { chave: chaveNova(), ...novo }] };
+    }));
+  }
 
   const mudar = (parcial: Partial<Cardapio>) => setC((atual) => ({ ...atual, ...parcial }));
   const mudarSecoes = (fn: (s: SecaoEdit[]) => SecaoEdit[]) => setC((atual) => ({ ...atual, secoes: fn(atual.secoes) }));
@@ -112,7 +129,7 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
 
   function novaSecao(titlePt = "", titleEn = "", face: "front" | "back" = "front") {
     if (c.secoes.length >= MAX_SECOES) return setAviso({ tom: "error", texto: `O cardápio comporta até ${MAX_SECOES} seções.` });
-    mudarSecoes((ss) => [...ss, { chave: chaveNova(), face, titlePt, titleEn, items: [itemVazio()] }]);
+    mudarSecoes((ss) => [...ss, { chave: chaveNova(), face, titlePt, titleEn, items: [] }]);
   }
 
   async function salvar(comoNovo: boolean) {
@@ -237,7 +254,7 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
             <span className="plq-total">{secoes.length} {secoes.length === 1 ? "seção" : "seções"} · {secoes.reduce((a, s) => a + s.items.length, 0)} pratos</span>
           </div>
           <div className="plq-segmento cdp-distribuicao" role="group" aria-label="Como distribuir nos displays">
-            <button type="button" aria-pressed={!separados} onClick={() => mudar({ distribuicao: "same" })}>Mesmo cardápio em todos</button>
+            <button type="button" aria-pressed={!separados} onClick={() => mudar({ distribuicao: "same" })}>Igual em todos</button>
             <button type="button" aria-pressed={porSecao} onClick={() => mudar({ distribuicao: "perSection" })}>Um por seção</button>
             <button type="button" aria-pressed={porPrato} onClick={() => mudar({ distribuicao: "perItem" })}>Um por prato</button>
           </div>
@@ -247,7 +264,8 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
               ? "Cada seção vira um display, com o mesmo texto na frente e no verso. Bom para coffee break: bebidas num, salgados noutro."
               : "Todos os displays saem iguais. Cada seção vai na frente ou no verso."}</p>
           {c.secoes.map((s, i) => (
-            <SecaoCardapio key={s.chave} secao={s} indice={i} total={c.secoes.length} porNome={porNome} idLista={ID_SUGESTOES} mostrarErros={mostrarErros} mostrarFace={!separados}
+            <SecaoCardapio key={s.chave} secao={s} indice={i} total={c.secoes.length} catalogo={catalogo} porNome={porNome} podeCadastrar={podeCriar}
+              mostrarErros={mostrarErros} mostrarFace={!separados} abertaNoInicio={s.items.length === 0} onCadastrar={(p) => setCadastro({ secao: s.chave, ...p })}
               primeiroDisplay={porPrato ? c.secoes.slice(0, i).reduce((a, x) => a + x.items.length, 0) + 1 : i + 1} umPorPrato={porPrato}
               onMudar={(nova) => mudarSecoes((ss) => ss.map((x) => (x.chave === s.chave ? nova : x)))}
               onMover={(delta) => mudarSecoes((ss) => {
@@ -266,7 +284,6 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
             ))}
             <button type="button" className="plq-chip" onClick={() => novaSecao()}><Plus size={12} aria-hidden="true" /> Outra</button>
           </div>
-          <datalist id={ID_SUGESTOES}>{sugestoes}</datalist>
         </section>
 
         <section className="plq-bloco" aria-labelledby="cdp-titulo-tamanho">
@@ -336,6 +353,9 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
 
       {molde}
       {pedidoImpressao > 0 && folhasProps && createPortal(<div className="cdp-area-impressao" aria-hidden="true"><FolhasCardapio {...folhasProps} /></div>, document.body)}
+
+      <PratoDialog aberto={cadastro !== null} prato={null} nomeInicial={cadastro?.namePt ?? ""} inglesInicial={cadastro?.nameEn ?? ""}
+        categoriaInicial={sugerirCategoria(catalogo, cadastro?.namePt ?? "")} onFechar={() => setCadastro(null)} onSalvo={cadastrado} />
 
       <Dialog open={confirmacao !== null} onOpenChange={(o) => { if (!o) setConfirmacao(null); }} title={confirmacao?.titulo ?? ""} description={confirmacao?.texto} size="sm">
         <div className="plq-form-acoes">

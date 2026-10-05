@@ -9,13 +9,15 @@ type Props = {
   prato: BuffetPlateItem | null;
   /** Nome digitado na busca, para já vir preenchido ao cadastrar. */
   nomeInicial?: string;
+  /** Inglês já escrito (prato livre do cardápio que vai para o catálogo). */
+  inglesInicial?: string;
   categoriaInicial?: string;
   onFechar: () => void;
   onSalvo: (prato: BuffetPlateItem) => void;
 };
 
 // Todo prato do catálogo tem o nome em inglês: é ele que vai na segunda linha da plaquinha.
-export function PratoDialog({ aberto, prato, nomeInicial = "", categoriaInicial, onFechar, onSalvo }: Props) {
+export function PratoDialog({ aberto, prato, nomeInicial = "", inglesInicial = "", categoriaInicial, onFechar, onSalvo }: Props) {
   const [namePt, setNamePt] = useState("");
   const [nameEn, setNameEn] = useState("");
   const [category, setCategory] = useState("");
@@ -25,7 +27,7 @@ export function PratoDialog({ aberto, prato, nomeInicial = "", categoriaInicial,
   useEffect(() => {
     if (!aberto) return;
     setNamePt(prato?.namePt ?? arrumarNome(nomeInicial));
-    setNameEn(prato?.nameEn ?? "");
+    setNameEn(prato?.nameEn ?? inglesInicial);
     setCategory(prato?.category ?? categoriaInicial ?? "");
     setErro(null);
   }, [aberto, prato, nomeInicial, categoriaInicial]);

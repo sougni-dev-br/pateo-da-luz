@@ -146,3 +146,44 @@ describe("espera das imagens antes de imprimir", () => {
     }
   });
 });
+
+describe("busca de prato na seção do cardápio", () => {
+  const catalogo = [
+    { id: "1", namePt: "Suco de laranja", nameEn: "Orange juice", category: "Bebidas", isActive: true },
+    { id: "2", namePt: "Suco de uva", nameEn: "Grape juice", category: "Bebidas", isActive: true },
+  ];
+  const montar = async (podeCadastrar = true) => {
+    const { BuscaPratoCardapio } = await import("../BuscaPratoCardapio");
+    const onEscolher = vi.fn();
+    const onCadastrar = vi.fn();
+    render(<BuscaPratoCardapio catalogo={catalogo} jaNaSecao={new Set(["suco de uva"])} podeCadastrar={podeCadastrar} rotuloSecao="Bebidas" onEscolher={onEscolher} onCadastrar={onCadastrar} />);
+    return { campo: screen.getByRole("combobox"), onEscolher, onCadastrar };
+  };
+
+  test("acha no catálogo pelo português ou inglês e traz o inglês junto; marca o que já está na seção", async () => {
+    const { campo, onEscolher } = await montar();
+    fireEvent.change(campo, { target: { value: "grape" } });
+    expect(screen.getByText("já está")).toBeTruthy();
+    fireEvent.change(campo, { target: { value: "laranja" } });
+    fireEvent.keyDown(campo, { key: "Enter" });
+    expect(onEscolher).toHaveBeenCalledWith({ namePt: "Suco de laranja", nameEn: "Orange juice" });
+    expect((campo as HTMLInputElement).value).toBe("");
+  });
+
+  test("prato fora do catálogo: usa só neste cardápio ou cadastra", async () => {
+    const { campo, onEscolher, onCadastrar } = await montar();
+    fireEvent.change(campo, { target: { value: "chá gelado de pêssego" } });
+    fireEvent.click(screen.getByRole("option", { name: /só neste cardápio/ }));
+    expect(onEscolher).toHaveBeenCalledWith({ namePt: "Chá gelado de pêssego", nameEn: "" });
+    fireEvent.change(campo, { target: { value: "Bolo de fubá" } });
+    fireEvent.click(screen.getByRole("option", { name: /Cadastrar “Bolo de fubá” no catálogo/ }));
+    expect(onCadastrar).toHaveBeenCalledWith("Bolo de fubá");
+  });
+
+  test("sem permissão de criar, só oferece usar no cardápio", async () => {
+    const { campo } = await montar(false);
+    fireEvent.change(campo, { target: { value: "Bolo de fubá" } });
+    expect(screen.queryByRole("option", { name: /Cadastrar/ })).toBeNull();
+    expect(screen.getByRole("option", { name: /só neste cardápio/ })).toBeTruthy();
+  });
+});

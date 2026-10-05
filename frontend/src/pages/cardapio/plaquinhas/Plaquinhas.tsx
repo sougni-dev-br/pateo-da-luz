@@ -100,7 +100,7 @@ export function Plaquinhas() {
       </div>
       <div hidden={aba !== "cardapio"}>
         <CardapioAcrilico ativa={aba === "cardapio"} catalogo={catalogo} cardapios={cardapios} podeCriar={podeCriar} podeEditar={podeEditar} podeExcluir={podeExcluir}
-          aoMudarCardapios={carregarCardapios} aoMudarPendencia={setCardapioPendente} />
+          aoMudarCardapios={carregarCardapios} aoMudarPendencia={setCardapioPendente} aoCadastrarPrato={guardarPrato} />
       </div>
       <div hidden={aba !== "catalogo"}>
         <CatalogoPlaquinhas catalogo={catalogo} podeCriar={podeCriar} podeEditar={podeEditar} podeExcluir={podeExcluir} aoMudar={guardarPrato} />
