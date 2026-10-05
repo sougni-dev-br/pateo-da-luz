@@ -224,9 +224,27 @@ describe("seção do cardápio", () => {
     const onMoverPrato = vi.fn();
     const secaoEdit = { chave: "a", face: "front" as const, titlePt: "Bebidas", titleEn: "Drinks", items: [{ chave: "i1", namePt: "Café", nameEn: "Brewed coffee" }] };
     render(<SecaoCardapio secao={secaoEdit} indice={0} total={2} catalogo={[]} porNome={new Map()} podeCadastrar={false} mostrarErros={false} mostrarFace
-      primeiroDisplay={1} umPorPrato={false} abertaNoInicio outrasSecoes={[{ chave: "b", rotulo: "Doces" }]} onMoverPrato={onMoverPrato}
+      primeiroDisplay={1} umPorPrato={false} abertaNoInicio outrasSecoes={[{ chave: "b", rotulo: "Doces" }]} onMoverPrato={onMoverPrato} podeEditarCatalogo={false} onAtualizarCatalogo={vi.fn()}
       onMudar={vi.fn()} onMover={vi.fn()} onRemover={vi.fn()} onCadastrar={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("Mover Café para outra seção"), { target: { value: "b" } });
     expect(onMoverPrato).toHaveBeenCalledWith("i1", "b");
+  });
+});
+
+describe("inglês diferente do catálogo", () => {
+  test("avisa, deixa voltar ao do catálogo ou atualizar o catálogo", async () => {
+    const { SecaoCardapio } = await import("../SecaoCardapio");
+    const esfiha = { id: "e1", namePt: "Esfiha de carne", nameEn: "Esfiha (open-faced pastry) with beef", category: "Salgados", isActive: true };
+    const onMudar = vi.fn();
+    const onAtualizarCatalogo = vi.fn();
+    const secaoEdit = { chave: "a", face: "front" as const, titlePt: "Salgados", titleEn: "Savory snacks", items: [{ chave: "i1", namePt: "Esfiha de carne", nameEn: "Beef esfiha" }] };
+    render(<SecaoCardapio secao={secaoEdit} indice={0} total={1} catalogo={[esfiha]} porNome={new Map([["esfiha de carne", esfiha]])} podeCadastrar mostrarErros={false} mostrarFace
+      primeiroDisplay={1} umPorPrato={false} abertaNoInicio outrasSecoes={[]} onMoverPrato={vi.fn()} podeEditarCatalogo onAtualizarCatalogo={onAtualizarCatalogo}
+      onMudar={onMudar} onMover={vi.fn()} onRemover={vi.fn()} onCadastrar={vi.fn()} />);
+    expect(screen.getByText("No catálogo está “Esfiha (open-faced pastry) with beef”.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar o catálogo" }));
+    expect(onAtualizarCatalogo).toHaveBeenCalledWith(esfiha, "Beef esfiha");
+    fireEvent.click(screen.getByRole("button", { name: "Usar o do catálogo" }));
+    expect(onMudar.mock.calls[0][0].items[0].nameEn).toBe("Esfiha (open-faced pastry) with beef");
   });
 });

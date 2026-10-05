@@ -2,7 +2,7 @@ import { Copy, Plus, Printer, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  deleteBuffetMenu, getBuffetMenu, saveBuffetMenu,
+  deleteBuffetMenu, getBuffetMenu, saveBuffetMenu, saveBuffetPlateItem,
   type BuffetMenuSection, type BuffetMenuSummary, type BuffetPlateItem, type PlateTheme,
 } from "../../../api/client";
 import { Dialog } from "../../../components/ui/Dialog";
@@ -95,6 +95,17 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
 
   // Pratos do catálogo pelo nome: traz o inglês de quem escreve à mão e diz quem ainda não está cadastrado.
   const porNome = useMemo(() => new Map(catalogo.filter((p) => p.isActive).map((p) => [semAcento(p.namePt), p])), [catalogo]);
+
+  // A correção feita no cardápio passa a valer no catálogo: próximos cardápios e plaquinhas já vêm certos.
+  async function atualizarCatalogo(prato: BuffetPlateItem, nameEn: string) {
+    try {
+      const salvo = await saveBuffetPlateItem({ namePt: prato.namePt, nameEn, category: prato.category, isActive: prato.isActive }, prato.id);
+      aoCadastrarPrato(salvo);
+      setAviso({ tom: "success", texto: `Catálogo atualizado: ${salvo.namePt} agora é “${salvo.nameEn}”.` });
+    } catch (x) {
+      setAviso({ tom: "error", texto: x instanceof Error ? x.message : "Não foi possível atualizar o catálogo." });
+    }
+  }
 
   function cadastrado(p: BuffetPlateItem) {
     const pedido = cadastro;
@@ -332,6 +343,7 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
               mostrarErros={mostrarErros} mostrarFace={!separados} abertaNoInicio={s.items.length === 0}
               outrasSecoes={c.secoes.filter((x) => x.chave !== s.chave).map((x) => ({ chave: x.chave, rotulo: x.titlePt.trim() || `Seção ${c.secoes.indexOf(x) + 1}` }))}
               onMoverPrato={(chaveItem, para) => moverPrato(s.chave, chaveItem, para)}
+              podeEditarCatalogo={podeEditar} onAtualizarCatalogo={atualizarCatalogo}
               onCadastrar={(p) => setCadastro({ secao: s.chave, ...p })}
               primeiroDisplay={porPrato ? c.secoes.slice(0, i).reduce((a, x) => a + x.items.reduce((n, it) => n + (it.qty ?? 1), 0), 0) + 1 : i + 1} umPorPrato={porPrato}
               onMudar={(nova) => mudarSecoes((ss) => ss.map((x) => (x.chave === s.chave ? nova : x)))}

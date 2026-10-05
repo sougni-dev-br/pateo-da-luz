@@ -37,6 +37,9 @@ type Props = {
   /** As outras seções do cardápio, para onde um prato pode ser movido. */
   outrasSecoes: Array<{ chave: string; rotulo: string }>;
   onMoverPrato: (chaveItem: string, paraSecao: string) => void;
+  /** Pode trocar o inglês de um prato do catálogo (permissão de editar). */
+  podeEditarCatalogo: boolean;
+  onAtualizarCatalogo: (prato: BuffetPlateItem, nameEn: string) => void;
   /** Abre o cadastro do catálogo; o prato salvo volta para esta seção. */
   onCadastrar: (pedido: { namePt: string; nameEn: string; substituir?: string }) => void;
 };
@@ -44,7 +47,7 @@ type Props = {
 const falta = (s: string) => s.trim().length < 2;
 
 export function SecaoCardapio(props: Props) {
-  const { secao, indice, total, catalogo, porNome, podeCadastrar, mostrarErros, mostrarFace, primeiroDisplay, umPorPrato, abertaNoInicio, outrasSecoes, onMoverPrato, onMudar, onMover, onRemover, onCadastrar } = props;
+  const { secao, indice, total, catalogo, porNome, podeCadastrar, mostrarErros, mostrarFace, primeiroDisplay, umPorPrato, abertaNoInicio, outrasSecoes, onMoverPrato, podeEditarCatalogo, onAtualizarCatalogo, onMudar, onMover, onRemover, onCadastrar } = props;
   const [abertaLocal, setAberta] = useState(abertaNoInicio);
   // Com erro para corrigir, a seção abre sozinha: não dá para consertar o que não se vê.
   const temErro = mostrarErros && (falta(secao.titlePt) || falta(secao.titleEn) || !secao.items.length || secao.items.some((i) => falta(i.namePt) || falta(i.nameEn)));
@@ -119,6 +122,9 @@ export function SecaoCardapio(props: Props) {
           {secao.items.map((it, i) => {
             const semIngles = (mostrarErros || it.namePt.trim().length > 1) && falta(it.nameEn);
             const foraDoCatalogo = podeCadastrar && it.namePt.trim().length > 1 && !porNome.has(semAcento(it.namePt.trim()));
+            // Inglês trocado só aqui: o catálogo continuaria trazendo o antigo nos próximos cardápios e nas plaquinhas.
+            const doCatalogo = porNome.get(semAcento(it.namePt.trim()));
+            const inglesDiferente = doCatalogo && it.nameEn.trim().length > 1 && it.nameEn.trim() !== doCatalogo.nameEn ? doCatalogo : null;
             return (
               <li key={it.chave} className="cdp-ed-item">
                 <div className="cdp-ed-nomes">
@@ -127,6 +133,15 @@ export function SecaoCardapio(props: Props) {
                     onChange={(e) => mudarItem(it.chave, { namePt: e.target.value })} onBlur={() => aoSairDoPt(it)} aria-invalid={mostrarErros && falta(it.namePt)} />
                   <input value={it.nameEn} maxLength={160} lang="en" autoFocus={Boolean(it.namePt) && !it.nameEn} placeholder="Em inglês (obrigatório)"
                     aria-label={`Prato ${i + 1} de ${rotulo} em inglês`} onChange={(e) => mudarItem(it.chave, { nameEn: e.target.value })} aria-invalid={semIngles} />
+                  {inglesDiferente && (
+                    <p className="cdp-ed-difere">
+                      <span>No catálogo está “{inglesDiferente.nameEn}”.</span>
+                      {podeEditarCatalogo && (
+                        <button type="button" onClick={() => onAtualizarCatalogo(inglesDiferente, it.nameEn.trim())}>Atualizar o catálogo</button>
+                      )}
+                      <button type="button" onClick={() => mudarItem(it.chave, { nameEn: inglesDiferente.nameEn })}>Usar o do catálogo</button>
+                    </p>
+                  )}
                 </div>
                 {umPorPrato && (
                   <span className="plq-qtd cdp-ed-qtd" title="Quantas vezes este prato sai na folha">

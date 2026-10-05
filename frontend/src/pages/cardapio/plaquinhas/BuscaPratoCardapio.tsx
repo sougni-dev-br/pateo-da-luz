@@ -77,7 +77,7 @@ export function BuscaPratoCardapio({ autoFocus, catalogo, jaNaSecao, podeCadastr
       <div className="plq-busca">
         <Search size={16} aria-hidden="true" />
         <input ref={inputRef} type="text" autoFocus={autoFocus} value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={tecla} autoComplete="off"
-          placeholder="Procurar ou escrever um prato" aria-label={`Procurar prato para ${rotuloSecao}`}
+          placeholder="Buscar ou escrever prato" aria-label={`Procurar prato para ${rotuloSecao}`}
           role="combobox" aria-autocomplete="list" aria-expanded={aberto} aria-controls={aberto ? idLista : undefined}
           aria-activedescendant={aberto ? idOpcao(indice) : undefined} />
         {texto && <button type="button" className="plq-busca-limpar" aria-label="Limpar busca" onClick={() => setTexto("")}><X size={15} /></button>}
