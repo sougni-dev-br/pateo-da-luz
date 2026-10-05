@@ -1,7 +1,7 @@
 import { Check, Plus, Search, X } from "lucide-react";
 import { forwardRef, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { BuffetPlateItem } from "../../../api/client";
-import { CATEGORIAS, MAX_QTD, buscarPratos } from "./plaquinhasFormato";
+import { CATEGORIAS, MAX_QTD, buscarPratos, semAcento } from "./plaquinhasFormato";
 
 type Props = {
   catalogo: BuffetPlateItem[];
@@ -27,7 +27,8 @@ export const BuscaPrato = forwardRef<HTMLInputElement, Props>(function BuscaPrat
 
   const resultados = useMemo(() => buscarPratos(catalogo, texto, categoria), [catalogo, texto, categoria]);
   const digitou = texto.trim().length > 2;
-  const mostrarNovo = digitou && resultados.length === 0;
+  // "Arroz" existindo só "Arroz branco": a busca acha parecidos, mas o prato novo continua possível.
+  const mostrarNovo = digitou && !resultados.some((p) => semAcento(p.namePt) === semAcento(texto.trim()));
   const aberto = resultados.length > 0 || digitou;
   const indiceAtivo = Math.min(ativo, Math.max(0, resultados.length - 1));
 

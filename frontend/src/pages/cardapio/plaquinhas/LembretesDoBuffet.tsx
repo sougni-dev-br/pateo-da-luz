@@ -9,11 +9,13 @@ type Props = {
   porId: Map<string, BuffetPlateItem>;
   naFolha: Map<string, number>;
   onAdicionar: (itemId: string) => void;
+  /** "buffet", "coffee break"… para a frase do aviso. */
+  rotuloTipo?: string;
 };
 
 // O alerta na hora de montar a folha: o que a cozinha costumava fazer e parou, e o que da
 // folha de hoje já saiu demais. Some quando não há nada a dizer.
-export function LembretesDoBuffet({ relatorio, porId, naFolha, onAdicionar }: Props) {
+export function LembretesDoBuffet({ relatorio, porId, naFolha, onAdicionar, rotuloTipo = "buffet" }: Props) {
   if (!relatorio) return null;
   const esquecidos = relatorio.forgotten.filter((f) => !naFolha.has(f.itemId) && porId.get(f.itemId)?.isActive).slice(0, MAX_ESQUECIDOS);
   const porDias = new Map(relatorio.ranking.map((r) => [r.itemId, r.days]));
@@ -41,7 +43,7 @@ export function LembretesDoBuffet({ relatorio, porId, naFolha, onAdicionar }: Pr
           <p className="plq-lembrete-titulo"><Repeat size={15} aria-hidden="true" /> Saindo demais</p>
           <ul>
             {repetindo.map((id) => (
-              <li key={id}><strong>{porId.get(id)?.namePt}</strong> saiu em {porDias.get(id)} dos {total} dias de buffet dos últimos {relatorio.period.windowDays} dias.</li>
+              <li key={id}><strong>{porId.get(id)?.namePt}</strong> saiu em {porDias.get(id)} dos {total} dias de {rotuloTipo} dos últimos {relatorio.period.windowDays} dias.</li>
             ))}
           </ul>
         </div>

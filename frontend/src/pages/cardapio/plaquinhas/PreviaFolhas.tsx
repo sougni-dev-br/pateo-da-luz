@@ -4,13 +4,16 @@ import type { PlateTheme } from "../../../api/client";
 
 const MM_EM_PX = 96 / 25.4;
 const LARGURA_A4_PX = 210 * MM_EM_PX;
+const ALTURA_A4_PX = 297 * MM_EM_PX;
 
 export type AlertaPrevia = { curto: string; longo: string } | null;
-type Props = { resumo: string; alerta: AlertaPrevia; tema: PlateTheme; vazia: boolean; textoVazia: string; children: ReactNode };
+type Props = { resumo: string; alerta: AlertaPrevia; tema: PlateTheme; vazia: boolean; textoVazia: string; children: ReactNode;
+  /** Folha deitada (cardápio em paisagem): a prévia reduz pela largura de 297 mm. */
+  deitada?: boolean };
 
 // A folha A4 real, reduzida para caber na coluna: o que se vê é o que sai na impressora.
 // No celular começa fechada, para a lista de pratos não ficar lá embaixo da página.
-export function PreviaFolhas({ resumo, alerta, tema, vazia, textoVazia, children }: Props) {
+export function PreviaFolhas({ resumo, alerta, tema, vazia, textoVazia, children, deitada = false }: Props) {
   const caixaRef = useRef<HTMLDivElement>(null);
   const [escala, setEscala] = useState(0.5);
   const [abertaNoCelular, setAbertaNoCelular] = useState(false);
@@ -20,13 +23,13 @@ export function PreviaFolhas({ resumo, alerta, tema, vazia, textoVazia, children
     if (!caixa) return undefined;
     const medir = () => {
       if (caixa.clientWidth === 0) return;
-      setEscala(Math.min(1, Math.max(0.3, (caixa.clientWidth - 24) / LARGURA_A4_PX)));
+      setEscala(Math.min(1, Math.max(0.2, (caixa.clientWidth - 24) / (deitada ? ALTURA_A4_PX : LARGURA_A4_PX))));
     };
     medir();
     const observador = new ResizeObserver(medir);
     observador.observe(caixa);
     return () => observador.disconnect();
-  }, []);
+  }, [deitada]);
 
   return (
     <aside className={`plq-previa${abertaNoCelular ? " plq-previa--aberta" : ""}${vazia ? " plq-previa--vazia" : ""}`} aria-label="Prévia da impressão">

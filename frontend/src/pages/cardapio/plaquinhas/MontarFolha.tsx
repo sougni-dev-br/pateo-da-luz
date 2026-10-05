@@ -66,7 +66,7 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
   // Cada pedido de impressão ganha um número: se o navegador não avisar o fim (iPhone/Safari),
   // o próximo clique reinicia em vez de ficar travado.
   // "folha": A4 para imprimir aqui. "grafica": uma página por prato, com sangria e marcas de corte.
-  const [pedidoImpressao, setPedidoImpressao] = useState<{ n: number; modo: "folha" | "grafica" } | null>(null);
+  const [pedidoImpressao, setPedidoImpressao] = useState<{ n: number; modo: "folha" | "grafica"; formato: PlateFormat } | null>(null);
   const [versaoLista, setVersaoLista] = useState(0);
   const buscaRef = useRef<HTMLInputElement>(null);
 
@@ -151,7 +151,8 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
 
   async function salvar(comoNova: boolean) {
     if (ocupado) return;
-    const nome = folha.nome.trim();
+    const nomeDigitado = folha.nome.trim();
+    const nome = comoNova && nomeDigitado && !/\(cópia\)$/.test(nomeDigitado) ? `${nomeDigitado} (cópia)`.slice(0, 120) : nomeDigitado;
     if (!nome) {
       setAviso({ tom: "error", texto: "Dê um nome para a lista antes de salvar. Ex.: Buffet de sexta, Coffee break Stand B." });
       document.getElementById("plq-nome-lista")?.focus();
@@ -166,7 +167,7 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
         items: folha.entradas.map(({ itemId, qty }) => ({ itemId, qty })),
       }, comoNova ? undefined : folha.listaId ?? undefined);
       // Só marca como salvo o que foi enviado: o que mudou durante a gravação continua "não salvo".
-      setFolha((f) => ({ ...f, nome: f.nome.trim() === nome ? nome : f.nome, listaId: r.id }));
+      setFolha((f) => ({ ...f, nome: f.nome.trim() === nomeDigitado ? nome : f.nome, listaId: r.id }));
       setSalva(assinatura({ ...enviada, listaId: r.id }));
       setAviso({ tom: "success", texto: `Lista “${nome}” salva.` });
       aoMudarListas();
@@ -215,16 +216,31 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
     ultimoRegistro.current = { chave, quando: agora };
     registerBuffetPlatePrint({ servedOn, kind: folha.tipo, listId: folha.listaId, listName: folha.nome.trim() || null, itemIds })
       .then(aoRegistrarImpressao)
-      .catch((x) => setAviso({ tom: "warning", texto: x instanceof ApiError && x.status === 403
+      .catch((x) => {
+        ultimoRegistro.current = { chave: "", quando: 0 };
+        setAviso({ tom: "warning", texto: x instanceof ApiError && x.status === 403
         ? "As plaquinhas foram para a impressora, mas seu usuário não pode registrar no acompanhamento de pratos. Peça para liberar “Criar” em Plaquinhas do buffet."
-        : "As plaquinhas foram para a impressora, mas este dia não entrou no acompanhamento de pratos. Imprima de novo para registrar." }));
+        : "As plaquinhas foram para a impressora, mas este dia não entrou no acompanhamento de pratos. Imprima de novo para registrar." });
+      });
   }, [folha.entradas, folha.data, folha.tipo, folha.listaId, folha.nome, porId, aoRegistrarImpressao]);
 
+  const imprimirDeVez = useCallback(() => {
+    setPedidoImpressao((p) => ({ n: (p?.n ?? 0) + 1, modo: "folha", formato: folha.formato }));
+    registrarImpressao();
+  }, [registrarImpressao, folha.formato]);
+  // Nome que não coube sai cortado no papel: pergunta antes, em vez de imprimir pela metade sem avisar.
+  const confirmarCortados = useCallback((acao: () => void) => {
+    if (!naoCouberam.length) return acao();
+    setConfirmacao({
+      titulo: naoCouberam.length === 1 ? "Um nome vai sair cortado" : `${naoCouberam.length} nomes vão sair cortados`,
+      texto: `Não coube mesmo com a letra no menor tamanho: ${naoCouberam.join(", ")}. Encurte o nome no Catálogo ou imprima assim mesmo.`,
+      ok: "Imprimir assim mesmo", acao,
+    });
+  }, [naoCouberam]);
   const imprimir = useCallback(() => {
     if (!placas.length) return;
-    setPedidoImpressao((p) => ({ n: (p?.n ?? 0) + 1, modo: "folha" }));
-    registrarImpressao();
-  }, [placas.length, registrarImpressao]);
+    confirmarCortados(imprimirDeVez);
+  }, [placas.length, confirmarCortados, imprimirDeVez]);
   const acompanhamento = useAcompanhamento(folha.tipo, 30, versaoAcompanhamento, ativa);
 
   // Para a gráfica vai uma página por prato com a quantidade escrita: ela monta as cópias.
@@ -234,15 +250,16 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
     return p ? [{ key: e.key, namePt: p.namePt, nameEn: p.nameEn, category: p.category, qty: e.qty }] : [];
   }), [folha.entradas, porId]);
   const gerarArquivoGrafica = useCallback(() => {
-    if (pratosDaGrafica.length) setPedidoImpressao((p) => ({ n: (p?.n ?? 0) + 1, modo: "grafica" }));
-  }, [pratosDaGrafica.length]);
+    if (!pratosDaGrafica.length) return;
+    confirmarCortados(() => setPedidoImpressao((p) => ({ n: (p?.n ?? 0) + 1, modo: "grafica", formato: folha.formato })));
+  }, [pratosDaGrafica.length, confirmarCortados, folha.formato]);
 
   // A cópia de impressão só existe enquanto imprime: montar as folhas duas vezes o tempo todo
   // deixava cada clique lento com muitas plaquinhas.
   useEffect(() => {
     if (!pedidoImpressao) return undefined;
     const grafica = pedidoImpressao.modo === "grafica";
-    const pagina = paginaDaGrafica(folha.formato);
+    const pagina = paginaDaGrafica(pedidoImpressao.formato);
     const classe = grafica ? CLASSE_GRAFICA : CLASSE_IMPRIMINDO;
     const estilo = document.createElement("style");
     estilo.textContent = grafica ? `@page { size: ${pagina.largura}mm ${pagina.altura}mm; margin: 0; }` : "@page { size: A4 portrait; margin: 0; }";
@@ -255,16 +272,19 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
     // está atrás de outra janela ou minimizado, e a impressão nunca começaria.
     const espera = window.setTimeout(async () => {
       await esperarImagens(grafica ? ".plq-area-grafica img" : ".plq-area-impressao img");
-      if (ativo) window.print();
+      if (!ativo) return;
+      window.print();
+      window.setTimeout(() => { if (ativo) window.addEventListener("focus", terminar, { once: true }); }, 1000);
     }, 0);
     return () => {
       ativo = false;
       window.clearTimeout(espera);
       window.removeEventListener("afterprint", terminar);
+      window.removeEventListener("focus", terminar);
       document.body.classList.remove(classe);
       estilo.remove();
     };
-  }, [pedidoImpressao, folha.formato]);
+  }, [pedidoImpressao]);
 
   // Ctrl+P imprime as plaquinhas (e não a tela do ERP); Ctrl+S salva a lista.
   const salvarRef = useRef(salvar);
@@ -320,7 +340,8 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
             dica={folha.entradas.length === 0 ? "Procure o prato pelo nome ou toque numa categoria para ver todos dela." : undefined} />
         </section>
 
-        <LembretesDoBuffet relatorio={acompanhamento.relatorio} porId={porId} naFolha={naFolha} onAdicionar={adicionar} />
+        <LembretesDoBuffet relatorio={acompanhamento.relatorio} porId={porId} naFolha={naFolha} onAdicionar={adicionar}
+          rotuloTipo={folha.tipo === "COFFEE_BREAK" ? "coffee break" : folha.tipo === "EVENTO" ? "evento" : "buffet"} />
 
         <ListaDaFolha key={versaoLista} entradas={folha.entradas} porId={porId} destaque={destaque} onMudar={mudarEntradas} />
 
@@ -346,7 +367,7 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
             <button type="button" className="plq-link" disabled={!pratosDaGrafica.length} onClick={gerarArquivoGrafica}>
               <FileDown size={15} aria-hidden="true" /> Arquivo para gráfica
             </button>
-            <span>Uma página por prato, com 2 mm de sangria e marcas de corte. Na impressora, escolha “Salvar como PDF” e mande o arquivo.</span>
+            <span>PDF com uma página por prato, já com a sobra de cor (2 mm) e as marquinhas de onde cortar, como as gráficas pedem. Na janela de impressão, escolha “Salvar como PDF” e mande o arquivo.</span>
           </div>
         </section>
 

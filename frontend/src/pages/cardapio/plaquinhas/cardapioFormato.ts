@@ -83,17 +83,27 @@ export type GrupoFace = { chave: string; rotulo: string; secoes: BuffetMenuSecti
   /** Cópias deste display na folha; sem valor, vale o número geral de displays. */
   copias?: number };
 
-export function gruposDasFaces(secoes: BuffetMenuSection[], distribuicao: Distribuicao): GrupoFace[] {
+/** Chaves de edição (estáveis ao reordenar/apagar) de cada seção e de cada prato, na mesma ordem. */
+export type ChavesDasSecoes = Array<{ secao: string; itens: string[] }>;
+
+// A chave do grupo vem da chave de edição quando existe: "escolher displays" continua apontando
+// para o mesmo prato mesmo depois de subir, descer ou apagar outro.
+export function gruposDasFaces(secoes: BuffetMenuSection[], distribuicao: Distribuicao, chaves?: ChavesDasSecoes): GrupoFace[] {
+  const chaveSecao = (i: number) => chaves?.[i]?.secao ?? `s${i}`;
+  const chaveItem = (i: number, j: number) => `${chaveSecao(i)}:${chaves?.[i]?.itens[j] ?? j}`;
   if (distribuicao === "perItem") {
     return secoes.flatMap((s, i) => s.items.map((item, j) => ({
-      chave: `s${i}-${j}`, rotulo: `em “${item.namePt.trim() || `prato ${j + 1}`}”`, secoes: [{ ...s, items: [item] }], comLogo: true, maxPt: FONTE_MAX_PRATO, umPrato: true, copias: item.qty ?? 1,
+      chave: chaveItem(i, j), rotulo: `em “${item.namePt.trim() || `prato ${j + 1}`}”`, secoes: [{ ...s, items: [item] }], comLogo: true, maxPt: FONTE_MAX_PRATO, umPrato: true, copias: item.qty ?? 1,
     })));
   }
   if (distribuicao === "perSection") {
-    return secoes.map((s, i) => ({ chave: `s${i}`, rotulo: `em “${s.titlePt.trim() || `Seção ${i + 1}`}”`, secoes: [s], comLogo: true }));
+    return secoes.map((s, i) => ({ chave: chaveSecao(i), rotulo: `em “${s.titlePt.trim() || `Seção ${i + 1}`}”`, secoes: [s], comLogo: true }));
   }
-  const grupos: GrupoFace[] = [{ chave: "front", rotulo: "na frente", secoes: secoes.filter((s) => s.face === "front"), comLogo: true }];
+  const frente = secoes.filter((s) => s.face === "front");
   const verso = secoes.filter((s) => s.face === "back");
+  // Tudo marcado como verso: o verso vira a frente (com logo), em vez de sair uma frente em branco.
+  if (!frente.length) return verso.length ? [{ chave: "front", rotulo: "na frente", secoes: verso, comLogo: true }] : [];
+  const grupos: GrupoFace[] = [{ chave: "front", rotulo: "na frente", secoes: frente, comLogo: true }];
   if (verso.length) grupos.push({ chave: "back", rotulo: "no verso", secoes: verso, comLogo: false });
   return grupos;
 }

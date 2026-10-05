@@ -393,3 +393,13 @@
 
 /* Quantidade do prato no "Um por prato": ao lado dos nomes */
 .cdp-ed-qtd { align-self: flex-start; margin-top: 2px; }
+
+/* Abrindo um cardápio: a coluna espera a resposta antes de aceitar edição */
+.plq-coluna--carregando { pointer-events: none; opacity: 0.55; transition: opacity 150ms ease; }
+.cdp-aviso { scroll-margin: 120px 0; }
+.cdp-aviso:empty { display: none; }
+/* iPhone dá zoom em campo com letra menor que 16px: no celular os campos do cardápio vão a 16px */
+@media (max-width: 640px) {
+  .cdp-ed-dupla input, .cdp-ed-nomes input, .cdp-busca .plq-busca input, .cdp-ed-nomes input[lang="en"] { font-size: 16px; }
+  .plq-qtd button, .plq-entrada-acoes button, .cdp-ed-acoes button, .cdp-mover { width: 40px; height: 40px; }
+}
