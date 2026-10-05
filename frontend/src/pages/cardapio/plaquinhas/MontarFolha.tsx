@@ -1,4 +1,4 @@
-import { Copy, Printer, Save, Trash2 } from "lucide-react";
+import { Copy, FileDown, Printer, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -7,6 +7,7 @@ import {
 } from "../../../api/client";
 import { Dialog } from "../../../components/ui/Dialog";
 import { Alert, Button, FormField, Select, Switch, TextField } from "../../../design-system";
+import { ArquivoGrafica, paginaDaGrafica, type PratoDaGrafica } from "./ArquivoGrafica";
 import { BuscaPrato } from "./BuscaPrato";
 import { LembretesDoBuffet } from "./LembretesDoBuffet";
 import { useAcompanhamento } from "./acompanhamento";
@@ -25,6 +26,7 @@ type Confirmacao = { titulo: string; texto: string; ok: string; acao: () => void
 type Aviso = { tom: "success" | "error" | "warning"; texto: string };
 
 const CLASSE_IMPRIMINDO = "imprimindo-plaquinhas";
+const CLASSE_GRAFICA = "imprimindo-grafica";
 const CHAVE_CATEGORIA = "pateo.plaquinhas.mostrarCategoria";
 const LISTAS_DE_ATALHO = 5;
 const REPETICAO_MS = 10_000;
@@ -63,7 +65,8 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
   const [destaque, setDestaque] = useState<{ chave: string; vez: number } | null>(null);
   // Cada pedido de impressão ganha um número: se o navegador não avisar o fim (iPhone/Safari),
   // o próximo clique reinicia em vez de ficar travado.
-  const [pedidoImpressao, setPedidoImpressao] = useState(0);
+  // "folha": A4 para imprimir aqui. "grafica": uma página por prato, com sangria e marcas de corte.
+  const [pedidoImpressao, setPedidoImpressao] = useState<{ n: number; modo: "folha" | "grafica" } | null>(null);
   const [versaoLista, setVersaoLista] = useState(0);
   const buscaRef = useRef<HTMLInputElement>(null);
 
@@ -219,36 +222,49 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
 
   const imprimir = useCallback(() => {
     if (!placas.length) return;
-    setPedidoImpressao((n) => n + 1);
+    setPedidoImpressao((p) => ({ n: (p?.n ?? 0) + 1, modo: "folha" }));
     registrarImpressao();
   }, [placas.length, registrarImpressao]);
   const acompanhamento = useAcompanhamento(folha.tipo, 30, versaoAcompanhamento, ativa);
+
+  // Para a gráfica vai uma página por prato com a quantidade escrita: ela monta as cópias.
+  // Não entra no acompanhamento: mandar para a gráfica não é servir o prato no dia.
+  const pratosDaGrafica: PratoDaGrafica[] = useMemo(() => folha.entradas.flatMap((e) => {
+    const p = porId.get(e.itemId);
+    return p ? [{ key: e.key, namePt: p.namePt, nameEn: p.nameEn, category: p.category, qty: e.qty }] : [];
+  }), [folha.entradas, porId]);
+  const gerarArquivoGrafica = useCallback(() => {
+    if (pratosDaGrafica.length) setPedidoImpressao((p) => ({ n: (p?.n ?? 0) + 1, modo: "grafica" }));
+  }, [pratosDaGrafica.length]);
 
   // A cópia de impressão só existe enquanto imprime: montar as folhas duas vezes o tempo todo
   // deixava cada clique lento com muitas plaquinhas.
   useEffect(() => {
     if (!pedidoImpressao) return undefined;
+    const grafica = pedidoImpressao.modo === "grafica";
+    const pagina = paginaDaGrafica(folha.formato);
+    const classe = grafica ? CLASSE_GRAFICA : CLASSE_IMPRIMINDO;
     const estilo = document.createElement("style");
-    estilo.textContent = "@page { size: A4 portrait; margin: 0; }";
+    estilo.textContent = grafica ? `@page { size: ${pagina.largura}mm ${pagina.altura}mm; margin: 0; }` : "@page { size: A4 portrait; margin: 0; }";
     document.head.appendChild(estilo);
-    document.body.classList.add(CLASSE_IMPRIMINDO);
+    document.body.classList.add(classe);
     let ativo = true;
-    const terminar = () => { if (ativo) setPedidoImpressao(0); };
+    const terminar = () => { if (ativo) setPedidoImpressao(null); };
     window.addEventListener("afterprint", terminar);
     // setTimeout e não requestAnimationFrame: a animação fica parada quando o navegador
     // está atrás de outra janela ou minimizado, e a impressão nunca começaria.
     const espera = window.setTimeout(async () => {
-      await esperarImagens(".plq-area-impressao img");
+      await esperarImagens(grafica ? ".plq-area-grafica img" : ".plq-area-impressao img");
       if (ativo) window.print();
     }, 0);
     return () => {
       ativo = false;
       window.clearTimeout(espera);
       window.removeEventListener("afterprint", terminar);
-      document.body.classList.remove(CLASSE_IMPRIMINDO);
+      document.body.classList.remove(classe);
       estilo.remove();
     };
-  }, [pedidoImpressao]);
+  }, [pedidoImpressao, folha.formato]);
 
   // Ctrl+P imprime as plaquinhas (e não a tela do ERP); Ctrl+S salva a lista.
   const salvarRef = useRef(salvar);
@@ -326,6 +342,12 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
             ))}
           </div>
           <FormField label="Mostrar a categoria no alto" inline><Switch checked={mostrarCategoria} onChange={setMostrarCategoria} /></FormField>
+          <div className="plq-grafica-acao">
+            <button type="button" className="plq-link" disabled={!pratosDaGrafica.length} onClick={gerarArquivoGrafica}>
+              <FileDown size={15} aria-hidden="true" /> Arquivo para gráfica
+            </button>
+            <span>Uma página por prato, com 2 mm de sangria e marcas de corte. Na impressora, escolha “Salvar como PDF” e mande o arquivo.</span>
+          </div>
         </section>
 
         {aviso && <Alert tone={aviso.tom} role={aviso.tom === "error" ? "alert" : "status"}>{aviso.texto}</Alert>}
@@ -361,7 +383,11 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
         <FolhaPlaquinhas {...folhaProps} />
       </PreviaFolhas>
 
-      {pedidoImpressao > 0 && createPortal(<div className="plq-area-impressao" aria-hidden="true"><FolhaPlaquinhas {...folhaProps} /></div>, document.body)}
+      {pedidoImpressao?.modo === "folha" && createPortal(<div className="plq-area-impressao" aria-hidden="true"><FolhaPlaquinhas {...folhaProps} /></div>, document.body)}
+      {pedidoImpressao?.modo === "grafica" && createPortal(
+        <div className="plq-area-grafica" aria-hidden="true">
+          <ArquivoGrafica pratos={pratosDaGrafica} formato={folha.formato} tema={folha.tema} mostrarCategoria={mostrarCategoria} tamanhos={tamanhos} />
+        </div>, document.body)}
 
       <PratoDialog aberto={novoPrato !== null} prato={null} nomeInicial={novoPrato?.texto ?? ""}
         categoriaInicial={novoPrato?.categoria ?? sugerirCategoria(catalogo, novoPrato?.texto ?? "")}

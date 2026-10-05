@@ -78,6 +78,34 @@
 /* No molde a palavra não é partida: palavra longa demais conta como "não coube" e a letra diminui. */
 .plq-medidor .plq-pt, .plq-medidor .plq-en { overflow-wrap: normal; }
 
+/* ── Arquivo para gráfica: uma página por prato, com sangria e marcas de corte ── */
+.plq-grafica { padding: 0 !important; }
+.plq-grafica-pagina {
+  position: relative; width: var(--pag-l); height: var(--pag-a); overflow: hidden; background: #fff;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.plq-grafica-sangria { position: absolute; left: calc(var(--recuo) - var(--sangria)); top: calc(var(--recuo) - var(--sangria));
+  width: calc(var(--corte-l) + 2 * var(--sangria)); height: calc(var(--corte-a) + 2 * var(--sangria)); background: #fff; }
+.plq-grafica-sangria--gold { background: #161512; }
+.plq-grafica-corte { position: absolute; left: var(--recuo); top: var(--recuo); width: var(--corte-l); height: var(--corte-a); }
+.plq-folha--tent .plq-grafica-corte { display: grid; grid-template-rows: 1fr 1fr; }
+/* Marcas de corte: linhas finas no prolongamento do corte, sem entrar na sangria. */
+.plq-marca { position: absolute; background: #000; }
+.plq-marca--h { height: .1mm; width: calc(var(--recuo) - var(--sangria) - 1mm); }
+.plq-marca--v { width: .1mm; height: calc(var(--recuo) - var(--sangria) - 1mm); }
+.plq-marca--h.plq-marca--te, .plq-marca--h.plq-marca--be { left: 0; }
+.plq-marca--h.plq-marca--td, .plq-marca--h.plq-marca--bd { right: 0; }
+.plq-marca--h.plq-marca--te, .plq-marca--h.plq-marca--td { top: var(--recuo); }
+.plq-marca--h.plq-marca--be, .plq-marca--h.plq-marca--bd { top: calc(var(--recuo) + var(--corte-a)); }
+.plq-marca--v.plq-marca--te, .plq-marca--v.plq-marca--be { left: var(--recuo); }
+.plq-marca--v.plq-marca--td, .plq-marca--v.plq-marca--bd { left: calc(var(--recuo) + var(--corte-l)); }
+.plq-marca--v.plq-marca--te, .plq-marca--v.plq-marca--td { top: 0; }
+.plq-marca--v.plq-marca--be, .plq-marca--v.plq-marca--bd { bottom: 0; }
+.plq-grafica-legenda {
+  position: absolute; left: var(--recuo); right: var(--recuo); bottom: .8mm; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: 4.5pt Inter, "Segoe UI", Arial, sans-serif; color: #666;
+}
+
 /* ── Impressão ── */
 .plq-area-impressao { position: fixed; top: 0; left: -20000px; visibility: hidden; pointer-events: none; }
 /* 1 mm de folga evita uma página em branco no fim em alguns navegadores. */
@@ -90,4 +118,13 @@
   body.imprimindo-plaquinhas .plq-folha:last-child { break-after: auto; page-break-after: auto; }
   body.imprimindo-plaquinhas .plq-placa--estoura { outline: none; }
   body.imprimindo-plaquinhas .plq-numero { display: none; }
+}
+.plq-area-grafica { position: fixed; top: 0; left: -20000px; visibility: hidden; pointer-events: none; }
+@media print {
+  body.imprimindo-grafica > *:not(.plq-area-grafica) { display: none !important; }
+  body.imprimindo-grafica { margin: 0 !important; background: #fff !important; }
+  body.imprimindo-grafica .plq-area-grafica { position: static; left: auto; visibility: visible; }
+  body.imprimindo-grafica .plq-grafica-pagina { break-after: page; page-break-after: always; }
+  body.imprimindo-grafica .plq-grafica-pagina:last-child { break-after: auto; page-break-after: auto; }
+  body.imprimindo-grafica .plq-placa--estoura { outline: none; }
 }
