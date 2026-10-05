@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, BookPlus, ChevronDown, ChevronUp, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ArrowUp, BookPlus, ChevronDown, ChevronUp, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { BuffetMenuItem, BuffetMenuSection, BuffetPlateItem, MenuFace } from "../../../api/client";
 import { BuscaPratoCardapio } from "./BuscaPratoCardapio";
@@ -33,6 +33,9 @@ type Props = {
   onMudar: (s: SecaoEdit) => void;
   onMover: (delta: number) => void;
   onRemover: () => void;
+  /** As outras seções do cardápio, para onde um prato pode ser movido. */
+  outrasSecoes: Array<{ chave: string; rotulo: string }>;
+  onMoverPrato: (chaveItem: string, paraSecao: string) => void;
   /** Abre o cadastro do catálogo; o prato salvo volta para esta seção. */
   onCadastrar: (pedido: { namePt: string; nameEn: string; substituir?: string }) => void;
 };
@@ -40,7 +43,7 @@ type Props = {
 const falta = (s: string) => s.trim().length < 2;
 
 export function SecaoCardapio(props: Props) {
-  const { secao, indice, total, catalogo, porNome, podeCadastrar, mostrarErros, mostrarFace, primeiroDisplay, umPorPrato, abertaNoInicio, onMudar, onMover, onRemover, onCadastrar } = props;
+  const { secao, indice, total, catalogo, porNome, podeCadastrar, mostrarErros, mostrarFace, primeiroDisplay, umPorPrato, abertaNoInicio, outrasSecoes, onMoverPrato, onMudar, onMover, onRemover, onCadastrar } = props;
   const [abertaLocal, setAberta] = useState(abertaNoInicio);
   // Com erro para corrigir, a seção abre sozinha: não dá para consertar o que não se vê.
   const temErro = mostrarErros && (falta(secao.titlePt) || falta(secao.titleEn) || !secao.items.length || secao.items.some((i) => falta(i.namePt) || falta(i.nameEn)));
@@ -97,7 +100,7 @@ export function SecaoCardapio(props: Props) {
       {aberta && <>
       <div className="cdp-ed-dupla">
         <label>Título
-          <input value={secao.titlePt} maxLength={60} placeholder="Ex.: Bebidas" onChange={(e) => onMudar({ ...secao, titlePt: e.target.value })}
+          <input value={secao.titlePt} maxLength={60} placeholder="Ex.: Bebidas" autoFocus={abertaNoInicio && !secao.titlePt} onChange={(e) => onMudar({ ...secao, titlePt: e.target.value })}
             onBlur={() => {
               const titlePt = arrumarNome(secao.titlePt);
               const sugerido = falta(secao.titleEn) ? inglesDoTitulo(titlePt) : undefined;
@@ -128,6 +131,16 @@ export function SecaoCardapio(props: Props) {
                     <button type="button" aria-label={`Cadastrar ${it.namePt.trim()} no catálogo`} title="Cadastrar no catálogo, para usar nas plaquinhas e nos próximos cardápios"
                       onClick={() => onCadastrar({ namePt: it.namePt, nameEn: it.nameEn, substituir: it.chave })}><BookPlus size={15} /></button>
                   )}
+                  {outrasSecoes.length > 0 && (
+                    <label className="cdp-mover" title="Mover para outra seção">
+                      <ArrowLeftRight size={14} aria-hidden="true" />
+                      <select value="" aria-label={`Mover ${it.namePt.trim() || `prato ${i + 1}`} para outra seção`}
+                        onChange={(e) => { if (e.target.value) onMoverPrato(it.chave, e.target.value); }}>
+                        <option value="">Mover para…</option>
+                        {outrasSecoes.map((o) => <option key={o.chave} value={o.chave}>{o.rotulo}</option>)}
+                      </select>
+                    </label>
+                  )}
                   <button type="button" aria-label={`Subir prato ${i + 1}`} disabled={i === 0} onClick={() => moverItem(i, -1)}><ArrowUp size={14} /></button>
                   <button type="button" aria-label={`Descer prato ${i + 1}`} disabled={i === secao.items.length - 1} onClick={() => moverItem(i, 1)}><ArrowDown size={14} /></button>
                   <button type="button" aria-label={`Tirar prato ${i + 1}`} className="plq-tirar" onClick={() => onMudar({ ...secao, items: secao.items.filter((x) => x.chave !== it.chave) })}><X size={14} /></button>
@@ -140,7 +153,7 @@ export function SecaoCardapio(props: Props) {
 
       {cheia
         ? <p className="plq-contagem">Limite de {MAX_PRATOS_SECAO} pratos na seção.</p>
-        : <BuscaPratoCardapio catalogo={catalogo} jaNaSecao={jaNaSecao} podeCadastrar={podeCadastrar} rotuloSecao={rotulo}
+        : <BuscaPratoCardapio autoFocus={abertaNoInicio && Boolean(secao.titlePt) && !secao.items.length} catalogo={catalogo} jaNaSecao={jaNaSecao} podeCadastrar={podeCadastrar} rotuloSecao={rotulo}
             onEscolher={(p) => onMudar({ ...secao, items: [...secao.items, { chave: chaveNova(), ...p }] })}
             onCadastrar={(texto) => onCadastrar({ namePt: texto, nameEn: "" })} />}
       {mostrarErros && secao.items.length === 0 && <p className="cdp-ed-erro">Procure ou escreva pelo menos um prato.</p>}

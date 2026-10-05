@@ -10,7 +10,7 @@ import { auditLog, getSessionUser, requestIp } from "../security/security-utils.
 // português e inglês. Fica sob /buffet-plates, então usa a mesma permissão das plaquinhas.
 export const buffetMenusRouter = Router();
 
-const MAX_SECTIONS = 10;
+const MAX_SECTIONS = 30;
 const MAX_ITEMS_PER_SECTION = 20;
 const FACES = ["front", "back"] as const;
 const THEMES = ["wine", "gold", "white"] as const;
