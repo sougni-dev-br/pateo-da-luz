@@ -4009,7 +4009,8 @@ export function deleteBuffetPlateList(id: string) {
 
 // Cardápio do evento (display de acrílico, frente e verso)
 export type MenuFace = "front" | "back";
-export type BuffetMenuItem = { namePt: string; nameEn: string };
+/** qty: quantas vezes o prato sai na folha no "um display por prato" (1 se ausente). */
+export type BuffetMenuItem = { namePt: string; nameEn: string; qty?: number };
 export type BuffetMenuSection = { face: MenuFace; titlePt: string; titleEn: string; items: BuffetMenuItem[] };
 export type BuffetMenuSummary = {
   id: string;

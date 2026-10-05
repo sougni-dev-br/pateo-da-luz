@@ -10,6 +10,7 @@ export type ItemEdit = BuffetMenuItem & { chave: string };
 export type SecaoEdit = Omit<BuffetMenuSection, "items"> & { chave: string; items: ItemEdit[] };
 
 export const MAX_PRATOS_SECAO = 20;
+export const MAX_COPIAS_PRATO = 20;
 
 let seq = 0;
 export const chaveNova = () => `c${++seq}`;
@@ -70,7 +71,8 @@ export function SecaoCardapio(props: Props) {
   };
 
   const rotulo = secao.titlePt.trim() || `Seção ${indice + 1}`;
-  const ultimoDisplay = primeiroDisplay + Math.max(secao.items.length, 1) - 1;
+  const displaysDaSecao = secao.items.reduce((a, it) => a + (it.qty ?? 1), 0);
+  const ultimoDisplay = primeiroDisplay + Math.max(displaysDaSecao, 1) - 1;
   const qualDisplay = umPorPrato && ultimoDisplay > primeiroDisplay ? `Displays ${primeiroDisplay} a ${ultimoDisplay}` : `Display ${primeiroDisplay}`;
 
   return (
@@ -126,6 +128,15 @@ export function SecaoCardapio(props: Props) {
                   <input value={it.nameEn} maxLength={160} lang="en" autoFocus={Boolean(it.namePt) && !it.nameEn} placeholder="Em inglês (obrigatório)"
                     aria-label={`Prato ${i + 1} de ${rotulo} em inglês`} onChange={(e) => mudarItem(it.chave, { nameEn: e.target.value })} aria-invalid={semIngles} />
                 </div>
+                {umPorPrato && (
+                  <span className="plq-qtd cdp-ed-qtd" title="Quantas vezes este prato sai na folha">
+                    <button type="button" aria-label={`Uma a menos de ${it.namePt.trim() || `prato ${i + 1}`}`} disabled={(it.qty ?? 1) <= 1}
+                      onClick={() => mudarItem(it.chave, { qty: (it.qty ?? 1) - 1 })}>−</button>
+                    <output aria-label={`Quantidade de ${it.namePt.trim() || `prato ${i + 1}`}`}>{it.qty ?? 1}</output>
+                    <button type="button" aria-label={`Uma a mais de ${it.namePt.trim() || `prato ${i + 1}`}`} disabled={(it.qty ?? 1) >= MAX_COPIAS_PRATO}
+                      onClick={() => mudarItem(it.chave, { qty: (it.qty ?? 1) + 1 })}>+</button>
+                  </span>
+                )}
                 <span className="cdp-ed-acoes">
                   {foraDoCatalogo && (
                     <button type="button" aria-label={`Cadastrar ${it.namePt.trim()} no catálogo`} title="Cadastrar no catálogo, para usar nas plaquinhas e nos próximos cardápios"
