@@ -12,6 +12,7 @@ export const buffetMenusRouter = Router();
 
 const MAX_SECTIONS = 30;
 const MAX_ITEMS_PER_SECTION = 20;
+const MAX_COPIES = 20;
 const FACES = ["front", "back"] as const;
 const THEMES = ["wine", "gold", "white"] as const;
 // same: um cardápio repetido em todos os displays. perSection: cada seção vira um display.
@@ -33,6 +34,8 @@ const sectionSchema = z.object({
   items: z.array(z.object({
     namePt: texto("prato", 160),
     nameEn: texto("prato em inglês", 160),
+    // Quantas vezes o prato sai na folha quando cada prato é um display ("perItem").
+    qty: z.coerce.number().int().min(1, "quantidade mínima é 1").max(MAX_COPIES, `quantidade máxima é ${MAX_COPIES}`).optional(),
   })).min(1, "a seção precisa de pelo menos um prato").max(MAX_ITEMS_PER_SECTION, `no máximo ${MAX_ITEMS_PER_SECTION} pratos por seção`),
 });
 
