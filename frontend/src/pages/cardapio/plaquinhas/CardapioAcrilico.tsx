@@ -12,7 +12,7 @@ import { FolhasCardapio, useAjustesDoCardapio } from "./FaceCardapio";
 import { PratoDialog } from "./PratoDialog";
 import { PreviaFolhas } from "./PreviaFolhas";
 import { esperarImagens } from "./impressao";
-import { SecaoCardapio, chaveNova, type SecaoEdit } from "./SecaoCardapio";
+import { MAX_PRATOS_SECAO, SecaoCardapio, chaveNova, type SecaoEdit } from "./SecaoCardapio";
 import {
   MAX_DISPLAYS, SECOES_MODELO, TAMANHOS_FACE, TAMANHO_DISPLAY, cm, facesParaImprimir, gruposDasFaces, layoutDaFolha, pendenciasDoCardapio, umPorDisplay,
   type Distribuicao,
@@ -24,7 +24,7 @@ type Confirmacao = { titulo: string; texto: string; ok: string; acao: () => void
 type Aviso = { tom: "success" | "error"; texto: string };
 
 const CLASSE_IMPRIMINDO = "imprimindo-cardapio";
-const MAX_SECOES = 10;
+const MAX_SECOES = 30;
 const MODELOS_DE_ATALHO = 6;
 const hoje = () => new Date().toLocaleDateString("sv-SE");
 const novoCardapio = (): Cardapio => ({ id: null, nome: "", data: hoje(), tema: "wine", largura: TAMANHO_DISPLAY.largura, altura: TAMANHO_DISPLAY.altura, displays: 1, distribuicao: "same", secoes: [] });
@@ -136,6 +136,24 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
         setOcupado(false);
       }
     });
+  }
+
+  // Tira o prato de uma seção e põe no fim de outra, avisando para onde foi.
+  function moverPrato(de: string, chaveItem: string, para: string) {
+    const origem = c.secoes.find((s) => s.chave === de);
+    const destino = c.secoes.find((s) => s.chave === para);
+    const item = origem?.items.find((i) => i.chave === chaveItem);
+    if (!origem || !destino || !item) return;
+    if (destino.items.length >= MAX_PRATOS_SECAO) {
+      setAviso({ tom: "error", texto: `“${destino.titlePt || "A seção"}” já tem ${MAX_PRATOS_SECAO} pratos.` });
+      return;
+    }
+    mudarSecoes((ss) => ss.map((s) => {
+      if (s.chave === de) return { ...s, items: s.items.filter((i) => i.chave !== chaveItem) };
+      if (s.chave === para) return { ...s, items: [...s.items, item] };
+      return s;
+    }));
+    setAviso({ tom: "success", texto: `${item.namePt.trim() || "Prato"} foi para ${destino.titlePt.trim() || "a outra seção"}.` });
   }
 
   function novaSecao(titlePt = "", titleEn = "", face: "front" | "back" = "front") {
@@ -286,7 +304,10 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
               : "Todos os displays saem iguais. Cada seção vai na frente ou no verso."}</p>
           {c.secoes.map((s, i) => (
             <SecaoCardapio key={s.chave} secao={s} indice={i} total={c.secoes.length} catalogo={catalogo} porNome={porNome} podeCadastrar={podeCriar}
-              mostrarErros={mostrarErros} mostrarFace={!separados} abertaNoInicio={s.items.length === 0} onCadastrar={(p) => setCadastro({ secao: s.chave, ...p })}
+              mostrarErros={mostrarErros} mostrarFace={!separados} abertaNoInicio={s.items.length === 0}
+              outrasSecoes={c.secoes.filter((x) => x.chave !== s.chave).map((x) => ({ chave: x.chave, rotulo: x.titlePt.trim() || `Seção ${c.secoes.indexOf(x) + 1}` }))}
+              onMoverPrato={(chaveItem, para) => moverPrato(s.chave, chaveItem, para)}
+              onCadastrar={(p) => setCadastro({ secao: s.chave, ...p })}
               primeiroDisplay={porPrato ? c.secoes.slice(0, i).reduce((a, x) => a + x.items.length, 0) + 1 : i + 1} umPorPrato={porPrato}
               onMudar={(nova) => mudarSecoes((ss) => ss.map((x) => (x.chave === s.chave ? nova : x)))}
               onMover={(delta) => mudarSecoes((ss) => {
@@ -299,11 +320,13 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
               onRemover={() => mudarSecoes((ss) => ss.filter((x) => x.chave !== s.chave))} />
           ))}
           <div className="plq-atalhos">
-            <span>{c.secoes.length ? "Mais uma seção:" : "Comece por uma seção:"}</span>
-            {SECOES_MODELO.filter((m) => !c.secoes.some((s) => s.titlePt === m.titlePt)).map((m) => (
-              <button key={m.titlePt} type="button" className="plq-chip" onClick={() => novaSecao(m.titlePt, m.titleEn, m.face)}>{m.titlePt}</button>
+            <Button variant="secondary" size="sm" disabled={c.secoes.length >= MAX_SECOES} onClick={() => novaSecao()}><Plus size={15} aria-hidden="true" /> Nova seção</Button>
+            <span>ou já com o nome:</span>
+            {/* Os modelos não somem depois de usados: dá para ter duas seções parecidas (bebidas quentes e geladas). */}
+            {SECOES_MODELO.map((m) => (
+              <button key={m.titlePt} type="button" className="plq-chip" disabled={c.secoes.length >= MAX_SECOES} onClick={() => novaSecao(m.titlePt, m.titleEn, m.face)}>{m.titlePt}</button>
             ))}
-            <button type="button" className="plq-chip" onClick={() => novaSecao()}><Plus size={12} aria-hidden="true" /> Outra</button>
+            {c.secoes.length >= MAX_SECOES && <small>Limite de {MAX_SECOES} seções por cardápio.</small>}
           </div>
         </section>
 

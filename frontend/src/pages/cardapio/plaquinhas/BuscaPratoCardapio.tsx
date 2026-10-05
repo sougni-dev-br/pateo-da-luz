@@ -6,6 +6,8 @@ import { arrumarNome, buscarPratos, semAcento } from "./plaquinhasFormato";
 const MAX_RESULTADOS = 8;
 
 type Props = {
+  /** Seção recém-criada já com título: o cursor vem direto para a busca. */
+  autoFocus?: boolean;
   catalogo: BuffetPlateItem[];
   /** Nomes (sem acento) que já estão na seção, para marcar em vez de repetir. */
   jaNaSecao: Set<string>;
@@ -22,7 +24,7 @@ type Opcao =
 
 // Busca do cardápio do display: procura no catálogo (português ou inglês) e, se não achar,
 // deixa usar o nome só neste cardápio ou cadastrar no catálogo. ↑/↓ escolhe, Enter adiciona.
-export function BuscaPratoCardapio({ catalogo, jaNaSecao, podeCadastrar, rotuloSecao, onEscolher, onCadastrar }: Props) {
+export function BuscaPratoCardapio({ autoFocus, catalogo, jaNaSecao, podeCadastrar, rotuloSecao, onEscolher, onCadastrar }: Props) {
   const [texto, setTexto] = useState("");
   const [ativo, setAtivo] = useState(0);
   const [aviso, setAviso] = useState("");
@@ -74,7 +76,7 @@ export function BuscaPratoCardapio({ catalogo, jaNaSecao, podeCadastrar, rotuloS
     <div className="cdp-busca">
       <div className="plq-busca">
         <Search size={16} aria-hidden="true" />
-        <input ref={inputRef} type="text" value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={tecla} autoComplete="off"
+        <input ref={inputRef} type="text" autoFocus={autoFocus} value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={tecla} autoComplete="off"
           placeholder="Procurar ou escrever um prato" aria-label={`Procurar prato para ${rotuloSecao}`}
           role="combobox" aria-autocomplete="list" aria-expanded={aberto} aria-controls={aberto ? idLista : undefined}
           aria-activedescendant={aberto ? idOpcao(indice) : undefined} />
