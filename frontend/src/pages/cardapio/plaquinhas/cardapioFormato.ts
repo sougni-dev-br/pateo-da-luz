@@ -50,12 +50,24 @@ export function layoutDaFolha(largura: number, altura: number): LayoutFolha | nu
 
 // "same": o mesmo cardápio (frente e verso) em todos os displays.
 // "perSection": cada seção é um display, com o mesmo texto na frente e no verso.
-export type Distribuicao = "same" | "perSection";
+// "perItem": cada prato é um display (o nome da seção vai em cima, pequeno).
+export type Distribuicao = "same" | "perSection" | "perItem";
+
+/** Um display por seção ou por prato: frente e verso iguais. */
+export const umPorDisplay = (d: Distribuicao) => d !== "same";
+
+// Com um prato só na face, a letra pode crescer bem mais que no cardápio cheio.
+export const FONTE_MAX_PRATO = 30;
 
 /** O conteúdo de uma face: as seções que vão nela e se leva o logo. A letra é ajustada por grupo. */
-export type GrupoFace = { chave: string; rotulo: string; secoes: BuffetMenuSection[]; comLogo: boolean };
+export type GrupoFace = { chave: string; rotulo: string; secoes: BuffetMenuSection[]; comLogo: boolean; maxPt?: number; umPrato?: boolean };
 
 export function gruposDasFaces(secoes: BuffetMenuSection[], distribuicao: Distribuicao): GrupoFace[] {
+  if (distribuicao === "perItem") {
+    return secoes.flatMap((s, i) => s.items.map((item, j) => ({
+      chave: `s${i}-${j}`, rotulo: `em “${item.namePt.trim() || `prato ${j + 1}`}”`, secoes: [{ ...s, items: [item] }], comLogo: true, maxPt: FONTE_MAX_PRATO, umPrato: true,
+    })));
+  }
   if (distribuicao === "perSection") {
     return secoes.map((s, i) => ({ chave: `s${i}`, rotulo: `em “${s.titlePt.trim() || `Seção ${i + 1}`}”`, secoes: [s], comLogo: true }));
   }
@@ -70,7 +82,7 @@ export type FaceImpressa = { chave: string; grupo: string; face: MenuFace; displ
 // Cada display leva a frente e, ao lado, o verso. No "um por seção", frente e verso repetem a seção.
 export function facesParaImprimir(grupos: GrupoFace[], displays: number, distribuicao: Distribuicao): FaceImpressa[] {
   const faces: FaceImpressa[] = [];
-  if (distribuicao === "perSection") {
+  if (umPorDisplay(distribuicao)) {
     let display = 0;
     for (const g of grupos) {
       for (let c = 1; c <= displays; c++) {

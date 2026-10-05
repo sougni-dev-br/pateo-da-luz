@@ -46,6 +46,11 @@
 
 /* No molde a palavra não é partida: palavra longa demais conta como "não coube". */
 .cdp-face--medidor .cdp-pt, .cdp-face--medidor .cdp-en { overflow-wrap: normal; }
+/* Um prato por display: o prato é o destaque; a seção vira um rótulo pequeno em cima. */
+.cdp-face--prato .cdp-titulo { font-size: calc(var(--s) * 0.42); }
+.cdp-face--prato .cdp-titulo b { width: calc(var(--s) * 0.16); height: calc(var(--s) * 0.16); }
+.cdp-face--prato .cdp-titulo-en { font-size: calc(var(--s) * 0.38); }
+.cdp-face--prato .cdp-secao ul { margin-top: calc(var(--s) * 0.35); }
 .cdp-face--estoura { outline: .6mm solid #c0392b; outline-offset: -.6mm; }
 
 /* ── Impressão ── */

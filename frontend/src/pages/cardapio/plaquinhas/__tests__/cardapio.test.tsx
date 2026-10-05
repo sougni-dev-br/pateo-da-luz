@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { BuffetMenuSection } from "../../../../api/client";
 import { CampoCm } from "../CampoCm";
 import { FaceCardapio } from "../FaceCardapio";
-import { TAMANHO_DISPLAY, facesParaImprimir, gruposDasFaces, layoutDaFolha, pendenciasDoCardapio } from "../cardapioFormato";
+import { FONTE_MAX_PRATO, TAMANHO_DISPLAY, facesParaImprimir, gruposDasFaces, layoutDaFolha, pendenciasDoCardapio } from "../cardapioFormato";
 import { esperarImagens } from "../impressao";
 
 const secao = (face: "front" | "back", titlePt: string, items: Array<[string, string]>, titleEn = "Title"): BuffetMenuSection =>
@@ -50,6 +50,16 @@ describe("faces por display", () => {
     expect(grupos.map((g) => [g.chave, g.rotulo, g.comLogo])).toEqual([["s0", "em “Entradas”", true], ["s1", "em “Doces”", true]]);
     const faces = facesParaImprimir(grupos, 2, "perSection");
     expect(faces.map((f) => `${f.display}${f.face[0]}:${f.grupo}`)).toEqual(["1f:s0", "1b:s0", "2f:s0", "2b:s0", "3f:s1", "3b:s1", "4f:s1", "4b:s1"]);
+  });
+
+  test("um display por prato: cada prato é um display com a seção em cima, e a letra pode crescer", () => {
+    const bebidas = secao("front", "Bebidas", [["Café", "Brewed coffee"], ["Leite integral", "Whole milk"]]);
+    const grupos = gruposDasFaces([bebidas, doces], "perItem");
+    expect(grupos.map((g) => g.rotulo)).toEqual(["em “Café”", "em “Leite integral”", "em “Brigadeiro”"]);
+    expect(grupos[1].secoes).toEqual([{ ...bebidas, items: [bebidas.items[1]] }]);
+    expect(grupos.every((g) => g.comLogo && g.maxPt === FONTE_MAX_PRATO)).toBe(true);
+    const faces = facesParaImprimir(grupos, 1, "perItem");
+    expect(faces.map((f) => `${f.display}${f.face[0]}`)).toEqual(["1f", "1b", "2f", "2b", "3f", "3b"]);
   });
 
   test("seis seções num display cada: 12 faces, cabem em duas folhas no tamanho do display", () => {

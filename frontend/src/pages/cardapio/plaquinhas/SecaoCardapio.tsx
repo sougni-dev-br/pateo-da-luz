@@ -21,6 +21,9 @@ type Props = {
   mostrarErros: boolean;
   /** No "um display por seção" a seção ocupa as duas faces: não há frente ou verso a escolher. */
   mostrarFace: boolean;
+  /** Número do primeiro display desta seção (um por seção ou um por prato). */
+  primeiroDisplay: number;
+  umPorPrato: boolean;
   onMudar: (s: SecaoEdit) => void;
   onMover: (delta: number) => void;
   onRemover: () => void;
@@ -28,7 +31,9 @@ type Props = {
 
 const falta = (s: string) => s.trim().length < 2;
 
-export function SecaoCardapio({ secao, indice, total, porNome, idLista, mostrarErros, mostrarFace, onMudar, onMover, onRemover }: Props) {
+export function SecaoCardapio({ secao, indice, total, porNome, idLista, mostrarErros, mostrarFace, primeiroDisplay, umPorPrato, onMudar, onMover, onRemover }: Props) {
+  const ultimoDisplay = primeiroDisplay + Math.max(secao.items.length, 1) - 1;
+  const qualDisplay = umPorPrato && ultimoDisplay > primeiroDisplay ? `Displays ${primeiroDisplay} a ${ultimoDisplay}` : `Display ${primeiroDisplay}`;
   const mudarItem = (chave: string, parcial: Partial<BuffetMenuItem>) =>
     onMudar({ ...secao, items: secao.items.map((it) => (it.chave === chave ? { ...it, ...parcial } : it)) });
 
@@ -59,7 +64,7 @@ export function SecaoCardapio({ secao, indice, total, porNome, idLista, mostrarE
               <button key={f} type="button" aria-pressed={secao.face === f} onClick={() => onMudar({ ...secao, face: f })}>{f === "front" ? "Frente" : "Verso"}</button>
             ))}
           </div>
-        ) : <span className="cdp-ed-display">Display {indice + 1}</span>}
+        ) : <span className="cdp-ed-display">{qualDisplay}</span>}
         <span className="cdp-ed-acoes">
           <button type="button" aria-label={`Subir ${rotulo}`} disabled={indice === 0} onClick={() => onMover(-1)}><ArrowUp size={16} /></button>
           <button type="button" aria-label={`Descer ${rotulo}`} disabled={indice === total - 1} onClick={() => onMover(1)}><ArrowDown size={16} /></button>

@@ -4019,8 +4019,8 @@ export type BuffetMenuSummary = {
   faceWidthMm: number;
   faceHeightMm: number;
   copies: number;
-  /** "same": o mesmo cardápio em todos os displays. "perSection": cada seção é um display. */
-  layout: "same" | "perSection";
+  /** "same": o mesmo cardápio em todos os displays. "perSection": cada seção é um display. "perItem": cada prato é um display. */
+  layout: "same" | "perSection" | "perItem";
   sectionCount: number;
   itemCount: number;
   updatedAt: string;
