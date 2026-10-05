@@ -19,6 +19,8 @@ type Props = {
   porNome: Map<string, BuffetPlateItem>;
   idLista: string;
   mostrarErros: boolean;
+  /** No "um display por seção" a seção ocupa as duas faces: não há frente ou verso a escolher. */
+  mostrarFace: boolean;
   onMudar: (s: SecaoEdit) => void;
   onMover: (delta: number) => void;
   onRemover: () => void;
@@ -26,7 +28,7 @@ type Props = {
 
 const falta = (s: string) => s.trim().length < 2;
 
-export function SecaoCardapio({ secao, indice, total, porNome, idLista, mostrarErros, onMudar, onMover, onRemover }: Props) {
+export function SecaoCardapio({ secao, indice, total, porNome, idLista, mostrarErros, mostrarFace, onMudar, onMover, onRemover }: Props) {
   const mudarItem = (chave: string, parcial: Partial<BuffetMenuItem>) =>
     onMudar({ ...secao, items: secao.items.map((it) => (it.chave === chave ? { ...it, ...parcial } : it)) });
 
@@ -51,11 +53,13 @@ export function SecaoCardapio({ secao, indice, total, porNome, idLista, mostrarE
   return (
     <section className="cdp-ed-secao" aria-label={rotulo}>
       <div className="cdp-ed-secao-topo">
-        <div className="cdp-ed-face" role="group" aria-label={`Em que face fica ${rotulo}`}>
-          {(["front", "back"] as MenuFace[]).map((f) => (
-            <button key={f} type="button" aria-pressed={secao.face === f} onClick={() => onMudar({ ...secao, face: f })}>{f === "front" ? "Frente" : "Verso"}</button>
-          ))}
-        </div>
+        {mostrarFace ? (
+          <div className="cdp-ed-face" role="group" aria-label={`Em que face fica ${rotulo}`}>
+            {(["front", "back"] as MenuFace[]).map((f) => (
+              <button key={f} type="button" aria-pressed={secao.face === f} onClick={() => onMudar({ ...secao, face: f })}>{f === "front" ? "Frente" : "Verso"}</button>
+            ))}
+          </div>
+        ) : <span className="cdp-ed-display">Display {indice + 1}</span>}
         <span className="cdp-ed-acoes">
           <button type="button" aria-label={`Subir ${rotulo}`} disabled={indice === 0} onClick={() => onMover(-1)}><ArrowUp size={16} /></button>
           <button type="button" aria-label={`Descer ${rotulo}`} disabled={indice === total - 1} onClick={() => onMover(1)}><ArrowDown size={16} /></button>

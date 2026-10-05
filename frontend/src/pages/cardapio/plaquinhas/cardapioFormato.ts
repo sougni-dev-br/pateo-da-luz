@@ -10,6 +10,12 @@ export const SECOES_MODELO: Array<{ titlePt: string; titleEn: string; face: Menu
   { titlePt: "Acompanhamentos", titleEn: "Side dishes", face: "back" },
   { titlePt: "Sobremesas", titleEn: "Desserts", face: "back" },
   { titlePt: "Bebidas", titleEn: "Drinks", face: "back" },
+  // Coffee break
+  { titlePt: "Salgados", titleEn: "Savory snacks", face: "front" },
+  { titlePt: "Lanches", titleEn: "Sandwiches", face: "front" },
+  { titlePt: "Geleias", titleEn: "Jams", face: "front" },
+  { titlePt: "Doces", titleEn: "Sweets", face: "back" },
+  { titlePt: "Bolos", titleEn: "Cakes", face: "back" },
 ];
 
 // Tamanho de cada face, em mm. "Display de acrílico" é o bolso do display da casa
@@ -42,15 +48,41 @@ export function layoutDaFolha(largura: number, altura: number): LayoutFolha | nu
   return opcoes[0];
 }
 
-export type FaceImpressa = { chave: string; face: MenuFace; display: number };
+// "same": o mesmo cardápio (frente e verso) em todos os displays.
+// "perSection": cada seção é um display, com o mesmo texto na frente e no verso.
+export type Distribuicao = "same" | "perSection";
 
-// Cada display leva a frente e, se houver seção no verso, o verso logo ao lado.
-export function facesParaImprimir(secoes: Pick<BuffetMenuSection, "face">[], displays: number): FaceImpressa[] {
-  const temVerso = secoes.some((s) => s.face === "back");
+/** O conteúdo de uma face: as seções que vão nela e se leva o logo. A letra é ajustada por grupo. */
+export type GrupoFace = { chave: string; rotulo: string; secoes: BuffetMenuSection[]; comLogo: boolean };
+
+export function gruposDasFaces(secoes: BuffetMenuSection[], distribuicao: Distribuicao): GrupoFace[] {
+  if (distribuicao === "perSection") {
+    return secoes.map((s, i) => ({ chave: `s${i}`, rotulo: `em “${s.titlePt.trim() || `Seção ${i + 1}`}”`, secoes: [s], comLogo: true }));
+  }
+  const grupos: GrupoFace[] = [{ chave: "front", rotulo: "na frente", secoes: secoes.filter((s) => s.face === "front"), comLogo: true }];
+  const verso = secoes.filter((s) => s.face === "back");
+  if (verso.length) grupos.push({ chave: "back", rotulo: "no verso", secoes: verso, comLogo: false });
+  return grupos;
+}
+
+export type FaceImpressa = { chave: string; grupo: string; face: MenuFace; display: number };
+
+// Cada display leva a frente e, ao lado, o verso. No "um por seção", frente e verso repetem a seção.
+export function facesParaImprimir(grupos: GrupoFace[], displays: number, distribuicao: Distribuicao): FaceImpressa[] {
   const faces: FaceImpressa[] = [];
+  if (distribuicao === "perSection") {
+    let display = 0;
+    for (const g of grupos) {
+      for (let c = 1; c <= displays; c++) {
+        display++;
+        faces.push({ chave: `${display}-front`, grupo: g.chave, face: "front", display });
+        faces.push({ chave: `${display}-back`, grupo: g.chave, face: "back", display });
+      }
+    }
+    return faces;
+  }
   for (let d = 1; d <= displays; d++) {
-    faces.push({ chave: `${d}-front`, face: "front", display: d });
-    if (temVerso) faces.push({ chave: `${d}-back`, face: "back", display: d });
+    for (const g of grupos) faces.push({ chave: `${d}-${g.chave}`, grupo: g.chave, face: g.chave === "back" ? "back" : "front", display: d });
   }
   return faces;
 }

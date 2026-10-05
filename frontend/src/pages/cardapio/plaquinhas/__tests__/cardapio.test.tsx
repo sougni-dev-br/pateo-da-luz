@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { BuffetMenuSection } from "../../../../api/client";
 import { CampoCm } from "../CampoCm";
 import { FaceCardapio } from "../FaceCardapio";
-import { TAMANHO_DISPLAY, facesParaImprimir, layoutDaFolha, pendenciasDoCardapio } from "../cardapioFormato";
+import { TAMANHO_DISPLAY, facesParaImprimir, gruposDasFaces, layoutDaFolha, pendenciasDoCardapio } from "../cardapioFormato";
 import { esperarImagens } from "../impressao";
 
 const secao = (face: "front" | "back", titlePt: string, items: Array<[string, string]>, titleEn = "Title"): BuffetMenuSection =>
@@ -30,13 +30,33 @@ describe("encaixe das faces na folha A4", () => {
 });
 
 describe("faces por display", () => {
-  test("com seção no verso, cada display leva frente e verso, nessa ordem", () => {
-    const faces = facesParaImprimir([{ face: "front" }, { face: "back" }], 2);
+  const entradas = secao("front", "Entradas", [["Saladinha do Pateo", "Pateo side salad"]]);
+  const doces = secao("back", "Doces", [["Brigadeiro", "Brigadeiro (chocolate truffle)"]]);
+
+  test("mesmo cardápio: com seção no verso, cada display leva frente e verso, nessa ordem", () => {
+    const grupos = gruposDasFaces([entradas, doces], "same");
+    const faces = facesParaImprimir(grupos, 2, "same");
     expect(faces.map((f) => f.chave)).toEqual(["1-front", "1-back", "2-front", "2-back"]);
+    expect(grupos.map((g) => [g.chave, g.comLogo, g.secoes.length])).toEqual([["front", true, 1], ["back", false, 1]]);
   });
 
-  test("sem nada no verso, só a frente", () => {
-    expect(facesParaImprimir([{ face: "front" }], 3).map((f) => f.face)).toEqual(["front", "front", "front"]);
+  test("mesmo cardápio: sem nada no verso, só a frente", () => {
+    const faces = facesParaImprimir(gruposDasFaces([entradas], "same"), 3, "same");
+    expect(faces.map((f) => f.face)).toEqual(["front", "front", "front"]);
+  });
+
+  test("um display por seção: cada seção ocupa frente e verso do seu display, com logo nas duas", () => {
+    const grupos = gruposDasFaces([entradas, doces], "perSection");
+    expect(grupos.map((g) => [g.chave, g.rotulo, g.comLogo])).toEqual([["s0", "em “Entradas”", true], ["s1", "em “Doces”", true]]);
+    const faces = facesParaImprimir(grupos, 2, "perSection");
+    expect(faces.map((f) => `${f.display}${f.face[0]}:${f.grupo}`)).toEqual(["1f:s0", "1b:s0", "2f:s0", "2b:s0", "3f:s1", "3b:s1", "4f:s1", "4b:s1"]);
+  });
+
+  test("seis seções num display cada: 12 faces, cabem em duas folhas no tamanho do display", () => {
+    const seis = Array.from({ length: 6 }, (_, i) => secao("front", `Seção ${i + 1}`, [["Café", "Brewed coffee"]]));
+    const faces = facesParaImprimir(gruposDasFaces(seis, "perSection"), 1, "perSection");
+    expect(faces).toHaveLength(12);
+    expect(Math.ceil(faces.length / layoutDaFolha(94, 90)!.porFolha)).toBe(2);
   });
 });
 
@@ -60,20 +80,21 @@ describe("o que impede salvar ou imprimir", () => {
 });
 
 describe("face do cardápio", () => {
-  test("frente leva o logo e só as seções da frente, em português e inglês", () => {
+  test("frente leva o logo e só as seções do grupo, em português e inglês", () => {
     const secoes = [
       secao("front", "Entradas", [["Saladinha do Pateo", "Pateo side salad"]], "Starters"),
       secao("back", "Sobremesas", [["Pudim de leite", "Milk pudding"]], "Desserts"),
     ];
+    const [frente, verso] = gruposDasFaces(secoes, "same");
     const ajuste = { pt: 9, estoura: false };
-    const { container, rerender } = render(<FaceCardapio face="front" secoes={secoes} tema="wine" largura={92} altura={76} ajuste={ajuste} />);
+    const { container, rerender } = render(<FaceCardapio secoes={frente.secoes} comLogo={frente.comLogo} tema="wine" largura={92} altura={76} ajuste={ajuste} />);
     expect(container.querySelector("img")).toBeTruthy();
     expect(screen.getByText("Saladinha do Pateo")).toBeTruthy();
     expect(screen.getByText("Starters")).toBeTruthy();
     expect(screen.queryByText("Pudim de leite")).toBeNull();
     expect((container.firstChild as HTMLElement).style.width).toBe("92mm");
 
-    rerender(<FaceCardapio face="back" secoes={secoes} tema="gold" largura={92} altura={76} ajuste={{ pt: 7, estoura: true }} />);
+    rerender(<FaceCardapio secoes={verso.secoes} comLogo={verso.comLogo} tema="gold" largura={92} altura={76} ajuste={{ pt: 7, estoura: true }} />);
     expect(container.querySelector("img")).toBeNull();
     expect(screen.getByText("Milk pudding")).toBeTruthy();
     expect(container.querySelector(".cdp-face--estoura")).toBeTruthy();

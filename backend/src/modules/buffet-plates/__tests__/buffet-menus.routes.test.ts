@@ -48,6 +48,14 @@ describe("cardápio do evento", () => {
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "CREATE_BUFFET_MENU_CARD" }));
   });
 
+  test("sem dizer a distribuição, é o mesmo cardápio em todos os displays; um display por seção é aceito", async () => {
+    await request(app).post("/buffet-plates/menus").send(valido);
+    expect(db.buffetMenuCard.create.mock.calls[0][0].data.layout).toBe("same");
+    const r = await request(app).post("/buffet-plates/menus").send({ ...valido, layout: "perSection" });
+    expect(r.status).toBe(201);
+    expect(r.body.layout).toBe("perSection");
+  });
+
   test.each([
     ["prato sem inglês", { sections: [{ ...secao, items: [{ namePt: "Saladinha", nameEn: " " }] }] }, /prato em inglês obrigatório/],
     ["seção sem inglês", { sections: [{ ...secao, titleEn: "" }] }, /título da seção em inglês obrigatório/],
@@ -57,6 +65,7 @@ describe("cardápio do evento", () => {
     ["face pequena demais", { faceWidthMm: 20 }, /largura mínima/],
     ["face maior que a folha", { faceHeightMm: 400 }, /altura máxima/],
     ["displays demais", { copies: 50 }, /no máximo 20 displays/],
+    ["distribuição desconhecida", { layout: "mosaico" }, /layout/],
     ["data impossível", { eventDate: "2026-02-31" }, /data inválida/],
   ])("recusa %s", async (_nome, patch, msg) => {
     const r = await request(app).post("/buffet-plates/menus").send({ ...valido, ...patch });
