@@ -13,7 +13,7 @@ import { PreviaFolhas } from "./PreviaFolhas";
 import { esperarImagens } from "./impressao";
 import { SecaoCardapio, chaveNova, itemVazio, type SecaoEdit } from "./SecaoCardapio";
 import {
-  MAX_DISPLAYS, SECOES_MODELO, TAMANHOS_FACE, TAMANHO_DISPLAY, cm, facesParaImprimir, gruposDasFaces, layoutDaFolha, pendenciasDoCardapio,
+  MAX_DISPLAYS, SECOES_MODELO, TAMANHOS_FACE, TAMANHO_DISPLAY, cm, facesParaImprimir, gruposDasFaces, layoutDaFolha, pendenciasDoCardapio, umPorDisplay,
   type Distribuicao,
 } from "./cardapioFormato";
 import { TEMAS, dataCurta, semAcento } from "./plaquinhasFormato";
@@ -63,14 +63,16 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
   const pendenciasDeConteudo = useMemo(() => pendenciasDoCardapio("ok", secoes), [secoes]);
   const layout = layoutDaFolha(c.largura, c.altura);
   const porSecao = c.distribuicao === "perSection";
+  const porPrato = c.distribuicao === "perItem";
+  const separados = umPorDisplay(c.distribuicao);
   const grupos = useMemo(() => gruposDasFaces(secoes, c.distribuicao), [secoes, c.distribuicao]);
   const faces = facesParaImprimir(grupos, c.displays, c.distribuicao);
   const folhas = layout ? Math.ceil(faces.length / layout.porFolha) : 0;
   const { ajustes, molde } = useAjustesDoCardapio({ grupos, tema: c.tema, largura: c.largura, altura: c.altura });
   const naoCouberam = grupos.filter((g) => g.secoes.length && ajustes[g.chave]?.estoura).map((g) => g.rotulo);
   const temVerso = secoes.some((s) => s.face === "back");
-  const totalDisplays = porSecao ? secoes.length * c.displays : c.displays;
-  const comoSai = porSecao ? "um por seção, frente e verso iguais" : temVerso ? "frente e verso" : "só frente";
+  const totalDisplays = separados ? grupos.length * c.displays : c.displays;
+  const comoSai = porPrato ? "um por prato, frente e verso iguais" : porSecao ? "um por seção, frente e verso iguais" : temVerso ? "frente e verso" : "só frente";
   const resumo = !secoes.length ? "A prévia aparece aqui" : `${totalDisplays} ${totalDisplays === 1 ? "display" : "displays"} (${comoSai}) em ${folhas} ${folhas === 1 ? "folha" : "folhas"} A4`;
 
   // Sugestões do catálogo para o nome do prato; escolher uma traz o inglês junto.
@@ -235,14 +237,18 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
             <span className="plq-total">{secoes.length} {secoes.length === 1 ? "seção" : "seções"} · {secoes.reduce((a, s) => a + s.items.length, 0)} pratos</span>
           </div>
           <div className="plq-segmento cdp-distribuicao" role="group" aria-label="Como distribuir nos displays">
-            <button type="button" aria-pressed={!porSecao} onClick={() => mudar({ distribuicao: "same" })}>Mesmo cardápio em todos</button>
-            <button type="button" aria-pressed={porSecao} onClick={() => mudar({ distribuicao: "perSection" })}>Um display por seção</button>
+            <button type="button" aria-pressed={!separados} onClick={() => mudar({ distribuicao: "same" })}>Mesmo cardápio em todos</button>
+            <button type="button" aria-pressed={porSecao} onClick={() => mudar({ distribuicao: "perSection" })}>Um por seção</button>
+            <button type="button" aria-pressed={porPrato} onClick={() => mudar({ distribuicao: "perItem" })}>Um por prato</button>
           </div>
-          <p className="plq-contagem">{porSecao
-            ? "Cada seção vira um display, com o mesmo texto na frente e no verso. Bom para coffee break: bebidas num, salgados noutro."
-            : "Todos os displays saem iguais. Cada seção vai na frente ou no verso."}</p>
+          <p className="plq-contagem">{porPrato
+            ? "Cada prato vira um display, com o nome da seção em cima e a letra grande, igual na frente e no verso."
+            : porSecao
+              ? "Cada seção vira um display, com o mesmo texto na frente e no verso. Bom para coffee break: bebidas num, salgados noutro."
+              : "Todos os displays saem iguais. Cada seção vai na frente ou no verso."}</p>
           {c.secoes.map((s, i) => (
-            <SecaoCardapio key={s.chave} secao={s} indice={i} total={c.secoes.length} porNome={porNome} idLista={ID_SUGESTOES} mostrarErros={mostrarErros} mostrarFace={!porSecao}
+            <SecaoCardapio key={s.chave} secao={s} indice={i} total={c.secoes.length} porNome={porNome} idLista={ID_SUGESTOES} mostrarErros={mostrarErros} mostrarFace={!separados}
+              primeiroDisplay={porPrato ? c.secoes.slice(0, i).reduce((a, x) => a + x.items.length, 0) + 1 : i + 1} umPorPrato={porPrato}
               onMudar={(nova) => mudarSecoes((ss) => ss.map((x) => (x.chave === s.chave ? nova : x)))}
               onMover={(delta) => mudarSecoes((ss) => {
                 const alvo = i + delta;
@@ -284,7 +290,7 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
           )}
           {!layout && <Alert tone="error">Essa medida não cabe numa folha A4. O máximo é 19,4 × 28,1 cm (ou 28,1 × 19,4 cm).</Alert>}
           <div className="cdp-displays">
-            <span>{porSecao ? "Cópias de cada display" : "Quantos displays"}</span>
+            <span>{separados ? "Cópias de cada display" : "Quantos displays"}</span>
             <span className="plq-qtd">
               <button type="button" aria-label="Um display a menos" disabled={c.displays <= 1} onClick={() => mudar({ displays: c.displays - 1 })}>−</button>
               <output aria-label="Displays">{c.displays}</output>

@@ -15,7 +15,8 @@ const MAX_ITEMS_PER_SECTION = 20;
 const FACES = ["front", "back"] as const;
 const THEMES = ["wine", "gold", "white"] as const;
 // same: um cardápio repetido em todos os displays. perSection: cada seção vira um display.
-const LAYOUTS = ["same", "perSection"] as const;
+// perItem: cada prato vira um display.
+const LAYOUTS = ["same", "perSection", "perItem"] as const;
 
 const texto = (campo: string, max: number) =>
   z.string().trim().transform((s) => s.replace(/\s+/g, " ")).pipe(z.string().min(2, `${campo} obrigatório`).max(max, `${campo} muito longo`));

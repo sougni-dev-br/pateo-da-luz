@@ -340,3 +340,7 @@
 /* Cardápio: como distribuir as seções nos displays */
 .cdp-distribuicao { align-self: flex-start; }
 .cdp-ed-display { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+@media (max-width: 640px) {
+  .cdp-distribuicao { align-self: stretch; }
+  .cdp-distribuicao button { white-space: normal; line-height: 1.2; }
+}

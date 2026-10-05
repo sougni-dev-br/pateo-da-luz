@@ -1708,6 +1708,7 @@ model BuffetMenuCard {
   copies       Int       @default(1)
   /// "same": o mesmo cardápio (frente e verso) em todos os displays.
   /// "perSection": cada seção é um display, com o mesmo texto na frente e no verso.
+  /// "perItem": cada prato é um display, com o nome da seção em cima.
   layout       String    @default("same")
   sections     Json      @default("[]")
   createdById  String?
