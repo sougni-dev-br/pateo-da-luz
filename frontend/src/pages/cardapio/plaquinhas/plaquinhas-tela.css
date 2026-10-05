@@ -332,3 +332,7 @@
   .acp-linha { grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; }
   .acp-barra { grid-column: 1 / -1; grid-row: 2; }
 }
+
+/* Arquivo para gráfica, no bloco de formato e cores */
+.plq-grafica-acao { display: flex; flex-direction: column; gap: 2px; padding-top: 10px; border-top: 1px solid var(--line); }
+.plq-grafica-acao span { font-size: 0.78rem; color: var(--muted); }

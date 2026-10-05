@@ -291,3 +291,26 @@ describe("aba de acompanhamento", () => {
     expect(screen.getByText(/Cada vez que a cozinha imprime as plaquinhas/)).toBeInTheDocument();
   });
 });
+
+describe("arquivo para gráfica", () => {
+  test("página = corte + 2 mm de sangria + margem das marcas, em cada formato", async () => {
+    const { paginaDaGrafica } = await import("../ArquivoGrafica");
+    expect(paginaDaGrafica("std")).toEqual({ largura: 90, altura: 65 });
+    expect(paginaDaGrafica("sauce")).toEqual({ largura: 79, altura: 54 });
+  });
+
+  test("uma página por prato, com a quantidade escrita, a sangria na cor do tema e as 8 marcas de corte", async () => {
+    const { ArquivoGrafica } = await import("../ArquivoGrafica");
+    const pratos = [
+      { key: "a", namePt: "Arroz", nameEn: "White rice", category: "Arroz e grãos", qty: 3 },
+      { key: "b", namePt: "Penne ao molho rosé", nameEn: "Penne in rosé sauce", category: "Massas", qty: 1 },
+    ];
+    const { container } = render(<ArquivoGrafica pratos={pratos} formato="std" tema="gold" mostrarCategoria tamanhos={new Map()} />);
+    const paginas = container.querySelectorAll(".plq-grafica-pagina");
+    expect(paginas).toHaveLength(2);
+    expect(paginas[0]).toHaveTextContent("Arroz · Qtd. 3 · corte 74 × 49 mm");
+    expect(paginas[1]).toHaveTextContent("2/2 (4 no total)");
+    expect(paginas[0].querySelector(".plq-grafica-sangria--gold")).not.toBeNull();
+    expect(paginas[0].querySelectorAll(".plq-marca")).toHaveLength(8);
+  });
+});
