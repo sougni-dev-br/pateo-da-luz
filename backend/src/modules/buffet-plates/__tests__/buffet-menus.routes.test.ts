@@ -48,6 +48,11 @@ describe("cardápio do evento", () => {
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "CREATE_BUFFET_MENU_CARD" }));
   });
 
+  test("guarda a quantidade de cada prato", async () => {
+    await request(app).post("/buffet-plates/menus").send({ ...valido, layout: "perItem", sections: [{ ...secao, items: [{ namePt: "Café", nameEn: "Brewed coffee", qty: 3 }] }] });
+    expect(db.buffetMenuCard.create.mock.calls[0][0].data.sections[0].items[0]).toEqual({ namePt: "Café", nameEn: "Brewed coffee", qty: 3 });
+  });
+
   test("aceita até 30 seções", async () => {
     const r = await request(app).post("/buffet-plates/menus").send({ ...valido, sections: Array.from({ length: 30 }, () => secao) });
     expect(r.status).toBe(201);
@@ -73,6 +78,8 @@ describe("cardápio do evento", () => {
     ["face maior que a folha", { faceHeightMm: 400 }, /altura máxima/],
     ["displays demais", { copies: 50 }, /no máximo 20 displays/],
     ["distribuição desconhecida", { layout: "mosaico" }, /layout/],
+    ["quantidade de prato zerada", { sections: [{ ...secao, items: [{ namePt: "Café", nameEn: "Brewed coffee", qty: 0 }] }] }, /quantidade mínima é 1/],
+    ["quantidade de prato demais", { sections: [{ ...secao, items: [{ namePt: "Café", nameEn: "Brewed coffee", qty: 21 }] }] }, /quantidade máxima é 20/],
     ["seções demais", { sections: Array.from({ length: 31 }, () => secao) }, /no máximo 30 seções/],
     ["data impossível", { eventDate: "2026-02-31" }, /data inválida/],
   ])("recusa %s", async (_nome, patch, msg) => {

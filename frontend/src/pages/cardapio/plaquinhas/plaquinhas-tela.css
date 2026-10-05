@@ -390,3 +390,6 @@
 .cdp-mover:hover, .cdp-mover:focus-within { color: var(--ink); background: var(--paper-soft); }
 .cdp-mover select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
 .cdp-mover:focus-within { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* Quantidade do prato no "Um por prato": ao lado dos nomes */
+.cdp-ed-qtd { align-self: flex-start; margin-top: 2px; }

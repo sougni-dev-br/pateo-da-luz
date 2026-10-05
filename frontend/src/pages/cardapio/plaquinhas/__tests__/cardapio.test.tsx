@@ -62,6 +62,14 @@ describe("faces por display", () => {
     expect(faces.map((f) => `${f.display}${f.face[0]}`)).toEqual(["1f", "1b", "2f", "2b", "3f", "3b"]);
   });
 
+  test("um por prato com quantidade: cada prato sai quantas vezes foi pedido", () => {
+    const bebidas: BuffetMenuSection = { face: "front", titlePt: "Bebidas", titleEn: "Drinks", items: [{ namePt: "Café", nameEn: "Brewed coffee", qty: 3 }, { namePt: "Leite", nameEn: "Milk" }] };
+    const grupos = gruposDasFaces([bebidas], "perItem");
+    expect(grupos.map((g) => g.copias)).toEqual([3, 1]);
+    const faces = facesParaImprimir(grupos, 5, "perItem");
+    expect(faces.filter((f) => f.face === "front").map((f) => f.grupo)).toEqual(["s0-0", "s0-0", "s0-0", "s0-1"]);
+  });
+
   test("seis seções num display cada: 12 faces, cabem em duas folhas no tamanho do display", () => {
     const seis = Array.from({ length: 6 }, (_, i) => secao("front", `Seção ${i + 1}`, [["Café", "Brewed coffee"]]));
     const faces = facesParaImprimir(gruposDasFaces(seis, "perSection"), 1, "perSection");

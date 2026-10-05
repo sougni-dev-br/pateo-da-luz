@@ -29,7 +29,7 @@ const MODELOS_DE_ATALHO = 6;
 const hoje = () => new Date().toLocaleDateString("sv-SE");
 const novoCardapio = (): Cardapio => ({ id: null, nome: "", data: hoje(), tema: "wine", largura: TAMANHO_DISPLAY.largura, altura: TAMANHO_DISPLAY.altura, displays: 1, distribuicao: "same", secoes: [] });
 const paraSalvar = (c: Cardapio): BuffetMenuSection[] =>
-  c.secoes.map(({ face, titlePt, titleEn, items }) => ({ face, titlePt: titlePt.trim(), titleEn: titleEn.trim(), items: items.map((i) => ({ namePt: i.namePt.trim(), nameEn: i.nameEn.trim() })) }));
+  c.secoes.map(({ face, titlePt, titleEn, items }) => ({ face, titlePt: titlePt.trim(), titleEn: titleEn.trim(), items: items.map((i) => ({ namePt: i.namePt.trim(), nameEn: i.nameEn.trim(), ...(i.qty && i.qty > 1 ? { qty: i.qty } : {}) })) }));
 const assinatura = (c: Cardapio) => JSON.stringify({ ...c, secoes: paraSalvar(c) });
 
 type Props = {
@@ -80,7 +80,7 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
   const { ajustes, molde } = useAjustesDoCardapio({ grupos, tema: c.tema, largura: c.largura, altura: c.altura });
   const naoCouberam = grupos.filter((g) => g.secoes.length && ajustes[g.chave]?.estoura).map((g) => g.rotulo);
   const temVerso = secoes.some((s) => s.face === "back");
-  const totalDisplays = separados ? escolhidos.length * c.displays : c.displays;
+  const totalDisplays = separados ? escolhidos.reduce((a, g) => a + (g.copias ?? c.displays), 0) : c.displays;
   const comoSai = porPrato ? "um por prato, frente e verso iguais" : porSecao ? "um por seção, frente e verso iguais" : temVerso ? "frente e verso" : "só frente";
   const resumo = !secoes.length ? "A prévia aparece aqui" : `${totalDisplays} ${totalDisplays === 1 ? "display" : "displays"} (${comoSai}) em ${folhas} ${folhas === 1 ? "folha" : "folhas"} A4`;
 
@@ -308,7 +308,7 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
               outrasSecoes={c.secoes.filter((x) => x.chave !== s.chave).map((x) => ({ chave: x.chave, rotulo: x.titlePt.trim() || `Seção ${c.secoes.indexOf(x) + 1}` }))}
               onMoverPrato={(chaveItem, para) => moverPrato(s.chave, chaveItem, para)}
               onCadastrar={(p) => setCadastro({ secao: s.chave, ...p })}
-              primeiroDisplay={porPrato ? c.secoes.slice(0, i).reduce((a, x) => a + x.items.length, 0) + 1 : i + 1} umPorPrato={porPrato}
+              primeiroDisplay={porPrato ? c.secoes.slice(0, i).reduce((a, x) => a + x.items.reduce((n, it) => n + (it.qty ?? 1), 0), 0) + 1 : i + 1} umPorPrato={porPrato}
               onMudar={(nova) => mudarSecoes((ss) => ss.map((x) => (x.chave === s.chave ? nova : x)))}
               onMover={(delta) => mudarSecoes((ss) => {
                 const alvo = i + delta;
@@ -350,6 +350,9 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
             </div>
           )}
           {!layout && <Alert tone="error">Essa medida não cabe numa folha A4. O máximo é 19,4 × 28,1 cm (ou 28,1 × 19,4 cm).</Alert>}
+          {porPrato ? (
+            <p className="plq-contagem">No “Um por prato”, a quantidade de cada prato fica ao lado do nome, na seção.</p>
+          ) : (
           <div className="cdp-displays">
             <span>{separados ? "Cópias de cada display" : "Quantos displays"}</span>
             <span className="plq-qtd">
@@ -359,6 +362,7 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
             </span>
             {layout && <small>{layout.porFolha} faces por folha</small>}
           </div>
+          )}
           {separados && grupos.length > 1 && (
             <div className="cdp-escolha">
               <div className="plq-segmento" role="group" aria-label="O que imprimir">

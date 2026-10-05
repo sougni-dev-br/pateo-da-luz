@@ -79,12 +79,14 @@ export const umPorDisplay = (d: Distribuicao) => d !== "same";
 export const FONTE_MAX_PRATO = 30;
 
 /** O conteúdo de uma face: as seções que vão nela e se leva o logo. A letra é ajustada por grupo. */
-export type GrupoFace = { chave: string; rotulo: string; secoes: BuffetMenuSection[]; comLogo: boolean; maxPt?: number; umPrato?: boolean };
+export type GrupoFace = { chave: string; rotulo: string; secoes: BuffetMenuSection[]; comLogo: boolean; maxPt?: number; umPrato?: boolean;
+  /** Cópias deste display na folha; sem valor, vale o número geral de displays. */
+  copias?: number };
 
 export function gruposDasFaces(secoes: BuffetMenuSection[], distribuicao: Distribuicao): GrupoFace[] {
   if (distribuicao === "perItem") {
     return secoes.flatMap((s, i) => s.items.map((item, j) => ({
-      chave: `s${i}-${j}`, rotulo: `em “${item.namePt.trim() || `prato ${j + 1}`}”`, secoes: [{ ...s, items: [item] }], comLogo: true, maxPt: FONTE_MAX_PRATO, umPrato: true,
+      chave: `s${i}-${j}`, rotulo: `em “${item.namePt.trim() || `prato ${j + 1}`}”`, secoes: [{ ...s, items: [item] }], comLogo: true, maxPt: FONTE_MAX_PRATO, umPrato: true, copias: item.qty ?? 1,
     })));
   }
   if (distribuicao === "perSection") {
@@ -104,7 +106,7 @@ export function facesParaImprimir(grupos: GrupoFace[], displays: number, distrib
   if (umPorDisplay(distribuicao)) {
     let display = 0;
     for (const g of grupos) {
-      for (let c = 1; c <= displays; c++) {
+      for (let c = 1; c <= (g.copias ?? displays); c++) {
         display++;
         faces.push({ chave: `${display}-front`, grupo: g.chave, face: "front", display });
         faces.push({ chave: `${display}-back`, grupo: g.chave, face: "back", display });
