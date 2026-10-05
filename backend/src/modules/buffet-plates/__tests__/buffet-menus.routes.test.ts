@@ -77,7 +77,7 @@ describe("cardápio do evento", () => {
     ["face pequena demais", { faceWidthMm: 20 }, /largura mínima/],
     ["face maior que a folha", { faceHeightMm: 400 }, /altura máxima/],
     ["displays demais", { copies: 50 }, /no máximo 20 displays/],
-    ["distribuição desconhecida", { layout: "mosaico" }, /layout/],
+    ["distribuição desconhecida", { layout: "mosaico" }, /distribuição: opção inválida/],
     ["quantidade de prato zerada", { sections: [{ ...secao, items: [{ namePt: "Café", nameEn: "Brewed coffee", qty: 0 }] }] }, /quantidade mínima é 1/],
     ["quantidade de prato demais", { sections: [{ ...secao, items: [{ namePt: "Café", nameEn: "Brewed coffee", qty: 21 }] }] }, /quantidade máxima é 20/],
     ["seções demais", { sections: Array.from({ length: 31 }, () => secao) }, /no máximo 30 seções/],
@@ -94,6 +94,19 @@ describe("cardápio do evento", () => {
     const r = await request(app).get("/buffet-plates/menus/m1");
     expect(r.status).toBe(200);
     expect(r.body.sections).toHaveLength(1);
+  });
+
+  test("prato fora do limite de hoje volta ajustado em vez de sumir com a seção (o próximo salvar apagaria)", async () => {
+    db.buffetMenuCard.findUnique.mockResolvedValue({ ...gravado, sections: [{ ...secao, items: [{ namePt: "Café", nameEn: "x", qty: 99 }, { namePt: " ", nameEn: "y" }] }] });
+    const r = await request(app).get("/buffet-plates/menus/m1");
+    expect(r.body.sections[0].items).toEqual([{ namePt: "Café", nameEn: "x", qty: 20 }]);
+  });
+
+  test("impressão gigante é recusada: soma das quantidades acima de 100 displays", async () => {
+    const muitos = { ...secao, items: Array.from({ length: 6 }, (_, i) => ({ namePt: `Prato ${i}`, nameEn: `Dish ${i}`, qty: 20 })) };
+    const r = await request(app).post("/buffet-plates/menus").send({ ...valido, layout: "perItem", sections: [muitos] });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/no máximo 100 displays/);
   });
 
   test("atualizar e apagar inexistente devolvem 404", async () => {

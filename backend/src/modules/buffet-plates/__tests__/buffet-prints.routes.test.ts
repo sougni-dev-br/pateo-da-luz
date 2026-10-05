@@ -23,11 +23,13 @@ const app = express();
 app.use(express.json());
 app.use("/buffet-plates", buffetPrintsRouter);
 
+let inativos: string[] = [];
 beforeEach(() => {
+  inativos = [];
   vi.clearAllMocks();
   vi.mocked(getSessionUser).mockResolvedValue({ id: "u1" } as never);
-  db.buffetPlateItem.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) =>
-    where.id.in.filter((id) => id !== "sumiu").map((id) => ({ id })));
+  db.buffetPlateItem.findMany.mockImplementation(async ({ where }: { where: { id?: { in: string[] }; isActive?: boolean } }) =>
+    where.id ? where.id.in.filter((id) => id !== "sumiu").map((id) => ({ id })) : inativos.map((id) => ({ id })));
   db.buffetPlatePrint.create.mockImplementation(async ({ data }: { data: object }) => ({ ...data, createdAt: new Date() }));
 });
 
@@ -46,7 +48,7 @@ describe("impressões de plaquinhas", () => {
 
   test.each([
     [{ servedOn: "2026-02-31" }, /data inválida/],
-    [{ kind: "JANTAR" }, /kind/],
+    [{ kind: "JANTAR" }, /tipo da lista: opção inválida/],
     [{ itemIds: [] }, /nenhum prato/],
     [{ servedOn: "2062-10-09" }, /fora do intervalo/],
     [{ servedOn: "2002-10-09" }, /fora do intervalo/],
@@ -77,6 +79,15 @@ describe("impressões de plaquinhas", () => {
     expect(db.buffetPlatePrint.findMany.mock.calls[0][0].where.kind).toBe("COFFEE_BREAK");
     expect(r.body.period).toMatchObject({ windowDays: 7, servedDays: 1 });
     expect(r.body.ranking[0]).toMatchObject({ itemId: "i1", days: 1 });
+  });
+
+  test("prato inativado sai dos esquecidos e do saindo demais", async () => {
+    const hoje = todayInSaoPaulo();
+    const dia = (n: number) => new Date(Date.parse(`${hoje}T00:00:00Z`) - n * 86_400_000);
+    db.buffetPlatePrint.findMany.mockResolvedValue([20, 25, 30].map((n) => ({ servedOn: dia(n), itemIds: ["lasanha", "nhoque"] })));
+    inativos = ["lasanha"];
+    const r = await request(app).get("/buffet-plates/usage?kind=BUFFET&days=30");
+    expect(r.body.forgotten.map((f: { itemId: string }) => f.itemId)).toEqual(["nhoque"]);
   });
 
   test("o dia é o de São Paulo, não o do servidor em UTC", () => {

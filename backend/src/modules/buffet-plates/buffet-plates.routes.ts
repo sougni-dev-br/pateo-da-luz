@@ -3,8 +3,8 @@ import { Router, type Request } from "express";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../../config/database.js";
-import { parseBody } from "../../shared/validate-body.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
+import { naoEncontrado, parseCorpo } from "./validacao.js";
 import { buffetMenusRouter } from "./buffet-menus.routes.js";
 import { buffetPrintsRouter } from "./buffet-prints.routes.js";
 
@@ -27,6 +27,7 @@ export const PLATE_THEMES = ["wine", "gold", "white"] as const;
 export const LIST_KINDS = ["BUFFET", "COFFEE_BREAK", "EVENTO"] as const;
 const MAX_QTY = 20;
 const MAX_ITEMS_PER_LIST = 300;
+const MAX_LISTS_SHOWN = 200;
 
 const nome = (campo: string) =>
   z.string().trim().transform((s) => s.replace(/\s+/g, " ")).pipe(z.string().min(2, `${campo} obrigatório`).max(120, `${campo} muito longo`));
@@ -88,7 +89,7 @@ buffetPlatesRouter.get("/items", async (request, response) => {
 buffetPlatesRouter.post("/items", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
-  const data = parseBody(itemSchema, request.body, response);
+  const data = parseCorpo(itemSchema, request.body, response);
   if (!data) return;
   if (await sameNameExists(data.namePt)) return response.status(400).json({ message: DUPLICATE_MESSAGE });
 
@@ -107,7 +108,7 @@ buffetPlatesRouter.put("/items/:id", async (request, response) => {
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
   const existing = await prisma.buffetPlateItem.findUnique({ where: { id: request.params.id } });
   if (!existing) return response.status(404).json({ message: "Prato não encontrado." });
-  const data = parseBody(itemSchema.extend({ isActive: z.boolean().optional() }), request.body, response);
+  const data = parseCorpo(itemSchema.extend({ isActive: z.boolean().optional() }), request.body, response);
   if (!data) return;
   if (await sameNameExists(data.namePt, existing.id)) return response.status(400).json({ message: DUPLICATE_MESSAGE });
 
@@ -166,7 +167,8 @@ async function unknownItemIds(ids: string[]) {
 }
 
 buffetPlatesRouter.get("/lists", async (_request, response) => {
-  const lists = await prisma.buffetPlateList.findMany({ orderBy: { updatedAt: "desc" } });
+  // As listas acumulam (uma por dia): a tela só precisa das mais recentes.
+  const lists = await prisma.buffetPlateList.findMany({ orderBy: { updatedAt: "desc" }, take: MAX_LISTS_SHOWN });
   response.json(lists.map(listSummary));
 });
 
@@ -201,7 +203,7 @@ const STALE_ITEMS_MESSAGE = "A lista tem pratos que não existem mais no catálo
 buffetPlatesRouter.post("/lists", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
-  const data = parseBody(listSchema, request.body, response);
+  const data = parseCorpo(listSchema, request.body, response);
   if (!data) return;
   if ((await unknownItemIds(data.items.map((i) => i.itemId))).length) return response.status(400).json({ message: STALE_ITEMS_MESSAGE });
 
@@ -215,7 +217,7 @@ buffetPlatesRouter.put("/lists/:id", async (request, response) => {
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
   const existing = await prisma.buffetPlateList.findUnique({ where: { id: request.params.id } });
   if (!existing) return response.status(404).json({ message: "Lista não encontrada." });
-  const data = parseBody(listSchema, request.body, response);
+  const data = parseCorpo(listSchema, request.body, response);
   if (!data) return;
   if ((await unknownItemIds(data.items.map((i) => i.itemId))).length) return response.status(400).json({ message: STALE_ITEMS_MESSAGE });
 

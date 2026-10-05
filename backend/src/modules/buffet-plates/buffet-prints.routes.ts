@@ -3,8 +3,8 @@ import { Router, type Request } from "express";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../../config/database.js";
-import { parseBody } from "../../shared/validate-body.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
+import { naoEncontrado, parseCorpo } from "./validacao.js";
 import { HISTORY_DAYS, addDays, buildUsageReport } from "./buffet-usage.js";
 
 // Impressões de plaquinhas e o acompanhamento que sai delas. Fica sob /buffet-plates,
@@ -48,7 +48,7 @@ function storedIds(value: Prisma.JsonValue): string[] {
 buffetPrintsRouter.post("/prints", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
-  const data = parseBody(printSchema, request.body, response);
+  const data = parseCorpo(printSchema, request.body, response);
   if (!data) return;
 
   // Só guarda prato que existe; prato apagado do banco não conta.
@@ -98,5 +98,12 @@ buffetPrintsRouter.get("/usage", async (request, response) => {
     where: { kind, servedOn: { gte: new Date(`${from}T00:00:00Z`) } },
     select: { servedOn: true, itemIds: true },
   });
-  response.json(buildUsageReport(rows.map((r) => ({ servedOn: dayOf(r.servedOn), itemIds: storedIds(r.itemIds) })), today, windowDays));
+  const report = buildUsageReport(rows.map((r) => ({ servedOn: dayOf(r.servedOn), itemIds: storedIds(r.itemIds) })), today, windowDays);
+  // Prato inativado saiu do catálogo de propósito: continua no ranking (é histórico), mas não vira alerta.
+  const inativos = new Set((await prisma.buffetPlateItem.findMany({ where: { isActive: false }, select: { id: true } })).map((i) => i.id));
+  response.json({
+    ...report,
+    forgotten: report.forgotten.filter((f) => !inativos.has(f.itemId)),
+    repeating: report.repeating.filter((id) => !inativos.has(id)),
+  });
 });

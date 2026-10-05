@@ -67,7 +67,20 @@ describe("faces por display", () => {
     const grupos = gruposDasFaces([bebidas], "perItem");
     expect(grupos.map((g) => g.copias)).toEqual([3, 1]);
     const faces = facesParaImprimir(grupos, 5, "perItem");
-    expect(faces.filter((f) => f.face === "front").map((f) => f.grupo)).toEqual(["s0-0", "s0-0", "s0-0", "s0-1"]);
+    expect(faces.filter((f) => f.face === "front").map((f) => f.grupo)).toEqual(["s0:0", "s0:0", "s0:0", "s0:1"]);
+  });
+
+  test("com as chaves de edição, o display escolhido continua o mesmo depois de apagar um prato antes dele", () => {
+    const sec = (itens: string[]) => [secao("front", "Doces", itens.map((n) => [n, n] as [string, string]))];
+    const antes = gruposDasFaces(sec(["Brigadeiro", "Beijinho", "Pudim"]), "perItem", [{ secao: "a", itens: ["k1", "k2", "k3"] }]);
+    const depois = gruposDasFaces(sec(["Brigadeiro", "Pudim"]), "perItem", [{ secao: "a", itens: ["k1", "k3"] }]);
+    const pudimAntes = antes.find((g) => g.secoes[0].items[0].namePt === "Pudim")!.chave;
+    expect(depois.find((g) => g.chave === pudimAntes)?.secoes[0].items[0].namePt).toBe("Pudim");
+  });
+
+  test("igual em todos com tudo no verso: o verso vira a frente, sem frente em branco", () => {
+    const grupos = gruposDasFaces([secao("back", "Doces", [["Pudim", "Pudding"]])], "same");
+    expect(grupos.map((g) => [g.chave, g.comLogo, g.secoes.length])).toEqual([["front", true, 1]]);
   });
 
   test("seis seções num display cada: 12 faces, cabem em duas folhas no tamanho do display", () => {
