@@ -1,0 +1,26 @@
+-- Cardápio do display: cada seção pode virar um display próprio (mesmo texto na frente e no verso).
+ALTER TABLE "BuffetMenuCard" ADD COLUMN "layout" TEXT NOT NULL DEFAULT 'same';
+
+-- Pratos do coffee break que ainda não estavam no catálogo (lista enviada em 05/10/2026), com o inglês.
+INSERT INTO "BuffetPlateItem" ("id", "namePt", "nameEn", "category", "updatedAt") VALUES
+  ('397483ba-4583-5275-8153-14d26b4e6157', 'Achocolatado', 'Chocolate milk', 'Bebidas', CURRENT_TIMESTAMP),
+  ('c9f7d2ea-162a-508f-87c7-d6108bf3f737', 'Suco de laranja com gengibre', 'Orange and ginger juice', 'Bebidas', CURRENT_TIMESTAMP),
+  ('1b7b2cb3-0781-5113-8787-3d2bc38125d5', 'Suco de uva integral', '100% grape juice', 'Bebidas', CURRENT_TIMESTAMP),
+  ('d3a72c65-34b6-5f4e-9491-c4b3068bc0d5', 'Bolinha de queijo', 'Fried cheese balls', 'Salgados', CURRENT_TIMESTAMP),
+  ('31898af3-da0c-59e9-8991-20a2ad33f411', 'Brioche com peito de peru e muçarela', 'Brioche with turkey breast and mozzarella', 'Coffee break', CURRENT_TIMESTAMP),
+  ('0de073f5-e37b-5e8d-b713-b36bd6095f8d', 'Brioche com patê de tomate seco e muçarela', 'Brioche with sun-dried tomato pâté and mozzarella', 'Coffee break', CURRENT_TIMESTAMP),
+  ('e0bf22f4-0009-53ad-bea4-983080ee9983', 'Brioche com patê de azeitona e muçarela', 'Brioche with olive pâté and mozzarella', 'Coffee break', CURRENT_TIMESTAMP),
+  ('51eb9a0b-1d9d-58b4-8ee5-85aeab834a92', 'Baguete com tomate, presunto e muçarela', 'Baguette with tomato, ham and mozzarella', 'Coffee break', CURRENT_TIMESTAMP),
+  ('f7160ae3-c30f-5896-96f3-ca457e1eb3ff', 'Geleia de morango', 'Strawberry jam', 'Coffee break', CURRENT_TIMESTAMP),
+  ('45214399-cde7-53d1-811a-90887e0c42b6', 'Geleia de frutas vermelhas', 'Mixed berry jam', 'Coffee break', CURRENT_TIMESTAMP),
+  ('249f39e7-f33b-526b-85cb-67e62dacb51e', 'Geleia de damasco', 'Apricot jam', 'Coffee break', CURRENT_TIMESTAMP),
+  ('b5c7fba9-fa19-5923-928e-828d3a7e2ab4', 'Brigadeiro de colher', 'Spoon brigadeiro (soft chocolate fudge)', 'Sobremesas', CURRENT_TIMESTAMP),
+  ('5cb39728-431c-58ff-83a1-a145ad4234bc', 'Beijinho de colher', 'Spoon beijinho (soft coconut fudge)', 'Sobremesas', CURRENT_TIMESTAMP),
+  ('c3f364da-9c8b-54ef-a0f6-ef53d529d019', 'Palha italiana de chocolate', 'Palha italiana (fudge) with chocolate', 'Sobremesas', CURRENT_TIMESTAMP),
+  ('e70958a6-6026-5f23-ab4a-eaf7c680ed24', 'Bolo de milho com coco', 'Corn and coconut cake', 'Sobremesas', CURRENT_TIMESTAMP)
+ON CONFLICT ("namePt") DO NOTHING;
+
+-- Modelo pronto: coffee break em 6 displays, um por grupo.
+INSERT INTO "BuffetMenuCard" ("id", "name", "eventDate", "theme", "faceWidthMm", "faceHeightMm", "copies", "layout", "sections", "updatedAt") VALUES
+  ('19fb6e3f-4978-5097-916b-1dad45c011fa', 'Coffee break · 6 displays', NULL, 'wine', 94, 90, 1, 'perSection', '[{"face": "front", "titlePt": "Bebidas", "titleEn": "Drinks", "items": [{"namePt": "Café", "nameEn": "Brewed coffee"}, {"namePt": "Achocolatado", "nameEn": "Chocolate milk"}, {"namePt": "Leite integral", "nameEn": "Whole milk"}, {"namePt": "Suco de laranja com gengibre", "nameEn": "Orange and ginger juice"}, {"namePt": "Suco de abacaxi com hortelã", "nameEn": "Pineapple and mint juice"}, {"namePt": "Suco de uva integral", "nameEn": "100% grape juice"}]}, {"face": "front", "titlePt": "Salgados", "titleEn": "Savory snacks", "items": [{"namePt": "Coxinha de frango", "nameEn": "Coxinha (chicken croquette)"}, {"namePt": "Esfiha de frango", "nameEn": "Esfiha (open-faced Middle Eastern pastry) with chicken"}, {"namePt": "Esfiha de carne", "nameEn": "Esfiha (open-faced Middle Eastern pastry) with beef"}, {"namePt": "Bolinha de queijo", "nameEn": "Fried cheese balls"}, {"namePt": "Pão de queijo", "nameEn": "Pão de queijo (cheese bread)"}]}, {"face": "front", "titlePt": "Lanches", "titleEn": "Sandwiches", "items": [{"namePt": "Brioche com peito de peru e muçarela", "nameEn": "Brioche with turkey breast and mozzarella"}, {"namePt": "Brioche com patê de tomate seco e muçarela", "nameEn": "Brioche with sun-dried tomato pâté and mozzarella"}, {"namePt": "Brioche com patê de azeitona e muçarela", "nameEn": "Brioche with olive pâté and mozzarella"}, {"namePt": "Baguete com tomate, presunto e muçarela", "nameEn": "Baguette with tomato, ham and mozzarella"}]}, {"face": "front", "titlePt": "Geleias", "titleEn": "Jams", "items": [{"namePt": "Geleia de morango", "nameEn": "Strawberry jam"}, {"namePt": "Geleia de frutas vermelhas", "nameEn": "Mixed berry jam"}, {"namePt": "Geleia de damasco", "nameEn": "Apricot jam"}]}, {"face": "front", "titlePt": "Doces", "titleEn": "Sweets", "items": [{"namePt": "Brigadeiro", "nameEn": "Brigadeiro (chocolate truffle)"}, {"namePt": "Brigadeiro de colher", "nameEn": "Spoon brigadeiro (soft chocolate fudge)"}, {"namePt": "Beijinho de colher", "nameEn": "Spoon beijinho (soft coconut fudge)"}, {"namePt": "Palha italiana de chocolate", "nameEn": "Palha italiana (fudge) with chocolate"}, {"namePt": "Palha italiana de pistache", "nameEn": "Palha italiana (fudge) with pistachio"}]}, {"face": "front", "titlePt": "Bolos", "titleEn": "Cakes", "items": [{"namePt": "Bolo de milho com coco", "nameEn": "Corn and coconut cake"}, {"namePt": "Bolo de chocolate", "nameEn": "Chocolate cake"}]}]', CURRENT_TIMESTAMP)
+ON CONFLICT ("id") DO NOTHING;

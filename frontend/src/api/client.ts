@@ -4019,12 +4019,14 @@ export type BuffetMenuSummary = {
   faceWidthMm: number;
   faceHeightMm: number;
   copies: number;
+  /** "same": o mesmo cardápio em todos os displays. "perSection": cada seção é um display. */
+  layout: "same" | "perSection";
   sectionCount: number;
   itemCount: number;
   updatedAt: string;
 };
 export type BuffetMenu = BuffetMenuSummary & { sections: BuffetMenuSection[] };
-export type BuffetMenuInput = Pick<BuffetMenu, "name" | "eventDate" | "theme" | "faceWidthMm" | "faceHeightMm" | "copies" | "sections">;
+export type BuffetMenuInput = Pick<BuffetMenu, "name" | "eventDate" | "theme" | "faceWidthMm" | "faceHeightMm" | "copies" | "layout" | "sections">;
 
 export function getBuffetMenus() {
   return request<BuffetMenuSummary[]>("/buffet-plates/menus");
