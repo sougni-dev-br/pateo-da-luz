@@ -377,3 +377,10 @@
 .cdp-ed-resumo:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .cdp-ed-resumo em { color: var(--muted); font-size: 0.8rem; }
 .cdp-ed-resumo span { flex-basis: 100%; color: var(--muted); font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* Escolher quais displays vão para a impressora agora */
+.cdp-escolha { display: flex; flex-direction: column; gap: 8px; }
+.cdp-escolha .plq-segmento { align-self: flex-start; }
+.cdp-escolha-lista { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cdp-escolha-lista small { flex-basis: 100%; color: var(--muted); font-size: 0.78rem; }
+.plq-chip:disabled { opacity: 0.5; cursor: default; }

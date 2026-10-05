@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { BuffetMenuSection } from "../../../../api/client";
 import { CampoCm } from "../CampoCm";
 import { FaceCardapio } from "../FaceCardapio";
-import { FONTE_MAX_PRATO, TAMANHO_DISPLAY, facesParaImprimir, gruposDasFaces, layoutDaFolha, pendenciasDoCardapio } from "../cardapioFormato";
+import { FONTE_MAX_PRATO, TAMANHO_DISPLAY, facesParaImprimir, gruposDasFaces, inglesDoTitulo, layoutDaFolha, pendenciasDoCardapio } from "../cardapioFormato";
 import { esperarImagens } from "../impressao";
 
 const secao = (face: "front" | "back", titlePt: string, items: Array<[string, string]>, titleEn = "Title"): BuffetMenuSection =>
@@ -185,5 +185,14 @@ describe("busca de prato na seção do cardápio", () => {
     fireEvent.change(campo, { target: { value: "Bolo de fubá" } });
     expect(screen.queryByRole("option", { name: /Cadastrar/ })).toBeNull();
     expect(screen.getByRole("option", { name: /só neste cardápio/ })).toBeTruthy();
+  });
+});
+
+describe("inglês do título da seção", () => {
+  test("títulos conhecidos ganham o inglês sozinhos, sem ligar para acento ou maiúscula", () => {
+    expect(inglesDoTitulo("Frutas")).toBe("Fruits");
+    expect(inglesDoTitulo("  guarnicoes ")).toBe("Side dishes");
+    expect(inglesDoTitulo("Bebidas")).toBe("Drinks");
+    expect(inglesDoTitulo("Especial do chef")).toBeUndefined();
   });
 });

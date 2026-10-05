@@ -2,6 +2,7 @@ import { ArrowDown, ArrowUp, BookPlus, ChevronDown, ChevronUp, Trash2, X } from 
 import { useMemo, useState } from "react";
 import type { BuffetMenuItem, BuffetMenuSection, BuffetPlateItem, MenuFace } from "../../../api/client";
 import { BuscaPratoCardapio } from "./BuscaPratoCardapio";
+import { inglesDoTitulo } from "./cardapioFormato";
 import { arrumarNome, semAcento } from "./plaquinhasFormato";
 
 // Seção em edição: chaves estáveis para o React não trocar o campo de lugar ao reordenar.
@@ -97,7 +98,11 @@ export function SecaoCardapio(props: Props) {
       <div className="cdp-ed-dupla">
         <label>Título
           <input value={secao.titlePt} maxLength={60} placeholder="Ex.: Bebidas" onChange={(e) => onMudar({ ...secao, titlePt: e.target.value })}
-            onBlur={() => onMudar({ ...secao, titlePt: arrumarNome(secao.titlePt) })} aria-invalid={mostrarErros && falta(secao.titlePt)} />
+            onBlur={() => {
+              const titlePt = arrumarNome(secao.titlePt);
+              const sugerido = falta(secao.titleEn) ? inglesDoTitulo(titlePt) : undefined;
+              onMudar({ ...secao, titlePt, ...(sugerido ? { titleEn: sugerido } : {}) });
+            }} aria-invalid={mostrarErros && falta(secao.titlePt)} />
         </label>
         <label>Em inglês
           <input value={secao.titleEn} maxLength={60} lang="en" placeholder="Ex.: Drinks" onChange={(e) => onMudar({ ...secao, titleEn: e.target.value })} aria-invalid={mostrarErros && falta(secao.titleEn)} />

@@ -18,6 +18,25 @@ export const SECOES_MODELO: Array<{ titlePt: string; titleEn: string; face: Menu
   { titlePt: "Bolos", titleEn: "Cakes", face: "back" },
 ];
 
+// Inglês dos títulos de seção que a casa costuma usar. Quem escreve um título conhecido não
+// precisa digitar o inglês: ele entra sozinho ao sair do campo (e pode ser trocado).
+const OUTROS_TITULOS: Array<[string, string]> = [
+  ["Saladas", "Salads"], ["Pratos quentes", "Hot dishes"], ["Massas", "Pasta"], ["Risotos", "Risottos"], ["Carnes", "Meats"],
+  ["Aves", "Poultry"], ["Peixes", "Fish"], ["Peixes e frutos do mar", "Fish and seafood"], ["Guarnições", "Side dishes"],
+  ["Molhos", "Sauces"], ["Sopas", "Soups"], ["Frutas", "Fruits"], ["Pães", "Breads"], ["Frios", "Cold cuts"], ["Petiscos", "Snacks"],
+  ["Canapés", "Canapés"], ["Finger food", "Finger food"], ["Sobremesa", "Dessert"], ["Doce", "Sweet"], ["Bolo", "Cake"],
+  ["Bebidas quentes", "Hot drinks"], ["Bebidas geladas", "Cold drinks"], ["Sucos", "Juices"], ["Café da manhã", "Breakfast"],
+  ["Coffee break", "Coffee break"], ["Almoço", "Lunch"], ["Jantar", "Dinner"], ["Lanche", "Snack"], ["Salgado", "Savory snack"],
+  ["Principais", "Main courses"], ["Prato principal", "Main course"], ["Entrada", "Starter"], ["Acompanhamento", "Side dish"],
+];
+const INGLES_DOS_TITULOS = new Map(
+  [...SECOES_MODELO.map((m) => [m.titlePt, m.titleEn] as [string, string]), ...OUTROS_TITULOS].map(([pt, en]) => [chaveTitulo(pt), en]),
+);
+function chaveTitulo(s: string) {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/\s+/g, " ");
+}
+export const inglesDoTitulo = (titulo: string) => INGLES_DOS_TITULOS.get(chaveTitulo(titulo));
+
 // Tamanho de cada face, em mm. "Display de acrílico" é o bolso do display da casa
 // (9,5 × 9,2 cm medidos com régua), com folga de 1–2 mm para o papel entrar.
 export const TAMANHO_DISPLAY = { largura: 94, altura: 90 };
