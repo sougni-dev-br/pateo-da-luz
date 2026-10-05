@@ -336,3 +336,7 @@
 /* Arquivo para gráfica, no bloco de formato e cores */
 .plq-grafica-acao { display: flex; flex-direction: column; gap: 2px; padding-top: 10px; border-top: 1px solid var(--line); }
 .plq-grafica-acao span { font-size: 0.78rem; color: var(--muted); }
+
+/* Cardápio: como distribuir as seções nos displays */
+.cdp-distribuicao { align-self: flex-start; }
+.cdp-ed-display { font-size: 0.8rem; font-weight: 600; color: var(--muted); }

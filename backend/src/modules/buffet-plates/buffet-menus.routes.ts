@@ -14,6 +14,8 @@ const MAX_SECTIONS = 10;
 const MAX_ITEMS_PER_SECTION = 20;
 const FACES = ["front", "back"] as const;
 const THEMES = ["wine", "gold", "white"] as const;
+// same: um cardápio repetido em todos os displays. perSection: cada seção vira um display.
+const LAYOUTS = ["same", "perSection"] as const;
 
 const texto = (campo: string, max: number) =>
   z.string().trim().transform((s) => s.replace(/\s+/g, " ")).pipe(z.string().min(2, `${campo} obrigatório`).max(max, `${campo} muito longo`));
@@ -40,6 +42,7 @@ const menuSchema = z.object({
   faceWidthMm: z.coerce.number().int().min(40, "largura mínima é 4 cm").max(287, "largura máxima é 28,7 cm"),
   faceHeightMm: z.coerce.number().int().min(40, "altura mínima é 4 cm").max(287, "altura máxima é 28,7 cm"),
   copies: z.coerce.number().int().min(1, "pelo menos 1 display").max(20, "no máximo 20 displays"),
+  layout: z.enum(LAYOUTS).optional().default("same"),
   sections: z.array(sectionSchema).min(1, "o cardápio precisa de pelo menos uma seção").max(MAX_SECTIONS, `no máximo ${MAX_SECTIONS} seções`),
 });
 
@@ -48,9 +51,9 @@ type MenuInput = z.infer<typeof menuSchema>;
 const auditMeta = (request: Request) => ({ ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? "") });
 const dateOnly = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
-function payload(data: MenuInput) {
+function payload(data: Omit<MenuInput, "layout"> & { layout?: MenuInput["layout"] }) {
   return {
-    name: data.name, theme: data.theme, faceWidthMm: data.faceWidthMm, faceHeightMm: data.faceHeightMm, copies: data.copies,
+    name: data.name, theme: data.theme, faceWidthMm: data.faceWidthMm, faceHeightMm: data.faceHeightMm, copies: data.copies, layout: data.layout ?? "same",
     eventDate: data.eventDate ? new Date(`${data.eventDate}T00:00:00Z`) : null,
     sections: data.sections as unknown as Prisma.InputJsonValue,
   };
@@ -67,13 +70,13 @@ function storedSections(value: Prisma.JsonValue) {
   });
 }
 
-type MenuRow = { id: string; name: string; eventDate: Date | null; theme: string; faceWidthMm: number; faceHeightMm: number; copies: number; sections: Prisma.JsonValue; updatedAt: Date };
+type MenuRow = { id: string; name: string; eventDate: Date | null; theme: string; faceWidthMm: number; faceHeightMm: number; copies: number; layout: string; sections: Prisma.JsonValue; updatedAt: Date };
 
 function summary(m: MenuRow) {
   const sections = storedSections(m.sections);
   return {
     id: m.id, name: m.name, eventDate: dateOnly(m.eventDate), theme: m.theme, faceWidthMm: m.faceWidthMm, faceHeightMm: m.faceHeightMm,
-    copies: m.copies, sectionCount: sections.length, itemCount: sections.reduce((a, s) => a + s.items.length, 0), updatedAt: m.updatedAt,
+    copies: m.copies, layout: LAYOUTS.find((l) => l === m.layout) ?? "same", sectionCount: sections.length, itemCount: sections.reduce((a, s) => a + s.items.length, 0), updatedAt: m.updatedAt,
   };
 }
 
