@@ -10,10 +10,11 @@ vi.mock("../../../../api/client", async (importOriginal) => ({
   getFichaCadastral: vi.fn(),
   salvarEmpresaFichaCadastral: vi.fn(),
   concluirFichaCadastral: vi.fn(),
+  converterFichaEmAtualizacao: vi.fn(),
   getArquivoFichaCadastral: vi.fn(async () => new Blob()),
 }));
 
-import { concluirFichaCadastral, getFichaCadastral, salvarEmpresaFichaCadastral } from "../../../../api/client";
+import { concluirFichaCadastral, converterFichaEmAtualizacao, getFichaCadastral, salvarEmpresaFichaCadastral } from "../../../../api/client";
 import { FichaCadastralDetalhe } from "../FichaCadastralDetalhe";
 
 const SESSAO = { user: null, setUser: () => undefined, hideSensitiveValues: false, toggleSensitiveValues: () => undefined, canAccessSection: () => true, hasPermission: () => true } as unknown as SessionContextValue;
@@ -59,5 +60,31 @@ describe("conferência: concluir", () => {
     expect(screen.getByText(/nada vai para o cadastro/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Concluir" }));
     await waitFor(() => expect(concluirFichaCadastral).toHaveBeenCalledWith("f1", "2026-10-04T12:01:00.000Z", []));
+  });
+});
+
+describe("admissão de quem já tem cadastro", () => {
+  beforeEach(() => {
+    vi.mocked(converterFichaEmAtualizacao).mockReset().mockResolvedValue({ ok: true, employeeId: "e1" });
+  });
+
+  test("avisa e converte em atualização do cadastro existente, com a versão vista", async () => {
+    vi.mocked(getFichaCadastral).mockReset().mockResolvedValue(ficha({
+      tipo: "ADMISSAO", employeeId: null, funcionario: null, diferencas: [], cadastroExistente: { id: "e1", nome: "Joana Exemplo", isActive: true },
+    }));
+    montar();
+    expect(await screen.findByText(/Esta pessoa já tem cadastro: Joana Exemplo/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Usar para atualizar o cadastro" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Usar para atualizar" }));
+    await waitFor(() => expect(converterFichaEmAtualizacao).toHaveBeenCalledWith("f1", VISTA));
+  });
+
+  test("cadastro desligado: explica a readmissão e não oferece converter", async () => {
+    vi.mocked(getFichaCadastral).mockReset().mockResolvedValue(ficha({
+      tipo: "ADMISSAO", employeeId: null, funcionario: null, diferencas: [], cadastroExistente: { id: "e1", nome: "Joana Exemplo", isActive: false },
+    }));
+    montar();
+    expect(await screen.findByText(/readmissão é feita no cadastro/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Usar para atualizar o cadastro" })).toBeNull();
   });
 });

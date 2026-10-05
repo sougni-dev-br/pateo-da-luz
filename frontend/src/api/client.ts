@@ -7586,6 +7586,8 @@ export type FichaCadastralDetalhe = Omit<FichaCadastralResumo, "arquivos" | "ven
   bloqueadoAte: string | null;
   /** Sem permissão de ver Funcionários: salário e valores atuais do cadastro vêm ocultos. */
   salarioOculto: boolean;
+  /** Admissão de quem já tem cadastro (mesmo CPF): dá para usar a ficha para atualizar esse cadastro. */
+  cadastroExistente: { id: string; nome: string; isActive: boolean } | null;
 };
 export type FichaCadastralLink = { id: string; codigo: string; expiraEm: string };
 
@@ -7601,6 +7603,10 @@ export function getFichaCadastral(id: string) {
 /** `versao`: a da ficha que o RH está vendo — se ela mudou no meio (devolvida, reenviada), 409. */
 export function salvarEmpresaFichaCadastral(id: string, empresa: FichaCadastralEmpresa, versao: string) {
   return request<{ ok: true; versao: string | null }>(`/employee-forms/${id}/empresa`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...empresa, versao }) });
+}
+/** Admissão de quem já tem cadastro vira atualização dele (o cadastro com o mesmo CPF da ficha). */
+export function converterFichaEmAtualizacao(id: string, versao: string) {
+  return request<{ ok: true; employeeId: string }>(`/employee-forms/${id}/converter-em-atualizacao`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versao }) });
 }
 export function novoLinkFichaCadastral(id: string) {
   return request<FichaCadastralLink>(`/employee-forms/${id}/novo-link`, { method: "POST" });
