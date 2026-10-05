@@ -73,8 +73,13 @@ const mesmosAjustes = (a: Ajustes, b: Ajustes) => {
   return ka.length === Object.keys(b).length && ka.every((k) => b[k] && a[k].pt === b[k].pt && a[k].estoura === b[k].estoura);
 };
 
+// Cada conteúdo de face é medido uma vez: digitar num prato só remede a face dele, não todas.
+const medidas = new Map<string, AjusteFace>();
+const assinaturaDoGrupo = (g: GrupoFace, tema: PlateTheme, largura: number, altura: number) =>
+  JSON.stringify([g.secoes.map((s) => [s.titlePt, s.titleEn, s.items.map((i) => [i.namePt, i.nameEn])]), g.comLogo, g.maxPt ?? 0, g.umPrato ?? false, tema, largura, altura]);
+
 // Mede cada grupo de face num molde fora da tela, no tamanho real (a prévia está com zoom).
-export function useAjustesDoCardapio({ grupos, tema, largura, altura }: Medida): { ajustes: Ajustes; molde: JSX.Element } {
+export function useAjustesDoCardapio({ grupos, tema, largura, altura }: Medida): { ajustes: Ajustes; molde: JSX.Element; prontos: boolean } {
   const refs = useRef(new Map<string, HTMLDivElement>());
   const [ajustes, setAjustes] = useState<Ajustes>({});
   const fontesProntas = useFontesProntas();
@@ -83,11 +88,17 @@ export function useAjustesDoCardapio({ grupos, tema, largura, altura }: Medida):
     if (!fontesProntas) return;
     const novo: Ajustes = {};
     for (const g of grupos) {
+      const assinatura = assinaturaDoGrupo(g, tema, largura, altura);
+      const guardado = medidas.get(assinatura);
+      if (guardado) { novo[g.chave] = guardado; continue; }
       const el = refs.current.get(g.chave);
-      if (el) novo[g.chave] = ajustar(el, g.maxPt);
+      if (!el) continue;
+      novo[g.chave] = ajustar(el, g.maxPt);
+      medidas.set(assinatura, novo[g.chave]);
     }
     setAjustes((a) => (mesmosAjustes(a, novo) ? a : novo));
   }, [grupos, tema, largura, altura, fontesProntas]);
+  const prontos = fontesProntas && grupos.every((g) => ajustes[g.chave]);
 
   const molde = createPortal(
     <div className="plq-medidor" aria-hidden="true">
@@ -98,7 +109,7 @@ export function useAjustesDoCardapio({ grupos, tema, largura, altura }: Medida):
     </div>,
     document.body,
   );
-  return { ajustes, molde };
+  return { ajustes, molde, prontos };
 }
 
 type FolhasProps = { faces: FaceImpressa[]; layout: LayoutFolha; grupos: GrupoFace[]; tema: PlateTheme; largura: number; altura: number; ajustes: Ajustes };

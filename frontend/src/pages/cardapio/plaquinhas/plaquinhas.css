@@ -103,7 +103,8 @@
 .plq-marca--v.plq-marca--be, .plq-marca--v.plq-marca--bd { bottom: 0; }
 .plq-grafica-legenda {
   position: absolute; left: var(--recuo); right: var(--recuo); bottom: .8mm; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font: 4.5pt Inter, "Segoe UI", Arial, sans-serif; color: #666;
+  /* Josefin vai embutida no PDF; fonte do sistema virava "Type3" (desenho), que gráfica recusa. */
+  font: 600 5pt "Josefin Sans", Arial, sans-serif; letter-spacing: .04em; color: #555;
 }
 
 /* ── Impressão ── */

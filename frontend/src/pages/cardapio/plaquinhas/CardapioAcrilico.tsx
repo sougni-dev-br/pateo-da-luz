@@ -25,6 +25,8 @@ type Aviso = { tom: "success" | "error"; texto: string };
 
 const CLASSE_IMPRIMINDO = "imprimindo-cardapio";
 const MAX_SECOES = 30;
+const LETRA_PEQUENA_PT = 7.5;
+const AVISO_MS = 4000;
 const MODELOS_DE_ATALHO = 6;
 const hoje = () => new Date().toLocaleDateString("sv-SE");
 const novoCardapio = (): Cardapio => ({ id: null, nome: "", data: hoje(), tema: "wine", largura: TAMANHO_DISPLAY.largura, altura: TAMANHO_DISPLAY.altura, displays: 1, distribuicao: "same", secoes: [] });
@@ -57,6 +59,9 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
   const [aviso, setAviso] = useState<Aviso | null>(null);
   const [confirmacao, setConfirmacao] = useState<Confirmacao | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  // Abrindo um cardápio salvo: a coluna fica travada para nada do que se digitar agora ser apagado na chegada.
+  const [carregando, setCarregando] = useState(false);
+  const avisoRef = useRef<HTMLDivElement>(null);
   const [pedidoImpressao, setPedidoImpressao] = useState(0);
   const [tamanhoProprio, setTamanhoProprio] = useState(false);
 
@@ -73,12 +78,16 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
   const porSecao = c.distribuicao === "perSection";
   const porPrato = c.distribuicao === "perItem";
   const separados = umPorDisplay(c.distribuicao);
-  const grupos = useMemo(() => gruposDasFaces(secoes, c.distribuicao), [secoes, c.distribuicao]);
+  const chavesDasSecoes = useMemo(() => c.secoes.map((s) => ({ secao: s.chave, itens: s.items.map((i) => i.chave) })), [c.secoes]);
+  const grupos = useMemo(() => gruposDasFaces(secoes, c.distribuicao, chavesDasSecoes), [secoes, c.distribuicao, chavesDasSecoes]);
   const escolhidos = soImprimir ? grupos.filter((g) => soImprimir.includes(g.chave)) : grupos;
   const faces = facesParaImprimir(escolhidos, c.displays, c.distribuicao);
   const folhas = layout ? Math.ceil(faces.length / layout.porFolha) : 0;
-  const { ajustes, molde } = useAjustesDoCardapio({ grupos, tema: c.tema, largura: c.largura, altura: c.altura });
-  const naoCouberam = grupos.filter((g) => g.secoes.length && ajustes[g.chave]?.estoura).map((g) => g.rotulo);
+  const { ajustes, molde, prontos } = useAjustesDoCardapio({ grupos, tema: c.tema, largura: c.largura, altura: c.altura });
+  const naoCouberam = escolhidos.filter((g) => g.secoes.length && ajustes[g.chave]?.estoura).map((g) => g.rotulo);
+  // Abaixo disso a letra é difícil de ler a um passo do buffet: avisa, sem impedir.
+  const pequenas = escolhidos.filter((g) => !ajustes[g.chave]?.estoura && (ajustes[g.chave]?.pt ?? 99) < LETRA_PEQUENA_PT)
+    .map((g) => `${g.rotulo} (${String(ajustes[g.chave].pt).replace(".", ",")} pt)`);
   const temVerso = secoes.some((s) => s.face === "back");
   const totalDisplays = separados ? escolhidos.reduce((a, g) => a + (g.copias ?? c.displays), 0) : c.displays;
   const comoSai = porPrato ? "um por prato, frente e verso iguais" : porSecao ? "um por seção, frente e verso iguais" : temVerso ? "frente e verso" : "só frente";
@@ -116,6 +125,8 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
       setSoImprimir(null);
       if (!id) { const v = novoCardapio(); setC(v); setSalvo(assinatura(v)); setTamanhoProprio(false); return; }
       setOcupado(true);
+      setCarregando(true);
+      (document.activeElement as HTMLElement | null)?.blur();
       try {
         const m = await getBuffetMenu(id);
         const novo: Cardapio = {
@@ -134,6 +145,7 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
         setAviso({ tom: "error", texto: x instanceof Error ? x.message : "Não foi possível abrir o cardápio." });
       } finally {
         setOcupado(false);
+        setCarregando(false);
       }
     });
   }
@@ -212,11 +224,12 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
     if (!secoes.length) return;
     if (!faces.length) { setAviso({ tom: "error", texto: "Marque pelo menos um display para imprimir." }); return; }
     if (!layout) { setAviso({ tom: "error", texto: "Essa medida não cabe numa folha A4. Ajuste a largura e a altura da face." }); return; }
+    if (!prontos) { setAviso({ tom: "error", texto: "Ainda ajustando o tamanho da letra. Tente de novo em um instante." }); return; }
     if (pendenciasDeConteudo.length) { setMostrarErros(true); setAviso({ tom: "error", texto: pendenciasDeConteudo[0] }); return; }
     // Texto que não coube sairia cortado no papel: bloqueia em vez de imprimir pela metade.
     if (naoCabe) { setAviso({ tom: "error", texto: `O texto não coube ${naoCabe}. Tire pratos, encurte os nomes ou use uma face maior antes de imprimir.` }); return; }
     setPedidoImpressao((n) => n + 1);
-  }, [secoes.length, faces.length, layout, pendenciasDeConteudo, naoCabe]);
+  }, [secoes.length, faces.length, layout, prontos, pendenciasDeConteudo, naoCabe]);
 
   useEffect(() => {
     if (!pedidoImpressao || !layout) return undefined;
@@ -231,12 +244,16 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
     // está atrás de outra janela ou minimizado, e a impressão nunca começaria.
     const espera = window.setTimeout(async () => {
       await esperarImagens(".cdp-area-impressao img");
-      if (ativo) window.print();
+      if (!ativo) return;
+      window.print();
+      // iPhone/Safari não avisa o fim da impressão: volta ao normal quando a janela recebe o foco de novo.
+      window.setTimeout(() => { if (ativo) window.addEventListener("focus", terminar, { once: true }); }, 1000);
     }, 0);
     return () => {
       ativo = false;
       window.clearTimeout(espera);
       window.removeEventListener("afterprint", terminar);
+      window.removeEventListener("focus", terminar);
       document.body.classList.remove(CLASSE_IMPRIMINDO);
       estilo.remove();
     };
@@ -247,23 +264,31 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
   const salvarRef = useRef(salvar);
   salvarRef.current = salvar;
   useEffect(() => {
-    if (!ativa || confirmacao) return undefined;
+    if (!ativa || confirmacao || cadastro) return undefined;
     const tecla = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const k = e.key.toLowerCase();
-      if (k === "p" && secoes.length) { e.preventDefault(); imprimir(); }
+      if (k === "p" && secoes.length) { e.preventDefault(); if (!e.repeat) imprimir(); }
       if (k === "s" && podeSalvar && secoes.length) { e.preventDefault(); void salvarRef.current(false); }
     };
     window.addEventListener("keydown", tecla);
     return () => window.removeEventListener("keydown", tecla);
-  }, [ativa, confirmacao, imprimir, podeSalvar, secoes.length]);
+  }, [ativa, confirmacao, cadastro, imprimir, podeSalvar, secoes.length]);
+
+  // Sucesso some sozinho; erro vem para a vista (no celular ficava atrás da barra de botões).
+  useEffect(() => {
+    if (!aviso) return undefined;
+    if (aviso.tom === "error") { avisoRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); return undefined; }
+    const t = window.setTimeout(() => setAviso(null), AVISO_MS);
+    return () => window.clearTimeout(t);
+  }, [aviso]);
 
   const tamanhoAtual = tamanhoProprio ? "proprio" : TAMANHOS_FACE.find((t) => t.largura === c.largura && t.altura === c.altura)?.id ?? "proprio";
   const folhasProps = layout ? { faces, layout, grupos, tema: c.tema, largura: c.largura, altura: c.altura, ajustes } : null;
 
   return (
     <div className="plq-montar">
-      <div className="plq-coluna">
+      <div className={`plq-coluna${carregando ? " plq-coluna--carregando" : ""}`} aria-busy={carregando}>
         <section className="plq-bloco" aria-labelledby="cdp-titulo-salvo">
           <h3 className="plq-bloco-titulo" id="cdp-titulo-salvo"><span className="plq-passo">1</span> Cardápio</h3>
           <div className="plq-linha">
@@ -290,7 +315,7 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
         <section className="plq-bloco" aria-labelledby="cdp-titulo-secoes">
           <div className="plq-bloco-cabeca">
             <h3 className="plq-bloco-titulo" id="cdp-titulo-secoes"><span className="plq-passo">2</span> Seções e pratos</h3>
-            <span className="plq-total">{secoes.length} {secoes.length === 1 ? "seção" : "seções"} · {secoes.reduce((a, s) => a + s.items.length, 0)} pratos</span>
+            <span className="plq-total">{secoes.length} {secoes.length === 1 ? "seção" : "seções"} · {(() => { const n = secoes.reduce((a, s) => a + s.items.length, 0); return `${n} ${n === 1 ? "prato" : "pratos"}`; })()}</span>
           </div>
           <div className="plq-segmento cdp-distribuicao" role="group" aria-label="Como distribuir nos displays">
             <button type="button" aria-pressed={!separados} onClick={() => { setSoImprimir(null); mudar({ distribuicao: "same" }); }}>Igual em todos</button>
@@ -395,7 +420,7 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
           </div>
         </section>
 
-        {aviso && <Alert tone={aviso.tom} role={aviso.tom === "error" ? "alert" : "status"}>{aviso.texto}</Alert>}
+        <div ref={avisoRef} className="cdp-aviso">{aviso && <Alert tone={aviso.tom} role={aviso.tom === "error" ? "alert" : "status"}>{aviso.texto}</Alert>}</div>
 
         <div className="plq-barra">
           <span className="plq-barra-estado">
@@ -414,8 +439,11 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
         </div>
       </div>
 
-      <PreviaFolhas resumo={resumo} tema={c.tema} vazia={!secoes.length} textoVazia="Escolha uma seção, como Antepastos ou Bebidas, e coloque os pratos. Cada display aparece aqui com a frente e o verso lado a lado."
-        alerta={naoCouberam.length ? {
+      <PreviaFolhas resumo={resumo} tema={c.tema} vazia={!secoes.length} deitada={layout?.orientacao === "landscape"} textoVazia="Escolha uma seção, como Antepastos ou Bebidas, e coloque os pratos. Cada display aparece aqui com a frente e o verso lado a lado."
+        alerta={!naoCouberam.length && pequenas.length ? {
+          curto: "Letra pequena",
+          longo: `A letra ficou pequena ${pequenas.join(" e ")}: difícil de ler de longe. Divida a seção, tire pratos ou use “Um por seção”.`,
+        } : naoCouberam.length ? {
           curto: `Não coube ${naoCouberam.join(" e ")}`,
           longo: `O texto não coube ${naoCouberam.join(" e ")} mesmo com a letra no menor tamanho. Tire pratos, encurte os nomes ou use uma face maior (a face aparece com borda vermelha).`,
         } : null}>

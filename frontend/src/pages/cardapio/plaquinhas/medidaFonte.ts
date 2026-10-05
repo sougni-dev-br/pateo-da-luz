@@ -9,13 +9,16 @@ import { preencherSemQuebrarHifen } from "./semQuebrarHifen";
 export type Tamanho = { pt: number; en: number; estoura: boolean };
 export type TextoPlaca = { sobretitulo: string; nome: string; nameEn: string };
 
+// Teto escolhido pela folha impressa, não pelo espaço: com teto alto, nome curto ("Feijoada")
+// saía com 22 pt ao lado de um longo com 16 pt e a mesa ficava desigual. Cavalete e molho
+// tinham sobra de espaço e ganharam letra.
 export const FONTE: Record<PlateFormat, { max: number; min: number; inglesMin: number }> = {
-  std: { max: 22, min: 10, inglesMin: 7 },
-  tent: { max: 18, min: 9, inglesMin: 6.5 },
-  sauce: { max: 14, min: 7, inglesMin: 5.5 },
+  std: { max: 19, min: 10, inglesMin: 7.5 },
+  tent: { max: 21, min: 9, inglesMin: 7 },
+  sauce: { max: 16, min: 7, inglesMin: 6 },
 };
 const PASSO = 0.5;
-const PROPORCAO_INGLES = 0.52;
+const PROPORCAO_INGLES = 0.56;
 
 export const tamanhoIngles = (pt: number, formato: PlateFormat) => Math.max(FONTE[formato].inglesMin, pt * PROPORCAO_INGLES);
 

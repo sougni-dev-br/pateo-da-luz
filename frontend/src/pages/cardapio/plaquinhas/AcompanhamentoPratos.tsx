@@ -119,7 +119,7 @@ export function AcompanhamentoPratos({ ativa, catalogo, podeExcluir, versao, aoM
 function ListaPorDias({ ids, ranking, nome, total, vazio }: { ids: string[]; ranking: BuffetUsageRow[]; nome: (id: string) => string; total: number; vazio: string }) {
   if (!ids.length) return <p className="plq-vazio">{vazio}</p>;
   const dias = new Map(ranking.map((r) => [r.itemId, r.days]));
-  return <ul>{ids.map((id) => <li key={id}><span>{nome(id)}</span><small>{dias.get(id)} de {total} dias</small></li>)}</ul>;
+  return <ul>{ids.map((id) => <li key={id}><span>{nome(id)}</span><small>{dias.get(id) ?? 0} de {total} dias</small></li>)}</ul>;
 }
 
 function LinhaRanking({ linha, prato, total }: { linha: BuffetUsageRow; prato: BuffetPlateItem | undefined; total: number }) {
@@ -140,6 +140,7 @@ function Registros({ tipo, versao, ativa, podeExcluir, aoMudar }: { tipo: PlateL
   useEffect(() => {
     if (!ativa) return undefined;
     let vivo = true;
+    setRegistros([]);
     getBuffetPlatePrints(tipo).then((r) => { if (vivo) { setRegistros(r); setErro(null); } })
       .catch((x) => { if (vivo) setErro(x instanceof Error ? x.message : "Não foi possível carregar os registros."); });
     return () => { vivo = false; };

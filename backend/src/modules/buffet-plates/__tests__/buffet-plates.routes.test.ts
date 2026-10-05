@@ -57,7 +57,7 @@ describe("catálogo", () => {
   test("prato novo sem inglês é recusado", async () => {
     const r = await request(app).post("/buffet-plates/items").send({ namePt: "Bolo de fubá", nameEn: "  ", category: "Sobremesas" });
     expect(r.status).toBe(400);
-    expect(r.body.message).toMatch(/nameEn: nome em inglês obrigatório/);
+    expect(r.body.message).toMatch(/nome em inglês obrigatório/);
     expect(db.buffetPlateItem.create).not.toHaveBeenCalled();
   });
 
@@ -148,7 +148,7 @@ describe("listas", () => {
 
   test.each([
     [{ format: "a3" }, /format/],
-    [{ theme: "pink" }, /theme/],
+    [{ theme: "pink" }, /cor: opção inválida/],
     [{ items: [{ itemId: "i1", qty: 0 }] }, /quantidade mínima/],
     [{ items: [{ itemId: "i1", qty: 21 }] }, /quantidade máxima/],
     [{ eventDate: "10/10/2026" }, /data inválida/],
