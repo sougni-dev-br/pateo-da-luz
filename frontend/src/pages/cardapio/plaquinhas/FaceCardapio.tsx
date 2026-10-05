@@ -18,14 +18,14 @@ export type AjusteFace = { pt: number; estoura: boolean };
 export type Ajustes = Record<string, AjusteFace>;
 export const AJUSTE_PADRAO: AjusteFace = { pt: 9, estoura: false };
 
-type FaceProps = { secoes: BuffetMenuSection[]; comLogo: boolean; tema: PlateTheme; largura: number; altura: number; ajuste: AjusteFace; medidor?: boolean };
+type FaceProps = { secoes: BuffetMenuSection[]; comLogo: boolean; umPrato?: boolean; tema: PlateTheme; largura: number; altura: number; ajuste: AjusteFace; medidor?: boolean };
 
 // memo: digitar o nome ou a data do cardápio não redesenha as faces.
-export const FaceCardapio = memo(forwardRef<HTMLDivElement, FaceProps>(function FaceCardapio({ secoes, comLogo, tema, largura, altura, ajuste, medidor }, ref) {
+export const FaceCardapio = memo(forwardRef<HTMLDivElement, FaceProps>(function FaceCardapio({ secoes, comLogo, umPrato, tema, largura, altura, ajuste, medidor }, ref) {
   const estilo = { width: `${largura}mm`, height: `${altura}mm`, "--s": `${ajuste.pt}pt`, "--logo": `${Math.round(altura * 0.17)}mm` } as CSSProperties;
   return (
     <div ref={ref} style={estilo}
-      className={`cdp-face cdp-face--${tema}${comLogo ? " cdp-face--frente" : ""}${ajuste.estoura && !medidor ? " cdp-face--estoura" : ""}${medidor ? " cdp-face--medidor" : ""}`}>
+      className={`cdp-face cdp-face--${tema}${comLogo ? " cdp-face--frente" : ""}${umPrato ? " cdp-face--prato" : ""}${ajuste.estoura && !medidor ? " cdp-face--estoura" : ""}${medidor ? " cdp-face--medidor" : ""}`}>
       <div className="cdp-moldura">
         <i /><i /><i /><i />
         {comLogo && <img className="cdp-logo" src={LOGO_DO_TEMA[tema]} alt="" />}
@@ -50,20 +50,20 @@ export const FaceCardapio = memo(forwardRef<HTMLDivElement, FaceProps>(function 
 const transborda = (corpo: HTMLElement) => corpo.scrollHeight > corpo.clientHeight + 0.5 || corpo.scrollWidth > corpo.clientWidth + 0.5;
 
 // Maior letra (em passos de 0,25 pt) em que todas as seções da face cabem.
-function ajustar(face: HTMLElement): AjusteFace {
+function ajustar(face: HTMLElement, fonteMax = FONTE_MAX): AjusteFace {
   const corpo = face.querySelector<HTMLElement>(".cdp-corpo");
   if (!corpo) return AJUSTE_PADRAO;
   const cabe = (pt: number) => { face.style.setProperty("--s", `${pt}pt`); return !transborda(corpo); };
   if (!cabe(FONTE_MIN)) return { pt: FONTE_MIN, estoura: true };
   let lo = 0;
-  let hi = Math.round((FONTE_MAX - FONTE_MIN) / PASSO);
+  let hi = Math.round((fonteMax - FONTE_MIN) / PASSO);
   while (lo < hi) {
     const meio = Math.ceil((lo + hi) / 2);
     if (cabe(FONTE_MIN + meio * PASSO)) lo = meio; else hi = meio - 1;
   }
   const pt = FONTE_MIN + lo * PASSO;
   // Folga de um passo quando reduziu: a impressora mede a fonte um pouco diferente da tela.
-  return { pt: pt < FONTE_MAX && pt > FONTE_MIN ? pt - PASSO : pt, estoura: false };
+  return { pt: pt < fonteMax && pt > FONTE_MIN ? pt - PASSO : pt, estoura: false };
 }
 
 type Medida = { grupos: GrupoFace[]; tema: PlateTheme; largura: number; altura: number };
@@ -84,7 +84,7 @@ export function useAjustesDoCardapio({ grupos, tema, largura, altura }: Medida):
     const novo: Ajustes = {};
     for (const g of grupos) {
       const el = refs.current.get(g.chave);
-      if (el) novo[g.chave] = ajustar(el);
+      if (el) novo[g.chave] = ajustar(el, g.maxPt);
     }
     setAjustes((a) => (mesmosAjustes(a, novo) ? a : novo));
   }, [grupos, tema, largura, altura, fontesProntas]);
@@ -93,7 +93,7 @@ export function useAjustesDoCardapio({ grupos, tema, largura, altura }: Medida):
     <div className="plq-medidor" aria-hidden="true">
       {grupos.map((g) => (
         <FaceCardapio key={g.chave} ref={(el) => { if (el) refs.current.set(g.chave, el); else refs.current.delete(g.chave); }}
-          secoes={g.secoes} comLogo={g.comLogo} tema={tema} largura={largura} altura={altura} ajuste={AJUSTE_PADRAO} medidor />
+          secoes={g.secoes} comLogo={g.comLogo} umPrato={g.umPrato} tema={tema} largura={largura} altura={altura} ajuste={AJUSTE_PADRAO} medidor />
       ))}
     </div>,
     document.body,
@@ -116,7 +116,7 @@ export function FolhasCardapio({ faces, layout, grupos, tema, largura, altura, a
               const g = porChave.get(f.grupo);
               return (
                 <div key={f.chave} className="cdp-celula" title={`Display ${f.display} · ${f.face === "front" ? "frente" : "verso"}`}>
-                  {g && <FaceCardapio secoes={g.secoes} comLogo={g.comLogo} tema={tema} largura={largura} altura={altura} ajuste={ajustes[f.grupo] ?? AJUSTE_PADRAO} />}
+                  {g && <FaceCardapio secoes={g.secoes} comLogo={g.comLogo} umPrato={g.umPrato} tema={tema} largura={largura} altura={altura} ajuste={ajustes[f.grupo] ?? AJUSTE_PADRAO} />}
                 </div>
               );
             })}

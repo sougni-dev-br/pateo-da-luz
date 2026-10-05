@@ -54,6 +54,8 @@ describe("cardápio do evento", () => {
     const r = await request(app).post("/buffet-plates/menus").send({ ...valido, layout: "perSection" });
     expect(r.status).toBe(201);
     expect(r.body.layout).toBe("perSection");
+    const porPrato = await request(app).post("/buffet-plates/menus").send({ ...valido, layout: "perItem" });
+    expect(porPrato.body.layout).toBe("perItem");
   });
 
   test.each([
