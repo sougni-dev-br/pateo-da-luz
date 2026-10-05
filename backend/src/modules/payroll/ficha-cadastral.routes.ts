@@ -242,6 +242,12 @@ fichaCadastralRouter.get("/:id", async (request, response) => {
   const filhosDoCadastro = compararCom ? compararCom.dependentes.filter((d) => ehFilho(d.parentesco)) : [];
   const novos = compararCom ? filhosNovos(listaFilhos, filhosDoCadastro) : [];
   const alterados = compararCom ? filhosAlterados(listaFilhos, filhosDoCadastro) : [];
+  // Admissão de quem já tem cadastro (mesmo CPF): a tela oferece usar a ficha para atualizar o
+  // cadastro em vez de pedir outro link. Só para quem pode ver Funcionários (revela o cadastro).
+  const cpfDaFicha = typeof dados.cpf === "string" ? dados.cpf.replace(/\D/g, "") : "";
+  const existente = ficha.tipo === "ADMISSAO" && ABERTAS.includes(ficha.status) && verFuncionarios && cpfDaFicha
+    ? await prisma.employee.findFirst({ where: { cpf: cpfDaFicha, deletedAt: null }, select: { id: true, firstName: true, lastName: true, isActive: true } })
+    : null;
   const empresas = await prisma.company.findMany({
     where: { isActive: true }, orderBy: { tradeName: "asc" },
     select: { id: true, tradeName: true, legalName: true, cnpj: true },
@@ -250,6 +256,7 @@ fichaCadastralRouter.get("/:id", async (request, response) => {
     ...resto,
     dadosEmpresa,
     salarioOculto: !verFuncionarios,
+    cadastroExistente: existente ? { id: existente.id, nome: [existente.firstName, existente.lastName].filter(Boolean).join(" "), isActive: existente.isActive } : null,
     dados: dadosVisiveis,
     funcionario: employee ? { id: employee.id, nome: [employee.firstName, employee.lastName].join(" "), isActive: employee.isActive } : null,
     diferencas: verFuncionarios ? mudancas : mudancas.map((m) => ({
@@ -351,6 +358,49 @@ fichaCadastralRouter.put("/:id/empresa", async (request, response) => {
   const salva = await prisma.fichaCadastral.findUnique({ where: { id: ficha.id }, select: { updatedAt: true } });
   await auditLog({ userId: user.id, action: "FICHA_CADASTRAL_EMPRESA", entity: "FichaCadastral", entityId: ficha.id, previousValue: anterior, newValue: dados, ...auditoria(request) });
   return response.json({ ok: true, versao: salva ? versaoDe(salva) : null });
+});
+
+// ─── Admissão de quem já tem cadastro → atualização desse cadastro ───────────────
+// O RH mandou um link de admissão para quem já trabalha aqui (cadastro antigo). Em vez de pedir
+// outro link e a pessoa preencher tudo de novo, a ficha vira atualização do cadastro com o MESMO
+// CPF — nunca de outra pessoa. Depois o RH confere "o que muda" e marca o que gravar.
+fichaCadastralRouter.post("/:id/converter-em-atualizacao", async (request, response) => {
+  const user = await usuario(request, response);
+  if (!user) return;
+  if (!(await userHasPermission(user, "employees", "view"))) {
+    return response.status(403).json({ message: "Exige também a permissão de ver Funcionários." });
+  }
+  const ficha = await prisma.fichaCadastral.findUnique({ where: { id: request.params.id } });
+  if (!ficha) return response.status(404).json({ message: "Ficha não encontrada." });
+  if (ficha.tipo !== "ADMISSAO") return response.status(409).json({ message: "Esta ficha já é de atualização." });
+  if (!ABERTAS.includes(ficha.status)) return response.status(409).json({ message: "Ficha já concluída ou cancelada." });
+  const versao = (request.body as Record<string, unknown>)?.versao;
+  if (typeof versao !== "string" || versao !== versaoDe(ficha)) return response.status(409).json({ message: MUDOU_DEPOIS });
+  const dados = ficha.dados as DadosPessoa;
+  const cpf = typeof dados.cpf === "string" ? dados.cpf.replace(/\D/g, "") : "";
+  if (!cpf) return response.status(400).json({ message: "A ficha ainda não tem CPF: espere a pessoa preencher." });
+  const e = await prisma.employee.findFirst({ where: { cpf, deletedAt: null } });
+  if (!e) return response.status(404).json({ message: "Nenhum cadastro com o CPF desta ficha." });
+  if (!e.isActive) {
+    return response.status(409).json({ message: "O cadastro com este CPF está desligado. A readmissão é feita no cadastro, não pela ficha." });
+  }
+  const outra = await prisma.fichaCadastral.findFirst({
+    where: { employeeId: e.id, status: { in: ABERTAS }, id: { not: ficha.id } }, select: { id: true },
+  });
+  if (outra) {
+    return response.status(409).json({ message: `Já existe outra ficha aberta para ${e.firstName}. Cancele uma das duas antes.`, fichaId: outra.id });
+  }
+  const nome = [e.firstName, e.lastName].filter(Boolean).join(" ");
+  const r = await prisma.fichaCadastral.updateMany({
+    where: { id: ficha.id, tipo: "ADMISSAO", status: { in: ABERTAS }, updatedAt: ficha.updatedAt },
+    data: { tipo: "ATUALIZACAO", employeeId: e.id, nomeReferencia: nome },
+  });
+  if (r.count === 0) return response.status(409).json({ message: MUDOU_DEPOIS });
+  await auditLog({
+    userId: user.id, action: "FICHA_CADASTRAL_CONVERTIDA_EM_ATUALIZACAO", entity: "FichaCadastral", entityId: ficha.id,
+    newValue: { employeeId: e.id }, ...auditoria(request),
+  });
+  return response.json({ ok: true, employeeId: e.id });
 });
 
 // ─── Novo link (o anterior para de funcionar) ───────────────────────────────────

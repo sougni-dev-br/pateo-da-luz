@@ -53,7 +53,7 @@ export async function concluirAdmissao(ficha: FichaCadastral, usuarioId: string)
   if (!empresa.admissao) throw new ErroConclusao("Preencha a data de admissão antes de concluir.");
   if (!empresa.funcao) throw new ErroConclusao("Preencha a função antes de concluir.");
   if (await prisma.employee.findFirst({ where: { cpf, deletedAt: null }, select: { id: true } })) {
-    throw new ErroConclusao("Já existe um funcionário com este CPF. Use \"Pedir atualização de dados\" no cadastro dele.");
+    throw new ErroConclusao("Já existe um funcionário com este CPF. Use \"Usar para atualizar o cadastro\" nesta ficha: ela vira atualização do cadastro dele.");
   }
   if (empresa.companyId && !(await prisma.company.findUnique({ where: { id: empresa.companyId }, select: { id: true } }))) {
     throw new ErroConclusao("Empresa não encontrada.");

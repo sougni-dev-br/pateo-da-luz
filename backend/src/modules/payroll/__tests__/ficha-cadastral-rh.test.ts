@@ -443,6 +443,46 @@ describe("atualização em lote", () => {
   });
 });
 
+describe("admissão de quem já tem cadastro", () => {
+  const conv = (body: object = { versao: VERSAO }) => request(app).post("/employee-forms/f1/converter-em-atualizacao").send(body);
+
+  test("vira atualização do cadastro com o MESMO CPF da ficha, só sobre a versão vista", async () => {
+    db.employee.findFirst.mockResolvedValue({ ...funcionario, isActive: true });
+    const r = await conv();
+    expect(r.status).toBe(200);
+    expect(db.employee.findFirst).toHaveBeenCalledWith({ where: { cpf: "52998224725", deletedAt: null } });
+    expect(db.fichaCadastral.updateMany).toHaveBeenCalledWith({
+      where: { id: "f1", tipo: "ADMISSAO", status: { in: ["ENVIADA", "PREENCHENDO", "FINALIZADA"] }, updatedAt: VERSAO_DATA },
+      data: { tipo: "ATUALIZACAO", employeeId: "e1", nomeReferencia: "Fulana Souza" },
+    });
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "FICHA_CADASTRAL_CONVERTIDA_EM_ATUALIZACAO" }));
+  });
+
+  test("recusa: versão velha, sem cadastro, cadastro desligado, outra ficha aberta, sem permissão", async () => {
+    expect((await conv({ versao: "2026-10-04T11:00:00.000Z" })).status).toBe(409);
+    db.employee.findFirst.mockResolvedValue(null);
+    expect((await conv()).status).toBe(404);
+    db.employee.findFirst.mockResolvedValue({ ...funcionario, isActive: false });
+    expect((await conv()).body.message).toContain("desligado");
+    db.employee.findFirst.mockResolvedValue({ ...funcionario, isActive: true });
+    db.fichaCadastral.findFirst.mockResolvedValueOnce({ id: "f9" });
+    const outra = await conv();
+    expect(outra.status).toBe(409);
+    expect(outra.body.fichaId).toBe("f9");
+    vi.mocked(userHasPermission).mockResolvedValue(false);
+    expect((await conv()).status).toBe(403);
+    expect(db.fichaCadastral.updateMany).not.toHaveBeenCalled();
+  });
+
+  test("detalhe da admissão aponta o cadastro existente com o mesmo CPF", async () => {
+    db.fichaCadastral.findUnique.mockResolvedValue({ ...ficha, arquivos: [], employee: null });
+    db.company.findMany.mockResolvedValue([]);
+    db.employee.findFirst.mockResolvedValue({ id: "e1", firstName: "Fulana", lastName: "Souza", isActive: true });
+    const r = await request(app).get("/employee-forms/f1");
+    expect(r.body.cadastroExistente).toEqual({ id: "e1", nome: "Fulana Souza", isActive: true });
+  });
+});
+
 describe("fotos e documentos", () => {
   test("abrir exige também ver Funcionários; sem ela, nem consulta o arquivo", async () => {
     vi.mocked(userHasPermission).mockResolvedValue(false);

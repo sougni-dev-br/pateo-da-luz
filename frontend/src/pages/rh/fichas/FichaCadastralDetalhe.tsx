@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ApiError, getArquivoFichaCadastral,
-  cancelarFichaCadastral, concluirFichaCadastral, devolverFichaCadastral, getFichaCadastral, novoLinkFichaCadastral,
+  cancelarFichaCadastral, concluirFichaCadastral, converterFichaEmAtualizacao, devolverFichaCadastral, getFichaCadastral, novoLinkFichaCadastral,
   salvarEmpresaFichaCadastral, type FichaCadastralDetalhe as Detalhe, type FichaCadastralEmpresa, type FichaCadastralLink,
 } from "../../../api/client";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
@@ -39,7 +39,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
   const [devolvendo, setDevolvendo] = useState(false);
   const [erroDevolver, setErroDevolver] = useState<string | null>(null);
   const [motivo, setMotivo] = useState("");
-  const [confirmar, setConfirmar] = useState<"cancelar" | "concluir" | null>(null);
+  const [confirmar, setConfirmar] = useState<"cancelar" | "concluir" | "converter" | null>(null);
   const [escolhidos, setEscolhidos] = useState<Set<string>>(new Set());
   // As caixas do "O que muda" começam marcadas só na primeira carga: recarregar depois de salvar
   // a parte da empresa não pode remarcar o que o RH desmarcou (iria para o cadastro).
@@ -54,8 +54,9 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
         setFicha(f);
         // Só na primeira carga: recarregar depois de uma ação não apaga o que o RH digitou na
         // parte da empresa nem remarca o que ele desmarcou.
-        if (caixasIniciadas.current !== f.id) {
-          caixasIniciadas.current = f.id;
+        // Por ficha e tipo: uma admissão convertida em atualização ganha as caixas do "o que muda".
+        if (caixasIniciadas.current !== `${f.id}:${f.tipo}`) {
+          caixasIniciadas.current = `${f.id}:${f.tipo}`;
           setEmpresa(f.dadosEmpresa ?? {});
           setEscolhidos(new Set([
             ...f.diferencas.map((d) => d.campo).filter((c) => !SENSIVEIS.has(c)),
@@ -95,6 +96,8 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
   const podeGerarLink = podeReenviar && hasPermission("employees", "view");
   const podeConcluir = hasPermission("employee-forms", "approve") && hasPermission("employees", ficha.tipo === "ADMISSAO" ? "create" : "edit");
   const quandoApaga = apagaEm(ficha);
+  // Admissão de quem já tem cadastro ativo: criar outro funcionário daria erro (CPF repetido).
+  const jaTemCadastro = ficha.tipo === "ADMISSAO" && !!ficha.cadastroExistente?.isActive;
   // Só conta (e só vai) o que está na tela agora: depois de uma correção pelo documento, uma
   // diferença pode ter sumido.
   const chavesVisiveis = new Set([
@@ -194,7 +197,7 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
             onClick={() => agir(async () => setLink(await novoLinkFichaCadastral(id)), "Novo link gerado. O anterior não abre mais.")}>Gerar novo link</Button>}
           {finalizada && podeReenviar && <Button variant="secondary" leadingIcon={<RotateCcw size={16} />} disabled={ocupado} onClick={() => setDevolvendo(true)}>Devolver para correção</Button>}
           {(aberta || finalizada) && hasPermission("employee-forms", "delete") && <Button variant="danger" leadingIcon={<Ban size={16} />} disabled={ocupado} onClick={() => setConfirmar("cancelar")}>Cancelar ficha</Button>}
-          {finalizada && podeConcluir && <Button leadingIcon={<CheckCircle2 size={16} />}
+          {finalizada && podeConcluir && !jaTemCadastro && <Button leadingIcon={<CheckCircle2 size={16} />}
             disabled={ocupado} onClick={() => setConfirmar("concluir")}>
             {ficha.tipo === "ADMISSAO" ? "Criar funcionário" : semDiferencas ? "Concluir sem alterações" : efetivos.length === 0 ? "Concluir sem gravar" : "Gravar no cadastro"}</Button>}
           {ficha.status === "CONCLUIDA" && ficha.funcionario && (
@@ -208,13 +211,30 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
             <li>Confira os dados e as fotos{ficha.tipo === "ATUALIZACAO" ? " e marque o que muda no cadastro" : ""}.</li>
             <li>Complete a <a href="#fc-empresa">parte da empresa</a> e salve.</li>
             <li>Imprima a ficha, colha as assinaturas e envie à contabilidade.</li>
-            <li>Clique em <strong>{ficha.tipo === "ADMISSAO" ? "Criar funcionário" : "Gravar no cadastro"}</strong>.</li>
+            <li>Clique em <strong>{jaTemCadastro ? "Usar para atualizar o cadastro" : ficha.tipo === "ADMISSAO" ? "Criar funcionário" : "Gravar no cadastro"}</strong>.</li>
           </ol>
         )}
         {aberta && ficha.falta.length > 0 && (
           <Alert tone="info" title="A pessoa ainda não finalizou">Falta: {ficha.falta.join(", ")}.</Alert>
         )}
         {ficha.motivoDevolucao && aberta && <Alert tone="warning" title="Devolvida para correção">{ficha.motivoDevolucao}</Alert>}
+        {ficha.cadastroExistente && (
+          <Alert tone="warning" title={`Esta pessoa já tem cadastro: ${ficha.cadastroExistente.nome}`}>
+            {ficha.cadastroExistente.isActive ? (
+              <>
+                O link enviado foi de admissão, mas o CPF da ficha é de um cadastro ativo. Não precisa pedir outro link: use esta ficha para
+                atualizar o cadastro dela{finalizada ? " e depois marque o que muda" : " (quando ela enviar, você confere o que muda)"}.
+                {podeEditar && podeReenviar && (
+                  <div className="fc-acoes">
+                    <Button variant="secondary" disabled={ocupado} onClick={() => setConfirmar("converter")}>Usar para atualizar o cadastro</Button>
+                  </div>
+                )}
+              </>
+            ) : (
+              "O cadastro com este CPF está desligado. A readmissão é feita no cadastro do funcionário, não por esta ficha."
+            )}
+          </Alert>
+        )}
         {quandoApaga && (
           <Alert tone="warning" title={`Será apagada em ${dataBr(quandoApaga.toISOString())}`}>
             {ficha.status === "CANCELADA"
@@ -331,6 +351,10 @@ export function FichaCadastralDetalhe({ id, onVoltar }: Props) {
         </div>
       </Dialog>
 
+      <ConfirmDialog open={confirmar === "converter"} title="Usar esta ficha para atualizar o cadastro?" confirmLabel="Usar para atualizar" cancelLabel="Voltar"
+        description={`A ficha deixa de ser admissão e passa a ser atualização do cadastro de ${ficha.cadastroExistente?.nome ?? ""} (mesmo CPF). Nada vai para o cadastro agora: depois você confere o que muda e marca o que gravar. Salário, função e empresa continuam os do cadastro.`}
+        onCancel={() => setConfirmar(null)}
+        onConfirm={() => { setConfirmar(null); agir(() => converterFichaEmAtualizacao(id, ficha.updatedAt), "Ficha agora é atualização do cadastro. Confira o que muda e marque o que gravar."); }} />
       <ConfirmDialog open={confirmar === "cancelar"} tone="danger" title="Cancelar esta ficha?" confirmLabel="Cancelar ficha" cancelLabel="Voltar"
         description="O link para de funcionar. Os dados e as fotos já enviados ficam guardados por 90 dias e depois são apagados."
         onCancel={() => setConfirmar(null)} onConfirm={() => { setConfirmar(null); agir(() => cancelarFichaCadastral(id), "Ficha cancelada."); }} />
