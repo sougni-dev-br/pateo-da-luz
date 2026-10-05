@@ -25,6 +25,7 @@ type Aviso = { tom: "success" | "error"; texto: string };
 
 const CLASSE_IMPRIMINDO = "imprimindo-cardapio";
 const MAX_SECOES = 10;
+const MODELOS_DE_ATALHO = 6;
 const hoje = () => new Date().toLocaleDateString("sv-SE");
 const novoCardapio = (): Cardapio => ({ id: null, nome: "", data: hoje(), tema: "wine", largura: TAMANHO_DISPLAY.largura, altura: TAMANHO_DISPLAY.altura, displays: 1, distribuicao: "same", secoes: [] });
 const paraSalvar = (c: Cardapio): BuffetMenuSection[] =>
@@ -48,6 +49,8 @@ type Cadastro = { secao: string; namePt: string; nameEn: string; substituir?: st
 
 export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEditar, podeExcluir, aoMudarCardapios, aoMudarPendencia, aoCadastrarPrato }: Props) {
   const [cadastro, setCadastro] = useState<Cadastro | null>(null);
+  // Displays que vão para a impressora agora (chaves dos grupos); null = todos.
+  const [soImprimir, setSoImprimir] = useState<string[] | null>(null);
   const [c, setC] = useState<Cardapio>(novoCardapio);
   const [salvo, setSalvo] = useState(() => assinatura(novoCardapio()));
   const [mostrarErros, setMostrarErros] = useState(false);
@@ -71,12 +74,13 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
   const porPrato = c.distribuicao === "perItem";
   const separados = umPorDisplay(c.distribuicao);
   const grupos = useMemo(() => gruposDasFaces(secoes, c.distribuicao), [secoes, c.distribuicao]);
-  const faces = facesParaImprimir(grupos, c.displays, c.distribuicao);
+  const escolhidos = soImprimir ? grupos.filter((g) => soImprimir.includes(g.chave)) : grupos;
+  const faces = facesParaImprimir(escolhidos, c.displays, c.distribuicao);
   const folhas = layout ? Math.ceil(faces.length / layout.porFolha) : 0;
   const { ajustes, molde } = useAjustesDoCardapio({ grupos, tema: c.tema, largura: c.largura, altura: c.altura });
   const naoCouberam = grupos.filter((g) => g.secoes.length && ajustes[g.chave]?.estoura).map((g) => g.rotulo);
   const temVerso = secoes.some((s) => s.face === "back");
-  const totalDisplays = separados ? grupos.length * c.displays : c.displays;
+  const totalDisplays = separados ? escolhidos.length * c.displays : c.displays;
   const comoSai = porPrato ? "um por prato, frente e verso iguais" : porSecao ? "um por seção, frente e verso iguais" : temVerso ? "frente e verso" : "só frente";
   const resumo = !secoes.length ? "A prévia aparece aqui" : `${totalDisplays} ${totalDisplays === 1 ? "display" : "displays"} (${comoSai}) em ${folhas} ${folhas === 1 ? "folha" : "folhas"} A4`;
 
@@ -104,20 +108,27 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
     setConfirmacao({ titulo: "Descartar alterações?", texto: "O cardápio atual tem mudanças que não foram salvas.", ok: "Descartar", acao });
   }
 
-  function abrir(id: string) {
+  // comoModelo: copia o conteúdo para um cardápio novo, sem mexer no salvo (nome e data em branco).
+  function abrir(id: string, comoModelo = false) {
     seguroTrocar(async () => {
       setAviso(null);
       setMostrarErros(false);
+      setSoImprimir(null);
       if (!id) { const v = novoCardapio(); setC(v); setSalvo(assinatura(v)); setTamanhoProprio(false); return; }
       setOcupado(true);
       try {
         const m = await getBuffetMenu(id);
         const novo: Cardapio = {
-          id: m.id, nome: m.name, data: m.eventDate ?? "", tema: m.theme, largura: m.faceWidthMm, altura: m.faceHeightMm, displays: m.copies, distribuicao: m.layout ?? "same",
+          id: comoModelo ? null : m.id, nome: comoModelo ? "" : m.name, data: comoModelo ? hoje() : m.eventDate ?? "",
+          tema: m.theme, largura: m.faceWidthMm, altura: m.faceHeightMm, displays: m.copies, distribuicao: m.layout ?? "same",
           secoes: m.sections.map((s) => ({ ...s, chave: chaveNova(), items: s.items.map((i) => ({ ...i, chave: chaveNova() })) })),
         };
         setC(novo);
-        setSalvo(assinatura(novo));
+        setSalvo(assinatura(comoModelo ? novoCardapio() : novo));
+        if (comoModelo) {
+          setAviso({ tom: "success", texto: `Começando do modelo “${m.name}”. Dê um nome ao cardápio, ajuste os pratos e salve: o modelo continua como estava.` });
+          window.setTimeout(() => document.getElementById("cdp-nome")?.focus(), 0);
+        }
         setTamanhoProprio(!TAMANHOS_FACE.some((t) => t.largura === m.faceWidthMm && t.altura === m.faceHeightMm));
       } catch (x) {
         setAviso({ tom: "error", texto: x instanceof Error ? x.message : "Não foi possível abrir o cardápio." });
@@ -181,12 +192,13 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
   const naoCabe = naoCouberam.join(" e ");
   const imprimir = useCallback(() => {
     if (!secoes.length) return;
+    if (!faces.length) { setAviso({ tom: "error", texto: "Marque pelo menos um display para imprimir." }); return; }
     if (!layout) { setAviso({ tom: "error", texto: "Essa medida não cabe numa folha A4. Ajuste a largura e a altura da face." }); return; }
     if (pendenciasDeConteudo.length) { setMostrarErros(true); setAviso({ tom: "error", texto: pendenciasDeConteudo[0] }); return; }
     // Texto que não coube sairia cortado no papel: bloqueia em vez de imprimir pela metade.
     if (naoCabe) { setAviso({ tom: "error", texto: `O texto não coube ${naoCabe}. Tire pratos, encurte os nomes ou use uma face maior antes de imprimir.` }); return; }
     setPedidoImpressao((n) => n + 1);
-  }, [secoes.length, layout, pendenciasDeConteudo, naoCabe]);
+  }, [secoes.length, faces.length, layout, pendenciasDeConteudo, naoCabe]);
 
   useEffect(() => {
     if (!pedidoImpressao || !layout) return undefined;
@@ -246,6 +258,15 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
               error={mostrarErros && c.nome.trim().length < 2 ? "Dê um nome para o cardápio." : undefined} />
             <TextField label="Data do evento" type="date" value={c.data} onChange={(e) => mudar({ data: e.target.value })} />
           </div>
+          {!c.id && !c.secoes.length && cardapios.length > 0 && (
+            <div className="plq-atalhos">
+              <span>Começar de um modelo:</span>
+              {cardapios.slice(0, MODELOS_DE_ATALHO).map((m) => (
+                <button key={m.id} type="button" className="plq-chip" disabled={ocupado} onClick={() => abrir(m.id, true)}
+                  title="Copia as seções e os pratos para um cardápio novo; o modelo não muda">{m.name}</button>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="plq-bloco" aria-labelledby="cdp-titulo-secoes">
@@ -254,9 +275,9 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
             <span className="plq-total">{secoes.length} {secoes.length === 1 ? "seção" : "seções"} · {secoes.reduce((a, s) => a + s.items.length, 0)} pratos</span>
           </div>
           <div className="plq-segmento cdp-distribuicao" role="group" aria-label="Como distribuir nos displays">
-            <button type="button" aria-pressed={!separados} onClick={() => mudar({ distribuicao: "same" })}>Igual em todos</button>
-            <button type="button" aria-pressed={porSecao} onClick={() => mudar({ distribuicao: "perSection" })}>Um por seção</button>
-            <button type="button" aria-pressed={porPrato} onClick={() => mudar({ distribuicao: "perItem" })}>Um por prato</button>
+            <button type="button" aria-pressed={!separados} onClick={() => { setSoImprimir(null); mudar({ distribuicao: "same" }); }}>Igual em todos</button>
+            <button type="button" aria-pressed={porSecao} onClick={() => { setSoImprimir(null); mudar({ distribuicao: "perSection" }); }}>Um por seção</button>
+            <button type="button" aria-pressed={porPrato} onClick={() => { setSoImprimir(null); mudar({ distribuicao: "perItem" }); }}>Um por prato</button>
           </div>
           <p className="plq-contagem">{porPrato
             ? "Cada prato vira um display, com o nome da seção em cima e a letra grande, igual na frente e no verso."
@@ -315,6 +336,29 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
             </span>
             {layout && <small>{layout.porFolha} faces por folha</small>}
           </div>
+          {separados && grupos.length > 1 && (
+            <div className="cdp-escolha">
+              <div className="plq-segmento" role="group" aria-label="O que imprimir">
+                <button type="button" aria-pressed={!soImprimir} onClick={() => setSoImprimir(null)}>Imprimir todos</button>
+                <button type="button" aria-pressed={Boolean(soImprimir)} onClick={() => setSoImprimir(soImprimir ?? grupos.map((g) => g.chave))}>Escolher displays</button>
+              </div>
+              {soImprimir && (
+                <div className="cdp-escolha-lista" role="group" aria-label="Displays que vão para a impressora">
+                  {grupos.map((g, i) => {
+                    const marcado = soImprimir.includes(g.chave);
+                    const nome = g.rotulo.replace(/^em “|”$/g, "");
+                    return (
+                      <button key={g.chave} type="button" className="plq-chip" aria-pressed={marcado}
+                        onClick={() => setSoImprimir(marcado ? soImprimir.filter((k) => k !== g.chave) : [...soImprimir, g.chave])}>
+                        {i + 1}. {nome}
+                      </button>
+                    );
+                  })}
+                  <small>{escolhidos.length} de {grupos.length} vão para a impressora.</small>
+                </div>
+              )}
+            </div>
+          )}
           <div className="plq-opcoes plq-opcoes--cores" role="group" aria-label="Cores">
             {TEMAS.map((t) => (
               <button key={t.value} type="button" className="plq-opcao" aria-pressed={c.tema === t.value} onClick={() => mudar({ tema: t.value })}>
