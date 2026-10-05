@@ -11,7 +11,7 @@
 .plq-folha--tent { padding-top: 10mm; }
 .plq-folha--sauce { padding-top: 15mm; }
 .plq-grade { display: grid; border-top: .25mm dashed #c9c9c9; border-left: .25mm dashed #c9c9c9; }
-.plq-folha--std .plq-grade { grid-template-columns: repeat(2, 95mm); grid-auto-rows: 55mm; }
+.plq-folha--std .plq-grade { grid-template-columns: repeat(2, 74mm); grid-auto-rows: 49mm; }
 .plq-folha--tent .plq-grade { grid-template-columns: repeat(2, 95mm); grid-auto-rows: 92mm; }
 .plq-folha--sauce .plq-grade { grid-template-columns: repeat(3, 63mm); grid-auto-rows: 38mm; }
 .plq-celula { position: relative; overflow: hidden; border-right: .25mm dashed #c9c9c9; border-bottom: .25mm dashed #c9c9c9; }
@@ -60,6 +60,7 @@
 .plq-en { font: italic var(--en, 10pt)/1.2 Georgia, "Times New Roman", serif; color: var(--plq-ingles); text-wrap: balance; overflow-wrap: break-word; }
 .plq-logo { display: block; height: 11mm; width: auto; flex: none; }
 
+.plq-folha--std .plq-logo { height: 10mm; }
 .plq-folha--tent .plq-logo { height: 9.5mm; }
 .plq-folha--sauce .plq-placa { padding: 1.8mm; }
 .plq-folha--sauce .plq-moldura { padding: 1.6mm 2.4mm 1.4mm; }

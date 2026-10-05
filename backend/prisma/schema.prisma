@@ -1703,8 +1703,8 @@ model BuffetMenuCard {
   name         String
   eventDate    DateTime? @db.Date
   theme        String    @default("wine")
-  faceWidthMm  Int       @default(92)
-  faceHeightMm Int       @default(76)
+  faceWidthMm  Int       @default(94)
+  faceHeightMm Int       @default(90)
   copies       Int       @default(1)
   sections     Json      @default("[]")
   createdById  String?
