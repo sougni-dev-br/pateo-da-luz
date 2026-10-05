@@ -48,6 +48,11 @@ describe("cardápio do evento", () => {
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "CREATE_BUFFET_MENU_CARD" }));
   });
 
+  test("aceita até 30 seções", async () => {
+    const r = await request(app).post("/buffet-plates/menus").send({ ...valido, sections: Array.from({ length: 30 }, () => secao) });
+    expect(r.status).toBe(201);
+  });
+
   test("sem dizer a distribuição, é o mesmo cardápio em todos os displays; um display por seção é aceito", async () => {
     await request(app).post("/buffet-plates/menus").send(valido);
     expect(db.buffetMenuCard.create.mock.calls[0][0].data.layout).toBe("same");
@@ -68,6 +73,7 @@ describe("cardápio do evento", () => {
     ["face maior que a folha", { faceHeightMm: 400 }, /altura máxima/],
     ["displays demais", { copies: 50 }, /no máximo 20 displays/],
     ["distribuição desconhecida", { layout: "mosaico" }, /layout/],
+    ["seções demais", { sections: Array.from({ length: 31 }, () => secao) }, /no máximo 30 seções/],
     ["data impossível", { eventDate: "2026-02-31" }, /data inválida/],
   ])("recusa %s", async (_nome, patch, msg) => {
     const r = await request(app).post("/buffet-plates/menus").send({ ...valido, ...patch });

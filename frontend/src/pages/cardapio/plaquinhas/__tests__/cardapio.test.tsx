@@ -196,3 +196,16 @@ describe("inglês do título da seção", () => {
     expect(inglesDoTitulo("Especial do chef")).toBeUndefined();
   });
 });
+
+describe("seção do cardápio", () => {
+  test("prato pode ir para outra seção pela lista “Mover para…”", async () => {
+    const { SecaoCardapio } = await import("../SecaoCardapio");
+    const onMoverPrato = vi.fn();
+    const secaoEdit = { chave: "a", face: "front" as const, titlePt: "Bebidas", titleEn: "Drinks", items: [{ chave: "i1", namePt: "Café", nameEn: "Brewed coffee" }] };
+    render(<SecaoCardapio secao={secaoEdit} indice={0} total={2} catalogo={[]} porNome={new Map()} podeCadastrar={false} mostrarErros={false} mostrarFace
+      primeiroDisplay={1} umPorPrato={false} abertaNoInicio outrasSecoes={[{ chave: "b", rotulo: "Doces" }]} onMoverPrato={onMoverPrato}
+      onMudar={vi.fn()} onMover={vi.fn()} onRemover={vi.fn()} onCadastrar={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Mover Café para outra seção"), { target: { value: "b" } });
+    expect(onMoverPrato).toHaveBeenCalledWith("i1", "b");
+  });
+});

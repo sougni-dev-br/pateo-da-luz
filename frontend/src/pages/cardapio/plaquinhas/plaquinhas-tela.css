@@ -384,3 +384,9 @@
 .cdp-escolha-lista { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .cdp-escolha-lista small { flex-basis: 100%; color: var(--muted); font-size: 0.78rem; }
 .plq-chip:disabled { opacity: 0.5; cursor: default; }
+
+/* Mover o prato para outra seção: ícone com uma lista nativa (abre bem no celular) */
+.cdp-mover { position: relative; width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: 8px; color: var(--muted); cursor: pointer; }
+.cdp-mover:hover, .cdp-mover:focus-within { color: var(--ink); background: var(--paper-soft); }
+.cdp-mover select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
+.cdp-mover:focus-within { outline: 2px solid var(--gold); outline-offset: 2px; }
