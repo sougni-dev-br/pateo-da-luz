@@ -297,7 +297,7 @@ describe("arquivo para gráfica", () => {
   test("página = corte + 2 mm de sangria + margem das marcas, em cada formato", async () => {
     const { paginaDaGrafica } = await import("../ArquivoGrafica");
     expect(paginaDaGrafica("std")).toEqual({ largura: 90, altura: 65 });
-    expect(paginaDaGrafica("sauce")).toEqual({ largura: 61, altura: 51 });
+    expect(paginaDaGrafica("sauce")).toEqual({ largura: 60, altura: 50 });
   });
 
   test("uma página por prato, com a quantidade escrita, a sangria na cor do tema e as 8 marcas de corte", async () => {
@@ -352,7 +352,7 @@ describe("molhos junto com as plaquinhas", () => {
     ]} />);
     const [p1, p2] = [...container.querySelectorAll<HTMLElement>(".plq-grafica-pagina")];
     expect(p1.style.getPropertyValue("--pag-l")).toBe("90mm");
-    expect(p2.style.getPropertyValue("--pag-l")).toBe("61mm");
-    expect(p2).toHaveTextContent("corte 45 × 35 mm");
+    expect(p2.style.getPropertyValue("--pag-l")).toBe("60mm");
+    expect(p2).toHaveTextContent("corte 44 × 34 mm");
   });
 });
