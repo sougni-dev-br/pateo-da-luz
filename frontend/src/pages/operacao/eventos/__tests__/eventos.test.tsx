@@ -12,7 +12,7 @@ vi.mock("../../../../api/client", () => ({
 
 import { getEventsAgenda, saveOperationDay } from "../../../../api/client";
 import { Agenda } from "../Agenda";
-import { dataBr, diaDoEvento, lerPreco, reais, ticket } from "../formato";
+import { dataBr, diaDoEvento, lerPreco, nomeDoBuffet, reais, ticket } from "../formato";
 
 const limites = { smallMaxLunch: 80, largeMinLunch: 150, lunchCapacity: null };
 const evento = (dia: number, total: number) => ({
@@ -22,7 +22,7 @@ const evento = (dia: number, total: number) => ({
 const previsao = (almoco: number, tamanho: "PEQUENO" | "MEDIO" | "GRANDE") => ({ almoco, minimo: almoco - 20, maximo: almoco + 20, tamanho, base: "Em edições anteriores, Feira de Exemplo teve 160 almoços no dia do meio (2 dias)", casos: 5, poucaBase: false });
 
 function dia(date: string, extra: Partial<AgendaDay> = {}): AgendaDay {
-  return { date, eventos: [], previsao: null, realizado: null, escala: null, decisao: null, ...extra };
+  return { date, eventos: [], previsao: null, realizado: null, escala: null, buffetCobrado: null, decisao: null, ...extra };
 }
 
 beforeEach(() => {
@@ -81,10 +81,23 @@ describe("agenda do mês", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Abrir o dia 07/10/2026" }));
     const dialogo = await screen.findByRole("dialog");
     fireEvent.change(within(dialogo).getByLabelText("Modalidade"), { target: { value: "BUFFET" } });
-    fireEvent.change(within(dialogo).getByLabelText("Preço do buffet"), { target: { value: "82,90" } });
+    fireEvent.change(within(dialogo).getByLabelText(/^Preço do buffet/), { target: { value: "82,90" } });
     fireEvent.change(within(dialogo).getByLabelText("Comentário da gerência"), { target: { value: "Parceria com a organização" } });
     fireEvent.click(within(dialogo).getByRole("button", { name: "Salvar o dia" }));
     await waitFor(() => expect(saveOperationDay).toHaveBeenCalledWith("2026-10-07", { serviceMode: "BUFFET", buffetPrice: 82.9, notes: "Parceria com a organização" }));
+  });
+
+  test("o preço do buffet vem do PDV e substitui o campo de digitar", async () => {
+    const buffetCobrado = { principal: { produto: "BUFFET PROMO", preco: 89.9, vendidos: 100 }, outros: [{ produto: "BUFFET GRUPO", preco: 79.9, vendidos: 4 }] };
+    vi.mocked(getEventsAgenda).mockResolvedValue({ limites, dias: [dia("2026-09-30", { eventos: [evento(1, 1)], buffetCobrado, realizado: { fonte: "PDV", almocos: 120, valorAlmoco: 11000, jantares: 10, valorJantar: 600 } })] });
+    render(<Agenda podeEditar podeCriar onAbrirEvento={vi.fn()} />);
+    const linha = await screen.findByRole("button", { name: "Abrir o dia 30/09/2026" });
+    expect(linha).toHaveTextContent(/Buffet R\$\s?89,90/);
+    fireEvent.click(linha);
+    const dialogo = await screen.findByRole("dialog");
+    expect(within(dialogo).queryByLabelText("Preço do buffet")).toBeNull();
+    expect(within(dialogo).getByText("cobrado no PDV")).toBeInTheDocument();
+    expect(within(dialogo).getByText(/Também: Grupo R\$\s?79,90 \(4\)/)).toBeInTheDocument();
   });
 
   test("sem permissão de editar, o dia abre só para leitura", async () => {
@@ -115,5 +128,10 @@ describe("formatação", () => {
     expect(lerPreco("R$ 79,90")).toBe(79.9);
     expect(lerPreco("  ")).toBeNull();
     expect(lerPreco("oitenta")).toBeNaN();
+  });
+
+  test("nome do buffet sem a palavra buffet", () => {
+    expect(nomeDoBuffet("BUFFET PROMO 15")).toBe("Promo 15");
+    expect(nomeDoBuffet("BUFFET")).toBe("Buffet");
   });
 });

@@ -21,6 +21,53 @@ export async function limites(prisma: PrismaClient): Promise<Limites & { lunchCa
   return { smallMaxLunch: s?.smallMaxLunch ?? 80, largeMinLunch: s?.largeMinLunch ?? 150, lunchCapacity: s?.lunchCapacity ?? null };
 }
 
+/** Preço de buffet cobrado no dia, lido das vendas do PDV. */
+export type BuffetCobrado = {
+  /** O buffet que mais vendeu no dia: é o preço "do dia". */
+  principal: { produto: string; preco: number; vendidos: number };
+  /** Outros preços do mesmo dia (pacote de grupo, vizinho, troca de preço no meio do dia). */
+  outros: Array<{ produto: string; preco: number; vendidos: number }>;
+};
+
+/**
+ * O PDV vende o buffet como produto ("BUFFET PROMO 15", "BUFFET APJ/APR"…), cada um com o
+ * preço daquele dia. O preço "do dia" é o do buffet que mais vendeu. Só vendas recebidas.
+ * Os itens de venda só existem no ERP desde que o agente passou a mandá-los (set/2026);
+ * antes disso vale o preço anotado na planilha ou pela gerência.
+ */
+export async function buffetCobradoPorData(prisma: PrismaClient, de?: string, ate?: string): Promise<Map<string, BuffetCobrado>> {
+  const itens = await prisma.agileSaleItem.findMany({
+    where: {
+      saleStatus: "RECEBIDA",
+      productName: { startsWith: "BUFFET", mode: "insensitive" },
+      // Gravado ao meio-dia UTC, como o RevenueEntry.
+      movementDate: { ...(de ? { gte: dataUtc(de) } : {}), ...(ate ? { lt: new Date(dataUtc(ate).getTime() + 86400000) } : {}) },
+    },
+    select: { movementDate: true, productName: true, quantity: true, totalAmount: true },
+  });
+
+  const porDia = new Map<string, Map<string, { produto: string; preco: number; vendidos: number }>>();
+  for (const item of itens) {
+    const quantidade = Number(item.quantity);
+    if (quantidade <= 0) continue;
+    const preco = Math.round((Number(item.totalAmount) / quantidade) * 100) / 100;
+    const produto = item.productName.replace(/\s+/g, " ").trim();
+    const dia = porDia.get(iso(item.movementDate)) ?? new Map();
+    const chave = `${produto}|${preco}`;
+    const atual = dia.get(chave) ?? { produto, preco, vendidos: 0 };
+    atual.vendidos += quantidade;
+    dia.set(chave, atual);
+    porDia.set(iso(item.movementDate), dia);
+  }
+
+  const mapa = new Map<string, BuffetCobrado>();
+  for (const [data, precos] of porDia) {
+    const ordenados = [...precos.values()].sort((a, b) => b.vendidos - a.vendidos || b.preco - a.preco);
+    mapa.set(data, { principal: ordenados[0], outros: ordenados.slice(1) });
+  }
+  return mapa;
+}
+
 export async function realizadoPorData(prisma: PrismaClient, de?: string, ate?: string): Promise<Map<string, Realizado>> {
   // O RevenueEntry grava a data ao meio-dia UTC: "até" vira "antes do dia seguinte",
   // senão o último dia do intervalo some.
@@ -131,6 +178,8 @@ export type DiaDaAgenda = {
   realizado: Realizado | null;
   /** Marcação P/M/G da Escala para a data. */
   escala: Tamanho | null;
+  /** Preço do buffet cobrado no dia, lido das vendas do PDV. */
+  buffetCobrado: BuffetCobrado | null;
   decisao: { serviceMode: string | null; buffetPrice: number | null; notes: string | null; forecastLunch: number | null; forecastSize: string | null } | null;
 };
 
@@ -139,13 +188,14 @@ export async function agendaDoMes(prisma: PrismaClient, ano: number, mes: number
   const ultimo = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
   const ate = `${ano}-${String(mes).padStart(2, "0")}-${String(ultimo).padStart(2, "0")}`;
 
-  const [lim, eventos, realizado, escala, decisoes, historico] = await Promise.all([
+  const [lim, eventos, realizado, escala, decisoes, historico, buffet] = await Promise.all([
     limites(prisma),
     eventosPorData(prisma, de, ate),
     realizadoPorData(prisma, de, ate),
     prisma.scheduleDayEvent.findMany({ where: { date: { gte: dataUtc(de), lte: dataUtc(ate) } } }),
     prisma.operationDay.findMany({ where: { date: { gte: dataUtc(de), lte: dataUtc(ate) } } }),
     historicoParaPrevisao(prisma, ate),
+    buffetCobradoPorData(prisma, de, ate),
   ]);
   const escalaPorData = new Map(escala.map((e) => [iso(e.date), e.size as Tamanho]));
   const decisaoPorData = new Map(decisoes.map((d) => [iso(d.date), d]));
@@ -161,6 +211,7 @@ export async function agendaDoMes(prisma: PrismaClient, ano: number, mes: number
       previsao: preverAlmoco({ date, eventos: lista }, historico, lim),
       realizado: realizado.get(date) ?? null,
       escala: escalaPorData.get(date) ?? null,
+      buffetCobrado: buffet.get(date) ?? null,
       decisao: decisao
         ? {
             serviceMode: decisao.serviceMode,
@@ -185,13 +236,14 @@ export async function fichaDaSerie(prisma: PrismaClient, seriesId: string) {
   const datas = serie.editions.flatMap((e) => e.days.map((d) => iso(d.date))).sort();
   const de = datas[0];
   const ate = datas[datas.length - 1];
-  const [realizado, eventos, notas] = de
+  const [realizado, eventos, notas, buffet] = de
     ? await Promise.all([
         realizadoPorData(prisma, de, ate),
         eventosPorData(prisma, de, ate),
         prisma.operationDay.findMany({ where: { date: { in: datas.map(dataUtc) } }, select: { date: true, notes: true, serviceMode: true, buffetPrice: true } }),
+        buffetCobradoPorData(prisma, de, ate),
       ])
-    : [new Map<string, Realizado>(), new Map<string, EventoDoDia[]>(), []];
+    : [new Map<string, Realizado>(), new Map<string, EventoDoDia[]>(), [], new Map<string, BuffetCobrado>()];
   const notaPorData = new Map(notas.map((n) => [iso(n.date), n]));
 
   return {
@@ -226,6 +278,7 @@ export async function fichaDaSerie(prisma: PrismaClient, seriesId: string) {
           notes: op?.notes ?? null,
           serviceMode: op?.serviceMode ?? null,
           buffetPrice: num(op?.buffetPrice),
+          buffetCobrado: buffet.get(d) ?? null,
         };
       }),
     })),

@@ -4,7 +4,7 @@ import { getEventsAgenda, type AgendaDay, type EventSettings, type EventSize } f
 import { Alert, Button, EmptyState, Switch } from "../../../design-system";
 import { DiaDialog } from "./DiaDialog";
 import { NovaEdicaoDialog } from "./NovaEdicaoDialog";
-import { MESES, MODALIDADE, TAMANHO, diaDaSemana, diaDoEvento, ehFimDeSemana, hojeIso, reais } from "./formato";
+import { MESES, MODALIDADE, TAMANHO, centavos, diaDaSemana, diaDoEvento, ehFimDeSemana, hojeIso, reais } from "./formato";
 
 type Props = {
   podeEditar: boolean;
@@ -215,7 +215,14 @@ function LinhaDoDia({ dia, hoje, onAbrir }: { dia: AgendaDay; hoje: string; onAb
         </span>
 
         <span className="evt-decisao">
-          {dia.decisao?.serviceMode && <span>{MODALIDADE[dia.decisao.serviceMode]}{dia.decisao.buffetPrice ? ` · ${dia.decisao.buffetPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : ""}</span>}
+          {/* O preço que o PDV cobrou vale mais que o anotado à mão. */}
+          {dia.buffetCobrado ? (
+            <span title={`Buffet cobrado no PDV: ${dia.buffetCobrado.principal.vendidos} vendidos`}>
+              Buffet {centavos(dia.buffetCobrado.principal.preco)} <small className="evt-pdv">PDV</small>
+            </span>
+          ) : dia.decisao?.serviceMode ? (
+            <span>{MODALIDADE[dia.decisao.serviceMode]}{dia.decisao.buffetPrice ? ` · ${centavos(dia.decisao.buffetPrice)}` : ""}</span>
+          ) : null}
           {dia.decisao?.notes && <MessageSquareText size={15} aria-label="Tem comentário" />}
         </span>
       </button>
