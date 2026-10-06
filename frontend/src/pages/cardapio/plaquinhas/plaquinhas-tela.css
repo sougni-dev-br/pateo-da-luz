@@ -410,3 +410,7 @@
 .cdp-ed-difere button { border: 0; background: none; padding: 2px 0; font: inherit; font-weight: 700; color: #6f5523; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .cdp-ed-difere button:hover { color: var(--ink); }
 .cdp-ed-difere button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 4px; }
+
+/* Prato que sai em outro formato (ex.: molho numa lista de plaquinhas) */
+.plq-entrada-formato { align-self: flex-start; margin-top: 2px; padding: 1px 7px; border-radius: 999px; background: #f4ecd9; color: #6f5523; font-size: 0.72rem; font-weight: 600; }
+.plq-entrada-acoes .plq-formato-ativo { color: #8a650f; background: #f7eccf; }

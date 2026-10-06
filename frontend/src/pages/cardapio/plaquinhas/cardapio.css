@@ -5,8 +5,8 @@
 .cdp-folha { background: #fff; position: relative; overflow: hidden; display: grid; justify-content: center; align-content: start; padding-top: 8mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .cdp-folha--portrait { width: 210mm; height: 297mm; }
 .cdp-folha--landscape { width: 297mm; height: 210mm; }
-.cdp-grade { display: grid; border-top: .25mm dashed #c9c9c9; border-left: .25mm dashed #c9c9c9; }
-.cdp-celula { border-right: .25mm dashed #c9c9c9; border-bottom: .25mm dashed #c9c9c9; overflow: hidden; }
+.cdp-grade { display: grid; border-top: .3mm dashed #555; border-left: .3mm dashed #555; }
+.cdp-celula { border-right: .3mm dashed #555; border-bottom: .3mm dashed #555; overflow: hidden; }
 
 .cdp-face {
   --cdp-fundo: #ffffff; --cdp-texto: #2a1a16; --cdp-traco: #712313; --cdp-ingles: #6e4c43;

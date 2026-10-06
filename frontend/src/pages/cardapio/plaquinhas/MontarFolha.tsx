@@ -18,7 +18,7 @@ import { PreviaFolhas } from "./PreviaFolhas";
 import { esperarImagens } from "./impressao";
 import { chaveTamanho, useTamanhos, type TextoPlaca } from "./medidaFonte";
 import {
-  FORMATO_SUGERIDO, TEMAS, TIPOS_LISTA, adicionarEntrada, novaEntrada, rotuloLista, sugerirCategoria, type Entrada,
+  FORMATO_SUGERIDO, TEMAS, TIPOS_LISTA, adicionarEntrada, formatoDaEntrada, novaEntrada, rotuloLista, sugerirCategoria, type Entrada,
 } from "./plaquinhasFormato";
 
 type Folha = { listaId: string | null; nome: string; tipo: PlateListKind; data: string; formato: PlateFormat; tema: PlateTheme; entradas: Entrada[] };
@@ -32,8 +32,12 @@ const LISTAS_DE_ATALHO = 5;
 const REPETICAO_MS = 10_000;
 const hoje = () => new Date().toLocaleDateString("sv-SE");
 const folhaVazia = (): Folha => ({ listaId: null, nome: "", tipo: "BUFFET", data: hoje(), formato: "std", tema: "wine", entradas: [] });
-const assinatura = (f: Folha) => JSON.stringify({ ...f, entradas: f.entradas.map(({ itemId, qty }) => [itemId, qty]) });
+const assinatura = (f: Folha) => JSON.stringify({ ...f, entradas: f.entradas.map(({ itemId, qty, formato }) => [itemId, qty, formato ?? ""]) });
+// Ordem das folhas na impressão: o formato da lista primeiro, depois os outros.
+const ORDEM_FORMATOS: PlateFormat[] = ["std", "tent", "sauce"];
+const NOME_PLURAL: Record<PlateFormat, [string, string]> = { std: ["plaquinha", "plaquinhas"], tent: ["cavalete", "cavaletes"], sauce: ["molho", "molhos"] };
 const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
+const SEM_TEXTOS: TextoPlaca[] = [];
 
 function lerMostrarCategoria() {
   try { return localStorage.getItem(CHAVE_CATEGORIA) !== "0"; } catch { return true; }
@@ -75,24 +79,42 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
   const podeSalvar = folha.listaId ? podeEditar : podeCriar;
   const naFolha = useMemo(() => new Map(folha.entradas.map((e) => [e.itemId, e.qty])), [folha.entradas]);
 
-  const placas: PlacaImpressa[] = useMemo(() => folha.entradas.flatMap((e) => {
-    const p = porId.get(e.itemId);
-    return p ? Array.from({ length: e.qty }, (_, i) => ({ key: `${e.key}-${i}`, namePt: p.namePt, nameEn: p.nameEn, category: p.category })) : [];
-  }), [folha.entradas, porId]);
-
-  // Um texto por prato (não por plaquinha): é isso que precisa ser medido.
-  const textos = useMemo(() => {
-    const unicos = new Map<string, TextoPlaca & { namePt: string }>();
-    for (const e of folha.entradas) {
-      const p = porId.get(e.itemId);
-      if (p && !unicos.has(p.id)) unicos.set(p.id, { ...textoDaPlaca(p), namePt: p.namePt });
-    }
-    return [...unicos.values()];
-  }, [folha.entradas, porId]);
-  const tamanhos = useTamanhos(textos, folha.formato, mostrarCategoria);
-  const naoCouberam = textos.filter((t) => tamanhos.get(chaveTamanho(folha.formato, mostrarCategoria, t))?.estoura).map((t) => t.namePt);
-  const folhas = paginar(placas, FORMATOS[folha.formato].porFolha).length;
-  const resumo = placas.length ? `${plural(placas.length, "plaquinha", "plaquinhas")} em ${plural(folhas, "folha", "folhas")} A4` : "A prévia aparece aqui";
+  const ordemDoFormato = (f: PlateFormat) => (f === folha.formato ? -1 : ORDEM_FORMATOS.indexOf(f));
+  // Cada prato sai no seu formato (molho no formato molho); a folha A4 tem um formato só,
+  // então as plaquinhas são agrupadas: o formato da lista primeiro, depois os outros.
+  const formatoDe = useCallback((e: Entrada) => formatoDaEntrada(e, porId.get(e.itemId), folha.formato), [porId, folha.formato]);
+  const grupos = useMemo(() => {
+    const ordem = [folha.formato, ...ORDEM_FORMATOS.filter((f) => f !== folha.formato)];
+    return ordem.map((formato) => {
+      const entradas = folha.entradas.filter((e) => formatoDe(e) === formato);
+      const placas: PlacaImpressa[] = entradas.flatMap((e) => {
+        const p = porId.get(e.itemId);
+        return p ? Array.from({ length: e.qty }, (_, i) => ({ key: `${e.key}-${i}`, namePt: p.namePt, nameEn: p.nameEn, category: p.category })) : [];
+      });
+      // Um texto por prato (não por plaquinha): é isso que precisa ser medido.
+      const unicos = new Map<string, TextoPlaca & { namePt: string }>();
+      for (const e of entradas) {
+        const p = porId.get(e.itemId);
+        if (p && !unicos.has(p.id)) unicos.set(p.id, { ...textoDaPlaca(p), namePt: p.namePt });
+      }
+      return { formato, placas, textos: [...unicos.values()] };
+    }).filter((g) => g.placas.length);
+  }, [folha.entradas, folha.formato, formatoDe, porId]);
+  const placas = useMemo(() => grupos.flatMap((g) => g.placas), [grupos]);
+  const textosDe = (f: PlateFormat) => grupos.find((g) => g.formato === f)?.textos ?? SEM_TEXTOS;
+  const tamanhosStd = useTamanhos(textosDe("std"), "std", mostrarCategoria);
+  const tamanhosTent = useTamanhos(textosDe("tent"), "tent", mostrarCategoria);
+  const tamanhosSauce = useTamanhos(textosDe("sauce"), "sauce", mostrarCategoria);
+  // As três medições dividem o mesmo guardado; junta para quem desenha não precisar saber o formato.
+  const tamanhos = useMemo(() => new Map([...tamanhosStd, ...tamanhosTent, ...tamanhosSauce]), [tamanhosStd, tamanhosTent, tamanhosSauce]);
+  const naoCouberam = grupos.flatMap((g) => g.textos.filter((t) => tamanhos.get(chaveTamanho(g.formato, mostrarCategoria, t))?.estoura).map((t) => t.namePt));
+  const resumo = placas.length
+    ? grupos.map((g) => {
+      const folhas = paginar(g.placas, FORMATOS[g.formato].porFolha).length;
+      const [um, varios] = NOME_PLURAL[g.formato];
+      return `${plural(g.placas.length, um, varios)} em ${plural(folhas, "folha", "folhas")}`;
+    }).join(" + ") + " A4"
+    : "A prévia aparece aqui";
 
   useEffect(() => {
     try { localStorage.setItem(CHAVE_CATEGORIA, mostrarCategoria ? "1" : "0"); } catch { /* sem armazenamento: só não lembra */ }
@@ -130,7 +152,7 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
       try {
         const l = await getBuffetPlateList(id);
         setVersaoLista((v) => v + 1);
-        const nova: Folha = { listaId: l.id, nome: l.name, tipo: l.kind, data: l.eventDate ?? "", formato: l.format, tema: l.theme, entradas: l.items.map((i) => novaEntrada(i.itemId, i.qty)) };
+        const nova: Folha = { listaId: l.id, nome: l.name, tipo: l.kind, data: l.eventDate ?? "", formato: l.format, tema: l.theme, entradas: l.items.map((i) => novaEntrada(i.itemId, i.qty, i.format ?? undefined)) };
         setFolha(nova);
         setSalva(assinatura(nova));
       } catch (x) {
@@ -164,7 +186,7 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
       const enviada = { ...folha, nome };
       const r = await saveBuffetPlateList({
         name: nome, kind: folha.tipo, eventDate: folha.data || null, format: folha.formato, theme: folha.tema,
-        items: folha.entradas.map(({ itemId, qty }) => ({ itemId, qty })),
+        items: folha.entradas.map(({ itemId, qty, formato }) => ({ itemId, qty, ...(formato ? { format: formato } : {}) })),
       }, comoNova ? undefined : folha.listaId ?? undefined);
       // Só marca como salvo o que foi enviado: o que mudou durante a gravação continua "não salvo".
       setFolha((f) => ({ ...f, nome: f.nome.trim() === nomeDigitado ? nome : f.nome, listaId: r.id }));
@@ -247,8 +269,9 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
   // Não entra no acompanhamento: mandar para a gráfica não é servir o prato no dia.
   const pratosDaGrafica: PratoDaGrafica[] = useMemo(() => folha.entradas.flatMap((e) => {
     const p = porId.get(e.itemId);
-    return p ? [{ key: e.key, namePt: p.namePt, nameEn: p.nameEn, category: p.category, qty: e.qty }] : [];
-  }), [folha.entradas, porId]);
+    return p ? [{ key: e.key, namePt: p.namePt, nameEn: p.nameEn, category: p.category, qty: e.qty, formato: formatoDe(e) }] : [];
+  }).sort((a, b) => ordemDoFormato(a.formato) - ordemDoFormato(b.formato)),
+  [folha.entradas, folha.formato, formatoDe, porId]);
   const gerarArquivoGrafica = useCallback(() => {
     if (!pratosDaGrafica.length) return;
     confirmarCortados(() => setPedidoImpressao((p) => ({ n: (p?.n ?? 0) + 1, modo: "grafica", formato: folha.formato })));
@@ -259,10 +282,12 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
   useEffect(() => {
     if (!pedidoImpressao) return undefined;
     const grafica = pedidoImpressao.modo === "grafica";
-    const pagina = paginaDaGrafica(pedidoImpressao.formato);
     const classe = grafica ? CLASSE_GRAFICA : CLASSE_IMPRIMINDO;
     const estilo = document.createElement("style");
-    estilo.textContent = grafica ? `@page { size: ${pagina.largura}mm ${pagina.altura}mm; margin: 0; }` : "@page { size: A4 portrait; margin: 0; }";
+    // Na gráfica cada página tem o tamanho de corte do seu prato: uma regra de página por formato.
+    estilo.textContent = grafica
+      ? ORDEM_FORMATOS.map((f) => { const p = paginaDaGrafica(f); return `@page grafica-${f} { size: ${p.largura}mm ${p.altura}mm; margin: 0; }`; }).join("\n")
+      : "@page { size: A4 portrait; margin: 0; }";
     document.head.appendChild(estilo);
     document.body.classList.add(classe);
     let ativo = true;
@@ -301,7 +326,12 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
     return () => window.removeEventListener("keydown", tecla);
   }, [ativa, novoPrato, confirmacao, imprimir, placas.length, podeSalvar, folha.entradas.length]);
 
-  const folhaProps = { placas, formato: folha.formato, tema: folha.tema, mostrarCategoria, tamanhos };
+  const folhas = (
+    <>{grupos.map((g) => (
+      <FolhaPlaquinhas key={g.formato} placas={g.placas} formato={g.formato} tema={folha.tema} mostrarCategoria={mostrarCategoria} tamanhos={tamanhos}
+        rotulo={grupos.length > 1 ? FORMATOS[g.formato].nome : undefined} />
+    ))}</>
+  );
   const atalhos = folha.entradas.length === 0 ? listas.slice(0, LISTAS_DE_ATALHO) : [];
 
   return (
@@ -343,7 +373,8 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
         <LembretesDoBuffet relatorio={acompanhamento.relatorio} porId={porId} naFolha={naFolha} onAdicionar={adicionar}
           rotuloTipo={folha.tipo === "COFFEE_BREAK" ? "coffee break" : folha.tipo === "EVENTO" ? "evento" : "buffet"} />
 
-        <ListaDaFolha key={versaoLista} entradas={folha.entradas} porId={porId} destaque={destaque} onMudar={mudarEntradas} />
+        <ListaDaFolha key={versaoLista} entradas={folha.entradas} porId={porId} destaque={destaque} onMudar={mudarEntradas}
+          formatoLista={folha.formato} formatoDe={formatoDe} />
 
         <section className="plq-bloco" aria-labelledby="plq-titulo-formato">
           <h3 className="plq-bloco-titulo" id="plq-titulo-formato"><span className="plq-passo">3</span> Formato e cores</h3>
@@ -401,13 +432,13 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
           curto: naoCouberam.length === 1 ? "1 nome não coube" : `${naoCouberam.length} nomes não couberam`,
           longo: `${naoCouberam.length === 1 ? "Este nome não coube" : "Estes nomes não couberam"} mesmo com a letra no menor tamanho: ${naoCouberam.join(", ")}. Encurte na aba Catálogo (a plaquinha aparece com borda vermelha).`,
         } : null}>
-        <FolhaPlaquinhas {...folhaProps} />
+        {folhas}
       </PreviaFolhas>
 
-      {pedidoImpressao?.modo === "folha" && createPortal(<div className="plq-area-impressao" aria-hidden="true"><FolhaPlaquinhas {...folhaProps} /></div>, document.body)}
+      {pedidoImpressao?.modo === "folha" && createPortal(<div className="plq-area-impressao" aria-hidden="true">{folhas}</div>, document.body)}
       {pedidoImpressao?.modo === "grafica" && createPortal(
         <div className="plq-area-grafica" aria-hidden="true">
-          <ArquivoGrafica pratos={pratosDaGrafica} formato={folha.formato} tema={folha.tema} mostrarCategoria={mostrarCategoria} tamanhos={tamanhos} />
+          <ArquivoGrafica pratos={pratosDaGrafica} tema={folha.tema} mostrarCategoria={mostrarCategoria} tamanhos={tamanhos} />
         </div>, document.body)}
 
       <PratoDialog aberto={novoPrato !== null} prato={null} nomeInicial={novoPrato?.texto ?? ""}

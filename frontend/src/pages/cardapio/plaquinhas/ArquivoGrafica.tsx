@@ -15,24 +15,32 @@ export function paginaDaGrafica(formato: PlateFormat) {
   return { largura: largura + 2 * RECUO_MM, altura: altura + 2 * RECUO_MM };
 }
 
-export type PratoDaGrafica = PlacaImpressa & { qty: number };
+export type PratoDaGrafica = PlacaImpressa & { qty: number; formato: PlateFormat };
 
-type Props = { pratos: PratoDaGrafica[]; formato: PlateFormat; tema: PlateTheme; mostrarCategoria: boolean; tamanhos: Map<string, Tamanho> };
+type Props = { pratos: PratoDaGrafica[]; tema: PlateTheme; mostrarCategoria: boolean; tamanhos: Map<string, Tamanho> };
 
-export function ArquivoGrafica({ pratos, formato, tema, mostrarCategoria, tamanhos }: Props) {
+// Medidas da página e do corte de cada formato; a página usa a regra "@page grafica-<formato>".
+function medidasDaPagina(formato: PlateFormat) {
   const { largura, altura } = MEDIDA_MM[formato];
   const pagina = paginaDaGrafica(formato);
-  const medidas = {
+  return {
+    page: `grafica-${formato}`,
     "--pag-l": `${pagina.largura}mm`, "--pag-a": `${pagina.altura}mm`,
     "--corte-l": `${largura}mm`, "--corte-a": `${altura}mm`,
     "--recuo": `${RECUO_MM}mm`, "--sangria": `${SANGRIA_MM}mm`,
   } as CSSProperties;
+}
+
+export function ArquivoGrafica({ pratos, tema, mostrarCategoria, tamanhos }: Props) {
   const total = pratos.reduce((s, p) => s + p.qty, 0);
 
   return (
-    <div className={`plq-grafica plq-folha--${formato}`} style={medidas}>
-      {pratos.map((p, i) => (
-        <section key={p.key} className="plq-grafica-pagina">
+    <div className="plq-grafica">
+      {pratos.map((p, i) => {
+        const formato = p.formato;
+        const { largura, altura } = MEDIDA_MM[formato];
+        return (
+        <section key={p.key} className={`plq-grafica-pagina plq-folha--${formato}`} style={medidasDaPagina(formato)}>
           <div className={`plq-grafica-sangria plq-grafica-sangria--${tema}`} />
           <div className="plq-grafica-corte">
             <ConteudoDaCelula placa={p} formato={formato} tema={tema} mostrarCategoria={mostrarCategoria} tamanhos={tamanhos} />
@@ -45,7 +53,8 @@ export function ArquivoGrafica({ pratos, formato, tema, mostrarCategoria, tamanh
             Pateo da Luz · {p.namePt} · Qtd. {p.qty} · corte {largura} × {altura} mm · {FORMATOS[formato].nome} {i + 1}/{pratos.length} ({total} no total)
           </span>
         </section>
-      ))}
+        );
+      })}
     </div>
   );
 }

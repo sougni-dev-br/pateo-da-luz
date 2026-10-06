@@ -140,6 +140,14 @@ describe("listas", () => {
     expect(db.buffetPlateList.create.mock.calls[0][0].data.items).toEqual([{ itemId: "i1", qty: 5 }, { itemId: "i2", qty: 1 }]);
   });
 
+  test("guarda o formato escolhido no prato (molho numa lista de plaquinhas)", async () => {
+    const r = await request(app).post("/buffet-plates/lists").send({ ...listaValida, items: [{ itemId: "i1", qty: 1 }, { itemId: "i2", qty: 2, format: "sauce" }] });
+    expect(r.status).toBe(201);
+    expect(db.buffetPlateList.create.mock.calls[0][0].data.items).toEqual([{ itemId: "i1", qty: 1 }, { itemId: "i2", qty: 2, format: "sauce" }]);
+    const ruim = await request(app).post("/buffet-plates/lists").send({ ...listaValida, items: [{ itemId: "i1", qty: 1, format: "a3" }] });
+    expect(ruim.status).toBe(400);
+  });
+
   test("recusa prato que não existe no catálogo", async () => {
     const r = await request(app).post("/buffet-plates/lists").send({ ...listaValida, items: [{ itemId: "xx", qty: 1 }] });
     expect(r.status).toBe(400);

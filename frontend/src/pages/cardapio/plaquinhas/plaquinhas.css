@@ -10,18 +10,20 @@
 }
 .plq-folha--tent { padding-top: 10mm; }
 .plq-folha--sauce { padding-top: 15mm; }
-.plq-grade { display: grid; border-top: .25mm dashed #c9c9c9; border-left: .25mm dashed #c9c9c9; }
+/* Linha de corte escura o bastante para a tesoura seguir (cinza claro sumia no papel). */
+.plq-grade { display: grid; border-top: .3mm dashed #555; border-left: .3mm dashed #555; }
 .plq-folha--std .plq-grade { grid-template-columns: repeat(2, 74mm); grid-auto-rows: 49mm; }
 .plq-folha--tent .plq-grade { grid-template-columns: repeat(2, 95mm); grid-auto-rows: 92mm; }
 .plq-folha--sauce .plq-grade { grid-template-columns: repeat(3, 63mm); grid-auto-rows: 38mm; }
-.plq-celula { position: relative; overflow: hidden; border-right: .25mm dashed #c9c9c9; border-bottom: .25mm dashed #c9c9c9; }
+.plq-celula { position: relative; overflow: hidden; border-right: .3mm dashed #555; border-bottom: .3mm dashed #555; }
 .plq-numero { position: absolute; bottom: 4mm; right: 8mm; font: 7pt Inter, "Segoe UI", Arial, sans-serif; color: #aaa; }
 
 /* Cavalete: a face de cima vai de cabeça para baixo; dobrando na linha, as duas ficam de pé. */
 .plq-folha--tent .plq-celula { display: grid; grid-template-rows: 1fr 1fr; }
 .plq-face { min-height: 0; }
 .plq-face--virada { transform: rotate(180deg); }
-.plq-dobra { position: absolute; left: 0; right: 0; top: 50%; border-top: .2mm dotted #b5b5b5; }
+/* Dobra pontilhada (não é corte): mais clara que a linha de corte, para não confundir. */
+.plq-dobra { position: absolute; left: 0; right: 0; top: 50%; border-top: .3mm dotted #888; }
 
 /* ── A plaquinha ── */
 .plq-placa {
@@ -79,7 +81,7 @@
 .plq-medidor .plq-pt, .plq-medidor .plq-en { overflow-wrap: normal; }
 
 /* ── Arquivo para gráfica: uma página por prato, com sangria e marcas de corte ── */
-.plq-grafica { padding: 0 !important; }
+.plq-grafica, .plq-grafica-pagina { padding: 0 !important; }
 .plq-grafica-pagina {
   position: relative; width: var(--pag-l); height: var(--pag-a); overflow: hidden; background: #fff;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;

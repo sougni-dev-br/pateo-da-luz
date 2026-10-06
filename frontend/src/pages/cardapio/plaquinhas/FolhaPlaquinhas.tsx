@@ -56,8 +56,10 @@ const Placa = memo(function Placa({ sobretitulo, nome, nameEn, tema, mostrarCate
   );
 });
 
-type Props = { placas: PlacaImpressa[]; formato: PlateFormat; tema: PlateTheme; mostrarCategoria: boolean; tamanhos: Map<string, Tamanho> };
-type CelulaProps = Omit<Props, "placas"> & { placa: PlacaImpressa };
+type Props = { placas: PlacaImpressa[]; formato: PlateFormat; tema: PlateTheme; mostrarCategoria: boolean; tamanhos: Map<string, Tamanho>;
+  /** Nome do grupo na numeração da tela, quando a lista mistura formatos ("Molho · folha 1 de 1"). */
+  rotulo?: string };
+type CelulaProps = Omit<Props, "placas" | "rotulo"> & { placa: PlacaImpressa };
 
 /** O que vai dentro de um retângulo de corte: a plaquinha, ou as duas faces do cavalete. */
 export function ConteudoDaCelula({ placa, formato, tema, mostrarCategoria, tamanhos }: CelulaProps) {
@@ -75,7 +77,7 @@ export function ConteudoDaCelula({ placa, formato, tema, mostrarCategoria, taman
   );
 }
 
-export function FolhaPlaquinhas({ placas, formato, tema, mostrarCategoria, tamanhos }: Props) {
+export function FolhaPlaquinhas({ placas, formato, tema, mostrarCategoria, tamanhos, rotulo }: Props) {
   const folhas = paginar(placas, FORMATOS[formato].porFolha);
 
   return (
@@ -89,7 +91,7 @@ export function FolhaPlaquinhas({ placas, formato, tema, mostrarCategoria, taman
               </div>
             ))}
           </div>
-          <span className="plq-numero">Folha {i + 1} de {folhas.length}</span>
+          <span className="plq-numero">{rotulo ? `${rotulo} · folha` : "Folha"} {i + 1} de {folhas.length}</span>
         </section>
       ))}
     </>
