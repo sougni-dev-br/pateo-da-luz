@@ -14,7 +14,7 @@
 .plq-grade { display: grid; border-top: .3mm dashed #555; border-left: .3mm dashed #555; }
 .plq-folha--std .plq-grade { grid-template-columns: repeat(2, 74mm); grid-auto-rows: 49mm; }
 .plq-folha--tent .plq-grade { grid-template-columns: repeat(2, 95mm); grid-auto-rows: 92mm; }
-.plq-folha--sauce .plq-grade { grid-template-columns: repeat(4, 45mm); grid-auto-rows: 35mm; }
+.plq-folha--sauce .plq-grade { grid-template-columns: repeat(4, 44mm); grid-auto-rows: 34mm; }
 .plq-celula { position: relative; overflow: hidden; border-right: .3mm dashed #555; border-bottom: .3mm dashed #555; }
 .plq-numero { position: absolute; bottom: 4mm; right: 8mm; font: 7pt Inter, "Segoe UI", Arial, sans-serif; color: #aaa; }
 
