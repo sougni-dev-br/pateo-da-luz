@@ -6,7 +6,7 @@ import {
 } from "../../../api/client";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import { Alert, Button, Select, StatusBadge, Table, TextField, Textarea } from "../../../design-system";
-import { AREA, MODALIDADE, ORIGEM, dataBr, diaDaSemana, diaDoEvento, diaMes, ehFimDeSemana, opcoes, reais, ticket } from "./formato";
+import { AREA, MODALIDADE, ORIGEM, centavos, dataBr, diaDaSemana, diaDoEvento, diaMes, ehFimDeSemana, nomeDoBuffet, opcoes, reais, ticket } from "./formato";
 
 type Props = {
   seriesId: string;
@@ -120,6 +120,7 @@ export function FichaEvento({ seriesId, todas, podeEditar, podeExcluir, onVoltar
                 <Table.Th align="right">Jantares</Table.Th>
                 <Table.Th align="right">Almoço (sem 10%)</Table.Th>
                 <Table.Th align="right">Ticket</Table.Th>
+                <Table.Th align="right">Buffet</Table.Th>
                 <Table.Th>Junto com</Table.Th>
                 <Table.Th align="left" minWidth={240}>Comentário do dia</Table.Th>
               </Table.Row>
@@ -137,6 +138,13 @@ export function FichaEvento({ seriesId, todas, podeEditar, podeExcluir, onVoltar
                   <Table.Td align="right">{d.realizado?.jantares ?? "—"}</Table.Td>
                   <Table.Td align="right">{reais(d.realizado?.valorAlmoco)}</Table.Td>
                   <Table.Td align="right">{ticket(d.realizado?.valorAlmoco ?? null, d.realizado?.almocos ?? null)}</Table.Td>
+                  <Table.Td align="right">
+                    {d.buffetCobrado ? (
+                      <span title={d.buffetCobrado.outros.length ? `Também: ${d.buffetCobrado.outros.map((o) => `${nomeDoBuffet(o.produto)} ${centavos(o.preco)}`).join(", ")}` : undefined}>
+                        {centavos(d.buffetCobrado.principal.preco)} <small className="evt-pdv">PDV</small>
+                      </span>
+                    ) : d.buffetPrice ? centavos(d.buffetPrice) : <span className="evt-sem">—</span>}
+                  </Table.Td>
                   <Table.Td>
                     {d.outrosEventos.length === 0 ? <span className="evt-sem">só este</span> : d.outrosEventos.map((o) => (
                       <button key={o.seriesId} type="button" className="evt-link evt-link-pequeno" onClick={() => onAbrir(o.seriesId)}>{o.seriesName}</button>
@@ -144,7 +152,7 @@ export function FichaEvento({ seriesId, todas, podeEditar, podeExcluir, onVoltar
                   </Table.Td>
                   <Table.Td>
                     <span className="evt-comentario">
-                      {d.serviceMode && <em>{MODALIDADE[d.serviceMode]}{d.buffetPrice ? ` · ${d.buffetPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : ""}</em>}
+                      {d.serviceMode && <em>{MODALIDADE[d.serviceMode]}</em>}
                       {d.notes ?? (d.serviceMode ? null : <span className="evt-sem">—</span>)}
                     </span>
                   </Table.Td>

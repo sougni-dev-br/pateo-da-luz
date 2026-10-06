@@ -159,3 +159,11 @@
   .evt-barra-acoes { width: 100%; justify-content: space-between; }
   .evt-ficha-medias > div { flex: 1 1 45%; }
 }
+
+/* Preço do buffet vindo do PDV */
+.evt-pdv { margin-left: 4px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--tint-success); color: var(--success); font-size: var(--fs-2xs); font-weight: var(--fw-semibold); letter-spacing: 0.04em; }
+.evt-buffet-outros { display: block; margin-top: 2px; color: var(--muted); font-size: var(--fs-xs); }
+.evt-preco-pdv { display: flex; flex-direction: column; gap: 2px; }
+.evt-preco-rotulo { font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--ink-soft); }
+.evt-preco-pdv strong { font-size: 1.25rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+.evt-preco-pdv small { color: var(--muted); font-size: var(--fs-xs); }
