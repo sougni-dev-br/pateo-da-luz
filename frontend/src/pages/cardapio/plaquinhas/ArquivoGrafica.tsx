@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { PlateFormat, PlateTheme } from "../../../api/client";
-import { ConteudoDaCelula, FORMATOS, MEDIDA_MM, type PlacaImpressa } from "./FolhaPlaquinhas";
+import { ConteudoDaCelula, MEDIDA_MM, type PlacaImpressa } from "./FolhaPlaquinhas";
 import type { Tamanho } from "./medidaFonte";
 
 // Arquivo para gráfica: uma página por prato, no tamanho de corte, com sangria de 2 mm
@@ -32,7 +32,6 @@ function medidasDaPagina(formato: PlateFormat) {
 }
 
 export function ArquivoGrafica({ pratos, tema, mostrarCategoria, tamanhos }: Props) {
-  const total = pratos.reduce((s, p) => s + p.qty, 0);
 
   return (
     <div className="plq-grafica">
@@ -50,7 +49,7 @@ export function ArquivoGrafica({ pratos, tema, mostrarCategoria, tamanhos }: Pro
           <i className="plq-marca plq-marca--h plq-marca--be" /><i className="plq-marca plq-marca--v plq-marca--be" />
           <i className="plq-marca plq-marca--h plq-marca--bd" /><i className="plq-marca plq-marca--v plq-marca--bd" />
           <span className="plq-grafica-legenda">
-            Pateo da Luz · {p.namePt} · Qtd. {p.qty} · corte {largura} × {altura} mm · {FORMATOS[formato].nome} {i + 1}/{pratos.length} ({total} no total)
+            {p.namePt} · Qtd. {p.qty} · corte {largura} × {altura} mm · {i + 1}/{pratos.length}
           </span>
         </section>
         );
