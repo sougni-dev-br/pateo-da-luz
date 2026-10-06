@@ -15,7 +15,7 @@ export type TextoPlaca = { sobretitulo: string; nome: string; nameEn: string };
 export const FONTE: Record<PlateFormat, { max: number; min: number; inglesMin: number }> = {
   std: { max: 19, min: 10, inglesMin: 7.5 },
   tent: { max: 21, min: 9, inglesMin: 7 },
-  sauce: { max: 16, min: 7, inglesMin: 6 },
+  sauce: { max: 14, min: 6, inglesMin: 5.5 },
 };
 const PASSO = 0.5;
 const PROPORCAO_INGLES = 0.56;
