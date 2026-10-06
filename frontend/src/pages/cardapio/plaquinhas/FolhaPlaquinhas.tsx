@@ -12,14 +12,15 @@ export const FORMATOS: Record<PlateFormat, { porFolha: number; nome: string; tam
   // Cabe no suporte de inox do buffet (7,5 × 5,0 cm entre as dobras), com 1 mm de folga.
   std: { porFolha: 10, nome: "Plaquinha", tamanho: "7,4 × 4,9 cm" },
   tent: { porFolha: 6, nome: "Cavalete", tamanho: "9,5 × 4,6 cm, dobra ao meio" },
-  sauce: { porFolha: 21, nome: "Molho", tamanho: "6,3 × 3,8 cm" },
+  // Medida do suporte do molho conferida na impressão de teste (06/10): 4,5 × 3,5 cm.
+  sauce: { porFolha: 32, nome: "Molho", tamanho: "4,5 × 3,5 cm" },
 };
 
 // Tamanho de corte de cada formato, em mm (o cavalete é a peça aberta, antes de dobrar).
 export const MEDIDA_MM: Record<PlateFormat, { largura: number; altura: number }> = {
   std: { largura: 74, altura: 49 },
   tent: { largura: 95, altura: 92 },
-  sauce: { largura: 63, altura: 38 },
+  sauce: { largura: 45, altura: 35 },
 };
 
 export function paginar<T>(itens: T[], porFolha: number): T[][] {
