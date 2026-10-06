@@ -7,7 +7,7 @@ import { FORMATOS, FolhaPlaquinhas, paginar, rotuloDaPlaca, textoDaPlaca } from 
 import { ListaDaFolha } from "../ListaDaFolha";
 import { chaveTamanho, comFolga } from "../medidaFonte";
 import {
-  adicionarEntrada, arrumarNome, buscarPratos, dataCurta, novaEntrada, ordenarPorCategoria, rotuloLista, sugerirCategoria, type Entrada,
+  adicionarEntrada, arrumarNome, formatoDaEntrada, buscarPratos, dataCurta, novaEntrada, ordenarPorCategoria, rotuloLista, sugerirCategoria, type Entrada,
 } from "../plaquinhasFormato";
 import { preencherSemQuebrarHifen, semQuebrarHifen } from "../semQuebrarHifen";
 
@@ -183,7 +183,8 @@ describe("busca pelo teclado", () => {
 
 function ListaControlada({ inicial }: { inicial: Entrada[] }) {
   const [entradas, setEntradas] = useState(inicial);
-  return <ListaDaFolha entradas={entradas} porId={porId} destaque={null} onMudar={(fn) => setEntradas(fn)} />;
+  return <ListaDaFolha entradas={entradas} porId={porId} destaque={null} onMudar={(fn) => setEntradas(fn)}
+    formatoLista="std" formatoDe={(e) => formatoDaEntrada(e, porId.get(e.itemId), "std")} />;
 }
 
 describe("lista da folha", () => {
@@ -302,15 +303,56 @@ describe("arquivo para gráfica", () => {
   test("uma página por prato, com a quantidade escrita, a sangria na cor do tema e as 8 marcas de corte", async () => {
     const { ArquivoGrafica } = await import("../ArquivoGrafica");
     const pratos = [
-      { key: "a", namePt: "Arroz", nameEn: "White rice", category: "Arroz e grãos", qty: 3 },
-      { key: "b", namePt: "Penne ao molho rosé", nameEn: "Penne in rosé sauce", category: "Massas", qty: 1 },
+      { key: "a", namePt: "Arroz", nameEn: "White rice", category: "Arroz e grãos", qty: 3, formato: "std" as const },
+      { key: "b", namePt: "Penne ao molho rosé", nameEn: "Penne in rosé sauce", category: "Massas", qty: 1, formato: "std" as const },
     ];
-    const { container } = render(<ArquivoGrafica pratos={pratos} formato="std" tema="gold" mostrarCategoria tamanhos={new Map()} />);
+    const { container } = render(<ArquivoGrafica pratos={pratos} tema="gold" mostrarCategoria tamanhos={new Map()} />);
     const paginas = container.querySelectorAll(".plq-grafica-pagina");
     expect(paginas).toHaveLength(2);
     expect(paginas[0]).toHaveTextContent("Arroz · Qtd. 3 · corte 74 × 49 mm");
     expect(paginas[1]).toHaveTextContent("2/2 (4 no total)");
     expect(paginas[0].querySelector(".plq-grafica-sangria--gold")).not.toBeNull();
     expect(paginas[0].querySelectorAll(".plq-marca")).toHaveLength(8);
+  });
+});
+
+describe("molhos junto com as plaquinhas", () => {
+  const molho = { id: "m1", namePt: "Molho tártaro", nameEn: "Tartar sauce", category: "Molhos", isActive: true };
+  const arroz = { id: "a1", namePt: "Arroz", nameEn: "White rice", category: "Arroz e grãos", isActive: true };
+
+  test("molho sai no formato molho numa lista de plaquinhas; o escolhido no prato manda", () => {
+    expect(formatoDaEntrada({}, molho, "std")).toBe("sauce");
+    expect(formatoDaEntrada({}, molho, "tent")).toBe("sauce");
+    expect(formatoDaEntrada({}, arroz, "std")).toBe("std");
+    expect(formatoDaEntrada({ formato: "std" }, molho, "std")).toBe("std");
+    expect(formatoDaEntrada({ formato: "sauce" }, arroz, "std")).toBe("sauce");
+    expect(formatoDaEntrada({}, arroz, "sauce")).toBe("sauce");
+  });
+
+  test("na lista, o botão troca o formato do prato e mostra como ele sai", () => {
+    const pratos = new Map([[molho.id, molho], [arroz.id, arroz]]);
+    function Lista() {
+      const [entradas, setEntradas] = useState<Entrada[]>([{ key: "x", itemId: "a1", qty: 1 }, { key: "y", itemId: "m1", qty: 2 }]);
+      return <ListaDaFolha entradas={entradas} porId={pratos} destaque={null} onMudar={(fn) => setEntradas(fn)}
+        formatoLista="std" formatoDe={(e) => formatoDaEntrada(e, pratos.get(e.itemId), "std")} />;
+    }
+    render(<Lista />);
+    expect(screen.getAllByText("sai como molho")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Imprimir Arroz como molho" }));
+    expect(screen.getAllByText("sai como molho")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Imprimir Molho tártaro como plaquinha" }));
+    expect(screen.getAllByText("sai como molho")).toHaveLength(1);
+  });
+
+  test("arquivo para gráfica: cada página no tamanho de corte do seu prato", async () => {
+    const { ArquivoGrafica } = await import("../ArquivoGrafica");
+    const { container } = render(<ArquivoGrafica tema="wine" mostrarCategoria tamanhos={new Map()} pratos={[
+      { key: "a", namePt: "Arroz", nameEn: "White rice", category: "Arroz e grãos", qty: 1, formato: "std" },
+      { key: "m", namePt: "Molho tártaro", nameEn: "Tartar sauce", category: "Molhos", qty: 2, formato: "sauce" },
+    ]} />);
+    const [p1, p2] = [...container.querySelectorAll<HTMLElement>(".plq-grafica-pagina")];
+    expect(p1.style.getPropertyValue("--pag-l")).toBe("90mm");
+    expect(p2.style.getPropertyValue("--pag-l")).toBe("79mm");
+    expect(p2).toHaveTextContent("corte 63 × 38 mm");
   });
 });

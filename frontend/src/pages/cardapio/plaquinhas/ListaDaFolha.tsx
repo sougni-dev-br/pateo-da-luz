@@ -1,7 +1,8 @@
-import { ArrowDown, ArrowUp, ListOrdered, Undo2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Droplet, ListOrdered, RectangleHorizontal, Undo2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { BuffetPlateItem } from "../../../api/client";
-import { MAX_QTD, ordenarPorCategoria, type Entrada } from "./plaquinhasFormato";
+import type { BuffetPlateItem, PlateFormat } from "../../../api/client";
+import { FORMATOS } from "./FolhaPlaquinhas";
+import { MAX_QTD, formatoAlternativo, ordenarPorCategoria, type Entrada } from "./plaquinhasFormato";
 
 type Props = {
   entradas: Entrada[];
@@ -9,11 +10,20 @@ type Props = {
   /** Chave do prato que acabou de entrar ou ganhar +1: pisca para a pessoa ver onde foi parar. */
   destaque: { chave: string; vez: number } | null;
   onMudar: (fn: (es: Entrada[]) => Entrada[]) => void;
+  formatoLista: PlateFormat;
+  /** Formato em que cada prato sai (o dele, ou molho para molhos, ou o da lista). */
+  formatoDe: (e: Entrada) => PlateFormat;
 };
 
 const TEMPO_DESFAZER_MS = 6000;
 
-export function ListaDaFolha({ entradas, porId, destaque, onMudar }: Props) {
+export function ListaDaFolha({ entradas, porId, destaque, onMudar, formatoLista, formatoDe }: Props) {
+  const alternativo = formatoAlternativo(formatoLista);
+  // O botão troca entre o formato da lista e o outro (molho ↔ plaquinha). O escolhido fica gravado no prato.
+  const trocarFormato = (e: Entrada) => {
+    const novo = formatoDe(e) === alternativo ? formatoLista : alternativo;
+    onMudar((es) => es.map((x) => (x.key === e.key ? { ...x, formato: novo } : x)));
+  };
   const [removida, setRemovida] = useState<{ entrada: Entrada; indice: number } | null>(null);
   const destaqueRef = useRef<HTMLLIElement>(null);
 
@@ -77,6 +87,7 @@ export function ListaDaFolha({ entradas, porId, destaque, onMudar }: Props) {
                 <span className="plq-entrada-nome">
                   <strong>{n}</strong>
                   {p && <em>{p.nameEn}</em>}
+                  {formatoDe(e) !== formatoLista && <span className="plq-entrada-formato">sai como {FORMATOS[formatoDe(e)].nome.toLowerCase()}</span>}
                 </span>
                 <span className="plq-qtd" title="Quantas plaquinhas deste prato">
                   <button type="button" aria-label={`Uma plaquinha a menos de ${n}`} disabled={e.qty <= 1} onClick={() => mudarQtd(e, -1)}>−</button>
@@ -84,6 +95,17 @@ export function ListaDaFolha({ entradas, porId, destaque, onMudar }: Props) {
                   <button type="button" aria-label={`Uma plaquinha a mais de ${n}`} disabled={e.qty >= MAX_QTD} onClick={() => mudarQtd(e, 1)}>+</button>
                 </span>
                 <span className="plq-entrada-acoes">
+                  {(() => {
+                    const atual = formatoDe(e);
+                    const vira = atual === alternativo ? formatoLista : alternativo;
+                    return (
+                      <button type="button" className={atual !== formatoLista ? "plq-formato-ativo" : undefined} aria-pressed={atual !== formatoLista}
+                        aria-label={`Imprimir ${n} como ${FORMATOS[vira].nome.toLowerCase()}`} title={`Imprimir como ${FORMATOS[vira].nome.toLowerCase()}`}
+                        onClick={() => trocarFormato(e)}>
+                        {vira === "sauce" ? <Droplet size={16} /> : <RectangleHorizontal size={16} />}
+                      </button>
+                    );
+                  })()}
                   <button type="button" aria-label={`Subir ${n}`} disabled={i === 0} onClick={() => mover(i, -1)}><ArrowUp size={16} /></button>
                   <button type="button" aria-label={`Descer ${n}`} disabled={i === entradas.length - 1} onClick={() => mover(i, 1)}><ArrowDown size={16} /></button>
                   <button type="button" aria-label={`Tirar ${n} da folha`} className="plq-tirar" onClick={() => tirar(e, i)}><X size={16} /></button>
