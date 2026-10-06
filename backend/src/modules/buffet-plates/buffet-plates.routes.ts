@@ -55,6 +55,8 @@ const listSchema = z.object({
   items: z.array(z.object({
     itemId: z.string().trim().min(1, "prato obrigatório"),
     qty: z.coerce.number().int().min(1, "quantidade mínima é 1").max(MAX_QTY, `quantidade máxima é ${MAX_QTY}`),
+    // Formato só deste prato (ex.: molho no meio de uma lista de plaquinhas). Sem valor, vale o da lista.
+    format: z.enum(PLATE_FORMATS).nullable().optional(),
   })).max(MAX_ITEMS_PER_LIST, `no máximo ${MAX_ITEMS_PER_LIST} pratos por lista`),
 });
 
@@ -136,7 +138,7 @@ buffetPlatesRouter.delete("/items/:id", async (request, response) => {
 
 // ── Listas ──
 
-type StoredListItem = { itemId: string; qty: number };
+type StoredListItem = { itemId: string; qty: number; format?: (typeof PLATE_FORMATS)[number] };
 
 function storedItems(value: Prisma.JsonValue): StoredListItem[] {
   if (!Array.isArray(value)) return [];
@@ -144,7 +146,8 @@ function storedItems(value: Prisma.JsonValue): StoredListItem[] {
     if (!v || typeof v !== "object" || Array.isArray(v)) return [];
     const itemId = typeof v.itemId === "string" ? v.itemId : null;
     const qty = Number(v.qty);
-    return itemId ? [{ itemId, qty: Number.isInteger(qty) && qty >= 1 ? Math.min(qty, MAX_QTY) : 1 }] : [];
+    const format = PLATE_FORMATS.find((f) => f === v.format);
+    return itemId ? [{ itemId, qty: Number.isInteger(qty) && qty >= 1 ? Math.min(qty, MAX_QTY) : 1, ...(format ? { format } : {}) }] : [];
   });
 }
 
@@ -185,9 +188,12 @@ type ListInput = z.infer<typeof listSchema>;
 
 // O mesmo prato repetido na lista vira uma linha só, com as quantidades somadas.
 function mergeRepeated(items: ListInput["items"]) {
-  const merged = new Map<string, number>();
-  for (const i of items) merged.set(i.itemId, Math.min(MAX_QTY, (merged.get(i.itemId) ?? 0) + i.qty));
-  return [...merged].map(([itemId, qty]) => ({ itemId, qty }));
+  const merged = new Map<string, { qty: number; format?: (typeof PLATE_FORMATS)[number] }>();
+  for (const i of items) {
+    const atual = merged.get(i.itemId);
+    merged.set(i.itemId, { qty: Math.min(MAX_QTY, (atual?.qty ?? 0) + i.qty), format: i.format ?? atual?.format });
+  }
+  return [...merged].map(([itemId, { qty, format }]) => ({ itemId, qty, ...(format ? { format } : {}) }));
 }
 
 function listPayload(data: ListInput) {

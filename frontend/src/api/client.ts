@@ -3958,7 +3958,8 @@ export type PlateListKind = "BUFFET" | "COFFEE_BREAK" | "EVENTO";
 
 export type BuffetPlateItem = { id: string; namePt: string; nameEn: string; category: string; isActive: boolean };
 export type BuffetPlateItemInput = { namePt: string; nameEn: string; category: string; isActive?: boolean };
-export type BuffetPlateListEntry = { itemId: string; qty: number };
+/** format: formato só deste prato (ex.: molho numa lista de plaquinhas); sem valor, vale o da lista. */
+export type BuffetPlateListEntry = { itemId: string; qty: number; format?: PlateFormat | null };
 export type BuffetPlateListSummary = {
   id: string;
   name: string;

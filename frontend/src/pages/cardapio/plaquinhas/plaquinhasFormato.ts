@@ -78,10 +78,23 @@ export function rotuloLista(l: { name: string; eventDate: string | null; plateCo
   return `${l.name}${l.eventDate ? ` · ${dataCurta(l.eventDate)}` : ""} · ${l.plateCount} ${l.plateCount === 1 ? "plaquinha" : "plaquinhas"}`;
 }
 
-export type Entrada = { key: string; itemId: string; qty: number };
+/** formato: escolhido só para este prato; sem valor, segue a regra de formatoDaEntrada. */
+export type Entrada = { key: string; itemId: string; qty: number; formato?: PlateFormat };
+
+/**
+ * Formato em que o prato sai: o escolhido nele; senão, molho sai no formato molho (o pote
+ * pede a plaquinha pequena) e o resto segue o formato da lista.
+ */
+export function formatoDaEntrada(e: Pick<Entrada, "formato">, prato: Pick<BuffetPlateItem, "category"> | undefined, formatoLista: PlateFormat): PlateFormat {
+  if (e.formato) return e.formato;
+  return prato?.category === "Molhos" && formatoLista !== "sauce" ? "sauce" : formatoLista;
+}
+
+/** O outro formato que o botão do prato oferece: molho numa lista de plaquinhas, plaquinha numa de molhos. */
+export const formatoAlternativo = (formatoLista: PlateFormat): PlateFormat => (formatoLista === "sauce" ? "std" : "sauce");
 
 let proximaChave = 0;
-export const novaEntrada = (itemId: string, qty = 1): Entrada => ({ key: `e${++proximaChave}`, itemId, qty });
+export const novaEntrada = (itemId: string, qty = 1, formato?: PlateFormat): Entrada => ({ key: `e${++proximaChave}`, itemId, qty, ...(formato ? { formato } : {}) });
 
 // Agrupa na ordem do buffet (arroz, massas, carnes…, sobremesas, molhos), mantendo a ordem
 // que a pessoa já tinha dentro de cada categoria. Prato sumido do catálogo vai para o fim.
