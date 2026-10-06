@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { saveOperationDay, type AgendaDay, type ServiceMode } from "../../../api/client";
+import { saveOperationDay, type AgendaDay, type BuffetCharged, type ServiceMode } from "../../../api/client";
 import { Dialog } from "../../../components/ui/Dialog";
 import { Alert, Button, Select, TextField, Textarea } from "../../../design-system";
 import { TamanhoPill } from "./Agenda";
-import { MODALIDADE, TAMANHO, dataBr, diaDaSemana, diaDoEvento, lerPreco, opcoes, reais, ticket } from "./formato";
+import { MODALIDADE, TAMANHO, centavos, dataBr, diaDaSemana, diaDoEvento, lerPreco, nomeDoBuffet, opcoes, reais, ticket } from "./formato";
 
 type Props = {
   dia: AgendaDay | null;
@@ -12,6 +12,21 @@ type Props = {
   onSalvo: () => void;
   onAbrirEvento: (seriesId: string) => void;
 };
+
+/** Preço do dia (o buffet que mais vendeu) e, se houve, os outros preços cobrados. */
+export function BuffetDoDia({ buffet }: { buffet: BuffetCharged }) {
+  const { principal, outros } = buffet;
+  return (
+    <>
+      {centavos(principal.preco)} · {principal.vendidos} vendidos ({nomeDoBuffet(principal.produto)})
+      {outros.length > 0 && (
+        <small className="evt-buffet-outros">
+          Também: {outros.map((o) => `${nomeDoBuffet(o.produto)} ${centavos(o.preco)} (${o.vendidos})`).join(" · ")}
+        </small>
+      )}
+    </>
+  );
+}
 
 // O dia do restaurante: os eventos, a previsão (com o porquê), o que aconteceu e a decisão.
 export function DiaDialog({ dia, podeEditar, onFechar, onSalvo, onAbrirEvento }: Props) {
@@ -95,6 +110,7 @@ export function DiaDialog({ dia, podeEditar, onFechar, onSalvo, onAbrirEvento }:
               <dl className="evt-numeros">
                 <div><dt>Almoço</dt><dd>{r.almocos} pessoas · {reais(r.valorAlmoco)} · ticket {ticket(r.valorAlmoco, r.almocos)}</dd></div>
                 <div><dt>Jantar</dt><dd>{r.jantares ?? 0} pessoas · {reais(r.valorJantar)} · ticket {ticket(r.valorJantar, r.jantares)}</dd></div>
+                {dia.buffetCobrado && <div><dt>Buffet</dt><dd><BuffetDoDia buffet={dia.buffetCobrado} /></dd></div>}
                 <div><dt>Fonte</dt><dd>{r.fonte === "PDV" ? "PDV (sem os 10%)" : "Planilha do painel (sem os 10%)"}</dd></div>
               </dl>
             ) : <p className="evt-sem">Ainda sem faturamento deste dia.</p>}
@@ -106,8 +122,18 @@ export function DiaDialog({ dia, podeEditar, onFechar, onSalvo, onAbrirEvento }:
           <div className="evt-form-linha">
             <Select label="Modalidade" value={modalidade} disabled={!podeEditar} placeholder="Não definida"
               onChange={(e) => setModalidade(e.target.value as ServiceMode | "")} options={opcoes(MODALIDADE)} />
-            <TextField label="Preço do buffet" value={preco} disabled={!podeEditar} inputMode="decimal" placeholder="ex.: 79,90"
-              onChange={(e) => setPreco(e.target.value)} />
+            {/* Com venda de buffet no PDV o preço vem de lá; digitar só serve para dia sem PDV (planejar ou histórico). */}
+            {dia.buffetCobrado ? (
+              <div className="evt-preco-pdv">
+                <span className="evt-preco-rotulo">Preço do buffet</span>
+                <strong>{centavos(dia.buffetCobrado.principal.preco)}</strong>
+                <small>cobrado no PDV</small>
+              </div>
+            ) : (
+              <TextField label="Preço do buffet" value={preco} disabled={!podeEditar} inputMode="decimal" placeholder="ex.: 79,90"
+                hint="Sem venda de buffet no PDV neste dia: anote o preço planejado ou o que foi cobrado."
+                onChange={(e) => setPreco(e.target.value)} />
+            )}
           </div>
           <Textarea label="Comentário da gerência" value={notas} disabled={!podeEditar} rows={4} maxLength={4000}
             placeholder="Como foi o dia, parcerias, pacotes, o que fazer da próxima vez…" onChange={(e) => setNotas(e.target.value)} />

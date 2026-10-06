@@ -19,6 +19,11 @@ preço e comentário da gerência.
 - **Sempre sem os 10%.** Do PDV: `salesFirstShift − shift1Service` (almoço) e
   `salesSecondShift − shift2Service` (jantar). A planilha já guardava sem.
 - **O PDV grava a data ao meio-dia UTC.** Filtro de intervalo usa "antes do dia seguinte".
+- **Preço do buffet vem do PDV** (`buffetCobradoPorData`): vendas recebidas de produto cujo nome
+  começa com "BUFFET" em `AgileSaleItem`; preço unitário = total ÷ quantidade. O preço do dia é o
+  do buffet que mais vendeu; os outros (pacote de grupo, troca de preço no meio do dia) aparecem
+  ao lado. Os itens só existem desde que o agente passou a mandá-los (set/2026); antes disso, e em
+  dia sem venda de buffet, vale o preço anotado (`OperationDay.buffetPrice`).
 - **A previsão só olha para trás.** `preverAlmoco` descarta qualquer dia igual ou posterior ao
   dia previsto. A mesma função serve para medir o acerto no passado.
 - **A previsão é congelada** na primeira decisão salva do dia (`forecastLunch`, `forecastSize`,

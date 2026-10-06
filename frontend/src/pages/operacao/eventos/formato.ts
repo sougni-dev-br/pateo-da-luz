@@ -84,6 +84,17 @@ export function lerPreco(texto: string): number | null {
   return Number(t);
 }
 
+export function centavos(valor: number): string {
+  return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+/** "BUFFET PROMO 15" vira "Promo 15": o "buffet" já está no título. */
+export function nomeDoBuffet(produto: string): string {
+  const resto = produto.replace(/^buffet\s*/i, "").trim();
+  if (!resto) return "Buffet";
+  return resto.charAt(0).toUpperCase() + resto.slice(1).toLowerCase();
+}
+
 export function diaDoEvento(dia: number, total: number): string {
   return total <= 1 ? "1 dia" : `${dia}º de ${total}`;
 }

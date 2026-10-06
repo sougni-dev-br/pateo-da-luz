@@ -7678,12 +7678,19 @@ export type AgendaEvent = {
   endTime: string | null;
 };
 
+/** Preço de buffet cobrado no dia, lido das vendas do PDV (o principal é o que mais vendeu). */
+export type BuffetCharged = {
+  principal: { produto: string; preco: number; vendidos: number };
+  outros: Array<{ produto: string; preco: number; vendidos: number }>;
+};
+
 export type AgendaDay = {
   date: string;
   eventos: AgendaEvent[];
   previsao: DayForecast | null;
   realizado: DayRealized | null;
   escala: EventSize | null;
+  buffetCobrado: BuffetCharged | null;
   decisao: { serviceMode: ServiceMode | null; buffetPrice: number | null; notes: string | null; forecastLunch: number | null; forecastSize: EventSize | null } | null;
 };
 
@@ -7721,6 +7728,7 @@ export type EventEditionDetail = {
     notes: string | null;
     serviceMode: ServiceMode | null;
     buffetPrice: number | null;
+    buffetCobrado: BuffetCharged | null;
   }>;
 };
 
