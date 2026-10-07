@@ -82,13 +82,15 @@ tipRecibosRouter.get("/recibos-pagamento", async (request, response) => {
         type: "ADIANTAMENTO", competenceYear: comp.ano, competenceMonth: comp.mes, employeeId: { in: ids },
         deletedAt: null, status: { not: "CANCELED" }, paymentDate: { not: null },
       },
-      select: { employeeId: true, paymentDate: true, details: true },
+      select: { employeeId: true, paymentDate: true, details: true, amount: true },
     }),
   ]);
   const pagosDe = new Map<string, PagosAntesDoMes>();
   for (const t of pagosAntes) {
     const atual = pagosDe.get(t.employeeId) ?? {};
-    pagosDe.set(t.employeeId, ehPrimeiraQuinzena(t.details) ? { ...atual, quinzena: t.paymentDate } : { ...atual, adiantamento: t.paymentDate });
+    pagosDe.set(t.employeeId, ehPrimeiraQuinzena(t.details)
+      ? { ...atual, quinzena: t.paymentDate, quinzenaTitulo: Number(t.amount) }
+      : { ...atual, adiantamento: t.paymentDate, adiantamentoTitulo: Number(t.amount) });
   }
   const acertoDe = new Map<string, AcertoDoRecibo>(acertos.map((a) => [a.employeeId, {
     amount: Number(a.amount), paidAmount: a.paidAmount == null ? null : Number(a.paidAmount), paymentDate: a.paymentDate,

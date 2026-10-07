@@ -20,7 +20,7 @@ export type LinhaRecibo = { codigo: number; descricao: string; referencia: strin
 // Códigos fixos dos itens (só para leitura do recibo; não são os da contabilidade).
 export const CODIGO = {
   DIAS: 1, QUINZENA: 10, ADIANTAMENTO: 20, HORA_EXTRA: 201, NOTURNO: 202, GORJETA: 203, DSR: 250, CREDITO: 300,
-  DESC_ADIANTAMENTO: 981, DESC_QUINZENA: 982, VALE: 990, AJUSTE: 999,
+  DESC_ADIANTAMENTO: 981, DESC_QUINZENA: 982, COMPL_ADIANTAMENTO: 983, COMPL_QUINZENA: 984, VALE: 990, AJUSTE: 999,
 } as const;
 
 export type ValeDoRecibo = { type: string; amount: number; date: string | null; notes: string | null };
@@ -123,7 +123,25 @@ function linhasDosVales(vales: ValeDoRecibo[]): LinhaRecibo[] {
  * com outro valor vira outra — o total do recibo é sempre o que a pessoa recebe.
  */
 // Quando o adiantamento e a 1ª quinzena foram pagos: a referência da linha de desconto vira a data.
-export type PagosAntesDoMes = { adiantamento?: Date | null; quinzena?: Date | null };
+// Com o valor do título: pago diferente do título vira "complemento" (ou "pago a maior") no mês.
+export type PagosAntesDoMes = {
+  adiantamento?: Date | null; quinzena?: Date | null; adiantamentoTitulo?: number | null; quinzenaTitulo?: number | null;
+};
+
+// Desconto do que foi pago antes (adiantamento ou 1ª quinzena). Pago diferente do título: desconta o
+// título inteiro e a diferença vem numa linha própria — o recibo mostra onde ela foi acertada.
+function descontoPagoAntes(
+  pago: number, titulo: number | null | undefined, data: Date | null | undefined,
+  d: { codigo: number; descricao: string; codigoDif: number; complemento: string; aMaior: string },
+): LinhaRecibo[] {
+  if (pago <= 0) return [];
+  const referencia = dataBr(diaIso(data)) ?? numero(pago);
+  const base = titulo != null && titulo > 0 && diferente(titulo, pago) ? round2(titulo) : pago;
+  const linhas: LinhaRecibo[] = [{ codigo: d.codigo, descricao: d.descricao, referencia, valor: -base }];
+  const dif = round2(base - pago);
+  if (dif !== 0) linhas.push({ codigo: d.codigoDif, descricao: dif > 0 ? d.complemento : d.aMaior, referencia: null, valor: dif });
+  return linhas;
+}
 
 export function discriminacaoDoMes(p: ParticipanteDoRecibo, acerto: AcertoDoRecibo | null, pagosAntes: PagosAntesDoMes = {}) {
   const linhas: LinhaRecibo[] = [];
@@ -145,10 +163,14 @@ export function discriminacaoDoMes(p: ParticipanteDoRecibo, acerto: AcertoDoReci
     linhas.push({ codigo: CODIGO.NOTURNO, descricao: "ADICIONAL NOTURNO", referencia: horasDecimais(p.adicionalNoturno), valor: round2(p.valorAdicionalNoturno ?? 0) });
   }
   if ((p.valorDsr ?? 0) > 0) linhas.push({ codigo: CODIGO.DSR, descricao: "DSR S/ EXTRAS", referencia: null, valor: round2(p.valorDsr ?? 0) });
-  const adiantamento = round2(p.adiantamentoSalarial ?? 0);
-  if (adiantamento > 0) linhas.push({ codigo: CODIGO.DESC_ADIANTAMENTO, descricao: "DESC. ADIANTAMENTO", referencia: dataBr(diaIso(pagosAntes.adiantamento)) ?? numero(adiantamento), valor: -adiantamento });
-  const quinzena = round2(p.primeiraQuinzena ?? 0);
-  if (quinzena > 0) linhas.push({ codigo: CODIGO.DESC_QUINZENA, descricao: "DESC. 1ª QUINZENA", referencia: dataBr(diaIso(pagosAntes.quinzena)) ?? numero(quinzena), valor: -quinzena });
+  linhas.push(...descontoPagoAntes(round2(p.adiantamentoSalarial ?? 0), pagosAntes.adiantamentoTitulo, pagosAntes.adiantamento, {
+    codigo: CODIGO.DESC_ADIANTAMENTO, descricao: "DESC. ADIANTAMENTO", codigoDif: CODIGO.COMPL_ADIANTAMENTO,
+    complemento: "COMPLEMENTO DE ADIANTAMENTO", aMaior: "ADIANTAMENTO PAGO A MAIOR",
+  }));
+  linhas.push(...descontoPagoAntes(round2(p.primeiraQuinzena ?? 0), pagosAntes.quinzenaTitulo, pagosAntes.quinzena, {
+    codigo: CODIGO.DESC_QUINZENA, descricao: "DESC. 1ª QUINZENA", codigoDif: CODIGO.COMPL_QUINZENA,
+    complemento: "COMPLEMENTO DA 1ª QUINZENA", aMaior: "1ª QUINZENA PAGA A MAIOR",
+  }));
 
   const totalLista = round2(p.totalAPagar);
   const soma = round2(linhas.reduce((a, l) => a + l.valor, 0));
@@ -220,10 +242,8 @@ export function reciboPagoAntes(t: TituloPagoAntes, pessoa: PessoaDoRecibo): Rec
   // linha com o motivo da baixa — o líquido é o que a pessoa recebeu.
   const diferenca = round2(valor - t.amount);
   if (diferente(valor, t.amount)) {
-    const motivo = (t.differenceReason ?? "").trim().toUpperCase().slice(0, 40);
-    const rotulo = diferenca < 0 ? "PAGO A MENOR" : "PAGO A MAIOR";
-    // Motivo que já diz "pago a menor/maior ..." vai sozinho (sem repetir o rótulo).
-    const descricao = !motivo ? rotulo : motivo.startsWith(rotulo) ? motivo : `${rotulo} (${motivo})`;
+    // O recibo diz onde a diferença é acertada: no pagamento do mês (complemento ou desconto).
+    const descricao = diferenca < 0 ? "COMPLEMENTO A PAGAR NO PAGAMENTO DO MÊS" : "PAGO A MAIOR (DESCONTADO NO PAGAMENTO DO MÊS)";
     linhas.push({ codigo: CODIGO.AJUSTE, descricao, referencia: null, valor: diferenca });
   }
   return {
