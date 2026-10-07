@@ -269,6 +269,11 @@ export function Inventory({
     () => new Map((conferenciaAtual?.itens ?? []).map((item) => [item.itemId, item])),
     [conferenciaAtual]
   );
+  // Em revisao, quem aprova corrige as quantidades ali mesmo (antes era
+  // rejeitar, corrigir e reenviar). Cada correcao fica na auditoria.
+  const emRascunho = operationalDetail != null && editableOperationalInventoryStatuses.has(operationalDetail.status);
+  const corrigindoNaRevisao = operationalDetail?.status === "EM_REVISAO" && canApproveOperational;
+  const podeEditarItens = emRascunho || corrigindoNaRevisao;
   const itensEmAlerta = conferenciaAtual
     ? conferenciaAtual.resumo.IMPOSSIVEL.itens + conferenciaAtual.resumo.ZERADO_SUSPEITO.itens
     : 0;
@@ -1457,7 +1462,7 @@ export function Inventory({
       }));
     try {
       await saveOperationalInventoryItems(operationalDetail.id, items);
-      setNotice({ tone: "success", message: "Rascunho salvo." });
+      setNotice({ tone: "success", message: corrigindoNaRevisao ? "Correções salvas e registradas. A conferência foi recalculada." : "Rascunho salvo." });
       await refreshOperational(operationalDetail.id);
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel salvar o inventario." });
@@ -3262,13 +3267,21 @@ export function Inventory({
               </div>
               {/* Junto da tabela, so o que edita quantidades. Status subiu
                   para o cabecalho; cancelar foi para o menu. */}
-              {editableOperationalInventoryStatuses.has(operationalDetail.status) && (
+              {podeEditarItens && (
                 <div className="op-filters-bar__actions">
-                  <button className="secondary-button" type="button" onClick={markOperationalFilteredZero}>Marcar filtrados como zero</button>
-                  <button className="primary-button" type="button" onClick={saveOperationalDraft}><Save size={16} />Salvar rascunho</button>
+                  {emRascunho && <button className="secondary-button" type="button" onClick={markOperationalFilteredZero}>Marcar filtrados como zero</button>}
+                  <button className="primary-button" type="button" onClick={saveOperationalDraft}>
+                    <Save size={16} />{corrigindoNaRevisao ? "Salvar correções" : "Salvar rascunho"}
+                  </button>
                 </div>
               )}
             </div>
+
+            {corrigindoNaRevisao && (
+              <p className="op-revisao-aviso" role="note">
+                <strong>Em revisão:</strong> corrija as quantidades que a conferência apontou e salve. Cada correção fica registrada com o valor anterior. Depois de aprovar, as quantidades viram a base do CMV.
+              </p>
+            )}
 
             <div className="table-wrap operational-count-table">
               <table>
@@ -3276,7 +3289,7 @@ export function Inventory({
                 <tbody>
                   {filteredOperationalItems.map((item) => {
                     const line = operationalLines[item.id] ?? { countedQuantity: "", notes: "" };
-                    const locked = !editableOperationalInventoryStatuses.has(operationalDetail.status);
+                    const locked = !podeEditarItens;
                     const hasNote = line.notes.trim().length > 0;
                     const noteOpen = editingOperationalNoteId === item.id;
                     return (
