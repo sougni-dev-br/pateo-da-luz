@@ -15,3 +15,10 @@ export function quinzenasSrAGerar(itens: PayrollComputedItem[]): { novas: number
   const quinzenas = itens.filter(ehQuinzena);
   return { novas: quinzenas.filter((i) => !i.exists).length, desatualizadas: quinzenas.filter((i) => i.exists && i.desatualizado).length };
 }
+
+/** Título da Folha que tem recibo de pagamento: 1ª quinzena ou adiantamento de quem não tem registro (CLT: holerite da contabilidade). */
+export function reciboDoLancamento(i: { type: string; details?: unknown }): "QUINZENA" | "ADIANTAMENTO" | null {
+  const d = i.details as Record<string, unknown> | null | undefined;
+  if (i.type !== "ADIANTAMENTO" || d?.semRegistro !== true) return null;
+  return d.primeiraQuinzena === true ? "QUINZENA" : "ADIANTAMENTO";
+}

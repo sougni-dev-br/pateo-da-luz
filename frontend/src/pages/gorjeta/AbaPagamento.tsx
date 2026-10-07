@@ -1,12 +1,13 @@
-import { FileText, Lock, Receipt } from "lucide-react";
+import { FileText, Lock, Printer, Receipt } from "lucide-react";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { type AcertosListaLancados, type TipComputation, type TipComputedParticipant, lancarAcertosLista } from "../../api/client";
+import { type AcertosListaLancados, type TipComputation, type TipComputedParticipant, getRecibosPagamento, lancarAcertosLista } from "../../api/client";
 import { useSession } from "../../context/SessionContext";
-import { Alert, Button, Money, StatusBadge, Table } from "../../design-system";
+import { Alert, Button, IconButton, Money, StatusBadge, Table } from "../../design-system";
 import { hasPermission } from "../../lib/permissions";
 import { exportarContabilidade, exportarListaPagamento } from "./exportarPdf";
 import { NOTA_TETO_OCULTO, gorjetaEnviada } from "./envioContabilidade";
 import { SeloRecibo } from "./ReciboRescisao";
+import { AvisoReciboImpresso, useImprimirRecibos } from "./ImprimirRecibos";
 import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
@@ -46,6 +47,8 @@ const TEXTO = new Set(["nome", "empresa", "pix", "justificada"]);
 const situacao = (p: TipComputedParticipant) => (p.pagoNaRescisao ? "Paga na rescisão" : p.tipoCalculo === "MES" ? "No mês" : "Desligado no período");
 const OPCOES_SITUACAO = ["No mês", "Desligado no período", "Paga na rescisão"].map((x) => ({ valor: x, rotulo: x }));
 const totalTd: CSSProperties = { fontWeight: 600 };
+// Recibo de pagamento: quem a lista paga neste mês (fora da rescisão, com valor a receber).
+const temRecibo = (p: TipComputedParticipant) => !p.pagoNaRescisao && p.totalAPagar > 0.005;
 
 const COLUNAS_CONTAB: ColunaOpcional[] = [
   { chave: "empresa", rotulo: "Empresa" }, { chave: "gorjeta", rotulo: "Gorjeta" }, { chave: "horaExtra", rotulo: "Hora extra" },
@@ -253,6 +256,15 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
       onError("Erro ao lançar os acertos: " + mensagem);
     } finally { setLancando(false); }
   }
+  // Recibos de pagamento: mostram valores de dias trabalhados e adiantamento, então só para quem vê Funcionários.
+  const podeRecibo = hasPermission(user, "employees", "view");
+  const recibos = useImprimirRecibos(onError);
+  const comRecibo = semRegistro.filter(temRecibo);
+  const competencia = `${String(comp.month).padStart(2, "0")}/${comp.year}`;
+  const imprimirTodos = () => void recibos.imprimir("todos", `Recibos de ${competencia}`,
+    async () => (await getRecibosPagamento(comp.year, comp.month)).recibos);
+  const imprimirUm = (p: TipComputedParticipant) => void recibos.imprimir(p.employeeId, `Recibo de ${p.employeeName} (${competencia})`,
+    async () => (await getRecibosPagamento(comp.year, comp.month, p.employeeId)).recibos);
   const mostraLancarAcertos = podeLancarAcertos && Boolean(comp.periodId) && semRegistro.length > 0;
   // Apuração aberta: os valores ainda são parciais; o servidor recusa e o fechamento já lança.
   const apuracaoAberta = comp.status !== "CLOSED";
@@ -412,6 +424,12 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
           <div className="barra-lista">
             <SeletorColunas colunas={COLUNAS_PAG.filter((c) => (comQuinzena || c.chave !== "quinzena") && (comDsr || c.chave !== "dsr"))} ocultas={colP.ocultas} alternar={colP.alternar} mostrarTodas={colP.mostrarTodas} />
             <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarListaPagamento)}>PDF pagamento</Button>
+            {podeRecibo && comRecibo.length > 0 && (
+              <Button variant="secondary" size="sm" leadingIcon={<Printer size={14} />} onClick={imprimirTodos} disabled={recibos.imprimindo != null}
+                title={`Um PDF com o recibo de pagamento de cada sem registro com valor a receber (${comRecibo.length}): uma folha por pessoa, duas vias, para assinar.`}>
+                {recibos.imprimindo === "todos" ? "Gerando…" : `Recibos (${comRecibo.length})`}
+              </Button>
+            )}
             {mostraLancarAcertos && (
               <Button variant="secondary" size="sm" leadingIcon={<Receipt size={14} />} onClick={() => void lancarAcertos()} disabled={lancando || apuracaoAberta}
                 title={apuracaoAberta
@@ -422,6 +440,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
             )}
           </div>
         </div>
+        <AvisoReciboImpresso impresso={recibos.impresso} onFechar={recibos.fechar} />
         {acertos && acertos.mes === mesAtual && <ResultadoAcertos r={acertos.r} />}
         {recusaAcertos && recusaAcertos.mes === mesAtual && (
           <Alert tone="error" role="alert" style={{ fontSize: 13 }}>Acertos não lançados: {recusaAcertos.mensagem}</Alert>
@@ -486,6 +505,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 {vp("pix") && (
                   <ThOrdenavel {...thP("pix")}>PIX</ThOrdenavel>
 )}
+                  {podeRecibo && <Table.Th actions>Recibo</Table.Th>}
                 </Table.Row>
               </Table.Head>
               <Table.Body>
@@ -558,6 +578,14 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 {vp("pix") && (
                       <Table.Td style={mutedStyle}>{p.pixKey ?? "—"}</Table.Td>
 )}
+                      {podeRecibo && (
+                        <Table.Td actions>
+                          {temRecibo(p) && (
+                            <IconButton size="sm" icon={<Printer size={15} />} label={`Recibo de pagamento de ${p.employeeName}`}
+                              disabled={recibos.imprimindo != null} onClick={() => imprimirUm(p)} />
+                          )}
+                        </Table.Td>
+                      )}
                     </Table.Row>
                   );
                 })}
@@ -588,6 +616,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                   )}
                   {vp("aPagar") && <Table.Td style={{ fontWeight: 700 }}><Money value={semRegistroFilt.reduce((a, p) => a + p.totalAPagar, 0)} /></Table.Td>}
                   {vp("pix") && <Table.Td> </Table.Td>}
+                  {podeRecibo && <Table.Td> </Table.Td>}
                 </Table.Row>
               </Table.Body>
             </Table>

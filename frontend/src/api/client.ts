@@ -5916,6 +5916,8 @@ export type PayrollListItem = {
   paidAmount: string | null;
   status: PayrollItemStatus;
   dreCategoryId: string | null;
+  /** Detalhes do título (sem permissão de ver Funcionários, só as marcas: semRegistro, primeiraQuinzena…). */
+  details?: Record<string, unknown> | null;
 };
 
 export type PayrollList = {
@@ -6442,6 +6444,39 @@ export function emitirReciboVale(id: string, empresaId: string | null) {
   return request<TipReciboVale>(`/payroll/tip/vales/${id}/recibo`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ empresaId }),
   });
+}
+/** Linha da discriminação do recibo: valor com sinal (desconto negativo). vale: vale ou crédito da gorjeta. */
+export type ReciboLinha = { descricao: string; detalhe: string | null; valor: number; vale?: true };
+/** Recibo do pagamento do mês (lista de pagamento) de quem não tem registro. */
+export type ReciboPagamentoMes = {
+  tipo: "PAGAMENTO_MES";
+  employeeId: string; nome: string; cpf: string | null;
+  competencia: string; referencia: string;
+  linhas: ReciboLinha[];
+  /** A pagar da lista; total difere quando o acerto no Contas a Pagar tem outro valor (vira linha de ajuste). */
+  totalLista: number;
+  acerto: { valor: number; pago: boolean } | null;
+  total: number;
+  dataPagamento: string | null;
+};
+/** Recibo da 1ª quinzena (dia 15) ou do adiantamento (dia 20) de quem não tem registro. */
+export type ReciboPagoAntes = {
+  tipo: "QUINZENA" | "ADIANTAMENTO";
+  id: string; employeeId: string; nome: string; cpf: string | null;
+  competencia: string; referencia: string;
+  linhas: ReciboLinha[];
+  total: number;
+  dataPagamento: string | null;
+};
+/** Recibos do pagamento do mês (todos os sem registro com a receber, ou só um). Exige ver Funcionários. */
+export function getRecibosPagamento(year: number, month: number, employeeId?: string) {
+  const pessoa = employeeId ? `&employeeId=${encodeURIComponent(employeeId)}` : "";
+  return request<{ competencia: string; recibos: ReciboPagamentoMes[] }>(`/payroll/tip/recibos-pagamento?year=${year}&month=${month}${pessoa}`);
+}
+/** Recibos da 1ª quinzena e do adiantamento dos sem registro (todos do mês, ou um lançamento). Exige ver Funcionários. */
+export function getRecibosPagoAntes(year: number, month: number, id?: string) {
+  const um = id ? `&id=${encodeURIComponent(id)}` : "";
+  return request<{ competencia: string; recibos: ReciboPagoAntes[] }>(`/payroll/recibos-adiantamento?year=${year}&month=${month}${um}`);
 }
 export function getTipRelatorioVales(de: string, ate: string) {
   return request<TipValeRelatorio[]>(`/payroll/tip/reports/vales?de=${de}&ate=${ate}`);

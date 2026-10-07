@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import {
   Employee, PayrollComputedItem, PayrollItemType, PayrollKind, PayrollList, PayrollListItem, PayrollOverride, PayrollPreview, PayrollSettings,
   VtFare, VtFareBasis,
-  createVtFare, deletePayrollItem, deleteVtFare, editPayrollItem, generatePayroll, getEmployees, getPayroll, getPayrollSettings,
+  createVtFare, deletePayrollItem, deleteVtFare, editPayrollItem, generatePayroll, getEmployees, getPayroll, getPayrollSettings, getRecibosPagoAntes,
   getVtFares, previewPayroll, releaseVacation, savePayrollSettings, updateVtFare
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
@@ -15,7 +15,8 @@ import { hasPermission } from "../lib/permissions";
 import { maskMoney, moneyToMasked } from "../utils/format";
 import { AfastamentoModal } from "./folha/AfastamentoModal";
 import { LancamentoManualModal } from "./folha/LancamentoManualModal";
-import { adiantamentosSrAGerar, quinzenasSrAGerar } from "./folha/semRegistro";
+import { adiantamentosSrAGerar, quinzenasSrAGerar, reciboDoLancamento } from "./folha/semRegistro";
+import { AvisoReciboImpresso, useImprimirRecibos } from "./gorjeta/ImprimirRecibos";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
@@ -92,10 +93,41 @@ const emptyFareForm = {
   sundayAmount: "", isActive: true, notes: ""
 };
 
+// "Todos do mês": um PDF com os recibos da 1ª quinzena (ou do adiantamento) dos sem registro.
+function BarraRecibos({ itens, imprimindo, onImprimir }: {
+  itens: PayrollListItem[]; imprimindo: string | null; onImprimir: (tipo: "QUINZENA" | "ADIANTAMENTO", rotulo: string) => void;
+}) {
+  const quinzenas = itens.filter((i) => reciboDoLancamento(i) === "QUINZENA" && Number(i.amount) > 0).length;
+  const adiantamentos = itens.filter((i) => reciboDoLancamento(i) === "ADIANTAMENTO" && Number(i.amount) > 0).length;
+  if (quinzenas === 0 && adiantamentos === 0) return null;
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "0 0 10px" }}>
+      <span style={{ fontSize: "0.85em", color: "var(--muted)" }}>Recibos (sem registro):</span>
+      {quinzenas > 0 && (
+        <Button variant="secondary" size="sm" leadingIcon={<Printer size={14} />} disabled={imprimindo != null}
+          title="Um PDF com o recibo da 1ª quinzena de cada sem registro: uma folha por pessoa, duas vias, para assinar."
+          onClick={() => onImprimir("QUINZENA", "Recibos da 1ª quinzena")}>
+          {imprimindo === "todos-QUINZENA" ? "Gerando…" : `1ª quinzena (${quinzenas})`}
+        </Button>
+      )}
+      {adiantamentos > 0 && (
+        <Button variant="secondary" size="sm" leadingIcon={<Printer size={14} />} disabled={imprimindo != null}
+          title="Um PDF com o recibo do adiantamento de cada sem registro: uma folha por pessoa, duas vias, para assinar."
+          onClick={() => onImprimir("ADIANTAMENTO", "Recibos do adiantamento")}>
+          {imprimindo === "todos-ADIANTAMENTO" ? "Gerando…" : `Adiantamento (${adiantamentos})`}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export function Folha() {
   const { user } = useSession();
   const canEdit = hasPermission(user, "payroll", "edit");
+  // Recibo da 1ª quinzena e do adiantamento (sem registro): mostra valores pagos à pessoa, só para quem vê Funcionários.
+  const podeRecibo = hasPermission(user, "employees", "view");
   const { notice, setNotice } = useNotice();
+  const recibos = useImprimirRecibos((message) => setNotice({ tone: "error", message }));
 
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -916,6 +948,12 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
           />
         )}
 
+        {!loading && list && list.items.length > 0 && podeRecibo && (
+          <BarraRecibos itens={list.items} imprimindo={recibos.imprimindo}
+            onImprimir={(tipo, rotulo) => recibos.imprimir(`todos-${tipo}`, `${rotulo} de ${String(month).padStart(2, "0")}/${year}`,
+              async () => (await getRecibosPagoAntes(year, month)).recibos.filter((r) => r.tipo === tipo))} />
+        )}
+        <AvisoReciboImpresso impresso={recibos.impresso} onFechar={recibos.fechar} />
         {!loading && list && list.items.length > 0 && (
           <div style={{ overflowX: "auto" }}>
             <Table>
@@ -927,6 +965,7 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                   <Table.Th>Vencimento</Table.Th>
                   <Table.Th>Valor</Table.Th>
                   <Table.Th>Status</Table.Th>
+                  {podeRecibo && <Table.Th actions>Recibo</Table.Th>}
                   {canEdit && <Table.Th actions>Ações</Table.Th>}
                 </Table.Row>
               </Table.Head>
@@ -943,6 +982,16 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                         {i.status === "PAID" ? "Pago" : i.status === "OVERDUE" ? "Vencido" : "Pendente"}
                       </StatusBadge>
                     </Table.Td>
+                    {podeRecibo && (
+                      <Table.Td actions>
+                        {reciboDoLancamento(i) && (
+                          <IconButton size="sm" icon={<Printer size={15} />} disabled={recibos.imprimindo != null}
+                            label={`Recibo ${reciboDoLancamento(i) === "QUINZENA" ? "da 1ª quinzena" : "do adiantamento"} de ${i.employeeName}`}
+                            onClick={() => void recibos.imprimir(i.id, `Recibo de ${i.employeeName}`,
+                              async () => (await getRecibosPagoAntes(year, month, i.id)).recibos)} />
+                        )}
+                      </Table.Td>
+                    )}
                     {canEdit && (
                       <Table.Td actions>
                         <RowMenu

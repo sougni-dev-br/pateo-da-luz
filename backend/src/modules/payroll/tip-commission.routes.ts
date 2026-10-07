@@ -29,6 +29,7 @@ import { tipConferenciaRouter } from "./tip-conferencia.routes.js";
 import { sincronizarSalariosCombinados } from "./salario-combinado.service.js";
 import { type ResultadoAcertos, lancarAcertosDaLista } from "./acerto-lista.service.js";
 import { tipValesRouter } from "./tip-vales.routes.js";
+import { tipRecibosRouter } from "./recibo-pagamento.routes.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { normalizarHorasDigitadas } from "./hora-extra.js";
 
@@ -50,6 +51,8 @@ export const tipCommissionRouter = Router();
 // Envio à contabilidade, conferência dos extratos, etapas e folha de líquidos.
 tipCommissionRouter.use(tipConferenciaRouter);
 tipCommissionRouter.use(tipValesRouter);
+// Recibo do pagamento do mês (lista de pagamento) de quem não tem registro: só leitura.
+tipCommissionRouter.use(tipRecibosRouter);
 // Extratos do RH guardados (PDF + holerite por pessoa) para consulta e relatórios.
 tipCommissionRouter.use(rhExtratosRouter);
 
