@@ -77,12 +77,14 @@ import {
   submitInventoryAgendaItem,
   updateStockMinQuantity
 } from "../api/client";
+import type { ConferenciaDoInventario, ItemDaConferencia } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { SimpleBarChart } from "../components/SimpleBarChart";
 import { ConfirmDialog } from "../components/ui";
 import { Alert, Button, EmptyState, Money, PanelEyebrow, RowMenu, StatusBadge, SummaryCard, Table, Tabs } from "../design-system";
 import type { RowMenuItem, RowMenuSeparator } from "../design-system";
+import { ConferenciaInventario, SeloDaConferencia } from "./inventory/ConferenciaInventario";
 import { OverviewSection } from "./inventory/OverviewSection";
 import { rotuloDoStatusDaRotina } from "./inventory/routine";
 import { RoutineWeekSection } from "./inventory/RoutineWeekSection";
@@ -121,14 +123,10 @@ import {
   countSessionTypeLabels,
   dateKey,
   defaultCountSessionColumns,
-  DIFF_EPSILON,
   displayLabel,
   editableCountSessionStatuses,
   editableOperationalInventoryStatuses,
-  formatDiff,
   inventoryClassificationSortText,
-  itemStatusLabels,
-  itemTone,
   loadCountSessionColumnPreferences,
   monthValue,
   movementSignedQuantity,
@@ -265,6 +263,19 @@ export function Inventory({
     notes: ""
   });
   const [operationalSearch, setOperationalSearch] = useState("");
+  // Conferencia do detalhe aberto. A versao sobe a cada recarga do detalhe
+  // (salvar, marcar zero, reabrir) para o painel recalcular junto.
+  const [conferencia, setConferencia] = useState<ConferenciaDoInventario | null>(null);
+  const [versaoConferencia, setVersaoConferencia] = useState(0);
+  const [itemParaLocalizar, setItemParaLocalizar] = useState<string | null>(null);
+  const conferenciaAtual = conferencia && conferencia.inventoryId === operationalDetail?.id ? conferencia : null;
+  const conferenciaPorItem = useMemo(
+    () => new Map((conferenciaAtual?.itens ?? []).map((item) => [item.itemId, item])),
+    [conferenciaAtual]
+  );
+  const itensEmAlerta = conferenciaAtual
+    ? conferenciaAtual.resumo.IMPOSSIVEL.itens + conferenciaAtual.resumo.ZERADO_SUSPEITO.itens
+    : 0;
   const [operationalSectorFilter, setOperationalSectorFilter] = useState("");
   const [operationalLines, setOperationalLines] = useState<Record<string, { countedQuantity: string; notes: string }>>({});
   const [countSessionForm, setCountSessionForm] = useState(() => {
@@ -1512,11 +1523,31 @@ export function Inventory({
   // Sem aviso de "aberto": o Notice tambem rola a pagina ate ele, no topo, e
   // disputava com a rolagem ate o painel — o inventario abria 1.800px abaixo e
   // a pessoa continuava olhando a lista. O painel aparecer ja e o retorno.
+  // Da conferencia para a linha editavel: filtra a tabela pelo produto e poe o
+  // cursor na quantidade dele.
+  function localizarItemDaConferencia(item: ItemDaConferencia) {
+    setOperationalSectorFilter("");
+    setOperationalSearch(item.productCode ?? item.productName);
+    setItemParaLocalizar(item.itemId);
+  }
+
+  // Depois que a tabela ja foi filtrada: rolar antes disso mirava a posicao que
+  // a linha tinha na lista inteira.
+  useEffect(() => {
+    if (!itemParaLocalizar) return;
+    const input = document.querySelector<HTMLInputElement>(`[data-op-item-id="${itemParaLocalizar}"]`);
+    input?.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (input && !input.disabled) input.focus({ preventScroll: true });
+    setItemParaLocalizar(null);
+  }, [itemParaLocalizar, filteredOperationalItems]);
+
   async function openOperationalInventory(id: string) {
     setOpeningInventoryId(id);
     try {
       const detail = await getOperationalInventory(id);
+      if (detail.id !== operationalDetail?.id) setConferencia(null);
       setOperationalDetail(detail);
+      setVersaoConferencia((v) => v + 1);
       setFinalCmvCoverage(null);
       setOperationalSectorFilter("");
       setOperationalDirty({});
@@ -2991,7 +3022,6 @@ export function Inventory({
                     <Table.Th>Tipo / setor</Table.Th>
                     <Table.Th>Status</Table.Th>
                     <Table.Th minWidth={120}>Progresso</Table.Th>
-                    <Table.Th align="right">Div.</Table.Th>
                     <Table.Th>Responsável</Table.Th>
                     <Table.Th actions>Ações</Table.Th>
                   </Table.Row>
@@ -3019,7 +3049,6 @@ export function Inventory({
                             <div className="progress-track"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
                           </div>
                         </Table.Td>
-                        <Table.Td align="right" className={Number(session.divergentItems) > 0 ? "count-list-divergent" : undefined}>{formatNumber(session.divergentItems)}</Table.Td>
                         <Table.Td truncate style={{ maxWidth: 120 }} title={session.responsibleName ?? "-"}>{session.responsibleName ?? "-"}</Table.Td>
                         <Table.Td actions>
                           <Button variant={editableCountSessionStatuses.has(session.status) ? "primary" : "secondary"} size="sm" onClick={() => openCountSession(session.id)}>{editableCountSessionStatuses.has(session.status) ? "Continuar" : "Visualizar"}</Button>
@@ -3030,7 +3059,7 @@ export function Inventory({
                   })}
                   {countSessions.length === 0 && (
                     <Table.Row>
-                      <Table.Td colSpan={8}>
+                      <Table.Td colSpan={7}>
                         <EmptyState title="Nenhuma contagem encontrada" description="Clique em Nova contagem para abrir uma ficha de lançamento com produtos controlados." />
                       </Table.Td>
                     </Table.Row>
@@ -3063,7 +3092,6 @@ export function Inventory({
                       <span>
                         <strong>{formatNumber(session.countedItems)}</strong>/{formatNumber(session.totalItems)} contados
                         {Number(session.pendingItems) > 0 && <em>{formatNumber(session.pendingItems)} pend.</em>}
-                        {Number(session.divergentItems) > 0 && <em className="count-list-divergent">{formatNumber(session.divergentItems)} div.</em>}
                       </span>
                       <div className="progress-track"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
                     </div>
@@ -3092,9 +3120,6 @@ export function Inventory({
             <li><span>{formatNumber(operationalSummary.drafts)}</span> em rascunho</li>
             <li><span>{formatNumber(operationalSummary.review)}</span> em revisão</li>
             <li><span>{formatNumber(operationalSummary.pending)}</span> pendentes</li>
-            <li className={operationalSummary.divergent ? "inv-estatisticas__alerta" : ""}>
-              <span>{formatNumber(operationalSummary.divergent)}</span> divergentes
-            </li>
             {!operationalSummary.activeFinalCmv && operationalSummary.lastFinalCmv && (
               <li className="inv-estatisticas__ultimo">
                 último final CMV: {operationalSummary.lastFinalCmv.code} · {formatDate(operationalSummary.lastFinalCmv.date)}
@@ -3232,7 +3257,6 @@ export function Inventory({
                     <Table.Th>Tipo / setor</Table.Th>
                     <Table.Th>Status</Table.Th>
                     <Table.Th minWidth={120}>Progresso</Table.Th>
-                    <Table.Th align="right">Div.</Table.Th>
                     <Table.Th>Responsável</Table.Th>
                     <Table.Th actions>Ações</Table.Th>
                   </Table.Row>
@@ -3252,13 +3276,12 @@ export function Inventory({
                       </Table.Td>
                       <Table.Td><StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge></Table.Td>
                       <Table.Td>{inventoryProgress(inventory)}</Table.Td>
-                      <Table.Td align="right" className={Number(inventory.divergentItems) > 0 ? "count-list-divergent" : undefined}>{formatNumber(inventory.divergentItems)}</Table.Td>
                       <Table.Td truncate style={{ maxWidth: 110 }} title={inventory.responsibleName ?? "-"}>{inventory.responsibleName ?? "-"}</Table.Td>
                       <Table.Td actions>{inventoryActions(inventory)}</Table.Td>
                     </Table.Row>
                   ))}
                   {officialInventories.length === 0 && (
-                    <Table.Row><Table.Td colSpan={8}><EmptyState title="Nenhum inventario oficial" description="Aprove ou feche uma contagem para gerar o documento oficial." /></Table.Td></Table.Row>
+                    <Table.Row><Table.Td colSpan={7}><EmptyState title="Nenhum inventario oficial" description="Aprove ou feche uma contagem para gerar o documento oficial." /></Table.Td></Table.Row>
                   )}
                 </Table.Body>
               </Table>
@@ -3277,7 +3300,7 @@ export function Inventory({
                     </div>
                     <StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge>
                   </div>
-                  {inventoryProgress(inventory, Number(inventory.divergentItems) > 0 ? <em className="count-list-divergent">{formatNumber(inventory.divergentItems)} div.</em> : undefined)}
+                  {inventoryProgress(inventory)}
                   <div className="count-list-card-footer">
                     <small>{formatDate(inventory.date)}{inventory.responsibleName ? ` · ${inventory.responsibleName}` : ""}</small>
                     {inventoryActions(inventory)}
@@ -3326,12 +3349,21 @@ export function Inventory({
             <ul className="inv-estatisticas op-detail-stats">
               <li><span>{formatNumber(operationalDetail.countedItems)}/{formatNumber(operationalDetail.totalItems)}</span> contados</li>
               <li><span>{formatNumber(operationalDetail.pendingItems)}</span> pendentes</li>
-              <li className={Number(operationalDetail.divergentItems) > 0 ? "inv-estatisticas__alerta" : ""}><span>{formatNumber(operationalDetail.divergentItems)}</span> divergentes</li>
               <li className="inv-estatisticas__ultimo">
                 efetiva {formatDate(operationalDetail.effectiveCountDate ?? operationalDetail.date)}
                 {(operationalDetail.startedAt || operationalDetail.finishedAt) && ` · ${formatDateTime(operationalDetail.startedAt)} → ${formatDateTime(operationalDetail.finishedAt)}`}
               </li>
             </ul>
+
+            {operationalDetail.status !== "CANCELADO" && (
+              <ConferenciaInventario
+                key={operationalDetail.id}
+                inventoryId={operationalDetail.id}
+                versao={versaoConferencia}
+                onLocalizar={localizarItemDaConferencia}
+                onCarregar={setConferencia}
+              />
+            )}
 
             {operationalDetail.type === "FINAL_CMV" && operationalDetail.status === "RASCUNHO" && (() => {
               const complementSessions = countSessions.filter((s) =>
@@ -3429,7 +3461,7 @@ export function Inventory({
                   </div>
                   <div className="cmv-closing-stepper__step cmv-closing-stepper__step--done">
                     <span className="cmv-closing-stepper__dot">✓</span>
-                    <span>Revisão<small>{operationalDetail.pendingItems} pendentes{operationalDetail.divergentItems > 0 ? `, ${formatNumber(operationalDetail.divergentItems)} divergências` : ""}</small></span>
+                    <span>Revisão<small>{operationalDetail.pendingItems} pendentes{itensEmAlerta > 0 ? `, ${formatNumber(itensEmAlerta)} em alerta na conferência` : ""}</small></span>
                   </div>
                   <div className="cmv-closing-stepper__step cmv-closing-stepper__step--active">
                     <span className="cmv-closing-stepper__dot">3</span>
@@ -3447,12 +3479,12 @@ export function Inventory({
                 <div className="cmv-closing-stats">
                   <div><span>Zerados</span><strong>{formatNumber(operationalDetail.zeroItems)}</strong></div>
                   <div><span>Contados</span><strong>{formatNumber(operationalDetail.countedItems)}</strong></div>
-                  <div><span>Divergentes</span><strong>{formatNumber(operationalDetail.divergentItems)}</strong></div>
+                  <div><span>Em alerta</span><strong>{conferenciaAtual ? formatNumber(itensEmAlerta) : "—"}</strong></div>
                   <div><span>Pendentes</span><strong>{formatNumber(operationalDetail.pendingItems)}</strong></div>
                 </div>
-                {operationalDetail.divergentItems > 0 && (
+                {itensEmAlerta > 0 && (
                   <p className="cmv-closing-assistant__warn">
-                    <AlertTriangle size={14} />{formatNumber(operationalDetail.divergentItems)} item(ns) com quantidade diferente do esperado — registrado como divergência, não impede a aprovação.
+                    <AlertTriangle size={14} />{formatNumber(itensEmAlerta)} item(ns) impossíveis ou zerados suspeitos na conferência acima. Revise antes de aprovar: depois disso as quantidades viram a base do CMV.
                   </p>
                 )}
                 <p className="cmv-closing-assistant__info">
@@ -3528,7 +3560,7 @@ export function Inventory({
 
             <div className="table-wrap operational-count-table">
               <table>
-                <thead><tr><th>Cód.</th><th>Produto</th><th>Setor</th><th title="Saldo teórico no sistema na hora da criação do inventário.">Saldo esp.</th><th>Qtd.</th><th>Dif.</th><th>Status</th><th className="op-note-col-header" title="Observação do item"><MessageSquare size={14} /></th></tr></thead>
+                <thead><tr><th>Cód.</th><th>Produto</th><th>Setor</th><th>Qtd.</th><th title="Resultado da conferência quando o inventário foi salvo pela última vez">Conferência</th><th className="op-note-col-header" title="Observação do item"><MessageSquare size={14} /></th></tr></thead>
                 <tbody>
                   {filteredOperationalItems.map((item) => {
                     const line = operationalLines[item.id] ?? { countedQuantity: "", notes: "" };
@@ -3541,10 +3573,8 @@ export function Inventory({
                           <td>{item.productCode ?? "-"}</td>
                           <td title={item.productName}><span className="op-product-name">{item.productName}</span><small>{[item.categoryName, item.subcategoryName].filter(Boolean).join(" • ") || "-"}</small></td>
                           <td title={item.sectorName ?? "-"}>{item.sectorName ?? "-"}</td>
-                          <td>{formatNumber(item.expectedQuantity)}{item.unit && <small className="op-unit-tag">{item.unit}</small>}</td>
-                          <td><input className="count-input" inputMode="decimal" disabled={locked} value={line.countedQuantity} onChange={(event) => { setOperationalLines({ ...operationalLines, [item.id]: { ...line, countedQuantity: sanitizeQuantityInput(event.target.value) } }); setOperationalDirty((prev) => (prev[item.id] ? prev : { ...prev, [item.id]: true })); }} /></td>
-                          <td className={item.differenceQuantity != null && Math.abs(item.differenceQuantity) > DIFF_EPSILON ? (item.differenceQuantity > 0 ? "diff-above" : "diff-below") : "diff-neutral"}>{formatDiff(item.differenceQuantity)}</td>
-                          <td><StatusBadge tone={itemTone(item.status)}>{itemStatusLabels[item.status] ?? item.status}</StatusBadge></td>
+                          <td className="op-qty-cell"><input className="count-input" data-op-item-id={item.id} aria-label={`Quantidade de ${item.productName}`} inputMode="decimal" disabled={locked} value={line.countedQuantity} onChange={(event) => { setOperationalLines({ ...operationalLines, [item.id]: { ...line, countedQuantity: sanitizeQuantityInput(event.target.value) } }); setOperationalDirty((prev) => (prev[item.id] ? prev : { ...prev, [item.id]: true })); }} />{item.unit && <small className="op-unit-tag">{item.unit}</small>}</td>
+                          <td><SeloDaConferencia item={conferenciaPorItem.get(item.id)} /></td>
                           <td className="op-note-col">
                             <button
                               type="button"
@@ -3560,7 +3590,7 @@ export function Inventory({
                         </tr>
                         {noteOpen && (
                           <tr className="op-note-expansion-row">
-                            <td colSpan={8}>
+                            <td colSpan={6}>
                               <div className="op-note-expansion">
                                 <label className="op-note-label">Observação do item</label>
                                 <textarea
@@ -3581,7 +3611,7 @@ export function Inventory({
                     );
                   })}
                   {filteredOperationalItems.length === 0 && (
-                    <tr><td colSpan={8}><EmptyState title="Nenhum produto nesta contagem" description="Revise o setor selecionado ou crie uma contagem geral/final CMV para carregar todos os produtos controlados." /></td></tr>
+                    <tr><td colSpan={6}><EmptyState title="Nenhum produto nesta contagem" description="Revise o setor selecionado ou crie uma contagem geral/final CMV para carregar todos os produtos controlados." /></td></tr>
                   )}
                 </tbody>
               </table>
@@ -4082,7 +4112,7 @@ export function Inventory({
               <p><strong>Produtos pendentes:</strong> {operationalDetail.pendingItems}</p>
               <p><strong>Itens zerados:</strong> {formatNumber(operationalDetail.zeroItems)}</p>
               <p><strong>Itens contados:</strong> {formatNumber(operationalDetail.countedItems)}</p>
-              <p><strong>Itens divergentes:</strong> {formatNumber(operationalDetail.divergentItems)}</p>
+              <p><strong>Em alerta na conferência:</strong> {conferenciaAtual ? `${formatNumber(itensEmAlerta)} (impossíveis ou zerados suspeitos)` : "não carregada"}</p>
               <p style={{ marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
                 Esta ação aprovará o inventário final e criará uma base de estoque para uso no CMV Real. Depois disso, o inventário poderá ser fechado e utilizado na apuração do CMV.
               </p>

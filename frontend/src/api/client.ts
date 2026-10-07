@@ -1772,6 +1772,42 @@ export type OperationalInventoryDetail = OperationalInventory & {
   items: OperationalInventoryItem[];
 };
 
+/** Da mais grave para a menos grave. Regras em backend/src/modules/inventory/conferencia.ts. */
+export type ClasseConferencia =
+  | "IMPOSSIVEL"
+  | "ZERADO_SUSPEITO"
+  | "FORA_DO_HISTORICO"
+  | "SEM_REFERENCIA"
+  | "PENDENTE"
+  | "COERENTE";
+
+export type ItemDaConferencia = {
+  itemId: string;
+  productId: string | null;
+  productCode: string | null;
+  productName: string;
+  sectorName: string | null;
+  unit: string | null;
+  contado: number | null;
+  anterior: number | null;
+  anteriorData: string | null;
+  anteriorCodigo: string | null;
+  compras: number;
+  disponivel: number | null;
+  consumo: number | null;
+  custoUnitario: number | null;
+  impacto: number | null;
+  classe: ClasseConferencia;
+  motivo: string;
+};
+
+export type ConferenciaDoInventario = {
+  inventoryId: string;
+  code: string;
+  resumo: Record<ClasseConferencia, { itens: number; impacto: number }>;
+  itens: ItemDaConferencia[];
+};
+
 export type OperationalInventoryPurchasingReport = {
   zeros: OperationalInventoryItem[];
   pending: OperationalInventoryItem[];
@@ -3120,6 +3156,10 @@ export function createOperationalInventory(payload: {
 
 export function getOperationalInventory(id: string) {
   return request<OperationalInventoryDetail>(`/inventory/operational/${id}`);
+}
+
+export function getConferenciaDoInventario(id: string) {
+  return request<ConferenciaDoInventario>(`/inventory/operational/${id}/conferencia`);
 }
 
 export function saveOperationalInventoryItems(id: string, items: Array<{ id: string; countedQuantity?: number | string | null; notes?: string | null }>) {
