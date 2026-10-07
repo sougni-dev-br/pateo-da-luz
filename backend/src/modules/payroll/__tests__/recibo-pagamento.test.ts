@@ -31,7 +31,7 @@ function pessoa(over: Partial<ParticipanteDoRecibo> = {}): ParticipanteDoRecibo 
 const soma = (linhas: Array<{ valor: number }>) => round2(linhas.reduce((a, l) => a + l.valor, 0));
 
 describe("pagamento do mês: total = A pagar da lista", () => {
-  test("com adiantamento, vales, crédito, hora extra, noturno e DSR", () => {
+  test("com adiantamento, vales, crédito, hora extra, noturno e DSR: vales e créditos só dentro da gorjeta", () => {
     const p = pessoa({
       adiantamentoSalarial: 1040,
       vales: [
@@ -47,12 +47,13 @@ describe("pagamento do mês: total = A pagar da lista", () => {
     expect(soma(d.linhas)).toBe(p.totalAPagar);
     expect(d.linhas.map((l) => `${l.codigo} ${l.descricao}`)).toEqual([
       "1 DIAS TRABALHADOS", "203 GORJETA", "201 HORA EXTRA 50%", "202 ADICIONAL NOTURNO", "250 DSR S/ EXTRAS",
-      "981 DESC. ADIANTAMENTO", "300 CRÉDITO TROCA DE TURNO", "990 VALE ADIANTAMENTO", "990 VALE REFEIÇÃO ALMOÇO",
+      "981 DESC. ADIANTAMENTO",
     ]);
+    // 812,40 − 35,50 − 200,00 + 50,00: a gorjeta já sai líquida dos vales e com os créditos.
+    expect(d.linhas[1]).toEqual({ codigo: 203, descricao: "GORJETA", referencia: null, valor: 626.9 });
     expect(d.linhas[0]).toEqual({ codigo: 1, descricao: "DIAS TRABALHADOS", referencia: "30,00", valor: 2600 });
     expect(d.linhas[5]).toEqual({ codigo: 981, descricao: "DESC. ADIANTAMENTO", referencia: "1.040,00", valor: -1040 });
-    expect(d.linhas[8]).toEqual({ codigo: 990, descricao: "VALE REFEIÇÃO ALMOÇO", referencia: "12/09/2026", valor: -35.5, vale: true });
-    expect(d.linhas[6].valor).toBe(50);
+    expect(d.linhas.some((l) => l.codigo === 990 || l.codigo === 300)).toBe(false);
     expect(d.linhas[2]).toMatchObject({ referencia: "6,00", valor: 106.36 });
     expect(d.linhas[3]).toMatchObject({ referencia: "4,50", valor: 14.18 });
     expect(d.linhas.some((l) => l.codigo === 999)).toBe(false);
@@ -68,11 +69,12 @@ describe("pagamento do mês: total = A pagar da lista", () => {
     expect(soma(d.linhas)).toBe(q.totalAPagar);
   });
 
-  test("fora da gorjeta: sem linha de gorjeta; vales continuam", () => {
+  test("fora da gorjeta com vale: uma linha de desconto, sem listar o vale", () => {
     const p = pessoa({ foraDaGorjeta: true, rateioAmount: 0, vales: [{ type: "OUTRO", amount: 20, date: null, notes: null }] });
     const d = discriminacaoDoMes(p, null);
     expect(d.linhas.some((l) => l.descricao === "GORJETA")).toBe(false);
-    expect(d.linhas.find((l) => l.codigo === 990)).toEqual({ codigo: 990, descricao: "VALE DESCONTO", referencia: null, valor: -20, vale: true });
+    expect(d.linhas.find((l) => l.codigo === 203)).toEqual({ codigo: 203, descricao: "VALES ACIMA DA GORJETA", referencia: null, valor: -20 });
+    expect(d.linhas.some((l) => l.codigo === 990)).toBe(false);
     expect(d.total).toBe(p.totalAPagar);
   });
 
