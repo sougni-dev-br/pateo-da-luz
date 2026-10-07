@@ -1,0 +1,331 @@
+/* ═══════════════════════════════════════════════════════════
+   Conferência do inventário
+   Uma pergunta por item: o contado cabe no que havia? A conta
+   (anterior + compras = disponível → contado) aparece escrita,
+   em números tabulares. Cor só onde há julgamento: vermelho para
+   o que não pode estar certo, âmbar para o que foge do normal.
+   ═══════════════════════════════════════════════════════════ */
+
+.conf {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  box-shadow: 0 1px 2px rgba(22, 21, 18, 0.04);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+
+.conf-cabecalho {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.conf-cabecalho h4 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.conf-cabecalho p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.conf-estado {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.conf-estado--erro {
+  color: var(--danger);
+}
+
+/* ── Veredito: a frase que responde "posso aprovar?" ────── */
+
+.conf-veredito {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.conf-veredito svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.conf-veredito--alerta {
+  border: 1px solid var(--tint-danger-border);
+  background: var(--tint-danger);
+  color: var(--danger);
+}
+
+.conf-veredito--alerta span {
+  color: var(--ink);
+}
+
+.conf-veredito--ok {
+  border: 1px solid var(--tint-success-border);
+  background: var(--tint-success);
+  color: var(--success);
+}
+
+/* ── Classes: filtro e placar ao mesmo tempo ────────────── */
+
+.conf-classes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 8px;
+}
+
+.conf-classe {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.conf-classe:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--row-hover);
+}
+
+.conf-classe:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 1px;
+}
+
+.conf-classe:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.conf-classe__rotulo {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.conf-classe__total {
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.conf-classe__valor {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.conf-classe--perigo:not(:disabled) .conf-classe__total { color: var(--danger); }
+.conf-classe--atencao:not(:disabled) .conf-classe__total { color: var(--warning); }
+
+.conf-classe[aria-pressed="true"] {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.conf-classe--perigo[aria-pressed="true"] {
+  border-color: var(--danger);
+  background: var(--tint-danger);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.conf-classe--atencao[aria-pressed="true"] {
+  border-color: var(--warning);
+  background: var(--tint-warning);
+  box-shadow: inset 0 0 0 1px var(--warning);
+}
+
+.conf-ajuda {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* ── Itens ──────────────────────────────────────────────── */
+
+.conf-lista {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.conf-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.conf-item--perigo { border-left-color: var(--danger); }
+.conf-item--atencao { border-left-color: var(--warning); }
+.conf-item--ok { border-left-color: var(--tint-success-border); }
+
+.conf-item__topo {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.conf-item__produto {
+  display: grid;
+  min-width: 0;
+}
+
+.conf-item__produto strong {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.conf-item__produto small,
+.conf-item__impacto small,
+.conf-conta small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.conf-item__impacto {
+  display: grid;
+  justify-items: end;
+  flex: none;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+/* A conta escrita: anterior + compras = disponível → contado. */
+.conf-conta {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px 20px;
+  margin: 0;
+}
+
+.conf-conta > div {
+  display: grid;
+  gap: 1px;
+}
+
+.conf-conta dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.conf-conta dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.conf-conta__contado dd {
+  font-weight: 700;
+}
+
+.conf-item--perigo .conf-conta__contado dd {
+  color: var(--danger);
+}
+
+.conf-item__motivo {
+  grid-column: 1 / 2;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.conf-item__localizar {
+  grid-column: 2 / 3;
+  align-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.conf-mais {
+  justify-self: center;
+}
+
+@media (max-width: 640px) {
+  .conf {
+    padding: 14px 12px;
+  }
+
+  .conf-classes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .conf-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .conf-item__motivo,
+  .conf-item__localizar {
+    grid-column: 1 / -1;
+  }
+
+  .conf-item__localizar {
+    justify-self: start;
+  }
+
+  .conf-conta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
+  }
+}
+
+/* ── Selo na tabela de lançamento ───────────────────────── */
+
+.conf-selo {
+  display: inline-flex;
+  cursor: help;
+}
+
+.conf-selo-vazio {
+  color: var(--muted);
+}
+
+/* O motivo do selo para leitor de tela: o title nao chega por toque nem teclado. */
+.conf-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
