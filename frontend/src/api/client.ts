@@ -1766,6 +1766,8 @@ export type OperationalInventory = {
   pendingItems: number;
   divergentItems: number;
   zeroItems: number;
+  /** Valor da base oficial (CMV) gerada por este inventario, quando viva. */
+  snapshotTotalValue?: number | null;
 };
 
 export type OperationalInventoryDetail = OperationalInventory & {
@@ -3156,6 +3158,28 @@ export function createOperationalInventory(payload: {
 
 export function getOperationalInventory(id: string) {
   return request<OperationalInventoryDetail>(`/inventory/operational/${id}`);
+}
+
+export type ItemDaPosicao = {
+  productId: string;
+  productCode: string | null;
+  productName: string;
+  unit: string | null;
+  sectorName: string | null;
+  categoryName: string | null;
+  /** Ultima contagem aprovada. `null` = produto nunca contado num inventario aprovado. */
+  quantidade: number | null;
+  contadoEm: string | null;
+  inventarioCodigo: string | null;
+  /** Custo da base oficial daquele inventario. `null` = a base nao tem custo. */
+  custoUnitario: number | null;
+  valor: number | null;
+  comprasDesde: number;
+  valorComprasDesde: number;
+};
+
+export function getPosicaoDoEstoque() {
+  return request<{ itens: ItemDaPosicao[] }>("/inventory/posicao");
 }
 
 export function getConferenciaDoInventario(id: string) {

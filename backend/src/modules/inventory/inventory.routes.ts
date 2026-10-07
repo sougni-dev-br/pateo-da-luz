@@ -583,6 +583,8 @@ type OperationalInventoryRow = {
   pendingItems?: number | bigint;
   divergentItems?: number | bigint;
   zeroItems?: number | bigint;
+  /** Valor da base oficial gerada pelo inventario (InventorySnapshot), quando viva. */
+  snapshotTotalValue?: Prisma.Decimal | null;
 };
 
 type OperationalInventoryItemRow = {
@@ -741,7 +743,8 @@ function normalizeOperationalInventory(row: OperationalInventoryRow) {
     countedItems: Number(row.countedItems ?? 0),
     pendingItems: Number(row.pendingItems ?? 0),
     divergentItems: Number(row.divergentItems ?? 0),
-    zeroItems: Number(row.zeroItems ?? 0)
+    zeroItems: Number(row.zeroItems ?? 0),
+    snapshotTotalValue: row.snapshotTotalValue == null ? null : Number(row.snapshotTotalValue)
   };
 }
 
@@ -1299,10 +1302,12 @@ async function getOperationalInventorySummary(id: string) {
       COUNT(item."id") FILTER (WHERE item."status" IN ('CONTADO', 'ZERO', 'DIVERGENTE')) AS "countedItems",
       COUNT(item."id") FILTER (WHERE item."status" = 'PENDENTE') AS "pendingItems",
       COUNT(item."id") FILTER (WHERE item."status" = 'DIVERGENTE') AS "divergentItems",
-      COUNT(item."id") FILTER (WHERE item."status" = 'ZERO') AS "zeroItems"
+      COUNT(item."id") FILTER (WHERE item."status" = 'ZERO') AS "zeroItems",
+      MAX(snap."totalValue") FILTER (WHERE snap."status" <> 'CANCELLED') AS "snapshotTotalValue"
     FROM "OperationalInventory" i
     LEFT JOIN "User" u ON u."id" = i."responsibleUserId"
     LEFT JOIN "OperationalInventoryItem" item ON item."inventoryId" = i."id"
+    LEFT JOIN "InventorySnapshot" snap ON snap."id" = i."inventorySnapshotId"
     WHERE i."id" = ${id}
     GROUP BY i."id", u."name"
     LIMIT 1
@@ -3275,10 +3280,12 @@ inventoryRouter.get("/operational", async (request, response) => {
       COUNT(item."id") FILTER (WHERE item."status" IN ('CONTADO', 'ZERO', 'DIVERGENTE')) AS "countedItems",
       COUNT(item."id") FILTER (WHERE item."status" = 'PENDENTE') AS "pendingItems",
       COUNT(item."id") FILTER (WHERE item."status" = 'DIVERGENTE') AS "divergentItems",
-      COUNT(item."id") FILTER (WHERE item."status" = 'ZERO') AS "zeroItems"
+      COUNT(item."id") FILTER (WHERE item."status" = 'ZERO') AS "zeroItems",
+      MAX(snap."totalValue") FILTER (WHERE snap."status" <> 'CANCELLED') AS "snapshotTotalValue"
     FROM "OperationalInventory" i
     LEFT JOIN "User" u ON u."id" = i."responsibleUserId"
     LEFT JOIN "OperationalInventoryItem" item ON item."inventoryId" = i."id"
+    LEFT JOIN "InventorySnapshot" snap ON snap."id" = i."inventorySnapshotId"
     WHERE (${includeCanceled} = true OR i."status" <> 'CANCELADO')
     GROUP BY i."id", u."name"
     ORDER BY i."date" DESC, i."createdAt" DESC
@@ -4147,6 +4154,103 @@ inventoryRouter.get("/operational/:id", async (request, response) => {
   response.json({ ...inventory, items: items.map(normalizeOperationalInventoryItem) });
 });
 
+// Posicao do estoque: a ultima contagem aprovada de cada produto controlado,
+// valorizada pelo custo da base oficial daquele inventario, mais as compras
+// recebidas desde entao. So o custo da base: e o que o CMV usa, e o custo
+// medio do saldo herda os erros de unidade (o SACO AMOSTRA C800 valia
+// R$ 67 mil por ele, contra R$ 41,8 mil do inventario inteiro). Substitui a lista que mostrava InventoryStock, cujo
+// saldo so soma compras e nunca baixa. Consumo nao e registrado no sistema,
+// entao "contado + compras desde entao" e um teto, nao o estoque de hoje.
+inventoryRouter.get("/posicao", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+
+  const rows = await prisma.$queryRaw<Array<{
+    productId: string;
+    productCode: string | null;
+    productName: string;
+    unit: string | null;
+    sectorName: string | null;
+    categoryName: string | null;
+    quantidade: Prisma.Decimal | null;
+    contadoEm: Date | null;
+    inventarioCodigo: string | null;
+    custoUnitario: Prisma.Decimal | null;
+    comprasDesde: Prisma.Decimal | null;
+    valorComprasDesde: Prisma.Decimal | null;
+  }>>`
+    WITH ultima AS (
+      SELECT DISTINCT ON (i."productId")
+             i."productId", i."countedQuantity" AS quantidade, i."unit",
+             COALESCE(o."effectiveCountDate", o."date")::date AS dia,
+             o."code", o."inventorySnapshotId"
+      FROM "OperationalInventoryItem" i
+      JOIN "OperationalInventory" o ON o."id" = i."inventoryId"
+      WHERE o."status" IN ('APROVADO', 'FECHADO')
+        AND i."productId" IS NOT NULL
+        AND i."countedQuantity" IS NOT NULL
+      ORDER BY i."productId", COALESCE(o."effectiveCountDate", o."date") DESC, o."approvedAt" DESC NULLS LAST, i."id"
+    ),
+    custo_base AS (
+      -- Custo zero na base e "sem custo" (187 itens a R$ 0,00 em set/2026):
+      -- mostra-lo como R$ 0,00 esconderia o buraco que o recorte existe para achar.
+      SELECT u."productId", MAX(NULLIF(si."unitCost", 0)) AS custo
+      FROM ultima u
+      JOIN "InventorySnapshotItem" si ON si."snapshotId" = u."inventorySnapshotId" AND si."productId" = u."productId"
+      GROUP BY u."productId"
+    ),
+    compras AS (
+      SELECT m."productId", SUM(m."quantity") AS quantidade, SUM(m."totalCost") AS valor
+      FROM "InventoryMovement" m
+      JOIN "PurchaseItem" pi ON pi."id" = m."sourcePurchaseItemId"
+      JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN ultima u ON u."productId" = m."productId"
+      WHERE m."type" = 'PURCHASE_IN'
+        AND m."isCancelled" = false
+        AND p."status" = 'ACTIVE'
+        AND COALESCE(p."receivedAt", p."purchaseDate")::date > u.dia
+      GROUP BY m."productId"
+    )
+    SELECT p."id" AS "productId", p."externalCode" AS "productCode", p."name" AS "productName",
+           COALESCE(u."unit", p."stockUnit", p."unit") AS "unit",
+           sec."name" AS "sectorName", cat."name" AS "categoryName",
+           u.quantidade, u.dia AS "contadoEm", u."code" AS "inventarioCodigo",
+           cb.custo AS "custoUnitario",
+           c.quantidade AS "comprasDesde", c.valor AS "valorComprasDesde"
+    FROM "Product" p
+    LEFT JOIN ultima u ON u."productId" = p."id"
+    LEFT JOIN custo_base cb ON cb."productId" = p."id"
+    LEFT JOIN compras c ON c."productId" = p."id"
+    LEFT JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
+    LEFT JOIN "Category" cat ON cat."id" = p."categoryId"
+    WHERE p."isActive" = true AND p."controlsStock" = true
+    ORDER BY sec."name" NULLS LAST, p."name"
+  `;
+
+  const numero = (valor: Prisma.Decimal | null) => (valor == null ? null : Number(valor));
+  response.json({
+    itens: rows.map((row) => {
+      const quantidade = numero(row.quantidade);
+      const custoUnitario = numero(row.custoUnitario);
+      return {
+        productId: row.productId,
+        productCode: row.productCode,
+        productName: row.productName,
+        unit: row.unit,
+        sectorName: row.sectorName,
+        categoryName: row.categoryName,
+        quantidade,
+        contadoEm: row.contadoEm,
+        inventarioCodigo: row.inventarioCodigo,
+        custoUnitario,
+        valor: quantidade != null && custoUnitario != null ? Math.round(quantidade * custoUnitario * 100) / 100 : null,
+        comprasDesde: numero(row.comprasDesde) ?? 0,
+        valorComprasDesde: numero(row.valorComprasDesde) ?? 0
+      };
+    })
+  });
+});
+
 // Conferencia do inventario: cada item contra a ultima contagem aprovada do
 // produto mais as compras recebidas desde entao. Nao usa o `expectedQuantity`,
 // que vem do saldo do sistema e esse saldo nunca baixa. Regras em conferencia.ts.
@@ -4176,7 +4280,7 @@ inventoryRouter.get("/operational/:id/conferencia", async (request, response) =>
     anteriorCodigo: string | null;
     compras: Prisma.Decimal | null;
     custoCompras: Prisma.Decimal | null;
-    custoMedio: Prisma.Decimal | null;
+    custoBase: Prisma.Decimal | null;
     mediana: number | null;
     menor: Prisma.Decimal | null;
     maior: Prisma.Decimal | null;
@@ -4193,7 +4297,7 @@ inventoryRouter.get("/operational/:id/conferencia", async (request, response) =>
       WHERE i."inventoryId" = ${request.params.id}
     ),
     oficiais AS (
-      SELECT i."id", i."productId", i."countedQuantity", o."code",
+      SELECT i."id", i."productId", i."countedQuantity", o."code", o."inventorySnapshotId",
              COALESCE(o."effectiveCountDate", o."date")::date AS dia, o."approvedAt"
       FROM "OperationalInventoryItem" i
       JOIN "OperationalInventory" o ON o."id" = i."inventoryId"
@@ -4205,7 +4309,7 @@ inventoryRouter.get("/operational/:id/conferencia", async (request, response) =>
         AND COALESCE(o."effectiveCountDate", o."date")::date < atual.dia
     ),
     anterior AS (
-      SELECT DISTINCT ON ("productId") "productId", "countedQuantity", "code", dia
+      SELECT DISTINCT ON ("productId") "productId", "countedQuantity", "code", dia, "inventorySnapshotId"
       FROM oficiais
       ORDER BY "productId", dia DESC, "approvedAt" DESC NULLS LAST, "id"
     ),
@@ -4237,23 +4341,28 @@ inventoryRouter.get("/operational/:id/conferencia", async (request, response) =>
     SELECT alvo."id" AS "itemId", alvo."productId", alvo."productCode", alvo."productName",
            alvo."sectorName", alvo."unit", alvo."countedQuantity" AS contado,
            anterior."countedQuantity" AS anterior, anterior.dia AS "anteriorData", anterior."code" AS "anteriorCodigo",
-           compras.quantidade AS compras, compras.custo AS "custoCompras", s."averageCost" AS "custoMedio",
+           compras.quantidade AS compras, compras.custo AS "custoCompras", base."unitCost" AS "custoBase",
            historico.mediana, historico.menor, historico.maior, historico.observacoes
     FROM alvo
     LEFT JOIN anterior ON anterior."productId" = alvo."productId"
     LEFT JOIN compras ON compras."productId" = alvo."productId"
     LEFT JOIN historico ON historico."productId" = alvo."productId"
-    LEFT JOIN "InventoryStock" s ON s."productId" = alvo."productId"
+    LEFT JOIN LATERAL (
+      SELECT si."unitCost"
+      FROM "InventorySnapshotItem" si
+      WHERE si."snapshotId" = anterior."inventorySnapshotId" AND si."productId" = alvo."productId" AND si."unitCost" > 0
+      ORDER BY si."unitCost" DESC
+      LIMIT 1
+    ) base ON true
   `;
 
   const numero = (valor: Prisma.Decimal | number | null) => (valor == null ? null : Number(valor));
   const itens = rows.map((row) => {
     const compras = numero(row.compras) ?? 0;
-    const custoCompras = numero(row.custoCompras);
-    const custoMedio = numero(row.custoMedio);
-    // Custo das compras do periodo primeiro: o medio do saldo e diluido por
-    // ajustes e herda o saldo que nunca baixa. Medio zero e "sem custo".
-    const custoUnitario = custoCompras ?? (custoMedio && custoMedio > 0 ? custoMedio : null);
+    // Custo das compras do periodo; sem compra, o da base oficial da contagem
+    // anterior (o que o CMV usou). Nunca o medio do saldo: ele herda erro de
+    // unidade e dava R$ 39 mil a 1.800 saches de palito.
+    const custoUnitario = numero(row.custoCompras) ?? numero(row.custoBase);
     const resultado = classificarItemDaConferencia({
       nomeProduto: row.productName,
       unidade: row.unit,
