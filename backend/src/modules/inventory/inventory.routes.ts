@@ -11,6 +11,7 @@ import { userHasPermission } from "../security/menu-permissions.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { converterItemDeCompra } from "../../shared/unidades/conversao.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
+import { classificarItemDaConferencia, ordenarConferencia, resumirConferencia } from "./conferencia.js";
 import { derivarCiclos, duracaoEmDias, fechouForaDoMes } from "./stock-cycle.service.js";
 import { semanaDaData, statusDaRotina } from "./agenda-rotina.js";
 
@@ -4144,6 +4145,153 @@ inventoryRouter.get("/operational/:id", async (request, response) => {
     ORDER BY "sectorName" NULLS LAST, "categoryName" NULLS LAST, "subcategoryName" NULLS LAST, "productName"
   `;
   response.json({ ...inventory, items: items.map(normalizeOperationalInventoryItem) });
+});
+
+// Conferencia do inventario: cada item contra a ultima contagem aprovada do
+// produto mais as compras recebidas desde entao. Nao usa o `expectedQuantity`,
+// que vem do saldo do sistema e esse saldo nunca baixa. Regras em conferencia.ts.
+//
+// Datas comparadas como dia (TZ=UTC): compra no dia da contagem anterior ja
+// estava nela; compra no dia desta contagem entra nesta.
+inventoryRouter.get("/operational/:id/conferencia", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+
+  const inventory = await getOperationalInventorySummary(request.params.id);
+  if (!inventory) {
+    response.status(404).json({ message: "Inventario operacional nao encontrado." });
+    return;
+  }
+
+  const rows = await prisma.$queryRaw<Array<{
+    itemId: string;
+    productId: string | null;
+    productCode: string | null;
+    productName: string;
+    sectorName: string | null;
+    unit: string | null;
+    contado: Prisma.Decimal | null;
+    anterior: Prisma.Decimal | null;
+    anteriorData: Date | null;
+    anteriorCodigo: string | null;
+    compras: Prisma.Decimal | null;
+    custoCompras: Prisma.Decimal | null;
+    custoMedio: Prisma.Decimal | null;
+    mediana: number | null;
+    menor: Prisma.Decimal | null;
+    maior: Prisma.Decimal | null;
+    observacoes: bigint | null;
+  }>>`
+    WITH atual AS (
+      SELECT "id", COALESCE("effectiveCountDate", "date")::date AS dia
+      FROM "OperationalInventory"
+      WHERE "id" = ${request.params.id}
+    ),
+    alvo AS (
+      SELECT i.*
+      FROM "OperationalInventoryItem" i
+      WHERE i."inventoryId" = ${request.params.id}
+    ),
+    oficiais AS (
+      SELECT i."id", i."productId", i."countedQuantity", o."code",
+             COALESCE(o."effectiveCountDate", o."date")::date AS dia, o."approvedAt"
+      FROM "OperationalInventoryItem" i
+      JOIN "OperationalInventory" o ON o."id" = i."inventoryId"
+      CROSS JOIN atual
+      WHERE o."status" IN ('APROVADO', 'FECHADO')
+        AND o."id" <> atual."id"
+        AND i."countedQuantity" IS NOT NULL
+        AND i."productId" IN (SELECT "productId" FROM alvo WHERE "productId" IS NOT NULL)
+        AND COALESCE(o."effectiveCountDate", o."date")::date < atual.dia
+    ),
+    anterior AS (
+      SELECT DISTINCT ON ("productId") "productId", "countedQuantity", "code", dia
+      FROM oficiais
+      ORDER BY "productId", dia DESC, "approvedAt" DESC NULLS LAST, "id"
+    ),
+    historico AS (
+      SELECT "productId",
+             PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY "countedQuantity") AS mediana,
+             MIN("countedQuantity") AS menor,
+             MAX("countedQuantity") AS maior,
+             COUNT(*) AS observacoes
+      FROM oficiais
+      WHERE "countedQuantity" > 0
+      GROUP BY "productId"
+    ),
+    compras AS (
+      SELECT m."productId", SUM(m."quantity") AS quantidade,
+             SUM(m."totalCost") / NULLIF(SUM(m."quantity") FILTER (WHERE m."totalCost" IS NOT NULL), 0) AS custo
+      FROM "InventoryMovement" m
+      JOIN "PurchaseItem" pi ON pi."id" = m."sourcePurchaseItemId"
+      JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN anterior a ON a."productId" = m."productId"
+      CROSS JOIN atual
+      WHERE m."type" = 'PURCHASE_IN'
+        AND m."isCancelled" = false
+        AND p."status" = 'ACTIVE'
+        AND COALESCE(p."receivedAt", p."purchaseDate")::date > a.dia
+        AND COALESCE(p."receivedAt", p."purchaseDate")::date <= atual.dia
+      GROUP BY m."productId"
+    )
+    SELECT alvo."id" AS "itemId", alvo."productId", alvo."productCode", alvo."productName",
+           alvo."sectorName", alvo."unit", alvo."countedQuantity" AS contado,
+           anterior."countedQuantity" AS anterior, anterior.dia AS "anteriorData", anterior."code" AS "anteriorCodigo",
+           compras.quantidade AS compras, compras.custo AS "custoCompras", s."averageCost" AS "custoMedio",
+           historico.mediana, historico.menor, historico.maior, historico.observacoes
+    FROM alvo
+    LEFT JOIN anterior ON anterior."productId" = alvo."productId"
+    LEFT JOIN compras ON compras."productId" = alvo."productId"
+    LEFT JOIN historico ON historico."productId" = alvo."productId"
+    LEFT JOIN "InventoryStock" s ON s."productId" = alvo."productId"
+  `;
+
+  const numero = (valor: Prisma.Decimal | number | null) => (valor == null ? null : Number(valor));
+  const itens = rows.map((row) => {
+    const compras = numero(row.compras) ?? 0;
+    const custoCompras = numero(row.custoCompras);
+    const custoMedio = numero(row.custoMedio);
+    // Custo das compras do periodo primeiro: o medio do saldo e diluido por
+    // ajustes e herda o saldo que nunca baixa. Medio zero e "sem custo".
+    const custoUnitario = custoCompras ?? (custoMedio && custoMedio > 0 ? custoMedio : null);
+    const resultado = classificarItemDaConferencia({
+      nomeProduto: row.productName,
+      unidade: row.unit,
+      contado: numero(row.contado),
+      anterior: numero(row.anterior),
+      compras,
+      custoUnitario,
+      historico: {
+        mediana: numero(row.mediana),
+        menor: numero(row.menor),
+        maior: numero(row.maior),
+        observacoes: Number(row.observacoes ?? 0)
+      }
+    });
+    return {
+      itemId: row.itemId,
+      productId: row.productId,
+      productCode: row.productCode,
+      productName: row.productName,
+      sectorName: row.sectorName,
+      unit: row.unit,
+      contado: numero(row.contado),
+      anterior: numero(row.anterior),
+      anteriorData: row.anteriorData,
+      anteriorCodigo: row.anteriorCodigo,
+      compras,
+      custoUnitario,
+      ...resultado
+    };
+  });
+
+  const ordenados = ordenarConferencia(itens);
+  response.json({
+    inventoryId: inventory.id,
+    code: inventory.code,
+    resumo: resumirConferencia(ordenados),
+    itens: ordenados
+  });
 });
 
 inventoryRouter.patch("/operational/:id/items", async (request, response) => {
