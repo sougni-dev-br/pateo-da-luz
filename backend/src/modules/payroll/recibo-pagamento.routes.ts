@@ -11,7 +11,7 @@ import { ROTULO_ACERTO, competenciaTexto } from "./acerto-lista.js";
 import { nomeCompleto } from "./nomes.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import {
-  type AcertoDoRecibo, type ParticipanteDoRecibo, recebeReciboDoMes, reciboDoMes, reciboPagoAntes,
+  type AcertoDoRecibo, type ParticipanteDoRecibo, type PessoaDoRecibo, recebeReciboDoMes, reciboDoMes, reciboPagoAntes,
 } from "./recibo-pagamento.js";
 
 const MSG_SEM_PERMISSAO = "O recibo mostra os valores pagos à pessoa: é preciso permissão de ver Funcionários.";
@@ -34,11 +34,19 @@ async function autorizado(request: Request, response: Response): Promise<boolean
   return true;
 }
 
-async function pessoas(ids: string[]) {
+// Cadastro para o cabeçalho do recibo. Não há código de funcionário no cadastro: o campo sai vazio.
+async function pessoas(ids: string[]): Promise<Map<string, PessoaDoRecibo>> {
   const lista = await prisma.employee.findMany({
-    where: { id: { in: ids } }, select: { id: true, firstName: true, lastName: true, cpf: true },
+    where: { id: { in: ids } },
+    select: {
+      id: true, firstName: true, lastName: true, cpf: true, position: true, admissionDate: true, birthDate: true, baseSalary: true,
+      tipFunction: { select: { name: true } },
+    },
   });
-  return new Map(lista.map((e) => [e.id, { nome: nomeCompleto(e), cpf: e.cpf ?? null }]));
+  return new Map(lista.map((e) => [e.id, {
+    nome: nomeCompleto(e), cpf: e.cpf ?? null, codigo: null, funcao: e.position ?? e.tipFunction?.name ?? null,
+    admissao: e.admissionDate ?? null, nascimento: e.birthDate ?? null, valorMensal: e.baseSalary == null ? null : Number(e.baseSalary),
+  }]));
 }
 
 // ─── Pagamento do mês ────────────────────────────────────────────────────────
