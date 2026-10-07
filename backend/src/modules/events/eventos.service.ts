@@ -29,41 +29,64 @@ export type BuffetCobrado = {
   outros: Array<{ produto: string; preco: number; vendidos: number }>;
 };
 
+/** Como o restaurante serviu o dia, segundo as vendas do PDV. */
+export type ServicoDoPdv = {
+  modalidade: "BUFFET" | "BUFFET_EXECUTIVO" | "A_LA_CARTE";
+  /** Preço do buffet do dia; null quando não vendeu buffet (à la carte). */
+  buffet: BuffetCobrado | null;
+};
+
 /**
  * O PDV vende o buffet como produto ("BUFFET PROMO 15", "BUFFET APJ/APR"…), cada um com o
- * preço daquele dia. O preço "do dia" é o do buffet que mais vendeu. Só vendas recebidas.
+ * preço daquele dia. O preço "do dia" é o do buffet que mais vendeu; a modalidade sai dele:
+ * buffet do grupo executivo é Buffet executivo, os outros são Buffet. Dia com vendas e
+ * nenhum buffet foi à la carte. Só vendas recebidas.
  * Os itens de venda só existem no ERP desde que o agente passou a mandá-los (set/2026);
- * antes disso vale o preço anotado na planilha ou pela gerência.
+ * antes disso, e em dia sem venda no PDV, vale o que a gerência anotou.
  */
-export async function buffetCobradoPorData(prisma: PrismaClient, de?: string, ate?: string): Promise<Map<string, BuffetCobrado>> {
+export async function servicoDoPdvPorData(prisma: PrismaClient, de?: string, ate?: string): Promise<Map<string, ServicoDoPdv>> {
   const itens = await prisma.agileSaleItem.findMany({
     where: {
       saleStatus: "RECEBIDA",
-      productName: { startsWith: "BUFFET", mode: "insensitive" },
       // Gravado ao meio-dia UTC, como o RevenueEntry.
       movementDate: { ...(de ? { gte: dataUtc(de) } : {}), ...(ate ? { lt: new Date(dataUtc(ate).getTime() + 86400000) } : {}) },
     },
-    select: { movementDate: true, productName: true, quantity: true, totalAmount: true },
+    select: { movementDate: true, productName: true, productGroup: true, quantity: true, totalAmount: true },
   });
 
-  const porDia = new Map<string, Map<string, { produto: string; preco: number; vendidos: number }>>();
+  type Preco = { produto: string; preco: number; vendidos: number; executivo: boolean };
+  const diasComVenda = new Set<string>();
+  const porDia = new Map<string, Map<string, Preco>>();
   for (const item of itens) {
+    const data = iso(item.movementDate);
+    diasComVenda.add(data);
+    const produto = item.productName.replace(/\s+/g, " ").trim();
+    if (!/^buffet/i.test(produto)) continue;
     const quantidade = Number(item.quantity);
     if (quantidade <= 0) continue;
     const preco = Math.round((Number(item.totalAmount) / quantidade) * 100) / 100;
-    const produto = item.productName.replace(/\s+/g, " ").trim();
-    const dia = porDia.get(iso(item.movementDate)) ?? new Map();
+    const executivo = /execut/i.test(`${produto} ${item.productGroup ?? ""}`);
+    const dia = porDia.get(data) ?? new Map<string, Preco>();
     const chave = `${produto}|${preco}`;
-    const atual = dia.get(chave) ?? { produto, preco, vendidos: 0 };
+    const atual = dia.get(chave) ?? { produto, preco, vendidos: 0, executivo };
     atual.vendidos += quantidade;
     dia.set(chave, atual);
-    porDia.set(iso(item.movementDate), dia);
+    porDia.set(data, dia);
   }
 
-  const mapa = new Map<string, BuffetCobrado>();
-  for (const [data, precos] of porDia) {
+  const mapa = new Map<string, ServicoDoPdv>();
+  for (const data of diasComVenda) {
+    const precos = porDia.get(data);
+    if (!precos) {
+      mapa.set(data, { modalidade: "A_LA_CARTE", buffet: null });
+      continue;
+    }
     const ordenados = [...precos.values()].sort((a, b) => b.vendidos - a.vendidos || b.preco - a.preco);
-    mapa.set(data, { principal: ordenados[0], outros: ordenados.slice(1) });
+    const semMarca = ({ produto, preco, vendidos }: Preco) => ({ produto, preco, vendidos });
+    mapa.set(data, {
+      modalidade: ordenados[0].executivo ? "BUFFET_EXECUTIVO" : "BUFFET",
+      buffet: { principal: semMarca(ordenados[0]), outros: ordenados.slice(1).map(semMarca) },
+    });
   }
   return mapa;
 }
@@ -180,6 +203,8 @@ export type DiaDaAgenda = {
   escala: Tamanho | null;
   /** Preço do buffet cobrado no dia, lido das vendas do PDV. */
   buffetCobrado: BuffetCobrado | null;
+  /** Modalidade pelo PDV (Buffet, executivo ou à la carte); null em dia sem venda no PDV. */
+  modalidadePdv: ServicoDoPdv["modalidade"] | null;
   decisao: { serviceMode: string | null; buffetPrice: number | null; notes: string | null; forecastLunch: number | null; forecastSize: string | null } | null;
 };
 
@@ -195,7 +220,7 @@ export async function agendaDoMes(prisma: PrismaClient, ano: number, mes: number
     prisma.scheduleDayEvent.findMany({ where: { date: { gte: dataUtc(de), lte: dataUtc(ate) } } }),
     prisma.operationDay.findMany({ where: { date: { gte: dataUtc(de), lte: dataUtc(ate) } } }),
     historicoParaPrevisao(prisma, ate),
-    buffetCobradoPorData(prisma, de, ate),
+    servicoDoPdvPorData(prisma, de, ate),
   ]);
   const escalaPorData = new Map(escala.map((e) => [iso(e.date), e.size as Tamanho]));
   const decisaoPorData = new Map(decisoes.map((d) => [iso(d.date), d]));
@@ -211,7 +236,8 @@ export async function agendaDoMes(prisma: PrismaClient, ano: number, mes: number
       previsao: preverAlmoco({ date, eventos: lista }, historico, lim),
       realizado: realizado.get(date) ?? null,
       escala: escalaPorData.get(date) ?? null,
-      buffetCobrado: buffet.get(date) ?? null,
+      buffetCobrado: buffet.get(date)?.buffet ?? null,
+      modalidadePdv: buffet.get(date)?.modalidade ?? null,
       decisao: decisao
         ? {
             serviceMode: decisao.serviceMode,
@@ -241,9 +267,9 @@ export async function fichaDaSerie(prisma: PrismaClient, seriesId: string) {
         realizadoPorData(prisma, de, ate),
         eventosPorData(prisma, de, ate),
         prisma.operationDay.findMany({ where: { date: { in: datas.map(dataUtc) } }, select: { date: true, notes: true, serviceMode: true, buffetPrice: true } }),
-        buffetCobradoPorData(prisma, de, ate),
+        servicoDoPdvPorData(prisma, de, ate),
       ])
-    : [new Map<string, Realizado>(), new Map<string, EventoDoDia[]>(), [], new Map<string, BuffetCobrado>()];
+    : [new Map<string, Realizado>(), new Map<string, EventoDoDia[]>(), [], new Map<string, ServicoDoPdv>()];
   const notaPorData = new Map(notas.map((n) => [iso(n.date), n]));
 
   return {
@@ -278,7 +304,8 @@ export async function fichaDaSerie(prisma: PrismaClient, seriesId: string) {
           notes: op?.notes ?? null,
           serviceMode: op?.serviceMode ?? null,
           buffetPrice: num(op?.buffetPrice),
-          buffetCobrado: buffet.get(d) ?? null,
+          buffetCobrado: buffet.get(d)?.buffet ?? null,
+          modalidadePdv: buffet.get(d)?.modalidade ?? null,
         };
       }),
     })),

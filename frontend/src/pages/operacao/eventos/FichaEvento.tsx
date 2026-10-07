@@ -152,8 +152,8 @@ export function FichaEvento({ seriesId, todas, podeEditar, podeExcluir, onVoltar
                   </Table.Td>
                   <Table.Td>
                     <span className="evt-comentario">
-                      {d.serviceMode && <em>{MODALIDADE[d.serviceMode]}</em>}
-                      {d.notes ?? (d.serviceMode ? null : <span className="evt-sem">—</span>)}
+                      {(d.modalidadePdv ?? d.serviceMode) && <em>{MODALIDADE[(d.modalidadePdv ?? d.serviceMode)!]}{d.modalidadePdv ? " (PDV)" : ""}</em>}
+                      {d.notes ?? (d.modalidadePdv ?? d.serviceMode ? null : <span className="evt-sem">—</span>)}
                     </span>
                   </Table.Td>
                 </Table.Row>
