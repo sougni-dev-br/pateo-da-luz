@@ -43,7 +43,10 @@ beforeEach(() => {
       participante({ employeeId: "e4", employeeName: "Deltrano Exemplo", pagoNaRescisao: true }),
     ],
   } as never);
-  prismaFalso.employee.findMany.mockResolvedValue([{ id: "e1", firstName: "Fulana", lastName: "de Tal Exemplo", cpf: "11122233344" }]);
+  prismaFalso.employee.findMany.mockResolvedValue([{
+    id: "e1", firstName: "Fulana", lastName: "de Tal Exemplo", cpf: "11122233344", position: "ATENDENTE", admissionDate: new Date("2026-03-21T00:00:00Z"),
+    birthDate: new Date("1990-10-12T00:00:00Z"), baseSalary: 2600, tipFunction: { name: "Salão" },
+  }]);
   prismaFalso.payrollItem.findMany.mockResolvedValue([]);
 });
 
@@ -67,7 +70,7 @@ describe("GET /payroll/tip/recibos-pagamento", () => {
     const recibo = r.body.recibos[0];
     expect(recibo.total).toBe(2100);
     expect(recibo.dataPagamento).toBe("2026-10-07");
-    expect(recibo.linhas.at(-1)).toMatchObject({ descricao: "Ajuste no Contas a Pagar", valor: 70 });
+    expect(recibo.linhas.at(-1)).toMatchObject({ codigo: 999, valor: 70 });
     const filtro = prismaFalso.payrollItem.findMany.mock.calls[0][0].where;
     expect(filtro).toMatchObject({ type: "SALARIO", periodLabel: "Acerto (lista de pagamento)", competenceYear: 2026, competenceMonth: 9, deletedAt: null });
   });
@@ -112,7 +115,8 @@ describe("GET /payroll/recibos-adiantamento", () => {
     expect(filtro).toMatchObject({ type: "ADIANTAMENTO", competenceYear: 2026, competenceMonth: 9, deletedAt: null, details: { path: ["semRegistro"], equals: true } });
     expect(r.body.recibos.map((x: { tipo: string }) => x.tipo)).toEqual(["ADIANTAMENTO", "QUINZENA"]);
     expect(r.body.recibos[0]).toMatchObject({ referencia: "adiantamento de 09/2026", total: 1040, cpf: "11122233344" });
-    expect(r.body.recibos[1].linhas[0].detalhe).toBe("metade do valor mensal de R$ 2.600,00");
+    expect(r.body.recibos[1].linhas[0]).toMatchObject({ descricao: "1ª QUINZENA", referencia: "50%" });
+    expect(r.body.recibos[1]).toMatchObject({ valorMensal: 2600, funcao: "ATENDENTE", admissao: "2026-03-21", aniversario: "12/10" });
   });
 
   test("um lançamento (id); inexistente: 404", async () => {

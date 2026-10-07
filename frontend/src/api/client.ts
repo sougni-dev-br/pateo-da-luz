@@ -6445,12 +6445,17 @@ export function emitirReciboVale(id: string, empresaId: string | null) {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ empresaId }),
   });
 }
-/** Linha da discriminação do recibo: valor com sinal (desconto negativo). vale: vale ou crédito da gorjeta. */
-export type ReciboLinha = { descricao: string; detalhe: string | null; valor: number; vale?: true };
+/** Linha do recibo, como no holerite: código fixo do item, descrição em maiúsculas, referência (dias,
+ *  horas, %, data do vale) e valor com sinal (positivo = vencimento, negativo = desconto). vale: vale ou crédito da gorjeta. */
+export type ReciboLinha = { codigo: number; descricao: string; referencia: string | null; valor: number; vale?: true };
+/** Cabeçalho do recibo: dados do cadastro. aniversario = "DD/MM" (sem o ano); codigo vazio quando o cadastro não tem. */
+export type ReciboPessoa = {
+  employeeId: string; nome: string; cpf: string | null; codigo: string | null; funcao: string | null;
+  admissao: string | null; aniversario: string | null; valorMensal: number | null;
+};
 /** Recibo do pagamento do mês (lista de pagamento) de quem não tem registro. */
-export type ReciboPagamentoMes = {
+export type ReciboPagamentoMes = ReciboPessoa & {
   tipo: "PAGAMENTO_MES";
-  employeeId: string; nome: string; cpf: string | null;
   competencia: string; referencia: string;
   linhas: ReciboLinha[];
   /** A pagar da lista; total difere quando o acerto no Contas a Pagar tem outro valor (vira linha de ajuste). */
@@ -6460,9 +6465,9 @@ export type ReciboPagamentoMes = {
   dataPagamento: string | null;
 };
 /** Recibo da 1ª quinzena (dia 15) ou do adiantamento (dia 20) de quem não tem registro. */
-export type ReciboPagoAntes = {
+export type ReciboPagoAntes = ReciboPessoa & {
   tipo: "QUINZENA" | "ADIANTAMENTO";
-  id: string; employeeId: string; nome: string; cpf: string | null;
+  id: string;
   competencia: string; referencia: string;
   linhas: ReciboLinha[];
   total: number;

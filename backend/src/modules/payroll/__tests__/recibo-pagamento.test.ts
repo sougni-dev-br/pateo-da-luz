@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { type ParticipanteDoRecibo, baseDoPagoAntes, discriminacaoDoMes, reciboDoMes, reciboPagoAntes } from "../recibo-pagamento.js";
+import { type ParticipanteDoRecibo, baseDoPagoAntes, discriminacaoDoMes, horasDecimais, reciboDoMes, reciboPagoAntes } from "../recibo-pagamento.js";
 import { round2 } from "../vt-calc.js";
 
 // Recibo de pagamento de quem não tem registro: a discriminação tem de fechar no A pagar da
@@ -45,26 +45,25 @@ describe("pagamento do mês: total = A pagar da lista", () => {
     expect(d.total).toBe(p.totalAPagar);
     expect(d.totalLista).toBe(p.totalAPagar);
     expect(soma(d.linhas)).toBe(p.totalAPagar);
-    expect(d.linhas.map((l) => l.descricao)).toEqual([
-      "Dias trabalhados", "Adiantamento já pago", "Gorjeta",
-      "Vale adiantamento", "Refeição: almoço", "Crédito: troca de turno",
-      "Hora extra (50%)", "Adicional noturno", "DSR",
+    expect(d.linhas.map((l) => `${l.codigo} ${l.descricao}`)).toEqual([
+      "1 DIAS TRABALHADOS", "203 GORJETA", "201 HORA EXTRA 50%", "202 ADICIONAL NOTURNO", "250 DSR S/ EXTRAS",
+      "981 DESC. ADIANTAMENTO", "300 CRÉDITO TROCA DE TURNO", "990 VALE ADIANTAMENTO", "990 VALE REFEIÇÃO ALMOÇO",
     ]);
-    expect(d.linhas[0]).toEqual({ descricao: "Dias trabalhados", detalhe: "30 dias", valor: 2600 });
-    expect(d.linhas[1].valor).toBe(-1040);
-    expect(d.linhas[4]).toEqual({ descricao: "Refeição: almoço", detalhe: "12/09/2026", valor: -35.5, vale: true });
-    expect(d.linhas[5].valor).toBe(50);
-    expect(d.linhas[6]).toMatchObject({ detalhe: "6:00", valor: 106.36 });
-    expect(d.linhas[7]).toMatchObject({ detalhe: "4:30", valor: 14.18 });
-    expect(d.linhas.some((l) => /Ajuste/.test(l.descricao))).toBe(false);
+    expect(d.linhas[0]).toEqual({ codigo: 1, descricao: "DIAS TRABALHADOS", referencia: "30,00", valor: 2600 });
+    expect(d.linhas[5]).toEqual({ codigo: 981, descricao: "DESC. ADIANTAMENTO", referencia: "1.040,00", valor: -1040 });
+    expect(d.linhas[8]).toEqual({ codigo: 990, descricao: "VALE REFEIÇÃO ALMOÇO", referencia: "12/09/2026", valor: -35.5, vale: true });
+    expect(d.linhas[6].valor).toBe(50);
+    expect(d.linhas[2]).toMatchObject({ referencia: "6,00", valor: 106.36 });
+    expect(d.linhas[3]).toMatchObject({ referencia: "4,50", valor: 14.18 });
+    expect(d.linhas.some((l) => l.codigo === 999)).toBe(false);
   });
 
   test("com 1ª quinzena já paga e dias proporcionais", () => {
     const p = pessoa({ diasSalario: 1, salarioProporcional: 86.67, primeiraQuinzena: 0, rateioAmount: 0 });
-    expect(discriminacaoDoMes(p, null).linhas[0].detalhe).toBe("1 dia");
+    expect(discriminacaoDoMes(p, null).linhas[0].referencia).toBe("1,00");
     const q = pessoa({ primeiraQuinzena: 1300, pagamentoQuinzenal: true });
     const d = discriminacaoDoMes(q, null);
-    expect(d.linhas.find((l) => l.descricao === "1ª quinzena já paga")?.valor).toBe(-1300);
+    expect(d.linhas.find((l) => l.codigo === 982)).toEqual({ codigo: 982, descricao: "DESC. 1ª QUINZENA", referencia: "1.300,00", valor: -1300 });
     expect(d.total).toBe(q.totalAPagar);
     expect(soma(d.linhas)).toBe(q.totalAPagar);
   });
@@ -72,8 +71,8 @@ describe("pagamento do mês: total = A pagar da lista", () => {
   test("fora da gorjeta: sem linha de gorjeta; vales continuam", () => {
     const p = pessoa({ foraDaGorjeta: true, rateioAmount: 0, vales: [{ type: "OUTRO", amount: 20, date: null, notes: null }] });
     const d = discriminacaoDoMes(p, null);
-    expect(d.linhas.some((l) => l.descricao === "Gorjeta")).toBe(false);
-    expect(d.linhas.find((l) => l.descricao === "Desconto")).toEqual({ descricao: "Desconto", detalhe: null, valor: -20, vale: true });
+    expect(d.linhas.some((l) => l.descricao === "GORJETA")).toBe(false);
+    expect(d.linhas.find((l) => l.codigo === 990)).toEqual({ codigo: 990, descricao: "VALE DESCONTO", referencia: null, valor: -20, vale: true });
     expect(d.total).toBe(p.totalAPagar);
   });
 
@@ -81,7 +80,7 @@ describe("pagamento do mês: total = A pagar da lista", () => {
     const p = pessoa({ totalAPagar: 3400 });
     const d = discriminacaoDoMes(p, null);
     const ajuste = d.linhas.at(-1)!;
-    expect(ajuste.descricao).toBe("Ajuste do fechamento da apuração");
+    expect(ajuste).toMatchObject({ codigo: 999, descricao: "AJUSTE DO FECHAMENTO DA APURAÇÃO" });
     expect(ajuste.valor).toBe(round2(3400 - 3412.4));
     expect(soma(d.linhas)).toBe(3400);
   });
@@ -92,7 +91,7 @@ describe("acerto no Contas a Pagar", () => {
     const p = pessoa();
     const r = reciboDoMes(p, { nome: "Fulana Exemplo", cpf: "11122233344" }, { amount: p.totalAPagar, paidAmount: p.totalAPagar, paymentDate: new Date("2026-10-07T12:00:00Z") }, 2026, 9);
     expect(r.total).toBe(p.totalAPagar);
-    expect(r.linhas.some((l) => /Ajuste/.test(l.descricao))).toBe(false);
+    expect(r.linhas.some((l) => l.codigo === 999)).toBe(false);
     expect(r.dataPagamento).toBe("2026-10-07");
     expect(r.acerto).toEqual({ valor: p.totalAPagar, pago: true });
     expect(r.referencia).toBe("pagamento do mês de 09/2026");
@@ -104,9 +103,8 @@ describe("acerto no Contas a Pagar", () => {
     expect(r.total).toBe(3500);
     expect(r.totalLista).toBe(p.totalAPagar);
     const ajuste = r.linhas.at(-1)!;
-    expect(ajuste.descricao).toBe("Ajuste no Contas a Pagar");
+    expect(ajuste).toMatchObject({ codigo: 999, descricao: "AJUSTE CONTAS A PAGAR (LISTA 3.412,40)", referencia: "3.500,00" });
     expect(ajuste.valor).toBe(round2(3500 - p.totalAPagar));
-    expect(ajuste.detalhe).toContain("3.500,00");
     expect(soma(r.linhas)).toBe(3500);
     expect(r.dataPagamento).toBeNull();
   });
@@ -123,12 +121,13 @@ describe("acerto no Contas a Pagar", () => {
 describe("1ª quinzena e adiantamento", () => {
   const titulo = { id: "t1", employeeId: "e1", competenceYear: 2026, competenceMonth: 9, paidAmount: null, paymentDate: null };
 
-  test("quinzena: referência e a base (metade do valor mensal)", () => {
+  test("quinzena: referência 50% e o valor mensal", () => {
     const r = reciboPagoAntes({ ...titulo, amount: 1300, details: { base: 2600, semRegistro: true, primeiraQuinzena: true } }, { nome: "Fulana Exemplo", cpf: "1" });
     expect(r.tipo).toBe("QUINZENA");
     expect(r.referencia).toBe("1ª quinzena de 09/2026");
     expect(r.total).toBe(1300);
-    expect(r.linhas).toEqual([{ descricao: "1ª quinzena de 09/2026", detalhe: "metade do valor mensal de R$ 2.600,00", valor: 1300 }]);
+    expect(r.valorMensal).toBe(2600);
+    expect(r.linhas).toEqual([{ codigo: 10, descricao: "1ª QUINZENA", referencia: "50%", valor: 1300 }]);
   });
 
   test("adiantamento: 40% do valor mensal; pago com a data da baixa", () => {
@@ -137,7 +136,7 @@ describe("1ª quinzena e adiantamento", () => {
     }, { nome: "Fulana Exemplo", cpf: null });
     expect(r.tipo).toBe("ADIANTAMENTO");
     expect(r.referencia).toBe("adiantamento de 09/2026");
-    expect(r.linhas[0]).toEqual({ descricao: "Adiantamento de 09/2026", detalhe: "40% do valor mensal de R$ 2.600,00", valor: 1040 });
+    expect(r.linhas[0]).toEqual({ codigo: 20, descricao: "ADIANTAMENTO", referencia: "40%", valor: 1040 });
     expect(r.dataPagamento).toBe("2026-09-20");
   });
 
@@ -156,5 +155,21 @@ describe("texto sem empresa e sem a palavra salário", () => {
     const q = reciboPagoAntes({ id: "t", employeeId: "e1", competenceYear: 2026, competenceMonth: 9, amount: 1040, paidAmount: null, paymentDate: null, details: { base: 2600, percent: 40 } }, { nome: "X", cpf: null });
     const texto = JSON.stringify([r.linhas, r.referencia, q.linhas, q.referencia]);
     expect(texto).not.toMatch(/sal[áa]rio|holerite|empregado|CNPJ|LTDA/i);
+  });
+});
+
+describe("cabeçalho da pessoa", () => {
+  test("função, admissão, aniversário (só dia/mês), valor mensal do mês; código vazio", () => {
+    const r = reciboDoMes(pessoa({ baseSalary: 2600 } as Partial<ParticipanteDoRecibo>), {
+      nome: "Fulana Exemplo", cpf: null, funcao: " Atendente ", admissao: new Date("2026-03-21T00:00:00Z"), nascimento: new Date("1990-10-12T00:00:00Z"),
+    }, null, 2026, 9);
+    expect(r).toMatchObject({ codigo: null, funcao: "Atendente", admissao: "2026-03-21", aniversario: "12/10", valorMensal: 2600 });
+    expect(JSON.stringify(r)).not.toContain("1990");
+  });
+  test("horas decimais da referência", () => {
+    expect(horasDecimais("7:30")).toBe("7,50");
+    expect(horasDecimais("0:20")).toBe("0,33");
+    expect(horasDecimais("0:00")).toBeNull();
+    expect(horasDecimais(null)).toBeNull();
   });
 });

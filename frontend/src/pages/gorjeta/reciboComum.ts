@@ -7,8 +7,6 @@ export type Doc = InstanceType<typeof import("jspdf").jsPDF>;
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
 export const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }).replace(/ /g, " ");
-/** Valor com sinal para o PDF: desconto com hífen comum ("- R$ 35,50"), que a fonte desenha. */
-export const reaisComSinal = (v: number) => (v < -0.004 ? `- ${reais(-v)}` : reais(Math.abs(v) < 0.005 ? 0 : v));
 /** "R$" e o número nunca ficam em linhas diferentes no texto corrido. */
 export const reaisNoTexto = (v: number) => reais(v).replace(" ", " ");
 
