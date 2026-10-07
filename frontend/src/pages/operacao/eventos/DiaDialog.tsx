@@ -120,8 +120,17 @@ export function DiaDialog({ dia, podeEditar, onFechar, onSalvo, onAbrirEvento }:
         <form className="evt-bloco" onSubmit={salvar}>
           <h3 className="evt-secao">Decisão do dia</h3>
           <div className="evt-form-linha">
-            <Select label="Modalidade" value={modalidade} disabled={!podeEditar} placeholder="Não definida"
-              onChange={(e) => setModalidade(e.target.value as ServiceMode | "")} options={opcoes(MODALIDADE)} />
+            {/* Com venda no PDV a modalidade sai de lá: vendeu buffet ou não. Escolher só serve para dia sem PDV. */}
+            {dia.modalidadePdv ? (
+              <div className="evt-preco-pdv">
+                <span className="evt-preco-rotulo">Modalidade</span>
+                <strong>{MODALIDADE[dia.modalidadePdv]}</strong>
+                <small>{dia.buffetCobrado ? "pelo PDV: vendeu buffet" : "pelo PDV: nenhum buffet vendido"}</small>
+              </div>
+            ) : (
+              <Select label="Modalidade" value={modalidade} disabled={!podeEditar} placeholder="Não definida"
+                onChange={(e) => setModalidade(e.target.value as ServiceMode | "")} options={opcoes(MODALIDADE)} />
+            )}
             {/* Com venda de buffet no PDV o preço vem de lá; digitar só serve para dia sem PDV (planejar ou histórico). */}
             {dia.buffetCobrado ? (
               <div className="evt-preco-pdv">

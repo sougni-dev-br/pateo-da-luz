@@ -216,9 +216,9 @@ function LinhaDoDia({ dia, hoje, onAbrir }: { dia: AgendaDay; hoje: string; onAb
 
         <span className="evt-decisao">
           {/* O preço que o PDV cobrou vale mais que o anotado à mão. */}
-          {dia.buffetCobrado ? (
-            <span title={`Buffet cobrado no PDV: ${dia.buffetCobrado.principal.vendidos} vendidos`}>
-              Buffet {centavos(dia.buffetCobrado.principal.preco)} <small className="evt-pdv">PDV</small>
+          {dia.modalidadePdv ? (
+            <span title={dia.buffetCobrado ? `Buffet cobrado no PDV: ${dia.buffetCobrado.principal.vendidos} vendidos` : "Nenhum buffet vendido no PDV"}>
+              {MODALIDADE[dia.modalidadePdv]}{dia.buffetCobrado ? ` ${centavos(dia.buffetCobrado.principal.preco)}` : ""} <small className="evt-pdv">PDV</small>
             </span>
           ) : dia.decisao?.serviceMode ? (
             <span>{MODALIDADE[dia.decisao.serviceMode]}{dia.decisao.buffetPrice ? ` · ${centavos(dia.decisao.buffetPrice)}` : ""}</span>

@@ -7691,6 +7691,8 @@ export type AgendaDay = {
   realizado: DayRealized | null;
   escala: EventSize | null;
   buffetCobrado: BuffetCharged | null;
+  /** Modalidade pelo PDV; null em dia sem venda no PDV. */
+  modalidadePdv: ServiceMode | null;
   decisao: { serviceMode: ServiceMode | null; buffetPrice: number | null; notes: string | null; forecastLunch: number | null; forecastSize: EventSize | null } | null;
 };
 
@@ -7729,6 +7731,7 @@ export type EventEditionDetail = {
     serviceMode: ServiceMode | null;
     buffetPrice: number | null;
     buffetCobrado: BuffetCharged | null;
+    modalidadePdv: ServiceMode | null;
   }>;
 };
 
