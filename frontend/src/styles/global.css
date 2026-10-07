@@ -11569,87 +11569,16 @@ tr.dre-row-selected td {
 }
 
 /* Stepper */
-.cmv-closing-stepper {
-  display: flex;
-  gap: 0;
-  align-items: flex-start;
-}
 
-.cmv-closing-stepper__step {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  flex: 1;
-  font-size: 11px;
-  color: var(--muted, #6b7280);
-  text-align: center;
-  position: relative;
-}
 
-.cmv-closing-stepper__step span:last-child {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-}
 
-.cmv-closing-stepper__step small {
-  display: block;
-  font-size: 10px;
-  color: var(--muted, #6b7280);
-  margin-top: 1px;
-}
 
-.cmv-closing-stepper__step::after {
-  content: "";
-  position: absolute;
-  top: 11px;
-  left: 50%;
-  width: 100%;
-  height: 2px;
-  background: var(--border, #e0e0e0);
-  z-index: 0;
-}
 
-.cmv-closing-stepper__step:last-child::after {
-  display: none;
-}
 
-.cmv-closing-stepper__dot {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--border, #e0e0e0);
-  color: var(--muted, #6b7280);
-  font-size: 11px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1;
-  position: relative;
-}
 
-.cmv-closing-stepper__step--done .cmv-closing-stepper__dot {
-  background: var(--primary, #1976d2);
-  color: #fff;
-}
 
-.cmv-closing-stepper__step--done::after {
-  background: var(--primary, #1976d2);
-}
 
-.cmv-closing-stepper__step--active .cmv-closing-stepper__dot {
-  background: var(--primary, #1976d2);
-  color: #fff;
-  box-shadow: 0 0 0 3px var(--primary-soft, #e3f0fb), 0 0 0 5px var(--primary, #1976d2);
-}
 
-.cmv-closing-stepper__step--active {
-  color: var(--primary-dark, #0d47a1);
-  font-weight: 600;
-}
 
 /* Stats */
 .cmv-closing-stats {
@@ -11793,16 +11722,7 @@ tr.dre-row-selected td {
 }
 
 @media (max-width: 480px) {
-  .cmv-closing-stepper {
-    gap: 0;
-    overflow-x: auto;
-    padding-bottom: 4px;
-  }
 
-  .cmv-closing-stepper__step {
-    min-width: 54px;
-    font-size: 10px;
-  }
 
   .cmv-closing-stats {
     gap: 8px;

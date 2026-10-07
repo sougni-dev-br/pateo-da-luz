@@ -86,9 +86,11 @@ type Props = {
   onLocalizar: (item: ItemDaConferencia) => void;
   /** Avisa o pai a cada carga: a tabela e o assistente de aprovacao usam o resultado. */
   onCarregar?: (conferencia: ConferenciaDoInventario) => void;
+  /** Inventario ja aprovado: os alertas ja estao na base do CMV. */
+  jaAprovado?: boolean;
 };
 
-export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarregar }: Props) {
+export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarregar, jaAprovado = false }: Props) {
   const [conferencia, setConferencia] = useState<ConferenciaDoInventario | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
@@ -165,7 +167,7 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
                 {conferencia.resumo[c].impacto > 0 && <> (<Money value={conferencia.resumo[c].impacto} decimals={0} /> {CLASSES[c].impacto})</>}
               </span>
             ))}
-            . Confira antes de aprovar.
+            {jaAprovado ? ". Esses números já estão na base do CMV: corrigir exige reabrir o inventário." : ". Confira antes de aprovar."}
           </span>
         </p>
       ) : (
@@ -217,7 +219,7 @@ function CabecalhoDaConferencia({ carregando, onAtualizar }: { carregando: boole
   return (
     <header className="conf-cabecalho">
       <div>
-        <h4 id="conf-titulo">Conferência</h4>
+        <h4 id="conf-titulo" className="conf-sr">Conferência</h4>
         <p>Cada item comparado com a última contagem aprovada mais as compras recebidas desde então.</p>
       </div>
       <button type="button" className="icon-button" aria-label="Atualizar conferência" title="Atualizar conferência" disabled={carregando} onClick={onAtualizar}>
@@ -257,44 +259,53 @@ function LinhaDaConferencia({ item, rotuloImpacto, onLocalizar }: LinhaProps) {
   const temConta = item.anterior != null;
   return (
     <li className={`conf-item conf-item--${CLASSES[item.classe].tom}`}>
-      <div className="conf-item__topo">
-        <div className="conf-item__produto">
-          <strong>{item.productName}</strong>
-          <small>{[item.productCode, item.sectorName].filter(Boolean).join(" · ") || "sem código"}</small>
-        </div>
-        {item.impacto != null && rotuloImpacto && (
-          <div className="conf-item__impacto">
-            <Money value={item.impacto} />
-            <small>{rotuloImpacto}</small>
-          </div>
-        )}
+      <div className="conf-item__produto">
+        <strong>{item.productName}</strong>
+        <small>{[item.productCode, item.sectorName].filter(Boolean).join(" · ") || "sem código"}</small>
       </div>
 
       <dl className="conf-conta">
         {temConta && (
           <>
-            <div>
+            <div title={[item.anteriorCodigo, item.anteriorData ? formatDate(item.anteriorData) : null].filter(Boolean).join(" · ")}>
               <dt>Anterior</dt>
               <dd>{qtd(item.anterior, u)}</dd>
-              <small>{[item.anteriorCodigo, item.anteriorData ? formatDate(item.anteriorData) : null].filter(Boolean).join(" · ")}</small>
             </div>
-            <div className="conf-conta__op"><dt>Compras</dt><dd>+ {qtd(item.compras, u)}</dd></div>
-            <div className="conf-conta__op"><dt>Disponível</dt><dd>{qtd(item.disponivel, u)}</dd></div>
+            <span className="conf-conta__sinal" aria-hidden="true">+</span>
+            <div><dt>Compras</dt><dd>{qtd(item.compras, u)}</dd></div>
+            <span className="conf-conta__sinal" aria-hidden="true">=</span>
+            <div><dt>Disponível</dt><dd>{qtd(item.disponivel, u)}</dd></div>
+            <span className="conf-conta__sinal" aria-hidden="true">→</span>
           </>
         )}
         <div className="conf-conta__contado"><dt>Contado</dt><dd>{qtd(item.contado, u)}</dd></div>
       </dl>
 
-      <p className="conf-item__motivo">{item.motivo}</p>
+      <div className="conf-item__impacto">
+        {item.impacto != null && rotuloImpacto ? (
+          <>
+            <Money value={item.impacto} />
+            <small>{rotuloImpacto}</small>
+          </>
+        ) : <small>sem custo</small>}
+      </div>
 
       <button
         type="button"
         className="secondary-button conf-item__localizar"
         aria-label={`Localizar ${item.productName} na lista`}
+        title="Abrir na lista de itens"
         onClick={() => onLocalizar(item)}
       >
-        <Search size={14} aria-hidden="true" /> Localizar na lista
+        <Search size={14} aria-hidden="true" /> <span>Localizar</span>
       </button>
+
+      <p className="conf-item__motivo">
+        {item.motivo}
+        {temConta && item.anteriorCodigo && (
+          <span className="conf-item__origem"> Contagem anterior: {item.anteriorCodigo}{item.anteriorData ? `, ${formatDate(item.anteriorData)}` : ""}.</span>
+        )}
+      </p>
     </li>
   );
 }

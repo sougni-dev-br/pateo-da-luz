@@ -1,6 +1,5 @@
-﻿import { AlertTriangle, Archive, ArrowDown, CalendarDays, CheckCircle2, ClipboardCheck, Download, FileText, FilterX, Layers, Loader2, MessageSquare, Play, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
+﻿import { AlertTriangle, ArrowDown, ArrowLeft, CalendarDays, CheckCircle2, ClipboardCheck, Download, FilterX, Layers, Loader2, MessageSquare, Play, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { Fragment, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import { useRevealScroll } from "../lib/useRevealScroll";
 import { hasPermission } from "../lib/permissions";
 import { cicloDivergeDaData, cicloSugerido, hojeLocalIso, opcoesDeCiclo, rotuloDoCiclo } from "../lib/ciclo-contagem";
@@ -15,7 +14,6 @@ import {
   closeOperationalInventory,
   concludeStockCountSession,
   confirmInventoryAgendaItem,
-  createPurchaseOrdersFromPrelist,
   createOperationalInventory,
   createStockCountSession,
   createInventoryMovement,
@@ -28,12 +26,10 @@ import {
   getInventoryStocks,
   getOperationalInventories,
   getOperationalInventory,
-  getOperationalInventoryPurchasingReport,
   getStockCountSession,
   getStockCountSessionPlausibility,
   getStockCountSessions,
   getBuyerSupportReport,
-  downloadBuyerPrelistCsv,
   getCategories,
   getProducts,
   getProductsSummary,
@@ -48,7 +44,6 @@ import {
   markOperationalInventoryItemsZero,
   OperationalInventory,
   OperationalInventoryDetail,
-  OperationalInventoryPurchasingReport,
   OperationalInventoryType,
   Product,
   ProductSummary,
@@ -75,7 +70,6 @@ import {
   StockCountSessionType,
   submitOperationalInventory,
   submitInventoryAgendaItem,
-  updateStockMinQuantity
 } from "../api/client";
 import type { ConferenciaDoInventario, ItemDaConferencia } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
@@ -85,12 +79,16 @@ import { ConfirmDialog } from "../components/ui";
 import { Alert, Button, EmptyState, Money, PanelEyebrow, RowMenu, StatusBadge, SummaryCard, Table, Tabs } from "../design-system";
 import type { RowMenuItem, RowMenuSeparator } from "../design-system";
 import { ConferenciaInventario, SeloDaConferencia } from "./inventory/ConferenciaInventario";
+import { EtapasDoInventario } from "./inventory/inventario/EtapasDoInventario";
+import { ListaDeInventarios } from "./inventory/inventario/ListaDeInventarios";
+import { tituloCurto } from "./inventory/inventario/lista";
+import { PosicaoEstoque } from "./inventory/inventario/PosicaoEstoque";
 import { OverviewSection } from "./inventory/OverviewSection";
 import { rotuloDoStatusDaRotina } from "./inventory/routine";
 import { RoutineWeekSection } from "./inventory/RoutineWeekSection";
 import { formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 type InventoryProps = {
   user: AppUser;
@@ -111,11 +109,9 @@ const INVENTORY_VIEW_PATHS: Record<InventoryView, string> = {
   inventory: "/estoque/inventario",
   reports: "/estoque/relatorios"
 };
-type InventoryDeskTab = "official" | "purchase" | "stock" | "reports";
+type InventoryDeskTab = "official" | "posicao";
 
 import {
-  buyerAlertLabel,
-  buyerAlertTone,
   countBy,
   countSessionColumnOptions,
   countSessionStatusLabels,
@@ -234,7 +230,7 @@ export function Inventory({
   const [month, setMonth] = useState(monthValue());
   const [movementPeriod, setMovementPeriod] = useState(currentMonthPeriod());
   const [selectedAgendaId, setSelectedAgendaId] = useState<string>("");
-  const [search, setSearch] = useState("");
+  const [search] = useState("");
   const [loading, setLoading] = useState(false);
   const [movementForm, setMovementForm] = useState({ productId: "", type: "MANUAL_OUT", quantity: "", unit: "", notes: "" });
   const [movementSearch, setMovementSearch] = useState("");
@@ -248,8 +244,6 @@ export function Inventory({
   const [openingInventoryId, setOpeningInventoryId] = useState<string | null>(null);
   const operationalDetailRef = useRevealScroll<HTMLDivElement>({ when: operationalDetail?.id });
   const [showCanceledStockData, setShowCanceledStockData] = useState(false);
-  const [minQtyEdit, setMinQtyEdit] = useState<Record<string, string>>({});
-  const [savingMinQty, setSavingMinQty] = useState<Record<string, boolean>>({});
   const [countSessionVisibleColumns, setCountSessionVisibleColumns] = useState<Record<CountSessionColumn, boolean>>(loadCountSessionColumnPreferences);
   const [editingCountSessionNoteId, setEditingCountSessionNoteId] = useState<string | null>(null);
   const [editingOperationalNoteId, setEditingOperationalNoteId] = useState<string | null>(null);
@@ -268,6 +262,8 @@ export function Inventory({
   const [conferencia, setConferencia] = useState<ConferenciaDoInventario | null>(null);
   const [versaoConferencia, setVersaoConferencia] = useState(0);
   const [itemParaLocalizar, setItemParaLocalizar] = useState<string | null>(null);
+  // Conferencia e itens eram uma rolagem so de ~3.000px; viraram duas abas.
+  const [abaDoDetalhe, setAbaDoDetalhe] = useState<"conferencia" | "itens">("conferencia");
   const conferenciaAtual = conferencia && conferencia.inventoryId === operationalDetail?.id ? conferencia : null;
   const conferenciaPorItem = useMemo(
     () => new Map((conferenciaAtual?.itens ?? []).map((item) => [item.itemId, item])),
@@ -317,14 +313,9 @@ export function Inventory({
   const [mobileInvFormOpen, setMobileInvFormOpen] = useState(false);
   const [mobileInvMoreActionsOpen, setMobileInvMoreActionsOpen] = useState(false);
   const [activeCountSessionInputId, setActiveCountSessionInputId] = useState<string | null>(null);
-  const [purchasingReport, setPurchasingReport] = useState<OperationalInventoryPurchasingReport | null>(null);
   const [buyerSupport, setBuyerSupport] = useState<BuyerSupportReport | null>(null);
-  const [buyerFilters, setBuyerFilters] = useState({ search: "", supplier: "", sector: "", category: "", subcategory: "", status: "" });
-  const [buyerTab, setBuyerTab] = useState<"summary" | "suppliers" | "alerts" | "registration" | "prelist">("summary");
-  const [openSupplierId, setOpenSupplierId] = useState<string | null>(null);
-  const [selectedPrelistSuppliers, setSelectedPrelistSuppliers] = useState<Record<string, boolean>>({});
+  const [buyerFilters] = useState({ search: "", supplier: "", sector: "", category: "", subcategory: "", status: "" });
   const [inventoryDeskTab, setInventoryDeskTab] = useState<InventoryDeskTab>("official");
-  const [stockFilters, setStockFilters] = useState({ sector: "", category: "", subcategory: "", supplier: "", alert: "" });
   const [consolidationSelected, setConsolidationSelected] = useState<Set<string>>(new Set());
   const [isConsolidating, setIsConsolidating] = useState(false);
   const [consolidationCoverage, setConsolidationCoverage] = useState<StockCoverageAudit | null>(null);
@@ -342,6 +333,12 @@ export function Inventory({
   const formularioInventarioRef = useRef<HTMLDivElement | null>(null);
   const { notice, setNotice } = useNotice();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const inventarioNaUrl = searchParams.get("inventario");
+  const inventarioPedido = useRef<string | null>(null);
+  // Aberto pela lista: o "voltar" do cabecalho volta no historico em vez de
+  // empilhar outra entrada (senao o voltar do navegador reabria o detalhe).
+  const abertoPelaLista = useRef(false);
 
   // Trocar de aba muda a rota. Antes so trocava o conteudo: o endereco e o
   // titulo da pagina continuavam "Visao Geral" mostrando as contagens, e
@@ -352,13 +349,6 @@ export function Inventory({
     navigate(INVENTORY_VIEW_PATHS[view]);
   }
 
-  const formatDateTime = (value?: string | null) => {
-    if (!value) return "-";
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return value;
-    return parsed.toLocaleString("pt-BR");
-  };
-
   const selectedAgenda = useMemo(
     () => agenda?.items.find((item) => item.id === selectedAgendaId) ?? null,
     [agenda, selectedAgendaId]
@@ -367,24 +357,7 @@ export function Inventory({
   // redirecionado ao abrir a tela. Esconder o botao evita o beco sem saida.
   const canPlanPurchase = hasPermission(user, "purchase-orders", "create");
   const canReshapeCountSession = canEditCountSession;
-  const canEditStockMinimum = hasPermission(user, "products", "edit");
 
-  const saveMinQty = async (productId: string) => {
-    const raw = minQtyEdit[productId];
-    if (raw === undefined) return;
-    const val = raw.trim() === "" ? null : Number(raw.replace(",", "."));
-    if (val !== null && isNaN(val)) return;
-    setSavingMinQty((prev) => ({ ...prev, [productId]: true }));
-    try {
-      await updateStockMinQuantity(productId, val);
-      setStocks((prev) => prev.map((s) => s.productId === productId ? { ...s, minQuantity: val === null ? null : String(val) } : s));
-      setMinQtyEdit((prev) => { const next = { ...prev }; delete next[productId]; return next; });
-    } catch {
-      setNotice({ tone: "error", message: "Erro ao salvar estoque mínimo." });
-    } finally {
-      setSavingMinQty((prev) => { const next = { ...prev }; delete next[productId]; return next; });
-    }
-  };
   const canCancelCountSession = (session: StockCountSession | StockCountSessionDetail) => {
     if (session.status === "CANCELADA") return false;
     if (session.generatedInventoryId && session.generatedInventoryStatus !== "CANCELADO") return false;
@@ -419,10 +392,6 @@ export function Inventory({
       divergent: finalCmvActive.reduce((sum, item) => sum + Number(item.divergentItems ?? 0), 0)
     };
   }, [operationalInventories]);
-  const operationalCounts = useMemo(
-    () => operationalInventories.filter((item) => ["RASCUNHO", "EM_REVISAO", "REJEITADO"].includes(item.status)),
-    [operationalInventories]
-  );
   const officialInventories = useMemo(
     () => operationalInventories.filter((item) => ["APROVADO", "FECHADO", "CANCELADO"].includes(item.status)),
     [operationalInventories]
@@ -508,73 +477,6 @@ export function Inventory({
   const sectorByName = useMemo(() => new Map(sectors.map((sector) => [sector.name, sector])), [sectors]);
   const categoryByName = useMemo(() => new Map(productCategories.map((category) => [category.name, category])), [productCategories]);
   const subcategoryByName = useMemo(() => new Map(productSubcategories.map((subcategory) => [subcategory.name, subcategory])), [productSubcategories]);
-  const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
-  const buyerSupportByProductId = useMemo(() => new Map((buyerSupport?.items ?? []).map((item) => [item.productId, item])), [buyerSupport]);
-  const stockRows = useMemo(() => stocks.map((stock) => {
-    const product = productById.get(stock.productId);
-    const support = buyerSupportByProductId.get(stock.productId);
-    const currentQuantity = Number(stock.currentQuantity ?? 0);
-    const alerts = [...new Set([...(support?.alerts ?? []), ...(support?.registrationAlerts ?? [])])];
-    if (currentQuantity <= 0 && !alerts.includes("ZERADO")) alerts.push("ZERADO");
-    return {
-      ...stock,
-      currentQuantityNumber: currentQuantity,
-      categoryName: support?.categoryName ?? product?.category?.name ?? null,
-      subcategoryName: support?.subcategoryName ?? product?.subcategory?.name ?? null,
-      supplierName: support?.supplierName ?? "Sem fornecedor definido",
-      productDisplayName: stock.productName,
-      codeLabel: stock.productCode ?? "Sem codigo",
-      alerts
-    };
-  }).sort((a, b) => {
-    const valuesA = [
-      inventoryClassificationSortText(a.sectorName, "zzzz_sem_setor"),
-      inventoryClassificationSortText(a.categoryName, "zzzz_sem_categoria"),
-      inventoryClassificationSortText(a.subcategoryName, "zzzz_sem_subcategoria"),
-      inventoryClassificationSortText(a.productDisplayName),
-      inventoryClassificationSortText(a.productCode, "zzzz_sem_codigo")
-    ];
-    const valuesB = [
-      inventoryClassificationSortText(b.sectorName, "zzzz_sem_setor"),
-      inventoryClassificationSortText(b.categoryName, "zzzz_sem_categoria"),
-      inventoryClassificationSortText(b.subcategoryName, "zzzz_sem_subcategoria"),
-      inventoryClassificationSortText(b.productDisplayName),
-      inventoryClassificationSortText(b.productCode, "zzzz_sem_codigo")
-    ];
-    for (let index = 0; index < valuesA.length; index += 1) {
-      const diff = valuesA[index].localeCompare(valuesB[index], "pt-BR");
-      if (diff !== 0) return diff;
-    }
-    return 0;
-  }), [stocks, productById, buyerSupportByProductId]);
-  const stockFilterOptions = useMemo(() => ({
-    sectors: [...new Set(stockRows.map((item) => item.sectorName).filter((value): value is string => Boolean(value)))].sort((a, b) => a.localeCompare(b)),
-    categories: [...new Set(stockRows.map((item) => item.categoryName).filter((value): value is string => Boolean(value)))].sort((a, b) => a.localeCompare(b)),
-    subcategories: [...new Set(stockRows.map((item) => item.subcategoryName).filter((value): value is string => Boolean(value)))].sort((a, b) => a.localeCompare(b)),
-    suppliers: [...new Set(stockRows.map((item) => item.supplierName).filter((value): value is string => Boolean(value)))].sort((a, b) => a.localeCompare(b)),
-    alerts: [...new Set(stockRows.flatMap((item) => item.alerts))].sort((a, b) => a.localeCompare(b))
-  }), [stockRows]);
-  const filteredStockRows = useMemo(() => {
-    const normalized = search.trim().toLowerCase();
-    return stockRows.filter((item) => {
-      const matchesSearch = !normalized || [item.productDisplayName, item.productCode, item.sectorName, item.categoryName, item.subcategoryName, item.supplierName]
-        .some((value) => String(value ?? "").toLowerCase().includes(normalized));
-      const matchesSector = !stockFilters.sector || item.sectorName === stockFilters.sector;
-      const matchesCategory = !stockFilters.category || item.categoryName === stockFilters.category;
-      const matchesSubcategory = !stockFilters.subcategory || item.subcategoryName === stockFilters.subcategory;
-      const matchesSupplier = !stockFilters.supplier || item.supplierName === stockFilters.supplier;
-      const matchesAlert = !stockFilters.alert || item.alerts.includes(stockFilters.alert);
-      return matchesSearch && matchesSector && matchesCategory && matchesSubcategory && matchesSupplier && matchesAlert;
-    });
-  }, [stockRows, search, stockFilters]);
-  const stockSummary = useMemo(() => ({
-    total: stockRows.length,
-    zeros: stockRows.filter((item) => item.alerts.includes("ZERADO")).length,
-    belowMinimum: stockRows.filter((item) => item.alerts.includes("ABAIXO DO MINIMO")).length,
-    divergent: stockRows.filter((item) => item.alerts.includes("DIVERGENTE")).length,
-    withoutSupplier: stockRows.filter((item) => item.alerts.includes("SEM_FORNECEDOR")).length,
-    incomplete: stockRows.filter((item) => item.alerts.includes("CADASTRO INCOMPLETO")).length
-  }), [stockRows]);
   const activeCountSessions = useMemo(() => countSessions.filter((item) => editableCountSessionStatuses.has(item.status)), [countSessions]);
   const completedCountSessions = useMemo(() => countSessions.filter((item) => item.status === "CONCLUIDA"), [countSessions]);
   const countSessionSectors = useMemo(() => {
@@ -695,7 +597,7 @@ export function Inventory({
   const panelClass = (views: InventoryView[]) => views.includes(activeView) ? "panel" : "panel inventory-section-hidden";
   // A rota Relatorios mostra a leitura gerencial direto, sem depender da aba
   // escolhida dentro de Inventario (que comeca em "Inventarios oficiais").
-  const showManagementReport = activeView === "reports" || inventoryDeskTab === "reports";
+  const showManagementReport = activeView === "reports";
 
   async function load() {
     setLoading(true);
@@ -734,17 +636,8 @@ export function Inventory({
       const firstAgenda = agendaRows?.items.find((item) => sameDay(item.scheduledDate, new Date())) ?? agendaRows?.items[0];
       setSelectedAgendaId((current) => current || firstAgenda?.id || "");
       await loadProducts(firstAgenda);
-      if (!canViewOperational) {
-        setPurchasingReport(null);
-        setBuyerSupport(null);
-      } else {
-        const [reportRows, buyerRows] = await Promise.all([
-          getOperationalInventoryPurchasingReport(),
-          getBuyerSupportReport(buyerFilters)
-        ]);
-        setPurchasingReport(reportRows);
-        setBuyerSupport(buyerRows);
-      }
+      // Apoio ao comprador so alimenta os alertas de estoque da Visao Geral.
+      setBuyerSupport(canViewOperational ? await getBuyerSupportReport(buyerFilters).catch(() => null) : null);
       if (!sectorRows.length && countSessionForm.type === "SETORIAL") {
         setNotice({ tone: "warning", message: "Nenhum setor disponivel para contagem." });
       }
@@ -772,50 +665,8 @@ export function Inventory({
   }
 
   async function refreshOperational(id?: string) {
-    const [rows, reportRows, buyerRows] = await Promise.all([getOperationalInventories(showCanceledStockData), getOperationalInventoryPurchasingReport(), getBuyerSupportReport(buyerFilters)]);
-    setOperationalInventories(rows);
-    setPurchasingReport(reportRows);
-    setBuyerSupport(buyerRows);
+    setOperationalInventories(await getOperationalInventories(showCanceledStockData));
     if (id) await openOperationalInventory(id);
-  }
-
-  async function loadBuyerSupport() {
-    setBuyerSupport(await getBuyerSupportReport(buyerFilters));
-  }
-
-  async function exportBuyerPrelist() {
-    try {
-      await downloadBuyerPrelistCsv(buyerFilters);
-      setNotice({ tone: "success", message: "Pre-lista de compra exportada." });
-    } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao exportar pre-lista." });
-    }
-  }
-
-  async function generatePurchaseOrdersFromPrelist() {
-    if (!buyerSupport) return;
-    const eligible = buyerSupport.prelist.filter((group) => group.supplierId);
-    const selectedSupplierIds = eligible
-      .filter((group) => selectedPrelistSuppliers[group.supplierId ?? ""] !== false)
-      .map((group) => group.supplierId!)
-      .filter(Boolean);
-    const pendingWithoutSupplier = buyerSupport.prelist
-      .filter((group) => !group.supplierId)
-      .reduce((sum, group) => sum + group.items.length, 0);
-
-    if (selectedSupplierIds.length === 0) {
-      setNotice({ tone: "warning", message: "Nenhum fornecedor elegivel selecionado. Produtos sem fornecedor ficam como pendencia." });
-      return;
-    }
-    if (!window.confirm(`Gerar pedido de compra em rascunho para ${selectedSupplierIds.length} fornecedor(es)?`)) return;
-
-    try {
-      const result = await createPurchaseOrdersFromPrelist({ supplierIds: selectedSupplierIds, filters: buyerFilters });
-      setNotice({ tone: "success", message: `${result.orders.length} pedido(s) criado(s). Pendencias sem fornecedor: ${result.pendingWithoutSupplier || pendingWithoutSupplier}.` });
-      onOpenPurchaseOrders?.();
-    } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao gerar pedido de compra." });
-    }
   }
 
   async function downloadInventoryPdf(inventory: OperationalInventory) {
@@ -1199,8 +1050,8 @@ export function Inventory({
     try {
       const inventory = await generateInventoryFromStockCountSession(countSessionDetail.id);
       setNotice({ tone: "success", message: `${inventory.code} gerado a partir da contagem ${countSessionDetail.code}.` });
-      await Promise.all([refreshCountSessions(countSessionDetail.id), refreshOperational(inventory.id)]);
-      irParaVisao("inventory");
+      await Promise.all([refreshCountSessions(countSessionDetail.id), refreshOperational()]);
+      irParaInventario(inventory.id);
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel gerar o inventario." });
     }
@@ -1314,7 +1165,8 @@ export function Inventory({
       setNotice({ tone: "success", message: `${inventory.code} gerado — ${ids.length} setor(es) consolidados.` });
       setConsolidationSelected(new Set());
       setConsolidationCoverage(null);
-      await Promise.all([refreshCountSessions(), refreshOperational(inventory.id)]);
+      await Promise.all([refreshCountSessions(), refreshOperational()]);
+      irParaInventario(inventory.id);
     } catch (error) {
       const isAbort = error instanceof Error && (error.name === "AbortError" || error.message.includes("aborted"));
       setNotice({
@@ -1393,52 +1245,6 @@ export function Inventory({
   }
 
   // Pedacos das linhas das listas de inventario, iguais no desktop e no celular.
-  function inventoryBadges(inventory: OperationalInventory) {
-    return (
-      <>
-        {inventory.type === "FINAL_CMV" && <StatusBadge tone="warning">final CMV</StatusBadge>}
-        {inventory.inventorySnapshotId && <StatusBadge tone="info">snapshot CMV</StatusBadge>}
-      </>
-    );
-  }
-
-  function inventoryProgress(inventory: OperationalInventory, extra?: ReactNode) {
-    const total = Number(inventory.totalItems);
-    const pct = total > 0 ? Math.round((Number(inventory.countedItems) / total) * 100) : 0;
-    return (
-      <div className="count-list-progress">
-        <span>
-          <strong>{formatNumber(inventory.countedItems)}</strong>/{formatNumber(inventory.totalItems)}
-          {Number(inventory.pendingItems) > 0 && <em>{formatNumber(inventory.pendingItems)} pend.</em>}
-          {extra}
-        </span>
-        <div className="progress-track"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
-      </div>
-    );
-  }
-
-  // Abrir + PDF lado a lado. Eram dois botoes empilhados, e "Gerar PDF" ainda
-  // quebrava em duas linhas: cada linha da tabela ficava com ~65px.
-  function inventoryActions(inventory: OperationalInventory) {
-    const emAnalise = inventory.type === "FINAL_CMV" && inventory.status === "EM_REVISAO";
-    return (
-      <div className="inventory-row-actions">
-        <button
-          className={emAnalise ? "primary-button" : "secondary-button"}
-          type="button"
-          disabled={openingInventoryId === inventory.id}
-          onClick={() => void openOperationalInventory(inventory.id)}
-        >
-          {openingInventoryId === inventory.id ? <Loader2 size={14} className="spin" /> : null}
-          {emAnalise ? "Continuar análise" : "Abrir"}
-        </button>
-        <button className="icon-button" type="button" aria-label={`Gerar PDF — ${inventory.code}`} title="Gerar PDF" onClick={() => downloadInventoryPdf(inventory)}>
-          <Download size={16} />
-        </button>
-      </div>
-    );
-  }
-
   function advanceCountSessionItem(itemId: string) {
     const input = getVisibleCountSessionInputs().find((candidate) => candidate.getAttribute("data-session-count-item-id") === itemId);
     if (input) advanceCountSessionInput(input);
@@ -1514,7 +1320,8 @@ export function Inventory({
         notes: operationalForm.notes || null
       });
       setNotice({ tone: "success", message: `${created.code} criado com ${created.totalItems} item(ns).` });
-      await refreshOperational(created.id);
+      await refreshOperational();
+      irParaInventario(created.id);
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel criar o inventario." });
     }
@@ -1523,11 +1330,24 @@ export function Inventory({
   // Sem aviso de "aberto": o Notice tambem rola a pagina ate ele, no topo, e
   // disputava com a rolagem ate o painel — o inventario abria 1.800px abaixo e
   // a pessoa continuava olhando a lista. O painel aparecer ja e o retorno.
+  // Rascunhos sem nenhuma quantidade, criados ha mais de 30 dias: so ocupavam a
+  // lista (5 inventarios "Geral" vazios de junho na base). Cancelar nao apaga.
+  async function cancelarRascunhosVazios(ids: string[]) {
+    const motivo = "Rascunho sem nenhuma quantidade lançada há mais de 30 dias (limpeza da lista de inventários).";
+    const resultados = await Promise.allSettled(ids.map((id) => cancelOperationalInventory(id, motivo)));
+    const falhas = resultados.filter((r) => r.status === "rejected").length;
+    await refreshOperational().catch(() => undefined);
+    setNotice(falhas === 0
+      ? { tone: "success", message: `${ids.length} rascunho(s) vazio(s) cancelado(s).` }
+      : { tone: "warning", message: `${ids.length - falhas} cancelado(s); ${falhas} não puderam ser cancelados. Abra-os para ver o motivo.` });
+  }
+
   // Da conferencia para a linha editavel: filtra a tabela pelo produto e poe o
   // cursor na quantidade dele.
   function localizarItemDaConferencia(item: ItemDaConferencia) {
     setOperationalSectorFilter("");
     setOperationalSearch(item.productCode ?? item.productName);
+    setAbaDoDetalhe("itens");
     setItemParaLocalizar(item.itemId);
   }
 
@@ -1539,13 +1359,62 @@ export function Inventory({
     input?.scrollIntoView({ behavior: "smooth", block: "center" });
     if (input && !input.disabled) input.focus({ preventScroll: true });
     setItemParaLocalizar(null);
-  }, [itemParaLocalizar, filteredOperationalItems]);
+  }, [itemParaLocalizar, filteredOperationalItems, abaDoDetalhe]);
 
+  // O endereco manda no detalhe: abrir e navegar para ?inventario=<id>, e um
+  // efeito so carrega. Assim o "voltar" do navegador fecha o detalhe, o link
+  // pode ser compartilhado, e abrir a partir de Contagens (gerar, consolidar)
+  // chega no inventario em vez de cair na lista.
+  function irParaInventario(id: string, origem: "lista" | "outra" = "outra") {
+    abertoPelaLista.current = origem === "lista";
+    setInventoryDeskTab("official");
+    if (activeView !== "inventory") setActiveView("inventory");
+    navigate(`${INVENTORY_VIEW_PATHS.inventory}?inventario=${encodeURIComponent(id)}`);
+  }
+
+  function tirarInventarioDaUrl() {
+    setSearchParams((atual) => {
+      const proximo = new URLSearchParams(atual);
+      proximo.delete("inventario");
+      return proximo;
+    }, { replace: true });
+  }
+
+  function fecharDetalheDoInventario() {
+    inventarioPedido.current = null;
+    setOperationalDetail(null);
+    if (abertoPelaLista.current) navigate(-1);
+    else tirarInventarioDaUrl();
+    abertoPelaLista.current = false;
+    document.querySelector(".content")?.scrollTo({ top: 0 });
+  }
+
+  useEffect(() => {
+    if (activeView !== "inventory") return;
+    if (inventarioNaUrl && inventarioNaUrl !== operationalDetail?.id && inventarioNaUrl !== inventarioPedido.current) {
+      setInventoryDeskTab("official");
+      void openOperationalInventory(inventarioNaUrl);
+    } else if (!inventarioNaUrl && operationalDetail) {
+      inventarioPedido.current = null;
+      abertoPelaLista.current = false;
+      setOperationalDetail(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reage so ao endereco
+  }, [inventarioNaUrl, activeView]);
+
+  // Carrega (ou recarrega) o detalhe. Quem quer ABRIR chama irParaInventario.
   async function openOperationalInventory(id: string) {
+    inventarioPedido.current = id;
     setOpeningInventoryId(id);
     try {
       const detail = await getOperationalInventory(id);
-      if (detail.id !== operationalDetail?.id) setConferencia(null);
+      // Voltou para a lista (ou abriu outro) enquanto carregava: descarta.
+      if (inventarioPedido.current !== id) return;
+      if (detail.id !== operationalDetail?.id) {
+        setConferencia(null);
+        // Quem abre um rascunho com itens faltando vai lancar; o resto vai conferir.
+        setAbaDoDetalhe(editableOperationalInventoryStatuses.has(detail.status) && detail.pendingItems > 0 ? "itens" : "conferencia");
+      }
       setOperationalDetail(detail);
       setVersaoConferencia((v) => v + 1);
       setFinalCmvCoverage(null);
@@ -1558,8 +1427,13 @@ export function Inventory({
       if (detail.type === "FINAL_CMV" && detail.status === "RASCUNHO") {
         void loadFinalCmvCoverage(id);
       }
+    } catch (error) {
+      if (inventarioPedido.current !== id) return;
+      inventarioPedido.current = null;
+      if (inventarioNaUrl === id) tirarInventarioDaUrl();
+      setNotice({ tone: "error", message: error instanceof Error ? `Não foi possível abrir o inventário: ${error.message}` : "Não foi possível abrir o inventário." });
     } finally {
-      setOpeningInventoryId(null);
+      setOpeningInventoryId((atual) => (atual === id ? null : atual));
     }
   }
 
@@ -2588,7 +2462,7 @@ export function Inventory({
           </div>
         </div>
 
-        {activeView !== "counting" && (
+        {activeView !== "counting" && !operationalDetail && (
           <>
             {/* O fechamento do mes vem ANTES da navegacao e das acoes: quando ha
               * um em andamento, ele e o assunto da tela. Ficava depois de duas
@@ -2637,7 +2511,7 @@ export function Inventory({
                         {acaoFechamentoEmCurso ? "Processando…" : passo.rotuloAcao}
                       </button>
                     )}
-                    <button className="secondary-button" type="button" onClick={() => void openOperationalInventory(inv.id)}>Ver inventário</button>
+                    <button className="secondary-button" type="button" onClick={() => irParaInventario(inv.id)}>Ver inventário</button>
                   </div>
                 </section>
               );
@@ -2646,58 +2520,38 @@ export function Inventory({
             {/* Sub-navegacao e acao principal na mesma faixa. Eram duas linhas
               * empilhadas, e o olho tinha de descer duas vezes para achar o que
               * fazer. */}
+            {/* Duas abas. Eram quatro: "Sugestao de compras" gerou 2 pedidos na
+              * vida (o Planejamento de compra gerou 64), "Estoque atual" listava o
+              * saldo que nunca baixa e "Relatorios" repetia a aba do modulo. */}
             <div className="inventory-nav-bar">
               <Tabs
                 value={inventoryDeskTab}
                 onChange={(v) => setInventoryDeskTab(v as InventoryDeskTab)}
                 tabs={[
-                  { value: "official", label: "Inventários oficiais" },
-                  { value: "purchase", label: "Sugestão de compras" },
-                  { value: "stock", label: "Estoque atual" },
-                  { value: "reports", label: "Relatórios" }
+                  { value: "official", label: "Inventários" },
+                  { value: "posicao", label: "Posição do estoque" }
                 ]}
               />
 
-              {/* Acoes do contexto, nao todas de uma vez. Eram cinco botoes lado
-                * a lado, dois com peso de primaria, mais um menu que repetia
-                * quatro — e tres pertenciam a outra aba. */}
-              <div className="inventory-action-strip">
-              {inventoryDeskTab === "purchase" ? (
-                <>
-                  <Button leadingIcon={<ShoppingCart size={16} />} disabled={!buyerSupport} onClick={generatePurchaseOrdersFromPrelist}>Gerar pedido de compra</Button>
+              {inventoryDeskTab === "official" && canCreateOperational && (
+                <div className="inventory-action-strip">
                   <div className="inv-more-actions-wrap">
-                    <Button variant="secondary" onClick={() => setMobileInvMoreActionsOpen(v => !v)}>Mais ações ▾</Button>
+                    <Button variant="secondary" aria-expanded={mobileInvMoreActionsOpen} onClick={() => setMobileInvMoreActionsOpen((v) => !v)}>Mais ações ▾</Button>
                     <div className={`inv-more-actions-menu${mobileInvMoreActionsOpen ? " open" : ""}`}>
-                      <button type="button" onClick={() => { void loadBuyerSupport(); setMobileInvMoreActionsOpen(false); }}><RefreshCw size={14} />Atualizar relatório</button>
-                      <button type="button" disabled={!buyerSupport} onClick={() => { exportBuyerPrelist(); setMobileInvMoreActionsOpen(false); }}><FileText size={14} />Exportar CSV</button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMobileInvMoreActionsOpen(false);
+                          if (mobileInvFormOpen) { setMobileInvFormOpen(false); return; }
+                          abrirFormularioDeInventario();
+                        }}
+                      >
+                        <ClipboardCheck size={14} />{mobileInvFormOpen ? "Fechar inventário manual" : "Criar inventário manual"}
+                      </button>
                     </div>
                   </div>
-                </>
-              ) : (
-                <>
-                  {/* Alterna: no desktop o formulario abria e nao tinha como fechar
-                      (o "Cancelar" so existia no botao duplicado do celular). */}
-                  <Button
-                    leadingIcon={mobileInvFormOpen && inventoryDeskTab === "official" ? <X size={16} /> : <ClipboardCheck size={16} />}
-                    aria-expanded={mobileInvFormOpen && inventoryDeskTab === "official"}
-                    onClick={() => {
-                      if (mobileInvFormOpen && inventoryDeskTab === "official") { setMobileInvFormOpen(false); return; }
-                      setInventoryDeskTab("official");
-                      abrirFormularioDeInventario();
-                    }}
-                  >
-                    {mobileInvFormOpen && inventoryDeskTab === "official" ? "Fechar" : "Criar inventário"}
-                  </Button>
-                  <div className="inv-more-actions-wrap">
-                    <Button variant="secondary" onClick={() => setMobileInvMoreActionsOpen(v => !v)}>Mais ações ▾</Button>
-                    <div className={`inv-more-actions-menu${mobileInvMoreActionsOpen ? " open" : ""}`}>
-                      <button type="button" disabled={!operationalDetail} onClick={() => { operationalDetail && void downloadInventoryPdf(operationalDetail); setMobileInvMoreActionsOpen(false); }}><Download size={14} />Gerar PDF</button>
-                      <button type="button" onClick={() => { setInventoryDeskTab("purchase"); void loadBuyerSupport(); setMobileInvMoreActionsOpen(false); }}><ShoppingCart size={14} />Ir para sugestão de compras</button>
-                    </div>
-                  </div>
-                </>
+                </div>
               )}
-              </div>
             </div>
           </>
         )}
@@ -2736,7 +2590,7 @@ export function Inventory({
                     </div>
                     <div className="actions-cell">
                       <StatusBadge tone={operationalTone(inv.status)}>{operationalStatusLabels[inv.status] ?? inv.status}</StatusBadge>
-                      <button className="secondary-button" type="button" onClick={() => { irParaVisao("inventory"); setInventoryDeskTab("official"); void openOperationalInventory(inv.id); }}>Ver inventario</button>
+                      <button className="secondary-button" type="button" onClick={() => irParaInventario(inv.id)}>Ver inventario</button>
                     </div>
                   </div>
                 </div>
@@ -2954,7 +2808,7 @@ export function Inventory({
                   <button
                     className="secondary-button"
                     type="button"
-                    onClick={() => { irParaVisao("inventory"); setInventoryDeskTab("official"); void openOperationalInventory(inv.id); }}
+                    onClick={() => irParaInventario(inv.id)}
                   >
                     Ver inventario
                   </button>
@@ -3111,31 +2965,15 @@ export function Inventory({
           </div>
         )}
 
-        {activeView !== "counting" && inventoryDeskTab === "official" && <>
-          {/* Quatro cards do mesmo tamanho, com numeros de cores diferentes e
-            * nenhuma hierarquia: a tela nao dizia qual olhar. Viraram uma linha
-            * de estatisticas — informacao de apoio tem peso de apoio. Só o que
-            * exige acao (divergências) ganha destaque. */}
-          <ul className="inv-estatisticas">
-            <li><span>{formatNumber(operationalSummary.drafts)}</span> em rascunho</li>
-            <li><span>{formatNumber(operationalSummary.review)}</span> em revisão</li>
-            <li><span>{formatNumber(operationalSummary.pending)}</span> pendentes</li>
-            {!operationalSummary.activeFinalCmv && operationalSummary.lastFinalCmv && (
-              <li className="inv-estatisticas__ultimo">
-                último final CMV: {operationalSummary.lastFinalCmv.code} · {formatDate(operationalSummary.lastFinalCmv.date)}
-              </li>
-            )}
-          </ul>
-
-
+        {activeView !== "counting" && inventoryDeskTab === "official" && !operationalDetail && <>
           <div className={`inv-collapsible-form${mobileInvFormOpen ? " open" : ""}`} ref={formularioInventarioRef}>
             <div className="form-section inventory-create-panel">
               <div className="section-heading compact-heading">
                 <div>
-                  <p>Novo inventario</p>
-                  <h3>Criar inventario manual</h3>
+                  <p>Exceção</p>
+                  <h3>Criar inventário manual</h3>
                 </div>
-                <span className="muted">Use para inventario oficial, conferencia ou fechamento de CMV com estrutura pronta para lancamento.</span>
+                <span className="muted">O caminho normal é contar em Contagem de Estoque e gerar o inventário de lá. Use o manual só para lançar quantidades direto, sem contagem.</span>
               </div>
               <div className="filters-row">
                 <label>Data<input type="date" value={operationalForm.date} onChange={(event) => setOperationalForm({ ...operationalForm, date: event.target.value })} /></label>
@@ -3154,183 +2992,43 @@ export function Inventory({
                     {sectors.map((sector) => <option key={sector.id} value={sector.id}>{sector.name}</option>)}
                   </select></label>
                 )}
-                <label className="span-2">Observacoes<input value={operationalForm.notes} onChange={(event) => setOperationalForm({ ...operationalForm, notes: event.target.value })} /></label>
-                <button className="primary-button" type="button" onClick={createOperational}><ClipboardCheck size={16} />Criar inventario</button>
+                <label className="span-2">Observações<input value={operationalForm.notes} onChange={(event) => setOperationalForm({ ...operationalForm, notes: event.target.value })} /></label>
+                <button className="primary-button" type="button" onClick={createOperational}><ClipboardCheck size={16} />Criar inventário</button>
               </div>
             </div>
           </div>
 
-          {operationalCounts.length > 0 && (
-            <div className="subsection inv-cards-section">
-              <div className="inventory-block-heading">
-                <div>
-                  <h3>Inventarios em andamento</h3>
-                  <p className="muted">Rascunhos, em revisao e rejeitados — ainda nao oficializados.</p>
-                </div>
-              </div>
-
-              {/* Desktop. Total/Contados/Pendentes viraram uma coluna de progresso,
-                  e Tipo e Setor dividem uma so. */}
-              <div className="inv-desktop-table-wrap">
-                <Table>
-                  <Table.Head>
-                    <Table.Row>
-                      <Table.Th>Código</Table.Th>
-                      <Table.Th>Data</Table.Th>
-                      <Table.Th>Tipo / setor</Table.Th>
-                      <Table.Th>Status</Table.Th>
-                      <Table.Th minWidth={120}>Progresso</Table.Th>
-                      <Table.Th title="Cobertura do inventário final CMV">Cobertura</Table.Th>
-                      <Table.Th>Responsável</Table.Th>
-                      <Table.Th actions>Ações</Table.Th>
-                    </Table.Row>
-                  </Table.Head>
-                  <Table.Body>
-                    {operationalCounts.map((inventory) => {
-                      const cov = inventory.type === "FINAL_CMV" ? finalCmvCoverageMap[inventory.id] : undefined;
-                      const carregando = isLoadingCoverageMap && !cov && inventory.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(inventory.status);
-                      return (
-                        <Table.Row key={inventory.id}>
-                          <Table.Td className="inventory-code-cell" title={inventory.name}>
-                            <strong>{inventory.code}</strong>{inventoryBadges(inventory)}
-                            <small>{inventory.name}</small>
-                          </Table.Td>
-                          <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(inventory.date)}</Table.Td>
-                          <Table.Td>
-                            {operationalTypeLabels[inventory.type]}
-                            {inventory.sectorName && <small>{inventory.sectorName}</small>}
-                          </Table.Td>
-                          <Table.Td><StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge></Table.Td>
-                          <Table.Td>{inventoryProgress(inventory)}</Table.Td>
-                          <Table.Td>
-                            {carregando && <span className="muted">...</span>}
-                            {cov && <StatusBadge tone={cov.isComplete ? "success" : "warning"}>{cov.coveredTotal}/{cov.expectedTotal}</StatusBadge>}
-                            {!cov && !carregando && "-"}
-                          </Table.Td>
-                          <Table.Td truncate style={{ maxWidth: 110 }} title={inventory.responsibleName ?? "-"}>{inventory.responsibleName ?? "-"}</Table.Td>
-                          <Table.Td actions>{inventoryActions(inventory)}</Table.Td>
-                        </Table.Row>
-                      );
-                    })}
-                  </Table.Body>
-                </Table>
-              </div>
-
-              <div className="inv-mobile-cards">
-                {operationalCounts.map((inventory) => {
-                  const cov = inventory.type === "FINAL_CMV" ? finalCmvCoverageMap[inventory.id] : undefined;
-                  return (
-                    <div key={inventory.id} className="inv-mobile-card count-list-card">
-                      <div className="inv-mc-header">
-                        <div className="inv-mc-header-left">
-                          <strong>{inventory.code}</strong>
-                          <small>{[operationalTypeLabels[inventory.type], inventory.sectorName].filter(Boolean).join(" · ")}</small>
-                        </div>
-                        <StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge>
-                      </div>
-                      {inventoryProgress(inventory, cov ? <em className={cov.isComplete ? "is-ok" : undefined}>cobertura {cov.coveredTotal}/{cov.expectedTotal}</em> : undefined)}
-                      <div className="count-list-card-footer">
-                        <small>{formatDate(inventory.date)}{inventory.type === "FINAL_CMV" ? " · final CMV" : ""}</small>
-                        {inventoryActions(inventory)}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <div className="subsection inventory-official-list inv-cards-section">
-            <div className="inventory-block-heading">
-              <div>
-                <h3>Inventarios oficiais</h3>
-                <p className="muted">Documentos aprovados, fechados ou cancelados. Apenas aprovados/fechados geram snapshot valido para CMV Real.</p>
-              </div>
-            </div>
-
-            <div className="inv-desktop-table-wrap">
-              <Table>
-                <Table.Head>
-                  <Table.Row>
-                    <Table.Th>Código</Table.Th>
-                    <Table.Th>Data</Table.Th>
-                    <Table.Th>Tipo / setor</Table.Th>
-                    <Table.Th>Status</Table.Th>
-                    <Table.Th minWidth={120}>Progresso</Table.Th>
-                    <Table.Th>Responsável</Table.Th>
-                    <Table.Th actions>Ações</Table.Th>
-                  </Table.Row>
-                </Table.Head>
-                <Table.Body>
-                  {officialInventories.map((inventory) => (
-                    <Table.Row key={inventory.id}>
-                      {/* "fechado" saiu dos selos: ja e o Status, uma coluna ao lado. */}
-                      <Table.Td className="inventory-code-cell" title={inventory.name}>
-                        <strong>{inventory.code}</strong>{inventoryBadges(inventory)}
-                        <small>{inventory.name}</small>
-                      </Table.Td>
-                      <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(inventory.date)}</Table.Td>
-                      <Table.Td>
-                        {operationalTypeLabels[inventory.type]}
-                        {inventory.sectorName && <small>{inventory.sectorName}</small>}
-                      </Table.Td>
-                      <Table.Td><StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge></Table.Td>
-                      <Table.Td>{inventoryProgress(inventory)}</Table.Td>
-                      <Table.Td truncate style={{ maxWidth: 110 }} title={inventory.responsibleName ?? "-"}>{inventory.responsibleName ?? "-"}</Table.Td>
-                      <Table.Td actions>{inventoryActions(inventory)}</Table.Td>
-                    </Table.Row>
-                  ))}
-                  {officialInventories.length === 0 && (
-                    <Table.Row><Table.Td colSpan={7}><EmptyState title="Nenhum inventario oficial" description="Aprove ou feche uma contagem para gerar o documento oficial." /></Table.Td></Table.Row>
-                  )}
-                </Table.Body>
-              </Table>
-            </div>
-
-            <div className="inv-mobile-cards">
-              {officialInventories.length === 0 && (
-                <EmptyState title="Nenhum inventario oficial" description="Aprove ou feche uma contagem para gerar o documento oficial." />
-              )}
-              {officialInventories.map((inventory) => (
-                <div key={inventory.id} className="inv-mobile-card count-list-card">
-                  <div className="inv-mc-header">
-                    <div className="inv-mc-header-left">
-                      <strong>{inventory.code}</strong>
-                      <small>{[operationalTypeLabels[inventory.type], inventory.sectorName, inventory.inventorySnapshotId ? "snapshot CMV" : null].filter(Boolean).join(" · ")}</small>
-                    </div>
-                    <StatusBadge tone={operationalTone(inventory.status)}>{operationalStatusLabels[inventory.status] ?? inventory.status}</StatusBadge>
-                  </div>
-                  {inventoryProgress(inventory)}
-                  <div className="count-list-card-footer">
-                    <small>{formatDate(inventory.date)}{inventory.responsibleName ? ` · ${inventory.responsibleName}` : ""}</small>
-                    {inventoryActions(inventory)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <ListaDeInventarios
+            inventarios={operationalInventories}
+            coberturas={finalCmvCoverageMap}
+            abrindoId={openingInventoryId}
+            podeCancelar={canCancelOperational}
+            onAbrir={(id) => irParaInventario(id, "lista")}
+            onPdf={(inventario) => void downloadInventoryPdf(inventario)}
+            onCancelarRascunhos={cancelarRascunhosVazios}
+          />
         </>}
+
+        {activeView !== "counting" && inventoryDeskTab === "posicao" && !operationalDetail && <PosicaoEstoque />}
 
         {activeView !== "counting" && inventoryDeskTab === "official" && operationalDetail && (
           <div ref={operationalDetailRef} className="subsection operational-count-panel scroll-target">
-            <div className="section-heading">
-              <div>
-                <p>{operationalDetail.code} • Referência {formatDate(operationalDetail.date)} • Efetiva {formatDate(operationalDetail.effectiveCountDate ?? operationalDetail.date)} • {operationalTypeLabels[operationalDetail.type]}</p>
-                <h3 tabIndex={-1} data-autofocus title={operationalDetail.name}>{operationalDetail.name}</h3>
+            {/* O detalhe e uma pagina: a lista some e o endereco ganha
+              * ?inventario=, entao o "voltar" do navegador funciona. As acoes de
+              * status sobem para o cabecalho; editar fica junto da tabela. */}
+            <nav className="op-detail-trilha" aria-label="Navegação">
+              <button type="button" className="op-detail-voltar" onClick={fecharDetalheDoInventario}>
+                <ArrowLeft size={15} aria-hidden="true" /> Inventários
+              </button>
+            </nav>
+            <header className="op-detail-cabecalho">
+              <div className="op-detail-cabecalho__titulo">
+                <p className="op-detail-eyebrow">
+                  {operationalDetail.code} · {operationalTypeLabels[operationalDetail.type]}{operationalDetail.sectorName ? ` · ${operationalDetail.sectorName}` : ""} · contado em {formatDate(operationalDetail.effectiveCountDate ?? operationalDetail.date)}
+                </p>
+                <h3 tabIndex={-1} data-autofocus title={operationalDetail.name}>{tituloCurto(operationalDetail)}</h3>
               </div>
               <div className="op-detail-head-actions">
-                {/* O detalhe abre abaixo das duas listas e nao tinha saida: era
-                    rolar de volta ate o topo na mao. */}
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => {
-                    setOperationalDetail(null);
-                    document.querySelector(".content")?.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
-                >
-                  <X size={15} /> Voltar à lista
-                </button>
                 <StatusBadge tone={operationalTone(operationalDetail.status)}>{operationalStatusLabels[operationalDetail.status] ?? operationalDetail.status}</StatusBadge>
                 {canPlanPurchase && operationalDetail.status !== "CANCELADO" && operationalDetail.pendingItems === 0 && (
                   <button
@@ -3341,29 +3039,36 @@ export function Inventory({
                     <ShoppingCart size={15} /> Planejar compra
                   </button>
                 )}
+                {/* Final CMV tem o assistente de fechamento logo abaixo com o
+                    passo principal; aqui so os inventarios comuns. */}
+                {operationalDetail.type !== "FINAL_CMV" && editableOperationalInventoryStatuses.has(operationalDetail.status) && (
+                  <button className="primary-button" type="button" onClick={() => operationalAction("submit")}><Send size={16} />Enviar para revisão</button>
+                )}
+                {canApproveOperational && operationalDetail.type !== "FINAL_CMV" && operationalDetail.status === "EM_REVISAO" && (
+                  <button className="primary-button" type="button" onClick={() => operationalAction("approve")}>Aprovar</button>
+                )}
+                {canApproveOperational && operationalDetail.type !== "FINAL_CMV" && operationalDetail.status === "APROVADO" && (
+                  <button className="primary-button" type="button" onClick={() => operationalAction("close")}>Fechar</button>
+                )}
+                <RowMenu
+                  label={`Mais ações — ${operationalDetail.code}`}
+                  items={[
+                    { label: "Gerar PDF", icon: <Download size={15} />, onClick: () => void downloadInventoryPdf(operationalDetail) },
+                    ...(canApproveOperational && operationalDetail.status === "EM_REVISAO"
+                      ? [{ label: "Rejeitar e devolver para correção", icon: <X size={15} />, onClick: () => void operationalAction("reject") }]
+                      : []),
+                    ...(canCancelOperational && !["FECHADO", "CANCELADO"].includes(operationalDetail.status)
+                      ? [{ separator: true as const }, { label: "Cancelar inventário", icon: <Trash2 size={15} />, tone: "danger" as const, onClick: () => void operationalAction("cancel") }]
+                      : [])
+                  ]}
+                />
               </div>
-            </div>
+            </header>
 
-            {/* Linha de numeros no lugar de sete cartoes: no celular eles
-                ocupavam meia tela e a data quebrava em "05/06/2 026". */}
-            <ul className="inv-estatisticas op-detail-stats">
-              <li><span>{formatNumber(operationalDetail.countedItems)}/{formatNumber(operationalDetail.totalItems)}</span> contados</li>
-              <li><span>{formatNumber(operationalDetail.pendingItems)}</span> pendentes</li>
-              <li className="inv-estatisticas__ultimo">
-                efetiva {formatDate(operationalDetail.effectiveCountDate ?? operationalDetail.date)}
-                {(operationalDetail.startedAt || operationalDetail.finishedAt) && ` · ${formatDateTime(operationalDetail.startedAt)} → ${formatDateTime(operationalDetail.finishedAt)}`}
-              </li>
-            </ul>
-
-            {operationalDetail.status !== "CANCELADO" && (
-              <ConferenciaInventario
-                key={operationalDetail.id}
-                inventoryId={operationalDetail.id}
-                versao={versaoConferencia}
-                onLocalizar={localizarItemDaConferencia}
-                onCarregar={setConferencia}
-              />
-            )}
+            <EtapasDoInventario
+              inventario={operationalDetail}
+              faltamNaCobertura={operationalDetail.type === "FINAL_CMV" && finalCmvCoverage && !finalCmvCoverage.isComplete ? finalCmvCoverage.missingTotal : 0}
+            />
 
             {operationalDetail.type === "FINAL_CMV" && operationalDetail.status === "RASCUNHO" && (() => {
               const complementSessions = countSessions.filter((s) =>
@@ -3374,46 +3079,54 @@ export function Inventory({
               const inProgress = complementSessions.filter((s) => s.status === "ABERTA" || s.status === "EM_ANDAMENTO");
               const isIncomplete = finalCmvCoverage != null && !finalCmvCoverage.isComplete;
               const isComplete = finalCmvCoverage != null && finalCmvCoverage.isComplete;
+              // Cobertura: o Final CMV precisa ter todo produto controlado. Era um
+              // bloco com cores fixas no codigo; virou o mesmo aviso do resto da tela.
+              const tom = isComplete ? "ok" : isIncomplete ? "alerta" : "neutro";
               return (
-                <div style={{ margin: "0 0 12px", padding: "12px 14px", borderRadius: 6, fontSize: 13, background: isComplete ? "var(--success-soft, #e6f4ea)" : isIncomplete ? "var(--error-soft, #fdecea)" : "var(--surface-2, #f5f5f5)", border: `1px solid ${isComplete ? "var(--success, #2e7d32)" : isIncomplete ? "var(--error, #c62828)" : "var(--border, #ddd)"}` }}>
-                  {isFetchingFinalCmvCoverage && <p style={{ margin: 0, color: "var(--text-muted, #666)" }}>Verificando cobertura de estoque...</p>}
+                <section className={`cobertura cobertura--${tom}`} aria-label="Cobertura do inventário final">
+                  {isFetchingFinalCmvCoverage && <p className="cobertura__titulo">Verificando cobertura de estoque…</p>}
                   {!isFetchingFinalCmvCoverage && finalCmvCoverage && (
                     <>
-                      <p style={{ margin: "0 0 6px", fontWeight: 600, color: isComplete ? "var(--success, #2e7d32)" : "var(--error, #c62828)" }}>
+                      <p className="cobertura__titulo">
                         {isComplete
-                          ? `Inventario completo: ${finalCmvCoverage.coveredTotal}/${finalCmvCoverage.expectedTotal} produtos controlados cobertos.`
-                          : `Inventario incompleto: ${finalCmvCoverage.coveredTotal}/${finalCmvCoverage.expectedTotal} produtos cobertos — ${finalCmvCoverage.missingTotal} produto(s) sem contagem:`}
+                          ? <>Cobertura completa: <strong>{finalCmvCoverage.coveredTotal} de {finalCmvCoverage.expectedTotal}</strong> produtos controlados contados.</>
+                          : <>Faltam <strong>{finalCmvCoverage.missingTotal} {finalCmvCoverage.missingTotal === 1 ? "produto" : "produtos"}</strong> sem contagem ({finalCmvCoverage.coveredTotal} de {finalCmvCoverage.expectedTotal} cobertos). Eles entrariam no CMV como zero.</>}
                       </p>
                       {isIncomplete && (
-                        <ul style={{ margin: "0 0 10px", paddingLeft: 18 }}>
+                        <ul className="cobertura__lista">
                           {finalCmvCoverage.missingProducts.slice(0, 20).map((p) => (
-                            <li key={p.id}><strong>[{p.code ?? "?"}]</strong> {p.name} — {p.sector ?? "sem setor"}{p.unit ? ` (${p.unit})` : ""}</li>
+                            <li key={p.id}>
+                              <span>{p.name}</span>
+                              <small>{[p.code, p.sector ?? "sem setor", p.unit].filter(Boolean).join(" · ")}</small>
+                            </li>
                           ))}
-                          {finalCmvCoverage.missingProducts.length > 20 && <li>...e mais {finalCmvCoverage.missingProducts.length - 20} produto(s).</li>}
+                          {finalCmvCoverage.missingProducts.length > 20 && <li className="cobertura__mais">e mais {finalCmvCoverage.missingProducts.length - 20} produto(s)</li>}
                         </ul>
                       )}
                     </>
                   )}
                   {inProgress.length > 0 && (
-                    <p style={{ margin: "6px 0 0", color: "var(--warning, #b45309)" }}>
-                      Contagem complementar em andamento: {inProgress.map((s) => s.code).join(", ")} — conclua-a para habilitar o anexo.
+                    <p className="cobertura__nota">
+                      Contagem complementar em andamento: {inProgress.map((s) => s.code).join(", ")}. Conclua-a para incluir os produtos aqui.
                     </p>
                   )}
                   {readyToAppend.length > 0 && !isComplete && (
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                    <div className="cobertura__acoes">
                       {readyToAppend.map((s) => (
                         <button key={s.id} className="primary-button" type="button" disabled={isAppendingComplement} onClick={() => handleAppendMissingCount(s.id)}>
-                          {isAppendingComplement ? "Incluindo..." : `Incluir complemento ${s.code} no inventario`}
+                          {isAppendingComplement ? "Incluindo…" : `Incluir complemento ${s.code} no inventário`}
                         </button>
                       ))}
                     </div>
                   )}
                   {isIncomplete && readyToAppend.length === 0 && inProgress.length === 0 && (
-                    <button className="secondary-button" type="button" disabled={isCreatingComplement} onClick={handleCreateMissingCount} style={{ marginTop: 4 }}>
-                      {isCreatingComplement ? "Criando..." : `Criar contagem complementar com ${finalCmvCoverage?.missingTotal ?? "?"} produto(s) pendente(s)`}
-                    </button>
+                    <div className="cobertura__acoes">
+                      <button className="secondary-button" type="button" disabled={isCreatingComplement} onClick={handleCreateMissingCount}>
+                        {isCreatingComplement ? "Criando…" : `Criar contagem complementar com ${finalCmvCoverage?.missingTotal ?? "?"} produto(s)`}
+                      </button>
+                    </div>
                   )}
-                </div>
+                </section>
               );
             })()}
 
@@ -3452,28 +3165,6 @@ export function Inventory({
                   <div>
                     <h4 className="cmv-closing-assistant__title">Inventário Final CMV pronto para aprovação</h4>
                     <p className="cmv-closing-assistant__subtitle">{operationalDetail.code} — {operationalDetail.totalItems} itens cobertos</p>
-                  </div>
-                </div>
-                <div className="cmv-closing-stepper">
-                  <div className="cmv-closing-stepper__step cmv-closing-stepper__step--done">
-                    <span className="cmv-closing-stepper__dot">✓</span>
-                    <span>Cobertura<small>{operationalDetail.totalItems}/{operationalDetail.totalItems} cobertos</small></span>
-                  </div>
-                  <div className="cmv-closing-stepper__step cmv-closing-stepper__step--done">
-                    <span className="cmv-closing-stepper__dot">✓</span>
-                    <span>Revisão<small>{operationalDetail.pendingItems} pendentes{itensEmAlerta > 0 ? `, ${formatNumber(itensEmAlerta)} em alerta na conferência` : ""}</small></span>
-                  </div>
-                  <div className="cmv-closing-stepper__step cmv-closing-stepper__step--active">
-                    <span className="cmv-closing-stepper__dot">3</span>
-                    <span>Aprovação</span>
-                  </div>
-                  <div className="cmv-closing-stepper__step">
-                    <span className="cmv-closing-stepper__dot">4</span>
-                    <span>Base CMV</span>
-                  </div>
-                  <div className="cmv-closing-stepper__step">
-                    <span className="cmv-closing-stepper__dot">5</span>
-                    <span>Fechamento</span>
                   </div>
                 </div>
                 <div className="cmv-closing-stats">
@@ -3526,36 +3217,57 @@ export function Inventory({
               </div>
             )}
 
+            <div className="op-detail-abas" role="tablist" aria-label="Conteúdo do inventário">
+              {operationalDetail.status !== "CANCELADO" && (
+                <button type="button" role="tab" id="aba-conferencia" aria-controls="painel-conferencia" aria-selected={abaDoDetalhe === "conferencia"} className="op-detail-aba" onClick={() => setAbaDoDetalhe("conferencia")}>
+                  Conferência
+                  {conferenciaAtual && (
+                    <span className={`op-detail-aba__contador${itensEmAlerta > 0 ? " op-detail-aba__contador--alerta" : ""}`}>{formatNumber(itensEmAlerta)}</span>
+                  )}
+                </button>
+              )}
+              <button type="button" role="tab" id="aba-itens" aria-controls="painel-itens" aria-selected={abaDoDetalhe === "itens" || operationalDetail.status === "CANCELADO"} className="op-detail-aba" onClick={() => setAbaDoDetalhe("itens")}>
+                Itens
+                <span className="op-detail-aba__contador">{formatNumber(operationalDetail.countedItems)}/{formatNumber(operationalDetail.totalItems)}</span>
+              </button>
+            </div>
+
+            {operationalDetail.status !== "CANCELADO" && (
+              <div role="tabpanel" id="painel-conferencia" aria-labelledby="aba-conferencia" hidden={abaDoDetalhe !== "conferencia"}>
+                <ConferenciaInventario
+                  key={operationalDetail.id}
+                  inventoryId={operationalDetail.id}
+                  versao={versaoConferencia}
+                  onLocalizar={localizarItemDaConferencia}
+                  onCarregar={setConferencia}
+                  jaAprovado={["APROVADO", "FECHADO"].includes(operationalDetail.status)}
+                />
+              </div>
+            )}
+
+            <div role="tabpanel" id="painel-itens" aria-labelledby="aba-itens" hidden={abaDoDetalhe !== "itens" && operationalDetail.status !== "CANCELADO"}>
             <div className="op-filters-bar">
               <div className="op-filters-bar__filters">
                 <label>Setor<select value={operationalSectorFilter} onChange={(event) => setOperationalSectorFilter(event.target.value)}>
                   <option value="">Todos</option>
                   {operationalSectors.map((sector) => <option key={sector} value={sector}>{sector}</option>)}
                 </select></label>
-                <label>Busca<input value={operationalSearch} onChange={(event) => setOperationalSearch(event.target.value)} placeholder="Codigo ou produto" /></label>
-              </div>
-              {/* So o que vale para o status atual. Antes os sete botoes ficavam
-                  sempre, a maioria desabilitada: no celular eram sete linhas
-                  antes do primeiro produto, e nao dava para saber qual era o
-                  proximo passo. Mesmas condicoes de antes, invertidas. */}
-              <div className="op-filters-bar__actions">
-                {editableOperationalInventoryStatuses.has(operationalDetail.status) && (<>
-                  <button className="secondary-button" type="button" onClick={markOperationalFilteredZero}>Marcar filtrados como zero</button>
-                  <button className="secondary-button" type="button" onClick={saveOperationalDraft}><Save size={16} />Salvar rascunho</button>
-                  <button className="primary-button" type="button" onClick={() => operationalAction("submit")}><Send size={16} />Enviar para revisao</button>
-                </>)}
-                {canApproveOperational && operationalDetail.status === "EM_REVISAO" && (<>
-                  {operationalDetail.type !== "FINAL_CMV" && <button className="primary-button" type="button" onClick={() => operationalAction("approve")}>Aprovar</button>}
-                  <button className="secondary-button" type="button" onClick={() => operationalAction("reject")}>Rejeitar</button>
-                </>)}
-                {canApproveOperational && operationalDetail.type !== "FINAL_CMV" && operationalDetail.status === "APROVADO" && (
-                  <button className="primary-button" type="button" onClick={() => operationalAction("close")}>Fechar</button>
+                <label>Busca<input value={operationalSearch} onChange={(event) => setOperationalSearch(event.target.value)} placeholder="Código ou produto" /></label>
+                {(operationalSearch || operationalSectorFilter) && (
+                  <p className="op-filtro-ativo" role="status">
+                    Mostrando {formatNumber(filteredOperationalItems.length)} de {formatNumber(operationalDetail.items.length)}
+                    <button type="button" onClick={() => { setOperationalSearch(""); setOperationalSectorFilter(""); }}>Limpar filtro</button>
+                  </p>
                 )}
-                {canCancelOperational && !["FECHADO", "CANCELADO"].includes(operationalDetail.status) && (<>
-                  <span className="op-filters-bar__danger-sep" aria-hidden="true" />
-                  <button className="danger-button" type="button" onClick={() => operationalAction("cancel")}>Cancelar</button>
-                </>)}
               </div>
+              {/* Junto da tabela, so o que edita quantidades. Status subiu
+                  para o cabecalho; cancelar foi para o menu. */}
+              {editableOperationalInventoryStatuses.has(operationalDetail.status) && (
+                <div className="op-filters-bar__actions">
+                  <button className="secondary-button" type="button" onClick={markOperationalFilteredZero}>Marcar filtrados como zero</button>
+                  <button className="primary-button" type="button" onClick={saveOperationalDraft}><Save size={16} />Salvar rascunho</button>
+                </div>
+              )}
             </div>
 
             <div className="table-wrap operational-count-table">
@@ -3616,318 +3328,21 @@ export function Inventory({
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
-
-        {activeView !== "counting" && inventoryDeskTab === "purchase" && purchasingReport && (
-          <div className="subsection">
-            <div className="section-heading compact-heading">
-              <div>
-                <p>Compras</p>
-                <h3>Atencoes do ultimo inventario</h3>
-              </div>
-            </div>
-            <div className="summary-grid">
-              <article><span>Zerados</span><strong>{purchasingReport.summary.zeros}</strong></article>
-              <article><span>Pendentes</span><strong>{purchasingReport.summary.pending}</strong></article>
-              <article><span>Divergentes</span><strong>{purchasingReport.summary.divergent}</strong></article>
-              <article><span>Sem contagem</span><strong>{purchasingReport.summary.withoutCount}</strong></article>
             </div>
           </div>
         )}
 
-        {inventoryDeskTab === "purchase" && buyerSupport && (
-          <div className="subsection">
-            <div className="section-heading">
-              <div>
-                <p>Apoio ao comprador</p>
-                <h3>Sugestao de compras</h3>
-              </div>
-              <div className="actions-cell">
-                <button className="secondary-button" type="button" onClick={loadBuyerSupport}>Atualizar relatorio</button>
-                <button className="primary-button" type="button" onClick={exportBuyerPrelist}>Exportar CSV</button>
-                <button className="primary-button" type="button" onClick={generatePurchaseOrdersFromPrelist}>Gerar pedido de compra</button>
-              </div>
-            </div>
-            <div className="alert info">Esta sugestao considera a ultima contagem aprovada/fechada e os parametros de estoque minimo/ideal cadastrados no produto.</div>
-
-            <div className="inventory-guidance-strip">
-              <article><strong>1.</strong><span>Corrigir cadastros incompletos</span></article>
-              <article><strong>2.</strong><span>Definir fornecedor principal</span></article>
-              <article><strong>3.</strong><span>Ajustar estoque minimo e ideal</span></article>
-              <article><strong>4.</strong><span>Revisar pre-lista de compra</span></article>
-              <article><strong>5.</strong><span>Gerar pedido de compra</span></article>
-            </div>
-
-            <div className="summary-grid inventory-compact-summary purchase-summary-grid">
-              <SummaryCard label="Itens controlados" value={buyerSupport.summary.controlledTotal} tone="info" icon={<Archive size={18} />} />
-              <SummaryCard label="Itens com sugestao" value={buyerSupport.summary.itemsWithSuggestion} tone={buyerSupport.summary.itemsWithSuggestion ? "warning" : "success"} />
-              <SummaryCard label="Fornecedores sugeridos" value={buyerSupport.summary.suggestedSuppliers} />
-              <SummaryCard label="Sem fornecedor" value={buyerSupport.summary.productsWithoutSupplier} tone={buyerSupport.summary.productsWithoutSupplier ? "danger" : "success"} icon={<AlertTriangle size={18} />} />
-              <SummaryCard label="Zerados" value={buyerSupport.summary.zeros} tone={buyerSupport.summary.zeros ? "danger" : "success"} />
-              <SummaryCard label="Abaixo do mínimo" value={buyerSupport.summary.belowMinimum} tone={buyerSupport.summary.belowMinimum ? "warning" : "success"} />
-              <SummaryCard label="Sem ideal" value={buyerSupport.summary.withoutIdeal} tone={buyerSupport.summary.withoutIdeal ? "warning" : "success"} />
-              <SummaryCard label="Sem minimo" value={buyerSupport.summary.withoutMinimum} tone={buyerSupport.summary.withoutMinimum ? "warning" : "success"} />
-              <SummaryCard label="Último final CMV" value={buyerSupport.summary.latestFinalCmv?.code ?? "-"} detail={buyerSupport.summary.latestFinalCmv ? formatDate(buyerSupport.summary.latestFinalCmv.date) : "Sem final aprovado"} />
-            </div>
-
-            <div className="filters-row inventory-filter-row">
-              <label>Busca<input value={buyerFilters.search} onChange={(event) => setBuyerFilters({ ...buyerFilters, search: event.target.value })} placeholder="Codigo ou produto" /></label>
-              <label>Fornecedor<select value={buyerFilters.supplier} onChange={(event) => setBuyerFilters({ ...buyerFilters, supplier: event.target.value })}>
-                <option value="">Todos</option>
-                <option value="__NONE__">Sem fornecedor definido</option>
-                {buyerSupport.supplierGroups.filter((group) => group.supplierId).map((group) => <option key={group.supplierId ?? "none"} value={group.supplierId ?? ""}>{group.supplierName}</option>)}
-              </select></label>
-              <label>Setor<select value={buyerFilters.sector} onChange={(event) => setBuyerFilters({ ...buyerFilters, sector: event.target.value })}>
-                <option value="">Todos</option>
-                {[...new Set(buyerSupport.items.map((item) => item.sectorName).filter(Boolean))].map((sector) => <option key={sector} value={sector ?? ""}>{sector}</option>)}
-              </select></label>
-              <label>Categoria<select value={buyerFilters.category} onChange={(event) => setBuyerFilters({ ...buyerFilters, category: event.target.value })}>
-                <option value="">Todas</option>
-                {[...new Set(buyerSupport.items.map((item) => item.categoryName).filter(Boolean))].map((category) => <option key={category} value={category ?? ""}>{category}</option>)}
-              </select></label>
-              <label>Subcategoria<select value={buyerFilters.subcategory} onChange={(event) => setBuyerFilters({ ...buyerFilters, subcategory: event.target.value })}>
-                <option value="">Todas</option>
-                {[...new Set(buyerSupport.items.map((item) => item.subcategoryName).filter(Boolean))].map((subcategory) => <option key={subcategory} value={subcategory ?? ""}>{subcategory}</option>)}
-              </select></label>
-              <label>Alerta<select value={buyerFilters.status} onChange={(event) => setBuyerFilters({ ...buyerFilters, status: event.target.value })}>
-                <option value="">Todos</option>
-                <option value="ZERADO">Zerado</option>
-                <option value="ABAIXO DO MINIMO">Abaixo do mínimo</option>
-                <option value="SEM CONTAGEM">Sem contagem</option>
-                <option value="DIVERGENTE">Divergente</option>
-                <option value="CADASTRO INCOMPLETO">Cadastro incompleto</option>
-                <option value="SEM_FORNECEDOR">Sem fornecedor</option>
-                <option value="SEM_ESTOQUE_MINIMO">Sem estoque minimo</option>
-                <option value="SEM_ESTOQUE_IDEAL">Sem estoque ideal</option>
-              </select></label>
-              <button className="primary-button" type="button" onClick={loadBuyerSupport}>Filtrar</button>
-              <button className="secondary-button" type="button" onClick={() => { setBuyerFilters({ search: "", supplier: "", sector: "", category: "", subcategory: "", status: "" }); setTimeout(() => loadBuyerSupport(), 0); }}><FilterX size={16} />Limpar</button>
-            </div>
-
-            <div className="tabs-row">
-              <button className={buyerTab === "summary" ? "active" : ""} type="button" onClick={() => setBuyerTab("summary")}>Resumo</button>
-              <button className={buyerTab === "suppliers" ? "active" : ""} type="button" onClick={() => setBuyerTab("suppliers")}>Sugestao por fornecedor</button>
-              <button className={buyerTab === "alerts" ? "active" : ""} type="button" onClick={() => setBuyerTab("alerts")}>Produtos em alerta</button>
-              <button className={buyerTab === "registration" ? "active" : ""} type="button" onClick={() => setBuyerTab("registration")}>Cadastro incompleto</button>
-              <button className={buyerTab === "prelist" ? "active" : ""} type="button" onClick={() => setBuyerTab("prelist")}>Pre-lista de compra</button>
-            </div>
-
-            {buyerTab === "summary" && (
-              <div className="summary-columns">
-                <div>
-                  <h3>Prioridades da operacao</h3>
-                  <p>Sem fornecedor: <strong>{buyerSupport.summary.productsWithoutSupplier}</strong></p>
-                  <p>Zerados: <strong>{buyerSupport.summary.zeros}</strong></p>
-                  <p>Abaixo do mínimo: <strong>{buyerSupport.summary.belowMinimum}</strong></p>
-                  <p>Cadastro incompleto: <strong>{buyerSupport.summary.incompleteRegistration}</strong></p>
-                </div>
-                <div>
-                  <h3>Como agir</h3>
-                  <p>Corrija primeiro os produtos sem fornecedor ou sem parametros minimos/ideais.</p>
-                  <p>Depois revise a pre-lista e gere o pedido apenas para os fornecedores selecionados.</p>
-                </div>
-              </div>
-            )}
-
-            {buyerTab === "suppliers" && (
-              <div className="table-wrap">
-                <table>
-                  <thead><tr><th>Fornecedor</th><th>Itens sugeridos</th><th>Zerados</th><th>Abaixo minimo</th><th>Parametros incompletos</th><th>Total sugerido</th><th>Acoes</th></tr></thead>
-                  <tbody>
-                    {buyerSupport.supplierGroups.map((group) => (
-                      <tr key={group.supplierId ?? "__NONE__"}>
-                        <td title={group.supplierName}>{group.supplierName}</td>
-                        <td>{group.suggestedItems}</td>
-                        <td>{group.zeroItems}</td>
-                        <td>{group.belowMinimumItems}</td>
-                        <td>{group.incompleteItems}</td>
-                        <td>{formatNumber(group.totalSuggestedQuantity)}</td>
-                        <td><button className="secondary-button" type="button" onClick={() => setOpenSupplierId(openSupplierId === (group.supplierId ?? "__NONE__") ? null : (group.supplierId ?? "__NONE__"))}>Ver detalhes</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {buyerSupport.supplierGroups.map((group) => openSupplierId === (group.supplierId ?? "__NONE__") && (
-                  <div className="subsection table-wrap" key={`detail-${group.supplierId ?? "__NONE__"}`}>
-                    <h3>{group.supplierName}</h3>
-                    <table>
-                      <thead><tr><th>Codigo</th><th>Produto</th><th>Un.</th><th>Ultima qtd.</th><th>Min.</th><th>Ideal</th><th>Sugestao</th><th>Tipo</th><th>Alerta</th></tr></thead>
-                      <tbody>{group.items.map((item) => <tr key={item.productId}><td>{item.productCode ?? "-"}</td><td title={item.productName}>{item.productName}</td><td>{item.unit ?? "-"}</td><td>{item.lastQuantity == null ? "-" : formatNumber(item.lastQuantity)}</td><td>{item.estoqueMinimo ?? "-"}</td><td>{item.estoqueIdeal ?? "-"}</td><td>{item.suggestedQuantity == null ? "-" : formatNumber(item.suggestedQuantity)}</td><td>{item.suggestionType}</td><td>{item.alerts.slice(0, 3).join(", ") || "OK"}</td></tr>)}</tbody>
-                    </table>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {(buyerTab === "alerts" || buyerTab === "registration" || buyerTab === "prelist") && (
-              <div className="table-wrap operational-count-table">
-                {buyerTab === "prelist" && (
-                  <div className="subsection">
-                    <h3>Fornecedores selecionados</h3>
-                    <p className="muted">Produtos sem fornecedor definido ficam como pendencia e nao geram pedido automatico.</p>
-                    <div className="checkbox-grid">
-                      {buyerSupport.prelist.filter((group) => group.supplierId).map((group) => (
-                        <label key={group.supplierId}>
-                          <input
-                            type="checkbox"
-                            checked={selectedPrelistSuppliers[group.supplierId ?? ""] !== false}
-                            onChange={(event) => setSelectedPrelistSuppliers({ ...selectedPrelistSuppliers, [group.supplierId ?? ""]: event.target.checked })}
-                          />
-                          {group.supplierName} ({group.items.length} itens)
-                        </label>
-                      ))}
-                      {buyerSupport.prelist.filter((group) => group.supplierId).length === 0 && <p>Nenhum fornecedor elegivel na pre-lista atual.</p>}
-                    </div>
-                  </div>
-                )}
-                <table>
-                  <thead><tr><th>Codigo</th><th>Produto</th><th>Fornecedor</th><th>Setor</th><th>Categoria</th><th>Subcategoria</th><th>Un.</th><th>Ultima qtd.</th><th>Min.</th><th>Ideal</th><th>Sugestao</th><th>Consumo/dia</th><th>Cobertura</th><th>Alerta</th><th>Acoes</th></tr></thead>
-                  <tbody>
-                    {(buyerTab === "prelist" ? buyerSupport.prelist.flatMap((group) => group.items) : buyerSupport.items)
-                      .filter((item) => buyerTab !== "registration" || item.registrationAlerts.length > 0)
-                      .filter((item) => buyerTab !== "alerts" || item.alerts.length > 0)
-                      .map((item) => (
-                      <tr key={item.productId}>
-                        <td>{item.productCode ?? "-"}</td>
-                        <td title={item.productName}>{item.productName}<small>{item.logisticsNotes ?? item.notes ?? ""}</small></td>
-                        <td title={item.supplierName}>{item.supplierName}</td>
-                        <td title={item.sectorName ?? "-"}>{item.sectorName ?? "-"}</td>
-                        <td title={item.categoryName ?? "-"}>{item.categoryName ?? "-"}</td>
-                        <td title={item.subcategoryName ?? "-"}>{item.subcategoryName ?? "-"}</td>
-                        <td>{item.unit ?? "-"}</td>
-                        <td>{item.lastQuantity == null ? "-" : formatNumber(item.lastQuantity)}</td>
-                        <td>{item.estoqueMinimo == null ? "-" : formatNumber(item.estoqueMinimo)}</td>
-                        <td>{item.estoqueIdeal == null ? "-" : formatNumber(item.estoqueIdeal)}</td>
-                        <td>{item.suggestedQuantity == null ? "-" : formatNumber(item.suggestedQuantity)}<small>{item.suggestionType}</small></td>
-                        <td>{item.averageDailyConsumption == null ? "Sem dados" : formatNumber(item.averageDailyConsumption)}</td>
-                        <td>{item.coverageDays == null ? "Sem dados" : `${formatNumber(item.coverageDays)} dias`}</td>
-                        <td><div className="badge-row">{(buyerTab === "registration" ? item.registrationAlerts : item.alerts).map((alert) => <StatusBadge key={alert} tone={alert === "ZERADO" || alert === "DIVERGENTE" ? "danger" : "warning"}>{alert}</StatusBadge>)}</div></td>
-                        <td><button className="secondary-button" type="button" onClick={() => { setNotice({ tone: "info", message: `Busque o codigo ${item.productCode ?? ""} na tela de Produtos para editar o cadastro.` }); onOpenProducts?.(); }}>Editar produto</button></td>
-                      </tr>
-                    ))}
-                    {buyerSupport.items.length === 0 && <tr><td colSpan={15}><EmptyState title="Nenhum produto em atencao" description="Os filtros atuais nao encontraram sugestoes de compra." /></td></tr>}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
       </section>
 
       {/* So com a aba dele: nas outras abas o conteudo nao renderiza e sobrava
           um painel "Estoque atual" vazio no fim da pagina. */}
-      <section className={activeView === "reports" ? "panel" : inventoryDeskTab === "stock" || inventoryDeskTab === "reports" ? panelClass(["inventory"]) : "panel inventory-section-hidden"}>
+      <section className={activeView === "reports" ? "panel" : "panel inventory-section-hidden"}>
         <div className="section-heading">
           <div>
-            <PanelEyebrow>{showManagementReport ? "Relatórios" : "Estoque atual"}</PanelEyebrow>
-            <h2>{showManagementReport ? "Leitura gerencial" : "Estoque atual"}</h2>
+            <PanelEyebrow>Relatórios</PanelEyebrow>
+            <h2>Leitura gerencial</h2>
           </div>
         </div>
-        {!showManagementReport && inventoryDeskTab === "stock" && (
-          <>
-        <div className="summary-grid inventory-compact-summary stock-summary-grid">
-          <SummaryCard label="Itens em estoque" value={stockSummary.total} tone="info" icon={<Archive size={18} />} />
-          <SummaryCard label="Zerados" value={stockSummary.zeros} tone={stockSummary.zeros ? "danger" : "success"} />
-          <SummaryCard label="Abaixo do mínimo" value={stockSummary.belowMinimum} tone={stockSummary.belowMinimum ? "warning" : "success"} />
-          <SummaryCard label="Divergentes" value={stockSummary.divergent} tone={stockSummary.divergent ? "danger" : "success"} />
-          <SummaryCard label="Sem fornecedor" value={stockSummary.withoutSupplier} tone={stockSummary.withoutSupplier ? "danger" : "success"} />
-          <SummaryCard label="Cadastro incompleto" value={stockSummary.incomplete} tone={stockSummary.incomplete ? "warning" : "success"} />
-        </div>
-        <div className="filters-row inventory-filter-row">
-          <label>Busca<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Codigo, produto, setor ou fornecedor" /></label>
-          <label>Setor<select value={stockFilters.sector} onChange={(event) => setStockFilters((current) => ({ ...current, sector: event.target.value }))}><option value="">Todos</option>{stockFilterOptions.sectors.map((sector) => <option key={sector} value={sector}>{sector}</option>)}</select></label>
-          <label>Categoria<select value={stockFilters.category} onChange={(event) => setStockFilters((current) => ({ ...current, category: event.target.value }))}><option value="">Todas</option>{stockFilterOptions.categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
-          <label>Subcategoria<select value={stockFilters.subcategory} onChange={(event) => setStockFilters((current) => ({ ...current, subcategory: event.target.value }))}><option value="">Todas</option>{stockFilterOptions.subcategories.map((subcategory) => <option key={subcategory} value={subcategory}>{subcategory}</option>)}</select></label>
-          <label>Fornecedor<select value={stockFilters.supplier} onChange={(event) => setStockFilters((current) => ({ ...current, supplier: event.target.value }))}><option value="">Todos</option>{stockFilterOptions.suppliers.map((supplier) => <option key={supplier} value={supplier}>{supplier}</option>)}</select></label>
-          <label>Status/alerta<select value={stockFilters.alert} onChange={(event) => setStockFilters((current) => ({ ...current, alert: event.target.value }))}><option value="">Todos</option>{stockFilterOptions.alerts.map((alert) => <option key={alert} value={alert}>{buyerAlertLabel(alert)}</option>)}</select></label>
-          <Button onClick={load}>Filtrar</Button>
-          <Button variant="secondary" leadingIcon={<FilterX size={16} />} onClick={() => {
-            setSearch("");
-            setStockFilters({ sector: "", category: "", subcategory: "", supplier: "", alert: "" });
-          }}>Limpar</Button>
-        </div>
-        <div className="chart-grid">
-          <SimpleBarChart title="Divergências por setor/tipo" items={divergencesBySector} />
-          <SimpleBarChart title="Status dos inventários" items={countsByStatus} />
-          <SimpleBarChart title="Estoque contado x pendente" items={[
-            { label: "Contados", value: operationalInventories.reduce((sum, item) => sum + Number(item.countedItems ?? 0), 0) },
-            { label: "Pendentes", value: operationalInventories.reduce((sum, item) => sum + Number(item.pendingItems ?? 0), 0) }
-          ]} />
-        </div>
-        <div className="subsection inventory-stock-table-wrap">
-          <table className="inventory-stock-table">
-            <thead>
-              <tr>
-                <th>Produto</th>
-                <th>Setor</th>
-                <th>Fornecedor</th>
-                <th className="numeric-cell">Quantidade</th>
-                <th className="numeric-cell" title="Quantidade mínima em estoque — edite clicando no campo">Mínimo</th>
-                <th title="UN = unidade, CX = caixa, KG = quilograma">Unidade</th>
-                {canViewCosts && <><th className="numeric-cell">Custo medio</th><th className="numeric-cell" title="Custo por quilograma">KG</th><th className="numeric-cell" title="Custo por caixa">CX</th><th className="numeric-cell" title="Custo por unidade">UN</th></>}
-                <th title="Data da ultima movimentacao">Ultima movimentacao</th>
-                <th>Alertas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredStockRows.length ? filteredStockRows.map((stock) => {
-                const rowClass = [
-                  stock.alerts.includes("ZERADO") ? "is-zero" : "",
-                  stock.alerts.includes("ABAIXO DO MINIMO") ? "is-warning" : "",
-                  stock.alerts.includes("DIVERGENTE") ? "is-divergent" : "",
-                  stock.alerts.includes("SEM_FORNECEDOR") ? "is-problem" : "",
-                  stock.alerts.includes("CADASTRO INCOMPLETO") ? "is-incomplete" : ""
-                ].filter(Boolean).join(" ");
-                return (
-                  <tr key={stock.id} className={rowClass}>
-                    <td title={stock.productDisplayName}>
-                      <strong>{stock.productDisplayName}</strong>
-                      <small>{stock.codeLabel}</small>
-                      <small>{[stock.categoryName, stock.subcategoryName].filter(Boolean).join(" / ") || "Sem classificacao"}</small>
-                    </td>
-                    <td><span className="table-muted-badge">{displayLabel(stock.sectorName, "Sem setor")}</span></td>
-                    <td title={stock.supplierName}>{stock.supplierName}</td>
-                    <td className="numeric-cell">{formatNumber(stock.currentQuantityNumber)}</td>
-                    <td className="numeric-cell" style={{ padding: "2px 4px" }}>
-                      {canEditStockMinimum ? (
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.001"
-                          className="inline-qty-input"
-                          style={{ width: 72, textAlign: "right" }}
-                          value={minQtyEdit[stock.productId] ?? (stock.minQuantity == null ? "" : String(Number(stock.minQuantity)))}
-                          placeholder="—"
-                          disabled={savingMinQty[stock.productId]}
-                          onChange={(e) => setMinQtyEdit((prev) => ({ ...prev, [stock.productId]: e.target.value }))}
-                          onBlur={() => { void saveMinQty(stock.productId); }}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.currentTarget.blur(); } }}
-                        />
-                      ) : (
-                        stock.minQuantity == null ? "—" : formatNumber(Number(stock.minQuantity))
-                      )}
-                    </td>
-                    <td>{displayLabel(stock.unitCode, "-")}</td>
-                    {canViewCosts && <><td className="numeric-cell"><Money value={stock.averageCost ?? 0} /></td><td className="numeric-cell">{stock.costPerKg ? <Money value={stock.costPerKg} /> : "-"}</td><td className="numeric-cell">{stock.costPerBox ? <Money value={stock.costPerBox} /> : "-"}</td><td className="numeric-cell">{stock.costPerUnit ? <Money value={stock.costPerUnit} /> : "-"}</td></>}
-                    <td>{formatDate(stock.lastMovementAt)}</td>
-                    <td>
-                      <div className="badge-row">
-                        {stock.alerts.length ? stock.alerts.map((alert) => <StatusBadge key={`${stock.id}-${alert}`} tone={buyerAlertTone(alert)}>{buyerAlertLabel(alert)}</StatusBadge>) : <StatusBadge tone="success">ok</StatusBadge>}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              }) : (
-                <tr>
-                  <td colSpan={canViewCosts ? 12 : 8} className="empty-table-state">Nenhum item encontrado com os filtros atuais.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-          </>
-        )}
         {showManagementReport && (
           <>
             <div className="summary-grid inventory-compact-summary">
