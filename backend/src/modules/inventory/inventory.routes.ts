@@ -12,6 +12,7 @@ import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { converterItemDeCompra } from "../../shared/unidades/conversao.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { classificarItemDaConferencia, ordenarConferencia, resumirConferencia } from "./conferencia.js";
+import { correcoesDaRevisao, modoDeEdicao } from "./edicao-inventario.js";
 import { derivarCiclos, duracaoEmDias, fechouForaDoMes } from "./stock-cycle.service.js";
 import { semanaDaData, statusDaRotina } from "./agenda-rotina.js";
 
@@ -1321,9 +1322,12 @@ async function getOperationalInventoryOrThrow(id: string) {
   return inventory;
 }
 
-async function assertCanEditOperationalInventory(id: string, user: SessionUser) {
+// `permitirRevisao`: so a gravacao de quantidades aceita inventario em revisao
+// (para quem aprova). Marcar em massa como zero e reenviar seguem so no rascunho.
+async function assertCanEditOperationalInventory(id: string, user: SessionUser, permitirRevisao = false) {
   const inventory = await getOperationalInventoryOrThrow(id);
-  if (!editableOperationalInventoryStatuses.has(inventory.status)) {
+  const modo = modoDeEdicao(inventory.status, permitirRevisao && await isInventoryManager(user));
+  if (!modo || (modo === "revisao" && !permitirRevisao)) {
     await auditLog({
       userId: user.id,
       action: "BLOCK_OPERATIONAL_INVENTORY_EDIT",
@@ -1331,9 +1335,11 @@ async function assertCanEditOperationalInventory(id: string, user: SessionUser) 
       entityId: id,
       newValue: { status: inventory.status }
     });
-    throw new Error("Este inventario nao pode ser editado no status atual.");
+    throw new Error(inventory.status === "EM_REVISAO"
+      ? "Inventario em revisao: so quem aprova pode corrigir as quantidades."
+      : "Este inventario nao pode ser editado no status atual.");
   }
-  return inventory;
+  return { ...inventory, modoDeEdicao: modo };
 }
 
 // Reconcilia o estoque com o inventario aprovado (F-05).
@@ -4410,14 +4416,30 @@ inventoryRouter.patch("/operational/:id/items", async (request, response) => {
   const user = await requireMenuPermission(request, response);
   if (!user) return;
   try {
-    await assertCanEditOperationalInventory(request.params.id, user);
+    const inventory = await assertCanEditOperationalInventory(request.params.id, user, true);
     const items = Array.isArray(request.body.items) ? request.body.items : [];
     const invalidItemIds = invalidQuantityItemIds(items);
     if (invalidItemIds.length) {
       response.status(400).json({ message: INVALID_QUANTITY_MESSAGE, invalidItemIds });
       return;
     }
+    // Em revisao, guarda o valor de antes de cada item para a auditoria.
+    const antesDaCorrecao = inventory.modoDeEdicao === "revisao"
+      ? new Map((await prisma.$queryRaw<Array<{ id: string; productName: string; countedQuantity: Prisma.Decimal | null }>>`
+          SELECT "id", "productName", "countedQuantity" FROM "OperationalInventoryItem" WHERE "inventoryId" = ${request.params.id}
+        `).map((row) => [row.id, { produto: row.productName, quantidade: row.countedQuantity == null ? null : Number(row.countedQuantity) }]))
+      : null;
     await applyOperationalInventoryItems(request.params.id, items, user.id);
+    if (antesDaCorrecao) {
+      const correcoes = correcoesDaRevisao(antesDaCorrecao, items.flatMap((item: Record<string, unknown>) => {
+        const parsed = parseQuantityInput(item.countedQuantity);
+        const id = asText(item.id);
+        return id && parsed.ok && parsed.value != null ? [{ id, quantidade: Number(parsed.value) }] : [];
+      }));
+      if (correcoes.length) {
+        await auditLog({ userId: user.id, action: "CORRECT_OPERATIONAL_INVENTORY_IN_REVIEW", entity: "OperationalInventory", entityId: request.params.id, newValue: { correcoes } });
+      }
+    }
     await auditLog({ userId: user.id, action: "SAVE_OPERATIONAL_INVENTORY_DRAFT", entity: "OperationalInventory", entityId: request.params.id, newValue: { items: items.length, ...rawQuantitySnapshot(items) } });
     response.json(await getOperationalInventorySummary(request.params.id));
   } catch (error) {

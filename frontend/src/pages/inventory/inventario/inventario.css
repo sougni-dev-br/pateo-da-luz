@@ -1037,3 +1037,19 @@ button.invl-situacao__celula:disabled {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* Correção durante a revisão: deixa claro que mexer aqui fica registrado. */
+.op-revisao-aviso {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--tint-info-border);
+  border-radius: var(--radius-md);
+  background: var(--tint-info);
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.op-revisao-aviso strong {
+  color: var(--info);
+}
