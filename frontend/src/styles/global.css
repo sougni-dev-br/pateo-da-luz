@@ -11920,7 +11920,7 @@ tr.dre-row-selected td {
    "Saldo esp." e "Dif." sairam: mediam contra o saldo do sistema, que nunca
    baixa. A conferencia mede contra a contagem anterior + compras. */
 .operational-count-table th:nth-child(1),
-.operational-count-table td:nth-child(1) { width: 44px; }
+.operational-count-table td:nth-child(1) { width: 56px; white-space: nowrap; }
 /* nth-child(2) = Produto — fica com o resto */
 .operational-count-table th:nth-child(3),
 .operational-count-table td:nth-child(3) { width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
