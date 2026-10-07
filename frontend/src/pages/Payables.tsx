@@ -23,7 +23,7 @@ import { PainelFiltros } from "./payables/PainelFiltros";
 import { ResumoKpis, type CartaoResumo } from "./payables/ResumoKpis";
 import {
   addDaysKey, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dataDaBaixaNoLote, dateKey, empresaDaBaixaNoLote, formaDaBaixaNoLote, formaPrevistaDoTitulo, payloadDaForma,
-  isExtra, isFolhaLote, isPayroll, isSimpleLedger, isTaxPayment, juntarVencidosAnteriores, minDateKey, periodoPuxaVencidosAnteriores, rotuloPeriodo, somarValores, todayKey,
+  isExtra, isFolhaLote, isPayroll, isSimpleLedger, membroDoLoteCombina, isTaxPayment, juntarVencidosAnteriores, minDateKey, periodoPuxaVencidosAnteriores, rotuloPeriodo, somarValores, todayKey,
   type FiltrosPagar
 } from "./payables/regras";
 import { ConfirmaBaixaDuplicada } from "./payables/ConfirmaBaixaDuplicada";
@@ -31,7 +31,16 @@ import { recusaDaFolha, type RecusaFolha, type SuspeitoLote } from "../lib/folha
 import "./payables/payables.css";
 
 // Folha, extra e o título do lote da folha: mesmo formulário de baixa, rotas próprias.
-function payPessoal(p: Payable, payload: Parameters<typeof payPayrollItem>[1]) {
+// Confirmação de duplicidade: o título da folha leva os ids dos membros confirmados; os demais, o sim.
+function confirmacaoDe(p: Payable, confirmados: Set<string | null>) {
+  if (isFolhaLote(p)) {
+    const ids = (p.loteMembros ?? []).map((m) => m.id).filter((id) => confirmados.has(id));
+    return ids.length > 0 ? { confirmaDuplicidadeIds: ids } : {};
+  }
+  return confirmados.has(p.id) ? { confirmaDuplicidade: true } : {};
+}
+
+function payPessoal(p: Payable, payload: Parameters<typeof payFolhaLote>[1]) {
   if (isFolhaLote(p)) return payFolhaLote(p.id, payload);
   return isExtra(p) ? payExtraPayment(p.id, payload) : payPayrollItem(p.id, payload);
 }
@@ -214,7 +223,8 @@ export function Payables({ user }: PayablesProps) {
       (p.taxCompanyName ?? "").toLowerCase().includes(q) ||
       (p.taxDocumentType ?? "").toLowerCase().includes(q) ||
       (p.taxDescription ?? "").toLowerCase().includes(q) ||
-      (p.taxCnpj ?? "").includes(q)
+      (p.taxCnpj ?? "").includes(q) ||
+      membroDoLoteCombina(p, q)
     );
   }, [payables, searchQuery, filters.sourceType, activeChip, viewMode]);
 
@@ -329,8 +339,11 @@ export function Payables({ user }: PayablesProps) {
         void load(u);
       }
     } else if (key === "folha") {
-      // Só a folha (soltos e títulos liberados); o filtro de tipo é da tela, sem recarregar.
-      setFilters({ ...filters, sourceType: "PAYROLL" });
+      // Só a folha (soltos e títulos liberados). Limpa o que outro atalho deixou (ex.: a forma
+      // "Boleto", que sem recarregar escondia a folha toda) e recarrega, como os demais.
+      const u = { ...filters, paymentMethodId: "", status: "", noDueDate: false, sourceType: "PAYROLL" };
+      setFilters(u);
+      void load(u);
     } else if (key === "noduedate") {
       const u = { ...filters, noDueDate: true, status: "", sourceType: "" };
       setFilters(u);
@@ -442,6 +455,8 @@ export function Payables({ user }: PayablesProps) {
       payingCompanyId: "",
       companyBankAccountId: ""
     });
+    // Título da folha de uma empresa: a pagadora é ela, com a primeira conta (como na baixa em lote).
+    if (isFolhaLote(payable) && payable.companyId) void handleCompanyChange(payable.companyId);
   }
 
   async function handleCompanyChange(companyId: string) {
@@ -525,7 +540,8 @@ export function Payables({ user }: PayablesProps) {
   // tem o mesmo pagamento pago e o que se repete dentro do próprio lote. Havendo
   // suspeito, nada é baixado: a pessoa confirma ou tira os itens. Devolve se pode seguir.
   async function conferirLoteDaFolha(): Promise<boolean> {
-    const idsFolha = selecionados.filter((p) => isPayroll(p)).map((p) => p.id);
+    // O título da folha entra pelos salários de dentro dele.
+    const idsFolha = selecionados.flatMap((p) => (isPayroll(p) ? [p.id] : isFolhaLote(p) ? (p.loteMembros ?? []).map((m) => m.id) : []));
     if (idsFolha.length === 0) return true;
     try {
       const { suspeitos } = await checkPayrollPayBatch(idsFolha);
@@ -538,8 +554,13 @@ export function Payables({ user }: PayablesProps) {
     }
   }
 
+  function tituloDoMembro(id: string): string {
+    return selecionados.find((p) => isFolhaLote(p) && (p.loteMembros ?? []).some((m) => m.id === id))?.id ?? id;
+  }
+
   function tirarSuspeitosDoLote() {
-    const fora = new Set((suspeitosLote ?? []).map((s) => s.item.id));
+    // Suspeito de dentro de um título da folha: sai o título inteiro.
+    const fora = new Set((suspeitosLote ?? []).map((s) => tituloDoMembro(s.item.id ?? "")));
     const ficam = [...selectedIds].filter((id) => !fora.has(id));
     setSelectedIds(new Set(ficam));
     setSuspeitosLote(null);
@@ -602,7 +623,7 @@ export function Payables({ user }: PayablesProps) {
         if (isTaxPayment(p)) {
           await payTaxPayment(p.id, { paymentDate: dataBaixa, paidAmount: valor, comments: paymentForm.paymentNotes || null });
         } else if (isPayroll(p) || isExtra(p) || isFolhaLote(p)) {
-          await payPessoal(p, { paymentDate: dataBaixa, paidAmount: valor, ...forma, ...comum, ...pagadora(p), ...(confirmados.has(p.id) ? { confirmaDuplicidade: true } : {}) });
+          await payPessoal(p, { paymentDate: dataBaixa, paidAmount: valor, ...forma, ...comum, ...pagadora(p), ...confirmacaoDe(p, confirmados) });
         } else {
           await payInstallment(p.id, { paidDate: dataBaixa, paidAmount: valor, ...forma, ...comum, ...pagadora(p) });
         }
@@ -663,7 +684,7 @@ export function Payables({ user }: PayablesProps) {
           companyBankAccountId: paymentForm.companyBankAccountId || null
         };
         if (isPayroll(paying) || isExtra(paying) || isFolhaLote(paying)) {
-          await payPessoal(paying, { paymentDate: paymentForm.paidDate, paidAmount, ...commonPayload, ...(confirmaDuplicidade ? { confirmaDuplicidade: true } : {}) });
+          await payPessoal(paying, { paymentDate: paymentForm.paidDate, paidAmount, ...commonPayload, ...(confirmaDuplicidade ? confirmacaoDe(paying, new Set((baixaDuplicada?.suspeitos ?? []).map((x) => x.item.id).concat(isFolhaLote(paying) ? [] : [paying.id]))) : {}) });
         } else {
           await payInstallment(paying.id, { paidDate: paymentForm.paidDate, paidAmount, ...commonPayload });
         }

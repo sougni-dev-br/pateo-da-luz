@@ -58,6 +58,11 @@ function tabela(nome: string, banco: Banco, padrao: () => Linha = () => ({})) {
       Object.assign(l, a.data);
       return { ...l };
     },
+    delete: async (a: { where: Where }) => {
+      const i = linhas().findIndex((x) => combina(x, a.where));
+      if (i < 0) throw Object.assign(new Error(`${nome}: não achei`), { code: "P2025" });
+      return linhas().splice(i, 1)[0];
+    },
     updateMany: async (a: { where: Where; data: Linha }) => {
       const alvo = linhas().filter((x) => combina(x, a.where));
       for (const l of alvo) Object.assign(l, a.data);

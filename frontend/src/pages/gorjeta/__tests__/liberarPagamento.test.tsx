@@ -96,4 +96,12 @@ describe("passo 5: liberar para pagamento", () => {
     expect(screen.queryByRole("button", { name: "Liberar para pagamento" })).not.toBeInTheDocument();
     expect(getTipFolhaLotes).not.toHaveBeenCalled();
   });
+
+  test("salário solto fora dos títulos: avisa e oferece liberar de novo, mesmo com todos pagos", async () => {
+    vi.mocked(getTipConferencia).mockResolvedValue(conf());
+    vi.mocked(getTipFolhaLotes).mockResolvedValue({ lotes: [lote({ status: "PAGO", paymentDate: "2026-10-05" })], soltos: 1 });
+    render(<AbaContabilidade year={2026} month={9} canEdit onNotice={vi.fn()} />);
+    expect(await screen.findByRole("status")).toHaveTextContent(/1 salário\(s\) desta competência em aberto fora dos títulos/);
+    expect(screen.getByRole("button", { name: "Liberar de novo (acréscimos)" })).toBeInTheDocument();
+  });
 });

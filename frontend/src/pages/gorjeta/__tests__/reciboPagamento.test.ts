@@ -27,7 +27,7 @@ vi.mock("jspdf", () => ({
   },
 }));
 import {
-  gerarRecibosPagamento, linhaDeParabens, linhasQueCabem, mesDoPagamento, mesPorExtenso, textoDoReciboPagamento, totaisDoRecibo,
+  gerarRecibosPagamento, linhaDeParabens, mesDoPagamento, mesPorExtenso, textoDoReciboPagamento, totaisDoRecibo,
 } from "../reciboPagamento";
 
 beforeEach(() => { enviados.length = 0; girados.length = 0; paginas = 1; });
@@ -46,7 +46,7 @@ const pessoa: ReciboPessoa = {
   admissao: "2026-03-02", aniversario: "12/10", valorMensal: 2600,
 };
 const mes = (over: Partial<ReciboPagamentoMes> = {}): ReciboPagamentoMes => ({
-  ...pessoa, tipo: "PAGAMENTO_MES", competencia: "09/2026", referencia: "pagamento do mês de 09/2026",
+  ...pessoa, tipo: "PAGAMENTO_MES", pagamentoQuinzenal: false, competencia: "09/2026", referencia: "pagamento do mês de 09/2026",
   linhas: [
     { codigo: 1, descricao: "DIAS TRABALHADOS", referencia: "30,00", valor: 2600 },
     { codigo: 203, descricao: "GORJETA", referencia: null, valor: 812.4 },
@@ -54,8 +54,8 @@ const mes = (over: Partial<ReciboPagamentoMes> = {}): ReciboPagamentoMes => ({
     { codigo: 202, descricao: "ADICIONAL NOTURNO", referencia: "4,50", valor: 14.18 },
     { codigo: 250, descricao: "DSR S/ EXTRAS", referencia: null, valor: 27.79 },
     { codigo: 981, descricao: "DESC. ADIANTAMENTO", referencia: "1.040,00", valor: -1040 },
-    { codigo: 300, descricao: "CRÉDITO TROCA DE TURNO", referencia: "20/09/2026", valor: 50, vale: true },
-    { codigo: 990, descricao: "VALE REFEIÇÃO ALMOÇO − SÁBADO", referencia: "12/09/2026", valor: -35.5, vale: true },
+    { codigo: 300, descricao: "CRÉDITO TROCA DE TURNO", referencia: "20/09/2026", valor: 50 },
+    { codigo: 990, descricao: "VALE REFEIÇÃO ALMOÇO − SÁBADO", referencia: "12/09/2026", valor: -35.5 },
   ],
   totalLista: 2535.23, acerto: null, total: 2535.23, dataPagamento: null,
   ...over,
@@ -99,6 +99,11 @@ describe("parabéns pelo aniversário", () => {
     expect(mesDoPagamento(mes())).toBe(10);
     expect(linhaDeParabens(mes())).toBe("*** PARABÉNS PELO SEU ANIVERSÁRIO NO DIA 12 DE OUTUBRO ***");
     expect(mesDoPagamento(mes({ competencia: "12/2026" }))).toBe(1);
+  });
+  test("quem recebe por quinzena: o pagamento do mês sai no próprio mês da competência", () => {
+    expect(mesDoPagamento(mes({ pagamentoQuinzenal: true }))).toBe(9);
+    expect(linhaDeParabens(mes({ pagamentoQuinzenal: true }))).toBeNull();
+    expect(linhaDeParabens(mes({ pagamentoQuinzenal: true, aniversario: "02/09" }))).toBe("*** PARABÉNS PELO SEU ANIVERSÁRIO NO DIA 02 DE SETEMBRO ***");
   });
   test("pago: o mês da baixa; quinzena/adiantamento sem baixa: o próprio mês", () => {
     expect(linhaDeParabens(mes({ dataPagamento: "2026-09-30" }))).toBeNull();
@@ -162,20 +167,5 @@ describe("PDF", () => {
 
   test("nenhum com valor: erro claro", async () => {
     await expect(gerarRecibosPagamento([mes({ total: 0 })])).rejects.toThrow(/Nenhum recibo/);
-  });
-});
-
-describe("muitos vales", () => {
-  test("cabem: um por um; não cabem: créditos numa linha e vales em outra, com a soma", () => {
-    const linhas = mes().linhas;
-    expect(linhasQueCabem(linhas, 20)).toBe(linhas);
-    const muitos = [...linhas, { codigo: 990, descricao: "VALE CONSUMO", referencia: null, valor: -10, vale: true as const }];
-    const juntas = linhasQueCabem(muitos, 7);
-    expect(juntas.map((l) => `${l.codigo} ${l.descricao}`)).toEqual([
-      "1 DIAS TRABALHADOS", "203 GORJETA", "201 HORA EXTRA 50%", "202 ADICIONAL NOTURNO", "250 DSR S/ EXTRAS", "981 DESC. ADIANTAMENTO",
-      "300 CRÉDITOS DA GORJETA (1)", "990 VALES DA GORJETA (2)",
-    ]);
-    expect(juntas[juntas.length - 1].valor).toBe(-45.5);
-    expect(totaisDoRecibo(juntas)).toEqual(totaisDoRecibo(muitos));
   });
 });

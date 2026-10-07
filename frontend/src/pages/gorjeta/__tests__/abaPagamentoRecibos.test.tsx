@@ -88,6 +88,26 @@ describe("recibos na lista de pagamento", () => {
     expect(screen.queryByRole("columnheader", { name: "Recibo" })).toBeNull();
   });
 
+  test("apuração aberta: botões desabilitados com o motivo", () => {
+    const c = { ...lista(), status: "OPEN" } as TipComputation;
+    render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />, sessao(true));
+    const todos = screen.getByRole("button", { name: "Recibos (1)" }) as HTMLButtonElement;
+    expect(todos.disabled).toBe(true);
+    expect(todos.title).toMatch(/Feche a apuração antes de imprimir os recibos do mês/);
+    const um = screen.getByRole("button", { name: "Recibo de pagamento de Ana Exemplo" }) as HTMLButtonElement;
+    expect(um.disabled).toBe(true);
+    expect(um.title).toMatch(/Feche a apuração/);
+    fireEvent.click(todos);
+    expect(getRecibosPagamento).not.toHaveBeenCalled();
+  });
+
+  test("saiu e ainda falta o valor da rescisão: sem recibo", () => {
+    const c = comp([pessoa({ employeeId: "a", employeeName: "Ana Exemplo", rescisaoPendente: true })]);
+    render(<AbaPagamento comp={c} rows={toRows(c)} readonly onRow={vi.fn()} onError={vi.fn()} />, sessao(true));
+    expect(screen.queryByRole("button", { name: /Recibo de pagamento de Ana Exemplo/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Recibos/ })).toBeNull();
+  });
+
   test("erro do servidor (403) vira mensagem da página", async () => {
     vi.mocked(getRecibosPagamento).mockRejectedValue(new Error("é preciso permissão de ver Funcionários"));
     const onError = vi.fn();

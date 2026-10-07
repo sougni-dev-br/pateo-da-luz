@@ -12,7 +12,7 @@ vi.mock("../../../config/database.js", () => {
     tipPeriodEtapa: { findMany: vi.fn(), create: vi.fn() },
     tipExtrato: { findMany: vi.fn(async () => []) },
     employee: { findMany: vi.fn(async () => []) },
-    payrollItem: { findFirst: vi.fn(), findMany: vi.fn(async () => []), update: vi.fn() },
+    payrollItem: { findFirst: vi.fn(), findMany: vi.fn(async () => []), update: vi.fn(), count: vi.fn(async () => 0) },
     folhaLote: { findUnique: vi.fn() },
   };
   prisma.$transaction = vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma));

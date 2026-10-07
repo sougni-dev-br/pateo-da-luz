@@ -1,6 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import { Alert, Button } from "../../design-system";
-import { descreverExistente, fraseJaPago, type RecusaFolha } from "../../lib/folha-duplicidade";
+import { descreverExistente, descreverSuspeito, fraseJaPago, type RecusaFolha } from "../../lib/folha-duplicidade";
 import { Janela } from "./Janela";
 
 type Props = {
@@ -15,11 +15,18 @@ type Props = {
 // para a auditoria.
 export function ConfirmaBaixaDuplicada({ recusa, enviando, onCancelar, onConfirmar }: Props) {
   const pagos = recusa.jaPagos ?? [];
-  const frase = pagos[0] ? fraseJaPago(recusa.pessoa ?? "", pagos[0]) : recusa.message;
+  // Título do lote da folha: todos os membros suspeitos; confirmar vale para todos os listados.
+  const suspeitos = recusa.suspeitos ?? [];
+  const frase = suspeitos.length > 0 ? recusa.message : pagos[0] ? fraseJaPago(recusa.pessoa ?? "", pagos[0]) : recusa.message;
   return (
     <Janela eyebrow="Baixa em duplicidade" titulo="Este pagamento já foi feito?" onFechar={onCancelar} ocupado={enviando} largura="estreita">
       <Alert tone="warning">{frase}</Alert>
-      {pagos.length > 1 && (
+      {suspeitos.length > 0 && (
+        <ul className="pg-lote-erros" aria-label="Pessoas com o pagamento já feito">
+          {suspeitos.map((x) => <li key={x.item.id ?? x.pessoa}>{descreverSuspeito(x)}</li>)}
+        </ul>
+      )}
+      {suspeitos.length === 0 && pagos.length > 1 && (
         <ul className="pg-lote-erros" aria-label="Pagamentos já feitos">
           {pagos.map((p) => <li key={p.id ?? p.rotulo ?? ""}>{descreverExistente(p)}</li>)}
         </ul>

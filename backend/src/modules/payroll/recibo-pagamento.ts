@@ -13,9 +13,8 @@ import { competenciaTexto, recebeAcerto } from "./acerto-lista.js";
 import { round2 } from "./vt-calc.js";
 
 // Uma linha do recibo, como no holerite: código fixo do item, descrição (maiúsculas), referência
-// (dias, horas, %, data do vale) e o valor com sinal (positivo = vencimento, negativo = desconto).
-// vale: linha de um vale ou crédito da gorjeta (a impressão junta numa linha só se não couber).
-export type LinhaRecibo = { codigo: number; descricao: string; referencia: string | null; valor: number; vale?: true };
+// (dias, horas, %, data do pagamento) e o valor com sinal (positivo = vencimento, negativo = desconto).
+export type LinhaRecibo = { codigo: number; descricao: string; referencia: string | null; valor: number };
 
 // Códigos fixos dos itens (só para leitura do recibo; não são os da contabilidade).
 export const CODIGO = {
@@ -27,6 +26,8 @@ export type ValeDoRecibo = { type: string; amount: number; date: string | null; 
 
 export type ParticipanteDoRecibo = ParticipanteDaLista & {
   horaExtra: string | null; adicionalNoturno: string | null; vales: ValeDoRecibo[]; baseSalary?: number | null;
+  /** Saiu no período e ainda falta o valor da rescisão (só com a apuração aberta). */
+  rescisaoPendente?: boolean;
 };
 
 // Título "Acerto (lista de pagamento)" da pessoa na competência, como está no Contas a Pagar.
@@ -45,6 +46,8 @@ type CabecalhoDaPessoa = {
 
 export type ReciboPagamentoMes = CabecalhoDaPessoa & {
   tipo: "PAGAMENTO_MES";
+  /** Recebe por quinzena: o acerto vence no fim do próprio mês (os outros, no mês seguinte). */
+  pagamentoQuinzenal: boolean;
   competencia: string; referencia: string;
   linhas: LinhaRecibo[];
   totalLista: number;
@@ -62,16 +65,10 @@ export type ReciboPagoAntes = CabecalhoDaPessoa & {
   dataPagamento: string | null;
 };
 
-const NOME_DO_VALE: Record<string, string> = {
-  ADIANTAMENTO: "VALE ADIANTAMENTO", RETIRADA_CAIXA: "VALE RETIRADA CAIXA", REFEICAO: "VALE REFEIÇÃO",
-  VALE_CONSUMO: "VALE CONSUMO", OUTRO: "VALE DESCONTO", CREDITO: "CRÉDITO",
-};
-
 const diferente = (a: number, b: number) => Math.abs(a - b) >= 0.005;
 const dataBr = (iso: string | null) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : null);
 const diaIso = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
 const numero = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const maiusculas = (t: string) => t.trim().replace(/\s+/g, " ").toLocaleUpperCase("pt-BR");
 
 /** "6:30" → "6,50" (horas decimais, como a referência do holerite); vazio ou zero → null. */
 export function horasDecimais(t: string | null): string | null {
@@ -95,52 +92,69 @@ function cabecalho(employeeId: string, pessoa: PessoaDoRecibo, valorMensal: numb
   };
 }
 
-/** Quem tem recibo do mês: os mesmos do acerto (sem registro na lista, fora da rescisão, com a receber). */
-export const recebeReciboDoMes = (p: ParticipanteDaLista) => recebeAcerto(p);
+/** Quem tem recibo do mês: os mesmos do acerto (sem registro na lista, fora da rescisão, com a receber),
+ *  menos quem saiu e ainda não tem o valor da rescisão. */
+export const recebeReciboDoMes = (p: ParticipanteDaLista & { rescisaoPendente?: boolean }) => recebeAcerto(p) && !p.rescisaoPendente;
 
 /** Valor que a pessoa recebeu (ou vai receber) por um título: o pago, se já baixado. */
 export const valorDoTitulo = (t: { amount: number; paidAmount: number | null; paymentDate: Date | null }) =>
   round2(t.paymentDate ? t.paidAmount ?? t.amount : t.amount);
 
-function linhasDosVales(vales: ValeDoRecibo[]): LinhaRecibo[] {
-  const ordenados = [...vales].sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
-  return ordenados.map((v) => {
-    const credito = v.type === "CREDITO";
-    const nome = NOME_DO_VALE[v.type] ?? "VALE DESCONTO";
-    return {
-      codigo: credito ? CODIGO.CREDITO : CODIGO.VALE,
-      descricao: v.notes?.trim() ? `${nome} ${maiusculas(v.notes)}` : nome,
-      referencia: dataBr(v.date),
-      valor: round2(credito ? v.amount : -v.amount),
-      vale: true,
-    };
-  });
-}
+// Saldo dos vales e créditos da gorjeta (crédito soma, o resto desconta).
+const saldoDosVales = (vales: ValeDoRecibo[]) =>
+  round2(vales.reduce((a, v) => a + (v.type === "CREDITO" ? v.amount : -v.amount), 0));
 
 /**
  * A discriminação do pagamento do mês. A soma das linhas é o A pagar da lista; o que sobrar
  * (fechamento antigo, vale mudado depois de fechar) vira linha de ajuste, e o acerto lançado
  * com outro valor vira outra — o total do recibo é sempre o que a pessoa recebe.
  */
-// Quando o adiantamento e a 1ª quinzena foram pagos: a referência da linha de desconto vira a data.
-// Com o valor do título: pago diferente do título vira "complemento" (ou "pago a maior") no mês.
-export type PagosAntesDoMes = {
-  adiantamento?: Date | null; quinzena?: Date | null; adiantamentoTitulo?: number | null; quinzenaTitulo?: number | null;
-};
+// Títulos do adiantamento (ou da 1ª quinzena) do mês, somados: valor dos títulos, quanto já foi pago,
+// a data da última baixa, quantos são e se algum ainda está sem baixa.
+export type PagoAntesResumo = { titulo: number; pago: number; data: Date | null; titulos: number; algumAberto: boolean };
+export type PagosAntesDoMes = { adiantamento?: PagoAntesResumo; quinzena?: PagoAntesResumo };
 
-// Desconto do que foi pago antes (adiantamento ou 1ª quinzena). Pago diferente do título: desconta o
-// título inteiro e a diferença vem numa linha própria — o recibo mostra onde ela foi acertada.
+export type TituloDoMes = { employeeId: string; amount: number; paidAmount: number | null; paymentDate: Date | null; details: unknown };
+
+/** Soma os títulos ADIANTAMENTO do sem registro por pessoa e tipo (quinzena × adiantamento), como a apuração. */
+export function resumirPagosAntes(titulos: TituloDoMes[]): Map<string, PagosAntesDoMes> {
+  const porPessoa = new Map<string, PagosAntesDoMes>();
+  for (const t of titulos) {
+    const chave = ehPrimeiraQuinzena(t.details) ? "quinzena" : "adiantamento";
+    const atual = porPessoa.get(t.employeeId) ?? {};
+    const r = atual[chave] ?? { titulo: 0, pago: 0, data: null, titulos: 0, algumAberto: false };
+    const pago = t.paymentDate != null;
+    porPessoa.set(t.employeeId, {
+      ...atual,
+      [chave]: {
+        titulo: round2(r.titulo + t.amount),
+        pago: round2(r.pago + (pago ? t.paidAmount ?? t.amount : 0)),
+        data: pago && (!r.data || t.paymentDate! > r.data) ? t.paymentDate : r.data,
+        titulos: r.titulos + 1,
+        algumAberto: r.algumAberto || !pago,
+      },
+    });
+  }
+  return porPessoa;
+}
+
+// Desconto do que foi pago antes (adiantamento ou 1ª quinzena): o valor que a lista descontou.
+// Só um título, baixado com valor diferente dele, e a lista descontando exatamente o pago: o recibo
+// desconta o título inteiro e mostra a diferença (complemento ou pago a maior). Fora disso — mais de
+// um título, algum sem baixa, ou a lista limitada ao valor do mês — só o desconto da lista.
 function descontoPagoAntes(
-  pago: number, titulo: number | null | undefined, data: Date | null | undefined,
+  descontoDaLista: number, r: PagoAntesResumo | undefined,
   d: { codigo: number; descricao: string; codigoDif: number; complemento: string; aMaior: string },
 ): LinhaRecibo[] {
-  if (pago <= 0) return [];
-  const referencia = dataBr(diaIso(data)) ?? numero(pago);
-  const base = titulo != null && titulo > 0 && diferente(titulo, pago) ? round2(titulo) : pago;
-  const linhas: LinhaRecibo[] = [{ codigo: d.codigo, descricao: d.descricao, referencia, valor: -base }];
-  const dif = round2(base - pago);
-  if (dif !== 0) linhas.push({ codigo: d.codigoDif, descricao: dif > 0 ? d.complemento : d.aMaior, referencia: null, valor: dif });
-  return linhas;
+  if (descontoDaLista <= 0) return [];
+  const referencia = dataBr(diaIso(r?.data)) ?? numero(descontoDaLista);
+  const explica = r != null && r.titulos === 1 && !r.algumAberto && diferente(r.titulo, r.pago) && !diferente(descontoDaLista, r.pago);
+  if (!explica) return [{ codigo: d.codigo, descricao: d.descricao, referencia, valor: -descontoDaLista }];
+  const dif = round2(r.titulo - r.pago);
+  return [
+    { codigo: d.codigo, descricao: d.descricao, referencia, valor: -round2(r.titulo) },
+    { codigo: d.codigoDif, descricao: dif > 0 ? d.complemento : d.aMaior, referencia: null, valor: dif },
+  ];
 }
 
 export function discriminacaoDoMes(p: ParticipanteDoRecibo, acerto: AcertoDoRecibo | null, pagosAntes: PagosAntesDoMes = {}) {
@@ -150,11 +164,18 @@ export function discriminacaoDoMes(p: ParticipanteDoRecibo, acerto: AcertoDoReci
     linhas.push({ codigo: CODIGO.DIAS, descricao: "DIAS TRABALHADOS", referencia: numero(dias), valor: round2(p.salarioProporcional) });
   }
   // Vales e créditos são da gorjeta (regra do dono, 07/10/2026): o recibo mostra só a gorjeta
-  // líquida, sem listar cada vale. Vales acima da gorjeta viram uma linha de desconto.
-  const rateio = p.foraDaGorjeta ? 0 : p.rateioAmount;
-  const gorjetaLiquida = round2(rateio + linhasDosVales(p.vales).reduce((a, l) => a + l.valor, 0));
-  if (gorjetaLiquida !== 0) {
-    linhas.push({ codigo: CODIGO.GORJETA, descricao: gorjetaLiquida > 0 ? "GORJETA" : "VALES ACIMA DA GORJETA", referencia: null, valor: gorjetaLiquida });
+  // líquida, sem listar cada vale. Vales acima da gorjeta viram uma linha de desconto. Quem está
+  // fora da gorjeta tem só o saldo dos vales/créditos: "CRÉDITOS" ou "VALES", sem falar em gorjeta.
+  const saldo = saldoDosVales(p.vales);
+  if (p.foraDaGorjeta) {
+    if (saldo !== 0) linhas.push(saldo > 0
+      ? { codigo: CODIGO.CREDITO, descricao: "CRÉDITOS", referencia: null, valor: saldo }
+      : { codigo: CODIGO.VALE, descricao: "VALES", referencia: null, valor: saldo });
+  } else {
+    const gorjetaLiquida = round2(p.rateioAmount + saldo);
+    if (gorjetaLiquida !== 0) {
+      linhas.push({ codigo: CODIGO.GORJETA, descricao: gorjetaLiquida > 0 ? "GORJETA" : "VALES ACIMA DA GORJETA", referencia: null, valor: gorjetaLiquida });
+    }
   }
   if ((p.valorHoraExtra ?? 0) > 0) {
     linhas.push({ codigo: CODIGO.HORA_EXTRA, descricao: "HORA EXTRA 50%", referencia: horasDecimais(p.horaExtra), valor: round2(p.valorHoraExtra ?? 0) });
@@ -163,11 +184,11 @@ export function discriminacaoDoMes(p: ParticipanteDoRecibo, acerto: AcertoDoReci
     linhas.push({ codigo: CODIGO.NOTURNO, descricao: "ADICIONAL NOTURNO", referencia: horasDecimais(p.adicionalNoturno), valor: round2(p.valorAdicionalNoturno ?? 0) });
   }
   if ((p.valorDsr ?? 0) > 0) linhas.push({ codigo: CODIGO.DSR, descricao: "DSR S/ EXTRAS", referencia: null, valor: round2(p.valorDsr ?? 0) });
-  linhas.push(...descontoPagoAntes(round2(p.adiantamentoSalarial ?? 0), pagosAntes.adiantamentoTitulo, pagosAntes.adiantamento, {
+  linhas.push(...descontoPagoAntes(round2(p.adiantamentoSalarial ?? 0), pagosAntes.adiantamento, {
     codigo: CODIGO.DESC_ADIANTAMENTO, descricao: "DESC. ADIANTAMENTO", codigoDif: CODIGO.COMPL_ADIANTAMENTO,
     complemento: "COMPLEMENTO DE ADIANTAMENTO", aMaior: "ADIANTAMENTO PAGO A MAIOR",
   }));
-  linhas.push(...descontoPagoAntes(round2(p.primeiraQuinzena ?? 0), pagosAntes.quinzenaTitulo, pagosAntes.quinzena, {
+  linhas.push(...descontoPagoAntes(round2(p.primeiraQuinzena ?? 0), pagosAntes.quinzena, {
     codigo: CODIGO.DESC_QUINZENA, descricao: "DESC. 1ª QUINZENA", codigoDif: CODIGO.COMPL_QUINZENA,
     complemento: "COMPLEMENTO DA 1ª QUINZENA", aMaior: "1ª QUINZENA PAGA A MAIOR",
   }));
@@ -196,6 +217,7 @@ export function reciboDoMes(
   const d = discriminacaoDoMes(p, acerto, pagosAntes);
   return {
     tipo: "PAGAMENTO_MES", ...cabecalho(p.employeeId, pessoa, p.baseSalary ?? pessoa.valorMensal ?? null),
+    pagamentoQuinzenal: p.pagamentoQuinzenal === true,
     competencia, referencia: `pagamento do mês de ${competencia}`,
     linhas: d.linhas, totalLista: d.totalLista, acerto: d.acerto, total: d.total,
     dataPagamento: acerto?.paymentDate ? diaIso(acerto.paymentDate) : null,
@@ -206,7 +228,6 @@ export function reciboDoMes(
 export type TituloPagoAntes = {
   id: string; employeeId: string; competenceYear: number; competenceMonth: number;
   amount: number; paidAmount: number | null; paymentDate: Date | null; details: unknown;
-  differenceReason?: string | null;
 };
 
 export const ehPrimeiraQuinzena = (details: unknown) =>
