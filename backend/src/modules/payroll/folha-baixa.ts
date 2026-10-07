@@ -102,14 +102,7 @@ export async function gravarBaixaDoItem(
   // Liberar pode ter posto o item num lote depois da leitura da rota: membro de lote só se
   // paga pelo lote (e o lote, só os seus).
   if ((atual.folhaLoteId ?? null) !== loteId) await recusarPorLoteMudado(tx, atual.folhaLoteId ?? null);
-  const outrosPagos = await tx.payrollItem.findMany({
-    where: {
-      employeeId: existing.employeeId, type: existing.type, competenceYear: existing.competenceYear, competenceMonth: existing.competenceMonth,
-      deletedAt: null, paymentDate: { not: null }, id: { not: existing.id },
-    },
-    select: CAMPOS_TRAVA,
-  });
-  const duplicados = pagamentosEmDuplicidade(existing, outrosPagos);
+  const duplicados = await duplicidadesDoItem(tx, existing);
   if (duplicados.length > 0 && !confirmaDuplicidade) {
     const emp = await tx.employee.findFirst({ where: { id: existing.employeeId }, select: { firstName: true, lastName: true } });
     const pessoa = nomeDe(emp);
@@ -157,6 +150,18 @@ export async function recusarPorLoteMudado(tx: Prisma.TransactionClient, folhaLo
   const lote = folhaLoteId ? await tx.folhaLote.findUnique({ where: { id: folhaLoteId }, select: { rotulo: true, status: true } }) : null;
   if (lote && lote.status !== "CANCELADO") throw new RecusaFolha(409, { message: mensagemMembroDoLote(lote.rotulo, lote.status === "PAGO") });
   throw new RecusaFolha(409, { message: "Este lançamento mudou agora (entrou ou saiu de um título da folha, ou foi baixado). Recarregue a tela." });
+}
+
+/** O mesmo pagamento (pessoa + tipo + competência) já pago em OUTRO item — os suspeitos de duplicidade. */
+export async function duplicidadesDoItem(tx: Prisma.TransactionClient, existing: ItemDaBaixa) {
+  const outrosPagos = await tx.payrollItem.findMany({
+    where: {
+      employeeId: existing.employeeId, type: existing.type, competenceYear: existing.competenceYear, competenceMonth: existing.competenceMonth,
+      deletedAt: null, paymentDate: { not: null }, id: { not: existing.id },
+    },
+    select: CAMPOS_TRAVA,
+  });
+  return pagamentosEmDuplicidade(existing, outrosPagos);
 }
 
 /** O que o estorno grava no item: volta a aberto e o motivo fica em paymentNotes. */

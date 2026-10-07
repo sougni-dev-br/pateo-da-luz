@@ -17,7 +17,7 @@ import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { minutosValidos } from "./hora-extra.js";
 import { ORIGEM_ACERTO, editadoAMao } from "./acerto-lista.js";
 import { RecusaFolha } from "./folha-lancamento.routes.js";
-import { cancelarLiberacao, liberarLotes, lotesDaCompetencia, previaDaLiberacao, temLoteVivo } from "./folha-lote.service.js";
+import { cancelarLiberacao, contarSalariosSoltos, liberarLotes, lotesDaCompetencia, previaDaLiberacao, temLoteVivo } from "./folha-lote.service.js";
 import {
   type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, aplicarAcertosAjustados, conferir, textoContaBancaria, ehPendente, esconderTeto, montarFolhaLiquidos, separarJaPagos, somarSalariosPagos,
 } from "./tip-conferencia.js";
@@ -402,7 +402,10 @@ const entradaDaLiberacao = async (periodo: { id: string; competenceYear: number;
 tipConferenciaRouter.get("/periods/:year/:month/folha-lotes", async (request, response) => {
   const periodo = await periodoDe(request, response);
   if (!periodo) return;
-  response.json({ lotes: await lotesDaCompetencia(periodo.competenceYear, periodo.competenceMonth) });
+  const lotes = await lotesDaCompetencia(periodo.competenceYear, periodo.competenceMonth);
+  // Salários da competência em aberto fora dos títulos: a folha paga não marca enquanto houver.
+  const soltos = lotes.length === 0 ? 0 : await contarSalariosSoltos(prisma, { ano: periodo.competenceYear, mes: periodo.competenceMonth });
+  response.json({ lotes, soltos });
 });
 
 // O que liberar vai criar (títulos, pessoas e totais) e os avisos — nada é gravado.
@@ -425,7 +428,8 @@ tipConferenciaRouter.post("/periods/:year/:month/folha-lotes/liberar", async (re
   }
   try {
     const r = await liberarLotes(await entradaDaLiberacao(periodo), { id: user.id, name: user.name, ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? "") });
-    response.json({ ...r, etapas: await estadoEtapas(periodo.id) });
+    const soltos = await contarSalariosSoltos(prisma, { ano: periodo.competenceYear, mes: periodo.competenceMonth });
+    response.json({ ...r, soltos, etapas: await estadoEtapas(periodo.id) });
   } catch (err) {
     if (err instanceof RecusaFolha) return response.status(err.status).json(err.corpo);
     throw err;

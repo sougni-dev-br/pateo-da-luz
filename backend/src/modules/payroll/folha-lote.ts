@@ -44,7 +44,10 @@ type LinhaParaLote = Pick<LinhaFolha, "employeeId" | "nome" | "grupo" | "origem"
  * Monta os grupos a partir da folha de líquidos (os mesmos grupos e pessoas; quem já está
  * pago já saiu dela). Cada pessoa leva os SALARIO em aberto dela; o total é a soma deles.
  * - CLT: o grupo é o CNPJ do extrato de onde veio a linha; sem registro: SEM_REGISTRO.
- * - jaEmLote: quem já está num lote (liberado antes, ou retirado para a folha à parte) não entra.
+ * - Decide por ITEM: `salarios` são só os SALARIO livres (fora de lote). Um 2º salário livre
+ *   de quem já está num lote (ex.: complemento lançado depois) entra no título do grupo dela.
+ * - jaEmLote (pessoas com algum salário já em lote) só cala o aviso "sem salário em aberto" e
+ *   a comparação com a folha (que vale para o total da pessoa, não para o acréscimo).
  * - Pessoa na folha sem SALARIO em aberto, ou com SALARIO de valor diferente da folha: aviso.
  */
 export function planejarLotes(
@@ -68,15 +71,18 @@ export function planejarLotes(
       continue;
     }
     vistos.add(l.employeeId);
-    if (jaEmLote.has(l.employeeId)) continue;
     const itens = porPessoa.get(l.employeeId) ?? [];
+    const temLote = jaEmLote.has(l.employeeId);
     if (itens.length === 0) {
+      if (temLote) continue;
       avisos.push(`${l.nome}: sem salário de ${competenciaDoLote(ano, mes)} em aberto no Contas a Pagar — fica fora do lote.`);
       continue;
     }
     const grupo = l.origem === "SEM_REGISTRO" ? GRUPO_SEM_REGISTRO : cnpjDaEmpresa.get(l.grupo) || l.grupo;
     const soma = round2(itens.reduce((a, s) => a + s.amount, 0));
-    if (Math.abs(soma - l.valor) >= 0.01) {
+    if (temLote) {
+      avisos.push(`${l.nome}: já está num título e tem outro salário de ${competenciaDoLote(ano, mes)} em aberto (${brl(soma)}) — entra no título também.`);
+    } else if (Math.abs(soma - l.valor) >= 0.01) {
       avisos.push(`${l.nome}: no Contas a Pagar ${brl(soma)}, na folha de líquidos ${brl(l.valor)} — o título usa o do Contas a Pagar.`);
     }
     const atual = grupos.get(grupo) ?? {

@@ -85,7 +85,9 @@ export function lotesParaPayables(f: FiltroLotes) {
       COALESCE((
         SELECT json_agg(json_build_object(
           'id', m."id", 'employeeId', m."employeeId", 'nome', CONCAT(e."firstName", ' ', e."lastName"),
-          'valor', m."amount"::text, 'origem', orig."rotulo", 'pago', m."paymentDate" IS NOT NULL
+          'valor', m."amount"::text, 'origem', orig."rotulo", 'pago', m."paymentDate" IS NOT NULL,
+          -- O mesmo rótulo de tipo da folha solta: o filtro "Salário CLT" / "Salário (acerto)" acha o título.
+          'tipo', CASE WHEN m."details"->>'origem' = 'LISTA_PAGAMENTO' THEN 'Salário (acerto)' ELSE 'Salário' END
         ) ORDER BY e."firstName", e."lastName")
         FROM "PayrollItem" m
         JOIN "Employee" e ON e."id" = m."employeeId"

@@ -63,11 +63,12 @@ export function totaisDoRecibo(linhas: ReciboLinha[]) {
 }
 
 // Mês em que a pessoa recebe: o da baixa; sem baixa, o pagamento do mês sai no mês seguinte à
-// competência e a quinzena/adiantamento no próprio mês.
+// competência (quem recebe por quinzena: no fim do próprio mês, como o vencimento do acerto) e a
+// quinzena/adiantamento no próprio mês.
 export function mesDoPagamento(r: ReciboDePagamento): number {
   if (r.dataPagamento) return Number(r.dataPagamento.slice(5, 7));
   const mes = Number(r.competencia.slice(0, 2));
-  return r.tipo === "PAGAMENTO_MES" ? (mes % 12) + 1 : mes;
+  return r.tipo === "PAGAMENTO_MES" && !r.pagamentoQuinzenal ? (mes % 12) + 1 : mes;
 }
 
 /** "*** PARABÉNS ... NO DIA 12 DE OUTUBRO ***" quando o aniversário cai no mês do pagamento. */
@@ -75,24 +76,6 @@ export function linhaDeParabens(r: ReciboDePagamento): string | null {
   const m = /^(\d{2})\/(\d{2})$/.exec(r.aniversario ?? "");
   if (!m || Number(m[2]) !== mesDoPagamento(r)) return null;
   return `*** PARABÉNS PELO SEU ANIVERSÁRIO NO DIA ${m[1]} DE ${MESES[Number(m[2]) - 1].toUpperCase()} ***`;
-}
-
-// Muitos vales não cabem no quadro: os créditos viram uma linha e os vales outra, com a soma e
-// quantos são (vencimentos e descontos continuam separados).
-export function linhasQueCabem(linhas: ReciboLinha[], cabem: number): ReciboLinha[] {
-  if (linhas.length <= cabem) return linhas;
-  const creditos = linhas.filter((l) => l.vale && l.valor > 0);
-  const vales = linhas.filter((l) => l.vale && l.valor <= 0);
-  const soma = (ls: ReciboLinha[]) => Math.round(ls.reduce((a, l) => a + l.valor, 0) * 100) / 100;
-  const juntos: ReciboLinha[] = [
-    ...(creditos.length ? [{ codigo: 300, descricao: `CRÉDITOS DA GORJETA (${creditos.length})`, referencia: null, valor: soma(creditos) }] : []),
-    ...(vales.length ? [{ codigo: 990, descricao: `VALES DA GORJETA (${vales.length})`, referencia: null, valor: soma(vales) }] : []),
-  ];
-  const primeiro = linhas.findIndex((l) => l.vale);
-  if (primeiro < 0) return linhas;
-  const semVales = linhas.filter((l) => !l.vale);
-  const antes = linhas.slice(0, primeiro).filter((l) => !l.vale).length;
-  return [...semVales.slice(0, antes), ...juntos, ...semVales.slice(antes)];
 }
 
 const rotulo = (doc: Doc, texto: string, x: number, y: number, align: "left" | "center" | "right" = "left") => {
@@ -127,7 +110,7 @@ function cabecalho(doc: Doc, r: ReciboDePagamento, y: number) {
 
 function quadroDeItens(doc: Doc, r: ReciboDePagamento, y: number) {
   const espaco = TOTAIS - CORPO - 1;
-  const linhas = linhasQueCabem(r.linhas, Math.floor(espaco / LINHA_MIN));
+  const linhas = r.linhas;
   const altura = Math.max(LINHA_MIN, Math.min(LINHA_MAX, espaco / Math.max(1, linhas.length)));
   // Grade: cabeçalho e linhas verticais até os totais (o espaço vazio fica, como no modelo).
   doc.line(X0, y + CAB_TABELA, X1, y + CAB_TABELA);

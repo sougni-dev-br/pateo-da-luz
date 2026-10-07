@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { type ParticipanteDoRecibo, baseDoPagoAntes, discriminacaoDoMes, horasDecimais, reciboDoMes, reciboPagoAntes } from "../recibo-pagamento.js";
+import {
+  type ParticipanteDoRecibo, baseDoPagoAntes, discriminacaoDoMes, horasDecimais, recebeReciboDoMes, reciboDoMes, reciboPagoAntes, resumirPagosAntes,
+} from "../recibo-pagamento.js";
 import { round2 } from "../vt-calc.js";
 
 // Recibo de pagamento de quem não tem registro: a discriminação tem de fechar no A pagar da
@@ -69,13 +71,24 @@ describe("pagamento do mês: total = A pagar da lista", () => {
     expect(soma(d.linhas)).toBe(q.totalAPagar);
   });
 
-  test("fora da gorjeta com vale: uma linha de desconto, sem listar o vale", () => {
+  test("fora da gorjeta com vale: uma linha VALES (desconto), sem falar em gorjeta", () => {
     const p = pessoa({ foraDaGorjeta: true, rateioAmount: 0, vales: [{ type: "OUTRO", amount: 20, date: null, notes: null }] });
     const d = discriminacaoDoMes(p, null);
-    expect(d.linhas.some((l) => l.descricao === "GORJETA")).toBe(false);
-    expect(d.linhas.find((l) => l.codigo === 203)).toEqual({ codigo: 203, descricao: "VALES ACIMA DA GORJETA", referencia: null, valor: -20 });
-    expect(d.linhas.some((l) => l.codigo === 990)).toBe(false);
+    expect(d.linhas.some((l) => /GORJETA/.test(l.descricao))).toBe(false);
+    expect(d.linhas.find((l) => l.valor === -20)).toEqual({ codigo: 990, descricao: "VALES", referencia: null, valor: -20 });
     expect(d.total).toBe(p.totalAPagar);
+  });
+
+  test("fora da gorjeta com crédito: uma linha CRÉDITOS (vencimento)", () => {
+    const p = pessoa({ foraDaGorjeta: true, rateioAmount: 0, vales: [{ type: "CREDITO", amount: 30, date: null, notes: null }] });
+    const d = discriminacaoDoMes(p, null);
+    expect(d.linhas.find((l) => l.valor === 30)).toEqual({ codigo: 300, descricao: "CRÉDITOS", referencia: null, valor: 30 });
+    expect(d.linhas.some((l) => /GORJETA/.test(l.descricao))).toBe(false);
+  });
+
+  test("dentro da gorjeta, vales acima dela: continua a linha de gorjeta negativa", () => {
+    const p = pessoa({ rateioAmount: 10, vales: [{ type: "OUTRO", amount: 25, date: null, notes: null }] });
+    expect(discriminacaoDoMes(p, null).linhas.find((l) => l.codigo === 203)).toEqual({ codigo: 203, descricao: "VALES ACIMA DA GORJETA", referencia: null, valor: -15 });
   });
 
   test("lista que não fecha com as linhas (fechamento antigo): a diferença vira linha de ajuste", () => {
@@ -88,17 +101,38 @@ describe("pagamento do mês: total = A pagar da lista", () => {
   });
 });
 
-describe("data do que já foi pago no recibo do mês", () => {
+const dia = (iso: string) => new Date(`${iso}T00:00:00Z`);
+const titulo = (over: Record<string, unknown>) => ({
+  employeeId: "e1", amount: 1040, paidAmount: null as number | null, paymentDate: null as Date | null, details: { semRegistro: true }, ...over,
+});
+
+describe("resumo dos títulos pagos antes (adiantamento e quinzena)", () => {
+  test("soma os títulos por pessoa e tipo; data = a da última baixa", () => {
+    const m = resumirPagosAntes([
+      titulo({ amount: 500, paidAmount: 500, paymentDate: dia("2026-09-20") }),
+      titulo({ amount: 540, paidAmount: 540, paymentDate: dia("2026-09-25") }),
+      titulo({ amount: 1300, paidAmount: 1300, paymentDate: dia("2026-09-15"), details: { semRegistro: true, primeiraQuinzena: true } }),
+      titulo({ employeeId: "e2", amount: 800 }),
+    ]);
+    expect(m.get("e1")).toEqual({
+      adiantamento: { titulo: 1040, pago: 1040, data: dia("2026-09-25"), titulos: 2, algumAberto: false },
+      quinzena: { titulo: 1300, pago: 1300, data: dia("2026-09-15"), titulos: 1, algumAberto: false },
+    });
+    expect(m.get("e2")).toEqual({ adiantamento: { titulo: 800, pago: 0, data: null, titulos: 1, algumAberto: true } });
+  });
+});
+
+describe("desconto do que já foi pago no recibo do mês", () => {
   test("desconto do adiantamento e da quinzena trazem a data em que foram pagos", () => {
     const p = pessoa({ adiantamentoSalarial: 966.5, primeiraQuinzena: 0 });
-    const d = discriminacaoDoMes(p, null, { adiantamento: new Date("2026-09-20T00:00:00Z") });
+    const d = discriminacaoDoMes(p, null, { adiantamento: { titulo: 966.5, pago: 966.5, data: dia("2026-09-20"), titulos: 1, algumAberto: false } });
     expect(d.linhas.find((l) => l.codigo === 981)).toEqual({ codigo: 981, descricao: "DESC. ADIANTAMENTO", referencia: "20/09/2026", valor: -966.5 });
   });
 
-  test("adiantamento pago a menor: desconta o título inteiro e devolve o complemento; líquido igual", () => {
+  test("um título pago a menor e a lista desconta o pago: título inteiro + complemento; líquido igual", () => {
     const p = pessoa({ adiantamentoSalarial: 966.5 });
     const semComplemento = discriminacaoDoMes(p, null);
-    const d = discriminacaoDoMes(p, null, { adiantamento: new Date("2026-09-20T00:00:00Z"), adiantamentoTitulo: 1040 });
+    const d = discriminacaoDoMes(p, null, { adiantamento: { titulo: 1040, pago: 966.5, data: dia("2026-09-20"), titulos: 1, algumAberto: false } });
     expect(d.linhas.find((l) => l.codigo === 981)).toEqual({ codigo: 981, descricao: "DESC. ADIANTAMENTO", referencia: "20/09/2026", valor: -1040 });
     expect(d.linhas.find((l) => l.codigo === 983)).toEqual({ codigo: 983, descricao: "COMPLEMENTO DE ADIANTAMENTO", referencia: null, valor: 73.5 });
     expect(d.total).toBe(semComplemento.total);
@@ -108,15 +142,64 @@ describe("data do que já foi pago no recibo do mês", () => {
 
   test("quinzena paga a maior: desconta o título e a diferença como desconto", () => {
     const p = pessoa({ primeiraQuinzena: 1100, adiantamentoSalarial: 0 });
-    const d = discriminacaoDoMes(p, null, { quinzena: new Date("2026-09-15T00:00:00Z"), quinzenaTitulo: 1000 });
+    const d = discriminacaoDoMes(p, null, { quinzena: { titulo: 1000, pago: 1100, data: dia("2026-09-15"), titulos: 1, algumAberto: false } });
     expect(d.linhas.find((l) => l.codigo === 982)?.valor).toBe(-1000);
     expect(d.linhas.find((l) => l.codigo === 984)).toEqual({ codigo: 984, descricao: "1ª QUINZENA PAGA A MAIOR", referencia: null, valor: -100 });
     expect(soma(d.linhas)).toBe(d.total);
   });
 
-  test("sem a data (não baixado): a referência continua o valor", () => {
+  test("dois títulos (500 + 540): só o desconto com o valor da lista, sem complemento", () => {
+    const p = pessoa({ adiantamentoSalarial: 1040 });
+    const d = discriminacaoDoMes(p, null, { adiantamento: { titulo: 1080, pago: 1040, data: dia("2026-09-25"), titulos: 2, algumAberto: false } });
+    expect(d.linhas.filter((l) => l.codigo >= 981 && l.codigo <= 984)).toEqual([
+      { codigo: 981, descricao: "DESC. ADIANTAMENTO", referencia: "25/09/2026", valor: -1040 },
+    ]);
+    expect(soma(d.linhas)).toBe(p.totalAPagar);
+  });
+
+  test("título ainda em aberto: só o desconto da lista", () => {
+    const p = pessoa({ adiantamentoSalarial: 1040 });
+    const d = discriminacaoDoMes(p, null, { adiantamento: { titulo: 1100, pago: 0, data: null, titulos: 1, algumAberto: true } });
+    expect(d.linhas.filter((l) => l.codigo >= 981 && l.codigo <= 984)).toEqual([
+      { codigo: 981, descricao: "DESC. ADIANTAMENTO", referencia: "1.040,00", valor: -1040 },
+    ]);
+  });
+
+  test("limite do mês: proporcional 600, adiantamento 1.040 pago inteiro → desconta só os 600 da lista", () => {
+    const p = pessoa({ diasSalario: 7, salarioProporcional: 600, adiantamentoSalarial: 600 });
+    const d = discriminacaoDoMes(p, null, { adiantamento: { titulo: 1040, pago: 1040, data: dia("2026-09-20"), titulos: 1, algumAberto: false } });
+    expect(d.linhas.filter((l) => l.codigo >= 981 && l.codigo <= 984)).toEqual([
+      { codigo: 981, descricao: "DESC. ADIANTAMENTO", referencia: "20/09/2026", valor: -600 },
+    ]);
+    expect(d.linhas.some((l) => /COMPLEMENTO/.test(l.descricao))).toBe(false);
+    expect(soma(d.linhas)).toBe(p.totalAPagar);
+  });
+
+  test("limite do mês com pago a menor (lista < pago): sem complemento", () => {
+    const p = pessoa({ diasSalario: 7, salarioProporcional: 600, adiantamentoSalarial: 600 });
+    const d = discriminacaoDoMes(p, null, { adiantamento: { titulo: 1040, pago: 900, data: dia("2026-09-20"), titulos: 1, algumAberto: false } });
+    expect(d.linhas.filter((l) => l.codigo >= 981 && l.codigo <= 984)).toEqual([
+      { codigo: 981, descricao: "DESC. ADIANTAMENTO", referencia: "20/09/2026", valor: -600 },
+    ]);
+  });
+
+  test("sem título (não baixado): a referência continua o valor", () => {
     const d = discriminacaoDoMes(pessoa({ adiantamentoSalarial: 1040 }), null);
     expect(d.linhas.find((l) => l.codigo === 981)?.referencia).toBe("1.040,00");
+  });
+});
+
+describe("quem tem recibo do mês", () => {
+  test("como o acerto, e fora quem saiu e ainda não tem o valor da rescisão", () => {
+    expect(recebeReciboDoMes(pessoa())).toBe(true);
+    expect(recebeReciboDoMes(pessoa({ rescisaoPendente: true } as Partial<ParticipanteDoRecibo>))).toBe(false);
+    expect(recebeReciboDoMes(pessoa({ pagoNaRescisao: true }))).toBe(false);
+    expect(recebeReciboDoMes(pessoa({ totalAPagar: 0 }))).toBe(false);
+  });
+
+  test("leva pagamentoQuinzenal (o mês em que a pessoa recebe)", () => {
+    expect(reciboDoMes(pessoa({ pagamentoQuinzenal: true }), { nome: "X", cpf: null }, null, 2026, 9).pagamentoQuinzenal).toBe(true);
+    expect(reciboDoMes(pessoa(), { nome: "X", cpf: null }, null, 2026, 9).pagamentoQuinzenal).toBe(false);
   });
 });
 
@@ -177,7 +260,7 @@ describe("1ª quinzena e adiantamento", () => {
   test("pago a menor: o título com a base e a diferença com o motivo; líquido = o que foi pago", () => {
     const r = reciboPagoAntes({
       ...titulo, amount: 1040, paidAmount: 966.5, paymentDate: new Date("2026-09-20T00:00:00Z"),
-      details: { base: 2600, percent: 40, semRegistro: true }, differenceReason: "pago a menor em 20/09",
+      details: { base: 2600, percent: 40, semRegistro: true },
     }, { nome: "Fulana Exemplo", cpf: null });
     expect(r.linhas).toEqual([
       { codigo: 20, descricao: "ADIANTAMENTO", referencia: "40%", valor: 1040 },

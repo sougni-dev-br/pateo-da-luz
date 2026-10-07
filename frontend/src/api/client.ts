@@ -1337,6 +1337,8 @@ export type MembroFolhaLote = {
   /** Na folha à parte: o título da empresa de onde a pessoa saiu. */
   origem: string | null;
   pago: boolean;
+  /** Rótulo do tipo, como na folha solta: "Salário" (CLT) ou "Salário (acerto)" (sem registro). */
+  tipo?: string | null;
 };
 
 export type SalarioComposicao = {
@@ -6447,7 +6449,7 @@ export function emitirReciboVale(id: string, empresaId: string | null) {
 }
 /** Linha do recibo, como no holerite: código fixo do item, descrição em maiúsculas, referência (dias,
  *  horas, %, data do vale) e valor com sinal (positivo = vencimento, negativo = desconto). vale: vale ou crédito da gorjeta. */
-export type ReciboLinha = { codigo: number; descricao: string; referencia: string | null; valor: number; vale?: true };
+export type ReciboLinha = { codigo: number; descricao: string; referencia: string | null; valor: number };
 /** Cabeçalho do recibo: dados do cadastro. aniversario = "DD/MM" (sem o ano); codigo vazio quando o cadastro não tem. */
 export type ReciboPessoa = {
   employeeId: string; nome: string; cpf: string | null; codigo: string | null; funcao: string | null;
@@ -6456,6 +6458,8 @@ export type ReciboPessoa = {
 /** Recibo do pagamento do mês (lista de pagamento) de quem não tem registro. */
 export type ReciboPagamentoMes = ReciboPessoa & {
   tipo: "PAGAMENTO_MES";
+  /** Recebe por quinzena: o acerto sai no fim do próprio mês (os outros, no mês seguinte). */
+  pagamentoQuinzenal: boolean;
   competencia: string; referencia: string;
   linhas: ReciboLinha[];
   /** A pagar da lista; total difere quando o acerto no Contas a Pagar tem outro valor (vira linha de ajuste). */
@@ -7285,9 +7289,11 @@ export type TipFolhaLotePrevia = {
 export type TipFolhaLiberada = {
   criados: Array<{ id: string; rotulo: string }>; acrescentados: number; jaLiberada: boolean; avisos: string[];
   lotes: TipFolhaLote[]; etapas: TipEtapasEstado;
+  /** Salários da competência em aberto fora dos títulos (a folha paga não marca enquanto houver). */
+  soltos?: number;
 };
 export function getTipFolhaLotes(year: number, month: number) {
-  return request<{ lotes: TipFolhaLote[] }>(`${baseTip(year, month)}/folha-lotes`);
+  return request<{ lotes: TipFolhaLote[]; soltos?: number }>(`${baseTip(year, month)}/folha-lotes`);
 }
 export function getTipFolhaLotesPrevia(year: number, month: number) {
   return request<TipFolhaLotePrevia>(`${baseTip(year, month)}/folha-lotes/previa`);
@@ -7298,7 +7304,7 @@ export function liberarTipFolha(year: number, month: number) {
 export function cancelarTipFolhaLiberada(year: number, month: number, motivo: string) {
   return request<{ cancelados: number; salariosSoltos: number; etapas: TipEtapasEstado }>(`${baseTip(year, month)}/folha-lotes/cancelar`, json("POST", { motivo }));
 }
-export function payFolhaLote(id: string, payload: Parameters<typeof payPayrollItem>[1]) {
+export function payFolhaLote(id: string, payload: Parameters<typeof payPayrollItem>[1] & { confirmaDuplicidadeIds?: string[] }) {
   return request<{ id: string; status: string; membros: number; folhaPaga: boolean }>(`/payroll/folha-lotes/${id}/pay`, json("PATCH", payload));
 }
 export function reverseFolhaLote(id: string, reason: string) {

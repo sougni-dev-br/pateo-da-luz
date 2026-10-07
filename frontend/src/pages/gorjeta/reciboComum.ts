@@ -6,9 +6,9 @@ export type Doc = InstanceType<typeof import("jspdf").jsPDF>;
 
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
-export const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }).replace(/ /g, " ");
+export const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }).replace(/\u00a0/g, " ");
 /** "R$" e o número nunca ficam em linhas diferentes no texto corrido. */
-export const reaisNoTexto = (v: number) => reais(v).replace(" ", " ");
+export const reaisNoTexto = (v: number) => reais(v).replace(" ", "\u00a0");
 
 export const cpfFormatado = (c: string) => {
   const d = c.replace(/\D/g, "");

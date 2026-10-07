@@ -48,7 +48,9 @@ const situacao = (p: TipComputedParticipant) => (p.pagoNaRescisao ? "Paga na res
 const OPCOES_SITUACAO = ["No mês", "Desligado no período", "Paga na rescisão"].map((x) => ({ valor: x, rotulo: x }));
 const totalTd: CSSProperties = { fontWeight: 600 };
 // Recibo de pagamento: quem a lista paga neste mês (fora da rescisão, com valor a receber).
-const temRecibo = (p: TipComputedParticipant) => !p.pagoNaRescisao && p.totalAPagar > 0.005;
+// Quem saiu e ainda não tem o valor da rescisão fica de fora (o servidor também tira).
+const temRecibo = (p: TipComputedParticipant) => !p.pagoNaRescisao && !p.rescisaoPendente && p.totalAPagar > 0.005;
+const MOTIVO_RECIBO_ABERTA = "Feche a apuração antes de imprimir os recibos do mês: com ela aberta os valores ainda mudam.";
 
 const COLUNAS_CONTAB: ColunaOpcional[] = [
   { chave: "empresa", rotulo: "Empresa" }, { chave: "gorjeta", rotulo: "Gorjeta" }, { chave: "horaExtra", rotulo: "Hora extra" },
@@ -268,6 +270,8 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   const mostraLancarAcertos = podeLancarAcertos && Boolean(comp.periodId) && semRegistro.length > 0;
   // Apuração aberta: os valores ainda são parciais; o servidor recusa e o fechamento já lança.
   const apuracaoAberta = comp.status !== "CLOSED";
+  // Recibo assinado não pode divergir do acerto: só com a apuração fechada (o servidor também recusa).
+  const reciboBloqueado = recibos.imprimindo != null || apuracaoAberta;
 
   // Normaliza para h:mm ao sair do campo ("7,5" → "7:30").
   function normalizarHoras(employeeId: string, campo: "horaExtra" | "adicionalNoturno", valor: string) {
@@ -425,8 +429,9 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
             <SeletorColunas colunas={COLUNAS_PAG.filter((c) => (comQuinzena || c.chave !== "quinzena") && (comDsr || c.chave !== "dsr"))} ocultas={colP.ocultas} alternar={colP.alternar} mostrarTodas={colP.mostrarTodas} />
             <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} onClick={() => void exportar(exportarListaPagamento)}>PDF pagamento</Button>
             {podeRecibo && comRecibo.length > 0 && (
-              <Button variant="secondary" size="sm" leadingIcon={<Printer size={14} />} onClick={imprimirTodos} disabled={recibos.imprimindo != null}
-                title={`Um PDF com o recibo de pagamento de cada sem registro com valor a receber (${comRecibo.length}): uma folha por pessoa, duas vias, para assinar.`}>
+              <Button variant="secondary" size="sm" leadingIcon={<Printer size={14} />} onClick={imprimirTodos} disabled={reciboBloqueado}
+                title={apuracaoAberta ? MOTIVO_RECIBO_ABERTA
+                  : `Um PDF com o recibo de pagamento de cada sem registro com valor a receber (${comRecibo.length}): uma folha por pessoa, duas vias, para assinar.`}>
                 {recibos.imprimindo === "todos" ? "Gerando…" : `Recibos (${comRecibo.length})`}
               </Button>
             )}
@@ -582,7 +587,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
                         <Table.Td actions>
                           {temRecibo(p) && (
                             <IconButton size="sm" icon={<Printer size={15} />} label={`Recibo de pagamento de ${p.employeeName}`}
-                              disabled={recibos.imprimindo != null} onClick={() => imprimirUm(p)} />
+                              disabled={reciboBloqueado} onClick={() => imprimirUm(p)} {...(apuracaoAberta ? { title: MOTIVO_RECIBO_ABERTA } : {})} />
                           )}
                         </Table.Td>
                       )}

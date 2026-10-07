@@ -67,8 +67,21 @@ export function combinaSubtipo(p: Payable, subtipo: string): boolean {
   // "Folha (tudo)": os lançamentos soltos e os títulos da folha liberada.
   if (subtipo === "PAYROLL") return p.sourceType === "PAYROLL" || p.sourceType === "FOLHA_LOTE";
   const [sourceType, tipoFolha] = subtipo.split(":");
+  // "Salário CLT" e "Salário sem registro (acerto)": também o título da folha que contém esse
+  // tipo de salário. Membro sem o tipo (resposta antiga): o título entra nos dois.
+  if (isFolhaLote(p) && sourceType === "PAYROLL" && TIPOS_DO_LOTE.has(tipoFolha)) {
+    return (p.loteMembros ?? []).some((m) => !m.tipo || m.tipo === tipoFolha);
+  }
   if (p.sourceType !== sourceType) return false;
   return !tipoFolha || p.taxDocumentType === tipoFolha;
+}
+
+const TIPOS_DO_LOTE = new Set(["Salário", "Salário (acerto)"]);
+
+/** Busca da tela: o título da folha é achado também pelo nome ou valor de quem está dentro. */
+export function membroDoLoteCombina(p: Payable, q: string): boolean {
+  if (!isFolhaLote(p)) return false;
+  return (p.loteMembros ?? []).some((m) => m.nome.toLowerCase().includes(q) || String(m.valor).includes(q));
 }
 
 export function dateKey(value?: string | null): string {

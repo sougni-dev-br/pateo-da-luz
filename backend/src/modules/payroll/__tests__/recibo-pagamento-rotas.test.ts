@@ -36,11 +36,13 @@ beforeEach(() => {
   vi.mocked(getSessionUser).mockResolvedValue({ id: "u1", name: "Eli" } as never);
   vi.mocked(podeVerDadosPessoais).mockResolvedValue(true);
   vi.mocked(computeTipCommission).mockResolvedValue({
+    status: "CLOSED",
     participants: [
       participante({}),
       participante({ employeeId: "e2", employeeName: "Beltrano Exemplo", totalAPagar: 0 }),
       participante({ employeeId: "e3", employeeName: "Ciclano Exemplo", semRegistro: false }),
       participante({ employeeId: "e4", employeeName: "Deltrano Exemplo", pagoNaRescisao: true }),
+      participante({ employeeId: "e5", employeeName: "Epsilon Exemplo", rescisaoPendente: true }),
     ],
   } as never);
   prismaFalso.employee.findMany.mockResolvedValue([{
@@ -64,21 +66,73 @@ describe("GET /payroll/tip/recibos-pagamento", () => {
     expect(recibo.linhas.reduce((a: number, l: { valor: number }) => a + l.valor, 0)).toBeCloseTo(2030, 2);
   });
 
+// O findMany do payrollItem responde conforme o tipo pedido (SALARIO = acerto; ADIANTAMENTO = pagos antes).
+const responder = (salarios: unknown[], adiantamentos: unknown[]) =>
+  prismaFalso.payrollItem.findMany.mockImplementation(async (a: { where: { type: string } }) => (a.where.type === "SALARIO" ? salarios : adiantamentos));
+const chamada = (tipo: string) => prismaFalso.payrollItem.findMany.mock.calls.map((c) => c[0]).find((a) => a.where.type === tipo);
+
   test("acerto lançado com outro valor: total do acerto e linha de ajuste", async () => {
-    prismaFalso.payrollItem.findMany.mockResolvedValue([{ employeeId: "e1", amount: 2100, paidAmount: 2100, paymentDate: new Date("2026-10-07T00:00:00Z") }]);
+    responder([{ employeeId: "e1", periodLabel: "Acerto (lista de pagamento)", amount: 2100, paidAmount: 2100, paymentDate: new Date("2026-10-07T00:00:00Z"), details: {} }], []);
     const r = await request(app).get(url);
     const recibo = r.body.recibos[0];
     expect(recibo.total).toBe(2100);
     expect(recibo.dataPagamento).toBe("2026-10-07");
     expect(recibo.linhas.at(-1)).toMatchObject({ codigo: 999, valor: 70 });
-    const filtro = prismaFalso.payrollItem.findMany.mock.calls[0][0].where;
-    expect(filtro).toMatchObject({ type: "SALARIO", periodLabel: "Acerto (lista de pagamento)", competenceYear: 2026, competenceMonth: 9, deletedAt: null });
+    expect(chamada("SALARIO").where).toMatchObject({ type: "SALARIO", competenceYear: 2026, competenceMonth: 9, deletedAt: null, status: { not: "CANCELED" } });
+    expect(chamada("SALARIO").where.periodLabel).toBeUndefined();
+  });
+
+  test("salário da competência lançado com outra origem: o recibo usa o valor dele, com ajuste; complemento não conta", async () => {
+    responder([
+      { employeeId: "e1", periodLabel: "Salário", amount: 2000, paidAmount: null, paymentDate: null, details: { origem: "EXTRATO" } },
+      { employeeId: "e1", periodLabel: "Complemento", amount: 300, paidAmount: null, paymentDate: null, details: { complemento: { motivo: "x" } } },
+    ], []);
+    const recibo = (await request(app).get(url)).body.recibos[0];
+    expect(recibo.total).toBe(2000);
+    expect(recibo.linhas.at(-1)).toMatchObject({ codigo: 999, descricao: "AJUSTE CONTAS A PAGAR (LISTA 2.030,00)", valor: -30 });
+  });
+
+  test("o próprio acerto vale antes de outro salário da competência", async () => {
+    responder([
+      { employeeId: "e1", periodLabel: "Salário", amount: 2000, paidAmount: null, paymentDate: null, details: {} },
+      { employeeId: "e1", periodLabel: "Acerto (lista de pagamento)", amount: 2030, paidAmount: null, paymentDate: null, details: {} },
+    ], []);
+    const recibo = (await request(app).get(url)).body.recibos[0];
+    expect(recibo.total).toBe(2030);
+    expect(recibo.linhas.some((l: { codigo: number }) => l.codigo === 999)).toBe(false);
+  });
+
+  test("adiantamento em dois títulos (500 + 540): soma, só títulos do sem registro, sem complemento", async () => {
+    responder([], [
+      { employeeId: "e1", amount: 500, paidAmount: 500, paymentDate: new Date("2026-09-20T00:00:00Z"), details: { semRegistro: true } },
+      { employeeId: "e1", amount: 540, paidAmount: 540, paymentDate: new Date("2026-09-22T00:00:00Z"), details: { semRegistro: true } },
+    ]);
+    const recibo = (await request(app).get(url)).body.recibos[0];
+    const desc = recibo.linhas.filter((l: { codigo: number }) => l.codigo >= 981 && l.codigo <= 984);
+    expect(desc).toEqual([{ codigo: 981, descricao: "DESC. ADIANTAMENTO", referencia: "22/09/2026", valor: -1040 }]);
+    const filtro = chamada("ADIANTAMENTO").where;
+    expect(filtro).toMatchObject({ details: { path: ["semRegistro"], equals: true }, deletedAt: null, status: { not: "CANCELED" } });
+    expect(filtro.paymentDate).toBeUndefined();
+  });
+
+  test("apuração aberta: 409 e nada é impresso", async () => {
+    vi.mocked(computeTipCommission).mockResolvedValue({ status: "OPEN", participants: [participante({})] } as never);
+    const r = await request(app).get(url);
+    expect(r.status).toBe(409);
+    expect(r.body.message).toBe("Feche a apuração antes de imprimir os recibos do mês.");
+  });
+
+  test("sem apuração no mês: 409", async () => {
+    vi.mocked(computeTipCommission).mockResolvedValue({ status: null, participants: [] } as never);
+    expect((await request(app).get(url)).status).toBe(409);
   });
 
   test("uma pessoa só (employeeId); quem não tem a receber: 404", async () => {
     const r = await request(app).get(`${url}&employeeId=e1`);
     expect(r.body.recibos.map((x: { employeeId: string }) => x.employeeId)).toEqual(["e1"]);
     expect((await request(app).get(`${url}&employeeId=e2`)).status).toBe(404);
+    // Saiu e ainda não tem o valor da rescisão: sem recibo.
+    expect((await request(app).get(`${url}&employeeId=e5`)).status).toBe(404);
   });
 
   test("sem ver Funcionários: 403 e não calcula nada", async () => {

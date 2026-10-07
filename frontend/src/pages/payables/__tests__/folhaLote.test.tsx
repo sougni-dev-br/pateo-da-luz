@@ -119,6 +119,7 @@ describe("título do lote da folha no Contas a Pagar", () => {
     fireEvent.click(within(janela).getByRole("button", { name: "Confirmar baixa de 1" }));
     await waitFor(() => expect(api.payFolhaLote).toHaveBeenCalledTimes(1));
     expect(api.payFolhaLote.mock.calls[0][1]).toMatchObject({ paidAmount: 2700 });
-    expect(api.checkPayrollPayBatch).not.toHaveBeenCalled();
+    // A conferência de duplicidade entra pelos salários de dentro do título.
+    expect(api.checkPayrollPayBatch).toHaveBeenCalledWith(["p1", "p2"]);
   });
 });

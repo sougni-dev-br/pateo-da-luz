@@ -8,13 +8,15 @@ import { prisma } from "../../config/database.js";
 import { getSessionUser } from "../security/security-utils.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { ROTULO_ACERTO, competenciaTexto } from "./acerto-lista.js";
+import { ehComplemento } from "./folha-duplicidade.js";
 import { nomeCompleto } from "./nomes.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import {
-  type AcertoDoRecibo, type PagosAntesDoMes, type ParticipanteDoRecibo, type PessoaDoRecibo, ehPrimeiraQuinzena, recebeReciboDoMes, reciboDoMes, reciboPagoAntes,
+  type AcertoDoRecibo, type ParticipanteDoRecibo, type PessoaDoRecibo, recebeReciboDoMes, reciboDoMes, reciboPagoAntes, resumirPagosAntes,
 } from "./recibo-pagamento.js";
 
 const MSG_SEM_PERMISSAO = "O recibo mostra os valores pagos à pessoa: é preciso permissão de ver Funcionários.";
+export const MSG_APURACAO_ABERTA = "Feche a apuração antes de imprimir os recibos do mês.";
 
 // Competência da URL; null se faltar ou for inválida (recibo nunca sai "do mês atual" por engano).
 function competenciaDaUrl(q: Record<string, unknown>): { ano: number; mes: number } | null {
@@ -60,6 +62,8 @@ tipRecibosRouter.get("/recibos-pagamento", async (request, response) => {
   const employeeId = textoOuNull(q.employeeId);
 
   const apuracao = await computeTipCommission(comp.ano, comp.mes, { incluirDadosPessoais: true });
+  // Aberta, os valores ainda mudam: o recibo assinado não pode divergir do acerto (como "Lançar acertos").
+  if (apuracao.status !== "CLOSED") return response.status(409).json({ message: MSG_APURACAO_ABERTA });
   const participantes = (apuracao.participants as unknown as ParticipanteDoRecibo[])
     .filter(recebeReciboDoMes)
     .filter((p) => !employeeId || p.employeeId === employeeId);
@@ -67,34 +71,31 @@ tipRecibosRouter.get("/recibos-pagamento", async (request, response) => {
     return response.status(404).json({ message: "Essa pessoa não tem pagamento a receber na lista deste mês." });
   }
   const ids = participantes.map((p) => p.employeeId);
-  const [dados, acertos, pagosAntes] = await Promise.all([
+  const vivos = { competenceYear: comp.ano, competenceMonth: comp.mes, employeeId: { in: ids }, deletedAt: null, status: { not: "CANCELED" as const } };
+  const [dados, salarios, pagosAntes] = await Promise.all([
     pessoas(ids),
+    // O salário da competência como o acerto o enxerga (decidirAcerto): o próprio acerto ou um
+    // lançado por outra origem (extrato, manual) — qualquer rótulo, menos complemento.
     ids.length === 0 ? [] : prisma.payrollItem.findMany({
-      where: {
-        type: "SALARIO", periodLabel: ROTULO_ACERTO, competenceYear: comp.ano, competenceMonth: comp.mes,
-        employeeId: { in: ids }, deletedAt: null, status: { not: "CANCELED" },
-      },
-      select: { employeeId: true, amount: true, paidAmount: true, paymentDate: true },
+      where: { type: "SALARIO", ...vivos },
+      select: { employeeId: true, periodLabel: true, amount: true, paidAmount: true, paymentDate: true, details: true },
     }),
-    // Adiantamento e 1ª quinzena já pagos: a data vai na referência da linha de desconto.
+    // Adiantamento e 1ª quinzena do sem registro (pagos ou não), como a apuração soma.
     ids.length === 0 ? [] : prisma.payrollItem.findMany({
-      where: {
-        type: "ADIANTAMENTO", competenceYear: comp.ano, competenceMonth: comp.mes, employeeId: { in: ids },
-        deletedAt: null, status: { not: "CANCELED" }, paymentDate: { not: null },
-      },
-      select: { employeeId: true, paymentDate: true, details: true, amount: true },
+      where: { type: "ADIANTAMENTO", ...vivos, details: { path: ["semRegistro"], equals: true } },
+      select: { employeeId: true, amount: true, paidAmount: true, paymentDate: true, details: true },
     }),
   ]);
-  const pagosDe = new Map<string, PagosAntesDoMes>();
-  for (const t of pagosAntes) {
-    const atual = pagosDe.get(t.employeeId) ?? {};
-    pagosDe.set(t.employeeId, ehPrimeiraQuinzena(t.details)
-      ? { ...atual, quinzena: t.paymentDate, quinzenaTitulo: Number(t.amount) }
-      : { ...atual, adiantamento: t.paymentDate, adiantamentoTitulo: Number(t.amount) });
+  const pagosDe = resumirPagosAntes(pagosAntes.map((t) => ({
+    employeeId: t.employeeId, amount: Number(t.amount), paidAmount: t.paidAmount == null ? null : Number(t.paidAmount),
+    paymentDate: t.paymentDate, details: t.details,
+  })));
+  const acertoDe = new Map<string, AcertoDoRecibo>();
+  for (const id of ids) {
+    const daPessoa = salarios.filter((x) => x.employeeId === id && !ehComplemento(x.details));
+    const s = daPessoa.find((x) => x.periodLabel === ROTULO_ACERTO) ?? daPessoa[0];
+    if (s) acertoDe.set(id, { amount: Number(s.amount), paidAmount: s.paidAmount == null ? null : Number(s.paidAmount), paymentDate: s.paymentDate });
   }
-  const acertoDe = new Map<string, AcertoDoRecibo>(acertos.map((a) => [a.employeeId, {
-    amount: Number(a.amount), paidAmount: a.paidAmount == null ? null : Number(a.paidAmount), paymentDate: a.paymentDate,
-  }]));
   const recibos = participantes.map((p) => reciboDoMes(
     p, dados.get(p.employeeId) ?? { nome: p.employeeName, cpf: null }, acertoDe.get(p.employeeId) ?? null, comp.ano, comp.mes,
     pagosDe.get(p.employeeId) ?? {},
@@ -120,7 +121,7 @@ folhaRecibosRouter.get("/recibos-adiantamento", async (request, response) => {
     },
     select: {
       id: true, employeeId: true, competenceYear: true, competenceMonth: true, amount: true, paidAmount: true, paymentDate: true, details: true,
-      differenceReason: true, employee: { select: { firstName: true, lastName: true } },
+      employee: { select: { firstName: true, lastName: true } },
     },
     orderBy: [{ employee: { firstName: "asc" } }, { employee: { lastName: "asc" } }],
   });
@@ -132,7 +133,6 @@ folhaRecibosRouter.get("/recibos-adiantamento", async (request, response) => {
     .map((t) => reciboPagoAntes({
       id: t.id, employeeId: t.employeeId, competenceYear: t.competenceYear, competenceMonth: t.competenceMonth,
       amount: Number(t.amount), paidAmount: t.paidAmount == null ? null : Number(t.paidAmount), paymentDate: t.paymentDate, details: t.details,
-      differenceReason: t.differenceReason,
     }, dados.get(t.employeeId) ?? { nome: nomeCompleto(t.employee), cpf: null }))
     .filter((r) => r.total > 0);
   response.json({ competencia: competenciaTexto(comp.ano, comp.mes), recibos });
