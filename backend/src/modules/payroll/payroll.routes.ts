@@ -25,6 +25,7 @@ import { afastamentoRouter } from "./afastamento.routes.js";
 import { dadosDoEstorno, gravarBaixaDoItem, lerCamposDaBaixa, registroNaoEncontrado, validarBaixa } from "./folha-baixa.js";
 import { recusaDoItemMudado, recusaPorLote } from "./folha-lote.service.js";
 import { folhaLoteRouter } from "./folha-lote.routes.js";
+import { folhaRecibosRouter } from "./recibo-pagamento.routes.js";
 
 export const payrollRouter = Router();
 // Lançamento manual (POST /) e conferência do lote antes da baixa (POST /pay-check).
@@ -33,6 +34,8 @@ payrollRouter.use(folhaLancamentoRouter);
 payrollRouter.use("/afastamentos", afastamentoRouter);
 // Título do lote de pagamento da folha (Contas a Pagar): baixa, estorno, retirar e devolver.
 payrollRouter.use("/folha-lotes", folhaLoteRouter);
+// Recibo da 1ª quinzena e do adiantamento de quem não tem registro (só leitura).
+payrollRouter.use(folhaRecibosRouter);
 
 function parseYearMonth(q: { year?: unknown; month?: unknown }) {
   const now = new Date();

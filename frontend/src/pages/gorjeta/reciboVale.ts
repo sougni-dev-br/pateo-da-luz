@@ -3,8 +3,7 @@
 import type { TipReciboVale, TipValeType } from "../../api/client";
 import { textoPdf } from "./envioContabilidade";
 import { valorPorExtenso } from "./extenso";
-
-type Doc = InstanceType<typeof import("jspdf").jsPDF>;
+import { type Doc, assinatura, dataPorExtenso, imprimirPdf, limpo, linhaDeCorte, reais, reaisNoTexto } from "./reciboComum";
 
 const TITULO: Record<TipValeType, string> = {
   ADIANTAMENTO: "RECIBO DE ADIANTAMENTO",
@@ -18,27 +17,16 @@ const NOME_TIPO: Record<TipValeType, string> = {
   ADIANTAMENTO: "adiantamento", RETIRADA_CAIXA: "retirada de caixa", REFEICAO: "refeição",
   VALE_CONSUMO: "consumo", OUTRO: "desconto", CREDITO: "crédito",
 };
-const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
-const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }).replace(/\u00a0/g, " ");
 const cnpjFormatado = (c: string) => {
   const d = c.replace(/\D/g, "");
   return d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : c;
 };
-const cpfFormatado = (c: string) => {
-  const d = c.replace(/\D/g, "");
-  return d.length === 11 ? d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4") : c;
-};
-function dataPorExtenso(iso: string | null) {
-  const d = iso ? new Date(`${iso.slice(0, 10)}T12:00:00`) : new Date();
-  return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
-}
 
 // O texto que a pessoa assina: recebeu (adiantamento, retirada) ou adquiriu (refeição, consumo,
 // outros), e autoriza o desconto na gorjeta daquela apuração.
 export function textoDoRecibo(r: TipReciboVale): string {
-  // Espaço inseparável: "R$" e o número nunca ficam em linhas diferentes.
-  const valor = `${reais(r.vale.valor).replace(" ", "\u00a0")} (${valorPorExtenso(r.vale.valor)})`;
+  const valor = `${reaisNoTexto(r.vale.valor)} (${valorPorExtenso(r.vale.valor)})`;
   const empresa = `${r.empresa.razaoSocial}, CNPJ ${cnpjFormatado(r.empresa.cnpj)}`;
   const referente = r.vale.descricao ? `, referente a ${r.vale.descricao}` : "";
   const desconto = `e autorizo o desconto desse valor da minha gorjeta da apuração ${r.apuracao.codigo} (${r.apuracao.periodo}).`;
@@ -88,16 +76,7 @@ function via(doc: Doc, r: TipReciboVale, topo: number, rotulo: string) {
   // Data e assinatura
   const cidade = r.empresa.cidade || "São Paulo";
   doc.text(`${cidade}, ${dataPorExtenso(r.vale.data)}.`, esq, topo + 86);
-  const meio = esq + larg / 2;
-  doc.setLineWidth(0.3);
-  doc.line(meio - 55, topo + 105, meio + 55, topo + 105);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.text(r.funcionario.nome.toUpperCase(), meio, topo + 110, { align: "center" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.text(r.funcionario.cpf ? `CPF ${cpfFormatado(r.funcionario.cpf)}` : "CPF: ______________________", meio, topo + 115, { align: "center" });
-  if (r.funcionario.funcao) doc.text(r.funcionario.funcao, meio, topo + 120, { align: "center" });
+  assinatura(doc, esq + larg / 2, topo + 105, r.funcionario.nome, r.funcionario.cpf, r.funcionario.funcao);
 
   // Rodapé
   doc.setFontSize(7.5);
@@ -109,7 +88,6 @@ function via(doc: Doc, r: TipReciboVale, topo: number, rotulo: string) {
 
 // O que veio digitado (nomes, descrição, endereço) pode ter "−" ou traços que a Helvetica do
 // jsPDF não desenha: limpa uma cópia antes de montar o recibo.
-const limpo = (s: string | null) => (s == null ? s : textoPdf(s));
 function reciboParaPdf(r: TipReciboVale): TipReciboVale {
   return {
     ...r,
@@ -126,30 +104,13 @@ export async function gerarReciboVale(recibo: TipReciboVale) {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   via(doc, r, 10, "Via da empresa");
-  // Linha de corte entre as vias
-  doc.setLineDashPattern([2, 2], 0);
-  doc.setDrawColor(150);
-  doc.line(8, 148.5, 202, 148.5);
-  doc.setLineDashPattern([], 0);
+  linhaDeCorte(doc);
   via(doc, r, 158, "Via do funcionário");
   doc.setProperties({ title: `Recibo ${r.codigo ?? ""}` });
   return doc;
 }
 
-// Abre a caixa de impressão sem janela nova (celular e navegador bloqueiam pop-up):
-// o PDF carrega num quadro invisível da própria página. Devolve o endereço do PDF,
-// para a tela oferecer "abrir/baixar" caso a impressão não abra.
+// Abre a caixa de impressão sem janela nova; devolve o endereço do PDF ("abrir/baixar").
 export async function imprimirReciboVale(r: TipReciboVale): Promise<string> {
-  const doc = await gerarReciboVale(r);
-  const url = URL.createObjectURL(doc.output("blob"));
-  const quadro = document.createElement("iframe");
-  quadro.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
-  quadro.src = url;
-  quadro.onload = () => {
-    try { quadro.contentWindow?.focus(); quadro.contentWindow?.print(); } catch { /* a tela oferece abrir o PDF */ }
-    // Tira o quadro depois que a impressão teve tempo de começar.
-    window.setTimeout(() => quadro.remove(), 60_000);
-  };
-  document.body.appendChild(quadro);
-  return url;
+  return imprimirPdf(await gerarReciboVale(r));
 }
