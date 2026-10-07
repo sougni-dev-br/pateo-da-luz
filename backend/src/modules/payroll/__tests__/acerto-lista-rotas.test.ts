@@ -127,6 +127,15 @@ describe("POST /periods/:ano/:mes/acertos-lista (botão)", () => {
     expect(lancarAcertosDaLista).not.toHaveBeenCalled();
   });
 
+  test("sem apuração no mês: 409 dizendo que não há apuração", async () => {
+    const { prisma } = await import("../../../config/database.js");
+    vi.mocked((prisma as unknown as { tipPeriod: { findUnique: ReturnType<typeof vi.fn> } }).tipPeriod.findUnique).mockResolvedValueOnce(null);
+    const r = await request(app).post(url);
+    expect(r.status).toBe(409);
+    expect(r.body.message).toMatch(/Não há apuração/);
+    expect(lancarAcertosDaLista).not.toHaveBeenCalled();
+  });
+
   test("competência inválida: 400", async () => {
     expect((await request(app).post("/payroll/tip/periods/2026/13/acertos-lista")).status).toBe(400);
   });

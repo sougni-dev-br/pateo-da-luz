@@ -15,6 +15,9 @@ type Props = {
   year: number;
   month: number;
   lotes: TipFolhaLote[];
+  /** Salários da competência em aberto fora dos títulos: a folha paga não marca enquanto houver. */
+  soltos?: number;
+  onSoltos?: (n: number) => void;
   /** OK à contabilidade dado: só então se libera. */
   liberavel: boolean;
   canEdit: boolean;
@@ -36,7 +39,7 @@ export function resumoDosLotes(lotes: TipFolhaLote[]): string {
   return `${lotes.length} título(s) no Contas a Pagar · ${pagos} de ${lotes.length} pago(s)`;
 }
 
-export function LiberarPagamento({ year, month, lotes, liberavel, canEdit, onLotes, onEtapas, onNotice }: Props) {
+export function LiberarPagamento({ year, month, lotes, soltos = 0, onSoltos, liberavel, canEdit, onLotes, onEtapas, onNotice }: Props) {
   const [previa, setPrevia] = useState<TipFolhaLotePrevia | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const erro = (e: unknown) => onNotice("error", (e as Error).message);
@@ -54,6 +57,7 @@ export function LiberarPagamento({ year, month, lotes, liberavel, canEdit, onLot
       const r = await liberarTipFolha(year, month);
       onLotes(r.lotes);
       onEtapas(r.etapas);
+      onSoltos?.(r.soltos ?? 0);
       setPrevia(null);
       const msg = r.criados.length > 0
         ? `Folha liberada: ${r.criados.length} título(s) criado(s) no Contas a Pagar.`
@@ -83,7 +87,7 @@ export function LiberarPagamento({ year, month, lotes, liberavel, canEdit, onLot
           <strong>Liberar para pagamento</strong>
           <span>Um título por empresa no Contas a Pagar, com o salário de cada pessoa da folha de líquidos. Vencimento: 5º dia útil do mês seguinte.</span>
         </div>
-        {canEdit && liberavel && !previa && !todosPagos && (
+        {canEdit && liberavel && !previa && (!todosPagos || soltos > 0) && (
           <div className="cabecalho-painel-acoes">
             <Button size="sm" leadingIcon={<Send size={14} />} disabled={ocupado} onClick={() => void abrirPrevia()}>
               {lotes.length === 0 ? "Liberar para pagamento" : "Liberar de novo (acréscimos)"}
@@ -125,6 +129,12 @@ export function LiberarPagamento({ year, month, lotes, liberavel, canEdit, onLot
         </div>
       )}
 
+      {lotes.length > 0 && soltos > 0 && (
+        <p className="liberar-aviso" role="status">
+          {soltos} salário(s) desta competência em aberto fora dos títulos (ex.: complemento lançado depois). A folha só fica paga
+          quando eles entrarem num título e forem baixados: use "Liberar de novo".
+        </p>
+      )}
       {lotes.length > 0 && (
         <ul className="liberar-lista" aria-label="Títulos da folha no Contas a Pagar">
           {lotes.map((l) => (

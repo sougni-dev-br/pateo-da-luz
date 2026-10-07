@@ -23,6 +23,8 @@ export type RecusaFolha = {
   jaPagos?: ResumoItemFolha[];
   pessoa?: string;
   saida?: string;
+  /** Título do lote da folha: todos os membros suspeitos (a confirmação vai por id). */
+  suspeitos?: SuspeitoLote[];
 };
 
 export type SuspeitoLote = { item: ResumoItemFolha; pessoa: string; jaPagos: ResumoItemFolha[]; noLote: ResumoItemFolha[] };

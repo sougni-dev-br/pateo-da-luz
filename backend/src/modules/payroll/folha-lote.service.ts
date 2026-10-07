@@ -7,8 +7,9 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { auditLog } from "../security/security-utils.js";
-import { type DadosBaixa, chaveUnicaViolada, dadosDoEstorno, gravarBaixaDoItem, lerCamposDaBaixa, validarBaixa } from "./folha-baixa.js";
-import { CAMPOS_TRAVA, RecusaFolha } from "./folha-lancamento.routes.js";
+import { type DadosBaixa, chaveUnicaViolada, dadosDoEstorno, duplicidadesDoItem, gravarBaixaDoItem, lerCamposDaBaixa, validarBaixa } from "./folha-baixa.js";
+import { resumoItem } from "./folha-duplicidade.js";
+import { CAMPOS_TRAVA, RecusaFolha, nomeDe } from "./folha-lancamento.routes.js";
 import {
   GRUPO_A_PARTE, type PlanoDoLote, STATUS_LOTE, type SalarioAberto, competenciaDoLote, mensagemMembroDoLote, planejarLotes,
   rotuloDoLote, todosPagos, vencimentoDoLote,
@@ -91,6 +92,11 @@ export async function lotesDaCompetencia(ano: number, mes: number, db: Tx | type
 
 // ─── Etapa FOLHA_PAGA automática ──────────────────────────────────────────────
 
+/** SALARIO da competência em aberto fora de lote (soltos no Contas a Pagar). */
+export async function contarSalariosSoltos(db: Tx | typeof prisma, c: Competencia): Promise<number> {
+  return db.payrollItem.count({ where: { ...salarioAbertoDaCompetencia(c), folhaLoteId: null } });
+}
+
 /**
  * Com lotes na competência, a etapa "Folha paga" segue os lotes: todos pagos → marca (por quem
  * baixou); algum voltou a aberto → desmarca. Sem lote vivo não mexe (folha de antes dos lotes).
@@ -102,7 +108,10 @@ export async function sincronizarEtapaFolhaPaga(tx: Tx, c: Competencia, usuario:
   if (!periodo) return null;
   const lotes = await tx.folhaLote.findMany({ where: { competenceYear: c.ano, competenceMonth: c.mes }, select: { status: true } });
   if (!lotes.some((l) => l.status !== STATUS_LOTE.CANCELADO)) return null;
-  const deve = todosPagos(lotes);
+  // Salário da competência em aberto fora de qualquer título (ex.: complemento lançado depois
+  // da liberação): a folha não está paga — fica desmarcada até liberar de novo e pagar.
+  const soltos = await contarSalariosSoltos(tx, c);
+  const deve = todosPagos(lotes) && soltos === 0;
   const ultimo = await tx.tipPeriodEtapa.findFirst({ where: { periodId: periodo.id, etapa: ETAPA_FOLHA_PAGA }, orderBy: { em: "desc" } });
   const marcada = ultimo?.acao === "MARCOU";
   if (deve === marcada) return null;
@@ -110,7 +119,8 @@ export async function sincronizarEtapaFolhaPaga(tx: Tx, c: Competencia, usuario:
   await tx.tipPeriodEtapa.create({
     data: {
       id: crypto.randomUUID(), periodId: periodo.id, etapa: ETAPA_FOLHA_PAGA, acao, porId: usuario.id, por: usuario.name,
-      obs: deve ? "Automático: todos os títulos da folha baixados no Contas a Pagar." : "Automático: um título da folha voltou a ficar em aberto.",
+      obs: deve ? "Automático: todos os títulos da folha baixados no Contas a Pagar."
+        : soltos > 0 ? `Automático: ${soltos} salário(s) da competência em aberto fora dos títulos.` : "Automático: um título da folha voltou a ficar em aberto.",
     },
   });
   return acao;
@@ -189,6 +199,11 @@ export async function liberarLotes(e: EntradaLiberacao, usuario: Usuario): Promi
         data: { folhaLoteId: lote.id, folhaLoteOrigemId: null },
       });
       acrescentados += count;
+      // Corrida: ninguém do grupo continuava livre. Título criado agora e vazio não fica.
+      if (count === 0) {
+        if (criado) await tx.folhaLote.delete({ where: { id: lote.id } });
+        continue;
+      }
       (criado ? criados : acrescidos).push({ id: lote.id, rotulo: lote.rotulo, membros: ids });
     }
     await sincronizarEtapaFolhaPaga(tx, e, usuario);
@@ -309,7 +324,8 @@ export async function pagarLote(loteId: string, corpo: Record<string, unknown>, 
   const validada = await validarBaixa(campos, total, "Baixa do lote de pagamento da folha");
   if ("erro" in validada) throw new RecusaFolha(400, { message: validada.erro });
   const dados: DadosBaixa = validada.dados;
-  const confirma = corpo.confirmaDuplicidade === true;
+  // Confirmação de duplicidade por membro: só os ids que a pessoa viu na recusa e confirmou.
+  const confirmados = new Set(Array.isArray(corpo.confirmaDuplicidadeIds) ? (corpo.confirmaDuplicidadeIds as unknown[]).map(String) : []);
 
   const r = await prisma.$transaction(async (tx) => {
     await travarCompetencia(tx, { ano: lote.competenceYear, mes: lote.competenceMonth });
@@ -329,9 +345,11 @@ export async function pagarLote(loteId: string, corpo: Record<string, unknown>, 
     if (atuais.length === 0 || Math.abs(totalAgora - total) > 0.009) {
       throw new RecusaFolha(409, { message: "O título mudou enquanto você baixava (alguém entrou, saiu ou mudou de valor). Recarregue a tela e confira o total." });
     }
+    const ordenados = [...atuais].sort((a, b) => a.employeeId.localeCompare(b.employeeId));
+    await recusarDuplicadosNaoConfirmados(tx, ordenados, confirmados, lote.rotulo);
     const pagos = [];
-    for (const m of [...atuais].sort((a, b) => a.employeeId.localeCompare(b.employeeId))) {
-      const { updated, jaPagos } = await gravarBaixaDoItem(tx, m, { ...dados, paidAmount: Number(m.amount), differenceReason: null }, usuario.id, confirma, loteId);
+    for (const m of ordenados) {
+      const { updated, jaPagos } = await gravarBaixaDoItem(tx, m, { ...dados, paidAmount: Number(m.amount), differenceReason: null }, usuario.id, confirmados.has(m.id), loteId);
       pagos.push({ antes: m, depois: updated, jaPagos });
     }
     const etapa = await sincronizarEtapaFolhaPaga(tx, { ano: lote.competenceYear, mes: lote.competenceMonth }, usuario);
@@ -354,6 +372,34 @@ export async function pagarLote(loteId: string, corpo: Record<string, unknown>, 
     },
   });
   return { id: loteId, status: STATUS_LOTE.PAGO, membros: r.pagos.length, folhaPaga: r.etapa === "MARCOU" };
+}
+
+type MembroDaBaixa = Prisma.PayrollItemGetPayload<{ select: typeof CAMPOS_MEMBRO }>;
+
+/**
+ * Todos os membros com o mesmo pagamento já pago em outro item, de uma vez: a recusa lista
+ * cada um (não só o primeiro) e a baixa só passa com a confirmação dos ids listados.
+ */
+async function recusarDuplicadosNaoConfirmados(tx: Tx, membros: MembroDaBaixa[], confirmados: Set<string>, rotulo: string) {
+  const suspeitos = [];
+  for (const m of membros) {
+    const jaPagos = await duplicidadesDoItem(tx, m);
+    if (jaPagos.length > 0 && !confirmados.has(m.id)) suspeitos.push({ m, jaPagos });
+  }
+  if (suspeitos.length === 0) return;
+  const pessoas = await tx.employee.findMany({ where: { id: { in: suspeitos.map((s) => s.m.employeeId) } }, select: { id: true, firstName: true, lastName: true } });
+  const nomes = new Map(pessoas.map((p) => [p.id, nomeDe(p)]));
+  const lista = suspeitos.map((s) => ({
+    item: resumoItem(s.m), pessoa: nomes.get(s.m.employeeId) ?? "", jaPagos: s.jaPagos.map(resumoItem), noLote: [],
+  }));
+  throw new RecusaFolha(409, {
+    code: "BAIXA_DUPLICADA",
+    message: `${lista.length} pessoa(s) do título "${rotulo}" já têm este pagamento feito em outro lançamento: ${lista.map((l) => l.pessoa).join(", ")}. Baixar mesmo assim?`,
+    pessoa: lista[0].pessoa,
+    item: lista[0].item,
+    jaPagos: lista[0].jaPagos,
+    suspeitos: lista,
+  });
 }
 
 /** Estorna a baixa do lote: cada membro volta a aberto (motivo obrigatório); a etapa FOLHA_PAGA é desmarcada. */

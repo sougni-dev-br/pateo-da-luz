@@ -747,7 +747,10 @@ tipCommissionRouter.post("/periods/:year/:month/acertos-lista", async (request, 
   const periodo = await prisma.tipPeriod.findUnique({
     where: { competenceYear_competenceMonth: { competenceYear: year, competenceMonth: month } }, select: { status: true },
   });
-  if (periodo?.status !== "CLOSED") {
+  if (!periodo) {
+    return response.status(409).json({ message: `Não há apuração de ${String(month).padStart(2, "0")}/${year}: abra e feche o período antes de lançar os acertos.` });
+  }
+  if (periodo.status !== "CLOSED") {
     return response.status(409).json({
       message: `A apuração de ${String(month).padStart(2, "0")}/${year} ainda está aberta: feche a apuração antes de lançar os acertos (o fechamento já lança).`,
     });

@@ -83,12 +83,15 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
 
   // Títulos da folha liberados no Contas a Pagar (só existem depois do OK à contabilidade).
   const [lotes, setLotes] = useState<TipFolhaLote[]>([]);
+  const [soltos, setSoltos] = useState(0);
 
   async function carregar() {
     try {
       const conf = await getTipConferencia(year, month);
       setDados(conf);
-      setLotes(conf.etapas.estado.OK_CONTABILIDADE.marcada ? (await getTipFolhaLotes(year, month)).lotes : []);
+      const r = conf.etapas.estado.OK_CONTABILIDADE.marcada ? await getTipFolhaLotes(year, month) : { lotes: [], soltos: 0 };
+      setLotes(r.lotes);
+      setSoltos(r.soltos ?? 0);
     } catch (e) { erro(e); }
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -172,7 +175,7 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
       </ol>
 
       {dados.podeVerFolha && (
-        <LiberarPagamento year={year} month={month} lotes={lotes} liberavel={ok && !(estado.FOLHA_PAGA.marcada && lotes.length === 0)} canEdit={canEdit}
+        <LiberarPagamento year={year} month={month} lotes={lotes} soltos={soltos} onSoltos={setSoltos} liberavel={ok && !(estado.FOLHA_PAGA.marcada && lotes.length === 0)} canEdit={canEdit}
           onLotes={setLotes} onEtapas={(etapas) => setDados((d) => (d ? { ...d, etapas } : d))} onNotice={onNotice} />
       )}
 

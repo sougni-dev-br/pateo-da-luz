@@ -313,3 +313,69 @@ describe("estorno com outro título aberto da mesma empresa", () => {
     expect(item("p1").status).toBe("PAID");
   });
 });
+
+describe("decisão por item (2º salário da mesma pessoa)", () => {
+  test("complemento lançado depois da liberação entra no título da pessoa; liberar de novo não diz 'ninguém novo'", async () => {
+    await liberarLotes(entrada(), eli);
+    b.dados.payrollItem.push(salario("p7", "e1", 300, { periodLabel: "Complemento", details: { complemento: { motivo: "diferença do extrato" } } }));
+    const r = await liberarLotes(entrada(), eli);
+    expect(r.acrescentados).toBe(1);
+    expect(r.avisos[0]).toMatch(/1 lançamento\(s\) acrescentado/);
+    expect(r.avisos.some((a) => a.startsWith("Ana Exemplo: já está num título e tem outro salário"))).toBe(true);
+    expect(item("p7").folhaLoteId).toBe(item("p1").folhaLoteId);
+    expect(r.lotes.find((l) => l.rotulo.includes("Pateo"))!.total).toBe(3000);
+  });
+
+  test("salário solto da competência impede a FOLHA_PAGA de marcar sozinha, mesmo com todos os títulos pagos", async () => {
+    await liberarLotes(entrada(), eli);
+    b.dados.payrollItem.push(salario("p7", "e1", 300, { periodLabel: "Complemento", details: { complemento: { motivo: "diferença do extrato" } } }));
+    for (const n of ["Pateo Exemplo", "Caneca Exemplo", "Sem registro"]) await pagarLote(lote(`Folha 09/2026 · ${n}`)!.id as string, baixa, eli);
+    expect(etapas()).toEqual([]);
+    // Liberando de novo e pagando o acréscimo, marca.
+    await liberarLotes(entrada(), eli);
+    const novo = b.dados.folhaLote.find((l) => l.status === "ABERTO")!;
+    await pagarLote(novo.id as string, baixa, eli);
+    expect(etapas()).toEqual(["MARCOU:Eli"]);
+  });
+});
+
+describe("duplicidade no lote: todos os suspeitos, confirmação por id", () => {
+  const jaPago = (id: string, employeeId: string) =>
+    salario(id, employeeId, 100, { periodLabel: "Salário", paymentDate: d("2026-09-30"), paidAmount: 100, status: "PAID" });
+
+  test("a recusa lista todos os membros suspeitos", async () => {
+    b.dados.payrollItem.push(jaPago("x1", "e1"), jaPago("x2", "e2"));
+    await liberarLotes(entrada(), eli);
+    const pateo = lote("Folha 09/2026 · Pateo Exemplo")!.id as string;
+    const erro = await pagarLote(pateo, baixa, eli).catch((e) => e);
+    expect(erro).toMatchObject({ status: 409, corpo: { code: "BAIXA_DUPLICADA" } });
+    expect(erro.corpo.suspeitos.map((s: { item: { id: string }; pessoa: string }) => [s.item.id, s.pessoa])).toEqual([["p1", "Ana Exemplo"], ["p2", "Bruno Exemplo"]]);
+    expect(erro.corpo.message).toMatch(/2 pessoa\(s\).*Ana Exemplo, Bruno Exemplo/);
+  });
+
+  test("a confirmação vale só para os ids enviados; o booleano antigo não libera ninguém", async () => {
+    b.dados.payrollItem.push(jaPago("x1", "e1"), jaPago("x2", "e2"));
+    await liberarLotes(entrada(), eli);
+    const pateo = lote("Folha 09/2026 · Pateo Exemplo")!.id as string;
+    await expect(pagarLote(pateo, { ...baixa, confirmaDuplicidade: true }, eli)).rejects.toMatchObject({ status: 409 });
+    const parcial = await pagarLote(pateo, { ...baixa, confirmaDuplicidadeIds: ["p1"] }, eli).catch((e) => e);
+    expect(parcial.corpo.suspeitos.map((s: { item: { id: string } }) => s.item.id)).toEqual(["p2"]);
+    expect(item("p1").paymentDate).toBeNull();
+    const ok = await pagarLote(pateo, { ...baixa, confirmaDuplicidadeIds: ["p1", "p2"] }, eli);
+    expect(ok.status).toBe("PAGO");
+    expect(item("p2").status).toBe("PAID");
+  });
+});
+
+describe("corrida na liberação", () => {
+  test("título criado e ninguém mais livre: não fica título vazio", async () => {
+    const tabela = b.prisma.payrollItem as { updateMany: (a: unknown) => Promise<{ count: number }> };
+    const original = tabela.updateMany;
+    // Simula outro processo pegando todos os salários entre o planejamento e a gravação.
+    tabela.updateMany = async () => ({ count: 0 });
+    const r = await liberarLotes(entrada(), eli);
+    tabela.updateMany = original;
+    expect(r.criados).toEqual([]);
+    expect(b.dados.folhaLote).toHaveLength(0);
+  });
+});
