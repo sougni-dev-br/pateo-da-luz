@@ -3,7 +3,7 @@
 //
 // Três recibos:
 //   - pagamento do mês: o acerto da lista de pagamento, discriminado como a lista calcula
-//     (dias trabalhados − adiantamento − 1ª quinzena + gorjeta − vales + créditos + hora extra
+//     (dias trabalhados − adiantamento − 1ª quinzena + gorjeta líquida de vales e créditos + hora extra
 //     + noturno + DSR). O total é o A pagar da lista; se o acerto no Contas a Pagar tiver outro
 //     valor, vale o do acerto e a diferença aparece como ajuste (nunca escondida);
 //   - 1ª quinzena (dia 15) e adiantamento (dia 20): o título ADIANTAMENTO do sem registro.
@@ -128,7 +128,13 @@ export function discriminacaoDoMes(p: ParticipanteDoRecibo, acerto: AcertoDoReci
   if (p.salarioProporcional !== 0 || dias > 0) {
     linhas.push({ codigo: CODIGO.DIAS, descricao: "DIAS TRABALHADOS", referencia: numero(dias), valor: round2(p.salarioProporcional) });
   }
-  if (!p.foraDaGorjeta && p.rateioAmount !== 0) linhas.push({ codigo: CODIGO.GORJETA, descricao: "GORJETA", referencia: null, valor: round2(p.rateioAmount) });
+  // Vales e créditos são da gorjeta (regra do dono, 07/10/2026): o recibo mostra só a gorjeta
+  // líquida, sem listar cada vale. Vales acima da gorjeta viram uma linha de desconto.
+  const rateio = p.foraDaGorjeta ? 0 : p.rateioAmount;
+  const gorjetaLiquida = round2(rateio + linhasDosVales(p.vales).reduce((a, l) => a + l.valor, 0));
+  if (gorjetaLiquida !== 0) {
+    linhas.push({ codigo: CODIGO.GORJETA, descricao: gorjetaLiquida > 0 ? "GORJETA" : "VALES ACIMA DA GORJETA", referencia: null, valor: gorjetaLiquida });
+  }
   if ((p.valorHoraExtra ?? 0) > 0) {
     linhas.push({ codigo: CODIGO.HORA_EXTRA, descricao: "HORA EXTRA 50%", referencia: horasDecimais(p.horaExtra), valor: round2(p.valorHoraExtra ?? 0) });
   }
@@ -140,9 +146,6 @@ export function discriminacaoDoMes(p: ParticipanteDoRecibo, acerto: AcertoDoReci
   if (adiantamento > 0) linhas.push({ codigo: CODIGO.DESC_ADIANTAMENTO, descricao: "DESC. ADIANTAMENTO", referencia: numero(adiantamento), valor: -adiantamento });
   const quinzena = round2(p.primeiraQuinzena ?? 0);
   if (quinzena > 0) linhas.push({ codigo: CODIGO.DESC_QUINZENA, descricao: "DESC. 1ª QUINZENA", referencia: numero(quinzena), valor: -quinzena });
-  // Créditos e depois vales (vencimentos antes dos descontos, como no holerite).
-  const vales = linhasDosVales(p.vales);
-  linhas.push(...vales.filter((l) => l.valor > 0), ...vales.filter((l) => l.valor <= 0));
 
   const totalLista = round2(p.totalAPagar);
   const soma = round2(linhas.reduce((a, l) => a + l.valor, 0));
