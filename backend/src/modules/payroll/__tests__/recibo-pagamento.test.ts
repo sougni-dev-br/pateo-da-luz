@@ -88,6 +88,19 @@ describe("pagamento do mês: total = A pagar da lista", () => {
   });
 });
 
+describe("data do que já foi pago no recibo do mês", () => {
+  test("desconto do adiantamento e da quinzena trazem a data em que foram pagos", () => {
+    const p = pessoa({ adiantamentoSalarial: 966.5, primeiraQuinzena: 0 });
+    const d = discriminacaoDoMes(p, null, { adiantamento: new Date("2026-09-20T00:00:00Z") });
+    expect(d.linhas.find((l) => l.codigo === 981)).toEqual({ codigo: 981, descricao: "DESC. ADIANTAMENTO", referencia: "20/09/2026", valor: -966.5 });
+  });
+
+  test("sem a data (não baixado): a referência continua o valor", () => {
+    const d = discriminacaoDoMes(pessoa({ adiantamentoSalarial: 1040 }), null);
+    expect(d.linhas.find((l) => l.codigo === 981)?.referencia).toBe("1.040,00");
+  });
+});
+
 describe("acerto no Contas a Pagar", () => {
   test("mesmo valor da lista: sem ajuste; a data é a do pagamento", () => {
     const p = pessoa();
@@ -142,6 +155,25 @@ describe("1ª quinzena e adiantamento", () => {
     expect(r.dataPagamento).toBe("2026-09-20");
   });
 
+  test("pago a menor: o título com a base e a diferença com o motivo; líquido = o que foi pago", () => {
+    const r = reciboPagoAntes({
+      ...titulo, amount: 1040, paidAmount: 966.5, paymentDate: new Date("2026-09-20T00:00:00Z"),
+      details: { base: 2600, percent: 40, semRegistro: true }, differenceReason: "pago a menor em 20/09",
+    }, { nome: "Fulana Exemplo", cpf: null });
+    expect(r.linhas).toEqual([
+      { codigo: 20, descricao: "ADIANTAMENTO", referencia: "40%", valor: 1040 },
+      { codigo: 999, descricao: "PAGO A MENOR EM 20/09", referencia: null, valor: -73.5 },
+    ]);
+    expect(r.total).toBe(966.5);
+    expect(soma(r.linhas)).toBe(966.5);
+  });
+
+  test("pago a maior sem motivo: vira vencimento, com o rótulo sem parênteses", () => {
+    const r = reciboPagoAntes({ ...titulo, amount: 1040, paidAmount: 1100, paymentDate: new Date("2026-09-20T00:00:00Z"), details: { base: 2600, percent: 40 } }, { nome: "X", cpf: null });
+    expect(r.linhas[1]).toEqual({ codigo: 999, descricao: "PAGO A MAIOR", referencia: null, valor: 60 });
+    expect(r.total).toBe(1100);
+  });
+
   test("valor que a base não explica (ajustado, proporcional): sai só o valor", () => {
     expect(baseDoPagoAntes({ base: 2600, percent: 40 }, 900)).toBeNull();
     expect(baseDoPagoAntes({ base: 2600, primeiraQuinzena: true }, 866.67)).toBeNull();
@@ -174,4 +206,10 @@ describe("cabeçalho da pessoa", () => {
     expect(horasDecimais("0:00")).toBeNull();
     expect(horasDecimais(null)).toBeNull();
   });
+});
+
+test("pago a menor com outro motivo: rótulo e o motivo entre parênteses", async () => {
+  const { reciboPagoAntes: r } = await import("../recibo-pagamento.js");
+  const x = r({ id: "t", employeeId: "e1", competenceYear: 2026, competenceMonth: 9, amount: 1040, paidAmount: 1000, paymentDate: new Date("2026-09-20T00:00:00Z"), details: { base: 2600, percent: 40 }, differenceReason: "faltou troco" }, { nome: "X", cpf: null });
+  expect(x.linhas[1].descricao).toBe("PAGO A MENOR (FALTOU TROCO)");
 });

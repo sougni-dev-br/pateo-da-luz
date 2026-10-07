@@ -122,7 +122,10 @@ function linhasDosVales(vales: ValeDoRecibo[]): LinhaRecibo[] {
  * (fechamento antigo, vale mudado depois de fechar) vira linha de ajuste, e o acerto lançado
  * com outro valor vira outra — o total do recibo é sempre o que a pessoa recebe.
  */
-export function discriminacaoDoMes(p: ParticipanteDoRecibo, acerto: AcertoDoRecibo | null) {
+// Quando o adiantamento e a 1ª quinzena foram pagos: a referência da linha de desconto vira a data.
+export type PagosAntesDoMes = { adiantamento?: Date | null; quinzena?: Date | null };
+
+export function discriminacaoDoMes(p: ParticipanteDoRecibo, acerto: AcertoDoRecibo | null, pagosAntes: PagosAntesDoMes = {}) {
   const linhas: LinhaRecibo[] = [];
   const dias = p.diasSalario;
   if (p.salarioProporcional !== 0 || dias > 0) {
@@ -143,9 +146,9 @@ export function discriminacaoDoMes(p: ParticipanteDoRecibo, acerto: AcertoDoReci
   }
   if ((p.valorDsr ?? 0) > 0) linhas.push({ codigo: CODIGO.DSR, descricao: "DSR S/ EXTRAS", referencia: null, valor: round2(p.valorDsr ?? 0) });
   const adiantamento = round2(p.adiantamentoSalarial ?? 0);
-  if (adiantamento > 0) linhas.push({ codigo: CODIGO.DESC_ADIANTAMENTO, descricao: "DESC. ADIANTAMENTO", referencia: numero(adiantamento), valor: -adiantamento });
+  if (adiantamento > 0) linhas.push({ codigo: CODIGO.DESC_ADIANTAMENTO, descricao: "DESC. ADIANTAMENTO", referencia: dataBr(diaIso(pagosAntes.adiantamento)) ?? numero(adiantamento), valor: -adiantamento });
   const quinzena = round2(p.primeiraQuinzena ?? 0);
-  if (quinzena > 0) linhas.push({ codigo: CODIGO.DESC_QUINZENA, descricao: "DESC. 1ª QUINZENA", referencia: numero(quinzena), valor: -quinzena });
+  if (quinzena > 0) linhas.push({ codigo: CODIGO.DESC_QUINZENA, descricao: "DESC. 1ª QUINZENA", referencia: dataBr(diaIso(pagosAntes.quinzena)) ?? numero(quinzena), valor: -quinzena });
 
   const totalLista = round2(p.totalAPagar);
   const soma = round2(linhas.reduce((a, l) => a + l.valor, 0));
@@ -165,9 +168,10 @@ export function discriminacaoDoMes(p: ParticipanteDoRecibo, acerto: AcertoDoReci
 
 export function reciboDoMes(
   p: ParticipanteDoRecibo, pessoa: PessoaDoRecibo, acerto: AcertoDoRecibo | null, ano: number, mes: number,
+  pagosAntes: PagosAntesDoMes = {},
 ): ReciboPagamentoMes {
   const competencia = competenciaTexto(ano, mes);
-  const d = discriminacaoDoMes(p, acerto);
+  const d = discriminacaoDoMes(p, acerto, pagosAntes);
   return {
     tipo: "PAGAMENTO_MES", ...cabecalho(p.employeeId, pessoa, p.baseSalary ?? pessoa.valorMensal ?? null),
     competencia, referencia: `pagamento do mês de ${competencia}`,
@@ -180,6 +184,7 @@ export function reciboDoMes(
 export type TituloPagoAntes = {
   id: string; employeeId: string; competenceYear: number; competenceMonth: number;
   amount: number; paidAmount: number | null; paymentDate: Date | null; details: unknown;
+  differenceReason?: string | null;
 };
 
 export const ehPrimeiraQuinzena = (details: unknown) =>
@@ -207,14 +212,25 @@ export function reciboPagoAntes(t: TituloPagoAntes, pessoa: PessoaDoRecibo): Rec
   const quinzena = ehPrimeiraQuinzena(t.details);
   const competencia = competenciaTexto(t.competenceYear, t.competenceMonth);
   const valor = valorDoTitulo(t);
+  const linhas: LinhaRecibo[] = [{
+    codigo: quinzena ? CODIGO.QUINZENA : CODIGO.ADIANTAMENTO, descricao: quinzena ? "1ª QUINZENA" : "ADIANTAMENTO",
+    referencia: baseDoPagoAntes(t.details, round2(t.amount)), valor: round2(t.amount),
+  }];
+  // Pago com valor diferente do título: o título fica com a base (40%, 50%) e a diferença vem numa
+  // linha com o motivo da baixa — o líquido é o que a pessoa recebeu.
+  const diferenca = round2(valor - t.amount);
+  if (diferente(valor, t.amount)) {
+    const motivo = (t.differenceReason ?? "").trim().toUpperCase().slice(0, 40);
+    const rotulo = diferenca < 0 ? "PAGO A MENOR" : "PAGO A MAIOR";
+    // Motivo que já diz "pago a menor/maior ..." vai sozinho (sem repetir o rótulo).
+    const descricao = !motivo ? rotulo : motivo.startsWith(rotulo) ? motivo : `${rotulo} (${motivo})`;
+    linhas.push({ codigo: CODIGO.AJUSTE, descricao, referencia: null, valor: diferenca });
+  }
   return {
     tipo: quinzena ? "QUINZENA" : "ADIANTAMENTO",
     id: t.id, ...cabecalho(t.employeeId, pessoa, baseDe(t.details) ?? pessoa.valorMensal ?? null),
     competencia, referencia: quinzena ? `1ª quinzena de ${competencia}` : `adiantamento de ${competencia}`,
-    linhas: [{
-      codigo: quinzena ? CODIGO.QUINZENA : CODIGO.ADIANTAMENTO, descricao: quinzena ? "1ª QUINZENA" : "ADIANTAMENTO",
-      referencia: baseDoPagoAntes(t.details, valor), valor,
-    }],
+    linhas,
     total: valor,
     dataPagamento: diaIso(t.paymentDate),
   };

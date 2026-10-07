@@ -11,7 +11,7 @@ import { ROTULO_ACERTO, competenciaTexto } from "./acerto-lista.js";
 import { nomeCompleto } from "./nomes.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import {
-  type AcertoDoRecibo, type ParticipanteDoRecibo, type PessoaDoRecibo, recebeReciboDoMes, reciboDoMes, reciboPagoAntes,
+  type AcertoDoRecibo, type PagosAntesDoMes, type ParticipanteDoRecibo, type PessoaDoRecibo, ehPrimeiraQuinzena, recebeReciboDoMes, reciboDoMes, reciboPagoAntes,
 } from "./recibo-pagamento.js";
 
 const MSG_SEM_PERMISSAO = "O recibo mostra os valores pagos à pessoa: é preciso permissão de ver Funcionários.";
@@ -67,7 +67,7 @@ tipRecibosRouter.get("/recibos-pagamento", async (request, response) => {
     return response.status(404).json({ message: "Essa pessoa não tem pagamento a receber na lista deste mês." });
   }
   const ids = participantes.map((p) => p.employeeId);
-  const [dados, acertos] = await Promise.all([
+  const [dados, acertos, pagosAntes] = await Promise.all([
     pessoas(ids),
     ids.length === 0 ? [] : prisma.payrollItem.findMany({
       where: {
@@ -76,12 +76,26 @@ tipRecibosRouter.get("/recibos-pagamento", async (request, response) => {
       },
       select: { employeeId: true, amount: true, paidAmount: true, paymentDate: true },
     }),
+    // Adiantamento e 1ª quinzena já pagos: a data vai na referência da linha de desconto.
+    ids.length === 0 ? [] : prisma.payrollItem.findMany({
+      where: {
+        type: "ADIANTAMENTO", competenceYear: comp.ano, competenceMonth: comp.mes, employeeId: { in: ids },
+        deletedAt: null, status: { not: "CANCELED" }, paymentDate: { not: null },
+      },
+      select: { employeeId: true, paymentDate: true, details: true },
+    }),
   ]);
+  const pagosDe = new Map<string, PagosAntesDoMes>();
+  for (const t of pagosAntes) {
+    const atual = pagosDe.get(t.employeeId) ?? {};
+    pagosDe.set(t.employeeId, ehPrimeiraQuinzena(t.details) ? { ...atual, quinzena: t.paymentDate } : { ...atual, adiantamento: t.paymentDate });
+  }
   const acertoDe = new Map<string, AcertoDoRecibo>(acertos.map((a) => [a.employeeId, {
     amount: Number(a.amount), paidAmount: a.paidAmount == null ? null : Number(a.paidAmount), paymentDate: a.paymentDate,
   }]));
   const recibos = participantes.map((p) => reciboDoMes(
     p, dados.get(p.employeeId) ?? { nome: p.employeeName, cpf: null }, acertoDe.get(p.employeeId) ?? null, comp.ano, comp.mes,
+    pagosDe.get(p.employeeId) ?? {},
   ));
   response.json({ competencia: competenciaTexto(comp.ano, comp.mes), recibos });
 });
@@ -104,7 +118,7 @@ folhaRecibosRouter.get("/recibos-adiantamento", async (request, response) => {
     },
     select: {
       id: true, employeeId: true, competenceYear: true, competenceMonth: true, amount: true, paidAmount: true, paymentDate: true, details: true,
-      employee: { select: { firstName: true, lastName: true } },
+      differenceReason: true, employee: { select: { firstName: true, lastName: true } },
     },
     orderBy: [{ employee: { firstName: "asc" } }, { employee: { lastName: "asc" } }],
   });
@@ -116,6 +130,7 @@ folhaRecibosRouter.get("/recibos-adiantamento", async (request, response) => {
     .map((t) => reciboPagoAntes({
       id: t.id, employeeId: t.employeeId, competenceYear: t.competenceYear, competenceMonth: t.competenceMonth,
       amount: Number(t.amount), paidAmount: t.paidAmount == null ? null : Number(t.paidAmount), paymentDate: t.paymentDate, details: t.details,
+      differenceReason: t.differenceReason,
     }, dados.get(t.employeeId) ?? { nome: nomeCompleto(t.employee), cpf: null }))
     .filter((r) => r.total > 0);
   response.json({ competencia: competenciaTexto(comp.ano, comp.mes), recibos });
