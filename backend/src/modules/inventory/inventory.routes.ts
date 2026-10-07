@@ -4199,17 +4199,17 @@ inventoryRouter.get("/posicao", async (request, response) => {
       JOIN "InventorySnapshotItem" si ON si."snapshotId" = u."inventorySnapshotId" AND si."productId" = u."productId"
       GROUP BY u."productId"
     ),
+    -- Itens da nota, como na conferencia: a movimentacao perde o vinculo
+    -- quando a nota e editada.
     compras AS (
-      SELECT m."productId", SUM(m."quantity") AS quantidade, SUM(m."totalCost") AS valor
-      FROM "InventoryMovement" m
-      JOIN "PurchaseItem" pi ON pi."id" = m."sourcePurchaseItemId"
+      SELECT pi."productId", SUM(COALESCE(pi."convertedQuantity", pi."quantity")) AS quantidade, SUM(pi."totalPrice") AS valor
+      FROM "PurchaseItem" pi
       JOIN "Purchase" p ON p."id" = pi."purchaseId"
-      JOIN ultima u ON u."productId" = m."productId"
-      WHERE m."type" = 'PURCHASE_IN'
-        AND m."isCancelled" = false
-        AND p."status" = 'ACTIVE'
+      JOIN ultima u ON u."productId" = pi."productId"
+      WHERE p."status" = 'ACTIVE'
+        AND p."workflowStatus" = 'confirmed'
         AND COALESCE(p."receivedAt", p."purchaseDate")::date > u.dia
-      GROUP BY m."productId"
+      GROUP BY pi."productId"
     )
     SELECT p."id" AS "productId", p."externalCode" AS "productCode", p."name" AS "productName",
            COALESCE(u."unit", p."stockUnit", p."unit") AS "unit",
@@ -4323,20 +4323,23 @@ inventoryRouter.get("/operational/:id/conferencia", async (request, response) =>
       WHERE "countedQuantity" > 0
       GROUP BY "productId"
     ),
+    -- Compras pelos itens da nota, nao pelas movimentacoes de estoque: editar
+    -- a nota recria o item e a entrada original fica apontando para o item
+    -- apagado (241 entradas orfas em 142 produtos em 07/10/2026; a capsula
+    -- corrigida de 6 para 600 sumia). A quantidade convertida, quando ha, ja
+    -- esta na unidade de estoque.
     compras AS (
-      SELECT m."productId", SUM(m."quantity") AS quantidade,
-             SUM(m."totalCost") / NULLIF(SUM(m."quantity") FILTER (WHERE m."totalCost" IS NOT NULL), 0) AS custo
-      FROM "InventoryMovement" m
-      JOIN "PurchaseItem" pi ON pi."id" = m."sourcePurchaseItemId"
+      SELECT pi."productId", SUM(COALESCE(pi."convertedQuantity", pi."quantity")) AS quantidade,
+             SUM(pi."totalPrice") / NULLIF(SUM(COALESCE(pi."convertedQuantity", pi."quantity")), 0) AS custo
+      FROM "PurchaseItem" pi
       JOIN "Purchase" p ON p."id" = pi."purchaseId"
-      JOIN anterior a ON a."productId" = m."productId"
+      JOIN anterior a ON a."productId" = pi."productId"
       CROSS JOIN atual
-      WHERE m."type" = 'PURCHASE_IN'
-        AND m."isCancelled" = false
-        AND p."status" = 'ACTIVE'
+      WHERE p."status" = 'ACTIVE'
+        AND p."workflowStatus" = 'confirmed'
         AND COALESCE(p."receivedAt", p."purchaseDate")::date > a.dia
         AND COALESCE(p."receivedAt", p."purchaseDate")::date <= atual.dia
-      GROUP BY m."productId"
+      GROUP BY pi."productId"
     )
     SELECT alvo."id" AS "itemId", alvo."productId", alvo."productCode", alvo."productName",
            alvo."sectorName", alvo."unit", alvo."countedQuantity" AS contado,
