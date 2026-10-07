@@ -22,7 +22,7 @@ const evento = (dia: number, total: number) => ({
 const previsao = (almoco: number, tamanho: "PEQUENO" | "MEDIO" | "GRANDE") => ({ almoco, minimo: almoco - 20, maximo: almoco + 20, tamanho, base: "Em edições anteriores, Feira de Exemplo teve 160 almoços no dia do meio (2 dias)", casos: 5, poucaBase: false });
 
 function dia(date: string, extra: Partial<AgendaDay> = {}): AgendaDay {
-  return { date, eventos: [], previsao: null, realizado: null, escala: null, buffetCobrado: null, decisao: null, ...extra };
+  return { date, eventos: [], previsao: null, realizado: null, escala: null, buffetCobrado: null, modalidadePdv: null, decisao: null, ...extra };
 }
 
 beforeEach(() => {
@@ -89,15 +89,29 @@ describe("agenda do mês", () => {
 
   test("o preço do buffet vem do PDV e substitui o campo de digitar", async () => {
     const buffetCobrado = { principal: { produto: "BUFFET PROMO", preco: 89.9, vendidos: 100 }, outros: [{ produto: "BUFFET GRUPO", preco: 79.9, vendidos: 4 }] };
-    vi.mocked(getEventsAgenda).mockResolvedValue({ limites, dias: [dia("2026-09-30", { eventos: [evento(1, 1)], buffetCobrado, realizado: { fonte: "PDV", almocos: 120, valorAlmoco: 11000, jantares: 10, valorJantar: 600 } })] });
+    vi.mocked(getEventsAgenda).mockResolvedValue({ limites, dias: [dia("2026-09-30", { eventos: [evento(1, 1)], buffetCobrado, modalidadePdv: "BUFFET", realizado: { fonte: "PDV", almocos: 120, valorAlmoco: 11000, jantares: 10, valorJantar: 600 } })] });
     render(<Agenda podeEditar podeCriar onAbrirEvento={vi.fn()} />);
     const linha = await screen.findByRole("button", { name: "Abrir o dia 30/09/2026" });
     expect(linha).toHaveTextContent(/Buffet R\$\s?89,90/);
     fireEvent.click(linha);
     const dialogo = await screen.findByRole("dialog");
     expect(within(dialogo).queryByLabelText("Preço do buffet")).toBeNull();
+    expect(within(dialogo).queryByLabelText("Modalidade")).toBeNull();
+    expect(within(dialogo).getByText("pelo PDV: vendeu buffet")).toBeInTheDocument();
     expect(within(dialogo).getByText("cobrado no PDV")).toBeInTheDocument();
     expect(within(dialogo).getByText(/Também: Grupo R\$\s?79,90 \(4\)/)).toBeInTheDocument();
+  });
+
+  test("dia em que o PDV não vendeu buffet aparece como à la carte", async () => {
+    vi.mocked(getEventsAgenda).mockResolvedValue({ limites, dias: [dia("2026-09-30", { modalidadePdv: "A_LA_CARTE", decisao: { serviceMode: null, buffetPrice: null, notes: "Dia calmo", forecastLunch: null, forecastSize: null } })] });
+    render(<Agenda podeEditar podeCriar onAbrirEvento={vi.fn()} />);
+    const linha = await screen.findByRole("button", { name: "Abrir o dia 30/09/2026" });
+    expect(linha).toHaveTextContent(/À la carte\s*PDV/);
+    fireEvent.click(linha);
+    const dialogo = await screen.findByRole("dialog");
+    expect(within(dialogo).getByText("pelo PDV: nenhum buffet vendido")).toBeInTheDocument();
+    // Sem buffet no PDV, o preço continua podendo ser anotado (dia planejado ou histórico).
+    expect(within(dialogo).getByLabelText(/^Preço do buffet/)).toBeInTheDocument();
   });
 
   test("sem permissão de editar, o dia abre só para leitura", async () => {
