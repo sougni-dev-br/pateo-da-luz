@@ -251,12 +251,36 @@ describe("ConferenciaInventario", () => {
     vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
     render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Outro…" }));
-    const ok = screen.getByRole("button", { name: "Ok" });
-    expect(ok).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/motivo da conferência de mexedor/i), { target: { value: "vencido, descartado" } });
-    fireEvent.click(ok);
+    fireEvent.click(await screen.findByRole("button", { name: "Justificar…" }));
+    const outro = screen.getByRole("button", { name: "Outro" });
+    expect(outro).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/justificativa da conferência de mexedor/i), { target: { value: "vencido, descartado" } });
+    fireEvent.click(outro);
     await waitFor(() => expect(marcarItemConferido).toHaveBeenCalledWith("inv", "mexedor", "OUTRO", "vencido, descartado"));
+  });
+
+  test("concordar com a contagem leva a justificativa junto", async () => {
+    vi.mocked(marcarItemConferido).mockResolvedValue({ ok: true });
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Justificar…" }));
+    fireEvent.change(screen.getByLabelText(/justificativa da conferência de mexedor/i), { target: { value: "caixa fechada no corredor" } });
+    fireEvent.click(screen.getByRole("button", { name: "Está certo" }));
+    await waitFor(() => expect(marcarItemConferido).toHaveBeenCalledWith("inv", "mexedor", "CORRETO", "caixa fechada no corredor"));
+  });
+
+  test("item ja conferido pode receber justificativa depois", async () => {
+    vi.mocked(marcarItemConferido).mockResolvedValue({ ok: true });
+    const certo = { ...mexedor, conferido: { motivo: "CORRETO" as const, observacao: null, em: null, por: "Eli" } };
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([certo]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
+
+    fireEvent.change(await screen.findByLabelText(/situação/i), { target: { value: "todos" } });
+    fireEvent.click(await screen.findByRole("button", { name: /justificar/i }));
+    fireEvent.change(screen.getByLabelText(/justificativa da conferência de mexedor/i), { target: { value: "contagem anterior errada" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar justificativa" }));
+    await waitFor(() => expect(marcarItemConferido).toHaveBeenCalledWith("inv", "mexedor", "CORRETO", "contagem anterior errada"));
   });
 
   test("itens marcados para recontar viram pedido de recontagem", async () => {
