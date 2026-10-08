@@ -1,0 +1,331 @@
+/* Cardápio → Fichas técnicas: lista de pratos à esquerda, ficha (ou formulário) à direita.
+   Só tokens do design system; nada de cor solta. */
+
+.ft-pagina { display: flex; flex-direction: column; gap: 16px; min-width: 0; font-family: var(--font-sans); }
+
+.ft-link {
+  padding: 0; border: 0; background: none; color: var(--gold-dark); font: inherit; font-weight: var(--fw-semibold);
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.ft-link:hover { color: var(--ink); }
+.ft-link:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 3px; }
+.ft-muted { color: var(--muted); }
+.ft-so-leitor { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.ft-sem-valor { color: var(--muted); font-style: italic; font-size: var(--fs-xs); }
+
+/* ── Layout ── */
+.ft-layout { gap: 20px; }
+
+/* Duas colunas só a partir daqui; abaixo disso o DS empilha lista e ficha. Fora desta consulta a regra
+   venceria o empilhamento (mesma especificidade, carregada depois) e o celular deitado ficaria espremido. */
+@media (min-width: 901px) {
+  .ft-layout { grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); }
+  /* A lista acompanha a rolagem: com 200+ pratos, trocar de ficha não pode exigir voltar ao topo. */
+  .ft-layout > .ds-list-detail-list-pane { position: sticky; top: 12px; }
+  .ft-lista { max-height: calc(100vh - 24px); grid-template-rows: auto minmax(0, 1fr) auto; }
+}
+.ft-lista { box-shadow: var(--shadow-soft); }
+.ft-lista .ds-list-detail-list-scroll { max-height: none; }
+.ft-lista .ds-list-detail-list-header { padding: 14px; background: var(--paper); }
+.ft-lista .ds-list-detail-list-footer { background: var(--paper); }
+.ft-lista .ds-list-detail-item { min-height: 56px; }
+.ft-lista .ds-list-detail-item-subtitle { max-width: 100%; }
+.ft-novo { width: 100%; justify-content: center; }
+.ft-novo--topo { display: none; }
+.ft-lista-aviso { margin: 0; padding: 18px 14px; color: var(--muted); font-size: var(--fs-sm); display: grid; gap: 6px; justify-items: start; }
+.ft-lista-aviso p { margin: 0; }
+
+/* ── Filtros da lista ── */
+.ft-filtros { display: grid; gap: 12px; }
+
+.ft-andamento { display: grid; gap: 6px; }
+.ft-andamento-texto { margin: 0; display: flex; align-items: baseline; gap: 6px; color: var(--muted); font-size: var(--fs-xs); }
+.ft-andamento-texto strong { color: var(--ink); font-size: var(--fs-body); }
+.ft-andamento-pct { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: var(--fw-semibold); color: var(--gold-dark); }
+.ft-andamento-barra { height: 6px; border-radius: var(--radius-pill); background: var(--paper-soft); overflow: hidden; }
+.ft-andamento-barra i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--gold-soft), var(--gold)); }
+
+.ft-busca { position: relative; display: block; }
+.ft-busca > svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.ft-busca input {
+  width: 100%; height: 40px; padding: 0 34px 0 38px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  background: var(--paper); font: inherit; font-size: var(--fs-sm); color: var(--ink);
+}
+.ft-busca input::placeholder { color: var(--muted); }
+.ft-busca input:focus { outline: none; border-color: var(--gold); box-shadow: var(--focus-ring); }
+.ft-busca input::-webkit-search-cancel-button { display: none; }
+.ft-busca--grande input { height: 44px; }
+.ft-busca-limpar {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; display: grid; place-items: center;
+  border: 0; border-radius: var(--radius-sm); background: none; color: var(--muted); cursor: pointer;
+}
+.ft-busca-limpar:hover { background: var(--paper-soft); color: var(--ink); }
+.ft-busca-limpar:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.ft-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ft-chip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 11px; border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill); background: var(--paper); color: var(--ink); font: inherit; font-size: var(--fs-xs);
+  font-weight: var(--fw-medium); cursor: pointer; transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.ft-chip:hover:not(:disabled) { border-color: var(--gold); background: var(--row-hover); }
+.ft-chip:focus-visible { outline: none; box-shadow: var(--focus-ring); border-color: var(--gold); }
+.ft-chip:disabled { opacity: 0.45; cursor: default; }
+.ft-chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.ft-chip-n { font-variant-numeric: tabular-nums; opacity: 0.7; font-weight: var(--fw-regular); }
+
+.ft-selects { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ft-selects > * { min-width: 0; }
+.ft-selects .ds-select-label { font-size: var(--fs-xs); }
+.ft-inativos { display: inline-flex; align-items: center; gap: 10px; color: var(--muted); font-size: var(--fs-sm); cursor: pointer; }
+
+/* ── Painel da direita ── */
+/* O painel é um "container": tabelas e linhas de ingrediente viram cartões pela LARGURA DELE, não da tela —
+   entre 900 e ~1200px a ficha ao lado da lista é estreita mesmo num monitor. */
+.ft-painel { min-width: 0; container: ft-painel / inline-size; }
+.ft-painel > * { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); box-shadow: var(--shadow-soft); }
+.ft-detalhe, .ft-form { display: grid; gap: 20px; align-content: start; padding: 20px 22px; }
+.ft-detalhe { position: relative; }
+
+.ft-vazio, .ft-carregando { display: grid; justify-items: center; gap: 8px; padding: 56px 24px; text-align: center; color: var(--muted); }
+.ft-vazio h2 { margin: 4px 0 0; color: var(--ink); font-size: var(--fs-h2); }
+.ft-vazio p { margin: 0 0 8px; max-width: 46ch; font-size: var(--fs-sm); line-height: var(--lh-body); }
+.ft-vazio svg { color: var(--gold); }
+
+/* ── Cabeçalho da ficha ── */
+.ft-detalhe-topo, .ft-form-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.ft-detalhe-titulos { display: grid; gap: 6px; min-width: 0; padding-right: 36px; }
+.ft-fechar { position: absolute; top: 14px; right: 14px; }
+.ft-detalhe-nome { margin: 0; font-size: var(--fs-h2); font-weight: var(--fw-bold); line-height: var(--lh-tight); color: var(--ink); overflow-wrap: anywhere; }
+.ft-detalhe-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: var(--fs-xs); }
+.ft-detalhe-meta span + span::before { content: "·"; margin-right: 14px; color: var(--line-strong); }
+.ft-detalhe-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* ── Números do prato ── */
+.ft-metricas { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 10px; }
+.ft-metrica {
+  display: grid; gap: 2px; align-content: start; padding: 12px 14px; border: 1px solid var(--line); border-left-width: 3px;
+  border-radius: var(--radius-md); background: var(--paper);
+}
+.ft-metrica--success { border-left-color: var(--success); }
+.ft-metrica--warning { border-left-color: var(--warning); }
+.ft-metrica--danger { border-left-color: var(--danger); }
+.ft-metrica-rotulo { color: var(--muted); font-size: var(--fs-2xs); font-weight: var(--fw-semibold); letter-spacing: var(--ls-eyebrow); text-transform: uppercase; }
+.ft-metrica-valor { font-size: var(--fs-summary); font-weight: var(--fw-bold); line-height: 1.15; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
+.ft-metrica-ajuda { color: var(--muted); font-size: var(--fs-xs); }
+.ft-metrica--success .ft-metrica-valor { color: var(--success); }
+.ft-metrica--warning .ft-metrica-valor { color: var(--warning); }
+.ft-metrica--danger .ft-metrica-valor { color: var(--danger); }
+
+.ft-regua { display: grid; gap: 6px; margin-top: -6px; }
+.ft-regua-trilho { position: relative; display: flex; height: 8px; border-radius: var(--radius-pill); overflow: visible; }
+.ft-regua-faixa { display: block; height: 100%; }
+.ft-regua-faixa--bom { background: var(--tint-success-border); border-radius: var(--radius-pill) 0 0 var(--radius-pill); }
+.ft-regua-faixa--atencao { background: var(--tint-warning-border); }
+.ft-regua-faixa--alto { background: var(--tint-danger-border); border-radius: 0 var(--radius-pill) var(--radius-pill) 0; }
+.ft-regua-marca {
+  position: absolute; top: -4px; width: 4px; height: 16px; margin-left: -2px; border-radius: 2px; background: var(--ink);
+  box-shadow: 0 0 0 2px var(--paper);
+}
+.ft-regua-legenda { margin: 0; color: var(--muted); font-size: var(--fs-xs); }
+
+/* ── Seções ── */
+.ft-secao { display: grid; gap: 12px; min-width: 0; }
+.ft-secao-titulo {
+  margin: 0; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: var(--fs-xs); font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-eyebrow); text-transform: uppercase;
+}
+.ft-secao-n { padding: 1px 7px; border-radius: var(--radius-pill); background: var(--paper-soft); color: var(--ink); font-size: var(--fs-2xs); letter-spacing: 0; }
+.ft-nota { margin: 0; color: var(--muted); font-size: var(--fs-xs); line-height: var(--lh-body); }
+.ft-observacoes { margin: 0; white-space: pre-wrap; font-size: var(--fs-sm); line-height: var(--lh-body); }
+.ft-pendencias { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 2px; font-size: var(--fs-sm); }
+.ft-etiqueta { margin-left: 8px; }
+
+/* ── Tabelas (ingredientes, canais, categorias) ── */
+.ft-tabela-rolagem { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-md); }
+.ft-tabela { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.ft-tabela thead th {
+  padding: 9px 12px; background: var(--paper-soft); color: var(--muted); font-size: var(--fs-2xs); font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-eyebrow); text-transform: uppercase; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line);
+}
+.ft-tabela tbody th, .ft-tabela tbody td, .ft-tabela tfoot th, .ft-tabela tfoot td { padding: 10px 12px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--line); }
+.ft-tabela tbody tr:last-child > *, .ft-tabela tfoot tr:last-child > * { border-bottom: 0; }
+.ft-tabela tbody th, .ft-tabela tfoot th { background: none; }
+.ft-tabela tbody th { font-weight: var(--fw-medium); color: var(--ink); }
+.ft-tabela tbody tr:hover { background: var(--row-hover); }
+.ft-tabela tfoot { background: var(--paper-soft); }
+.ft-tabela tfoot th { color: var(--muted); font-weight: var(--fw-semibold); }
+.ft-tabela .ft-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ft-tabela thead .ft-num { text-align: right; }
+.ft-linha-inativa { opacity: 0.6; }
+.ft-linha-alerta { background: var(--tint-warning); }
+.ft-linha-alerta:hover { background: var(--tint-warning) !important; }
+.ft-acoes-celula { text-align: right; white-space: nowrap; width: 1%; }
+.ft-situacao { display: inline-flex; align-items: center; gap: 10px; }
+
+.ft-ingrediente-nome { display: block; }
+.ft-ingrediente-sub { display: block; margin-top: 1px; color: var(--muted); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
+.ft-ingrediente-alerta { display: flex; align-items: flex-start; gap: 5px; margin-top: 3px; color: var(--warning); font-size: var(--fs-xs); font-weight: var(--fw-regular); line-height: var(--lh-snug); }
+.ft-ingrediente-alerta svg { flex: none; margin-top: 2px; }
+
+.ft-parte { min-width: 130px; }
+.ft-parte-celula { display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.ft-parte-barra { width: 64px; height: 6px; border-radius: var(--radius-pill); background: var(--paper-soft); overflow: hidden; }
+.ft-parte-barra i { display: block; height: 100%; background: var(--gold); border-radius: inherit; }
+
+/* ── Formulário ── */
+.ft-form-topo .ft-detalhe-nome { margin-bottom: 2px; }
+.ft-form .ds-form-grid > .ft-campo-cheio, .ft-form .ds-form-grid > .ft-atalhos-preco { grid-column: 1 / -1; }
+.ft-atalhos-preco { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: -4px; color: var(--muted); font-size: var(--fs-xs); }
+
+.ft-combo { position: relative; }
+.ft-combo-lista {
+  position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px); max-height: 320px; overflow-y: auto; margin: 0; padding: 4px;
+  list-style: none; background: var(--paper); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow);
+}
+.ft-combo-opcao {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 48px; padding: 8px 10px;
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.ft-combo-opcao--ativa { background: var(--row-hover); box-shadow: inset 3px 0 0 var(--gold); }
+.ft-combo-nome { display: grid; min-width: 0; }
+.ft-combo-nome strong { font-size: var(--fs-sm); font-weight: var(--fw-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-combo-nome small { color: var(--muted); font-size: var(--fs-xs); }
+.ft-combo-repetido { color: var(--warning); font-style: normal; }
+.ft-combo-custo { flex: none; font-size: var(--fs-xs); color: var(--ink); font-variant-numeric: tabular-nums; }
+.ft-combo-aviso { padding: 12px; color: var(--muted); font-size: var(--fs-sm); }
+
+.ft-vazio-ingredientes {
+  margin: 0; padding: 18px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); color: var(--muted);
+  font-size: var(--fs-sm); text-align: center; background: var(--paper-soft);
+}
+
+.ft-ingredientes-lista { list-style: none; margin: 0; padding: 0; display: grid; }
+.ft-ingredientes-cabecalho, .ft-ingrediente-linha {
+  display: grid; grid-template-columns: minmax(0, 1fr) 92px 104px 76px 92px 36px; gap: 10px; align-items: center;
+}
+.ft-ingredientes-cabecalho {
+  padding: 0 0 6px; color: var(--muted); font-size: var(--fs-2xs); font-weight: var(--fw-semibold); letter-spacing: var(--ls-eyebrow); text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+}
+.ft-ingrediente { padding: 10px 0 10px 0; border-bottom: 1px solid var(--line); }
+.ft-ingrediente--alerta { box-shadow: inset 3px 0 0 var(--warning); padding-left: 10px; }
+.ft-ingrediente--erro { box-shadow: inset 3px 0 0 var(--danger); padding-left: 10px; background: var(--tint-danger); }
+.ft-ingrediente-produto { display: grid; min-width: 0; }
+.ft-ingrediente-produto strong { font-size: var(--fs-sm); font-weight: var(--fw-semibold); overflow-wrap: anywhere; }
+.ft-ingrediente-produto small { color: var(--muted); font-size: var(--fs-xs); }
+.ft-ingrediente-custo { text-align: right; font-variant-numeric: tabular-nums; font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+.ft-ingrediente-nota { display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0; color: var(--warning); font-size: var(--fs-xs); line-height: var(--lh-snug); }
+.ft-ingrediente-nota svg { flex: none; margin-top: 2px; }
+.ft-ingrediente-nota--erro { color: var(--danger); font-weight: var(--fw-medium); }
+
+.ft-campo { display: block; min-width: 0; }
+.ft-campo-rotulo { display: none; margin-bottom: 4px; color: var(--muted); font-size: var(--fs-2xs); font-weight: var(--fw-semibold); letter-spacing: var(--ls-eyebrow); text-transform: uppercase; }
+.ft-campo input {
+  width: 100%; height: 40px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--paper);
+  font: inherit; font-size: var(--fs-sm); color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.ft-campo input { scroll-margin-bottom: 150px; }
+.ft-campo input:focus { outline: none; border-color: var(--gold); box-shadow: var(--focus-ring); }
+.ft-campo input[aria-invalid="true"] { border-color: var(--danger); }
+.ft-campo .ds-select-native { height: 40px; }
+
+.ft-remover {
+  width: 36px; height: 40px; display: grid; place-items: center; border: 0; border-radius: var(--radius-sm); background: none; color: var(--muted); cursor: pointer;
+}
+.ft-remover:hover { background: var(--tint-danger); color: var(--danger); }
+.ft-remover:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* Rodapé fixo: salvar e ver o efeito do que se digita sem rolar até o fim. */
+.ft-form-rodape {
+  position: sticky; bottom: 0; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px;
+  margin: 0 -22px -20px; padding: 12px 22px;
+  background: var(--paper); border-top: 1px solid var(--line-strong); border-radius: 0 0 var(--radius-md) var(--radius-md);
+  box-shadow: 0 -8px 18px rgba(22, 21, 18, 0.06);
+}
+.ft-resumo { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 26px; margin: 0; flex: 1 1 auto; }
+.ft-resumo > div { display: grid; gap: 1px; }
+.ft-resumo dt { color: var(--muted); font-size: var(--fs-2xs); font-weight: var(--fw-semibold); letter-spacing: var(--ls-eyebrow); text-transform: uppercase; }
+.ft-resumo dd { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
+.ft-resumo-receita { text-align: left; }
+.ft-resumo-receita dd { font-size: var(--fs-body); color: var(--muted); }
+.ft-resumo-aviso { order: 3; flex: 1 0 100%; margin: 0; color: var(--warning); font-size: var(--fs-xs); }
+.ft-resumo-aviso--erro { color: var(--danger); font-weight: var(--fw-medium); }
+.ft-form-acoes { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+.ft-form-acoes--inicio { justify-content: flex-start; margin-left: 0; }
+
+/* ── Categorias ── */
+.ft-categorias { display: grid; gap: 16px; }
+.ft-bloco { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); box-shadow: var(--shadow-soft); }
+
+/* ── Tela estreita (celular, tablet em pé): lista e ficha empilhadas, rodapé enxuto ── */
+@media (max-width: 900px) {
+  .ft-novo--topo { display: inline-flex; }
+  .ft-lista .ds-list-detail-list-footer { display: none; }
+  .ft-fechar { display: none; }
+  .ft-detalhe-titulos { padding-right: 0; }
+  .ft-detalhe, .ft-form { padding: 16px; }
+  .ft-vazio, .ft-carregando { padding: 40px 16px; }
+  .ft-form-rodape { margin: 0 -16px -16px; padding: 12px 16px; }
+}
+
+@media (max-width: 720px) {
+  .ft-detalhe-acoes { width: 100%; }
+  .ft-detalhe-acoes > * { flex: 1 1 auto; justify-content: center; }
+
+  /* Rodapé fixo enxuto: no celular ele não pode comer um quarto da tela. */
+  .ft-form-rodape { gap: 6px 12px; padding-top: 8px; padding-bottom: 8px; }
+  .ft-resumo { gap: 4px 18px; }
+  .ft-resumo dd { font-size: var(--fs-body); }
+  .ft-resumo > .ft-resumo-receita { display: none; }
+  .ft-form-acoes { width: 100%; }
+  .ft-form-acoes > * { flex: 1 1 auto; justify-content: center; }
+}
+
+/* ── Painel muito estreito: campos do prato em uma coluna (o DS só empilha pela largura da tela) ── */
+@container ft-painel (max-width: 520px) {
+  .ft-form .ds-form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── Painel estreito (qualquer tela): tabelas viram cartões, ingrediente vira bloco ── */
+@container ft-painel (max-width: 640px) {
+  .ft-tabela-rolagem { border: 0; overflow: visible; }
+  .ft-tabela thead { display: none; }
+  .ft-tabela, .ft-tabela tbody, .ft-tabela tfoot { display: block; }
+  .ft-tabela tbody tr {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; padding: 12px; margin-bottom: 8px;
+    border: 1px solid var(--line); border-radius: var(--radius-md);
+  }
+  .ft-tabela tbody tr:hover { background: var(--paper); }
+  .ft-tabela tbody th, .ft-tabela tbody td { padding: 0; border: 0; text-align: left; }
+  .ft-tabela tbody th { grid-column: 1 / -1; font-size: var(--fs-body); }
+  .ft-tabela .ft-num { text-align: left; white-space: normal; }
+  .ft-tabela td[data-rotulo]::before {
+    content: attr(data-rotulo); display: block; color: var(--muted); font-size: var(--fs-2xs); font-weight: var(--fw-semibold);
+    letter-spacing: var(--ls-eyebrow); text-transform: uppercase;
+  }
+  .ft-tabela tfoot tr { display: flex; justify-content: space-between; gap: 12px; padding: 12px; border-radius: var(--radius-md); }
+  .ft-tabela tfoot th, .ft-tabela tfoot td { padding: 0; border: 0; }
+  .ft-tabela tfoot td:empty { display: none; }
+  /* Ingrediente: três números numa linha só, em vez de uma coluna comprida por item. */
+  .ft-tabela--ingredientes tbody tr { grid-template-columns: 1.1fr 1fr 1fr; }
+  .ft-tabela--ingredientes .ft-parte-barra { width: 34px; }
+  .ft-tabela--ingredientes .ft-parte-celula { gap: 6px; }
+  .ft-acoes-celula { width: auto; grid-column: 1 / -1; text-align: left; }
+  .ft-parte { min-width: 0; }
+
+  .ft-ingredientes-cabecalho { display: none; }
+  .ft-ingrediente-linha { grid-template-columns: 1fr 1fr 1fr auto; row-gap: 10px; }
+  .ft-ingrediente-produto { grid-column: 1 / -2; }
+  .ft-remover { grid-column: -2 / -1; grid-row: 1; }
+  .ft-ingrediente-linha > .ft-campo--qtd { grid-column: 1 / 2; }
+  .ft-ingrediente-linha > .ft-campo--un { grid-column: 2 / 3; }
+  .ft-ingrediente-linha > .ft-campo--perda { grid-column: 3 / 5; }
+  .ft-ingrediente-custo { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; padding-top: 2px; }
+  .ft-campo-rotulo { display: block; }
+  .ft-ingrediente-custo .ft-campo-rotulo { margin: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ft-chip { transition: none; }
+}
