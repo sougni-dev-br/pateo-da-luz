@@ -1,7 +1,10 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import {
+  conversoesDoProduto,
   converterItemDeCompra,
   detectarEmbalagem,
+  embalagemDoNome,
+  linhasDeConversaoInformada,
   normalizarUnidade,
   resolveUnitFactor
 } from "../conversao.js";
@@ -275,5 +278,115 @@ describe("converterItemDeCompra", () => {
     expect(r.conversionFactorUsed).toBe(1000);
     expect(r.convertedQuantity).toBe(2000);
     expect(r.convertedUnitPrice).toBeCloseTo(0.03, 8);
+  });
+});
+
+describe("embalagem do nome para a ficha técnica", () => {
+  it("lê o peso solto no nome e o marcado", () => {
+    expect(embalagemDoNome("FARINHA TRIGO 5KG")).toMatchObject({ quantidade: 5, unidade: "KG" });
+    expect(embalagemDoNome("MOLHO SHOYU 350G")).toMatchObject({ quantidade: 350, unidade: "G" });
+    expect(embalagemDoNome("ARROZ ARBORIO 1KG")).toMatchObject({ quantidade: 1, unidade: "KG" });
+    expect(embalagemDoNome("QUEIJO C/2KG")).toMatchObject({ quantidade: 2, unidade: "KG" });
+    expect(embalagemDoNome("LEITE 1,5 LT")).toMatchObject({ quantidade: 1.5, unidade: "L" });
+  });
+
+  it("na dúvida devolve null: sem medida, medidas diferentes, vírgula de milhar", () => {
+    expect(embalagemDoNome("CEBOLA ROXA")).toBeNull();
+    expect(embalagemDoNome("AMACIANTE CARNE PACTE 1,100")).toBeNull();
+    expect(embalagemDoNome("PRODUTO 350G 1KG")).toBeNull();
+    expect(embalagemDoNome("ALHO 1,800GR")).toBeNull();
+    expect(embalagemDoNome("")).toBeNull();
+  });
+
+  it("estoque em UN ganha conversão inferida nas duas medidas da grandeza", () => {
+    const conv = conversoesDoProduto("FARINHA TRIGO 5KG", "UN", []);
+    expect(resolveUnitFactor("KG", "UN", conv)).toBeCloseTo(0.2);
+    expect(resolveUnitFactor("G", "UN", conv)).toBeCloseTo(0.0002);
+    expect(conv.every((c) => c.inferida)).toBe(true);
+    // 30 g de uma embalagem de 5 kg = 0,006 UN
+    expect(30 * (resolveUnitFactor("G", "UN", conv) ?? 0)).toBeCloseTo(0.006);
+  });
+
+  it("embalagem em gramas também converte kg e volume em ml/l", () => {
+    expect(resolveUnitFactor("KG", "UN", conversoesDoProduto("MASCARPONE 350G", "UN", []))).toBeCloseTo(1000 / 350);
+    expect(resolveUnitFactor("ML", "UN", conversoesDoProduto("SHOYU 1 LITRO", "UN", []))).toBeCloseTo(0.001);
+  });
+
+  it("estoque já em KG, G, L ou ML não precisa de inferência", () => {
+    const cad = [{ fromUnit: "UN", toUnit: "KG", factor: 0.7 }];
+    expect(conversoesDoProduto("FRANGO 20KG", "KG", cad)).toBe(cad);
+  });
+
+  it("conversão cadastrada na mesma grandeza desliga a inferência", () => {
+    const cad = [{ fromUnit: "KG", toUnit: "UN", factor: 0.25 }];
+    expect(conversoesDoProduto("FARINHA 5KG", "UN", cad)).toBe(cad);
+  });
+
+  it("sem medida no nome, nada é inventado", () => {
+    expect(conversoesDoProduto("CEBOLA", "UN", [])).toEqual([]);
+  });
+});
+
+describe("quando a leitura do nome não vale", () => {
+  it("pacote ou caixa com marcador de contagem não infere: o 110ML é do copo, não do pacote", () => {
+    expect(conversoesDoProduto("COPO DE PAPEL 110ML - C/50", "PCT", [])).toEqual([]);
+    expect(conversoesDoProduto("POTE RETANGULAR 350ML C/24 CX 6", "CX", [])).toEqual([]);
+  });
+
+  it("contado em UN, o 110ML descreve a unidade e continua valendo", () => {
+    const conv = conversoesDoProduto("COPO 200ML C/50", "UN", []);
+    expect(resolveUnitFactor("ML", "UN", conv)).toBeCloseTo(1 / 200);
+  });
+
+  it("pacote sem marcador de contagem infere: PCT 500G", () => {
+    expect(resolveUnitFactor("G", "PCT", conversoesDoProduto("FARINHA PCT 500G", "PCT", []))).toBeCloseTo(1 / 500);
+  });
+});
+
+describe("conversão informada pela pessoa na ficha", () => {
+  it("1 UN = 1200 g grava g e kg, para lançar em qualquer um dos dois", () => {
+    const linhas = linhasDeConversaoInformada("UN", "G", 1200)!;
+    expect(resolveUnitFactor("G", "UN", linhas)).toBeCloseTo(1 / 1200);
+    expect(resolveUnitFactor("KG", "UN", linhas)).toBeCloseTo(1 / 1.2);
+  });
+
+  it("produto em KG que a receita leva em ml: 1 KG = 970 ml", () => {
+    const linhas = linhasDeConversaoInformada("KG", "ML", 970)!;
+    expect(resolveUnitFactor("ML", "KG", linhas)).toBeCloseTo(1 / 970);
+    expect(resolveUnitFactor("L", "KG", linhas)).toBeCloseTo(1 / 0.97);
+  });
+
+  it("grava na direção estoque→medida, com o número exato que a pessoa digitou", () => {
+    expect(linhasDeConversaoInformada("UN", "G", 1200)).toEqual([
+      { fromUnit: "UN", toUnit: "G", factor: 1200 },
+      { fromUnit: "UN", toUnit: "KG", factor: 1.2 }
+    ]);
+    // 1 UN = 45 kg: na direção inversa o fator seria 0,0000222 e a coluna (6 casas) erraria 1%.
+    const linhas = linhasDeConversaoInformada("UN", "KG", 45)!;
+    expect(resolveUnitFactor("G", "UN", linhas)).toBeCloseTo(1 / 45000, 12);
+    expect(resolveUnitFactor("KG", "UN", linhas)).toBeCloseTo(1 / 45, 12);
+  });
+
+  it("recusa o que a coluna Decimal(12,6) não guardaria", () => {
+    expect(linhasDeConversaoInformada("UN", "KG", 0.0000001)).toBeNull();
+    expect(linhasDeConversaoInformada("UN", "KG", 1_000_000)).toBeNull(); // g = 1e9
+  });
+
+  it("estoque em KG não aceita g (a física já converte) nem ml em L", () => {
+    expect(linhasDeConversaoInformada("KG", "G", 1000)).toBeNull();
+    expect(linhasDeConversaoInformada("L", "ML", 1000)).toBeNull();
+  });
+
+  it("recusa unidade igual à do estoque, unidade estranha e quantidade inválida", () => {
+    expect(linhasDeConversaoInformada("KG", "KG", 1)).toBeNull();
+    expect(linhasDeConversaoInformada("UN", "COLHER", 10)).toBeNull();
+    expect(linhasDeConversaoInformada("UN", "G", 0)).toBeNull();
+    expect(linhasDeConversaoInformada("UN", "G", Number.NaN)).toBeNull();
+    expect(linhasDeConversaoInformada("", "G", 10)).toBeNull();
+  });
+
+  it("a conversão informada vence a leitura do nome", () => {
+    const informada = linhasDeConversaoInformada("UN", "G", 4800)!; // a "5KG" do nome era arredondado
+    expect(conversoesDoProduto("FARINHA 5KG", "UN", informada)).toBe(informada);
   });
 });

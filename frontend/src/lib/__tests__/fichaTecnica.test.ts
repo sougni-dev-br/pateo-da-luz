@@ -13,10 +13,13 @@ import {
   normalizarUnidade,
   ordenarPratos,
   percentualParaFracao,
+  medidaInformavel,
   montarPayloadDaFicha,
+  opcoesDeUnidade,
   resumoDaFicha,
   situacaoDaFicha,
   temErros,
+  unidadePadrao,
   unidadesPossiveis,
   validarFicha,
   type IngredientePrevisto,
@@ -75,6 +78,64 @@ describe("unidades", () => {
     expect(unidadesPossiveis("UN", [])).toEqual(["UN"]);
     expect(unidadesPossiveis("UN", [{ fromUnit: "G", toUnit: "UN", factor: 0.001 }])).toEqual(["UN", "G"]);
     expect(unidadesPossiveis(null, [])).toEqual([]);
+  });
+});
+
+describe("opções de unidade", () => {
+  it("sempre oferece g, kg, ml e l; marca as que ainda não convertem", () => {
+    const opcoes = opcoesDeUnidade("UN", [], "UN");
+    expect(opcoes.map((o) => o.value)).toEqual(["UN", "G", "KG", "ML", "L"]);
+    expect(opcoes.map((o) => o.converte)).toEqual([true, false, false, false, false]);
+    expect(opcoes[1].label).toBe("G (informar)");
+  });
+
+  it("com conversão (cadastrada ou lida do nome) a unidade deixa de ser 'informar'", () => {
+    const conv = [{ fromUnit: "G", toUnit: "UN", factor: 0.001 }, { fromUnit: "KG", toUnit: "UN", factor: 1 }];
+    expect(opcoesDeUnidade("UN", conv, "G").filter((o) => o.converte).map((o) => o.value)).toEqual(["UN", "G", "KG"]);
+  });
+
+  it("produto em KG: g converte sozinho, ml pede informar", () => {
+    const opcoes = opcoesDeUnidade("KG", [], "KG");
+    expect(opcoes.find((o) => o.value === "G")?.converte).toBe(true);
+    expect(opcoes.find((o) => o.value === "ML")?.converte).toBe(false);
+  });
+
+  it("unidade estranha já gravada na linha continua visível", () => {
+    expect(opcoesDeUnidade("UN", [], "MÇ").map((o) => o.value)).toContain("MÇ");
+  });
+
+  it("unidade que não é medida (CX) não ganha o rótulo '(informar)', porque não há campo para ela", () => {
+    expect(opcoesDeUnidade("UN", [], "CX").find((o) => o.value === "CX")?.label).toBe("CX");
+  });
+
+  it("só g, kg, ml e l aceitam informar conversão", () => {
+    expect(medidaInformavel("gr")).toBe("G");
+    expect(medidaInformavel("UN")).toBeNull();
+  });
+});
+
+describe("unidade padrão ao adicionar o ingrediente", () => {
+  const lidoDoNome = [
+    { fromUnit: "KG", toUnit: "UN", factor: 0.2, inferida: true },
+    { fromUnit: "G", toUnit: "UN", factor: 0.0002, inferida: true },
+  ];
+
+  it("kg abre em g, litro abre em ml", () => {
+    expect(unidadePadrao("KG", [])).toBe("G");
+    expect(unidadePadrao("L", [])).toBe("ML");
+  });
+
+  it("UN com peso lido do nome abre em g", () => {
+    expect(unidadePadrao("UN", lidoDoNome)).toBe("G");
+  });
+
+  it("UN sem conversão continua em UN", () => {
+    expect(unidadePadrao("UN", [])).toBe("UN");
+    expect(unidadePadrao(null, [])).toBe("UN");
+  });
+
+  it("a previsão de custo usa a conversão inferida: 500 g de farinha de 5 kg a R$ 25", () => {
+    expect(custoPrevisto(ingrediente({ quantity: "500", unit: "G", productUnit: "UN", unitCost: 25, conversions: lidoDoNome }))).toBeCloseTo(2.5);
   });
 });
 

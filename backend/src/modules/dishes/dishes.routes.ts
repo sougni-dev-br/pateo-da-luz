@@ -6,6 +6,7 @@ import { z } from "zod";
 import { calculateDishCost, type CostItemInput } from "./dish-cost.js";
 import { parseBody } from "../../shared/validate-body.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
+import { conversoesDoProduto, embalagemDoNome, linhasDeConversaoInformada, normalizarUnidade } from "../../shared/unidades/conversao.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 
 export const dishesRouter = Router();
@@ -15,6 +16,7 @@ type ItemComProduto = {
   unit: string;
   wasteFactor: Prisma.Decimal | number;
   product: {
+    name: string;
     unit: string | null;
     stockUnit?: string | null;
     inventoryStock: { averageCost: Prisma.Decimal | null } | null;
@@ -95,6 +97,31 @@ async function primeiroProdutoInvalido(items: Array<{ productId: string }>) {
  * O custo medio do estoque e expresso em "stockUnit" quando ele existe; caindo
  * para "unit" quando o produto ainda nao tem unidade de estoque definida.
  */
+type ProdutoParaConversao = ItemComProduto["product"];
+
+/**
+ * Conversoes que valem na ficha: as cadastradas no produto mais, quando o estoque conta em
+ * UN/pacote/caixa, o peso ou volume lido do NOME ("FARINHA TRIGO 5KG"). Assim a receita
+ * pode ser lancada em g/ml. A mesma lista vai para a tela (previa de custo) e para o calculo.
+ */
+function conversoesDaFicha(produto: Pick<ProdutoParaConversao, "name" | "unit" | "stockUnit" | "conversions">) {
+  const cadastradas = produto.conversions.map((c) => ({
+    fromUnit: c.fromUnit,
+    toUnit: c.toUnit,
+    factor: Number(c.factor)
+  }));
+  return conversoesDoProduto(produto.name, produto.stockUnit || produto.unit, cadastradas);
+}
+
+/** "1 UN = 5 KG (lido do nome)" quando a conversao e inferida; null quando nao ha. */
+function textoDaEmbalagemInferida(produto: Pick<ProdutoParaConversao, "name" | "unit" | "stockUnit" | "conversions">): string | null {
+  const conversoes = conversoesDaFicha(produto);
+  if (!conversoes.some((c) => c.inferida)) return null;
+  const embalagem = embalagemDoNome(produto.name);
+  const base = normalizarUnidade(produto.stockUnit || produto.unit);
+  return embalagem ? `1 ${base} = ${embalagem.quantidade.toLocaleString("pt-BR")} ${embalagem.unidade} (lido do nome do produto)` : null;
+}
+
 function toCostItem(item: ItemComProduto): CostItemInput {
   return {
     quantity: Number(item.quantity),
@@ -105,11 +132,7 @@ function toCostItem(item: ItemComProduto): CostItemInput {
       averageCost: item.product.inventoryStock?.averageCost == null
         ? null
         : Number(item.product.inventoryStock.averageCost),
-      conversions: item.product.conversions.map((c) => ({
-        fromUnit: c.fromUnit,
-        toUnit: c.toUnit,
-        factor: Number(c.factor)
-      }))
+      conversions: conversoesDaFicha(item.product)
     }
   };
 }
@@ -341,11 +364,8 @@ dishesRouter.get("/:id", async (request, response) => {
       issue: calculado.issue,
       // A tela reprevê o custo enquanto se edita a quantidade, entao precisa
       // das conversoes do produto junto do item.
-      conversions: item.product.conversions.map((c) => ({
-        fromUnit: c.fromUnit,
-        toUnit: c.toUnit,
-        factor: Number(c.factor)
-      })),
+      conversions: conversoesDaFicha(item.product),
+      embalagemInferida: textoDaEmbalagemInferida(item.product),
       notes: item.notes,
       sortOrder: item.sortOrder
     };
@@ -529,12 +549,114 @@ dishesRouter.get("/products/search", async (request, response) => {
     name: p.name,
     unit: p.stockUnit || p.unit,
     averageCost: Number(p.inventoryStock?.averageCost ?? 0),
-    conversions: p.conversions.map((c) => ({
-      fromUnit: c.fromUnit,
-      toUnit: c.toUnit,
-      factor: Number(c.factor)
-    }))
+    conversions: conversoesDaFicha(p),
+    embalagemInferida: textoDaEmbalagemInferida(p)
   })));
+});
+
+const conversaoInformadaSchema = z.object({
+  unit: z.string().trim().min(1, "informe a unidade"),
+  amount: z.coerce.number({ invalid_type_error: "informe quanto vale" }).positive("a quantidade deve ser maior que zero").max(1_000_000, "quantidade alta demais"),
+  /** Confirmacao de quem viu o aviso de que ja existe conversao cadastrada. */
+  replace: z.boolean().optional()
+});
+
+/** Diferenca relativa abaixo disto e arredondamento, nao conversao diferente. */
+const TOLERANCIA_DA_CONVERSAO = 0.005;
+
+/**
+ * "1 UN = 1.200 G": quem monta a ficha informa como o produto e de fato, ali mesmo, sem sair da
+ * tela. Vira conversao do produto — vale para as outras fichas e tambem para a conversao de compras
+ * e contagem do estoque, que le a mesma tabela — e passa a ter prioridade sobre a leitura do nome.
+ *
+ * Se o produto ja tem conversao cadastrada na mesma grandeza e o valor novo diverge, responde 409
+ * em vez de sobrescrever em silencio; so troca com `replace: true`. Ao gravar, remove as linhas
+ * antigas da grandeza (inclusive grafias como GR/UND), para nao sobrar duplicata que o calculo
+ * leria no lugar da nova.
+ */
+dishesRouter.post("/products/:productId/conversions", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const body = parseBody(conversaoInformadaSchema, request.body, response);
+  if (!body) return;
+
+  const produto = await prisma.product.findUnique({
+    where: { id: request.params.productId },
+    select: { id: true, name: true, unit: true, stockUnit: true }
+  });
+  if (!produto) {
+    response.status(404).json({ message: "Produto não encontrado." });
+    return;
+  }
+
+  const base = normalizarUnidade(produto.stockUnit || produto.unit);
+  const linhas = linhasDeConversaoInformada(base, body.unit, body.amount);
+  if (!linhas) {
+    response.status(400).json({
+      message: "Informe g, kg, ml ou l (de outra grandeza que a unidade do produto) e uma quantidade que caiba no cadastro."
+    });
+    return;
+  }
+
+  const medidas = new Set(linhas.map((linha) => linha.toUnit));
+  const existentes = await prisma.productUnitConversion.findMany({
+    where: { productId: produto.id },
+    select: { id: true, fromUnit: true, toUnit: true, factor: true, isActive: true }
+  });
+  const daGrandeza = existentes.filter((linha) => {
+    const de = normalizarUnidade(linha.fromUnit);
+    const para = normalizarUnidade(linha.toUnit);
+    return (de === base && medidas.has(para)) || (para === base && medidas.has(de));
+  });
+
+  const divergentes = daGrandeza.filter((linha) => {
+    if (!linha.isActive) return false;
+    const fator = Number(linha.factor);
+    const emMedida = normalizarUnidade(linha.fromUnit) === base ? fator : 1 / fator;
+    const medida = normalizarUnidade(linha.fromUnit) === base ? normalizarUnidade(linha.toUnit) : normalizarUnidade(linha.fromUnit);
+    const esperado = linhas.find((l) => l.toUnit === medida)?.factor;
+    return esperado != null && Math.abs(emMedida - esperado) / esperado > TOLERANCIA_DA_CONVERSAO;
+  });
+  if (divergentes.length > 0 && !body.replace) {
+    const atual = divergentes
+      .map((linha) => `1 ${normalizarUnidade(linha.fromUnit)} = ${Number(linha.factor).toLocaleString("pt-BR", { maximumFractionDigits: 6 })} ${normalizarUnidade(linha.toUnit)}`)
+      .join("; ");
+    response.status(409).json({
+      message: `Este produto já tem conversão cadastrada (${atual}). Trocar muda também como as compras e a contagem do estoque convertem. Confirme para substituir.`
+    });
+    return;
+  }
+
+  await prisma.$transaction([
+    prisma.productUnitConversion.deleteMany({ where: { id: { in: daGrandeza.map((linha) => linha.id) } } }),
+    prisma.productUnitConversion.createMany({
+      data: linhas.map((linha) => ({
+        id: crypto.randomUUID(),
+        productId: produto.id,
+        fromUnit: linha.fromUnit,
+        toUnit: linha.toUnit,
+        factor: linha.factor,
+        notes: "Informada na ficha técnica"
+      }))
+    })
+  ]);
+
+  const cadastradas = await prisma.productUnitConversion.findMany({
+    where: { productId: produto.id, isActive: true },
+    select: { fromUnit: true, toUnit: true, factor: true }
+  });
+  const completo = { ...produto, conversions: cadastradas };
+
+  await auditLog({
+    userId: user.id,
+    action: "UPSERT_CONVERSION",
+    entity: "Product",
+    entityId: produto.id,
+    previousValue: daGrandeza.length > 0 ? daGrandeza : undefined,
+    newValue: { unit: body.unit, amount: body.amount }
+  });
+  response.json({ conversions: conversoesDaFicha(completo), embalagemInferida: textoDaEmbalagemInferida(completo) });
 });
 
 dishesRouter.delete("/:id", async (request, response) => {

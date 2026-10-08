@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { AppUser, DishCategory, DishDetail, DishListItem } from "../../../../api/client";
+import { ApiError, type AppUser, type DishCategory, type DishDetail, type DishListItem } from "../../../../api/client";
 
 vi.mock("../../../../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../../api/client")>()),
@@ -11,11 +11,12 @@ vi.mock("../../../../api/client", async (importOriginal) => ({
   deactivateDish: vi.fn(),
   reactivateDish: vi.fn(),
   saveDishCategory: vi.fn(),
+  saveDishProductConversion: vi.fn(),
   searchDishProducts: vi.fn(),
 }));
 
 import {
-  deactivateDish, getDishCategories, getDishDetail, getDishes, reactivateDish, saveDish, searchDishProducts,
+  deactivateDish, getDishCategories, getDishDetail, getDishes, reactivateDish, saveDish, saveDishProductConversion, searchDishProducts,
 } from "../../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../../context/SessionContext";
 import { HideValuesProvider } from "../../../../design-system";
@@ -44,7 +45,7 @@ const ANTIGO = resumo({ id: "d4", name: "Prato antigo", isActive: false });
 
 const ingrediente = (id: string, nome: string, extra: Record<string, unknown> = {}) => ({
   id, productId: `p-${id}`, productCode: null, productName: nome, productUnit: "KG", quantity: 150, unit: "G", wasteFactor: 0.07,
-  unitCost: 40, unitFactor: 0.001, itemCost: 6.42, issue: null, conversions: [], notes: null, sortOrder: 0, ...extra,
+  unitCost: 40, unitFactor: 0.001, itemCost: 6.42, issue: null, conversions: [], embalagemInferida: null, notes: null, sortOrder: 0, ...extra,
 });
 
 function detalhe(base: DishListItem, itens: ReturnType<typeof ingrediente>[], extra: Partial<DishDetail> = {}): DishDetail {
@@ -263,7 +264,7 @@ describe("formulário", () => {
 
   test("ingrediente sem quantidade barra o salvamento e fica marcado", async () => {
     vi.mocked(searchDishProducts).mockResolvedValue([
-      { id: "p-novo", externalCode: "9", name: "FARINHA", unit: "KG", averageCost: 5, conversions: [] },
+      { id: "p-novo", externalCode: "9", name: "FARINHA", unit: "KG", averageCost: 5, conversions: [], embalagemInferida: null },
     ]);
     await abrir();
     fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
@@ -285,10 +286,10 @@ describe("formulário", () => {
     expect(vi.mocked(saveDish).mock.calls[0][0]).toMatchObject({ name: "Pão", items: [{ productId: "p-novo", quantity: 0.5, unit: "KG" }] });
   });
 
-  test("a unidade só oferece o que converte para a do estoque", async () => {
+  test("a unidade oferece g, kg, ml e l sempre; as que ainda não convertem vêm marcadas", async () => {
     vi.mocked(searchDishProducts).mockResolvedValue([
-      { id: "p1", externalCode: null, name: "AZEITE", unit: "L", averageCost: 38, conversions: [] },
-      { id: "p2", externalCode: null, name: "ARROZ 1KG", unit: "UN", averageCost: 27, conversions: [] },
+      { id: "p1", externalCode: null, name: "AZEITE", unit: "L", averageCost: 38, conversions: [], embalagemInferida: null },
+      { id: "p2", externalCode: null, name: "ARROZ 1KG", unit: "UN", averageCost: 27, conversions: [], embalagemInferida: null },
     ]);
     await abrir();
     fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
@@ -298,17 +299,162 @@ describe("formulário", () => {
     fireEvent.change(busca, { target: { value: "a" } });
     fireEvent.click(await screen.findByRole("option", { name: /AZEITE/ }));
     const azeite = screen.getByLabelText("Unidade de AZEITE") as HTMLSelectElement;
-    expect([...azeite.options].map((o) => o.value)).toEqual(["L", "ML"]);
+    expect([...azeite.options].map((o) => o.value)).toEqual(["L", "G", "KG", "ML"]);
+    expect([...azeite.options].map((o) => o.textContent)).toEqual(["L", "G (informar)", "KG (informar)", "ML"]);
 
     fireEvent.change(busca, { target: { value: "ar" } });
     fireEvent.click(await screen.findByRole("option", { name: /ARROZ/ }));
     const arroz = screen.getByLabelText("Unidade de ARROZ 1KG") as HTMLSelectElement;
-    expect([...arroz.options].map((o) => o.value)).toEqual(["UN"]);
+    expect([...arroz.options].map((o) => o.value)).toEqual(["UN", "G", "KG", "ML", "L"]);
+  });
+
+  test("produto contado em UN com peso no nome: entra em gramas, mostra a conversão lida do nome e salva em G", async () => {
+    vi.mocked(searchDishProducts).mockResolvedValue([{
+      id: "p-farinha", externalCode: "381", name: "FARINHA TRIGO 5KG", unit: "UN", averageCost: 25,
+      conversions: [
+        { fromUnit: "KG", toUnit: "UN", factor: 0.2, inferida: true },
+        { fromUnit: "G", toUnit: "UN", factor: 0.0002, inferida: true },
+      ],
+      embalagemInferida: "1 UN = 5 KG (lido do nome do produto)",
+    }]);
+    await abrir();
+    fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
+    await screen.findByRole("heading", { name: "Novo prato" });
+    fireEvent.change(screen.getByLabelText(/Nome do prato/), { target: { value: "Pão" } });
+
+    fireEvent.change(screen.getByRole("combobox", { name: /Buscar produto/ }), { target: { value: "far" } });
+    const opcao = await screen.findByRole("option", { name: /FARINHA/ });
+    expect(opcao).toHaveTextContent("1 UN = 5 KG (lido do nome do produto)");
+    fireEvent.click(opcao);
+
+    // A pessoa digita como pesa: 500 g. Nada de 0,1 UN.
+    const unidade = screen.getByLabelText("Unidade de FARINHA TRIGO 5KG") as HTMLSelectElement;
+    expect(unidade.value).toBe("G");
+    fireEvent.change(screen.getByLabelText("Quantidade de FARINHA TRIGO 5KG"), { target: { value: "500" } });
+    expect(screen.getByText(/1 UN = 5 KG \(lido do nome do produto\)\. Confira/)).toBeInTheDocument();
+    expect(screen.queryByText("sem custo")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Criar prato" }));
+    await waitFor(() => expect(saveDish).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(saveDish).mock.calls[0][0]).toMatchObject({ items: [{ productId: "p-farinha", quantity: 500, unit: "G" }] });
+  });
+
+  test("unidade que ainda não converte abre o campo '1 UN = ? g'; salvar grava no produto e calcula o custo", async () => {
+    vi.mocked(searchDishProducts).mockResolvedValue([
+      { id: "p-abacaxi", externalCode: "7", name: "ABACAXI", unit: "UN", averageCost: 6, conversions: [], embalagemInferida: null },
+    ]);
+    vi.mocked(saveDishProductConversion).mockResolvedValue({
+      conversions: [{ fromUnit: "G", toUnit: "UN", factor: 1 / 1200 }, { fromUnit: "KG", toUnit: "UN", factor: 1 / 1.2 }],
+      embalagemInferida: null,
+    });
+    await abrir();
+    fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
+    await screen.findByRole("heading", { name: "Novo prato" });
+    fireEvent.change(screen.getByLabelText(/Nome do prato/), { target: { value: "Salada" } });
+    fireEvent.change(screen.getByRole("combobox", { name: /Buscar produto/ }), { target: { value: "aba" } });
+    fireEvent.click(await screen.findByRole("option", { name: /ABACAXI/ }));
+
+    // Sem conversão, a unidade fica em UN; escolher g abre o campo de informar.
+    fireEvent.change(screen.getByLabelText("Unidade de ABACAXI"), { target: { value: "G" } });
+    fireEvent.change(screen.getByLabelText("Quantidade de ABACAXI"), { target: { value: "300" } });
+    expect(screen.getByText("Quanto vale 1 UN em G?")).toBeInTheDocument();
+    expect(screen.getByText("sem custo")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Quantos G tem 1 UN de ABACAXI"), { target: { value: "1200" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar conversão" }));
+
+    await waitFor(() => expect(saveDishProductConversion).toHaveBeenCalledWith("p-abacaxi", { unit: "G", amount: 1200 }));
+    // 300 g de um abacaxi de 1,2 kg a R$ 6 = R$ 1,50
+    await waitFor(() => expect(screen.queryByText("Quanto vale 1 UN em G?")).toBeNull());
+    expect(screen.queryByText("sem custo")).toBeNull();
+    expect(screen.getAllByText(/1,50/).length).toBeGreaterThan(0);
+  });
+
+  test("produto que já tem conversão diferente: avisa e só troca depois de confirmar", async () => {
+    vi.mocked(searchDishProducts).mockResolvedValue([
+      { id: "p-abacaxi", externalCode: "7", name: "ABACAXI", unit: "UN", averageCost: 6, conversions: [], embalagemInferida: null },
+    ]);
+    vi.mocked(saveDishProductConversion)
+      .mockRejectedValueOnce(new ApiError("Este produto já tem conversão cadastrada (1 KG = 0,2 UN). Confirme para substituir.", 409))
+      .mockResolvedValueOnce({ conversions: [{ fromUnit: "G", toUnit: "UN", factor: 1 / 1200 }, { fromUnit: "KG", toUnit: "UN", factor: 1 / 1.2 }], embalagemInferida: null });
+    await abrir();
+    fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
+    await screen.findByRole("heading", { name: "Novo prato" });
+    fireEvent.change(screen.getByRole("combobox", { name: /Buscar produto/ }), { target: { value: "aba" } });
+    fireEvent.click(await screen.findByRole("option", { name: /ABACAXI/ }));
+    fireEvent.change(screen.getByLabelText("Unidade de ABACAXI"), { target: { value: "G" } });
+    fireEvent.change(screen.getByLabelText("Quantos G tem 1 UN de ABACAXI"), { target: { value: "1200" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Salvar conversão" }));
+    expect(await screen.findByText(/já tem conversão cadastrada/)).toBeInTheDocument();
+    expect(vi.mocked(saveDishProductConversion).mock.calls[0][1]).toEqual({ unit: "G", amount: 1200 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Substituir mesmo assim" }));
+    await waitFor(() => expect(vi.mocked(saveDishProductConversion).mock.calls[1][1]).toEqual({ unit: "G", amount: 1200, replace: true }));
+    await waitFor(() => expect(screen.queryByText("Quanto vale 1 UN em G?")).toBeNull());
+  });
+
+  test("conversão lida do nome que não bate: dá para informar o valor certo", async () => {
+    vi.mocked(searchDishProducts).mockResolvedValue([{
+      id: "p-arroz", externalCode: "5", name: "ARROZ 5KG C/6", unit: "UN", averageCost: 30,
+      conversions: [{ fromUnit: "KG", toUnit: "UN", factor: 0.2, inferida: true }, { fromUnit: "G", toUnit: "UN", factor: 0.0002, inferida: true }],
+      embalagemInferida: "1 UN = 5 KG (lido do nome do produto)",
+    }]);
+    vi.mocked(saveDishProductConversion).mockResolvedValue({
+      conversions: [{ fromUnit: "UN", toUnit: "G", factor: 30000 }, { fromUnit: "UN", toUnit: "KG", factor: 30 }],
+      embalagemInferida: null,
+    });
+    await abrir();
+    fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
+    await screen.findByRole("heading", { name: "Novo prato" });
+    fireEvent.change(screen.getByRole("combobox", { name: /Buscar produto/ }), { target: { value: "arr" } });
+    fireEvent.click(await screen.findByRole("option", { name: /ARROZ/ }));
+    expect((screen.getByLabelText("Unidade de ARROZ 5KG C/6") as HTMLSelectElement).value).toBe("G");
+
+    fireEvent.click(screen.getByRole("button", { name: "Não bate? Informar o valor certo" }));
+    fireEvent.change(screen.getByLabelText("Quantos G tem 1 UN de ARROZ 5KG C/6"), { target: { value: "30000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar conversão" }));
+    await waitFor(() => expect(saveDishProductConversion).toHaveBeenCalledWith("p-arroz", { unit: "G", amount: 30000 }));
+    await waitFor(() => expect(screen.queryByText(/lido do nome do produto/)).toBeNull());
+  });
+
+  test("falha ao salvar a conversão mostra a mensagem e mantém o campo", async () => {
+    vi.mocked(searchDishProducts).mockResolvedValue([
+      { id: "p-abacaxi", externalCode: "7", name: "ABACAXI", unit: "UN", averageCost: 6, conversions: [], embalagemInferida: null },
+    ]);
+    vi.mocked(saveDishProductConversion).mockRejectedValue(new Error("Perfil sem permissao para acessar este recurso."));
+    await abrir();
+    fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
+    await screen.findByRole("heading", { name: "Novo prato" });
+    fireEvent.change(screen.getByRole("combobox", { name: /Buscar produto/ }), { target: { value: "aba" } });
+    fireEvent.click(await screen.findByRole("option", { name: /ABACAXI/ }));
+    fireEvent.change(screen.getByLabelText("Unidade de ABACAXI"), { target: { value: "G" } });
+    fireEvent.change(screen.getByLabelText("Quantos G tem 1 UN de ABACAXI"), { target: { value: "1200" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar conversão" }));
+    expect(await screen.findByText(/Perfil sem permissao/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Quantos G tem 1 UN de ABACAXI")).toHaveValue(1200);
+  });
+
+  test("produto cotado em KG já abre em gramas e em L já abre em ml", async () => {
+    vi.mocked(searchDishProducts).mockResolvedValue([
+      { id: "p1", externalCode: null, name: "ALCATRA", unit: "KG", averageCost: 56, conversions: [], embalagemInferida: null },
+      { id: "p2", externalCode: null, name: "AZEITE", unit: "L", averageCost: 38, conversions: [], embalagemInferida: null },
+    ]);
+    await abrir();
+    fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
+    await screen.findByRole("heading", { name: "Novo prato" });
+    const busca = screen.getByRole("combobox", { name: /Buscar produto/ });
+    fireEvent.change(busca, { target: { value: "a" } });
+    fireEvent.click(await screen.findByRole("option", { name: /ALCATRA/ }));
+    fireEvent.change(busca, { target: { value: "az" } });
+    fireEvent.click(await screen.findByRole("option", { name: /AZEITE/ }));
+    expect((screen.getByLabelText("Unidade de ALCATRA") as HTMLSelectElement).value).toBe("G");
+    expect((screen.getByLabelText("Unidade de AZEITE") as HTMLSelectElement).value).toBe("ML");
   });
 
   test("custo muito acima do preço avisa para conferir as unidades", async () => {
     vi.mocked(searchDishProducts).mockResolvedValue([
-      { id: "p2", externalCode: null, name: "ARROZ 1KG", unit: "UN", averageCost: 27, conversions: [] },
+      { id: "p2", externalCode: null, name: "ARROZ 1KG", unit: "UN", averageCost: 27, conversions: [], embalagemInferida: null },
     ]);
     await abrir();
     fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
@@ -350,7 +496,7 @@ describe("formulário", () => {
 
   test("Enter num campo não salva a ficha; na quantidade ele leva à busca do próximo ingrediente", async () => {
     vi.mocked(searchDishProducts).mockResolvedValue([
-      { id: "p-novo", externalCode: "9", name: "FARINHA", unit: "KG", averageCost: 5, conversions: [] },
+      { id: "p-novo", externalCode: "9", name: "FARINHA", unit: "KG", averageCost: 5, conversions: [], embalagemInferida: null },
     ]);
     await abrir();
     fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);

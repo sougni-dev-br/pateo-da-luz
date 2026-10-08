@@ -4071,6 +4071,8 @@ export type DishIngredient = {
   itemCost: number | null;
   issue: string | null;
   conversions: DishUnitConversion[];
+  /** "1 UN = 5 KG (lido do nome do produto)" quando a conversão veio do nome. */
+  embalagemInferida: string | null;
   notes: string | null;
   sortOrder: number;
 };
@@ -4160,6 +4162,8 @@ export type DishUnitConversion = {
   fromUnit: string;
   toUnit: string;
   factor: number;
+  /** true quando o fator foi lido do nome do produto, não cadastrado. */
+  inferida?: boolean;
 };
 
 export type DishProductSearchResult = {
@@ -4170,7 +4174,16 @@ export type DishProductSearchResult = {
   unit: string | null;
   averageCost: number;
   conversions: DishUnitConversion[];
+  embalagemInferida: string | null;
 };
+
+/** "1 UN = 1.200 G": grava a conversão no produto e devolve a lista efetiva para a ficha. */
+export function saveDishProductConversion(productId: string, payload: { unit: string; amount: number; replace?: boolean }) {
+  return request<{ conversions: DishUnitConversion[]; embalagemInferida: string | null }>(
+    `/dishes/products/${productId}/conversions`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+}
 
 export function searchDishProducts(search: string) {
   return request<DishProductSearchResult[]>(`/dishes/products/search${toQueryString({ search })}`);

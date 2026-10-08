@@ -11,7 +11,8 @@ vi.mock("../../../config/database.js", () => {
     dish: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     dishItem: { createMany: vi.fn(), deleteMany: vi.fn() },
     dishCategory: { findMany: vi.fn() },
-    product: { findMany: vi.fn() },
+    product: { findMany: vi.fn(), findUnique: vi.fn() },
+    productUnitConversion: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     $transaction: vi.fn()
   };
   return { prisma };
@@ -195,6 +196,90 @@ describe("inativar e reativar", () => {
   });
 });
 
+describe("conversão informada na ficha", () => {
+  const abacaxi = { id: "p9", name: "ABACAXI", unit: "UN", stockUnit: null };
+  const gravadas = [
+    { fromUnit: "UN", toUnit: "G", factor: 1200 },
+    { fromUnit: "UN", toUnit: "KG", factor: 1.2 }
+  ];
+
+  // 1ª chamada de findMany: linhas existentes (checagem de conflito); 2ª: o que ficou gravado.
+  function existentes(linhas: object[]) {
+    db.productUnitConversion.findMany.mockReset();
+    db.productUnitConversion.findMany.mockResolvedValueOnce(linhas).mockResolvedValue(gravadas);
+  }
+
+  beforeEach(() => {
+    db.product.findUnique.mockResolvedValue(abacaxi);
+    db.productUnitConversion.deleteMany.mockResolvedValue({ count: 0 });
+    db.productUnitConversion.createMany.mockResolvedValue({ count: 2 });
+    existentes([]);
+  });
+
+  test("1 UN = 1200 g grava estoque→g e estoque→kg, na direção exata, e devolve as conversões", async () => {
+    const r = await request(app).post("/dishes/products/p9/conversions").send({ unit: "g", amount: 1200 });
+    expect(r.status).toBe(200);
+    expect(db.productUnitConversion.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({ productId: "p9", fromUnit: "UN", toUnit: "G", factor: 1200 }),
+        expect.objectContaining({ productId: "p9", fromUnit: "UN", toUnit: "KG", factor: 1.2 })
+      ]
+    });
+    expect(r.body.conversions).toHaveLength(2);
+    expect(r.body.embalagemInferida).toBeNull();
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "UPSERT_CONVERSION", entityId: "p9" }));
+  });
+
+  test("conversão cadastrada que diverge: 409 com aviso, sem gravar nada", async () => {
+    existentes([{ id: "c1", fromUnit: "KG", toUnit: "UN", factor: 0.2, isActive: true }]); // 1 UN = 5 kg
+    const r = await request(app).post("/dishes/products/p9/conversions").send({ unit: "G", amount: 4800 });
+    expect(r.status).toBe(409);
+    expect(r.body.message).toMatch(/já tem conversão cadastrada/);
+    expect(r.body.message).toMatch(/compras e a contagem/);
+    expect(db.productUnitConversion.createMany).not.toHaveBeenCalled();
+    expect(db.productUnitConversion.deleteMany).not.toHaveBeenCalled();
+  });
+
+  test("com replace, troca: apaga as antigas da grandeza (inclusive grafias e inativas) e grava as novas", async () => {
+    existentes([
+      { id: "c1", fromUnit: "KG", toUnit: "UN", factor: 0.2, isActive: true },
+      { id: "c2", fromUnit: "GR", toUnit: "UND", factor: 0.0002, isActive: false },
+      { id: "c3", fromUnit: "CX", toUnit: "UN", factor: 12, isActive: true } // outra grandeza: fica
+    ]);
+    const r = await request(app).post("/dishes/products/p9/conversions").send({ unit: "G", amount: 4800, replace: true });
+    expect(r.status).toBe(200);
+    expect(db.productUnitConversion.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ["c1", "c2"] } } });
+    expect(db.productUnitConversion.createMany).toHaveBeenCalledTimes(1);
+  });
+
+  test("conversão já cadastrada com o mesmo valor não é conflito", async () => {
+    existentes([{ id: "c1", fromUnit: "UN", toUnit: "G", factor: 1200, isActive: true }]);
+    const r = await request(app).post("/dishes/products/p9/conversions").send({ unit: "G", amount: 1200 });
+    expect(r.status).toBe(200);
+  });
+
+  test("unidade fora de g/kg/ml/l, igual à do estoque ou da mesma grandeza é recusada sem gravar", async () => {
+    expect((await request(app).post("/dishes/products/p9/conversions").send({ unit: "colher", amount: 10 })).status).toBe(400);
+    expect((await request(app).post("/dishes/products/p9/conversions").send({ unit: "UN", amount: 10 })).status).toBe(400);
+    db.product.findUnique.mockResolvedValue({ id: "p8", name: "FRANGO", unit: "KG", stockUnit: null });
+    expect((await request(app).post("/dishes/products/p8/conversions").send({ unit: "G", amount: 1000 })).status).toBe(400);
+    expect(db.productUnitConversion.createMany).not.toHaveBeenCalled();
+  });
+
+  test("quantidade zero, negativa, ausente, gigante ou minúscula é recusada", async () => {
+    for (const amount of [0, -5, undefined, "abc", 5_000_000, 0.0000001]) {
+      const r = await request(app).post("/dishes/products/p9/conversions").send({ unit: "G", amount });
+      expect(r.status).toBe(400);
+    }
+    expect(db.productUnitConversion.createMany).not.toHaveBeenCalled();
+  });
+
+  test("produto inexistente responde 404", async () => {
+    db.product.findUnique.mockResolvedValue(null);
+    expect((await request(app).post("/dishes/products/x/conversions").send({ unit: "G", amount: 10 })).status).toBe(404);
+  });
+});
+
 describe("leitura", () => {
   const produto = {
     id: "p1", externalCode: "001", name: "CAMARAO", unit: "KG", stockUnit: null,
@@ -231,6 +316,37 @@ describe("leitura", () => {
       expect.objectContaining({ storeName: "Pateo Frei Caneca", price: 49.9 }),
       expect.objectContaining({ storeName: null, price: 60.9 })
     ]);
+  });
+
+  test("estoque em UN com peso no nome: a ficha aceita gramas e calcula o custo certo", async () => {
+    const farinha = { ...produto, id: "p2", name: "FARINHA TRIGO 5KG", unit: "UN", stockUnit: null, inventoryStock: { averageCost: 25, currentQuantity: 3 } };
+    db.dish.findUnique.mockResolvedValue({
+      ...prato, listings: [],
+      items: [{ id: "i2", productId: "p2", product: farinha, quantity: 500, unit: "G", wasteFactor: 0, notes: null, sortOrder: 0 }]
+    });
+    const r = await request(app).get("/dishes/d1");
+    // 500 g de uma embalagem de 5 kg a R$ 25 = 0,1 UN = R$ 2,50
+    expect(r.body.items[0].itemCost).toBeCloseTo(2.5);
+    expect(r.body.items[0].issue).toBeNull();
+    expect(r.body.items[0].embalagemInferida).toBe("1 UN = 5 KG (lido do nome do produto)");
+    expect(r.body.items[0].conversions.filter((c: { inferida?: boolean }) => c.inferida)).toHaveLength(2);
+    expect(r.body.custoIncompleto).toBe(false);
+  });
+
+  test("a busca de produto já devolve a conversão inferida para a tela prever o custo", async () => {
+    db.product.findMany.mockResolvedValue([{ id: "p2", externalCode: "381", name: "FARINHA TRIGO 5KG", unit: "UN", stockUnit: null, inventoryStock: { averageCost: 25 }, conversions: [] }]);
+    const r = await request(app).get("/dishes/products/search?search=farinha");
+    expect(r.body[0]).toMatchObject({ unit: "UN", embalagemInferida: "1 UN = 5 KG (lido do nome do produto)" });
+    expect(r.body[0].conversions).toEqual(expect.arrayContaining([expect.objectContaining({ fromUnit: "G", toUnit: "UN", inferida: true })]));
+  });
+
+  test("sem peso no nome e sem cadastro, continua sem conversão (nada é chutado)", async () => {
+    const cebola = { ...produto, id: "p3", name: "CEBOLA", unit: "UN", stockUnit: null };
+    db.dish.findUnique.mockResolvedValue({ ...prato, listings: [], items: [{ id: "i3", productId: "p3", product: cebola, quantity: 100, unit: "G", wasteFactor: 0, notes: null, sortOrder: 0 }] });
+    const r = await request(app).get("/dishes/d1");
+    expect(r.body.items[0].itemCost).toBeNull();
+    expect(r.body.custoIncompleto).toBe(true);
+    expect(r.body.items[0].embalagemInferida).toBeNull();
   });
 
   test("categorias trazem quantos pratos ativos cada uma tem", async () => {
