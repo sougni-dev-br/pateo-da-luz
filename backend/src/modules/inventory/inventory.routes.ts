@@ -4281,6 +4281,8 @@ inventoryRouter.get("/operational/:id/conferencia", async (request, response) =>
     sectorName: string | null;
     unit: string | null;
     contado: Prisma.Decimal | null;
+    contadoPor: string | null;
+    contadoEm: Date | null;
     anterior: Prisma.Decimal | null;
     anteriorData: Date | null;
     anteriorCodigo: string | null;
@@ -4349,6 +4351,7 @@ inventoryRouter.get("/operational/:id/conferencia", async (request, response) =>
     )
     SELECT alvo."id" AS "itemId", alvo."productId", alvo."productCode", alvo."productName",
            alvo."sectorName", alvo."unit", alvo."countedQuantity" AS contado,
+           quem."name" AS "contadoPor", alvo."countedAt" AS "contadoEm",
            anterior."countedQuantity" AS anterior, anterior.dia AS "anteriorData", anterior."code" AS "anteriorCodigo",
            compras.quantidade AS compras, compras.custo AS "custoCompras", base."unitCost" AS "custoBase",
            historico.mediana, historico.menor, historico.maior, historico.observacoes
@@ -4356,6 +4359,7 @@ inventoryRouter.get("/operational/:id/conferencia", async (request, response) =>
     LEFT JOIN anterior ON anterior."productId" = alvo."productId"
     LEFT JOIN compras ON compras."productId" = alvo."productId"
     LEFT JOIN historico ON historico."productId" = alvo."productId"
+    LEFT JOIN "User" quem ON quem."id" = alvo."countedByUserId"
     LEFT JOIN LATERAL (
       SELECT si."unitCost"
       FROM "InventorySnapshotItem" si
@@ -4394,6 +4398,8 @@ inventoryRouter.get("/operational/:id/conferencia", async (request, response) =>
       sectorName: row.sectorName,
       unit: row.unit,
       contado: numero(row.contado),
+      contadoPor: row.contadoPor,
+      contadoEm: row.contadoEm,
       anterior: numero(row.anterior),
       anteriorData: row.anteriorData,
       anteriorCodigo: row.anteriorCodigo,
@@ -4410,6 +4416,63 @@ inventoryRouter.get("/operational/:id/conferencia", async (request, response) =>
     resumo: resumirConferencia(ordenados),
     itens: ordenados
   });
+});
+
+// Notas de compra que a conferencia somou para um item: quem revisa precisa ver
+// de quem, quando e em que unidade entrou (55 dos 123 alertas de set/2026 tinham
+// mais de uma nota). Mesmo periodo e mesmas regras da conferencia.
+inventoryRouter.get("/operational/:id/conferencia/:itemId/compras", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  const notas = await prisma.$queryRaw<Array<{
+    purchaseId: string;
+    numero: string | null;
+    notaFiscal: string | null;
+    fornecedor: string | null;
+    data: Date;
+    quantidade: Prisma.Decimal;
+    unidade: string | null;
+    quantidadeConvertida: Prisma.Decimal | null;
+    unidadeConvertida: string | null;
+    valor: Prisma.Decimal | null;
+  }>>`
+    WITH atual AS (
+      SELECT i."productId", COALESCE(o."effectiveCountDate", o."date")::date AS dia, o."id" AS "inventoryId"
+      FROM "OperationalInventoryItem" i
+      JOIN "OperationalInventory" o ON o."id" = i."inventoryId"
+      WHERE i."id" = ${request.params.itemId} AND o."id" = ${request.params.id}
+    ),
+    anterior AS (
+      SELECT MAX(COALESCE(o."effectiveCountDate", o."date")::date) AS dia
+      FROM "OperationalInventoryItem" i
+      JOIN "OperationalInventory" o ON o."id" = i."inventoryId"
+      CROSS JOIN atual
+      WHERE i."productId" = atual."productId" AND o."status" IN ('APROVADO', 'FECHADO') AND o."id" <> atual."inventoryId"
+        AND i."countedQuantity" IS NOT NULL AND COALESCE(o."effectiveCountDate", o."date")::date < atual.dia
+    )
+    SELECT p."id" AS "purchaseId", p."purchaseNumber" AS numero, p."invoiceNumber" AS "notaFiscal", s."name" AS fornecedor,
+           COALESCE(p."receivedAt", p."purchaseDate")::date AS data,
+           pi."quantity" AS quantidade, pi."unit" AS unidade, pi."convertedQuantity" AS "quantidadeConvertida",
+           pi."convertedUnit" AS "unidadeConvertida", pi."totalPrice" AS valor
+    FROM "PurchaseItem" pi
+    JOIN "Purchase" p ON p."id" = pi."purchaseId"
+    LEFT JOIN "Supplier" s ON s."id" = p."supplierId"
+    CROSS JOIN atual
+    CROSS JOIN anterior
+    WHERE pi."productId" = atual."productId"
+      AND p."status" = 'ACTIVE' AND p."workflowStatus" = 'confirmed'
+      AND anterior.dia IS NOT NULL
+      AND COALESCE(p."receivedAt", p."purchaseDate")::date > anterior.dia
+      AND COALESCE(p."receivedAt", p."purchaseDate")::date <= atual.dia
+    ORDER BY data, p."purchaseNumber"
+  `;
+  const numero = (valor: Prisma.Decimal | null) => (valor == null ? null : Number(valor));
+  response.json(notas.map((nota) => ({
+    ...nota,
+    quantidade: Number(nota.quantidade),
+    quantidadeConvertida: numero(nota.quantidadeConvertida),
+    valor: numero(nota.valor)
+  })));
 });
 
 inventoryRouter.patch("/operational/:id/items", async (request, response) => {
