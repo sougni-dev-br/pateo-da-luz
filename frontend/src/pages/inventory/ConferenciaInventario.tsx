@@ -790,14 +790,22 @@ function MarcacaoDoItem({ item, podeMarcar, onMarcar }: MarcacaoProps) {
         </button>
       ))}
       {justificando ? (
-        <form className="conf-marcar__outro" onSubmit={(e) => { e.preventDefault(); if (observacao) void enviar("OUTRO", observacao); }}>
+        // O caminho mais comum e concordar com a contagem e dizer por que:
+        // Enter (ou "Salvar") grava "Esta certo" com o texto. Os outros motivos
+        // continuam nos botoes acima, levando o mesmo texto.
+        <form className="conf-marcar__outro" onSubmit={(e) => { e.preventDefault(); if (observacao) void enviar("CORRETO", observacao); }}>
           {campoDaJustificativa}
-          <button type="submit" className="secondary-button" disabled={!observacao || enviando}>Outro</button>
+          <button type="submit" className="primary-button" aria-label="Salvar como Está certo" disabled={!observacao || enviando}>Salvar</button>
+          <button type="button" className="secondary-button" disabled={!observacao || enviando} onClick={() => { if (observacao) void enviar("OUTRO", observacao); }}>Outro</button>
         </form>
       ) : (
         <button type="button" className="conf-marcar__opcao" disabled={enviando} onClick={() => setJustificando(true)}>Justificar…</button>
       )}
-      {justificando && <small className="conf-marcar__dica">Escreva e escolha o motivo acima, ou "Outro".</small>}
+      {justificando && (
+        <small className="conf-marcar__dica">
+          "Salvar" (ou Enter) marca como <strong>Está certo</strong> com este texto. Se o motivo for outro, clique nele acima.
+        </small>
+      )}
     </div>
   );
 }
