@@ -314,6 +314,26 @@ export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionCl
   return results;
 }
 
+type LinhaDeFatura = {
+  description: string;
+  value: Prisma.Decimal | number | string;
+  purchaseId: string | null;
+  purchase: { status: string } | null;
+};
+
+/**
+ * Linhas que nao tem compra ativa por tras. O titulo da fatura fica fora do DRE
+ * (ver excludeAggregatorsSql) porque a despesa ja esta nas compras de cada linha;
+ * uma linha avulsa — anuidade, juros, linha lancada a mao — nao teria onde
+ * aparecer, e o gasto sairia do caixa sem entrar no resultado. Fechar a fatura
+ * exige que essa lista esteja vazia.
+ */
+export function linhasSemCompraAtiva(linhas: LinhaDeFatura[]) {
+  return linhas
+    .filter((linha) => !linha.purchaseId || linha.purchase?.status !== "ACTIVE")
+    .map((linha) => ({ description: linha.description, value: Number(linha.value ?? 0) }));
+}
+
 export async function createCardStatementPurchase(tx: Prisma.TransactionClient, input: {
   statementId: string;
   card: CardRow;

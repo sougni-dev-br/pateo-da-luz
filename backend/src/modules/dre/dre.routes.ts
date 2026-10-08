@@ -12,6 +12,7 @@ import {
   getCmvPurchaseTotalByPurchaseDateRange,
   type CmvVisionKey,
 } from "../cmv-real/cmv-purchase-base.service.js";
+import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
 
 export const dreRouter = Router();
 
@@ -205,8 +206,13 @@ function expensePredicateByMode(mode: CmvVisionKey) {
     : Prisma.sql`COALESCE(dc."dreGroup", '') <> 'CMV_COMPRAS'`;
 }
 
-// Parte A da despesa = nota SEM itens (servico, despesa fixa, agregador de
-// ciclo). Era reconhecida por pagamento, com fallback no vencimento: regime de
+// Titulo de ciclo de fornecedor ou de fatura de cartao repete compras que ja
+// estao no CMV ou na Parte B pelos itens delas. Medido em producao em 08/10/2026:
+// a Parte A de jun–set era 100% desses titulos — R$ 69.375,96 de despesa
+// contada duas vezes. Vale para a soma, o detalhamento e as pendencias.
+const semTituloDeAgregador = excludeAggregatorsSql("p");
+
+// Parte A da despesa = nota SEM itens (servico, despesa fixa). Era reconhecida por pagamento, com fallback no vencimento: regime de
 // caixa dentro de um relatorio de competencia. Em 06/2026 isso mostrava R$ 0,00
 // no DRE contra R$ 19.072,70 por competencia.
 function filtroDespesaSemItens(competencia: Competencia | null, from: Date, to: Date) {
@@ -351,6 +357,7 @@ async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
         LEFT JOIN "DRECategory" dc ON dc.id = pi."dreCategory"
         WHERE p.status = 'ACTIVE'
           AND pi.status NOT IN ('CANCELLED')
+          AND ${semTituloDeAgregador}
           AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" px WHERE px."purchaseId" = p.id)
           AND ${filtroDespesaSemItens(competencia, from, to)}
         GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
@@ -405,6 +412,7 @@ async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
         LEFT JOIN "DRECategory" dc ON dc.id = pi."dreCategory"
         WHERE p.status = 'ACTIVE'
           AND pi.status NOT IN ('CANCELLED')
+          AND ${semTituloDeAgregador}
           AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" px WHERE px."purchaseId" = p.id)
           AND ${filtroDespesaSemItens(competencia, from, to)}
         GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
@@ -708,6 +716,7 @@ dreRouter.get("/expense-drill", async (request, response) => {
       LEFT JOIN "DRECategory" dc ON dc.id = pi."dreCategory"
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
+        AND ${semTituloDeAgregador}
         AND pi."dreCategory" = ${dreCategoryId}
         AND (
           (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${range.from} AND pi."paidDate" <= ${range.to})
@@ -739,6 +748,7 @@ dreRouter.get("/expense-drill", async (request, response) => {
       JOIN "Supplier" s ON s.id = p."supplierId"
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
+        AND ${semTituloDeAgregador}
         AND pi."dreCategory" IS NULL
         AND (
           (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${range.from} AND pi."paidDate" <= ${range.to})
@@ -979,6 +989,7 @@ dreRouter.get("/pending", async (request, response) => {
       JOIN "Supplier"  s ON s.id = p."supplierId"
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
+        AND ${semTituloDeAgregador}
         AND pi."dreCategory" IS NULL
         AND (
           (pi."paidDate"  IS NOT NULL AND pi."paidDate"  >= ${range.from} AND pi."paidDate"  <= ${range.to})
@@ -1003,6 +1014,7 @@ dreRouter.get("/pending", async (request, response) => {
       JOIN "Supplier"  s ON s.id = p."supplierId"
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
+        AND ${semTituloDeAgregador}
         AND pi."dreCategory" IS NULL
         AND (
           (pi."paidDate"  IS NOT NULL AND pi."paidDate"  >= ${range.from} AND pi."paidDate"  <= ${range.to})
