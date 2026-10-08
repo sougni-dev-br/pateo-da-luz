@@ -7,6 +7,7 @@ import { auditLog, getSessionUser, requestIp, requireRole, type SessionUser } fr
 import { userHasPermission } from "../security/menu-permissions.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
 import { employeeFullName, employeeToSupplierDraft, onlyDigits } from "./employee-supplier.js";
+import { nextSupplierCode } from "./supplier-code.js";
 
 export const supplierRouter = Router();
 
@@ -90,21 +91,6 @@ async function findSupplierRow(id: string) {
     WHERE "id" = ${id}
   `;
   return supplier;
-}
-
-async function nextSupplierCode() {
-  await prisma.$executeRaw`
-    INSERT INTO "SupplierSequence" ("id", "currentValue", "updatedAt")
-    VALUES (1, 0, CURRENT_TIMESTAMP)
-    ON CONFLICT ("id") DO NOTHING
-  `;
-  const [row] = await prisma.$queryRaw<Array<{ currentValue: number }>>`
-    UPDATE "SupplierSequence"
-    SET "currentValue" = "currentValue" + 1, "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = 1
-    RETURNING "currentValue"
-  `;
-  return `FOR-${String(row.currentValue).padStart(6, "0")}`;
 }
 
 supplierRouter.get("/", async (request, response) => {
