@@ -2589,6 +2589,11 @@ export function addCardStatementItem(
   });
 }
 
+// Só linha avulsa (sem compra) em fatura aberta; linha de compra acompanha a compra.
+export function deleteCardStatementItem(statementId: string, itemId: string) {
+  return request<{ ok: boolean }>(`/cards/statements/${statementId}/items/${itemId}`, { method: "DELETE" });
+}
+
 export function updateCardStatementItem(statementId: string, itemId: string, payload: Partial<CreditCardStatementItem>) {
   return request<CreditCardStatementItem>(`/cards/statements/${statementId}/items/${itemId}`, {
     method: "PATCH",
