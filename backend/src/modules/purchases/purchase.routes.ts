@@ -15,13 +15,15 @@ import {
   paymentMethodAllowsInstallments
 } from "../../shared/utils/payment-methods.js";
 import { createPayablesFinancialPdf, type PayablesFinancialPdfRow } from "./payables-financial-pdf.js";
-import { auditLog, requestIp, requireAdmin, requireRole, type SessionUser } from "../security/security-utils.js";
+import { auditLog, getSessionUser, requestIp, requireAdmin, requireRole, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { composicaoParaTela } from "../payroll/salario-combinado-folha.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle, updatePurchaseInCycle } from "../suppliers/supplier-billing-cycle.service.js";
+import { REIMBURSEMENT_PAYMENT_TYPE, REIMBURSEMENT_SOURCE, ReimbursementError, ehCategoriaFuncionario } from "../reimbursements/reimbursement-rules.js";
+import { reabrirReembolsoDoAgregador, retirarCompraCancelada, sincronizarCompraNoReembolso, validarQuemPagou } from "../reimbursements/reimbursement.service.js";
 import { OFFICIAL_SMALL_EXPENSE_NORMALIZED_TYPES } from "../master-data/small-expense-type-options.js";
 import {
   buildReferenceLabel,
@@ -1100,6 +1102,8 @@ purchaseRouter.get("/payables/:id/history", async (request, response) => {
   response.json(rows);
 });
 
+class BaixaRecusada extends Error {}
+
 purchaseRouter.patch("/payables/:id/pay", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -1202,8 +1206,9 @@ purchaseRouter.patch("/payables/:id/pay", async (request, response) => {
 
   // A parcela e a fatura de cartao mudam juntas ou nao mudam: sem isto, falhar
   // entre as duas deixava o titulo baixado com a fatura ainda em aberto.
+  try {
   await prisma.$transaction(async (tx) => {
-  await tx.$executeRaw`
+  const baixou = await tx.$executeRaw`
     UPDATE "PaymentInstallment"
     SET "paidDate" = ${paidDate},
         "paidAmount" = ${paidAmount},
@@ -1220,7 +1225,14 @@ purchaseRouter.patch("/payables/:id/pay", async (request, response) => {
         "companyBankAccountId" = ${companyBankAccountId},
         "status" = ${nextStatus}
     WHERE "id" = ${request.params.id}
+      AND "status" NOT IN ('CANCELLED', 'PAID', 'PAID_LATE')
+      AND "paidDate" IS NULL
+      AND EXISTS (SELECT 1 FROM "Purchase" p WHERE p."id" = "PaymentInstallment"."purchaseId" AND p."status" <> 'CANCELLED')
   `;
+  // A checagem la em cima le o titulo sem trava. Se ele foi cancelado (ex.: reembolso
+  // reaberto) ou baixado por outra pessoa nesse meio-tempo, nada e gravado aqui —
+  // senao o dinheiro sairia contra um titulo morto e o reembolso seria pago duas vezes.
+  if (baixou === 0) throw new BaixaRecusada();
 
   if (String(previous.sourceType ?? "DIRECT") === "CARD_STATEMENT") {
     await tx.$executeRaw`
@@ -1230,7 +1242,22 @@ purchaseRouter.patch("/payables/:id/pay", async (request, response) => {
         AND "status" IN ('CLOSED', 'PAID')
     `;
   }
+  if (String(previous.sourceType ?? "DIRECT") === REIMBURSEMENT_SOURCE) {
+    await tx.$executeRaw`
+      UPDATE "ReimbursementReport"
+      SET "status" = 'PAID', "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "generatedPurchaseId" = ${previous.purchaseId}
+        AND "status" IN ('CLOSED', 'PAID')
+    `;
+  }
   }, { timeout: 60_000, maxWait: 15_000 });
+  } catch (error) {
+    if (error instanceof BaixaRecusada) {
+      response.status(409).json({ message: "Este titulo foi cancelado ou baixado por outra pessoa agora ha pouco. Nada foi baixado; recarregue a tela." });
+      return;
+    }
+    throw error;
+  }
 
   await auditLog({
     userId: user.id,
@@ -1312,6 +1339,14 @@ purchaseRouter.patch("/payables/:id/reverse", async (request, response) => {
         AND "status" = 'PAID'
     `;
   }
+  if (String(previous.sourceType ?? "DIRECT") === REIMBURSEMENT_SOURCE) {
+    await tx.$executeRaw`
+      UPDATE "ReimbursementReport"
+      SET "status" = 'CLOSED', "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "generatedPurchaseId" = ${previous.purchaseId}
+        AND "status" = 'PAID'
+    `;
+  }
   }, { timeout: 60_000, maxWait: 15_000 });
 
   await auditLog({
@@ -1326,6 +1361,21 @@ purchaseRouter.patch("/payables/:id/reverse", async (request, response) => {
   });
 
   response.json({ id: request.params.id, status: "OPEN" });
+});
+
+// "Quem pagou" na compra paga do bolso de um funcionario. So id e nome: CPF e PIX
+// ficam no cadastro do fornecedor. O acesso e o de Compras (middleware).
+purchaseRouter.get("/reimbursement-payees", async (request, response) => {
+  if (!(await getSessionUser(request))) {
+    response.status(401).json({ message: "Sessao obrigatoria." });
+    return;
+  }
+  const rows = await prisma.$queryRaw<Array<{ id: string; name: string; mainCategory: string | null }>>`
+    SELECT "id", "name", "mainCategory" FROM "Supplier"
+    WHERE "isActive" = true AND "mainCategory" IS NOT NULL
+    ORDER BY "name"
+  `;
+  response.json(rows.filter((row) => ehCategoriaFuncionario(row.mainCategory)).map(({ id, name }) => ({ id, name })));
 });
 
 purchaseRouter.get("/duplicate-check", async (request, response) => {
@@ -1429,6 +1479,7 @@ purchaseRouter.post("/", async (request, response) => {
   const smallExpenseMoneyOrigin = asNullableText(request.body.smallExpenseMoneyOrigin);
   const smallExpenseNotes = asNullableText(request.body.smallExpenseNotes ?? request.body.notes);
   const creditCardId = request.body.creditCardId ? String(request.body.creditCardId) : null;
+  const reimbursementPayeeInput = asNullableText(request.body.reimbursementPayeeId);
   // Rotulo de origem, so descritivo. Cortado em 200 caracteres porque vai para
   // uma coluna de texto e nao deve virar campo livre para payload grande.
   const sourceFile = asNullableText(request.body.sourceFile)?.slice(0, 200) ?? null;
@@ -1530,11 +1581,24 @@ purchaseRouter.post("/", async (request, response) => {
     paymentMethodType = pmRow?.type ?? null;
   }
   const isNormalCreditCard = !isSmallExpense && paymentMethodType === "CREDIT_CARD";
+  // Pago do bolso de um funcionario: a compra fica com a loja e a data dela e vai
+  // para o reembolso da pessoa, que gera o titulo ao ser fechado. Sem parcela aqui.
+  const isReimbursement = paymentMethodType === REIMBURSEMENT_PAYMENT_TYPE;
+  const reimbursementPayeeId = isReimbursement ? reimbursementPayeeInput : null;
+  if (isReimbursement && !reimbursementPayeeId) {
+    await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Informe quem pagou a compra (reembolso)." });
+    return;
+  }
+  if (isReimbursement && creditCardId) {
+    await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Compra de reembolso nao vai para fatura de cartao." });
+    return;
+  }
+  if (reimbursementPayeeId) await validarQuemPagou(prisma, reimbursementPayeeId, supplierId);
 
   const [supplierBillingRow] = await prisma.$queryRaw<Array<{ billingMode: string }>>`
     SELECT "billingMode" FROM "Supplier" WHERE "id" = ${supplierId} LIMIT 1
   `;
-  const isCycleSupplier = !isSmallExpense && !isNormalCreditCard && supplierBillingRow?.billingMode === "CYCLE";
+  const isCycleSupplier = !isSmallExpense && !isNormalCreditCard && !isReimbursement && supplierBillingRow?.billingMode === "CYCLE";
 
   if (isNormalCreditCard && !creditCardId) {
     await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Selecione o cartao para compras no cartao de credito." });
@@ -1558,7 +1622,7 @@ purchaseRouter.post("/", async (request, response) => {
     return;
   }
 
-  let installments = parseManualInstallmentPayload(request.body.installments ?? request.body.dueDates, totalAmount);
+  let installments = isReimbursement ? [] : parseManualInstallmentPayload(request.body.installments ?? request.body.dueDates, totalAmount);
   const basePaymentMethodName = getPaymentMethodBaseName(paymentMethodName) ?? paymentMethodName;
   const effectiveSmallExpenseOrigin = smallExpenseMoneyOrigin ?? basePaymentMethodName ?? "Forma de pagamento informada";
   const effectiveSmallExpenseResponsible = smallExpenseResponsibleName ?? user.name;
@@ -1578,7 +1642,7 @@ purchaseRouter.post("/", async (request, response) => {
         "cartao credito"
       ].includes(originNormalized))
     : false;
-  if (!isSmallExpense && !isNormalCreditCard && !isCycleSupplier && installments.length === 0) {
+  if (!isSmallExpense && !isNormalCreditCard && !isCycleSupplier && !isReimbursement && installments.length === 0) {
     await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Informe os vencimentos conforme a forma de pagamento." });
     return;
   }
@@ -1592,7 +1656,7 @@ purchaseRouter.post("/", async (request, response) => {
     return;
   }
 
-  if (isSmallExpense && installments.length === 0 && ["caixa", "dinheiro", "pix", "cartao de debito", "cartao debito"].includes(originNormalized)) {
+  if (isSmallExpense && !isReimbursement && installments.length === 0 && ["caixa", "dinheiro", "pix", "cartao de debito", "cartao debito"].includes(originNormalized)) {
     installments = [
       {
         installment: 1,
@@ -1667,6 +1731,7 @@ purchaseRouter.post("/", async (request, response) => {
         paymentMethod: basePaymentMethodName,
         paymentMethodId,
         creditCardId,
+        reimbursementPayeeId,
         totalAmount: new Prisma.Decimal(totalAmount),
         isSmallExpense,
         smallExpenseTypeId,
@@ -1777,6 +1842,8 @@ purchaseRouter.post("/", async (request, response) => {
       });
     }
 
+    await sincronizarCompraNoReembolso(tx, { purchaseId: purchase.id, payeeId: reimbursementPayeeId, amount: totalAmount, purchaseDate, userId: user.id });
+
     if (creditCardId) {
       const [supplierRow] = await tx.$queryRaw<Array<{ name: string }>>`
         SELECT "name" FROM "Supplier" WHERE "id" = ${supplierId} LIMIT 1
@@ -1852,6 +1919,10 @@ purchaseRouter.post("/", async (request, response) => {
 
   response.status(201).json(result);
   } catch (error) {
+    if (error instanceof ReimbursementError) {
+      response.status(error.status).json({ message: error.message });
+      return;
+    }
     if (isPurchaseReferenceUniqueError(error)) {
       const duplicateCheck = await findPurchaseReferenceMatches(prisma, { supplierId, invoiceNumber, purchaseOrderNumber });
       const duplicate = duplicateCheck.activeDuplicate ?? duplicateCheck.cancelledDuplicate;
@@ -1936,6 +2007,7 @@ purchaseRouter.put("/:id", async (request, response) => {
   const smallExpenseMoneyOrigin = asNullableText(request.body.smallExpenseMoneyOrigin);
   const smallExpenseNotes = asNullableText(request.body.smallExpenseNotes ?? request.body.notes);
   const creditCardId = asNullableText(request.body.creditCardId);
+  const reimbursementPayeeInput = asNullableText(request.body.reimbursementPayeeId);
   const numberOfInstallments = Math.max(1, Math.floor(Number(request.body.numberOfInstallments ?? 1)));
   const validItems = items.map((item) => ({
     productId: String(item.productId ?? "").trim(),
@@ -2028,17 +2100,40 @@ purchaseRouter.put("/:id", async (request, response) => {
     updatePaymentMethodType = pmRow?.type ?? null;
   }
   const isNormalCreditCard = !isSmallExpense && updatePaymentMethodType === "CREDIT_CARD";
+  const isReimbursement = updatePaymentMethodType === REIMBURSEMENT_PAYMENT_TYPE;
+  const reimbursementPayeeId = isReimbursement ? reimbursementPayeeInput : null;
+  if (isReimbursement && !reimbursementPayeeId) {
+    response.status(400).json({ message: "Informe quem pagou a compra (reembolso)." });
+    return;
+  }
+  if (isReimbursement && creditCardId) {
+    response.status(400).json({ message: "Compra de reembolso nao vai para fatura de cartao." });
+    return;
+  }
+  if (isReimbursement) installments = [];
+  if (reimbursementPayeeId) await validarQuemPagou(prisma, reimbursementPayeeId, nextSupplierId);
+  // Compra que ja esta num ciclo de fornecedor seria cobrada duas vezes: no titulo do
+  // ciclo e no do funcionario. Tirar do ciclo primeiro.
+  if (isReimbursement) {
+    const [noCiclo] = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "SupplierBillingCycleItem" WHERE "purchaseId" = ${request.params.id} LIMIT 1
+    `;
+    if (noCiclo) {
+      response.status(409).json({ message: "Esta compra esta num ciclo de fornecedor. Tire-a do ciclo em Financeiro > Ciclos de fornecedor antes de marcar como reembolso." });
+      return;
+    }
+  }
 
   const [nextSupplierBillingRow] = await prisma.$queryRaw<Array<{ billingMode: string }>>`
     SELECT "billingMode" FROM "Supplier" WHERE "id" = ${nextSupplierId} LIMIT 1
   `;
-  const isCycleSupplier = !isSmallExpense && !isNormalCreditCard && nextSupplierBillingRow?.billingMode === "CYCLE";
+  const isCycleSupplier = !isSmallExpense && !isNormalCreditCard && !isReimbursement && nextSupplierBillingRow?.billingMode === "CYCLE";
 
   if (isNormalCreditCard && !creditCardId) {
     response.status(400).json({ message: "Selecione o cartao para compras no cartao de credito." });
     return;
   }
-  if (!isSmallExpense && !isNormalCreditCard && !isCycleSupplier && installments.length === 0) {
+  if (!isSmallExpense && !isNormalCreditCard && !isCycleSupplier && !isReimbursement && installments.length === 0) {
     response.status(400).json({ message: "Informe os vencimentos conforme a forma de pagamento." });
     return;
   }
@@ -2051,7 +2146,7 @@ purchaseRouter.put("/:id", async (request, response) => {
     response.status(400).json({ message: "Compra no cartao de credito nao deve gerar parcelas avulsas; os itens vao para a fatura do cartao." });
     return;
   }
-  if (isSmallExpense && installments.length === 0 && ["caixa", "dinheiro", "pix", "cartao de debito", "cartao debito"].includes(originNormalized)) {
+  if (isSmallExpense && !isReimbursement && installments.length === 0 && ["caixa", "dinheiro", "pix", "cartao de debito", "cartao debito"].includes(originNormalized)) {
     installments = [
       {
         installment: 1,
@@ -2137,6 +2232,7 @@ purchaseRouter.put("/:id", async (request, response) => {
         paymentMethod: basePaymentMethodName,
         paymentMethodId,
         creditCardId,
+        reimbursementPayeeId,
         totalAmount: new Prisma.Decimal(totalAmount),
         normalizedInvoiceNumber,
         normalizedPurchaseOrderNumber,
@@ -2241,6 +2337,8 @@ purchaseRouter.put("/:id", async (request, response) => {
       }
     }
 
+    await sincronizarCompraNoReembolso(tx, { purchaseId: request.params.id, payeeId: reimbursementPayeeId, amount: totalAmount, purchaseDate, userId: user.id });
+
     if (creditCardId) {
       const [supplierRow] = await tx.$queryRaw<Array<{ name: string }>>`
         SELECT "name" FROM "Supplier" WHERE "id" = ${nextSupplierId} LIMIT 1
@@ -2321,6 +2419,10 @@ purchaseRouter.put("/:id", async (request, response) => {
 
   response.json(await getPurchaseDetail(request.params.id));
   } catch (error) {
+    if (error instanceof ReimbursementError) {
+      response.status(error.status).json({ message: error.message });
+      return;
+    }
     if (isPurchaseReferenceUniqueError(error)) {
       const duplicateCheck = await findPurchaseReferenceMatches(prisma, {
         supplierId: nextSupplierId,
@@ -2458,6 +2560,7 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
 
   let installmentsCancelled = 0;
   let cyclesReopened = 0;
+  let reimbursementsReopened = 0;
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -2523,6 +2626,9 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
           await tx.$executeRaw`DELETE FROM "SupplierBillingCycleItem" WHERE "id" = ${cycleItem.id}`;
         }
       }
+      // Compra paga por funcionario sai do reembolso aberto; fechado ou pago bloqueia.
+      await retirarCompraCancelada(tx, request.params.id);
+
       // Compra cancelada não pode seguir cobrável: os títulos dela saem junto.
       // Sem isto as parcelas ficavam OPEN para sempre, aparecendo em Contas a
       // Pagar e no alerta de vencidas sem compra viva por trás.
@@ -2564,8 +2670,15 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
         WHERE "generatedPurchaseId" = ${request.params.id}
           AND "status" = 'CLOSED'
       `;
+
+      // O mesmo para o titulo de um reembolso: o reembolso volta a aberto.
+      reimbursementsReopened = await reabrirReembolsoDoAgregador(tx, request.params.id);
     });
   } catch (err) {
+    if (err instanceof ReimbursementError) {
+      response.status(err.status).json({ message: err.message });
+      return;
+    }
     if (err instanceof CycleBlockedError) {
       const message = err.reason === "PAID"
         ? "Esta compra pertence a um ciclo de fornecedor ja pago. Nao e possivel cancelar."
@@ -2602,11 +2715,11 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
     entity: "Purchase",
     entityId: request.params.id,
     previousValue: previous,
-    newValue: { status: "CANCELLED", reason, installmentsCancelled, installmentsPaidKept, paidAmountKept, cyclesReopened },
+    newValue: { status: "CANCELLED", reason, installmentsCancelled, installmentsPaidKept, paidAmountKept, cyclesReopened, reimbursementsReopened },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? "")
   });
-  response.json({ id: request.params.id, status: "CANCELLED", installmentsCancelled, installmentsPaidKept, paidAmountKept, cyclesReopened, warning });
+  response.json({ id: request.params.id, status: "CANCELLED", installmentsCancelled, installmentsPaidKept, paidAmountKept, cyclesReopened, reimbursementsReopened, warning });
 });
 
 purchaseRouter.patch("/:id/restore", async (request, response) => {
@@ -2619,6 +2732,22 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
   if (!previous) {
     response.status(404).json({ message: "Compra nao encontrada." });
     return;
+  }
+  // O titulo de um reembolso cancelado nao revive: o reembolso ja voltou a aberto
+  // e, fechado de novo, gera outro titulo. Restaurar este deixaria dois.
+  if (previous.workflowStatus === REIMBURSEMENT_SOURCE) {
+    response.status(409).json({ message: "Titulo de reembolso nao pode ser restaurado. Feche o reembolso de novo em Financeiro > Reembolsos." });
+    return;
+  }
+  // Quem pagou pode ter sido inativado ou mudado de categoria depois do cancelamento.
+  if (previous.reimbursementPayeeId) {
+    try {
+      await validarQuemPagou(prisma, String(previous.reimbursementPayeeId), String(previous.supplierId));
+    } catch (error) {
+      if (!(error instanceof ReimbursementError)) throw error;
+      response.status(409).json({ message: `Nao da para restaurar: ${error.message}` });
+      return;
+    }
   }
   const restoreCompetenceDate = previous.receivedAt
     ? parseDate(previous.receivedAt)
@@ -2647,6 +2776,16 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
         AND "status" = 'CANCELLED'
         AND "paidDate" IS NULL
     `;
+    // Compra paga por funcionario volta para o reembolso aberto da pessoa.
+    if (previous.reimbursementPayeeId) {
+      await sincronizarCompraNoReembolso(tx, {
+        purchaseId: request.params.id,
+        payeeId: String(previous.reimbursementPayeeId),
+        amount: Number(previous.totalAmount),
+        purchaseDate: new Date(String(previous.purchaseDate)),
+        userId: admin.id
+      });
+    }
   });
   await adjustStockForPurchase(request.params.id, 1);
   const [restored] = await prisma.$queryRaw<Array<{
