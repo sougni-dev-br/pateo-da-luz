@@ -329,11 +329,32 @@ describe("formulário", () => {
     expect(await screen.findByText(/Informe a quantidade/)).toBeInTheDocument();
     expect(saveDish).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByLabelText("Quantidade de FARINHA"), { target: { value: "0.5" } });
     fireEvent.change(screen.getByLabelText("Unidade de FARINHA"), { target: { value: "KG" } });
+    fireEvent.change(screen.getByLabelText("Quantidade de FARINHA"), { target: { value: "0.5" } });
     fireEvent.click(screen.getByRole("button", { name: "Criar prato" }));
     await waitFor(() => expect(saveDish).toHaveBeenCalledTimes(1));
     expect(vi.mocked(saveDish).mock.calls[0][0]).toMatchObject({ name: "Pão", items: [{ productId: "p-novo", quantity: 0.5, unit: "KG" }] });
+  });
+
+  test("trocar a unidade converte a quantidade junto e avisa; editar a quantidade apaga o aviso", async () => {
+    vi.mocked(searchDishProducts).mockResolvedValue([
+      { id: "p-novo", externalCode: "9", name: "FARINHA", unit: "KG", averageCost: 5, conversions: [], embalagemInferida: null },
+    ]);
+    await abrir();
+    fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
+    await screen.findByRole("heading", { name: "Novo prato" });
+    fireEvent.change(screen.getByRole("combobox", { name: /Buscar produto/ }), { target: { value: "far" } });
+    fireEvent.click(await screen.findByRole("option", { name: /FARINHA/ }));
+
+    fireEvent.change(screen.getByLabelText("Unidade de FARINHA"), { target: { value: "G" } });
+    fireEvent.change(screen.getByLabelText("Quantidade de FARINHA"), { target: { value: "170" } });
+    fireEvent.change(screen.getByLabelText("Unidade de FARINHA"), { target: { value: "KG" } });
+
+    expect((screen.getByLabelText("Quantidade de FARINHA") as HTMLInputElement).value).toBe("0.17");
+    expect(screen.getByText(/Quantidade convertida: 170 G = 0,17 KG/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Quantidade de FARINHA"), { target: { value: "0.2" } });
+    expect(screen.queryByText(/Quantidade convertida/)).toBeNull();
   });
 
   test("a unidade oferece g, kg, ml e l sempre; as que ainda não convertem vêm marcadas", async () => {
