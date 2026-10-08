@@ -3,26 +3,16 @@ import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { z } from "zod";
-import { calculateDishCost, type CostItemInput } from "./dish-cost.js";
+import { calculateDishCost } from "./dish-cost.js";
 import { parseBody } from "../../shared/validate-body.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
-import { conversoesDoProduto, embalagemDoNome, linhasDeConversaoInformada, normalizarUnidade } from "../../shared/unidades/conversao.js";
+import { linhasDeConversaoInformada, normalizarUnidade } from "../../shared/unidades/conversao.js";
+import { carregarDetalhe, categoriaResumida, conversoesDaFicha, textoDaEmbalagemInferida, toCostItem, type ItemComProduto } from "./dish-detail.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
+import { MENUS, registrarRotasDeCategoria } from "./dish-categories.js";
+import { registrarRevisao } from "./dish-revisions.js";
 
 export const dishesRouter = Router();
-
-type ItemComProduto = {
-  quantity: Prisma.Decimal | number;
-  unit: string;
-  wasteFactor: Prisma.Decimal | number;
-  product: {
-    name: string;
-    unit: string | null;
-    stockUnit?: string | null;
-    inventoryStock: { averageCost: Prisma.Decimal | null } | null;
-    conversions: Array<{ fromUnit: string; toUnit: string; factor: Prisma.Decimal | number }>;
-  };
-};
 
 /**
  * Texto vazio e null viram "ausente"; string aparada e numero passam; qualquer outra coisa
@@ -66,6 +56,7 @@ const dishBodySchema = z.object({
   yieldUnit: z.string().trim().nullish().transform((valor) => valor || "UN"),
   notes: textoOpcional,
   isActive: z.boolean().optional(),
+  menu: z.enum(MENUS).optional(),
   items: dishItemsSchema.optional()
 });
 
@@ -97,46 +88,6 @@ async function primeiroProdutoInvalido(items: Array<{ productId: string }>) {
  * O custo medio do estoque e expresso em "stockUnit" quando ele existe; caindo
  * para "unit" quando o produto ainda nao tem unidade de estoque definida.
  */
-type ProdutoParaConversao = ItemComProduto["product"];
-
-/**
- * Conversoes que valem na ficha: as cadastradas no produto mais, quando o estoque conta em
- * UN/pacote/caixa, o peso ou volume lido do NOME ("FARINHA TRIGO 5KG"). Assim a receita
- * pode ser lancada em g/ml. A mesma lista vai para a tela (previa de custo) e para o calculo.
- */
-function conversoesDaFicha(produto: Pick<ProdutoParaConversao, "name" | "unit" | "stockUnit" | "conversions">) {
-  const cadastradas = produto.conversions.map((c) => ({
-    fromUnit: c.fromUnit,
-    toUnit: c.toUnit,
-    factor: Number(c.factor)
-  }));
-  return conversoesDoProduto(produto.name, produto.stockUnit || produto.unit, cadastradas);
-}
-
-/** "1 UN = 5 KG (lido do nome)" quando a conversao e inferida; null quando nao ha. */
-function textoDaEmbalagemInferida(produto: Pick<ProdutoParaConversao, "name" | "unit" | "stockUnit" | "conversions">): string | null {
-  const conversoes = conversoesDaFicha(produto);
-  if (!conversoes.some((c) => c.inferida)) return null;
-  const embalagem = embalagemDoNome(produto.name);
-  const base = normalizarUnidade(produto.stockUnit || produto.unit);
-  return embalagem ? `1 ${base} = ${embalagem.quantidade.toLocaleString("pt-BR")} ${embalagem.unidade} (lido do nome do produto)` : null;
-}
-
-function toCostItem(item: ItemComProduto): CostItemInput {
-  return {
-    quantity: Number(item.quantity),
-    unit: item.unit,
-    wasteFactor: Number(item.wasteFactor),
-    product: {
-      unit: item.product.stockUnit || item.product.unit,
-      averageCost: item.product.inventoryStock?.averageCost == null
-        ? null
-        : Number(item.product.inventoryStock.averageCost),
-      conversions: conversoesDaFicha(item.product)
-    }
-  };
-}
-
 type ItemValidado = z.infer<typeof dishItemsSchema>[number];
 
 function itemParaGravar(dishId: string, item: ItemValidado, index: number) {
@@ -162,72 +113,7 @@ dishesRouter.use(async (request, response, next) => {
 // CATEGORIES
 // ──────────────────────────────────────────────
 
-dishesRouter.get("/categories", async (_request, response) => {
-  const rows = await prisma.dishCategory.findMany({
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    include: { _count: { select: { dishes: { where: { isActive: true } } } } }
-  });
-  response.json(rows.map(({ _count, ...category }) => ({ ...category, dishesCount: _count.dishes })));
-});
-
-dishesRouter.post("/categories", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
-  if (!user) return;
-
-  const name = String(request.body.name ?? "").trim();
-  if (!name) {
-    response.status(400).json({ message: "Nome da categoria é obrigatório." });
-    return;
-  }
-
-  const existing = await prisma.dishCategory.findFirst({ where: { name } });
-  if (existing) {
-    response.status(400).json({ message: "Já existe uma categoria com este nome." });
-    return;
-  }
-
-  const row = await prisma.dishCategory.create({
-    data: {
-      id: crypto.randomUUID(),
-      name,
-      sortOrder: Number(request.body.sortOrder ?? 0),
-      notes: String(request.body.notes ?? "").trim() || null
-    }
-  });
-
-  await auditLog({ userId: user.id, action: "CREATE", entity: "DishCategory", entityId: row.id, newValue: row });
-  response.json(row);
-});
-
-dishesRouter.put("/categories/:id", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
-  if (!user) return;
-
-  const name = String(request.body.name ?? "").trim();
-  if (!name) {
-    response.status(400).json({ message: "Nome da categoria é obrigatório." });
-    return;
-  }
-
-  const duplicate = await prisma.dishCategory.findFirst({ where: { name, NOT: { id: request.params.id } } });
-  if (duplicate) {
-    response.status(400).json({ message: "Já existe uma categoria com este nome." });
-    return;
-  }
-
-  const row = await prisma.dishCategory.update({
-    where: { id: request.params.id },
-    data: {
-      name,
-      sortOrder: Number(request.body.sortOrder ?? 0),
-      notes: String(request.body.notes ?? "").trim() || null,
-      isActive: request.body.isActive !== false
-    }
-  });
-
-  await auditLog({ userId: user.id, action: "UPDATE", entity: "DishCategory", entityId: row.id, newValue: row });
-  response.json(row);
-});
+registrarRotasDeCategoria(dishesRouter);
 
 // ──────────────────────────────────────────────
 // DISHES
@@ -247,7 +133,7 @@ dishesRouter.get("/", async (request, response) => {
         : {})
     },
     include: {
-      category: { select: { id: true, name: true } },
+      category: { include: { parent: { select: { id: true, name: true } } } },
       listings: { where: { isActive: true }, select: { price: true } },
       items: {
         include: {
@@ -284,7 +170,8 @@ dishesRouter.get("/", async (request, response) => {
       id: dish.id,
       code: dish.code,
       name: dish.name,
-      category: dish.category,
+      menu: dish.menu,
+      category: categoriaResumida(dish.category),
       salePriceDefault: salePrice,
       yieldQty: Number(dish.yieldQty),
       yieldUnit: dish.yieldUnit,
@@ -308,101 +195,12 @@ dishesRouter.get("/", async (request, response) => {
 });
 
 dishesRouter.get("/:id", async (request, response) => {
-  const dish = await prisma.dish.findUnique({
-    where: { id: request.params.id },
-    include: {
-      category: true,
-      listings: {
-        include: { deliveryStore: { select: { nickname: true, platform: true } } },
-        orderBy: [{ isActive: "desc" }, { price: "asc" }]
-      },
-      items: {
-        include: {
-          product: {
-            select: {
-              id: true,
-              externalCode: true,
-              name: true,
-              unit: true,
-              stockUnit: true,
-              inventoryStock: { select: { averageCost: true, currentQuantity: true } },
-              conversions: { where: { isActive: true }, select: { fromUnit: true, toUnit: true, factor: true } }
-            }
-          }
-        },
-        orderBy: { sortOrder: "asc" }
-      }
-    }
-  });
-
-  if (!dish) {
+  const detalhe = await carregarDetalhe(prisma, request.params.id);
+  if (!detalhe) {
     response.status(404).json({ message: "Prato não encontrado." });
     return;
   }
-
-  const salePrice = dish.salePriceDefault ? Number(dish.salePriceDefault) : null;
-  const custo = calculateDishCost({
-    yieldQty: Number(dish.yieldQty),
-    salePrice,
-    items: dish.items.map((item) => toCostItem(item))
-  });
-
-  const items = dish.items.map((item, index) => {
-    const calculado = custo.items[index];
-    return {
-      id: item.id,
-      productId: item.productId,
-      productCode: item.product.externalCode,
-      productName: item.product.name,
-      productUnit: item.product.stockUnit || item.product.unit,
-      quantity: Number(item.quantity),
-      unit: item.unit,
-      wasteFactor: Number(item.wasteFactor),
-      unitCost: calculado.unitCost,
-      unitFactor: calculado.unitFactor,
-      itemCost: calculado.itemCost,
-      issue: calculado.issue,
-      // A tela reprevê o custo enquanto se edita a quantidade, entao precisa
-      // das conversoes do produto junto do item.
-      conversions: conversoesDaFicha(item.product),
-      embalagemInferida: textoDaEmbalagemInferida(item.product),
-      notes: item.notes,
-      sortOrder: item.sortOrder
-    };
-  });
-
-  const totalCost = custo.totalCost;
-
-  response.json({
-    id: dish.id,
-    code: dish.code,
-    name: dish.name,
-    category: dish.category,
-    salePriceDefault: salePrice,
-    yieldQty: Number(dish.yieldQty),
-    yieldUnit: dish.yieldUnit,
-    notes: dish.notes,
-    isActive: dish.isActive,
-    calculatedCost: totalCost,
-    custoPorcao: custo.costPerServing,
-    margemBruta: custo.margemBruta,
-    cmvPercentual: custo.cmvPercentual,
-    custoIncompleto: custo.hasUnresolvedUnit || custo.hasMissingCost,
-    items,
-    // Onde o prato e vendido e por quanto (hoje so o cardapio da 99). O preco de
-    // venda padrao da ficha nao substitui isto: varia por loja.
-    listings: dish.listings.map((listing) => ({
-      id: listing.id,
-      channel: listing.channel,
-      storeName: listing.deliveryStore?.nickname ?? null,
-      externalName: listing.externalName,
-      price: Number(listing.price),
-      isActive: listing.isActive,
-      lastSeenAt: listing.lastSeenAt
-    })),
-    createdAt: dish.createdAt,
-    updatedAt: dish.updatedAt
-  });
+  response.json(detalhe);
 });
 
 /**
@@ -425,6 +223,20 @@ function responderErroDeGravacao(error: unknown, codigo: string | null, response
   return false;
 }
 
+/**
+ * A categoria precisa existir e ser do mesmo cardápio do prato: salão e delivery são cardápios
+ * separados, e uma categoria "Pizzas" do delivery não pode abrigar prato do salão.
+ */
+async function categoriaIncompativel(client: Pick<typeof prisma, "dishCategory">, categoryId: string | null, menu: string): Promise<string | null> {
+  if (!categoryId) return null;
+  const categoria = await client.dishCategory.findUnique({ where: { id: categoryId }, select: { name: true, menu: true } });
+  if (!categoria) return "A categoria escolhida não existe mais.";
+  if (categoria.menu !== menu) {
+    return `A categoria "${categoria.name}" é do ${categoria.menu === "DELIVERY" ? "delivery" : "cardápio do salão"}, e o prato é do ${menu === "DELIVERY" ? "delivery" : "cardápio do salão"}.`;
+  }
+  return null;
+}
+
 dishesRouter.post("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -441,6 +253,13 @@ dishesRouter.post("/", async (request, response) => {
     return;
   }
 
+  const menu = body.menu ?? "CARDAPIO";
+  const categoriaRuim = await categoriaIncompativel(prisma, body.categoryId, menu);
+  if (categoriaRuim) {
+    response.status(400).json({ message: categoriaRuim });
+    return;
+  }
+
   const id = crypto.randomUUID();
   try {
     const dish = await prisma.$transaction(async (tx) => {
@@ -449,6 +268,7 @@ dishesRouter.post("/", async (request, response) => {
           id,
           name: body.name,
           code: body.code,
+          menu,
           categoryId: body.categoryId,
           salePriceDefault: body.salePriceDefault,
           yieldQty: body.yieldQty,
@@ -460,6 +280,10 @@ dishesRouter.post("/", async (request, response) => {
       if (items.length > 0) {
         await tx.dishItem.createMany({ data: items.map((item, index) => itemParaGravar(id, item, index)) });
       }
+
+      // Cada gravacao deixa uma versao no historico, na mesma transacao: ficha e historico nunca divergem.
+      const detalhe = await carregarDetalhe(tx, id);
+      if (detalhe) await registrarRevisao(tx, { detalhe, action: "CRIADA", user });
       return created;
     });
 
@@ -484,16 +308,28 @@ dishesRouter.put("/:id", async (request, response) => {
   }
 
   const id = request.params.id;
+  const atual = await prisma.dish.findUnique({ where: { id }, select: { menu: true } });
+  if (!atual) {
+    response.status(404).json({ message: "Prato não encontrado." });
+    return;
+  }
+  const menu = body.menu ?? atual.menu;
+  const categoriaRuim = await categoriaIncompativel(prisma, body.categoryId, menu);
+  if (categoriaRuim) {
+    response.status(400).json({ message: categoriaRuim });
+    return;
+  }
+
   try {
-    // Prato e ingredientes na mesma transacao: o delete seguido de create sem
-    // transacao deixava a ficha permanentemente sem ingredientes se o create
-    // falhasse no meio.
-    const [dish] = await prisma.$transaction([
-      prisma.dish.update({
+    // Prato, ingredientes e versao do historico na mesma transacao: o delete seguido de create sem
+    // transacao deixava a ficha permanentemente sem ingredientes se o create falhasse no meio.
+    const dish = await prisma.$transaction(async (tx) => {
+      const atualizado = await tx.dish.update({
         where: { id },
         data: {
           name: body.name,
           code: body.code,
+          menu,
           categoryId: body.categoryId,
           salePriceDefault: body.salePriceDefault,
           yieldQty: body.yieldQty,
@@ -501,16 +337,19 @@ dishesRouter.put("/:id", async (request, response) => {
           notes: body.notes,
           isActive: body.isActive !== false
         }
-      }),
-      ...(body.items
-        ? [
-            prisma.dishItem.deleteMany({ where: { dishId: id } }),
-            ...(body.items.length > 0
-              ? [prisma.dishItem.createMany({ data: body.items.map((item, index) => itemParaGravar(id, item, index)) })]
-              : [])
-          ]
-        : [])
-    ]);
+      });
+
+      if (body.items) {
+        await tx.dishItem.deleteMany({ where: { dishId: id } });
+        if (body.items.length > 0) {
+          await tx.dishItem.createMany({ data: body.items.map((item, index) => itemParaGravar(id, item, index)) });
+        }
+      }
+
+      const detalhe = await carregarDetalhe(tx, id);
+      if (detalhe) await registrarRevisao(tx, { detalhe, action: "ALTERADA", user });
+      return atualizado;
+    });
 
     await auditLog({ userId: user.id, action: "UPDATE", entity: "Dish", entityId: dish.id, newValue: dish });
     response.json({ id: dish.id });
@@ -519,13 +358,109 @@ dishesRouter.put("/:id", async (request, response) => {
   }
 });
 
+const loteSchema = z.object({
+  ids: z.array(z.string().trim().min(1)).min(1, "escolha ao menos um prato").max(500, "no máximo 500 pratos por vez"),
+  menu: z.enum(MENUS).optional(),
+  /** null tira da categoria; ausente deixa como está. */
+  categoryId: z.string().trim().min(1).nullable().optional()
+});
+
+/**
+ * Organiza vários pratos de uma vez — o jeito de arrumar os ~200 importados da 99, que chegaram sem
+ * categoria: escolhe os pratos, escolhe o cardápio e/ou a categoria. Não mexe em ingrediente nem preço,
+ * por isso não gera versão no histórico (fica na auditoria).
+ */
+dishesRouter.post("/bulk", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const body = parseBody(loteSchema, request.body, response);
+  if (!body) return;
+  if (body.menu === undefined && body.categoryId === undefined) {
+    response.status(400).json({ message: "Escolha o cardápio e/ou a categoria para aplicar." });
+    return;
+  }
+
+  const ids = [...new Set(body.ids)];
+  const pratos = await prisma.dish.findMany({ where: { id: { in: ids } }, select: { id: true, menu: true, categoryId: true } });
+  if (pratos.length !== ids.length) {
+    response.status(404).json({ message: "Algum prato escolhido não existe mais. Atualize a lista." });
+    return;
+  }
+
+  const categoria = body.categoryId
+    ? await prisma.dishCategory.findUnique({ where: { id: body.categoryId }, select: { id: true, menu: true, name: true } })
+    : null;
+  if (body.categoryId && !categoria) {
+    response.status(400).json({ message: "A categoria escolhida não existe mais." });
+    return;
+  }
+
+  // Cardápio final de cada prato; a categoria nova só vale para quem termina no mesmo cardápio dela.
+  if (categoria) {
+    const incompativeis = pratos.filter((prato) => (body.menu ?? prato.menu) !== categoria.menu).length;
+    if (incompativeis > 0) {
+      response.status(400).json({
+        message: `${incompativeis} prato${incompativeis === 1 ? "" : "s"} não ${incompativeis === 1 ? "é" : "são"} do cardápio da categoria "${categoria.name}". Escolha também o cardápio ou separe a seleção.`
+      });
+      return;
+    }
+  }
+
+  const resultado = await prisma.$transaction(async (tx) => {
+    const dados: { menu?: string; categoryId?: string | null } = {};
+    if (body.menu !== undefined) dados.menu = body.menu;
+    if (body.categoryId !== undefined) dados.categoryId = body.categoryId;
+    const atualizados = await tx.dish.updateMany({ where: { id: { in: ids } }, data: dados });
+
+    // Mudou o cardápio sem escolher categoria: quem tinha categoria do outro cardápio fica sem ela.
+    let categoriasLimpas = 0;
+    if (body.menu !== undefined && body.categoryId === undefined) {
+      const limpas = await tx.dish.updateMany({
+        where: { id: { in: ids }, category: { is: { menu: { not: body.menu } } } },
+        data: { categoryId: null }
+      });
+      categoriasLimpas = limpas.count;
+    }
+    return { atualizados: atualizados.count, categoriasLimpas };
+  });
+
+  await auditLog({ userId: user.id, action: "BULK_UPDATE", entity: "Dish", newValue: { ids: ids.length, menu: body.menu, categoryId: body.categoryId } });
+  response.json(resultado);
+});
+
+/** Versões da ficha, da mais nova para a mais antiga. */
+dishesRouter.get("/:id/revisions", async (request, response) => {
+  const existe = await prisma.dish.findUnique({ where: { id: request.params.id }, select: { id: true } });
+  if (!existe) {
+    response.status(404).json({ message: "Prato não encontrado." });
+    return;
+  }
+  const rows = await prisma.dishRevision.findMany({
+    where: { dishId: request.params.id },
+    orderBy: { createdAt: "desc" },
+    take: 100
+  });
+  response.json(rows.map((row) => ({
+    id: row.id,
+    action: row.action,
+    userName: row.userName,
+    createdAt: row.createdAt,
+    costPerServing: row.costPerServing == null ? null : Number(row.costPerServing),
+    salePrice: row.salePrice == null ? null : Number(row.salePrice),
+    cmvPercent: row.cmvPercent == null ? null : Number(row.cmvPercent),
+    snapshot: row.snapshot
+  })));
+});
+
 // Product search with average cost (for ingredient picker)
 dishesRouter.get("/products/search", async (request, response) => {
   const search = String(request.query.search ?? "").trim();
   const products = await prisma.product.findMany({
     where: {
       isActive: true,
-      ...(search ? { name: { contains: search, mode: "insensitive" } } : {})
+      // A tela promete "nome ou código": a busca antes olhava só o nome.
+      ...(search ? { OR: [{ name: { contains: search, mode: "insensitive" } }, { externalCode: { contains: search, mode: "insensitive" } }] } : {})
     },
     select: {
       id: true,
@@ -659,34 +594,31 @@ dishesRouter.post("/products/:productId/conversions", async (request, response) 
   response.json({ conversions: conversoesDaFicha(completo), embalagemInferida: textoDaEmbalagemInferida(completo) });
 });
 
-dishesRouter.delete("/:id", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+async function alterarSituacao(
+  request: { params: { id: string }; headers: Record<string, unknown> },
+  response: { status: (code: number) => { json: (body: unknown) => void }; json: (body: unknown) => void },
+  ativo: boolean
+) {
+  const user = await requireRole(request as never, response as never, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
   try {
-    await prisma.dish.update({ where: { id: request.params.id }, data: { isActive: false } });
+    await prisma.$transaction(async (tx) => {
+      await tx.dish.update({ where: { id: request.params.id }, data: { isActive: ativo } });
+      const detalhe = await carregarDetalhe(tx, request.params.id);
+      if (detalhe) await registrarRevisao(tx, { detalhe, action: ativo ? "REATIVADA" : "INATIVADA", user });
+    });
   } catch (error) {
     if (responderErroDeGravacao(error, null, response)) return;
     throw error;
   }
 
-  await auditLog({ userId: user.id, action: "DELETE", entity: "Dish", entityId: request.params.id });
+  await auditLog({ userId: user.id, action: ativo ? "REACTIVATE" : "DELETE", entity: "Dish", entityId: request.params.id });
   response.json({ ok: true });
-});
+}
+
+dishesRouter.delete("/:id", (request, response) => alterarSituacao(request, response, false));
 
 // Inativar nao era reversivel pela tela: o prato so aparecia com "mostrar inativos"
 // e nao havia como voltar.
-dishesRouter.post("/:id/reactivate", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
-  if (!user) return;
-
-  try {
-    await prisma.dish.update({ where: { id: request.params.id }, data: { isActive: true } });
-  } catch (error) {
-    if (responderErroDeGravacao(error, null, response)) return;
-    throw error;
-  }
-
-  await auditLog({ userId: user.id, action: "REACTIVATE", entity: "Dish", entityId: request.params.id });
-  response.json({ ok: true });
-});
+dishesRouter.post("/:id/reactivate", (request, response) => alterarSituacao(request, response, true));

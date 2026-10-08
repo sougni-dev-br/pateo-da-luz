@@ -6,7 +6,8 @@
 // mesmas regras de unidade — inclusive os sinônimos (GR, UND, LT...). Sem eles a
 // tela mostrava "—" e um aviso falso para o que o backend calcula normalmente.
 
-import type { DishListItem, DishUnitConversion } from "../api/client";
+import type { DishListItem, DishMenu, DishUnitConversion } from "../api/client";
+import { cardapioCombina, categoriaCombina, type FiltroDeCardapio } from "./categoriasDasFichas";
 
 /** Até aqui o CMV é bom. */
 export const CMV_BOM = 32;
@@ -220,6 +221,9 @@ export function normalizarBusca(texto: string): string {
 
 export type FiltroDaLista = {
   busca: string;
+  /** Salão, delivery ou os dois. */
+  menu: FiltroDeCardapio;
+  /** Categoria principal ou subcategoria; a principal inclui as subcategorias dela. */
   categoriaId: string;
   situacao: SituacaoDaFicha | "todos";
   mostrarInativos: boolean;
@@ -230,10 +234,11 @@ export function filtrarPratos(pratos: DishListItem[], filtro: FiltroDaLista): Di
   const palavras = normalizarBusca(filtro.busca).split(" ").filter(Boolean);
   return pratos.filter((prato) => {
     if (!filtro.mostrarInativos && !prato.isActive) return false;
-    if (filtro.categoriaId && prato.category?.id !== filtro.categoriaId) return false;
+    if (!cardapioCombina(prato, filtro.menu)) return false;
+    if (filtro.categoriaId && !categoriaCombina(prato, filtro.categoriaId)) return false;
     if (filtro.situacao !== "todos" && situacaoDaFicha(prato) !== filtro.situacao) return false;
     if (palavras.length === 0) return true;
-    const texto = normalizarBusca(`${prato.name} ${prato.code ?? ""}`);
+    const texto = normalizarBusca(`${prato.name} ${prato.code ?? ""} ${prato.category?.name ?? ""} ${prato.category?.parentName ?? ""}`);
     return palavras.every((palavra) => texto.includes(palavra));
   });
 }
@@ -318,6 +323,8 @@ export const ROTULO_DA_SITUACAO: Record<SituacaoDaFicha, string> = {
 export type CamposDaFicha = {
   name: string;
   code: string;
+  /** Salão ou delivery: a categoria escolhida precisa ser do mesmo cardápio. */
+  menu: DishMenu;
   categoryId: string;
   salePriceDefault: string;
   yieldQty: string;
@@ -389,6 +396,7 @@ export function montarPayloadDaFicha(
     ...(opcoes.id ? { id: opcoes.id } : {}),
     name: campos.name.trim(),
     code: campos.code.trim(),
+    menu: campos.menu,
     categoryId: campos.categoryId,
     salePriceDefault: Number.isFinite(preco) ? preco : null,
     yieldQty: lerNumero(campos.yieldQty),

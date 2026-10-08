@@ -38,7 +38,7 @@ const ingrediente = (parcial: Partial<IngredientePrevisto> = {}): IngredientePre
 
 function prato(parcial: Partial<DishListItem> = {}): DishListItem {
   return {
-    id: "d", code: null, name: "Prato", category: null, salePriceDefault: 50, yieldQty: 1, yieldUnit: "UN",
+    id: "d", code: null, name: "Prato", menu: "CARDAPIO", category: null, salePriceDefault: 50, yieldQty: 1, yieldUnit: "UN",
     isActive: true, itemsCount: 2, listingsCount: 0, listingPriceMin: null, listingPriceMax: null,
     calculatedCost: 10, custoPorcao: 10, margemBruta: 40, cmvPercentual: 20, custoIncompleto: false,
     ...parcial
@@ -221,12 +221,12 @@ describe("situação da ficha", () => {
 describe("lista", () => {
   const lista = [
     prato({ id: "1", name: "Purê de batata", code: "P-1", itemsCount: 0, cmvPercentual: 0, margemBruta: 50 }),
-    prato({ id: "2", name: "Risoto de camarão", cmvPercentual: 45, margemBruta: 20, category: { id: "c1", name: "A la carte" } }),
-    prato({ id: "3", name: "Frango grelhado", cmvPercentual: 25, margemBruta: 30, category: { id: "c1", name: "A la carte" } }),
+    prato({ id: "2", name: "Risoto de camarão", cmvPercentual: 45, margemBruta: 20, category: { id: "c1", name: "A la carte", parentId: null, parentName: null, menu: "CARDAPIO" } }),
+    prato({ id: "3", name: "Frango grelhado", cmvPercentual: 25, margemBruta: 30, category: { id: "c1", name: "A la carte", parentId: null, parentName: null, menu: "CARDAPIO" } }),
     prato({ id: "4", name: "Prato antigo", isActive: false }),
     prato({ id: "5", name: "Tiramisu", salePriceDefault: null, cmvPercentual: null, margemBruta: null })
   ];
-  const todos = { busca: "", categoriaId: "", situacao: "todos" as const, mostrarInativos: false };
+  const todos = { busca: "", menu: "todos" as const, categoriaId: "", situacao: "todos" as const, mostrarInativos: false };
 
   it("busca sem acento nem caixa e também pelo código", () => {
     expect(normalizarBusca("  PURÊ   de  ")).toBe("pure de");
@@ -287,7 +287,7 @@ describe("lista", () => {
 });
 
 describe("formulário da ficha", () => {
-  const campos = { name: "Risoto", code: "", categoryId: "", salePriceDefault: "79,90", yieldQty: "1", yieldUnit: "un", notes: "" };
+  const campos = { name: "Risoto", code: "", menu: "CARDAPIO" as const, categoryId: "", salePriceDefault: "79,90", yieldQty: "1", yieldUnit: "un", notes: "" };
   const item = (parcial: Partial<ItemDaFicha> = {}): ItemDaFicha => ({
     ...ingrediente(), tempId: "t1", productId: "p1", productName: "CAMARAO", notes: "", ...parcial
   });
@@ -315,7 +315,7 @@ describe("formulário da ficha", () => {
 
   it("monta o payload com números, unidade normalizada e perda como fração", () => {
     const payload = montarPayloadDaFicha(campos, [item({ quantity: "0,15", unit: "gr", wasteFactor: "7", notes: " fresco " })], { id: "d1", isActive: true });
-    expect(payload).toMatchObject({ id: "d1", name: "Risoto", salePriceDefault: 79.9, yieldQty: 1, yieldUnit: "UN", isActive: true });
+    expect(payload).toMatchObject({ id: "d1", name: "Risoto", menu: "CARDAPIO", salePriceDefault: 79.9, yieldQty: 1, yieldUnit: "UN", isActive: true });
     expect(payload.items).toEqual([
       { productId: "p1", quantity: 0.15, unit: "G", wasteFactor: 0.07, notes: "fresco", sortOrder: 0 }
     ]);
