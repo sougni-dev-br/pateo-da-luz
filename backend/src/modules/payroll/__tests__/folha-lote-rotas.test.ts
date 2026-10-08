@@ -109,7 +109,7 @@ describe("etapas com a folha liberada", () => {
     vi.mocked(temLoteVivo).mockResolvedValue(true);
     const r = await request(app).post("/payroll/tip/periods/2026/9/etapas").send({ etapa: "OK_CONTABILIDADE", acao: "DESMARCOU" });
     expect(r.status).toBe(409);
-    expect(r.body.message).toMatch(/cancele a liberação/);
+    expect(r.body.message).toMatch(/Desfazer liberação/);
   });
 
   test("sem lotes (folha de antes), marcar à mão continua valendo", async () => {
