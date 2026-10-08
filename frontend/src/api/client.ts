@@ -1802,6 +1802,10 @@ export type ItemDaConferencia = {
   disponivel: number | null;
   consumo: number | null;
   custoUnitario: number | null;
+  /** De onde veio o custo (o mesmo que vai para o CMV). `null` = sistema nao achou nenhum. */
+  custoFonte: FonteDoCusto | null;
+  /** "compra de 14/08/2026", "base de 08/2026", "informado por ..." */
+  custoDetalhe: string | null;
   impacto: number | null;
   classe: ClasseConferencia;
   motivo: string;
@@ -3238,6 +3242,17 @@ export type ItemDaPosicao = {
 
 export function getPosicaoDoEstoque() {
   return request<{ itens: ItemDaPosicao[] }>("/inventory/posicao");
+}
+
+export type FonteDoCusto = "COMPRAS_DO_PERIODO" | "ULTIMA_COMPRA" | "BASE_ANTERIOR" | "INFORMADO";
+
+/** Custo informado a mao (so quando o sistema nao acha nenhum). `null` limpa. */
+export function informarCustoDoItem(inventoryId: string, itemId: string, custo: string | null) {
+  return request<{ ok: true }>(`/inventory/operational/${inventoryId}/items/${itemId}/custo`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ custo })
+  });
 }
 
 export function marcarItemConferido(inventoryId: string, itemId: string, motivo: MotivoDeConferencia | null, observacao?: string) {

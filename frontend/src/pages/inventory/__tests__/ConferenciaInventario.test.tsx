@@ -9,12 +9,13 @@ vi.mock("../../../api/client", async (importOriginal) => ({
   getConferenciaDoInventario: vi.fn(),
   marcarItemConferido: vi.fn(),
   pedirRecontagem: vi.fn(),
-  aplicarRecontagem: vi.fn()
+  aplicarRecontagem: vi.fn(),
+  informarCustoDoItem: vi.fn()
 }));
 
 import {
   type ConferenciaDoInventario, type ItemDaConferencia,
-  aplicarRecontagem, getConferenciaDoInventario, marcarItemConferido, pedirRecontagem
+  aplicarRecontagem, getConferenciaDoInventario, informarCustoDoItem, marcarItemConferido, pedirRecontagem
 } from "../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../context/SessionContext";
 import { HideValuesProvider } from "../../../design-system";
@@ -27,7 +28,7 @@ function item(parcial: Partial<ItemDaConferencia>): ItemDaConferencia {
   return {
     itemId: "i", productId: "p", productCode: "100", productName: "PRODUTO", sectorName: "ESTOQUE", unit: "UN",
     contado: 1, contadoPor: null, contadoEm: null, anterior: 1, anteriorData: "2026-06-29T00:00:00.000Z", anteriorCodigo: "INV-2026-0020",
-    compras: 0, disponivel: 1, consumo: 0, custoUnitario: 1, impacto: 0, classe: "COERENTE", motivo: "Consumo de 0 UN no período.", conferido: null, recontagemId: null,
+    compras: 0, disponivel: 1, consumo: 0, custoUnitario: 1, custoFonte: "COMPRAS_DO_PERIODO", custoDetalhe: null, impacto: 0, classe: "COERENTE", motivo: "Consumo de 0 UN no período.", conferido: null, recontagemId: null,
     ...parcial
   };
 }
@@ -157,6 +158,27 @@ describe("ConferenciaInventario", () => {
 
     expect(await screen.findByText(/1 fora do histórico/i)).toBeInTheDocument();
     expect(screen.queryByText(/nenhum alerta/i)).not.toBeInTheDocument();
+  });
+
+  test("item contado sem custo pede o custo e avisa no topo", async () => {
+    vi.mocked(informarCustoDoItem).mockResolvedValue({ ok: true });
+    const garrafa = item({ itemId: "g", productName: "CACHAÇA TESTE 700ML", classe: "SEM_REFERENCIA", custoUnitario: null, custoFonte: null, impacto: null, contado: 1 });
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([garrafa]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
+
+    expect(await screen.findByText(/1 item contado sem custo/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /ver itens sem custo/i }));
+    fireEvent.change(await screen.findByLabelText(/custo unitário de cachaça teste/i), { target: { value: "89,90" } });
+    fireEvent.click(screen.getByRole("button", { name: "Usar custo" }));
+    await waitFor(() => expect(informarCustoDoItem).toHaveBeenCalledWith("inv", "g", "89,90"));
+  });
+
+  test("mostra de onde veio o custo", async () => {
+    const vinho = item({ itemId: "v", productName: "VINHO TESTE", classe: "IMPOSSIVEL", custoUnitario: 66.25, custoFonte: "BASE_ANTERIOR", custoDetalhe: "base de 08/2026", impacto: 100 });
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([vinho]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
+
+    expect(await screen.findByText(/base anterior \(base de 08\/2026\)/i)).toBeInTheDocument();
   });
 
   test("quantidade digitada e nao salva trava os motivos", async () => {

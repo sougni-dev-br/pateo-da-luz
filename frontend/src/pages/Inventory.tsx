@@ -286,9 +286,13 @@ export function Inventory({
   // Sem a conferencia carregada nao da para saber o que falta: aprovar espera
   // (antes ficava ativo e so o servidor recusava).
   const conferenciaPendente = operationalDetail?.status === "EM_REVISAO" && !conferenciaAtual;
-  const aprovacaoTravada = faltamConferir > 0 || conferenciaPendente;
+  // Contado sem custo entraria a R$ 0 no CMV: o servidor recusa aprovar.
+  const contadosSemCusto = conferenciaAtual ? conferenciaAtual.itens.filter((item) => (item.contado ?? 0) > 0 && item.custoUnitario == null).length : 0;
+  const aprovacaoTravada = faltamConferir > 0 || conferenciaPendente || contadosSemCusto > 0;
   const tituloAprovacaoTravada = conferenciaPendente
     ? "Carregando a conferência… Se não carregar, use Atualizar na aba Conferência."
+    : contadosSemCusto > 0
+    ? `${contadosSemCusto} item(ns) contado(s) sem custo: informe o custo na aba Conferência (Situação: Sem custo).`
     : faltamConferir > 0
     ? `Faltam conferir ${faltamConferir} item(ns) na aba Conferência (alertas a partir de R$ ${conferenciaAtual?.limiteDeConferencia ?? 50} ou sem custo).`
     : undefined;
@@ -3183,7 +3187,7 @@ export function Inventory({
                 )}
                 {canApproveOperational && operationalDetail.type !== "FINAL_CMV" && operationalDetail.status === "EM_REVISAO" && (
                   <button className="primary-button" type="button" disabled={aprovacaoTravada} title={tituloAprovacaoTravada} onClick={() => operationalAction("approve")}>
-                    {faltamConferir > 0 ? `Aprovar (faltam ${formatNumber(faltamConferir)})` : "Aprovar"}
+                    {faltamConferir > 0 ? `Aprovar (faltam ${formatNumber(faltamConferir)})` : contadosSemCusto > 0 ? `Aprovar (${formatNumber(contadosSemCusto)} sem custo)` : "Aprovar"}
                   </button>
                 )}
                 {canApproveOperational && operationalDetail.type !== "FINAL_CMV" && operationalDetail.status === "APROVADO" && (
