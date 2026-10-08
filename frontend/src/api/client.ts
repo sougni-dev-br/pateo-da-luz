@@ -1545,7 +1545,7 @@ export type StockCount = {
   countedAt: string;
 };
 
-export type StockCountSessionType = "GERAL" | "SETORIAL" | "CATEGORIA" | "SUBCATEGORIA" | "FINAL_MES" | "ALEATORIA" | "TAREFA" | "IMPORTACAO_PLANILHA" | "COMPLEMENTAR_CMV";
+export type StockCountSessionType = "GERAL" | "SETORIAL" | "CATEGORIA" | "SUBCATEGORIA" | "FINAL_MES" | "ALEATORIA" | "TAREFA" | "IMPORTACAO_PLANILHA" | "COMPLEMENTAR_CMV" | "RECONTAGEM";
 export type StockCountSessionStatus = "ABERTA" | "EM_ANDAMENTO" | "CONCLUIDA" | "CANCELADA";
 export type StockCountSessionItemStatus = "PENDENTE" | "CONTADO" | "ZERO" | "DIVERGENTE";
 
@@ -1805,6 +1805,22 @@ export type ItemDaConferencia = {
   motivo: string;
   /** Contou em unidades um produto de embalagem: o valor provavel, em embalagens. */
   sugestao?: { quantidade: number; embalagem: number };
+  /** Marcado por quem revisa. `null` = ainda nao conferido. */
+  conferido: { motivo: MotivoDeConferencia; observacao: string | null; em: string | null; por: string | null } | null;
+  /** Contagem de recontagem que inclui este item. */
+  recontagemId: string | null;
+};
+
+export type MotivoDeConferencia = "CORRETO" | "COMPRA_NAO_LANCADA" | "ERRO_DE_UNIDADE" | "CORRIGIDO" | "OUTRO" | "RECONTAR";
+
+export type RecontagemDaConferencia = {
+  id: string;
+  code: string;
+  status: string;
+  aplicada: boolean;
+  itens: number;
+  contados: number;
+  createdAt: string;
 };
 
 export type NotaDoItemDaConferencia = {
@@ -1825,6 +1841,10 @@ export type ConferenciaDoInventario = {
   code: string;
   resumo: Record<ClasseConferencia, { itens: number; impacto: number }>;
   itens: ItemDaConferencia[];
+  /** A partir deste valor (R$) o alerta precisa ser conferido para aprovar. */
+  limiteDeConferencia: number;
+  pendentesParaAprovar: number;
+  recontagens: RecontagemDaConferencia[];
 };
 
 export type OperationalInventoryPurchasingReport = {
@@ -3197,6 +3217,22 @@ export type ItemDaPosicao = {
 
 export function getPosicaoDoEstoque() {
   return request<{ itens: ItemDaPosicao[] }>("/inventory/posicao");
+}
+
+export function marcarItemConferido(inventoryId: string, itemId: string, motivo: MotivoDeConferencia | null, observacao?: string) {
+  return request<{ ok: true }>(`/inventory/operational/${inventoryId}/items/${itemId}/conferido`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ motivo, observacao: observacao ?? "" })
+  });
+}
+
+export function pedirRecontagem(inventoryId: string) {
+  return request<StockCountSession>(`/inventory/operational/${inventoryId}/recontagem`, { method: "POST" });
+}
+
+export function aplicarRecontagem(inventoryId: string, sessionId: string) {
+  return request<{ aplicados: number; alterados: number }>(`/inventory/operational/${inventoryId}/recontagem/${sessionId}/aplicar`, { method: "POST" });
 }
 
 export function getComprasDoItemDaConferencia(inventoryId: string, itemId: string) {

@@ -983,6 +983,13 @@ model OperationalInventoryItem {
   notes              String?
   countedByUserId    String?
   countedAt          DateTime?
+  /// Conferencia do item: motivo (CORRETO, COMPRA_NAO_LANCADA, ERRO_DE_UNIDADE, CORRIGIDO, OUTRO, RECONTAR).
+  reviewReason       String?
+  reviewNote         String?
+  reviewedAt         DateTime?
+  reviewedByUserId   String?
+  /// Contagem de recontagem (StockCountSession tipo RECONTAGEM) que inclui este item.
+  recountSessionId   String?
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 
@@ -990,6 +997,7 @@ model OperationalInventoryItem {
   @@index([productId])
   @@index([status])
   @@index([sectorName])
+  @@index([recountSessionId])
 }
 
 model CatalogImportBatch {

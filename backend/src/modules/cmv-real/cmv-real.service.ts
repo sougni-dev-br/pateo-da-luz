@@ -879,6 +879,9 @@ export async function ensureSnapshotForSession(
   if (session.status !== "CONCLUIDA") {
     throw new Error(`Contagem ${session.code} nao esta concluida (status: ${session.status}). Apenas contagens concluidas podem ser usadas como inventario.`);
   }
+  if (session.type === "RECONTAGEM") {
+    throw new Error(`Contagem ${session.code} e uma recontagem de poucos itens e nao pode ser base do CMV.`);
+  }
   if (session.type === "SETORIAL" && session.generatedInventoryId != null) {
     throw new Error(`Contagem ${session.code} e setorial e ja foi consolidada em inventario final unificado. Selecione a contagem consolidada correspondente para apuracao do CMV.`);
   }
@@ -1070,6 +1073,8 @@ export async function listCmvSessions(): Promise<CmvSessionOption[]> {
       AND snap."status" NOT IN ('CANCELLED', 'CANCELADO')
     WHERE s."status" = 'CONCLUIDA'
       AND NOT (s."type" = 'SETORIAL' AND s."generatedInventoryId" IS NOT NULL)
+      -- Recontagem cobre poucos itens e volta para o inventario que a pediu.
+      AND s."type" <> 'RECONTAGEM'
     GROUP BY s."id", snap."totalValue"
     ORDER BY s."referenceDate" DESC
   `;
@@ -1147,6 +1152,8 @@ export async function listCmvBases(): Promise<StockBase[]> {
         AND snap."status" NOT IN ('CANCELLED', 'CANCELADO')
       WHERE s."status" = 'CONCLUIDA'
         AND NOT (s."type" = 'SETORIAL' AND s."generatedInventoryId" IS NOT NULL)
+      -- Recontagem cobre poucos itens e volta para o inventario que a pediu.
+      AND s."type" <> 'RECONTAGEM'
       GROUP BY s."id", snap."totalValue"
       ORDER BY s."referenceDate" DESC
     `,
