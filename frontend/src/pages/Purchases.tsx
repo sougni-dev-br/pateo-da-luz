@@ -36,7 +36,9 @@ import {
   UnitMeasure,
   updatePurchase,
   Company,
-  getCompanies
+  getCompanies,
+  getReimbursementPayees,
+  ReimbursementPayee
 } from "../api/client";
 import {
   formaPermiteParcelamento,
@@ -225,6 +227,7 @@ export function Purchases({ user }: { user: AppUser }) {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [units, setUnits] = useState<UnitMeasure[]>([]);
   const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
+  const [reimbursementPayees, setReimbursementPayees] = useState<ReimbursementPayee[]>([]);
   const [openCardStatement, setOpenCardStatement] = useState<CreditCardStatement | null>(null);
   const [smallExpenseTypes, setSmallExpenseTypes] = useState<SmallExpenseType[]>([]);
   const [filters, setFilters] = useState({
@@ -259,6 +262,7 @@ export function Purchases({ user }: { user: AppUser }) {
     smallExpenseMoneyOrigin: "",
     smallExpenseNotes: "",
     creditCardId: "",
+    reimbursementPayeeId: "",
     ccNumberOfInstallments: "1",
     paymentDifferenceReason: "",
     companyId: ""
@@ -398,9 +402,10 @@ export function Purchases({ user }: { user: AppUser }) {
       getUnits(),
       getCards(),
       getSmallExpenseTypes(),
-      getCompanies().catch(() => [] as Company[])
+      getCompanies().catch(() => [] as Company[]),
+      getReimbursementPayees()
     ]).then(([
-      supplierRes, productRes, methodRes, unitRes, cardRes, smallExpenseTypeRes, companyRes
+      supplierRes, productRes, methodRes, unitRes, cardRes, smallExpenseTypeRes, companyRes, payeeRes
     ]) => {
       if (supplierRes.status === "fulfilled") setSuppliers(supplierRes.value);
       else handleLoadError("suppliers", supplierRes.reason);
@@ -422,6 +427,9 @@ export function Purchases({ user }: { user: AppUser }) {
 
       if (companyRes.status === "fulfilled") setCompanies(companyRes.value.filter((c) => c.isActive));
       else handleLoadError("companies", companyRes.reason);
+
+      // Sem a lista, o reembolso so nao aparece para escolher; o resto do formulario segue.
+      if (payeeRes.status === "fulfilled") setReimbursementPayees(payeeRes.value);
     });
   }, []);
 
@@ -495,6 +503,7 @@ export function Purchases({ user }: { user: AppUser }) {
           smallExpenseMoneyOrigin: "",
           smallExpenseNotes: "",
           creditCardId: "",
+          reimbursementPayeeId: "",
           ccNumberOfInstallments: "1",
           paymentDifferenceReason: "",
           companyId: ""
@@ -527,6 +536,11 @@ export function Purchases({ user }: { user: AppUser }) {
   const smallExpenseUsesCreditCard = form.isSmallExpense && selectedPaymentMethod ? selectedPaymentMethod.type === "CREDIT_CARD" : false;
   const normalPurchaseUsesCreditCard = !form.isSmallExpense && selectedPaymentMethod ? selectedPaymentMethod.type === "CREDIT_CARD" : false;
   const usesCreditCard = smallExpenseUsesCreditCard || normalPurchaseUsesCreditCard;
+  // Pago do bolso de um funcionario: sem parcela aqui; a compra vai para o reembolso da pessoa
+  // e o titulo nasce quando o reembolso for fechado (Financeiro > Reembolsos).
+  const usesReimbursement = selectedPaymentMethod?.type === "REIMBURSEMENT";
+  const semParcelasProprias = usesCreditCard || usesReimbursement;
+  const selectedPayee = reimbursementPayees.find((payee) => payee.id === form.reimbursementPayeeId) ?? null;
   const selectedPaymentMethodAllowsInstallments = formaPermiteParcelamento(selectedPaymentMethod);
   const totalAmount = useMemo(() => items.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0), [items]);
   const installmentTotal = useMemo(() => installments.reduce((sum, installment) => sum + Number(installment.amount || 0), 0), [installments]);
@@ -1048,6 +1062,7 @@ export function Purchases({ user }: { user: AppUser }) {
       smallExpenseMoneyOrigin: "",
       smallExpenseNotes: "",
       creditCardId: "",
+      reimbursementPayeeId: "",
       ccNumberOfInstallments: "1",
       paymentDifferenceReason: "",
       companyId: ""
@@ -1120,7 +1135,7 @@ export function Purchases({ user }: { user: AppUser }) {
       const resolvedPaymentMethodId = resolveBasePaymentMethodId(data.paymentMethodId, data.paymentMethodName ?? data.paymentMethod);
       const nextInstallmentCount = installmentCountFromPurchase(data.paymentMethodName ?? data.paymentMethod, data.installments.length || null);
       const nextForm = {
-        supplierCode: data.rawSupplierCode ?? data.supplier.externalCode ?? "",
+        supplierCode: data.rawSupplierCode ?? data.supplier?.externalCode ?? "",
         supplierId: data.supplierId,
         supplierName: data.supplierName,
         supplierDocument: data.supplierDocument ?? "",
@@ -1140,6 +1155,7 @@ export function Purchases({ user }: { user: AppUser }) {
         smallExpenseMoneyOrigin: data.smallExpenseMoneyOrigin ?? "",
         smallExpenseNotes: data.smallExpenseNotes ?? "",
         creditCardId: data.creditCardId ?? "",
+        reimbursementPayeeId: data.reimbursementPayeeId ?? "",
         ccNumberOfInstallments: "1",
         paymentDifferenceReason: "",
         companyId: (data as Record<string, unknown>).companyId ? String((data as Record<string, unknown>).companyId) : ""
@@ -1199,7 +1215,7 @@ export function Purchases({ user }: { user: AppUser }) {
       const resolvedPaymentMethodId = resolveBasePaymentMethodId(data.paymentMethodId, data.paymentMethodName ?? data.paymentMethod);
       const nextInstallmentCount = installmentCountFromPurchase(data.paymentMethodName ?? data.paymentMethod, data.installments.length || null);
       const copyForm = {
-        supplierCode: data.rawSupplierCode ?? data.supplier.externalCode ?? "",
+        supplierCode: data.rawSupplierCode ?? data.supplier?.externalCode ?? "",
         supplierId: data.supplierId,
         supplierName: data.supplierName,
         supplierDocument: data.supplierDocument ?? "",
@@ -1219,6 +1235,7 @@ export function Purchases({ user }: { user: AppUser }) {
         smallExpenseMoneyOrigin: data.smallExpenseMoneyOrigin ?? "",
         smallExpenseNotes: data.smallExpenseNotes ?? "",
         creditCardId: "",
+        reimbursementPayeeId: "",
         ccNumberOfInstallments: "1",
         paymentDifferenceReason: "",
         companyId: (data as Record<string, unknown>).companyId ? String((data as Record<string, unknown>).companyId) : ""
@@ -1319,10 +1336,11 @@ export function Purchases({ user }: { user: AppUser }) {
     if (smallExpenseUsesCreditCard && !form.creditCardId) messages.push("Selecione o cartão para lançar na fatura.");
     if (smallExpenseUsesCreditCard && form.creditCardId && !openCardStatement) messages.push("Abra uma fatura do cartão antes de salvar.");
     if (normalPurchaseUsesCreditCard && !form.creditCardId) messages.push("Selecione o cartão de crédito para esta compra.");
-    if (!selectedSupplierIsCycle && !usesCreditCard && installments.length === 0) messages.push("Confira o parcelamento antes de salvar.");
-    if (!selectedSupplierIsCycle && !usesCreditCard && installments.some((installment) => !installment.dueDate)) messages.push("Preencha o vencimento de todas as parcelas.");
-    if (!selectedSupplierIsCycle && !usesCreditCard && installments.some((installment) => Number(installment.amount) < 0)) messages.push("Os valores das parcelas não podem ser negativos.");
-    if (!selectedSupplierIsCycle && !usesCreditCard && Math.round(amountDifference * 100) !== 0) messages.push("O total das parcelas precisa fechar com o total da compra.");
+    if (usesReimbursement && !form.reimbursementPayeeId) messages.push("Informe quem pagou a compra (reembolso).");
+    if (!selectedSupplierIsCycle && !semParcelasProprias && installments.length === 0) messages.push("Confira o parcelamento antes de salvar.");
+    if (!selectedSupplierIsCycle && !semParcelasProprias && installments.some((installment) => !installment.dueDate)) messages.push("Preencha o vencimento de todas as parcelas.");
+    if (!selectedSupplierIsCycle && !semParcelasProprias && installments.some((installment) => Number(installment.amount) < 0)) messages.push("Os valores das parcelas não podem ser negativos.");
+    if (!selectedSupplierIsCycle && !semParcelasProprias && Math.round(amountDifference * 100) !== 0) messages.push("O total das parcelas precisa fechar com o total da compra.");
     if (duplicateCheck?.hasActiveDuplicate) messages.push("Já existe uma compra ativa para este fornecedor com esta NF/pedido.");
     return [...new Set(messages)];
   }, [
@@ -1339,6 +1357,7 @@ export function Purchases({ user }: { user: AppUser }) {
     form.paymentDifferenceReason,
     form.paymentMethodId,
     form.purchaseDate,
+    form.reimbursementPayeeId,
     form.smallExpenseTypeId,
     form.supplierId,
     installments,
@@ -1347,8 +1366,9 @@ export function Purchases({ user }: { user: AppUser }) {
     openCardStatement,
     selectedSupplierIsCycle,
     showNoInvoiceReason,
+    semParcelasProprias,
     smallExpenseUsesCreditCard,
-    usesCreditCard
+    usesReimbursement
   ]);
 
   const canSavePurchase = validationMessages.length === 0 && !saving;
@@ -1376,7 +1396,7 @@ export function Purchases({ user }: { user: AppUser }) {
     if ((showNoInvoiceReason || form.isSmallExpense) && !form.noInvoiceReason.trim() && !form.isSmallExpense) errors.noInvoiceReason = "Informe o motivo para compra sem NF.";
     if (!selectedSupplierIsCycle && !form.paymentMethodId) errors.paymentMethodId = "Forma de pagamento obrigatória.";
     const requestedInstallments = Math.max(1, Number(form.installmentCount || 1));
-    if (!selectedSupplierIsCycle && selectedPaymentMethod && !usesCreditCard) {
+    if (!selectedSupplierIsCycle && selectedPaymentMethod && !semParcelasProprias) {
       if (selectedPaymentMethodAllowsInstallments && requestedInstallments < 1) errors.installmentCount = "Informe ao menos 1 parcela.";
       if (!selectedPaymentMethodAllowsInstallments && requestedInstallments !== 1) errors.installmentCount = "Esta forma aceita apenas 1 parcela.";
     }
@@ -1390,11 +1410,12 @@ export function Purchases({ user }: { user: AppUser }) {
     if (smallExpenseUsesCreditCard && !form.creditCardId.trim()) errors.creditCardId = "Selecione o cartão.";
     if (smallExpenseUsesCreditCard && form.creditCardId && !openCardStatement) errors.creditCardId = "Não há fatura aberta para este cartão.";
     if (normalPurchaseUsesCreditCard && !form.creditCardId.trim()) errors.creditCardId = "Selecione o cartão de crédito.";
-    if (!selectedSupplierIsCycle && !usesCreditCard && installments.length !== requestedInstallments) errors.installments = "Revise a quantidade de parcelas informada.";
-    if (!selectedSupplierIsCycle && !usesCreditCard && installments.length > 0 && Math.round(amountDifference * 100) !== 0) {
+    if (usesReimbursement && !form.reimbursementPayeeId) errors.reimbursementPayeeId = "Informe quem pagou.";
+    if (!selectedSupplierIsCycle && !semParcelasProprias && installments.length !== requestedInstallments) errors.installments = "Revise a quantidade de parcelas informada.";
+    if (!selectedSupplierIsCycle && !semParcelasProprias && installments.length > 0 && Math.round(amountDifference * 100) !== 0) {
       errors.installments = "Total das parcelas não confere com o total da compra.";
     }
-    if (!selectedSupplierIsCycle && !usesCreditCard && installments.some((installment) => !installment.dueDate)) errors.installments = "Informe todos os vencimentos.";
+    if (!selectedSupplierIsCycle && !semParcelasProprias && installments.some((installment) => !installment.dueDate)) errors.installments = "Informe todos os vencimentos.";
     setFieldErrors(errors);
     return Object.values(errors)[0] ?? null;
   }
@@ -1428,11 +1449,12 @@ export function Purchases({ user }: { user: AppUser }) {
         smallExpenseMoneyOrigin: form.isSmallExpense ? selectedPaymentMethod?.name ?? null : null,
         smallExpenseNotes: form.isSmallExpense ? form.smallExpenseNotes || form.notes || null : null,
         creditCardId: usesCreditCard ? form.creditCardId || null : null,
+        reimbursementPayeeId: usesReimbursement ? form.reimbursementPayeeId || null : null,
         numberOfInstallments: normalPurchaseUsesCreditCard ? Math.max(1, Number(form.ccNumberOfInstallments) || 1) : undefined,
         paymentDifferenceReason: form.paymentDifferenceReason || null,
         workflowStatus: "confirmed",
         totalAmount,
-        installments: (selectedSupplierIsCycle || usesCreditCard)
+        installments: (selectedSupplierIsCycle || semParcelasProprias)
           ? []
           : installments.map((installment) => ({
               installment: installment.installment,
@@ -1709,7 +1731,7 @@ export function Purchases({ user }: { user: AppUser }) {
                       ) : (
                         <>
                           <strong>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"}</strong>
-                          <small>{purchase.creditCardId && purchase.installments.length === 0 ? "Fatura(s) cartão" : `${purchase.installments.length} parcela(s)`}</small>
+                          <small>{purchase.reimbursementPayeeId && purchase.installments.length === 0 ? "Reembolso" : purchase.creditCardId && purchase.installments.length === 0 ? "Fatura(s) cartão" : `${purchase.installments.length} parcela(s)`}</small>
                         </>
                       )}
                     </Table.Td>
@@ -2633,7 +2655,7 @@ export function Purchases({ user }: { user: AppUser }) {
                     <strong><DsMoney value={installmentTotal} /></strong>
                   </div>
                 )}
-                {!selectedSupplierIsCycle && !usesCreditCard && Math.round(amountDifference * 100) !== 0 && (
+                {!selectedSupplierIsCycle && !semParcelasProprias && Math.round(amountDifference * 100) !== 0 && (
                   <div className="pnova-summary-pill pnova-summary-warn">
                     <span>Dif.</span>
                     <strong><DsMoney value={amountDifference} /></strong>
@@ -2719,7 +2741,7 @@ export function Purchases({ user }: { user: AppUser }) {
                     {/* Cabeçalho compacto clicável */}
                     <button
                       type="button"
-                      className={`pnova-payment-header${!usesCreditCard && Math.round(amountDifference * 100) !== 0 ? " has-diff" : ""}`}
+                      className={`pnova-payment-header${!semParcelasProprias && Math.round(amountDifference * 100) !== 0 ? " has-diff" : ""}`}
                       onClick={() => setPaymentExpanded((v) => !v)}
                     >
                       <span className="pnova-payment-header-method">
@@ -2735,6 +2757,11 @@ export function Purchases({ user }: { user: AppUser }) {
                         </span>
                       ) : normalPurchaseUsesCreditCard ? (
                         <span className="pnova-payment-header-info">Selecione o cartão</span>
+                      ) : usesReimbursement ? (
+                        <span className="pnova-payment-header-info">
+                          {selectedPayee ? `Reembolso de ${selectedPayee.name}` : "Selecione quem pagou"}
+                          {" · "}{fmt(totalAmount)}
+                        </span>
                       ) : installments.length > 0 ? (
                         <span className="pnova-payment-header-info">
                           {installments.length === 1 ? "1 parcela" : `${installments.length} parcelas`}
@@ -2744,7 +2771,7 @@ export function Purchases({ user }: { user: AppUser }) {
                           {" · "}{fmt(totalAmount)}
                         </span>
                       ) : null}
-                      {!usesCreditCard && Math.round(amountDifference * 100) !== 0 && (
+                      {!semParcelasProprias && Math.round(amountDifference * 100) !== 0 && (
                         <span className="pnova-payment-header-diff">⚠ dif. <DsMoney value={amountDifference} /></span>
                       )}
                       <span className="pnova-payment-header-toggle">{paymentExpanded ? "▲ recolher" : "▼ editar"}</span>
@@ -2765,7 +2792,16 @@ export function Purchases({ user }: { user: AppUser }) {
                             {availablePaymentMethods.map((method) => <option key={method.id} value={method.id}>{nomeBaseDaForma(method.name) || method.name}</option>)}
                           </select>
                         </label>
-                        {normalPurchaseUsesCreditCard ? (
+                        {usesReimbursement ? (
+                          <label className={fieldErrors.reimbursementPayeeId ? "field-error" : ""}>
+                            Quem pagou
+                            <select value={form.reimbursementPayeeId}
+                              onChange={(event) => setForm({ ...form, reimbursementPayeeId: event.target.value })}>
+                              <option value="">Selecione</option>
+                              {reimbursementPayees.map((payee) => <option key={payee.id} value={payee.id}>{payee.name}</option>)}
+                            </select>
+                          </label>
+                        ) : normalPurchaseUsesCreditCard ? (
                           <>
                             <label className={fieldErrors.creditCardId ? "field-error" : ""}>
                               Cartão de crédito
@@ -2816,7 +2852,7 @@ export function Purchases({ user }: { user: AppUser }) {
                               onBlur={() => { if (!form.paymentNotes.trim()) setShowPaymentNotes(false); }} />
                           </label>
                         )}
-                        {podeJustificarDiferenca && !usesCreditCard && Math.round(amountDifference * 100) !== 0 && (
+                        {podeJustificarDiferenca && !semParcelasProprias && Math.round(amountDifference * 100) !== 0 && (
                           <label className="full-width">
                             Motivo da diferença
                             <input autoComplete="off" value={form.paymentDifferenceReason}
@@ -2824,8 +2860,15 @@ export function Purchases({ user }: { user: AppUser }) {
                           </label>
                         )}
                       </div>
-                      {fieldErrors.installments && !usesCreditCard && <div className="alert error" style={{ margin: "0 0 8px" }}>{fieldErrors.installments}</div>}
-                      {installments.length > 0 && !usesCreditCard && (
+                      {usesReimbursement && (
+                        <p className="pnova-cycle-info-hint" style={{ margin: "0 0 8px" }}>
+                          {reimbursementPayees.length === 0
+                            ? "Nenhum fornecedor da categoria Funcionário. Cadastre a pessoa em Fornecedores › A partir de funcionário."
+                            : <>Sem título agora: a compra entra no reembolso {selectedPayee ? <>de <strong>{selectedPayee.name}</strong></> : "da pessoa"}, com a data e a loja desta nota. O título nasce ao fechar o reembolso em <strong>Financeiro › Reembolsos</strong>.</>}
+                        </p>
+                      )}
+                      {fieldErrors.installments && !semParcelasProprias && <div className="alert error" style={{ margin: "0 0 8px" }}>{fieldErrors.installments}</div>}
+                      {installments.length > 0 && !semParcelasProprias && (
                         <div className="pnova-installments-table">
                           <div className="pnova-installments-scroll">
                           <table>
@@ -3012,7 +3055,7 @@ export function Purchases({ user }: { user: AppUser }) {
             <div className={`pnova-sticky-bar${keyboardOpen ? " keyboard-open" : ""}`}>
               <div className="pnova-sticky-left">
                 <span className="pnova-sticky-total"><DsMoney value={totalAmount} /></span>
-                {!selectedSupplierIsCycle && !usesCreditCard && Math.round(amountDifference * 100) !== 0 && (
+                {!selectedSupplierIsCycle && !semParcelasProprias && Math.round(amountDifference * 100) !== 0 && (
                   <span className="pnova-sticky-diff">⚠ dif. <DsMoney value={amountDifference} /></span>
                 )}
                 <span className={`pnova-sticky-status${validationMessages.length === 0 ? " ok" : " pending"}`}>
