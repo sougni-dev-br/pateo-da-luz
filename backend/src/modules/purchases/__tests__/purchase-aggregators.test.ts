@@ -3,6 +3,7 @@ import {
   AGGREGATOR_WORKFLOW_STATUSES,
   excludeAggregatorsSql,
   excludeAggregatorsWhere,
+  compraLevaDespesaAoDre,
   isAggregatorWorkflowStatus,
 } from "../purchase-aggregators.js";
 
@@ -65,5 +66,25 @@ describe("agregadores de pagamento", () => {
     expect(excludeAggregatorsWhere).toEqual({
       NOT: { workflowStatus: { in: ["SUPPLIER_CYCLE", "CARD_STATEMENT", "REIMBURSEMENT"] } },
     });
+  });
+});
+
+// O titulo do agregador fica fora do DRE: a despesa tem que chegar pelos itens
+// das compras agrupadas. Compra sem item, cancelada ou inexistente nao chega.
+describe("compra que leva a despesa ao DRE pelos itens", () => {
+  it("aceita compra ativa com itens", () => {
+    expect(compraLevaDespesaAoDre({ status: "ACTIVE", itens: 3 })).toBe(true);
+  });
+
+  it("recusa compra ativa sem nenhum item", () => {
+    expect(compraLevaDespesaAoDre({ status: "ACTIVE", itens: 0 })).toBe(false);
+  });
+
+  it("recusa compra cancelada, mesmo com itens", () => {
+    expect(compraLevaDespesaAoDre({ status: "CANCELLED", itens: 2 })).toBe(false);
+  });
+
+  it("recusa linha sem compra", () => {
+    expect(compraLevaDespesaAoDre(null)).toBe(false);
   });
 });

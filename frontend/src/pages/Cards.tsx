@@ -1,13 +1,14 @@
 import { ArrowRightLeft, CheckCircle2, Eye, FileText, Pencil, Plus, RefreshCw, Save, WalletCards, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
-  addCardStatementItem,
   AppUser,
   checkCardStatementItem,
   closeCardStatement,
   CreditCard,
   CreditCardStatement,
   CreditCardStatementDetail,
+  deleteCardStatementItem,
   downloadCardStatementPdf,
   getCardStatement,
   getCardStatements,
@@ -80,15 +81,6 @@ export function Cards({ user }: CardsProps) {
     competenceMonth: String(new Date().getMonth() + 1).padStart(2, "0"),
     closingDate: todayDate(),
     dueDate: todayDate(),
-    notes: ""
-  });
-  const [itemForm, setItemForm] = useState({
-    description: "",
-    supplierName: "",
-    itemDate: todayDate(),
-    value: "",
-    checked: false,
-    hasDivergence: false,
     notes: ""
   });
   const [reallocateItem, setReallocateItem] = useState<CreditCardStatementDetail["items"][number] | null>(null);
@@ -254,23 +246,16 @@ export function Cards({ user }: CardsProps) {
     }
   }
 
-  async function addManualItem() {
-    if (!statementDetail || !itemForm.description.trim() || Number(itemForm.value || 0) <= 0) return;
+  async function removeLooseItem(item: CreditCardStatementDetail["items"][number]) {
+    if (!statementDetail) return;
+    if (!window.confirm(`Excluir a linha "${item.description}"? Se o gasto aconteceu, lance-o como compra no cartão — a linha volta à fatura sozinha.`)) return;
     try {
-      await addCardStatementItem(statementDetail.id, {
-        description: itemForm.description,
-        supplierName: itemForm.supplierName || null,
-        itemDate: itemForm.itemDate,
-        value: Number(itemForm.value),
-        checked: itemForm.checked,
-        hasDivergence: itemForm.hasDivergence,
-        notes: itemForm.notes || null
-      });
+      await deleteCardStatementItem(statementDetail.id, item.id);
       setStatementDetail(await getCardStatement(statementDetail.id));
-      setItemForm({ description: "", supplierName: "", itemDate: todayDate(), value: "", checked: false, hasDivergence: false, notes: "" });
-      setNotice({ tone: "success", message: "Item incluído na fatura." });
+      setNotice({ tone: "success", message: "Linha excluída da fatura." });
+      await load();
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao incluir item." });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao excluir a linha." });
     }
   }
 
@@ -700,7 +685,10 @@ export function Cards({ user }: CardsProps) {
                     <tr key={item.id}>
                       <td className="nowrap-cell">{formatDate(item.itemDate)}</td>
                       <td className="numeric-cell nowrap-cell">{parcelaLabel}</td>
-                      <td title={item.description}>{item.description}</td>
+                      <td title={item.description}>
+                        {item.description}
+                        {!item.purchaseId && <> <DsStatusBadge tone="warning">sem compra</DsStatusBadge></>}
+                      </td>
                       <td title={supplierDisplay}>{supplierDisplay}</td>
                       <td>{item.categoryName ?? "-"}</td>
                       <td className="numeric-cell nowrap-cell"><Money value={item.value} /></td>
@@ -714,6 +702,9 @@ export function Cards({ user }: CardsProps) {
                             <button type="button" className="secondary-button realocar-btn" onClick={() => void openReallocate(item)}>
                               <ArrowRightLeft size={13} /> Realocar
                             </button>
+                            {!item.purchaseId && (
+                              <button type="button" className="secondary-button" onClick={() => void removeLooseItem(item)}>Excluir</button>
+                            )}
                           </>
                         ) : (
                           <span>-</span>
@@ -724,20 +715,11 @@ export function Cards({ user }: CardsProps) {
                 })}</tbody>
               </table>
             </div>
-            {canManage && (
-              <div className="subsection">
-                <div className="section-heading compact-heading"><div><p>Manual</p><h3>Adicionar item manual</h3></div></div>
-                <div className="form-grid">
-                  <label>Descrição<input value={itemForm.description} onChange={(event) => setItemForm({ ...itemForm, description: event.target.value })} /></label>
-                  <label>Fornecedor / Local<input value={itemForm.supplierName} onChange={(event) => setItemForm({ ...itemForm, supplierName: event.target.value })} /></label>
-                  <label>Data<input type="date" value={itemForm.itemDate} onChange={(event) => setItemForm({ ...itemForm, itemDate: event.target.value })} /></label>
-                  <label>Valor<input type="number" min="0" step="0.01" value={itemForm.value} onChange={(event) => setItemForm({ ...itemForm, value: event.target.value })} /></label>
-                  <label className="full-width">Observações<input value={itemForm.notes} onChange={(event) => setItemForm({ ...itemForm, notes: event.target.value })} /></label>
-                </div>
-                <div className="form-actions">
-                  <button className="primary-button" type="button" onClick={addManualItem}><Plus size={16} /> Adicionar item</button>
-                </div>
-              </div>
+            {canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) && (
+              <p className="subsection text-muted">
+                Toda linha da fatura vem de uma compra. Anuidade, juros ou tarifa: lance como compra paga no cartão, com o item, em{" "}
+                <Link to="/compras/nova">Nova compra</Link> — a linha entra aqui sozinha e a despesa aparece no DRE.
+              </p>
             )}
           </section>
         </div>

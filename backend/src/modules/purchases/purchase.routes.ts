@@ -2556,6 +2556,29 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
     await assertPeriodWritableForDate(cancellationCompetenceDate, "Cancelamento de compra");
   }
 
+  // Cancelar apaga as linhas da compra nas faturas. Em fatura fechada ou paga o
+  // titulo nao acompanha, e como ele nao entra no DRE, o dinheiro sairia do caixa
+  // sem despesa nenhuma. Recusado: a fatura precisa ser reaberta antes.
+  const faturasFechadas = await prisma.$queryRaw<Array<{ status: string; competenceYear: number; competenceMonth: number; cardName: string }>>`
+    SELECT DISTINCT s."status"::text AS "status", s."competenceYear", s."competenceMonth", c."name" AS "cardName"
+    FROM "CreditCardStatementItem" si
+    JOIN "CreditCardStatement" s ON s."id" = si."statementId"
+    JOIN "CreditCard" c ON c."id" = s."creditCardId"
+    WHERE si."purchaseId" = ${request.params.id}
+      AND s."status" IN ('CLOSED', 'PAID')
+  `;
+  if (faturasFechadas.length > 0) {
+    const rotulo = (f: (typeof faturasFechadas)[number]) =>
+      `${String(f.competenceMonth).padStart(2, "0")}/${f.competenceYear} do ${f.cardName}`;
+    const pagas = faturasFechadas.filter((f) => f.status === "PAID");
+    response.status(409).json({
+      message: pagas.length > 0
+        ? `A compra esta na fatura ${pagas.map(rotulo).join(", ")}, ja paga: o dinheiro saiu e a compra nao pode ser cancelada. Se o cartao estornou o valor, o estorno entra na fatura em que aparecer.`
+        : `A compra esta na fatura ${faturasFechadas.map(rotulo).join(", ")}, ja fechada. Reabra a fatura antes de cancelar a compra, e feche de novo depois.`
+    });
+    return;
+  }
+
   class CycleBlockedError extends Error {
     constructor(public readonly reason: "PAID" | "CLOSED_WITH_PAID_TITLE") { super("CYCLE_BLOCKED"); }
   }

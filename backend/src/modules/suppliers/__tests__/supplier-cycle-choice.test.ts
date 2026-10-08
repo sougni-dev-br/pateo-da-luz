@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { escolherCicloDaCompra } from "../supplier-cycle-choice.js";
+import { escolherCicloDaCompra, notasParaTrazer } from "../supplier-cycle-choice.js";
 
 const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
@@ -46,5 +46,48 @@ describe("ciclo em que a compra de fornecedor de ciclo entra", () => {
     expect(escolherCicloDaCompra([], d("2026-10-08"))).toEqual({
       criar: { periodStart: d("2026-10-08"), periodEnd: null }
     });
+  });
+});
+
+describe("notas que um ciclo novo traz de outros ciclos abertos", () => {
+  const nota = (purchaseId: string, data: string, ciclo: { id: string; periodStart: Date; periodEnd: Date | null }) => ({
+    purchaseId,
+    purchaseDate: d(data),
+    cycleId: ciclo.id,
+    cicloInicio: ciclo.periodStart,
+    cicloFim: ciclo.periodEnd
+  });
+
+  // As notas da FLD presas no ciclo de julho em 08/10/2026.
+  const presas = [
+    nota("542048", "2026-07-07", julhoVencido),
+    nota("569786", "2026-09-16", julhoVencido),
+    nota("572478", "2026-09-23", julhoVencido),
+    nota("576476", "2026-10-01", julhoVencido)
+  ];
+
+  test("traz as notas com data dentro do período do ciclo novo", () => {
+    const trazidas = notasParaTrazer(presas, { inicio: d("2026-09-19"), fim: d("2026-09-30") });
+    expect(trazidas.map((n) => n.purchaseId)).toEqual(["572478"]);
+  });
+
+  test("as pontas do período contam como dentro", () => {
+    const trazidas = notasParaTrazer(presas, { inicio: d("2026-09-16"), fim: d("2026-10-01") });
+    expect(trazidas.map((n) => n.purchaseId)).toEqual(["569786", "572478", "576476"]);
+  });
+
+  test("ciclo novo sem fim traz tudo a partir do início", () => {
+    const trazidas = notasParaTrazer(presas, { inicio: d("2026-09-20"), fim: null });
+    expect(trazidas.map((n) => n.purchaseId)).toEqual(["572478", "576476"]);
+  });
+
+  test("não tira nota do ciclo cujo período cobre a data dela", () => {
+    const semFim = { id: "aberto", periodStart: d("2026-09-01"), periodEnd: null };
+    const trazidas = notasParaTrazer([nota("580000", "2026-10-10", semFim)], { inicio: d("2026-10-01"), fim: d("2026-10-15") });
+    expect(trazidas).toEqual([]);
+  });
+
+  test("nota fora do período fica onde está", () => {
+    expect(notasParaTrazer(presas, { inicio: d("2026-11-01"), fim: d("2026-11-15") })).toEqual([]);
   });
 });
