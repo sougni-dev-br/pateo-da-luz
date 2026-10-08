@@ -582,7 +582,8 @@ dashboardRouter.get("/alerts", async (request, response) => {
   // já que a compra-membro nunca ganha parcela:
   //   - pequeno gasto: quitado no ato;
   //   - cartão de crédito: título nasce no fechamento da fatura (cards.service.ts);
-  //   - fornecedor de ciclo: título nasce no fechamento do ciclo (supplier-cycles.routes.ts).
+  //   - fornecedor de ciclo: título nasce no fechamento do ciclo (supplier-cycles.routes.ts);
+  //   - pago por funcionário: título nasce no fechamento do reembolso (reimbursement.routes.ts).
   // Mesma isenção aplicada na validação da criação de compras (purchase.routes.ts).
   const unpaidRows = await prisma.$queryRaw<Array<{ cnt: unknown; total: unknown }>>`
     SELECT COUNT(*) AS cnt, COALESCE(SUM(p."totalAmount"), 0) AS total
@@ -597,6 +598,7 @@ dashboardRouter.get("/alerts", async (request, response) => {
       )
       AND p."isSmallExpense" = false
       AND p."creditCardId" IS NULL
+      AND p."reimbursementPayeeId" IS NULL
       AND s."billingMode" IS DISTINCT FROM 'CYCLE'
       AND NOT EXISTS (
         SELECT 1 FROM "SupplierBillingCycleItem" bci WHERE bci."purchaseId" = p.id

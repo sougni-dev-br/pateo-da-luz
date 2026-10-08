@@ -97,9 +97,11 @@ async function getPurchaseDetail(id: string) {
       pm."name" AS "paymentMethodName",
       cc."name" AS "creditCardName",
       cc."bankName" AS "creditCardBankName",
-      cc."last4Digits" AS "creditCardLast4Digits"
+      cc."last4Digits" AS "creditCardLast4Digits",
+      rp."name" AS "reimbursementPayeeName"
     FROM "Purchase" p
     JOIN "Supplier" s ON s."id" = p."supplierId"
+    LEFT JOIN "Supplier" rp ON rp."id" = p."reimbursementPayeeId"
     LEFT JOIN "PaymentMethod" pm ON pm."id" = p."paymentMethodId"
     LEFT JOIN "CreditCard" cc ON cc."id" = p."creditCardId"
     WHERE p."id" = ${id}
@@ -1365,6 +1367,21 @@ purchaseRouter.patch("/payables/:id/reverse", async (request, response) => {
   response.json({ id: request.params.id, status: "OPEN" });
 });
 
+async function podeCriarFornecedorDeFuncionario(user: SessionUser) {
+  const [criaFornecedor, veFuncionarios] = await Promise.all([
+    userHasPermission(user, "suppliers", "create"),
+    userHasPermission(user, "employees", "view")
+  ]);
+  return criaFornecedor && veFuncionarios;
+}
+
+async function fornecedorDoFuncionarioComPermissao(user: SessionUser, employeeId: string) {
+  if (!(await podeCriarFornecedorDeFuncionario(user))) {
+    throw new ReimbursementError("Esta pessoa ainda nao tem cadastro de fornecedor. Peca a quem pode criar Fornecedores e ver Funcionarios para lancar a primeira compra dela (ou cadastrar em Fornecedores > A partir de funcionario).", 403);
+  }
+  return fornecedorDoFuncionario(employeeId);
+}
+
 // "Quem pagou" na compra paga do bolso de um funcionario: todos os funcionarios ativos
 // e os fornecedores da categoria Funcionario que nao sao de nenhum deles. So id e nome:
 // CPF e PIX ficam no cadastro. O acesso e o de Compras (middleware).
@@ -1372,17 +1389,23 @@ purchaseRouter.patch("/payables/:id/reverse", async (request, response) => {
 // id = o fornecedor da pessoa quando ja existe (achado pelo CPF); senao "emp:<id do
 // funcionario>", e o fornecedor nasce na primeira compra (fornecedorDoFuncionario).
 purchaseRouter.get("/reimbursement-payees", async (request, response) => {
-  if (!(await getSessionUser(request))) {
+  const user = await getSessionUser(request);
+  if (!user) {
     response.status(401).json({ message: "Sessao obrigatoria." });
     return;
   }
+  // Funcionario ainda sem fornecedor so aparece para quem pode criar esse fornecedor
+  // (ver Funcionarios + criar Fornecedores, a regra de "A partir de funcionario"): e o
+  // cadastro que recebe CPF e PIX. Os demais veem quem ja tem cadastro.
+  const podeCriar = await podeCriarFornecedorDeFuncionario(user as SessionUser);
   const funcionarios = await prisma.$queryRaw<Array<{ employeeId: string; name: string; supplierId: string | null }>>`
     SELECT e."id" AS "employeeId",
            trim(regexp_replace(e."firstName" || ' ' || e."lastName", '[[:space:]]+', ' ', 'g')) AS "name",
            (SELECT s."id" FROM "Supplier" s
-             WHERE length(regexp_replace(e."cpf", '[^0-9]', '', 'g')) = 11
+             WHERE s."isActive"
+               AND length(regexp_replace(e."cpf", '[^0-9]', '', 'g')) = 11
                AND regexp_replace(COALESCE(s."document", ''), '[^0-9]', '', 'g') = regexp_replace(e."cpf", '[^0-9]', '', 'g')
-             ORDER BY s."isActive" DESC, s."createdAt" ASC LIMIT 1) AS "supplierId"
+             ORDER BY s."createdAt" ASC LIMIT 1) AS "supplierId"
     FROM "Employee" e
     WHERE e."isActive" AND e."deletedAt" IS NULL
   `;
@@ -1392,7 +1415,9 @@ purchaseRouter.get("/reimbursement-payees", async (request, response) => {
   `;
   const jaListados = new Set(funcionarios.map((f) => f.supplierId).filter(Boolean));
   const lista = [
-    ...funcionarios.map((f) => ({ id: f.supplierId ?? `emp:${f.employeeId}`, name: f.name })),
+    ...funcionarios
+      .filter((f) => f.supplierId || podeCriar)
+      .map((f) => ({ id: f.supplierId ?? `emp:${f.employeeId}`, name: f.name })),
     ...fornecedores
       .filter((f) => ehCategoriaFuncionario(f.mainCategory) && !jaListados.has(f.id))
       .map(({ id, name }) => ({ id, name }))
@@ -1609,7 +1634,7 @@ purchaseRouter.post("/", async (request, response) => {
   const isReimbursement = paymentMethodType === REIMBURSEMENT_PAYMENT_TYPE;
   // Funcionario que ainda nao tem cadastro de fornecedor: cria agora, pelo CPF.
   const reimbursementPayeeId = !isReimbursement ? null
-    : reimbursementPayeeInput ?? (reimbursementEmployeeId ? await fornecedorDoFuncionario(prisma, reimbursementEmployeeId) : null);
+    : reimbursementPayeeInput ?? (reimbursementEmployeeId ? await fornecedorDoFuncionarioComPermissao(user as SessionUser, reimbursementEmployeeId) : null);
   if (isReimbursement && !reimbursementPayeeId) {
     await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Informe quem pagou a compra (reembolso)." });
     return;
@@ -2284,7 +2309,7 @@ purchaseRouter.put("/:id", async (request, response) => {
   const isNormalCreditCard = !isSmallExpense && updatePaymentMethodType === "CREDIT_CARD";
   const isReimbursement = updatePaymentMethodType === REIMBURSEMENT_PAYMENT_TYPE;
   const reimbursementPayeeId = !isReimbursement ? null
-    : reimbursementPayeeInput ?? (reimbursementEmployeeId ? await fornecedorDoFuncionario(prisma, reimbursementEmployeeId) : null);
+    : reimbursementPayeeInput ?? (reimbursementEmployeeId ? await fornecedorDoFuncionarioComPermissao(user as SessionUser, reimbursementEmployeeId) : null);
   if (isReimbursement && !reimbursementPayeeId) {
     response.status(400).json({ message: "Informe quem pagou a compra (reembolso)." });
     return;
