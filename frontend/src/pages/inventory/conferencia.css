@@ -745,3 +745,9 @@
     flex: 1 1 100%;
   }
 }
+
+.conf-marcar__dica {
+  flex: 1 1 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
