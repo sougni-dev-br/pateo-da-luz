@@ -8,9 +8,10 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 // reativacao. Banco de mentira — o calculo de custo ja tem teste proprio.
 vi.mock("../../../config/database.js", () => {
   const prisma: Record<string, unknown> = {
-    dish: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    dish: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
+    dishRevision: { create: vi.fn(), findMany: vi.fn() },
     dishItem: { createMany: vi.fn(), deleteMany: vi.fn() },
-    dishCategory: { findMany: vi.fn() },
+    dishCategory: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     product: { findMany: vi.fn(), findUnique: vi.fn() },
     productUnitConversion: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     $transaction: vi.fn()
@@ -44,8 +45,18 @@ const inexistente = () => new Prisma.PrismaClientKnownRequestError("nao achou", 
 const ingrediente = { productId: "p1", quantity: 150, unit: "G", wasteFactor: 0.05 };
 const pratoValido = { name: "  Risoto de camarão ", salePriceDefault: 79.9, yieldQty: 1, yieldUnit: "UN", items: [ingrediente] };
 
+// Detalhe minimo de um prato: o que carregarDetalhe precisa para montar a resposta e a versao do historico.
+const detalheMinimo = (id: string) => ({
+  id, code: null, name: "Prato", menu: "CARDAPIO", category: null, salePriceDefault: null, yieldQty: 1, yieldUnit: "UN",
+  notes: null, isActive: true, listings: [], items: [], createdAt: new Date(), updatedAt: new Date()
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
+  db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
+    arg.select ? { menu: "CARDAPIO" } : detalheMinimo(arg.where.id));
+  db.dishRevision.create.mockResolvedValue({});
+  db.dishCategory.findUnique.mockResolvedValue({ name: "A la carte", menu: "CARDAPIO" });
   vi.mocked(requireRole).mockResolvedValue({ id: "u1", role: "ADMIN" } as never);
   db.$transaction.mockImplementation(async (arg: unknown) =>
     typeof arg === "function" ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as unknown[]));

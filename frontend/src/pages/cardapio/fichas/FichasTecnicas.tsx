@@ -1,6 +1,7 @@
 import { ChefHat, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  bulkUpdateDishes,
   deactivateDish,
   getDishCategories,
   getDishDetail,
@@ -8,7 +9,8 @@ import {
   reactivateDish,
   type DishCategory,
   type DishDetail,
-  type DishListItem
+  type DishListItem,
+  type DishMenu
 } from "../../../api/client";
 import { Notice, useNotice } from "../../../components/Notice";
 import { useSession } from "../../../context/SessionContext";
@@ -21,15 +23,21 @@ import {
   type OrdemDaLista,
   type SituacaoDaFicha
 } from "../../../lib/fichaTecnica";
+import { cardapioCombina, contarPorCardapio, type FiltroDeCardapio } from "../../../lib/categoriasDasFichas";
+import { folhaDoNome, folhaDoPrato, type FolhaDados } from "../../../lib/folhaDaFicha";
 import { montarPainel } from "../../../lib/painelFichas";
 import { useNavigationGuard } from "../../../lib/navigationGuard";
 import { hasPermission } from "../../../lib/permissions";
 import { useRevealScroll } from "../../../lib/useRevealScroll";
 import { Categorias } from "./Categorias";
 import { DetalheDoPrato } from "./DetalheDoPrato";
+import { DialogoDeImpressao } from "./DialogoDeImpressao";
+import { DialogoDeLote, type EscolhaDoLote } from "./DialogoDeLote";
+import { useImpressaoDeFolhas } from "./FolhaDaFicha";
 import { FormularioDoPrato, type ModoDoFormulario } from "./FormularioDoPrato";
 import { ListaDePratos } from "./ListaDePratos";
 import { PainelDasFichasView } from "./PainelDasFichas";
+import { SeletorDeCardapio } from "./SeletorDeCardapio";
 import "./fichas.css";
 import "./painel.css";
 
@@ -37,7 +45,7 @@ type Aba = "painel" | "fichas" | "categorias";
 /** `chave` muda a cada abertura: reabrir "Novo prato" precisa de um formulário zerado, não do anterior. */
 type Editor = { modo: ModoDoFormulario; base: DishDetail | null; chave: number };
 
-const FILTRO_INICIAL: FiltroDaLista = { busca: "", categoriaId: "", situacao: "todos", mostrarInativos: false };
+const FILTRO_INICIAL: FiltroDaLista = { busca: "", menu: "todos", categoriaId: "", situacao: "todos", mostrarInativos: false };
 const AVISO_DE_DESCARTE = "Há alterações não salvas nesta ficha. Descartar?";
 
 const mensagemDe = (erro: unknown, padrao: string) => (erro instanceof Error && erro.message ? erro.message : padrao);
@@ -60,6 +68,13 @@ export function FichasTecnicas() {
   const [detalhe, setDetalhe] = useState<DishDetail | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [alterado, setAlterado] = useState(false);
+
+  // Seleção em lote: organizar (cardápio/categoria) e imprimir fichas de vários pratos.
+  const [modoSelecao, setModoSelecao] = useState(false);
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [dialogoDeLote, setDialogoDeLote] = useState(false);
+  const [dialogoDeImpressao, setDialogoDeImpressao] = useState(false);
+  const { imprimir, portal: portalDaImpressao } = useImpressaoDeFolhas();
 
   // Respostas que chegam depois de o usuário já ter ido para outro prato são descartadas.
   const pedidoDeDetalhe = useRef(0);
@@ -183,6 +198,42 @@ export function FichasTecnicas() {
     selecionar(id);
   }
 
+  // ── cardápio (salão x delivery) ──
+  function escolherCardapio(valor: FiltroDeCardapio) {
+    // A categoria escolhida pode não existir no outro cardápio: o filtro dela volta ao padrão.
+    setFiltro((anterior) => ({ ...anterior, menu: valor, categoriaId: "" }));
+    setSelecionados(new Set());
+  }
+
+  // ── seleção em lote ──
+  function sairDaSelecao() {
+    setModoSelecao(false);
+    setSelecionados(new Set());
+  }
+
+  function alternarSelecao(id: string) {
+    setSelecionados((anterior) => {
+      const proximo = new Set(anterior);
+      if (proximo.has(id)) proximo.delete(id);
+      else proximo.add(id);
+      return proximo;
+    });
+  }
+
+  async function aplicarLote(escolha: EscolhaDoLote) {
+    const resposta = await bulkUpdateDishes({ ids: [...selecionados], ...escolha });
+    await carregar();
+    const limpas = resposta.categoriasLimpas > 0 ? ` ${resposta.categoriasLimpas} ficaram sem categoria, por ser de outro cardápio.` : "";
+    notificar("success", `${resposta.atualizados} prato${resposta.atualizados === 1 ? "" : "s"} organizado${resposta.atualizados === 1 ? "" : "s"}.${limpas}`);
+    sairDaSelecao();
+  }
+
+  // ── impressão ──
+  function imprimirDosSelecionados() {
+    const folhas = pratos.filter((prato) => selecionados.has(prato.id)).map((prato) => folhaDoNome(prato));
+    imprimir(folhas);
+  }
+
   async function atualizar() {
     const aberto = selecionadoRef.current;
     await Promise.all([carregar(), aberto ? abrirDetalhe(aberto) : Promise.resolve()]);
@@ -213,9 +264,12 @@ export function FichasTecnicas() {
   }
 
   const pratosDaLista = useMemo(() => ordenarPratos(filtrarPratos(pratos, filtro), ordem), [pratos, filtro, ordem]);
+  const contagemPorCardapio = useMemo(() => contarPorCardapio(pratos), [pratos]);
+  // O painel e os números do alto olham só o cardápio escolhido.
+  const pratosDoCardapio = useMemo(() => pratos.filter((prato) => cardapioCombina(prato, filtro.menu)), [pratos, filtro.menu]);
   // O painel olha só os ativos; os chips da lista acompanham o que ela mostra (inclui inativos se ligado).
-  const painel = useMemo(() => montarPainel(pratos), [pratos]);
-  const contagemDosChips = useMemo(() => contarPorSituacao(pratos, filtro.mostrarInativos), [pratos, filtro.mostrarInativos]);
+  const painel = useMemo(() => montarPainel(pratosDoCardapio), [pratosDoCardapio]);
+  const contagemDosChips = useMemo(() => contarPorSituacao(pratosDoCardapio, filtro.mostrarInativos), [pratosDoCardapio, filtro.mostrarInativos]);
 
   const detalheDoSelecionado = detalhe && detalhe.id === selecionadoId ? detalhe : null;
   const painelAberto = selecionadoId !== null || editor !== null;
@@ -243,6 +297,7 @@ export function FichasTecnicas() {
           modo={editor.modo}
           base={editor.base}
           categorias={categorias}
+          menuPadrao={filtro.menu === "DELIVERY" ? "DELIVERY" : "CARDAPIO"}
           onCancelar={cancelarEditor}
           onSalvo={(id, modo) => void aoSalvar(id, modo)}
           onAlterado={setAlterado}
@@ -261,6 +316,7 @@ export function FichasTecnicas() {
           onEditar={() => abrirEditor("editar", detalheDoSelecionado)}
           onCopiar={() => abrirEditor("copia", detalheDoSelecionado)}
           onAlternarAtivo={() => void alternarAtivo()}
+          onImprimir={() => imprimir([folhaDoPrato(detalheDoSelecionado)])}
           onFechar={voltar}
         />
       );
@@ -284,6 +340,7 @@ export function FichasTecnicas() {
     <div className="ft-pagina">
       <Notice notice={notice} />
 
+      <div className="ft-topo-controles">
       <Tabs
         value={aba}
         onChange={trocarAba}
@@ -293,6 +350,8 @@ export function FichasTecnicas() {
           { value: "categorias", label: "Categorias" }
         ]}
       />
+      <SeletorDeCardapio valor={filtro.menu} contagem={contagemPorCardapio} onChange={escolherCardapio} />
+      </div>
 
       {erroDeCarga && (
         <Alert tone="error" title="Não foi possível carregar">
@@ -311,10 +370,11 @@ export function FichasTecnicas() {
             onIrParaPratos={irParaPratos}
             onAbrirPrato={abrirPratoDoPainel}
             onNovo={() => { setAba("fichas"); novoPrato(); }}
+            onImprimirEmBranco={() => setDialogoDeImpressao(true)}
           />
         )
       ) : aba === "categorias" ? (
-        <Categorias categorias={categorias} canEdit={canEdit} onSalvo={() => void carregar()} notificar={notificar} />
+        <Categorias categorias={categorias} pratos={pratos} filtroDeCardapio={filtro.menu} canEdit={canEdit} onSalvo={() => void carregar()} notificar={notificar} />
       ) : (
         <ListDetailLayout
           className="ft-layout"
@@ -337,11 +397,37 @@ export function FichasTecnicas() {
               onSelecionar={selecionar}
               onNovo={novoPrato}
               onAtualizar={() => void atualizar()}
+              modoSelecao={modoSelecao}
+              selecionados={selecionados}
+              onEntrarNaSelecao={() => setModoSelecao(true)}
+              onSairDaSelecao={sairDaSelecao}
+              onAlternarSelecao={alternarSelecao}
+              onSelecionarTodos={() => setSelecionados(new Set(pratosDaLista.map((prato) => prato.id)))}
+              onLimparSelecao={() => setSelecionados(new Set())}
+              onMoverSelecionados={() => setDialogoDeLote(true)}
+              onImprimirSelecionados={imprimirDosSelecionados}
+              onImprimirEmBranco={() => setDialogoDeImpressao(true)}
             />
           }
           detail={<div ref={revelarRef} className="scroll-target ft-painel">{renderizarPainel()}</div>}
         />
       )}
+
+      <DialogoDeLote
+        aberto={dialogoDeLote}
+        quantidade={selecionados.size}
+        cardapiosAtuais={[...new Set(pratos.filter((prato) => selecionados.has(prato.id)).map((prato) => prato.menu))] as DishMenu[]}
+        categorias={categorias}
+        onFechar={() => setDialogoDeLote(false)}
+        onAplicar={aplicarLote}
+      />
+      <DialogoDeImpressao
+        aberto={dialogoDeImpressao}
+        categorias={categorias}
+        onFechar={() => setDialogoDeImpressao(false)}
+        onImprimir={(folhas: FolhaDados[]) => imprimir(folhas)}
+      />
+      {portalDaImpressao}
     </div>
   );
 }

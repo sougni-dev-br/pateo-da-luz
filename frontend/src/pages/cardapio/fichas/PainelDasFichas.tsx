@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardCheck, Plus, TrendingDown, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardCheck, Plus, Printer, TrendingDown, Wallet } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button, EmptyState, KpiCard, Money } from "../../../design-system";
 import { CMV_ALTO, CMV_BOM, faixaDeCmv, type SituacaoDaFicha } from "../../../lib/fichaTecnica";
@@ -11,6 +11,7 @@ type Props = {
   onIrParaPratos: (filtro: { situacao?: SituacaoDaFicha; categoriaId?: string }) => void;
   onAbrirPrato: (id: string) => void;
   onNovo: () => void;
+  onImprimirEmBranco: () => void;
 };
 
 /** Régua dos gráficos de CMV: acima de 60% não muda mais a leitura. */
@@ -73,7 +74,7 @@ function Pendencia({ icone, quantidade, singular, plural, dica, onClick, destaqu
   );
 }
 
-export function PainelDasFichasView({ painel, canEdit, onIrParaPratos, onAbrirPrato, onNovo }: Props) {
+export function PainelDasFichasView({ painel, canEdit, onIrParaPratos, onAbrirPrato, onNovo, onImprimirEmBranco }: Props) {
   const { pendencias, distribuicao, analisaveis } = painel;
   const faixaDoMedio = faixaDeCmv(painel.cmvMedio);
   const resumo = veredito(painel);
@@ -155,6 +156,9 @@ export function PainelDasFichasView({ painel, canEdit, onIrParaPratos, onAbrirPr
               <Pendencia icone={<ClipboardCheck size={16} />} quantidade={pendencias.semFicha} singular="prato sem ficha" plural="pratos sem ficha" dica="Monte a lista de ingredientes de cada um" onClick={() => onIrParaPratos({ situacao: "sem-ficha" })} />
             </ul>
           )}
+          <div className="ft-p-rodape-cartao">
+            <Button variant="secondary" size="sm" leadingIcon={<Printer size={14} aria-hidden />} onClick={onImprimirEmBranco}>Imprimir ficha em branco</Button>
+          </div>
         </Cartao>
 
         <Cartao titulo="Saúde do cardápio" subtitulo={analisaveis > 0 ? `${analisaveis} de ${painel.ativos} pratos analisados` : undefined}>
