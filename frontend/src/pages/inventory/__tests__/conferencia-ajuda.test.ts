@@ -6,7 +6,7 @@ function item(p: Partial<ItemDaConferencia>): ItemDaConferencia {
   return {
     itemId: "i", productId: "p", productCode: null, productName: "X", sectorName: "ESTOQUE", unit: "UN",
     contado: 1, contadoPor: null, contadoEm: null, anterior: 1, anteriorData: null, anteriorCodigo: null,
-    compras: 0, disponivel: 1, consumo: 0, custoUnitario: 1, impacto: 10, classe: "COERENTE", motivo: "", conferido: null, recontagemId: null, ...p
+    compras: 0, disponivel: 1, consumo: 0, custoUnitario: 1, custoFonte: "COMPRAS_DO_PERIODO", custoDetalhe: null, impacto: 10, classe: "COERENTE", motivo: "", conferido: null, recontagemId: null, ...p
   };
 }
 
