@@ -12,6 +12,7 @@ import {
   ensureCardSupplier,
   getCardStatementPeriod,
   getNextPurchaseNumber,
+  linhasSemCompraAtiva,
   syncCardStatementItemForPurchase
 } from "./cards.service.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
@@ -623,6 +624,18 @@ cardsRouter.post("/statements/:id/close", async (request, response) => {
     await assertPeriodWritableForDate(statement.dueDate, "Fechamento de fatura de cartao (vencimento)");
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
+    return;
+  }
+
+  const avulsas = linhasSemCompraAtiva(statement.items);
+  if (avulsas.length > 0) {
+    const lista = avulsas
+      .map((linha) => `${linha.description} (R$ ${linha.value.toFixed(2).replace(".", ",")})`)
+      .join("; ");
+    response.status(422).json({
+      message: `A fatura tem ${avulsas.length} linha(s) sem compra ativa: ${lista}. Lance cada uma como compra no cartao — ela entra na fatura sozinha — e remova a linha avulsa antes de fechar. Sem isso o gasto sai do caixa e nao aparece no DRE.`,
+      linhasSemCompra: avulsas
+    });
     return;
   }
 
