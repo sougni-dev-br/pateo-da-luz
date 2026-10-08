@@ -1581,17 +1581,26 @@ model InventoryRequisitionItem {
 }
 
 model DishCategory {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
+  id        String         @id @default(cuid())
+  // O nome so e unico dentro do mesmo pai e do mesmo cardapio ("Sobremesas" pode existir no salao e no
+  // delivery): o indice unico vive na migration, porque usa COALESCE e o Prisma nao o expressa.
+  name      String
+  sortOrder Int            @default(0)
+  isActive  Boolean        @default(true)
   notes     String?
+  // Subcategoria: aponta para a categoria de cima. So dois niveis (categoria > subcategoria), validado na rota.
+  parentId  String?
+  parent    DishCategory?  @relation("DishCategoryTree", fields: [parentId], references: [id])
+  children  DishCategory[] @relation("DishCategoryTree")
+  // CARDAPIO (salao) ou DELIVERY. A subcategoria herda o cardapio do pai.
+  menu      String         @default("CARDAPIO")
   dishes    Dish[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 
   @@index([sortOrder])
   @@index([isActive])
+  @@index([parentId])
 }
 
 model Dish {
@@ -1605,13 +1614,38 @@ model Dish {
   yieldUnit        String        @default("UN")
   notes            String?
   isActive         Boolean       @default(true)
+  // Em que cardapio o prato vive: CARDAPIO (salao) ou DELIVERY. Salao e delivery sao cardapios
+  // separados (regra do Eli); o mesmo nome em cada um e uma ficha propria.
+  menu             String        @default("CARDAPIO")
   items            DishItem[]
   listings         DishListing[]
+  revisions        DishRevision[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
   @@index([categoryId])
   @@index([isActive])
+  @@index([menu, isActive])
+}
+
+// Cada gravacao da ficha deixa uma versao: quem, quando, o que mudou e quanto custava na hora.
+// O snapshot e JSON (nome, categoria, preco, rendimento, ingredientes com quantidade/unidade/perda)
+// porque a ficha de hoje e a de ontem apontam para os mesmos produtos, mas o custo muda.
+model DishRevision {
+  id             String   @id @default(cuid())
+  dishId         String
+  dish           Dish     @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  // CRIADA | ALTERADA | INATIVADA | REATIVADA
+  action         String
+  userId         String?
+  userName       String?
+  snapshot       Json
+  costPerServing Decimal? @db.Decimal(12, 4)
+  salePrice      Decimal? @db.Decimal(10, 2)
+  cmvPercent     Decimal? @db.Decimal(8, 3)
+  createdAt      DateTime @default(now())
+
+  @@index([dishId, createdAt])
 }
 
 // Onde um prato e vendido e por quanto.

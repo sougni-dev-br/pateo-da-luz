@@ -27,18 +27,18 @@ const SESSAO = {
   toggleSensitiveValues: () => undefined, canAccessSection: () => true, hasPermission: () => true,
 } as unknown as SessionContextValue;
 
-const CATEGORIA: DishCategory = { id: "c1", name: "A la carte", sortOrder: 0, isActive: true, notes: null, dishesCount: 2 };
+const CATEGORIA: DishCategory = { id: "c1", name: "A la carte", sortOrder: 0, isActive: true, notes: null, parentId: null, menu: "CARDAPIO", dishesCount: 2 };
 
 // Dados fictícios: nada daqui vem da produção.
 function resumo(parcial: Partial<DishListItem>): DishListItem {
   return {
-    id: "d", code: null, name: "Prato", category: null, salePriceDefault: 50, yieldQty: 1, yieldUnit: "UN", isActive: true,
+    id: "d", code: null, name: "Prato", menu: "CARDAPIO", category: null, salePriceDefault: 50, yieldQty: 1, yieldUnit: "UN", isActive: true,
     itemsCount: 1, listingsCount: 0, listingPriceMin: null, listingPriceMax: null, calculatedCost: 10, custoPorcao: 10,
     margemBruta: 40, cmvPercentual: 20, custoIncompleto: false, ...parcial,
   };
 }
 
-const RISOTO = resumo({ id: "d1", name: "Risoto de camarão", code: "PRAT-001", category: { id: "c1", name: "A la carte" }, salePriceDefault: 80, calculatedCost: 20, custoPorcao: 20, margemBruta: 60, cmvPercentual: 25, itemsCount: 2 });
+const RISOTO = resumo({ id: "d1", name: "Risoto de camarão", code: "PRAT-001", category: { id: "c1", name: "A la carte", parentId: null, parentName: null, menu: "CARDAPIO" }, salePriceDefault: 80, calculatedCost: 20, custoPorcao: 20, margemBruta: 60, cmvPercentual: 25, itemsCount: 2 });
 const PURE = resumo({ id: "d2", name: "Purê de batata", itemsCount: 0, calculatedCost: 0, custoPorcao: 0, margemBruta: 50, cmvPercentual: 0 });
 const FUNGHI = resumo({ id: "d3", name: "Risoto de funghi", salePriceDefault: 70, custoIncompleto: true, margemBruta: 60, cmvPercentual: 10, itemsCount: 2 });
 const ANTIGO = resumo({ id: "d4", name: "Prato antigo", isActive: false });
@@ -162,7 +162,7 @@ describe("lista de pratos", () => {
 
   test("busca ignora acento e maiúscula", async () => {
     await abrir();
-    fireEvent.change(screen.getByLabelText("Buscar prato ou código"), { target: { value: "PURE" } });
+    fireEvent.change(screen.getByLabelText("Buscar prato, código ou categoria"), { target: { value: "PURE" } });
     expect(within(lista()).getByText("Purê de batata")).toBeInTheDocument();
     expect(within(lista()).queryByText("Risoto de camarão")).toBeNull();
   });
@@ -190,7 +190,7 @@ describe("lista de pratos", () => {
 
   test("sem resultado oferece limpar os filtros", async () => {
     await abrir();
-    fireEvent.change(screen.getByLabelText("Buscar prato ou código"), { target: { value: "zzz" } });
+    fireEvent.change(screen.getByLabelText("Buscar prato, código ou categoria"), { target: { value: "zzz" } });
     fireEvent.click(screen.getByRole("button", { name: "Limpar filtros" }));
     expect(within(lista()).getByText("Risoto de camarão")).toBeInTheDocument();
   });
