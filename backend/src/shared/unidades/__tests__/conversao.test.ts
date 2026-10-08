@@ -4,6 +4,7 @@ import {
   converterItemDeCompra,
   detectarEmbalagem,
   embalagemDoNome,
+  linhasDeConversaoInformada,
   normalizarUnidade,
   resolveUnitFactor
 } from "../conversao.js";
@@ -323,5 +324,69 @@ describe("embalagem do nome para a ficha técnica", () => {
 
   it("sem medida no nome, nada é inventado", () => {
     expect(conversoesDoProduto("CEBOLA", "UN", [])).toEqual([]);
+  });
+});
+
+describe("quando a leitura do nome não vale", () => {
+  it("pacote ou caixa com marcador de contagem não infere: o 110ML é do copo, não do pacote", () => {
+    expect(conversoesDoProduto("COPO DE PAPEL 110ML - C/50", "PCT", [])).toEqual([]);
+    expect(conversoesDoProduto("POTE RETANGULAR 350ML C/24 CX 6", "CX", [])).toEqual([]);
+  });
+
+  it("contado em UN, o 110ML descreve a unidade e continua valendo", () => {
+    const conv = conversoesDoProduto("COPO 200ML C/50", "UN", []);
+    expect(resolveUnitFactor("ML", "UN", conv)).toBeCloseTo(1 / 200);
+  });
+
+  it("pacote sem marcador de contagem infere: PCT 500G", () => {
+    expect(resolveUnitFactor("G", "PCT", conversoesDoProduto("FARINHA PCT 500G", "PCT", []))).toBeCloseTo(1 / 500);
+  });
+});
+
+describe("conversão informada pela pessoa na ficha", () => {
+  it("1 UN = 1200 g grava g e kg, para lançar em qualquer um dos dois", () => {
+    const linhas = linhasDeConversaoInformada("UN", "G", 1200)!;
+    expect(resolveUnitFactor("G", "UN", linhas)).toBeCloseTo(1 / 1200);
+    expect(resolveUnitFactor("KG", "UN", linhas)).toBeCloseTo(1 / 1.2);
+  });
+
+  it("produto em KG que a receita leva em ml: 1 KG = 970 ml", () => {
+    const linhas = linhasDeConversaoInformada("KG", "ML", 970)!;
+    expect(resolveUnitFactor("ML", "KG", linhas)).toBeCloseTo(1 / 970);
+    expect(resolveUnitFactor("L", "KG", linhas)).toBeCloseTo(1 / 0.97);
+  });
+
+  it("grava na direção estoque→medida, com o número exato que a pessoa digitou", () => {
+    expect(linhasDeConversaoInformada("UN", "G", 1200)).toEqual([
+      { fromUnit: "UN", toUnit: "G", factor: 1200 },
+      { fromUnit: "UN", toUnit: "KG", factor: 1.2 }
+    ]);
+    // 1 UN = 45 kg: na direção inversa o fator seria 0,0000222 e a coluna (6 casas) erraria 1%.
+    const linhas = linhasDeConversaoInformada("UN", "KG", 45)!;
+    expect(resolveUnitFactor("G", "UN", linhas)).toBeCloseTo(1 / 45000, 12);
+    expect(resolveUnitFactor("KG", "UN", linhas)).toBeCloseTo(1 / 45, 12);
+  });
+
+  it("recusa o que a coluna Decimal(12,6) não guardaria", () => {
+    expect(linhasDeConversaoInformada("UN", "KG", 0.0000001)).toBeNull();
+    expect(linhasDeConversaoInformada("UN", "KG", 1_000_000)).toBeNull(); // g = 1e9
+  });
+
+  it("estoque em KG não aceita g (a física já converte) nem ml em L", () => {
+    expect(linhasDeConversaoInformada("KG", "G", 1000)).toBeNull();
+    expect(linhasDeConversaoInformada("L", "ML", 1000)).toBeNull();
+  });
+
+  it("recusa unidade igual à do estoque, unidade estranha e quantidade inválida", () => {
+    expect(linhasDeConversaoInformada("KG", "KG", 1)).toBeNull();
+    expect(linhasDeConversaoInformada("UN", "COLHER", 10)).toBeNull();
+    expect(linhasDeConversaoInformada("UN", "G", 0)).toBeNull();
+    expect(linhasDeConversaoInformada("UN", "G", Number.NaN)).toBeNull();
+    expect(linhasDeConversaoInformada("", "G", 10)).toBeNull();
+  });
+
+  it("a conversão informada vence a leitura do nome", () => {
+    const informada = linhasDeConversaoInformada("UN", "G", 4800)!; // a "5KG" do nome era arredondado
+    expect(conversoesDoProduto("FARINHA 5KG", "UN", informada)).toBe(informada);
   });
 });

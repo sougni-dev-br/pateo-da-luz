@@ -138,7 +138,13 @@ export function mockFichas(url: string, method = "GET"): unknown | undefined {
   const resto = caminho.slice(marca + "/dishes".length).replace(/^\/|\/$/g, "");
 
   // Gravar, inativar e reativar: nada muda no mock, mas a tela recebe uma resposta de sucesso.
-  if (method.toUpperCase() !== "GET") return { id: PRATOS[0].id, ok: true };
+  if (method.toUpperCase() !== "GET") {
+    // Conversão informada na ficha: no mock vale sempre "1 UN = 1.000 g" (só para a demonstração).
+    if (resto.endsWith("/conversions")) {
+      return { conversions: [{ fromUnit: "G", toUnit: "UN", factor: 0.001 }, { fromUnit: "KG", toUnit: "UN", factor: 1 }], embalagemInferida: null };
+    }
+    return { id: PRATOS[0].id, ok: true };
+  }
 
   if (resto === "") return PRATOS.map(resumo);
   if (resto === "categories") return CATEGORIAS;
