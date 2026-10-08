@@ -1,12 +1,12 @@
 import { describe, expect, test } from "vitest";
 import type { ItemDaConferencia } from "../../../api/client";
-import { filtrarConferencia, produtosParecidos, resumirItens } from "../conferencia-ajuda";
+import { filtrarConferencia, produtosParecidos, progressoDaConferencia, resumirItens } from "../conferencia-ajuda";
 
 function item(p: Partial<ItemDaConferencia>): ItemDaConferencia {
   return {
     itemId: "i", productId: "p", productCode: null, productName: "X", sectorName: "ESTOQUE", unit: "UN",
     contado: 1, contadoPor: null, contadoEm: null, anterior: 1, anteriorData: null, anteriorCodigo: null,
-    compras: 0, disponivel: 1, consumo: 0, custoUnitario: 1, impacto: 10, classe: "COERENTE", motivo: "", ...p
+    compras: 0, disponivel: 1, consumo: 0, custoUnitario: 1, impacto: 10, classe: "COERENTE", motivo: "", conferido: null, recontagemId: null, ...p
   };
 }
 
@@ -61,6 +61,29 @@ describe("filtrarConferencia", () => {
 
   test("item sem setor entra como 'Sem setor'", () => {
     expect(filtrarConferencia(itens, { setor: "Sem setor", valorMinimo: 0 }).map((i) => i.itemId)).toEqual(["d"]);
+  });
+});
+
+describe("progresso e situacao da conferencia", () => {
+  const conferido = (motivo: "CORRETO" | "RECONTAR") => ({ motivo, observacao: null, em: null, por: null });
+  const itens = [
+    item({ itemId: "a", classe: "IMPOSSIVEL", impacto: 100, conferido: conferido("CORRETO") }),
+    item({ itemId: "b", classe: "ZERADO_SUSPEITO", impacto: 100, conferido: conferido("RECONTAR") }),
+    item({ itemId: "c", classe: "ZERADO_SUSPEITO", impacto: null }),
+    item({ itemId: "d", classe: "ZERADO_SUSPEITO", impacto: 10 }),
+    item({ itemId: "e", classe: "COERENTE", impacto: 999 })
+  ];
+
+  test("so conta o que exige conferencia; recontar nao e conferido", () => {
+    expect(progressoDaConferencia(itens, 50)).toEqual({ exigidos: 3, conferidos: 1 });
+  });
+
+  test("faltam conferir: exige e ainda nao foi visto", () => {
+    expect(filtrarConferencia(itens, { setor: "", valorMinimo: 0, situacao: "faltam", limite: 50 }).map((i) => i.itemId)).toEqual(["b", "c"]);
+  });
+
+  test("conferidos", () => {
+    expect(filtrarConferencia(itens, { setor: "", valorMinimo: 0, situacao: "conferidos", limite: 50 }).map((i) => i.itemId)).toEqual(["a"]);
   });
 });
 

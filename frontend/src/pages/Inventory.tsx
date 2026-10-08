@@ -274,6 +274,12 @@ export function Inventory({
   const emRascunho = operationalDetail != null && editableOperationalInventoryStatuses.has(operationalDetail.status);
   const corrigindoNaRevisao = operationalDetail?.status === "EM_REVISAO" && canApproveOperational;
   const podeEditarItens = emRascunho || corrigindoNaRevisao;
+  // Alertas que pesam e ainda nao foram conferidos: o servidor recusa aprovar
+  // com eles; a tela avisa antes do clique.
+  const faltamConferir = conferenciaAtual?.pendentesParaAprovar ?? 0;
+  const tituloAprovacaoTravada = faltamConferir > 0
+    ? `Faltam conferir ${faltamConferir} item(ns) na aba Conferência (alertas a partir de R$ ${conferenciaAtual?.limiteDeConferencia ?? 50} ou sem custo).`
+    : undefined;
   const itensEmAlerta = conferenciaAtual
     ? conferenciaAtual.resumo.IMPOSSIVEL.itens + conferenciaAtual.resumo.ZERADO_SUSPEITO.itens
     : 0;
@@ -376,7 +382,9 @@ export function Inventory({
     canCreateOperational
     && session.status === "CONCLUIDA"
     && !session.generatedInventoryId
-    && session.source !== "IMPORTACAO_PLANILHA";
+    && session.source !== "IMPORTACAO_PLANILHA"
+    // Recontagem volta para o inventario que a pediu ("Aplicar" na conferencia).
+    && session.type !== "RECONTAGEM";
   const operationalSummary = useMemo(() => {
     const activeFinalCmv = operationalInventories.find(
       (item) => item.type === "FINAL_CMV" && ["RASCUNHO", "EM_REVISAO"].includes(item.status)
@@ -2932,7 +2940,7 @@ export function Inventory({
                         <Table.Td className="count-list-code" title={session.notes ?? session.code}>
                           <strong>{session.code}</strong>
                           {session.source === "IMPORTACAO_PLANILHA" && <StatusBadge tone="info">Importada</StatusBadge>}
-                          <small>{session.generatedInventoryCode ? `Inventário: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mês" : session.source === "IMPORTACAO_PLANILHA" ? "Importada via planilha" : "Contagem operacional"}</small>
+                          <small>{session.generatedInventoryCode ? `Inventário: ${session.generatedInventoryCode}` : session.isMonthEnd ? "Final do mês" : session.source === "IMPORTACAO_PLANILHA" ? "Importada via planilha" : session.type === "RECONTAGEM" ? "Pedida na conferência do inventário" : "Contagem operacional"}</small>
                         </Table.Td>
                         <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(session.referenceDate)}</Table.Td>
                         <Table.Td truncate style={{ maxWidth: 200 }} title={escopo || undefined}>
@@ -3088,7 +3096,9 @@ export function Inventory({
                   <button className="primary-button" type="button" onClick={() => operationalAction("submit")}><Send size={16} />Enviar para revisão</button>
                 )}
                 {canApproveOperational && operationalDetail.type !== "FINAL_CMV" && operationalDetail.status === "EM_REVISAO" && (
-                  <button className="primary-button" type="button" onClick={() => operationalAction("approve")}>Aprovar</button>
+                  <button className="primary-button" type="button" disabled={faltamConferir > 0} title={tituloAprovacaoTravada} onClick={() => operationalAction("approve")}>
+                    {faltamConferir > 0 ? `Aprovar (faltam ${formatNumber(faltamConferir)})` : "Aprovar"}
+                  </button>
                 )}
                 {canApproveOperational && operationalDetail.type !== "FINAL_CMV" && operationalDetail.status === "APROVADO" && (
                   <button className="primary-button" type="button" onClick={() => operationalAction("close")}>Fechar</button>
@@ -3216,16 +3226,20 @@ export function Inventory({
                   <div><span>Em alerta</span><strong>{conferenciaAtual ? formatNumber(itensEmAlerta) : "—"}</strong></div>
                   <div><span>Pendentes</span><strong>{formatNumber(operationalDetail.pendingItems)}</strong></div>
                 </div>
-                {itensEmAlerta > 0 && (
+                {faltamConferir > 0 ? (
                   <p className="cmv-closing-assistant__warn">
-                    <AlertTriangle size={14} />{formatNumber(itensEmAlerta)} item(ns) impossíveis ou zerados suspeitos na conferência acima. Revise antes de aprovar: depois disso as quantidades viram a base do CMV.
+                    <AlertTriangle size={14} />Faltam conferir {formatNumber(faltamConferir)} item(ns) na aba Conferência. A aprovação libera quando todos estiverem marcados: depois dela as quantidades viram a base do CMV.
+                  </p>
+                ) : itensEmAlerta > 0 && (
+                  <p className="cmv-closing-assistant__info">
+                    Todos os alertas que pesam foram conferidos.
                   </p>
                 )}
                 <p className="cmv-closing-assistant__info">
                   Ao aprovar, será criada automaticamente a base de estoque para o CMV Real com {operationalDetail.totalItems} produtos.
                 </p>
                 <div className="cmv-closing-assistant__actions">
-                  <button className="primary-button cmv-closing-assistant__cta" type="button" disabled={approvingFinalCmv} onClick={() => setShowCmvApproveModal(true)}>
+                  <button className="primary-button cmv-closing-assistant__cta" type="button" disabled={approvingFinalCmv || faltamConferir > 0} title={tituloAprovacaoTravada} onClick={() => setShowCmvApproveModal(true)}>
                     {approvingFinalCmv ? "Aprovando..." : "Aprovar e disponibilizar para CMV"}
                   </button>
                 </div>
@@ -3265,7 +3279,12 @@ export function Inventory({
                 <button type="button" role="tab" id="aba-conferencia" aria-controls="painel-conferencia" aria-selected={abaDoDetalhe === "conferencia"} className="op-detail-aba" onClick={() => setAbaDoDetalhe("conferencia")}>
                   Conferência
                   {conferenciaAtual && (
-                    <span className={`op-detail-aba__contador${itensEmAlerta > 0 ? " op-detail-aba__contador--alerta" : ""}`}>{formatNumber(itensEmAlerta)}</span>
+                    <span
+                      className={`op-detail-aba__contador${faltamConferir > 0 ? " op-detail-aba__contador--alerta" : ""}`}
+                      title={faltamConferir > 0 ? `${faltamConferir} alerta(s) faltam conferir` : "Nada falta conferir"}
+                    >
+                      {faltamConferir > 0 ? formatNumber(faltamConferir) : "✓"}
+                    </span>
                   )}
                 </button>
               )}
@@ -3285,7 +3304,12 @@ export function Inventory({
                   onCarregar={setConferencia}
                   jaAprovado={["APROVADO", "FECHADO"].includes(operationalDetail.status)}
                   podeCorrigir={podeEditarItens}
+                  podeConferir={corrigindoNaRevisao}
                   onCorrigir={corrigirPelaConferencia}
+                  onRecontagemAplicada={() => {
+                    setNotice({ tone: "success", message: "Recontagem aplicada: as quantidades voltaram para a conferência." });
+                    void refreshOperational(operationalDetail.id);
+                  }}
                 />
               </div>
             )}
