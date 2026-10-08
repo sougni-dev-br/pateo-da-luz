@@ -443,12 +443,15 @@ async function upsertStock(input: {
  * outra quantidade. Se mexesse no total, mexeria nas compras do mes e o CMV
  * mudaria pelos dois lados.
  */
-export async function recordPurchaseInventoryEntry(input: {
+// Calcula e grava no item de compra a quantidade na unidade de contagem. Separado
+// da entrada de estoque porque a edicao da nota e a revisao de embalagens
+// precisam recalcular sem mexer em movimentacao (a edicao recriava os itens e a
+// conversao sumia: a nota editada voltava a quantidade bruta).
+export async function gravarConversaoDoItemDeCompra(input: {
   productId: string;
   purchaseItemId: string;
   quantity: number;
   unit: string | null;
-  unitMeasureId: string | null;
   totalCost: number;
 }) {
   const [product] = await prisma.$queryRaw<Array<{
@@ -496,6 +499,26 @@ export async function recordPurchaseInventoryEntry(input: {
       "conversionMissing" = ${conversao.conversionMissing}
     WHERE "id" = ${input.purchaseItemId}
   `;
+  return { product, conversao, quantidadeBruta };
+}
+
+/**
+ * Entrada de estoque a partir de um item de compra.
+ *
+ * Ponto unico por onde passam os dois caminhos (importacao de planilha e
+ * lancamento manual), e por isso o lugar certo para converter a unidade.
+ */
+export async function recordPurchaseInventoryEntry(input: {
+  productId: string;
+  purchaseItemId: string;
+  quantity: number;
+  unit: string | null;
+  unitMeasureId: string | null;
+  totalCost: number;
+}) {
+  const gravado = await gravarConversaoDoItemDeCompra(input);
+  if (!gravado) return null;
+  const { product, conversao, quantidadeBruta } = gravado;
 
   if (!product.controlsStock) return null;
 

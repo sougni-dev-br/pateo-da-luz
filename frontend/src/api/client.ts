@@ -2225,6 +2225,47 @@ export function checkPurchaseDuplicate(filters: {
   return request<PurchaseDuplicateCheck>(`/purchases/duplicate-check${toQueryString(filters)}`);
 }
 
+export type LinhaDaRevisaoDeEmbalagem = {
+  itemId: string;
+  purchaseId: string;
+  data: string;
+  fornecedor: string | null;
+  notaFiscal: string | null;
+  quantidade: number;
+  unidade: string | null;
+  total: number;
+  /** Preco por unidade de contagem (ja convertido quando havia conversao). */
+  precoUnitario: number;
+  fator: number | null;
+  revisada: boolean;
+  suspeita: boolean;
+  fatorSugerido: number | null;
+};
+
+export type ProdutoDaRevisaoDeEmbalagem = {
+  productId: string;
+  produto: string;
+  unidadeDeContagem: string;
+  precoDeReferencia: number | null;
+  embalagens: Array<{ unidade: string; para: string; fator: number }>;
+  sugestaoDoNome: Array<{ quantidade: number; unidade: string | null; trecho: string; nivel: "pacote" | "caixa"; confianca: "alta" | "baixa" }>;
+  excesso: number;
+  linhas: LinhaDaRevisaoDeEmbalagem[];
+};
+
+export function getRevisaoDeEmbalagens() {
+  return request<{ produtos: ProdutoDaRevisaoDeEmbalagem[] }>("/purchases/embalagens/revisao");
+}
+
+/** Aplica a embalagem (ou confirma avulso) em linhas de compra ja lancadas. O total nao muda. */
+export function aplicarEmbalagens(itens: Array<{ itemId: string; avulso?: true; unidade?: string; fator?: number }>) {
+  return request<{ aplicados: Array<{ itemId: string; quantidade: number | null; unidade: string | null }> }>("/purchases/embalagens/aplicar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ itens })
+  });
+}
+
 export function updatePurchase(id: string, payload: ManualPurchasePayload & { supplierChangeReason?: string | null }) {
   return request<PurchaseDetail>(`/purchases/${id}`, {
     method: "PUT",

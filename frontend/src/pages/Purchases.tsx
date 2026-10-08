@@ -1,4 +1,6 @@
-import { ChevronDown, Copy, Eye, FileText, Package, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+﻿import { ChevronDown, Copy, Eye, FileText, Package, PackageCheck, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { RevisaoEmbalagens } from "./compras/RevisaoEmbalagens";
+import { previaDaConversao } from "./compras/embalagem";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { UNSAFE_NavigationContext, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -294,6 +296,7 @@ export function Purchases({ user }: { user: AppUser }) {
   const [paymentExpanded, setPaymentExpanded] = useState(false);
   const [productStep, setProductStep] = useState<ProductStep>("produtos");
   const [filtersExpanded, setFiltersExpanded] = useState(() => window.innerWidth > 640);
+  const [mostrarEmbalagens, setMostrarEmbalagens] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
   const [productSheetOpen, setProductSheetOpen] = useState(false);
@@ -1575,12 +1578,19 @@ export function Purchases({ user }: { user: AppUser }) {
             <FileText size={16} /> PDF
           </button>
           {canCreatePurchase && (
+            <button className="secondary-button" type="button" aria-pressed={mostrarEmbalagens} onClick={() => setMostrarEmbalagens((v) => !v)}>
+              <PackageCheck size={16} /> Revisar embalagens
+            </button>
+          )}
+          {canCreatePurchase && (
             <button className="primary-button" type="button" onClick={openNewPurchase}>
               <Plus size={16} /> Nova compra
             </button>
           )}
         </div>
       </div>
+
+      {mostrarEmbalagens && <RevisaoEmbalagens onFechar={() => setMostrarEmbalagens(false)} onAplicado={loadPurchases} />}
 
       <section className="purchase-filters-panel">
         <div className="purch-filters-header">
@@ -2569,14 +2579,24 @@ export function Purchases({ user }: { user: AppUser }) {
                         />
 
                         {/* Unidade */}
-                        <select
-                          className="pnova-gr-select"
-                          value={item.unit}
-                          onChange={(ev) => updateGridItem(index, { unit: ev.target.value })}
-                        >
-                          <option value="">–</option>
-                          {units.map((u) => <option key={u.id} value={u.code}>{u.code}</option>)}
-                        </select>
+                        {/* A previa mostra o que entra na unidade de contagem: "10 PCT" da forminha = 500 UN. */}
+                        <div className="pnova-gr-unidade">
+                          <select
+                            className="pnova-gr-select"
+                            value={item.unit}
+                            onChange={(ev) => updateGridItem(index, { unit: ev.target.value })}
+                          >
+                            <option value="">–</option>
+                            {units.map((u) => <option key={u.id} value={u.code}>{u.code}</option>)}
+                          </select>
+                          {(() => {
+                            const previa = previaDaConversao(products.find((p) => p.id === item.productId), item.unit, Number(item.quantity) || 0);
+                            if (!previa) return null;
+                            return previa.tipo === "converte"
+                              ? <small className="pnova-gr-conv" title={`1 ${item.unit} = ${previa.fator} ${previa.unidade}`}>= {previa.quantidade.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {previa.unidade}</small>
+                              : <small className="pnova-gr-conv pnova-gr-conv--falta" title={`Cadastre no produto quantas ${previa.unidade} vem em 1 ${item.unit}`}>sem conversão p/ {previa.unidade}</small>;
+                          })()}
+                        </div>
 
                         {/* Valor unitário editável */}
                         <input
