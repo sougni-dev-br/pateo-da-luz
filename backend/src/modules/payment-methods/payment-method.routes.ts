@@ -10,6 +10,8 @@ export const paymentMethodRouter = Router();
 function getType(value: unknown): PaymentMethodType {
   const normalized = normalizeText(value);
 
+  // So o nome que COMECA com "reembolso": "PIX reembolso" e a forma de pagar a pessoa, nao compra do bolso.
+  if (normalized.startsWith("reembolso")) return "REIMBURSEMENT";
   if (normalized.includes("dinheiro")) return "CASH";
   if (normalized.includes("pix")) return "PIX";
   if (normalized.includes("credito")) return "CREDIT_CARD";
