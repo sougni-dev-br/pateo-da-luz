@@ -1791,6 +1791,8 @@ export type ItemDaConferencia = {
   sectorName: string | null;
   unit: string | null;
   contado: number | null;
+  contadoPor: string | null;
+  contadoEm: string | null;
   anterior: number | null;
   anteriorData: string | null;
   anteriorCodigo: string | null;
@@ -1801,6 +1803,21 @@ export type ItemDaConferencia = {
   impacto: number | null;
   classe: ClasseConferencia;
   motivo: string;
+  /** Contou em unidades um produto de embalagem: o valor provavel, em embalagens. */
+  sugestao?: { quantidade: number; embalagem: number };
+};
+
+export type NotaDoItemDaConferencia = {
+  purchaseId: string;
+  numero: string | null;
+  notaFiscal: string | null;
+  fornecedor: string | null;
+  data: string;
+  quantidade: number;
+  unidade: string | null;
+  quantidadeConvertida: number | null;
+  unidadeConvertida: string | null;
+  valor: number | null;
 };
 
 export type ConferenciaDoInventario = {
@@ -3180,6 +3197,10 @@ export type ItemDaPosicao = {
 
 export function getPosicaoDoEstoque() {
   return request<{ itens: ItemDaPosicao[] }>("/inventory/posicao");
+}
+
+export function getComprasDoItemDaConferencia(inventoryId: string, itemId: string) {
+  return request<NotaDoItemDaConferencia[]>(`/inventory/operational/${inventoryId}/conferencia/${itemId}/compras`);
 }
 
 export function getConferenciaDoInventario(id: string) {

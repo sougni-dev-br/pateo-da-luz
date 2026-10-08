@@ -255,8 +255,15 @@
   color: var(--danger);
 }
 
+/* Tudo o que explica o item fica numa faixa so, abaixo da conta. */
+.conf-item__detalhes {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
 .conf-item__motivo {
-  grid-column: 1 / 4;
   margin: 2px 0 0;
   color: var(--ink-soft);
   font-size: 12.5px;
@@ -267,13 +274,197 @@
   color: var(--muted);
 }
 
-.conf-item__localizar {
+.conf-item__quem {
+  color: var(--muted);
+}
+
+/* ── Corrigir no cartão ─────────────────────────────────── */
+
+.conf-item__acoes {
   grid-row: 1;
   grid-column: 4;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.conf-corrigir {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  margin: 0;
+}
+
+.conf-corrigir input {
+  width: 84px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.conf-corrigir input:focus {
+  border-color: var(--gold);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.conf-corrigir__unidade {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.conf-corrigir button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+}
+
+.conf-item__localizar {
+  flex: none;
+}
+
+/* ── Pistas: embalagem, produto parecido, notas ─────────── */
+
+.conf-sugestao {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px dashed var(--gold);
+  border-radius: var(--radius-pill);
+  background: var(--gold-tint);
+  color: var(--gold-dark);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.conf-sugestao:hover {
+  border-style: solid;
+}
+
+.conf-parecidos {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--tint-info);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+
+.conf-parecidos strong {
+  color: var(--info);
+}
+
+.conf-notas {
+  display: grid;
+  gap: 6px;
+}
+
+.conf-notas__abrir {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gold-dark);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.conf-notas__abrir svg {
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.conf-notas__seta--aberta {
+  transform: rotate(180deg);
+}
+
+.conf-notas__tabela {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.conf-notas__tabela th {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.conf-notas__tabela td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--paper-soft);
+}
+
+.conf-notas__tabela td:nth-child(4),
+.conf-notas__tabela td:nth-child(5),
+.conf-notas__tabela th:nth-child(4),
+.conf-notas__tabela th:nth-child(5) {
+  text-align: right;
   white-space: nowrap;
+}
+
+/* ── Recorte: setor e valor ─────────────────────────────── */
+
+.conf-recorte {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+
+.conf-recorte label {
+  display: grid;
+  gap: 3px;
+}
+
+.conf-recorte label span {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.conf-recorte select {
+  min-height: 36px;
+  min-width: 170px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.conf-recorte__limpar {
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gold-dark);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .conf-mais {
@@ -298,14 +489,34 @@
   .conf-item__produto { grid-column: 1; grid-row: 1; }
   .conf-item__impacto { grid-column: 2; grid-row: 1; align-self: start; }
   .conf-conta { grid-column: 1 / -1; }
-  .conf-item__motivo { grid-column: 1 / -1; }
 
-  .conf-item__localizar {
+  .conf-item__acoes {
     grid-row: auto;
     grid-column: 1 / -1;
-    justify-self: start;
+    justify-content: flex-start;
+  }
+
+  .conf-recorte select {
+    min-width: 0;
+  }
+
+  .conf-notas__tabela th:nth-child(3),
+  .conf-notas__tabela td:nth-child(3) {
+    display: none;
+  }
+
+  /* A tabela rola dentro do cartao em vez de cortar a coluna do valor. */
+  .conf-notas {
+    overflow-x: auto;
+  }
+
+  .conf-notas__tabela th,
+  .conf-notas__tabela td {
+    padding: 4px 6px;
+    white-space: nowrap;
   }
 }
+
 
 /* ── Selo na tabela de lançamento ───────────────────────── */
 

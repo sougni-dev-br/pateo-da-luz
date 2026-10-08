@@ -52,6 +52,23 @@ describe("classificarItemDaConferencia", () => {
     expect(r.motivo).toContain("em vez de pacotes");
   });
 
+  test("contagem em unidades sugere a quantidade em embalagens, com um clique", () => {
+    // SACHE DE PALITO C/ 2000 de setembro: contou 1.100 com 1,4 disponivel.
+    const r = classificarItemDaConferencia(entrada({
+      nomeProduto: "SACHE DE PALITO DE DENTE BAMBU C/ 2000", unidade: "UN", anterior: 1.4, compras: 0, contado: 1100
+    }));
+    expect(r.classe).toBe("IMPOSSIVEL");
+    expect(r.sugestao).toEqual({ quantidade: 0.55, embalagem: 2000 });
+  });
+
+  test("so sugere embalagem quando o valor sugerido cabe no disponivel", () => {
+    // GARRAFA C100: 82 / 100 = 0,82, mas havia 19 — a sugestao nao explica nada.
+    const r = classificarItemDaConferencia(entrada({
+      nomeProduto: "GARRAFA 300ML DELIVERY C/TAMP LR C100", unidade: "UN", anterior: 18, compras: 1, contado: 82
+    }));
+    expect(r.sugestao).toBeUndefined();
+  });
+
   test("impossivel sem compra no periodo sugere compra nao lancada", () => {
     const r = classificarItemDaConferencia(entrada({ nomeProduto: "VINHO TINTO 750ML", anterior: 2, compras: 0, contado: 7 }));
     expect(r.classe).toBe("IMPOSSIVEL");

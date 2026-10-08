@@ -57,6 +57,8 @@ export type ResultadoConferencia = {
   /** Valor em R$ que ordena a lista. O que ele mede depende da classe (ver `impactoDe`). */
   impacto: number | null;
   motivo: string;
+  /** Contagem em unidades de um produto vendido em embalagem: o valor certo provavel. */
+  sugestao?: { quantidade: number; embalagem: number };
 };
 
 // Balanca e arredondamento de quem conta: 5% do disponivel, ou um centesimo.
@@ -73,6 +75,7 @@ const FATOR_ABAIXO_DA_MEDIANA = 10;
 
 // Pacote com menos que isso nao produz o erro de contar a peca avulsa.
 const EMBALAGEM_MINIMA_PARA_PISTA = 10;
+const FATOR_ORDEM_DE_GRANDEZA = 10;
 
 const EMBALAGEM_POR_EXTENSO: Record<string, string> = {
   PCT: "pacotes",
@@ -95,10 +98,27 @@ function vezesCusto(quantidade: number, custo: number | null): number | null {
   return custo == null ? null : emReais(Math.abs(quantidade) * custo);
 }
 
-function pistaDeEmbalagem(nomeProduto: string, unidade: string | null): string {
-  const embalagem = detectarEmbalagem(nomeProduto).find(
+function embalagemDoNome(nomeProduto: string) {
+  return detectarEmbalagem(nomeProduto).find(
     (e) => e.nivel === "pacote" && e.unidade == null && e.confianca === "alta" && e.quantidade >= EMBALAGEM_MINIMA_PARA_PISTA
   );
+}
+
+// So sugere quando a conta fecha: dividir pelo tamanho da embalagem tem que
+// caber no que havia. Senao a sugestao so troca um numero errado por outro.
+function sugestaoDeEmbalagem(nomeProduto: string, contado: number, disponivel: number, tolerancia: number) {
+  const embalagem = embalagemDoNome(nomeProduto);
+  if (!embalagem) return undefined;
+  const quantidade = Math.round((contado / embalagem.quantidade) * 1000) / 1000;
+  if (quantidade <= 0 || quantidade > disponivel + tolerancia) return undefined;
+  // E tem que estar na ordem de grandeza do que havia. GARRAFA C100: havia 18
+  // garrafas e contou 82; 0,82 caixa "cabe", mas o erro ali e a unidade da compra.
+  if (quantidade < disponivel / FATOR_ORDEM_DE_GRANDEZA) return undefined;
+  return { quantidade, embalagem: embalagem.quantidade };
+}
+
+function pistaDeEmbalagem(nomeProduto: string, unidade: string | null): string {
+  const embalagem = embalagemDoNome(nomeProduto);
   if (!embalagem) return "";
   const formatoQueDeviaSerContado = EMBALAGEM_POR_EXTENSO[normalizarUnidade(unidade ?? "")] ?? "embalagens";
   return ` O nome indica embalagem com ${formatoQuantidade.format(embalagem.quantidade)}: confira se foram contadas unidades em vez de ${formatoQueDeviaSerContado}.`;
@@ -137,10 +157,12 @@ export function classificarItemDaConferencia(e: EntradaConferencia): ResultadoCo
     const semCompra = e.compras === 0
       ? " Nenhuma compra lançada no período: se houve compra, ela não entrou no sistema."
       : "";
+    const sugestao = sugestaoDeEmbalagem(e.nomeProduto, contado, disponivel, tolerancia);
     return {
       classe: "IMPOSSIVEL",
       disponivel,
       consumo,
+      ...(sugestao ? { sugestao } : {}),
       impacto: vezesCusto(sobra, e.custoUnitario),
       motivo: `Contou ${qtd(contado, u)}, mas havia ${qtd(e.anterior, u)} e entraram ${qtd(e.compras, u)} no período: ${qtd(sobra, u)} sem origem.${semCompra}${pistaDeEmbalagem(e.nomeProduto, u)}`
     };

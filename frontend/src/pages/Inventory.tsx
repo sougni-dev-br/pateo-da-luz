@@ -1469,6 +1469,44 @@ export function Inventory({
     }
   }
 
+  // Correcao direto no cartao da conferencia. Leva junto o que a pessoa ja
+  // editou na aba Itens: a recarga depois de salvar descartaria essas edicoes.
+  async function corrigirPelaConferencia(item: ItemDaConferencia, valor: string): Promise<boolean> {
+    if (!operationalDetail) return false;
+    const quantidade = quantityToApi(valor);
+    if (quantidade === undefined || quantidade === "") {
+      setNotice({ tone: "error", message: mensagemDeQuantidade([{ nome: item.productName, valor }]) });
+      return false;
+    }
+    const pendentes = operationalDetail.items.filter((i) => operationalDirty[i.id] && i.id !== item.itemId);
+    const invalidos = pendentes.filter((i) => quantityToApi(operationalLines[i.id]?.countedQuantity ?? "") === undefined);
+    if (invalidos.length) {
+      setNotice({ tone: "error", message: mensagemDeQuantidade(invalidos.map((i) => ({ nome: i.productName, valor: operationalLines[i.id]?.countedQuantity ?? "" }))) });
+      return false;
+    }
+    const original = operationalDetail.items.find((i) => i.id === item.itemId);
+    const items = [
+      ...pendentes.map((i) => ({
+        id: i.id,
+        countedQuantity: quantityToApi(operationalLines[i.id]?.countedQuantity ?? "") ?? "",
+        notes: operationalLines[i.id]?.notes ?? ""
+      })),
+      { id: item.itemId, countedQuantity: quantidade, notes: operationalLines[item.itemId]?.notes ?? original?.notes ?? "" }
+    ];
+    try {
+      await saveOperationalInventoryItems(operationalDetail.id, items);
+      setNotice({
+        tone: "success",
+        message: `${item.productName}: ${valor} salvo.${corrigindoNaRevisao ? " Correção registrada." : ""}${pendentes.length ? ` ${pendentes.length} edição(ões) da aba Itens salvas junto.` : ""}`
+      });
+      await refreshOperational(operationalDetail.id);
+      return true;
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Não foi possível salvar a quantidade." });
+      return false;
+    }
+  }
+
   async function markOperationalFilteredZero() {
     if (!operationalDetail) return;
     const ids = filteredOperationalItems.map((item) => item.id);
@@ -3246,6 +3284,8 @@ export function Inventory({
                   onLocalizar={localizarItemDaConferencia}
                   onCarregar={setConferencia}
                   jaAprovado={["APROVADO", "FECHADO"].includes(operationalDetail.status)}
+                  podeCorrigir={podeEditarItens}
+                  onCorrigir={corrigirPelaConferencia}
                 />
               </div>
             )}
@@ -3325,7 +3365,12 @@ export function Inventory({
                                   placeholder="Sem observação"
                                   value={line.notes}
                                   rows={2}
-                                  onChange={(event) => setOperationalLines({ ...operationalLines, [item.id]: { ...line, notes: event.target.value } })}
+                                  onChange={(event) => {
+                                    // Observacao tambem e edicao: sem marcar, "Salvar" nao a enviava
+                                    // e a correcao pela conferencia a apagava na recarga.
+                                    setOperationalLines({ ...operationalLines, [item.id]: { ...line, notes: event.target.value } });
+                                    setOperationalDirty((prev) => (prev[item.id] ? prev : { ...prev, [item.id]: true }));
+                                  }}
                                 />
                                 <button type="button" className="secondary-button op-note-close" onClick={() => setEditingOperationalNoteId(null)}>Fechar</button>
                               </div>
