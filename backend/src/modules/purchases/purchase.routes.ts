@@ -23,7 +23,7 @@ import { recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle, updatePurchaseInCycle } from "../suppliers/supplier-billing-cycle.service.js";
 import { REIMBURSEMENT_PAYMENT_TYPE, REIMBURSEMENT_SOURCE, ReimbursementError, ehCategoriaFuncionario } from "../reimbursements/reimbursement-rules.js";
-import { reabrirReembolsoDoAgregador, retirarCompraCancelada, sincronizarCompraNoReembolso, validarQuemPagou } from "../reimbursements/reimbursement.service.js";
+import { fornecedorDoFuncionario, reabrirReembolsoDoAgregador, retirarCompraCancelada, sincronizarCompraNoReembolso, validarQuemPagou } from "../reimbursements/reimbursement.service.js";
 import { OFFICIAL_SMALL_EXPENSE_NORMALIZED_TYPES } from "../master-data/small-expense-type-options.js";
 import {
   buildReferenceLabel,
@@ -1363,19 +1363,39 @@ purchaseRouter.patch("/payables/:id/reverse", async (request, response) => {
   response.json({ id: request.params.id, status: "OPEN" });
 });
 
-// "Quem pagou" na compra paga do bolso de um funcionario. So id e nome: CPF e PIX
-// ficam no cadastro do fornecedor. O acesso e o de Compras (middleware).
+// "Quem pagou" na compra paga do bolso de um funcionario: todos os funcionarios ativos
+// e os fornecedores da categoria Funcionario que nao sao de nenhum deles. So id e nome:
+// CPF e PIX ficam no cadastro. O acesso e o de Compras (middleware).
+//
+// id = o fornecedor da pessoa quando ja existe (achado pelo CPF); senao "emp:<id do
+// funcionario>", e o fornecedor nasce na primeira compra (fornecedorDoFuncionario).
 purchaseRouter.get("/reimbursement-payees", async (request, response) => {
   if (!(await getSessionUser(request))) {
     response.status(401).json({ message: "Sessao obrigatoria." });
     return;
   }
-  const rows = await prisma.$queryRaw<Array<{ id: string; name: string; mainCategory: string | null }>>`
+  const funcionarios = await prisma.$queryRaw<Array<{ employeeId: string; name: string; supplierId: string | null }>>`
+    SELECT e."id" AS "employeeId",
+           trim(regexp_replace(e."firstName" || ' ' || e."lastName", '[[:space:]]+', ' ', 'g')) AS "name",
+           (SELECT s."id" FROM "Supplier" s
+             WHERE length(regexp_replace(e."cpf", '[^0-9]', '', 'g')) = 11
+               AND regexp_replace(COALESCE(s."document", ''), '[^0-9]', '', 'g') = regexp_replace(e."cpf", '[^0-9]', '', 'g')
+             ORDER BY s."isActive" DESC, s."createdAt" ASC LIMIT 1) AS "supplierId"
+    FROM "Employee" e
+    WHERE e."isActive" AND e."deletedAt" IS NULL
+  `;
+  const fornecedores = await prisma.$queryRaw<Array<{ id: string; name: string; mainCategory: string | null }>>`
     SELECT "id", "name", "mainCategory" FROM "Supplier"
     WHERE "isActive" = true AND "mainCategory" IS NOT NULL
-    ORDER BY "name"
   `;
-  response.json(rows.filter((row) => ehCategoriaFuncionario(row.mainCategory)).map(({ id, name }) => ({ id, name })));
+  const jaListados = new Set(funcionarios.map((f) => f.supplierId).filter(Boolean));
+  const lista = [
+    ...funcionarios.map((f) => ({ id: f.supplierId ?? `emp:${f.employeeId}`, name: f.name })),
+    ...fornecedores
+      .filter((f) => ehCategoriaFuncionario(f.mainCategory) && !jaListados.has(f.id))
+      .map(({ id, name }) => ({ id, name }))
+  ].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  response.json(lista);
 });
 
 purchaseRouter.get("/duplicate-check", async (request, response) => {
@@ -1480,6 +1500,7 @@ purchaseRouter.post("/", async (request, response) => {
   const smallExpenseNotes = asNullableText(request.body.smallExpenseNotes ?? request.body.notes);
   const creditCardId = request.body.creditCardId ? String(request.body.creditCardId) : null;
   const reimbursementPayeeInput = asNullableText(request.body.reimbursementPayeeId);
+  const reimbursementEmployeeId = asNullableText(request.body.reimbursementEmployeeId);
   // Rotulo de origem, so descritivo. Cortado em 200 caracteres porque vai para
   // uma coluna de texto e nao deve virar campo livre para payload grande.
   const sourceFile = asNullableText(request.body.sourceFile)?.slice(0, 200) ?? null;
@@ -1584,7 +1605,9 @@ purchaseRouter.post("/", async (request, response) => {
   // Pago do bolso de um funcionario: a compra fica com a loja e a data dela e vai
   // para o reembolso da pessoa, que gera o titulo ao ser fechado. Sem parcela aqui.
   const isReimbursement = paymentMethodType === REIMBURSEMENT_PAYMENT_TYPE;
-  const reimbursementPayeeId = isReimbursement ? reimbursementPayeeInput : null;
+  // Funcionario que ainda nao tem cadastro de fornecedor: cria agora, pelo CPF.
+  const reimbursementPayeeId = !isReimbursement ? null
+    : reimbursementPayeeInput ?? (reimbursementEmployeeId ? await fornecedorDoFuncionario(prisma, reimbursementEmployeeId) : null);
   if (isReimbursement && !reimbursementPayeeId) {
     await rejectManualPurchase(response, { ...requestMeta, status: 400, message: "Informe quem pagou a compra (reembolso)." });
     return;
@@ -2008,6 +2031,7 @@ purchaseRouter.put("/:id", async (request, response) => {
   const smallExpenseNotes = asNullableText(request.body.smallExpenseNotes ?? request.body.notes);
   const creditCardId = asNullableText(request.body.creditCardId);
   const reimbursementPayeeInput = asNullableText(request.body.reimbursementPayeeId);
+  const reimbursementEmployeeId = asNullableText(request.body.reimbursementEmployeeId);
   const numberOfInstallments = Math.max(1, Math.floor(Number(request.body.numberOfInstallments ?? 1)));
   const validItems = items.map((item) => ({
     productId: String(item.productId ?? "").trim(),
@@ -2101,7 +2125,8 @@ purchaseRouter.put("/:id", async (request, response) => {
   }
   const isNormalCreditCard = !isSmallExpense && updatePaymentMethodType === "CREDIT_CARD";
   const isReimbursement = updatePaymentMethodType === REIMBURSEMENT_PAYMENT_TYPE;
-  const reimbursementPayeeId = isReimbursement ? reimbursementPayeeInput : null;
+  const reimbursementPayeeId = !isReimbursement ? null
+    : reimbursementPayeeInput ?? (reimbursementEmployeeId ? await fornecedorDoFuncionario(prisma, reimbursementEmployeeId) : null);
   if (isReimbursement && !reimbursementPayeeId) {
     response.status(400).json({ message: "Informe quem pagou a compra (reembolso)." });
     return;

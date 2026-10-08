@@ -7994,6 +7994,7 @@ export function saveEventSettings(input: EventSettings) {
 
 export type ReimbursementStatus = "OPEN" | "CLOSED" | "PAID" | "CANCELLED";
 
+/** id = fornecedor da pessoa, ou "emp:<id do funcionário>" quando o fornecedor ainda não existe. */
 export type ReimbursementPayee = { id: string; name: string };
 
 export type ReimbursementSummary = {
