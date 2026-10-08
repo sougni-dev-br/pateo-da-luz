@@ -11120,33 +11120,8 @@ tr.dre-row-selected td {
   /* full display on desktop */
 }
 
-.operational-count-table th,
-.operational-count-table td.diff-above,
-.operational-count-table td.diff-below,
-.operational-count-table td.diff-neutral {
+.operational-count-table th {
   white-space: nowrap;
-}
-
-.operational-count-table td.diff-above {
-  color: var(--info);
-  font-weight: 500;
-}
-
-.operational-count-table td.diff-below {
-  color: var(--danger);
-  font-weight: 500;
-}
-
-.operational-count-table td.diff-neutral {
-  color: var(--muted);
-}
-
-/* Center the Dif value on the class itself so alignment does not depend on
-   the source order of the nth-child(6) width rule further down the file. */
-.operational-count-table td.diff-above,
-.operational-count-table td.diff-below,
-.operational-count-table td.diff-neutral {
-  text-align: center;
 }
 
 /* Mobile cards — hidden on desktop */
@@ -11594,87 +11569,16 @@ tr.dre-row-selected td {
 }
 
 /* Stepper */
-.cmv-closing-stepper {
-  display: flex;
-  gap: 0;
-  align-items: flex-start;
-}
 
-.cmv-closing-stepper__step {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  flex: 1;
-  font-size: 11px;
-  color: var(--muted, #6b7280);
-  text-align: center;
-  position: relative;
-}
 
-.cmv-closing-stepper__step span:last-child {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-}
 
-.cmv-closing-stepper__step small {
-  display: block;
-  font-size: 10px;
-  color: var(--muted, #6b7280);
-  margin-top: 1px;
-}
 
-.cmv-closing-stepper__step::after {
-  content: "";
-  position: absolute;
-  top: 11px;
-  left: 50%;
-  width: 100%;
-  height: 2px;
-  background: var(--border, #e0e0e0);
-  z-index: 0;
-}
 
-.cmv-closing-stepper__step:last-child::after {
-  display: none;
-}
 
-.cmv-closing-stepper__dot {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--border, #e0e0e0);
-  color: var(--muted, #6b7280);
-  font-size: 11px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1;
-  position: relative;
-}
 
-.cmv-closing-stepper__step--done .cmv-closing-stepper__dot {
-  background: var(--primary, #1976d2);
-  color: #fff;
-}
 
-.cmv-closing-stepper__step--done::after {
-  background: var(--primary, #1976d2);
-}
 
-.cmv-closing-stepper__step--active .cmv-closing-stepper__dot {
-  background: var(--primary, #1976d2);
-  color: #fff;
-  box-shadow: 0 0 0 3px var(--primary-soft, #e3f0fb), 0 0 0 5px var(--primary, #1976d2);
-}
 
-.cmv-closing-stepper__step--active {
-  color: var(--primary-dark, #0d47a1);
-  font-weight: 600;
-}
 
 /* Stats */
 .cmv-closing-stats {
@@ -11818,16 +11722,7 @@ tr.dre-row-selected td {
 }
 
 @media (max-width: 480px) {
-  .cmv-closing-stepper {
-    gap: 0;
-    overflow-x: auto;
-    padding-bottom: 4px;
-  }
 
-  .cmv-closing-stepper__step {
-    min-width: 54px;
-    font-size: 10px;
-  }
 
   .cmv-closing-stats {
     gap: 8px;
@@ -11969,15 +11864,24 @@ tr.dre-row-selected td {
   flex-shrink: 0;
 }
 
-/* 4. Narrow count input — fits inside the Qtd cell with breathing room.
-   box-sizing + width:100% keeps it bounded by the cell so it never
-   overflows into the Dif column. */
+/* Campo de quantidade estreito, com a unidade ao lado dentro da celula. */
 .operational-count-table .count-input {
   box-sizing: border-box;
   width: 100%;
   max-width: 56px;
   min-width: 44px;
   text-align: right;
+}
+
+.operational-count-table .op-qty-cell .count-input {
+  display: inline-block;
+  width: 56px;
+  vertical-align: middle;
+}
+
+.operational-count-table .op-qty-cell .op-unit-tag {
+  display: inline;
+  margin-left: 4px;
 }
 
 /* Produto column — overflow: hidden is required for -webkit-line-clamp to
@@ -12006,32 +11910,26 @@ tr.dre-row-selected td {
   color: var(--muted);
 }
 
-/* table-layout: fixed keeps all 8 cols within the table-wrap width */
+/* table-layout: fixed mantem as 6 colunas dentro da largura do wrap */
 .operational-count-table table {
   table-layout: fixed;
   width: 100%;
 }
 
-/* Column widths — 8 colunas: Cód | Produto | Setor | Saldo esp. | Qtd. | Dif. | Status | Nota
-   Fixed cols sum: 44+58+68+76+46+82+28 = 402px → Produto takes the rest (~161px on 563px wrap) */
+/* 6 colunas: Cód | Produto | Setor | Qtd. | Conferência | Nota.
+   "Saldo esp." e "Dif." sairam: mediam contra o saldo do sistema, que nunca
+   baixa. A conferencia mede contra a contagem anterior + compras. */
 .operational-count-table th:nth-child(1),
-.operational-count-table td:nth-child(1) { width: 44px; }
-/* nth-child(2) = Produto — takes remaining space */
+.operational-count-table td:nth-child(1) { width: 56px; white-space: nowrap; }
+/* nth-child(2) = Produto — fica com o resto */
 .operational-count-table th:nth-child(3),
-.operational-count-table td:nth-child(3) { width: 58px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Saldo esp. — 68px fits the header label without colliding with Qtd. */
+.operational-count-table td:nth-child(3) { width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .operational-count-table th:nth-child(4),
-.operational-count-table td:nth-child(4) { width: 68px; white-space: nowrap; }
-/* Qtd — extra right padding opens a gap before the Dif column */
+.operational-count-table td:nth-child(4) { width: 104px; white-space: nowrap; }
 .operational-count-table th:nth-child(5),
-.operational-count-table td:nth-child(5) { width: 76px; padding-right: 14px; }
-/* Dif — centered with a little left room so the sign isn't glued to the input */
+.operational-count-table td:nth-child(5) { width: 132px; white-space: nowrap; }
 .operational-count-table th:nth-child(6),
-.operational-count-table td:nth-child(6) { width: 46px; white-space: nowrap; text-align: center; padding-left: 4px; }
-.operational-count-table th:nth-child(7),
-.operational-count-table td:nth-child(7) { width: 82px; white-space: nowrap; }
-.operational-count-table th:nth-child(8),
-.operational-count-table td:nth-child(8) { width: 28px; text-align: center; }
+.operational-count-table td:nth-child(6) { width: 36px; text-align: center; }
 
 /* Unit tag inline with quantity */
 .op-unit-tag {
@@ -15787,17 +15685,13 @@ td.count-list-divergent {
   min-width: 40px;
 }
 
-/* Detalhe do inventario no celular. As colunas fixas somavam 402px num
-   visor de ~310: a tabela rolava de lado e Dif./Status ficavam fora da
-   tela. Codigo, setor (ja tem filtro acima) e status (a cor da Dif. ja diz)
+/* Detalhe do inventario no celular: codigo e setor (ja tem filtro acima)
    saem; o nome do produto ganha a largura. */
 @media (max-width: 768px) {
   .operational-count-table th:nth-child(1),
   .operational-count-table tr:not(.op-note-expansion-row) > td:nth-child(1),
   .operational-count-table th:nth-child(3),
-  .operational-count-table tr:not(.op-note-expansion-row) > td:nth-child(3),
-  .operational-count-table th:nth-child(7),
-  .operational-count-table tr:not(.op-note-expansion-row) > td:nth-child(7) {
+  .operational-count-table tr:not(.op-note-expansion-row) > td:nth-child(3) {
     display: none;
   }
 
@@ -15812,10 +15706,10 @@ td.count-list-divergent {
   }
 
   .operational-count-table th:nth-child(4),
-  .operational-count-table tr:not(.op-note-expansion-row) > td:nth-child(4) { width: 54px; }
+  .operational-count-table tr:not(.op-note-expansion-row) > td:nth-child(4) { width: 86px; padding-right: 4px; }
 
   .operational-count-table th:nth-child(5),
-  .operational-count-table tr:not(.op-note-expansion-row) > td:nth-child(5) { width: 64px; padding-right: 6px; }
+  .operational-count-table tr:not(.op-note-expansion-row) > td:nth-child(5) { width: 104px; }
 
   .op-detail-head-actions {
     flex-wrap: wrap;
@@ -15826,11 +15720,6 @@ td.count-list-divergent {
   margin: 4px 0 12px;
 }
 
-/* "SALDO ESP." nao cabe em 54-68px numa linha e encostava em "QTD.". */
-.operational-count-table th:nth-child(4) {
-  line-height: 1.2;
-  white-space: normal;
-}
 
 /* ── Movimentacoes ─────────────────────────────────────────────────── */
 

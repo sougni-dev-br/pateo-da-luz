@@ -1766,10 +1766,65 @@ export type OperationalInventory = {
   pendingItems: number;
   divergentItems: number;
   zeroItems: number;
+  /** Valor da base oficial (CMV) gerada por este inventario, quando viva. */
+  snapshotTotalValue?: number | null;
 };
 
 export type OperationalInventoryDetail = OperationalInventory & {
   items: OperationalInventoryItem[];
+};
+
+/** Da mais grave para a menos grave. Regras em backend/src/modules/inventory/conferencia.ts. */
+export type ClasseConferencia =
+  | "IMPOSSIVEL"
+  | "ZERADO_SUSPEITO"
+  | "FORA_DO_HISTORICO"
+  | "SEM_REFERENCIA"
+  | "PENDENTE"
+  | "COERENTE";
+
+export type ItemDaConferencia = {
+  itemId: string;
+  productId: string | null;
+  productCode: string | null;
+  productName: string;
+  sectorName: string | null;
+  unit: string | null;
+  contado: number | null;
+  contadoPor: string | null;
+  contadoEm: string | null;
+  anterior: number | null;
+  anteriorData: string | null;
+  anteriorCodigo: string | null;
+  compras: number;
+  disponivel: number | null;
+  consumo: number | null;
+  custoUnitario: number | null;
+  impacto: number | null;
+  classe: ClasseConferencia;
+  motivo: string;
+  /** Contou em unidades um produto de embalagem: o valor provavel, em embalagens. */
+  sugestao?: { quantidade: number; embalagem: number };
+};
+
+export type NotaDoItemDaConferencia = {
+  purchaseId: string;
+  numero: string | null;
+  notaFiscal: string | null;
+  fornecedor: string | null;
+  data: string;
+  quantidade: number;
+  unidade: string | null;
+  quantidadeConvertida: number | null;
+  unidadeConvertida: string | null;
+  valor: number | null;
+};
+
+export type ConferenciaDoInventario = {
+  inventoryId: string;
+  code: string;
+  resumo: Record<ClasseConferencia, { itens: number; impacto: number }>;
+  itens: ItemDaConferencia[];
 };
 
 export type OperationalInventoryPurchasingReport = {
@@ -3120,6 +3175,36 @@ export function createOperationalInventory(payload: {
 
 export function getOperationalInventory(id: string) {
   return request<OperationalInventoryDetail>(`/inventory/operational/${id}`);
+}
+
+export type ItemDaPosicao = {
+  productId: string;
+  productCode: string | null;
+  productName: string;
+  unit: string | null;
+  sectorName: string | null;
+  categoryName: string | null;
+  /** Ultima contagem aprovada. `null` = produto nunca contado num inventario aprovado. */
+  quantidade: number | null;
+  contadoEm: string | null;
+  inventarioCodigo: string | null;
+  /** Custo da base oficial daquele inventario. `null` = a base nao tem custo. */
+  custoUnitario: number | null;
+  valor: number | null;
+  comprasDesde: number;
+  valorComprasDesde: number;
+};
+
+export function getPosicaoDoEstoque() {
+  return request<{ itens: ItemDaPosicao[] }>("/inventory/posicao");
+}
+
+export function getComprasDoItemDaConferencia(inventoryId: string, itemId: string) {
+  return request<NotaDoItemDaConferencia[]>(`/inventory/operational/${inventoryId}/conferencia/${itemId}/compras`);
+}
+
+export function getConferenciaDoInventario(id: string) {
+  return request<ConferenciaDoInventario>(`/inventory/operational/${id}/conferencia`);
 }
 
 export function saveOperationalInventoryItems(id: string, items: Array<{ id: string; countedQuantity?: number | string | null; notes?: string | null }>) {

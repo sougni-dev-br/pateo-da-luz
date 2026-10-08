@@ -438,7 +438,9 @@ function menuFromRequest(request: Request): MenuId | null {
   // uma contagem e o comprador/estoquista, que nao precisa ter acesso ao Inventario
   // (modulo de fechamento contabil). Precede a regra generica de /inventory/operational.
   if (path.startsWith("/inventory/operational/buyer-support")) return "purchase-orders";
-  if (path.startsWith("/inventory/operational") || path.startsWith("/inventory/monthly")) return "inventory-official";
+  // A posicao do estoque mostra a base oficial do CMV (quantidade e custo): e
+  // aba da tela de Inventario, nao do estoque generico.
+  if (path.startsWith("/inventory/operational") || path.startsWith("/inventory/monthly") || path.startsWith("/inventory/posicao")) return "inventory-official";
   if (path.startsWith("/inventory/reports")) return "inventory-reports";
   if (path.startsWith("/inventory")) return "inventory";
   if (path.startsWith("/monthly/cmv-real")) return "cmv-real";
