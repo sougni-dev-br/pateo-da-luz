@@ -277,11 +277,17 @@ export function Inventory({
   // Alertas que pesam e ainda nao foram conferidos: o servidor recusa aprovar
   // com eles; a tela avisa antes do clique.
   const faltamConferir = conferenciaAtual?.pendentesParaAprovar ?? 0;
-  const tituloAprovacaoTravada = faltamConferir > 0
+  // Sem a conferencia carregada nao da para saber o que falta: aprovar espera
+  // (antes ficava ativo e so o servidor recusava).
+  const conferenciaPendente = operationalDetail?.status === "EM_REVISAO" && !conferenciaAtual;
+  const aprovacaoTravada = faltamConferir > 0 || conferenciaPendente;
+  const tituloAprovacaoTravada = conferenciaPendente
+    ? "Carregando a conferência… Se não carregar, use Atualizar na aba Conferência."
+    : faltamConferir > 0
     ? `Faltam conferir ${faltamConferir} item(ns) na aba Conferência (alertas a partir de R$ ${conferenciaAtual?.limiteDeConferencia ?? 50} ou sem custo).`
     : undefined;
   const itensEmAlerta = conferenciaAtual
-    ? conferenciaAtual.resumo.IMPOSSIVEL.itens + conferenciaAtual.resumo.ZERADO_SUSPEITO.itens
+    ? conferenciaAtual.resumo.IMPOSSIVEL.itens + conferenciaAtual.resumo.ZERADO_SUSPEITO.itens + conferenciaAtual.resumo.FORA_DO_HISTORICO.itens
     : 0;
   const [operationalSectorFilter, setOperationalSectorFilter] = useState("");
   const [operationalLines, setOperationalLines] = useState<Record<string, { countedQuantity: string; notes: string }>>({});
@@ -3096,7 +3102,7 @@ export function Inventory({
                   <button className="primary-button" type="button" onClick={() => operationalAction("submit")}><Send size={16} />Enviar para revisão</button>
                 )}
                 {canApproveOperational && operationalDetail.type !== "FINAL_CMV" && operationalDetail.status === "EM_REVISAO" && (
-                  <button className="primary-button" type="button" disabled={faltamConferir > 0} title={tituloAprovacaoTravada} onClick={() => operationalAction("approve")}>
+                  <button className="primary-button" type="button" disabled={aprovacaoTravada} title={tituloAprovacaoTravada} onClick={() => operationalAction("approve")}>
                     {faltamConferir > 0 ? `Aprovar (faltam ${formatNumber(faltamConferir)})` : "Aprovar"}
                   </button>
                 )}
@@ -3239,7 +3245,7 @@ export function Inventory({
                   Ao aprovar, será criada automaticamente a base de estoque para o CMV Real com {operationalDetail.totalItems} produtos.
                 </p>
                 <div className="cmv-closing-assistant__actions">
-                  <button className="primary-button cmv-closing-assistant__cta" type="button" disabled={approvingFinalCmv || faltamConferir > 0} title={tituloAprovacaoTravada} onClick={() => setShowCmvApproveModal(true)}>
+                  <button className="primary-button cmv-closing-assistant__cta" type="button" disabled={approvingFinalCmv || aprovacaoTravada} title={tituloAprovacaoTravada} onClick={() => setShowCmvApproveModal(true)}>
                     {approvingFinalCmv ? "Aprovando..." : "Aprovar e disponibilizar para CMV"}
                   </button>
                 </div>
@@ -3609,7 +3615,7 @@ export function Inventory({
               <p><strong>Produtos pendentes:</strong> {operationalDetail.pendingItems}</p>
               <p><strong>Itens zerados:</strong> {formatNumber(operationalDetail.zeroItems)}</p>
               <p><strong>Itens contados:</strong> {formatNumber(operationalDetail.countedItems)}</p>
-              <p><strong>Em alerta na conferência:</strong> {conferenciaAtual ? `${formatNumber(itensEmAlerta)} (impossíveis ou zerados suspeitos)` : "não carregada"}</p>
+              <p><strong>Em alerta na conferência:</strong> {conferenciaAtual ? `${formatNumber(itensEmAlerta)} (impossíveis, zerados suspeitos ou fora do histórico)` : "não carregada"}</p>
               <p style={{ marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
                 Esta ação aprovará o inventário final e criará uma base de estoque para uso no CMV Real. Depois disso, o inventário poderá ser fechado e utilizado na apuração do CMV.
               </p>
