@@ -105,6 +105,7 @@ const PainelEventos = lazy(() => import("./pages/operacao/eventos/PainelEventos"
 const Plaquinhas = lazy(() => import("./pages/cardapio/plaquinhas/Plaquinhas").then((module) => ({ default: module.Plaquinhas })));
 const DRE = lazy(() => import("./pages/DRE").then((module) => ({ default: module.DRE })));
 const SupplierCycles = lazy(() => import("./pages/SupplierCycles").then((module) => ({ default: module.SupplierCycles })));
+const Reimbursements = lazy(() => import("./pages/Reimbursements").then((module) => ({ default: module.Reimbursements })));
 const TaxPayments = lazy(() => import("./pages/TaxPayments").then((module) => ({ default: module.TaxPayments })));
 const Notifications = lazy(() => import("./pages/Notifications").then((module) => ({ default: module.Notifications })));
 // Rota /design-system: dev-only (isLocal). Em prod, o ternario resolve para null
@@ -178,6 +179,7 @@ const sections = [
   { id: "dre", label: "DRE Gerencial", icon: BarChart3, showInSidebar: true, group: "Financeiro", path: "/financeiro/dre", matchers: ["/financeiro/dre"] },
   { id: "tax-payments", label: "Impostos e Guias", icon: ScrollText, showInSidebar: true, group: "Financeiro", path: "/financeiro/impostos", matchers: ["/financeiro/impostos"] },
   { id: "supplier-cycles", label: "Ciclos de fornecedor", icon: RefreshCw, showInSidebar: true, group: "Financeiro", path: "/financeiro/ciclos-fornecedor", matchers: ["/financeiro/ciclos-fornecedor"], description: "Agrupa compras por fornecedor para pagamento consolidado" },
+  { id: "reimbursements", label: "Reembolsos", icon: HandCoins, showInSidebar: true, group: "Financeiro", path: "/financeiro/reembolsos", matchers: ["/financeiro/reembolsos"], description: "Compras pagas do bolso de um funcionário: conferir os comprovantes e gerar um título só para a pessoa" },
   { id: "suppliers", label: "Fornecedores", icon: Truck, showInSidebar: true, group: "Cadastros", path: "/cadastros/fornecedores", matchers: ["/cadastros/fornecedores"], description: "Cadastro utilizado em compras, pagamentos e relatórios financeiros" },
   { id: "companies", label: "Empresas", icon: Building2, showInSidebar: true, group: "Cadastros", path: "/cadastros/empresas", matchers: ["/cadastros/empresas"] },
   // Grupo RH (01/10/2026): rotinas de pessoal separadas no menu, cada uma com a
@@ -750,6 +752,7 @@ export function App() {
               <Route path="/financeiro/dre" element={<DRE />} />
               <Route path="/financeiro/impostos" element={<TaxPayments user={user} />} />
               <Route path="/financeiro/ciclos-fornecedor" element={<SupplierCycles />} />
+              <Route path="/financeiro/reembolsos" element={<Reimbursements />} />
               <Route path="/estoque/produtos" element={<Products />} />
               <Route path="/cadastros/fornecedores" element={<Suppliers onOpenPurchases={() => handleNavigate("purchases")} />} />
               <Route path="/cadastros/empresas" element={<Companies />} />

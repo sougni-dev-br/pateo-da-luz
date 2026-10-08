@@ -38,6 +38,8 @@ enum PaymentMethodType {
   DEBIT_CARD
   BANK_SLIP
   TRANSFER
+  // A compra foi paga do bolso de um funcionário; o ERP deve a ele (ver ReimbursementReport).
+  REIMBURSEMENT
   OTHER
 }
 
@@ -238,6 +240,8 @@ model Supplier {
 
   purchases    Purchase[]
   billingCycles SupplierBillingCycle[]
+  reimbursedPurchases  Purchase[]            @relation("PurchaseReimbursementPayee")
+  reimbursementReports ReimbursementReport[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -1059,6 +1063,11 @@ model Purchase {
   paymentMethodRef PaymentMethod?      @relation(fields: [paymentMethodId], references: [id])
   creditCardId     String?
   creditCard       CreditCard?         @relation(fields: [creditCardId], references: [id])
+  // Quem pagou do proprio bolso (fornecedor da categoria Funcionario). O fornecedor
+  // da compra continua sendo a loja; a divida com a pessoa vai para o reembolso.
+  reimbursementPayeeId String?
+  reimbursementPayee   Supplier?                @relation("PurchaseReimbursementPayee", fields: [reimbursementPayeeId], references: [id])
+  reimbursementItem    ReimbursementReportItem?
   paymentRegime    PaymentRegime      @default(ACCRUAL)
   expenseType      ExpenseType         @default(OTHER)
   expenseTypeId    String?
@@ -1103,6 +1112,7 @@ model Purchase {
   @@index([rawSupplierCode])
   @@index([paymentMethodId])
   @@index([creditCardId])
+  @@index([reimbursementPayeeId])
   @@index([expenseTypeId])
   @@index([smallExpenseTypeId])
   @@index([smallExpenseMoneyOrigin])
@@ -1788,6 +1798,46 @@ model SupplierBillingCycleItem {
 
   @@index([cycleId])
   @@index([checked])
+}
+
+// Reembolso a funcionario: junta as compras que uma pessoa pagou do proprio bolso,
+// cada uma com a data e a loja dela, e ao fechar gera UM titulo para a pessoa.
+// Mesmo desenho do ciclo de fornecedor: a Purchase gerada (workflowStatus
+// REIMBURSEMENT) e agregador e fica fora de toda soma de compras e do DRE.
+model ReimbursementReport {
+  id                  String                    @id @default(cuid())
+  payeeSupplierId     String
+  payee               Supplier                  @relation(fields: [payeeSupplierId], references: [id])
+  status              String                    @default("OPEN") // OPEN | CLOSED | PAID | CANCELLED
+  totalAmount         Decimal                   @default(0) @db.Decimal(12, 2)
+  dueDate             DateTime?
+  notes               String?
+  createdByUserId     String?
+  closedByUserId      String?
+  closedAt            DateTime?
+  generatedPurchaseId String?
+  items               ReimbursementReportItem[]
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  @@index([payeeSupplierId, status])
+  @@index([status])
+  @@index([generatedPurchaseId])
+}
+
+model ReimbursementReportItem {
+  id           String              @id @default(cuid())
+  reportId     String
+  report       ReimbursementReport @relation(fields: [reportId], references: [id])
+  purchaseId   String              @unique
+  purchase     Purchase            @relation(fields: [purchaseId], references: [id])
+  amount       Decimal             @db.Decimal(12, 2)
+  purchaseDate DateTime
+  checked      Boolean             @default(false)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([reportId])
 }
 
 model TaxPayment {

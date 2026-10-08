@@ -42,6 +42,7 @@ const methodTypeOptions = [
   { value: "DEBIT_CARD", label: "DEBIT_CARD" },
   { value: "BANK_SLIP", label: "BANK_SLIP" },
   { value: "TRANSFER", label: "TRANSFER" },
+  { value: "REIMBURSEMENT", label: "REIMBURSEMENT (pago por funcionário)" },
   { value: "OTHER", label: "OTHER" }
 ];
 
