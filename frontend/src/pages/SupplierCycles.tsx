@@ -297,13 +297,20 @@ export function SupplierCycles() {
     }
     setCreating(true);
     try {
-      await createSupplierCycle({
+      const criado = await createSupplierCycle({
         supplierId: createForm.supplierId,
         startDate: createForm.startDate,
         endDate: createForm.endDate || undefined,
         notes: createForm.notes || undefined,
       });
-      setNotice({ tone: "success", message: "Ciclo criado com sucesso." });
+      const trazidas = criado.notasTrazidas ?? [];
+      const total = trazidas.reduce((soma, nota) => soma + nota.amount, 0);
+      setNotice({
+        tone: "success",
+        message: trazidas.length
+          ? `Ciclo criado com ${trazidas.length} ${trazidas.length === 1 ? "nota trazida" : "notas trazidas"} de outro ciclo aberto (${fmt(total)}).`
+          : "Ciclo criado com sucesso."
+      });
       setCreateOpen(false);
       await loadCycles();
     } catch (err: unknown) {

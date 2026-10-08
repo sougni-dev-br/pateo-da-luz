@@ -994,6 +994,10 @@ model OperationalInventoryItem {
   reviewedByUserId   String?
   /// Contagem de recontagem (StockCountSession tipo RECONTAGEM) que inclui este item.
   recountSessionId   String?
+  /// Custo informado na conferencia quando o sistema nao acha nenhum (compra ou base anterior).
+  manualUnitCost         Decimal?             @db.Decimal(14, 4)
+  manualUnitCostByUserId String?
+  manualUnitCostAt       DateTime?
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 

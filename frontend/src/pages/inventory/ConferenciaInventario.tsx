@@ -10,12 +10,14 @@ import {
   aplicarRecontagem,
   getComprasDoItemDaConferencia,
   getConferenciaDoInventario,
+  informarCustoDoItem,
   marcarItemConferido,
+  type FonteDoCusto,
   pedirRecontagem
 } from "../../api/client";
 import { Money, StatusBadge, type StatusTone } from "../../design-system";
 import { formatDate } from "../../utils/format";
-import { SEM_SETOR, type Situacao, estaConferido, filtrarConferencia, produtosParecidos, progressoDaConferencia, resumirItens } from "./conferencia-ajuda";
+import { SEM_SETOR, type Situacao, estaConferido, filtrarConferencia, produtosParecidos, progressoDaConferencia, resumirItens, semCusto } from "./conferencia-ajuda";
 import { quantityToApi, sanitizeQuantityInput } from "./shared";
 import "./conferencia.css";
 
@@ -125,8 +127,16 @@ const MOTIVOS_DO_CARTAO: MotivoDeConferencia[] = ["CORRETO", "COMPRA_NAO_LANCADA
 const SITUACOES: Array<{ valor: Situacao; rotulo: string }> = [
   { valor: "faltam", rotulo: "Faltam conferir" },
   { valor: "conferidos", rotulo: "Conferidos" },
+  { valor: "sem_custo", rotulo: "Sem custo" },
   { valor: "todos", rotulo: "Todos" }
 ];
+
+const FONTE_DO_CUSTO: Record<FonteDoCusto, string> = {
+  COMPRAS_DO_PERIODO: "compras do período",
+  ULTIMA_COMPRA: "última compra",
+  BASE_ANTERIOR: "base anterior",
+  INFORMADO: "informado"
+};
 
 const VALORES_MINIMOS = [
   { valor: 0, rotulo: "Qualquer valor" },
@@ -378,6 +388,26 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
         </div>
       )}
 
+      {(() => {
+        const contadosSemCusto = conferencia.itens.filter(semCusto).length;
+        if (contadosSemCusto === 0) return null;
+        return (
+          <p className="conf-semcusto" role="status">
+            <AlertTriangle size={16} aria-hidden="true" />
+            <span>
+              <strong>{formatoQuantidade.format(contadosSemCusto)} {contadosSemCusto === 1 ? "item contado sem custo" : "itens contados sem custo"}.</strong>{" "}
+              O sistema não achou compra nem base de meses anteriores. Sem custo o item entra a R$ 0 no CMV
+              {jaAprovado ? "." : ": informe o custo no cartão — a aprovação espera por isso."}
+            </span>
+            {situacao !== "sem_custo" && (
+              <button type="button" className="secondary-button" onClick={() => { setSituacao("sem_custo"); setLimite(ITENS_POR_PAGINA); }}>
+                Ver itens sem custo
+              </button>
+            )}
+          </p>
+        );
+      })()}
+
       <PainelDeRecontagem
         paraRecontar={paraRecontar.length}
         recontagens={conferencia.recontagens}
@@ -460,6 +490,7 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
             podeCorrigir={podeCorrigir && Boolean(onCorrigir)}
             onCorrigir={corrigir}
             podeConferir={podeConferir}
+            onCustoInformado={() => void carregar()}
             onMarcar={marcar}
             limiteDeConferencia={conferencia.limiteDeConferencia}
           />
@@ -524,6 +555,7 @@ type LinhaProps = {
   onLocalizar: (item: ItemDaConferencia) => void;
   podeCorrigir: boolean;
   podeConferir: boolean;
+  onCustoInformado: () => void;
   onCorrigir: (item: ItemDaConferencia, quantidade: string) => Promise<boolean>;
   onMarcar: (item: ItemDaConferencia, motivo: MotivoDeConferencia | null, observacao?: string) => Promise<string | null>;
   limiteDeConferencia: number;
@@ -536,7 +568,7 @@ function quantidadeParaCampo(valor: number | null) {
 // O cartao e onde se decide: a conta, o motivo, as notas que entraram, o
 // produto vizinho que pode ter levado a contagem e o campo para corrigir. Antes
 // cada correcao era localizar, trocar de aba, salvar e voltar procurando.
-function LinhaDaConferencia({ inventoryId, item, todos, rotuloImpacto, onLocalizar, podeCorrigir, podeConferir, onCorrigir, onMarcar }: LinhaProps) {
+function LinhaDaConferencia({ inventoryId, item, todos, rotuloImpacto, onLocalizar, podeCorrigir, podeConferir, onCustoInformado, onCorrigir, onMarcar }: LinhaProps) {
   const u = item.unit;
   const temConta = item.anterior != null;
   const [valor, setValor] = useState(quantidadeParaCampo(item.contado));
@@ -613,7 +645,8 @@ function LinhaDaConferencia({ inventoryId, item, todos, rotuloImpacto, onLocaliz
             <Money value={item.impacto} />
             <small>{rotuloImpacto}</small>
           </>
-        ) : <small>sem custo</small>}
+        ) : item.custoUnitario == null && !(podeCorrigir && (item.contado ?? 0) > 0) ? <small>sem custo</small> : null}
+        <CustoDoItem inventoryId={inventoryId} item={item} podeInformar={podeCorrigir} onInformado={onCustoInformado} />
       </div>
 
       <div className="conf-item__acoes">
@@ -735,6 +768,87 @@ function NotasDoPeriodo({ inventoryId, itemId, aberto, onAlternar }: NotasProps)
         Notas de compra do período
       </button>
       {conteudo}
+    </div>
+  );
+}
+
+type CustoProps = {
+  inventoryId: string;
+  item: ItemDaConferencia;
+  podeInformar: boolean;
+  onInformado: () => void;
+};
+
+// Custo unitario e de onde veio (o mesmo que vai para o CMV). Sem nenhum no
+// sistema, quem edita informa: e a ultima alternativa, para o item nao entrar
+// a R$ 0.
+function CustoDoItem({ inventoryId, item, podeInformar, onInformado }: CustoProps) {
+  const informado = item.custoFonte === "INFORMADO";
+  const [aberto, setAberto] = useState(false);
+  const [valor, setValor] = useState(informado && item.custoUnitario != null ? String(item.custoUnitario).replace(".", ",") : "");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  async function salvar(evento: FormEvent, limpar = false) {
+    evento.preventDefault();
+    if (salvando || (!limpar && !valor.trim())) return;
+    setSalvando(true);
+    setErro(null);
+    try {
+      await informarCustoDoItem(inventoryId, item.itemId, limpar ? null : valor.trim());
+      setAberto(false);
+      onInformado();
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : "Não foi possível salvar o custo.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  const unidade = item.unit ? `/${item.unit}` : "";
+  const formulario = (
+    <form className="conf-custo__form" onSubmit={(e) => void salvar(e)}>
+      <label className="conf-sr" htmlFor={`conf-custo-${item.itemId}`}>Custo unitário de {item.productName}</label>
+      <span aria-hidden="true">R$</span>
+      <input
+        id={`conf-custo-${item.itemId}`}
+        inputMode="decimal"
+        autoFocus={aberto}
+        placeholder="0,00"
+        value={valor}
+        onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ""))}
+      />
+      <span aria-hidden="true">{unidade}</span>
+      <button type="submit" className="secondary-button" disabled={salvando || !valor.trim()}>Usar custo</button>
+      {informado && (
+        <button type="button" className="conf-marcado__desfazer" disabled={salvando} onClick={(e) => void salvar(e, true)}>Remover</button>
+      )}
+      {erro && <p className="conf-marcar__erro" role="alert">{erro}</p>}
+    </form>
+  );
+
+  if (item.custoUnitario == null) {
+    if (!podeInformar || (item.contado ?? 0) <= 0) return null;
+    return (
+      <div className="conf-custo conf-custo--falta">
+        <small>Sistema sem custo: informe o custo unitário</small>
+        {formulario}
+      </div>
+    );
+  }
+
+  return (
+    <div className="conf-custo">
+      <small title={item.custoDetalhe ?? undefined}>
+        <Money value={item.custoUnitario} />{unidade} · {item.custoFonte ? FONTE_DO_CUSTO[item.custoFonte] : ""}
+        {item.custoDetalhe && item.custoFonte !== "COMPRAS_DO_PERIODO" ? ` (${item.custoDetalhe.replace(/^informado por /, "por ")})` : ""}
+      </small>
+      {informado && podeInformar && !aberto && (
+        <button type="button" className="conf-marcado__desfazer" onClick={() => setAberto(true)}>
+          <Pencil size={12} aria-hidden="true" /> Alterar
+        </button>
+      )}
+      {informado && aberto && formulario}
     </div>
   );
 }

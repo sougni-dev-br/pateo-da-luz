@@ -12,6 +12,7 @@ import {
   getCmvPurchaseTotalByPurchaseDateRange,
   type CmvVisionKey,
 } from "../cmv-real/cmv-purchase-base.service.js";
+import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
 
 export const dreRouter = Router();
 
@@ -205,20 +206,18 @@ function expensePredicateByMode(mode: CmvVisionKey) {
     : Prisma.sql`COALESCE(dc."dreGroup", '') <> 'CMV_COMPRAS'`;
 }
 
-// O titulo do reembolso a funcionario e so o veiculo de pagamento: a despesa ja
-// esta nas compras da pessoa, cada uma na data e na categoria dela. Entrar aqui
-// (nota sem itens) contaria o mesmo gasto duas vezes, como "Nao categorizadas".
-const semTituloDeReembolso = Prisma.sql`COALESCE(p."workflowStatus", '') <> 'REIMBURSEMENT'`;
+// Titulo de ciclo de fornecedor, de fatura de cartao ou de reembolso a
+// funcionario repete compras que ja estao no CMV ou na Parte B pelos itens delas.
+// Medido em producao em 08/10/2026: a Parte A de jun–set era 100% desses titulos
+// — R$ 69.375,96 de despesa contada duas vezes. Vale para a soma, o detalhamento
+// e as pendencias. O helper cobre os tres tipos (ver purchase-aggregators.ts).
+const semTituloDeAgregador = excludeAggregatorsSql("p");
 
-// Parte A da despesa = nota SEM itens (servico, despesa fixa, agregador de
-// ciclo). Era reconhecida por pagamento, com fallback no vencimento: regime de
+// Parte A da despesa = nota SEM itens (servico, despesa fixa). Era reconhecida
+// por pagamento, com fallback no vencimento: regime de
 // caixa dentro de um relatorio de competencia. Em 06/2026 isso mostrava R$ 0,00
 // no DRE contra R$ 19.072,70 por competencia.
 function filtroDespesaSemItens(competencia: Competencia | null, from: Date, to: Date) {
-  return Prisma.sql`${semTituloDeReembolso} AND ${filtroDePeriodoSemItens(competencia, from, to)}`;
-}
-
-function filtroDePeriodoSemItens(competencia: Competencia | null, from: Date, to: Date) {
   return competencia
     ? Prisma.sql`p."competenceYear" = ${competencia.year} AND p."competenceMonth" = ${competencia.month}`
     : Prisma.sql`(
@@ -360,6 +359,7 @@ async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
         LEFT JOIN "DRECategory" dc ON dc.id = pi."dreCategory"
         WHERE p.status = 'ACTIVE'
           AND pi.status NOT IN ('CANCELLED')
+          AND ${semTituloDeAgregador}
           AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" px WHERE px."purchaseId" = p.id)
           AND ${filtroDespesaSemItens(competencia, from, to)}
         GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
@@ -414,6 +414,7 @@ async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
         LEFT JOIN "DRECategory" dc ON dc.id = pi."dreCategory"
         WHERE p.status = 'ACTIVE'
           AND pi.status NOT IN ('CANCELLED')
+          AND ${semTituloDeAgregador}
           AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" px WHERE px."purchaseId" = p.id)
           AND ${filtroDespesaSemItens(competencia, from, to)}
         GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
@@ -717,8 +718,8 @@ dreRouter.get("/expense-drill", async (request, response) => {
       LEFT JOIN "DRECategory" dc ON dc.id = pi."dreCategory"
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
+        AND ${semTituloDeAgregador}
         AND pi."dreCategory" = ${dreCategoryId}
-        AND ${semTituloDeReembolso}
         AND (
           (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${range.from} AND pi."paidDate" <= ${range.to})
           OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${range.from} AND pi."dueDate" <= ${range.to})
@@ -749,8 +750,8 @@ dreRouter.get("/expense-drill", async (request, response) => {
       JOIN "Supplier" s ON s.id = p."supplierId"
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
+        AND ${semTituloDeAgregador}
         AND pi."dreCategory" IS NULL
-        AND ${semTituloDeReembolso}
         AND (
           (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${range.from} AND pi."paidDate" <= ${range.to})
           OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${range.from} AND pi."dueDate" <= ${range.to})
@@ -849,11 +850,33 @@ dreRouter.get("/expense-drill", async (request, response) => {
 });
 
 // Atribuir dreCategory a uma parcela
+// Categoria em titulo de ciclo ou de fatura nao muda nada no DRE (ele fica de
+// fora); aceitar daria a impressao de ter classificado uma despesa.
+async function recusouTituloDeAgregador(
+  installmentIds: string[],
+  response: { status: (code: number) => { json: (body: unknown) => void } }
+) {
+  const [row] = await prisma.$queryRaw<[{ n: number }]>`
+    SELECT COUNT(*)::int AS n
+    FROM "PaymentInstallment" pi
+    JOIN "Purchase" p ON p.id = pi."purchaseId"
+    WHERE pi.id = ANY(${installmentIds}::text[])
+      AND NOT ${semTituloDeAgregador}
+  `;
+  const n = Number(row?.n ?? 0);
+  if (n === 0) return false;
+  response.status(422).json({
+    message: `${n} parcela(s) são título de ciclo de fornecedor ou de fatura de cartão. A despesa já entra no DRE pelos itens das compras agrupadas — classifique as compras, não o título.`
+  });
+  return true;
+}
+
 dreRouter.patch("/installment/:id/category", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
   const { dreCategoryId } = request.body;
+  if (await recusouTituloDeAgregador([request.params.id], response)) return;
   await prisma.$executeRaw`
     UPDATE "PaymentInstallment"
     SET "dreCategory" = ${dreCategoryId ?? null}
@@ -990,6 +1013,7 @@ dreRouter.get("/pending", async (request, response) => {
       JOIN "Supplier"  s ON s.id = p."supplierId"
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
+        AND ${semTituloDeAgregador}
         AND pi."dreCategory" IS NULL
         AND (
           (pi."paidDate"  IS NOT NULL AND pi."paidDate"  >= ${range.from} AND pi."paidDate"  <= ${range.to})
@@ -997,7 +1021,6 @@ dreRouter.get("/pending", async (request, response) => {
         )
         AND (${search} = '' OR s.name ILIKE ${searchPattern})
         ${cmvFilter}
-        AND ${semTituloDeReembolso}
       ORDER BY
         CASE WHEN ${sort} = 'amount_desc' THEN COALESCE(pi."paidAmount", pi.amount, 0) END DESC,
         CASE WHEN ${sort} = 'amount_asc'  THEN COALESCE(pi."paidAmount", pi.amount, 0) END ASC,
@@ -1015,6 +1038,7 @@ dreRouter.get("/pending", async (request, response) => {
       JOIN "Supplier"  s ON s.id = p."supplierId"
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
+        AND ${semTituloDeAgregador}
         AND pi."dreCategory" IS NULL
         AND (
           (pi."paidDate"  IS NOT NULL AND pi."paidDate"  >= ${range.from} AND pi."paidDate"  <= ${range.to})
@@ -1022,7 +1046,6 @@ dreRouter.get("/pending", async (request, response) => {
         )
         AND (${search} = '' OR s.name ILIKE ${searchPattern})
         ${cmvFilter}
-        AND ${semTituloDeReembolso}
     `,
   ]);
 
@@ -1079,6 +1102,7 @@ dreRouter.patch("/installments/bulk-category", async (request, response) => {
     response.status(400).json({ message: "Máximo de 500 parcelas por lote." });
     return;
   }
+  if (await recusouTituloDeAgregador(installmentIds, response)) return;
 
   // Guard: bloquear classificação de compras de estoque (CMV) sem confirmação explícita
   if (!allowCmvItems) {

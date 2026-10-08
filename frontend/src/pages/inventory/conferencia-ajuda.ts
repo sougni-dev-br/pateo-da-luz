@@ -73,7 +73,12 @@ export function progressoDaConferencia(itens: readonly ItemDaConferencia[], limi
   return { exigidos: exigidos.length, conferidos: exigidos.filter(estaConferido).length };
 }
 
-export type Situacao = "todos" | "faltam" | "conferidos";
+export type Situacao = "todos" | "faltam" | "conferidos" | "sem_custo";
+
+/** Contado e sem custo nenhum no sistema: entraria a R$ 0 no CMV. */
+export function semCusto(item: Pick<ItemDaConferencia, "contado" | "custoUnitario">): boolean {
+  return (item.contado ?? 0) > 0 && item.custoUnitario == null;
+}
 
 export type FiltroDaConferencia = { setor: string; valorMinimo: number; situacao?: Situacao; limite?: number };
 
@@ -84,7 +89,8 @@ export function filtrarConferencia(itens: readonly ItemDaConferencia[], filtro: 
     (!filtro.setor || (item.sectorName ?? SEM_SETOR) === filtro.setor)
     && (filtro.valorMinimo <= 0 || item.impacto == null || item.impacto >= filtro.valorMinimo)
     && (situacao === "todos"
-      || (situacao === "conferidos" ? estaConferido(item) : exigeConferencia(item, filtro.limite ?? 0) && !estaConferido(item)))
+      || (situacao === "sem_custo" ? semCusto(item)
+        : situacao === "conferidos" ? estaConferido(item) : exigeConferencia(item, filtro.limite ?? 0) && !estaConferido(item)))
   );
 }
 

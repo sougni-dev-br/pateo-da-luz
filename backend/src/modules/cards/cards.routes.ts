@@ -12,6 +12,7 @@ import {
   ensureCardSupplier,
   getCardStatementPeriod,
   getNextPurchaseNumber,
+  linhasForaDoDre,
   syncCardStatementItemForPurchase
 } from "./cards.service.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
@@ -64,7 +65,7 @@ async function cardStatementDetail(id: string) {
       creditCard: true,
       items: {
         include: {
-          purchase: { include: { supplier: true } },
+          purchase: { include: { supplier: true, _count: { select: { items: true } } } },
           purchaseItem: { include: { product: true } },
           smallExpenseType: true
         },
@@ -74,6 +75,26 @@ async function cardStatementDetail(id: string) {
   });
   if (!statement) return null;
   return statement;
+}
+
+const STATUS_DE_FATURA_FECHADA = ["CLOSED", "PAID"];
+
+// Toda porta que deixa a fatura fechada ou paga passa por aqui: o titulo dela
+// nao entra no DRE, entao cada linha precisa de compra ativa com itens.
+function recusouLinhaForaDoDre(
+  linhas: Parameters<typeof linhasForaDoDre>[0],
+  response: { status: (code: number) => { json: (body: unknown) => void } }
+) {
+  const fora = linhasForaDoDre(linhas);
+  if (fora.length === 0) return false;
+  const lista = fora
+    .map((linha) => `${linha.description} (R$ ${linha.value.toFixed(2).replace(".", ",")})`)
+    .join("; ");
+  response.status(422).json({
+    message: `A fatura tem ${fora.length} linha(s) sem compra ativa com itens: ${lista}. Lance cada gasto como compra no cartao, com os itens — a linha entra na fatura sozinha — e apague a linha avulsa com o botao Excluir no detalhe da fatura. Sem isso o gasto sai do caixa e nao aparece no DRE.`,
+    linhasForaDoDre: fora
+  });
+  return true;
 }
 
 cardsRouter.get("/", async (request, response) => {
@@ -256,6 +277,10 @@ cardsRouter.post("/statements", async (request, response) => {
   const dueDateInput = parseDate(request.body.dueDate);
   const dueDate = dueDateInput ?? getCardStatementPeriod(card, closingDate).dueDate;
   const id = request.body.id ? String(request.body.id) : crypto.randomUUID();
+  if (request.body.id && STATUS_DE_FATURA_FECHADA.includes(String(request.body.status ?? "").toUpperCase())) {
+    const atual = await cardStatementDetail(id);
+    if (atual && recusouLinhaForaDoDre(atual.items, response)) return;
+  }
   const statement = request.body.id
     ? await prisma.creditCardStatement.update({
         where: { id },
@@ -312,6 +337,7 @@ cardsRouter.patch("/statements/:id/status", async (request, response) => {
     response.status(404).json({ message: "Fatura nao encontrada." });
     return;
   }
+  if (STATUS_DE_FATURA_FECHADA.includes(status) && recusouLinhaForaDoDre(previous.items, response)) return;
 
   const statement = await prisma.creditCardStatement.update({
     where: { id: request.params.id },
@@ -351,6 +377,13 @@ cardsRouter.post("/statements/:id/items", async (request, response) => {
   const value = asNumber(request.body.value);
   if (!description || value <= 0) {
     response.status(400).json({ message: "Descricao e valor sao obrigatorios." });
+    return;
+  }
+  // Linha sem compra nao chega ao DRE (o titulo da fatura fica fora dele).
+  if (!purchaseId) {
+    response.status(422).json({
+      message: "A fatura so recebe linhas de compras. Lance o gasto (anuidade, juros, tarifa) como compra paga no cartao, com o item — a linha entra na fatura sozinha."
+    });
     return;
   }
 
@@ -410,6 +443,55 @@ cardsRouter.post("/statements/:id/items", async (request, response) => {
   });
 
   response.status(201).json(item);
+});
+
+// Saida para a linha avulsa (lancada a mao antes de a fatura exigir compra):
+// sem ela, a fatura nunca mais fecharia. Linha de compra nao sai por aqui — ela
+// acompanha a compra (editar, cancelar ou realocar).
+cardsRouter.delete("/statements/:id/items/:itemId", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const [statement, item] = await Promise.all([
+    prisma.creditCardStatement.findUnique({ where: { id: request.params.id } }),
+    prisma.creditCardStatementItem.findUnique({ where: { id: request.params.itemId } })
+  ]);
+  if (!statement || !item || item.statementId !== statement.id) {
+    response.status(404).json({ message: "Linha da fatura nao encontrada." });
+    return;
+  }
+  if (!["OPEN", "CHECKED"].includes(statement.status)) {
+    response.status(409).json({ message: "Fatura fechada, paga ou cancelada nao pode ter linhas apagadas. Reabra a fatura antes." });
+    return;
+  }
+  if (item.purchaseId) {
+    response.status(422).json({ message: "Esta linha veio de uma compra: ela sai editando, cancelando ou realocando a compra." });
+    return;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.creditCardStatementItem.delete({ where: { id: item.id } });
+    const [totalRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
+      SELECT COALESCE(SUM("value"), 0) AS "total"
+      FROM "CreditCardStatementItem"
+      WHERE "statementId" = ${statement.id}
+    `;
+    await tx.creditCardStatement.update({
+      where: { id: statement.id },
+      data: { totalAmount: new Prisma.Decimal(Number(totalRow?.total ?? 0)) }
+    });
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "DELETE_CREDIT_CARD_STATEMENT_ITEM",
+    entity: "CreditCardStatementItem",
+    entityId: item.id,
+    previousValue: item,
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+  response.json({ ok: true });
 });
 
 cardsRouter.patch("/statements/:id/items/:itemId", async (request, response) => {
@@ -625,6 +707,8 @@ cardsRouter.post("/statements/:id/close", async (request, response) => {
     response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
     return;
   }
+
+  if (recusouLinhaForaDoDre(statement.items, response)) return;
 
   const totalAmount = statement.items.reduce((sum, item) => sum + Number(item.value ?? 0), 0);
   const period = getCardStatementPeriod({

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
+import { compraLevaDespesaAoDre } from "../purchases/purchase-aggregators.js";
 
 export type CardRow = {
   id: string;
@@ -312,6 +313,29 @@ export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionCl
   }
 
   return results;
+}
+
+type LinhaDeFatura = {
+  description: string;
+  value: Prisma.Decimal | number | string;
+  purchaseId: string | null;
+  purchase: { status: string; _count: { items: number } } | null;
+};
+
+/**
+ * Linhas cuja despesa nao chegaria ao DRE. O titulo da fatura fica fora dele
+ * (ver excludeAggregatorsSql) porque a despesa ja esta nos itens das compras de
+ * cada linha; uma linha avulsa — anuidade, juros, linha lancada a mao — ou com
+ * compra sem item nao teria onde aparecer. Fechar a fatura exige lista vazia.
+ */
+export function linhasForaDoDre(linhas: LinhaDeFatura[]) {
+  return linhas
+    .filter((linha) => !compraLevaDespesaAoDre(
+      linha.purchaseId && linha.purchase
+        ? { status: linha.purchase.status, itens: linha.purchase._count.items }
+        : null
+    ))
+    .map((linha) => ({ description: linha.description, value: Number(linha.value ?? 0) }));
 }
 
 export async function createCardStatementPurchase(tx: Prisma.TransactionClient, input: {
