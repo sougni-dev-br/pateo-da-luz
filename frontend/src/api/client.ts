@@ -4136,6 +4136,14 @@ export type DishProductSearchResult = {
   embalagemInferida: string | null;
 };
 
+/** "1 UN = 1.200 G": grava a conversão no produto e devolve a lista efetiva para a ficha. */
+export function saveDishProductConversion(productId: string, payload: { unit: string; amount: number; replace?: boolean }) {
+  return request<{ conversions: DishUnitConversion[]; embalagemInferida: string | null }>(
+    `/dishes/products/${productId}/conversions`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+}
+
 export function searchDishProducts(search: string) {
   return request<DishProductSearchResult[]>(`/dishes/products/search${toQueryString({ search })}`);
 }

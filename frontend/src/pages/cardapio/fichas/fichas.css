@@ -202,7 +202,7 @@
 
 .ft-ingredientes-lista { list-style: none; margin: 0; padding: 0; display: grid; }
 .ft-ingredientes-cabecalho, .ft-ingrediente-linha {
-  display: grid; grid-template-columns: minmax(0, 1fr) 92px 104px 76px 92px 36px; gap: 10px; align-items: center;
+  display: grid; grid-template-columns: minmax(0, 1fr) 92px 124px 76px 92px 36px; gap: 10px; align-items: center;
 }
 .ft-ingredientes-cabecalho {
   padding: 0 0 6px; color: var(--muted); font-size: var(--fs-2xs); font-weight: var(--fw-semibold); letter-spacing: var(--ls-eyebrow); text-transform: uppercase;
@@ -217,6 +217,19 @@
 .ft-ingrediente-custo { text-align: right; font-variant-numeric: tabular-nums; font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
 .ft-ingrediente-nota { display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0; color: var(--warning); font-size: var(--fs-xs); line-height: var(--lh-snug); }
 .ft-ingrediente-nota svg { flex: none; margin-top: 2px; }
+.ft-conversao {
+  display: grid; gap: 4px; margin-top: 8px; padding: 10px 12px; border: 1px dashed var(--gold); border-radius: var(--radius-md);
+  background: var(--gold-tint);
+}
+.ft-conversao-texto { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--gold-dark); }
+.ft-conversao-campo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: var(--fs-sm); }
+.ft-conversao-campo input {
+  width: 110px; height: 36px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--paper);
+  font: inherit; font-variant-numeric: tabular-nums;
+}
+.ft-conversao-campo input:focus { outline: none; border-color: var(--gold); box-shadow: var(--focus-ring); }
+.ft-conversao-ajuda { color: var(--muted); font-size: var(--fs-xs); }
+.ft-conversao-erro { color: var(--danger); font-size: var(--fs-xs); font-weight: var(--fw-medium); }
 .ft-ingrediente-nota--info { color: var(--info); }
 .ft-ingrediente-nota--erro { color: var(--danger); font-weight: var(--fw-medium); }
 
@@ -316,7 +329,7 @@
   .ft-parte { min-width: 0; }
 
   .ft-ingredientes-cabecalho { display: none; }
-  .ft-ingrediente-linha { grid-template-columns: 1fr 1fr 1fr auto; row-gap: 10px; }
+  .ft-ingrediente-linha { grid-template-columns: 1fr 1.5fr 1fr auto; row-gap: 10px; }
   .ft-ingrediente-produto { grid-column: 1 / -2; }
   .ft-remover { grid-column: -2 / -1; grid-row: 1; }
   .ft-ingrediente-linha > .ft-campo--qtd { grid-column: 1 / 2; }
