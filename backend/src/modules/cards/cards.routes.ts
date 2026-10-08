@@ -91,7 +91,7 @@ function recusouLinhaForaDoDre(
     .map((linha) => `${linha.description} (R$ ${linha.value.toFixed(2).replace(".", ",")})`)
     .join("; ");
   response.status(422).json({
-    message: `A fatura tem ${fora.length} linha(s) sem compra ativa com itens: ${lista}. Lance cada uma como compra no cartao, com os itens — ela entra na fatura sozinha — e remova a linha avulsa antes de fechar. Sem isso o gasto sai do caixa e nao aparece no DRE.`,
+    message: `A fatura tem ${fora.length} linha(s) sem compra ativa com itens: ${lista}. Lance cada gasto como compra no cartao, com os itens — a linha entra na fatura sozinha — e apague a linha avulsa com o botao Excluir no detalhe da fatura. Sem isso o gasto sai do caixa e nao aparece no DRE.`,
     linhasForaDoDre: fora
   });
   return true;
@@ -379,6 +379,13 @@ cardsRouter.post("/statements/:id/items", async (request, response) => {
     response.status(400).json({ message: "Descricao e valor sao obrigatorios." });
     return;
   }
+  // Linha sem compra nao chega ao DRE (o titulo da fatura fica fora dele).
+  if (!purchaseId) {
+    response.status(422).json({
+      message: "A fatura so recebe linhas de compras. Lance o gasto (anuidade, juros, tarifa) como compra paga no cartao, com o item — a linha entra na fatura sozinha."
+    });
+    return;
+  }
 
   // deleteMany + create + recalculo do total sao uma operacao so. Com o purchaseId
   // preenchido o deleteMany REMOVE o item anterior daquela compra: se o create
@@ -436,6 +443,55 @@ cardsRouter.post("/statements/:id/items", async (request, response) => {
   });
 
   response.status(201).json(item);
+});
+
+// Saida para a linha avulsa (lancada a mao antes de a fatura exigir compra):
+// sem ela, a fatura nunca mais fecharia. Linha de compra nao sai por aqui — ela
+// acompanha a compra (editar, cancelar ou realocar).
+cardsRouter.delete("/statements/:id/items/:itemId", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const [statement, item] = await Promise.all([
+    prisma.creditCardStatement.findUnique({ where: { id: request.params.id } }),
+    prisma.creditCardStatementItem.findUnique({ where: { id: request.params.itemId } })
+  ]);
+  if (!statement || !item || item.statementId !== statement.id) {
+    response.status(404).json({ message: "Linha da fatura nao encontrada." });
+    return;
+  }
+  if (!["OPEN", "CHECKED"].includes(statement.status)) {
+    response.status(409).json({ message: "Fatura fechada, paga ou cancelada nao pode ter linhas apagadas. Reabra a fatura antes." });
+    return;
+  }
+  if (item.purchaseId) {
+    response.status(422).json({ message: "Esta linha veio de uma compra: ela sai editando, cancelando ou realocando a compra." });
+    return;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.creditCardStatementItem.delete({ where: { id: item.id } });
+    const [totalRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
+      SELECT COALESCE(SUM("value"), 0) AS "total"
+      FROM "CreditCardStatementItem"
+      WHERE "statementId" = ${statement.id}
+    `;
+    await tx.creditCardStatement.update({
+      where: { id: statement.id },
+      data: { totalAmount: new Prisma.Decimal(Number(totalRow?.total ?? 0)) }
+    });
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "DELETE_CREDIT_CARD_STATEMENT_ITEM",
+    entity: "CreditCardStatementItem",
+    entityId: item.id,
+    previousValue: item,
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+  response.json({ ok: true });
 });
 
 cardsRouter.patch("/statements/:id/items/:itemId", async (request, response) => {
