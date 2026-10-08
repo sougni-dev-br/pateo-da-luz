@@ -203,6 +203,142 @@ export function detectarEmbalagem(nome: unknown): EmbalagemDetectada[] {
   });
 }
 
+// ─── Ficha tecnica: lancar em grama/ml mesmo quando o estoque conta em UN ───────
+//
+// "FARINHA TRIGO 5KG" e contada em UN, mas a receita leva 30 g. Sem conversao
+// cadastrada, a ficha so aceitava "0,006 UN" — e quem monta a ficha desistia ou
+// errava. Aqui o peso/volume escrito no NOME vira uma conversao INFERIDA, usada so
+// na ficha tecnica e sempre marcada como inferida para a tela mostrar a origem.
+// Conversao cadastrada no produto tem prioridade e desliga a inferencia.
+
+export type MedidaDaEmbalagem = "KG" | "G" | "L" | "ML";
+
+export type EmbalagemDoNome = {
+  quantidade: number;
+  unidade: MedidaDaEmbalagem;
+  trecho: string;
+};
+
+export type ConversaoDoProduto = UnitConversion & { inferida?: boolean };
+
+/** Medidas que a ficha oferece sempre: a pessoa informa quanto vale 1 do estoque nelas. */
+export const MEDIDAS_DA_FICHA: readonly string[] = ["G", "KG", "ML", "L"];
+
+const MEDIDAS = new Set<string>(["KG", "G", "L", "ML"]);
+const IRMA: Record<MedidaDaEmbalagem, { unidade: MedidaDaEmbalagem; vezes: number }> = {
+  KG: { unidade: "G", vezes: 1000 },
+  G: { unidade: "KG", vezes: 0.001 },
+  L: { unidade: "ML", vezes: 1000 },
+  ML: { unidade: "L", vezes: 0.001 }
+};
+const MEDIDA_SOLTA = /(?:^|[\s(\-/])(\d+(?:[.,]\d+)?)\s*(KGS?|KILOS?|GRS?|GRAMAS?|G|MLS?|LTS?|LITROS?|L)(?![A-Za-z0-9])/gi;
+
+/** A coluna `factor` e Decimal(12,6): fora desta faixa o banco arredonda para 0 ou estoura. */
+const FATOR_MINIMO = 0.000001;
+const FATOR_MAXIMO = 999_999;
+
+/**
+ * Linhas de conversao a gravar quando alguem diz "1 <estoque> = <quantidade> <unidade>".
+ *
+ * Gravadas na direcao estoque -> medida (UN -> G = 1200), nao medida -> estoque (G -> UN =
+ * 0,000833): o fator pequeno perdia precisao nas 6 casas da coluna (1 UN = 45 kg virava 1% de
+ * erro no custo). `resolveUnitFactor` ja usa a inversa, e o numero que a pessoa digitou fica
+ * exato. Grava tambem a irma da grandeza (g e kg, ml e l): a ficha nao encadeia conversoes.
+ *
+ * null quando a unidade nao e g/kg/ml/l, e a do proprio estoque ou da mesma grandeza dela (kg e g
+ * ja convertem por fisica) ou quando algum fator sairia da faixa que a coluna guarda.
+ */
+export function linhasDeConversaoInformada(
+  unidadeDeEstoque: unknown,
+  unidade: unknown,
+  quantidadePorUnidadeDeEstoque: number
+): UnitConversion[] | null {
+  const base = normalizarUnidade(unidadeDeEstoque);
+  const medida = normalizarUnidade(unidade);
+  if (!base || !MEDIDAS.has(medida) || medida === base) return null;
+  if (!Number.isFinite(quantidadePorUnidadeDeEstoque) || quantidadePorUnidadeDeEstoque <= 0) return null;
+
+  const irma = IRMA[medida as MedidaDaEmbalagem];
+  if (irma.unidade === base) return null;
+
+  const linhas: UnitConversion[] = [
+    { fromUnit: base, toUnit: medida, factor: quantidadePorUnidadeDeEstoque },
+    { fromUnit: base, toUnit: irma.unidade, factor: quantidadePorUnidadeDeEstoque * irma.vezes }
+  ];
+  return linhas.every((l) => Number.isFinite(l.factor) && l.factor >= FATOR_MINIMO && l.factor <= FATOR_MAXIMO) ? linhas : null;
+}
+
+/**
+ * Peso ou volume da embalagem escrito no nome: "C/5KG", "PCT 500G" e tambem o
+ * "ARROZ 1KG" / "MOLHO 350G" solto. Devolve null na duvida (numero com virgula de
+ * milhar, mais de uma medida diferente) — chute aqui vira CMV errado na ficha.
+ */
+export function embalagemDoNome(nome: unknown): EmbalagemDoNome | null {
+  const texto = String(nome ?? "").trim();
+  if (!texto) return null;
+
+  const marcada = detectarEmbalagem(texto).find(
+    (e) => e.confianca === "alta" && e.unidade != null && MEDIDAS.has(e.unidade)
+  );
+  if (marcada) return { quantidade: marcada.quantidade, unidade: marcada.unidade as MedidaDaEmbalagem, trecho: marcada.trecho };
+
+  const achadas: EmbalagemDoNome[] = [];
+  MEDIDA_SOLTA.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = MEDIDA_SOLTA.exec(texto)) != null) {
+    if (separadorAmbiguo(m[1])) return null;
+    const quantidade = numeroPtBr(m[1]);
+    const unidade = normalizarUnidade(m[2]);
+    if (!Number.isFinite(quantidade) || quantidade <= 0 || !MEDIDAS.has(unidade)) continue;
+    achadas.push({ quantidade, unidade: unidade as MedidaDaEmbalagem, trecho: m[0].trim().replace(/^[(\-/]\s*/, "") });
+  }
+  if (achadas.length === 0) return null;
+
+  // "5KG" repetido ou o mesmo peso em duas escritas e a mesma embalagem; medidas
+  // diferentes ("12X30 350G 1KG") nao tem como saber qual vale.
+  const distintas = new Set(achadas.map((a) => `${a.quantidade}${a.unidade}`));
+  return distintas.size === 1 ? achadas[achadas.length - 1] : null;
+}
+
+/**
+ * Conversoes do produto para a ficha: as cadastradas mais, quando o estoque conta em
+ * unidade/pacote/caixa, as inferidas do nome. So infere se o cadastro nao disse nada
+ * sobre aquela grandeza.
+ */
+export function conversoesDoProduto(
+  nome: unknown,
+  unidadeDeEstoque: unknown,
+  cadastradas: UnitConversion[]
+): ConversaoDoProduto[] {
+  const base = normalizarUnidade(unidadeDeEstoque);
+  if (!base || MEDIDAS.has(base)) return cadastradas;
+
+  const embalagem = embalagemDoNome(nome);
+  if (!embalagem) return cadastradas;
+
+  // "COPO 110ML C/50" em PCT: o 110 e do copo, o pacote tem 50 deles. Com marcador de
+  // contagem, a medida so descreve a UNIDADE; estoque contado em pacote/caixa nao infere.
+  const temMarcadorDeContagem = detectarEmbalagem(nome).some((e) => e.unidade == null);
+  if (temMarcadorDeContagem && base !== "UN") return cadastradas;
+
+  const irma = IRMA[embalagem.unidade];
+  const grandeza = new Set<string>([embalagem.unidade, irma.unidade]);
+  const jaDefinida = cadastradas.some((c) => {
+    const de = normalizarUnidade(c.fromUnit);
+    const para = normalizarUnidade(c.toUnit);
+    return (para === base && grandeza.has(de)) || (de === base && grandeza.has(para));
+  });
+  if (jaDefinida) return cadastradas;
+
+  // fator = quantos "base" cabem em 1 da medida (1 KG = 1/5 UN numa embalagem de 5 KG)
+  const porMedida = 1 / embalagem.quantidade;
+  return [
+    ...cadastradas,
+    { fromUnit: embalagem.unidade, toUnit: base, factor: porMedida, inferida: true },
+    { fromUnit: irma.unidade, toUnit: base, factor: porMedida / irma.vezes, inferida: true }
+  ];
+}
+
 // ─── Conversao de um item de compra para a unidade de contagem ──────────────────
 
 export type ResultadoConversao = {

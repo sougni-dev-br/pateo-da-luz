@@ -81,6 +81,46 @@ export function unidadesPossiveis(unidadeDoProduto: string | null, conversoes: D
   return unicas.filter((u) => fatorConversao(u, base, conversoes) != null);
 }
 
+/** Medidas que a ficha sempre oferece; para as que ainda não convertem, a pessoa informa o valor ali mesmo. */
+export const MEDIDAS_DA_FICHA = ["G", "KG", "ML", "L"] as const;
+
+export type OpcaoDeUnidade = { value: string; label: string; converte: boolean };
+
+/**
+ * Tudo que dá para escolher: a unidade do estoque, g/kg/ml/l e a que já está na linha. Quem não
+ * converte ainda vem marcada "(informar)": escolher abre o campo para dizer quanto vale. Antes só
+ * apareciam as que já convertiam, e quem queria ml não achava a opção.
+ */
+export function opcoesDeUnidade(
+  unidadeDoProduto: string | null,
+  conversoes: DishUnitConversion[],
+  unidadeAtual: string
+): OpcaoDeUnidade[] {
+  const base = normalizarUnidade(unidadeDoProduto);
+  const todas = [...new Set([base, ...MEDIDAS_DA_FICHA, normalizarUnidade(unidadeAtual)].filter(Boolean))];
+  const convertiveis = new Set(unidadesPossiveis(unidadeDoProduto, conversoes));
+  return todas.map((value) => {
+    const converte = convertiveis.has(value) || value === base;
+    // "(informar)" só onde dá para informar: uma unidade estranha (CX, MÇ) não tem o campo.
+    return { value, converte, label: converte || !medidaInformavel(value) ? value : `${value} (informar)` };
+  });
+}
+
+/** A medida em que dá para informar a conversão ("1 UN = ? G"); null quando a unidade não é uma delas. */
+export function medidaInformavel(unidade: string): string | null {
+  const u = normalizarUnidade(unidade);
+  return (MEDIDAS_DA_FICHA as readonly string[]).includes(u) ? u : null;
+}
+
+/**
+ * Unidade em que a pessoa provavelmente lança: grama e mililitro quando existem — é como a
+ * cozinha pesa. Sem elas, a do estoque. Quem monta a ficha não deveria digitar 0,03 UN.
+ */
+export function unidadePadrao(unidadeDoProduto: string | null, conversoes: DishUnitConversion[]): string {
+  const possiveis = unidadesPossiveis(unidadeDoProduto, conversoes);
+  return possiveis.find((u) => u === "G") ?? possiveis.find((u) => u === "ML") ?? possiveis[0] ?? (normalizarUnidade(unidadeDoProduto) || "UN");
+}
+
 // ─── Custo previsto ──────────────────────────────────────────────────────────
 
 export type IngredientePrevisto = {
@@ -290,6 +330,8 @@ export type ItemDaFicha = IngredientePrevisto & {
   productId: string;
   productName: string;
   notes: string;
+  /** Texto "1 UN = 5 KG (lido do nome do produto)" quando a conversão veio do nome. */
+  embalagemInferida?: string | null;
 };
 
 export type ErroDoItem = { campo: "quantity" | "wasteFactor"; mensagem: string };

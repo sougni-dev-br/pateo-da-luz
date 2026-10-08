@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { saveDish, type DishCategory, type DishDetail, type DishProductSearchResult } from "../../../api/client";
+import { saveDish, saveDishProductConversion, type DishCategory, type DishDetail, type DishProductSearchResult } from "../../../api/client";
 import { Button, FormField, FormGrid, IconButton, Money, Select, StatusBadge, TextField, Textarea } from "../../../design-system";
 import {
   faixaDeCmv,
@@ -9,6 +9,7 @@ import {
   normalizarUnidade,
   resumoDaFicha,
   temErros,
+  unidadePadrao,
   validarFicha,
   type CamposDaFicha,
   type ErrosDaFicha,
@@ -68,6 +69,7 @@ function montarInicial(modo: ModoDoFormulario, base: DishDetail | null): { campo
       unitCost: item.unitCost ?? 0,
       productUnit: item.productUnit,
       conversions: item.conversions ?? [],
+      embalagemInferida: item.embalagemInferida ?? null,
       notes: item.notes ?? ""
     }))
   };
@@ -148,11 +150,12 @@ export function FormularioDoPrato({ modo, base, categorias, onCancelar, onSalvo,
         productId: produto.id,
         productName: produto.name,
         quantity: "",
-        unit: normalizarUnidade(produto.unit) || "UN",
+        unit: unidadePadrao(produto.unit, produto.conversions ?? []),
         wasteFactor: "0",
         unitCost: produto.averageCost,
         productUnit: produto.unit,
         conversions: produto.conversions ?? [],
+        embalagemInferida: produto.embalagemInferida ?? null,
         notes: ""
       }
     ]);
@@ -161,6 +164,17 @@ export function FormularioDoPrato({ modo, base, categorias, onCancelar, onSalvo,
 
   function alterarItem(tempId: string, campo: "quantity" | "unit" | "wasteFactor", valor: string) {
     setItens((anterior) => anterior.map((item) => (item.tempId === tempId ? { ...item, [campo]: valor } : item)));
+  }
+
+  /** "1 UN = 1.200 g": grava no produto e atualiza todas as linhas desse produto na ficha. */
+  async function informarConversao(productId: string, unidade: string, quantidade: number, substituir?: boolean) {
+    const resposta = await saveDishProductConversion(productId, { unit: unidade, amount: quantidade, ...(substituir ? { replace: true } : {}) });
+    setItens((anterior) => anterior.map((item) => (
+      item.productId === productId
+        ? { ...item, conversions: resposta.conversions, embalagemInferida: resposta.embalagemInferida }
+        : item
+    )));
+    notificar("success", "Conversão salva no produto. Vale para todas as fichas e para a conversão de compras e contagem.");
   }
 
   function removerItem(tempId: string) {
@@ -351,6 +365,7 @@ export function FormularioDoPrato({ modo, base, categorias, onCancelar, onSalvo,
                   repetido={(repetidos.get(item.productId) ?? 0) > 1}
                   onAlterar={alterarItem}
                   onRemover={removerItem}
+                  onInformarConversao={informarConversao}
                 />
               ))}
             </ul>
