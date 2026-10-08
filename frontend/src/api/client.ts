@@ -4044,14 +4044,29 @@ export function bulkPatchSmallExpenseTypes(payload: {
 // Dishes / Fichas Técnicas
 // ──────────────────────────────────────────────
 
+/** Salão (cardápio) ou delivery: cardápios separados, cada um com as suas categorias. */
+export type DishMenu = "CARDAPIO" | "DELIVERY";
+
 export type DishCategory = {
   id: string;
   name: string;
   sortOrder: number;
   isActive: boolean;
   notes: string | null;
-  /** Pratos ativos na categoria. */
+  /** Categoria de cima, quando esta é uma subcategoria (só dois níveis). */
+  parentId: string | null;
+  menu: DishMenu;
+  /** Pratos ativos diretamente nesta categoria (sem contar as subcategorias). */
   dishesCount?: number;
+};
+
+/** A categoria do prato como a tela mostra: com o nome da de cima ("Massas › Fresca"). */
+export type DishCategoryRef = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  parentName: string | null;
+  menu: DishMenu | null;
 };
 
 export type DishIngredient = {
@@ -4081,7 +4096,8 @@ export type DishListItem = {
   id: string;
   code: string | null;
   name: string;
-  category: { id: string; name: string } | null;
+  menu: DishMenu;
+  category: DishCategoryRef | null;
   salePriceDefault: number | null;
   yieldQty: number;
   yieldUnit: string;
@@ -4152,6 +4168,47 @@ export function saveDish(payload: Record<string, unknown>) {
 
 export function deactivateDish(id: string) {
   return request<{ ok: boolean }>(`/dishes/${id}`, { method: "DELETE" });
+}
+
+export type DishRevisionSnapshot = {
+  name: string;
+  code: string | null;
+  menu: DishMenu;
+  category: { id: string; name: string; parentName: string | null } | null;
+  salePriceDefault: number | null;
+  yieldQty: number;
+  yieldUnit: string;
+  notes: string | null;
+  isActive: boolean;
+  custoPorcao: number;
+  cmvPercentual: number | null;
+  custoIncompleto: boolean;
+  items: Array<{ productId: string; productName: string; quantity: number; unit: string; wasteFactor: number; itemCost: number | null }>;
+};
+
+/** Uma versão da ficha: quem gravou, quando, e a foto do prato naquele momento. */
+export type DishRevision = {
+  id: string;
+  action: "CRIADA" | "ALTERADA" | "INATIVADA" | "REATIVADA";
+  userName: string | null;
+  createdAt: string;
+  costPerServing: number | null;
+  salePrice: number | null;
+  cmvPercent: number | null;
+  snapshot: DishRevisionSnapshot;
+};
+
+export function getDishRevisions(id: string) {
+  return request<DishRevision[]>(`/dishes/${id}/revisions`);
+}
+
+/** Organiza vários pratos de uma vez: cardápio e/ou categoria (null tira da categoria). */
+export function bulkUpdateDishes(payload: { ids: string[]; menu?: DishMenu; categoryId?: string | null }) {
+  return request<{ atualizados: number; categoriasLimpas: number }>("/dishes/bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
 }
 
 export function reactivateDish(id: string) {

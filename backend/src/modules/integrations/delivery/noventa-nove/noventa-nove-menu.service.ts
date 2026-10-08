@@ -222,6 +222,8 @@ export async function importarCardapios(): Promise<MenuImportResult> {
           data: {
             name: nome,
             notes: item.short_desc?.trim() || null,
+            // Cardapio da 99 e delivery: sem isto o prato nasceria no salao (o padrao da coluna).
+            menu: "DELIVERY",
             // salePriceDefault fica NULO de proposito: o preco varia por loja e
             // escolher um seria mentir sobre os outros. O preco real esta na
             // listagem.

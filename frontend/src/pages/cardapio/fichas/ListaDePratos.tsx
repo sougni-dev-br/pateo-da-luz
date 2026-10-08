@@ -1,8 +1,9 @@
-import { ChevronDown, Plus, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
+import { ChevronDown, Plus, Printer, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { DishCategory, DishListItem } from "../../../api/client";
 import { Button, EmptyState, IconButton, ListDetailLayout, Select, StatusBadge, Switch } from "../../../design-system";
 import type { StatusTone } from "../../../design-system";
+import { ROTULO_DO_CARDAPIO, caminhoDaCategoria, opcoesDoFiltroDeCategoria } from "../../../lib/categoriasDasFichas";
 import {
   ROTULO_DA_SITUACAO,
   faixaDeCmv,
@@ -27,11 +28,21 @@ type Props = {
   selecionadoId: string | null;
   carregando: boolean;
   canEdit: boolean;
+  modoSelecao: boolean;
+  selecionados: Set<string>;
   onFiltro: (parcial: Partial<FiltroDaLista>) => void;
   onOrdem: (ordem: OrdemDaLista) => void;
   onSelecionar: (id: string) => void;
   onNovo: () => void;
   onAtualizar: () => void;
+  onEntrarNaSelecao: () => void;
+  onSairDaSelecao: () => void;
+  onAlternarSelecao: (id: string) => void;
+  onSelecionarTodos: () => void;
+  onLimparSelecao: () => void;
+  onMoverSelecionados: () => void;
+  onImprimirSelecionados: () => void;
+  onImprimirEmBranco: () => void;
 };
 
 const FILTROS_DE_SITUACAO: Array<{ valor: FiltroDaLista["situacao"]; rotulo: string; chave?: keyof Contagem }> = [
@@ -64,13 +75,16 @@ function EtiquetaDoPrato({ prato }: { prato: DishListItem }) {
   return <StatusBadge tone={tom}>{ROTULO_DA_SITUACAO[situacao]}</StatusBadge>;
 }
 
-function subtituloDoPrato(prato: DishListItem): string {
-  const partes = [prato.category?.name ?? "Sem categoria"];
+const moeda = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function subtituloDoPrato(prato: DishListItem, mostrarCardapio: boolean): string {
+  const partes: string[] = [];
+  if (mostrarCardapio) partes.push(ROTULO_DO_CARDAPIO[prato.menu]);
+  partes.push(caminhoDaCategoria(prato.category));
 
   if (prato.salePriceDefault != null) {
-    partes.push(`R$ ${prato.salePriceDefault.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+    partes.push(`R$ ${moeda(prato.salePriceDefault)}`);
   } else if (prato.listingPriceMin != null) {
-    const moeda = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     partes.push(prato.listingPriceMax !== prato.listingPriceMin
       ? `R$ ${moeda(prato.listingPriceMin)}–${moeda(prato.listingPriceMax ?? prato.listingPriceMin)} nos canais`
       : `R$ ${moeda(prato.listingPriceMin)} nos canais`);
@@ -81,15 +95,17 @@ function subtituloDoPrato(prato: DishListItem): string {
 }
 
 export function ListaDePratos({
-  pratos, totalCadastrado, contagemDosChips, categorias, filtro, ordem, selecionadoId, carregando, canEdit,
-  onFiltro, onOrdem, onSelecionar, onNovo, onAtualizar
+  pratos, totalCadastrado, contagemDosChips, categorias, filtro, ordem, selecionadoId, carregando, canEdit, modoSelecao, selecionados,
+  onFiltro, onOrdem, onSelecionar, onNovo, onAtualizar, onEntrarNaSelecao, onSairDaSelecao, onAlternarSelecao, onSelecionarTodos,
+  onLimparSelecao, onMoverSelecionados, onImprimirSelecionados, onImprimirEmBranco
 }: Props) {
   const rolagemRef = useRef<HTMLDivElement>(null);
   const jaRolouPara = useRef<string | null>(null);
+  const filtrando = filtro.busca !== "" || filtro.categoriaId !== "" || filtro.situacao !== "todos";
   // Categoria, ordem e inativos ficam recolhidos: a maioria das vezes só se busca e se filtra pela situação.
   const filtrosExtrasAtivos = (filtro.categoriaId !== "" ? 1 : 0) + (ordem !== "nome" ? 1 : 0) + (filtro.mostrarInativos ? 1 : 0);
   const [extrasAbertos, setExtrasAbertos] = useState(filtrosExtrasAtivos > 0);
-  const filtrando = filtro.busca !== "" || filtro.categoriaId !== "" || filtro.situacao !== "todos";
+  const todosDaListaMarcados = pratos.length > 0 && pratos.every((prato) => selecionados.has(prato.id));
 
   // Prato recém-salvo ou aberto por outro caminho precisa aparecer na lista — uma vez por
   // seleção: rolar a cada tecla da busca puxaria a lista de volta para o prato aberto.
@@ -105,10 +121,6 @@ export function ListaDePratos({
     jaRolouPara.current = selecionadoId;
   }, [selecionadoId, pratos]);
 
-  const opcoesDeCategoria = categorias
-    .filter((categoria) => categoria.isActive || categoria.id === filtro.categoriaId)
-    .map((categoria) => ({ value: categoria.id, label: categoria.name }));
-
   const botaoNovo = (classe: string) => (
     <Button className={classe} leadingIcon={<Plus size={16} aria-hidden />} onClick={onNovo}>Novo prato</Button>
   );
@@ -116,31 +128,31 @@ export function ListaDePratos({
   const cabecalho = (
     <div className="ft-filtros">
       {/* No celular o rodapé da lista fica a centenas de pratos de distância: o botão sobe para o topo. */}
-      {canEdit && botaoNovo("ft-novo ft-novo--topo")}
+      {canEdit && !modoSelecao && botaoNovo("ft-novo ft-novo--topo")}
       <div className="ft-busca-linha">
-      <label className="ft-busca">
-        <Search size={16} aria-hidden />
-        <input
-          type="search"
-          value={filtro.busca}
-          onChange={(event) => onFiltro({ busca: event.target.value })}
-          placeholder="Buscar prato ou código"
-          aria-label="Buscar prato ou código"
-          autoComplete="off"
+        <label className="ft-busca">
+          <Search size={16} aria-hidden />
+          <input
+            type="search"
+            value={filtro.busca}
+            onChange={(event) => onFiltro({ busca: event.target.value })}
+            placeholder="Buscar prato, código ou categoria"
+            aria-label="Buscar prato, código ou categoria"
+            autoComplete="off"
+          />
+          {filtro.busca && (
+            <button type="button" className="ft-busca-limpar" onClick={() => onFiltro({ busca: "" })} aria-label="Limpar busca">
+              <X size={14} aria-hidden />
+            </button>
+          )}
+        </label>
+        <IconButton
+          icon={<RefreshCw size={15} aria-hidden />}
+          label="Atualizar custos e pratos"
+          size="sm"
+          onClick={onAtualizar}
+          disabled={carregando}
         />
-        {filtro.busca && (
-          <button type="button" className="ft-busca-limpar" onClick={() => onFiltro({ busca: "" })} aria-label="Limpar busca">
-            <X size={14} aria-hidden />
-          </button>
-        )}
-      </label>
-      <IconButton
-        icon={<RefreshCw size={15} aria-hidden />}
-        label="Atualizar custos e pratos"
-        size="sm"
-        onClick={onAtualizar}
-        disabled={carregando}
-      />
       </div>
 
       <div className="ft-chips" role="group" aria-label="Situação da ficha">
@@ -182,7 +194,7 @@ export function ListaDePratos({
               label="Categoria"
               value={filtro.categoriaId}
               onChange={(event) => onFiltro({ categoriaId: event.target.value })}
-              options={opcoesDeCategoria}
+              options={opcoesDoFiltroDeCategoria(categorias, filtro.menu, filtro.categoriaId)}
               placeholder="Todas"
             />
             <Select
@@ -203,10 +215,34 @@ export function ListaDePratos({
           </label>
         </div>
       )}
+
+      {modoSelecao ? (
+        <div className="ft-lote-barra" role="group" aria-label="Seleção de pratos">
+          <strong>{selecionados.size === 0 ? "Marque os pratos" : `${selecionados.size} prato${selecionados.size === 1 ? "" : "s"} marcado${selecionados.size === 1 ? "" : "s"}`}</strong>
+          <div className="ft-lote-links">
+            <button type="button" className="ft-lote-botao" onClick={onSelecionarTodos} disabled={pratos.length === 0 || todosDaListaMarcados}>
+              Marcar os {pratos.length} da lista
+            </button>
+            {selecionados.size > 0 && <button type="button" className="ft-lote-botao" onClick={onLimparSelecao}>Desmarcar</button>}
+          </div>
+          <div className="ft-lote-acoes">
+            {canEdit && <Button size="sm" disabled={selecionados.size === 0} onClick={onMoverSelecionados}>Organizar…</Button>}
+            <Button size="sm" variant="secondary" leadingIcon={<Printer size={14} aria-hidden />} disabled={selecionados.size === 0} onClick={onImprimirSelecionados}>
+              Imprimir fichas
+            </Button>
+            <Button size="sm" variant="secondary" onClick={onSairDaSelecao}>Concluir</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="ft-lote-links">
+          <button type="button" className="ft-lote-botao" onClick={onEntrarNaSelecao}>Selecionar vários</button>
+          <button type="button" className="ft-lote-botao" onClick={onImprimirEmBranco}>Imprimir ficha em branco</button>
+        </div>
+      )}
     </div>
   );
 
-  const rodape = canEdit ? botaoNovo("ft-novo ft-novo--rodape") : undefined;
+  const rodape = canEdit && !modoSelecao ? botaoNovo("ft-novo ft-novo--rodape") : undefined;
 
   return (
     <div ref={rolagemRef} className="ft-lista-wrap">
@@ -232,16 +268,32 @@ export function ListaDePratos({
           </div>
         )}
 
-        {pratos.map((prato) => (
-          <ListDetailLayout.Item
-            key={prato.id}
-            title={prato.name}
-            subtitle={subtituloDoPrato(prato)}
-            active={prato.id === selecionadoId}
-            meta={<EtiquetaDoPrato prato={prato} />}
-            onClick={() => onSelecionar(prato.id)}
-          />
-        ))}
+        {pratos.map((prato) => {
+          const subtitulo = subtituloDoPrato(prato, filtro.menu === "todos");
+          if (!modoSelecao) {
+            return (
+              <ListDetailLayout.Item
+                key={prato.id}
+                title={prato.name}
+                subtitle={subtitulo}
+                active={prato.id === selecionadoId}
+                meta={<EtiquetaDoPrato prato={prato} />}
+                onClick={() => onSelecionar(prato.id)}
+              />
+            );
+          }
+          const marcado = selecionados.has(prato.id);
+          return (
+            <label key={prato.id} role="listitem" className={`ft-sel-item${marcado ? " ft-sel-item--marcado" : ""}`}>
+              <input type="checkbox" checked={marcado} onChange={() => onAlternarSelecao(prato.id)} aria-label={`Marcar ${prato.name}`} />
+              <span className="ft-sel-texto">
+                <strong>{prato.name}</strong>
+                <small>{subtitulo}</small>
+              </span>
+              <EtiquetaDoPrato prato={prato} />
+            </label>
+          );
+        })}
       </ListDetailLayout.List>
     </div>
   );

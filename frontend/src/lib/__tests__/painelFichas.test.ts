@@ -4,14 +4,14 @@ import { ehAnalisavel, montarPainel, veredito } from "../painelFichas";
 
 function prato(parcial: Partial<DishListItem> = {}): DishListItem {
   return {
-    id: "d", code: null, name: "Prato", category: null, salePriceDefault: 50, yieldQty: 1, yieldUnit: "UN",
+    id: "d", code: null, name: "Prato", menu: "CARDAPIO", category: null, salePriceDefault: 50, yieldQty: 1, yieldUnit: "UN",
     isActive: true, itemsCount: 2, listingsCount: 0, listingPriceMin: null, listingPriceMax: null,
     calculatedCost: 10, custoPorcao: 10, margemBruta: 40, cmvPercentual: 20, custoIncompleto: false, ...parcial
   };
 }
 
-const catA = { id: "a", name: "A la carte" };
-const catB = { id: "b", name: "Buffet" };
+const catA = { id: "a", name: "A la carte", parentId: null, parentName: null, menu: "CARDAPIO" as const };
+const catB = { id: "b", name: "Buffet", parentId: null, parentName: null, menu: "CARDAPIO" as const };
 
 describe("quem entra na análise", () => {
   it("exige ativo, ingredientes, custo completo e preço", () => {
