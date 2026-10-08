@@ -17,6 +17,7 @@ import {
   resumoDaFicha,
   situacaoDaFicha,
   temErros,
+  unidadePadrao,
   unidadesPossiveis,
   validarFicha,
   type IngredientePrevisto,
@@ -75,6 +76,31 @@ describe("unidades", () => {
     expect(unidadesPossiveis("UN", [])).toEqual(["UN"]);
     expect(unidadesPossiveis("UN", [{ fromUnit: "G", toUnit: "UN", factor: 0.001 }])).toEqual(["UN", "G"]);
     expect(unidadesPossiveis(null, [])).toEqual([]);
+  });
+});
+
+describe("unidade padrão ao adicionar o ingrediente", () => {
+  const lidoDoNome = [
+    { fromUnit: "KG", toUnit: "UN", factor: 0.2, inferida: true },
+    { fromUnit: "G", toUnit: "UN", factor: 0.0002, inferida: true },
+  ];
+
+  it("kg abre em g, litro abre em ml", () => {
+    expect(unidadePadrao("KG", [])).toBe("G");
+    expect(unidadePadrao("L", [])).toBe("ML");
+  });
+
+  it("UN com peso lido do nome abre em g", () => {
+    expect(unidadePadrao("UN", lidoDoNome)).toBe("G");
+  });
+
+  it("UN sem conversão continua em UN", () => {
+    expect(unidadePadrao("UN", [])).toBe("UN");
+    expect(unidadePadrao(null, [])).toBe("UN");
+  });
+
+  it("a previsão de custo usa a conversão inferida: 500 g de farinha de 5 kg a R$ 25", () => {
+    expect(custoPrevisto(ingrediente({ quantity: "500", unit: "G", productUnit: "UN", unitCost: 25, conversions: lidoDoNome }))).toBeCloseTo(2.5);
   });
 });
 

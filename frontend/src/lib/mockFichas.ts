@@ -8,7 +8,13 @@
 import type { DishUnitConversion } from "../api/client";
 import { fatorConversao } from "./fichaTecnica";
 
-type Produto = { id: string; name: string; code: string; unit: string; cost: number; conversions: DishUnitConversion[] };
+type Produto = { id: string; name: string; code: string; unit: string; cost: number; conversions: DishUnitConversion[]; embalagem?: string };
+
+// Como o backend: peso lido do nome ("5KG") vira conversão inferida em kg e em g.
+const lidoDoNome = (kg: number): DishUnitConversion[] => [
+  { fromUnit: "KG", toUnit: "UN", factor: 1 / kg, inferida: true },
+  { fromUnit: "G", toUnit: "UN", factor: 1 / (kg * 1000), inferida: true }
+];
 type ItemMock = [produto: string, quantidade: number, unidade: string, perda?: number];
 type PratoMock = {
   id: string; name: string; code?: string; category?: string; price?: number | null; yieldQty?: number; yieldUnit?: string;
@@ -22,10 +28,10 @@ const PRODUTOS: Produto[] = [
   { id: "p-parmesao", name: "QUEIJO PARMESAO", code: "0104", unit: "KG", cost: 48, conversions: [] },
   { id: "p-frango", name: "FILE DE FRANGO", code: "0105", unit: "KG", cost: 12, conversions: [] },
   { id: "p-batata", name: "BATATA ASTERIX", code: "0106", unit: "KG", cost: 7.5, conversions: [] },
-  { id: "p-arroz", name: "ARROZ ARBORIO 1KG", code: "0107", unit: "UN", cost: 27, conversions: [] },
+  { id: "p-arroz", name: "ARROZ ARBORIO 1KG", code: "0107", unit: "UN", cost: 27, conversions: lidoDoNome(1), embalagem: "1 UN = 1 KG (lido do nome do produto)" },
   { id: "p-azeite", name: "AZEITE EXTRA VIRGEM", code: "0108", unit: "L", cost: 38, conversions: [] },
   { id: "p-sem-custo", name: "TRUFA NEGRA (SEM CUSTO)", code: "0109", unit: "UN", cost: 0, conversions: [] },
-  { id: "p-farinha", name: "FARINHA DE TRIGO 5KG", code: "0110", unit: "UN", cost: 20, conversions: [{ fromUnit: "KG", toUnit: "UN", factor: 0.2 }] }
+  { id: "p-farinha", name: "FARINHA DE TRIGO 5KG", code: "0110", unit: "UN", cost: 20, conversions: lidoDoNome(5), embalagem: "1 UN = 5 KG (lido do nome do produto)" }
 ];
 
 const LOJAS = ["Pateo Frei Caneca", "Pateo da Luz & Pizza", "Pateo da Luz Pizzaria"];
@@ -69,7 +75,7 @@ function calcular(prato: PratoMock) {
       ? "Produto sem custo medio no estoque."
       : fator == null ? `Sem conversao de ${unidade} para ${produto.unit}.` : null;
     return {
-      id: `${prato.id}-i${indice}`, productId: produto.id, productCode: produto.code, productName: produto.name, productUnit: produto.unit,
+      id: `${prato.id}-i${indice}`, embalagemInferida: produto.embalagem ?? null, productId: produto.id, productCode: produto.code, productName: produto.name, productUnit: produto.unit,
       quantity: quantidade, unit: unidade, wasteFactor: perda, unitCost: semCusto ? null : produto.cost, unitFactor: fator,
       itemCost, issue, conversions: produto.conversions, notes: null, sortOrder: indice
     };
@@ -140,7 +146,7 @@ export function mockFichas(url: string, method = "GET"): unknown | undefined {
     const termo = busca.trim().toLowerCase();
     return PRODUTOS
       .filter((produto) => termo === "" || produto.name.toLowerCase().includes(termo) || produto.code.includes(termo))
-      .map((produto) => ({ id: produto.id, externalCode: produto.code, name: produto.name, unit: produto.unit, averageCost: produto.cost, conversions: produto.conversions }));
+      .map((produto) => ({ id: produto.id, externalCode: produto.code, name: produto.name, unit: produto.unit, averageCost: produto.cost, conversions: produto.conversions, embalagemInferida: produto.embalagem ?? null }));
   }
 
   const prato = PRATOS.find((candidato) => candidato.id === resto.split("/")[0]);

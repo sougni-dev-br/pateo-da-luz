@@ -217,6 +217,7 @@
 .ft-ingrediente-custo { text-align: right; font-variant-numeric: tabular-nums; font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
 .ft-ingrediente-nota { display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0; color: var(--warning); font-size: var(--fs-xs); line-height: var(--lh-snug); }
 .ft-ingrediente-nota svg { flex: none; margin-top: 2px; }
+.ft-ingrediente-nota--info { color: var(--info); }
 .ft-ingrediente-nota--erro { color: var(--danger); font-weight: var(--fw-medium); }
 
 .ft-campo { display: block; min-width: 0; }

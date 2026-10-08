@@ -81,6 +81,15 @@ export function unidadesPossiveis(unidadeDoProduto: string | null, conversoes: D
   return unicas.filter((u) => fatorConversao(u, base, conversoes) != null);
 }
 
+/**
+ * Unidade em que a pessoa provavelmente lança: grama e mililitro quando existem — é como a
+ * cozinha pesa. Sem elas, a do estoque. Quem monta a ficha não deveria digitar 0,03 UN.
+ */
+export function unidadePadrao(unidadeDoProduto: string | null, conversoes: DishUnitConversion[]): string {
+  const possiveis = unidadesPossiveis(unidadeDoProduto, conversoes);
+  return possiveis.find((u) => u === "G") ?? possiveis.find((u) => u === "ML") ?? possiveis[0] ?? (normalizarUnidade(unidadeDoProduto) || "UN");
+}
+
 // ─── Custo previsto ──────────────────────────────────────────────────────────
 
 export type IngredientePrevisto = {
@@ -290,6 +299,8 @@ export type ItemDaFicha = IngredientePrevisto & {
   productId: string;
   productName: string;
   notes: string;
+  /** Texto "1 UN = 5 KG (lido do nome do produto)" quando a conversão veio do nome. */
+  embalagemInferida?: string | null;
 };
 
 export type ErroDoItem = { campo: "quantity" | "wasteFactor"; mensagem: string };
