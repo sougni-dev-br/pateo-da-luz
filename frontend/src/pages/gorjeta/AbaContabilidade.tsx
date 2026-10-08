@@ -1,15 +1,16 @@
 // Depois da apuração: envio à contabilidade → extratos devolvidos (conferência)
 // → OK dado → liberar para pagamento (títulos por empresa no Contas a Pagar) → pagos.
 // Cada etapa fica registrada; a última marca sozinha quando todos os títulos são baixados.
-import { Check, FileUp, Trash2, Undo2 } from "lucide-react";
+import { Check, FileUp, RefreshCw, Trash2, Undo2 } from "lucide-react";
 import { type CSSProperties, useContext, useEffect, useRef, useState } from "react";
 import {
-  type TipConferencia, type TipConferenciaCompleta, type TipEtapa, type TipFolhaLote, type TipLinhaConferencia, type TipStatusConferencia,
+  type TipConferencia, type TipConferenciaCompleta, type TipEtapa, type TipFolhaLote, type TipTrocaExtrato, type TipLinhaConferencia, type TipStatusConferencia,
   aceitarTipDivergencia, confirmarTipVinculo, desfazerTipAceite, enviarTipExtrato, getTipConferencia, getTipFolhaLotes, marcarTipEtapa, removerTipExtrato,
 } from "../../api/client";
 import { Button, StatusBadge, Table } from "../../design-system";
 import { FolhaLiquidos } from "./FolhaLiquidos";
 import { LiberarPagamento, resumoDosLotes } from "./LiberarPagamento";
+import { ResultadoTrocaExtrato } from "./ResultadoTrocaExtrato";
 import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
@@ -74,6 +75,10 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
   const [soPendentes, setSoPendentes] = useState(false);
   const [aceitando, setAceitando] = useState<{ chave: string; texto: string } | null>(null);
   const entrada = useRef<HTMLInputElement>(null);
+  // Trocar o extrato de uma empresa (a contabilidade reemitiu): vale também com o OK dado.
+  const entradaTroca = useRef<HTMLInputElement>(null);
+  const [trocando, setTrocando] = useState<{ id: string; empresa: string } | null>(null);
+  const [resultadoTroca, setResultadoTroca] = useState<{ empresa: string; troca: TipTrocaExtrato; avisos: string[] } | null>(null);
   const ord = useOrdenacao("conferencia");
   const col = useColunas("conferencia");
   const filtro = useFiltro("conferencia");
@@ -116,6 +121,35 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
     }
   }
 
+  function escolherTroca(id: string, empresa: string) {
+    setTrocando({ id, empresa });
+    entradaTroca.current?.click();
+  }
+
+  async function trocarExtrato(lista: FileList | null) {
+    const alvo = trocando;
+    const arquivo = lista?.[0];
+    if (entradaTroca.current) entradaTroca.current.value = "";
+    if (!alvo || !arquivo) return;
+    // Com o OK dado (ou a folha liberada) o motivo é obrigatório e vai para a auditoria.
+    const travado = Boolean(dados?.etapas.estado.OK_CONTABILIDADE.marcada) || lotes.length > 0;
+    const motivo = (window.prompt(`Por que trocar o extrato de ${alvo.empresa}? (ex.: contabilidade reemitiu)`) ?? "").trim();
+    if (travado && motivo.length < 5) {
+      onNotice("error", "Para trocar o extrato com o OK dado, escreva o motivo (pelo menos 5 letras).");
+      return;
+    }
+    setOcupado(true);
+    try {
+      const r = await enviarTipExtrato(year, month, await lerComoBase64(arquivo), arquivo.name, { substitui: alvo.id, ...(motivo ? { motivo } : {}) });
+      aplicarConf(r);
+      if (r.troca) setResultadoTroca({ empresa: alvo.empresa, troca: r.troca, avisos: r.avisos });
+      onNotice(r.avisos.length || r.troca?.contasAPagar.length ? "warning" : "success", `Extrato de ${alvo.empresa} trocado.`);
+    } catch (e) { erro(e); } finally {
+      setOcupado(false);
+      setTrocando(null);
+    }
+  }
+
   async function etapa(e: TipEtapa, acao: "MARCOU" | "DESMARCOU") {
     setOcupado(true);
     try {
@@ -140,7 +174,10 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
   const passos: Array<{ chave: TipEtapa | "APURADA" | "CONFERIDO"; titulo: string; feito: boolean; detalhe: string; acao?: TipEtapa }> = [
     { chave: "APURADA", titulo: "Apuração fechada", feito: fechado, detalhe: fechado ? dados.code : "feche na aba Apuração" },
     { chave: "ENVIADO_CONTABILIDADE", titulo: "Enviado à contabilidade", feito: estado.ENVIADO_CONTABILIDADE.marcada,
-      detalhe: estado.ENVIADO_CONTABILIDADE.marcada ? `${quando(estado.ENVIADO_CONTABILIDADE.em)} · ${estado.ENVIADO_CONTABILIDADE.por}` : "PDF na aba Pagamento e envio", acao: "ENVIADO_CONTABILIDADE" },
+      detalhe: estado.ENVIADO_CONTABILIDADE.marcada ? `${quando(estado.ENVIADO_CONTABILIDADE.em)} · ${estado.ENVIADO_CONTABILIDADE.por}` : "PDF na aba Pagamento e envio",
+      // Com títulos liberados o envio não se desmarca: trocar o extrato é "Trocar extrato";
+      // desfazer, "Desfazer liberação" no passo 5 (o backend recusa do mesmo jeito).
+      acao: lotes.length > 0 ? undefined : "ENVIADO_CONTABILIDADE" },
     { chave: "CONFERIDO", titulo: "Extratos conferidos", feito: dados.extratos.length > 0 && dados.pendentes === 0,
       detalhe: dados.extratos.length === 0 ? "nenhum extrato" : dados.pendentes ? `${dados.pendentes} pendência(s)` : `${dados.extratos.length} empresa(s), tudo certo` },
     { chave: "OK_CONTABILIDADE", titulo: "OK dado à contabilidade", feito: ok,
@@ -194,6 +231,10 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
             </div>
           )}
         </div>
+        <input ref={entradaTroca} type="file" accept="application/pdf" hidden aria-label="PDF do extrato novo" onChange={(e) => void trocarExtrato(e.target.files)} />
+        {resultadoTroca && (
+          <ResultadoTrocaExtrato empresa={resultadoTroca.empresa} troca={resultadoTroca.troca} avisos={resultadoTroca.avisos} onFechar={() => setResultadoTroca(null)} />
+        )}
         {dados.extratos.length === 0
           ? (
             <div className="estado-vazio">
@@ -207,6 +248,12 @@ export function AbaContabilidade({ year, month, canEdit, onNotice }: Props) {
                 <li key={x.id}>
                   <strong>{x.empresa}</strong>
                   <span style={mutedStyle}>{x.pessoas} pessoas · {x.arquivo} · {quando(x.importadoEm)} por {x.importadoPor}</span>
+                  {canEdit && (
+                    <button type="button" className="barra-lista-link" disabled={ocupado} aria-label={`Trocar o extrato de ${x.empresa}`}
+                      title="A contabilidade reemitiu? Escolha o PDF novo da mesma empresa" onClick={() => escolherTroca(x.id, x.empresa)}>
+                      <RefreshCw size={12} /> Trocar extrato
+                    </button>
+                  )}
                   {canEdit && !ok && (
                     <button type="button" className="botao-desfazer" aria-label={`Tirar o extrato de ${x.empresa}`} title="Tirar este extrato"
                       onClick={() => void removerTipExtrato(year, month, x.id).then(aplicarConf).catch(erro)}><Trash2 size={14} /></button>

@@ -78,7 +78,7 @@ describe("importExtrato — lançamento excluído", () => {
     const r = await importar();
     expect(db.payrollItem.update).not.toHaveBeenCalled();
     expect(db.payrollItem.create).not.toHaveBeenCalled();
-    expect(r).toMatchObject({ titulosGerados: 0, titulosNovos: 0, titulosAtualizados: 0, titulosPulados: 1 });
+    expect(r).toMatchObject({ titulosGerados: 0, titulosNovos: 0, titulosAtualizados: 0, titulosPulados: 1, excluidosAMao: 1, zerados: 0, desligados: 0 });
     expect(r.avisos[0]).toBe(
       "Lançamento de FULANO DE TAL (Salário 09/2026) foi excluído à mão em 15/09 e não foi recriado; se precisar, restaure pela Folha.",
     );
@@ -116,7 +116,8 @@ describe("importExtrato — líquido zero", () => {
   test("sem lançamento: não cria (fica só no holerite) e avisa sem valores", async () => {
     const r = await importar();
     expect(db.payrollItem.create).not.toHaveBeenCalled();
-    expect(r).toMatchObject({ titulosGerados: 0, titulosPulados: 1 });
+    // Líquido zero não é "excluído à mão": conta no motivo próprio.
+    expect(r).toMatchObject({ titulosGerados: 0, titulosPulados: 1, zerados: 1, excluidosAMao: 0 });
     expect(r.avisos).toContain("1 pessoa(s) com líquido zero no extrato: nenhum lançamento novo foi criado (ficam só no holerite guardado).");
   });
 
@@ -202,7 +203,7 @@ describe("importExtrato — travas de duplicidade e de saída", () => {
     db.payrollItem.findMany.mockResolvedValue([salarioGerado]);
     const r = await importar();
     expect(db.payrollItem.create).not.toHaveBeenCalled();
-    expect(r).toMatchObject({ titulosNovos: 0, titulosPulados: 1 });
+    expect(r).toMatchObject({ titulosNovos: 0, titulosPulados: 1, comOutroRotulo: 1, excluidosAMao: 0 });
     expect(r.avisos.some((a) => a.includes("FULANO DE TAL") && a.includes('"Salário"') && a.includes("não criou outro"))).toBe(true);
   });
 
@@ -219,6 +220,7 @@ describe("importExtrato — travas de duplicidade e de saída", () => {
     expect(db.payrollItem.create).not.toHaveBeenCalled();
     expect(db.payrollItem.update).not.toHaveBeenCalled();
     expect(r.titulosPulados).toBe(1);
+    expect(r).toMatchObject({ desligados: 1, excluidosAMao: 0 });
     expect(r.avisos.some((a) => a.includes("saiu em 20/08/2026"))).toBe(true);
   });
 
