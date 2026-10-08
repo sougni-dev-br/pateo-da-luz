@@ -1,10 +1,15 @@
 import { AlertTriangle, Trash2 } from "lucide-react";
-import { Money, Select } from "../../../design-system";
+import { useState } from "react";
+import { ApiError } from "../../../api/client";
+import { Button, Money, Select } from "../../../design-system";
 import {
   custoPrevisto,
+  fatorConversao,
+  lerNumero,
+  medidaInformavel,
   motivoSemCusto,
   normalizarUnidade,
-  unidadesPossiveis,
+  opcoesDeUnidade,
   type ErroDoItem,
   type ItemDaFicha
 } from "../../../lib/fichaTecnica";
@@ -15,25 +20,101 @@ type Props = {
   repetido: boolean;
   onAlterar: (tempId: string, campo: "quantity" | "unit" | "wasteFactor", valor: string) => void;
   onRemover: (tempId: string) => void;
+  /** Grava "1 <estoque> = <quantidade> <unidade>" no produto; rejeita com a mensagem do servidor. */
+  onInformarConversao: (productId: string, unidade: string, quantidade: number, substituir?: boolean) => Promise<void>;
 };
 
 /** Impede que a rodinha do mouse mude o número quando o campo está em foco. */
 const soltarNaRodinha = (evento: { currentTarget: HTMLInputElement }) => evento.currentTarget.blur();
 
-export function LinhaDeIngrediente({ item, erro, repetido, onAlterar, onRemover }: Props) {
+/**
+ * "1 UN = [____] G": quando a unidade escolhida ainda não converte, a pessoa diz como o produto
+ * é de fato (quanto pesa 1 UN, quantos ml tem 1 KG) e o sistema grava no produto, valendo para
+ * todas as fichas. Sem isto a única saída era sair da ficha e achar a tela de conversões.
+ */
+function InformarConversao({ item, medida, onInformar, aoSalvar }: {
+  item: ItemDaFicha;
+  medida: string;
+  onInformar: Props["onInformarConversao"];
+  aoSalvar?: () => void;
+}) {
+  const [valor, setValor] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [falha, setFalha] = useState<string | null>(null);
+  // O produto já tem outra conversão cadastrada: o servidor avisa e só troca com confirmação.
+  const [pedeConfirmacao, setPedeConfirmacao] = useState(false);
+  const base = normalizarUnidade(item.productUnit) || "UN";
+  const quantidade = lerNumero(valor);
+  const valido = Number.isFinite(quantidade) && quantidade > 0;
+
+  async function salvar(substituir = false) {
+    if (!valido) return;
+    setSalvando(true);
+    setFalha(null);
+    try {
+      await onInformar(item.productId, medida, quantidade, substituir);
+      aoSalvar?.();
+    } catch (erro) {
+      setPedeConfirmacao(erro instanceof ApiError && erro.status === 409);
+      setFalha(erro instanceof Error ? erro.message : "Não foi possível salvar a conversão.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="ft-conversao" role="group" aria-label={`Informar quanto vale 1 ${base} de ${item.productName} em ${medida}`}>
+      <span className="ft-conversao-texto">Quanto vale 1 {base} em {medida}?</span>
+      <span className="ft-conversao-campo">
+        <span aria-hidden>1 {base} =</span>
+        <input
+          type="number"
+          inputMode="decimal"
+          step="any"
+          min="0"
+          value={valor}
+          placeholder="0"
+          aria-label={`Quantos ${medida} tem 1 ${base} de ${item.productName}`}
+          onChange={(evento) => setValor(evento.target.value)}
+          onKeyDown={(evento) => {
+            if (evento.key !== "Enter") return;
+            evento.preventDefault();
+            evento.stopPropagation();
+            void salvar();
+          }}
+          onWheel={soltarNaRodinha}
+        />
+        <span aria-hidden>{medida}</span>
+        <Button size="sm" variant="secondary" disabled={!valido || salvando} onClick={() => void salvar()}>
+          {salvando ? "Salvando…" : "Salvar conversão"}
+        </Button>
+      </span>
+      <small className="ft-conversao-ajuda">Vale para todas as fichas deste produto e para a conversão de compras e contagem.</small>
+      {falha && <small className="ft-conversao-erro" role="alert">{falha}</small>}
+      {pedeConfirmacao && (
+        <Button size="sm" variant="danger" disabled={salvando} onClick={() => void salvar(true)}>Substituir mesmo assim</Button>
+      )}
+    </div>
+  );
+}
+
+export function LinhaDeIngrediente({ item, erro, repetido, onAlterar, onRemover, onInformarConversao }: Props) {
   const custo = custoPrevisto(item);
   const motivo = motivoSemCusto(item);
   const unidadeAtual = normalizarUnidade(item.unit);
   const idDaNota = `ft-nota-${item.tempId}`;
   // Conversão lida do nome: só avisa quando a unidade escolhida depende dela.
   const usaEmbalagemDoNome = Boolean(item.embalagemInferida) && unidadeAtual !== normalizarUnidade(item.productUnit);
-  const temNota = Boolean(erro || motivo || repetido || usaEmbalagemDoNome);
+  const medida = medidaInformavel(unidadeAtual);
+  const [corrigindo, setCorrigindo] = useState(false);
+  const faltaConversao = item.unitCost > 0 && fatorConversao(item.unit, item.productUnit, item.conversions) == null && medida != null;
 
-  const opcoes = unidadesPossiveis(item.productUnit, item.conversions).map((unidade) => ({ value: unidade, label: unidade }));
-  // Unidade já gravada que não converte continua visível, marcada — sumir com ela mudaria a ficha em silêncio.
-  if (unidadeAtual && !opcoes.some((opcao) => opcao.value === unidadeAtual)) {
-    opcoes.push({ value: unidadeAtual, label: `${unidadeAtual} (sem conversão)` });
-  }
+  const opcoes = opcoesDeUnidade(item.productUnit, item.conversions, item.unit).map((opcao) => ({ value: opcao.value, label: opcao.label }));
+  const podeCorrigirALeitura = usaEmbalagemDoNome && !faltaConversao && medida != null;
+  const textoDaNota = erro?.mensagem
+    ?? (faltaConversao ? null : motivo)
+    ?? (repetido ? "Este produto aparece mais de uma vez na ficha." : usaEmbalagemDoNome ? `${item.embalagemInferida}. Confira se bate com a embalagem.` : null);
+  const temNota = Boolean(textoDaNota);
 
   return (
     <li className={`ft-ingrediente${erro ? " ft-ingrediente--erro" : motivo ? " ft-ingrediente--alerta" : ""}`}>
@@ -108,11 +189,28 @@ export function LinhaDeIngrediente({ item, erro, repetido, onAlterar, onRemover 
         </button>
       </div>
 
-      {temNota && (
-        <p id={idDaNota} className={`ft-ingrediente-nota${erro ? " ft-ingrediente-nota--erro" : !motivo && !repetido && usaEmbalagemDoNome ? " ft-ingrediente-nota--info" : ""}`} role={erro ? "alert" : undefined}>
+      {textoDaNota && (
+        <p
+          id={idDaNota}
+          className={`ft-ingrediente-nota${erro ? " ft-ingrediente-nota--erro" : !motivo && !repetido && usaEmbalagemDoNome ? " ft-ingrediente-nota--info" : ""}`}
+          role={erro ? "alert" : undefined}
+        >
           <AlertTriangle size={13} aria-hidden />
-          {erro?.mensagem ?? motivo ?? (repetido ? "Este produto aparece mais de uma vez na ficha." : `${item.embalagemInferida}. Confira se bate com a embalagem.`)}
+          {textoDaNota}
+          {podeCorrigirALeitura && !corrigindo && (
+            <button type="button" className="ft-link" onClick={() => setCorrigindo(true)}>Não bate? Informar o valor certo</button>
+          )}
         </p>
+      )}
+
+      {((faltaConversao && medida) || (corrigindo && medida)) && (
+        <InformarConversao
+          key={`${item.productId}-${medida}`}
+          item={item}
+          medida={medida!}
+          onInformar={onInformarConversao}
+          aoSalvar={() => setCorrigindo(false)}
+        />
       )}
     </li>
   );
