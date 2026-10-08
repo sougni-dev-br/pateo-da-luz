@@ -14,9 +14,10 @@ import {
 // para que a regra nao seja afrouxada sem alguem perceber.
 
 describe("agregadores de pagamento", () => {
-  it("reconhece ciclo de fornecedor e fatura de cartao como agregador", () => {
+  it("reconhece ciclo de fornecedor, fatura de cartao e reembolso como agregador", () => {
     expect(isAggregatorWorkflowStatus("SUPPLIER_CYCLE")).toBe(true);
     expect(isAggregatorWorkflowStatus("CARD_STATEMENT")).toBe(true);
+    expect(isAggregatorWorkflowStatus("REIMBURSEMENT")).toBe(true);
   });
 
   it("nao confunde compra de verdade com agregador", () => {
@@ -26,18 +27,21 @@ describe("agregadores de pagamento", () => {
     expect(isAggregatorWorkflowStatus(undefined)).toBe(false);
   });
 
-  it("cobre os dois tipos de agregador, nunca so um", () => {
+  it("cobre os tres tipos de agregador, nunca so um", () => {
     expect([...AGGREGATOR_WORKFLOW_STATUSES].sort()).toEqual([
       "CARD_STATEMENT",
+      "REIMBURSEMENT",
       "SUPPLIER_CYCLE",
     ]);
   });
 
   describe("fragmento SQL", () => {
-    it("filtra pelo workflowStatus e pelos dois vinculos", () => {
+    it("filtra pelo workflowStatus e pelos tres vinculos", () => {
       const { sql } = excludeAggregatorsSql();
       expect(sql).toContain("SUPPLIER_CYCLE");
       expect(sql).toContain("CARD_STATEMENT");
+      expect(sql).toContain("REIMBURSEMENT");
+      expect(sql).toContain('"ReimbursementReport"');
       // O EXISTS e a rede de seguranca para agregador cujo workflowStatus tenha
       // sido alterado; ha em producao um cujo generatedPurchaseId se perdeu, por
       // isso as duas checagens precisam coexistir.
@@ -58,9 +62,9 @@ describe("agregadores de pagamento", () => {
     });
   });
 
-  it("o filtro do Prisma Client exclui os dois workflowStatus", () => {
+  it("o filtro do Prisma Client exclui os tres workflowStatus", () => {
     expect(excludeAggregatorsWhere).toEqual({
-      NOT: { workflowStatus: { in: ["SUPPLIER_CYCLE", "CARD_STATEMENT"] } },
+      NOT: { workflowStatus: { in: ["SUPPLIER_CYCLE", "CARD_STATEMENT", "REIMBURSEMENT"] } },
     });
   });
 });

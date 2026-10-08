@@ -29,6 +29,7 @@ import { purchaseOrderRouter } from "./modules/purchase-orders/purchase-order.ro
 import { purchaseRouter } from "./modules/purchases/purchase.routes.js";
 import { supplierRouter } from "./modules/suppliers/supplier.routes.js";
 import { supplierCyclesRouter } from "./modules/suppliers/supplier-cycles.routes.js";
+import { reimbursementsRouter } from "./modules/reimbursements/reimbursement.routes.js";
 import { taxPaymentRouter } from "./modules/tax-payments/tax-payment.routes.js";
 import { companyRouter } from "./modules/companies/company.routes.js";
 import { employeeRouter } from "./modules/payroll/employee.routes.js";
@@ -146,6 +147,7 @@ app.use(requireMenuAccess);
 app.use("/notifications", notificationsAdminRouter);
 app.use("/suppliers", supplierRouter);
 app.use("/supplier-cycles", supplierCyclesRouter);
+app.use("/reimbursements", reimbursementsRouter);
 app.use("/companies", companyRouter);
 app.use("/employees", employeeRouter);
 app.use("/employee-forms", fichaCadastralRouter);

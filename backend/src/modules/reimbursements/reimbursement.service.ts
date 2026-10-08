@@ -1,0 +1,190 @@
+import crypto from "node:crypto";
+import { Prisma } from "@prisma/client";
+import {
+  ReimbursementError,
+  decidirSincronizacao,
+  ehCategoriaFuncionario,
+  mensagemDeBloqueio
+} from "./reimbursement-rules.js";
+
+type Tx = Prisma.TransactionClient;
+
+/** "Quem pagou" precisa ser um fornecedor ativo da categoria Funcionario, e nao a propria loja. */
+export async function validarQuemPagou(tx: Tx, payeeId: string, fornecedorDaCompraId: string) {
+  const [payee] = await tx.$queryRaw<Array<{ id: string; name: string; mainCategory: string | null; isActive: boolean }>>`
+    SELECT "id", "name", "mainCategory", "isActive" FROM "Supplier" WHERE "id" = ${payeeId} LIMIT 1
+  `;
+  if (!payee || !payee.isActive) throw new ReimbursementError("Quem pagou nao encontrado ou inativo.");
+  if (!ehCategoriaFuncionario(payee.mainCategory)) {
+    throw new ReimbursementError(`${payee.name} nao e um fornecedor da categoria Funcionario. Cadastre a pessoa em Fornecedores > A partir de funcionario.`);
+  }
+  if (payee.id === fornecedorDaCompraId) {
+    throw new ReimbursementError("O fornecedor da compra e a loja onde foi comprado; quem pagou vai no campo proprio.");
+  }
+  return payee;
+}
+
+/**
+ * O reembolso aberto da pessoa, travado ate o fim da transacao; cria um se nao houver.
+ * Ha no maximo um aberto por pessoa (indice unico parcial).
+ *
+ * A trava e o que impede uma compra de entrar num reembolso que esta sendo fechado:
+ * o fechamento segura a mesma linha, e quando ele termina o SELECT abaixo ja nao a
+ * encontra aberta — dai a nova tentativa, que abre o reembolso seguinte.
+ */
+export async function reembolsoAbertoDe(tx: Tx, payeeId: string, userId: string | null): Promise<string> {
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    await tx.$executeRaw`
+      INSERT INTO "ReimbursementReport" ("id", "payeeSupplierId", "status", "totalAmount", "createdByUserId", "createdAt", "updatedAt")
+      VALUES (${crypto.randomUUID()}, ${payeeId}, 'OPEN', 0, ${userId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT ("payeeSupplierId") WHERE "status" = 'OPEN' DO NOTHING
+    `;
+    const [aberto] = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "ReimbursementReport" WHERE "payeeSupplierId" = ${payeeId} AND "status" = 'OPEN' LIMIT 1 FOR UPDATE
+    `;
+    if (aberto) return aberto.id;
+  }
+  throw new ReimbursementError("O reembolso desta pessoa esta sendo fechado agora. Tente salvar de novo.", 409);
+}
+
+/** Total do reembolso = soma das compras dele. Recalculado, nunca incrementado, para nao acumular erro. */
+export async function recalcularTotal(tx: Tx, reportId: string) {
+  await tx.$executeRaw`
+    UPDATE "ReimbursementReport"
+    SET "totalAmount" = (SELECT COALESCE(SUM("amount"), 0) FROM "ReimbursementReportItem" WHERE "reportId" = ${reportId}),
+        "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${reportId}
+  `;
+}
+
+async function itemDaCompra(tx: Tx, purchaseId: string) {
+  const [item] = await tx.$queryRaw<Array<{ id: string; reportId: string; reportStatus: string; payeeId: string; amount: string; purchaseDate: Date }>>`
+    SELECT i."id", i."reportId", r."status" AS "reportStatus", r."payeeSupplierId" AS "payeeId",
+           i."amount"::text AS "amount", i."purchaseDate"
+    FROM "ReimbursementReportItem" i
+    JOIN "ReimbursementReport" r ON r."id" = i."reportId"
+    WHERE i."purchaseId" = ${purchaseId}
+    LIMIT 1
+    FOR UPDATE OF r
+  `;
+  // A trava no reembolso faz o status lido aqui ser o de depois de um fechamento
+  // concorrente — nunca se edita item de reembolso que acabou de fechar.
+  return item ?? null;
+}
+
+async function adicionar(tx: Tx, opts: { purchaseId: string; payeeId: string; amount: number; purchaseDate: Date; userId: string | null }) {
+  const reportId = await reembolsoAbertoDe(tx, opts.payeeId, opts.userId);
+  await tx.$executeRaw`
+    INSERT INTO "ReimbursementReportItem" ("id", "reportId", "purchaseId", "amount", "purchaseDate", "checked", "createdAt", "updatedAt")
+    VALUES (${crypto.randomUUID()}, ${reportId}, ${opts.purchaseId}, ${new Prisma.Decimal(opts.amount)}, ${opts.purchaseDate}, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  `;
+  await recalcularTotal(tx, reportId);
+  return reportId;
+}
+
+/**
+ * Mantem o item do reembolso igual a compra depois de criar ou editar. Lanca
+ * ReimbursementError quando o reembolso ja foi fechado e a edicao mexeria nele.
+ */
+export async function sincronizarCompraNoReembolso(tx: Tx, opts: {
+  purchaseId: string;
+  payeeId: string | null;
+  amount: number;
+  purchaseDate: Date;
+  userId: string | null;
+}) {
+  const atual = await itemDaCompra(tx, opts.purchaseId);
+  const acao = decidirSincronizacao(
+    atual ? { reportStatus: atual.reportStatus, payeeId: atual.payeeId, amount: Number(atual.amount), purchaseDate: new Date(atual.purchaseDate) } : null,
+    { payeeId: opts.payeeId, amount: opts.amount, purchaseDate: opts.purchaseDate }
+  );
+
+  switch (acao) {
+    case "NADA":
+      return;
+    case "BLOQUEADO":
+      throw new ReimbursementError(mensagemDeBloqueio(atual!.reportStatus), 409);
+    case "ADICIONAR":
+      await adicionar(tx, { ...opts, payeeId: opts.payeeId! });
+      return;
+    case "ATUALIZAR":
+      // Mudou valor ou data: a conferencia anterior nao vale mais.
+      await tx.$executeRaw`
+        UPDATE "ReimbursementReportItem"
+        SET "amount" = ${new Prisma.Decimal(opts.amount)}, "purchaseDate" = ${opts.purchaseDate},
+            "checked" = false, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "id" = ${atual!.id}
+      `;
+      await recalcularTotal(tx, atual!.reportId);
+      return;
+    case "REMOVER":
+    case "MOVER":
+      await tx.$executeRaw`DELETE FROM "ReimbursementReportItem" WHERE "id" = ${atual!.id}`;
+      await recalcularTotal(tx, atual!.reportId);
+      if (acao === "MOVER") await adicionar(tx, { ...opts, payeeId: opts.payeeId! });
+  }
+}
+
+/** Cancelamento da compra: sai do reembolso aberto; fechado ou pago bloqueia. */
+export async function retirarCompraCancelada(tx: Tx, purchaseId: string) {
+  const atual = await itemDaCompra(tx, purchaseId);
+  if (!atual) return;
+  if (atual.reportStatus !== "OPEN") {
+    throw new ReimbursementError(
+      atual.reportStatus === "PAID"
+        ? "Esta compra esta num reembolso ja pago. Estorne o pagamento e reabra o reembolso antes de cancelar."
+        : "Esta compra esta num reembolso ja fechado. Reabra o reembolso antes de cancelar.",
+      409
+    );
+  }
+  await tx.$executeRaw`DELETE FROM "ReimbursementReportItem" WHERE "id" = ${atual.id}`;
+  await recalcularTotal(tx, atual.reportId);
+}
+
+/**
+ * Devolve um reembolso fechado para aberto. Se a pessoa ja tem outro reembolso
+ * aberto (compras lancadas depois do fechamento), as compras deste vao para la
+ * e este fica CANCELLED: so pode haver um aberto por pessoa.
+ */
+export async function reabrirReembolso(tx: Tx, reportId: string): Promise<string> {
+  const [report] = await tx.$queryRaw<Array<{ payeeSupplierId: string }>>`
+    SELECT "payeeSupplierId" FROM "ReimbursementReport" WHERE "id" = ${reportId} LIMIT 1
+  `;
+  const [outroAberto] = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "ReimbursementReport"
+    WHERE "payeeSupplierId" = ${report.payeeSupplierId} AND "status" = 'OPEN' AND "id" <> ${reportId}
+    LIMIT 1
+  `;
+
+  if (outroAberto) {
+    await tx.$executeRaw`UPDATE "ReimbursementReportItem" SET "reportId" = ${outroAberto.id}, "updatedAt" = CURRENT_TIMESTAMP WHERE "reportId" = ${reportId}`;
+    await tx.$executeRaw`
+      UPDATE "ReimbursementReport"
+      SET "status" = 'CANCELLED', "generatedPurchaseId" = NULL, "totalAmount" = 0, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${reportId}
+    `;
+    await recalcularTotal(tx, outroAberto.id);
+    return outroAberto.id;
+  }
+
+  await tx.$executeRaw`
+    UPDATE "ReimbursementReport"
+    SET "status" = 'OPEN', "generatedPurchaseId" = NULL, "closedAt" = NULL, "closedByUserId" = NULL,
+        "dueDate" = NULL, "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${reportId}
+  `;
+  return reportId;
+}
+
+/**
+ * A compra cancelada e o agregador de um reembolso (o titulo da pessoa): o reembolso
+ * volta a aberto para poder ser fechado de novo, como o ciclo de fornecedor faz.
+ * Reembolso PAID nao e tocado — ali o dinheiro ja saiu.
+ */
+export async function reabrirReembolsoDoAgregador(tx: Tx, purchaseId: string): Promise<number> {
+  const fechados = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "ReimbursementReport" WHERE "generatedPurchaseId" = ${purchaseId} AND "status" = 'CLOSED'
+  `;
+  for (const report of fechados) await reabrirReembolso(tx, report.id);
+  return fechados.length;
+}
