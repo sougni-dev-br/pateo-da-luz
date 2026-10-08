@@ -4729,7 +4729,7 @@ inventoryRouter.post("/operational/:id/recontagem/:sessionId/aplicar", async (re
               "reviewReason" = NULL, "reviewNote" = NULL, "reviewedAt" = NULL, "reviewedByUserId" = NULL,
               "updatedAt" = CURRENT_TIMESTAMP
           FROM (VALUES ${Prisma.join(linhas)}) AS v(id, q, d, s, u, t)
-          WHERE oi."id" = v.id
+          WHERE oi."id" = v.id AND oi."reviewReason" = 'RECONTAR'
         `;
       }
     }, { timeout: 20000 });
@@ -4809,7 +4809,9 @@ inventoryRouter.patch("/operational/:id/mark-zero", async (request, response) =>
       await prisma.$executeRaw`
         UPDATE "OperationalInventoryItem"
         SET "countedQuantity" = 0, "differenceQuantity" = ${result.differenceQuantity}, "status" = ${result.status},
-            "countedByUserId" = ${user.id}, "countedAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
+            "countedByUserId" = ${user.id}, "countedAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP,
+            -- Quantidade nova: a marca da conferencia valia para o numero antigo.
+            "reviewReason" = NULL, "reviewNote" = NULL, "reviewedAt" = NULL, "reviewedByUserId" = NULL, "recountSessionId" = NULL
         WHERE "id" = ${itemId} AND "inventoryId" = ${request.params.id}
       `;
       updated += 1;
@@ -4859,6 +4861,17 @@ inventoryRouter.patch("/operational/:id/approve", async (request, response) => {
       const pendentes = pendenciasDaConferencia(await calcularConferencia(request.params.id));
       if (pendentes.length) {
         throw new Error(`Faltam conferir ${pendentes.length} item(ns) da conferencia (alertas a partir de R$ ${LIMITE_DE_CONFERENCIA} ou sem custo). Marque cada um ou aplique a recontagem antes de aprovar.`);
+      }
+      // Recontagem pedida e ainda nao aplicada (mesmo de item pequeno) ficaria
+      // orfa: depois de aprovado ninguem mais aplica.
+      const [emAberto] = await prisma.$queryRaw<Array<{ code: string }>>`
+        SELECT s."code" FROM "StockCountSession" s
+        WHERE s."type" = 'RECONTAGEM' AND s."status" <> 'CANCELADA' AND s."generatedInventoryId" IS NULL
+          AND s."notes" LIKE ${`[RECONTAGEM:${request.params.id}]%`}
+        LIMIT 1
+      `;
+      if (emAberto) {
+        throw new Error(`A recontagem ${emAberto.code} ainda nao foi aplicada. Aplique-a na conferencia ou cancele-a antes de aprovar.`);
       }
     }
     await prisma.$executeRaw`
