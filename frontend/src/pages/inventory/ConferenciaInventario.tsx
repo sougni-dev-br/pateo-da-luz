@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, ClipboardList, Loader2, RefreshCw, Search, Undo2, Wand2 } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ClipboardList, Loader2, Pencil, RefreshCw, Search, Undo2, Wand2 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ClasseConferencia,
@@ -720,7 +720,9 @@ type MarcacaoProps = {
 // "Conferido" com motivo: o que tira o item da lista do que falta. Sem isso, um
 // zerado que estava certo seguia como alerta para sempre.
 function MarcacaoDoItem({ item, podeMarcar, onMarcar }: MarcacaoProps) {
-  const [outroAberto, setOutroAberto] = useState(false);
+  // A justificativa vale para qualquer motivo ("esta certo: a caixa estava
+  // fechada no corredor"); so "Outro" exige texto.
+  const [justificando, setJustificando] = useState(false);
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
 
@@ -728,22 +730,45 @@ function MarcacaoDoItem({ item, podeMarcar, onMarcar }: MarcacaoProps) {
     setEnviando(true);
     try {
       const ok = await onMarcar(item, motivo, observacao);
-      if (ok) { setOutroAberto(false); setTexto(""); }
+      if (ok) { setJustificando(false); setTexto(""); }
     } finally {
       setEnviando(false);
     }
   }
 
+  const campoDaJustificativa = (
+    <input
+      autoFocus
+      value={texto}
+      maxLength={500}
+      placeholder="Por quê? Ex.: caixa fechada não foi vista na contagem anterior"
+      aria-label={`Justificativa da conferência de ${item.productName}`}
+      onChange={(e) => setTexto(e.target.value)}
+    />
+  );
+
   if (item.conferido) {
-    const recontar = item.conferido.motivo === "RECONTAR";
+    const conferido = item.conferido;
+    const recontar = conferido.motivo === "RECONTAR";
     return (
       <div className={`conf-marcado${recontar ? " conf-marcado--recontar" : ""}`}>
         {recontar ? <ClipboardList size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
         <span>
-          <strong>{recontar ? (item.recontagemId ? "Em recontagem" : "Marcado para recontar") : ROTULO_DO_MOTIVO[item.conferido.motivo]}</strong>
-          {item.conferido.observacao && <> — {item.conferido.observacao}</>}
-          {item.conferido.por && <small> · {item.conferido.por}{item.conferido.em ? `, ${formatoDataHora.format(new Date(item.conferido.em))}` : ""}</small>}
+          <strong>{recontar ? (item.recontagemId ? "Em recontagem" : "Marcado para recontar") : ROTULO_DO_MOTIVO[conferido.motivo]}</strong>
+          {conferido.observacao && <> — {conferido.observacao}</>}
+          {conferido.por && <small> · {conferido.por}{conferido.em ? `, ${formatoDataHora.format(new Date(conferido.em))}` : ""}</small>}
         </span>
+        {podeMarcar && justificando && (
+          <form className="conf-marcar__outro" onSubmit={(e) => { e.preventDefault(); if (texto.trim()) void enviar(conferido.motivo, texto); }}>
+            {campoDaJustificativa}
+            <button type="submit" className="secondary-button" aria-label="Salvar justificativa" disabled={!texto.trim() || enviando}>Salvar</button>
+          </form>
+        )}
+        {podeMarcar && !justificando && !recontar && (
+          <button type="button" className="conf-marcado__desfazer" disabled={enviando} onClick={() => { setTexto(conferido.observacao ?? ""); setJustificando(true); }}>
+            <Pencil size={13} aria-hidden="true" /> {conferido.observacao ? "Editar justificativa" : "Justificar"}
+          </button>
+        )}
         {podeMarcar && (
           <button type="button" className="conf-marcado__desfazer" disabled={enviando} onClick={() => void enviar(null)}>
             <Undo2 size={13} aria-hidden="true" /> Desfazer
@@ -755,22 +780,24 @@ function MarcacaoDoItem({ item, podeMarcar, onMarcar }: MarcacaoProps) {
 
   if (!podeMarcar) return null;
 
+  const observacao = texto.trim() || undefined;
   return (
     <div className="conf-marcar" role="group" aria-label={`Conferir ${item.productName}`}>
       <span className="conf-marcar__rotulo">Conferido:</span>
       {MOTIVOS_DO_CARTAO.map((motivo) => (
-        <button key={motivo} type="button" className={`conf-marcar__opcao conf-marcar__opcao--${motivo.toLowerCase()}`} disabled={enviando} onClick={() => void enviar(motivo)}>
+        <button key={motivo} type="button" className={`conf-marcar__opcao conf-marcar__opcao--${motivo.toLowerCase()}`} disabled={enviando} onClick={() => void enviar(motivo, observacao)}>
           {ROTULO_DO_MOTIVO[motivo]}
         </button>
       ))}
-      {outroAberto ? (
-        <form className="conf-marcar__outro" onSubmit={(e) => { e.preventDefault(); if (texto.trim()) void enviar("OUTRO", texto); }}>
-          <input autoFocus value={texto} maxLength={500} placeholder="Qual o motivo?" aria-label={`Motivo da conferência de ${item.productName}`} onChange={(e) => setTexto(e.target.value)} />
-          <button type="submit" className="secondary-button" disabled={!texto.trim() || enviando}>Ok</button>
+      {justificando ? (
+        <form className="conf-marcar__outro" onSubmit={(e) => { e.preventDefault(); if (observacao) void enviar("OUTRO", observacao); }}>
+          {campoDaJustificativa}
+          <button type="submit" className="secondary-button" disabled={!observacao || enviando}>Outro</button>
         </form>
       ) : (
-        <button type="button" className="conf-marcar__opcao" disabled={enviando} onClick={() => setOutroAberto(true)}>Outro…</button>
+        <button type="button" className="conf-marcar__opcao" disabled={enviando} onClick={() => setJustificando(true)}>Justificar…</button>
       )}
+      {justificando && <small className="conf-marcar__dica">Escreva e escolha o motivo acima, ou "Outro".</small>}
     </div>
   );
 }
