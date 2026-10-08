@@ -1114,6 +1114,8 @@ export type Purchase = {
   paymentMethod: string | null;
   paymentMethodId: string | null;
   creditCardId?: string | null;
+  /** Funcionario que pagou do proprio bolso; a compra vai para o reembolso dele. */
+  reimbursementPayeeId?: string | null;
   smallExpenseTypeId?: string | null;
   isSmallExpense?: boolean;
   smallExpenseResponsibleName?: string | null;
@@ -7986,4 +7988,87 @@ export function getEventSettings() {
 
 export function saveEventSettings(input: EventSettings) {
   return request<EventSettings>("/events/settings", { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(input) });
+}
+
+// ── Reembolsos a funcionário ──────────────────────────────────────────────────
+
+export type ReimbursementStatus = "OPEN" | "CLOSED" | "PAID" | "CANCELLED";
+
+export type ReimbursementPayee = { id: string; name: string };
+
+export type ReimbursementSummary = {
+  id: string;
+  payeeSupplierId: string;
+  payeeName: string;
+  status: ReimbursementStatus;
+  totalAmount: string;
+  dueDate: string | null;
+  closedAt: string | null;
+  generatedPurchaseId: string | null;
+  itemCount: number;
+  checkedCount: number;
+  firstPurchaseDate: string | null;
+  lastPurchaseDate: string | null;
+  createdAt: string;
+};
+
+export type ReimbursementItem = {
+  id: string;
+  purchaseId: string;
+  amount: string;
+  purchaseDate: string;
+  checked: boolean;
+  purchaseNumber: string | null;
+  invoiceNumber: string | null;
+  isSmallExpense: boolean;
+  purchaseStatus: string;
+  storeName: string;
+  firstItemName: string | null;
+  itemLines: number;
+};
+
+export type ReimbursementDetail = Omit<ReimbursementSummary, "itemCount" | "checkedCount" | "firstPurchaseDate" | "lastPurchaseDate"> & {
+  notes: string | null;
+  items: ReimbursementItem[];
+  installments: Array<{
+    id: string;
+    amount: string;
+    dueDate: string | null;
+    status: string;
+    paidDate: string | null;
+    paidAmount: string | null;
+    paymentMethodName: string | null;
+  }>;
+};
+
+export function getReimbursementPayees() {
+  return request<ReimbursementPayee[]>("/purchases/reimbursement-payees");
+}
+
+export function getReimbursements(status?: ReimbursementStatus) {
+  return request<ReimbursementSummary[]>(`/reimbursements${status ? `?status=${status}` : ""}`);
+}
+
+export function getReimbursement(id: string) {
+  return request<ReimbursementDetail>(`/reimbursements/${id}`);
+}
+
+export function checkReimbursementItem(reportId: string, itemId: string, checked: boolean) {
+  return request<{ id: string; checked: boolean }>(`/reimbursements/${reportId}/items/${itemId}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ checked })
+  });
+}
+
+export function checkAllReimbursementItems(reportId: string) {
+  return request<{ id: string; checked: number }>(`/reimbursements/${reportId}/check-all`, { method: "POST" });
+}
+
+export function closeReimbursement(reportId: string, payload: { paymentMethodId: string; dueDate: string; notes?: string }) {
+  return request<ReimbursementDetail>(`/reimbursements/${reportId}/close`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+  });
+}
+
+export function reopenReimbursement(reportId: string) {
+  return request<ReimbursementDetail>(`/reimbursements/${reportId}/reopen`, { method: "POST" });
 }

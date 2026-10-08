@@ -302,6 +302,8 @@ export async function comprasSemItem(year: number, month: number) {
       -- itemiza-lo de fato DOBRARIA a despesa no CMV.
       AND NOT EXISTS (SELECT 1 FROM "SupplierBillingCycle" cy WHERE cy."generatedPurchaseId" = p."id")
       AND NOT EXISTS (SELECT 1 FROM "CreditCardStatement" cs WHERE cs."generatedPurchaseId" = p."id")
+      AND NOT EXISTS (SELECT 1 FROM "ReimbursementReport" rr WHERE rr."generatedPurchaseId" = p."id")
+      AND COALESCE(p."workflowStatus", '') <> 'REIMBURSEMENT'
     ORDER BY p."totalAmount" DESC
   `;
 }
