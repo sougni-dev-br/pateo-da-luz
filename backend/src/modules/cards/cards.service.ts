@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
+import { compraLevaDespesaAoDre } from "../purchases/purchase-aggregators.js";
 
 export type CardRow = {
   id: string;
@@ -318,19 +319,22 @@ type LinhaDeFatura = {
   description: string;
   value: Prisma.Decimal | number | string;
   purchaseId: string | null;
-  purchase: { status: string } | null;
+  purchase: { status: string; _count: { items: number } } | null;
 };
 
 /**
- * Linhas que nao tem compra ativa por tras. O titulo da fatura fica fora do DRE
- * (ver excludeAggregatorsSql) porque a despesa ja esta nas compras de cada linha;
- * uma linha avulsa — anuidade, juros, linha lancada a mao — nao teria onde
- * aparecer, e o gasto sairia do caixa sem entrar no resultado. Fechar a fatura
- * exige que essa lista esteja vazia.
+ * Linhas cuja despesa nao chegaria ao DRE. O titulo da fatura fica fora dele
+ * (ver excludeAggregatorsSql) porque a despesa ja esta nos itens das compras de
+ * cada linha; uma linha avulsa — anuidade, juros, linha lancada a mao — ou com
+ * compra sem item nao teria onde aparecer. Fechar a fatura exige lista vazia.
  */
-export function linhasSemCompraAtiva(linhas: LinhaDeFatura[]) {
+export function linhasForaDoDre(linhas: LinhaDeFatura[]) {
   return linhas
-    .filter((linha) => !linha.purchaseId || linha.purchase?.status !== "ACTIVE")
+    .filter((linha) => !compraLevaDespesaAoDre(
+      linha.purchaseId && linha.purchase
+        ? { status: linha.purchase.status, itens: linha.purchase._count.items }
+        : null
+    ))
     .map((linha) => ({ description: linha.description, value: Number(linha.value ?? 0) }));
 }
 
