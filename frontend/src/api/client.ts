@@ -4009,6 +4009,8 @@ export type DishCategory = {
   sortOrder: number;
   isActive: boolean;
   notes: string | null;
+  /** Pratos ativos na categoria. */
+  dishesCount?: number;
 };
 
 export type DishIngredient = {
@@ -4042,6 +4044,10 @@ export type DishListItem = {
   yieldUnit: string;
   isActive: boolean;
   itemsCount: number;
+  /** Quantas listagens ativas o prato tem nos canais (hoje, o cardapio da 99). */
+  listingsCount: number;
+  listingPriceMin: number | null;
+  listingPriceMax: number | null;
   /** Custo do rendimento inteiro. */
   calculatedCost: number;
   /** Custo de uma porcao — e este que se compara com o preco de venda. */
@@ -4052,9 +4058,23 @@ export type DishListItem = {
   custoIncompleto: boolean;
 };
 
-export type DishDetail = DishListItem & {
+export type DishListing = {
+  id: string;
+  channel: string;
+  /** Apelido da loja na plataforma; null quando a listagem nao esta ligada a uma loja. */
+  storeName: string | null;
+  externalName: string;
+  price: number;
+  isActive: boolean;
+  lastSeenAt: string;
+};
+
+export type DishDetail = Omit<DishListItem, "listingsCount" | "listingPriceMin" | "listingPriceMax"> & {
   notes: string | null;
   items: DishIngredient[];
+  listings: DishListing[];
+  createdAt: string;
+  updatedAt: string;
 };
 
 export function getDishCategories() {
@@ -4089,6 +4109,10 @@ export function saveDish(payload: Record<string, unknown>) {
 
 export function deactivateDish(id: string) {
   return request<{ ok: boolean }>(`/dishes/${id}`, { method: "DELETE" });
+}
+
+export function reactivateDish(id: string) {
+  return request<{ ok: boolean }>(`/dishes/${id}/reactivate`, { method: "POST" });
 }
 
 export type DishUnitConversion = {
