@@ -54,6 +54,16 @@ export function excludeAggregatorsSql(alias = "Purchase"): Prisma.Sql {
   )`;
 }
 
+/**
+ * Como o titulo do agregador fica fora do DRE, a despesa so chega ao resultado
+ * pelos itens das compras agrupadas. Compra sem item, cancelada ou ausente nao
+ * leva nada: fechar ciclo ou fatura com ela tiraria o gasto do DRE e o deixaria
+ * so no caixa. Os fechamentos recusam enquanto houver uma assim.
+ */
+export function compraLevaDespesaAoDre(compra: { status: string; itens: number } | null): boolean {
+  return compra !== null && compra.status === "ACTIVE" && compra.itens > 0;
+}
+
 /** Versao Prisma Client do mesmo filtro, para `where` de findMany/count. */
 export const excludeAggregatorsWhere: Prisma.PurchaseWhereInput = {
   NOT: { workflowStatus: { in: [...AGGREGATOR_WORKFLOW_STATUSES] } }

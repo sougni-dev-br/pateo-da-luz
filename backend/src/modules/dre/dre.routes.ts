@@ -848,11 +848,33 @@ dreRouter.get("/expense-drill", async (request, response) => {
 });
 
 // Atribuir dreCategory a uma parcela
+// Categoria em titulo de ciclo ou de fatura nao muda nada no DRE (ele fica de
+// fora); aceitar daria a impressao de ter classificado uma despesa.
+async function recusouTituloDeAgregador(
+  installmentIds: string[],
+  response: { status: (code: number) => { json: (body: unknown) => void } }
+) {
+  const [row] = await prisma.$queryRaw<[{ n: number }]>`
+    SELECT COUNT(*)::int AS n
+    FROM "PaymentInstallment" pi
+    JOIN "Purchase" p ON p.id = pi."purchaseId"
+    WHERE pi.id = ANY(${installmentIds}::text[])
+      AND NOT ${semTituloDeAgregador}
+  `;
+  const n = Number(row?.n ?? 0);
+  if (n === 0) return false;
+  response.status(422).json({
+    message: `${n} parcela(s) são título de ciclo de fornecedor ou de fatura de cartão. A despesa já entra no DRE pelos itens das compras agrupadas — classifique as compras, não o título.`
+  });
+  return true;
+}
+
 dreRouter.patch("/installment/:id/category", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
   const { dreCategoryId } = request.body;
+  if (await recusouTituloDeAgregador([request.params.id], response)) return;
   await prisma.$executeRaw`
     UPDATE "PaymentInstallment"
     SET "dreCategory" = ${dreCategoryId ?? null}
@@ -1078,6 +1100,7 @@ dreRouter.patch("/installments/bulk-category", async (request, response) => {
     response.status(400).json({ message: "Máximo de 500 parcelas por lote." });
     return;
   }
+  if (await recusouTituloDeAgregador(installmentIds, response)) return;
 
   // Guard: bloquear classificação de compras de estoque (CMV) sem confirmação explícita
   if (!allowCmvItems) {

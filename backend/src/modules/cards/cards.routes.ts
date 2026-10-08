@@ -12,7 +12,7 @@ import {
   ensureCardSupplier,
   getCardStatementPeriod,
   getNextPurchaseNumber,
-  linhasSemCompraAtiva,
+  linhasForaDoDre,
   syncCardStatementItemForPurchase
 } from "./cards.service.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
@@ -65,7 +65,7 @@ async function cardStatementDetail(id: string) {
       creditCard: true,
       items: {
         include: {
-          purchase: { include: { supplier: true } },
+          purchase: { include: { supplier: true, _count: { select: { items: true } } } },
           purchaseItem: { include: { product: true } },
           smallExpenseType: true
         },
@@ -75,6 +75,26 @@ async function cardStatementDetail(id: string) {
   });
   if (!statement) return null;
   return statement;
+}
+
+const STATUS_DE_FATURA_FECHADA = ["CLOSED", "PAID"];
+
+// Toda porta que deixa a fatura fechada ou paga passa por aqui: o titulo dela
+// nao entra no DRE, entao cada linha precisa de compra ativa com itens.
+function recusouLinhaForaDoDre(
+  linhas: Parameters<typeof linhasForaDoDre>[0],
+  response: { status: (code: number) => { json: (body: unknown) => void } }
+) {
+  const fora = linhasForaDoDre(linhas);
+  if (fora.length === 0) return false;
+  const lista = fora
+    .map((linha) => `${linha.description} (R$ ${linha.value.toFixed(2).replace(".", ",")})`)
+    .join("; ");
+  response.status(422).json({
+    message: `A fatura tem ${fora.length} linha(s) sem compra ativa com itens: ${lista}. Lance cada uma como compra no cartao, com os itens — ela entra na fatura sozinha — e remova a linha avulsa antes de fechar. Sem isso o gasto sai do caixa e nao aparece no DRE.`,
+    linhasForaDoDre: fora
+  });
+  return true;
 }
 
 cardsRouter.get("/", async (request, response) => {
@@ -257,6 +277,10 @@ cardsRouter.post("/statements", async (request, response) => {
   const dueDateInput = parseDate(request.body.dueDate);
   const dueDate = dueDateInput ?? getCardStatementPeriod(card, closingDate).dueDate;
   const id = request.body.id ? String(request.body.id) : crypto.randomUUID();
+  if (request.body.id && STATUS_DE_FATURA_FECHADA.includes(String(request.body.status ?? "").toUpperCase())) {
+    const atual = await cardStatementDetail(id);
+    if (atual && recusouLinhaForaDoDre(atual.items, response)) return;
+  }
   const statement = request.body.id
     ? await prisma.creditCardStatement.update({
         where: { id },
@@ -313,6 +337,7 @@ cardsRouter.patch("/statements/:id/status", async (request, response) => {
     response.status(404).json({ message: "Fatura nao encontrada." });
     return;
   }
+  if (STATUS_DE_FATURA_FECHADA.includes(status) && recusouLinhaForaDoDre(previous.items, response)) return;
 
   const statement = await prisma.creditCardStatement.update({
     where: { id: request.params.id },
@@ -627,17 +652,7 @@ cardsRouter.post("/statements/:id/close", async (request, response) => {
     return;
   }
 
-  const avulsas = linhasSemCompraAtiva(statement.items);
-  if (avulsas.length > 0) {
-    const lista = avulsas
-      .map((linha) => `${linha.description} (R$ ${linha.value.toFixed(2).replace(".", ",")})`)
-      .join("; ");
-    response.status(422).json({
-      message: `A fatura tem ${avulsas.length} linha(s) sem compra ativa: ${lista}. Lance cada uma como compra no cartao — ela entra na fatura sozinha — e remova a linha avulsa antes de fechar. Sem isso o gasto sai do caixa e nao aparece no DRE.`,
-      linhasSemCompra: avulsas
-    });
-    return;
-  }
+  if (recusouLinhaForaDoDre(statement.items, response)) return;
 
   const totalAmount = statement.items.reduce((sum, item) => sum + Number(item.value ?? 0), 0);
   const period = getCardStatementPeriod({
