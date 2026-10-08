@@ -113,7 +113,9 @@ export function LinhaDeIngrediente({ item, erro, repetido, onAlterar, onRemover,
   const podeCorrigirALeitura = usaEmbalagemDoNome && !faltaConversao && medida != null;
   const textoDaNota = erro?.mensagem
     ?? (faltaConversao ? null : motivo)
-    ?? (repetido ? "Este produto aparece mais de uma vez na ficha." : usaEmbalagemDoNome ? `${item.embalagemInferida}. Confira se bate com a embalagem.` : null);
+    ?? (repetido ? "Este produto aparece mais de uma vez na ficha." : null)
+    ?? item.avisoDeConversao
+    ?? (usaEmbalagemDoNome ? `${item.embalagemInferida}. Confira se bate com a embalagem.` : null);
   const temNota = Boolean(textoDaNota);
 
   return (
@@ -192,7 +194,7 @@ export function LinhaDeIngrediente({ item, erro, repetido, onAlterar, onRemover,
       {textoDaNota && (
         <p
           id={idDaNota}
-          className={`ft-ingrediente-nota${erro ? " ft-ingrediente-nota--erro" : !motivo && !repetido && usaEmbalagemDoNome ? " ft-ingrediente-nota--info" : ""}`}
+          className={`ft-ingrediente-nota${erro ? " ft-ingrediente-nota--erro" : !motivo && !repetido && (usaEmbalagemDoNome || item.avisoDeConversao) ? " ft-ingrediente-nota--info" : ""}`}
           role={erro ? "alert" : undefined}
         >
           <AlertTriangle size={13} aria-hidden />
