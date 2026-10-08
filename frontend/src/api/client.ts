@@ -6565,6 +6565,9 @@ export type ExtratoPreviewItem = {
 };
 /** Folha do mês ou adiantamento do dia 20: o mesmo "Extrato Mensal" da contabilidade. */
 export type CalculoExtrato = "MENSAL" | "ADIANTAMENTO";
+export type PrevisaoImportacaoRh = {
+  novos: number; atualizar: number; zerados: number; desligados: number; excluidosAMao: number; jaPagos: number; comOutroRotulo: number;
+};
 export type ExtratoPreview = {
   calculo: CalculoExtrato;
   empresa: string; cnpj: string | null;
@@ -6575,6 +6578,8 @@ export type ExtratoPreview = {
   pessoasLidas: number; pessoasConferidas: number;
   /** Quantas pessoas do extrato já têm o lançamento dele no Contas a Pagar (reimportar atualiza, não duplica). */
   lancamentosExistentes: number;
+  /** O que a importação vai fazer com cada pessoa (backend novo; opcional). */
+  previsao?: PrevisaoImportacaoRh;
   /** Rescisão não lançada, cadastro divergente, leitura que não fechou. Não bloqueiam. */
   avisos: string[];
 };
@@ -6613,8 +6618,10 @@ export type ImportExtratoResult = {
   /** O mesmo arquivo já estava guardado: o registro foi completado, não duplicado. */
   extratoAtualizado: boolean;
   pessoasLidas: number; pessoasConferidas: number;
-  /** Lançamentos que alguém excluiu à mão no Contas a Pagar: a reimportação não os recria (backend novo; opcional). */
+  /** Não gravados, somando todos os motivos abaixo. */
   titulosPulados?: number;
+  /** Cada motivo com a sua contagem (backend novo; opcionais). Só "excluídos à mão" é exclusão de verdade. */
+  excluidosAMao?: number; zerados?: number; desligados?: number; jaPagos?: number; comOutroRotulo?: number;
   /** Folha do mês: adiantamentos criados a partir do desconto da folha (sem o extrato do dia 20). */
   adiantamentosDaFolha?: number;
   avisos: string[];
@@ -7252,8 +7259,20 @@ const json = (method: string, body?: unknown) => ({
 export function getTipConferencia(year: number, month: number) {
   return request<TipConferenciaCompleta>(`${baseTip(year, month)}/conferencia`);
 }
-export function enviarTipExtrato(year: number, month: number, fileBase64: string, fileName: string) {
-  return request<TipConferencia & { avisos: string[] }>(`${baseTip(year, month)}/extratos`, json("POST", { fileBase64, fileName }));
+/** Diferença de uma pessoa entre o extrato guardado e o novo (valores null sem ver Funcionários). */
+export type TipDiferencaExtrato = {
+  employeeId: string | null; nome: string; situacao: "MUDOU" | "ENTROU" | "SAIU";
+  liquidoAntes: number | null; liquidoDepois: number | null; gorjetaAntes: number | null; gorjetaDepois: number | null;
+};
+/** Salário do Contas a Pagar (Retorno do RH, em aberto) diferente do líquido do extrato novo. */
+export type TipSalarioDesatualizado = { employeeId: string; nome: string; noContasAPagar: number | null; extratoNovo: number | null; titulo: string | null };
+export type TipTrocaExtrato = {
+  motivo: string | null; diferencas: TipDiferencaExtrato[]; contasAPagar: TipSalarioDesatualizado[];
+  gorjetaMudou: boolean; avisoContasAPagar: string | null;
+};
+/** Com `substitui` (id do extrato) e `motivo`: troca o extrato da empresa, inclusive com o OK dado e a folha liberada. */
+export function enviarTipExtrato(year: number, month: number, fileBase64: string, fileName: string, troca?: { substitui: string; motivo?: string }) {
+  return request<TipConferencia & { avisos: string[]; troca?: TipTrocaExtrato }>(`${baseTip(year, month)}/extratos`, json("POST", { fileBase64, fileName, ...troca }));
 }
 export function removerTipExtrato(year: number, month: number, id: string) {
   return request<TipConferencia>(`${baseTip(year, month)}/extratos/${id}`, { method: "DELETE" });
