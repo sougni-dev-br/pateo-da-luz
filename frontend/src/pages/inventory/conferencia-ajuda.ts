@@ -55,13 +55,36 @@ export function produtosParecidos(alvo: ItemDaConferencia, todos: readonly ItemD
     .map((x) => x.outro);
 }
 
-export type FiltroDaConferencia = { setor: string; valorMinimo: number };
+const CLASSES_DE_ALERTA = new Set<ClasseConferencia>(["IMPOSSIVEL", "ZERADO_SUSPEITO", "FORA_DO_HISTORICO"]);
+
+/** Mesma regra do servidor (revisao-conferencia.ts): alerta a partir do limite, ou sem custo. */
+export function exigeConferencia(item: Pick<ItemDaConferencia, "classe" | "impacto">, limite: number): boolean {
+  if (!CLASSES_DE_ALERTA.has(item.classe)) return false;
+  return item.impacto == null || item.impacto >= limite;
+}
+
+/** Conferido de verdade: tem motivo e nao esta so esperando recontagem. */
+export function estaConferido(item: Pick<ItemDaConferencia, "conferido">): boolean {
+  return item.conferido != null && item.conferido.motivo !== "RECONTAR";
+}
+
+export function progressoDaConferencia(itens: readonly ItemDaConferencia[], limite: number) {
+  const exigidos = itens.filter((item) => exigeConferencia(item, limite));
+  return { exigidos: exigidos.length, conferidos: exigidos.filter(estaConferido).length };
+}
+
+export type Situacao = "todos" | "faltam" | "conferidos";
+
+export type FiltroDaConferencia = { setor: string; valorMinimo: number; situacao?: Situacao; limite?: number };
 
 /** Item sem custo fica no corte por valor: nao da para saber se pesa. */
 export function filtrarConferencia(itens: readonly ItemDaConferencia[], filtro: FiltroDaConferencia): ItemDaConferencia[] {
+  const situacao = filtro.situacao ?? "todos";
   return itens.filter((item) =>
     (!filtro.setor || (item.sectorName ?? SEM_SETOR) === filtro.setor)
     && (filtro.valorMinimo <= 0 || item.impacto == null || item.impacto >= filtro.valorMinimo)
+    && (situacao === "todos"
+      || (situacao === "conferidos" ? estaConferido(item) : exigeConferencia(item, filtro.limite ?? 0) && !estaConferido(item)))
   );
 }
 

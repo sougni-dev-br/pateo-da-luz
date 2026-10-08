@@ -6,10 +6,16 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 // O painel de conferencia mostra cada item contra a contagem anterior + compras.
 vi.mock("../../../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../api/client")>()),
-  getConferenciaDoInventario: vi.fn()
+  getConferenciaDoInventario: vi.fn(),
+  marcarItemConferido: vi.fn(),
+  pedirRecontagem: vi.fn(),
+  aplicarRecontagem: vi.fn()
 }));
 
-import { type ConferenciaDoInventario, type ItemDaConferencia, getConferenciaDoInventario } from "../../../api/client";
+import {
+  type ConferenciaDoInventario, type ItemDaConferencia,
+  aplicarRecontagem, getConferenciaDoInventario, marcarItemConferido, pedirRecontagem
+} from "../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../context/SessionContext";
 import { HideValuesProvider } from "../../../design-system";
 import { ConferenciaInventario } from "../ConferenciaInventario";
@@ -21,7 +27,7 @@ function item(parcial: Partial<ItemDaConferencia>): ItemDaConferencia {
   return {
     itemId: "i", productId: "p", productCode: "100", productName: "PRODUTO", sectorName: "ESTOQUE", unit: "UN",
     contado: 1, contadoPor: null, contadoEm: null, anterior: 1, anteriorData: "2026-06-29T00:00:00.000Z", anteriorCodigo: "INV-2026-0020",
-    compras: 0, disponivel: 1, consumo: 0, custoUnitario: 1, impacto: 0, classe: "COERENTE", motivo: "Consumo de 0 UN no período.",
+    compras: 0, disponivel: 1, consumo: 0, custoUnitario: 1, impacto: 0, classe: "COERENTE", motivo: "Consumo de 0 UN no período.", conferido: null, recontagemId: null,
     ...parcial
   };
 }
@@ -36,7 +42,7 @@ function conferencia(itens: ItemDaConferencia[]): ConferenciaDoInventario {
   for (const i of itens) {
     resumo[i.classe] = { itens: resumo[i.classe].itens + 1, impacto: resumo[i.classe].impacto + (i.impacto ?? 0) };
   }
-  return { inventoryId: "inv", code: "INV-2026-0021", resumo, itens };
+  return { inventoryId: "inv", code: "INV-2026-0021", resumo, itens, limiteDeConferencia: 50, pendentesParaAprovar: 0, recontagens: [] };
 }
 
 const mexedor = item({
@@ -131,19 +137,31 @@ describe("ConferenciaInventario", () => {
 
   test("corrige a quantidade no proprio cartao, sem trocar de aba", async () => {
     const onCorrigir = vi.fn().mockResolvedValue(true);
+    vi.mocked(marcarItemConferido).mockResolvedValue({ ok: true });
     vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
-    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir onCorrigir={onCorrigir} />);
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={onCorrigir} />);
 
     const campo = await screen.findByLabelText(/quantidade certa de mexedor/i);
     fireEvent.change(campo, { target: { value: "0,84" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(onCorrigir).toHaveBeenCalledWith(expect.objectContaining({ itemId: "mexedor" }), "0,84"));
+    await waitFor(() => expect(marcarItemConferido).toHaveBeenCalledWith("inv", "mexedor", "CORRIGIDO"));
+  });
+
+  test("corrigido que nao conseguiu marcar avisa", async () => {
+    vi.mocked(marcarItemConferido).mockRejectedValue(new Error("falhou"));
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn().mockResolvedValue(true)} />);
+
+    fireEvent.change(await screen.findByLabelText(/quantidade certa de mexedor/i), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    expect(await screen.findByText(/salva, mas não foi possível marcar/i)).toBeInTheDocument();
   });
 
   test("o campo acompanha o valor salvo e compara numero, nao texto", async () => {
-    const um = item({ itemId: "x", productName: "BATATA", unit: "KG", contado: 12.5, classe: "FORA_DO_HISTORICO", impacto: 10 });
+    const um = item({ itemId: "x", productName: "BATATA", unit: "KG", contado: 12.5, classe: "FORA_DO_HISTORICO", impacto: 100 });
     vi.mocked(getConferenciaDoInventario).mockResolvedValueOnce(conferencia([um]));
-    const { rerender } = render(<ConferenciaInventario inventoryId="inv" versao={1} onLocalizar={vi.fn()} podeCorrigir onCorrigir={vi.fn()} />);
+    const { rerender } = render(<ConferenciaInventario inventoryId="inv" versao={1} onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
 
     const campo = await screen.findByLabelText(/quantidade certa de batata/i);
     fireEvent.change(campo, { target: { value: "12,50" } });
@@ -151,7 +169,7 @@ describe("ConferenciaInventario", () => {
 
     fireEvent.change(campo, { target: { value: "12,5" } });
     vi.mocked(getConferenciaDoInventario).mockResolvedValueOnce(conferencia([{ ...um, contado: 14 }]));
-    rerender(<SessionContext.Provider value={SESSAO}><HideValuesProvider><ConferenciaInventario inventoryId="inv" versao={2} onLocalizar={vi.fn()} podeCorrigir onCorrigir={vi.fn()} /></HideValuesProvider></SessionContext.Provider>);
+    rerender(<SessionContext.Provider value={SESSAO}><HideValuesProvider><ConferenciaInventario inventoryId="inv" versao={2} onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} /></HideValuesProvider></SessionContext.Provider>);
     await waitFor(() => expect(screen.getByLabelText(/quantidade certa de batata/i)).toHaveValue("14"));
   });
 
@@ -168,7 +186,7 @@ describe("ConferenciaInventario", () => {
       contado: 1100, classe: "IMPOSSIVEL", impacto: 100, sugestao: { quantidade: 0.55, embalagem: 2000 }
     });
     vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([palito]));
-    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir onCorrigir={vi.fn()} />);
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
 
     fireEvent.click(await screen.findByRole("button", { name: /usar 0,55 un/i }));
     expect(screen.getByLabelText(/quantidade certa de sache/i)).toHaveValue("0,55");
@@ -194,6 +212,76 @@ describe("ConferenciaInventario", () => {
     fireEvent.change(await screen.findByLabelText("Setor"), { target: { value: "CAMARA FRIA" } });
     expect(screen.getByRole("button", { name: /impossíveis/i })).toBeDisabled();
     expect(screen.getByText(/mostrando 1 de 2/i)).toBeInTheDocument();
+  });
+
+  test("marcar 'esta certo' grava o motivo e recarrega", async () => {
+    vi.mocked(marcarItemConferido).mockResolvedValue({ ok: true });
+    vi.mocked(getConferenciaDoInventario)
+      .mockResolvedValueOnce(conferencia([mexedor]))
+      .mockResolvedValueOnce(conferencia([{ ...mexedor, conferido: { motivo: "CORRETO", observacao: null, em: null, por: "Eli" } }]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
+
+    const grupo = await screen.findByRole("group", { name: /conferir mexedor/i });
+    fireEvent.click(within(grupo).getByRole("button", { name: "Está certo" }));
+    await waitFor(() => expect(marcarItemConferido).toHaveBeenCalledWith("inv", "mexedor", "CORRETO", undefined));
+    // Conferido sai de "faltam conferir": a lista fica sem pendencia.
+    expect(await screen.findByText(/nada falta conferir/i)).toBeInTheDocument();
+  });
+
+  test("no rascunho corrige mas nao marca conferido", async () => {
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir onCorrigir={vi.fn()} />);
+
+    expect(await screen.findByLabelText(/quantidade certa de mexedor/i)).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /conferir mexedor/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /pedir recontagem/i })).not.toBeInTheDocument();
+  });
+
+  test("progresso conta so o que exige conferencia", async () => {
+    const pequeno = item({ itemId: "p", productName: "TOMATE", classe: "ZERADO_SUSPEITO", impacto: 10 });
+    const conferidoOk = { ...salmao, conferido: { motivo: "CORRETO" as const, observacao: null, em: null, por: null } };
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor, conferidoOk, pequeno]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
+
+    expect(await screen.findByText("1 de 2 conferidos")).toBeInTheDocument();
+  });
+
+  test("outro exige descrever o motivo", async () => {
+    vi.mocked(marcarItemConferido).mockResolvedValue({ ok: true });
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Outro…" }));
+    const ok = screen.getByRole("button", { name: "Ok" });
+    expect(ok).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/motivo da conferência de mexedor/i), { target: { value: "vencido, descartado" } });
+    fireEvent.click(ok);
+    await waitFor(() => expect(marcarItemConferido).toHaveBeenCalledWith("inv", "mexedor", "OUTRO", "vencido, descartado"));
+  });
+
+  test("itens marcados para recontar viram pedido de recontagem", async () => {
+    vi.mocked(pedirRecontagem).mockResolvedValue({} as never);
+    const marcado = { ...mexedor, conferido: { motivo: "RECONTAR" as const, observacao: null, em: null, por: null } };
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([marcado]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
+
+    expect(await screen.findByText(/1 item marcado para recontar/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /pedir recontagem/i }));
+    await waitFor(() => expect(pedirRecontagem).toHaveBeenCalledWith("inv"));
+  });
+
+  test("recontagem concluida pode ser aplicada", async () => {
+    vi.mocked(aplicarRecontagem).mockResolvedValue({ aplicados: 1, alterados: 1 });
+    const onRecontagemAplicada = vi.fn();
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue({
+      ...conferencia([mexedor]),
+      recontagens: [{ id: "s1", code: "CNT-2026-0200", status: "CONCLUIDA", aplicada: false, itens: 1, contados: 1, createdAt: "2026-10-08T12:00:00Z" }]
+    });
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} onRecontagemAplicada={onRecontagemAplicada} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /aplicar recontagem/i }));
+    await waitFor(() => expect(aplicarRecontagem).toHaveBeenCalledWith("inv", "s1"));
+    await waitFor(() => expect(onRecontagemAplicada).toHaveBeenCalled());
   });
 
   test("falha na consulta mostra o erro e deixa tentar de novo", async () => {

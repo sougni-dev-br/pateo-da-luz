@@ -13,6 +13,7 @@ import { converterItemDeCompra } from "../../shared/unidades/conversao.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { classificarItemDaConferencia, ordenarConferencia, resumirConferencia } from "./conferencia.js";
 import { correcoesDaRevisao, modoDeEdicao } from "./edicao-inventario.js";
+import { LIMITE_DE_CONFERENCIA, pendenciasParaAprovar, validarRevisao } from "./revisao-conferencia.js";
 import { derivarCiclos, duracaoEmDias, fechouForaDoMes } from "./stock-cycle.service.js";
 import { semanaDaData, statusDaRotina } from "./agenda-rotina.js";
 
@@ -719,7 +720,8 @@ function stockCountSessionTypeLabel(type: string, sectorName?: string | null) {
     ALEATORIA: "Aleatoria",
     TAREFA: "Tarefa",
     IMPORTACAO_PLANILHA: "Importacao via planilha",
-    COMPLEMENTAR_CMV: "Complementar CMV"
+    COMPLEMENTAR_CMV: "Complementar CMV",
+    RECONTAGEM: "Recontagem"
   };
   return labels[type] ?? type;
 }
@@ -2927,7 +2929,7 @@ inventoryRouter.patch("/count-sessions/:id/reshape-scope", async (request, respo
     response.status(400).json({ message: "Esta contagem ja foi usada como base de inventario/CMV e nao pode ter o escopo alterado." });
     return;
   }
-  if (["FINAL_MES", "COMPLEMENTAR_CMV", "IMPORTACAO_PLANILHA"].includes(session.type)) {
+  if (["FINAL_MES", "COMPLEMENTAR_CMV", "IMPORTACAO_PLANILHA", "RECONTAGEM"].includes(session.type)) {
     response.status(400).json({ message: `Contagem do tipo ${session.type} nao permite ajuste de escopo.` });
     return;
   }
@@ -3141,6 +3143,14 @@ inventoryRouter.patch("/count-sessions/:id/cancel", async (request, response) =>
     previousValue: { status: session.status, generatedInventoryId: session.generatedInventoryId },
     newValue: { status: "CANCELADA", reason }
   });
+  // Recontagem cancelada devolve os itens a "marcado para recontar": podem ser
+  // pedidos de novo ou decididos de outro jeito na conferencia.
+  if (session.type === "RECONTAGEM") {
+    await prisma.$executeRaw`
+      UPDATE "OperationalInventoryItem" SET "recountSessionId" = NULL, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "recountSessionId" = ${request.params.id}
+    `;
+  }
   response.json(await getStockCountSessionSummary(request.params.id));
 });
 
@@ -3162,6 +3172,12 @@ inventoryRouter.post("/count-sessions/:id/generate-inventory", async (request, r
   }
   if (session.status !== "CONCLUIDA") {
     response.status(400).json({ message: "Conclua a contagem antes de gerar o inventario." });
+    return;
+  }
+  // Recontagem volta para o inventario de onde saiu ("Aplicar" na conferencia),
+  // nao vira um inventario separado.
+  if (session.type === "RECONTAGEM") {
+    response.status(400).json({ message: "Recontagem nao gera inventario: aplique-a na conferencia do inventario que a pediu." });
     return;
   }
   if (session.generatedInventoryId) {
@@ -4263,16 +4279,9 @@ inventoryRouter.get("/posicao", async (request, response) => {
 //
 // Datas comparadas como dia (TZ=UTC): compra no dia da contagem anterior ja
 // estava nela; compra no dia desta contagem entra nesta.
-inventoryRouter.get("/operational/:id/conferencia", async (request, response) => {
-  const user = await requireMenuPermission(request, response);
-  if (!user) return;
-
-  const inventory = await getOperationalInventorySummary(request.params.id);
-  if (!inventory) {
-    response.status(404).json({ message: "Inventario operacional nao encontrado." });
-    return;
-  }
-
+// A conferencia calculada serve a rota e a aprovacao, que so passa com os
+// alertas que pesam conferidos (revisao-conferencia.ts).
+async function calcularConferencia(inventoryId: string) {
   const rows = await prisma.$queryRaw<Array<{
     itemId: string;
     productId: string | null;
@@ -4293,16 +4302,21 @@ inventoryRouter.get("/operational/:id/conferencia", async (request, response) =>
     menor: Prisma.Decimal | null;
     maior: Prisma.Decimal | null;
     observacoes: bigint | null;
+    motivo: string | null;
+    observacaoDaConferencia: string | null;
+    conferidoEm: Date | null;
+    conferidoPor: string | null;
+    recontagemId: string | null;
   }>>`
     WITH atual AS (
       SELECT "id", COALESCE("effectiveCountDate", "date")::date AS dia
       FROM "OperationalInventory"
-      WHERE "id" = ${request.params.id}
+      WHERE "id" = ${inventoryId}
     ),
     alvo AS (
       SELECT i.*
       FROM "OperationalInventoryItem" i
-      WHERE i."inventoryId" = ${request.params.id}
+      WHERE i."inventoryId" = ${inventoryId}
     ),
     oficiais AS (
       SELECT i."id", i."productId", i."countedQuantity", o."code", o."inventorySnapshotId",
@@ -4354,12 +4368,15 @@ inventoryRouter.get("/operational/:id/conferencia", async (request, response) =>
            quem."name" AS "contadoPor", alvo."countedAt" AS "contadoEm",
            anterior."countedQuantity" AS anterior, anterior.dia AS "anteriorData", anterior."code" AS "anteriorCodigo",
            compras.quantidade AS compras, compras.custo AS "custoCompras", base."unitCost" AS "custoBase",
-           historico.mediana, historico.menor, historico.maior, historico.observacoes
+           historico.mediana, historico.menor, historico.maior, historico.observacoes,
+           alvo."reviewReason" AS motivo, alvo."reviewNote" AS "observacaoDaConferencia",
+           alvo."reviewedAt" AS "conferidoEm", revisor."name" AS "conferidoPor", alvo."recountSessionId" AS "recontagemId"
     FROM alvo
     LEFT JOIN anterior ON anterior."productId" = alvo."productId"
     LEFT JOIN compras ON compras."productId" = alvo."productId"
     LEFT JOIN historico ON historico."productId" = alvo."productId"
     LEFT JOIN "User" quem ON quem."id" = alvo."countedByUserId"
+    LEFT JOIN "User" revisor ON revisor."id" = alvo."reviewedByUserId"
     LEFT JOIN LATERAL (
       SELECT si."unitCost"
       FROM "InventorySnapshotItem" si
@@ -4405,16 +4422,56 @@ inventoryRouter.get("/operational/:id/conferencia", async (request, response) =>
       anteriorCodigo: row.anteriorCodigo,
       compras,
       custoUnitario,
+      conferido: row.motivo
+        ? { motivo: row.motivo, observacao: row.observacaoDaConferencia, em: row.conferidoEm, por: row.conferidoPor }
+        : null,
+      recontagemId: row.recontagemId,
       ...resultado
     };
   });
 
-  const ordenados = ordenarConferencia(itens);
+  return ordenarConferencia(itens);
+}
+
+function pendenciasDaConferencia(itens: Awaited<ReturnType<typeof calcularConferencia>>) {
+  return pendenciasParaAprovar(itens.map((item) => ({ ...item, motivo: item.conferido?.motivo ?? null })));
+}
+
+// Recontagens pedidas a partir da conferencia deste inventario.
+async function recontagensDoInventario(inventoryId: string) {
+  const sessoes = await prisma.$queryRaw<Array<{
+    id: string; code: string; status: string; aplicada: boolean; itens: bigint; contados: bigint; createdAt: Date;
+  }>>`
+    SELECT s."id", s."code", s."status"::text AS status, (s."generatedInventoryId" IS NOT NULL) AS aplicada,
+           COUNT(i."id") AS itens, COUNT(i."id") FILTER (WHERE i."countedQuantity" IS NOT NULL) AS contados, s."createdAt"
+    FROM "StockCountSession" s
+    LEFT JOIN "StockCountSessionItem" i ON i."stockCountSessionId" = s."id"
+    WHERE s."type" = 'RECONTAGEM' AND s."notes" LIKE ${`%[RECONTAGEM:${inventoryId}]%`} AND s."status" <> 'CANCELADA'
+    GROUP BY s."id"
+    ORDER BY s."createdAt" DESC
+  `;
+  return sessoes.map((s) => ({ ...s, itens: Number(s.itens), contados: Number(s.contados) }));
+}
+
+inventoryRouter.get("/operational/:id/conferencia", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+
+  const inventory = await getOperationalInventorySummary(request.params.id);
+  if (!inventory) {
+    response.status(404).json({ message: "Inventario operacional nao encontrado." });
+    return;
+  }
+
+  const ordenados = await calcularConferencia(request.params.id);
   response.json({
     inventoryId: inventory.id,
     code: inventory.code,
     resumo: resumirConferencia(ordenados),
-    itens: ordenados
+    itens: ordenados,
+    limiteDeConferencia: LIMITE_DE_CONFERENCIA,
+    pendentesParaAprovar: pendenciasDaConferencia(ordenados).length,
+    recontagens: await recontagensDoInventario(request.params.id)
   });
 });
 
@@ -4475,6 +4532,224 @@ inventoryRouter.get("/operational/:id/conferencia/:itemId/compras", async (reque
   })));
 });
 
+// Conferir e pedir recontagem e trabalho de quem aprova, com o inventario em
+// revisao. No rascunho, quem conta poderia marcar tudo como "esta certo" e a
+// aprovacao passaria sem ninguem ter olhado.
+async function assertCanConfer(inventoryId: string, user: SessionUser) {
+  const inventory = await assertCanEditOperationalInventory(inventoryId, user, true);
+  if (inventory.modoDeEdicao !== "revisao") {
+    throw new Error("A conferencia e feita na revisao, por quem aprova: envie o inventario para revisao primeiro.");
+  }
+  return inventory;
+}
+
+// Marca um alerta como conferido (ou desfaz).
+inventoryRouter.patch("/operational/:id/items/:itemId/conferido", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  try {
+    await assertCanConfer(request.params.id, user);
+    const validacao = validarRevisao(request.body.motivo, request.body.observacao);
+    if (!validacao.ok) {
+      response.status(400).json({ message: validacao.erro });
+      return;
+    }
+    const [antes] = await prisma.$queryRaw<Array<{ productName: string; reviewReason: string | null; reviewNote: string | null }>>`
+      SELECT "productName", "reviewReason", "reviewNote" FROM "OperationalInventoryItem"
+      WHERE "id" = ${request.params.itemId} AND "inventoryId" = ${request.params.id}
+    `;
+    if (!antes) {
+      response.status(404).json({ message: "Item nao encontrado neste inventario." });
+      return;
+    }
+    await prisma.$executeRaw`
+      UPDATE "OperationalInventoryItem"
+      SET "reviewReason" = ${validacao.motivo}, "reviewNote" = ${validacao.observacao},
+          "reviewedAt" = ${validacao.motivo ? new Date() : null}, "reviewedByUserId" = ${validacao.motivo ? user.id : null},
+          -- Decidir de novo solta o item da recontagem: "Aplicar" so traz o que
+          -- continua marcado para recontar nela.
+          "recountSessionId" = NULL,
+          "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${request.params.itemId} AND "inventoryId" = ${request.params.id}
+    `;
+    await auditLog({
+      userId: user.id,
+      action: validacao.motivo ? "REVIEW_OPERATIONAL_INVENTORY_ITEM" : "UNDO_REVIEW_OPERATIONAL_INVENTORY_ITEM",
+      entity: "OperationalInventory",
+      entityId: request.params.id,
+      previousValue: { itemId: request.params.itemId, produto: antes.productName, motivo: antes.reviewReason, observacao: antes.reviewNote },
+      newValue: { itemId: request.params.itemId, produto: antes.productName, motivo: validacao.motivo, observacao: validacao.observacao }
+    });
+    response.json({ ok: true });
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao marcar a conferencia." });
+  }
+});
+
+// Manda para recontagem os itens marcados "recontar": vira uma contagem do
+// tipo RECONTAGEM, que o estoquista faz pela tela normal de Contagem. A
+// recontagem mede o estoque de HOJE, nao o do dia da contagem — serve para
+// item de pouco giro (o sache de palito), nao para carne que gira todo dia.
+inventoryRouter.post("/operational/:id/recontagem", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  try {
+    const inventory = await assertCanConfer(request.params.id, user);
+    const [aberta] = await prisma.$queryRaw<Array<{ code: string }>>`
+      SELECT "code" FROM "StockCountSession"
+      WHERE "type" = 'RECONTAGEM' AND "notes" LIKE ${`%[RECONTAGEM:${request.params.id}]%`}
+        AND "status" IN ('ABERTA', 'EM_ANDAMENTO')
+      LIMIT 1
+    `;
+    if (aberta) {
+      response.status(409).json({ message: `Ja existe a recontagem ${aberta.code} em aberto para este inventario. Conclua-a antes de pedir outra.` });
+      return;
+    }
+    const itens = await prisma.$queryRaw<Array<OperationalInventoryItemRow>>`
+      SELECT DISTINCT ON (i."productId") i.* FROM "OperationalInventoryItem" i
+      WHERE i."inventoryId" = ${request.params.id} AND i."reviewReason" = 'RECONTAR' AND i."productId" IS NOT NULL
+        AND (i."recountSessionId" IS NULL OR i."recountSessionId" IN (SELECT "id" FROM "StockCountSession" WHERE "status" = 'CANCELADA'))
+      ORDER BY i."productId", i."sectorName" NULLS LAST, i."productName"
+    `;
+    if (!itens.length) {
+      response.status(400).json({ message: "Nenhum item marcado para recontar." });
+      return;
+    }
+    const sessionId = crypto.randomUUID();
+    const now = new Date();
+    const code = await nextStockCountSessionCode(now);
+    const notes = `[RECONTAGEM:${request.params.id}] Recontagem pedida na conferencia do ${inventory.code}: ${itens.length} item(ns).`;
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        INSERT INTO "StockCountSession" (
+          "id", "code", "type", "status", "referenceDate", "isMonthEnd",
+          "responsibleUserId", "notes", "source", "createdAt", "updatedAt"
+        ) VALUES (
+          ${sessionId}, ${code}, 'RECONTAGEM', 'ABERTA', ${dateOnly(now)}, false,
+          ${user.id}, ${notes}, 'SISTEMA', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+      `;
+      await tx.$executeRaw`
+        INSERT INTO "StockCountSessionItem" (
+          "id", "stockCountSessionId",
+          "productId", "productCodeSnapshot", "productNameSnapshot",
+          "sectorSnapshot", "categorySnapshot", "subcategorySnapshot", "locationSnapshot", "unitSnapshot",
+          "expectedQuantity", "countedQuantity", "differenceQuantity", "status", "notes", "countedByUserId", "countedAt",
+          "createdAt", "updatedAt"
+        )
+        VALUES ${Prisma.join(itens.map((item) => Prisma.sql`(
+          ${crypto.randomUUID()}, ${sessionId},
+          ${item.productId}, ${item.productCode}, ${item.productName},
+          ${item.sectorName}, ${item.categoryName}, ${item.subcategoryName}, ${item.location}, ${item.unit},
+          ${0}, ${null}, ${null}, 'PENDENTE', ${null}, ${null}, ${null},
+          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )`))}
+      `;
+      // Pelo produto: se o mesmo produto aparece em dois setores, os dois
+      // itens recebem a recontagem dele.
+      await tx.$executeRaw`
+        UPDATE "OperationalInventoryItem" SET "recountSessionId" = ${sessionId}, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "inventoryId" = ${request.params.id} AND "reviewReason" = 'RECONTAR'
+          AND "productId" IN (${Prisma.join(itens.map((item) => item.productId))})
+      `;
+    });
+    await auditLog({
+      userId: user.id,
+      action: "CREATE_RECOUNT_FROM_REVIEW",
+      entity: "StockCountSession",
+      entityId: sessionId,
+      newValue: { code, inventoryId: request.params.id, inventoryCode: inventory.code, itens: itens.map((item) => item.productName) }
+    });
+    response.status(201).json(await getStockCountSessionSummary(sessionId));
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao pedir recontagem." });
+  }
+});
+
+// Traz para o inventario as quantidades da recontagem concluida. Os itens
+// voltam sem "conferido": o numero mudou, a conferencia precisa ser refeita.
+inventoryRouter.post("/operational/:id/recontagem/:sessionId/aplicar", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  try {
+    const inventory = await assertCanConfer(request.params.id, user);
+    const [sessao] = await prisma.$queryRaw<Array<{ id: string; code: string; type: string; status: string; notes: string | null; generatedInventoryId: string | null }>>`
+      SELECT "id", "code", "type", "status"::text AS status, "notes", "generatedInventoryId"
+      FROM "StockCountSession" WHERE "id" = ${request.params.sessionId}
+    `;
+    if (!sessao || sessao.type !== "RECONTAGEM" || !sessao.notes?.includes(`[RECONTAGEM:${request.params.id}]`)) {
+      response.status(404).json({ message: "Recontagem nao encontrada para este inventario." });
+      return;
+    }
+    if (sessao.status !== "CONCLUIDA") {
+      response.status(400).json({ message: `Conclua a recontagem ${sessao.code} antes de aplicar (status atual: ${sessao.status}).` });
+      return;
+    }
+    if (sessao.generatedInventoryId) {
+      response.status(409).json({ message: `A recontagem ${sessao.code} ja foi aplicada.` });
+      return;
+    }
+    const pares = await prisma.$queryRaw<Array<{
+      itemId: string; productName: string; antes: Prisma.Decimal | null; expectedQuantity: Prisma.Decimal;
+      novo: Prisma.Decimal | null; countedByUserId: string | null; countedAt: Date | null;
+    }>>`
+      SELECT oi."id" AS "itemId", oi."productName", oi."countedQuantity" AS antes, oi."expectedQuantity",
+             si."countedQuantity" AS novo, si."countedByUserId", si."countedAt"
+      FROM "OperationalInventoryItem" oi
+      JOIN "StockCountSessionItem" si ON si."stockCountSessionId" = ${sessao.id} AND si."productId" = oi."productId"
+      WHERE oi."inventoryId" = ${request.params.id} AND oi."recountSessionId" = ${sessao.id}
+        -- Item que o revisor decidiu depois (corrigiu, marcou "esta certo")
+        -- saiu da recontagem: nao sobrescrever a decisao dele.
+        AND oi."reviewReason" = 'RECONTAR'
+    `;
+    const semQuantidade = pares.filter((par) => par.novo == null).length;
+    if (semQuantidade) {
+      response.status(400).json({ message: `A recontagem ${sessao.code} tem ${semQuantidade} item(ns) sem quantidade.` });
+      return;
+    }
+    // Uma instrucao so (sem laco dentro da transacao, que estourava o tempo
+    // com muitos itens), e a sessao so e marcada se ainda nao estava: dois
+    // cliques ao mesmo tempo nao aplicam duas vezes.
+    const linhas = pares.map((par) => {
+      const novo = Number(par.novo);
+      const resultado = countedStatus(novo, Number(par.expectedQuantity ?? 0));
+      return Prisma.sql`(${par.itemId}::text, ${novo}::numeric, ${resultado.differenceQuantity}::numeric, ${resultado.status}::text, ${par.countedByUserId}::text, ${par.countedAt}::timestamp)`;
+    });
+    await prisma.$transaction(async (tx) => {
+      const marcadas = await tx.$executeRaw`
+        UPDATE "StockCountSession" SET "generatedInventoryId" = ${request.params.id}, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "id" = ${sessao.id} AND "generatedInventoryId" IS NULL
+      `;
+      if (marcadas !== 1) throw new Error(`A recontagem ${sessao.code} ja foi aplicada.`);
+      if (linhas.length) {
+        await tx.$executeRaw`
+          UPDATE "OperationalInventoryItem" AS oi
+          SET "countedQuantity" = v.q, "differenceQuantity" = v.d, "status" = v.s,
+              "countedByUserId" = v.u, "countedAt" = v.t,
+              "reviewReason" = NULL, "reviewNote" = NULL, "reviewedAt" = NULL, "reviewedByUserId" = NULL,
+              "updatedAt" = CURRENT_TIMESTAMP
+          FROM (VALUES ${Prisma.join(linhas)}) AS v(id, q, d, s, u, t)
+          WHERE oi."id" = v.id
+        `;
+      }
+    }, { timeout: 20000 });
+    const correcoes = correcoesDaRevisao(
+      new Map(pares.map((par) => [par.itemId, { produto: par.productName, quantidade: par.antes == null ? null : Number(par.antes) }])),
+      pares.map((par) => ({ id: par.itemId, quantidade: Number(par.novo) }))
+    );
+    await auditLog({
+      userId: user.id,
+      action: "APPLY_RECOUNT_TO_OPERATIONAL_INVENTORY",
+      entity: "OperationalInventory",
+      entityId: request.params.id,
+      newValue: { recontagem: sessao.code, inventario: inventory.code, aplicados: pares.length, correcoes }
+    });
+    response.json({ aplicados: pares.length, alterados: correcoes.length });
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao aplicar a recontagem." });
+  }
+});
+
 inventoryRouter.patch("/operational/:id/items", async (request, response) => {
   const user = await requireMenuPermission(request, response);
   if (!user) return;
@@ -4486,20 +4761,25 @@ inventoryRouter.patch("/operational/:id/items", async (request, response) => {
       response.status(400).json({ message: INVALID_QUANTITY_MESSAGE, invalidItemIds });
       return;
     }
-    // Em revisao, guarda o valor de antes de cada item para a auditoria.
-    const antesDaCorrecao = inventory.modoDeEdicao === "revisao"
-      ? new Map((await prisma.$queryRaw<Array<{ id: string; productName: string; countedQuantity: Prisma.Decimal | null }>>`
-          SELECT "id", "productName", "countedQuantity" FROM "OperationalInventoryItem" WHERE "inventoryId" = ${request.params.id}
-        `).map((row) => [row.id, { produto: row.productName, quantidade: row.countedQuantity == null ? null : Number(row.countedQuantity) }]))
-      : null;
+    // Guarda o valor de antes: em revisao vai para a auditoria, e em qualquer
+    // modo a quantidade que mudou perde a marca de conferencia (o "esta certo"
+    // valia para o numero antigo).
+    const antesDaCorrecao = new Map((await prisma.$queryRaw<Array<{ id: string; productName: string; countedQuantity: Prisma.Decimal | null }>>`
+      SELECT "id", "productName", "countedQuantity" FROM "OperationalInventoryItem" WHERE "inventoryId" = ${request.params.id}
+    `).map((row) => [row.id, { produto: row.productName, quantidade: row.countedQuantity == null ? null : Number(row.countedQuantity) }]));
     await applyOperationalInventoryItems(request.params.id, items, user.id);
-    if (antesDaCorrecao) {
-      const correcoes = correcoesDaRevisao(antesDaCorrecao, items.flatMap((item: Record<string, unknown>) => {
-        const parsed = parseQuantityInput(item.countedQuantity);
-        const id = asText(item.id);
-        return id && parsed.ok && parsed.value != null ? [{ id, quantidade: Number(parsed.value) }] : [];
-      }));
-      if (correcoes.length) {
+    const correcoes = correcoesDaRevisao(antesDaCorrecao, items.flatMap((item: Record<string, unknown>) => {
+      const parsed = parseQuantityInput(item.countedQuantity);
+      const id = asText(item.id);
+      return id && parsed.ok && parsed.value != null ? [{ id, quantidade: Number(parsed.value) }] : [];
+    }));
+    if (correcoes.length) {
+      await prisma.$executeRaw`
+        UPDATE "OperationalInventoryItem"
+        SET "reviewReason" = NULL, "reviewNote" = NULL, "reviewedAt" = NULL, "reviewedByUserId" = NULL, "recountSessionId" = NULL
+        WHERE "inventoryId" = ${request.params.id} AND "id" IN (${Prisma.join(correcoes.map((c) => c.itemId))})
+      `;
+      if (inventory.modoDeEdicao === "revisao") {
         await auditLog({ userId: user.id, action: "CORRECT_OPERATIONAL_INVENTORY_IN_REVIEW", entity: "OperationalInventory", entityId: request.params.id, newValue: { correcoes } });
       }
     }
@@ -4573,6 +4853,14 @@ inventoryRouter.patch("/operational/:id/approve", async (request, response) => {
     if (!(await isInventoryManager(user))) throw new Error("Usuario sem permissao para aprovar inventario.");
     if (!["EM_REVISAO", "APROVADO"].includes(inventory.status)) throw new Error("Inventario precisa estar em revisao para ser aprovado.");
     if (inventory.type === "FINAL_CMV" && Number(inventory.pendingItems ?? 0) > 0) throw new Error("Inventario FINAL_CMV precisa estar totalmente contado ou zerado.");
+    // Os alertas que pesam precisam ter sido vistos: aprovar transforma estas
+    // quantidades na base do CMV.
+    if (inventory.status === "EM_REVISAO") {
+      const pendentes = pendenciasDaConferencia(await calcularConferencia(request.params.id));
+      if (pendentes.length) {
+        throw new Error(`Faltam conferir ${pendentes.length} item(ns) da conferencia (alertas a partir de R$ ${LIMITE_DE_CONFERENCIA} ou sem custo). Marque cada um ou aplique a recontagem antes de aprovar.`);
+      }
+    }
     await prisma.$executeRaw`
       UPDATE "OperationalInventory"
       SET "status" = 'APROVADO', "approvedByUserId" = ${user.id}, "approvedAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP

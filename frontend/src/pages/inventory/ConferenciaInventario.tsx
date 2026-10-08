@@ -1,16 +1,21 @@
-import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, RefreshCw, Search, Wand2 } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ClipboardList, Loader2, RefreshCw, Search, Undo2, Wand2 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ClasseConferencia,
   type ConferenciaDoInventario,
   type ItemDaConferencia,
+  type MotivoDeConferencia,
   type NotaDoItemDaConferencia,
+  type RecontagemDaConferencia,
+  aplicarRecontagem,
   getComprasDoItemDaConferencia,
-  getConferenciaDoInventario
+  getConferenciaDoInventario,
+  marcarItemConferido,
+  pedirRecontagem
 } from "../../api/client";
 import { Money, StatusBadge, type StatusTone } from "../../design-system";
 import { formatDate } from "../../utils/format";
-import { SEM_SETOR, filtrarConferencia, produtosParecidos, resumirItens } from "./conferencia-ajuda";
+import { SEM_SETOR, type Situacao, estaConferido, filtrarConferencia, produtosParecidos, progressoDaConferencia, resumirItens } from "./conferencia-ajuda";
 import { quantityToApi, sanitizeQuantityInput } from "./shared";
 import "./conferencia.css";
 
@@ -98,7 +103,29 @@ type Props = {
   podeCorrigir?: boolean;
   /** Salva a quantidade; devolve false se nao salvou (o pai ja avisou o motivo). */
   onCorrigir?: (item: ItemDaConferencia, quantidade: string) => Promise<boolean>;
+  /** Marcar conferido e pedir recontagem: so na revisao, por quem aprova. */
+  podeConferir?: boolean;
+  /** Recontagem aplicada mudou quantidades: o pai recarrega a lista de itens. */
+  onRecontagemAplicada?: () => void;
 };
+
+export const ROTULO_DO_MOTIVO: Record<MotivoDeConferencia, string> = {
+  CORRETO: "Está certo",
+  COMPRA_NAO_LANCADA: "Compra não lançada",
+  ERRO_DE_UNIDADE: "Erro de unidade",
+  CORRIGIDO: "Corrigido",
+  OUTRO: "Outro",
+  RECONTAR: "Recontar"
+};
+
+// O que quem revisa escolhe no cartao. "Corrigido" e automatico ao salvar.
+const MOTIVOS_DO_CARTAO: MotivoDeConferencia[] = ["CORRETO", "COMPRA_NAO_LANCADA", "ERRO_DE_UNIDADE", "RECONTAR"];
+
+const SITUACOES: Array<{ valor: Situacao; rotulo: string }> = [
+  { valor: "faltam", rotulo: "Faltam conferir" },
+  { valor: "conferidos", rotulo: "Conferidos" },
+  { valor: "todos", rotulo: "Todos" }
+];
 
 const VALORES_MINIMOS = [
   { valor: 0, rotulo: "Qualquer valor" },
@@ -106,7 +133,7 @@ const VALORES_MINIMOS = [
   { valor: 500, rotulo: "A partir de R$ 500" }
 ];
 
-export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarregar, jaAprovado = false, podeCorrigir = false, onCorrigir }: Props) {
+export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarregar, jaAprovado = false, podeCorrigir = false, podeConferir = false, onCorrigir, onRecontagemAplicada }: Props) {
   const [conferencia, setConferencia] = useState<ConferenciaDoInventario | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
@@ -114,6 +141,9 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
   const [limite, setLimite] = useState(ITENS_POR_PAGINA);
   const [setor, setSetor] = useState("");
   const [valorMinimo, setValorMinimo] = useState(0);
+  // Quem confere comeca no que falta; os demais, em tudo.
+  const [situacao, setSituacao] = useState<Situacao>(podeConferir ? "faltam" : "todos");
+  const [recontando, setRecontando] = useState(false);
   // Depois de corrigir, o cursor vai para o proximo item da lista (que pode ter
   // mudado de lugar na recarga).
   const [focarItem, setFocarItem] = useState<string | null>(null);
@@ -145,8 +175,18 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
   }, [carregar, versao]);
 
   const filtrados = useMemo(
-    () => (conferencia ? filtrarConferencia(conferencia.itens, { setor, valorMinimo }) : []),
-    [conferencia, setor, valorMinimo]
+    () => (conferencia
+      ? filtrarConferencia(conferencia.itens, { setor, valorMinimo, situacao, limite: conferencia.limiteDeConferencia })
+      : []),
+    [conferencia, setor, valorMinimo, situacao]
+  );
+  const progresso = useMemo(
+    () => (conferencia ? progressoDaConferencia(conferencia.itens, conferencia.limiteDeConferencia) : { exigidos: 0, conferidos: 0 }),
+    [conferencia]
+  );
+  const paraRecontar = useMemo(
+    () => (conferencia?.itens ?? []).filter((i) => i.conferido?.motivo === "RECONTAR" && !i.recontagemId),
+    [conferencia]
   );
   const resumoDoRecorte = useMemo(() => resumirItens(filtrados), [filtrados]);
   const setores = useMemo(
@@ -157,6 +197,14 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
     () => (classe ? filtrados.filter((item) => item.classe === classe) : []),
     [filtrados, classe]
   );
+
+  // Ao conferir tudo de uma classe (ou trocar o recorte), passa para a proxima
+  // que ainda tem item — em vez de mostrar uma lista vazia.
+  useEffect(() => {
+    if (!conferencia || (classe && resumoDoRecorte[classe].itens > 0)) return;
+    const proxima = ORDEM.find((c) => resumoDoRecorte[c].itens > 0);
+    if (proxima && proxima !== classe) setClasse(proxima);
+  }, [conferencia, classe, resumoDoRecorte]);
 
   useEffect(() => {
     if (!focarItem || carregando) return;
@@ -175,6 +223,18 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
     // Sem proximo, volta ao primeiro que sobrou na lista.
     const proximo = itensDaClasse[posicao + 1] ?? itensDaClasse.find((i) => i.itemId !== item.itemId) ?? null;
     const salvou = await onCorrigir(item, quantidade);
+    if (salvou) {
+      // Na revisao, corrigir e conferir: o item conta como visto.
+      // O aviso vem depois da recarga, que limpa o erro anterior.
+      let aviso: string | null = null;
+      if (podeConferir) {
+        await marcarItemConferido(inventoryId, item.itemId, "CORRIGIDO").catch(() => {
+          aviso = `Quantidade de ${item.productName} salva, mas não foi possível marcar como conferido. Marque no cartão.`;
+        });
+      }
+      await carregar();
+      if (aviso) setErro(aviso);
+    }
     if (salvou && proximo) {
       // O corrigido costuma sair da classe; o proximo sobe uma posicao. Garante
       // que ele esteja dentro da pagina mostrada.
@@ -183,6 +243,47 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
       setFocarItem(proximo.itemId);
     }
     return salvou;
+  }
+
+  async function marcar(item: ItemDaConferencia, motivo: MotivoDeConferencia | null, observacao?: string) {
+    const posicao = itensDaClasse.findIndex((i) => i.itemId === item.itemId);
+    const proximo = itensDaClasse[posicao + 1] ?? null;
+    try {
+      await marcarItemConferido(inventoryId, item.itemId, motivo, observacao);
+      if (motivo && proximo && situacao === "faltam") setFocarItem(proximo.itemId);
+      await carregar();
+      return true;
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : "Não foi possível marcar a conferência.");
+      return false;
+    }
+  }
+
+  async function mandarRecontar() {
+    setRecontando(true);
+    setErro(null);
+    try {
+      await pedirRecontagem(inventoryId);
+      await carregar();
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : "Não foi possível pedir a recontagem.");
+    } finally {
+      setRecontando(false);
+    }
+  }
+
+  async function aplicar(recontagem: RecontagemDaConferencia) {
+    setRecontando(true);
+    setErro(null);
+    try {
+      await aplicarRecontagem(inventoryId, recontagem.id);
+      await carregar();
+      onRecontagemAplicada?.();
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : "Não foi possível aplicar a recontagem.");
+    } finally {
+      setRecontando(false);
+    }
   }
 
   function escolher(proxima: ClasseConferencia) {
@@ -212,7 +313,18 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
     <section className="conf" aria-labelledby="conf-titulo">
       <CabecalhoDaConferencia carregando={carregando} onAtualizar={carregar} />
 
-      {alertas.length > 0 ? (
+      {alertas.length > 0 && progresso.exigidos > 0 && progresso.conferidos >= progresso.exigidos ? (
+        <p className="conf-veredito conf-veredito--ok">
+          <CheckCircle2 size={18} aria-hidden="true" />
+          <span>
+            <strong>Os alertas que pesam foram conferidos.</strong>
+            {(() => {
+              const opcionais = conferencia.itens.filter((i) => CLASSES_DE_ALERTA.includes(i.classe) && !estaConferido(i)).length;
+              return opcionais > 0 ? ` Restam ${opcionais} alerta(s) abaixo de R$ ${conferencia.limiteDeConferencia}, de conferência opcional.` : "";
+            })()}
+          </span>
+        </p>
+      ) : alertas.length > 0 ? (
         <p className="conf-veredito conf-veredito--alerta">
           <AlertTriangle size={18} aria-hidden="true" />
           <span>
@@ -235,7 +347,38 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
       )}
       {erro && <p className="conf-estado conf-estado--erro" role="alert">{erro}</p>}
 
+      {progresso.exigidos > 0 && (
+        <div className="conf-progresso">
+          <div className="conf-progresso__texto">
+            <strong>{formatoQuantidade.format(progresso.conferidos)} de {formatoQuantidade.format(progresso.exigidos)} conferidos</strong>
+            <span>
+              {progresso.conferidos >= progresso.exigidos
+                ? (jaAprovado ? "Tudo conferido." : "Tudo conferido: pode aprovar.")
+                : `Exigem conferência os alertas a partir de R$ ${conferencia.limiteDeConferencia} e os sem custo.${jaAprovado ? "" : " A aprovação libera quando todos estiverem conferidos."}`}
+            </span>
+          </div>
+          <div className="conf-progresso__barra" role="progressbar" aria-valuemin={0} aria-valuemax={progresso.exigidos} aria-valuenow={progresso.conferidos} aria-label="Conferidos">
+            <span style={{ width: `${Math.round((progresso.conferidos / progresso.exigidos) * 100)}%` }} />
+          </div>
+        </div>
+      )}
+
+      <PainelDeRecontagem
+        paraRecontar={paraRecontar.length}
+        recontagens={conferencia.recontagens}
+        podeAgir={podeConferir}
+        ocupado={recontando}
+        onPedir={() => void mandarRecontar()}
+        onAplicar={(r) => void aplicar(r)}
+      />
+
       <div className="conf-recorte">
+        <label>
+          <span>Situação</span>
+          <select value={situacao} onChange={(e) => { setSituacao(e.target.value as Situacao); setLimite(ITENS_POR_PAGINA); }}>
+            {SITUACOES.map((s) => <option key={s.valor} value={s.valor}>{s.rotulo}</option>)}
+          </select>
+        </label>
         <label>
           <span>Setor</span>
           <select value={setor} onChange={(e) => { setSetor(e.target.value); setLimite(ITENS_POR_PAGINA); }}>
@@ -289,12 +432,19 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
             onLocalizar={onLocalizar}
             podeCorrigir={podeCorrigir && Boolean(onCorrigir)}
             onCorrigir={corrigir}
+            podeConferir={podeConferir}
+            onMarcar={marcar}
+            limiteDeConferencia={conferencia.limiteDeConferencia}
           />
         ))}
       </ul>
 
-      {itensDaClasse.length === 0 && classe && (
-        <p className="conf-ajuda">Nada nesta classe com o recorte atual.</p>
+      {itensDaClasse.length === 0 && (
+        <p className="conf-ajuda">
+          {situacao === "faltam" && progresso.conferidos >= progresso.exigidos
+            ? "Nada falta conferir. Use \"Situação: Todos\" para rever os itens."
+            : "Nada nesta classe com o recorte atual."}
+        </p>
       )}
 
       {itensDaClasse.length > limite && (
@@ -346,7 +496,10 @@ type LinhaProps = {
   rotuloImpacto: string;
   onLocalizar: (item: ItemDaConferencia) => void;
   podeCorrigir: boolean;
+  podeConferir: boolean;
   onCorrigir: (item: ItemDaConferencia, quantidade: string) => Promise<boolean>;
+  onMarcar: (item: ItemDaConferencia, motivo: MotivoDeConferencia | null, observacao?: string) => Promise<boolean>;
+  limiteDeConferencia: number;
 };
 
 function quantidadeParaCampo(valor: number | null) {
@@ -356,7 +509,7 @@ function quantidadeParaCampo(valor: number | null) {
 // O cartao e onde se decide: a conta, o motivo, as notas que entraram, o
 // produto vizinho que pode ter levado a contagem e o campo para corrigir. Antes
 // cada correcao era localizar, trocar de aba, salvar e voltar procurando.
-function LinhaDaConferencia({ inventoryId, item, todos, rotuloImpacto, onLocalizar, podeCorrigir, onCorrigir }: LinhaProps) {
+function LinhaDaConferencia({ inventoryId, item, todos, rotuloImpacto, onLocalizar, podeCorrigir, podeConferir, onCorrigir, onMarcar }: LinhaProps) {
   const u = item.unit;
   const temConta = item.anterior != null;
   const [valor, setValor] = useState(quantidadeParaCampo(item.contado));
@@ -399,7 +552,7 @@ function LinhaDaConferencia({ inventoryId, item, todos, rotuloImpacto, onLocaliz
   }
 
   return (
-    <li className={`conf-item conf-item--${CLASSES[item.classe].tom}`}>
+    <li className={`conf-item conf-item--${CLASSES[item.classe].tom}${estaConferido(item) ? " conf-item--conferido" : ""}`}>
       <div className="conf-item__produto">
         <strong>{item.productName}</strong>
         <small>{[item.productCode, item.sectorName].filter(Boolean).join(" · ") || "sem código"}</small>
@@ -494,6 +647,8 @@ function LinhaDaConferencia({ inventoryId, item, todos, rotuloImpacto, onLocaliz
           </p>
         )}
 
+        <MarcacaoDoItem item={item} podeMarcar={podeConferir} onMarcar={onMarcar} />
+
         {item.compras > 0 && (
           <NotasDoPeriodo inventoryId={inventoryId} itemId={item.itemId} aberto={notasAbertas} onAlternar={() => setNotasAbertas((v) => !v)} />
         )}
@@ -552,6 +707,123 @@ function NotasDoPeriodo({ inventoryId, itemId, aberto, onAlternar }: NotasProps)
         Notas de compra do período
       </button>
       {conteudo}
+    </div>
+  );
+}
+
+type MarcacaoProps = {
+  item: ItemDaConferencia;
+  podeMarcar: boolean;
+  onMarcar: (item: ItemDaConferencia, motivo: MotivoDeConferencia | null, observacao?: string) => Promise<boolean>;
+};
+
+// "Conferido" com motivo: o que tira o item da lista do que falta. Sem isso, um
+// zerado que estava certo seguia como alerta para sempre.
+function MarcacaoDoItem({ item, podeMarcar, onMarcar }: MarcacaoProps) {
+  const [outroAberto, setOutroAberto] = useState(false);
+  const [texto, setTexto] = useState("");
+  const [enviando, setEnviando] = useState(false);
+
+  async function enviar(motivo: MotivoDeConferencia | null, observacao?: string) {
+    setEnviando(true);
+    try {
+      const ok = await onMarcar(item, motivo, observacao);
+      if (ok) { setOutroAberto(false); setTexto(""); }
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  if (item.conferido) {
+    const recontar = item.conferido.motivo === "RECONTAR";
+    return (
+      <div className={`conf-marcado${recontar ? " conf-marcado--recontar" : ""}`}>
+        {recontar ? <ClipboardList size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
+        <span>
+          <strong>{recontar ? (item.recontagemId ? "Em recontagem" : "Marcado para recontar") : ROTULO_DO_MOTIVO[item.conferido.motivo]}</strong>
+          {item.conferido.observacao && <> — {item.conferido.observacao}</>}
+          {item.conferido.por && <small> · {item.conferido.por}{item.conferido.em ? `, ${formatoDataHora.format(new Date(item.conferido.em))}` : ""}</small>}
+        </span>
+        {podeMarcar && (
+          <button type="button" className="conf-marcado__desfazer" disabled={enviando} onClick={() => void enviar(null)}>
+            <Undo2 size={13} aria-hidden="true" /> Desfazer
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (!podeMarcar) return null;
+
+  return (
+    <div className="conf-marcar" role="group" aria-label={`Conferir ${item.productName}`}>
+      <span className="conf-marcar__rotulo">Conferido:</span>
+      {MOTIVOS_DO_CARTAO.map((motivo) => (
+        <button key={motivo} type="button" className={`conf-marcar__opcao conf-marcar__opcao--${motivo.toLowerCase()}`} disabled={enviando} onClick={() => void enviar(motivo)}>
+          {ROTULO_DO_MOTIVO[motivo]}
+        </button>
+      ))}
+      {outroAberto ? (
+        <form className="conf-marcar__outro" onSubmit={(e) => { e.preventDefault(); if (texto.trim()) void enviar("OUTRO", texto); }}>
+          <input autoFocus value={texto} maxLength={500} placeholder="Qual o motivo?" aria-label={`Motivo da conferência de ${item.productName}`} onChange={(e) => setTexto(e.target.value)} />
+          <button type="submit" className="secondary-button" disabled={!texto.trim() || enviando}>Ok</button>
+        </form>
+      ) : (
+        <button type="button" className="conf-marcar__opcao" disabled={enviando} onClick={() => setOutroAberto(true)}>Outro…</button>
+      )}
+    </div>
+  );
+}
+
+type PainelDeRecontagemProps = {
+  paraRecontar: number;
+  recontagens: RecontagemDaConferencia[];
+  podeAgir: boolean;
+  ocupado: boolean;
+  onPedir: () => void;
+  onAplicar: (recontagem: RecontagemDaConferencia) => void;
+};
+
+// Os itens marcados "recontar" viram uma contagem para o estoquista; quando
+// ela e concluida, "Aplicar" traz as quantidades de volta para o inventario.
+function PainelDeRecontagem({ paraRecontar, recontagens, podeAgir, ocupado, onPedir, onAplicar }: PainelDeRecontagemProps) {
+  const pendentes = recontagens.filter((r) => !r.aplicada);
+  if (paraRecontar === 0 && pendentes.length === 0) return null;
+  return (
+    <div className="conf-recontagem">
+      {paraRecontar > 0 && (
+        <div className="conf-recontagem__linha">
+          <span>
+            <strong>{paraRecontar} {paraRecontar === 1 ? "item marcado" : "itens marcados"} para recontar.</strong>{" "}
+            A recontagem mede o estoque de hoje, não o do dia da contagem: use para item de pouco giro.
+          </span>
+          {podeAgir && (
+            <button type="button" className="primary-button" disabled={ocupado} onClick={onPedir}>
+              {ocupado ? <Loader2 size={14} className="spin" aria-hidden="true" /> : <ClipboardList size={14} aria-hidden="true" />}
+              Pedir recontagem
+            </button>
+          )}
+        </div>
+      )}
+      {pendentes.map((r) => (
+        <div key={r.id} className="conf-recontagem__linha">
+          {r.status === "CONCLUIDA" ? (
+            <>
+              <span><strong>Recontagem {r.code} concluída</strong> — {r.itens} {r.itens === 1 ? "item" : "itens"}. Aplique para trazer as quantidades para este inventário.</span>
+              {podeAgir && (
+                <button type="button" className="primary-button" disabled={ocupado} onClick={() => onAplicar(r)}>
+                  {ocupado && <Loader2 size={14} className="spin" aria-hidden="true" />}
+                  Aplicar recontagem
+                </button>
+              )}
+            </>
+          ) : (
+            <span>
+              <strong>Recontagem {r.code}</strong> aguardando o estoquista em Contagem de Estoque — {r.contados} de {r.itens} contados.
+            </span>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

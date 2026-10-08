@@ -69,7 +69,8 @@ export const countSessionTypeLabels: Record<string, string> = {
   ALEATORIA: "Aleatoria",
   TAREFA: "Tarefa",
   IMPORTACAO_PLANILHA: "Importacao",
-  COMPLEMENTAR_CMV: "Complementar CMV"
+  COMPLEMENTAR_CMV: "Complementar CMV",
+  RECONTAGEM: "Recontagem"
 };
 
 export const editableCountSessionStatuses = new Set(["ABERTA", "EM_ANDAMENTO"]);
