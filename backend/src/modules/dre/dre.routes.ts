@@ -205,11 +205,20 @@ function expensePredicateByMode(mode: CmvVisionKey) {
     : Prisma.sql`COALESCE(dc."dreGroup", '') <> 'CMV_COMPRAS'`;
 }
 
+// O titulo do reembolso a funcionario e so o veiculo de pagamento: a despesa ja
+// esta nas compras da pessoa, cada uma na data e na categoria dela. Entrar aqui
+// (nota sem itens) contaria o mesmo gasto duas vezes, como "Nao categorizadas".
+const semTituloDeReembolso = Prisma.sql`COALESCE(p."workflowStatus", '') <> 'REIMBURSEMENT'`;
+
 // Parte A da despesa = nota SEM itens (servico, despesa fixa, agregador de
 // ciclo). Era reconhecida por pagamento, com fallback no vencimento: regime de
 // caixa dentro de um relatorio de competencia. Em 06/2026 isso mostrava R$ 0,00
 // no DRE contra R$ 19.072,70 por competencia.
 function filtroDespesaSemItens(competencia: Competencia | null, from: Date, to: Date) {
+  return Prisma.sql`${semTituloDeReembolso} AND ${filtroDePeriodoSemItens(competencia, from, to)}`;
+}
+
+function filtroDePeriodoSemItens(competencia: Competencia | null, from: Date, to: Date) {
   return competencia
     ? Prisma.sql`p."competenceYear" = ${competencia.year} AND p."competenceMonth" = ${competencia.month}`
     : Prisma.sql`(
@@ -709,6 +718,7 @@ dreRouter.get("/expense-drill", async (request, response) => {
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
         AND pi."dreCategory" = ${dreCategoryId}
+        AND ${semTituloDeReembolso}
         AND (
           (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${range.from} AND pi."paidDate" <= ${range.to})
           OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${range.from} AND pi."dueDate" <= ${range.to})
@@ -740,6 +750,7 @@ dreRouter.get("/expense-drill", async (request, response) => {
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
         AND pi."dreCategory" IS NULL
+        AND ${semTituloDeReembolso}
         AND (
           (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${range.from} AND pi."paidDate" <= ${range.to})
           OR (pi."paidDate" IS NULL AND pi."dueDate" IS NOT NULL AND pi."dueDate" >= ${range.from} AND pi."dueDate" <= ${range.to})
@@ -986,6 +997,7 @@ dreRouter.get("/pending", async (request, response) => {
         )
         AND (${search} = '' OR s.name ILIKE ${searchPattern})
         ${cmvFilter}
+        AND ${semTituloDeReembolso}
       ORDER BY
         CASE WHEN ${sort} = 'amount_desc' THEN COALESCE(pi."paidAmount", pi.amount, 0) END DESC,
         CASE WHEN ${sort} = 'amount_asc'  THEN COALESCE(pi."paidAmount", pi.amount, 0) END ASC,
@@ -1010,6 +1022,7 @@ dreRouter.get("/pending", async (request, response) => {
         )
         AND (${search} = '' OR s.name ILIKE ${searchPattern})
         ${cmvFilter}
+        AND ${semTituloDeReembolso}
     `,
   ]);
 

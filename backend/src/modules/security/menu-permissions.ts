@@ -58,6 +58,8 @@ export const menuCatalog = [
   { id: "audit", label: "Auditoria", group: "Configuracoes" },
   { id: "tax-payments", label: "Impostos e Guias", group: "Financeiro" },
   { id: "supplier-cycles", label: "Ciclos de fornecedor", group: "Financeiro" },
+  // Compras pagas do bolso de um funcionario: conferir os comprovantes e fechar o titulo da pessoa.
+  { id: "reimbursements", label: "Reembolsos a funcionário", group: "Financeiro" },
   { id: "dre", label: "DRE Gerencial", group: "Financeiro" },
   { id: "dishes", label: "Fichas Técnicas", group: "Cardápio" },
   { id: "buffet-plates", label: "Plaquinhas do buffet", group: "Cardápio" },
@@ -400,6 +402,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/audit")) return "audit";
   if (path.startsWith("/dashboard")) return "dashboard";
   if (path.startsWith("/supplier-cycles")) return "supplier-cycles";
+  if (path.startsWith("/reimbursements")) return "reimbursements";
   if (path.startsWith("/suppliers")) return "suppliers";
   if (path.startsWith("/companies")) return "companies";
   if (path.startsWith("/employees")) return "employees";
@@ -504,6 +507,9 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
 
   // Gerar pagamento é aprovar as diárias: quem lança não é, necessariamente, quem aprova.
   if (menuId === "extras" && path === "/extras/payments" && method === "POST") return "approve";
+
+  // Conferir comprovante e editar, nao criar. Fechar/reabrir caem na regra geral de "approve" abaixo.
+  if (menuId === "reimbursements" && path.endsWith("/check-all")) return "edit";
 
   // Concluir a ficha grava no cadastro de funcionários: é aprovar, não "criar um registro".
   if (menuId === "employee-forms" && path.endsWith("/concluir")) return "approve";
